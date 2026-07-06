@@ -69,6 +69,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
       borderDownColor: colors.down,
       wickUpColor: colors.up,
       wickDownColor: colors.down,
+      priceFormat: { type: "price", precision: 0, minMove: 1 },
     });
 
     const volumeSeries = chart.addHistogramSeries({
@@ -210,7 +211,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
           볼린저밴드(20,2)
         </span>
       </div>
-      <div ref={containerRef} style={{ width: "100%", height: 380 }} />
+      <div ref={containerRef} className="chart-main" />
     </div>
   );
 });

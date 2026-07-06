@@ -147,12 +147,6 @@ body {
   align-items: start;
 }
 
-@media (max-width: 920px) {
-  .layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .main-col {
   display: flex;
   flex-direction: column;
@@ -314,11 +308,22 @@ body {
 .range-toggle button {
   font-size: 12px;
   padding: 5px 10px;
+  min-height: 30px;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
+}
+
+.chart-main {
+  width: 100%;
+  height: 380px;
+}
+
+.chart-sub {
+  width: 100%;
+  height: 130px;
 }
 
 .range-toggle button.active {
@@ -434,4 +439,54 @@ body {
 .loading-state {
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* Responsive overrides live last so they win over the base rules above
+   regardless of selector order (equal specificity => source order decides). */
+@media (max-width: 920px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* A second nested scrollbar inside the news panel is awkward once it sits
+     below the main column instead of beside it — let it flow with the page. */
+  .news-list {
+    max-height: none;
+    overflow-y: visible;
+  }
+}
+
+@media (max-width: 640px) {
+  .app {
+    padding: 16px 14px 48px;
+  }
+
+  .app-title {
+    font-size: 18px;
+  }
+
+  .card {
+    padding: 14px 16px;
+  }
+
+  .stock-header .name,
+  .stock-header .price {
+    font-size: 19px;
+  }
+
+  .chart-main {
+    height: 280px;
+  }
+
+  .chart-sub {
+    height: 110px;
+  }
+
+  .range-toggle button {
+    padding: 6px 9px;
+  }
+
+  .search-option {
+    padding: 12px 14px;
+  }
 }

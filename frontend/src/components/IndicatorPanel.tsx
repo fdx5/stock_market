@@ -149,7 +149,7 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
       <div className="chart-legend">
         <span className="item">RSI(14) · 점선 30/70</span>
       </div>
-      <div ref={rsiContainerRef} style={{ width: "100%", height: 130 }} />
+      <div ref={rsiContainerRef} className="chart-sub" />
       <div className="chart-legend" style={{ marginTop: 14 }}>
         <span className="item">
           <span className="swatch" style={{ background: "var(--series-blue)" }} />
@@ -161,7 +161,7 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
         </span>
         <span className="item">히스토그램(녹/적)</span>
       </div>
-      <div ref={macdContainerRef} style={{ width: "100%", height: 130 }} />
+      <div ref={macdContainerRef} className="chart-sub" />
 
       {latest && (
         <div className="indicator-stats">
