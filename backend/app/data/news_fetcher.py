@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlparse
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -14,6 +16,21 @@ HEADERS = {
 }
 
 
+def _resolve_article_link(href: str) -> str:
+    """news_read.naver is just a client-side redirect stub (`top.location.href = ...`)
+    that only works when the browser sends a finance.naver.com Referer — it breaks
+    (blank/broken page) for rel="noreferrer" links or in-app browsers. Link straight
+    to the stable n.news.naver.com article URL instead, using the office/article id
+    from the query string.
+    """
+    query = parse_qs(urlparse(href).query)
+    office_id = query.get("office_id", [None])[0]
+    article_id = query.get("article_id", [None])[0]
+    if office_id and article_id:
+        return f"https://n.news.naver.com/mnews/article/{office_id}/{article_id}"
+    return f"https://finance.naver.com{href}" if href.startswith("/") else href
+
+
 def _fetch_news(code: str, limit: int) -> list[dict]:
     url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
     resp = requests.get(url, headers=HEADERS, timeout=5)
@@ -28,7 +45,7 @@ def _fetch_news(code: str, limit: int) -> list[dict]:
             continue
 
         href = title_tag.get("href", "")
-        link = f"https://finance.naver.com{href}" if href.startswith("/") else href
+        link = _resolve_article_link(href)
         if link in seen_links:
             continue
         seen_links.add(link)

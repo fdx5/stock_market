@@ -95,7 +95,9 @@ body {
 .search-input {
   width: 100%;
   padding: 10px 14px;
-  font-size: 14px;
+  /* iOS Safari auto-zooms the page on focus for inputs under 16px — keep this
+     at 16px (not just in the mobile media query) so it can't regress. */
+  font-size: 16px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--surface-1);
