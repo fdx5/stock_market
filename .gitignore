@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.cache/
+
+# Node / frontend
+node_modules/
+frontend/dist/
+npm-debug.log*
+
+# Local dev logs
+*.log
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
