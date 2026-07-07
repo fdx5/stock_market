@@ -13,21 +13,6 @@ export interface ThemeColors {
   violet: string;
 }
 
-const LIGHT: ThemeColors = {
-  surface: "#fcfcfb",
-  textPrimary: "#0b0b0b",
-  textSecondary: "#52514e",
-  textMuted: "#898781",
-  gridline: "#e1e0d9",
-  baseline: "#c3c2b7",
-  up: "#e34948",
-  down: "#2a78d6",
-  blue: "#2a78d6",
-  aqua: "#1baf7a",
-  yellow: "#eda100",
-  violet: "#4a3aa7",
-};
-
 const DARK: ThemeColors = {
   surface: "#1a1a19",
   textPrimary: "#ffffff",
@@ -47,14 +32,11 @@ const DARK: ThemeColors = {
 export const STATUS_GOOD = "#0ca30c";
 export const STATUS_CRITICAL = "#d03b3b";
 
+// Black theme is applied unconditionally (see styles.css), so chart colors are fixed too.
 export function getThemeColors(): ThemeColors {
-  const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  return isDark ? DARK : LIGHT;
+  return DARK;
 }
 
-export function watchTheme(callback: (colors: ThemeColors) => void): () => void {
-  const mq = window.matchMedia("(prefers-color-scheme: dark)");
-  const handler = () => callback(getThemeColors());
-  mq.addEventListener("change", handler);
-  return () => mq.removeEventListener("change", handler);
+export function watchTheme(_callback: (colors: ThemeColors) => void): () => void {
+  return () => {};
 }

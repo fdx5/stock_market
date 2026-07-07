@@ -1,18 +1,19 @@
 :root {
-  --surface-1: #fcfcfb;
-  --page-plane: #f9f9f7;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
+  /* Black theme, applied unconditionally regardless of OS color-scheme preference. */
+  --surface-1: #1a1a19;
+  --page-plane: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
   --text-muted: #898781;
-  --gridline: #e1e0d9;
-  --baseline: #c3c2b7;
-  --border: rgba(11, 11, 11, 0.1);
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --border: rgba(255, 255, 255, 0.1);
 
-  --series-blue: #2a78d6;
-  --series-aqua: #1baf7a;
-  --series-yellow: #eda100;
-  --series-violet: #4a3aa7;
-  --series-red: #e34948;
+  --series-blue: #3987e5;
+  --series-aqua: #199e70;
+  --series-yellow: #c98500;
+  --series-violet: #9085e9;
+  --series-red: #e66767;
 
   --status-good: #0ca30c;
   --status-warning: #fab219;
@@ -22,33 +23,7 @@
   --up-color: var(--series-red);
   --down-color: var(--series-blue);
 
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface-1: #1a1a19;
-    --page-plane: #0d0d0d;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --text-muted: #898781;
-    --gridline: #2c2c2a;
-    --baseline: #383835;
-    --border: rgba(255, 255, 255, 0.1);
-
-    --series-blue: #3987e5;
-    --series-aqua: #199e70;
-    --series-yellow: #c98500;
-    --series-violet: #9085e9;
-    --series-red: #e66767;
-
-    --status-good: #0ca30c;
-    --status-warning: #fab219;
-    --status-critical: #d03b3b;
-
-    --up-color: var(--series-red);
-    --down-color: var(--series-blue);
-  }
+  color-scheme: dark;
 }
 
 * {

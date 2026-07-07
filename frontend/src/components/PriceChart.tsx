@@ -38,7 +38,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
   const smaSeriesRef = useRef<Partial<Record<(typeof MA_KEYS)[number], ISeriesApi<"Line">>>>({});
   const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
-  const [range, setRange] = useState<string>("1Y");
+  const [range, setRange] = useState<string>("3M");
 
   useImperativeHandle(ref, () => ({ getChart: () => chartRef.current }));
 
@@ -179,7 +179,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
   return (
     <div className="card">
       <div className="chart-toolbar">
-        <span className="chart-title">3년 일봉 차트</span>
+        <span className="chart-title">일봉 차트</span>
         <div className="range-toggle">
           {RANGE_OPTIONS.map((opt) => (
             <button

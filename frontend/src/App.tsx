@@ -94,7 +94,7 @@ function Dashboard() {
         <div>
           <h1 className="app-title">코스피 종목 예측</h1>
           <p className="app-subtitle">
-            종목을 검색하면 다음날 예상 주가와 근거, 3년 일봉 차트, 관련 뉴스를 한눈에 확인할 수 있습니다.
+            종목을 검색하면 다음날 예상 주가와 근거, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 관련 뉴스를 한눈에 확인할 수 있습니다.
           </p>
         </div>
         <SearchBar onSelect={setSelected} />
