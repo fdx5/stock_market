@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -5,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import search, stock
+from app.routers import predictions, search, stock
+from app.services.market_predictions import get_today_top100_predictions
 
 app = FastAPI(title="KOSPI 종목 예측")
 
@@ -18,6 +20,14 @@ app.add_middleware(
 
 app.include_router(search.router, prefix="/api")
 app.include_router(stock.router, prefix="/api/stock")
+app.include_router(predictions.router, prefix="/api/predictions")
+
+
+@app.on_event("startup")
+def _warm_top100_predictions() -> None:
+    # Pre-computes the top-100 direction calls in the background on boot so the first
+    # visitor of the day isn't stuck waiting on ~100 sequential price-history fetches.
+    threading.Thread(target=get_today_top100_predictions, daemon=True).start()
 
 
 @app.get("/api/health")

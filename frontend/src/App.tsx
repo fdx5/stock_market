@@ -11,10 +11,22 @@ import { syncTimeScales } from "./chartSync";
 import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPanel";
 import NewsPanel from "./components/NewsPanel";
 import PredictionCard from "./components/PredictionCard";
+import PredictionHistoryPage from "./components/PredictionHistoryPage";
 import PriceChart, { PriceChartHandle } from "./components/PriceChart";
 import SearchBar from "./components/SearchBar";
+import Top100PredictionPanel from "./components/Top100PredictionPanel";
+import { useRoute } from "./router";
 
 export default function App() {
+  const path = useRoute();
+  const historyMatch = path.match(/^\/predictions\/([^/]+)\/?$/);
+  if (historyMatch) {
+    return <PredictionHistoryPage code={historyMatch[1]} />;
+  }
+  return <Dashboard />;
+}
+
+function Dashboard() {
   const [selected, setSelected] = useState<StockSearchResult | null>(null);
   const [summary, setSummary] = useState<StockSummary | null>(null);
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
@@ -87,6 +99,8 @@ export default function App() {
         </div>
         <SearchBar onSelect={setSelected} />
       </header>
+
+      <Top100PredictionPanel />
 
       {!selected && <div className="empty-state">종목을 검색해 주세요. (예: 삼성전자, 005930)</div>}
       {loading && <div className="loading-state">데이터를 불러오는 중...</div>}

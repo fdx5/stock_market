@@ -6,6 +6,9 @@ venv/
 *.egg-info/
 .cache/
 
+# Prediction history data (runtime-generated, per-deployment)
+backend/app/data/store/
+
 # Node / frontend
 node_modules/
 frontend/dist/

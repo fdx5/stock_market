@@ -10,11 +10,20 @@ def _load_universe() -> pd.DataFrame:
     df = fdr.StockListing("KOSPI")
     code_col = "Code" if "Code" in df.columns else "Symbol"
     df = df.rename(columns={code_col: "Code"})
-    return df[["Code", "Name"]].dropna()
+    return df[["Code", "Name", "Marcap"]].dropna()
+
+
+def _get_full_universe() -> pd.DataFrame:
+    return cache.get_or_set("kospi_universe", TTL_UNIVERSE_SECONDS, _load_universe)
 
 
 def get_universe() -> pd.DataFrame:
-    return cache.get_or_set("kospi_universe", TTL_UNIVERSE_SECONDS, _load_universe)
+    return _get_full_universe()[["Code", "Name"]]
+
+
+def get_top_market_cap(limit: int = 100) -> list[dict]:
+    df = _get_full_universe().sort_values("Marcap", ascending=False).head(limit)
+    return [{"code": str(row["Code"]), "name": str(row["Name"])} for _, row in df.iterrows()]
 
 
 def search_stocks(query: str, limit: int = 10) -> list[dict]:

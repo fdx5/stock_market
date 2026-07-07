@@ -66,6 +66,26 @@ export interface StockSummary {
   volume: number;
 }
 
+export interface Top100PredictionItem {
+  rank: number;
+  code: string;
+  name: string;
+  direction: "상승" | "하락" | "보합";
+  confidence: "강" | "중" | "약";
+  score: number;
+  last_close: number;
+  date: string;
+}
+
+export interface PredictionHistoryRecord {
+  date: string;
+  predicted_direction: "상승" | "하락" | "보합";
+  confidence: "강" | "중" | "약" | null;
+  actual_direction: "상승" | "하락" | "보합" | null;
+  actual_change_pct: number | null;
+  correct: boolean | null;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -89,4 +109,10 @@ export const api = {
   predict: (code: string) => getJSON<PredictionResult>(`${BASE}/stock/${code}/predict`),
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
+  top100Predictions: () =>
+    getJSON<{ date: string; items: Top100PredictionItem[] }>(`${BASE}/predictions/top100`),
+  predictionHistory: (code: string) =>
+    getJSON<{ code: string; name: string; records: PredictionHistoryRecord[] }>(
+      `${BASE}/predictions/history/${code}`
+    ),
 };
