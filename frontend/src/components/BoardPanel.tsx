@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
-import { BoardPost, api } from "../api/client";
+import { BoardDetail, BoardPost, api } from "../api/client";
 
 const PAGE_SIZE = 10;
+
+type DetailState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; detail: BoardDetail };
 
 export default function BoardPanel({ code, name }: { code: string; name: string }) {
   const [posts, setPosts] = useState<BoardPost[]>([]);
@@ -12,6 +14,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   const [error, setError] = useState<string | null>(null);
   const [expandedNid, setExpandedNid] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
+  const [details, setDetails] = useState<Record<string, DetailState>>({});
 
   useEffect(() => {
     let cancelled = false;
@@ -22,6 +25,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     setVisibleCount(PAGE_SIZE);
     setExpandedNid(null);
     setExhausted(false);
+    setDetails({});
 
     api
       .board(code, 1)
@@ -72,6 +76,28 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   const visiblePosts = posts.slice(0, visibleCount);
   const hasMore = visibleCount < posts.length || (!exhausted && naverPage < 20);
 
+  const toggleExpand = (nid: string) => {
+    if (expandedNid === nid) {
+      setExpandedNid(null);
+      return;
+    }
+    setExpandedNid(nid);
+    if (details[nid]) return; // already fetched (or in flight) — reuse it
+
+    setDetails((prev) => ({ ...prev, [nid]: { status: "loading" } }));
+    api
+      .boardDetail(code, nid)
+      .then((detail) => {
+        setDetails((prev) => ({ ...prev, [nid]: { status: "ready", detail } }));
+      })
+      .catch((err: Error) => {
+        setDetails((prev) => ({
+          ...prev,
+          [nid]: { status: "error", message: err.message || "게시글을 불러오지 못했습니다." },
+        }));
+      });
+  };
+
   return (
     <div className="card board-panel">
       <h2>{name} 종목토론방</h2>
@@ -87,12 +113,13 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
             <div className="board-list">
               {visiblePosts.map((post) => {
                 const isExpanded = expandedNid === post.nid;
+                const detailState = details[post.nid];
                 return (
                   <div key={post.nid} className="board-row-wrap">
                     <button
                       type="button"
                       className={`board-row ${isExpanded ? "expanded" : ""}`}
-                      onClick={() => setExpandedNid(isExpanded ? null : post.nid)}
+                      onClick={() => toggleExpand(post.nid)}
                     >
                       <span className="board-row-title">{post.title}</span>
                       <span className="board-row-meta">
@@ -108,11 +135,29 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
                     </button>
                     {isExpanded && (
                       <div className="board-detail">
-                        <iframe
-                          className="board-detail-iframe"
-                          src={`https://m.stock.naver.com/pc/domestic/stock/${code}/discussion/${post.nid}`}
-                          title={post.title}
-                        />
+                        {(!detailState || detailState.status === "loading") && (
+                          <div className="loading-state">불러오는 중...</div>
+                        )}
+                        {detailState?.status === "error" && (
+                          <div className="error-state">{detailState.message}</div>
+                        )}
+                        {detailState?.status === "ready" && (
+                          <div className="board-detail-body">
+                            {detailState.detail.blocks.length === 0 ? (
+                              <p className="board-detail-text">(본문 없음)</p>
+                            ) : (
+                              detailState.detail.blocks.map((block, idx) =>
+                                block.type === "image" ? (
+                                  <img key={idx} className="board-detail-image" src={block.src} alt="" />
+                                ) : (
+                                  <p key={idx} className="board-detail-text">
+                                    {block.text}
+                                  </p>
+                                )
+                              )
+                            )}
+                          </div>
+                        )}
                         <a
                           className="board-detail-link"
                           href={`https://finance.naver.com/item/board_read.naver?code=${code}&nid=${post.nid}`}

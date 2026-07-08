@@ -63,3 +63,60 @@ def get_board_posts(code: str, page: int = 1) -> list[dict]:
         return cache.get_or_set(key, TTL_BOARD_SECONDS, lambda: _fetch_board_page(code, page))
     except Exception:
         return []
+
+
+def _image_src(img) -> str | None:
+    # Naver's editor lazy-loads images; the real URL sometimes only lives in a
+    # data-* attribute while src holds a blank placeholder.
+    for attr in ("data-lazy-src", "data-src", "src"):
+        value = img.get(attr)
+        if value:
+            return value
+    return None
+
+
+def _fetch_board_detail(nid: str) -> dict | None:
+    # The classic board_read.naver page now just embeds an iframe of Naver's mobile
+    # stock app, which renders this client-side — no server-rendered content to scrape
+    # there. This is the JSON API that page calls internally (found by inspecting its
+    # network traffic, since it isn't documented anywhere).
+    url = f"https://m.stock.naver.com/front-api/discussion/detail?id={nid}"
+    resp = requests.get(url, headers=HEADERS, timeout=8)
+    resp.raise_for_status()
+    payload = resp.json()
+    if not payload.get("isSuccess"):
+        return None
+
+    result = payload.get("result") or {}
+    soup = BeautifulSoup(result.get("contentHtml") or "", "html.parser")
+
+    blocks = []
+    for comp in soup.select(".se-component"):
+        classes = comp.get("class") or []
+        if "se-image" in classes:
+            img = comp.select_one("img")
+            src = _image_src(img) if img else None
+            if src:
+                blocks.append({"type": "image", "src": src})
+            continue
+
+        for para in comp.select(".se-text-paragraph") or [comp]:
+            text = para.get_text("\n", strip=True)
+            if text:
+                blocks.append({"type": "text", "text": text})
+
+    return {
+        "nid": nid,
+        "title": result.get("title", ""),
+        "author": (result.get("writer") or {}).get("nickname", ""),
+        "written_at": result.get("writtenAt", ""),
+        "blocks": blocks,
+    }
+
+
+def get_board_detail(nid: str) -> dict | None:
+    key = f"board_detail:{nid}"
+    try:
+        return cache.get_or_set(key, TTL_BOARD_SECONDS, lambda: _fetch_board_detail(nid))
+    except Exception:
+        return None

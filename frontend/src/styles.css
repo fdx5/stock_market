@@ -472,12 +472,28 @@ body {
   border-bottom: 1px solid var(--gridline);
 }
 
-.board-detail-iframe {
-  width: 100%;
-  height: 520px;
-  border: 1px solid var(--border);
+.board-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
   border-radius: 8px;
-  background: white;
+  background: var(--page-plane);
+  border: 1px solid var(--border);
+}
+
+.board-detail-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-line;
+}
+
+.board-detail-image {
+  max-width: 100%;
+  border-radius: 6px;
+  display: block;
 }
 
 .board-detail-link {
@@ -804,6 +820,26 @@ body {
   }
 }
 
+.visitor-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--series-blue);
+  border: 1px solid color-mix(in srgb, var(--series-blue) 45%, transparent);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.visitor-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--series-blue);
+}
+
 .kospi-map-view-toggle {
   display: flex;
   gap: 4px;
@@ -1103,9 +1139,5 @@ body {
 
   .kospi-map-tooltip {
     max-width: calc(100vw - 32px);
-  }
-
-  .board-detail-iframe {
-    height: 420px;
   }
 }

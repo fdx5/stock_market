@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MarketMapItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
+import VisitorBadge from "./VisitorBadge";
 
 interface SectorZone {
   sector: string;
@@ -196,6 +197,7 @@ export default function KospiMapPage() {
                 <span className="kospi-map-live-dot" />
                 실시간 (1~20위 30초 · 21~100위 5분 · 나머지 10분 갱신)
               </span>
+              <VisitorBadge />
             </div>
             <p className="app-subtitle">
               코스피 시가총액 상위 500개 종목을 업종별로 묶어 시가총액 크기, 등락률을 한눈에 보여줍니다. 타일을

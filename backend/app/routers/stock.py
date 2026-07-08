@@ -89,3 +89,12 @@ def board(code: str, page: int = 1):
     name = _resolve_name(code)
     posts = board_fetcher.get_board_posts(code, page)
     return {"code": code, "name": name, "page": page, "items": posts}
+
+
+@router.get("/{code}/board/{nid}")
+def board_detail(code: str, nid: str):
+    _resolve_name(code)
+    detail = board_fetcher.get_board_detail(nid)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
+    return detail

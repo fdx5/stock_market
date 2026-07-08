@@ -17,6 +17,7 @@ import PredictionHistoryPage from "./components/PredictionHistoryPage";
 import PriceChart, { PriceChartHandle } from "./components/PriceChart";
 import SearchBar from "./components/SearchBar";
 import Top100PredictionPanel from "./components/Top100PredictionPanel";
+import VisitorBadge from "./components/VisitorBadge";
 import { Link, useRoute } from "./router";
 
 export default function App() {
@@ -109,6 +110,7 @@ function Dashboard() {
             <Link to="/map" className="kospi-map-nav-link">
               🗺 KOSPI MAP
             </Link>
+            <VisitorBadge />
           </div>
           <p className="app-subtitle">
             종목을 검색하면 다음날 예상 주가와 근거, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 관련 뉴스를 한눈에 확인할 수 있습니다.

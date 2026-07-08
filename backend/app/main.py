@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import market_map, predictions, search, stock
+from app.routers import market_map, predictions, search, stock, visitors
 from app.services.market_map import get_kospi_map
 from app.services.market_predictions import get_today_top100_predictions
 
@@ -23,6 +23,7 @@ app.include_router(search.router, prefix="/api")
 app.include_router(stock.router, prefix="/api/stock")
 app.include_router(predictions.router, prefix="/api/predictions")
 app.include_router(market_map.router, prefix="/api/market")
+app.include_router(visitors.router, prefix="/api/visitors")
 
 
 @app.on_event("startup")

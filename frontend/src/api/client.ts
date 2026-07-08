@@ -106,6 +106,20 @@ export interface BoardPost {
   dislikes: number;
 }
 
+export interface BoardBlock {
+  type: "text" | "image";
+  text?: string;
+  src?: string;
+}
+
+export interface BoardDetail {
+  nid: string;
+  title: string;
+  author: string;
+  written_at: string;
+  blocks: BoardBlock[];
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -143,4 +157,5 @@ export const api = {
     getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
       `${BASE}/stock/${code}/board?page=${page}`
     ),
+  boardDetail: (code: string, nid: string) => getJSON<BoardDetail>(`${BASE}/stock/${code}/board/${nid}`),
 };
