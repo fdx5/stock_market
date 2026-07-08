@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { CheerComment, CheerSide, api } from "../api/client";
-import { getOrCreateNickname } from "../data/cheerNames";
+import { generateNickname } from "../data/cheerNames";
 
 export default function CheerSection() {
   const [comments, setComments] = useState<CheerComment[]>([]);
@@ -8,7 +8,6 @@ export default function CheerSection() {
   const [text, setText] = useState("");
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const nicknameRef = useRef<string>(getOrCreateNickname());
 
   useEffect(() => {
     api
@@ -32,7 +31,7 @@ export default function CheerSection() {
     setPosting(true);
     setError(null);
     api
-      .postCheerComment(side, nicknameRef.current, trimmed)
+      .postCheerComment(side, generateNickname(), trimmed)
       .then((comment) => {
         setComments((prev) => [comment, ...prev]);
         setCounts((prev) => ({ ...prev, [side]: prev[side] + 1 }));

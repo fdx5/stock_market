@@ -19,6 +19,7 @@ import SidePanel from "./components/SidePanel";
 import TugOfWarPage from "./components/TugOfWarPage";
 import VisitorBadge from "./components/VisitorBadge";
 import { Link, useRoute } from "./router";
+import { useDocumentTitle } from "./useDocumentTitle";
 
 export default function App() {
   const path = useRoute();
@@ -36,6 +37,8 @@ export default function App() {
 }
 
 function Dashboard() {
+  useDocumentTitle("코스피 종목정보");
+
   const [selected, setSelected] = useState<StockSearchResult | null>(() => {
     const code = new URLSearchParams(window.location.search).get("code");
     return code ? { code, name: "", market: "KOSPI" } : null;

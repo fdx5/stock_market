@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BattleSide, ExchangeRate, api } from "../api/client";
 import { Link } from "../router";
+import { useDocumentTitle } from "../useDocumentTitle";
 import CheerSection from "./CheerSection";
 import RollingValue from "./RollingValue";
 import VisitorBadge from "./VisitorBadge";
@@ -8,7 +9,7 @@ import VisitorBadge from "./VisitorBadge";
 const POLL_MS = 3000;
 const REFILL_MS = 9000;
 const FX_POLL_MS = 3000;
-const FX_POP_MS = 2400;
+const FX_POP_MS = 3600;
 
 const ENGLISH_NAME: Record<string, string> = {
   "005930": "SAMSUNG ELECTRONICS",
@@ -30,6 +31,8 @@ function formatChangePct(changePct: number): string {
 }
 
 export default function TugOfWarPage() {
+  useDocumentTitle("시총 줄다리기");
+
   const [samsung, setSamsung] = useState<BattleSide | null>(null);
   const [skhynix, setSkhynix] = useState<BattleSide | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -199,7 +202,14 @@ export default function TugOfWarPage() {
 
             {fx && (
               <>
-                {fxPop && <img key={fxPopNonce} src={`/img/${fxPop}.jpg`} className={`battle-fx-pop ${fxPop}`} alt="" />}
+                {fxPop && (
+                  <>
+                    <div key={`label-${fxPopNonce}`} className={`battle-fx-pop-label ${fxPop}`}>
+                      {fxPop === "up" ? "환율 UP 👍" : "환율 DOWN 👎"}
+                    </div>
+                    <img key={`img-${fxPopNonce}`} src={`/img/${fxPop}.jpg`} className={`battle-fx-pop ${fxPop}`} alt="" />
+                  </>
+                )}
                 <div
                   className={`battle-fx-rate ${
                     fxDirection === "up" ? "change-up" : fxDirection === "down" ? "change-down" : ""

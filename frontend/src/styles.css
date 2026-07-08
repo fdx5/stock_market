@@ -1492,7 +1492,7 @@ body {
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
   pointer-events: none;
-  animation: battle-fx-pop-anim 2.4s ease-out forwards;
+  animation: battle-fx-pop-anim 3.6s ease-out forwards;
 }
 
 @keyframes battle-fx-pop-anim {
@@ -1513,6 +1513,44 @@ body {
     width: 20%;
     opacity: 0;
     transform: translateY(-26px);
+  }
+}
+
+.battle-fx-pop-label {
+  position: absolute;
+  right: 14px;
+  bottom: 175px;
+  font-size: 15px;
+  font-weight: 900;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 4px rgba(0, 0, 0, 0.9);
+  animation: battle-fx-pop-label-anim 3.6s ease-out forwards;
+}
+
+.battle-fx-pop-label.up {
+  color: var(--up-color);
+}
+
+.battle-fx-pop-label.down {
+  color: var(--down-color);
+}
+
+@keyframes battle-fx-pop-label-anim {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.15);
+    opacity: 0;
   }
 }
 
@@ -1763,6 +1801,12 @@ body {
   .battle-fx-pop {
     right: 8px;
     bottom: 22px;
+  }
+
+  .battle-fx-pop-label {
+    right: 8px;
+    bottom: 90px;
+    font-size: 11px;
   }
 
   .cheer-section {

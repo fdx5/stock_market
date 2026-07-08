@@ -84,15 +84,10 @@ export const CHEER_NAMES = [
   "떡잎반 친구3",
 ];
 
-const STORAGE_KEY = "battle_cheer_nickname";
-
-export function getOrCreateNickname(): string {
-  const existing = window.localStorage.getItem(STORAGE_KEY);
-  if (existing) return existing;
-
+// A fresh random nickname every time — not persisted, so each comment from the same
+// browser can show up under a different name.
+export function generateNickname(): string {
   const name = CHEER_NAMES[Math.floor(Math.random() * CHEER_NAMES.length)];
   const seq = Math.floor(1000 + Math.random() * 9000);
-  const nickname = `${name}${seq}`;
-  window.localStorage.setItem(STORAGE_KEY, nickname);
-  return nickname;
+  return `${name}${seq}`;
 }

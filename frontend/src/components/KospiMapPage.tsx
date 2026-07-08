@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { MarketMapItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
+import { useDocumentTitle } from "../useDocumentTitle";
 import VisitorBadge from "./VisitorBadge";
 
 interface SectorZone {
@@ -33,6 +34,8 @@ function tileFontSizes(w: number, h: number): { name: number; pct: number } {
 }
 
 export default function KospiMapPage() {
+  useDocumentTitle("KOSPI MAP");
+
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -197,6 +200,9 @@ export default function KospiMapPage() {
                 <span className="kospi-map-live-dot" />
                 실시간 (1~20위 30초 · 21~100위 5분 · 나머지 10분 갱신)
               </span>
+              <Link to="/battle" className="kospi-map-nav-link">
+                🔥 시총 줄다리기
+              </Link>
               <VisitorBadge />
             </div>
             <p className="app-subtitle">
