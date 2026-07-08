@@ -120,6 +120,34 @@ export interface BoardDetail {
   blocks: BoardBlock[];
 }
 
+export interface IndexQuote {
+  symbol: string;
+  name: string;
+  close: number;
+  change: number;
+  change_pct: number;
+  market_status: string;
+  updated_at: string;
+}
+
+export interface InvestorSummaryItem {
+  code: string;
+  name: string;
+  date: string;
+  individual_amount: number;
+  institution_amount: number;
+  foreign_amount: number;
+}
+
+export interface InvestorTrendRecord {
+  date: string;
+  close: number;
+  change: number;
+  individual_amount: number;
+  institution_amount: number;
+  foreign_amount: number;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -158,4 +186,10 @@ export const api = {
       `${BASE}/stock/${code}/board?page=${page}`
     ),
   boardDetail: (code: string, nid: string) => getJSON<BoardDetail>(`${BASE}/stock/${code}/board/${nid}`),
+  indices: () => getJSON<{ kospi: IndexQuote | null; kosdaq: IndexQuote | null }>(`${BASE}/investor/indices`),
+  investorSummary: () => getJSON<{ items: InvestorSummaryItem[] }>(`${BASE}/investor/summary`),
+  investorTrend: (code: string, days = 20) =>
+    getJSON<{ code: string; name: string; records: InvestorTrendRecord[] }>(
+      `${BASE}/investor/${code}?days=${days}`
+    ),
 };

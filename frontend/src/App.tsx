@@ -10,7 +10,9 @@ import {
 import { syncTimeScales } from "./chartSync";
 import BoardPanel from "./components/BoardPanel";
 import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPanel";
+import InvestorTrendPage from "./components/InvestorTrendPage";
 import KospiMapPage from "./components/KospiMapPage";
+import MarketOverviewPanel from "./components/MarketOverviewPanel";
 import NewsPanel from "./components/NewsPanel";
 import PredictionCard from "./components/PredictionCard";
 import PredictionHistoryPage from "./components/PredictionHistoryPage";
@@ -25,6 +27,10 @@ export default function App() {
   const historyMatch = path.match(/^\/predictions\/([^/]+)\/?$/);
   if (historyMatch) {
     return <PredictionHistoryPage code={historyMatch[1]} />;
+  }
+  const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
+  if (investorMatch) {
+    return <InvestorTrendPage code={investorMatch[1]} />;
   }
   if (path === "/map") {
     return <KospiMapPage />;
@@ -106,7 +112,7 @@ function Dashboard() {
       <header className="app-header">
         <div>
           <div className="app-title-row">
-            <h1 className="app-title">코스피 종목 예측</h1>
+            <h1 className="app-title">코스피 종합 정보</h1>
             <Link to="/map" className="kospi-map-nav-link">
               🗺 KOSPI MAP
             </Link>
@@ -120,6 +126,7 @@ function Dashboard() {
       </header>
 
       <Top100PredictionPanel onSelectStock={setSelected} />
+      <MarketOverviewPanel />
 
       {!selected && <div className="empty-state">종목을 검색해 주세요. (예: 삼성전자, 005930)</div>}
       {loading && <div className="loading-state">데이터를 불러오는 중...</div>}

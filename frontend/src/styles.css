@@ -530,6 +530,153 @@ body {
   cursor: default;
 }
 
+.market-overview-panel {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.market-overview-half {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.market-overview-index {
+  border-right: 1px solid var(--gridline);
+  padding-right: 20px;
+}
+
+.market-overview-half h2 {
+  font-size: 15px;
+  margin: 0;
+}
+
+.market-overview-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.index-tiles {
+  display: flex;
+  gap: 12px;
+}
+
+.index-tile {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.index-tile-name {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.index-tile-value {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.index-tile-change {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.investor-table-wrap {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.investor-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.investor-table th,
+.investor-table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--gridline);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.investor-table th:first-child,
+.investor-table td:first-child {
+  text-align: left;
+}
+
+.investor-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  z-index: 1;
+}
+
+.investor-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.investor-table-name a {
+  color: var(--text-primary);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.investor-table-name a:hover {
+  text-decoration: underline;
+}
+
+.investor-trend-table-wrap {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.investor-trend-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.investor-trend-table th,
+.investor-trend-table td {
+  padding: 9px 14px;
+  text-align: right;
+  border-bottom: 1px solid var(--gridline);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.investor-trend-table th:first-child,
+.investor-trend-table td:first-child {
+  text-align: left;
+}
+
+.investor-trend-table thead th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.investor-trend-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 .top100-panel {
   display: flex;
   flex-direction: column;
@@ -1139,5 +1286,20 @@ body {
 
   .kospi-map-tooltip {
     max-width: calc(100vw - 32px);
+  }
+
+  .market-overview-panel {
+    flex-direction: column;
+  }
+
+  .market-overview-index {
+    border-right: none;
+    border-bottom: 1px solid var(--gridline);
+    padding-right: 0;
+    padding-bottom: 16px;
+  }
+
+  .index-tiles {
+    flex-direction: column;
   }
 }
