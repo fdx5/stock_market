@@ -33,28 +33,41 @@ export default function KospiMapPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
+  const REFRESH_MS = 5000;
+
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
 
-    api
-      .marketMap(500)
-      .then((res) => {
-        if (cancelled) return;
-        setItems(res.items);
-        setGeneratedAt(res.generated_at);
-      })
-      .catch((err: Error) => {
-        if (cancelled) return;
-        setError(err.message || "데이터를 불러오지 못했습니다.");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    // Only the very first load shows the loading state — refreshes swap the data in
+    // place so the map keeps rendering the previous snapshot instead of flashing empty.
+    const load = (isInitial: boolean) => {
+      if (isInitial) setLoading(true);
+
+      api
+        .marketMap(500)
+        .then((res) => {
+          if (cancelled) return;
+          setItems(res.items);
+          setGeneratedAt(res.generated_at);
+          setError(null);
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (isInitial) setError(err.message || "데이터를 불러오지 못했습니다.");
+          // A failed background refresh keeps showing the last good snapshot rather
+          // than replacing a working map with an error screen.
+        })
+        .finally(() => {
+          if (isInitial && !cancelled) setLoading(false);
+        });
+    };
+
+    load(true);
+    const interval = setInterval(() => load(false), REFRESH_MS);
 
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -129,7 +142,13 @@ export default function KospiMapPage() {
         </Link>
         <div className="kospi-map-titlebar">
           <div>
-            <h1 className="app-title">KOSPI MAP</h1>
+            <div className="app-title-row">
+              <h1 className="app-title">KOSPI MAP</h1>
+              <span className="kospi-map-live-badge">
+                <span className="kospi-map-live-dot" />
+                실시간 (5초 갱신)
+              </span>
+            </div>
             <p className="app-subtitle">
               코스피 시가총액 상위 500개 종목을 업종별로 묶어 시가총액 크기, 등락률을 한눈에 보여줍니다. 타일을
               클릭하면 해당 종목 상세로 이동합니다.

@@ -3,7 +3,13 @@ import pandas as pd
 
 from app.services.cache import cache
 
-TTL_MAP_SECONDS = 3600
+# Prices/marcap/change refresh on a short cycle so the map tracks the live session;
+# the industry classification never changes intraday, so it's cached separately and
+# far less often. TTLCache naturally coalesces concurrent pollers within the window
+# into a single upstream KRX fetch, so a 5s TTL doesn't mean 5s of extra KRX load per
+# visitor.
+TTL_PRICE_SECONDS = 5
+TTL_INDUSTRY_SECONDS = 24 * 3600
 
 # KRX-DESC gives a fine-grained KSIC industry string (~100+ distinct values across the
 # top names), too granular for a Finviz-style zoned map. Bucket into broad sectors via
@@ -44,12 +50,28 @@ def _classify_sector(industry) -> str:
     return "기타"
 
 
-def _load_map(limit: int) -> list[dict]:
+def _load_price_snapshot() -> pd.DataFrame:
     kospi = fdr.StockListing("KOSPI")
     code_col = "Code" if "Code" in kospi.columns else "Symbol"
-    kospi = kospi.rename(columns={code_col: "Code"})
+    return kospi.rename(columns={code_col: "Code"})
 
-    desc = fdr.StockListing("KRX-DESC")[["Code", "Industry"]]
+
+def _get_price_snapshot() -> pd.DataFrame:
+    return cache.get_or_set("kospi_price_snapshot", TTL_PRICE_SECONDS, _load_price_snapshot)
+
+
+def _load_industry_map() -> pd.DataFrame:
+    return fdr.StockListing("KRX-DESC")[["Code", "Industry"]]
+
+
+def _get_industry_map() -> pd.DataFrame:
+    return cache.get_or_set("krx_industry_map", TTL_INDUSTRY_SECONDS, _load_industry_map)
+
+
+def get_kospi_map(limit: int = 500) -> list[dict]:
+    kospi = _get_price_snapshot()
+    desc = _get_industry_map()
+
     merged = kospi.merge(desc, on="Code", how="left")
     merged = merged.dropna(subset=["Marcap", "Close"])
     merged = merged[merged["Marcap"] > 0]
@@ -69,8 +91,3 @@ def _load_map(limit: int) -> list[dict]:
             }
         )
     return items
-
-
-def get_kospi_map(limit: int = 500) -> list[dict]:
-    key = f"kospi_map:{limit}"
-    return cache.get_or_set(key, TTL_MAP_SECONDS, lambda: _load_map(limit))

@@ -659,6 +659,38 @@ body {
   color: var(--text-muted);
 }
 
+.kospi-map-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--status-good);
+  border: 1px solid color-mix(in srgb, var(--status-good) 45%, transparent);
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.kospi-map-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-good);
+  animation: kospi-map-live-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes kospi-map-live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.8);
+  }
+}
+
 .kospi-map-view-toggle {
   display: flex;
   gap: 4px;
