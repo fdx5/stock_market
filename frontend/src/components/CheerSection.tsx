@@ -2,12 +2,15 @@ import { useEffect, useState } from "react";
 import { CheerComment, CheerSide, api } from "../api/client";
 import { generateNickname } from "../data/cheerNames";
 
+const PAGE_SIZE = 10;
+
 export default function CheerSection() {
   const [comments, setComments] = useState<CheerComment[]>([]);
   const [counts, setCounts] = useState({ samsung: 0, skhynix: 0 });
   const [text, setText] = useState("");
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   useEffect(() => {
     api
@@ -81,7 +84,7 @@ export default function CheerSection() {
       </div>
 
       <div className="cheer-list">
-        {comments.map((c) => (
+        {comments.slice(0, visibleCount).map((c) => (
           <div key={c.id} className={`cheer-row ${c.side}`}>
             <div className="cheer-bubble-wrap">
               <span className={`cheer-badge ${c.side}`}>{c.side === "samsung" ? "삼성전자" : "SK하이닉스"}</span>
@@ -91,6 +94,12 @@ export default function CheerSection() {
           </div>
         ))}
       </div>
+
+      {visibleCount < comments.length && (
+        <button type="button" className="cheer-more-btn" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
+          더보기
+        </button>
+      )}
     </div>
   );
 }

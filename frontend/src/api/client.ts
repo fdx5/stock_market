@@ -159,6 +159,16 @@ export interface CheerComment {
   created_at: string;
 }
 
+export interface GlobalTop20Item {
+  rank: number;
+  name: string;
+  code: string;
+  logo_url: string | null;
+  marcap_usd: number;
+  flag_url: string | null;
+  country: string;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -222,4 +232,5 @@ export const api = {
     getJSON<{ items: CheerComment[]; counts: { samsung: number; skhynix: number } }>(`${BASE}/battle/comments`),
   postCheerComment: (side: CheerSide, username: string, text: string) =>
     postJSON<CheerComment>(`${BASE}/battle/comments`, { side, username, text }),
+  globalTop20: () => getJSON<{ items: GlobalTop20Item[] }>(`${BASE}/battle/global-top20`),
 };

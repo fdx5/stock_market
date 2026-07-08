@@ -3,6 +3,7 @@ import { BattleSide, ExchangeRate, api } from "../api/client";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import CheerSection from "./CheerSection";
+import GlobalTop20 from "./GlobalTop20";
 import RollingValue from "./RollingValue";
 import VisitorBadge from "./VisitorBadge";
 
@@ -224,6 +225,8 @@ export default function TugOfWarPage() {
           <CheerSection />
         </div>
       )}
+
+      <GlobalTop20 />
     </div>
   );
 }

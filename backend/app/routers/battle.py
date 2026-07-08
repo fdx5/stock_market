@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from app.services.battle import get_battle, get_exchange_rate
+from app.services.battle import get_battle, get_exchange_rate, get_global_top20_cached
 from app.services.comment_store import add_comment, count_by_side, list_comments
 
 router = APIRouter()
@@ -49,3 +49,8 @@ def post_comment(payload: CommentCreate):
 
     created_at = datetime.now(timezone.utc).isoformat()
     return add_comment(payload.side, username, text, created_at)
+
+
+@router.get("/global-top20")
+def global_top20():
+    return {"items": get_global_top20_cached()}

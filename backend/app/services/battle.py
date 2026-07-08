@@ -1,4 +1,5 @@
 from app.data.exchange_fetcher import get_usd_krw
+from app.data.global_marketcap_fetcher import get_global_top20
 from app.data.stock_quote_fetcher import get_stock_quote
 from app.services.cache import cache
 
@@ -7,6 +8,7 @@ SKHYNIX_CODE = "000660"
 
 TTL_BATTLE_SECONDS = 3
 TTL_EXCHANGE_SECONDS = 3
+TTL_GLOBAL_TOP20_SECONDS = 15 * 60
 
 
 def _fetch_battle() -> dict:
@@ -22,3 +24,7 @@ def get_battle() -> dict:
 
 def get_exchange_rate() -> dict | None:
     return cache.get_or_set("battle_usd_krw", TTL_EXCHANGE_SECONDS, get_usd_krw)
+
+
+def get_global_top20_cached() -> list[dict]:
+    return cache.get_or_set("global_top20", TTL_GLOBAL_TOP20_SECONDS, get_global_top20)
