@@ -96,6 +96,16 @@ export interface MarketMapItem {
   change_pct: number;
 }
 
+export interface BoardPost {
+  nid: string;
+  title: string;
+  date: string;
+  author: string;
+  views: number;
+  likes: number;
+  dislikes: number;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -128,5 +138,9 @@ export const api = {
   marketMap: (limit = 500) =>
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/map?limit=${limit}`
+    ),
+  board: (code: string, page = 1) =>
+    getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
+      `${BASE}/stock/${code}/board?page=${page}`
     ),
 };

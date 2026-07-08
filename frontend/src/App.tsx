@@ -8,6 +8,7 @@ import {
   api,
 } from "./api/client";
 import { syncTimeScales } from "./chartSync";
+import BoardPanel from "./components/BoardPanel";
 import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPanel";
 import KospiMapPage from "./components/KospiMapPage";
 import NewsPanel from "./components/NewsPanel";
@@ -148,7 +149,10 @@ function Dashboard() {
             />
           </div>
 
-          <NewsPanel items={news} name={summary.name} />
+          <div className="side-col">
+            <BoardPanel code={summary.code} name={summary.name} />
+            <NewsPanel items={news} name={summary.name} />
+          </div>
         </div>
       )}
     </div>

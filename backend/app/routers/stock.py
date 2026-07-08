@@ -1,7 +1,7 @@
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
-from app.data import news_fetcher, price_fetcher
+from app.data import board_fetcher, news_fetcher, price_fetcher
 from app.data.universe import get_stock_name
 from app.services.indicators import compute_indicators
 from app.services.predictor import predict_next_day
@@ -82,3 +82,10 @@ def news(code: str):
     name = _resolve_name(code)
     items = news_fetcher.get_news(code)
     return {"code": code, "name": name, "items": items}
+
+
+@router.get("/{code}/board")
+def board(code: str, page: int = 1):
+    name = _resolve_name(code)
+    posts = board_fetcher.get_board_posts(code, page)
+    return {"code": code, "name": name, "page": page, "items": posts}
