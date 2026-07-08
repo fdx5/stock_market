@@ -607,6 +607,7 @@ body {
   /* Sized to show ~5 data rows before scrolling (100 stocks total). */
   max-height: 180px;
   overflow-y: auto;
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -635,8 +636,10 @@ body {
 }
 
 .top50-table-wrap {
-  max-height: 420px;
+  /* Sized to show ~5 data rows before scrolling (50 stocks total). */
+  max-height: 180px;
   overflow-y: auto;
+  overflow-x: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -1223,26 +1226,21 @@ body {
     padding: 12px 14px;
   }
 
-  .top100-table th,
-  .top100-table td,
   .history-table th,
   .history-table td {
     padding: 8px 10px;
   }
 
-  .top100-table-wrap {
-    max-height: 210px;
-    overscroll-behavior: contain;
+  .top50-table,
+  .investor-table {
+    font-size: 11px;
   }
 
-  /* Sticky + independent horizontal scroll makes the header visibly detach and
-     lag behind the row cells while swiping sideways on mobile WebKit. */
-  .top100-table thead th {
-    position: static;
-  }
-
-  .accuracy-value {
-    font-size: 22px;
+  .top50-table th,
+  .top50-table td,
+  .investor-table th,
+  .investor-table td {
+    padding: 6px 6px;
   }
 
   .kospi-map-canvas {
@@ -1275,7 +1273,26 @@ body {
     padding-bottom: 16px;
   }
 
+  /* Keep the KOSPI/KOSDAQ tiles side by side even on narrow screens instead of
+     stacking — just tighten the sizing so both fit comfortably. */
   .index-tiles {
-    flex-direction: column;
+    gap: 8px;
+  }
+
+  .index-tile {
+    padding: 10px;
+  }
+
+  .index-tile-value {
+    font-size: 17px;
+  }
+
+  .index-tile-change {
+    font-size: 11px;
+  }
+
+  .index-tile-investor {
+    font-size: 10px;
+    gap: 1px;
   }
 }
