@@ -611,20 +611,31 @@ body {
   border-radius: 8px;
 }
 
-.market-overview-top50 {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--gridline);
+.market-overview-tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
 }
 
-.market-overview-top50 h3 {
+.market-overview-tab {
   font-size: 13px;
-  margin: 0 0 8px;
-  color: var(--text-primary);
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.market-overview-tab.active {
+  background: var(--series-blue);
+  border-color: var(--series-blue);
+  color: white;
 }
 
 .top50-table-wrap {
-  max-height: 320px;
+  max-height: 420px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { IndexQuote, InvestorSummaryItem, MarketInvestorSummary, MarketMapItem, StockSearchResult, api } from "../api/client";
 import { Link } from "../router";
 
+type Tab = "top50" | "investor";
+
 function formatAmount(value: number): string {
   const abs = Math.abs(value);
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
@@ -102,46 +104,40 @@ function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchR
     };
   }, []);
 
+  if (loading) return <div className="loading-state">불러오는 중...</div>;
+  if (error) return <div className="error-state">{error}</div>;
+
   return (
-    <div className="market-overview-top50">
-      <h3>시총 50위 현재가·등락</h3>
-
-      {loading && <div className="loading-state">불러오는 중...</div>}
-      {error && <div className="error-state">{error}</div>}
-
-      {!loading && !error && (
-        <div className="top50-table-wrap">
-          <table className="top50-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>종목명</th>
-                <th>현재가</th>
-                <th>등락</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item, idx) => (
-                <tr key={item.code}>
-                  <td className="top50-table-rank">{idx + 1}</td>
-                  <td className="top50-table-name">
-                    <button
-                      type="button"
-                      onClick={() => onSelectStock({ code: item.code, name: item.name, market: "KOSPI" })}
-                    >
-                      {item.name}
-                    </button>
-                  </td>
-                  <td>{item.close.toLocaleString()}원</td>
-                  <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
-                    {pct(item.change_pct)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+    <div className="top50-table-wrap">
+      <table className="top50-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>종목명</th>
+            <th>현재가</th>
+            <th>등락</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, idx) => (
+            <tr key={item.code}>
+              <td className="top50-table-rank">{idx + 1}</td>
+              <td className="top50-table-name">
+                <button
+                  type="button"
+                  onClick={() => onSelectStock({ code: item.code, name: item.name, market: "KOSPI" })}
+                >
+                  {item.name}
+                </button>
+              </td>
+              <td>{item.close.toLocaleString()}원</td>
+              <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
+                {pct(item.change_pct)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -151,6 +147,7 @@ export default function MarketOverviewPanel({
 }: {
   onSelectStock: (stock: StockSearchResult) => void;
 }) {
+  const [tab, setTab] = useState<Tab>("top50");
   const [kospi, setKospi] = useState<IndexQuote | null>(null);
   const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
   const [kospiInvestor, setKospiInvestor] = useState<MarketInvestorSummary | null>(null);
@@ -227,49 +224,69 @@ export default function MarketOverviewPanel({
       </div>
 
       <div className="market-overview-half market-overview-investor">
-        <h2>종목별 투자자 매매동향 (억원)</h2>
-        <p className="market-overview-subtitle">
-          {latestDate ? `${latestDate} 기준 누적 순매수` : "최근 확정 거래일 기준 누적 순매수"} · 시총 100위까지 ·
-          종목명을 누르면 최근 추이를 볼 수 있습니다.
-        </p>
+        <div className="market-overview-tab-bar">
+          <button
+            type="button"
+            className={`market-overview-tab ${tab === "top50" ? "active" : ""}`}
+            onClick={() => setTab("top50")}
+          >
+            코스피 시총 50위
+          </button>
+          <button
+            type="button"
+            className={`market-overview-tab ${tab === "investor" ? "active" : ""}`}
+            onClick={() => setTab("investor")}
+          >
+            종목별 투자자 매매동향
+          </button>
+        </div>
 
-        {loading && <div className="loading-state">불러오는 중...</div>}
-        {error && <div className="error-state">{error}</div>}
+        {tab === "top50" && <Top50PriceList onSelectStock={onSelectStock} />}
 
-        {!loading && !error && (
-          <div className="investor-table-wrap">
-            <table className="investor-table">
-              <thead>
-                <tr>
-                  <th>종목명</th>
-                  <th>개인</th>
-                  <th>기관</th>
-                  <th>외국인</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => (
-                  <tr key={item.code}>
-                    <td className="investor-table-name">
-                      <Link to={`/investor/${item.code}`}>{item.name}</Link>
-                    </td>
-                    <td style={{ color: amountColor(item.individual_amount) }}>
-                      {formatAmount(item.individual_amount)}
-                    </td>
-                    <td style={{ color: amountColor(item.institution_amount) }}>
-                      {formatAmount(item.institution_amount)}
-                    </td>
-                    <td style={{ color: amountColor(item.foreign_amount) }}>
-                      {formatAmount(item.foreign_amount)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {tab === "investor" && (
+          <>
+            <p className="market-overview-subtitle">
+              {latestDate ? `${latestDate} 기준 누적 순매수(억원)` : "최근 확정 거래일 기준 누적 순매수(억원)"} · 시총
+              100위까지 · 종목명을 누르면 최근 추이를 볼 수 있습니다.
+            </p>
+
+            {loading && <div className="loading-state">불러오는 중...</div>}
+            {error && <div className="error-state">{error}</div>}
+
+            {!loading && !error && (
+              <div className="investor-table-wrap">
+                <table className="investor-table">
+                  <thead>
+                    <tr>
+                      <th>종목명</th>
+                      <th>개인</th>
+                      <th>기관</th>
+                      <th>외국인</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item) => (
+                      <tr key={item.code}>
+                        <td className="investor-table-name">
+                          <Link to={`/investor/${item.code}`}>{item.name}</Link>
+                        </td>
+                        <td style={{ color: amountColor(item.individual_amount) }}>
+                          {formatAmount(item.individual_amount)}
+                        </td>
+                        <td style={{ color: amountColor(item.institution_amount) }}>
+                          {formatAmount(item.institution_amount)}
+                        </td>
+                        <td style={{ color: amountColor(item.foreign_amount) }}>
+                          {formatAmount(item.foreign_amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
-
-        <Top50PriceList onSelectStock={onSelectStock} />
       </div>
     </section>
   );
