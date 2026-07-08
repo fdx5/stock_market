@@ -4,6 +4,7 @@ import FinanceDataReader as fdr
 import pandas as pd
 
 from app.data.naver_price_fetcher import NAVER_PAGE_SIZE, fetch_market_cap_page
+from app.data.stock_quote_fetcher import get_stock_quotes_bulk
 from app.services.cache import cache
 
 # Ranks by market cap refresh on three cadences — the top of the board is what carries
@@ -62,6 +63,18 @@ def _naver_page_ttl(page: int) -> int:
     if page <= FIRST_TIER_PAGES:
         return FIRST_TIER_TTL_SECONDS
     if page <= SECOND_TIER_PAGES:
+        return SECOND_TIER_TTL_SECONDS
+    return LONG_TAIL_TTL_SECONDS
+
+
+# Mirrors the same tiering as the Naver page cache above, but keyed by the requested
+# `limit` instead of page count: rank 1-50 (map's top-20 tier + the dashboard's top-50
+# table) refreshes most often, since that's exactly where an NXT after-hours move is
+# most likely to be noticed.
+def _realtime_quotes_ttl(limit: int) -> int:
+    if limit <= 50:
+        return FIRST_TIER_TTL_SECONDS
+    if limit <= 100:
         return SECOND_TIER_TTL_SECONDS
     return LONG_TAIL_TTL_SECONDS
 
@@ -131,4 +144,25 @@ def get_kospi_map(limit: int = 500) -> list[dict]:
         pages = min(pages + 10, MAX_NAVER_PAGES)
 
     items.sort(key=lambda it: it["marcap"], reverse=True)
-    return items[:limit]
+    items = items[:limit]
+
+    # The Naver page scrape above freezes at the 15:30 regular-session close, so overlay
+    # live (NXT-aware) price/change/marcap on top of it — the same data source the
+    # battle page already uses for Samsung/SK Hynix, just batched across every listed
+    # code here. Cached like the page snapshots above so concurrent requests within the
+    # TTL window share one round-trip instead of each triggering their own.
+    ttl = _realtime_quotes_ttl(limit)
+    quotes = cache.get_or_set(
+        f"realtime_quotes:{limit}",
+        ttl,
+        lambda: get_stock_quotes_bulk([it["code"] for it in items]),
+    )
+    for it in items:
+        quote = quotes.get(it["code"])
+        if quote:
+            it["close"] = quote["close"]
+            it["change"] = quote["change"]
+            it["change_pct"] = quote["change_pct"]
+            it["marcap"] = quote["marcap"]
+
+    return items
