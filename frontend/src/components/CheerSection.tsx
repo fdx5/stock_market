@@ -75,7 +75,9 @@ export default function CheerSection() {
         </div>
       )}
 
-      <div className="cheer-header">🔥 응원 댓글</div>
+      <div className="cheer-header">
+        🔥 응원 댓글 <span className="cheer-header-count">({total})</span>
+      </div>
 
       <div className="cheer-count-row">
         <span className="cheer-count samsung">삼성전자 {counts.samsung}</span>

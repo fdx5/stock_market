@@ -12,9 +12,15 @@ function getSessionId(): string {
   return id;
 }
 
-/** Site-wide count of browsers with an active heartbeat in the last minute. */
-export function useVisitorCount(): number | null {
-  const [count, setCount] = useState<number | null>(null);
+export interface VisitorCounts {
+  /** Browsers with an active heartbeat in the last minute, site-wide. */
+  current: number | null;
+  /** Cumulative count of distinct visitor sessions ever recorded. */
+  total: number | null;
+}
+
+export function useVisitorCount(): VisitorCounts {
+  const [counts, setCounts] = useState<VisitorCounts>({ current: null, total: null });
 
   useEffect(() => {
     let cancelled = false;
@@ -23,11 +29,11 @@ export function useVisitorCount(): number | null {
     const ping = () => {
       fetch(`/api/visitors/count?session_id=${encodeURIComponent(sessionId)}`)
         .then((res) => res.json())
-        .then((data: { count: number }) => {
-          if (!cancelled) setCount(data.count);
+        .then((data: { count: number; total: number }) => {
+          if (!cancelled) setCounts({ current: data.count, total: data.total });
         })
         .catch(() => {
-          // A missed heartbeat isn't worth surfacing as an error — just keep the last count.
+          // A missed heartbeat isn't worth surfacing as an error — just keep the last counts.
         });
     };
 
@@ -40,5 +46,5 @@ export function useVisitorCount(): number | null {
     };
   }, []);
 
-  return count;
+  return counts;
 }

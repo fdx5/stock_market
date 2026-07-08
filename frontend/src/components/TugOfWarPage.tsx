@@ -5,6 +5,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import CheerSection from "./CheerSection";
 import GlobalTop20 from "./GlobalTop20";
 import RollingValue from "./RollingValue";
+import SlotMachineValue from "./SlotMachineValue";
 import VisitorBadge from "./VisitorBadge";
 
 const POLL_MS = 3000;
@@ -165,7 +166,7 @@ export default function TugOfWarPage() {
                   />
                 </div>
                 <div className="battle-vs-marcap">
-                  <RollingValue value={samsung.marcap} text={formatMarcap(samsung.marcap)} />
+                  <SlotMachineValue value={samsung.marcap} text={formatMarcap(samsung.marcap)} />
                 </div>
                 <div className={`battle-vs-price ${changeClass(samsung.change_pct)}`}>
                   <RollingValue value={samsung.close} text={`${samsung.close.toLocaleString()}원`} />{" "}
@@ -187,7 +188,7 @@ export default function TugOfWarPage() {
                   />
                 </div>
                 <div className="battle-vs-marcap">
-                  <RollingValue value={skhynix.marcap} text={formatMarcap(skhynix.marcap)} />
+                  <SlotMachineValue value={skhynix.marcap} text={formatMarcap(skhynix.marcap)} />
                 </div>
                 <div className={`battle-vs-price ${changeClass(skhynix.change_pct)}`}>
                   <RollingValue value={skhynix.close} text={`${skhynix.close.toLocaleString()}원`} />{" "}
@@ -200,8 +201,13 @@ export default function TugOfWarPage() {
               {ENGLISH_NAME[leader.code] ?? leader.name}
             </div>
             <div className="battle-rank2-info">
-              2위 {trailing.name} · <RollingValue value={diffMarcap} text={`${diffMarcap.toFixed(1)}조`} /> 차이 (
-              <RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)
+              2위 {trailing.name} ·{" "}
+              <RollingValue
+                className="battle-rank2-diff"
+                value={diffMarcap}
+                text={`${diffMarcap.toFixed(1)}조`}
+              />{" "}
+              차이 (<RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)
             </div>
 
             {fx && (
@@ -219,7 +225,8 @@ export default function TugOfWarPage() {
                     fxDirection === "up" ? "change-up" : fxDirection === "down" ? "change-down" : ""
                   }`}
                 >
-                  환율(원) <RollingValue value={fx.rate} text={fx.rate.toFixed(2)} />
+                  환율(원){" "}
+                  <RollingValue className="battle-fx-rate-amount" value={fx.rate} text={fx.rate.toFixed(2)} />
                 </div>
               </>
             )}
@@ -229,7 +236,10 @@ export default function TugOfWarPage() {
         </div>
       )}
 
-      <GlobalTop20 />
+      {/* Mounted only once the battle data above has loaded, so the top of the page
+          always finishes painting before this section starts its own fetch — otherwise
+          this list (a single fast request) could pop in before the arena above it. */}
+      {samsung && skhynix && <GlobalTop20 />}
     </div>
   );
 }

@@ -976,6 +976,10 @@ body {
   background: var(--series-blue);
 }
 
+.visitor-badge-sep {
+  opacity: 0.5;
+}
+
 .kospi-map-view-toggle {
   display: flex;
   gap: 4px;
@@ -1456,6 +1460,10 @@ body {
   50% { transform: translateX(-50%) perspective(400px) rotateY(18deg); }
 }
 
+.battle-rank2-diff {
+  color: var(--up-color);
+}
+
 .battle-rank2-info {
   position: absolute;
   left: 50%;
@@ -1482,6 +1490,10 @@ body {
   white-space: nowrap;
   pointer-events: none;
   text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+.battle-fx-rate-amount {
+  color: #ffe066;
 }
 
 .battle-fx-pop {
@@ -1594,6 +1606,34 @@ body {
   }
 }
 
+.slot-machine-value {
+  display: inline-flex;
+}
+
+.slot-machine-digit {
+  display: inline-block;
+  min-width: 0.55em;
+  text-align: center;
+}
+
+.slot-machine-digit.spin-active {
+  animation: slot-machine-spin 0.12s linear infinite;
+  color: #ffe066;
+  text-shadow: 0 0 6px rgba(255, 224, 102, 0.9), 0 0 16px rgba(255, 224, 102, 0.6);
+}
+
+@keyframes slot-machine-spin {
+  0% {
+    transform: translateY(-12%) scaleY(1.12);
+  }
+  50% {
+    transform: translateY(12%) scaleY(0.88);
+  }
+  100% {
+    transform: translateY(-12%) scaleY(1.12);
+  }
+}
+
 .cheer-celebrate-overlay {
   position: fixed;
   inset: 0;
@@ -1664,6 +1704,11 @@ body {
   font-weight: 800;
 }
 
+.cheer-header-count {
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
 .cheer-count-row {
   display: flex;
   justify-content: space-between;
@@ -1707,7 +1752,8 @@ body {
   border: 1px solid var(--border);
   background: var(--page-plane);
   color: var(--text-primary);
-  font-size: 13px;
+  /* iOS Safari auto-zooms the viewport on focus for any input under 16px font-size. */
+  font-size: 16px;
 }
 
 .cheer-error {
