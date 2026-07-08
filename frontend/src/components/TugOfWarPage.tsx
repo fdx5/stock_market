@@ -76,7 +76,6 @@ export default function TugOfWarPage() {
           <h1 className="app-title">시총 줄다리기</h1>
           <VisitorBadge />
         </div>
-        <p className="app-subtitle">삼성전자 vs SK하이닉스, 실시간 시가총액 비율로 겨루는 줄다리기 (3초마다 갱신)</p>
       </header>
 
       {error && <div className="error-state">{error}</div>}
