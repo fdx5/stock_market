@@ -15,19 +15,13 @@ import KospiMapPage from "./components/KospiMapPage";
 import MarketOverviewPanel from "./components/MarketOverviewPanel";
 import NewsPanel from "./components/NewsPanel";
 import PredictionCard from "./components/PredictionCard";
-import PredictionHistoryPage from "./components/PredictionHistoryPage";
 import PriceChart, { PriceChartHandle } from "./components/PriceChart";
 import SearchBar from "./components/SearchBar";
-import Top100PredictionPanel from "./components/Top100PredictionPanel";
 import VisitorBadge from "./components/VisitorBadge";
 import { Link, useRoute } from "./router";
 
 export default function App() {
   const path = useRoute();
-  const historyMatch = path.match(/^\/predictions\/([^/]+)\/?$/);
-  if (historyMatch) {
-    return <PredictionHistoryPage code={historyMatch[1]} />;
-  }
   const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
   if (investorMatch) {
     return <InvestorTrendPage code={investorMatch[1]} />;
@@ -125,7 +119,7 @@ function Dashboard() {
         <SearchBar onSelect={setSelected} />
       </header>
 
-      <MarketOverviewPanel />
+      <MarketOverviewPanel onSelectStock={setSelected} />
 
       {!selected && <div className="empty-state">종목을 검색해 주세요. (예: 삼성전자, 005930)</div>}
       {loading && <div className="loading-state">데이터를 불러오는 중...</div>}
@@ -163,8 +157,6 @@ function Dashboard() {
           </div>
         </div>
       )}
-
-      <Top100PredictionPanel onSelectStock={setSelected} />
     </div>
   );
 }

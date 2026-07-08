@@ -66,32 +66,6 @@ export interface StockSummary {
   volume: number;
 }
 
-export interface Top100PredictionItem {
-  rank: number;
-  code: string;
-  name: string;
-  direction: "상승" | "하락" | "보합";
-  confidence: "강" | "중" | "약";
-  score: number;
-  last_close: number;
-  date: string;
-}
-
-export interface Top100LivePrice {
-  close: number;
-  change: number;
-  change_pct: number;
-}
-
-export interface PredictionHistoryRecord {
-  date: string;
-  predicted_direction: "상승" | "하락" | "보합";
-  confidence: "강" | "중" | "약" | null;
-  actual_direction: "상승" | "하락" | "보합" | null;
-  actual_change_pct: number | null;
-  correct: boolean | null;
-}
-
 export interface MarketMapItem {
   code: string;
   name: string;
@@ -183,14 +157,6 @@ export const api = {
   predict: (code: string) => getJSON<PredictionResult>(`${BASE}/stock/${code}/predict`),
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
-  top100Predictions: () =>
-    getJSON<{ date: string; items: Top100PredictionItem[] }>(`${BASE}/predictions/top100`),
-  top100Prices: () =>
-    getJSON<{ items: Record<string, Top100LivePrice> }>(`${BASE}/predictions/top100/prices`),
-  predictionHistory: (code: string) =>
-    getJSON<{ code: string; name: string; records: PredictionHistoryRecord[] }>(
-      `${BASE}/predictions/history/${code}`
-    ),
   marketMap: (limit = 500) =>
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/map?limit=${limit}`

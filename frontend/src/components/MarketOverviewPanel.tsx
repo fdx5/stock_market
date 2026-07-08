@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IndexQuote, InvestorSummaryItem, MarketInvestorSummary, api } from "../api/client";
+import { IndexQuote, InvestorSummaryItem, MarketInvestorSummary, MarketMapItem, StockSearchResult, api } from "../api/client";
 import { Link } from "../router";
 
 function formatAmount(value: number): string {
@@ -13,6 +13,10 @@ function amountColor(value: number): string {
   if (value > 0) return "var(--up-color)";
   if (value < 0) return "var(--down-color)";
   return "var(--text-muted)";
+}
+
+function pct(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 function MarketInvestorLine({ summary }: { summary: MarketInvestorSummary | null }) {
@@ -61,7 +65,92 @@ function IndexTile({
   );
 }
 
-export default function MarketOverviewPanel() {
+function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchResult) => void }) {
+  const [items, setItems] = useState<MarketMapItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const REFRESH_MS = 30_000;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = (isInitial: boolean) => {
+      if (isInitial) setLoading(true);
+      api
+        .marketMap(50)
+        .then((res) => {
+          if (cancelled) return;
+          setItems(res.items);
+          setError(null);
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (isInitial) setError(err.message || "데이터를 불러오지 못했습니다.");
+        })
+        .finally(() => {
+          if (isInitial && !cancelled) setLoading(false);
+        });
+    };
+
+    load(true);
+    const interval = setInterval(() => load(false), REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
+
+  return (
+    <div className="market-overview-top50">
+      <h3>시총 50위 현재가·등락</h3>
+
+      {loading && <div className="loading-state">불러오는 중...</div>}
+      {error && <div className="error-state">{error}</div>}
+
+      {!loading && !error && (
+        <div className="top50-table-wrap">
+          <table className="top50-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>종목명</th>
+                <th>현재가</th>
+                <th>등락</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, idx) => (
+                <tr key={item.code}>
+                  <td className="top50-table-rank">{idx + 1}</td>
+                  <td className="top50-table-name">
+                    <button
+                      type="button"
+                      onClick={() => onSelectStock({ code: item.code, name: item.name, market: "KOSPI" })}
+                    >
+                      {item.name}
+                    </button>
+                  </td>
+                  <td>{item.close.toLocaleString()}원</td>
+                  <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
+                    {pct(item.change_pct)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function MarketOverviewPanel({
+  onSelectStock,
+}: {
+  onSelectStock: (stock: StockSearchResult) => void;
+}) {
   const [kospi, setKospi] = useState<IndexQuote | null>(null);
   const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
   const [kospiInvestor, setKospiInvestor] = useState<MarketInvestorSummary | null>(null);
@@ -140,8 +229,8 @@ export default function MarketOverviewPanel() {
       <div className="market-overview-half market-overview-investor">
         <h2>종목별 투자자 매매동향 (억원)</h2>
         <p className="market-overview-subtitle">
-          {latestDate ? `${latestDate} 기준 누적 순매수` : "최근 확정 거래일 기준 누적 순매수"} · 종목명을 누르면
-          최근 추이를 볼 수 있습니다.
+          {latestDate ? `${latestDate} 기준 누적 순매수` : "최근 확정 거래일 기준 누적 순매수"} · 시총 100위까지 ·
+          종목명을 누르면 최근 추이를 볼 수 있습니다.
         </p>
 
         {loading && <div className="loading-state">불러오는 중...</div>}
@@ -179,6 +268,8 @@ export default function MarketOverviewPanel() {
             </table>
           </div>
         )}
+
+        <Top50PriceList onSelectStock={onSelectStock} />
       </div>
     </section>
   );

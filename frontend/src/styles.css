@@ -604,10 +604,83 @@ body {
 }
 
 .investor-table-wrap {
-  max-height: 360px;
+  /* Sized to show ~5 data rows before scrolling (100 stocks total). */
+  max-height: 180px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+
+.market-overview-top50 {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gridline);
+}
+
+.market-overview-top50 h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
+  color: var(--text-primary);
+}
+
+.top50-table-wrap {
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.top50-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.top50-table th,
+.top50-table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--gridline);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.top50-table th:nth-child(2),
+.top50-table td:nth-child(2) {
+  text-align: left;
+}
+
+.top50-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  z-index: 1;
+}
+
+.top50-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.top50-table-rank {
+  color: var(--text-muted);
+}
+
+.top50-table-name button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-primary);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.top50-table-name button:hover {
+  text-decoration: underline;
+  color: var(--series-blue);
 }
 
 .investor-table {
@@ -689,136 +762,11 @@ body {
   border-bottom: none;
 }
 
-.top100-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.top100-header {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.top100-header h2 {
-  font-size: 16px;
-  margin: 0;
-}
-
-.top100-date {
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.top100-subtitle {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin: 0;
-}
-
-.top100-table-wrap {
-  max-height: 420px;
-  overflow-y: auto;
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.top100-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.top100-table th,
-.top100-table td {
-  padding: 8px 12px;
-  text-align: left;
-  border-bottom: 1px solid var(--gridline);
-  white-space: nowrap;
-}
-
-.top100-table thead th {
-  position: sticky;
-  top: 0;
-  background: var(--surface-1);
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 11px;
-  z-index: 1;
-}
-
-.top100-table tbody tr:last-child td {
-  border-bottom: none;
-}
-
-.top100-table .col-rank {
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  width: 36px;
-}
-
-.top100-table .col-price,
-.top100-table .col-confidence {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
-.top100-table .col-change {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-}
-
-.top100-name-link {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: var(--text-primary);
-  font-weight: 600;
-  text-decoration: none;
-  cursor: pointer;
-}
-
-.top100-name-link:hover {
-  text-decoration: underline;
-  color: var(--series-blue);
-}
-
 .top100-code {
   margin-left: 8px;
   color: var(--text-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-}
-
-.top100-table .direction-badge {
-  padding: 3px 9px;
-  font-size: 12px;
-}
-
-.top100-table .col-history {
-  text-align: center;
-}
-
-.top100-history-btn {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px 10px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.top100-history-btn:hover {
-  border-color: var(--series-blue);
-  color: var(--series-blue);
 }
 
 .back-link {

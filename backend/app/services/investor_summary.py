@@ -5,7 +5,7 @@ from app.data.universe import get_top_market_cap
 from app.services.cache import cache
 
 TTL_SUMMARY_SECONDS = 30 * 60
-SUMMARY_STOCK_COUNT = 20
+SUMMARY_STOCK_COUNT = 100
 
 
 def _load_summary() -> list[dict]:
@@ -13,7 +13,7 @@ def _load_summary() -> list[dict]:
     order = {entry["code"]: idx for idx, entry in enumerate(universe)}
 
     items = []
-    with ThreadPoolExecutor(max_workers=10) as pool:
+    with ThreadPoolExecutor(max_workers=16) as pool:
         futures = {
             pool.submit(investor_fetcher.get_investor_trend, entry["code"], 1): entry for entry in universe
         }
