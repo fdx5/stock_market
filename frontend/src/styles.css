@@ -690,6 +690,10 @@ body {
     padding: 8px 10px;
   }
 
+  .top100-table-wrap {
+    max-height: 210px;
+  }
+
   .accuracy-value {
     font-size: 22px;
   }
