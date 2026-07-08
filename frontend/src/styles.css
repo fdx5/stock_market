@@ -692,6 +692,13 @@ body {
 
   .top100-table-wrap {
     max-height: 210px;
+    overscroll-behavior: contain;
+  }
+
+  /* Sticky + independent horizontal scroll makes the header visibly detach and
+     lag behind the row cells while swiping sideways on mobile WebKit. */
+  .top100-table thead th {
+    position: static;
   }
 
   .accuracy-value {
