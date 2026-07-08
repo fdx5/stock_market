@@ -3,6 +3,17 @@ import { CheerComment, CheerSide, api } from "../api/client";
 import { generateNickname } from "../data/cheerNames";
 
 const PAGE_SIZE = 10;
+const CELEBRATE_MS = 2800;
+
+const CELEBRATE_TEXT: Record<CheerSide, string> = {
+  samsung: "감사합니다!!",
+  skhynix: "HMB메모리 화이팅!!",
+};
+
+const CELEBRATE_IMG: Record<CheerSide, string> = {
+  samsung: "/img/samsung.png",
+  skhynix: "/img/skhynix.jpg",
+};
 
 export default function CheerSection() {
   const [comments, setComments] = useState<CheerComment[]>([]);
@@ -11,6 +22,7 @@ export default function CheerSection() {
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [celebrate, setCelebrate] = useState<{ side: CheerSide; nonce: number } | null>(null);
 
   useEffect(() => {
     api
@@ -39,6 +51,12 @@ export default function CheerSection() {
         setComments((prev) => [comment, ...prev]);
         setCounts((prev) => ({ ...prev, [side]: prev[side] + 1 }));
         setText("");
+
+        const nonce = Date.now();
+        setCelebrate({ side, nonce });
+        window.setTimeout(() => {
+          setCelebrate((cur) => (cur?.nonce === nonce ? null : cur));
+        }, CELEBRATE_MS);
       })
       .catch((err: Error) => {
         setError(err.message || "댓글을 등록하지 못했습니다.");
@@ -48,6 +66,15 @@ export default function CheerSection() {
 
   return (
     <div className="cheer-section">
+      {celebrate && (
+        <div className="cheer-celebrate-overlay">
+          <div key={celebrate.nonce} className={`cheer-celebrate ${celebrate.side}`}>
+            <div className="cheer-celebrate-text">{CELEBRATE_TEXT[celebrate.side]}</div>
+            <img className="cheer-celebrate-img" src={CELEBRATE_IMG[celebrate.side]} alt="" />
+          </div>
+        </div>
+      )}
+
       <div className="cheer-header">🔥 응원 댓글</div>
 
       <div className="cheer-count-row">

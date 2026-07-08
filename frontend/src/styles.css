@@ -1486,45 +1486,53 @@ body {
 
 .battle-fx-pop {
   position: absolute;
-  right: 14px;
+  right: 10px;
   bottom: 40px;
-  width: 7.5%;
+  width: 11.25%;
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
   pointer-events: none;
+  image-rendering: auto;
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: width, transform, opacity;
   animation: battle-fx-pop-anim 2.5s ease-out forwards;
 }
 
 @keyframes battle-fx-pop-anim {
   0% {
-    width: 7.5%;
+    width: 11.25%;
     opacity: 0;
-    transform: translateY(0);
+    transform: translateY(0) translateZ(0);
   }
   15% {
     opacity: 1;
   }
   70% {
-    width: 30%;
+    width: 45%;
     opacity: 1;
-    transform: translateY(-14px);
+    transform: translateY(-14px) translateZ(0);
   }
   100% {
-    width: 30%;
+    width: 45%;
     opacity: 0;
-    transform: translateY(-26px);
+    transform: translateY(-26px) translateZ(0);
   }
 }
 
 .battle-fx-pop-label {
   position: absolute;
-  right: 14px;
-  bottom: 245px;
-  font-size: 15px;
+  right: 10px;
+  bottom: 275px;
+  font-size: 22.5px;
   font-weight: 900;
   white-space: nowrap;
   pointer-events: none;
-  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 4px rgba(0, 0, 0, 0.9);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+  text-shadow: 1.5px 1.5px 0 #000, -1.5px -1.5px 0 #000, 1.5px -1.5px 0 #000, -1.5px 1.5px 0 #000, 0 3px 6px rgba(0, 0, 0, 0.9);
   animation: battle-fx-pop-label-anim 2.5s ease-out forwards;
 }
 
@@ -1583,6 +1591,60 @@ body {
   100% {
     transform: translateY(0);
     opacity: 1;
+  }
+}
+
+.cheer-celebrate-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.cheer-celebrate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  transform-origin: center;
+  backface-visibility: hidden;
+  will-change: transform, opacity;
+  animation: cheer-celebrate-anim 2.8s ease-out forwards;
+}
+
+.cheer-celebrate-text {
+  font-size: clamp(28px, 5vw, 48px);
+  font-weight: 900;
+  color: #ffd400;
+  white-space: nowrap;
+  text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000, 0 4px 10px rgba(0, 0, 0, 0.85);
+}
+
+.cheer-celebrate-img {
+  width: min(60vw, 380px);
+  border-radius: 18px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.6);
+  display: block;
+}
+
+@keyframes cheer-celebrate-anim {
+  0% {
+    transform: scale(0.05);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  85% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
   }
 }
 
@@ -2005,14 +2067,14 @@ body {
   }
 
   .battle-fx-pop {
-    right: 8px;
+    right: 6px;
     bottom: 22px;
   }
 
   .battle-fx-pop-label {
-    right: 8px;
-    bottom: 130px;
-    font-size: 11px;
+    right: 6px;
+    bottom: 155px;
+    font-size: 16.5px;
   }
 
   .cheer-section {
