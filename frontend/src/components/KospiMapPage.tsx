@@ -21,6 +21,16 @@ function pct(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+// Scales name/pct text with how much area the tile actually has, instead of a single
+// fixed size for every tile that clears the "show text" threshold — a tile many times
+// larger than another (e.g. Samsung vs. a mid-cap name) reads noticeably larger too.
+function tileFontSizes(w: number, h: number): { name: number; pct: number } {
+  const minDim = Math.min(w, h);
+  const name = Math.min(26, 11 + Math.max(0, minDim - 30) * 0.09);
+  const pctSize = Math.min(19, 10 + Math.max(0, minDim - 30) * 0.07);
+  return { name, pct: pctSize };
+}
+
 export default function KospiMapPage() {
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -33,13 +43,16 @@ export default function KospiMapPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
-  // Top 100 (by market cap) drives most of the map's visual weight and refreshes often;
-  // the long tail matters far less moment-to-moment, so it's fetched far less often too.
-  // Fetching top100 alone is much faster than the full 500 (fewer upstream pages), so it
-  // also doubles as the fast path for the very first paint after entering the page.
-  const TOP_TIER_LIMIT = 100;
+  // Mirrors the backend's three-tier cache TTLs (see market_map.py) so the frontend
+  // never polls a tier faster than its data can actually change: ranks 1-20 carry the
+  // most visual weight and refresh most often; 21-100 matters less; the long tail
+  // least of all. Fetching just the top 20 first is also the fastest possible first
+  // paint after entering the page (a single upstream page, well under the 100-name path).
+  const TIER1_LIMIT = 20;
+  const TIER2_LIMIT = 100;
   const FULL_LIMIT = 500;
-  const TOP_TIER_REFRESH_MS = 30_000;
+  const TIER1_REFRESH_MS = 30_000;
+  const TIER2_REFRESH_MS = 5 * 60_000;
   const FULL_REFRESH_MS = 10 * 60_000;
 
   useEffect(() => {
@@ -53,11 +66,11 @@ export default function KospiMapPage() {
 
     // Only the very first load shows the loading state — refreshes swap the data in
     // place so the map keeps rendering the previous snapshot instead of flashing empty.
-    const loadTopTier = (isInitial: boolean) => {
+    const loadPartial = (limit: number, isInitial: boolean) => {
       if (isInitial) setLoading(true);
 
       api
-        .marketMap(TOP_TIER_LIMIT)
+        .marketMap(limit)
         .then((res) => {
           if (cancelled) return;
           setItems((prev) => mergeItems(prev, res.items));
@@ -80,6 +93,8 @@ export default function KospiMapPage() {
         .marketMap(FULL_LIMIT)
         .then((res) => {
           if (cancelled) return;
+          // The full snapshot is authoritative (unlike the partial tiers above), so it
+          // replaces state outright — that's also what drops names that fell off top 500.
           setItems(res.items);
           setGeneratedAt(res.generated_at);
         })
@@ -88,15 +103,18 @@ export default function KospiMapPage() {
         });
     };
 
-    loadTopTier(true);
+    loadPartial(TIER1_LIMIT, true);
+    loadPartial(TIER2_LIMIT, false);
     loadFullList();
 
-    const topInterval = setInterval(() => loadTopTier(false), TOP_TIER_REFRESH_MS);
+    const tier1Interval = setInterval(() => loadPartial(TIER1_LIMIT, false), TIER1_REFRESH_MS);
+    const tier2Interval = setInterval(() => loadPartial(TIER2_LIMIT, false), TIER2_REFRESH_MS);
     const fullInterval = setInterval(loadFullList, FULL_REFRESH_MS);
 
     return () => {
       cancelled = true;
-      clearInterval(topInterval);
+      clearInterval(tier1Interval);
+      clearInterval(tier2Interval);
       clearInterval(fullInterval);
     };
   }, []);
@@ -176,7 +194,7 @@ export default function KospiMapPage() {
               <h1 className="app-title">KOSPI MAP</h1>
               <span className="kospi-map-live-badge">
                 <span className="kospi-map-live-dot" />
-                실시간 (상위 100위 30초 · 전체 10분 갱신)
+                실시간 (1~20위 30초 · 21~100위 5분 · 나머지 10분 갱신)
               </span>
             </div>
             <p className="app-subtitle">
@@ -235,6 +253,7 @@ export default function KospiMapPage() {
                     const localY = tile.y - zone.rect.y;
                     const showName = tile.w >= 46 && tile.h >= 30;
                     const showPctOnly = !showName && tile.w >= 24 && tile.h >= 16;
+                    const fontSizes = tileFontSizes(tile.w, tile.h);
                     return (
                       <button
                         key={tile.id}
@@ -258,11 +277,19 @@ export default function KospiMapPage() {
                       >
                         {showName && (
                           <>
-                            <span className="kospi-map-tile-name">{tile.item.name}</span>
-                            <span className="kospi-map-tile-pct">{pct(tile.item.change_pct)}</span>
+                            <span className="kospi-map-tile-name" style={{ fontSize: fontSizes.name }}>
+                              {tile.item.name}
+                            </span>
+                            <span className="kospi-map-tile-pct" style={{ fontSize: fontSizes.pct }}>
+                              {pct(tile.item.change_pct)}
+                            </span>
                           </>
                         )}
-                        {showPctOnly && <span className="kospi-map-tile-pct">{pct(tile.item.change_pct)}</span>}
+                        {showPctOnly && (
+                          <span className="kospi-map-tile-pct" style={{ fontSize: fontSizes.pct }}>
+                            {pct(tile.item.change_pct)}
+                          </span>
+                        )}
                       </button>
                     );
                   })}

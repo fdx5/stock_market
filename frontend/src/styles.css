@@ -802,19 +802,21 @@ body {
 }
 
 .kospi-map-tile-name {
-  font-size: 11px;
+  /* font-size set inline per tile, scaled to the tile's area */
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  line-height: 1.2;
 }
 
 .kospi-map-tile-pct {
-  font-size: 10px;
+  /* font-size set inline per tile, scaled to the tile's area */
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   opacity: 0.92;
+  line-height: 1.2;
 }
 
 .kospi-map-table-wrap {

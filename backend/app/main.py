@@ -7,6 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.routers import market_map, predictions, search, stock
+from app.services.market_map import get_kospi_map
 from app.services.market_predictions import get_today_top100_predictions
 
 app = FastAPI(title="KOSPI 종목 예측")
@@ -29,6 +30,13 @@ def _warm_top100_predictions() -> None:
     # Pre-computes the top-100 direction calls in the background on boot so the first
     # visitor of the day isn't stuck waiting on ~100 sequential price-history fetches.
     threading.Thread(target=get_today_top100_predictions, daemon=True).start()
+
+
+@app.on_event("startup")
+def _warm_kospi_map() -> None:
+    # Pre-fetches the map's Naver pages on boot so the first visitor after a deploy
+    # doesn't pay the cold multi-page scrape (every page's cache starts empty then).
+    threading.Thread(target=lambda: get_kospi_map(500), daemon=True).start()
 
 
 @app.get("/api/health")
