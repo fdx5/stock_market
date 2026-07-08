@@ -26,3 +26,6 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+# Local libSQL fallback DB (used when Turso credentials aren't set)
+backend/app/data/store/

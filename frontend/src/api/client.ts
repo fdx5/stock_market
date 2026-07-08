@@ -149,8 +149,31 @@ export interface ExchangeRate {
   change_pct: number;
 }
 
+export type CheerSide = "samsung" | "skhynix";
+
+export interface CheerComment {
+  id: number;
+  side: CheerSide;
+  username: string;
+  text: string;
+  created_at: string;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { detail?: string });
+    throw new Error(body.detail || `요청 실패 (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+async function postJSON<T>(url: string, payload: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { detail?: string });
     throw new Error(body.detail || `요청 실패 (${res.status})`);
@@ -195,4 +218,8 @@ export const api = {
     ),
   battle: () => getJSON<{ samsung: BattleSide; skhynix: BattleSide }>(`${BASE}/battle/status`),
   exchangeRate: () => getJSON<ExchangeRate>(`${BASE}/battle/exchange`),
+  cheerComments: () =>
+    getJSON<{ items: CheerComment[]; counts: { samsung: number; skhynix: number } }>(`${BASE}/battle/comments`),
+  postCheerComment: (side: CheerSide, username: string, text: string) =>
+    postJSON<CheerComment>(`${BASE}/battle/comments`, { side, username, text }),
 };

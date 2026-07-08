@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { BattleSide, ExchangeRate, api } from "../api/client";
 import { Link } from "../router";
+import CheerSection from "./CheerSection";
 import RollingValue from "./RollingValue";
 import VisitorBadge from "./VisitorBadge";
 
@@ -128,7 +129,7 @@ export default function TugOfWarPage() {
           ← 메인으로
         </Link>
         <div className="app-title-row">
-          <h1 className="app-title">시총 줄다리기</h1>
+          <h1 className="app-title">시총 줄다리기 (삼성전자 VS SK하이닉스)</h1>
           <VisitorBadge />
         </div>
       </header>
@@ -209,6 +210,8 @@ export default function TugOfWarPage() {
               </>
             )}
           </div>
+
+          <CheerSection />
         </div>
       )}
     </div>

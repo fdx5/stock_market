@@ -1548,6 +1548,180 @@ body {
   }
 }
 
+.cheer-section {
+  margin-top: 24px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cheer-header {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.cheer-count-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.cheer-count.samsung {
+  color: #4ea1ff;
+}
+
+.cheer-count.skhynix {
+  color: #ff5a5a;
+}
+
+.cheer-gauge-track {
+  display: flex;
+  height: 10px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--gridline);
+}
+
+.cheer-gauge-fill {
+  height: 100%;
+  transition: width 0.6s ease;
+}
+
+.cheer-gauge-fill.samsung {
+  background: #4ea1ff;
+}
+
+.cheer-gauge-fill.skhynix {
+  background: #ff5a5a;
+}
+
+.cheer-input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.cheer-error {
+  font-size: 12px;
+  color: var(--status-critical);
+}
+
+.cheer-button-row {
+  display: flex;
+  gap: 10px;
+}
+
+.cheer-btn {
+  flex: 1;
+  padding: 10px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+  color: #fff;
+}
+
+.cheer-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cheer-btn.samsung {
+  background: #2f6fe0;
+}
+
+.cheer-btn.skhynix {
+  background: #e0402f;
+}
+
+.cheer-btn.samsung:hover:not(:disabled) {
+  background: #3c7ef0;
+}
+
+.cheer-btn.skhynix:hover:not(:disabled) {
+  background: #f04f3c;
+}
+
+.cheer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding-top: 4px;
+}
+
+.cheer-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 75%;
+}
+
+.cheer-row.samsung {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+
+.cheer-row.skhynix {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+.cheer-bubble-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.cheer-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.cheer-badge.samsung {
+  background: #2f6fe0;
+}
+
+.cheer-badge.skhynix {
+  background: #e0402f;
+}
+
+.cheer-username {
+  color: var(--text-secondary);
+}
+
+.cheer-bubble {
+  padding: 8px 12px;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 13px;
+  word-break: break-word;
+}
+
+.cheer-bubble.samsung {
+  background: #2f6fe0;
+  border-bottom-left-radius: 2px;
+}
+
+.cheer-bubble.skhynix {
+  background: #c0392b;
+  border-bottom-right-radius: 2px;
+}
+
 @media (max-width: 640px) {
   .battle-vs-overlay {
     padding: 8px 8px 10px;
@@ -1589,5 +1763,18 @@ body {
   .battle-fx-pop {
     right: 8px;
     bottom: 22px;
+  }
+
+  .cheer-section {
+    padding: 12px;
+  }
+
+  .cheer-row {
+    max-width: 85%;
+  }
+
+  .cheer-btn {
+    font-size: 12px;
+    padding: 9px;
   }
 }
