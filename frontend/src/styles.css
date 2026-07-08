@@ -591,6 +591,18 @@ body {
   margin-top: 2px;
 }
 
+.index-tile-investor {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--gridline);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .investor-table-wrap {
   max-height: 360px;
   overflow-y: auto;

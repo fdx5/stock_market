@@ -12,6 +12,8 @@ def indices():
     return {
         "kospi": index_fetcher.get_index("KOSPI"),
         "kosdaq": index_fetcher.get_index("KOSDAQ"),
+        "kospi_investor": index_fetcher.get_market_investor_summary("KOSPI"),
+        "kosdaq_investor": index_fetcher.get_market_investor_summary("KOSDAQ"),
     }
 
 

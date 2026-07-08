@@ -130,6 +130,12 @@ export interface IndexQuote {
   updated_at: string;
 }
 
+export interface MarketInvestorSummary {
+  individual_amount: number;
+  foreign_amount: number;
+  institution_amount: number;
+}
+
 export interface InvestorSummaryItem {
   code: string;
   name: string;
@@ -186,7 +192,13 @@ export const api = {
       `${BASE}/stock/${code}/board?page=${page}`
     ),
   boardDetail: (code: string, nid: string) => getJSON<BoardDetail>(`${BASE}/stock/${code}/board/${nid}`),
-  indices: () => getJSON<{ kospi: IndexQuote | null; kosdaq: IndexQuote | null }>(`${BASE}/investor/indices`),
+  indices: () =>
+    getJSON<{
+      kospi: IndexQuote | null;
+      kosdaq: IndexQuote | null;
+      kospi_investor: MarketInvestorSummary | null;
+      kosdaq_investor: MarketInvestorSummary | null;
+    }>(`${BASE}/investor/indices`),
   investorSummary: () => getJSON<{ items: InvestorSummaryItem[] }>(`${BASE}/investor/summary`),
   investorTrend: (code: string, days = 20) =>
     getJSON<{ code: string; name: string; records: InvestorTrendRecord[] }>(

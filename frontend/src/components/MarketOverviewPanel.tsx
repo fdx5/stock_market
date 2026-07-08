@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IndexQuote, InvestorSummaryItem, api } from "../api/client";
+import { IndexQuote, InvestorSummaryItem, MarketInvestorSummary, api } from "../api/client";
 import { Link } from "../router";
 
 function formatAmount(value: number): string {
@@ -15,7 +15,26 @@ function amountColor(value: number): string {
   return "var(--text-muted)";
 }
 
-function IndexTile({ index, label }: { index: IndexQuote | null; label: string }) {
+function MarketInvestorLine({ summary }: { summary: MarketInvestorSummary | null }) {
+  if (!summary) return null;
+  return (
+    <div className="index-tile-investor">
+      <span style={{ color: amountColor(summary.individual_amount) }}>개인 {formatAmount(summary.individual_amount)}</span>
+      <span style={{ color: amountColor(summary.foreign_amount) }}>외국인 {formatAmount(summary.foreign_amount)}</span>
+      <span style={{ color: amountColor(summary.institution_amount) }}>기관 {formatAmount(summary.institution_amount)}</span>
+    </div>
+  );
+}
+
+function IndexTile({
+  index,
+  investor,
+  label,
+}: {
+  index: IndexQuote | null;
+  investor: MarketInvestorSummary | null;
+  label: string;
+}) {
   if (!index) {
     return (
       <div className="index-tile">
@@ -37,6 +56,7 @@ function IndexTile({ index, label }: { index: IndexQuote | null; label: string }
         {index.change_pct >= 0 ? "+" : ""}
         {index.change_pct}%)
       </div>
+      <MarketInvestorLine summary={investor} />
     </div>
   );
 }
@@ -44,6 +64,8 @@ function IndexTile({ index, label }: { index: IndexQuote | null; label: string }
 export default function MarketOverviewPanel() {
   const [kospi, setKospi] = useState<IndexQuote | null>(null);
   const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
+  const [kospiInvestor, setKospiInvestor] = useState<MarketInvestorSummary | null>(null);
+  const [kosdaqInvestor, setKosdaqInvestor] = useState<MarketInvestorSummary | null>(null);
   const [items, setItems] = useState<InvestorSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +83,8 @@ export default function MarketOverviewPanel() {
           if (cancelled) return;
           setKospi(res.kospi);
           setKosdaq(res.kosdaq);
+          setKospiInvestor(res.kospi_investor);
+          setKosdaqInvestor(res.kosdaq_investor);
         })
         .catch(() => {
           // A missed index refresh just keeps showing the last known values.
@@ -98,19 +122,27 @@ export default function MarketOverviewPanel() {
     };
   }, []);
 
+  const latestDate = items[0]?.date;
+
   return (
     <section className="card market-overview-panel">
       <div className="market-overview-half market-overview-index">
         <h2>코스피 · 코스닥 지수</h2>
+        <p className="market-overview-subtitle">
+          지수 하단은 시장 전체 개인/외국인/기관 누적 순매수(억원)이며, 매수는 빨간색, 매도는 파란색입니다.
+        </p>
         <div className="index-tiles">
-          <IndexTile index={kospi} label="코스피" />
-          <IndexTile index={kosdaq} label="코스닥" />
+          <IndexTile index={kospi} investor={kospiInvestor} label="코스피" />
+          <IndexTile index={kosdaq} investor={kosdaqInvestor} label="코스닥" />
         </div>
       </div>
 
       <div className="market-overview-half market-overview-investor">
         <h2>종목별 투자자 매매동향 (억원)</h2>
-        <p className="market-overview-subtitle">전일 종가 기준 · 종목명을 누르면 최근 추이를 볼 수 있습니다.</p>
+        <p className="market-overview-subtitle">
+          {latestDate ? `${latestDate} 기준 누적 순매수` : "최근 확정 거래일 기준 누적 순매수"} · 종목명을 누르면
+          최근 추이를 볼 수 있습니다.
+        </p>
 
         {loading && <div className="loading-state">불러오는 중...</div>}
         {error && <div className="error-state">{error}</div>}
