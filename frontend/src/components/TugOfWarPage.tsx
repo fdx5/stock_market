@@ -15,6 +15,16 @@ function formatMarcap(marcap: number): string {
   return `${(marcap / 1_000_000_000_000).toFixed(1)}조`;
 }
 
+function changeClass(changePct: number): string {
+  if (changePct > 0) return "change-up";
+  if (changePct < 0) return "change-down";
+  return "change-flat";
+}
+
+function formatChangePct(changePct: number): string {
+  return `${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`;
+}
+
 export default function TugOfWarPage() {
   const [samsung, setSamsung] = useState<BattleSide | null>(null);
   const [skhynix, setSkhynix] = useState<BattleSide | null>(null);
@@ -51,12 +61,6 @@ export default function TugOfWarPage() {
   const skhynixPct = 100 - samsungPct;
   const samsungWinning = samsungPct >= skhynixPct;
 
-  // Bars are normalized to the leader so a close 52/48 split still reads visually,
-  // while the printed percentages carry the precise figures.
-  const barMax = Math.max(samsungPct, skhynixPct);
-  const samsungBarHeight = barMax > 0 ? (samsungPct / barMax) * 100 : 0;
-  const skhynixBarHeight = barMax > 0 ? (skhynixPct / barMax) * 100 : 0;
-
   const leader = samsung && skhynix ? (samsungWinning ? samsung : skhynix) : null;
   const trailing = samsung && skhynix ? (samsungWinning ? skhynix : samsung) : null;
   const diffMarcap = samsung && skhynix ? Math.abs(samsung.marcap - skhynix.marcap) / 1_000_000_000_000 : 0;
@@ -81,51 +85,52 @@ export default function TugOfWarPage() {
 
       {samsung && skhynix && leader && trailing && (
         <div className="battle-arena-wrap">
-          <div className="battle-marcap-row">
-            <div className="battle-marcap-block">
-              <div className="battle-marcap-label">{samsung.name}</div>
-              <div className="battle-marcap-value">
-                <RollingValue value={samsung.marcap} text={formatMarcap(samsung.marcap)} />
-              </div>
-            </div>
-            <div className="battle-marcap-block right">
-              <div className="battle-marcap-label">{skhynix.name}</div>
-              <div className="battle-marcap-value">
-                <RollingValue value={skhynix.marcap} text={formatMarcap(skhynix.marcap)} />
-              </div>
-            </div>
-          </div>
-
-          <div className="battle-bar-chart">
-            <div className="battle-bar-col">
-              <div className="battle-bar-pct">
-                <RollingValue value={samsungPct} text={`${samsungPct.toFixed(1)}%`} />
-              </div>
-              <div className="battle-bar-track">
-                <div
-                  className={`battle-bar ${samsungWinning ? "winning" : ""}`}
-                  style={{ height: `${samsungBarHeight}%` }}
-                />
-              </div>
-              <div className="battle-bar-name">{samsung.name}</div>
-            </div>
-            <div className="battle-bar-col">
-              <div className="battle-bar-pct">
-                <RollingValue value={skhynixPct} text={`${skhynixPct.toFixed(1)}%`} />
-              </div>
-              <div className="battle-bar-track">
-                <div
-                  className={`battle-bar ${!samsungWinning ? "winning" : ""}`}
-                  style={{ height: `${skhynixBarHeight}%` }}
-                />
-              </div>
-              <div className="battle-bar-name">{skhynix.name}</div>
-            </div>
-          </div>
-
           <div className="battle-video-wrap">
             <video className="battle-video" src="/video/zzanggu.mp4" autoPlay loop muted playsInline />
-            <div className="battle-rank1-name">{ENGLISH_NAME[leader.code] ?? leader.name}</div>
+
+            <div className="battle-vs-overlay">
+              <div className="battle-vs-side left">
+                <div className="battle-vs-label-row">
+                  <span className="battle-vs-name">{samsung.name}</span>
+                  <span className="battle-vs-pct">
+                    <RollingValue value={samsungPct} text={`${samsungPct.toFixed(1)}%`} />
+                  </span>
+                </div>
+                <div className="battle-vs-bar-track">
+                  <div className="battle-vs-bar-fill left" style={{ width: `${samsungPct}%` }} />
+                </div>
+                <div className="battle-vs-marcap">
+                  <RollingValue value={samsung.marcap} text={formatMarcap(samsung.marcap)} />
+                </div>
+                <div className={`battle-vs-price ${changeClass(samsung.change_pct)}`}>
+                  <RollingValue value={samsung.close} text={`${samsung.close.toLocaleString()}원`} />{" "}
+                  <RollingValue value={samsung.change_pct} text={formatChangePct(samsung.change_pct)} />
+                </div>
+              </div>
+
+              <div className="battle-vs-side right">
+                <div className="battle-vs-label-row">
+                  <span className="battle-vs-pct">
+                    <RollingValue value={skhynixPct} text={`${skhynixPct.toFixed(1)}%`} />
+                  </span>
+                  <span className="battle-vs-name">{skhynix.name}</span>
+                </div>
+                <div className="battle-vs-bar-track">
+                  <div className="battle-vs-bar-fill right" style={{ width: `${skhynixPct}%` }} />
+                </div>
+                <div className="battle-vs-marcap">
+                  <RollingValue value={skhynix.marcap} text={formatMarcap(skhynix.marcap)} />
+                </div>
+                <div className={`battle-vs-price ${changeClass(skhynix.change_pct)}`}>
+                  <RollingValue value={skhynix.close} text={`${skhynix.close.toLocaleString()}원`} />{" "}
+                  <RollingValue value={skhynix.change_pct} text={formatChangePct(skhynix.change_pct)} />
+                </div>
+              </div>
+            </div>
+
+            <div className={`battle-rank1-name ${leader.code === "005930" ? "leader-samsung" : ""}`}>
+              {ENGLISH_NAME[leader.code] ?? leader.name}
+            </div>
             <div className="battle-rank2-info">
               2위 {trailing.name} · <RollingValue value={diffMarcap} text={`${diffMarcap.toFixed(1)}조`} /> 차이 (
               <RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)

@@ -1318,80 +1318,6 @@ body {
   gap: 8px;
 }
 
-.battle-marcap-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 0 8px;
-}
-
-.battle-marcap-block {
-  text-align: left;
-}
-
-.battle-marcap-block.right {
-  text-align: right;
-}
-
-.battle-marcap-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-
-.battle-marcap-value {
-  font-size: 26px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-
-.battle-bar-chart {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  gap: 48px;
-  height: 140px;
-  padding: 0 24px;
-}
-
-.battle-bar-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  width: 120px;
-}
-
-.battle-bar-pct {
-  font-size: 15px;
-  font-weight: 800;
-  margin-bottom: 6px;
-  font-variant-numeric: tabular-nums;
-}
-
-.battle-bar-track {
-  width: 100%;
-  height: 90px;
-  display: flex;
-  align-items: flex-end;
-}
-
-.battle-bar {
-  width: 100%;
-  border-radius: 6px 6px 0 0;
-  background: var(--text-muted);
-  transition: height 1.2s ease;
-}
-
-.battle-bar.winning {
-  background: var(--series-yellow);
-  box-shadow: 0 0 14px rgba(201, 133, 0, 0.4);
-}
-
-.battle-bar-name {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
 .battle-video-wrap {
   position: relative;
   border-radius: 16px;
@@ -1406,6 +1332,93 @@ body {
   height: auto;
 }
 
+.battle-vs-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px 16px;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.78) 0%, rgba(0, 0, 0, 0.4) 65%, transparent 100%);
+}
+
+.battle-vs-side {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.battle-vs-side.right {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.battle-vs-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.battle-vs-name {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.battle-vs-pct {
+  font-size: 16px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.battle-vs-bar-track {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.battle-vs-bar-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #c98500, #ffd166);
+  transition: width 1.2s ease;
+}
+
+.battle-vs-bar-fill.left {
+  left: 0;
+}
+
+.battle-vs-bar-fill.right {
+  right: 0;
+  background: linear-gradient(270deg, #c98500, #ffd166);
+}
+
+.battle-vs-marcap {
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffd166;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  font-variant-numeric: tabular-nums;
+}
+
+.battle-vs-price {
+  font-size: 12px;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  font-variant-numeric: tabular-nums;
+}
+
 .battle-rank1-name {
   position: absolute;
   left: 50%;
@@ -1418,6 +1431,11 @@ body {
   pointer-events: none;
   text-shadow: 1px 1px 0 #b8860b, 2px 2px 0 #b8860b, 3px 3px 0 #8b6508, 4px 4px 8px rgba(0, 0, 0, 0.6);
   animation: battle-3d-spin 3s ease-in-out infinite;
+}
+
+.battle-rank1-name.leader-samsung {
+  color: #6fb1ff;
+  text-shadow: 1px 1px 0 #0b3d91, 2px 2px 0 #0b3d91, 3px 3px 0 #072a66, 4px 4px 8px rgba(0, 0, 0, 0.6);
 }
 
 @keyframes battle-3d-spin {
@@ -1442,9 +1460,7 @@ body {
 }
 
 .rolling-value {
-  display: inline-block;
-  overflow: hidden;
-  vertical-align: bottom;
+  display: inline-flex;
   transition: color 0.5s ease 0.3s;
 }
 
@@ -1458,9 +1474,10 @@ body {
   transition: color 0.05s ease;
 }
 
-.rolling-value-inner {
+.rolling-digit {
   display: inline-block;
-  animation: rolling-value-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+  animation: rolling-value-in 0.4s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @keyframes rolling-value-in {
@@ -1475,22 +1492,25 @@ body {
 }
 
 @media (max-width: 640px) {
-  .battle-marcap-value {
-    font-size: 20px;
+  .battle-vs-overlay {
+    padding: 8px 8px 10px;
+    gap: 8px;
   }
 
-  .battle-bar-chart {
-    gap: 24px;
-    height: 110px;
-    padding: 0 8px;
+  .battle-vs-name {
+    font-size: 9px;
   }
 
-  .battle-bar-col {
-    width: 90px;
+  .battle-vs-pct {
+    font-size: 12px;
   }
 
-  .battle-bar-track {
-    height: 64px;
+  .battle-vs-marcap {
+    font-size: 13px;
+  }
+
+  .battle-vs-price {
+    font-size: 9px;
   }
 
   .battle-rank1-name {
