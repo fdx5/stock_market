@@ -785,6 +785,26 @@ body {
   text-decoration: underline;
 }
 
+.rainbow-link {
+  background: linear-gradient(90deg, #ff5252, #ffb300, #ffee58, #66bb6a, #29b6f6, #7e57c2, #ec407a, #ff5252);
+  background-size: 400% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
+  animation: rainbow-shift 4s linear infinite;
+}
+
+@keyframes rainbow-shift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 400% 50%; }
+}
+
+.rainbow-link:hover {
+  text-decoration: none;
+  filter: brightness(1.15);
+}
+
 .app-title-code {
   font-size: 14px;
   font-weight: 400;

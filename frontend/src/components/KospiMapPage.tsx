@@ -186,7 +186,7 @@ export default function KospiMapPage() {
   return (
     <div className="app kospi-map-page">
       <header className="app-header">
-        <Link to="/" className="back-link">
+        <Link to="/" className="back-link rainbow-link">
           ← 메인으로
         </Link>
         <div className="kospi-map-titlebar">
