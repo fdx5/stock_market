@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Top100PredictionItem, api } from "../api/client";
+import { StockSearchResult, Top100PredictionItem, api } from "../api/client";
 import { Link } from "../router";
 
 function directionClass(direction: Top100PredictionItem["direction"]): string {
@@ -14,7 +14,11 @@ function directionArrow(direction: Top100PredictionItem["direction"]): string {
   return "―";
 }
 
-export default function Top100PredictionPanel() {
+export default function Top100PredictionPanel({
+  onSelectStock,
+}: {
+  onSelectStock: (stock: StockSearchResult) => void;
+}) {
   const [date, setDate] = useState<string | null>(null);
   const [items, setItems] = useState<Top100PredictionItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -52,7 +56,8 @@ export default function Top100PredictionPanel() {
         {date && <span className="top100-date">{date} 종가 기준</span>}
       </div>
       <p className="top100-subtitle">
-        전일 종가까지의 데이터로 산출한 다음 거래일 방향성입니다. 종목명을 누르면 예측 적중 이력을 볼 수 있습니다.
+        전일 종가까지의 데이터로 산출한 다음 거래일 방향성입니다. 종목명을 누르면 예측 결과를 바로 조회하고, 신뢰도 옆
+        이력 버튼을 누르면 예측 적중 이력으로 이동합니다.
       </p>
 
       {loading && <div className="loading-state">예측 목록을 생성하는 중입니다. 첫 로딩은 다소 걸릴 수 있어요...</div>}
@@ -68,6 +73,7 @@ export default function Top100PredictionPanel() {
                 <th className="col-price">기준가</th>
                 <th className="col-direction">예측</th>
                 <th className="col-confidence">신뢰도</th>
+                <th className="col-history">이력</th>
               </tr>
             </thead>
             <tbody>
@@ -75,9 +81,13 @@ export default function Top100PredictionPanel() {
                 <tr key={item.code}>
                   <td className="col-rank">{item.rank}</td>
                   <td className="col-name">
-                    <Link to={`/predictions/${item.code}`} className="top100-name-link">
+                    <button
+                      type="button"
+                      className="top100-name-link"
+                      onClick={() => onSelectStock({ code: item.code, name: item.name, market: "KOSPI" })}
+                    >
                       {item.name}
-                    </Link>
+                    </button>
                     <span className="top100-code">{item.code}</span>
                   </td>
                   <td className="col-price">{item.last_close.toLocaleString()}원</td>
@@ -87,6 +97,11 @@ export default function Top100PredictionPanel() {
                     </span>
                   </td>
                   <td className="col-confidence">{item.confidence}</td>
+                  <td className="col-history">
+                    <Link to={`/predictions/${item.code}`} className="top100-history-btn">
+                      이력 보기
+                    </Link>
+                  </td>
                 </tr>
               ))}
             </tbody>

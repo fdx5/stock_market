@@ -37,6 +37,7 @@ function Dashboard() {
 
   const priceChartRef = useRef<PriceChartHandle>(null);
   const indicatorPanelRef = useRef<IndicatorPanelHandle>(null);
+  const stockHeaderRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!selected) return;
@@ -50,6 +51,9 @@ function Dashboard() {
         setIndicatorPoints(indicatorsRes.points);
         setPrediction(predictRes);
         setNews(newsRes.items);
+        requestAnimationFrame(() => {
+          stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
       })
       .catch((err: Error) => {
         setError(err.message || "데이터를 불러오지 못했습니다.");
@@ -100,7 +104,7 @@ function Dashboard() {
         <SearchBar onSelect={setSelected} />
       </header>
 
-      <Top100PredictionPanel />
+      <Top100PredictionPanel onSelectStock={setSelected} />
 
       {!selected && <div className="empty-state">종목을 검색해 주세요. (예: 삼성전자, 005930)</div>}
       {loading && <div className="loading-state">데이터를 불러오는 중...</div>}
@@ -109,7 +113,7 @@ function Dashboard() {
       {selected && summary && !loading && !error && (
         <div className="layout">
           <div className="main-col">
-            <div className="card stock-header">
+            <div className="card stock-header" ref={stockHeaderRef}>
               <span className="name">{summary.name}</span>
               <span className="code">{summary.code}</span>
               <span
