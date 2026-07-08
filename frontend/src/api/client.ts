@@ -77,6 +77,12 @@ export interface Top100PredictionItem {
   date: string;
 }
 
+export interface Top100LivePrice {
+  close: number;
+  change: number;
+  change_pct: number;
+}
+
 export interface PredictionHistoryRecord {
   date: string;
   predicted_direction: "상승" | "하락" | "보합";
@@ -179,6 +185,8 @@ export const api = {
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
   top100Predictions: () =>
     getJSON<{ date: string; items: Top100PredictionItem[] }>(`${BASE}/predictions/top100`),
+  top100Prices: () =>
+    getJSON<{ items: Record<string, Top100LivePrice> }>(`${BASE}/predictions/top100/prices`),
   predictionHistory: (code: string) =>
     getJSON<{ code: string; name: string; records: PredictionHistoryRecord[] }>(
       `${BASE}/predictions/history/${code}`

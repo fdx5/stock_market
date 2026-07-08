@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.data.universe import get_stock_name
 from app.services import market_predictions
+from app.services.top100_live_price import get_live_prices
 
 router = APIRouter()
 
@@ -12,6 +13,13 @@ def top100():
         "date": market_predictions.today_kst(),
         "items": market_predictions.get_today_top100_predictions(),
     }
+
+
+@router.get("/top100/prices")
+def top100_prices():
+    predictions = market_predictions.get_today_top100_predictions()
+    codes = [item["code"] for item in predictions]
+    return {"items": get_live_prices(codes)}
 
 
 @router.get("/history/{code}")

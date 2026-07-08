@@ -125,7 +125,6 @@ function Dashboard() {
         <SearchBar onSelect={setSelected} />
       </header>
 
-      <Top100PredictionPanel onSelectStock={setSelected} />
       <MarketOverviewPanel />
 
       {!selected && <div className="empty-state">종목을 검색해 주세요. (예: 삼성전자, 005930)</div>}
@@ -164,6 +163,8 @@ function Dashboard() {
           </div>
         </div>
       )}
+
+      <Top100PredictionPanel onSelectStock={setSelected} />
     </div>
   );
 }

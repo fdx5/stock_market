@@ -1,12 +1,9 @@
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import parse_qs, urlparse
 
 import FinanceDataReader as fdr
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
 
+from app.data.naver_price_fetcher import NAVER_PAGE_SIZE, fetch_market_cap_page
 from app.services.cache import cache
 
 # Ranks by market cap refresh on three cadences — the top of the board is what carries
@@ -21,30 +18,6 @@ SECOND_TIER_PAGES = 3
 SECOND_TIER_TTL_SECONDS = 5 * 60
 LONG_TAIL_TTL_SECONDS = 10 * 60
 TTL_INDUSTRY_SECONDS = 24 * 3600
-
-# FinanceDataReader's StockListing('KOSPI') snapshot reflects the prior completed
-# session (full-day close/volume), not the live intraday tape — comparing it against
-# a live quote mid-session showed a ~6.9% vs ~0.3% mismatch. Naver's market-cap-sum
-# listing is scraped instead: it's a live-refreshed page, and paginating it (50 rows
-# each) covers the top 500 by market cap since that's its default sort.
-NAVER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    ),
-    "Referer": "https://finance.naver.com/",
-}
-NAVER_PAGE_SIZE = 50
-CHANGE_WORD_SIGN = {"상승": 1, "하락": -1, "보합": 0}
-
-# A shared, connection-pooled session avoids paying a fresh TCP/TLS handshake for each
-# of the up to ~20 page requests a cold fetch makes to the same host.
-_session = requests.Session()
-_session.headers.update(NAVER_HEADERS)
-_session.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
-)
 
 # KRX-DESC gives a fine-grained KSIC industry string (~100+ distinct values across the
 # top names), too granular for a Finviz-style zoned map. Bucket into broad sectors via
@@ -85,59 +58,6 @@ def _classify_sector(industry) -> str:
     return "기타"
 
 
-def _parse_change(text: str) -> float:
-    match = re.match(r"(상승|하락|보합)([\d,]+)", text)
-    if not match:
-        return 0.0
-    sign = CHANGE_WORD_SIGN[match.group(1)]
-    return sign * float(match.group(2).replace(",", ""))
-
-
-def _parse_number(text: str) -> float:
-    cleaned = text.replace(",", "").replace("%", "").strip()
-    return float(cleaned) if cleaned else 0.0
-
-
-def _fetch_naver_page(page: int) -> list[dict]:
-    url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok=0&page={page}"
-    resp = _session.get(url, timeout=8)
-    resp.raise_for_status()
-    resp.encoding = "euc-kr"
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    table = soup.select_one("table.type_2")
-    if table is None:
-        return []
-
-    rows = []
-    for tr in table.select("tr"):
-        link = tr.select_one("a.tltle")
-        if not link:
-            continue
-        code = parse_qs(urlparse(link.get("href", "")).query).get("code", [None])[0]
-        if not code:
-            continue
-
-        cells = [td.get_text(strip=True) for td in tr.select("td")]
-        if len(cells) < 7:
-            continue
-
-        try:
-            rows.append(
-                {
-                    "code": code,
-                    "name": link.get_text(strip=True),
-                    "close": _parse_number(cells[2]),
-                    "change": _parse_change(cells[3]),
-                    "change_pct": _parse_number(cells[4]),
-                    "marcap": _parse_number(cells[6]) * 100_000_000,  # 억원 -> 원
-                }
-            )
-        except (ValueError, IndexError):
-            continue
-    return rows
-
-
 def _naver_page_ttl(page: int) -> int:
     if page <= FIRST_TIER_PAGES:
         return FIRST_TIER_TTL_SECONDS
@@ -148,7 +68,7 @@ def _naver_page_ttl(page: int) -> int:
 
 def _get_naver_page(page: int) -> list[dict]:
     ttl = _naver_page_ttl(page)
-    return cache.get_or_set(f"kospi_naver_page:{page}", ttl, lambda: _fetch_naver_page(page))
+    return cache.get_or_set(f"kospi_naver_page:{page}", ttl, lambda: fetch_market_cap_page(page))
 
 
 def _get_price_snapshot(pages: int) -> list[dict]:

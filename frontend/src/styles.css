@@ -767,6 +767,11 @@ body {
   color: var(--text-secondary);
 }
 
+.top100-table .col-change {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 .top100-name-link {
   background: none;
   border: none;
