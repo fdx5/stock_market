@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BattleSide, api } from "../api/client";
 import { Link } from "../router";
+import RollingValue from "./RollingValue";
 import VisitorBadge from "./VisitorBadge";
 
 const POLL_MS = 3000;
@@ -83,17 +84,23 @@ export default function TugOfWarPage() {
           <div className="battle-marcap-row">
             <div className="battle-marcap-block">
               <div className="battle-marcap-label">{samsung.name}</div>
-              <div className="battle-marcap-value">{formatMarcap(samsung.marcap)}</div>
+              <div className="battle-marcap-value">
+                <RollingValue value={samsung.marcap} text={formatMarcap(samsung.marcap)} />
+              </div>
             </div>
             <div className="battle-marcap-block right">
               <div className="battle-marcap-label">{skhynix.name}</div>
-              <div className="battle-marcap-value">{formatMarcap(skhynix.marcap)}</div>
+              <div className="battle-marcap-value">
+                <RollingValue value={skhynix.marcap} text={formatMarcap(skhynix.marcap)} />
+              </div>
             </div>
           </div>
 
           <div className="battle-bar-chart">
             <div className="battle-bar-col">
-              <div className="battle-bar-pct">{samsungPct.toFixed(1)}%</div>
+              <div className="battle-bar-pct">
+                <RollingValue value={samsungPct} text={`${samsungPct.toFixed(1)}%`} />
+              </div>
               <div className="battle-bar-track">
                 <div
                   className={`battle-bar ${samsungWinning ? "winning" : ""}`}
@@ -103,7 +110,9 @@ export default function TugOfWarPage() {
               <div className="battle-bar-name">{samsung.name}</div>
             </div>
             <div className="battle-bar-col">
-              <div className="battle-bar-pct">{skhynixPct.toFixed(1)}%</div>
+              <div className="battle-bar-pct">
+                <RollingValue value={skhynixPct} text={`${skhynixPct.toFixed(1)}%`} />
+              </div>
               <div className="battle-bar-track">
                 <div
                   className={`battle-bar ${!samsungWinning ? "winning" : ""}`}
@@ -118,7 +127,8 @@ export default function TugOfWarPage() {
             <video className="battle-video" src="/video/zzanggu.mp4" autoPlay loop muted playsInline />
             <div className="battle-rank1-name">{ENGLISH_NAME[leader.code] ?? leader.name}</div>
             <div className="battle-rank2-info">
-              2위 {trailing.name} · {diffMarcap.toFixed(1)}조 차이 ({diffPct.toFixed(1)}%)
+              2위 {trailing.name} · <RollingValue value={diffMarcap} text={`${diffMarcap.toFixed(1)}조`} /> 차이 (
+              <RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)
             </div>
           </div>
         </div>

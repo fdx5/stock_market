@@ -1441,6 +1441,39 @@ body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
+.rolling-value {
+  display: inline-block;
+  overflow: hidden;
+  vertical-align: bottom;
+  transition: color 0.5s ease 0.3s;
+}
+
+.rolling-value.flash-up {
+  color: var(--up-color);
+  transition: color 0.05s ease;
+}
+
+.rolling-value.flash-down {
+  color: var(--down-color);
+  transition: color 0.05s ease;
+}
+
+.rolling-value-inner {
+  display: inline-block;
+  animation: rolling-value-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes rolling-value-in {
+  0% {
+    transform: translateY(-70%);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 @media (max-width: 640px) {
   .battle-marcap-value {
     font-size: 20px;
