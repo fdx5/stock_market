@@ -1492,7 +1492,7 @@ body {
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
   pointer-events: none;
-  animation: battle-fx-pop-anim 1.6s ease-out forwards;
+  animation: battle-fx-pop-anim 2.4s ease-out forwards;
 }
 
 @keyframes battle-fx-pop-anim {

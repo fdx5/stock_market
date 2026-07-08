@@ -6,8 +6,8 @@ import VisitorBadge from "./VisitorBadge";
 
 const POLL_MS = 3000;
 const REFILL_MS = 9000;
-const FX_POLL_MS = 5000;
-const FX_POP_MS = 1600;
+const FX_POLL_MS = 3000;
+const FX_POP_MS = 2400;
 
 const ENGLISH_NAME: Record<string, string> = {
   "005930": "SAMSUNG ELECTRONICS",
@@ -204,7 +204,7 @@ export default function TugOfWarPage() {
                     fxDirection === "up" ? "change-up" : fxDirection === "down" ? "change-down" : ""
                   }`}
                 >
-                  USD/KRW <RollingValue value={fx.rate} text={fx.rate.toFixed(1)} />
+                  환율(원) <RollingValue value={fx.rate} text={fx.rate.toFixed(2)} />
                 </div>
               </>
             )}
