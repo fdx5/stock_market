@@ -35,20 +35,6 @@ export interface IndicatorPoint extends OhlcvPoint {
   volatility20: number | null;
 }
 
-export interface PredictionResult {
-  code: string;
-  name: string;
-  direction: "상승" | "하락" | "보합";
-  confidence: "강" | "중" | "약";
-  score: number;
-  last_close: number;
-  predicted_price: number;
-  predicted_range: { low: number; high: number };
-  reasoning: string[];
-  outlook: { short_term: string; mid_term: string };
-  disclaimer: string;
-}
-
 export interface NewsItem {
   title: string;
   link: string;
@@ -204,7 +190,6 @@ export const api = {
     getJSON<{ code: string; name: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
       `${BASE}/stock/${code}/indicators?years=${years}`
     ),
-  predict: (code: string) => getJSON<PredictionResult>(`${BASE}/stock/${code}/predict`),
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
   marketMap: (limit = 500) =>

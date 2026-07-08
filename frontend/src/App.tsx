@@ -1,20 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  IndicatorPoint,
-  NewsItem,
-  PredictionResult,
-  StockSearchResult,
-  StockSummary,
-  api,
-} from "./api/client";
+import { IndicatorPoint, NewsItem, StockSearchResult, StockSummary, api } from "./api/client";
 import { syncTimeScales } from "./chartSync";
 import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPanel";
 import InvestorTrendPage from "./components/InvestorTrendPage";
 import KosdaqMapPage from "./components/KosdaqMapPage";
 import KospiMapPage from "./components/KospiMapPage";
 import MarketOverviewPanel from "./components/MarketOverviewPanel";
-import PredictionCard from "./components/PredictionCard";
 import PriceChart, { PriceChartHandle } from "./components/PriceChart";
+import RecentNewsDigest from "./components/RecentNewsDigest";
 import SearchBar from "./components/SearchBar";
 import SidePanel from "./components/SidePanel";
 import TugOfWarPage from "./components/TugOfWarPage";
@@ -49,7 +42,6 @@ function Dashboard() {
   });
   const [summary, setSummary] = useState<StockSummary | null>(null);
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
-  const [prediction, setPrediction] = useState<PredictionResult | null>(null);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,11 +57,10 @@ function Dashboard() {
     setError(null);
     let followUpTimer: number | undefined;
 
-    Promise.all([api.summary(code), api.indicators(code, 3), api.predict(code), api.news(code)])
-      .then(([summaryRes, indicatorsRes, predictRes, newsRes]) => {
+    Promise.all([api.summary(code), api.indicators(code, 3), api.news(code)])
+      .then(([summaryRes, indicatorsRes, newsRes]) => {
         setSummary(summaryRes);
         setIndicatorPoints(indicatorsRes.points);
-        setPrediction(predictRes);
         setNews(newsRes.items);
 
         const scrollToResult = () => {
@@ -86,7 +77,6 @@ function Dashboard() {
         setError(err.message || "데이터를 불러오지 못했습니다.");
         setSummary(null);
         setIndicatorPoints([]);
-        setPrediction(null);
         setNews([]);
       })
       .finally(() => setLoading(false));
@@ -141,7 +131,7 @@ function Dashboard() {
             <VisitorBadge />
           </div>
           <p className="app-subtitle">
-            종목을 검색하면 다음날 예상 주가와 근거, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 관련 뉴스를 한눈에 확인할 수 있습니다.
+            종목을 검색하면 현재 시세와 등락률, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 최근 3일 뉴스 요약과 관련 뉴스를 한눈에 확인할 수 있습니다.
           </p>
         </div>
         <SearchBar onSelect={setSelected} />
@@ -169,7 +159,7 @@ function Dashboard() {
               </span>
             </div>
 
-            {prediction && <PredictionCard prediction={prediction} />}
+            <RecentNewsDigest items={news} name={summary.name} />
 
             <PriceChart points={indicatorPoints} ref={priceChartRef} />
             <IndicatorPanel
