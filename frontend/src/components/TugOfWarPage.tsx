@@ -129,11 +129,14 @@ export default function TugOfWarPage() {
   return (
     <div className="app battle-page">
       <header className="app-header">
-        <Link to="/" className="back-link">
+        <Link to="/" className="back-link rainbow-link">
           ← 메인으로
         </Link>
         <div className="app-title-row">
           <h1 className="app-title">시총 줄다리기 (삼성전자 VS SK하이닉스)</h1>
+          <Link to="/map" className="kospi-map-nav-link">
+            🗺 KOSPI MAP
+          </Link>
           <VisitorBadge />
         </div>
       </header>

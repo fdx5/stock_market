@@ -36,6 +36,7 @@ def get_global_top20() -> list[dict]:
         logo_el = tr.select_one("img.company-logo")
         flag_el = tr.select_one("img.flag")
         country_el = tr.select_one(".responsive-hidden")
+        detail_link_el = tr.select_one(".name-div a")
         # The rank cell also carries the "td-right" class, so market cap is the
         # *second* td-right cell in the row (rank, then market cap, then price).
         mcap_tds = [td for td in tr.select("td.td-right") if "rank-td" not in td.get("class", [])]
@@ -64,6 +65,34 @@ def get_global_top20() -> list[dict]:
                 "change_pct": change_pct,
                 "flag_url": BASE_URL + flag_el["src"] if flag_el and flag_el.get("src") else None,
                 "country": country_el.get_text(strip=True) if country_el else "",
+                "detail_path": detail_link_el["href"] if detail_link_el and detail_link_el.get("href") else None,
             }
         )
     return items
+
+
+def get_company_detail(detail_path: str) -> dict | None:
+    """Short company description from a companiesmarketcap.com detail page (e.g.
+    "/nvidia/marketcap/"). Only the first couple of paragraphs are kept — this is
+    meant as a brief blurb for a popup, not the full page."""
+    if not detail_path.startswith("/") or ".." in detail_path:
+        return None
+
+    resp = requests.get(BASE_URL + detail_path, headers=HEADERS, timeout=10)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    container = soup.select_one(".company-description")
+    paragraphs = container.select("p") if container else []
+    if paragraphs:
+        description = " ".join(p.get_text(strip=True) for p in paragraphs[:2])
+    elif container:
+        # Some pages (e.g. Samsung's) put the text directly in the container with no
+        # <p> wrapper at all.
+        description = container.get_text(" ", strip=True)
+    else:
+        # A few companies (e.g. SK Hynix) have no description section at all — fall
+        # back to the page's meta description, which is at least a one-line summary.
+        meta = soup.select_one('meta[name="description"]')
+        description = meta["content"].strip() if meta and meta.get("content") else ""
+    return {"description": description}

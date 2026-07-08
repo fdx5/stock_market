@@ -1804,6 +1804,11 @@ body {
   padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.global-top20-row:hover {
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .global-top20-row:nth-child(odd) {
@@ -1813,6 +1818,98 @@ body {
 .global-top20-row.highlight {
   border-color: var(--series-yellow);
   background: color-mix(in srgb, var(--series-yellow) 12%, transparent);
+}
+
+.global-top20-row.highlight:hover {
+  background: color-mix(in srgb, var(--series-yellow) 20%, transparent);
+}
+
+.company-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.company-modal {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 24px;
+  color: var(--text-primary);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.company-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.company-modal-close:hover {
+  color: var(--text-primary);
+  background: var(--gridline);
+}
+
+.company-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-right: 24px;
+}
+
+.company-modal-logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.company-modal-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.company-modal-flag {
+  width: 20px;
+  height: 14px;
+  object-fit: cover;
+  border-radius: 2px;
+}
+
+.company-modal-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.company-modal-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-line;
 }
 
 .global-top20-rank {

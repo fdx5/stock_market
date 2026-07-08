@@ -168,6 +168,7 @@ export interface GlobalTop20Item {
   change_pct: number | null;
   flag_url: string | null;
   country: string;
+  detail_path: string | null;
 }
 
 async function getJSON<T>(url: string): Promise<T> {
@@ -234,4 +235,6 @@ export const api = {
   postCheerComment: (side: CheerSide, username: string, text: string) =>
     postJSON<CheerComment>(`${BASE}/battle/comments`, { side, username, text }),
   globalTop20: () => getJSON<{ items: GlobalTop20Item[] }>(`${BASE}/battle/global-top20`),
+  companyDetail: (path: string) =>
+    getJSON<{ description: string }>(`${BASE}/battle/global-top20/detail?path=${encodeURIComponent(path)}`),
 };

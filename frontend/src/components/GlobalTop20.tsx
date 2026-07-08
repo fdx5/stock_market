@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
+import CompanyDetailModal from "./CompanyDetailModal";
 import RollingValue from "./RollingValue";
 
 const POLL_MS = 5000;
@@ -26,6 +27,29 @@ function isHighlighted(code: string): boolean {
 export default function GlobalTop20() {
   const [items, setItems] = useState<GlobalTop20Item[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const [selected, setSelected] = useState<GlobalTop20Item | null>(null);
+  const [description, setDescription] = useState<string | null>(null);
+  const [descLoading, setDescLoading] = useState(false);
+  const [descError, setDescError] = useState<string | null>(null);
+
+  const openDetail = (item: GlobalTop20Item) => {
+    setSelected(item);
+    setDescription(null);
+    setDescError(null);
+
+    if (!item.detail_path) {
+      setDescError("회사 정보가 없습니다.");
+      return;
+    }
+
+    setDescLoading(true);
+    api
+      .companyDetail(item.detail_path)
+      .then((res) => setDescription(res.description || "회사 정보가 없습니다."))
+      .catch((err: Error) => setDescError(err.message || "회사 정보를 불러오지 못했습니다."))
+      .finally(() => setDescLoading(false));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +86,13 @@ export default function GlobalTop20() {
       {items.length > 0 && (
         <div className="global-top20-list">
           {items.map((item) => (
-            <div key={item.code} className={`global-top20-row ${isHighlighted(item.code) ? "highlight" : ""}`}>
+            <div
+              key={item.code}
+              className={`global-top20-row ${isHighlighted(item.code) ? "highlight" : ""}`}
+              onClick={() => openDetail(item)}
+              role="button"
+              tabIndex={0}
+            >
               <span className="global-top20-rank">{item.rank}</span>
               {item.logo_url && <img className="global-top20-logo" src={item.logo_url} alt={item.name} />}
               <span className="global-top20-name">{item.name}</span>
@@ -78,6 +108,16 @@ export default function GlobalTop20() {
             </div>
           ))}
         </div>
+      )}
+
+      {selected && (
+        <CompanyDetailModal
+          item={selected}
+          description={description}
+          loading={descLoading}
+          error={descError}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );

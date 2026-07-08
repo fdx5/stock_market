@@ -1,9 +1,9 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.services.battle import get_battle, get_exchange_rate, get_global_top20_cached
+from app.services.battle import get_battle, get_company_detail_cached, get_exchange_rate, get_global_top20_cached
 from app.services.comment_store import add_comment, count_by_side, list_comments
 
 router = APIRouter()
@@ -54,3 +54,11 @@ def post_comment(payload: CommentCreate):
 @router.get("/global-top20")
 def global_top20():
     return {"items": get_global_top20_cached()}
+
+
+@router.get("/global-top20/detail")
+def global_top20_detail(path: str = Query(..., min_length=1, max_length=200)):
+    detail = get_company_detail_cached(path)
+    if not detail:
+        raise HTTPException(status_code=502, detail="회사 정보를 가져오지 못했습니다.")
+    return detail
