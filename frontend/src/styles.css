@@ -131,10 +131,10 @@ body {
   min-width: 0;
 }
 
-.side-col {
+.side-panel {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 12px;
 }
 
 .card {
@@ -368,11 +368,6 @@ body {
   gap: 12px;
 }
 
-.news-panel h2 {
-  font-size: 15px;
-  margin: 0;
-}
-
 .news-list {
   display: flex;
   flex-direction: column;
@@ -411,11 +406,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.board-panel h2 {
-  font-size: 15px;
-  margin: 0;
 }
 
 .board-list {

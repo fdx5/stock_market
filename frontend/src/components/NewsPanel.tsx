@@ -2,10 +2,9 @@ import type { NewsItem } from "../api/client";
 
 export default function NewsPanel({ items, name }: { items: NewsItem[]; name: string }) {
   return (
-    <div className="card news-panel">
-      <h2>{name} 관련 뉴스</h2>
+    <div className="news-panel">
       {items.length === 0 ? (
-        <div className="empty-state">최근 뉴스를 가져오지 못했습니다.</div>
+        <div className="empty-state">{name} 관련 최근 뉴스를 가져오지 못했습니다.</div>
       ) : (
         <div className="news-list">
           {items.map((item, idx) => (

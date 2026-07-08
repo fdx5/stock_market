@@ -99,16 +99,14 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   };
 
   return (
-    <div className="card board-panel">
-      <h2>{name} 종목토론방</h2>
-
+    <div className="board-panel">
       {loading && <div className="loading-state">게시글을 불러오는 중...</div>}
       {error && <div className="error-state">{error}</div>}
 
       {!loading && !error && (
         <>
           {visiblePosts.length === 0 ? (
-            <div className="empty-state">게시글이 없습니다.</div>
+            <div className="empty-state">{name} 관련 게시글이 없습니다.</div>
           ) : (
             <div className="board-list">
               {visiblePosts.map((post) => {
