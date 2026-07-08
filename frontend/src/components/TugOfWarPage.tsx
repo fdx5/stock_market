@@ -5,14 +5,13 @@ import VisitorBadge from "./VisitorBadge";
 
 const POLL_MS = 3000;
 
+const ENGLISH_NAME: Record<string, string> = {
+  "005930": "SAMSUNG ELECTRONICS",
+  "000660": "SK HYNIX",
+};
+
 function formatMarcap(marcap: number): string {
   return `${(marcap / 1_000_000_000_000).toFixed(1)}조`;
-}
-
-function changeClass(changePct: number): string {
-  if (changePct > 0) return "change-up";
-  if (changePct < 0) return "change-down";
-  return "change-flat";
 }
 
 export default function TugOfWarPage() {
@@ -49,11 +48,18 @@ export default function TugOfWarPage() {
   const total = samsung && skhynix ? samsung.marcap + skhynix.marcap : 0;
   const samsungPct = total > 0 && samsung ? (samsung.marcap / total) * 100 : 50;
   const skhynixPct = 100 - samsungPct;
-  // The knot's position tracks the opponent's share: the heavier side drags it
-  // toward its own end. Clamped so both characters stay on screen at the extremes.
-  const knotLeft = Math.min(80, Math.max(20, skhynixPct));
   const samsungWinning = samsungPct >= skhynixPct;
-  const ropeFlowClass = samsungWinning ? "flow-left" : "flow-right";
+
+  // Bars are normalized to the leader so a close 52/48 split still reads visually,
+  // while the printed percentages carry the precise figures.
+  const barMax = Math.max(samsungPct, skhynixPct);
+  const samsungBarHeight = barMax > 0 ? (samsungPct / barMax) * 100 : 0;
+  const skhynixBarHeight = barMax > 0 ? (skhynixPct / barMax) * 100 : 0;
+
+  const leader = samsung && skhynix ? (samsungWinning ? samsung : skhynix) : null;
+  const trailing = samsung && skhynix ? (samsungWinning ? skhynix : samsung) : null;
+  const diffMarcap = samsung && skhynix ? Math.abs(samsung.marcap - skhynix.marcap) / 1_000_000_000_000 : 0;
+  const diffPct = Math.abs(samsungPct - skhynixPct);
 
   return (
     <div className="app battle-page">
@@ -72,47 +78,47 @@ export default function TugOfWarPage() {
 
       {!samsung && !skhynix && !error && <div className="loading-state">데이터를 불러오는 중...</div>}
 
-      {samsung && skhynix && (
+      {samsung && skhynix && leader && trailing && (
         <div className="battle-arena-wrap">
-          <div className="battle-scoreboard">
-            <div className={`battle-score battle-score-left ${samsungWinning ? "winning" : ""}`}>
-              <div className="battle-score-name">{samsung.name}</div>
-              <div className="battle-score-marcap">{formatMarcap(samsung.marcap)}</div>
-              <div className={`battle-score-price ${changeClass(samsung.change_pct)}`}>
-                {samsung.close.toLocaleString()}원 ({samsung.change_pct >= 0 ? "+" : ""}
-                {samsung.change_pct}%)
-              </div>
-              <div className="battle-score-pct">시총 비중 {samsungPct.toFixed(1)}%</div>
+          <div className="battle-marcap-row">
+            <div className="battle-marcap-block">
+              <div className="battle-marcap-label">{samsung.name}</div>
+              <div className="battle-marcap-value">{formatMarcap(samsung.marcap)}</div>
             </div>
-
-            <div className="battle-score-vs">VS</div>
-
-            <div className={`battle-score battle-score-right ${!samsungWinning ? "winning" : ""}`}>
-              <div className="battle-score-name">{skhynix.name}</div>
-              <div className="battle-score-marcap">{formatMarcap(skhynix.marcap)}</div>
-              <div className={`battle-score-price ${changeClass(skhynix.change_pct)}`}>
-                {skhynix.close.toLocaleString()}원 ({skhynix.change_pct >= 0 ? "+" : ""}
-                {skhynix.change_pct}%)
-              </div>
-              <div className="battle-score-pct">시총 비중 {skhynixPct.toFixed(1)}%</div>
+            <div className="battle-marcap-block right">
+              <div className="battle-marcap-label">{skhynix.name}</div>
+              <div className="battle-marcap-value">{formatMarcap(skhynix.marcap)}</div>
             </div>
           </div>
 
-          <div className="battle-field">
-            <div className={`battle-character battle-character-left ${samsungWinning ? "pulling" : "losing"}`}>
-              <img src="/img/zzanggu_samsung.png" alt={samsung.name} />
-            </div>
-
-            <div className="battle-rope-track">
-              <div className={`battle-rope ${ropeFlowClass}`} />
-              <div className="battle-center-mark" />
-              <div className="battle-knot" style={{ left: `${knotLeft}%` }}>
-                <div className="battle-knot-flag" />
+          <div className="battle-bar-chart">
+            <div className="battle-bar-col">
+              <div className="battle-bar-pct">{samsungPct.toFixed(1)}%</div>
+              <div className="battle-bar-track">
+                <div
+                  className={`battle-bar ${samsungWinning ? "winning" : ""}`}
+                  style={{ height: `${samsungBarHeight}%` }}
+                />
               </div>
+              <div className="battle-bar-name">{samsung.name}</div>
             </div>
+            <div className="battle-bar-col">
+              <div className="battle-bar-pct">{skhynixPct.toFixed(1)}%</div>
+              <div className="battle-bar-track">
+                <div
+                  className={`battle-bar ${!samsungWinning ? "winning" : ""}`}
+                  style={{ height: `${skhynixBarHeight}%` }}
+                />
+              </div>
+              <div className="battle-bar-name">{skhynix.name}</div>
+            </div>
+          </div>
 
-            <div className={`battle-character battle-character-right ${!samsungWinning ? "pulling" : "losing"}`}>
-              <img src="/img/boo_sk.png" alt={skhynix.name} />
+          <div className="battle-video-wrap">
+            <video className="battle-video" src="/video/zzanggu.mp4" autoPlay loop muted playsInline />
+            <div className="battle-rank1-name">{ENGLISH_NAME[leader.code] ?? leader.name}</div>
+            <div className="battle-rank2-info">
+              2위 {trailing.name} · {diffMarcap.toFixed(1)}조 차이 ({diffPct.toFixed(1)}%)
             </div>
           </div>
         </div>
