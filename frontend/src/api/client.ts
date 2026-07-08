@@ -211,6 +211,10 @@ export const api = {
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/map?limit=${limit}`
     ),
+  kosdaqMap: (limit = 200) =>
+    getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
+      `${BASE}/market/kosdaq-map?limit=${limit}`
+    ),
   board: (code: string, page = 1) =>
     getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
       `${BASE}/stock/${code}/board?page=${page}`

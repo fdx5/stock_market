@@ -138,6 +138,9 @@ export default function TugOfWarPage() {
           <Link to="/map" className="kospi-map-nav-link">
             🗺 KOSPI MAP
           </Link>
+          <Link to="/kosdaq-map" className="kospi-map-nav-link">
+            🟢 KOSDAQ MAP
+          </Link>
           <VisitorBadge />
         </div>
       </header>

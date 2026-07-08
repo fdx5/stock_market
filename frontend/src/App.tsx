@@ -10,6 +10,7 @@ import {
 import { syncTimeScales } from "./chartSync";
 import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPanel";
 import InvestorTrendPage from "./components/InvestorTrendPage";
+import KosdaqMapPage from "./components/KosdaqMapPage";
 import KospiMapPage from "./components/KospiMapPage";
 import MarketOverviewPanel from "./components/MarketOverviewPanel";
 import PredictionCard from "./components/PredictionCard";
@@ -29,6 +30,9 @@ export default function App() {
   }
   if (path === "/map") {
     return <KospiMapPage />;
+  }
+  if (path === "/kosdaq-map") {
+    return <KosdaqMapPage />;
   }
   if (path === "/battle") {
     return <TugOfWarPage />;
@@ -127,6 +131,9 @@ function Dashboard() {
             <h1 className="app-title">코스피 종합 정보</h1>
             <Link to="/map" className="kospi-map-nav-link">
               🗺 KOSPI MAP
+            </Link>
+            <Link to="/kosdaq-map" className="kospi-map-nav-link">
+              🟢 KOSDAQ MAP
             </Link>
             <Link to="/battle" className="kospi-map-nav-link">
               🔥 시총 줄다리기

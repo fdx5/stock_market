@@ -79,15 +79,15 @@ def _realtime_quotes_ttl(limit: int) -> int:
     return LONG_TAIL_TTL_SECONDS
 
 
-def _get_naver_page(page: int) -> list[dict]:
+def _get_naver_page(market: str, sosok: int, page: int) -> list[dict]:
     ttl = _naver_page_ttl(page)
-    return cache.get_or_set(f"kospi_naver_page:{page}", ttl, lambda: fetch_market_cap_page(page))
+    return cache.get_or_set(f"{market}_naver_page:{page}", ttl, lambda: fetch_market_cap_page(page, sosok))
 
 
-def _get_price_snapshot(pages: int) -> list[dict]:
+def _get_price_snapshot(market: str, sosok: int, pages: int) -> list[dict]:
     results: dict[int, list[dict]] = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_get_naver_page, page): page for page in range(1, pages + 1)}
+        futures = {pool.submit(_get_naver_page, market, sosok, page): page for page in range(1, pages + 1)}
         for future in as_completed(futures):
             page = futures[future]
             try:
@@ -124,7 +124,7 @@ def _get_etf_codes() -> set[str]:
 MAX_NAVER_PAGES = 45  # safety cap; the KOSPI board (incl. ETFs) tops out around here
 
 
-def get_kospi_map(limit: int = 500) -> list[dict]:
+def _get_market_map(market: str, sosok: int, limit: int) -> list[dict]:
     industry_by_code = _get_industry_map()
     etf_codes = _get_etf_codes()
 
@@ -133,7 +133,7 @@ def get_kospi_map(limit: int = 500) -> list[dict]:
     pages = min(MAX_NAVER_PAGES, max(1, -(-(limit * 2) // NAVER_PAGE_SIZE)))
     items: list[dict] = []
     while True:
-        snapshot = _get_price_snapshot(pages)
+        snapshot = _get_price_snapshot(market, sosok, pages)
         items = [
             {**row, "sector": _classify_sector(industry_by_code.get(row["code"]))}
             for row in snapshot
@@ -153,7 +153,7 @@ def get_kospi_map(limit: int = 500) -> list[dict]:
     # TTL window share one round-trip instead of each triggering their own.
     ttl = _realtime_quotes_ttl(limit)
     quotes = cache.get_or_set(
-        f"realtime_quotes:{limit}",
+        f"realtime_quotes:{market}:{limit}",
         ttl,
         lambda: get_stock_quotes_bulk([it["code"] for it in items]),
     )
@@ -166,3 +166,11 @@ def get_kospi_map(limit: int = 500) -> list[dict]:
             it["marcap"] = quote["marcap"]
 
     return items
+
+
+def get_kospi_map(limit: int = 500) -> list[dict]:
+    return _get_market_map("kospi", 0, limit)
+
+
+def get_kosdaq_map(limit: int = 200) -> list[dict]:
+    return _get_market_map("kosdaq", 1, limit)

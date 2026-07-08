@@ -41,10 +41,11 @@ def _parse_number(text: str) -> float:
     return float(cleaned) if cleaned else 0.0
 
 
-def fetch_market_cap_page(page: int) -> list[dict]:
-    """One page (50 rows) of the KOSPI market-cap ranking, live. Includes ETFs — callers
-    that need companies only should cross-reference StockListing('ETF/KR')."""
-    url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok=0&page={page}"
+def fetch_market_cap_page(page: int, sosok: int = 0) -> list[dict]:
+    """One page (50 rows) of the market-cap ranking, live — `sosok=0` for KOSPI,
+    `sosok=1` for KOSDAQ. Includes ETFs — callers that need companies only should
+    cross-reference StockListing('ETF/KR')."""
+    url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
     resp = _session.get(url, timeout=8)
     resp.raise_for_status()
     resp.encoding = "euc-kr"
