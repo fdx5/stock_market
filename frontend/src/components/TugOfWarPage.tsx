@@ -10,7 +10,7 @@ import VisitorBadge from "./VisitorBadge";
 const POLL_MS = 3000;
 const REFILL_MS = 9000;
 const FX_POLL_MS = 3000;
-const FX_POP_MS = 3600;
+const FX_POP_MS = 2500;
 
 const ENGLISH_NAME: Record<string, string> = {
   "005930": "SAMSUNG ELECTRONICS",

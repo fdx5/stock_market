@@ -39,12 +39,20 @@ def get_global_top20() -> list[dict]:
         # The rank cell also carries the "td-right" class, so market cap is the
         # *second* td-right cell in the row (rank, then market cap, then price).
         mcap_tds = [td for td in tr.select("td.td-right") if "rank-td" not in td.get("class", [])]
+        change_td = tr.select_one("td.rh-sm")
 
         try:
             rank = int(rank_td.get_text(strip=True))
             marcap_usd = float(mcap_tds[0]["data-sort"])
         except (ValueError, IndexError, KeyError, TypeError):
             continue
+
+        change_pct = None
+        if change_td and change_td.get("data-sort") is not None:
+            try:
+                change_pct = float(change_td["data-sort"]) / 100
+            except (ValueError, KeyError):
+                change_pct = None
 
         items.append(
             {
@@ -53,6 +61,7 @@ def get_global_top20() -> list[dict]:
                 "code": code_el.get_text(strip=True) if code_el else "",
                 "logo_url": BASE_URL + logo_el["src"] if logo_el and logo_el.get("src") else None,
                 "marcap_usd": marcap_usd,
+                "change_pct": change_pct,
                 "flag_url": BASE_URL + flag_el["src"] if flag_el and flag_el.get("src") else None,
                 "country": country_el.get_text(strip=True) if country_el else "",
             }

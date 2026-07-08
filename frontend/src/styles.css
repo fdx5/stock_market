@@ -1488,16 +1488,16 @@ body {
   position: absolute;
   right: 14px;
   bottom: 40px;
-  width: 5%;
+  width: 7.5%;
   border-radius: 8px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
   pointer-events: none;
-  animation: battle-fx-pop-anim 3.6s ease-out forwards;
+  animation: battle-fx-pop-anim 2.5s ease-out forwards;
 }
 
 @keyframes battle-fx-pop-anim {
   0% {
-    width: 5%;
+    width: 7.5%;
     opacity: 0;
     transform: translateY(0);
   }
@@ -1505,12 +1505,12 @@ body {
     opacity: 1;
   }
   70% {
-    width: 20%;
+    width: 30%;
     opacity: 1;
     transform: translateY(-14px);
   }
   100% {
-    width: 20%;
+    width: 30%;
     opacity: 0;
     transform: translateY(-26px);
   }
@@ -1519,13 +1519,13 @@ body {
 .battle-fx-pop-label {
   position: absolute;
   right: 14px;
-  bottom: 175px;
+  bottom: 245px;
   font-size: 15px;
   font-weight: 900;
   white-space: nowrap;
   pointer-events: none;
   text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 4px rgba(0, 0, 0, 0.9);
-  animation: battle-fx-pop-label-anim 3.6s ease-out forwards;
+  animation: battle-fx-pop-label-anim 2.5s ease-out forwards;
 }
 
 .battle-fx-pop-label.up {
@@ -1847,6 +1847,18 @@ body {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--series-yellow);
+  width: 66px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.global-top20-change {
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  width: 60px;
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .global-top20-flag {
@@ -1902,7 +1914,7 @@ body {
 
   .battle-fx-pop-label {
     right: 8px;
-    bottom: 90px;
+    bottom: 130px;
     font-size: 11px;
   }
 
@@ -1929,5 +1941,11 @@ body {
 
   .global-top20-marcap {
     font-size: 12px;
+    width: 56px;
+  }
+
+  .global-top20-change {
+    font-size: 11px;
+    width: 46px;
   }
 }

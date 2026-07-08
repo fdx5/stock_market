@@ -165,6 +165,7 @@ export interface GlobalTop20Item {
   code: string;
   logo_url: string | null;
   marcap_usd: number;
+  change_pct: number | null;
   flag_url: string | null;
   country: string;
 }
