@@ -9,11 +9,14 @@ from bs4 import BeautifulSoup
 
 from app.services.cache import cache
 
-# Prices/marcap/change refresh on a short cycle so the map tracks the live session;
-# the industry classification never changes intraday, so it's cached separately and
-# far less often. TTLCache naturally coalesces concurrent pollers within the window
-# into a single upstream fetch, so a 5s TTL doesn't mean 5s of extra load per visitor.
-TTL_PRICE_SECONDS = 5
+# Ranks 1-100 (by market cap) refresh often since that's what most of the map's visual
+# weight is; the long tail (101-500) matters far less moment-to-moment, so it refreshes
+# on a much slower cycle. This is cached per Naver page (not per request), so a cold
+# fetch only ever touches the pages whose TTL actually expired — most requests hit an
+# already-warm cache and return fast.
+TOP_TIER_PAGES = 5  # 5 pages of raw rows comfortably covers the top 100 names after ETF filtering
+TOP_TIER_TTL_SECONDS = 30
+LONG_TAIL_TTL_SECONDS = 600
 TTL_INDUSTRY_SECONDS = 24 * 3600
 
 # FinanceDataReader's StockListing('KOSPI') snapshot reflects the prior completed
@@ -123,10 +126,15 @@ def _fetch_naver_page(page: int) -> list[dict]:
     return rows
 
 
-def _load_price_snapshot(pages: int) -> list[dict]:
+def _get_naver_page(page: int) -> list[dict]:
+    ttl = TOP_TIER_TTL_SECONDS if page <= TOP_TIER_PAGES else LONG_TAIL_TTL_SECONDS
+    return cache.get_or_set(f"kospi_naver_page:{page}", ttl, lambda: _fetch_naver_page(page))
+
+
+def _get_price_snapshot(pages: int) -> list[dict]:
     results: dict[int, list[dict]] = {}
     with ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(_fetch_naver_page, page): page for page in range(1, pages + 1)}
+        futures = {pool.submit(_get_naver_page, page): page for page in range(1, pages + 1)}
         for future in as_completed(futures):
             page = futures[future]
             try:
@@ -138,11 +146,6 @@ def _load_price_snapshot(pages: int) -> list[dict]:
     for page in range(1, pages + 1):
         ordered.extend(results.get(page, []))
     return ordered
-
-
-def _get_price_snapshot(pages: int) -> list[dict]:
-    key = f"kospi_price_snapshot:{pages}"
-    return cache.get_or_set(key, TTL_PRICE_SECONDS, lambda: _load_price_snapshot(pages))
 
 
 def _load_industry_map() -> dict[str, str]:

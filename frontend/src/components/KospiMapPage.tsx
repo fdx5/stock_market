@@ -33,21 +33,34 @@ export default function KospiMapPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
-  const REFRESH_MS = 5000;
+  // Top 100 (by market cap) drives most of the map's visual weight and refreshes often;
+  // the long tail matters far less moment-to-moment, so it's fetched far less often too.
+  // Fetching top100 alone is much faster than the full 500 (fewer upstream pages), so it
+  // also doubles as the fast path for the very first paint after entering the page.
+  const TOP_TIER_LIMIT = 100;
+  const FULL_LIMIT = 500;
+  const TOP_TIER_REFRESH_MS = 30_000;
+  const FULL_REFRESH_MS = 10 * 60_000;
 
   useEffect(() => {
     let cancelled = false;
 
+    const mergeItems = (prev: MarketMapItem[], fresh: MarketMapItem[]): MarketMapItem[] => {
+      const byCode = new Map(prev.map((it) => [it.code, it]));
+      for (const item of fresh) byCode.set(item.code, item);
+      return Array.from(byCode.values());
+    };
+
     // Only the very first load shows the loading state — refreshes swap the data in
     // place so the map keeps rendering the previous snapshot instead of flashing empty.
-    const load = (isInitial: boolean) => {
+    const loadTopTier = (isInitial: boolean) => {
       if (isInitial) setLoading(true);
 
       api
-        .marketMap(500)
+        .marketMap(TOP_TIER_LIMIT)
         .then((res) => {
           if (cancelled) return;
-          setItems(res.items);
+          setItems((prev) => mergeItems(prev, res.items));
           setGeneratedAt(res.generated_at);
           setError(null);
         })
@@ -62,12 +75,29 @@ export default function KospiMapPage() {
         });
     };
 
-    load(true);
-    const interval = setInterval(() => load(false), REFRESH_MS);
+    const loadFullList = () => {
+      api
+        .marketMap(FULL_LIMIT)
+        .then((res) => {
+          if (cancelled) return;
+          setItems(res.items);
+          setGeneratedAt(res.generated_at);
+        })
+        .catch(() => {
+          // Long-tail refresh failing quietly keeps whatever is already on screen.
+        });
+    };
+
+    loadTopTier(true);
+    loadFullList();
+
+    const topInterval = setInterval(() => loadTopTier(false), TOP_TIER_REFRESH_MS);
+    const fullInterval = setInterval(loadFullList, FULL_REFRESH_MS);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      clearInterval(topInterval);
+      clearInterval(fullInterval);
     };
   }, []);
 
@@ -146,7 +176,7 @@ export default function KospiMapPage() {
               <h1 className="app-title">KOSPI MAP</h1>
               <span className="kospi-map-live-badge">
                 <span className="kospi-map-live-dot" />
-                실시간 (5초 갱신)
+                실시간 (상위 100위 30초 · 전체 10분 갱신)
               </span>
             </div>
             <p className="app-subtitle">
