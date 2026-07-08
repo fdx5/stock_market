@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import investor, market_map, search, stock, visitors
+from app.routers import battle, investor, market_map, search, stock, visitors
 from app.services.investor_summary import get_investor_summary
 from app.services.market_map import get_kospi_map
 
@@ -24,6 +24,7 @@ app.include_router(stock.router, prefix="/api/stock")
 app.include_router(market_map.router, prefix="/api/market")
 app.include_router(visitors.router, prefix="/api/visitors")
 app.include_router(investor.router, prefix="/api/investor")
+app.include_router(battle.router, prefix="/api/battle")
 
 
 @app.on_event("startup")

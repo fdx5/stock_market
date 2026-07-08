@@ -16,6 +16,7 @@ import PredictionCard from "./components/PredictionCard";
 import PriceChart, { PriceChartHandle } from "./components/PriceChart";
 import SearchBar from "./components/SearchBar";
 import SidePanel from "./components/SidePanel";
+import TugOfWarPage from "./components/TugOfWarPage";
 import VisitorBadge from "./components/VisitorBadge";
 import { Link, useRoute } from "./router";
 
@@ -27,6 +28,9 @@ export default function App() {
   }
   if (path === "/map") {
     return <KospiMapPage />;
+  }
+  if (path === "/battle") {
+    return <TugOfWarPage />;
   }
   return <Dashboard />;
 }
@@ -120,6 +124,9 @@ function Dashboard() {
             <h1 className="app-title">코스피 종합 정보</h1>
             <Link to="/map" className="kospi-map-nav-link">
               🗺 KOSPI MAP
+            </Link>
+            <Link to="/battle" className="kospi-map-nav-link">
+              🔥 시총 줄다리기
             </Link>
             <VisitorBadge />
           </div>

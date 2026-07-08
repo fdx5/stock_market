@@ -134,6 +134,15 @@ export interface InvestorTrendRecord {
   foreign_amount: number;
 }
 
+export interface BattleSide {
+  code: string;
+  name: string;
+  close: number;
+  change: number;
+  change_pct: number;
+  marcap: number;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -178,4 +187,5 @@ export const api = {
     getJSON<{ code: string; name: string; records: InvestorTrendRecord[] }>(
       `${BASE}/investor/${code}?days=${days}`
     ),
+  battle: () => getJSON<{ samsung: BattleSide; skhynix: BattleSide }>(`${BASE}/battle/status`),
 };
