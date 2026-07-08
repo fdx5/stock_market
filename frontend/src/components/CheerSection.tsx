@@ -7,7 +7,7 @@ const CELEBRATE_MS = 2800;
 
 const CELEBRATE_TEXT: Record<CheerSide, string> = {
   samsung: "감사합니다!!",
-  skhynix: "HMB메모리 화이팅!!",
+  skhynix: "HBM 나 너무 좋아",
 };
 
 const CELEBRATE_IMG: Record<CheerSide, string> = {
