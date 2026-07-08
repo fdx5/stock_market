@@ -617,6 +617,240 @@ body {
   color: var(--status-critical);
 }
 
+.app-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.kospi-map-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--series-blue);
+  border: 1px solid var(--series-blue);
+  border-radius: 999px;
+  padding: 5px 12px;
+  text-decoration: none;
+  background: color-mix(in srgb, var(--series-blue) 12%, transparent);
+}
+
+.kospi-map-nav-link:hover {
+  background: color-mix(in srgb, var(--series-blue) 22%, transparent);
+}
+
+.kospi-map-page .app-header {
+  margin-bottom: 16px;
+}
+
+.kospi-map-titlebar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.kospi-map-updated {
+  color: var(--text-muted);
+}
+
+.kospi-map-view-toggle {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.kospi-map-view-toggle button {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.kospi-map-view-toggle button.active {
+  background: var(--series-blue);
+  border-color: var(--series-blue);
+  color: white;
+}
+
+.kospi-map-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.kospi-map-legend-bar {
+  width: 160px;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(to right, var(--down-color), var(--baseline), var(--up-color));
+}
+
+.kospi-map-legend-scale {
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+.kospi-map-canvas {
+  position: relative;
+  width: 100%;
+  height: 760px;
+  padding: 0;
+  overflow: hidden;
+}
+
+.kospi-map-sector {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid var(--page-plane);
+  overflow: hidden;
+}
+
+.kospi-map-sector-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 7px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--gridline);
+  overflow: hidden;
+}
+
+.kospi-map-sector-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kospi-map-sector-avg {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.kospi-map-tile {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--page-plane);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1px;
+  padding: 2px 5px;
+  overflow: hidden;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  z-index: 1;
+}
+
+.kospi-map-tile:hover {
+  outline: 1px solid rgba(255, 255, 255, 0.7);
+  outline-offset: -1px;
+  z-index: 2;
+  filter: brightness(1.12);
+}
+
+.kospi-map-tile-name {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.kospi-map-tile-pct {
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.92;
+}
+
+.kospi-map-table-wrap {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.kospi-map-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.kospi-map-table th,
+.kospi-map-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--gridline);
+  white-space: nowrap;
+}
+
+.kospi-map-table thead th {
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.kospi-map-table tbody tr {
+  cursor: pointer;
+}
+
+.kospi-map-table tbody tr:hover {
+  background: var(--page-plane);
+}
+
+.kospi-map-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.kospi-map-table-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.kospi-map-tooltip {
+  position: fixed;
+  z-index: 50;
+  pointer-events: none;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+  min-width: 190px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.kospi-map-tooltip-title {
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.kospi-map-tooltip-row {
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 .empty-state {
   color: var(--text-muted);
   font-size: 13px;
@@ -703,5 +937,24 @@ body {
 
   .accuracy-value {
     font-size: 22px;
+  }
+
+  .kospi-map-canvas {
+    /* Narrower width means the squarified layout needs much more vertical
+       room to keep individual tiles legible instead of hairline slivers. */
+    height: 1400px;
+  }
+
+  .kospi-map-titlebar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .kospi-map-legend-bar {
+    width: 110px;
+  }
+
+  .kospi-map-tooltip {
+    max-width: calc(100vw - 32px);
   }
 }

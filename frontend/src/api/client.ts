@@ -86,6 +86,16 @@ export interface PredictionHistoryRecord {
   correct: boolean | null;
 }
 
+export interface MarketMapItem {
+  code: string;
+  name: string;
+  sector: string;
+  marcap: number;
+  close: number;
+  change: number;
+  change_pct: number;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -114,5 +124,9 @@ export const api = {
   predictionHistory: (code: string) =>
     getJSON<{ code: string; name: string; records: PredictionHistoryRecord[] }>(
       `${BASE}/predictions/history/${code}`
+    ),
+  marketMap: (limit = 500) =>
+    getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
+      `${BASE}/market/map?limit=${limit}`
     ),
 };
