@@ -143,6 +143,12 @@ export interface BattleSide {
   marcap: number;
 }
 
+export interface ExchangeRate {
+  rate: number;
+  change: number;
+  change_pct: number;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -188,4 +194,5 @@ export const api = {
       `${BASE}/investor/${code}?days=${days}`
     ),
   battle: () => getJSON<{ samsung: BattleSide; skhynix: BattleSide }>(`${BASE}/battle/status`),
+  exchangeRate: () => getJSON<ExchangeRate>(`${BASE}/battle/exchange`),
 };

@@ -1366,6 +1366,14 @@ body {
   text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 4px rgba(0, 0, 0, 0.9);
 }
 
+.battle-vs-label-row.samsung-color {
+  color: #4ea1ff;
+}
+
+.battle-vs-label-row.skhynix-color {
+  color: #ff5a5a;
+}
+
 .battle-vs-name {
   font-size: 12px;
   font-weight: 700;
@@ -1394,6 +1402,10 @@ body {
   bottom: 0;
   background: linear-gradient(90deg, #c98500, #ffd166);
   transition: width 1.2s ease;
+}
+
+.battle-vs-bar-fill.reset {
+  transition: none;
 }
 
 .battle-vs-bar-fill.left {
@@ -1460,6 +1472,50 @@ body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
+.battle-fx-rate {
+  position: absolute;
+  right: 14px;
+  bottom: 16px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #fff;
+  white-space: nowrap;
+  pointer-events: none;
+  text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 0 2px 4px rgba(0, 0, 0, 0.9);
+}
+
+.battle-fx-pop {
+  position: absolute;
+  right: 14px;
+  bottom: 40px;
+  width: 5%;
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  animation: battle-fx-pop-anim 1.6s ease-out forwards;
+}
+
+@keyframes battle-fx-pop-anim {
+  0% {
+    width: 5%;
+    opacity: 0;
+    transform: translateY(0);
+  }
+  15% {
+    opacity: 1;
+  }
+  70% {
+    width: 20%;
+    opacity: 1;
+    transform: translateY(-14px);
+  }
+  100% {
+    width: 20%;
+    opacity: 0;
+    transform: translateY(-26px);
+  }
+}
+
 .rolling-value {
   display: inline-flex;
   transition: color 0.5s ease 0.3s;
@@ -1522,5 +1578,16 @@ body {
   .battle-rank2-info {
     font-size: 12px;
     bottom: 40px;
+  }
+
+  .battle-fx-rate {
+    font-size: 10px;
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .battle-fx-pop {
+    right: 8px;
+    bottom: 22px;
   }
 }

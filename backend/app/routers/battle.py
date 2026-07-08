@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from app.services.battle import get_battle
+from app.services.battle import get_battle, get_exchange_rate
 
 router = APIRouter()
 
@@ -11,3 +11,11 @@ def battle_status():
     if not data["samsung"] or not data["skhynix"]:
         raise HTTPException(status_code=502, detail="시가총액 데이터를 가져오지 못했습니다.")
     return data
+
+
+@router.get("/exchange")
+def battle_exchange():
+    rate = get_exchange_rate()
+    if not rate:
+        raise HTTPException(status_code=502, detail="환율 데이터를 가져오지 못했습니다.")
+    return rate

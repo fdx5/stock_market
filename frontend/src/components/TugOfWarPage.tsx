@@ -1,10 +1,13 @@
-import { useEffect, useState } from "react";
-import { BattleSide, api } from "../api/client";
+import { useEffect, useRef, useState } from "react";
+import { BattleSide, ExchangeRate, api } from "../api/client";
 import { Link } from "../router";
 import RollingValue from "./RollingValue";
 import VisitorBadge from "./VisitorBadge";
 
 const POLL_MS = 3000;
+const REFILL_MS = 9000;
+const FX_POLL_MS = 5000;
+const FX_POP_MS = 1600;
 
 const ENGLISH_NAME: Record<string, string> = {
   "005930": "SAMSUNG ELECTRONICS",
@@ -29,6 +32,13 @@ export default function TugOfWarPage() {
   const [samsung, setSamsung] = useState<BattleSide | null>(null);
   const [skhynix, setSkhynix] = useState<BattleSide | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [barsAtZero, setBarsAtZero] = useState(false);
+
+  const [fx, setFx] = useState<ExchangeRate | null>(null);
+  const [fxDirection, setFxDirection] = useState<"up" | "down" | null>(null);
+  const [fxPop, setFxPop] = useState<"up" | "down" | null>(null);
+  const [fxPopNonce, setFxPopNonce] = useState(0);
+  const prevFxRateRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,6 +60,51 @@ export default function TugOfWarPage() {
 
     poll();
     const id = window.setInterval(poll, POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  // Every 3rd data refresh (9s), replay the gauge fill from 0 up to the current
+  // ratio instead of just holding steady, so the "battle" feels continuously live.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setBarsAtZero(true);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setBarsAtZero(false));
+      });
+    }, REFILL_MS);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const poll = () => {
+      api
+        .exchangeRate()
+        .then((res) => {
+          if (cancelled) return;
+          const prev = prevFxRateRef.current;
+          if (prev !== null && res.rate !== prev) {
+            const dir = res.rate > prev ? "up" : "down";
+            setFxDirection(dir);
+            setFxPop(dir);
+            setFxPopNonce((n) => n + 1);
+            window.setTimeout(() => setFxPop(null), FX_POP_MS);
+          }
+          prevFxRateRef.current = res.rate;
+          setFx(res);
+        })
+        .catch(() => {
+          // Exchange rate is a nice-to-have overlay — leave it hidden on failure
+          // rather than surfacing another error state on top of the battle one.
+        });
+    };
+
+    poll();
+    const id = window.setInterval(poll, FX_POLL_MS);
     return () => {
       cancelled = true;
       window.clearInterval(id);
@@ -89,14 +144,17 @@ export default function TugOfWarPage() {
 
             <div className="battle-vs-overlay">
               <div className="battle-vs-side left">
-                <div className="battle-vs-label-row">
+                <div className="battle-vs-label-row samsung-color">
                   <span className="battle-vs-name">{samsung.name}</span>
                   <span className="battle-vs-pct">
                     <RollingValue value={samsungPct} text={`${samsungPct.toFixed(1)}%`} />
                   </span>
                 </div>
                 <div className="battle-vs-bar-track">
-                  <div className="battle-vs-bar-fill left" style={{ width: `${samsungPct}%` }} />
+                  <div
+                    className={`battle-vs-bar-fill left ${barsAtZero ? "reset" : ""}`}
+                    style={{ width: `${barsAtZero ? 0 : samsungPct}%` }}
+                  />
                 </div>
                 <div className="battle-vs-marcap">
                   <RollingValue value={samsung.marcap} text={formatMarcap(samsung.marcap)} />
@@ -108,14 +166,17 @@ export default function TugOfWarPage() {
               </div>
 
               <div className="battle-vs-side right">
-                <div className="battle-vs-label-row">
+                <div className="battle-vs-label-row skhynix-color">
                   <span className="battle-vs-pct">
                     <RollingValue value={skhynixPct} text={`${skhynixPct.toFixed(1)}%`} />
                   </span>
                   <span className="battle-vs-name">{skhynix.name}</span>
                 </div>
                 <div className="battle-vs-bar-track">
-                  <div className="battle-vs-bar-fill right" style={{ width: `${skhynixPct}%` }} />
+                  <div
+                    className={`battle-vs-bar-fill right ${barsAtZero ? "reset" : ""}`}
+                    style={{ width: `${barsAtZero ? 0 : skhynixPct}%` }}
+                  />
                 </div>
                 <div className="battle-vs-marcap">
                   <RollingValue value={skhynix.marcap} text={formatMarcap(skhynix.marcap)} />
@@ -134,6 +195,19 @@ export default function TugOfWarPage() {
               2위 {trailing.name} · <RollingValue value={diffMarcap} text={`${diffMarcap.toFixed(1)}조`} /> 차이 (
               <RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)
             </div>
+
+            {fx && (
+              <>
+                {fxPop && <img key={fxPopNonce} src={`/img/${fxPop}.jpg`} className={`battle-fx-pop ${fxPop}`} alt="" />}
+                <div
+                  className={`battle-fx-rate ${
+                    fxDirection === "up" ? "change-up" : fxDirection === "down" ? "change-down" : ""
+                  }`}
+                >
+                  USD/KRW <RollingValue value={fx.rate} text={fx.rate.toFixed(1)} />
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
