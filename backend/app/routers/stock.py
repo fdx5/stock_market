@@ -97,8 +97,8 @@ def predict(code: str):
 @router.get("/{code}/overview")
 def overview(code: str):
     name = _resolve_name(code)
-    lines = company_overview_fetcher.get_company_overview(code)
-    return {"code": code, "name": name, "overview": lines}
+    info = company_overview_fetcher.get_company_info(code)
+    return {"code": code, "name": name, **info}
 
 
 @router.get("/{code}/news")

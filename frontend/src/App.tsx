@@ -48,6 +48,14 @@ function formatMarcapChange(change: number, lang: "ko" | "en"): string {
   return `${sign}${(Math.abs(change) / 1_000_000_000_000).toFixed(1)}${trillionSuffix(lang)}`;
 }
 
+function formatPerEstimate(per: string, lang: "ko" | "en"): string {
+  return lang === "en" ? `${per}x` : `${per}배`;
+}
+
+function formatShares(shares: number, lang: "ko" | "en"): string {
+  return lang === "en" ? `${shares.toLocaleString()} shares` : `${shares.toLocaleString()}주`;
+}
+
 function Dashboard() {
   const { lang } = useLanguage();
   const t = useT();
@@ -62,6 +70,8 @@ function Dashboard() {
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [overview, setOverview] = useState<string[]>([]);
+  const [perEstimate, setPerEstimate] = useState<string | null>(null);
+  const [sharesOutstanding, setSharesOutstanding] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,6 +92,8 @@ function Dashboard() {
         setIndicatorPoints(indicatorsRes.points);
         setNews(newsRes.items);
         setOverview(overviewRes.overview);
+        setPerEstimate(overviewRes.per_estimate);
+        setSharesOutstanding(overviewRes.shares_outstanding);
 
         const scrollToResult = () => {
           stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -99,6 +111,8 @@ function Dashboard() {
         setIndicatorPoints([]);
         setNews([]);
         setOverview([]);
+        setPerEstimate(null);
+        setSharesOutstanding(null);
       })
       .finally(() => setLoading(false));
 
@@ -229,6 +243,14 @@ function Dashboard() {
                       {t("시가총액")} {formatMarcap(marcap, lang)}
                       {wonSuffix(lang)} ({formatMarcapChange(marcapChange, lang)}
                       {wonSuffix(lang)})
+                    </span>
+                  )}
+                  {(perEstimate || sharesOutstanding !== null) && (
+                    <span className="fundamentals">
+                      {perEstimate && `${t("추정PER")} ${formatPerEstimate(perEstimate, lang)}`}
+                      {perEstimate && sharesOutstanding !== null && " · "}
+                      {sharesOutstanding !== null &&
+                        `${t("상장주식수")} ${formatShares(sharesOutstanding, lang)}`}
                     </span>
                   )}
                   {translatedOverview.length > 0 && (

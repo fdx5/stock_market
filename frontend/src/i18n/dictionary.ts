@@ -13,6 +13,10 @@ export const DICTIONARY: Record<string, string> = {
   "SK하이닉스": "SK Hynix",
   "닫기": "Close",
 
+  // Dashboard stock header
+  "추정PER": "Est. PER",
+  "상장주식수": "Shares Outstanding",
+
   // Battle page (TugOfWarPage)
   "시총 줄다리기": "Market Cap Tug-of-War",
   "시총 줄다리기 (삼성전자 VS SK하이닉스)": "Market Cap Tug-of-War (Samsung Electronics VS SK Hynix)",

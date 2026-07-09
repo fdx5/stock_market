@@ -65,6 +65,8 @@ export interface CompanyOverview {
   code: string;
   name: string;
   overview: string[];
+  per_estimate: string | null;
+  shares_outstanding: number | null;
 }
 
 export interface MarketMapItem {
