@@ -76,6 +76,7 @@ export interface MarketTickerItem {
   change: number;
   change_pct: number;
   points: number[];
+  currency: string;
 }
 
 export interface MarketMapItem {

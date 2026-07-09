@@ -53,6 +53,7 @@ def _fetch_one(entry: dict) -> dict | None:
             "change": round(change, 4),
             "change_pct": round(change_pct, 2),
             "points": points,
+            "currency": meta.get("currency") or "USD",
         }
     except Exception:
         return None
