@@ -39,6 +39,7 @@ export default function App() {
 }
 
 const QUOTE_POLL_MS = 10_000;
+const DEFAULT_STOCK_CODE = "005930"; // Samsung Electronics
 
 function formatMarcap(marcap: number, lang: "ko" | "en"): string {
   return `${(marcap / 1_000_000_000_000).toFixed(1)}${trillionSuffix(lang)}`;
@@ -63,8 +64,10 @@ function Dashboard() {
   useDocumentTitle("K-Stock Hub");
 
   const [selected, setSelected] = useState<StockSearchResult | null>(() => {
-    const code = new URLSearchParams(window.location.search).get("code");
-    return code ? { code, name: "", market: "KOSPI" } : null;
+    // No `?code=` in the URL means a plain landing on the dashboard — default
+    // to Samsung Electronics instead of showing the empty "search a stock" state.
+    const code = new URLSearchParams(window.location.search).get("code") ?? DEFAULT_STOCK_CODE;
+    return { code, name: "", market: "KOSPI" };
   });
   const [summary, setSummary] = useState<StockSummary | null>(null);
   const [liveQuote, setLiveQuote] = useState<StockQuote | null>(null);

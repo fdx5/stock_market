@@ -41,6 +41,9 @@ body {
   max-width: 1280px;
   margin: 0 auto;
   padding: 24px 20px 64px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .app-header {
@@ -2322,7 +2325,10 @@ a.app-brand:hover .app-logo-wide {
 }
 
 .app-footer {
-  margin-top: 40px;
+  /* auto pushes the footer to the bottom of the (flex-column) .app container —
+     flush with the viewport bottom when content is short, and flowing after
+     the content normally (with this same minimum gap) once it overflows. */
+  margin-top: auto;
   padding-top: 20px;
   border-top: 1px solid var(--border);
   display: flex;
@@ -2396,10 +2402,6 @@ a.app-brand:hover .app-logo-wide {
 }
 
 @media (max-width: 640px) {
-  .app-footer {
-    margin-top: 28px;
-  }
-
   .app-footer-top {
     flex-direction: column;
     align-items: flex-start;
