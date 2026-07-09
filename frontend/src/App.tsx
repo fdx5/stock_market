@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { IndicatorPoint, NewsItem, StockQuote, StockSearchResult, StockSummary, api } from "./api/client";
 import { syncTimeScales } from "./chartSync";
+import Footer from "./components/Footer";
 import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPanel";
 import InvestorTrendPage from "./components/InvestorTrendPage";
 import KosdaqMapPage from "./components/KosdaqMapPage";
@@ -284,6 +285,8 @@ function Dashboard() {
           <SidePanel code={summary.code} name={summaryName} news={news} />
         </div>
       )}
+
+      <Footer />
     </div>
   );
 }

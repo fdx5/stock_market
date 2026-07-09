@@ -6,6 +6,7 @@ import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import CheerSection from "./CheerSection";
+import Footer from "./Footer";
 import GlobalTop20 from "./GlobalTop20";
 import LanguageToggle from "./LanguageToggle";
 import RollingValue from "./RollingValue";
@@ -140,20 +141,24 @@ export default function TugOfWarPage() {
   return (
     <div className="app battle-page">
       <header className="app-header">
-        <Link to="/" className="back-link rainbow-link">
-          ← {t("메인으로")}
-        </Link>
         <div className="app-title-row">
-          <h1 className="app-title">{t("시총 줄다리기 (삼성전자 VS SK하이닉스)")}</h1>
+          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+            <img src="/img/kstock-logo.png" alt="K-Stock Hub" className="app-logo-wide" />
+          </Link>
+          <div className="app-header-meta">
+            <LanguageToggle />
+            <VisitorBadge />
+          </div>
+        </div>
+        <div className="app-nav-row">
           <Link to="/map" className="kospi-map-nav-link">
             🗺 KOSPI MAP
           </Link>
           <Link to="/kosdaq-map" className="kospi-map-nav-link">
             🟢 KOSDAQ MAP
           </Link>
-          <LanguageToggle />
-          <VisitorBadge />
         </div>
+        <h1 className="app-title">{t("시총 줄다리기 (삼성전자 VS SK하이닉스)")}</h1>
       </header>
 
       {error && <div className="error-state">{t(error)}</div>}
@@ -254,6 +259,8 @@ export default function TugOfWarPage() {
           always finishes painting before this section starts its own fetch — otherwise
           this list (a single fast request) could pop in before the arena above it. */}
       {samsung && skhynix && <GlobalTop20 />}
+
+      <Footer />
     </div>
   );
 }

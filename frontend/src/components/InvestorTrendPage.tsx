@@ -3,6 +3,7 @@ import { InvestorTrendRecord, api } from "../api/client";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
+import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 
 function formatAmount(value: number, lang: Lang): string {
@@ -125,6 +126,8 @@ export default function InvestorTrendPage({ code }: { code: string }) {
           )}
         </>
       )}
+
+      <Footer />
     </div>
   );
 }

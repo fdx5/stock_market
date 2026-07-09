@@ -6,6 +6,7 @@ import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { Link, navigate } from "../router";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
+import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import MarketTickerBar from "./MarketTickerBar";
 import VisitorBadge from "./VisitorBadge";
@@ -231,9 +232,22 @@ export default function MarketMapPage({
   return (
     <div className="app kospi-map-page">
       <header className="app-header">
-        <Link to="/" className="back-link rainbow-link">
-          ← {t("메인으로")}
-        </Link>
+        <div className="app-title-row">
+          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+            <img src="/img/kstock-logo.png" alt="K-Stock Hub" className="app-logo-wide" />
+          </Link>
+          <div className="app-header-meta">
+            <LanguageToggle />
+            <VisitorBadge />
+          </div>
+        </div>
+        <div className="app-nav-row">
+          {navLinks.map((link) => (
+            <Link key={link.to} to={link.to} className="kospi-map-nav-link">
+              {t(link.label)}
+            </Link>
+          ))}
+        </div>
         <div className="kospi-map-titlebar">
           <div>
             <div className="app-title-row">
@@ -242,13 +256,6 @@ export default function MarketMapPage({
                 <span className="kospi-map-live-dot" />
                 {liveBadgeText}
               </span>
-              {navLinks.map((link) => (
-                <Link key={link.to} to={link.to} className="kospi-map-nav-link">
-                  {t(link.label)}
-                </Link>
-              ))}
-              <LanguageToggle />
-              <VisitorBadge />
             </div>
             <p className="app-subtitle">
               {t(subtitlePrefix)} {t("종목을 업종별로 묶어 시가총액 크기, 등락률을 한눈에 보여줍니다. 타일을 클릭하면 해당 종목 상세로 이동합니다.")}
@@ -410,6 +417,8 @@ export default function MarketMapPage({
           </div>
         </div>
       )}
+
+      <Footer />
     </div>
   );
 }

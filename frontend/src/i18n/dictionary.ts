@@ -6,6 +6,11 @@
 export const DICTIONARY: Record<string, string> = {
   // Shared
   "메인으로": "Main",
+  "홈": "Home",
+  "실시간 시세, 시가총액 맵, 시총 대결까지 한눈에 보는 국내 증시 허브.":
+    "Your hub for Korean stocks — live quotes, market-cap maps, and the market-cap battle, all in one place.",
+  "본 서비스에서 제공하는 시세 및 데이터는 투자 참고용이며, 실제 매매 판단의 근거로 사용할 수 없습니다. 모든 투자 판단과 책임은 이용자 본인에게 있습니다.":
+    "The quotes and data provided by this service are for reference only and must not be used as the basis for actual trading decisions. All investment decisions and responsibility rest with the user.",
   "데이터를 불러오는 중...": "Loading...",
   "불러오는 중...": "Loading...",
   "데이터를 불러오지 못했습니다.": "Failed to load data.",
