@@ -3,15 +3,13 @@ import { MarketTickerItem, api } from "../api/client";
 
 const TICKER_POLL_MS = 3_000;
 
-// Circular monogram badges (no external icon assets needed) — brand-ish colors per
-// instrument so the strip stays scannable at a glance even mid-scroll.
-const ICONS: Record<string, { glyph: string; bg: string }> = {
-  "KRW=X": { glyph: "$", bg: "#2f8f4e" },
-  "CL=F": { glyph: "🛢", bg: "#3a2a1a" },
-  "BTC-USD": { glyph: "₿", bg: "#f7931a" },
-  "ETH-USD": { glyph: "Ξ", bg: "#627eea" },
-  "GC=F": { glyph: "Au", bg: "#b8860b" },
-  "SI=F": { glyph: "Ag", bg: "#8a94a6" },
+const ICONS: Record<string, string> = {
+  "KRW=X": "/img/ticker/usdkrw.png",
+  "CL=F": "/img/ticker/oil.png",
+  "BTC-USD": "/img/ticker/btc.png",
+  "ETH-USD": "/img/ticker/eth.png",
+  "GC=F": "/img/ticker/gold.png",
+  "SI=F": "/img/ticker/silver.png",
 };
 
 function formatPrice(item: MarketTickerItem): string {
@@ -22,14 +20,10 @@ function formatPrice(item: MarketTickerItem): string {
   return `${value} ${item.currency}`;
 }
 
-function TickerIcon({ symbol }: { symbol: string }) {
-  const icon = ICONS[symbol];
-  if (!icon) return null;
-  return (
-    <span className="ticker-icon" style={{ background: icon.bg }}>
-      {icon.glyph}
-    </span>
-  );
+function TickerIcon({ symbol, label }: { symbol: string; label: string }) {
+  const src = ICONS[symbol];
+  if (!src) return null;
+  return <img src={src} alt="" className="ticker-icon" title={label} />;
 }
 
 function Sparkline({ points }: { points: number[] }) {
@@ -56,7 +50,7 @@ function TickerCard({ item }: { item: MarketTickerItem }) {
   const up = item.change >= 0;
   return (
     <div className="ticker-card">
-      <TickerIcon symbol={item.symbol} />
+      <TickerIcon symbol={item.symbol} label={item.label} />
       <div className="ticker-card-label">{item.label}</div>
       <Sparkline points={item.points} />
       <div className="ticker-card-price">
