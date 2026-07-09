@@ -14,6 +14,7 @@ TTL_TRANSLATION_SECONDS = 7 * 24 * 3600
 # override those specific known cases rather than trying to audit the whole universe.
 _KNOWN_OVERRIDES: dict[str, str] = {
     "기아": "Kia Corporation",
+    "카카오": "Kakao Corp",
 }
 
 

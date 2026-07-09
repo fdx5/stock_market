@@ -12,21 +12,40 @@ interface LanguageContextValue {
 
 const LanguageContext = createContext<LanguageContextValue>({ lang: "ko", setLang: () => {} });
 
-function getInitialLang(): Lang {
+function getStoredLang(): Lang | null {
   const stored = localStorage.getItem(STORAGE_KEY);
-  return stored === "en" ? "en" : "ko";
+  return stored === "en" || stored === "ko" ? stored : null;
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(getInitialLang);
+  const [lang, setLangState] = useState<Lang>(() => getStoredLang() ?? "ko");
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, lang);
-  }, [lang]);
+    // Only worth auto-detecting when this visitor has never explicitly picked KO/EN —
+    // an explicit choice (made via setLang below, which persists it) always wins over
+    // an IP-based guess, including on later visits.
+    if (getStoredLang()) return;
 
-  return (
-    <LanguageContext.Provider value={{ lang, setLang: setLangState }}>{children}</LanguageContext.Provider>
-  );
+    fetch("/api/geo/country")
+      .then((res) => res.json())
+      .then((data: { country: string | null }) => {
+        // Default to English for any non-Korean IP; still only a *default* — the
+        // toggle remains fully available and an explicit click overrides it for good.
+        if (data.country && data.country !== "KR") {
+          setLangState("en");
+        }
+      })
+      .catch(() => {
+        // Geo lookup failing just keeps the Korean default.
+      });
+  }, []);
+
+  const setLang = (l: Lang) => {
+    setLangState(l);
+    localStorage.setItem(STORAGE_KEY, l);
+  };
+
+  return <LanguageContext.Provider value={{ lang, setLang }}>{children}</LanguageContext.Provider>;
 }
 
 export function useLanguage(): LanguageContextValue {

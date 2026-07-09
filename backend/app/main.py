@@ -6,7 +6,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.routers import battle, investor, market_map, search, stock, translate, visitors
+from app.data.universe import warm_english_names
+from app.routers import battle, geo, investor, market_map, search, stock, translate, visitors
 from app.services.investor_summary import get_investor_summary
 from app.services.market_map import get_kospi_map
 
@@ -26,6 +27,7 @@ app.include_router(visitors.router, prefix="/api/visitors")
 app.include_router(investor.router, prefix="/api/investor")
 app.include_router(battle.router, prefix="/api/battle")
 app.include_router(translate.router, prefix="/api")
+app.include_router(geo.router, prefix="/api")
 
 
 @app.on_event("startup")
@@ -38,6 +40,14 @@ def _warm_kospi_map() -> None:
 @app.on_event("startup")
 def _warm_investor_summary() -> None:
     threading.Thread(target=get_investor_summary, daemon=True).start()
+
+
+@app.on_event("startup")
+def _warm_english_names() -> None:
+    # English-name search matching needs ~2,700 names translated up front; kick that
+    # off at boot so it's ready well before most real searches, instead of the first
+    # search after a cold cache silently falling back to Korean-only matching.
+    threading.Thread(target=warm_english_names, daemon=True).start()
 
 
 @app.get("/api/health")

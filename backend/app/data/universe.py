@@ -1,9 +1,15 @@
+import threading
+
 import FinanceDataReader as fdr
 import pandas as pd
 
 from app.services.cache import cache
+from app.services.translation import translate_batch_to_english
 
 TTL_UNIVERSE_SECONDS = 24 * 3600
+
+ENGLISH_NAMES_CACHE_KEY = "universe_english_names"
+TTL_ENGLISH_NAMES_SECONDS = 24 * 3600
 
 
 def _load_market(market: str) -> pd.DataFrame:
@@ -39,7 +45,34 @@ def get_top_market_cap(limit: int = 100) -> list[dict]:
     return [{"code": str(row["Code"]), "name": str(row["Name"])} for _, row in df.iterrows()]
 
 
-def search_stocks(query: str, limit: int = 10) -> list[dict]:
+def _load_english_names() -> dict[str, str]:
+    names = sorted(set(get_universe()["Name"].astype(str)))
+    translations = translate_batch_to_english(names)
+    return dict(zip(names, translations))
+
+
+def warm_english_names() -> None:
+    """Blocking; meant to be run on a background thread (see main.py's startup hook)
+    so the ~2,700-name translate batch doesn't hold up app startup."""
+    cache.get_or_set(ENGLISH_NAMES_CACHE_KEY, TTL_ENGLISH_NAMES_SECONDS, _load_english_names)
+
+
+def _get_english_names_if_ready() -> dict[str, str] | None:
+    """Non-blocking: an English search index (~2,700 names through the live
+    translator) takes tens of seconds to build, far too slow for a live
+    search-as-you-type request. Reads whatever's cached and, if nothing is (cold
+    start or the 24h TTL just lapsed), kicks off a background rebuild so a search a
+    little later benefits — meanwhile this and any concurrent search just falls back
+    to Korean name/code matching instead of blocking on it."""
+    cached = cache.peek(ENGLISH_NAMES_CACHE_KEY)
+    if cached is not None:
+        return cached
+
+    threading.Thread(target=warm_english_names, daemon=True).start()
+    return None
+
+
+def search_stocks(query: str, limit: int = 30) -> list[dict]:
     query = query.strip()
     if not query:
         return []
@@ -48,6 +81,16 @@ def search_stocks(query: str, limit: int = 10) -> list[dict]:
     mask = df["Code"].astype(str).str.contains(query, case=False, na=False) | df[
         "Name"
     ].astype(str).str.contains(query, case=False, na=False)
+
+    english_names = _get_english_names_if_ready()
+    if english_names:
+        query_lower = query.lower()
+        matched_korean_names = {
+            korean for korean, english in english_names.items() if query_lower in english.lower()
+        }
+        if matched_korean_names:
+            mask = mask | df["Name"].isin(matched_korean_names)
+
     matched = df[mask].head(limit)
 
     return [

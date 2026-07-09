@@ -23,5 +23,16 @@ class TTLCache:
             self._store[key] = (now + ttl_seconds, value)
         return value
 
+    def peek(self, key: str) -> Any | None:
+        """Non-blocking read: returns the cached value if present and unexpired,
+        otherwise None — never calls a factory. For callers on a latency-sensitive
+        path (e.g. live search-as-you-type) that must not block on a slow rebuild."""
+        now = time.time()
+        with self._lock:
+            cached = self._store.get(key)
+            if cached is not None and cached[0] > now:
+                return cached[1]
+        return None
+
 
 cache = TTLCache()
