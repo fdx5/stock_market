@@ -57,8 +57,8 @@ def global_top20():
 
 
 @router.get("/global-top20/detail")
-def global_top20_detail(path: str = Query(..., min_length=1, max_length=200)):
-    detail = get_company_detail_cached(path)
+def global_top20_detail(path: str = Query(..., min_length=1, max_length=200), lang: str = Query("ko")):
+    detail = get_company_detail_cached(path, lang)
     if not detail:
         raise HTTPException(status_code=502, detail="회사 정보를 가져오지 못했습니다.")
     return detail

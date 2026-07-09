@@ -1,16 +1,20 @@
 import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api, StockSearchResult } from "../api/client";
+import { useT } from "../i18n/LanguageContext";
+import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 
 interface Props {
   onSelect: (stock: StockSearchResult) => void;
 }
 
 export default function SearchBar({ onSelect }: Props) {
+  const t = useT();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<StockSearchResult[]>([]);
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const translatedNames = useTranslatedTexts(results.map((r) => r.name));
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -70,7 +74,7 @@ export default function SearchBar({ onSelect }: Props) {
     <div className="search-wrap" ref={containerRef}>
       <input
         className="search-input"
-        placeholder="종목명 또는 코드 검색 (예: 삼성전자, 005930)"
+        placeholder={t("종목명 또는 코드 검색 (예: 삼성전자, 005930)")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -84,7 +88,7 @@ export default function SearchBar({ onSelect }: Props) {
               className={`search-option ${idx === activeIndex ? "active" : ""}`}
               onMouseDown={() => choose(r)}
             >
-              <span>{r.name}</span>
+              <span>{translatedNames[idx] ?? r.name}</span>
               <span className="code">{r.code}</span>
             </div>
           ))}

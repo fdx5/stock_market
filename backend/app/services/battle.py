@@ -1,6 +1,7 @@
 from app.data.exchange_fetcher import get_usd_krw
 from app.data.global_marketcap_fetcher import get_company_detail, get_global_top20, get_live_quotes_bulk
 from app.data.stock_quote_fetcher import get_stock_quote
+from app.data.translate_fetcher import translate_to_korean
 from app.services.cache import cache
 
 SAMSUNG_CODE = "005930"
@@ -59,7 +60,21 @@ def get_global_top20_cached() -> list[dict]:
     return result
 
 
-def get_company_detail_cached(detail_path: str) -> dict | None:
-    return cache.get_or_set(
+def get_company_detail_cached(detail_path: str, lang: str = "ko") -> dict | None:
+    """companiesmarketcap.com's description is already in English, so English callers
+    get it as scraped; Korean callers get a translated copy, cached separately so the
+    same page's translation isn't re-requested from Google on every popup open."""
+    raw = cache.get_or_set(
         f"company_detail:{detail_path}", TTL_COMPANY_DETAIL_SECONDS, lambda: get_company_detail(detail_path)
     )
+    if not raw:
+        return None
+    if lang != "ko":
+        return raw
+
+    description_ko = cache.get_or_set(
+        f"company_detail_ko:{detail_path}",
+        TTL_COMPANY_DETAIL_SECONDS,
+        lambda: translate_to_korean(raw["description"]),
+    )
+    return {"description": description_ko}

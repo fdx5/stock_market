@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MarketMapItem } from "../api/client";
+import { wonSuffix } from "../i18n/format";
+import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
+import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { Link, navigate } from "../router";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
+import LanguageToggle from "./LanguageToggle";
 import VisitorBadge from "./VisitorBadge";
 
 interface SectorZone {
@@ -13,8 +17,12 @@ interface SectorZone {
   tiles: (TreemapRect & { item: MarketMapItem })[];
 }
 
-function formatMarcap(marcap: number): string {
+function formatMarcap(marcap: number, lang: Lang): string {
   const eok = marcap / 100_000_000;
+  if (lang === "en") {
+    if (eok >= 10_000) return `${(eok / 10_000).toFixed(1)}T KRW`;
+    return `${(eok / 10).toFixed(1)}B KRW`;
+  }
   if (eok >= 10_000) return `${(eok / 10_000).toFixed(1)}조원`;
   return `${Math.round(eok).toLocaleString()}억원`;
 }
@@ -63,7 +71,9 @@ export default function MarketMapPage({
   fullLimit,
   navLinks,
 }: MarketMapPageProps) {
-  useDocumentTitle(documentTitle);
+  const { lang } = useLanguage();
+  const t = useT();
+  useDocumentTitle(t(documentTitle));
 
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -205,11 +215,25 @@ export default function MarketMapPage({
 
   const handleTileClick = (code: string) => navigate(`/?code=${code}`);
 
+  // One batched translation request for every name currently loaded (tiles, table,
+  // tooltip all read from this same array), rather than one call per row.
+  const translatedNames = useTranslatedTexts(items.map((it) => it.name));
+  const nameByCode = useMemo(() => {
+    const map = new Map<string, string>();
+    items.forEach((it, i) => map.set(it.code, translatedNames[i] ?? it.name));
+    return map;
+  }, [items, translatedNames]);
+
+  const liveBadgeText =
+    lang === "en"
+      ? `Live (Rank 1–${tier1Limit}: 30s · ${tier1Limit + 1}–${tier2Limit}: 5min · rest: 10min)`
+      : `실시간 (1~${tier1Limit}위 30초 · ${tier1Limit + 1}~${tier2Limit}위 5분 · 나머지 10분 갱신)`;
+
   return (
     <div className="app kospi-map-page">
       <header className="app-header">
         <Link to="/" className="back-link rainbow-link">
-          ← 메인으로
+          ← {t("메인으로")}
         </Link>
         <div className="kospi-map-titlebar">
           <div>
@@ -217,42 +241,48 @@ export default function MarketMapPage({
               <h1 className="app-title">{pageTitle}</h1>
               <span className="kospi-map-live-badge">
                 <span className="kospi-map-live-dot" />
-                실시간 (1~{tier1Limit}위 30초 · {tier1Limit + 1}~{tier2Limit}위 5분 · 나머지 10분 갱신)
+                {liveBadgeText}
               </span>
               {navLinks.map((link) => (
                 <Link key={link.to} to={link.to} className="kospi-map-nav-link">
-                  {link.label}
+                  {t(link.label)}
                 </Link>
               ))}
+              <LanguageToggle />
               <VisitorBadge />
             </div>
             <p className="app-subtitle">
-              {subtitlePrefix} 종목을 업종별로 묶어 시가총액 크기, 등락률을 한눈에 보여줍니다. 타일을 클릭하면 해당
-              종목 상세로 이동합니다.
-              {generatedAt && <span className="kospi-map-updated"> · {generatedAt.replace("T", " ")} 기준</span>}
+              {t(subtitlePrefix)} {t("종목을 업종별로 묶어 시가총액 크기, 등락률을 한눈에 보여줍니다. 타일을 클릭하면 해당 종목 상세로 이동합니다.")}
+              {generatedAt && (
+                <span className="kospi-map-updated">
+                  {lang === "en"
+                    ? ` · as of ${generatedAt.replace("T", " ")}`
+                    : ` · ${generatedAt.replace("T", " ")} 기준`}
+                </span>
+              )}
             </p>
           </div>
           <div className="kospi-map-view-toggle">
             <button type="button" className={view === "map" ? "active" : ""} onClick={() => setView("map")}>
-              맵 보기
+              {t("맵 보기")}
             </button>
             <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
-              표로 보기
+              {t("표로 보기")}
             </button>
           </div>
         </div>
       </header>
 
-      {loading && <div className="loading-state">{loadingLabel}</div>}
-      {error && <div className="error-state">{error}</div>}
+      {loading && <div className="loading-state">{t(loadingLabel)}</div>}
+      {error && <div className="error-state">{t(error)}</div>}
 
       {!loading && !error && (
         <>
           <div className="kospi-map-legend">
-            <span className="kospi-map-legend-label">하락</span>
+            <span className="kospi-map-legend-label">{t("하락")}</span>
             <span className="kospi-map-legend-bar" />
-            <span className="kospi-map-legend-label">상승</span>
-            <span className="kospi-map-legend-scale">-5% ~ +5% 기준 포화</span>
+            <span className="kospi-map-legend-label">{t("상승")}</span>
+            <span className="kospi-map-legend-scale">{t("-5% ~ +5% 기준 포화")}</span>
           </div>
 
           {view === "map" && (
@@ -265,7 +295,7 @@ export default function MarketMapPage({
                 >
                   {zone.headerH > 0 && (
                     <div className="kospi-map-sector-header" style={{ height: zone.headerH }}>
-                      <span className="kospi-map-sector-name">{zone.sector}</span>
+                      <span className="kospi-map-sector-name">{t(zone.sector)}</span>
                       <span
                         className="kospi-map-sector-avg"
                         style={{ color: zone.avgChangePct >= 0 ? "var(--up-color)" : "var(--down-color)" }}
@@ -307,7 +337,7 @@ export default function MarketMapPage({
                         {showName && (
                           <>
                             <span className="kospi-map-tile-name" style={{ fontSize: fontSizes.name }}>
-                              {tile.item.name}
+                              {nameByCode.get(tile.item.code) ?? tile.item.name}
                             </span>
                             <span className="kospi-map-tile-pct" style={{ fontSize: fontSizes.pct }}>
                               {pct(tile.item.change_pct)}
@@ -333,11 +363,11 @@ export default function MarketMapPage({
                 <thead>
                   <tr>
                     <th>#</th>
-                    <th>종목명</th>
-                    <th>업종</th>
-                    <th>시가총액</th>
-                    <th>현재가</th>
-                    <th>등락률</th>
+                    <th>{t("종목명")}</th>
+                    <th>{t("업종")}</th>
+                    <th>{t("시가총액")}</th>
+                    <th>{t("현재가")}</th>
+                    <th>{t("등락률")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -345,11 +375,11 @@ export default function MarketMapPage({
                     <tr key={item.code} onClick={() => handleTileClick(item.code)}>
                       <td>{idx + 1}</td>
                       <td className="kospi-map-table-name">
-                        {item.name} <span className="top100-code">{item.code}</span>
+                        {nameByCode.get(item.code) ?? item.name} <span className="top100-code">{item.code}</span>
                       </td>
-                      <td>{item.sector}</td>
-                      <td>{formatMarcap(item.marcap)}</td>
-                      <td>{item.close.toLocaleString()}원</td>
+                      <td>{t(item.sector)}</td>
+                      <td>{formatMarcap(item.marcap, lang)}</td>
+                      <td>{item.close.toLocaleString()}{wonSuffix(lang)}</td>
                       <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
                         {pct(item.change_pct)}
                       </td>
@@ -365,17 +395,17 @@ export default function MarketMapPage({
       {hovered && (
         <div className="kospi-map-tooltip" style={{ left: hoverPos.x + 16, top: hoverPos.y + 16 }}>
           <div className="kospi-map-tooltip-title">
-            {hovered.name} <span className="top100-code">{hovered.code}</span>
+            {nameByCode.get(hovered.code) ?? hovered.name} <span className="top100-code">{hovered.code}</span>
           </div>
-          <div className="kospi-map-tooltip-row">업종 {hovered.sector}</div>
-          <div className="kospi-map-tooltip-row">시가총액 {formatMarcap(hovered.marcap)}</div>
-          <div className="kospi-map-tooltip-row">현재가 {hovered.close.toLocaleString()}원</div>
+          <div className="kospi-map-tooltip-row">{t("업종")} {t(hovered.sector)}</div>
+          <div className="kospi-map-tooltip-row">{t("시가총액")} {formatMarcap(hovered.marcap, lang)}</div>
+          <div className="kospi-map-tooltip-row">{t("현재가")} {hovered.close.toLocaleString()}{wonSuffix(lang)}</div>
           <div
             className="kospi-map-tooltip-row"
             style={{ color: hovered.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}
           >
-            등락 {hovered.change >= 0 ? "+" : ""}
-            {hovered.change.toLocaleString()}원 ({pct(hovered.change_pct)})
+            {t("등락")} {hovered.change >= 0 ? "+" : ""}
+            {hovered.change.toLocaleString()}{wonSuffix(lang)} ({pct(hovered.change_pct)})
           </div>
         </div>
       )}

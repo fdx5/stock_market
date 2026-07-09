@@ -3,8 +3,6 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from bs4 import BeautifulSoup
 
-from app.data.translate_fetcher import translate_to_korean
-
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -141,4 +139,4 @@ def get_company_detail(detail_path: str) -> dict | None:
         meta = soup.select_one('meta[name="description"]')
         description = meta["content"].strip() if meta and meta.get("content") else ""
 
-    return {"description": translate_to_korean(description)}
+    return {"description": description}

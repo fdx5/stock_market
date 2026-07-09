@@ -5,6 +5,7 @@ import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPane
 import InvestorTrendPage from "./components/InvestorTrendPage";
 import KosdaqMapPage from "./components/KosdaqMapPage";
 import KospiMapPage from "./components/KospiMapPage";
+import LanguageToggle from "./components/LanguageToggle";
 import MarketOverviewPanel from "./components/MarketOverviewPanel";
 import PriceChart, { PriceChartHandle } from "./components/PriceChart";
 import RecentNewsDigest from "./components/RecentNewsDigest";
@@ -12,6 +13,9 @@ import SearchBar from "./components/SearchBar";
 import SidePanel from "./components/SidePanel";
 import TugOfWarPage from "./components/TugOfWarPage";
 import VisitorBadge from "./components/VisitorBadge";
+import { wonSuffix } from "./i18n/format";
+import { useLanguage, useT } from "./i18n/LanguageContext";
+import { useTranslatedText } from "./i18n/useTranslatedTexts";
 import { Link, useRoute } from "./router";
 import { useDocumentTitle } from "./useDocumentTitle";
 
@@ -36,7 +40,9 @@ export default function App() {
 const QUOTE_POLL_MS = 10_000;
 
 function Dashboard() {
-  useDocumentTitle("코스피 종목정보");
+  const { lang } = useLanguage();
+  const t = useT();
+  useDocumentTitle(t("코스피 종목정보"));
 
   const [selected, setSelected] = useState<StockSearchResult | null>(() => {
     const code = new URLSearchParams(window.location.search).get("code");
@@ -144,12 +150,14 @@ function Dashboard() {
     };
   }, [indicatorPoints]);
 
+  const summaryName = useTranslatedText(summary?.name ?? "");
+
   return (
     <div className="app">
       <header className="app-header">
         <div>
           <div className="app-title-row">
-            <h1 className="app-title">코스피 종합 정보</h1>
+            <h1 className="app-title">{t("코스피 종합 정보")}</h1>
             <Link to="/map" className="kospi-map-nav-link">
               🗺 KOSPI MAP
             </Link>
@@ -157,12 +165,15 @@ function Dashboard() {
               🟢 KOSDAQ MAP
             </Link>
             <Link to="/battle" className="kospi-map-nav-link">
-              🔥 시총 줄다리기
+              {t("🔥 시총 줄다리기")}
             </Link>
+            <LanguageToggle />
             <VisitorBadge />
           </div>
           <p className="app-subtitle">
-            종목을 검색하면 현재 시세와 등락률, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 최근 3일 뉴스 요약과 관련 뉴스를 한눈에 확인할 수 있습니다.
+            {t(
+              "종목을 검색하면 현재 시세와 등락률, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 최근 3일 뉴스 요약과 관련 뉴스를 한눈에 확인할 수 있습니다."
+            )}
           </p>
         </div>
         <SearchBar onSelect={setSelected} />
@@ -170,9 +181,9 @@ function Dashboard() {
 
       <MarketOverviewPanel onSelectStock={setSelected} />
 
-      {!selected && <div className="empty-state">종목을 검색해 주세요. (예: 삼성전자, 005930)</div>}
-      {loading && <div className="loading-state">데이터를 불러오는 중...</div>}
-      {error && <div className="error-state">{error}</div>}
+      {!selected && <div className="empty-state">{t("종목을 검색해 주세요. (예: 삼성전자, 005930)")}</div>}
+      {loading && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
+      {error && <div className="error-state">{t(error)}</div>}
 
       {selected && summary && !loading && !error && (
         <div className="layout">
@@ -183,19 +194,19 @@ function Dashboard() {
               const changePct = liveQuote?.change_pct ?? summary.change_pct;
               return (
                 <div className="card stock-header" ref={stockHeaderRef}>
-                  <span className="name">{summary.name}</span>
+                  <span className="name">{summaryName}</span>
                   <span className="code">{summary.code}</span>
                   <span
                     className={`price ${change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}`}
                   >
-                    {close.toLocaleString()}원 ({change >= 0 ? "+" : ""}
+                    {close.toLocaleString()}{wonSuffix(lang)} ({change >= 0 ? "+" : ""}
                     {change.toLocaleString()}, {changePct}%)
                   </span>
                 </div>
               );
             })()}
 
-            <RecentNewsDigest items={news} name={summary.name} />
+            <RecentNewsDigest items={news} name={summaryName} />
 
             <PriceChart points={indicatorPoints} ref={priceChartRef} />
             <IndicatorPanel
@@ -205,7 +216,7 @@ function Dashboard() {
             />
           </div>
 
-          <SidePanel code={summary.code} name={summary.name} news={news} />
+          <SidePanel code={summary.code} name={summaryName} news={news} />
         </div>
       )}
     </div>

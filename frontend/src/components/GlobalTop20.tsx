@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
+import { useLanguage, useT } from "../i18n/LanguageContext";
 import CompanyDetailModal from "./CompanyDetailModal";
 import RollingValue from "./RollingValue";
 
@@ -25,6 +26,8 @@ function isHighlighted(code: string): boolean {
 }
 
 export default function GlobalTop20() {
+  const { lang } = useLanguage();
+  const t = useT();
   const [items, setItems] = useState<GlobalTop20Item[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,8 +48,8 @@ export default function GlobalTop20() {
 
     setDescLoading(true);
     api
-      .companyDetail(item.detail_path)
-      .then((res) => setDescription(res.description || "회사 정보가 없습니다."))
+      .companyDetail(item.detail_path, lang)
+      .then((res) => setDescription(res.description || t("회사 정보가 없습니다.")))
       .catch((err: Error) => setDescError(err.message || "회사 정보를 불러오지 못했습니다."))
       .finally(() => setDescLoading(false));
   };
@@ -78,10 +81,10 @@ export default function GlobalTop20() {
 
   return (
     <div className="global-top20">
-      <div className="global-top20-header">🌍 글로벌 시가총액 TOP 20</div>
+      <div className="global-top20-header">🌍 {t("글로벌 시가총액 TOP 20")}</div>
 
-      {error && <div className="error-state">{error}</div>}
-      {items.length === 0 && !error && <div className="loading-state">데이터를 불러오는 중...</div>}
+      {error && <div className="error-state">{t(error)}</div>}
+      {items.length === 0 && !error && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
 
       {items.length > 0 && (
         <div className="global-top20-list">

@@ -10,6 +10,7 @@ import {
 } from "lightweight-charts";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { IndicatorPoint } from "../api/client";
+import { useT } from "../i18n/LanguageContext";
 import { getThemeColors, watchTheme } from "../theme";
 
 interface Props {
@@ -31,6 +32,7 @@ const RANGE_OPTIONS: { label: string; days: number | null }[] = [
 const MA_KEYS = ["sma5", "sma20", "sma60"] as const;
 
 const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
+  const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -179,7 +181,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
   return (
     <div className="card">
       <div className="chart-toolbar">
-        <span className="chart-title">일봉 차트</span>
+        <span className="chart-title">{t("일봉 차트")}</span>
         <div className="range-toggle">
           {RANGE_OPTIONS.map((opt) => (
             <button
@@ -208,7 +210,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
         </span>
         <span className="item">
           <span className="swatch" style={{ background: "var(--series-blue)" }} />
-          볼린저밴드(20,2)
+          {t("볼린저밴드(20,2)")}
         </span>
       </div>
       <div ref={containerRef} className="chart-main" />

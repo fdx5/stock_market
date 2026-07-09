@@ -1,12 +1,18 @@
 import { useEffect, useState } from "react";
 import { IndexQuote, InvestorSummaryItem, MarketInvestorSummary, MarketMapItem, StockSearchResult, api } from "../api/client";
+import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
+import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
 
 type Tab = "top50" | "investor";
 
-function formatAmount(value: number): string {
+function formatAmount(value: number, lang: Lang): string {
   const abs = Math.abs(value);
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  if (lang === "en") {
+    if (abs >= 10_000) return `${sign}${(abs / 10_000).toFixed(1)}T`;
+    return `${sign}${(abs / 10).toFixed(1)}B`;
+  }
   if (abs >= 10_000) return `${sign}${(abs / 10_000).toFixed(1)}조`;
   return `${sign}${Math.round(abs).toLocaleString()}억`;
 }
@@ -22,12 +28,20 @@ function pct(value: number): string {
 }
 
 function MarketInvestorLine({ summary }: { summary: MarketInvestorSummary | null }) {
+  const { lang } = useLanguage();
+  const t = useT();
   if (!summary) return null;
   return (
     <div className="index-tile-investor">
-      <span style={{ color: amountColor(summary.individual_amount) }}>개인 {formatAmount(summary.individual_amount)}</span>
-      <span style={{ color: amountColor(summary.foreign_amount) }}>외국인 {formatAmount(summary.foreign_amount)}</span>
-      <span style={{ color: amountColor(summary.institution_amount) }}>기관 {formatAmount(summary.institution_amount)}</span>
+      <span style={{ color: amountColor(summary.individual_amount) }}>
+        {t("개인")} {formatAmount(summary.individual_amount, lang)}
+      </span>
+      <span style={{ color: amountColor(summary.foreign_amount) }}>
+        {t("외국인")} {formatAmount(summary.foreign_amount, lang)}
+      </span>
+      <span style={{ color: amountColor(summary.institution_amount) }}>
+        {t("기관")} {formatAmount(summary.institution_amount, lang)}
+      </span>
     </div>
   );
 }
@@ -41,11 +55,12 @@ function IndexTile({
   investor: MarketInvestorSummary | null;
   label: string;
 }) {
+  const t = useT();
   if (!index) {
     return (
       <div className="index-tile">
-        <div className="index-tile-name">{label}</div>
-        <div className="loading-state">불러오는 중...</div>
+        <div className="index-tile-name">{t(label)}</div>
+        <div className="loading-state">{t("불러오는 중...")}</div>
       </div>
     );
   }
@@ -53,7 +68,7 @@ function IndexTile({
   const color = index.change >= 0 ? "var(--up-color)" : "var(--down-color)";
   return (
     <div className="index-tile">
-      <div className="index-tile-name">{index.name}</div>
+      <div className="index-tile-name">{t(label)}</div>
       <div className="index-tile-value" style={{ color }}>
         {index.close.toLocaleString()}
       </div>
@@ -68,6 +83,8 @@ function IndexTile({
 }
 
 function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchResult) => void }) {
+  const { lang } = useLanguage();
+  const t = useT();
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -104,8 +121,10 @@ function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchR
     };
   }, []);
 
-  if (loading) return <div className="loading-state">불러오는 중...</div>;
-  if (error) return <div className="error-state">{error}</div>;
+  const translatedNames = useTranslatedTexts(items.map((it) => it.name));
+
+  if (loading) return <div className="loading-state">{t("불러오는 중...")}</div>;
+  if (error) return <div className="error-state">{t(error)}</div>;
 
   return (
     <div className="top50-table-wrap">
@@ -113,9 +132,9 @@ function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchR
         <thead>
           <tr>
             <th>#</th>
-            <th>종목명</th>
-            <th>현재가</th>
-            <th>등락</th>
+            <th>{t("종목명")}</th>
+            <th>{t("현재가")}</th>
+            <th>{t("등락")}</th>
           </tr>
         </thead>
         <tbody>
@@ -127,10 +146,13 @@ function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchR
                   type="button"
                   onClick={() => onSelectStock({ code: item.code, name: item.name, market: "KOSPI" })}
                 >
-                  {item.name}
+                  {translatedNames[idx] ?? item.name}
                 </button>
               </td>
-              <td>{item.close.toLocaleString()}원</td>
+              <td>
+                {item.close.toLocaleString()}
+                {lang === "en" ? " KRW" : "원"}
+              </td>
               <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
                 {pct(item.change_pct)}
               </td>
@@ -142,11 +164,33 @@ function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchR
   );
 }
 
+function InvestorTableRow({
+  item,
+  lang,
+}: {
+  item: InvestorSummaryItem;
+  lang: Lang;
+}) {
+  const name = useTranslatedText(item.name);
+  return (
+    <tr>
+      <td className="investor-table-name">
+        <Link to={`/investor/${item.code}`}>{name}</Link>
+      </td>
+      <td style={{ color: amountColor(item.individual_amount) }}>{formatAmount(item.individual_amount, lang)}</td>
+      <td style={{ color: amountColor(item.institution_amount) }}>{formatAmount(item.institution_amount, lang)}</td>
+      <td style={{ color: amountColor(item.foreign_amount) }}>{formatAmount(item.foreign_amount, lang)}</td>
+    </tr>
+  );
+}
+
 export default function MarketOverviewPanel({
   onSelectStock,
 }: {
   onSelectStock: (stock: StockSearchResult) => void;
 }) {
+  const { lang } = useLanguage();
+  const t = useT();
   const [tab, setTab] = useState<Tab>("top50");
   const [kospi, setKospi] = useState<IndexQuote | null>(null);
   const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
@@ -213,9 +257,9 @@ export default function MarketOverviewPanel({
   return (
     <section className="card market-overview-panel">
       <div className="market-overview-half market-overview-index">
-        <h2>코스피 · 코스닥 지수</h2>
+        <h2>{t("코스피 · 코스닥 지수")}</h2>
         <p className="market-overview-subtitle">
-          지수 하단은 시장 전체 개인/외국인/기관 누적 순매수(억원)이며, 매수는 빨간색, 매도는 파란색입니다.
+          {t("지수 하단은 시장 전체 개인/외국인/기관 누적 순매수(억원)이며, 매수는 빨간색, 매도는 파란색입니다.")}
         </p>
         <div className="index-tiles">
           <IndexTile index={kospi} investor={kospiInvestor} label="코스피" />
@@ -230,14 +274,14 @@ export default function MarketOverviewPanel({
             className={`market-overview-tab ${tab === "top50" ? "active" : ""}`}
             onClick={() => setTab("top50")}
           >
-            코스피 시총 50위
+            {t("코스피 시총 50위")}
           </button>
           <button
             type="button"
             className={`market-overview-tab ${tab === "investor" ? "active" : ""}`}
             onClick={() => setTab("investor")}
           >
-            종목별 투자자 매매동향
+            {t("종목별 투자자 매매동향")}
           </button>
         </div>
 
@@ -246,40 +290,29 @@ export default function MarketOverviewPanel({
         {tab === "investor" && (
           <>
             <p className="market-overview-subtitle">
-              {latestDate ? `${latestDate} 기준 누적 순매수(억원)` : "최근 확정 거래일 기준 누적 순매수(억원)"} · 시총
-              100위까지 · 종목명을 누르면 최근 추이를 볼 수 있습니다.
+              {latestDate
+                ? `${latestDate} ${t("기준 누적 순매수(억원)")}`
+                : t("최근 확정 거래일 기준 누적 순매수(억원)")}{" "}
+              · {t("시총 100위까지 · 종목명을 누르면 최근 추이를 볼 수 있습니다.")}
             </p>
 
-            {loading && <div className="loading-state">불러오는 중...</div>}
-            {error && <div className="error-state">{error}</div>}
+            {loading && <div className="loading-state">{t("불러오는 중...")}</div>}
+            {error && <div className="error-state">{t(error)}</div>}
 
             {!loading && !error && (
               <div className="investor-table-wrap">
                 <table className="investor-table">
                   <thead>
                     <tr>
-                      <th>종목명</th>
-                      <th>개인</th>
-                      <th>기관</th>
-                      <th>외국인</th>
+                      <th>{t("종목명")}</th>
+                      <th>{t("개인")}</th>
+                      <th>{t("기관")}</th>
+                      <th>{t("외국인")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {items.map((item) => (
-                      <tr key={item.code}>
-                        <td className="investor-table-name">
-                          <Link to={`/investor/${item.code}`}>{item.name}</Link>
-                        </td>
-                        <td style={{ color: amountColor(item.individual_amount) }}>
-                          {formatAmount(item.individual_amount)}
-                        </td>
-                        <td style={{ color: amountColor(item.institution_amount) }}>
-                          {formatAmount(item.institution_amount)}
-                        </td>
-                        <td style={{ color: amountColor(item.foreign_amount) }}>
-                          {formatAmount(item.foreign_amount)}
-                        </td>
-                      </tr>
+                      <InvestorTableRow key={item.code} item={item} lang={lang} />
                     ))}
                   </tbody>
                 </table>

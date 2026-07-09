@@ -10,6 +10,7 @@ import {
 } from "lightweight-charts";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { IndicatorPoint } from "../api/client";
+import { useT } from "../i18n/LanguageContext";
 import { STATUS_CRITICAL, STATUS_GOOD, getThemeColors, watchTheme } from "../theme";
 
 interface Props {
@@ -36,6 +37,7 @@ function referenceLine(points: IndicatorPoint[], value: number): LineData<Time>[
 }
 
 const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest }, ref) => {
+  const t = useT();
   const rsiContainerRef = useRef<HTMLDivElement>(null);
   const macdContainerRef = useRef<HTMLDivElement>(null);
   const rsiChartRef = useRef<IChartApi | null>(null);
@@ -144,10 +146,10 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
   return (
     <div className="card">
       <div className="chart-toolbar">
-        <span className="chart-title">보조 지표</span>
+        <span className="chart-title">{t("보조 지표")}</span>
       </div>
       <div className="chart-legend">
-        <span className="item">RSI(14) · 점선 30/70</span>
+        <span className="item">{t("RSI(14) · 점선 30/70")}</span>
       </div>
       <div ref={rsiContainerRef} className="chart-sub" />
       <div className="chart-legend" style={{ marginTop: 14 }}>
@@ -159,21 +161,21 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
           <span className="swatch" style={{ background: "var(--series-yellow)" }} />
           Signal
         </span>
-        <span className="item">히스토그램(녹/적)</span>
+        <span className="item">{t("히스토그램(녹/적)")}</span>
       </div>
       <div ref={macdContainerRef} className="chart-sub" />
 
       {latest && (
         <div className="indicator-stats">
           <StatTile label="RSI(14)" value={latest.rsi14?.toFixed(1) ?? "-"} />
-          <StatTile label="MACD 히스토그램" value={latest.macd_hist?.toFixed(2) ?? "-"} />
+          <StatTile label={t("MACD 히스토그램")} value={latest.macd_hist?.toFixed(2) ?? "-"} />
           <StatTile label="ATR(14)" value={latest.atr14?.toFixed(0) ?? "-"} />
           <StatTile
-            label="20일 변동성"
+            label={t("20일 변동성")}
             value={latest.volatility20 !== null && latest.volatility20 !== undefined ? `${(latest.volatility20 * 100).toFixed(2)}%` : "-"}
           />
           <StatTile
-            label="거래량/20일평균"
+            label={t("거래량/20일평균")}
             value={
               latest.volume_ma20 ? `${((latest.volume / latest.volume_ma20) * 100).toFixed(0)}%` : "-"
             }

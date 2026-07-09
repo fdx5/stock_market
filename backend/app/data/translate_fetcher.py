@@ -5,13 +5,13 @@ import requests
 TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
 
 
-def translate_to_korean(text: str, source_lang: str = "en") -> str:
+def translate_text(text: str, source_lang: str, target_lang: str) -> str:
     if not text:
         return text
     try:
         resp = requests.get(
             TRANSLATE_URL,
-            params={"client": "gtx", "sl": source_lang, "tl": "ko", "dt": "t", "q": text},
+            params={"client": "gtx", "sl": source_lang, "tl": target_lang, "dt": "t", "q": text},
             timeout=10,
         )
         resp.raise_for_status()
@@ -19,3 +19,11 @@ def translate_to_korean(text: str, source_lang: str = "en") -> str:
         return "".join(seg[0] for seg in segments if seg[0])
     except Exception:
         return text
+
+
+def translate_to_korean(text: str, source_lang: str = "en") -> str:
+    return translate_text(text, source_lang, "ko")
+
+
+def translate_to_english(text: str, source_lang: str = "ko") -> str:
+    return translate_text(text, source_lang, "en")

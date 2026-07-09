@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { BoardDetail, BoardPost, api } from "../api/client";
+import { useLanguage, useT } from "../i18n/LanguageContext";
+import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 
 const PAGE_SIZE = 10;
 
 type DetailState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; detail: BoardDetail };
 
 export default function BoardPanel({ code, name }: { code: string; name: string }) {
+  const { lang } = useLanguage();
+  const t = useT();
   const [posts, setPosts] = useState<BoardPost[]>([]);
   const [naverPage, setNaverPage] = useState(1);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -76,6 +80,12 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   const visiblePosts = posts.slice(0, visibleCount);
   const hasMore = visibleCount < posts.length || (!exhausted && naverPage < 20);
 
+  const translatedTitles = useTranslatedTexts(visiblePosts.map((p) => p.title));
+
+  const expandedDetail = expandedNid ? details[expandedNid] : undefined;
+  const expandedBlocks = expandedDetail?.status === "ready" ? expandedDetail.detail.blocks : [];
+  const translatedBlockTexts = useTranslatedTexts(expandedBlocks.map((b) => (b.type === "text" ? b.text ?? "" : "")));
+
   const toggleExpand = (nid: string) => {
     if (expandedNid === nid) {
       setExpandedNid(null);
@@ -100,16 +110,18 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
 
   return (
     <div className="board-panel">
-      {loading && <div className="loading-state">게시글을 불러오는 중...</div>}
-      {error && <div className="error-state">{error}</div>}
+      {loading && <div className="loading-state">{t("게시글을 불러오는 중...")}</div>}
+      {error && <div className="error-state">{t(error)}</div>}
 
       {!loading && !error && (
         <>
           {visiblePosts.length === 0 ? (
-            <div className="empty-state">{name} 관련 게시글이 없습니다.</div>
+            <div className="empty-state">
+              {lang === "en" ? `No board posts for ${name}.` : `${name} 관련 게시글이 없습니다.`}
+            </div>
           ) : (
             <div className="board-list">
-              {visiblePosts.map((post) => {
+              {visiblePosts.map((post, postIdx) => {
                 const isExpanded = expandedNid === post.nid;
                 const detailState = details[post.nid];
                 return (
@@ -119,14 +131,14 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
                       className={`board-row ${isExpanded ? "expanded" : ""}`}
                       onClick={() => toggleExpand(post.nid)}
                     >
-                      <span className="board-row-title">{post.title}</span>
+                      <span className="board-row-title">{translatedTitles[postIdx] ?? post.title}</span>
                       <span className="board-row-meta">
                         <span className="board-row-author">{post.author}</span>
                         <span className="board-row-date">{post.date}</span>
-                        <span className="board-row-stat" title="조회">
-                          조회 {post.views.toLocaleString()}
+                        <span className="board-row-stat" title={t("조회")}>
+                          {t("조회")} {post.views.toLocaleString()}
                         </span>
-                        <span className="board-row-stat" title="공감/비공감">
+                        <span className="board-row-stat" title={t("공감/비공감")}>
                           👍{post.likes} 👎{post.dislikes}
                         </span>
                       </span>
@@ -134,22 +146,22 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
                     {isExpanded && (
                       <div className="board-detail">
                         {(!detailState || detailState.status === "loading") && (
-                          <div className="loading-state">불러오는 중...</div>
+                          <div className="loading-state">{t("불러오는 중...")}</div>
                         )}
                         {detailState?.status === "error" && (
-                          <div className="error-state">{detailState.message}</div>
+                          <div className="error-state">{t(detailState.message)}</div>
                         )}
                         {detailState?.status === "ready" && (
                           <div className="board-detail-body">
                             {detailState.detail.blocks.length === 0 ? (
-                              <p className="board-detail-text">(본문 없음)</p>
+                              <p className="board-detail-text">{t("(본문 없음)")}</p>
                             ) : (
                               detailState.detail.blocks.map((block, idx) =>
                                 block.type === "image" ? (
                                   <img key={idx} className="board-detail-image" src={block.src} alt="" />
                                 ) : (
                                   <p key={idx} className="board-detail-text">
-                                    {block.text}
+                                    {translatedBlockTexts[idx] ?? block.text}
                                   </p>
                                 )
                               )
@@ -162,7 +174,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
                           target="_blank"
                           rel="noreferrer"
                         >
-                          네이버에서 새 창으로 보기 ↗
+                          {t("네이버에서 새 창으로 보기 ↗")}
                         </a>
                       </div>
                     )}
@@ -174,7 +186,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
 
           {hasMore && (
             <button type="button" className="board-more-btn" onClick={handleShowMore} disabled={loadingMore}>
-              {loadingMore ? "불러오는 중..." : "더보기"}
+              {loadingMore ? t("불러오는 중...") : t("더보기")}
             </button>
           )}
         </>

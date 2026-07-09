@@ -1,13 +1,18 @@
+import { useLanguage } from "../i18n/LanguageContext";
 import { useVisitorCount } from "../useVisitorCount";
 
 export default function VisitorBadge() {
+  const { lang } = useLanguage();
   const { current, total } = useVisitorCount();
+  const currentText = current === null ? "-" : current.toLocaleString();
+  const totalText = total === null ? "-" : total.toLocaleString();
+
   return (
     <span className="visitor-badge">
       <span className="visitor-badge-dot" />
-      현재 접속자 {current === null ? "-" : current.toLocaleString()}명
+      {lang === "en" ? `${currentText} online` : `현재 접속자 ${currentText}명`}
       <span className="visitor-badge-sep">·</span>
-      누적 방문 {total === null ? "-" : total.toLocaleString()}명
+      {lang === "en" ? `${totalText} total visits` : `누적 방문 ${totalText}명`}
     </span>
   );
 }

@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { BattleSide, ExchangeRate, api } from "../api/client";
+import { trillionSuffix, wonSuffix } from "../i18n/format";
+import { useLanguage, useT } from "../i18n/LanguageContext";
+import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import CheerSection from "./CheerSection";
 import GlobalTop20 from "./GlobalTop20";
+import LanguageToggle from "./LanguageToggle";
 import RollingValue from "./RollingValue";
 import SlotMachineValue from "./SlotMachineValue";
 import VisitorBadge from "./VisitorBadge";
@@ -18,8 +22,8 @@ const ENGLISH_NAME: Record<string, string> = {
   "000660": "SK HYNIX",
 };
 
-function formatMarcap(marcap: number): string {
-  return `${(marcap / 1_000_000_000_000).toFixed(1)}조`;
+function formatMarcap(marcap: number, lang: "ko" | "en"): string {
+  return `${(marcap / 1_000_000_000_000).toFixed(1)}${trillionSuffix(lang)}`;
 }
 
 function changeClass(changePct: number): string {
@@ -33,7 +37,9 @@ function formatChangePct(changePct: number): string {
 }
 
 export default function TugOfWarPage() {
-  useDocumentTitle("시총 줄다리기");
+  const { lang } = useLanguage();
+  const t = useT();
+  useDocumentTitle(t("시총 줄다리기"));
 
   const [samsung, setSamsung] = useState<BattleSide | null>(null);
   const [skhynix, setSkhynix] = useState<BattleSide | null>(null);
@@ -127,27 +133,32 @@ export default function TugOfWarPage() {
   const diffMarcap = samsung && skhynix ? Math.abs(samsung.marcap - skhynix.marcap) / 1_000_000_000_000 : 0;
   const diffPct = Math.abs(samsungPct - skhynixPct);
 
+  const samsungName = useTranslatedText(samsung?.name ?? "");
+  const skhynixName = useTranslatedText(skhynix?.name ?? "");
+  const trailingName = useTranslatedText(trailing?.name ?? "");
+
   return (
     <div className="app battle-page">
       <header className="app-header">
         <Link to="/" className="back-link rainbow-link">
-          ← 메인으로
+          ← {t("메인으로")}
         </Link>
         <div className="app-title-row">
-          <h1 className="app-title">시총 줄다리기 (삼성전자 VS SK하이닉스)</h1>
+          <h1 className="app-title">{t("시총 줄다리기 (삼성전자 VS SK하이닉스)")}</h1>
           <Link to="/map" className="kospi-map-nav-link">
             🗺 KOSPI MAP
           </Link>
           <Link to="/kosdaq-map" className="kospi-map-nav-link">
             🟢 KOSDAQ MAP
           </Link>
+          <LanguageToggle />
           <VisitorBadge />
         </div>
       </header>
 
-      {error && <div className="error-state">{error}</div>}
+      {error && <div className="error-state">{t(error)}</div>}
 
-      {!samsung && !skhynix && !error && <div className="loading-state">데이터를 불러오는 중...</div>}
+      {!samsung && !skhynix && !error && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
 
       {samsung && skhynix && leader && trailing && (
         <div className="battle-arena-wrap">
@@ -157,7 +168,7 @@ export default function TugOfWarPage() {
             <div className="battle-vs-overlay">
               <div className="battle-vs-side left">
                 <div className="battle-vs-label-row samsung-color">
-                  <span className="battle-vs-name">{samsung.name}</span>
+                  <span className="battle-vs-name">{samsungName}</span>
                   <span className="battle-vs-pct">
                     <RollingValue value={samsungPct} text={`${samsungPct.toFixed(1)}%`} />
                   </span>
@@ -169,10 +180,10 @@ export default function TugOfWarPage() {
                   />
                 </div>
                 <div className="battle-vs-marcap">
-                  <SlotMachineValue value={samsung.marcap} text={formatMarcap(samsung.marcap)} />
+                  <SlotMachineValue value={samsung.marcap} text={formatMarcap(samsung.marcap, lang)} />
                 </div>
                 <div className={`battle-vs-price ${changeClass(samsung.change_pct)}`}>
-                  <RollingValue value={samsung.close} text={`${samsung.close.toLocaleString()}원`} />{" "}
+                  <RollingValue value={samsung.close} text={`${samsung.close.toLocaleString()}${wonSuffix(lang)}`} />{" "}
                   <RollingValue value={samsung.change_pct} text={formatChangePct(samsung.change_pct)} />
                 </div>
               </div>
@@ -182,7 +193,7 @@ export default function TugOfWarPage() {
                   <span className="battle-vs-pct">
                     <RollingValue value={skhynixPct} text={`${skhynixPct.toFixed(1)}%`} />
                   </span>
-                  <span className="battle-vs-name">{skhynix.name}</span>
+                  <span className="battle-vs-name">{skhynixName}</span>
                 </div>
                 <div className="battle-vs-bar-track">
                   <div
@@ -191,10 +202,10 @@ export default function TugOfWarPage() {
                   />
                 </div>
                 <div className="battle-vs-marcap">
-                  <SlotMachineValue value={skhynix.marcap} text={formatMarcap(skhynix.marcap)} />
+                  <SlotMachineValue value={skhynix.marcap} text={formatMarcap(skhynix.marcap, lang)} />
                 </div>
                 <div className={`battle-vs-price ${changeClass(skhynix.change_pct)}`}>
-                  <RollingValue value={skhynix.close} text={`${skhynix.close.toLocaleString()}원`} />{" "}
+                  <RollingValue value={skhynix.close} text={`${skhynix.close.toLocaleString()}${wonSuffix(lang)}`} />{" "}
                   <RollingValue value={skhynix.change_pct} text={formatChangePct(skhynix.change_pct)} />
                 </div>
               </div>
@@ -204,13 +215,13 @@ export default function TugOfWarPage() {
               {ENGLISH_NAME[leader.code] ?? leader.name}
             </div>
             <div className="battle-rank2-info">
-              2위 {trailing.name} ·{" "}
+              {t("2위")} {trailingName} ·{" "}
               <RollingValue
                 className="battle-rank2-diff"
                 value={diffMarcap}
-                text={`${diffMarcap.toFixed(1)}조`}
+                text={`${diffMarcap.toFixed(1)}${trillionSuffix(lang)}`}
               />{" "}
-              차이 (<RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)
+              {t("차이")} (<RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)
             </div>
 
             {fx && (
@@ -218,7 +229,7 @@ export default function TugOfWarPage() {
                 {fxPop && (
                   <>
                     <div key={`label-${fxPopNonce}`} className={`battle-fx-pop-label ${fxPop}`}>
-                      {fxPop === "up" ? "환율 UP 👍" : "환율 DOWN 👎"}
+                      {fxPop === "up" ? t("환율 UP 👍") : t("환율 DOWN 👎")}
                     </div>
                     <img key={`img-${fxPopNonce}`} src={`/img/${fxPop}.jpg`} className={`battle-fx-pop ${fxPop}`} alt="" />
                   </>
@@ -228,7 +239,7 @@ export default function TugOfWarPage() {
                     fxDirection === "up" ? "change-up" : fxDirection === "down" ? "change-down" : ""
                   }`}
                 >
-                  환율(원){" "}
+                  {t("환율(원)")}{" "}
                   <RollingValue className="battle-fx-rate-amount" value={fx.rate} text={fx.rate.toFixed(2)} />
                 </div>
               </>
