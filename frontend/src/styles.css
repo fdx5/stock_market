@@ -1479,12 +1479,12 @@ body {
     opacity: 1;
   }
   70% {
-    width: 45%;
+    width: 31.5%;
     opacity: 1;
     transform: translateY(-14px) translateZ(0);
   }
   100% {
-    width: 45%;
+    width: 31.5%;
     opacity: 0;
     transform: translateY(-26px) translateZ(0);
   }
