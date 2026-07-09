@@ -13,7 +13,7 @@ export default function KosdaqMapPage() {
       fullLimit={200}
       navLinks={[
         { to: "/map", label: "🗺 KOSPI MAP" },
-        { to: "/battle", label: "🔥 시총 줄다리기" },
+        { to: "/battle", label: "🔥 시총 대결" },
       ]}
     />
   );

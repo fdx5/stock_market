@@ -201,12 +201,12 @@ function Dashboard() {
               🟢 KOSDAQ MAP
             </Link>
             <Link to="/battle" className="kospi-map-nav-link">
-              {t("🔥 시총 줄다리기")}
+              {t("🔥 시총 대결")}
             </Link>
           </div>
           <p className="app-subtitle">
             {t(
-              "종목을 검색하면 현재 시세와 등락률, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 최근 3일 뉴스 요약과 관련 뉴스를 한눈에 확인할 수 있습니다."
+              "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다."
             )}
           </p>
         </div>

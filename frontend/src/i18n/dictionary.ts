@@ -19,7 +19,7 @@ export const DICTIONARY: Record<string, string> = {
 
   // Battle page (TugOfWarPage)
   "시총 줄다리기 (삼성전자 VS SK하이닉스)": "Market Cap Tug-of-War (Samsung Electronics VS SK Hynix)",
-  "🔥 시총 줄다리기": "🔥 Market Cap Tug-of-War",
+  "🔥 시총 대결": "🔥 Market Cap Battle",
   "시가총액 데이터를 불러오지 못했습니다.": "Failed to load market cap data.",
   "2위": "#2",
   "차이": "difference",
@@ -82,8 +82,8 @@ export const DICTIONARY: Record<string, string> = {
   "기타": "Other",
 
   // Dashboard (App.tsx)
-  "종목을 검색하면 현재 시세와 등락률, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 최근 3일 뉴스 요약과 관련 뉴스를 한눈에 확인할 수 있습니다.":
-    "Search for a stock to see its current price and change rate, a daily candlestick chart (3 months by default, up to 3 years), a 3-day news digest, and related news, all at a glance.",
+  "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다.":
+    "Search for a stock to see its current price and change rate, chart, discussion board, and news.",
   "종목을 검색해 주세요. (예: 삼성전자, 005930)": "Please search for a stock (e.g. Samsung Electronics, 005930)",
 
   // SidePanel / BoardPanel
