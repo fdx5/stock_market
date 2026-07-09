@@ -2,12 +2,17 @@ import pandas as pd
 from fastapi import APIRouter, HTTPException
 
 from app.data import board_fetcher, news_fetcher, price_fetcher
+from app.data.stock_quote_fetcher import get_stock_quote
 from app.data.universe import get_stock_name
+from app.services.cache import cache
 from app.services.indicators import compute_indicators
 from app.services.predictor import predict_next_day
 from app.utils import dataframe_to_records
 
 router = APIRouter()
+
+# Matches the cadence the battle page already polls Samsung/SK Hynix quotes at.
+TTL_QUOTE_SECONDS = 5
 
 
 def _resolve_name(code: str) -> str:
@@ -43,6 +48,18 @@ def summary(code: str):
         "change_pct": change_pct,
         "volume": int(last["volume"]),
     }
+
+
+@router.get("/{code}/quote")
+def quote(code: str):
+    """Live close/change/change_pct, refreshed far more often than /summary (which is
+    built from the daily OHLCV history and only moves once that history's 6h cache
+    rolls over) — meant for a short-interval poll on an already-loaded detail view."""
+    _resolve_name(code)
+    data = cache.get_or_set(f"stock_quote:{code}", TTL_QUOTE_SECONDS, lambda: get_stock_quote(code))
+    if not data:
+        raise HTTPException(status_code=502, detail="시세 데이터를 가져오지 못했습니다.")
+    return data
 
 
 @router.get("/{code}/history")

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { IndicatorPoint, NewsItem, StockSearchResult, StockSummary, api } from "./api/client";
+import { IndicatorPoint, NewsItem, StockQuote, StockSearchResult, StockSummary, api } from "./api/client";
 import { syncTimeScales } from "./chartSync";
 import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPanel";
 import InvestorTrendPage from "./components/InvestorTrendPage";
@@ -33,6 +33,8 @@ export default function App() {
   return <Dashboard />;
 }
 
+const QUOTE_POLL_MS = 10_000;
+
 function Dashboard() {
   useDocumentTitle("코스피 종목정보");
 
@@ -41,6 +43,7 @@ function Dashboard() {
     return code ? { code, name: "", market: "KOSPI" } : null;
   });
   const [summary, setSummary] = useState<StockSummary | null>(null);
+  const [liveQuote, setLiveQuote] = useState<StockQuote | null>(null);
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -83,6 +86,34 @@ function Dashboard() {
 
     return () => {
       if (followUpTimer !== undefined) window.clearTimeout(followUpTimer);
+    };
+  }, [selected]);
+
+  // The daily-bar /summary endpoint only moves once every several hours, so the
+  // stock-header price/change display is kept fresh separately via the live-quote
+  // endpoint instead, polled on its own short interval.
+  useEffect(() => {
+    setLiveQuote(null);
+    if (!selected) return;
+    const code = selected.code;
+    let cancelled = false;
+
+    const poll = () => {
+      api
+        .quote(code)
+        .then((res) => {
+          if (!cancelled) setLiveQuote(res);
+        })
+        .catch(() => {
+          // A missed refresh just keeps showing the last known price.
+        });
+    };
+
+    poll();
+    const id = window.setInterval(poll, QUOTE_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
     };
   }, [selected]);
 
@@ -146,18 +177,23 @@ function Dashboard() {
       {selected && summary && !loading && !error && (
         <div className="layout">
           <div className="main-col">
-            <div className="card stock-header" ref={stockHeaderRef}>
-              <span className="name">{summary.name}</span>
-              <span className="code">{summary.code}</span>
-              <span
-                className={`price ${
-                  summary.change > 0 ? "change-up" : summary.change < 0 ? "change-down" : "change-flat"
-                }`}
-              >
-                {summary.close.toLocaleString()}원 ({summary.change >= 0 ? "+" : ""}
-                {summary.change.toLocaleString()}, {summary.change_pct}%)
-              </span>
-            </div>
+            {(() => {
+              const close = liveQuote?.close ?? summary.close;
+              const change = liveQuote?.change ?? summary.change;
+              const changePct = liveQuote?.change_pct ?? summary.change_pct;
+              return (
+                <div className="card stock-header" ref={stockHeaderRef}>
+                  <span className="name">{summary.name}</span>
+                  <span className="code">{summary.code}</span>
+                  <span
+                    className={`price ${change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}`}
+                  >
+                    {close.toLocaleString()}원 ({change >= 0 ? "+" : ""}
+                    {change.toLocaleString()}, {changePct}%)
+                  </span>
+                </div>
+              );
+            })()}
 
             <RecentNewsDigest items={news} name={summary.name} />
 

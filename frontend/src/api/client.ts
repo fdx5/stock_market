@@ -52,6 +52,15 @@ export interface StockSummary {
   volume: number;
 }
 
+export interface StockQuote {
+  code: string;
+  name: string;
+  close: number;
+  change: number;
+  change_pct: number;
+  marcap: number;
+}
+
 export interface MarketMapItem {
   code: string;
   name: string;
@@ -182,6 +191,7 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 export const api = {
   search: (q: string) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
   summary: (code: string) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`),
+  quote: (code: string) => getJSON<StockQuote>(`${BASE}/stock/${code}/quote`),
   history: (code: string, years = 3) =>
     getJSON<{ code: string; name: string; points: OhlcvPoint[] }>(
       `${BASE}/stock/${code}/history?years=${years}`
