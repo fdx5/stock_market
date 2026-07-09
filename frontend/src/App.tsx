@@ -13,9 +13,9 @@ import SearchBar from "./components/SearchBar";
 import SidePanel from "./components/SidePanel";
 import TugOfWarPage from "./components/TugOfWarPage";
 import VisitorBadge from "./components/VisitorBadge";
-import { wonSuffix } from "./i18n/format";
+import { trillionSuffix, wonSuffix } from "./i18n/format";
 import { useLanguage, useT } from "./i18n/LanguageContext";
-import { useTranslatedText } from "./i18n/useTranslatedTexts";
+import { useTranslatedText, useTranslatedTexts } from "./i18n/useTranslatedTexts";
 import { Link, useRoute } from "./router";
 import { useDocumentTitle } from "./useDocumentTitle";
 
@@ -39,6 +39,15 @@ export default function App() {
 
 const QUOTE_POLL_MS = 10_000;
 
+function formatMarcap(marcap: number, lang: "ko" | "en"): string {
+  return `${(marcap / 1_000_000_000_000).toFixed(1)}${trillionSuffix(lang)}`;
+}
+
+function formatMarcapChange(change: number, lang: "ko" | "en"): string {
+  const sign = change > 0 ? "+" : change < 0 ? "-" : "";
+  return `${sign}${(Math.abs(change) / 1_000_000_000_000).toFixed(1)}${trillionSuffix(lang)}`;
+}
+
 function Dashboard() {
   const { lang } = useLanguage();
   const t = useT();
@@ -52,6 +61,7 @@ function Dashboard() {
   const [liveQuote, setLiveQuote] = useState<StockQuote | null>(null);
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [overview, setOverview] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,11 +76,12 @@ function Dashboard() {
     setError(null);
     let followUpTimer: number | undefined;
 
-    Promise.all([api.summary(code), api.indicators(code, 3), api.news(code)])
-      .then(([summaryRes, indicatorsRes, newsRes]) => {
+    Promise.all([api.summary(code), api.indicators(code, 3), api.news(code), api.overview(code)])
+      .then(([summaryRes, indicatorsRes, newsRes, overviewRes]) => {
         setSummary(summaryRes);
         setIndicatorPoints(indicatorsRes.points);
         setNews(newsRes.items);
+        setOverview(overviewRes.overview);
 
         const scrollToResult = () => {
           stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -87,6 +98,7 @@ function Dashboard() {
         setSummary(null);
         setIndicatorPoints([]);
         setNews([]);
+        setOverview([]);
       })
       .finally(() => setLoading(false));
 
@@ -151,6 +163,7 @@ function Dashboard() {
   }, [indicatorPoints]);
 
   const summaryName = useTranslatedText(summary?.name ?? "");
+  const translatedOverview = useTranslatedTexts(overview);
 
   return (
     <div className="app">
@@ -192,6 +205,13 @@ function Dashboard() {
               const close = liveQuote?.close ?? summary.close;
               const change = liveQuote?.change ?? summary.change;
               const changePct = liveQuote?.change_pct ?? summary.change_pct;
+              const marcap = liveQuote?.marcap;
+              // Naver's live-quote endpoint only reports the current market cap, not its
+              // delta, so the change is derived from the same day-over-day ratio as the
+              // price change (previous close implied by change_pct) — consistent with how
+              // the price change above is computed, and refreshed on the same poll.
+              const marcapChange =
+                marcap !== undefined ? marcap - marcap / (1 + changePct / 100) : undefined;
               return (
                 <div className="card stock-header" ref={stockHeaderRef}>
                   <span className="name">{summaryName}</span>
@@ -202,6 +222,22 @@ function Dashboard() {
                     {close.toLocaleString()}{wonSuffix(lang)} ({change >= 0 ? "+" : ""}
                     {change.toLocaleString()}, {changePct}%)
                   </span>
+                  {marcap !== undefined && marcapChange !== undefined && (
+                    <span
+                      className={`marcap ${marcapChange > 0 ? "change-up" : marcapChange < 0 ? "change-down" : "change-flat"}`}
+                    >
+                      {t("시가총액")} {formatMarcap(marcap, lang)}
+                      {wonSuffix(lang)} ({formatMarcapChange(marcapChange, lang)}
+                      {wonSuffix(lang)})
+                    </span>
+                  )}
+                  {translatedOverview.length > 0 && (
+                    <div className="overview">
+                      {translatedOverview.map((line, idx) => (
+                        <p key={idx}>{line}</p>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })()}

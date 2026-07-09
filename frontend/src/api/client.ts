@@ -61,6 +61,12 @@ export interface StockQuote {
   marcap: number;
 }
 
+export interface CompanyOverview {
+  code: string;
+  name: string;
+  overview: string[];
+}
+
 export interface MarketMapItem {
   code: string;
   name: string;
@@ -192,6 +198,7 @@ export const api = {
   search: (q: string) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
   summary: (code: string) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`),
   quote: (code: string) => getJSON<StockQuote>(`${BASE}/stock/${code}/quote`),
+  overview: (code: string) => getJSON<CompanyOverview>(`${BASE}/stock/${code}/overview`),
   history: (code: string, years = 3) =>
     getJSON<{ code: string; name: string; points: OhlcvPoint[] }>(
       `${BASE}/stock/${code}/history?years=${years}`

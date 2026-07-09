@@ -169,6 +169,31 @@ body {
   margin-left: auto;
 }
 
+.stock-header .marcap {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-header .overview {
+  flex-basis: 100%;
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.stock-header .overview p {
+  margin: 0 0 4px;
+}
+
+.stock-header .overview p:last-child {
+  margin-bottom: 0;
+}
+
 .change-up {
   color: var(--up-color);
 }

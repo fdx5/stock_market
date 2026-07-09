@@ -1,7 +1,7 @@
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
-from app.data import board_fetcher, news_fetcher, price_fetcher
+from app.data import board_fetcher, company_overview_fetcher, news_fetcher, price_fetcher
 from app.data.stock_quote_fetcher import get_stock_quote
 from app.data.universe import get_stock_name
 from app.services.cache import cache
@@ -92,6 +92,13 @@ def predict(code: str):
     result["code"] = code
     result["name"] = name
     return result
+
+
+@router.get("/{code}/overview")
+def overview(code: str):
+    name = _resolve_name(code)
+    lines = company_overview_fetcher.get_company_overview(code)
+    return {"code": code, "name": name, "overview": lines}
 
 
 @router.get("/{code}/news")
