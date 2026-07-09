@@ -224,10 +224,7 @@ export default function MarketMapPage({
     return map;
   }, [items, translatedNames]);
 
-  const liveBadgeText =
-    lang === "en"
-      ? `Live (Rank 1–${tier1Limit}: 30s · ${tier1Limit + 1}–${tier2Limit}: 5min · rest: 10min)`
-      : `실시간 (1~${tier1Limit}위 30초 · ${tier1Limit + 1}~${tier2Limit}위 5분 · 나머지 10분 갱신)`;
+  const liveBadgeText = lang === "en" ? "Live (rank-based refresh: 30s–10min)" : "실시간 (순위별 30초 ~ 10분단위 갱신)";
 
   return (
     <div className="app kospi-map-page">
@@ -258,7 +255,7 @@ export default function MarketMapPage({
               </span>
             </div>
             <p className="app-subtitle">
-              {t(subtitlePrefix)} {t("종목을 업종별로 묶어 시가총액 크기, 등락률을 한눈에 보여줍니다. 타일을 클릭하면 해당 종목 상세로 이동합니다.")}
+              {t(subtitlePrefix)} {t("종목 MAP")}
               {generatedAt && (
                 <span className="kospi-map-updated">
                   {lang === "en"

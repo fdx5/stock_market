@@ -2403,6 +2403,14 @@ a.app-brand:hover .app-logo-wide {
   .app-footer-top {
     flex-direction: column;
     align-items: flex-start;
+    gap: 10px;
+  }
+
+  /* The 220px flex-basis set for the row layout would otherwise carry over
+     as a *height* basis once the container switches to column direction here,
+     stretching the tagline into a tall box with dead space below its text. */
+  .app-footer-tagline {
+    flex: 0 1 auto;
   }
 
   .app-footer-links {

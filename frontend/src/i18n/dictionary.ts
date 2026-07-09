@@ -50,8 +50,7 @@ export const DICTIONARY: Record<string, string> = {
   "회사 정보를 불러오지 못했습니다.": "Failed to load company information.",
 
   // MarketMapPage (KOSPI MAP / KOSDAQ MAP)
-  "종목을 업종별로 묶어 시가총액 크기, 등락률을 한눈에 보여줍니다. 타일을 클릭하면 해당 종목 상세로 이동합니다.":
-    "Shows market-cap size and change rate at a glance, grouped by sector. Click a tile to view that stock's details.",
+  "종목 MAP": "Stocks MAP",
   "맵 보기": "Map View",
   "표로 보기": "Table View",
   "하락": "Down",
@@ -64,9 +63,9 @@ export const DICTIONARY: Record<string, string> = {
   "등락률": "Change %",
   "등락": "Change",
   "시총 500개 종목 데이터를 불러오는 중...": "Loading data for the top 500 stocks by market cap...",
-  "코스피 시가총액 상위 500개": "KOSPI top 500 by market cap",
+  "코스피 시가총액 상위 500개": "KOSPI Top 500",
   "코스닥 시총 200개 종목 데이터를 불러오는 중...": "Loading data for the top 200 KOSDAQ stocks by market cap...",
-  "코스닥 시가총액 상위 200개": "KOSDAQ top 200 by market cap",
+  "코스닥 시가총액 상위 200개": "KOSDAQ Top 200",
 
   // Sector labels (fixed, small set — see market_map.py's _SECTOR_KEYWORDS)
   "배터리": "Battery",
