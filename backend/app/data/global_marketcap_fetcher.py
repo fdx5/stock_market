@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -15,8 +17,10 @@ BASE_URL = "https://companiesmarketcap.com"
 
 def get_global_top20() -> list[dict]:
     """Top 20 companies worldwide by market cap, scraped from companiesmarketcap.com's
-    homepage table. No live per-second feed exists for this globally, so callers should
-    cache this for a while — the composition/values don't need sub-minute freshness."""
+    homepage table. This table's own composition/values barely move between requests a
+    few seconds apart — it reads as a periodic snapshot rather than a tick-by-tick feed
+    — so callers wanting intraday movement should overlay `get_live_quotes_bulk` on top
+    of the `price`/`marcap_usd` pair returned here rather than relying on this alone."""
     resp = requests.get(BASE_URL + "/", headers=HEADERS, timeout=10)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -71,6 +75,45 @@ def get_global_top20() -> list[dict]:
             }
         )
     return items
+
+
+def _fetch_live_quote(symbol: str) -> dict | None:
+    """Live-ish intraday price for one ticker via Yahoo Finance's chart endpoint — the
+    v7/v10 quote endpoints now require an auth crumb we don't have, but this one still
+    answers without auth and includes `previousClose`, letting us compute change% the
+    same way Yahoo itself does."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d"
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=8)
+        resp.raise_for_status()
+        meta = resp.json()["chart"]["result"][0]["meta"]
+        price = meta.get("regularMarketPrice")
+        previous_close = meta.get("previousClose")
+        if price is None or previous_close is None:
+            return None
+        return {"price": float(price), "previous_close": float(previous_close)}
+    except Exception:
+        return None
+
+
+def get_live_quotes_bulk(symbols: list[str]) -> dict[str, dict]:
+    """Live quotes for many tickers at once. Yahoo's chart endpoint only takes one
+    symbol per request (unlike the quote endpoint, it doesn't need a crumb), so this
+    fans requests out over a thread pool instead of a single batched call. A symbol
+    that fails to resolve is just omitted — callers should fall back to their own
+    last-known value for it."""
+    quotes: dict[str, dict] = {}
+    if not symbols:
+        return quotes
+
+    with ThreadPoolExecutor(max_workers=min(10, len(symbols))) as pool:
+        futures = {pool.submit(_fetch_live_quote, symbol): symbol for symbol in symbols}
+        for future in as_completed(futures):
+            symbol = futures[future]
+            quote = future.result()
+            if quote:
+                quotes[symbol] = quote
+    return quotes
 
 
 def get_company_detail(detail_path: str) -> dict | None:
