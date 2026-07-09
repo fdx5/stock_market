@@ -5,9 +5,12 @@ const TICKER_POLL_MS = 3_000;
 
 const ICONS: Record<string, string> = {
   "KRW=X": "/img/ticker/usdkrw.png",
+  "^GSPC": "/img/ticker/spx500.png",
+  "^NDX": "/img/ticker/nas100.png",
   "CL=F": "/img/ticker/oil.png",
   "BTC-USD": "/img/ticker/btc.png",
   "ETH-USD": "/img/ticker/eth.png",
+  "XRP-USD": "/img/ticker/xrp.png",
   "GC=F": "/img/ticker/gold.png",
   "SI=F": "/img/ticker/silver.png",
 };

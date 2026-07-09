@@ -20,9 +20,12 @@ HEADERS = {
 # no-auth source that covers FX, commodities futures, and crypto uniformly.
 SYMBOLS = [
     {"symbol": "KRW=X", "label": "USD/KRW"},
+    {"symbol": "^GSPC", "label": "S&P 500"},
+    {"symbol": "^NDX", "label": "Nasdaq 100"},
     {"symbol": "CL=F", "label": "WTI Crude"},
     {"symbol": "BTC-USD", "label": "Bitcoin"},
     {"symbol": "ETH-USD", "label": "Ethereum"},
+    {"symbol": "XRP-USD", "label": "Ripple"},
     {"symbol": "GC=F", "label": "Gold"},
     {"symbol": "SI=F", "label": "Silver"},
 ]

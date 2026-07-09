@@ -1624,6 +1624,11 @@ a.app-brand:hover .app-logo-wide {
   text-shadow: 1px 1px 0 #0b3d91, 2px 2px 0 #0b3d91, 3px 3px 0 #072a66, 4px 4px 8px rgba(0, 0, 0, 0.6);
 }
 
+.battle-rank1-name.leader-skhynix {
+  color: #ff6b6b;
+  text-shadow: 1px 1px 0 #8b1a1a, 2px 2px 0 #8b1a1a, 3px 3px 0 #5c1010, 4px 4px 8px rgba(0, 0, 0, 0.6);
+}
+
 @keyframes battle-3d-spin {
   0%, 100% { transform: translateX(-50%) perspective(400px) rotateY(0deg); }
   50% { transform: translateX(-50%) perspective(400px) rotateY(18deg); }

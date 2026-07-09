@@ -216,7 +216,7 @@ export default function TugOfWarPage() {
               </div>
             </div>
 
-            <div className={`battle-rank1-name ${leader.code === "005930" ? "leader-samsung" : ""}`}>
+            <div className={`battle-rank1-name ${leader.code === "005930" ? "leader-samsung" : "leader-skhynix"}`}>
               {ENGLISH_NAME[leader.code] ?? leader.name}
             </div>
             <div className="battle-rank2-info">
