@@ -7,6 +7,7 @@ import { Link, navigate } from "../router";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
 import LanguageToggle from "./LanguageToggle";
+import MarketTickerBar from "./MarketTickerBar";
 import VisitorBadge from "./VisitorBadge";
 
 interface SectorZone {
@@ -270,6 +271,8 @@ export default function MarketMapPage({
           </div>
         </div>
       </header>
+
+      <MarketTickerBar />
 
       {loading && <div className="loading-state">{t(loadingLabel)}</div>}
       {error && <div className="error-state">{t(error)}</div>}

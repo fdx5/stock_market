@@ -3,6 +3,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query
 
+from app.data.market_ticker_fetcher import get_market_ticker
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 
 router = APIRouter()
@@ -28,3 +29,8 @@ def kosdaq_map(limit: int = Query(200, ge=1, le=200)):
         "count": len(items),
         "items": items,
     }
+
+
+@router.get("/ticker")
+def ticker():
+    return {"items": get_market_ticker()}

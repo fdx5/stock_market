@@ -1057,6 +1057,82 @@ body {
   color: white;
 }
 
+.ticker-bar {
+  height: 70px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  margin-bottom: 16px;
+}
+
+.ticker-track {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  width: max-content;
+  /* The track holds the item list twice; animating exactly one set's width
+     (-50% -> 0%) makes the loop seamless. Direction is left-to-right by design. */
+  animation: ticker-scroll 32s linear infinite;
+}
+
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+    overflow-x: auto;
+  }
+}
+
+.ticker-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  padding: 0 18px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+}
+
+.ticker-card-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  min-width: 58px;
+}
+
+.ticker-sparkline {
+  width: 70px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.ticker-card-price {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ticker-card-value {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ticker-card-change {
+  font-size: 11px;
+  font-weight: 600;
+}
+
 .kospi-map-legend {
   display: flex;
   align-items: center;

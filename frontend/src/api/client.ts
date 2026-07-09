@@ -69,6 +69,15 @@ export interface CompanyOverview {
   shares_outstanding: number | null;
 }
 
+export interface MarketTickerItem {
+  symbol: string;
+  label: string;
+  price: number;
+  change: number;
+  change_pct: number;
+  points: number[];
+}
+
 export interface MarketMapItem {
   code: string;
   name: string;
@@ -219,6 +228,7 @@ export const api = {
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/kosdaq-map?limit=${limit}`
     ),
+  marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
   board: (code: string, page = 1) =>
     getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
       `${BASE}/stock/${code}/board?page=${page}`
