@@ -184,7 +184,16 @@ function Dashboard() {
       <header className="app-header">
         <div>
           <div className="app-title-row">
-            <h1 className="app-title">{t("코스피/코스닥 종합 정보")}</h1>
+            <div className="app-brand">
+              <img src="/img/sitelogo.png" alt="" className="app-logo" />
+              <h1 className="app-title">{t("코스피/코스닥 종합 정보")}</h1>
+            </div>
+            <div className="app-header-meta">
+              <LanguageToggle />
+              <VisitorBadge />
+            </div>
+          </div>
+          <div className="app-nav-row">
             <Link to="/map" className="kospi-map-nav-link">
               🗺 KOSPI MAP
             </Link>
@@ -194,8 +203,6 @@ function Dashboard() {
             <Link to="/battle" className="kospi-map-nav-link">
               {t("🔥 시총 줄다리기")}
             </Link>
-            <LanguageToggle />
-            <VisitorBadge />
           </div>
           <p className="app-subtitle">
             {t(
