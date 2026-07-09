@@ -83,7 +83,7 @@ export const DICTIONARY: Record<string, string> = {
   "기타": "Other",
 
   // Dashboard (App.tsx)
-  "코스피 종합 정보": "KOSPI Overview",
+  "코스피/코스닥 종합 정보": "KOSPI/KOSDAQ Overview",
   "종목을 검색하면 현재 시세와 등락률, 일봉 차트(최근 3개월 기본 표시, 최대 3년 조회), 최근 3일 뉴스 요약과 관련 뉴스를 한눈에 확인할 수 있습니다.":
     "Search for a stock to see its current price and change rate, a daily candlestick chart (3 months by default, up to 3 years), a 3-day news digest, and related news, all at a glance.",
   "종목을 검색해 주세요. (예: 삼성전자, 005930)": "Please search for a stock (e.g. Samsung Electronics, 005930)",
@@ -108,6 +108,7 @@ export const DICTIONARY: Record<string, string> = {
   "지수 하단은 시장 전체 개인/외국인/기관 누적 순매수(억원)이며, 매수는 빨간색, 매도는 파란색입니다.":
     "Below each index is the market-wide cumulative net buy/sell (100M KRW) by individuals/foreign/institutional investors — red for net buying, blue for net selling.",
   "코스피 시총 50위": "KOSPI Top 50 by Market Cap",
+  "코스닥 시총 50위": "KOSDAQ Top 50 by Market Cap",
   "종목별 투자자 매매동향": "Investor Activity by Stock",
   "기준 누적 순매수(억원)": "cumulative net buy/sell (100M KRW)",
   "최근 확정 거래일 기준 누적 순매수(억원)": "Cumulative net buy/sell (100M KRW), as of the last confirmed trading day",

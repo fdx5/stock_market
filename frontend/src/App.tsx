@@ -184,7 +184,7 @@ function Dashboard() {
       <header className="app-header">
         <div>
           <div className="app-title-row">
-            <h1 className="app-title">{t("코스피 종합 정보")}</h1>
+            <h1 className="app-title">{t("코스피/코스닥 종합 정보")}</h1>
             <Link to="/map" className="kospi-map-nav-link">
               🗺 KOSPI MAP
             </Link>

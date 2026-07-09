@@ -4,7 +4,7 @@ import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
 
-type Tab = "top50" | "investor";
+type Tab = "top50" | "kosdaq50" | "investor";
 
 function formatAmount(value: number, lang: Lang): string {
   const abs = Math.abs(value);
@@ -82,7 +82,13 @@ function IndexTile({
   );
 }
 
-function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchResult) => void }) {
+function Top50PriceList({
+  onSelectStock,
+  market,
+}: {
+  onSelectStock: (stock: StockSearchResult) => void;
+  market: "KOSPI" | "KOSDAQ";
+}) {
   const { lang } = useLanguage();
   const t = useT();
   const [items, setItems] = useState<MarketMapItem[]>([]);
@@ -93,11 +99,11 @@ function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchR
 
   useEffect(() => {
     let cancelled = false;
+    const fetchItems = market === "KOSPI" ? () => api.marketMap(50) : () => api.kosdaqMap(50);
 
     const load = (isInitial: boolean) => {
       if (isInitial) setLoading(true);
-      api
-        .marketMap(50)
+      fetchItems()
         .then((res) => {
           if (cancelled) return;
           setItems(res.items);
@@ -119,7 +125,7 @@ function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchR
       cancelled = true;
       clearInterval(interval);
     };
-  }, []);
+  }, [market]);
 
   const translatedNames = useTranslatedTexts(items.map((it) => it.name));
 
@@ -144,7 +150,7 @@ function Top50PriceList({ onSelectStock }: { onSelectStock: (stock: StockSearchR
               <td className="top50-table-name">
                 <button
                   type="button"
-                  onClick={() => onSelectStock({ code: item.code, name: item.name, market: "KOSPI" })}
+                  onClick={() => onSelectStock({ code: item.code, name: item.name, market })}
                 >
                   {translatedNames[idx] ?? item.name}
                 </button>
@@ -278,6 +284,13 @@ export default function MarketOverviewPanel({
           </button>
           <button
             type="button"
+            className={`market-overview-tab ${tab === "kosdaq50" ? "active" : ""}`}
+            onClick={() => setTab("kosdaq50")}
+          >
+            {t("코스닥 시총 50위")}
+          </button>
+          <button
+            type="button"
             className={`market-overview-tab ${tab === "investor" ? "active" : ""}`}
             onClick={() => setTab("investor")}
           >
@@ -285,7 +298,9 @@ export default function MarketOverviewPanel({
           </button>
         </div>
 
-        {tab === "top50" && <Top50PriceList onSelectStock={onSelectStock} />}
+        {tab === "top50" && <Top50PriceList onSelectStock={onSelectStock} market="KOSPI" />}
+
+        {tab === "kosdaq50" && <Top50PriceList onSelectStock={onSelectStock} market="KOSDAQ" />}
 
         {tab === "investor" && (
           <>
