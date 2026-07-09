@@ -10,9 +10,9 @@ export default function VisitorBadge() {
   return (
     <span className="visitor-badge">
       <span className="visitor-badge-dot" />
-      {lang === "en" ? `${currentText} online` : `현재 접속자 ${currentText}명`}
+      {lang === "en" ? `${currentText} online` : `접속 ${currentText}명`}
       <span className="visitor-badge-sep">·</span>
-      {lang === "en" ? `${totalText} total visits` : `누적 방문 ${totalText}명`}
+      {lang === "en" ? `${totalText} visits` : `방문 ${totalText}명`}
     </span>
   );
 }

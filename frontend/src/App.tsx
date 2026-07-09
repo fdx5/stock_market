@@ -59,7 +59,7 @@ function formatShares(shares: number, lang: "ko" | "en"): string {
 function Dashboard() {
   const { lang } = useLanguage();
   const t = useT();
-  useDocumentTitle(t("코스피 종목정보"));
+  useDocumentTitle("K-Stock Hub");
 
   const [selected, setSelected] = useState<StockSearchResult | null>(() => {
     const code = new URLSearchParams(window.location.search).get("code");
@@ -185,8 +185,8 @@ function Dashboard() {
         <div>
           <div className="app-title-row">
             <div className="app-brand">
-              <img src="/img/sitelogo.png" alt="" className="app-logo" />
-              <h1 className="app-title">{t("코스피/코스닥 종합 정보")}</h1>
+              <h1 className="sr-only">K-Stock Hub</h1>
+              <img src="/img/kstock-logo.png" alt="K-Stock Hub" className="app-logo-wide" />
             </div>
             <div className="app-header-meta">
               <LanguageToggle />

@@ -42,7 +42,6 @@ function tileFontSizes(w: number, h: number): { name: number; pct: number } {
 }
 
 export interface MarketMapPageProps {
-  documentTitle: string;
   pageTitle: string;
   loadingLabel: string;
   subtitlePrefix: string;
@@ -61,7 +60,6 @@ export interface MarketMapPageProps {
 // header copy. CSS classes below keep the "kospi-map-*" naming from when this was KOSPI
 // MAP-only; they're generic layout hooks now, shared by both markets.
 export default function MarketMapPage({
-  documentTitle,
   pageTitle,
   loadingLabel,
   subtitlePrefix,
@@ -73,7 +71,7 @@ export default function MarketMapPage({
 }: MarketMapPageProps) {
   const { lang } = useLanguage();
   const t = useT();
-  useDocumentTitle(t(documentTitle));
+  useDocumentTitle("K-Stock Hub");
 
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);

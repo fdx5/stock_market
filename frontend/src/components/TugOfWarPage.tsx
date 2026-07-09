@@ -39,7 +39,7 @@ function formatChangePct(changePct: number): string {
 export default function TugOfWarPage() {
   const { lang } = useLanguage();
   const t = useT();
-  useDocumentTitle(t("시총 줄다리기"));
+  useDocumentTitle("K-Stock Hub");
 
   const [samsung, setSamsung] = useState<BattleSide | null>(null);
   const [skhynix, setSkhynix] = useState<BattleSide | null>(null);

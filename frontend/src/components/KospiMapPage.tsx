@@ -4,7 +4,6 @@ import MarketMapPage from "./MarketMapPage";
 export default function KospiMapPage() {
   return (
     <MarketMapPage
-      documentTitle="KOSPI MAP"
       pageTitle="KOSPI MAP"
       loadingLabel="시총 500개 종목 데이터를 불러오는 중..."
       subtitlePrefix="코스피 시가총액 상위 500개"
