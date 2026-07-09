@@ -26,7 +26,7 @@ function TickerIcon({ symbol, label }: { symbol: string; label: string }) {
   return <img src={src} alt="" className="ticker-icon" title={label} />;
 }
 
-function Sparkline({ points }: { points: number[] }) {
+function Sparkline({ points, up }: { points: number[]; up: boolean }) {
   if (points.length < 2) return <svg className="ticker-sparkline" />;
 
   const w = 120;
@@ -41,7 +41,7 @@ function Sparkline({ points }: { points: number[] }) {
 
   return (
     <svg className="ticker-sparkline" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-      <path d={d} fill="none" stroke="var(--series-red)" strokeWidth="1.5" />
+      <path d={d} fill="none" stroke={up ? "var(--up-color)" : "var(--down-color)"} strokeWidth="1.5" />
     </svg>
   );
 }
@@ -52,7 +52,7 @@ function TickerCard({ item }: { item: MarketTickerItem }) {
     <div className="ticker-card">
       <TickerIcon symbol={item.symbol} label={item.label} />
       <div className="ticker-card-label">{item.label}</div>
-      <Sparkline points={item.points} />
+      <Sparkline points={item.points} up={up} />
       <div className="ticker-card-price">
         <span className="ticker-card-value">{formatPrice(item)}</span>
         <span className={`ticker-card-change ${up ? "change-up" : "change-down"}`}>
