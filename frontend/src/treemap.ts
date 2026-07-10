@@ -149,13 +149,13 @@ function relativeLuminance({ r, g, b }: Rgb): number {
 }
 
 // Dark-theme tiles keep plain white text (already legible, unchanged). Light-theme
-// tiles use a warm gold instead of a near-white — a white/cream label on a light
-// page reads as "leftover default," and gold is distinct from both the blue and
-// red tile poles so it stays legible across the whole range rather than picking a
-// tone that only works against one end.
+// tiles use a bright lime-mint instead of a near-white — a white/cream label on a
+// light page reads as "leftover default," and this green is distinct from both the
+// blue and red tile poles (and bright enough to stay legible across the whole
+// range) rather than picking a tone that only works against one end.
 export function textColorForRgb(rgb: Rgb, mode: "dark" | "light" = "dark"): string {
   const light = mode === "light";
   const dark = light ? "#2e2c26" : "#0b0b0b";
-  const bright = light ? "#f6d580" : "#ffffff";
+  const bright = light ? "#b6e89a" : "#ffffff";
   return relativeLuminance(rgb) > 0.35 ? dark : bright;
 }
