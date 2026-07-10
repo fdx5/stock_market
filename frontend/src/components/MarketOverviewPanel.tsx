@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { IndexQuote, InvestorSummaryItem, MarketInvestorSummary, MarketMapItem, StockSearchResult, api } from "../api/client";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 
 type Tab = "top50" | "kosdaq50" | "investor";
@@ -119,11 +120,11 @@ function Top50PriceList({
     };
 
     load(true);
-    const interval = setInterval(() => load(false), REFRESH_MS);
+    const stopPolling = startVisibilityAwareInterval(() => load(false), REFRESH_MS);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stopPolling();
     };
   }, [market]);
 
@@ -248,13 +249,13 @@ export default function MarketOverviewPanel({
     loadIndices();
     loadSummary(true);
 
-    const indexInterval = setInterval(loadIndices, INDEX_REFRESH_MS);
-    const summaryInterval = setInterval(() => loadSummary(false), SUMMARY_REFRESH_MS);
+    const stopIndexPolling = startVisibilityAwareInterval(loadIndices, INDEX_REFRESH_MS);
+    const stopSummaryPolling = startVisibilityAwareInterval(() => loadSummary(false), SUMMARY_REFRESH_MS);
 
     return () => {
       cancelled = true;
-      clearInterval(indexInterval);
-      clearInterval(summaryInterval);
+      stopIndexPolling();
+      stopSummaryPolling();
     };
   }, []);
 

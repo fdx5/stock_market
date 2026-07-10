@@ -46,7 +46,7 @@ def fetch_market_cap_page(page: int, sosok: int = 0) -> list[dict]:
     `sosok=1` for KOSDAQ. Includes ETFs — callers that need companies only should
     cross-reference StockListing('ETF/KR')."""
     url = f"https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
-    resp = _session.get(url, timeout=8)
+    resp = _session.get(url, timeout=4)
     resp.raise_for_status()
     resp.encoding = "euc-kr"
     soup = BeautifulSoup(resp.text, "html.parser")

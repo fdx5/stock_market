@@ -16,7 +16,7 @@ def get_usd_krw() -> dict | None:
     hours rather than tick-by-tick, but it's the closest thing to a live retail
     exchange rate Naver exposes without authentication."""
     try:
-        resp = requests.get(URL, headers=HEADERS, timeout=8)
+        resp = requests.get(URL, headers=HEADERS, timeout=4)
         resp.raise_for_status()
         data = resp.json()["result"]
         return {

@@ -17,6 +17,10 @@ COPY backend/app ./app
 COPY --from=frontend-build /frontend/dist ./app/static
 
 ENV PORT=8000
+# In-process caches (see app/services/cache.py) aren't shared across workers, so
+# raising this multiplies upstream-scraper traffic by the same factor. Only raise
+# it once the host has more than one usable CPU to actually take advantage of it.
+ENV WEB_CONCURRENCY=1
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY}"]

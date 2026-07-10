@@ -44,7 +44,7 @@ def _fetch_one(entry: dict) -> dict | None:
     symbol = entry["symbol"]
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     try:
-        resp = requests.get(url, headers=HEADERS, params={"interval": "15m", "range": "1d"}, timeout=8)
+        resp = requests.get(url, headers=HEADERS, params={"interval": "15m", "range": "1d"}, timeout=4)
         resp.raise_for_status()
         result = resp.json()["chart"]["result"][0]
         meta = result["meta"]

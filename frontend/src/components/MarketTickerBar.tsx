@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { MarketTickerItem, api } from "../api/client";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 
-const TICKER_POLL_MS = 3_000;
+// Backend TTL_TICKER_SECONDS is 10s, so anything faster than that just re-fetches
+// the same cached snapshot from our own API.
+const TICKER_POLL_MS = 5_000;
 
 const ICONS: Record<string, string> = {
   "KRW=X": "/img/ticker/usdkrw.png",
@@ -93,10 +96,10 @@ export default function MarketTickerBar() {
     };
 
     load();
-    const id = window.setInterval(load, TICKER_POLL_MS);
+    const stopPolling = startVisibilityAwareInterval(load, TICKER_POLL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopPolling();
     };
   }, []);
 

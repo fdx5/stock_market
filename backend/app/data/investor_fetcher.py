@@ -25,7 +25,7 @@ def _fetch_investor_trend(code: str, page_size: int) -> list[dict]:
         f"https://m.stock.naver.com/front-api/stock/domestic/trend"
         f"?code={code}&marketType=KRX&pageSize={page_size}"
     )
-    resp = requests.get(url, headers=HEADERS, timeout=8)
+    resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     payload = resp.json()
     if not payload.get("isSuccess"):

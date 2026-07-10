@@ -19,6 +19,7 @@ import VisitorBadge from "./components/VisitorBadge";
 import { trillionSuffix, wonSuffix } from "./i18n/format";
 import { useLanguage, useT } from "./i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "./i18n/useTranslatedTexts";
+import { startVisibilityAwareInterval } from "./pollVisibility";
 import { Link, useRoute } from "./router";
 import { useDocumentTitle } from "./useDocumentTitle";
 
@@ -148,10 +149,10 @@ function Dashboard() {
     };
 
     poll();
-    const id = window.setInterval(poll, QUOTE_POLL_MS);
+    const stopPolling = startVisibilityAwareInterval(poll, QUOTE_POLL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopPolling();
     };
   }, [selected]);
 

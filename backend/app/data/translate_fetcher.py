@@ -12,7 +12,7 @@ def translate_text(text: str, source_lang: str, target_lang: str) -> str:
         resp = requests.get(
             TRANSLATE_URL,
             params={"client": "gtx", "sl": source_lang, "tl": target_lang, "dt": "t", "q": text},
-            timeout=10,
+            timeout=4,
         )
         resp.raise_for_status()
         segments = resp.json()[0]

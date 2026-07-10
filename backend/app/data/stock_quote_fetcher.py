@@ -54,7 +54,7 @@ def get_stock_quote(code: str) -> dict | None:
     """Live, NXT-aware price + market cap for one stock."""
     url = f"https://polling.finance.naver.com/api/realtime/domestic/stock/{code}"
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=8)
+        resp = requests.get(url, headers=HEADERS, timeout=4)
         resp.raise_for_status()
         return _quote_from_data(resp.json()["datas"][0])
     except Exception:
@@ -63,7 +63,7 @@ def get_stock_quote(code: str) -> dict | None:
 
 def _fetch_quotes_chunk(codes: list[str]) -> dict[str, dict]:
     url = f"https://polling.finance.naver.com/api/realtime/domestic/stock/{','.join(codes)}"
-    resp = requests.get(url, headers=HEADERS, timeout=8)
+    resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     datas = resp.json().get("datas", [])
     return {d["itemCode"]: _quote_from_data(d) for d in datas}

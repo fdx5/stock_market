@@ -3,6 +3,7 @@ import { BattleSide, ExchangeRate, api } from "../api/client";
 import { trillionSuffix, wonSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import CheerSection from "./CheerSection";
@@ -74,10 +75,10 @@ export default function TugOfWarPage() {
     };
 
     poll();
-    const id = window.setInterval(poll, POLL_MS);
+    const stopPolling = startVisibilityAwareInterval(poll, POLL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopPolling();
     };
   }, []);
 
@@ -119,10 +120,10 @@ export default function TugOfWarPage() {
     };
 
     poll();
-    const id = window.setInterval(poll, FX_POLL_MS);
+    const stopPolling = startVisibilityAwareInterval(poll, FX_POLL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopPolling();
     };
   }, []);
 

@@ -19,7 +19,7 @@ def get_global_top20() -> list[dict]:
     few seconds apart — it reads as a periodic snapshot rather than a tick-by-tick feed
     — so callers wanting intraday movement should overlay `get_live_quotes_bulk` on top
     of the `price`/`marcap_usd` pair returned here rather than relying on this alone."""
-    resp = requests.get(BASE_URL + "/", headers=HEADERS, timeout=10)
+    resp = requests.get(BASE_URL + "/", headers=HEADERS, timeout=4)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -82,7 +82,7 @@ def _fetch_live_quote(symbol: str) -> dict | None:
     same way Yahoo itself does."""
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d"
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=8)
+        resp = requests.get(url, headers=HEADERS, timeout=4)
         resp.raise_for_status()
         meta = resp.json()["chart"]["result"][0]["meta"]
         price = meta.get("regularMarketPrice")
@@ -121,7 +121,7 @@ def get_company_detail(detail_path: str) -> dict | None:
     if not detail_path.startswith("/") or ".." in detail_path:
         return None
 
-    resp = requests.get(BASE_URL + detail_path, headers=HEADERS, timeout=10)
+    resp = requests.get(BASE_URL + detail_path, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 

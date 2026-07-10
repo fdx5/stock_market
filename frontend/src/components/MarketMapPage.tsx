@@ -3,6 +3,7 @@ import { MarketMapItem } from "../api/client";
 import { wonSuffix } from "../i18n/format";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
@@ -144,15 +145,15 @@ export default function MarketMapPage({
     loadPartial(tier2Limit, false);
     loadFullList();
 
-    const tier1Interval = setInterval(() => loadPartial(tier1Limit, false), TIER1_REFRESH_MS);
-    const tier2Interval = setInterval(() => loadPartial(tier2Limit, false), TIER2_REFRESH_MS);
-    const fullInterval = setInterval(loadFullList, FULL_REFRESH_MS);
+    const stopTier1 = startVisibilityAwareInterval(() => loadPartial(tier1Limit, false), TIER1_REFRESH_MS);
+    const stopTier2 = startVisibilityAwareInterval(() => loadPartial(tier2Limit, false), TIER2_REFRESH_MS);
+    const stopFull = startVisibilityAwareInterval(loadFullList, FULL_REFRESH_MS);
 
     return () => {
       cancelled = true;
-      clearInterval(tier1Interval);
-      clearInterval(tier2Interval);
-      clearInterval(fullInterval);
+      stopTier1();
+      stopTier2();
+      stopFull();
     };
   }, [fetchMap, tier1Limit, tier2Limit, fullLimit]);
 

@@ -18,7 +18,7 @@ HEADERS = {
 
 def _fetch_board_page(code: str, page: int) -> list[dict]:
     url = f"https://finance.naver.com/item/board.naver?code={code}&page={page}"
-    resp = requests.get(url, headers=HEADERS, timeout=8)
+    resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     resp.encoding = "utf-8"  # this board is served as UTF-8, unlike the older price pages
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -81,7 +81,7 @@ def _fetch_board_detail(nid: str) -> dict | None:
     # there. This is the JSON API that page calls internally (found by inspecting its
     # network traffic, since it isn't documented anywhere).
     url = f"https://m.stock.naver.com/front-api/discussion/detail?id={nid}"
-    resp = requests.get(url, headers=HEADERS, timeout=8)
+    resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     payload = resp.json()
     if not payload.get("isSuccess"):

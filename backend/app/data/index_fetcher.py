@@ -19,7 +19,7 @@ HEADERS = {
 
 def _fetch_index(symbol: str) -> dict:
     url = f"https://polling.finance.naver.com/api/realtime/domestic/index/{symbol}"
-    resp = requests.get(url, headers=HEADERS, timeout=8)
+    resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     data = resp.json()["datas"][0]
     return {
@@ -47,7 +47,7 @@ def _fetch_market_investor(symbol: str) -> dict | None:
     # open, and Naver renders it server-side on the classic index page — no separate
     # API needed.
     url = f"https://finance.naver.com/sise/sise_index.naver?code={symbol}"
-    resp = requests.get(url, headers=HEADERS, timeout=8)
+    resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     resp.encoding = "euc-kr"
     soup = BeautifulSoup(resp.text, "html.parser")

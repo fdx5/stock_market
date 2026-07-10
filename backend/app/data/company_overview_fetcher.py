@@ -71,7 +71,7 @@ def _extract_per_estimate(soup: BeautifulSoup) -> str | None:
 
 def _fetch_company_info(code: str) -> CompanyInfo:
     url = f"https://navercomp.wisereport.co.kr/v2/company/c1010001.aspx?cmp_cd={code}"
-    resp = requests.get(url, headers=HEADERS, timeout=8)
+    resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
 

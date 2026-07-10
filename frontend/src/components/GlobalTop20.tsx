@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import CompanyDetailModal from "./CompanyDetailModal";
 import RollingValue from "./RollingValue";
 
-const POLL_MS = 5000;
+// The live-quote overlay this feeds from refreshes server-side every 10s (see
+// TTL_GLOBAL_TOP20_QUOTES_SECONDS), so polling much faster than that just re-fetches
+// the same cached snapshot.
+const POLL_MS = 8000;
 
 function formatMarcapUsd(usd: number): string {
   if (usd >= 1_000_000_000_000) return `$${(usd / 1_000_000_000_000).toFixed(2)}T`;
@@ -72,10 +76,10 @@ export default function GlobalTop20() {
     };
 
     poll();
-    const id = window.setInterval(poll, POLL_MS);
+    const stopPolling = startVisibilityAwareInterval(poll, POLL_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(id);
+      stopPolling();
     };
   }, []);
 
