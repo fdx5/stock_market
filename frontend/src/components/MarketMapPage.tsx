@@ -4,6 +4,7 @@ import { wonSuffix } from "../i18n/format";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { Link, navigate } from "../router";
+import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
 import Footer from "./Footer";
@@ -75,6 +76,7 @@ export default function MarketMapPage({
 }: MarketMapPageProps) {
   const { lang } = useLanguage();
   const t = useT();
+  const themeMode = useThemeMode();
   useDocumentTitle("K-Stock Hub");
 
   const [items, setItems] = useState<MarketMapItem[]>([]);
@@ -313,7 +315,7 @@ export default function MarketMapPage({
                     </div>
                   )}
                   {zone.tiles.map((tile) => {
-                    const rgb = changeToRgb(tile.item.change_pct);
+                    const rgb = changeToRgb(tile.item.change_pct, themeMode);
                     const bg = rgbToCss(rgb);
                     const textColor = textColorForRgb(rgb);
                     const localX = tile.x - zone.rect.x;

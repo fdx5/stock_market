@@ -89,12 +89,28 @@ export function squarify(items: TreemapItem[], x: number, y: number, w: number, 
   return result;
 }
 
-// Diverging blue<->gray<->red scale reusing this app's existing dark-mode series
-// colors (up=red, down=blue, per the Korean market convention already used
-// throughout the app) so the map's palette matches the rest of the UI.
-const NEG_POLE = { r: 0x39, g: 0x87, b: 0xe5 }; // --series-blue (dark)
-const MID = { r: 0x38, g: 0x38, b: 0x35 }; // --baseline (dark neutral)
-const POS_POLE = { r: 0xe6, g: 0x67, b: 0x67 }; // --series-red (dark)
+// Diverging blue<->gray<->red scale reusing this app's series colors (up=red,
+// down=blue, per the Korean market convention already used throughout the app)
+// so the map's palette matches the rest of the UI.
+//
+// The dark-mode MID doubles as a near-black neutral, which reads fine as a "flat"
+// tile against the dark theme's near-black page/seams. Reusing that same dark gray
+// in the light theme made near-zero-change tiles (the most common case) render as
+// muddy dark boxes with an invisible border (tile borders match the page color by
+// design, to fake a seam) — adjacent flat tiles could blend into one indistinct
+// dark blob. The light MID is a genuinely mid-value warm gray instead, so flat
+// tiles stay legible as distinct boxes against the light theme's pale page.
+const DARK_POLES = {
+  neg: { r: 0x39, g: 0x87, b: 0xe5 }, // --series-blue (dark)
+  mid: { r: 0x38, g: 0x38, b: 0x35 }, // --baseline (dark)
+  pos: { r: 0xe6, g: 0x67, b: 0x67 }, // --series-red (dark)
+};
+
+const LIGHT_POLES = {
+  neg: { r: 0x3f, g: 0x66, b: 0xb8 }, // --series-blue (light)
+  mid: { r: 0x9a, g: 0x93, b: 0x82 }, // --baseline (light)
+  pos: { r: 0xbd, g: 0x5c, b: 0x66 }, // --series-red (light)
+};
 
 const FULL_SATURATION_PCT = 5;
 
@@ -108,9 +124,10 @@ export interface Rgb {
   b: number;
 }
 
-export function changeToRgb(changePct: number): Rgb {
+export function changeToRgb(changePct: number, mode: "dark" | "light" = "dark"): Rgb {
+  const { neg, mid, pos } = mode === "light" ? LIGHT_POLES : DARK_POLES;
   const t = Math.max(-1, Math.min(1, changePct / FULL_SATURATION_PCT));
-  const [from, to, localT] = t >= 0 ? [MID, POS_POLE, t] : [NEG_POLE, MID, t + 1];
+  const [from, to, localT] = t >= 0 ? [mid, pos, t] : [neg, mid, t + 1];
   return {
     r: Math.round(lerp(from.r, to.r, localT)),
     g: Math.round(lerp(from.g, to.g, localT)),

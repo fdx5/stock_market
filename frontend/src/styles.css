@@ -24,6 +24,12 @@
   --up-color: var(--series-red);
   --down-color: var(--series-blue);
 
+  /* Market-map tile/sector seams — deliberately == page-plane so the border reads
+     as a gap rather than a drawn line. That only works because the dark page is
+     near-black, giving every tile color enough contrast on its own; see the light
+     override below for why light mode needs a real (non-page-matching) color. */
+  --map-gap: var(--page-plane);
+
   color-scheme: dark;
 }
 
@@ -40,7 +46,11 @@
   --text-secondary: #5c584e;
   --text-muted: #837e72;
   --gridline: #ddd7c8;
-  --baseline: #c7c0ac;
+  /* A notch more present than the dark theme's --baseline is relative to *its*
+     page — chosen to double as the market-map's "flat/near-zero" tile color, which
+     needs real value contrast against a light page to read as a distinct box
+     (see --map-gap below). Must stay in sync with LIGHT_POLES.mid in treemap.ts. */
+  --baseline: #9a9382;
   --border: rgba(46, 44, 38, 0.14);
 
   --series-blue: #3f66b8;
@@ -53,6 +63,11 @@
   --status-warning: #a37a2e;
   --status-critical: #bb5252;
   --status-neutral: #837e72;
+
+  /* Unlike the dark theme, the light page is near-white, so a page-matching seam
+     would make same-toned tiles (mostly the near-zero-change ones) run together
+     with no visible boundary — a real mid-tone border keeps every tile distinct. */
+  --map-gap: #b2ab97;
 
   color-scheme: light;
 }
@@ -227,7 +242,10 @@ a.app-brand:hover .app-logo-wide {
 
 .search-option:hover,
 .search-option.active {
-  background: var(--page-plane);
+  /* A flat var(--page-plane) swap was near-invisible in the light theme (surface
+     and page sit only ~14/255 apart) — tinting relative to the text color instead
+     gives a real, visible hover/active state in both themes. */
+  background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-1));
 }
 
 .search-option .code {
@@ -546,7 +564,7 @@ a.app-brand:hover .app-logo-wide {
 
 .board-row:hover,
 .board-row.expanded {
-  background: var(--page-plane);
+  background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-1));
 }
 
 .board-row-title {
@@ -1326,7 +1344,7 @@ a.app-brand:hover .app-logo-wide {
 .kospi-map-sector {
   position: absolute;
   box-sizing: border-box;
-  border: 2px solid var(--page-plane);
+  border: 2px solid var(--map-gap);
   overflow: hidden;
 }
 
@@ -1336,7 +1354,10 @@ a.app-brand:hover .app-logo-wide {
   justify-content: space-between;
   gap: 6px;
   padding: 2px 7px;
-  background: var(--surface-1);
+  /* A flat var(--surface-1) fill sat almost flush with the page/gap color in the
+     light theme (both pale) — blending baseline in gives the strip a visible tint
+     in both themes without a per-theme override. */
+  background: color-mix(in srgb, var(--baseline) 35%, var(--surface-1));
   border-bottom: 1px solid var(--gridline);
   overflow: hidden;
 }
@@ -1360,7 +1381,7 @@ a.app-brand:hover .app-logo-wide {
 .kospi-map-tile {
   position: absolute;
   box-sizing: border-box;
-  border: 1px solid var(--page-plane);
+  border: 1px solid var(--map-gap);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1429,7 +1450,7 @@ a.app-brand:hover .app-logo-wide {
 }
 
 .kospi-map-table tbody tr:hover {
-  background: var(--page-plane);
+  background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-1));
 }
 
 .kospi-map-table tbody tr:last-child td {
