@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BoardDetail, BoardPost, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
@@ -19,6 +19,8 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   const [expandedNid, setExpandedNid] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
   const [details, setDetails] = useState<Record<string, DetailState>>({});
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const pendingRevealIndex = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -50,7 +52,20 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     };
   }, [code]);
 
+  // After "더보기" adds rows, the scroll position doesn't move on its own —
+  // scroll the first newly revealed row into view so it's obvious something loaded.
+  useEffect(() => {
+    const revealIndex = pendingRevealIndex.current;
+    if (revealIndex === null) return;
+    pendingRevealIndex.current = null;
+    const target = posts[revealIndex];
+    if (!target) return;
+    rowRefs.current.get(target.nid)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [posts, visibleCount]);
+
   const handleShowMore = () => {
+    pendingRevealIndex.current = visibleCount;
+
     if (visibleCount < posts.length) {
       // Naver's board page already returns 20 rows at a time — the first "더보기"
       // click just reveals rows already fetched, no request needed.
@@ -65,6 +80,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
       .then((res) => {
         if (res.items.length === 0) {
           setExhausted(true);
+          pendingRevealIndex.current = null;
           return;
         }
         setPosts((prev) => [...prev, ...res.items]);
@@ -73,6 +89,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
       })
       .catch(() => {
         // Leave the list as-is; the more-button stays put so the user can retry.
+        pendingRevealIndex.current = null;
       })
       .finally(() => setLoadingMore(false));
   };
@@ -125,7 +142,14 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
                 const isExpanded = expandedNid === post.nid;
                 const detailState = details[post.nid];
                 return (
-                  <div key={post.nid} className="board-row-wrap">
+                  <div
+                    key={post.nid}
+                    className="board-row-wrap"
+                    ref={(el) => {
+                      if (el) rowRefs.current.set(post.nid, el);
+                      else rowRefs.current.delete(post.nid);
+                    }}
+                  >
                     <button
                       type="button"
                       className={`board-row ${isExpanded ? "expanded" : ""}`}
