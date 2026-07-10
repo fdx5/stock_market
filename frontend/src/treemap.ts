@@ -148,14 +148,14 @@ function relativeLuminance({ r, g, b }: Rgb): number {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 
-// Dark-theme tiles keep plain white text (already legible, unchanged). Light-theme
-// tiles use a bright lime-mint instead of a near-white — a white/cream label on a
-// light page reads as "leftover default," and this green is distinct from both the
-// blue and red tile poles (and bright enough to stay legible across the whole
-// range) rather than picking a tone that only works against one end.
+// Tried a warm gold, then a pale mint, then a deeper green for the light theme's
+// dark-tile text — every colored alternative loses meaningful contrast against
+// either the blue or the red tile pole (being close in hue to one or the other),
+// so plain white ended up winning back out as the most reliably legible choice
+// across the full blue/red/gray range, in both themes.
 export function textColorForRgb(rgb: Rgb, mode: "dark" | "light" = "dark"): string {
   const light = mode === "light";
   const dark = light ? "#2e2c26" : "#0b0b0b";
-  const bright = light ? "#b6e89a" : "#ffffff";
+  const bright = "#ffffff";
   return relativeLuminance(rgb) > 0.35 ? dark : bright;
 }

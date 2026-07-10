@@ -67,9 +67,10 @@
 
   /* Unlike the dark theme, the light page is near-white, so a page-matching seam
      would make same-toned tiles (mostly the near-zero-change ones) run together
-     with no visible boundary — a deep slate border, a shade darker than the
-     neutral tile fill above, keeps every seam visible as a real grid line. */
-  --map-gap: #374049;
+     with no visible boundary — a deep plum border keeps every seam visible as a
+     real grid line, and echoes --series-violet (used elsewhere for SMA60 etc.)
+     rather than just being a shade of the neutral tile fill above. */
+  --map-gap: #5b4a73;
 
   color-scheme: light;
 }
@@ -1348,6 +1349,13 @@ a.app-brand:hover .app-logo-wide {
   box-sizing: border-box;
   border: 2px solid var(--map-gap);
   overflow: hidden;
+}
+
+/* The light theme's border is an actual visible color rather than a page-matching
+   "fake gap" (see --map-gap), so the same 2px weight that reads as a subtle seam
+   in dark mode looks noticeably heavier here — thin it down to match the tiles. */
+:root[data-theme="light"] .kospi-map-sector {
+  border-width: 1px;
 }
 
 .kospi-map-sector-header {
