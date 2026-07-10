@@ -11,7 +11,7 @@ import {
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import type { IndicatorPoint } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
-import { STATUS_CRITICAL, STATUS_GOOD, getThemeColors, watchTheme } from "../theme";
+import { ThemeColors, getThemeColors, watchTheme } from "../theme";
 
 interface Props {
   points: IndicatorPoint[];
@@ -36,6 +36,16 @@ function referenceLine(points: IndicatorPoint[], value: number): LineData<Time>[
   ];
 }
 
+function macdHistData(points: IndicatorPoint[], colors: ThemeColors): HistogramData<Time>[] {
+  return points
+    .filter((p) => p.macd_hist !== null && p.macd_hist !== undefined)
+    .map((p) => ({
+      time: p.date as Time,
+      value: p.macd_hist as number,
+      color: (p.macd_hist as number) >= 0 ? colors.good : colors.critical,
+    }));
+}
+
 const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest }, ref) => {
   const t = useT();
   const rsiContainerRef = useRef<HTMLDivElement>(null);
@@ -48,6 +58,8 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
   const macdLineRef = useRef<ISeriesApi<"Line"> | null>(null);
   const macdSignalRef = useRef<ISeriesApi<"Line"> | null>(null);
   const macdHistRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const pointsRef = useRef<IndicatorPoint[]>(points);
+  pointsRef.current = points;
 
   useImperativeHandle(ref, () => ({
     getCharts: () => [rsiChartRef.current, macdChartRef.current].filter((c): c is IChartApi => c !== null),
@@ -113,6 +125,12 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
           timeScale: { borderColor: next.baseline },
         });
       });
+      rsiSeries.applyOptions({ color: next.blue });
+      rsiUpper.applyOptions({ color: next.textMuted });
+      rsiLower.applyOptions({ color: next.textMuted });
+      macdLine.applyOptions({ color: next.blue });
+      macdSignal.applyOptions({ color: next.yellow });
+      macdHist.setData(macdHistData(pointsRef.current, next));
     });
 
     return () => {
@@ -129,15 +147,7 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
 
     macdLineRef.current?.setData(toLine(points, "macd"));
     macdSignalRef.current?.setData(toLine(points, "macd_signal"));
-
-    const histData: HistogramData<Time>[] = points
-      .filter((p) => p.macd_hist !== null && p.macd_hist !== undefined)
-      .map((p) => ({
-        time: p.date as Time,
-        value: p.macd_hist as number,
-        color: (p.macd_hist as number) >= 0 ? STATUS_GOOD : STATUS_CRITICAL,
-      }));
-    macdHistRef.current?.setData(histData);
+    macdHistRef.current?.setData(macdHistData(points, getThemeColors()));
 
     rsiChartRef.current?.timeScale().fitContent();
     macdChartRef.current?.timeScale().fitContent();

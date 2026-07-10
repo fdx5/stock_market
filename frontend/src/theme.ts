@@ -15,6 +15,8 @@ export interface ThemeColors {
   aqua: string;
   yellow: string;
   violet: string;
+  good: string;
+  critical: string;
 }
 
 const DARK: ThemeColors = {
@@ -30,29 +32,30 @@ const DARK: ThemeColors = {
   aqua: "#199e70",
   yellow: "#c98500",
   violet: "#9085e9",
+  good: "#0ca30c",
+  critical: "#d03b3b",
 };
 
-// Deepened relative to their dark-theme counterparts so text/lines drawn in these
-// hues keep roughly the same contrast against a white/near-white page instead of
-// washing out (verified against WCAG contrast targets, not just eyeballed).
+// A toned-down, dusty/pastel palette rather than a straight light-mode inversion —
+// warm off-white surfaces instead of stark white, and every accent hue pulled a
+// notch toward muted/desaturated while still clearing ~3.5:1+ contrast against both
+// surfaces (checked with a WCAG calculator, not just eyeballed).
 const LIGHT: ThemeColors = {
-  surface: "#ffffff",
-  textPrimary: "#17160f",
-  textSecondary: "#55534b",
-  textMuted: "#6e6b62",
-  gridline: "#e5e2d8",
-  baseline: "#d2cfc3",
-  up: "#d1445b",
-  down: "#2f6fd6",
-  blue: "#2f6fd6",
-  aqua: "#128a5e",
-  yellow: "#a06600",
-  violet: "#6a5ed1",
+  surface: "#f8f6f1",
+  textPrimary: "#2e2c26",
+  textSecondary: "#5c584e",
+  textMuted: "#837e72",
+  gridline: "#ddd7c8",
+  baseline: "#c7c0ac",
+  up: "#bd5c66",
+  down: "#3f66b8",
+  blue: "#3f66b8",
+  aqua: "#2f8468",
+  yellow: "#9c6a2f",
+  violet: "#7367bd",
+  good: "#3f8656",
+  critical: "#bb5252",
 };
-
-// Fixed across both modes (status palette is never themed).
-export const STATUS_GOOD = "#0ca30c";
-export const STATUS_CRITICAL = "#d03b3b";
 
 const STORAGE_KEY = "site_theme";
 const listeners = new Set<() => void>();
@@ -68,6 +71,9 @@ let currentMode: ThemeMode = getStoredMode() ?? "dark";
 function applyDomAttribute(mode: ThemeMode) {
   if (typeof document === "undefined") return;
   document.documentElement.setAttribute("data-theme", mode);
+  document
+    .querySelector('meta[name="theme-color"]')
+    ?.setAttribute("content", mode === "light" ? "#eae7df" : "#0d0d0d");
 }
 applyDomAttribute(currentMode);
 

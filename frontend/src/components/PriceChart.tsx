@@ -41,6 +41,8 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
   const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
   const [range, setRange] = useState<string>("3M");
+  const stateRef = useRef({ points, range });
+  stateRef.current = { points, range };
 
   useImperativeHandle(ref, () => ({ getChart: () => chartRef.current }));
 
@@ -134,6 +136,27 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
         wickUpColor: next.up,
         wickDownColor: next.down,
       });
+      volumeSeries.applyOptions({ color: next.textMuted });
+
+      const nextMaColors: Record<(typeof MA_KEYS)[number], string> = {
+        sma5: next.yellow,
+        sma20: next.aqua,
+        sma60: next.violet,
+      };
+      MA_KEYS.forEach((key) => smaSeries[key]?.applyOptions({ color: nextMaColors[key] }));
+      bbUpper.applyOptions({ color: next.blue });
+      bbLower.applyOptions({ color: next.blue });
+
+      const { points: currentPoints, range: currentRange } = stateRef.current;
+      const opt = RANGE_OPTIONS.find((r) => r.label === currentRange);
+      const filtered = !opt || opt.days === null ? currentPoints : currentPoints.slice(-opt.days);
+      volumeSeries.setData(
+        filtered.map((p) => ({
+          time: p.date as Time,
+          value: p.volume,
+          color: p.close >= p.open ? next.up : next.down,
+        }))
+      );
     });
 
     return () => {

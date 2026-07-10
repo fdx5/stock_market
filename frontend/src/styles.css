@@ -27,29 +27,32 @@
   color-scheme: dark;
 }
 
-/* First light-theme pass. Surfaces/text/gridlines are re-mapped to a warm
-   off-white; the series accent colors are deepened a notch from their dark-theme
-   values (verified against WCAG contrast, not just eyeballed) so lines/badges/links
-   drawn in these hues stay readable against a light page instead of washing out.
-   Status colors (good/warning/critical/neutral) are intentionally left unchanged —
-   they were already legible on both light and dark surfaces. */
+/* Light theme, tuned toward a dusty/pastel "designed" tone rather than a stark
+   inversion — warm greige page + warm off-white cards (never pure #fff), and every
+   accent hue pulled toward muted/desaturated. Each still clears ~3.5:1+ contrast
+   against both surfaces (checked with a WCAG calculator, not just eyeballed) so the
+   softer tone doesn't cost legibility. Must stay in sync with the LIGHT palette in
+   theme.ts — those drive the canvas-rendered charts, which CSS can't reach. */
 :root[data-theme="light"] {
-  --surface-1: #ffffff;
-  --page-plane: #f4f3ef;
-  --text-primary: #17160f;
-  --text-secondary: #55534b;
-  --text-muted: #6e6b62;
-  --gridline: #e5e2d8;
-  --baseline: #d2cfc3;
-  --border: rgba(23, 22, 15, 0.12);
+  --surface-1: #f8f6f1;
+  --page-plane: #eae7df;
+  --text-primary: #2e2c26;
+  --text-secondary: #5c584e;
+  --text-muted: #837e72;
+  --gridline: #ddd7c8;
+  --baseline: #c7c0ac;
+  --border: rgba(46, 44, 38, 0.14);
 
-  --series-blue: #2f6fd6;
-  --series-aqua: #128a5e;
-  --series-yellow: #a06600;
-  --series-violet: #6a5ed1;
-  --series-red: #d1445b;
+  --series-blue: #3f66b8;
+  --series-aqua: #2f8468;
+  --series-yellow: #9c6a2f;
+  --series-violet: #7367bd;
+  --series-red: #bd5c66;
 
-  --status-neutral: #6e6b62;
+  --status-good: #3f8656;
+  --status-warning: #a37a2e;
+  --status-critical: #bb5252;
+  --status-neutral: #837e72;
 
   color-scheme: light;
 }
@@ -1173,7 +1176,7 @@ a.app-brand:hover .app-logo-wide {
 }
 
 :root[data-theme="light"] .theme-toggle-btn {
-  background: linear-gradient(180deg, #bfe0ff, #eaf5ff);
+  background: linear-gradient(180deg, #cfe0ee, #f3ecd9);
 }
 
 .theme-toggle-btn:hover {
