@@ -186,6 +186,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
 
           {hasMore && (
             <button type="button" className="board-more-btn" onClick={handleShowMore} disabled={loadingMore}>
+              {loadingMore && <span className="board-more-spinner" aria-hidden="true" />}
               {loadingMore ? t("불러오는 중...") : t("더보기")}
             </button>
           )}

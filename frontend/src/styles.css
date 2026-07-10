@@ -539,6 +539,10 @@ a.app-brand:hover .app-logo-wide {
 }
 
 .board-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
   padding: 9px;
   border-radius: 6px;
@@ -558,6 +562,23 @@ a.app-brand:hover .app-logo-wide {
 .board-more-btn:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* Text alone ("불러오는 중...") was easy to miss next to the more-common
+   "더보기" label — a spinning ring makes the in-flight fetch unmistakable. */
+.board-more-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--text-secondary) 35%, transparent);
+  border-top-color: var(--text-secondary);
+  animation: board-more-spin 0.7s linear infinite;
+}
+
+@keyframes board-more-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .market-overview-panel {
