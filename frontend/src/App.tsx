@@ -7,11 +7,13 @@ import InvestorTrendPage from "./components/InvestorTrendPage";
 import KosdaqMapPage from "./components/KosdaqMapPage";
 import KospiMapPage from "./components/KospiMapPage";
 import LanguageToggle from "./components/LanguageToggle";
+import Logo from "./components/Logo";
 import MarketOverviewPanel from "./components/MarketOverviewPanel";
 import PriceChart, { PriceChartHandle } from "./components/PriceChart";
 import RecentNewsDigest from "./components/RecentNewsDigest";
 import SearchBar from "./components/SearchBar";
 import SidePanel from "./components/SidePanel";
+import ThemeToggle from "./components/ThemeToggle";
 import TugOfWarPage from "./components/TugOfWarPage";
 import VisitorBadge from "./components/VisitorBadge";
 import { trillionSuffix, wonSuffix } from "./i18n/format";
@@ -190,23 +192,24 @@ function Dashboard() {
           <div className="app-title-row">
             <div className="app-brand">
               <h1 className="sr-only">K-Stock Hub</h1>
-              <img src="/img/kstock-logo.png" alt="K-Stock Hub" className="app-logo-wide" />
+              <Logo className="app-logo-wide" />
             </div>
             <div className="app-header-meta">
               <LanguageToggle />
-              <VisitorBadge />
+              <ThemeToggle />
             </div>
           </div>
           <div className="app-nav-row">
             <Link to="/map" className="kospi-map-nav-link">
-              🗺 KOSPI MAP
+              🗺 KOSPI
             </Link>
             <Link to="/kosdaq-map" className="kospi-map-nav-link">
-              🟢 KOSDAQ MAP
+              🟢 KOSDAQ
             </Link>
             <Link to="/battle" className="kospi-map-nav-link">
-              {t("🔥 시총 대결")}
+              {t("🔥 시총대결")}
             </Link>
+            <VisitorBadge />
           </div>
           <p className="app-subtitle">
             {t(

@@ -1,5 +1,6 @@
 :root {
-  /* Black theme, applied unconditionally regardless of OS color-scheme preference. */
+  /* Black theme — the long-standing default, still applied unconditionally unless
+     ThemeToggle flips `data-theme` to "light" (see the override block below). */
   --surface-1: #1a1a19;
   --page-plane: #0d0d0d;
   --text-primary: #ffffff;
@@ -26,6 +27,33 @@
   color-scheme: dark;
 }
 
+/* First light-theme pass. Surfaces/text/gridlines are re-mapped to a warm
+   off-white; the series accent colors are deepened a notch from their dark-theme
+   values (verified against WCAG contrast, not just eyeballed) so lines/badges/links
+   drawn in these hues stay readable against a light page instead of washing out.
+   Status colors (good/warning/critical/neutral) are intentionally left unchanged —
+   they were already legible on both light and dark surfaces. */
+:root[data-theme="light"] {
+  --surface-1: #ffffff;
+  --page-plane: #f4f3ef;
+  --text-primary: #17160f;
+  --text-secondary: #55534b;
+  --text-muted: #6e6b62;
+  --gridline: #e5e2d8;
+  --baseline: #d2cfc3;
+  --border: rgba(23, 22, 15, 0.12);
+
+  --series-blue: #2f6fd6;
+  --series-aqua: #128a5e;
+  --series-yellow: #a06600;
+  --series-violet: #6a5ed1;
+  --series-red: #d1445b;
+
+  --status-neutral: #6e6b62;
+
+  color-scheme: light;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -35,6 +63,31 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   background: var(--page-plane);
   color: var(--text-primary);
+}
+
+/* Everything crossfades on a theme flip instead of snapping — scoped to the
+   handful of properties theming actually touches so it can't fight unrelated
+   transforms/opacity animations (spinners, pulses, hover slides) elsewhere. */
+*,
+*::before,
+*::after {
+  transition:
+    background-color 0.4s ease,
+    border-color 0.4s ease,
+    color 0.3s ease,
+    box-shadow 0.4s ease,
+    fill 0.4s ease,
+    stroke 0.4s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 .app {
@@ -98,11 +151,24 @@ a.app-brand:hover .app-logo-wide {
   margin-left: auto;
 }
 
+/* InvestorTrendPage's header has no title-row/nav-row scaffolding to push against —
+   the toggle pair just sits inline after the page title instead. */
+.app-header-meta-inline {
+  display: inline-flex;
+  margin-left: 0;
+  margin-top: 6px;
+}
+
 .app-nav-row {
   display: flex;
+  align-items: center;
   flex-wrap: wrap;
   gap: 8px;
   margin: 4px 0 8px;
+}
+
+.app-nav-row .visitor-badge {
+  margin-left: auto;
 }
 
 .app-subtitle {
@@ -1089,6 +1155,58 @@ a.app-brand:hover .app-logo-wide {
   color: white;
 }
 
+/* Small circular "sky" capsule — the sun/moon PNGs sit stacked inside it and swap
+   which one is risen vs. set purely via transform/opacity, so the site-wide color
+   crossfade (driven by the `*` transition rule above) and the icon's rise/set
+   motion play in sync off the same click, with no manual animation timing in JS. */
+.theme-toggle-btn {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #0b1b33, #142a4d);
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+:root[data-theme="light"] .theme-toggle-btn {
+  background: linear-gradient(180deg, #bfe0ff, #eaf5ff);
+}
+
+.theme-toggle-btn:hover {
+  border-color: var(--series-blue);
+}
+
+.theme-toggle-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.45s ease;
+}
+
+.theme-toggle-icon img {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
+
+.theme-toggle-icon.is-set {
+  transform: translateY(160%) rotate(-25deg);
+  opacity: 0;
+}
+
+.theme-toggle-icon.is-risen {
+  transform: translateY(0) rotate(0deg);
+  opacity: 1;
+}
+
 .ticker-bar {
   height: 60px;
   overflow: hidden;
@@ -1386,15 +1504,11 @@ a.app-brand:hover .app-logo-wide {
   }
 
   /* Shrunk further than the base mobile size so the brand block leaves enough
-     room for the lang toggle + visitor badge once visit counts hit 4 digits
-     and the badge text grows — otherwise the row wraps. */
+     room for the lang toggle + theme toggle on the narrowest common phone widths. */
   .app-logo-wide {
     height: 24px;
   }
 
-  /* KO/EN toggle + visitor badge share one row (.app-header-meta) once the
-     brand block wraps below it — tighten gaps/padding so the pair never has
-     to wrap onto a second line even on the narrowest common phone widths. */
   .app-header-meta {
     gap: 6px;
   }
@@ -1402,6 +1516,12 @@ a.app-brand:hover .app-logo-wide {
   .visitor-badge {
     font-size: 10px;
     padding: 4px 8px;
+  }
+
+  /* The nav row already wraps freely on mobile — an auto-margin push here would
+     just strand the badge alone on the far right of whichever line it lands on. */
+  .app-nav-row .visitor-badge {
+    margin-left: 0;
   }
 
   .lang-toggle button {
@@ -2114,11 +2234,11 @@ a.app-brand:hover .app-logo-wide {
 }
 
 .global-top20-row:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
 }
 
 .global-top20-row:nth-child(odd) {
-  background: rgba(255, 255, 255, 0.03);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
 }
 
 .global-top20-row.highlight {

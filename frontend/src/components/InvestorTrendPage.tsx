@@ -5,6 +5,7 @@ import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
+import ThemeToggle from "./ThemeToggle";
 
 function formatAmount(value: number, lang: Lang): string {
   const abs = Math.abs(value);
@@ -68,7 +69,10 @@ export default function InvestorTrendPage({ code }: { code: string }) {
           <h1 className="app-title">
             {translatedName || code} {t("투자자별 매매동향")} <span className="app-title-code">{code}</span>
           </h1>
-          <LanguageToggle />
+          <span className="app-header-meta app-header-meta-inline">
+            <LanguageToggle />
+            <ThemeToggle />
+          </span>
           <p className="app-subtitle">
             {t(
               "날짜별 개인·기관·외국인 순매수 금액(억원)입니다. 매수(+)는 빨간색, 매도(-)는 파란색으로 표시됩니다. 무료 공개 데이터의 한계로 하루 단위 집계이며, 장중 실시간(시간대별) 수급은 제공되지 않습니다."

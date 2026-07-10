@@ -17,6 +17,8 @@ export const DICTIONARY: Record<string, string> = {
   "삼성전자": "Samsung Electronics",
   "SK하이닉스": "SK Hynix",
   "닫기": "Close",
+  "라이트 테마로 전환": "Switch to light theme",
+  "다크 테마로 전환": "Switch to dark theme",
 
   // Dashboard stock header
   "추정PER": "Est. PER",
@@ -24,7 +26,7 @@ export const DICTIONARY: Record<string, string> = {
 
   // Battle page (TugOfWarPage)
   "시총 줄다리기 (삼성전자 VS SK하이닉스)": "Market Cap Tug-of-War (Samsung Electronics VS SK Hynix)",
-  "🔥 시총 대결": "🔥 Market Cap Battle",
+  "🔥 시총대결": "🔥 Market Cap Battle",
   "시가총액 데이터를 불러오지 못했습니다.": "Failed to load market cap data.",
   "2위": "#2",
   "차이": "difference",

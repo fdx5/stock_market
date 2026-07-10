@@ -12,8 +12,8 @@ export default function KospiMapPage() {
       tier2Limit={100}
       fullLimit={500}
       navLinks={[
-        { to: "/kosdaq-map", label: "🟢 KOSDAQ MAP" },
-        { to: "/battle", label: "🔥 시총 대결" },
+        { to: "/kosdaq-map", label: "🟢 KOSDAQ" },
+        { to: "/battle", label: "🔥 시총대결" },
       ]}
     />
   );

@@ -9,8 +9,10 @@ import CheerSection from "./CheerSection";
 import Footer from "./Footer";
 import GlobalTop20 from "./GlobalTop20";
 import LanguageToggle from "./LanguageToggle";
+import Logo from "./Logo";
 import RollingValue from "./RollingValue";
 import SlotMachineValue from "./SlotMachineValue";
+import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
 
 const POLL_MS = 3000;
@@ -143,20 +145,21 @@ export default function TugOfWarPage() {
       <header className="app-header">
         <div className="app-title-row">
           <Link to="/" className="app-brand" aria-label="K-Stock Hub">
-            <img src="/img/kstock-logo.png" alt="K-Stock Hub" className="app-logo-wide" />
+            <Logo className="app-logo-wide" />
           </Link>
           <div className="app-header-meta">
             <LanguageToggle />
-            <VisitorBadge />
+            <ThemeToggle />
           </div>
         </div>
         <div className="app-nav-row">
           <Link to="/map" className="kospi-map-nav-link">
-            🗺 KOSPI MAP
+            🗺 KOSPI
           </Link>
           <Link to="/kosdaq-map" className="kospi-map-nav-link">
-            🟢 KOSDAQ MAP
+            🟢 KOSDAQ
           </Link>
+          <VisitorBadge />
         </div>
         <h1 className="app-title">{t("시총 줄다리기 (삼성전자 VS SK하이닉스)")}</h1>
       </header>

@@ -8,7 +8,9 @@ import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from ".
 import { useDocumentTitle } from "../useDocumentTitle";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
+import Logo from "./Logo";
 import MarketTickerBar from "./MarketTickerBar";
+import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
 
 interface SectorZone {
@@ -231,11 +233,11 @@ export default function MarketMapPage({
       <header className="app-header">
         <div className="app-title-row">
           <Link to="/" className="app-brand" aria-label="K-Stock Hub">
-            <img src="/img/kstock-logo.png" alt="K-Stock Hub" className="app-logo-wide" />
+            <Logo className="app-logo-wide" />
           </Link>
           <div className="app-header-meta">
             <LanguageToggle />
-            <VisitorBadge />
+            <ThemeToggle />
           </div>
         </div>
         <div className="app-nav-row">
@@ -244,6 +246,7 @@ export default function MarketMapPage({
               {t(link.label)}
             </Link>
           ))}
+          <VisitorBadge />
         </div>
         <div className="kospi-map-titlebar">
           <div>

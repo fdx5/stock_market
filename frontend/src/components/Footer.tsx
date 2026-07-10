@@ -1,5 +1,6 @@
 import { useT } from "../i18n/LanguageContext";
 import { Link } from "../router";
+import Logo from "./Logo";
 
 export default function Footer() {
   const t = useT();
@@ -9,16 +10,16 @@ export default function Footer() {
     <footer className="app-footer">
       <div className="app-footer-top">
         <Link to="/" className="app-brand app-footer-brand" aria-label="K-Stock Hub">
-          <img src="/img/kstock-logo.png" alt="K-Stock Hub" className="app-footer-logo" />
+          <Logo className="app-footer-logo" />
         </Link>
         <p className="app-footer-tagline">
           {t("실시간 시세, 시가총액 맵, 시총 대결까지 한눈에 보는 국내 증시 허브.")}
         </p>
         <nav className="app-footer-links">
           <Link to="/">{t("홈")}</Link>
-          <Link to="/map">🗺 KOSPI MAP</Link>
-          <Link to="/kosdaq-map">🟢 KOSDAQ MAP</Link>
-          <Link to="/battle">{t("🔥 시총 대결")}</Link>
+          <Link to="/map">🗺 KOSPI</Link>
+          <Link to="/kosdaq-map">🟢 KOSDAQ</Link>
+          <Link to="/battle">{t("🔥 시총대결")}</Link>
         </nav>
       </div>
       <div className="app-footer-bottom">
