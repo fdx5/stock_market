@@ -1364,8 +1364,11 @@ a.app-brand:hover .app-logo-wide {
     font-size: 18px;
   }
 
+  /* Shrunk further than the base mobile size so the brand block leaves enough
+     room for the lang toggle + visitor badge once visit counts hit 4 digits
+     and the badge text grows — otherwise the row wraps. */
   .app-logo-wide {
-    height: 30px;
+    height: 24px;
   }
 
   /* KO/EN toggle + visitor badge share one row (.app-header-meta) once the
