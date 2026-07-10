@@ -317,7 +317,7 @@ export default function MarketMapPage({
                   {zone.tiles.map((tile) => {
                     const rgb = changeToRgb(tile.item.change_pct, themeMode);
                     const bg = rgbToCss(rgb);
-                    const textColor = textColorForRgb(rgb);
+                    const textColor = textColorForRgb(rgb, themeMode);
                     const localX = tile.x - zone.rect.x;
                     const localY = tile.y - zone.rect.y;
                     const showName = tile.w >= 46 && tile.h >= 30;

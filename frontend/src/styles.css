@@ -46,11 +46,12 @@
   --text-secondary: #5c584e;
   --text-muted: #837e72;
   --gridline: #ddd7c8;
-  /* A notch more present than the dark theme's --baseline is relative to *its*
-     page — chosen to double as the market-map's "flat/near-zero" tile color, which
-     needs real value contrast against a light page to read as a distinct box
-     (see --map-gap below). Must stay in sync with LIGHT_POLES.mid in treemap.ts. */
-  --baseline: #9a9382;
+  /* A cool slate rather than a warm gray — deliberately a different temperature
+     from the warm page/surface so it reads as a designed accent, not a leftover
+     blend. Doubles as the market-map's "flat/near-zero" tile color, which needs
+     real presence against a light page to read as a distinct box (see --map-gap
+     below). Must stay in sync with LIGHT_POLES.mid in treemap.ts. */
+  --baseline: #66707d;
   --border: rgba(46, 44, 38, 0.14);
 
   --series-blue: #3f66b8;
@@ -66,8 +67,9 @@
 
   /* Unlike the dark theme, the light page is near-white, so a page-matching seam
      would make same-toned tiles (mostly the near-zero-change ones) run together
-     with no visible boundary — a real mid-tone border keeps every tile distinct. */
-  --map-gap: #b2ab97;
+     with no visible boundary — a deep slate border, a shade darker than the
+     neutral tile fill above, keeps every seam visible as a real grid line. */
+  --map-gap: #374049;
 
   color-scheme: light;
 }

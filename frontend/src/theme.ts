@@ -46,7 +46,7 @@ const LIGHT: ThemeColors = {
   textSecondary: "#5c584e",
   textMuted: "#837e72",
   gridline: "#ddd7c8",
-  baseline: "#9a9382",
+  baseline: "#66707d",
   up: "#bd5c66",
   down: "#3f66b8",
   blue: "#3f66b8",

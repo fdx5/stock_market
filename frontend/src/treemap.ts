@@ -98,8 +98,9 @@ export function squarify(items: TreemapItem[], x: number, y: number, w: number, 
 // in the light theme made near-zero-change tiles (the most common case) render as
 // muddy dark boxes with an invisible border (tile borders match the page color by
 // design, to fake a seam) — adjacent flat tiles could blend into one indistinct
-// dark blob. The light MID is a genuinely mid-value warm gray instead, so flat
-// tiles stay legible as distinct boxes against the light theme's pale page.
+// dark blob. The light MID is a cool slate instead — deliberately a different
+// temperature from the warm page/surface so it reads as a designed choice rather
+// than a leftover blend, and gives flat tiles real presence against the pale page.
 const DARK_POLES = {
   neg: { r: 0x39, g: 0x87, b: 0xe5 }, // --series-blue (dark)
   mid: { r: 0x38, g: 0x38, b: 0x35 }, // --baseline (dark)
@@ -108,7 +109,7 @@ const DARK_POLES = {
 
 const LIGHT_POLES = {
   neg: { r: 0x3f, g: 0x66, b: 0xb8 }, // --series-blue (light)
-  mid: { r: 0x9a, g: 0x93, b: 0x82 }, // --baseline (light)
+  mid: { r: 0x66, g: 0x70, b: 0x7d }, // --baseline (light) — cool slate
   pos: { r: 0xbd, g: 0x5c, b: 0x66 }, // --series-red (light)
 };
 
@@ -147,6 +148,14 @@ function relativeLuminance({ r, g, b }: Rgb): number {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
 
-export function textColorForRgb(rgb: Rgb): string {
-  return relativeLuminance(rgb) > 0.35 ? "#0b0b0b" : "#ffffff";
+// Dark-theme tiles keep plain white text (already legible, unchanged). Light-theme
+// tiles use a warm gold instead of a near-white — a white/cream label on a light
+// page reads as "leftover default," and gold is distinct from both the blue and
+// red tile poles so it stays legible across the whole range rather than picking a
+// tone that only works against one end.
+export function textColorForRgb(rgb: Rgb, mode: "dark" | "light" = "dark"): string {
+  const light = mode === "light";
+  const dark = light ? "#2e2c26" : "#0b0b0b";
+  const bright = light ? "#f6d580" : "#ffffff";
+  return relativeLuminance(rgb) > 0.35 ? dark : bright;
 }
