@@ -31,6 +31,16 @@ const RANGE_OPTIONS: { label: string; days: number | null }[] = [
 
 const MA_KEYS = ["sma5", "sma20", "sma60"] as const;
 
+// Points arrive as "YYYY-MM-DD" business-day strings — split directly rather than
+// going through Date (which would apply local-timezone shifting) to get "MM.dd".
+function formatMonthDay(time: Time): string {
+  if (typeof time === "string") {
+    const parts = time.split("-");
+    if (parts.length === 3) return `${parts[1]}.${parts[2]}`;
+  }
+  return String(time);
+}
+
 const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -60,8 +70,9 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
         horzLines: { color: colors.gridline },
       },
       rightPriceScale: { borderColor: colors.baseline },
-      timeScale: { borderColor: colors.baseline },
+      timeScale: { borderColor: colors.baseline, tickMarkFormatter: formatMonthDay },
       crosshair: { mode: CrosshairMode.Normal },
+      localization: { dateFormat: "MM.dd" },
       height: 380,
       autoSize: true,
     });
