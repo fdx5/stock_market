@@ -3,8 +3,9 @@ import type { NewsItem } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import BoardPanel from "./BoardPanel";
 import NewsPanel from "./NewsPanel";
+import OrderBookPanel from "./OrderBookPanel";
 
-type Tab = "board" | "news";
+type Tab = "board" | "news" | "orderbook";
 
 export default function SidePanel({ code, name, news }: { code: string; name: string; news: NewsItem[] }) {
   const t = useT();
@@ -27,10 +28,18 @@ export default function SidePanel({ code, name, news }: { code: string; name: st
         >
           {t("관련 뉴스")}
         </button>
+        <button
+          type="button"
+          className={`market-overview-tab ${tab === "orderbook" ? "active" : ""}`}
+          onClick={() => setTab("orderbook")}
+        >
+          {t("호가")}
+        </button>
       </div>
 
       {tab === "board" && <BoardPanel code={code} name={name} />}
       {tab === "news" && <NewsPanel items={news} name={name} />}
+      {tab === "orderbook" && <OrderBookPanel code={code} />}
     </div>
   );
 }

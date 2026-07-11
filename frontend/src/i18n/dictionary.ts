@@ -102,6 +102,14 @@ export const DICTIONARY: Record<string, string> = {
   "(본문 없음)": "(No content)",
   "네이버에서 새 창으로 보기 ↗": "View on Naver in a new window ↗",
 
+  // SidePanel / OrderBookPanel
+  "호가": "Order Book",
+  "매도잔량": "Ask Qty",
+  "매수잔량": "Bid Qty",
+  "잔량합계": "Total Qty",
+  "20분 지연": "20-min delayed",
+  "호가 데이터를 가져오지 못했습니다.": "Failed to load order book data.",
+
   // MarketOverviewPanel
   "코스피": "KOSPI",
   "코스닥": "KOSDAQ",

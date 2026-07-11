@@ -113,6 +113,20 @@ export interface BoardDetail {
   blocks: BoardBlock[];
 }
 
+export interface OrderBookLevel {
+  price: number;
+  qty: number;
+}
+
+export interface OrderBook {
+  code: string;
+  delayed_minutes: number;
+  asks: OrderBookLevel[];
+  bids: OrderBookLevel[];
+  total_ask_qty: number;
+  total_bid_qty: number;
+}
+
 export interface IndexQuote {
   symbol: string;
   name: string;
@@ -221,6 +235,7 @@ export const api = {
     ),
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
+  orderbook: (code: string) => getJSON<OrderBook>(`${BASE}/stock/${code}/orderbook`),
   marketMap: (limit = 500) =>
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/map?limit=${limit}`

@@ -671,6 +671,124 @@ a.app-brand:hover .app-logo-wide {
   }
 }
 
+.orderbook-status {
+  padding: 20px 4px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.orderbook-panel {
+  display: flex;
+  flex-direction: column;
+  font-variant-numeric: tabular-nums;
+}
+
+.orderbook-note {
+  align-self: flex-end;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.orderbook-header,
+.orderbook-footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.orderbook-header {
+  text-align: center;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.orderbook-header span:first-child {
+  text-align: right;
+}
+
+.orderbook-header span:last-child {
+  text-align: left;
+}
+
+.orderbook-footer {
+  align-items: center;
+  padding-top: 6px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-weight: 600;
+}
+
+.orderbook-footer .ask {
+  text-align: right;
+  color: var(--down-color);
+}
+
+.orderbook-footer .bid {
+  text-align: left;
+  color: var(--up-color);
+}
+
+.orderbook-ladder {
+  display: flex;
+  flex-direction: column;
+}
+
+.orderbook-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  font-size: 12px;
+  line-height: 24px;
+}
+
+.orderbook-price {
+  text-align: center;
+  font-weight: 600;
+}
+
+.orderbook-price.ask {
+  color: var(--down-color);
+}
+
+.orderbook-price.bid {
+  color: var(--up-color);
+}
+
+.orderbook-qty {
+  position: relative;
+  text-align: right;
+  padding-right: 6px;
+}
+
+.orderbook-qty.bid {
+  text-align: left;
+  padding-right: 0;
+  padding-left: 6px;
+}
+
+.orderbook-qty span {
+  position: relative;
+  z-index: 1;
+}
+
+.orderbook-bar {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  right: 0;
+  background: color-mix(in srgb, var(--down-color) 22%, transparent);
+  border-radius: 2px;
+}
+
+.orderbook-bar.bid {
+  right: auto;
+  left: 0;
+  background: color-mix(in srgb, var(--up-color) 22%, transparent);
+}
+
 .market-overview-panel {
   display: flex;
   gap: 20px;

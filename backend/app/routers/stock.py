@@ -1,7 +1,7 @@
 import pandas as pd
 from fastapi import APIRouter, HTTPException
 
-from app.data import board_fetcher, company_overview_fetcher, news_fetcher, price_fetcher
+from app.data import board_fetcher, company_overview_fetcher, news_fetcher, orderbook_fetcher, price_fetcher
 from app.data.stock_quote_fetcher import get_stock_quote
 from app.data.universe import get_stock_name
 from app.services.cache import cache
@@ -13,6 +13,9 @@ router = APIRouter()
 
 # Matches the cadence the battle page already polls Samsung/SK Hynix quotes at.
 TTL_QUOTE_SECONDS = 5
+# The underlying Naver page is itself 20-minutes delayed, so there's no benefit to
+# polling our own cache faster than this - it just re-fetches the same ladder.
+TTL_ORDERBOOK_SECONDS = 15
 
 
 def _resolve_name(code: str) -> str:
@@ -59,6 +62,16 @@ def quote(code: str):
     data = cache.get_or_set(f"stock_quote:{code}", TTL_QUOTE_SECONDS, lambda: get_stock_quote(code))
     if not data:
         raise HTTPException(status_code=502, detail="시세 데이터를 가져오지 못했습니다.")
+    return data
+
+
+@router.get("/{code}/orderbook")
+def orderbook(code: str):
+    """10-level bid/ask depth (호가), 20-minutes delayed per Naver's free feed."""
+    _resolve_name(code)
+    data = cache.get_or_set(f"stock_orderbook:{code}", TTL_ORDERBOOK_SECONDS, lambda: orderbook_fetcher.get_orderbook(code))
+    if not data:
+        raise HTTPException(status_code=502, detail="호가 데이터를 가져오지 못했습니다.")
     return data
 
 
