@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -19,6 +20,9 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+# Compresses JS/CSS bundles and JSON API responses on the wire — same bytes served,
+# fewer bytes billed against Render's free-tier bandwidth cap.
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(search.router, prefix="/api")
 app.include_router(stock.router, prefix="/api/stock")
@@ -61,6 +65,22 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 if STATIC_DIR.exists():
     app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
+
+    # Vite hashes /assets filenames per build, so those can be cached forever. Everything
+    # else under static/ (video, img, favicons) keeps its filename across deploys, so it
+    # only gets a week-long cache instead of "immutable" to avoid serving stale content.
+    ASSETS_CACHE_CONTROL = "public, max-age=31536000, immutable"
+    STATIC_CACHE_CONTROL = "public, max-age=604800"
+
+    @app.middleware("http")
+    async def add_static_cache_headers(request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        if path.startswith("/assets/"):
+            response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
+        elif path.startswith(("/video/", "/img/", "/favicon", "/apple-touch-icon")):
+            response.headers["Cache-Control"] = STATIC_CACHE_CONTROL
+        return response
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str):

@@ -18,6 +18,13 @@ import VisitorBadge from "./VisitorBadge";
 
 const POLL_MS = 3000;
 const REFILL_MS = 9000;
+
+// Served from jsDelivr's GitHub CDN instead of our own Render instance — this file
+// alone is ~2.9MB, and offloading it keeps it off the free tier's 5GB bandwidth cap.
+// jsDelivr caches @main for up to 7 days; after replacing the video, purge via
+// https://www.jsdelivr.com/tools/purge if the update needs to show up sooner.
+const BATTLE_VIDEO_URL =
+  "https://cdn.jsdelivr.net/gh/fdx5/stock_market@main/frontend/public/video/zzanggu.mp4";
 const FX_POLL_MS = 3000;
 const FX_POP_MS = 2500;
 
@@ -172,7 +179,7 @@ export default function TugOfWarPage() {
       {samsung && skhynix && leader && trailing && (
         <div className="battle-arena-wrap">
           <div className="battle-video-wrap">
-            <video className="battle-video" src="/video/zzanggu.mp4" autoPlay loop muted playsInline />
+            <video className="battle-video" src={BATTLE_VIDEO_URL} autoPlay loop muted playsInline />
 
             <div className="battle-vs-overlay">
               <div className="battle-vs-side left">
