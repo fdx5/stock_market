@@ -305,8 +305,19 @@ a.app-brand:hover .app-logo-wide {
 }
 
 .stock-header .name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 22px;
   font-weight: 700;
+}
+
+.stock-header-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 
 .stock-header .code {
@@ -1703,6 +1714,11 @@ a.app-brand:hover .app-logo-wide {
   .stock-header .name,
   .stock-header .price {
     font-size: 19px;
+  }
+
+  .stock-header-logo {
+    width: 19px;
+    height: 19px;
   }
 
   .chart-main {

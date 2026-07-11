@@ -251,7 +251,17 @@ function Dashboard() {
                 marcap !== undefined ? marcap - marcap / (1 + changePct / 100) : undefined;
               return (
                 <div className="card stock-header" ref={stockHeaderRef}>
-                  <span className="name">{summaryName}</span>
+                  <span className="name">
+                    <img
+                      className="stock-header-logo"
+                      src={`https://ssl.pstatic.net/imgstock/fn/real/logo/png/stock/Stock${summary.code}.png`}
+                      alt=""
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = "none";
+                      }}
+                    />
+                    {summaryName}
+                  </span>
                   <span className="code">{summary.code}</span>
                   <span
                     className={`price ${change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}`}
