@@ -2,9 +2,11 @@ import {
   ColorType,
   CrosshairMode,
   HistogramData,
+  HistogramSeries,
   IChartApi,
   ISeriesApi,
   LineData,
+  LineSeries,
   Time,
   createChart,
 } from "lightweight-charts";
@@ -86,15 +88,15 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
     };
 
     const rsiChart = createChart(rsiContainerRef.current, baseOptions);
-    const rsiSeries = rsiChart.addLineSeries({ color: colors.blue, lineWidth: 2, priceLineVisible: false });
-    const rsiUpper = rsiChart.addLineSeries({
+    const rsiSeries = rsiChart.addSeries(LineSeries, { color: colors.blue, lineWidth: 2, priceLineVisible: false });
+    const rsiUpper = rsiChart.addSeries(LineSeries, {
       color: colors.textMuted,
       lineWidth: 1,
       lineStyle: 2,
       lastValueVisible: false,
       priceLineVisible: false,
     });
-    const rsiLower = rsiChart.addLineSeries({
+    const rsiLower = rsiChart.addSeries(LineSeries, {
       color: colors.textMuted,
       lineWidth: 1,
       lineStyle: 2,
@@ -103,9 +105,9 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
     });
 
     const macdChart = createChart(macdContainerRef.current, baseOptions);
-    const macdHist = macdChart.addHistogramSeries({ priceLineVisible: false });
-    const macdLine = macdChart.addLineSeries({ color: colors.blue, lineWidth: 2, priceLineVisible: false });
-    const macdSignal = macdChart.addLineSeries({ color: colors.yellow, lineWidth: 2, priceLineVisible: false });
+    const macdHist = macdChart.addSeries(HistogramSeries, { priceLineVisible: false });
+    const macdLine = macdChart.addSeries(LineSeries, { color: colors.blue, lineWidth: 2, priceLineVisible: false });
+    const macdSignal = macdChart.addSeries(LineSeries, { color: colors.yellow, lineWidth: 2, priceLineVisible: false });
 
     rsiChartRef.current = rsiChart;
     macdChartRef.current = macdChart;

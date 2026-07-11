@@ -1,10 +1,13 @@
 import {
   CandlestickData,
+  CandlestickSeries,
   ColorType,
   CrosshairMode,
+  HistogramSeries,
   IChartApi,
   ISeriesApi,
   LineData,
+  LineSeries,
   Time,
   createChart,
 } from "lightweight-charts";
@@ -77,7 +80,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
       autoSize: true,
     });
 
-    const candleSeries = chart.addCandlestickSeries({
+    const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: colors.up,
       downColor: colors.down,
       borderUpColor: colors.up,
@@ -87,7 +90,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
       priceFormat: { type: "price", precision: 0, minMove: 1 },
     });
 
-    const volumeSeries = chart.addHistogramSeries({
+    const volumeSeries = chart.addSeries(HistogramSeries, {
       priceFormat: { type: "volume" },
       priceScaleId: "volume",
       color: colors.textMuted,
@@ -102,7 +105,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
     };
     const smaSeries: Partial<Record<(typeof MA_KEYS)[number], ISeriesApi<"Line">>> = {};
     MA_KEYS.forEach((key) => {
-      smaSeries[key] = chart.addLineSeries({
+      smaSeries[key] = chart.addSeries(LineSeries, {
         color: maColors[key],
         lineWidth: 2,
         priceLineVisible: false,
@@ -110,14 +113,14 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
       });
     });
 
-    const bbUpper = chart.addLineSeries({
+    const bbUpper = chart.addSeries(LineSeries, {
       color: colors.blue,
       lineWidth: 1,
       lineStyle: 2,
       priceLineVisible: false,
       lastValueVisible: false,
     });
-    const bbLower = chart.addLineSeries({
+    const bbLower = chart.addSeries(LineSeries, {
       color: colors.blue,
       lineWidth: 1,
       lineStyle: 2,
