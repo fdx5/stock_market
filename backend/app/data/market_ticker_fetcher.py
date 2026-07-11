@@ -19,6 +19,7 @@ HEADERS = {
 # Yahoo Finance's unofficial chart API, keyed by its own ticker symbols — the only
 # no-auth source that covers FX, commodities futures, and crypto uniformly.
 SYMBOLS = [
+    {"symbol": "CL=F", "label": "WTI Crude"},
     {"symbol": "KRW=X", "label": "USD/KRW"},
     {"symbol": "^GSPC", "label": "S&P 500"},
     {"symbol": "^NDX", "label": "Nasdaq 100"},
@@ -32,7 +33,6 @@ SYMBOLS = [
     {"symbol": "GOOGL", "label": "Alphabet (Google)"},
     {"symbol": "MSFT", "label": "Microsoft"},
     {"symbol": "META", "label": "Meta"},
-    {"symbol": "CL=F", "label": "WTI Crude"},
     {"symbol": "BTC-USD", "label": "Bitcoin"},
     {"symbol": "ETH-USD", "label": "Ethereum"},
     {"symbol": "XRP-USD", "label": "Ripple"},
