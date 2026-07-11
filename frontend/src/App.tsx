@@ -85,6 +85,11 @@ function Dashboard() {
   const priceChartRef = useRef<PriceChartHandle>(null);
   const indicatorPanelRef = useRef<IndicatorPanelHandle>(null);
   const stockHeaderRef = useRef<HTMLDivElement>(null);
+  // A plain landing on "/" (no `?code=`) silently defaults `selected` to Samsung
+  // instead of showing the empty state - that synthetic first load shouldn't yank
+  // the page down. Explicit searches and code-in-URL entries (shared links) should
+  // still auto-scroll to the result, so the skip only applies to that first run.
+  const skipInitialScrollRef = useRef(!new URLSearchParams(window.location.search).get("code"));
 
   useEffect(() => {
     if (!selected) return;
@@ -92,6 +97,8 @@ function Dashboard() {
     setLoading(true);
     setError(null);
     let followUpTimer: number | undefined;
+    const skipScroll = skipInitialScrollRef.current;
+    skipInitialScrollRef.current = false;
 
     Promise.all([api.summary(code), api.indicators(code, 3), api.news(code), api.overview(code)])
       .then(([summaryRes, indicatorsRes, newsRes, overviewRes]) => {
@@ -102,6 +109,7 @@ function Dashboard() {
         setPerEstimate(overviewRes.per_estimate);
         setSharesOutstanding(overviewRes.shares_outstanding);
 
+        if (skipScroll) return;
         const scrollToResult = () => {
           stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
         };

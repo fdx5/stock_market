@@ -3,7 +3,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 
 const RECENT_DAYS = 3;
-const MAX_ITEMS = 10;
+const MAX_ITEMS = 6;
 
 function parseNaverDate(text: string): number {
   // Naver's item-news date format is "YYYY.MM.DD HH:mm". Unparseable dates are treated

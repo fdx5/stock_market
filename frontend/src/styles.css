@@ -251,6 +251,20 @@ a.app-brand:hover .app-logo-wide {
   background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-1));
 }
 
+.search-option-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-option-logo {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 .search-option .code {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
@@ -320,6 +334,7 @@ a.app-brand:hover .app-logo-wide {
   text-align: right;
   color: var(--text-muted);
   font-size: 13px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 

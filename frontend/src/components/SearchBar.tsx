@@ -88,7 +88,17 @@ export default function SearchBar({ onSelect }: Props) {
               className={`search-option ${idx === activeIndex ? "active" : ""}`}
               onMouseDown={() => choose(r)}
             >
-              <span>{translatedNames[idx] ?? r.name}</span>
+              <span className="search-option-name">
+                <img
+                  className="search-option-logo"
+                  src={`https://ssl.pstatic.net/imgstock/fn/real/logo/png/stock/Stock${r.code}.png`}
+                  alt=""
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                  }}
+                />
+                {translatedNames[idx] ?? r.name}
+              </span>
               <span className="code">{r.code}</span>
             </div>
           ))}
