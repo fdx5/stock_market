@@ -44,7 +44,7 @@ export default function OrderBookPanel({ code }: { code: string }) {
 
   return (
     <div className="orderbook-panel">
-      <div className="orderbook-note">{t("20분 지연")}</div>
+      <div className="orderbook-note">{t("20분 전 시세, 실시간 갱신")}</div>
       <div className="orderbook-header">
         <span>{t("매도잔량")}</span>
         <span>{t("호가")}</span>

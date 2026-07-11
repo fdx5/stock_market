@@ -687,6 +687,7 @@ a.app-brand:hover .app-logo-wide {
 .orderbook-note {
   align-self: flex-end;
   font-size: 11px;
+  font-weight: 700;
   color: var(--text-muted);
   margin-bottom: 6px;
 }

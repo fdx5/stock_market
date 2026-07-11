@@ -107,7 +107,7 @@ export const DICTIONARY: Record<string, string> = {
   "매도잔량": "Ask Qty",
   "매수잔량": "Bid Qty",
   "잔량합계": "Total Qty",
-  "20분 지연": "20-min delayed",
+  "20분 전 시세, 실시간 갱신": "20-min delayed, live updates",
   "호가 데이터를 가져오지 못했습니다.": "Failed to load order book data.",
 
   // MarketOverviewPanel
