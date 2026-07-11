@@ -1247,7 +1247,7 @@ a.app-brand:hover .app-logo-wide {
   width: max-content;
   /* The track holds the item list twice; animating exactly one set's width
      (0% -> -50%) makes the loop seamless. Direction is right-to-left by design. */
-  animation: ticker-scroll 32s linear infinite;
+  animation: ticker-scroll 46s linear infinite;
 }
 
 @keyframes ticker-scroll {
