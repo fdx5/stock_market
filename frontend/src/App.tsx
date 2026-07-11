@@ -218,6 +218,15 @@ function Dashboard() {
             <Link to="/battle" className="kospi-map-nav-link">
               {t("🔥 시총대결")}
             </Link>
+            <a
+              href="https://chs2147.github.io/mini-apps"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="kospi-map-nav-link"
+            >
+              <img src="/img/mini_app.png" alt="" className="mini-apps-icon" />
+              Mini Apps
+            </a>
             <VisitorBadge />
           </div>
           <p className="app-subtitle">

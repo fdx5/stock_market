@@ -1204,6 +1204,14 @@ a.app-brand:hover .app-logo-wide {
   background: color-mix(in srgb, var(--series-blue) 22%, transparent);
 }
 
+.mini-apps-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
 .kospi-map-page .app-header {
   margin-bottom: 16px;
 }
@@ -1701,6 +1709,36 @@ a.app-brand:hover .app-logo-wide {
      just strand the badge alone on the far right of whichever line it lands on. */
   .app-nav-row .visitor-badge {
     margin-left: 0;
+  }
+
+  /* KOSPI/KOSDAQ/시총대결/Mini Apps + the visitor badge no longer wrap onto a
+     second line here - they're squeezed down and, on the narrowest phones,
+     scroll horizontally within their own row instead of breaking the layout. */
+  .app-nav-row {
+    flex-wrap: nowrap;
+    gap: 5px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .app-nav-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .kospi-map-nav-link {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 4px 9px;
+    gap: 3px;
+  }
+
+  .app-nav-row .mini-apps-icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .app-nav-row .visitor-badge {
+    flex-shrink: 0;
   }
 
   .lang-toggle button {
@@ -2702,6 +2740,12 @@ a.app-brand:hover .app-logo-wide {
   font-weight: 600;
   color: var(--text-secondary);
   text-decoration: none;
+}
+
+.app-footer-mini-apps {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .app-footer-links a:hover {

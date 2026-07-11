@@ -20,6 +20,15 @@ export default function Footer() {
           <Link to="/map">🗺 KOSPI</Link>
           <Link to="/kosdaq-map">🟢 KOSDAQ</Link>
           <Link to="/battle">{t("🔥 시총대결")}</Link>
+          <a
+            href="https://chs2147.github.io/mini-apps"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="app-footer-mini-apps"
+          >
+            <img src="/img/mini_app.png" alt="" className="mini-apps-icon" />
+            Mini Apps
+          </a>
         </nav>
       </div>
       <div className="app-footer-bottom">
