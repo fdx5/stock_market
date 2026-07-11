@@ -23,6 +23,7 @@ SYMBOLS = [
     {"symbol": "^GSPC", "label": "S&P 500"},
     {"symbol": "^NDX", "label": "Nasdaq 100"},
     {"symbol": "NVDA", "label": "NVIDIA"},
+    {"symbol": "SKHYV", "label": "SK Hynix"},
     {"symbol": "MU", "label": "Micron Technology"},
     {"symbol": "AVGO", "label": "Broadcom"},
     {"symbol": "INTC", "label": "Intel"},

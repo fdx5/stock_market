@@ -11,6 +11,7 @@ const ICONS: Record<string, string> = {
   "^GSPC": "/img/ticker/spx500.png",
   "^NDX": "/img/ticker/nas100.png",
   NVDA: "/img/ticker/nvidia.png",
+  SKHYV: "/img/ticker/skhynix.jpg",
   MU: "/img/ticker/micron.png",
   AVGO: "/img/ticker/broadcom.png",
   INTC: "/img/ticker/intel.png",
