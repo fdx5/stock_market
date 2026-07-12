@@ -1144,7 +1144,14 @@ a.app-brand:hover .app-logo-wide {
   border-bottom: none;
 }
 
-.investor-table-name {
+/* ".investor-table td" (below) outranks a lone ".investor-table-name" on
+   specificity, so the left-align here needs the same "table td.class" shape to
+   actually win — a bare class rule was silently losing to the default right-align. */
+.investor-table td.investor-table-name {
+  /* Explicit rather than relying on :first-child — in the weekly-foreign tables
+     this is the *second* column (after rank), so it'd otherwise fall back to the
+     table's default right-align and visually read as if rank were still wide. */
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
 }
