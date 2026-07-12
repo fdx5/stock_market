@@ -1164,8 +1164,8 @@ a.app-brand:hover .app-logo-wide {
 
 /* Rank was sharing the "auto" column-sizing algorithm with 종목명/외국인 순매수 and
    ending up nearly as wide as either — a couple of digits (or a medal) doesn't need
-   that much room, so pin it and the amount column narrow and let the name column
-   (the only one left unconstrained) absorb the freed-up width. */
+   that much room, so pin it narrow and split what's left 50:50 between the name and
+   amount columns. */
 .weekly-foreign-table {
   table-layout: fixed;
 }
@@ -1174,8 +1174,9 @@ a.app-brand:hover .app-logo-wide {
   width: 44px;
 }
 
+.weekly-foreign-name-col,
 .weekly-foreign-amount-col {
-  width: 118px;
+  width: calc((100% - 44px) / 2);
   overflow: hidden;
   text-overflow: ellipsis;
 }

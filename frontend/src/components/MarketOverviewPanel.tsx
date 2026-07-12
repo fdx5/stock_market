@@ -192,7 +192,7 @@ function WeeklyForeignRow({ item, rank, lang }: { item: WeeklyForeignItem; rank:
   return (
     <tr>
       <td className="top50-table-rank weekly-foreign-rank-col">{medal || rank}</td>
-      <td className="investor-table-name">
+      <td className="investor-table-name weekly-foreign-name-col">
         <Link to={`/investor/${item.code}`}>{name}</Link>
       </td>
       <td className="weekly-foreign-amount-col" style={{ color: amountColor(item.amount) }}>
@@ -218,7 +218,7 @@ function WeeklyForeignTable({
         <thead>
           <tr>
             <th className="weekly-foreign-rank-col">{t("순위")}</th>
-            <th>{t("종목명")}</th>
+            <th className="weekly-foreign-name-col">{t("종목명")}</th>
             <th className="weekly-foreign-amount-col">{amountLabel}</th>
           </tr>
         </thead>
