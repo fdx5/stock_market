@@ -191,11 +191,13 @@ function WeeklyForeignRow({ item, rank, lang }: { item: WeeklyForeignItem; rank:
   const medal = medalFor(rank);
   return (
     <tr>
-      <td className="top50-table-rank">{medal || rank}</td>
+      <td className="top50-table-rank weekly-foreign-rank-col">{medal || rank}</td>
       <td className="investor-table-name">
         <Link to={`/investor/${item.code}`}>{name}</Link>
       </td>
-      <td style={{ color: amountColor(item.amount) }}>{formatAmount(item.amount, lang)}</td>
+      <td className="weekly-foreign-amount-col" style={{ color: amountColor(item.amount) }}>
+        {formatAmount(item.amount, lang)}
+      </td>
     </tr>
   );
 }
@@ -212,12 +214,12 @@ function WeeklyForeignTable({
   const t = useT();
   return (
     <div className="investor-table-wrap">
-      <table className="investor-table">
+      <table className="investor-table weekly-foreign-table">
         <thead>
           <tr>
-            <th>{t("순위")}</th>
+            <th className="weekly-foreign-rank-col">{t("순위")}</th>
             <th>{t("종목명")}</th>
-            <th>{amountLabel}</th>
+            <th className="weekly-foreign-amount-col">{amountLabel}</th>
           </tr>
         </thead>
         <tbody>

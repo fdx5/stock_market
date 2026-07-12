@@ -1144,10 +1144,40 @@ a.app-brand:hover .app-logo-wide {
   border-bottom: none;
 }
 
+.investor-table-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .investor-table-name a {
   color: var(--text-primary);
   font-weight: 600;
   text-decoration: none;
+}
+
+/* Rank was sharing the "auto" column-sizing algorithm with 종목명/외국인 순매수 and
+   ending up nearly as wide as either — a couple of digits (or a medal) doesn't need
+   that much room, so pin it and the amount column narrow and let the name column
+   (the only one left unconstrained) absorb the freed-up width. */
+.weekly-foreign-table {
+  table-layout: fixed;
+}
+
+.weekly-foreign-rank-col {
+  width: 44px;
+}
+
+.weekly-foreign-amount-col {
+  width: 118px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The column's too narrow for the full header label on one line — let just the
+   header wrap instead of widening the column at the data rows' expense. */
+thead .weekly-foreign-amount-col {
+  white-space: normal;
+  line-height: 1.3;
 }
 
 .investor-table-name a:hover {
