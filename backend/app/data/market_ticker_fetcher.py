@@ -43,6 +43,15 @@ SYMBOLS = [
 ]
 
 
+def _fetch_closes(symbol: str, range_: str) -> list[float]:
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    resp = requests.get(url, headers=HEADERS, params={"interval": "15m", "range": range_}, timeout=4)
+    resp.raise_for_status()
+    result = resp.json()["chart"]["result"][0]
+    closes = result.get("indicators", {}).get("quote", [{}])[0].get("close") or []
+    return [round(float(c), 4) for c in closes if c is not None]
+
+
 def _fetch_one(entry: dict) -> dict | None:
     symbol = entry["symbol"]
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -58,6 +67,16 @@ def _fetch_one(entry: dict) -> dict | None:
 
         closes = result.get("indicators", {}).get("quote", [{}])[0].get("close") or []
         points = [round(float(c), 4) for c in closes if c is not None]
+
+        # Futures (GC=F, SI=F, CL=F, ...) report an empty "1d" series whenever
+        # today's session hasn't traded yet (e.g. the weekend gap before Globex
+        # reopens) — unlike equities/FX, Yahoo doesn't fall back to the last
+        # completed session for them. Widen the window to recover a trend line.
+        if len(points) < 2:
+            try:
+                points = _fetch_closes(symbol, "5d")[-96:]
+            except Exception:
+                pass
 
         change = float(price) - float(prev_close)
         change_pct = (change / prev_close * 100) if prev_close else 0.0
