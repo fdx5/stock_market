@@ -33,6 +33,8 @@ SYMBOLS = [
     {"symbol": "GOOGL", "label": "Alphabet (Google)"},
     {"symbol": "MSFT", "label": "Microsoft"},
     {"symbol": "META", "label": "Meta"},
+    {"symbol": "TSLA", "label": "Tesla"},
+    {"symbol": "SPCX", "label": "SpaceX"},
     {"symbol": "BTC-USD", "label": "Bitcoin"},
     {"symbol": "ETH-USD", "label": "Ethereum"},
     {"symbol": "XRP-USD", "label": "Ripple"},

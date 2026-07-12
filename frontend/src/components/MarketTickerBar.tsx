@@ -20,6 +20,8 @@ const ICONS: Record<string, string> = {
   GOOGL: "/img/ticker/google.png",
   MSFT: "/img/ticker/microsoft.png",
   META: "/img/ticker/meta.png",
+  TSLA: "/img/ticker/tesla.png",
+  SPCX: "/img/ticker/spacex.png",
   "CL=F": "/img/ticker/oil.png",
   "BTC-USD": "/img/ticker/btc.png",
   "ETH-USD": "/img/ticker/eth.png",
