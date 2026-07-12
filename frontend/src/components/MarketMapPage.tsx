@@ -37,6 +37,21 @@ function pct(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+const TILE_FONT_FAMILY = "system-ui, -apple-system, 'Segoe UI', sans-serif";
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+
+// Used to decide whether a tile has room to show its company icon: only when the name
+// still fits at full length (no CSS ellipsis) after making room for the icon, so the
+// icon never pushes a name into truncation.
+function measureTextWidth(text: string, fontSizePx: number, weight = 700): number {
+  if (measureCtx === undefined) {
+    measureCtx = document.createElement("canvas").getContext("2d");
+  }
+  if (!measureCtx) return text.length * fontSizePx * 0.6;
+  measureCtx.font = `${weight} ${fontSizePx}px ${TILE_FONT_FAMILY}`;
+  return measureCtx.measureText(text).width;
+}
+
 // Scales name/pct text with how much area the tile actually has, instead of a single
 // fixed size for every tile that clears the "show text" threshold — a tile many times
 // larger than another (e.g. Samsung vs. a mid-cap name) reads noticeably larger too.
@@ -218,6 +233,8 @@ export default function MarketMapPage({
     });
   }, [items, size]);
 
+  const totalMarcap = useMemo(() => items.reduce((sum, it) => sum + it.marcap, 0), [items]);
+
   const handleTileClick = (code: string) => navigate(`/?code=${code}`);
 
   // One batched translation request for every name currently loaded (tiles, table,
@@ -324,6 +341,14 @@ export default function MarketMapPage({
                     const showName = tile.w >= 46 && tile.h >= 30;
                     const showPctOnly = !showName && tile.w >= 24 && tile.h >= 16;
                     const fontSizes = tileFontSizes(tile.w, tile.h);
+                    const name = nameByCode.get(tile.item.code) ?? tile.item.name;
+                    // Only worth showing the icon when the name still fits at full length
+                    // afterward — a truncated "Sam… 🏷" reads worse than no icon at all.
+                    const iconSize = Math.round(fontSizes.name);
+                    const TILE_H_PADDING = 10; // .kospi-map-tile's 5px left/right padding
+                    const ICON_GAP = 4;
+                    const availableWithIcon = tile.w - TILE_H_PADDING - iconSize - ICON_GAP;
+                    const showIcon = showName && measureTextWidth(name, fontSizes.name) <= availableWithIcon;
                     return (
                       <button
                         key={tile.id}
@@ -347,8 +372,21 @@ export default function MarketMapPage({
                       >
                         {showName && (
                           <>
-                            <span className="kospi-map-tile-name" style={{ fontSize: fontSizes.name }}>
-                              {nameByCode.get(tile.item.code) ?? tile.item.name}
+                            <span className="kospi-map-tile-name-row">
+                              {showIcon && (
+                                <img
+                                  className="kospi-map-tile-icon"
+                                  style={{ width: iconSize, height: iconSize }}
+                                  src={`https://ssl.pstatic.net/imgstock/fn/real/logo/png/stock/Stock${tile.item.code}.png`}
+                                  alt=""
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).style.display = "none";
+                                  }}
+                                />
+                              )}
+                              <span className="kospi-map-tile-name" style={{ fontSize: fontSizes.name }}>
+                                {name}
+                              </span>
                             </span>
                             <span className="kospi-map-tile-pct" style={{ fontSize: fontSizes.pct }}>
                               {pct(tile.item.change_pct)}
@@ -417,6 +455,9 @@ export default function MarketMapPage({
           >
             {t("등락")} {hovered.change >= 0 ? "+" : ""}
             {hovered.change.toLocaleString()}{wonSuffix(lang)} ({pct(hovered.change_pct)})
+          </div>
+          <div className="kospi-map-tooltip-row">
+            {t("맵 면적 비중")} {totalMarcap > 0 ? ((hovered.marcap / totalMarcap) * 100).toFixed(2) : "0.00"}%
           </div>
         </div>
       )}

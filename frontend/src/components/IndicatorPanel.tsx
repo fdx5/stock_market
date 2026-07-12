@@ -10,7 +10,7 @@ import {
   Time,
   createChart,
 } from "lightweight-charts";
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { IndicatorPoint } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { ThemeColors, getThemeColors, watchTheme } from "../theme";
@@ -50,6 +50,7 @@ function macdHistData(points: IndicatorPoint[], colors: ThemeColors): HistogramD
 
 const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest }, ref) => {
   const t = useT();
+  const [expanded, setExpanded] = useState(false);
   const rsiContainerRef = useRef<HTMLDivElement>(null);
   const macdContainerRef = useRef<HTMLDivElement>(null);
   const rsiChartRef = useRef<IChartApi | null>(null);
@@ -159,41 +160,54 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
     <div className="card">
       <div className="chart-toolbar">
         <span className="chart-title">{t("보조 지표")}</span>
+        <button
+          type="button"
+          className="indicator-panel-toggle"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? t("접기") : t("펼치기")}
+          <span className={`fold-toggle-arrow ${expanded ? "up" : ""}`} aria-hidden="true">
+            ▼
+          </span>
+        </button>
       </div>
-      <div className="chart-legend">
-        <span className="item">{t("RSI(14) · 점선 30/70")}</span>
-      </div>
-      <div ref={rsiContainerRef} className="chart-sub" />
-      <div className="chart-legend" style={{ marginTop: 14 }}>
-        <span className="item">
-          <span className="swatch" style={{ background: "var(--series-blue)" }} />
-          MACD
-        </span>
-        <span className="item">
-          <span className="swatch" style={{ background: "var(--series-yellow)" }} />
-          Signal
-        </span>
-        <span className="item">{t("히스토그램(녹/적)")}</span>
-      </div>
-      <div ref={macdContainerRef} className="chart-sub" />
-
-      {latest && (
-        <div className="indicator-stats">
-          <StatTile label="RSI(14)" value={latest.rsi14?.toFixed(1) ?? "-"} />
-          <StatTile label={t("MACD 히스토그램")} value={latest.macd_hist?.toFixed(2) ?? "-"} />
-          <StatTile label="ATR(14)" value={latest.atr14?.toFixed(0) ?? "-"} />
-          <StatTile
-            label={t("20일 변동성")}
-            value={latest.volatility20 !== null && latest.volatility20 !== undefined ? `${(latest.volatility20 * 100).toFixed(2)}%` : "-"}
-          />
-          <StatTile
-            label={t("거래량/20일평균")}
-            value={
-              latest.volume_ma20 ? `${((latest.volume / latest.volume_ma20) * 100).toFixed(0)}%` : "-"
-            }
-          />
+      <div className={`indicator-panel-body ${expanded ? "expanded" : ""}`}>
+        <div className="chart-legend">
+          <span className="item">{t("RSI(14) · 점선 30/70")}</span>
         </div>
-      )}
+        <div ref={rsiContainerRef} className="chart-sub" />
+        <div className="chart-legend" style={{ marginTop: 14 }}>
+          <span className="item">
+            <span className="swatch" style={{ background: "var(--series-blue)" }} />
+            MACD
+          </span>
+          <span className="item">
+            <span className="swatch" style={{ background: "var(--series-yellow)" }} />
+            Signal
+          </span>
+          <span className="item">{t("히스토그램(녹/적)")}</span>
+        </div>
+        <div ref={macdContainerRef} className="chart-sub" />
+
+        {latest && (
+          <div className="indicator-stats">
+            <StatTile label="RSI(14)" value={latest.rsi14?.toFixed(1) ?? "-"} />
+            <StatTile label={t("MACD 히스토그램")} value={latest.macd_hist?.toFixed(2) ?? "-"} />
+            <StatTile label="ATR(14)" value={latest.atr14?.toFixed(0) ?? "-"} />
+            <StatTile
+              label={t("20일 변동성")}
+              value={latest.volatility20 !== null && latest.volatility20 !== undefined ? `${(latest.volatility20 * 100).toFixed(2)}%` : "-"}
+            />
+            <StatTile
+              label={t("거래량/20일평균")}
+              value={
+                latest.volume_ma20 ? `${((latest.volume / latest.volume_ma20) * 100).toFixed(0)}%` : "-"
+              }
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 });

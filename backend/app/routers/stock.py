@@ -135,3 +135,10 @@ def board_detail(code: str, nid: str):
     if detail is None:
         raise HTTPException(status_code=404, detail="게시글을 찾을 수 없습니다.")
     return detail
+
+
+@router.get("/{code}/board/{nid}/comments")
+def board_comments(code: str, nid: str):
+    _resolve_name(code)
+    comments = board_fetcher.get_board_comments(nid)
+    return {"nid": nid, "items": comments, "count": len(comments)}

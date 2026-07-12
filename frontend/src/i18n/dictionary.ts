@@ -64,6 +64,7 @@ export const DICTIONARY: Record<string, string> = {
   "현재가": "Price",
   "등락률": "Change %",
   "등락": "Change",
+  "맵 면적 비중": "Map Area Share",
   "시총 500개 종목 데이터를 불러오는 중...": "Loading data for the top 500 stocks by market cap...",
   "코스피 시가총액 상위 500개": "KOSPI Top 500",
   "코스닥 시총 200개 종목 데이터를 불러오는 중...": "Loading data for the top 200 KOSDAQ stocks by market cap...",
@@ -101,6 +102,9 @@ export const DICTIONARY: Record<string, string> = {
   "공감/비공감": "Likes/Dislikes",
   "(본문 없음)": "(No content)",
   "네이버에서 새 창으로 보기 ↗": "View on Naver in a new window ↗",
+  "댓글": "Comments",
+  "댓글을 불러오지 못했습니다.": "Failed to load comments.",
+  "아직 댓글이 없습니다.": "No comments yet.",
 
   // SidePanel / OrderBookPanel
   "호가": "Order Book",
@@ -126,6 +130,13 @@ export const DICTIONARY: Record<string, string> = {
   "최근 확정 거래일 기준 누적 순매수(억원)": "Cumulative net buy/sell (100M KRW), as of the last confirmed trading day",
   "시총 100위까지 · 종목명을 누르면 최근 추이를 볼 수 있습니다.":
     "Top 100 by market cap · click a stock name to see its recent trend.",
+  "외국인 주간매수 TOP20": "Foreign Weekly Buy TOP20",
+  "외국인 주간매도 TOP20": "Foreign Weekly Sell TOP20",
+  "순위": "Rank",
+  "외국인 순매수(억원)": "Foreign Net Buy (100M KRW)",
+  "외국인 순매도(억원)": "Foreign Net Sell (100M KRW)",
+  "최근 5거래일 기준 외국인 누적 순매수 상위 20종목입니다. · 종목명을 누르면 최근 추이를 볼 수 있습니다.":
+    "Top 20 stocks by cumulative foreign net buy over the last 5 trading days · click a stock name to see its recent trend.",
 
   // SearchBar
   "종목명 또는 코드 검색 (예: 삼성전자, 005930)": "Search by name or code (e.g. Samsung Electronics, 005930)",
@@ -139,6 +150,8 @@ export const DICTIONARY: Record<string, string> = {
   "MACD 히스토그램": "MACD Histogram",
   "20일 변동성": "20-Day Volatility",
   "거래량/20일평균": "Volume / 20-Day Avg",
+  "펼치기": "Expand",
+  "접기": "Collapse",
 
   // InvestorTrendPage
   "투자자별 매매동향": "Investor Trading Trend",

@@ -424,6 +424,68 @@ a.app-brand:hover .app-logo-wide {
   color: var(--text-muted);
 }
 
+.news-digest-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 2px auto 0;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.news-digest-toggle:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.fold-toggle-arrow {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+
+.fold-toggle-arrow.up {
+  transform: rotate(180deg);
+}
+
+.indicator-panel-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.indicator-panel-toggle:hover {
+  color: var(--text-primary);
+  border-color: var(--text-secondary);
+}
+
+.indicator-panel-body {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.2s ease, opacity 0.15s ease;
+}
+
+.indicator-panel-body.expanded {
+  max-height: 900px;
+  opacity: 1;
+}
+
 .chart-toolbar {
   display: flex;
   align-items: center;
@@ -640,6 +702,70 @@ a.app-brand:hover .app-logo-wide {
   max-width: 100%;
   border-radius: 6px;
   display: block;
+}
+
+.board-comments {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--gridline);
+}
+
+.board-comments-header {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.board-comments-empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.board-comments-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.board-comments-list li {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--page-plane);
+  border: 1px solid var(--border);
+}
+
+.board-comment-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.board-comment-author {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.board-comment-text {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-line;
+}
+
+.board-comment-stat {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .board-detail-link {
@@ -1565,6 +1691,20 @@ a.app-brand:hover .app-logo-wide {
   filter: brightness(1.12);
 }
 
+.kospi-map-tile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.kospi-map-tile-icon {
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
 .kospi-map-tile-name {
   /* font-size set inline per tile, scaled to the tile's area */
   font-weight: 700;
@@ -1572,6 +1712,7 @@ a.app-brand:hover .app-logo-wide {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+  min-width: 0;
   line-height: 1.2;
 }
 

@@ -1,11 +1,26 @@
 import { useEffect, useState } from "react";
-import { IndexQuote, InvestorSummaryItem, MarketInvestorSummary, MarketMapItem, StockSearchResult, api } from "../api/client";
+import {
+  IndexQuote,
+  InvestorSummaryItem,
+  MarketInvestorSummary,
+  MarketMapItem,
+  StockSearchResult,
+  WeeklyForeignItem,
+  api,
+} from "../api/client";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 
-type Tab = "top50" | "kosdaq50" | "investor";
+type Tab = "top50" | "kosdaq50" | "investor" | "foreignBuyTop20" | "foreignSellTop20";
+
+function medalFor(rank: number): string {
+  if (rank === 1) return "🥇";
+  if (rank === 2) return "🥈";
+  if (rank === 3) return "🥉";
+  return "";
+}
 
 function formatAmount(value: number, lang: Lang): string {
   const abs = Math.abs(value);
@@ -171,6 +186,50 @@ function Top50PriceList({
   );
 }
 
+function WeeklyForeignRow({ item, rank, lang }: { item: WeeklyForeignItem; rank: number; lang: Lang }) {
+  const name = useTranslatedText(item.name);
+  const medal = medalFor(rank);
+  return (
+    <tr>
+      <td className="top50-table-rank">{medal || rank}</td>
+      <td className="investor-table-name">
+        <Link to={`/investor/${item.code}`}>{name}</Link>
+      </td>
+      <td style={{ color: amountColor(item.amount) }}>{formatAmount(item.amount, lang)}</td>
+    </tr>
+  );
+}
+
+function WeeklyForeignTable({
+  items,
+  lang,
+  amountLabel,
+}: {
+  items: WeeklyForeignItem[];
+  lang: Lang;
+  amountLabel: string;
+}) {
+  const t = useT();
+  return (
+    <div className="investor-table-wrap">
+      <table className="investor-table">
+        <thead>
+          <tr>
+            <th>{t("순위")}</th>
+            <th>{t("종목명")}</th>
+            <th>{amountLabel}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, idx) => (
+            <WeeklyForeignRow key={item.code} item={item} rank={idx + 1} lang={lang} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function InvestorTableRow({
   item,
   lang,
@@ -206,6 +265,10 @@ export default function MarketOverviewPanel({
   const [items, setItems] = useState<InvestorSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [weeklyForeignBuy, setWeeklyForeignBuy] = useState<WeeklyForeignItem[]>([]);
+  const [weeklyForeignSell, setWeeklyForeignSell] = useState<WeeklyForeignItem[]>([]);
+  const [weeklyForeignLoading, setWeeklyForeignLoading] = useState(true);
+  const [weeklyForeignError, setWeeklyForeignError] = useState<string | null>(null);
 
   const INDEX_REFRESH_MS = 15_000;
   const SUMMARY_REFRESH_MS = 5 * 60_000;
@@ -246,16 +309,38 @@ export default function MarketOverviewPanel({
         });
     };
 
+    const loadWeeklyForeign = (isInitial: boolean) => {
+      if (isInitial) setWeeklyForeignLoading(true);
+      api
+        .weeklyForeignTop()
+        .then((res) => {
+          if (cancelled) return;
+          setWeeklyForeignBuy(res.buy);
+          setWeeklyForeignSell(res.sell);
+          setWeeklyForeignError(null);
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (isInitial) setWeeklyForeignError(err.message || "데이터를 불러오지 못했습니다.");
+        })
+        .finally(() => {
+          if (isInitial && !cancelled) setWeeklyForeignLoading(false);
+        });
+    };
+
     loadIndices();
     loadSummary(true);
+    loadWeeklyForeign(true);
 
     const stopIndexPolling = startVisibilityAwareInterval(loadIndices, INDEX_REFRESH_MS);
     const stopSummaryPolling = startVisibilityAwareInterval(() => loadSummary(false), SUMMARY_REFRESH_MS);
+    const stopWeeklyForeignPolling = startVisibilityAwareInterval(() => loadWeeklyForeign(false), SUMMARY_REFRESH_MS);
 
     return () => {
       cancelled = true;
       stopIndexPolling();
       stopSummaryPolling();
+      stopWeeklyForeignPolling();
     };
   }, []);
 
@@ -297,11 +382,44 @@ export default function MarketOverviewPanel({
           >
             {t("종목별 투자자 매매동향")}
           </button>
+          <button
+            type="button"
+            className={`market-overview-tab ${tab === "foreignBuyTop20" ? "active" : ""}`}
+            onClick={() => setTab("foreignBuyTop20")}
+          >
+            {t("외국인 주간매수 TOP20")}
+          </button>
+          <button
+            type="button"
+            className={`market-overview-tab ${tab === "foreignSellTop20" ? "active" : ""}`}
+            onClick={() => setTab("foreignSellTop20")}
+          >
+            {t("외국인 주간매도 TOP20")}
+          </button>
         </div>
 
         {tab === "top50" && <Top50PriceList onSelectStock={onSelectStock} market="KOSPI" />}
 
         {tab === "kosdaq50" && <Top50PriceList onSelectStock={onSelectStock} market="KOSDAQ" />}
+
+        {(tab === "foreignBuyTop20" || tab === "foreignSellTop20") && (
+          <>
+            <p className="market-overview-subtitle">
+              {t("최근 5거래일 기준 외국인 누적 순매수 상위 20종목입니다. · 종목명을 누르면 최근 추이를 볼 수 있습니다.")}
+            </p>
+
+            {weeklyForeignLoading && <div className="loading-state">{t("불러오는 중...")}</div>}
+            {weeklyForeignError && <div className="error-state">{t(weeklyForeignError)}</div>}
+
+            {!weeklyForeignLoading && !weeklyForeignError && (
+              <WeeklyForeignTable
+                items={tab === "foreignBuyTop20" ? weeklyForeignBuy : weeklyForeignSell}
+                lang={lang}
+                amountLabel={tab === "foreignBuyTop20" ? t("외국인 순매수(억원)") : t("외국인 순매도(억원)")}
+              />
+            )}
+          </>
+        )}
 
         {tab === "investor" && (
           <>

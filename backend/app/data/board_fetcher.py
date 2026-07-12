@@ -1,3 +1,5 @@
+import json
+import re
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -120,3 +122,71 @@ def get_board_detail(nid: str) -> dict | None:
         return cache.get_or_set(key, TTL_BOARD_SECONDS, lambda: _fetch_board_detail(nid))
     except Exception:
         return None
+
+
+# Board posts have no reply feature of their own — replies instead go through Naver's
+# shared cross-service "cbox" comment platform (the same system news/blog comments use),
+# with "finance" as the ticket and "cbox12" as the stock-discussion pool. Neither value
+# is documented anywhere; both were found by tracing the mobile discussion page's own
+# network requests.
+COMMENT_URL = "https://apis.naver.com/commentBox/cbox/web_neo_list_jsonp.json"
+_JSONP_RE = re.compile(r"^[^(]*\((.*)\)\s*;?\s*$", re.S)
+
+
+def _parse_jsonp(text: str) -> dict:
+    match = _JSONP_RE.match(text)
+    if not match:
+        raise ValueError("Unexpected comment response format")
+    return json.loads(match.group(1))
+
+
+def _fetch_board_comments(nid: str) -> list[dict]:
+    params = {
+        "ticket": "finance",
+        "templateId": "default",
+        "pool": "cbox12",
+        "lang": "ko",
+        "country": "KR",
+        "objectId": nid,
+        "categoryId": "*",
+        "pageSize": 50,
+        "indexSize": 10,
+        "listType": "OBJECT",
+        "pageType": "more",
+        "page": 1,
+        "currentPage": 1,
+        "sort": "NEW",
+    }
+    resp = requests.get(COMMENT_URL, params=params, headers=HEADERS, timeout=4)
+    resp.raise_for_status()
+    payload = _parse_jsonp(resp.text)
+    if not payload.get("success"):
+        return []
+
+    result = payload.get("result") or {}
+    comments = []
+    for row in result.get("commentList") or []:
+        if row.get("deleted") or row.get("blind") or row.get("hiddenByCleanbot"):
+            continue
+        text = (row.get("contents") or "").strip()
+        if not text:
+            continue
+        comments.append(
+            {
+                "id": row.get("commentNo", ""),
+                "author": row.get("userName") or "",
+                "text": text,
+                "written_at": row.get("regTime", ""),
+                "likes": row.get("sympathyCount", 0),
+                "dislikes": row.get("antipathyCount", 0),
+            }
+        )
+    return comments
+
+
+def get_board_comments(nid: str) -> list[dict]:
+    key = f"board_comments:{nid}"
+    try:
+        return cache.get_or_set(key, TTL_BOARD_SECONDS, lambda: _fetch_board_comments(nid))
+    except Exception:
+        return []

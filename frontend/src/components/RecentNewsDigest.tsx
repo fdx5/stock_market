@@ -1,9 +1,11 @@
+import { useState } from "react";
 import type { NewsItem } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 
 const RECENT_DAYS = 3;
 const MAX_ITEMS = 6;
+const VISIBLE_ITEMS = 3;
 
 function parseNaverDate(text: string): number {
   // Naver's item-news date format is "YYYY.MM.DD HH:mm". Unparseable dates are treated
@@ -17,8 +19,11 @@ function parseNaverDate(text: string): number {
 
 export default function RecentNewsDigest({ items, name }: { items: NewsItem[]; name: string }) {
   const { lang } = useLanguage();
+  const [expanded, setExpanded] = useState(false);
   const cutoff = Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000;
   const recent = items.filter((item) => parseNaverDate(item.date) >= cutoff).slice(0, MAX_ITEMS);
+  const hasFolded = recent.length > VISIBLE_ITEMS;
+  const visible = expanded ? recent : recent.slice(0, VISIBLE_ITEMS);
 
   const translatedTitles = useTranslatedTexts(recent.map((item) => item.title));
   const translatedPress = useTranslatedTexts(recent.map((item) => item.press));
@@ -35,19 +40,34 @@ export default function RecentNewsDigest({ items, name }: { items: NewsItem[]; n
             : `${name} 관련 최근 ${RECENT_DAYS}일 내 뉴스가 없습니다.`}
         </div>
       ) : (
-        <ul className="news-digest-list">
-          {recent.map((item, idx) => (
-            <li key={idx}>
-              <a href={item.link} target="_blank" rel="noreferrer">
-                {translatedTitles[idx] ?? item.title}
-              </a>
-              <span className="news-digest-meta">
-                {" "}
-                · {translatedPress[idx] ?? item.press} · {item.date.slice(5)}
+        <>
+          <ul className="news-digest-list">
+            {visible.map((item, idx) => (
+              <li key={idx}>
+                <a href={item.link} target="_blank" rel="noreferrer">
+                  {translatedTitles[idx] ?? item.title}
+                </a>
+                <span className="news-digest-meta">
+                  {" "}
+                  · {translatedPress[idx] ?? item.press} · {item.date.slice(5)}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {hasFolded && (
+            <button
+              type="button"
+              className="news-digest-toggle"
+              onClick={() => setExpanded((v) => !v)}
+              aria-expanded={expanded}
+            >
+              {expanded ? (lang === "en" ? "Show less" : "간략히 보기") : lang === "en" ? "Show more" : "더보기"}
+              <span className={`fold-toggle-arrow ${expanded ? "up" : ""}`} aria-hidden="true">
+                ▼
               </span>
-            </li>
-          ))}
-        </ul>
+            </button>
+          )}
+        </>
       )}
     </div>
   );

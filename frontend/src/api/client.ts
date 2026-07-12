@@ -113,6 +113,15 @@ export interface BoardDetail {
   blocks: BoardBlock[];
 }
 
+export interface BoardComment {
+  id: string;
+  author: string;
+  text: string;
+  written_at: string;
+  likes: number;
+  dislikes: number;
+}
+
 export interface OrderBookLevel {
   price: number;
   qty: number;
@@ -150,6 +159,12 @@ export interface InvestorSummaryItem {
   individual_amount: number;
   institution_amount: number;
   foreign_amount: number;
+}
+
+export interface WeeklyForeignItem {
+  code: string;
+  name: string;
+  amount: number;
 }
 
 export interface InvestorTrendRecord {
@@ -250,6 +265,10 @@ export const api = {
       `${BASE}/stock/${code}/board?page=${page}`
     ),
   boardDetail: (code: string, nid: string) => getJSON<BoardDetail>(`${BASE}/stock/${code}/board/${nid}`),
+  boardComments: (code: string, nid: string) =>
+    getJSON<{ nid: string; items: BoardComment[]; count: number }>(
+      `${BASE}/stock/${code}/board/${nid}/comments`
+    ),
   indices: () =>
     getJSON<{
       kospi: IndexQuote | null;
@@ -258,6 +277,8 @@ export const api = {
       kosdaq_investor: MarketInvestorSummary | null;
     }>(`${BASE}/investor/indices`),
   investorSummary: () => getJSON<{ items: InvestorSummaryItem[] }>(`${BASE}/investor/summary`),
+  weeklyForeignTop: () =>
+    getJSON<{ buy: WeeklyForeignItem[]; sell: WeeklyForeignItem[] }>(`${BASE}/investor/weekly-foreign-top`),
   investorTrend: (code: string, days = 20) =>
     getJSON<{ code: string; name: string; records: InvestorTrendRecord[] }>(
       `${BASE}/investor/${code}?days=${days}`

@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.data import index_fetcher, investor_fetcher
 from app.data.universe import get_stock_name
-from app.services.investor_summary import get_investor_summary
+from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 
 router = APIRouter()
 
@@ -20,6 +20,11 @@ def indices():
 @router.get("/summary")
 def summary():
     return {"items": get_investor_summary()}
+
+
+@router.get("/weekly-foreign-top")
+def weekly_foreign_top():
+    return get_weekly_foreign_top()
 
 
 @router.get("/{code}")

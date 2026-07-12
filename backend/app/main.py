@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.data.universe import warm_english_names
 from app.routers import battle, geo, investor, market_map, search, stock, translate, visitors
-from app.services.investor_summary import get_investor_summary
+from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kospi_map
 
 app = FastAPI(title="KOSPI 종목 예측")
@@ -44,6 +44,7 @@ def _warm_kospi_map() -> None:
 @app.on_event("startup")
 def _warm_investor_summary() -> None:
     threading.Thread(target=get_investor_summary, daemon=True).start()
+    threading.Thread(target=get_weekly_foreign_top, daemon=True).start()
 
 
 @app.on_event("startup")

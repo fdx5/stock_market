@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { BoardDetail, BoardPost, api } from "../api/client";
+import { BoardComment, BoardDetail, BoardPost, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 
 const PAGE_SIZE = 10;
 
 type DetailState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; detail: BoardDetail };
+type CommentsState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; items: BoardComment[] };
 
 export default function BoardPanel({ code, name }: { code: string; name: string }) {
   const { lang } = useLanguage();
@@ -19,6 +23,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   const [expandedNid, setExpandedNid] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
   const [details, setDetails] = useState<Record<string, DetailState>>({});
+  const [comments, setComments] = useState<Record<string, CommentsState>>({});
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const pendingRevealIndex = useRef<number | null>(null);
 
@@ -32,6 +37,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     setExpandedNid(null);
     setExhausted(false);
     setDetails({});
+    setComments({});
 
     api
       .board(code, 1)
@@ -103,26 +109,46 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   const expandedBlocks = expandedDetail?.status === "ready" ? expandedDetail.detail.blocks : [];
   const translatedBlockTexts = useTranslatedTexts(expandedBlocks.map((b) => (b.type === "text" ? b.text ?? "" : "")));
 
+  const expandedComments = expandedNid ? comments[expandedNid] : undefined;
+  const expandedCommentItems = expandedComments?.status === "ready" ? expandedComments.items : [];
+  const translatedCommentTexts = useTranslatedTexts(expandedCommentItems.map((c) => c.text));
+
   const toggleExpand = (nid: string) => {
     if (expandedNid === nid) {
       setExpandedNid(null);
       return;
     }
     setExpandedNid(nid);
-    if (details[nid]) return; // already fetched (or in flight) — reuse it
 
-    setDetails((prev) => ({ ...prev, [nid]: { status: "loading" } }));
-    api
-      .boardDetail(code, nid)
-      .then((detail) => {
-        setDetails((prev) => ({ ...prev, [nid]: { status: "ready", detail } }));
-      })
-      .catch((err: Error) => {
-        setDetails((prev) => ({
-          ...prev,
-          [nid]: { status: "error", message: err.message || "게시글을 불러오지 못했습니다." },
-        }));
-      });
+    if (!details[nid]) {
+      setDetails((prev) => ({ ...prev, [nid]: { status: "loading" } }));
+      api
+        .boardDetail(code, nid)
+        .then((detail) => {
+          setDetails((prev) => ({ ...prev, [nid]: { status: "ready", detail } }));
+        })
+        .catch((err: Error) => {
+          setDetails((prev) => ({
+            ...prev,
+            [nid]: { status: "error", message: err.message || "게시글을 불러오지 못했습니다." },
+          }));
+        });
+    }
+
+    if (!comments[nid]) {
+      setComments((prev) => ({ ...prev, [nid]: { status: "loading" } }));
+      api
+        .boardComments(code, nid)
+        .then((res) => {
+          setComments((prev) => ({ ...prev, [nid]: { status: "ready", items: res.items } }));
+        })
+        .catch((err: Error) => {
+          setComments((prev) => ({
+            ...prev,
+            [nid]: { status: "error", message: err.message || "댓글을 불러오지 못했습니다." },
+          }));
+        });
+    }
   };
 
   return (
@@ -141,6 +167,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
               {visiblePosts.map((post, postIdx) => {
                 const isExpanded = expandedNid === post.nid;
                 const detailState = details[post.nid];
+                const commentState = comments[post.nid];
                 return (
                   <div
                     key={post.nid}
@@ -192,6 +219,44 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
                             )}
                           </div>
                         )}
+
+                        <div className="board-comments">
+                          <div className="board-comments-header">
+                            {t("댓글")}
+                            {commentState?.status === "ready" && ` ${commentState.items.length}`}
+                          </div>
+                          {(!commentState || commentState.status === "loading") && (
+                            <div className="loading-state">{t("불러오는 중...")}</div>
+                          )}
+                          {commentState?.status === "error" && (
+                            <div className="error-state">{t(commentState.message)}</div>
+                          )}
+                          {commentState?.status === "ready" && (
+                            <>
+                              {commentState.items.length === 0 ? (
+                                <p className="board-comments-empty">{t("아직 댓글이 없습니다.")}</p>
+                              ) : (
+                                <ul className="board-comments-list">
+                                  {commentState.items.map((comment, idx) => (
+                                    <li key={comment.id || idx}>
+                                      <div className="board-comment-meta">
+                                        <span className="board-comment-author">{comment.author}</span>
+                                        <span className="board-comment-date">{comment.written_at.slice(0, 16).replace("T", " ")}</span>
+                                      </div>
+                                      <p className="board-comment-text">
+                                        {translatedCommentTexts[idx] ?? comment.text}
+                                      </p>
+                                      <span className="board-comment-stat">
+                                        👍{comment.likes} 👎{comment.dislikes}
+                                      </span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </>
+                          )}
+                        </div>
+
                         <a
                           className="board-detail-link"
                           href={`https://finance.naver.com/item/board_read.naver?code=${code}&nid=${post.nid}`}
