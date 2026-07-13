@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { IndicatorPoint, NewsItem, StockQuote, StockSearchResult, StockSummary, api } from "./api/client";
 import { syncTimeScales } from "./chartSync";
 import Footer from "./components/Footer";
+import IndexChartPage from "./components/IndexChartPage";
 import IndicatorPanel, { IndicatorPanelHandle } from "./components/IndicatorPanel";
 import InvestorTrendPage from "./components/InvestorTrendPage";
 import KosdaqMapPage from "./components/KosdaqMapPage";
@@ -28,6 +29,10 @@ export default function App() {
   const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
   if (investorMatch) {
     return <InvestorTrendPage code={investorMatch[1]} />;
+  }
+  const indexMatch = path.match(/^\/index\/(kospi|kosdaq)\/?$/i);
+  if (indexMatch) {
+    return <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
   }
   if (path === "/map") {
     return <KospiMapPage />;

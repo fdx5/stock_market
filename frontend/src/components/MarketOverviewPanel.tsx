@@ -83,7 +83,7 @@ function IndexTile({
 
   const color = index.change >= 0 ? "var(--up-color)" : "var(--down-color)";
   return (
-    <div className="index-tile">
+    <Link to={`/index/${index.symbol.toLowerCase()}`} className="index-tile index-tile-link">
       <div className="index-tile-name">{t(label)}</div>
       <div className="index-tile-value" style={{ color }}>
         {index.close.toLocaleString()}
@@ -94,7 +94,7 @@ function IndexTile({
         {index.change_pct}%)
       </div>
       <MarketInvestorLine summary={investor} />
-    </div>
+    </Link>
   );
 }
 

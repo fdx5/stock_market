@@ -260,6 +260,10 @@ export const api = {
       `${BASE}/market/kosdaq-map?limit=${limit}&fresh=${fresh}`
     ),
   marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
+  indexHistory: (symbol: "KOSPI" | "KOSDAQ", years = 3) =>
+    getJSON<{ symbol: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
+      `${BASE}/market/index/${symbol}/history?years=${years}`
+    ),
   board: (code: string, page = 1, fresh = false) =>
     getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
       `${BASE}/stock/${code}/board?page=${page}&fresh=${fresh}`
