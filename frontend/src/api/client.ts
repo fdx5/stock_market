@@ -251,18 +251,18 @@ export const api = {
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
   orderbook: (code: string) => getJSON<OrderBook>(`${BASE}/stock/${code}/orderbook`),
-  marketMap: (limit = 500) =>
+  marketMap: (limit = 500, fresh = false) =>
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
-      `${BASE}/market/map?limit=${limit}`
+      `${BASE}/market/map?limit=${limit}&fresh=${fresh}`
     ),
-  kosdaqMap: (limit = 200) =>
+  kosdaqMap: (limit = 200, fresh = false) =>
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
-      `${BASE}/market/kosdaq-map?limit=${limit}`
+      `${BASE}/market/kosdaq-map?limit=${limit}&fresh=${fresh}`
     ),
   marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
-  board: (code: string, page = 1) =>
+  board: (code: string, page = 1, fresh = false) =>
     getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
-      `${BASE}/stock/${code}/board?page=${page}`
+      `${BASE}/stock/${code}/board?page=${page}&fresh=${fresh}`
     ),
   boardDetail: (code: string, nid: string) => getJSON<BoardDetail>(`${BASE}/stock/${code}/board/${nid}`),
   boardComments: (code: string, nid: string) =>

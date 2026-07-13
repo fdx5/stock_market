@@ -39,8 +39,10 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     setDetails({});
     setComments({});
 
+    // fresh=true: this is the page-entry load, so it must reflect the current board
+    // state rather than whatever was cached from an earlier visitor's page view.
     api
-      .board(code, 1)
+      .board(code, 1, true)
       .then((res) => {
         if (cancelled) return;
         setPosts(res.items);

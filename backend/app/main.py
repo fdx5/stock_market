@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.data.universe import warm_english_names
 from app.routers import battle, geo, investor, market_map, search, stock, translate, visitors
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
-from app.services.market_map import get_kospi_map
+from app.services.market_map import get_kosdaq_map, get_kospi_map
 
 app = FastAPI(title="KOSPI 종목 예측")
 
@@ -35,10 +35,17 @@ app.include_router(geo.router, prefix="/api")
 
 
 @app.on_event("startup")
-def _warm_kospi_map() -> None:
-    # Pre-fetches the map's Naver pages on boot so the first visitor after a deploy
+def _warm_market_maps() -> None:
+    # Pre-fetches both maps' Naver pages on boot so the first visitor after a deploy
     # doesn't pay the cold multi-page scrape (every page's cache starts empty then).
-    threading.Thread(target=lambda: get_kospi_map(500), daemon=True).start()
+    # The frontend polls each map at three separate `limit` tiers (20 / 100 / full),
+    # and each tier is cached under its own key, so all three need warming - not just
+    # the full one - or the first visitor still pays a cold synchronous fetch for
+    # whichever tier they hit first.
+    for limit in (20, 100, 500):
+        threading.Thread(target=lambda limit=limit: get_kospi_map(limit), daemon=True).start()
+    for limit in (20, 100, 200):
+        threading.Thread(target=lambda limit=limit: get_kosdaq_map(limit), daemon=True).start()
 
 
 @app.on_event("startup")

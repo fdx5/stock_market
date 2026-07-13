@@ -1,5 +1,5 @@
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.data import board_fetcher, company_overview_fetcher, news_fetcher, orderbook_fetcher, price_fetcher
 from app.data.stock_quote_fetcher import get_stock_quote
@@ -122,9 +122,9 @@ def news(code: str):
 
 
 @router.get("/{code}/board")
-def board(code: str, page: int = 1):
+def board(code: str, page: int = 1, fresh: bool = Query(False)):
     name = _resolve_name(code)
-    posts = board_fetcher.get_board_posts(code, page)
+    posts = board_fetcher.get_board_posts(code, page, fresh=fresh)
     return {"code": code, "name": name, "page": page, "items": posts}
 
 

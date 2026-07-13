@@ -59,10 +59,12 @@ def _fetch_board_page(code: str, page: int) -> list[dict]:
     return posts
 
 
-def get_board_posts(code: str, page: int = 1) -> list[dict]:
+def get_board_posts(code: str, page: int = 1, fresh: bool = False) -> list[dict]:
     key = f"board:{code}:{page}"
     try:
-        return cache.get_or_set(key, TTL_BOARD_SECONDS, lambda: _fetch_board_page(code, page))
+        return cache.get_or_set(
+            key, TTL_BOARD_SECONDS, lambda: _fetch_board_page(code, page), allow_stale=not fresh
+        )
     except Exception:
         return []
 

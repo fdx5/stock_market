@@ -12,8 +12,8 @@ KST = ZoneInfo("Asia/Seoul")
 
 
 @router.get("/map")
-def kospi_map(limit: int = Query(500, ge=1, le=800)):
-    items = get_kospi_map(limit)
+def kospi_map(limit: int = Query(500, ge=1, le=800), fresh: bool = Query(False)):
+    items = get_kospi_map(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         "count": len(items),
@@ -22,8 +22,8 @@ def kospi_map(limit: int = Query(500, ge=1, le=800)):
 
 
 @router.get("/kosdaq-map")
-def kosdaq_map(limit: int = Query(200, ge=1, le=200)):
-    items = get_kosdaq_map(limit)
+def kosdaq_map(limit: int = Query(200, ge=1, le=200), fresh: bool = Query(False)):
+    items = get_kosdaq_map(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         "count": len(items),
