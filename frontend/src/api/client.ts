@@ -273,13 +273,13 @@ export const api = {
     getJSON<{ nid: string; items: BoardComment[]; count: number }>(
       `${BASE}/stock/${code}/board/${nid}/comments`
     ),
-  indices: () =>
+  indices: (fresh = false) =>
     getJSON<{
       kospi: IndexQuote | null;
       kosdaq: IndexQuote | null;
       kospi_investor: MarketInvestorSummary | null;
       kosdaq_investor: MarketInvestorSummary | null;
-    }>(`${BASE}/investor/indices`),
+    }>(`${BASE}/investor/indices?fresh=${fresh}`),
   investorSummary: () => getJSON<{ items: InvestorSummaryItem[] }>(`${BASE}/investor/summary`),
   weeklyForeignTop: () =>
     getJSON<{ buy: WeeklyForeignItem[]; sell: WeeklyForeignItem[] }>(`${BASE}/investor/weekly-foreign-top`),

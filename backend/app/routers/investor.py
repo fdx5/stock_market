@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.data import index_fetcher, investor_fetcher
 from app.data.universe import get_stock_name
@@ -8,12 +8,12 @@ router = APIRouter()
 
 
 @router.get("/indices")
-def indices():
+def indices(fresh: bool = Query(False)):
     return {
-        "kospi": index_fetcher.get_index("KOSPI"),
-        "kosdaq": index_fetcher.get_index("KOSDAQ"),
-        "kospi_investor": index_fetcher.get_market_investor_summary("KOSPI"),
-        "kosdaq_investor": index_fetcher.get_market_investor_summary("KOSDAQ"),
+        "kospi": index_fetcher.get_index("KOSPI", fresh=fresh),
+        "kosdaq": index_fetcher.get_index("KOSDAQ", fresh=fresh),
+        "kospi_investor": index_fetcher.get_market_investor_summary("KOSPI", fresh=fresh),
+        "kosdaq_investor": index_fetcher.get_market_investor_summary("KOSDAQ", fresh=fresh),
     }
 
 

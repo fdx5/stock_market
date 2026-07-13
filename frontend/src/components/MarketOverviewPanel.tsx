@@ -278,9 +278,9 @@ export default function MarketOverviewPanel({
   useEffect(() => {
     let cancelled = false;
 
-    const loadIndices = () => {
+    const loadIndices = (isInitial: boolean) => {
       api
-        .indices()
+        .indices(isInitial)
         .then((res) => {
           if (cancelled) return;
           setKospi(res.kospi);
@@ -330,11 +330,11 @@ export default function MarketOverviewPanel({
         });
     };
 
-    loadIndices();
+    loadIndices(true);
     loadSummary(true);
     loadWeeklyForeign(true);
 
-    const stopIndexPolling = startVisibilityAwareInterval(loadIndices, INDEX_REFRESH_MS);
+    const stopIndexPolling = startVisibilityAwareInterval(() => loadIndices(false), INDEX_REFRESH_MS);
     const stopSummaryPolling = startVisibilityAwareInterval(() => loadSummary(false), SUMMARY_REFRESH_MS);
     const stopWeeklyForeignPolling = startVisibilityAwareInterval(() => loadWeeklyForeign(false), SUMMARY_REFRESH_MS);
 

@@ -33,10 +33,12 @@ def _fetch_index(symbol: str) -> dict:
     }
 
 
-def get_index(symbol: str) -> dict | None:
+def get_index(symbol: str, fresh: bool = False) -> dict | None:
     key = f"index:{symbol}"
     try:
-        return cache.get_or_set(key, TTL_INDEX_SECONDS, lambda: _fetch_index(symbol))
+        return cache.get_or_set(
+            key, TTL_INDEX_SECONDS, lambda: _fetch_index(symbol), allow_stale=not fresh
+        )
     except Exception:
         return None
 
@@ -75,9 +77,14 @@ def _fetch_market_investor(symbol: str) -> dict | None:
     }
 
 
-def get_market_investor_summary(symbol: str) -> dict | None:
+def get_market_investor_summary(symbol: str, fresh: bool = False) -> dict | None:
     key = f"market_investor:{symbol}"
     try:
-        return cache.get_or_set(key, TTL_MARKET_INVESTOR_SECONDS, lambda: _fetch_market_investor(symbol))
+        return cache.get_or_set(
+            key,
+            TTL_MARKET_INVESTOR_SECONDS,
+            lambda: _fetch_market_investor(symbol),
+            allow_stale=not fresh,
+        )
     except Exception:
         return None
