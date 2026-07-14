@@ -14,6 +14,7 @@ import PriceChart, { PriceChartHandle } from "./components/PriceChart";
 import RecentNewsDigest from "./components/RecentNewsDigest";
 import SearchBar from "./components/SearchBar";
 import SidePanel from "./components/SidePanel";
+import StockIcon from "./components/StockIcon";
 import ThemeToggle from "./components/ThemeToggle";
 import TugOfWarPage from "./components/TugOfWarPage";
 import VisitorBadge from "./components/VisitorBadge";
@@ -266,14 +267,7 @@ function Dashboard() {
               return (
                 <div className="card stock-header" ref={stockHeaderRef}>
                   <span className="name">
-                    <img
-                      className="stock-header-logo"
-                      src={`https://ssl.pstatic.net/imgstock/fn/real/logo/png/stock/Stock${summary.code}.png`}
-                      alt=""
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = "none";
-                      }}
-                    />
+                    <StockIcon className="stock-header-logo" code={summary.code} />
                     {summaryName}
                   </span>
                   <span className="code">{summary.code}</span>

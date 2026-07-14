@@ -5,6 +5,7 @@ import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
+import { loadStockIconUrl } from "../stockIcon";
 import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
@@ -12,6 +13,7 @@ import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import MarketTickerBar from "./MarketTickerBar";
+import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
 
@@ -103,10 +105,6 @@ function tileFontSizes(w: number, h: number): { name: number; pct: number } {
   return { name, pct: pctSize };
 }
 
-function tileIconUrl(code: string): string {
-  return `https://ssl.pstatic.net/imgstock/fn/real/logo/png/stock/Stock${code}.png`;
-}
-
 // Shared by the on-screen tile render and the PNG export below, so both ever agree
 // on which tiles show a name/pct/icon and at what size — duplicating these thresholds
 // risks the export silently drifting from what the map actually displays.
@@ -124,21 +122,25 @@ function tileDisplayInfo(w: number, h: number, name: string) {
   return { showName, showPctOnly, fontSizes, showIcon, iconSize, iconGap: ICON_GAP };
 }
 
-// Naver's static logo host sends Access-Control-Allow-Origin: * on these images, so
-// loading them with crossOrigin="anonymous" keeps the export canvas untainted and
-// exportable — a plain <img> (as the on-screen tiles use) would work for display but
-// permanently block canvas.toDataURL() once drawn.
+// Shares the same cached-icon-URL resolution as the on-screen <StockIcon> tiles (see
+// ../stockIcon.ts), so exporting the PNG never re-fetches a logo the map has already
+// loaded. crossOrigin="anonymous" is needed for the direct-URL fallback (Cache Storage
+// unavailable) to keep the export canvas untainted; it's a no-op for the common case
+// where loadStockIconUrl already resolved to a same-origin blob: URL.
 const iconImageCache = new Map<string, Promise<HTMLImageElement | null>>();
 function loadIconImage(code: string): Promise<HTMLImageElement | null> {
   let cached = iconImageCache.get(code);
   if (!cached) {
-    cached = new Promise((resolve) => {
-      const img = new Image();
-      img.crossOrigin = "anonymous";
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-      img.src = tileIconUrl(code);
-    });
+    cached = loadStockIconUrl(code).then(
+      (url) =>
+        new Promise<HTMLImageElement | null>((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => resolve(img);
+          img.onerror = () => resolve(null);
+          img.src = url;
+        })
+    );
     iconImageCache.set(code, cached);
   }
   return cached;
@@ -188,7 +190,7 @@ export default function MarketMapPage({
   const [selectedSector, setSelectedSector] = useState<string>(ALL_SECTORS);
   const [hovered, setHovered] = useState<MarketMapItem | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [mapPreview, setMapPreview] = useState<{ url: string; filename: string } | null>(null);
+  const [mapPreview, setMapPreview] = useState<{ blob: Blob; url: string; filename: string } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -479,18 +481,50 @@ export default function MarketMapPage({
       );
     }
 
-    // A data: URL (rather than a Blob/object URL) needs no later revocation and is
-    // what both the preview <img> and the confirm-download link below read from.
-    setMapPreview({ url: canvas.toDataURL("image/png"), filename: `${filePrefix}_${downloadTimestamp()}.png` });
+    // Blob (rather than a data: URL) is required for the mobile save path below:
+    // iOS Safari and in-app browsers (KakaoTalk, Naver, etc.) silently ignore
+    // <a download> on data: URLs, so the "download" never actually saves a file there.
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) return;
+    setMapPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return { blob, url: URL.createObjectURL(blob), filename: `${filePrefix}_${downloadTimestamp()}.png` };
+    });
   };
 
-  const closeMapPreview = () => setMapPreview(null);
+  const closeMapPreview = () => {
+    setMapPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev.url);
+      return null;
+    });
+  };
 
-  const confirmMapDownload = () => {
+  const confirmMapDownload = async () => {
     if (!mapPreview) return;
+    const { blob, filename } = mapPreview;
+
+    // On mobile, an <a download> click on its own frequently just opens the image
+    // instead of saving it (no filesystem access from the browser sandbox). The Web
+    // Share API's native share sheet lets the user save straight to Photos/Files, so
+    // prefer it whenever the platform can share a file; fall back to the anchor trick
+    // for desktop browsers and any mobile browser without file-sharing support.
+    if (typeof navigator.canShare === "function" && typeof navigator.share === "function") {
+      const file = new File([blob], filename, { type: "image/png" });
+      if (navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file] });
+          return;
+        } catch (err) {
+          if ((err as Error)?.name === "AbortError") return;
+          // Share failed for a non-cancel reason (e.g. no share target for images) —
+          // fall through to the anchor-download path below.
+        }
+      }
+    }
+
     const a = document.createElement("a");
     a.href = mapPreview.url;
-    a.download = mapPreview.filename;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -642,14 +676,10 @@ export default function MarketMapPage({
                           <>
                             <span className="kospi-map-tile-name-row">
                               {showIcon && (
-                                <img
+                                <StockIcon
                                   className="kospi-map-tile-icon"
                                   style={{ width: iconSize, height: iconSize }}
-                                  src={tileIconUrl(tile.item.code)}
-                                  alt=""
-                                  onError={(e) => {
-                                    (e.currentTarget as HTMLImageElement).style.display = "none";
-                                  }}
+                                  code={tile.item.code}
                                 />
                               )}
                               <span className="kospi-map-tile-name" style={{ fontSize: fontSizes.name }}>

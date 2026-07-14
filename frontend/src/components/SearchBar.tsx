@@ -2,6 +2,7 @@ import { KeyboardEvent, useEffect, useRef, useState } from "react";
 import { api, StockSearchResult } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
+import StockIcon from "./StockIcon";
 
 interface Props {
   onSelect: (stock: StockSearchResult) => void;
@@ -89,14 +90,7 @@ export default function SearchBar({ onSelect }: Props) {
               onMouseDown={() => choose(r)}
             >
               <span className="search-option-name">
-                <img
-                  className="search-option-logo"
-                  src={`https://ssl.pstatic.net/imgstock/fn/real/logo/png/stock/Stock${r.code}.png`}
-                  alt=""
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display = "none";
-                  }}
-                />
+                <StockIcon className="search-option-logo" code={r.code} />
                 {translatedNames[idx] ?? r.name}
               </span>
               <span className="code">{r.code}</span>
