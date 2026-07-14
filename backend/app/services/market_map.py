@@ -12,12 +12,13 @@ from app.services.cache import cache
 # cached per Naver page (not per request), so a cold fetch only ever touches the pages
 # whose TTL actually expired — most requests hit an already-warm cache and return fast.
 # Page 1 alone covers ranks ~1-48 post-ETF-filter, pages 2-3 extend that to ~120, so
-# these page cutoffs comfortably bracket the requested rank tiers (1-20 / 21-100 / rest).
+# these page cutoffs comfortably bracket the requested rank tiers (1-20 / 21-50 / rest);
+# each TTL is set to at least as fresh as its fastest-polling tier needs.
 FIRST_TIER_PAGES = 1
-FIRST_TIER_TTL_SECONDS = 30
+FIRST_TIER_TTL_SECONDS = 10
 SECOND_TIER_PAGES = 3
-SECOND_TIER_TTL_SECONDS = 5 * 60
-LONG_TAIL_TTL_SECONDS = 10 * 60
+SECOND_TIER_TTL_SECONDS = 30
+LONG_TAIL_TTL_SECONDS = 60
 TTL_INDUSTRY_SECONDS = 24 * 3600
 
 # KRX-DESC gives a fine-grained KSIC industry string (~100+ distinct values across the
@@ -67,14 +68,13 @@ def _naver_page_ttl(page: int) -> int:
     return LONG_TAIL_TTL_SECONDS
 
 
-# Mirrors the same tiering as the Naver page cache above, but keyed by the requested
-# `limit` instead of page count: rank 1-50 (map's top-20 tier + the dashboard's top-50
-# table) refreshes most often, since that's exactly where an NXT after-hours move is
-# most likely to be noticed.
+# Mirrors the map page's own rank tiers exactly, since this is keyed by the same
+# `limit` values it requests (20 / 50 / fullLimit): rank 1-20 refreshes most often,
+# since that's exactly where an NXT after-hours move is most likely to be noticed.
 def _realtime_quotes_ttl(limit: int) -> int:
-    if limit <= 50:
+    if limit <= 20:
         return FIRST_TIER_TTL_SECONDS
-    if limit <= 100:
+    if limit <= 50:
         return SECOND_TIER_TTL_SECONDS
     return LONG_TAIL_TTL_SECONDS
 

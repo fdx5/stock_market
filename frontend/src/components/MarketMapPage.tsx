@@ -40,6 +40,43 @@ function pct(value: number): string {
 const TILE_FONT_FAMILY = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 let measureCtx: CanvasRenderingContext2D | null | undefined;
 
+// Resolves any CSS color expression (var(), color-mix(), etc.) to its rendered
+// rgb/rgba string by letting the browser compute it on a throwaway element —
+// avoids hand-duplicating the theme's color formulas for the PNG export below.
+function resolveCssColor(value: string): string {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;left:-9999px;top:-9999px;";
+  probe.style.color = value;
+  document.body.appendChild(probe);
+  const resolved = getComputedStyle(probe).color;
+  document.body.removeChild(probe);
+  return resolved;
+}
+
+// Binary-searches the longest text-plus-ellipsis that still fits maxWidth, mirroring
+// the CSS text-overflow:ellipsis the on-screen tiles get for free — canvas text has
+// no such primitive, so the map PNG export needs it done by hand.
+function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (maxWidth <= 0) return "";
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  const ellipsis = "…";
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const candidate = text.slice(0, mid) + ellipsis;
+    if (ctx.measureText(candidate).width <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo > 0 ? text.slice(0, lo) + ellipsis : "";
+}
+
+function downloadTimestamp(): string {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+}
+
 // Sentinel for the sector filter's "show everything" option — distinct from any real
 // sector label (including "기타") so it can never collide with backend-assigned data.
 const ALL_SECTORS = "__all__";
@@ -66,13 +103,56 @@ function tileFontSizes(w: number, h: number): { name: number; pct: number } {
   return { name, pct: pctSize };
 }
 
+function tileIconUrl(code: string): string {
+  return `https://ssl.pstatic.net/imgstock/fn/real/logo/png/stock/Stock${code}.png`;
+}
+
+// Shared by the on-screen tile render and the PNG export below, so both ever agree
+// on which tiles show a name/pct/icon and at what size — duplicating these thresholds
+// risks the export silently drifting from what the map actually displays.
+function tileDisplayInfo(w: number, h: number, name: string) {
+  const showName = w >= 46 && h >= 30;
+  const showPctOnly = !showName && w >= 24 && h >= 16;
+  const fontSizes = tileFontSizes(w, h);
+  const iconSize = Math.round(fontSizes.name);
+  const TILE_H_PADDING = 10; // .kospi-map-tile's 5px left/right padding
+  const ICON_GAP = 4;
+  const availableWithIcon = w - TILE_H_PADDING - iconSize - ICON_GAP;
+  // Only worth showing the icon when the name still fits at full length afterward —
+  // a truncated "Sam… 🏷" reads worse than no icon at all.
+  const showIcon = showName && measureTextWidth(name, fontSizes.name) <= availableWithIcon;
+  return { showName, showPctOnly, fontSizes, showIcon, iconSize, iconGap: ICON_GAP };
+}
+
+// Naver's static logo host sends Access-Control-Allow-Origin: * on these images, so
+// loading them with crossOrigin="anonymous" keeps the export canvas untainted and
+// exportable — a plain <img> (as the on-screen tiles use) would work for display but
+// permanently block canvas.toDataURL() once drawn.
+const iconImageCache = new Map<string, Promise<HTMLImageElement | null>>();
+function loadIconImage(code: string): Promise<HTMLImageElement | null> {
+  let cached = iconImageCache.get(code);
+  if (!cached) {
+    cached = new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = tileIconUrl(code);
+    });
+    iconImageCache.set(code, cached);
+  }
+  return cached;
+}
+
 export interface MarketMapPageProps {
   pageTitle: string;
   loadingLabel: string;
   subtitlePrefix: string;
+  /** Downloaded PNG filename prefix, e.g. "kospi" -> kospi_MMDDHHmmss.png */
+  filePrefix: string;
   fetchMap: (limit: number, fresh?: boolean) => Promise<{ generated_at: string; count: number; items: MarketMapItem[] }>;
-  /** Rank 1..tier1Limit refreshes every 30s, tier1Limit+1..tier2Limit every 5min, the
-   * rest (up to fullLimit) every 10min — matches the backend's cache TTL tiers. */
+  /** Rank 1..tier1Limit refreshes every 10s, tier1Limit+1..tier2Limit every 30s, the
+   * rest (up to fullLimit) every 1min — matches the backend's cache TTL tiers. */
   tier1Limit: number;
   tier2Limit: number;
   fullLimit: number;
@@ -88,6 +168,7 @@ export default function MarketMapPage({
   pageTitle,
   loadingLabel,
   subtitlePrefix,
+  filePrefix,
   fetchMap,
   tier1Limit,
   tier2Limit,
@@ -107,13 +188,14 @@ export default function MarketMapPage({
   const [selectedSector, setSelectedSector] = useState<string>(ALL_SECTORS);
   const [hovered, setHovered] = useState<MarketMapItem | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [mapPreview, setMapPreview] = useState<{ url: string; filename: string } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
-  const TIER1_REFRESH_MS = 30_000;
-  const TIER2_REFRESH_MS = 5 * 60_000;
-  const FULL_REFRESH_MS = 10 * 60_000;
+  const TIER1_REFRESH_MS = 10_000;
+  const TIER2_REFRESH_MS = 30_000;
+  const FULL_REFRESH_MS = 60_000;
 
   useEffect(() => {
     let cancelled = false;
@@ -273,7 +355,146 @@ export default function MarketMapPage({
     return map;
   }, [items, translatedNames]);
 
-  const liveBadgeText = lang === "en" ? "Live (rank-based refresh: 30s–10min)" : "실시간 (순위별 30초 ~ 10분단위 갱신)";
+  const liveBadgeText = lang === "en" ? "Live (rank-based refresh: 10s–1min)" : "실시간 (순위별 10초 ~ 1분단위 갱신)";
+
+  // Redraws the current sector zones/tiles from scratch onto an off-screen canvas
+  // instead of screenshotting the live DOM: that would need html2canvas or similar to
+  // rasterize the actual tile buttons, and this way reuses the exact layout data that
+  // renders the on-screen map, so the two can never visually drift apart.
+  const handleDownloadMap = async () => {
+    if (sectorZones.length === 0 || size.w === 0 || size.h === 0) return;
+
+    const cardBg = resolveCssColor("var(--surface-1)");
+    const gapColor = resolveCssColor("var(--map-gap)");
+    const headerBg = resolveCssColor("color-mix(in srgb, var(--baseline) 35%, var(--surface-1))");
+    const headerBorder = resolveCssColor("var(--gridline)");
+    const textPrimary = resolveCssColor("var(--text-primary)");
+    const upColor = resolveCssColor("var(--up-color)");
+    const downColor = resolveCssColor("var(--down-color)");
+    const sectorBorderW = themeMode === "light" ? 1 : 2;
+
+    // Preload every tile's logo up front (same eligibility rule as the on-screen
+    // render) so the draw pass below can stay synchronous once it starts.
+    const iconByCode = new Map<string, HTMLImageElement>();
+    await Promise.all(
+      sectorZones.flatMap((zone) =>
+        zone.tiles.map(async (tile) => {
+          const name = nameByCode.get(tile.item.code) ?? tile.item.name;
+          const { showIcon } = tileDisplayInfo(tile.w, tile.h, name);
+          if (!showIcon) return;
+          const img = await loadIconImage(tile.item.code);
+          if (img) iconByCode.set(tile.item.code, img);
+        })
+      )
+    );
+
+    const scale = Math.min(window.devicePixelRatio || 1, 2);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(size.w * scale);
+    canvas.height = Math.round(size.h * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.scale(scale, scale);
+
+    ctx.fillStyle = cardBg;
+    ctx.fillRect(0, 0, size.w, size.h);
+
+    for (const zone of sectorZones) {
+      if (zone.headerH > 0) {
+        ctx.fillStyle = headerBg;
+        ctx.fillRect(zone.rect.x, zone.rect.y, zone.rect.w, zone.headerH);
+        ctx.strokeStyle = headerBorder;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(zone.rect.x, zone.rect.y + zone.headerH);
+        ctx.lineTo(zone.rect.x + zone.rect.w, zone.rect.y + zone.headerH);
+        ctx.stroke();
+
+        const avgText = pct(zone.avgChangePct);
+        ctx.font = `700 11px ${TILE_FONT_FAMILY}`;
+        ctx.textBaseline = "middle";
+        const avgWidth = ctx.measureText(avgText).width;
+        const nameMaxWidth = Math.max(0, zone.rect.w - 14 - avgWidth - 6);
+
+        ctx.fillStyle = textPrimary;
+        ctx.textAlign = "left";
+        ctx.fillText(truncateToWidth(ctx, t(zone.sector), nameMaxWidth), zone.rect.x + 7, zone.rect.y + zone.headerH / 2 + 1);
+
+        ctx.fillStyle = zone.avgChangePct >= 0 ? upColor : downColor;
+        ctx.textAlign = "right";
+        ctx.fillText(avgText, zone.rect.x + zone.rect.w - 7, zone.rect.y + zone.headerH / 2 + 1);
+        ctx.textAlign = "left";
+      }
+
+      for (const tile of zone.tiles) {
+        const rgb = changeToRgb(tile.item.change_pct, themeMode);
+        ctx.fillStyle = rgbToCss(rgb);
+        ctx.fillRect(tile.x, tile.y, tile.w, tile.h);
+        ctx.strokeStyle = gapColor;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tile.x + 0.5, tile.y + 0.5, Math.max(tile.w - 1, 0), Math.max(tile.h - 1, 0));
+
+        const name = nameByCode.get(tile.item.code) ?? tile.item.name;
+        const { showName, showPctOnly, fontSizes, showIcon, iconSize, iconGap } = tileDisplayInfo(
+          tile.w,
+          tile.h,
+          name
+        );
+        if (!showName && !showPctOnly) continue;
+
+        const pctText = pct(tile.item.change_pct);
+        const padX = 5;
+        ctx.fillStyle = textColorForRgb(rgb, themeMode);
+
+        if (showName) {
+          const icon = showIcon ? iconByCode.get(tile.item.code) : undefined;
+          let textX = tile.x + padX;
+          if (icon) {
+            ctx.drawImage(icon, tile.x + padX, tile.y + 2, iconSize, iconSize);
+            textX += iconSize + iconGap;
+          }
+
+          ctx.font = `700 ${fontSizes.name}px ${TILE_FONT_FAMILY}`;
+          ctx.textBaseline = "top";
+          ctx.fillText(truncateToWidth(ctx, name, tile.x + tile.w - padX - textX), textX, tile.y + 2);
+
+          ctx.font = `600 ${fontSizes.pct}px ${TILE_FONT_FAMILY}`;
+          ctx.globalAlpha = 0.92;
+          ctx.fillText(pctText, tile.x + padX, tile.y + 2 + fontSizes.name * 1.2 + 1);
+          ctx.globalAlpha = 1;
+        } else {
+          ctx.font = `600 ${fontSizes.pct}px ${TILE_FONT_FAMILY}`;
+          ctx.textBaseline = "middle";
+          ctx.fillText(pctText, tile.x + padX, tile.y + tile.h / 2);
+        }
+      }
+
+      ctx.strokeStyle = gapColor;
+      ctx.lineWidth = sectorBorderW;
+      ctx.strokeRect(
+        zone.rect.x + sectorBorderW / 2,
+        zone.rect.y + sectorBorderW / 2,
+        Math.max(zone.rect.w - sectorBorderW, 0),
+        Math.max(zone.rect.h - sectorBorderW, 0)
+      );
+    }
+
+    // A data: URL (rather than a Blob/object URL) needs no later revocation and is
+    // what both the preview <img> and the confirm-download link below read from.
+    setMapPreview({ url: canvas.toDataURL("image/png"), filename: `${filePrefix}_${downloadTimestamp()}.png` });
+  };
+
+  const closeMapPreview = () => setMapPreview(null);
+
+  const confirmMapDownload = () => {
+    if (!mapPreview) return;
+    const a = document.createElement("a");
+    a.href = mapPreview.url;
+    a.download = mapPreview.filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
 
   return (
     <div className="app kospi-map-page">
@@ -321,6 +542,14 @@ export default function MarketMapPage({
             </button>
             <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
               {t("표로 보기")}
+            </button>
+            <button
+              type="button"
+              className="kospi-map-download-btn"
+              onClick={handleDownloadMap}
+              disabled={sectorZones.length === 0}
+            >
+              {t("MAP 다운로드")}
             </button>
           </div>
         </div>
@@ -382,17 +611,12 @@ export default function MarketMapPage({
                     const textColor = textColorForRgb(rgb, themeMode);
                     const localX = tile.x - zone.rect.x;
                     const localY = tile.y - zone.rect.y;
-                    const showName = tile.w >= 46 && tile.h >= 30;
-                    const showPctOnly = !showName && tile.w >= 24 && tile.h >= 16;
-                    const fontSizes = tileFontSizes(tile.w, tile.h);
                     const name = nameByCode.get(tile.item.code) ?? tile.item.name;
-                    // Only worth showing the icon when the name still fits at full length
-                    // afterward — a truncated "Sam… 🏷" reads worse than no icon at all.
-                    const iconSize = Math.round(fontSizes.name);
-                    const TILE_H_PADDING = 10; // .kospi-map-tile's 5px left/right padding
-                    const ICON_GAP = 4;
-                    const availableWithIcon = tile.w - TILE_H_PADDING - iconSize - ICON_GAP;
-                    const showIcon = showName && measureTextWidth(name, fontSizes.name) <= availableWithIcon;
+                    const { showName, showPctOnly, fontSizes, showIcon, iconSize } = tileDisplayInfo(
+                      tile.w,
+                      tile.h,
+                      name
+                    );
                     return (
                       <button
                         key={tile.id}
@@ -421,7 +645,7 @@ export default function MarketMapPage({
                                 <img
                                   className="kospi-map-tile-icon"
                                   style={{ width: iconSize, height: iconSize }}
-                                  src={`https://ssl.pstatic.net/imgstock/fn/real/logo/png/stock/Stock${tile.item.code}.png`}
+                                  src={tileIconUrl(tile.item.code)}
                                   alt=""
                                   onError={(e) => {
                                     (e.currentTarget as HTMLImageElement).style.display = "none";
@@ -502,6 +726,33 @@ export default function MarketMapPage({
           </div>
           <div className="kospi-map-tooltip-row">
             {t("맵 면적 비중")} {totalMarcap > 0 ? ((hovered.marcap / totalMarcap) * 100).toFixed(2) : "0.00"}%
+          </div>
+        </div>
+      )}
+
+      {mapPreview && (
+        <div className="kospi-map-preview-overlay" onClick={closeMapPreview}>
+          <div
+            className="kospi-map-preview-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("맵 이미지 미리보기")}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="kospi-map-preview-header">
+              <span>{t("맵 이미지 미리보기")}</span>
+              <button type="button" className="kospi-map-preview-close" onClick={closeMapPreview} aria-label={t("닫기")}>
+                ×
+              </button>
+            </div>
+            <div className="kospi-map-preview-body">
+              <img src={mapPreview.url} alt={mapPreview.filename} className="kospi-map-preview-image" />
+            </div>
+            <div className="kospi-map-preview-footer">
+              <button type="button" className="kospi-map-preview-download" onClick={confirmMapDownload}>
+                {t("다운로드")}
+              </button>
+            </div>
           </div>
         </div>
       )}
