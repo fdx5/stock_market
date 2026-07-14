@@ -24,7 +24,11 @@ SYMBOLS = [
     {"symbol": "^GSPC", "label": "S&P 500"},
     {"symbol": "^NDX", "label": "Nasdaq 100"},
     {"symbol": "NVDA", "label": "NVIDIA"},
-    {"symbol": "SKHYV", "label": "SK Hynix"},
+    # SK Hynix's US ADR migrated off "SKHYV" on 2026-07-10 — that symbol's Yahoo
+    # quote froze at its last trade instead of erroring, so the ticker card kept
+    # rendering with a stale price/flat 0.00% and an empty chart instead of failing
+    # loudly. "SKHY" is the actively-quoted successor.
+    {"symbol": "SKHY", "label": "SK Hynix"},
     {"symbol": "MU", "label": "Micron Technology"},
     {"symbol": "AVGO", "label": "Broadcom"},
     {"symbol": "INTC", "label": "Intel"},
