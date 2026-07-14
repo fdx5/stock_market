@@ -40,6 +40,10 @@ function pct(value: number): string {
 const TILE_FONT_FAMILY = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 let measureCtx: CanvasRenderingContext2D | null | undefined;
 
+// Sentinel for the sector filter's "show everything" option — distinct from any real
+// sector label (including "기타") so it can never collide with backend-assigned data.
+const ALL_SECTORS = "__all__";
+
 // Used to decide whether a tile has room to show its company icon: only when the name
 // still fits at full length (no CSS ellipsis) after making room for the icon, so the
 // icon never pushes a name into truncation.
@@ -100,6 +104,7 @@ export default function MarketMapPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"map" | "table">("map");
+  const [selectedSector, setSelectedSector] = useState<string>(ALL_SECTORS);
   const [hovered, setHovered] = useState<MarketMapItem | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
 
@@ -187,11 +192,30 @@ export default function MarketMapPage({
     // (it doesn't exist yet on first render, while the map data is still loading).
   }, [view, loading]);
 
+  // Sector options are derived from the loaded data (not the fixed backend keyword
+  // list) so the dropdown only ever offers sectors that actually have stocks in the
+  // current snapshot, ordered the same way the unfiltered map groups its zones
+  // (by total market cap) so the list reads largest-sector-first.
+  const sectorOptions = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const item of items) {
+      totals.set(item.sector, (totals.get(item.sector) ?? 0) + item.marcap);
+    }
+    return Array.from(totals.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([sector]) => sector);
+  }, [items]);
+
+  const visibleItems = useMemo(
+    () => (selectedSector === ALL_SECTORS ? items : items.filter((it) => it.sector === selectedSector)),
+    [items, selectedSector]
+  );
+
   const sectorZones = useMemo<SectorZone[]>(() => {
-    if (items.length === 0 || size.w === 0 || size.h === 0) return [];
+    if (visibleItems.length === 0 || size.w === 0 || size.h === 0) return [];
 
     const bySector = new Map<string, MarketMapItem[]>();
-    for (const item of items) {
+    for (const item of visibleItems) {
       const list = bySector.get(item.sector) ?? [];
       list.push(item);
       bySector.set(item.sector, list);
@@ -234,9 +258,9 @@ export default function MarketMapPage({
         tiles: innerRects.map((t) => ({ ...t, item: byCode.get(t.id)! })),
       };
     });
-  }, [items, size]);
+  }, [visibleItems, size]);
 
-  const totalMarcap = useMemo(() => items.reduce((sum, it) => sum + it.marcap, 0), [items]);
+  const totalMarcap = useMemo(() => visibleItems.reduce((sum, it) => sum + it.marcap, 0), [visibleItems]);
 
   const handleTileClick = (code: string) => navigate(`/?code=${code}`);
 
@@ -310,10 +334,27 @@ export default function MarketMapPage({
       {!loading && !error && (
         <>
           <div className="kospi-map-legend">
-            <span className="kospi-map-legend-label">{t("하락")}</span>
-            <span className="kospi-map-legend-bar" />
-            <span className="kospi-map-legend-label">{t("상승")}</span>
-            <span className="kospi-map-legend-scale">{t("-5% ~ +5% 기준 포화")}</span>
+            <div className="kospi-map-legend-info">
+              <span className="kospi-map-legend-label">{t("하락")}</span>
+              <span className="kospi-map-legend-bar" />
+              <span className="kospi-map-legend-label">{t("상승")}</span>
+              <span className="kospi-map-legend-scale">{t("-5% ~ +5% 기준 포화")}</span>
+            </div>
+            <label className="kospi-map-sector-filter">
+              <span className="kospi-map-sector-filter-label">{t("업종")}</span>
+              <select
+                value={selectedSector}
+                onChange={(e) => setSelectedSector(e.target.value)}
+                aria-label={t("업종")}
+              >
+                <option value={ALL_SECTORS}>{t("전체")}</option>
+                {sectorOptions.map((sector) => (
+                  <option key={sector} value={sector}>
+                    {t(sector)}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           {view === "map" && (
@@ -423,7 +464,7 @@ export default function MarketMapPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((item, idx) => (
+                  {visibleItems.map((item, idx) => (
                     <tr key={item.code} onClick={() => handleTileClick(item.code)}>
                       <td>{idx + 1}</td>
                       <td className="kospi-map-table-name">

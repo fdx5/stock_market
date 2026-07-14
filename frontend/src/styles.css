@@ -1648,10 +1648,18 @@ thead .weekly-foreign-amount-col {
 .kospi-map-legend {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.kospi-map-legend-info {
+  display: flex;
+  align-items: center;
   gap: 8px;
   font-size: 11px;
   color: var(--text-secondary);
-  margin-bottom: 12px;
 }
 
 .kospi-map-legend-bar {
@@ -1664,6 +1672,38 @@ thead .weekly-foreign-amount-col {
 .kospi-map-legend-scale {
   color: var(--text-muted);
   margin-left: 4px;
+}
+
+.kospi-map-sector-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.kospi-map-sector-filter-label {
+  white-space: nowrap;
+}
+
+.kospi-map-sector-filter select {
+  /* 16px keeps iOS Safari from auto-zooming the page when the picker opens. */
+  font-size: 16px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  cursor: pointer;
+  max-width: 100%;
+}
+
+.kospi-map-sector-filter select:focus {
+  outline: 2px solid var(--series-blue);
+  outline-offset: -1px;
 }
 
 .kospi-map-canvas {
@@ -1997,6 +2037,21 @@ thead .weekly-foreign-amount-col {
 
   .kospi-map-legend-bar {
     width: 110px;
+  }
+
+  /* Stack the legend above the sector filter and stretch the select to full width
+     so it's an easy, thumb-sized tap target instead of a squeezed inline control. */
+  .kospi-map-legend {
+    align-items: stretch;
+  }
+
+  .kospi-map-sector-filter {
+    width: 100%;
+  }
+
+  .kospi-map-sector-filter select {
+    flex: 1;
+    min-width: 0;
   }
 
   .kospi-map-tooltip {

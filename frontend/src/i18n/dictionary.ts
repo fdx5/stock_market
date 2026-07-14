@@ -87,6 +87,7 @@ export const DICTIONARY: Record<string, string> = {
   "유통/소비재": "Retail/Consumer Goods",
   "지주/서비스": "Holding/Services",
   "기타": "Other",
+  "전체": "All",
 
   // Dashboard (App.tsx)
   "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다.":
