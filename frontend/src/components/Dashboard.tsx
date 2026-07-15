@@ -75,42 +75,85 @@ export default function Dashboard() {
     const code = selected.code;
     setLoading(true);
     setError(null);
+    // Cleared up front rather than left showing the previous stock while its own
+    // fetch is still in flight — each section below now reveals independently as
+    // soon as its own call resolves, so a stale chart/news list would otherwise
+    // flash briefly under the new stock's header.
+    setIndicatorPoints([]);
+    setNews([]);
+    setOverview([]);
+    setPerEstimate(null);
+    setSharesOutstanding(null);
     let followUpTimer: number | undefined;
+    let cancelled = false;
     const skipScroll = skipInitialScrollRef.current;
     skipInitialScrollRef.current = false;
 
-    Promise.all([api.summary(code), api.indicators(code, 3), api.news(code), api.overview(code)])
-      .then(([summaryRes, indicatorsRes, newsRes, overviewRes]) => {
-        setSummary(summaryRes);
-        setIndicatorPoints(indicatorsRes.points);
-        setNews(newsRes.items);
-        setOverview(overviewRes.overview);
-        setPerEstimate(overviewRes.per_estimate);
-        setSharesOutstanding(overviewRes.shares_outstanding);
+    const scrollToResult = () => {
+      if (skipScroll || cancelled) return;
+      requestAnimationFrame(() => stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      // The price chart (canvas-based, autoSize) and board panel can still be
+      // settling their own layout a moment after this first paint — on mobile
+      // especially, that late reflow can nudge the page enough to leave the
+      // result just off the top. A follow-up scroll corrects for it.
+      followUpTimer = window.setTimeout(
+        () => stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        400
+      );
+    };
 
-        if (skipScroll) return;
-        const scrollToResult = () => {
-          stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-        };
-        requestAnimationFrame(scrollToResult);
-        // The price chart (canvas-based, autoSize) and board panel can still be
-        // settling their own layout a moment after this first paint — on mobile
-        // especially, that late reflow can nudge the page enough to leave the
-        // result just off the top. A follow-up scroll corrects for it.
-        followUpTimer = window.setTimeout(scrollToResult, 400);
+    // Fired independently instead of behind one Promise.all: the price header/chart
+    // (the primary content) can now render as soon as /summary + /indicators land,
+    // without waiting on the slower news/company-overview scrapes — and a failure in
+    // either of those secondary calls no longer blanks out an otherwise-working page.
+    api
+      .summary(code)
+      .then((res) => {
+        if (cancelled) return;
+        setSummary(res);
+        setLoading(false);
+        scrollToResult();
       })
       .catch((err: Error) => {
+        if (cancelled) return;
         setError(err.message || "데이터를 불러오지 못했습니다.");
         setSummary(null);
-        setIndicatorPoints([]);
-        setNews([]);
-        setOverview([]);
-        setPerEstimate(null);
-        setSharesOutstanding(null);
+        setLoading(false);
+      });
+
+    api
+      .indicators(code, 3)
+      .then((res) => {
+        if (!cancelled) setIndicatorPoints(res.points);
       })
-      .finally(() => setLoading(false));
+      .catch(() => {
+        // A missed indicators fetch just leaves the chart empty rather than
+        // taking down the rest of the page.
+      });
+
+    api
+      .news(code)
+      .then((res) => {
+        if (!cancelled) setNews(res.items);
+      })
+      .catch(() => {
+        // A missed news fetch just leaves that panel empty.
+      });
+
+    api
+      .overview(code)
+      .then((res) => {
+        if (cancelled) return;
+        setOverview(res.overview);
+        setPerEstimate(res.per_estimate);
+        setSharesOutstanding(res.shares_outstanding);
+      })
+      .catch(() => {
+        // A missed overview fetch just leaves those fields blank.
+      });
 
     return () => {
+      cancelled = true;
       if (followUpTimer !== undefined) window.clearTimeout(followUpTimer);
     };
   }, [selected]);

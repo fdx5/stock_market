@@ -35,7 +35,11 @@ def _load_history(code: str, years: int = 3) -> pd.DataFrame:
 @router.get("/{code}/summary")
 def summary(code: str):
     name = _resolve_name(code)
-    df = _load_history(code, years=1)
+    # years=3 so this shares price_fetcher's cache key with /indicators (which the
+    # dashboard always requests in the same breath) instead of each cold-starting its
+    # own separate history fetch for the same code - only the last two rows are used
+    # here regardless of how many years came back.
+    df = _load_history(code, years=3)
 
     last = df.iloc[-1]
     prev = df.iloc[-2] if len(df) > 1 else last
