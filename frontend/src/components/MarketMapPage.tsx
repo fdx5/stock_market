@@ -83,6 +83,12 @@ function downloadTimestamp(): string {
 // sector label (including "기타") so it can never collide with backend-assigned data.
 const ALL_SECTORS = "__all__";
 
+// Arbitrary relative sizes for the loading skeleton's placeholder blocks - not real
+// data, just enough variation for squarify to produce a plausible-looking treemap
+// silhouette (one dominant block, a few mid-size ones, several small ones).
+const SKELETON_SECTOR_WEIGHTS = [30, 22, 16, 12, 10, 6, 4];
+const SKELETON_TABLE_ROWS = Array.from({ length: 12 }, (_, i) => i);
+
 // Used to decide whether a tile has room to show its company icon: only when the name
 // still fits at full length (no CSS ellipsis) after making room for the icon, so the
 // icon never pushes a name into truncation.
@@ -275,9 +281,11 @@ export default function MarketMapPage({
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-    // `loading` is included so this re-attaches once the canvas div actually mounts
-    // (it doesn't exist yet on first render, while the map data is still loading).
-  }, [view, loading]);
+    // The canvas div now mounts immediately (see render below) instead of only after
+    // data arrives, so size is already known by the time the real treemap is ready to
+    // draw - no extra measure-then-render round trip standing between "data landed"
+    // and "tiles visible".
+  }, [view]);
 
   // Sector options are derived from the loaded data (not the fixed backend keyword
   // list) so the dropdown only ever offers sectors that actually have stocks in the
@@ -348,6 +356,22 @@ export default function MarketMapPage({
   }, [visibleItems, size]);
 
   const totalMarcap = useMemo(() => visibleItems.reduce((sum, it) => sum + it.marcap, 0), [visibleItems]);
+
+  // Placeholder blocks shown in place of the real sector zones while the first
+  // response is still in flight — run through the same squarify layout with made-up
+  // weights, so the skeleton already has the treemap's blocky silhouette instead of a
+  // blank card, and doesn't jump/reflow into a differently-shaped layout once the
+  // real data swaps in.
+  const skeletonRects = useMemo(() => {
+    if (size.w === 0 || size.h === 0) return [];
+    return squarify(
+      SKELETON_SECTOR_WEIGHTS.map((value, i) => ({ id: `skeleton-${i}`, value })),
+      0,
+      0,
+      size.w,
+      size.h
+    );
+  }, [size]);
 
   const handleTileClick = (code: string) => navigate(`/?code=${code}`);
 
@@ -599,10 +623,14 @@ export default function MarketMapPage({
 
       <MarketTickerBar />
 
-      {loading && <div className="loading-state">{t(loadingLabel)}</div>}
       {error && <div className="error-state">{t(error)}</div>}
+      {loading && (
+        <span className="sr-only" role="status">
+          {t(loadingLabel)}
+        </span>
+      )}
 
-      {!loading && !error && (
+      {!error && (
         <>
           <div className="kospi-map-legend">
             <div className="kospi-map-legend-info">
@@ -630,7 +658,15 @@ export default function MarketMapPage({
 
           {view === "map" && (
             <div className="card kospi-map-canvas" ref={containerRef}>
-              {sectorZones.map((zone) => (
+              {loading &&
+                skeletonRects.map((rect, i) => (
+                  <div
+                    key={rect.id}
+                    className="kospi-map-skeleton-block"
+                    style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, animationDelay: `${i * 70}ms` }}
+                  />
+                ))}
+              {!loading && sectorZones.map((zone) => (
                 <div
                   key={zone.sector}
                   className="kospi-map-sector"
@@ -726,20 +762,28 @@ export default function MarketMapPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleItems.map((item, idx) => (
-                    <tr key={item.code} onClick={() => handleTileClick(item.code)}>
-                      <td>{idx + 1}</td>
-                      <td className="kospi-map-table-name">
-                        {nameByCode.get(item.code) ?? item.name} <span className="top100-code">{item.code}</span>
-                      </td>
-                      <td>{t(item.sector)}</td>
-                      <td>{formatMarcap(item.marcap, lang)}</td>
-                      <td>{item.close.toLocaleString()}{wonSuffix(lang)}</td>
-                      <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
-                        {pct(item.change_pct)}
-                      </td>
-                    </tr>
-                  ))}
+                  {loading
+                    ? SKELETON_TABLE_ROWS.map((i) => (
+                        <tr key={`skeleton-${i}`} className="kospi-map-skeleton-row-tr" aria-hidden="true">
+                          <td colSpan={6}>
+                            <div className="kospi-map-skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
+                          </td>
+                        </tr>
+                      ))
+                    : visibleItems.map((item, idx) => (
+                        <tr key={item.code} onClick={() => handleTileClick(item.code)}>
+                          <td>{idx + 1}</td>
+                          <td className="kospi-map-table-name">
+                            {nameByCode.get(item.code) ?? item.name} <span className="top100-code">{item.code}</span>
+                          </td>
+                          <td>{t(item.sector)}</td>
+                          <td>{formatMarcap(item.marcap, lang)}</td>
+                          <td>{item.close.toLocaleString()}{wonSuffix(lang)}</td>
+                          <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
+                            {pct(item.change_pct)}
+                          </td>
+                        </tr>
+                      ))}
                 </tbody>
               </table>
             </div>

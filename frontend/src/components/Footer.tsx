@@ -1,5 +1,6 @@
 import { useT } from "../i18n/LanguageContext";
 import { Link } from "../router";
+import BattleIcon from "./BattleIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 
@@ -24,7 +25,9 @@ export default function Footer() {
           <Link to="/kosdaq-map" className="app-footer-market-link app-footer-market-link--kosdaq">
             <MarketIcon /> KOSDAQ
           </Link>
-          <Link to="/battle">{t("🔥 시총대결")}</Link>
+          <Link to="/battle" className="app-footer-market-link app-footer-market-link--battle">
+            <BattleIcon /> {t("시총대결")}
+          </Link>
           <a
             href="https://chs2147.github.io/mini-apps"
             target="_blank"

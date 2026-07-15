@@ -1394,6 +1394,16 @@ thead .weekly-foreign-amount-col {
   background: color-mix(in srgb, var(--series-aqua) 22%, transparent);
 }
 
+.kospi-map-nav-link--battle {
+  color: var(--series-red);
+  border-color: var(--series-red);
+  background: color-mix(in srgb, var(--series-red) 12%, transparent);
+}
+
+.kospi-map-nav-link--battle:hover {
+  background: color-mix(in srgb, var(--series-red) 22%, transparent);
+}
+
 .market-nav-icon {
   width: 14px;
   height: 14px;
@@ -1845,6 +1855,35 @@ thead .weekly-foreign-amount-col {
   overflow: hidden;
 }
 
+/* Shown in place of the real sector zones while the first response is still in
+   flight (see MarketMapPage's skeletonRects) - same absolute-positioning contract
+   as .kospi-map-sector so the layout doesn't shift once real tiles swap in. */
+.kospi-map-skeleton-block {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 2px;
+  background: var(--baseline);
+  animation: kospi-map-skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes kospi-map-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kospi-map-skeleton-block,
+  .kospi-map-skeleton-row {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 /* The light theme's border is an actual visible color rather than a page-matching
    "fake gap" (see --map-gap), so the same 2px weight that reads as a subtle seam
    in dark mode looks noticeably heavier here — thin it down to match the tiles. */
@@ -1948,6 +1987,21 @@ thead .weekly-foreign-amount-col {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+}
+
+.kospi-map-skeleton-row-tr {
+  pointer-events: none;
+}
+
+.kospi-map-skeleton-row-tr td {
+  padding: 6px 12px;
+}
+
+.kospi-map-skeleton-row {
+  height: 16px;
+  border-radius: 4px;
+  background: var(--baseline);
+  animation: kospi-map-skeleton-pulse 1.6s ease-in-out infinite;
 }
 
 .kospi-map-table th,
@@ -3163,6 +3217,10 @@ thead .weekly-foreign-amount-col {
 
 .app-footer-links a.app-footer-market-link--kosdaq {
   color: var(--series-aqua);
+}
+
+.app-footer-links a.app-footer-market-link--battle {
+  color: var(--series-red);
 }
 
 .app-footer-bottom {

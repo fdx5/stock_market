@@ -7,6 +7,7 @@ import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedText
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import BattleIcon from "./BattleIcon";
 import Footer from "./Footer";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
@@ -238,8 +239,8 @@ export default function Dashboard() {
             <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
               <MarketIcon /> KOSDAQ
             </Link>
-            <Link to="/battle" className="kospi-map-nav-link">
-              {t("🔥 시총대결")}
+            <Link to="/battle" className="kospi-map-nav-link kospi-map-nav-link--battle">
+              <BattleIcon /> {t("시총대결")}
             </Link>
             <a
               href="https://chs2147.github.io/mini-apps"
