@@ -9,6 +9,7 @@ import { loadStockIconUrl } from "../stockIcon";
 import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
+import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
@@ -570,6 +571,9 @@ export default function MarketMapPage({
           </div>
         </div>
         <div className="app-nav-row">
+          <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
+            <DashboardIcon /> {t("홈")}
+          </Link>
           {navLinks.map((link) => (
             <Link
               key={link.to}

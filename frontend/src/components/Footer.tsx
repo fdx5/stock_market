@@ -1,6 +1,7 @@
 import { useT } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import BattleIcon from "./BattleIcon";
+import DashboardIcon from "./DashboardIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 
@@ -18,7 +19,9 @@ export default function Footer() {
           {t("실시간 시세, 시가총액 맵, 시총 대결까지 한눈에 보는 국내 증시 허브.")}
         </p>
         <nav className="app-footer-links">
-          <Link to="/">{t("홈")}</Link>
+          <Link to="/" className="app-footer-market-link app-footer-market-link--home">
+            <DashboardIcon /> {t("홈")}
+          </Link>
           <Link to="/map" className="app-footer-market-link">
             <MarketIcon /> KOSPI
           </Link>

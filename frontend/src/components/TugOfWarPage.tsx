@@ -7,6 +7,7 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import CheerSection from "./CheerSection";
+import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import GlobalTop20 from "./GlobalTop20";
 import LanguageToggle from "./LanguageToggle";
@@ -162,6 +163,9 @@ export default function TugOfWarPage() {
           </div>
         </div>
         <div className="app-nav-row">
+          <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
+            <DashboardIcon /> {t("홈")}
+          </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>

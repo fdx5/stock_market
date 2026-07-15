@@ -1404,6 +1404,16 @@ thead .weekly-foreign-amount-col {
   background: color-mix(in srgb, var(--series-red) 22%, transparent);
 }
 
+.kospi-map-nav-link--home {
+  color: var(--series-violet);
+  border-color: var(--series-violet);
+  background: color-mix(in srgb, var(--series-violet) 12%, transparent);
+}
+
+.kospi-map-nav-link--home:hover {
+  background: color-mix(in srgb, var(--series-violet) 22%, transparent);
+}
+
 .market-nav-icon {
   width: 14px;
   height: 14px;
@@ -3275,6 +3285,10 @@ thead .weekly-foreign-amount-col {
 
 .app-footer-links a.app-footer-market-link--battle {
   color: var(--series-red);
+}
+
+.app-footer-links a.app-footer-market-link--home {
+  color: var(--series-violet);
 }
 
 .app-footer-bottom {
