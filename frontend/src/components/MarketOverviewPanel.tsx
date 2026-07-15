@@ -278,9 +278,13 @@ export default function MarketOverviewPanel({
   useEffect(() => {
     let cancelled = false;
 
-    const loadIndices = (isInitial: boolean) => {
+    const loadIndices = () => {
+      // Always reuses the backend's stale-while-revalidate cache (fresh=false) rather
+      // than forcing a synchronous re-scrape on every page entry — with a 10-20s TTL,
+      // the worst case is a few seconds of staleness, which is far cheaper than
+      // blocking a request thread on Naver for every visitor's first paint.
       api
-        .indices(isInitial)
+        .indices(false)
         .then((res) => {
           if (cancelled) return;
           setKospi(res.kospi);
@@ -330,11 +334,11 @@ export default function MarketOverviewPanel({
         });
     };
 
-    loadIndices(true);
+    loadIndices();
     loadSummary(true);
     loadWeeklyForeign(true);
 
-    const stopIndexPolling = startVisibilityAwareInterval(() => loadIndices(false), INDEX_REFRESH_MS);
+    const stopIndexPolling = startVisibilityAwareInterval(() => loadIndices(), INDEX_REFRESH_MS);
     const stopSummaryPolling = startVisibilityAwareInterval(() => loadSummary(false), SUMMARY_REFRESH_MS);
     const stopWeeklyForeignPolling = startVisibilityAwareInterval(() => loadWeeklyForeign(false), SUMMARY_REFRESH_MS);
 

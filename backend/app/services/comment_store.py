@@ -15,7 +15,7 @@ TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "comments.db"
 
 _lock = threading.Lock()
-_schema_ready = False
+_conn = None
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS battle_comments (
@@ -35,14 +35,35 @@ def _connect():
     return libsql.connect(database=str(LOCAL_DB_PATH))
 
 
-def _ensure_schema(conn) -> None:
-    global _schema_ready
-    if _schema_ready:
-        return
+def _new_ready_connection():
+    conn = _connect()
+    conn.execute(_SCHEMA)
+    conn.commit()
+    return conn
+
+
+def _with_connection(fn):
+    """Runs `fn(conn)` against a single lazily-created, process-wide connection,
+    serialized behind `_lock` — opening a fresh remote Hrana connection per call was
+    the previous approach, but concurrent open/close cycles from multiple request
+    threads raced against each other in the libsql client's stream handling and
+    surfaced as `stream not found` errors. Reusing one connection also skips the
+    remote handshake on every comment fetch/post. If the connection turns out to be
+    dead (e.g. Turso closed an idle stream server-side), drop it and retry once on a
+    fresh one instead of failing the request."""
+    global _conn
     with _lock:
-        conn.execute(_SCHEMA)
-        conn.commit()
-        _schema_ready = True
+        if _conn is None:
+            _conn = _new_ready_connection()
+        try:
+            return fn(_conn)
+        except Exception:
+            try:
+                _conn.close()
+            except Exception:
+                pass
+            _conn = _new_ready_connection()
+            return fn(_conn)
 
 
 def _row_to_comment(row: tuple) -> dict:
@@ -51,36 +72,37 @@ def _row_to_comment(row: tuple) -> dict:
 
 
 def add_comment(side: str, username: str, text: str, created_at: str) -> dict:
-    conn = _connect()
-    _ensure_schema(conn)
-    cursor = conn.execute(
-        "INSERT INTO battle_comments (side, username, text, created_at) VALUES (?, ?, ?, ?)",
-        (side, username, text, created_at),
-    )
-    conn.commit()
-    new_id = cursor.lastrowid
-    conn.close()
+    def _run(conn):
+        cursor = conn.execute(
+            "INSERT INTO battle_comments (side, username, text, created_at) VALUES (?, ?, ?, ?)",
+            (side, username, text, created_at),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+    new_id = _with_connection(_run)
     return {"id": new_id, "side": side, "username": username, "text": text, "created_at": created_at}
 
 
 def list_comments(limit: int = 200) -> list[dict]:
     """Newest first."""
-    conn = _connect()
-    _ensure_schema(conn)
-    rows = conn.execute(
-        "SELECT id, side, username, text, created_at FROM battle_comments "
-        "ORDER BY id DESC LIMIT ?",
-        (limit,),
-    ).fetchall()
-    conn.close()
+
+    def _run(conn):
+        return conn.execute(
+            "SELECT id, side, username, text, created_at FROM battle_comments "
+            "ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    rows = _with_connection(_run)
     return [_row_to_comment(row) for row in rows]
 
 
 def count_by_side() -> dict[str, int]:
-    conn = _connect()
-    _ensure_schema(conn)
-    rows = conn.execute("SELECT side, COUNT(*) FROM battle_comments GROUP BY side").fetchall()
-    conn.close()
+    def _run(conn):
+        return conn.execute("SELECT side, COUNT(*) FROM battle_comments GROUP BY side").fetchall()
+
+    rows = _with_connection(_run)
     counts = {"samsung": 0, "skhynix": 0}
     for side, count in rows:
         if side in counts:

@@ -210,13 +210,16 @@ export default function MarketMapPage({
 
     // Only the very first load shows the loading state — refreshes swap the data in
     // place so the map keeps rendering the previous snapshot instead of flashing empty.
-    // That first load also asks the backend to bypass its stale-while-revalidate cache
-    // (fresh=isInitial) so a page entry/refresh always shows the current market state;
-    // the periodic background refreshes after that are fine reusing a near-fresh cache.
+    // Every load (including the first) passes fresh=false to reuse the backend's
+    // stale-while-revalidate cache: forcing a synchronous re-scrape of up to hundreds
+    // of Naver pages on every page entry (fresh=isInitial, the previous behavior) could
+    // block a request thread for 10s+, and on the single-worker free-tier deploy that
+    // was enough concurrent page entries to exhaust the thread pool and stall every
+    // other request site-wide. The 10-60s tiered TTLs already keep data close to live.
     const loadPartial = (limit: number, isInitial: boolean) => {
       if (isInitial) setLoading(true);
 
-      fetchMap(limit, isInitial)
+      fetchMap(limit, false)
         .then((res) => {
           if (cancelled) return;
           setItems((prev) => mergeItems(prev, res.items));
@@ -234,8 +237,8 @@ export default function MarketMapPage({
         });
     };
 
-    const loadFullList = (isInitial: boolean) => {
-      fetchMap(fullLimit, isInitial)
+    const loadFullList = () => {
+      fetchMap(fullLimit, false)
         .then((res) => {
           if (cancelled) return;
           // The full snapshot is authoritative (unlike the partial tiers above), so it
@@ -250,11 +253,11 @@ export default function MarketMapPage({
 
     loadPartial(tier1Limit, true);
     loadPartial(tier2Limit, true);
-    loadFullList(true);
+    loadFullList();
 
     const stopTier1 = startVisibilityAwareInterval(() => loadPartial(tier1Limit, false), TIER1_REFRESH_MS);
     const stopTier2 = startVisibilityAwareInterval(() => loadPartial(tier2Limit, false), TIER2_REFRESH_MS);
-    const stopFull = startVisibilityAwareInterval(() => loadFullList(false), FULL_REFRESH_MS);
+    const stopFull = startVisibilityAwareInterval(() => loadFullList(), FULL_REFRESH_MS);
 
     return () => {
       cancelled = true;
