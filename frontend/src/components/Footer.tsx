@@ -1,6 +1,7 @@
 import { useT } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import Logo from "./Logo";
+import MarketIcon from "./MarketIcon";
 
 export default function Footer() {
   const t = useT();
@@ -17,8 +18,12 @@ export default function Footer() {
         </p>
         <nav className="app-footer-links">
           <Link to="/">{t("홈")}</Link>
-          <Link to="/map">🗺 KOSPI</Link>
-          <Link to="/kosdaq-map">🟢 KOSDAQ</Link>
+          <Link to="/map" className="app-footer-market-link">
+            <MarketIcon /> KOSPI
+          </Link>
+          <Link to="/kosdaq-map" className="app-footer-market-link app-footer-market-link--kosdaq">
+            <MarketIcon /> KOSDAQ
+          </Link>
           <Link to="/battle">{t("🔥 시총대결")}</Link>
           <a
             href="https://chs2147.github.io/mini-apps"

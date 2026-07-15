@@ -11,6 +11,7 @@ import Footer from "./Footer";
 import GlobalTop20 from "./GlobalTop20";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
+import MarketIcon from "./MarketIcon";
 import RollingValue from "./RollingValue";
 import SlotMachineValue from "./SlotMachineValue";
 import ThemeToggle from "./ThemeToggle";
@@ -162,10 +163,10 @@ export default function TugOfWarPage() {
         </div>
         <div className="app-nav-row">
           <Link to="/map" className="kospi-map-nav-link">
-            🗺 KOSPI
+            <MarketIcon /> KOSPI
           </Link>
-          <Link to="/kosdaq-map" className="kospi-map-nav-link">
-            🟢 KOSDAQ
+          <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+            <MarketIcon /> KOSDAQ
           </Link>
           <VisitorBadge />
         </div>

@@ -1381,6 +1381,25 @@ thead .weekly-foreign-amount-col {
   background: color-mix(in srgb, var(--series-blue) 22%, transparent);
 }
 
+/* KOSDAQ's nav pill in the market's own accent (--series-aqua, otherwise unused in
+   this stylesheet) instead of sharing KOSPI's blue - previously the two links were
+   only distinguishable by their text, easy to mix up at a glance on a small screen. */
+.kospi-map-nav-link--kosdaq {
+  color: var(--series-aqua);
+  border-color: var(--series-aqua);
+  background: color-mix(in srgb, var(--series-aqua) 12%, transparent);
+}
+
+.kospi-map-nav-link--kosdaq:hover {
+  background: color-mix(in srgb, var(--series-aqua) 22%, transparent);
+}
+
+.market-nav-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
 .mini-apps-icon {
   width: 14px;
   height: 14px;
@@ -2070,6 +2089,11 @@ thead .weekly-foreign-amount-col {
   }
 
   .app-nav-row .mini-apps-icon {
+    width: 12px;
+    height: 12px;
+  }
+
+  .app-nav-row .market-nav-icon {
     width: 12px;
     height: 12px;
   }
@@ -3128,6 +3152,17 @@ thead .weekly-foreign-amount-col {
 .app-footer-links a:hover {
   color: var(--text-primary);
   text-decoration: underline;
+}
+
+.app-footer-links a.app-footer-market-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--series-blue);
+}
+
+.app-footer-links a.app-footer-market-link--kosdaq {
+  color: var(--series-aqua);
 }
 
 .app-footer-bottom {

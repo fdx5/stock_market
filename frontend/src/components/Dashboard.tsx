@@ -11,6 +11,7 @@ import Footer from "./Footer";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
+import MarketIcon from "./MarketIcon";
 import MarketOverviewPanel from "./MarketOverviewPanel";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
 import RecentNewsDigest from "./RecentNewsDigest";
@@ -232,10 +233,10 @@ export default function Dashboard() {
           </div>
           <div className="app-nav-row">
             <Link to="/map" className="kospi-map-nav-link">
-              🗺 KOSPI
+              <MarketIcon /> KOSPI
             </Link>
-            <Link to="/kosdaq-map" className="kospi-map-nav-link">
-              🟢 KOSDAQ
+            <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+              <MarketIcon /> KOSDAQ
             </Link>
             <Link to="/battle" className="kospi-map-nav-link">
               {t("🔥 시총대결")}

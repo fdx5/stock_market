@@ -1,4 +1,5 @@
 import { api } from "../api/client";
+import MarketIcon from "./MarketIcon";
 import MarketMapPage from "./MarketMapPage";
 
 export default function KosdaqMapPage() {
@@ -13,7 +14,7 @@ export default function KosdaqMapPage() {
       tier2Limit={50}
       fullLimit={200}
       navLinks={[
-        { to: "/map", label: "🗺 KOSPI" },
+        { to: "/map", label: "KOSPI", icon: <MarketIcon /> },
         { to: "/battle", label: "🔥 시총대결" },
       ]}
     />

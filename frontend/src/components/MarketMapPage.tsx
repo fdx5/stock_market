@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { MarketMapItem } from "../api/client";
 import { wonSuffix } from "../i18n/format";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
@@ -159,7 +159,7 @@ export interface MarketMapPageProps {
   tier2Limit: number;
   fullLimit: number;
   /** Extra nav links shown next to the live badge (besides the back-link and visitor badge). */
-  navLinks: { to: string; label: string }[];
+  navLinks: { to: string; label: string; icon?: ReactNode; className?: string }[];
 }
 
 // Shared by KospiMapPage and KosdaqMapPage — both are a Finviz-style sector treemap over
@@ -547,7 +547,12 @@ export default function MarketMapPage({
         </div>
         <div className="app-nav-row">
           {navLinks.map((link) => (
-            <Link key={link.to} to={link.to} className="kospi-map-nav-link">
+            <Link
+              key={link.to}
+              to={link.to}
+              className={`kospi-map-nav-link${link.className ? ` ${link.className}` : ""}`}
+            >
+              {link.icon}
               {t(link.label)}
             </Link>
           ))}
