@@ -15,6 +15,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import type { IndicatorPoint } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { getThemeColors, watchTheme } from "../theme";
+import ChartSkeleton from "./ChartSkeleton";
 
 interface Props {
   points: IndicatorPoint[];
@@ -250,7 +251,10 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
           {t("볼린저밴드(20,2)")}
         </span>
       </div>
-      <div ref={containerRef} className="chart-main" />
+      <div className="chart-main-wrap">
+        <div ref={containerRef} className="chart-main" />
+        {points.length === 0 && <ChartSkeleton />}
+      </div>
     </div>
   );
 });

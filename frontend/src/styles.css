@@ -1863,10 +1863,10 @@ thead .weekly-foreign-amount-col {
   box-sizing: border-box;
   border-radius: 2px;
   background: var(--baseline);
-  animation: kospi-map-skeleton-pulse 1.6s ease-in-out infinite;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes kospi-map-skeleton-pulse {
+@keyframes skeleton-pulse {
   0%,
   100% {
     opacity: 0.35;
@@ -1876,9 +1876,63 @@ thead .weekly-foreign-amount-col {
   }
 }
 
+/* Generic pulsing placeholder for loading UI (dashboard stock header, news
+   digest, chart panels, market-overview tables) - not positioned like the
+   treemap's absolute .kospi-map-skeleton-block, just an inline placeholder
+   sized per use via inline width/height. */
+.skeleton {
+  display: inline-block;
+  border-radius: 4px;
+  background: var(--baseline);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton-row-tr {
+  pointer-events: none;
+}
+
+.skeleton-row-tr td {
+  padding: 7px 10px;
+}
+
+.skeleton-row {
+  height: 12px;
+  border-radius: 4px;
+  background: var(--baseline);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+/* Overlaid on PriceChart/IndicatorPanel's chart containers while indicator
+   points are still loading, in place of the lightweight-charts canvas
+   (which renders as an empty axis grid with no data) - fake bar heights give
+   it a plausible candlestick-chart silhouette, mirroring the treemap
+   skeleton's fake-weights approach. */
+.chart-main-wrap,
+.chart-sub-wrap {
+  position: relative;
+}
+
+.chart-skeleton {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 10px 6px;
+  pointer-events: none;
+}
+
+.chart-skeleton-bar {
+  flex: 1;
+  min-width: 2px;
+  border-radius: 2px 2px 0 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kospi-map-skeleton-block,
-  .kospi-map-skeleton-row {
+  .kospi-map-skeleton-row,
+  .skeleton,
+  .skeleton-row {
     animation: none;
     opacity: 0.5;
   }
@@ -2001,7 +2055,7 @@ thead .weekly-foreign-amount-col {
   height: 16px;
   border-radius: 4px;
   background: var(--baseline);
-  animation: kospi-map-skeleton-pulse 1.6s ease-in-out infinite;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
 }
 
 .kospi-map-table th,

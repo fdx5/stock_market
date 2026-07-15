@@ -57,6 +57,7 @@ export default function Dashboard() {
   const [liveQuote, setLiveQuote] = useState<StockQuote | null>(null);
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(true);
   const [overview, setOverview] = useState<string[]>([]);
   const [perEstimate, setPerEstimate] = useState<string | null>(null);
   const [sharesOutstanding, setSharesOutstanding] = useState<number | null>(null);
@@ -80,9 +81,13 @@ export default function Dashboard() {
     // Cleared up front rather than left showing the previous stock while its own
     // fetch is still in flight — each section below now reveals independently as
     // soon as its own call resolves, so a stale chart/news list would otherwise
-    // flash briefly under the new stock's header.
+    // flash briefly under the new stock's header. summary is cleared too (instead
+    // of only hidden behind `loading`) so the header renders its skeleton rather
+    // than the previous stock's stale price/name while the new one is in flight.
+    setSummary(null);
     setIndicatorPoints([]);
     setNews([]);
+    setNewsLoading(true);
     setOverview([]);
     setPerEstimate(null);
     setSharesOutstanding(null);
@@ -140,6 +145,9 @@ export default function Dashboard() {
       })
       .catch(() => {
         // A missed news fetch just leaves that panel empty.
+      })
+      .finally(() => {
+        if (!cancelled) setNewsLoading(false);
       });
 
     api
@@ -265,13 +273,40 @@ export default function Dashboard() {
       <MarketOverviewPanel onSelectStock={setSelected} />
 
       {!selected && <div className="empty-state">{t("종목을 검색해 주세요. (예: 삼성전자, 005930)")}</div>}
-      {loading && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
+      {loading && (
+        <span className="sr-only" role="status">
+          {t("데이터를 불러오는 중...")}
+        </span>
+      )}
       {error && <div className="error-state">{t(error)}</div>}
 
-      {selected && summary && !loading && !error && (
+      {selected && !error && (
         <div className="layout">
           <div className="main-col">
             {(() => {
+              // Keeps the header card mounted (and its layout stable) through a stock
+              // switch instead of hiding the whole page behind a loading text block —
+              // only the fields that actually depend on `summary` swap to a skeleton.
+              if (!summary) {
+                return (
+                  <div className="card stock-header stock-header-skeleton" ref={stockHeaderRef} aria-hidden="true">
+                    <span className="name">
+                      <span className="skeleton" style={{ width: 22, height: 22, borderRadius: 5 }} />
+                      <span className="skeleton" style={{ width: 120, height: 20 }} />
+                    </span>
+                    <span className="code">
+                      <span className="skeleton" style={{ width: 56, height: 14 }} />
+                    </span>
+                    <span className="price">
+                      <span className="skeleton" style={{ width: 150, height: 22 }} />
+                    </span>
+                    <span className="marcap">
+                      <span className="skeleton" style={{ width: 220, height: 14 }} />
+                    </span>
+                  </div>
+                );
+              }
+
               const close = liveQuote?.close ?? summary.close;
               const change = liveQuote?.change ?? summary.change;
               const changePct = liveQuote?.change_pct ?? summary.change_pct;
@@ -323,7 +358,7 @@ export default function Dashboard() {
               );
             })()}
 
-            <RecentNewsDigest items={news} name={summaryName} />
+            <RecentNewsDigest items={news} name={summaryName} loading={newsLoading} />
 
             <PriceChart points={indicatorPoints} ref={priceChartRef} />
             <IndicatorPanel
@@ -333,7 +368,7 @@ export default function Dashboard() {
             />
           </div>
 
-          <SidePanel code={summary.code} name={summaryName} news={news} />
+          <SidePanel code={selected.code} name={summaryName} news={news} />
         </div>
       )}
 

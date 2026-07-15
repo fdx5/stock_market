@@ -15,6 +15,11 @@ import { Link } from "../router";
 
 type Tab = "top50" | "kosdaq50" | "investor" | "foreignBuyTop20" | "foreignSellTop20";
 
+// Shared by every table on this panel (top50, investor, weekly foreign) while their
+// first response is still in flight — enough rows to fill each table's scroll area
+// without a layout shift once real rows swap in.
+const SKELETON_ROWS = Array.from({ length: 8 }, (_, i) => i);
+
 function medalFor(rank: number): string {
   if (rank === 1) return "🥇";
   if (rank === 2) return "🥈";
@@ -74,9 +79,15 @@ function IndexTile({
   const t = useT();
   if (!index) {
     return (
-      <div className="index-tile">
+      <div className="index-tile" aria-hidden="true">
         <div className="index-tile-name">{t(label)}</div>
-        <div className="loading-state">{t("불러오는 중...")}</div>
+        <div className="skeleton" style={{ width: "70%", height: 20 }} />
+        <div className="skeleton" style={{ width: "90%", height: 14, marginTop: 6 }} />
+        <div className="index-tile-investor">
+          <span className="skeleton" style={{ width: 60, height: 11 }} />
+          <span className="skeleton" style={{ width: 60, height: 11 }} />
+          <span className="skeleton" style={{ width: 60, height: 11 }} />
+        </div>
       </div>
     );
   }
@@ -145,7 +156,6 @@ function Top50PriceList({
 
   const translatedNames = useTranslatedTexts(items.map((it) => it.name));
 
-  if (loading) return <div className="loading-state">{t("불러오는 중...")}</div>;
   if (error) return <div className="error-state">{t(error)}</div>;
 
   return (
@@ -160,25 +170,33 @@ function Top50PriceList({
           </tr>
         </thead>
         <tbody>
-          {items.map((item, idx) => (
-            <tr key={item.code}>
-              <td className="top50-table-rank">{idx + 1}</td>
-              <td className="top50-table-name">
-                <button
-                  type="button"
-                  onClick={() => onSelectStock({ code: item.code, name: item.name, market })}
-                >
-                  {translatedNames[idx] ?? item.name}
-                </button>
-              </td>
-              <td>
-                {item.close.toLocaleString()}
-                {lang === "en" ? " KRW" : "원"}
-              </td>
-              <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
-                {pct(item.change_pct)}
-              </td>
-            </tr>
+          {loading
+            ? SKELETON_ROWS.map((i) => (
+                <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
+                  <td colSpan={4}>
+                    <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
+                  </td>
+                </tr>
+              ))
+            : items.map((item, idx) => (
+                <tr key={item.code}>
+                  <td className="top50-table-rank">{idx + 1}</td>
+                  <td className="top50-table-name">
+                    <button
+                      type="button"
+                      onClick={() => onSelectStock({ code: item.code, name: item.name, market })}
+                    >
+                      {translatedNames[idx] ?? item.name}
+                    </button>
+                  </td>
+                  <td>
+                    {item.close.toLocaleString()}
+                    {lang === "en" ? " KRW" : "원"}
+                  </td>
+                  <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
+                    {pct(item.change_pct)}
+                  </td>
+                </tr>
           ))}
         </tbody>
       </table>
@@ -206,10 +224,12 @@ function WeeklyForeignTable({
   items,
   lang,
   amountLabel,
+  loading,
 }: {
   items: WeeklyForeignItem[];
   lang: Lang;
   amountLabel: string;
+  loading: boolean;
 }) {
   const t = useT();
   return (
@@ -223,9 +243,17 @@ function WeeklyForeignTable({
           </tr>
         </thead>
         <tbody>
-          {items.map((item, idx) => (
-            <WeeklyForeignRow key={item.code} item={item} rank={idx + 1} lang={lang} />
-          ))}
+          {loading
+            ? SKELETON_ROWS.map((i) => (
+                <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
+                  <td colSpan={3}>
+                    <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
+                  </td>
+                </tr>
+              ))
+            : items.map((item, idx) => (
+                <WeeklyForeignRow key={item.code} item={item} rank={idx + 1} lang={lang} />
+              ))}
         </tbody>
       </table>
     </div>
@@ -414,14 +442,14 @@ export default function MarketOverviewPanel({
               {t("최근 5거래일 기준 외국인 누적 순매수 상위 20종목입니다. · 종목명을 누르면 최근 추이를 볼 수 있습니다.")}
             </p>
 
-            {weeklyForeignLoading && <div className="loading-state">{t("불러오는 중...")}</div>}
             {weeklyForeignError && <div className="error-state">{t(weeklyForeignError)}</div>}
 
-            {!weeklyForeignLoading && !weeklyForeignError && (
+            {!weeklyForeignError && (
               <WeeklyForeignTable
                 items={tab === "foreignBuyTop20" ? weeklyForeignBuy : weeklyForeignSell}
                 lang={lang}
                 amountLabel={tab === "foreignBuyTop20" ? t("외국인 순매수(억원)") : t("외국인 순매도(억원)")}
+                loading={weeklyForeignLoading}
               />
             )}
           </>
@@ -436,10 +464,9 @@ export default function MarketOverviewPanel({
               · {t("시총 100위까지 · 종목명을 누르면 최근 추이를 볼 수 있습니다.")}
             </p>
 
-            {loading && <div className="loading-state">{t("불러오는 중...")}</div>}
             {error && <div className="error-state">{t(error)}</div>}
 
-            {!loading && !error && (
+            {!error && (
               <div className="investor-table-wrap">
                 <table className="investor-table">
                   <thead>
@@ -451,9 +478,17 @@ export default function MarketOverviewPanel({
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map((item) => (
-                      <InvestorTableRow key={item.code} item={item} lang={lang} />
-                    ))}
+                    {loading
+                      ? SKELETON_ROWS.map((i) => (
+                          <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
+                            <td colSpan={4}>
+                              <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
+                            </td>
+                          </tr>
+                        ))
+                      : items.map((item) => (
+                          <InvestorTableRow key={item.code} item={item} lang={lang} />
+                        ))}
                   </tbody>
                 </table>
               </div>

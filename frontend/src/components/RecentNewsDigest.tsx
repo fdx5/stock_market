@@ -7,6 +7,10 @@ const RECENT_DAYS = 3;
 const MAX_ITEMS = 6;
 const VISIBLE_ITEMS = 3;
 
+// Arbitrary varied widths so the loading placeholder reads as text lines rather
+// than a row of identical bars.
+const NEWS_SKELETON_WIDTHS = ["92%", "78%", "85%"];
+
 function parseNaverDate(text: string): number {
   // Naver's item-news date format is "YYYY.MM.DD HH:mm". Unparseable dates are treated
   // as unknown (0) rather than "now", so they're excluded by the cutoff below instead
@@ -17,7 +21,15 @@ function parseNaverDate(text: string): number {
   return new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi)).getTime();
 }
 
-export default function RecentNewsDigest({ items, name }: { items: NewsItem[]; name: string }) {
+export default function RecentNewsDigest({
+  items,
+  name,
+  loading,
+}: {
+  items: NewsItem[];
+  name: string;
+  loading: boolean;
+}) {
   const { lang } = useLanguage();
   const [expanded, setExpanded] = useState(false);
   const cutoff = Date.now() - RECENT_DAYS * 24 * 60 * 60 * 1000;
@@ -33,7 +45,15 @@ export default function RecentNewsDigest({ items, name }: { items: NewsItem[]; n
       <div className="news-digest-header">
         {lang === "en" ? `📰 News Digest (Last ${RECENT_DAYS} Days)` : `📰 최근 ${RECENT_DAYS}일 뉴스 요약`}
       </div>
-      {recent.length === 0 ? (
+      {loading ? (
+        <ul className="news-digest-list" aria-hidden="true">
+          {NEWS_SKELETON_WIDTHS.map((w, i) => (
+            <li key={i}>
+              <div className="skeleton" style={{ height: 13, width: w }} />
+            </li>
+          ))}
+        </ul>
+      ) : recent.length === 0 ? (
         <div className="empty-state">
           {lang === "en"
             ? `No news for ${name} in the last ${RECENT_DAYS} days.`

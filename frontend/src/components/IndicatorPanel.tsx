@@ -14,6 +14,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "re
 import type { IndicatorPoint } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { ThemeColors, getThemeColors, watchTheme } from "../theme";
+import ChartSkeleton from "./ChartSkeleton";
 
 interface Props {
   points: IndicatorPoint[];
@@ -176,7 +177,10 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
         <div className="chart-legend">
           <span className="item">{t("RSI(14) · 점선 30/70")}</span>
         </div>
-        <div ref={rsiContainerRef} className="chart-sub" />
+        <div className="chart-sub-wrap">
+          <div ref={rsiContainerRef} className="chart-sub" />
+          {points.length === 0 && <ChartSkeleton />}
+        </div>
         <div className="chart-legend" style={{ marginTop: 14 }}>
           <span className="item">
             <span className="swatch" style={{ background: "var(--series-blue)" }} />
@@ -188,7 +192,10 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
           </span>
           <span className="item">{t("히스토그램(녹/적)")}</span>
         </div>
-        <div ref={macdContainerRef} className="chart-sub" />
+        <div className="chart-sub-wrap">
+          <div ref={macdContainerRef} className="chart-sub" />
+          {points.length === 0 && <ChartSkeleton />}
+        </div>
 
         {latest && (
           <div className="indicator-stats">
