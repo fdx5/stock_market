@@ -1,9 +1,17 @@
 name: Keep Render instance awake
 
 # Render's free plan spins the service down after ~15 minutes with no traffic and
-# pays a 30-60s cold-start on the next request. Pinging the health endpoint on a
-# tighter cadence than that keeps it warm - this workflow needs no secrets or
-# external accounts, just GitHub's own scheduler.
+# pays a 30-60s cold-start on the next request. Pinging on a tighter cadence than
+# that keeps it warm - this workflow needs no secrets or external accounts, just
+# GitHub's own scheduler.
+#
+# Beyond just keeping the process alive, this also pings the KOSPI/KOSDAQ map API
+# directly (not just /api/health) at the exact same `limit` tiers the frontend
+# polls (see tier1Limit/tier2Limit/fullLimit in KospiMapPage.tsx/KosdaqMapPage.tsx
+# and the matching startup warmup in main.py). The map cache is in-process and
+# empties on every restart, and a cold cache means a real visitor's first request
+# pays a synchronous multi-page Naver scrape. Doing that scrape here instead means
+# a background CI job eats the cold-start latency instead of a real visitor.
 #
 # Caveat: GitHub disables scheduled workflows after 60 days with no commits to the
 # repo, and cron firing can be delayed a few minutes under GitHub-wide load - both
@@ -19,3 +27,13 @@ jobs:
     steps:
       - name: Ping health endpoint
         run: curl -fsS --max-time 20 https://kospi-predictor.onrender.com/api/health
+      - name: Warm KOSPI map cache (tier1/tier2/full)
+        run: |
+          for limit in 20 50 500; do
+            curl -fsS --max-time 90 "https://kospi-predictor.onrender.com/api/market/map?limit=${limit}" -o /dev/null
+          done
+      - name: Warm KOSDAQ map cache (tier1/tier2/full)
+        run: |
+          for limit in 20 50 200; do
+            curl -fsS --max-time 90 "https://kospi-predictor.onrender.com/api/market/kosdaq-map?limit=${limit}" -o /dev/null
+          done

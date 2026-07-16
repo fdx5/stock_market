@@ -38,13 +38,15 @@ app.include_router(geo.router, prefix="/api")
 def _warm_market_maps() -> None:
     # Pre-fetches both maps' Naver pages on boot so the first visitor after a deploy
     # doesn't pay the cold multi-page scrape (every page's cache starts empty then).
-    # The frontend polls each map at three separate `limit` tiers (20 / 100 / full),
-    # and each tier is cached under its own key, so all three need warming - not just
-    # the full one - or the first visitor still pays a cold synchronous fetch for
+    # The frontend polls each map at three separate `limit` tiers (20 / 50 / full - see
+    # tier1Limit/tier2Limit/fullLimit in KospiMapPage.tsx and KosdaqMapPage.tsx), and
+    # each tier is cached under its own key (`realtime_quotes:{market}:{limit}`), so all
+    # three need warming with the exact same limits - not just the full one, and not an
+    # approximation - or the first visitor still pays a cold synchronous fetch for
     # whichever tier they hit first.
-    for limit in (20, 100, 500):
+    for limit in (20, 50, 500):
         threading.Thread(target=lambda limit=limit: get_kospi_map(limit), daemon=True).start()
-    for limit in (20, 100, 200):
+    for limit in (20, 50, 200):
         threading.Thread(target=lambda limit=limit: get_kosdaq_map(limit), daemon=True).start()
 
 
