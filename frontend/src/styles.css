@@ -1367,40 +1367,46 @@ thead .weekly-foreign-amount-col {
    links (text shadow only, since they have no border/pill background to glow
    around) - both read `currentColor`, so each variant's existing accent color
    (blue/aqua/red/violet) shows through unchanged, just breathing brighter/dimmer
-   like a lit tube instead of the flat static outline they had before. */
+   like a lit tube instead of the flat static outline they had before.
+   The blur radii/opacity swing wide and the pill adds a small scale pulse on top -
+   at typical desktop viewing distance a few px of shadow alone reads as a barely-
+   perceptible flicker rather than a glow, so the visible range needs to be much
+   bigger than it looks in a close-up screenshot. */
 @keyframes neon-pulse {
   0%,
   100% {
     box-shadow:
-      0 0 4px color-mix(in srgb, currentColor 45%, transparent),
-      0 0 10px color-mix(in srgb, currentColor 22%, transparent);
-    text-shadow: 0 0 3px color-mix(in srgb, currentColor 55%, transparent);
+      0 0 6px color-mix(in srgb, currentColor 60%, transparent),
+      0 0 16px color-mix(in srgb, currentColor 35%, transparent);
+    text-shadow: 0 0 4px color-mix(in srgb, currentColor 65%, transparent);
+    transform: scale(1);
   }
   50% {
     box-shadow:
-      0 0 9px color-mix(in srgb, currentColor 80%, transparent),
-      0 0 20px color-mix(in srgb, currentColor 45%, transparent);
-    text-shadow: 0 0 7px color-mix(in srgb, currentColor 85%, transparent);
+      0 0 16px color-mix(in srgb, currentColor 100%, transparent),
+      0 0 32px color-mix(in srgb, currentColor 65%, transparent);
+    text-shadow: 0 0 11px color-mix(in srgb, currentColor 100%, transparent);
+    transform: scale(1.045);
   }
 }
 
 @keyframes neon-text-pulse {
   0%,
   100% {
-    text-shadow: 0 0 3px color-mix(in srgb, currentColor 50%, transparent);
+    text-shadow: 0 0 4px color-mix(in srgb, currentColor 60%, transparent);
   }
   50% {
-    text-shadow: 0 0 7px color-mix(in srgb, currentColor 85%, transparent);
+    text-shadow: 0 0 11px color-mix(in srgb, currentColor 100%, transparent);
   }
 }
 
 @keyframes neon-icon-pulse {
   0%,
   100% {
-    filter: drop-shadow(0 0 1.5px color-mix(in srgb, currentColor 55%, transparent));
+    filter: drop-shadow(0 0 2px color-mix(in srgb, currentColor 65%, transparent));
   }
   50% {
-    filter: drop-shadow(0 0 3.5px color-mix(in srgb, currentColor 90%, transparent));
+    filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 100%, transparent));
   }
 }
 
