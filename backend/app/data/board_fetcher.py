@@ -17,10 +17,23 @@ HEADERS = {
     "Referer": "https://finance.naver.com/",
 }
 
+# Board list/detail/comments each hit a different Naver host (finance.naver.com,
+# m.stock.naver.com, apis.naver.com) on every single view - detail and comments have
+# no useful cache warming path (the nid is different for every post), so avoiding a
+# fresh TCP/TLS handshake per request is the only latency win available. A shared,
+# connection-pooled session (same fix already applied in naver_price_fetcher.py)
+# reuses a keep-alive connection per host instead of paying that handshake every time.
+_session = requests.Session()
+_session.headers.update(HEADERS)
+_session.mount(
+    "https://",
+    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
+)
+
 
 def _fetch_board_page(code: str, page: int) -> list[dict]:
     url = f"https://finance.naver.com/item/board.naver?code={code}&page={page}"
-    resp = requests.get(url, headers=HEADERS, timeout=4)
+    resp = _session.get(url, timeout=4)
     resp.raise_for_status()
     resp.encoding = "utf-8"  # this board is served as UTF-8, unlike the older price pages
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -85,7 +98,7 @@ def _fetch_board_detail(nid: str) -> dict | None:
     # there. This is the JSON API that page calls internally (found by inspecting its
     # network traffic, since it isn't documented anywhere).
     url = f"https://m.stock.naver.com/front-api/discussion/detail?id={nid}"
-    resp = requests.get(url, headers=HEADERS, timeout=4)
+    resp = _session.get(url, timeout=4)
     resp.raise_for_status()
     payload = resp.json()
     if not payload.get("isSuccess"):
@@ -159,7 +172,7 @@ def _fetch_board_comments(nid: str) -> list[dict]:
         "currentPage": 1,
         "sort": "NEW",
     }
-    resp = requests.get(COMMENT_URL, params=params, headers=HEADERS, timeout=4)
+    resp = _session.get(COMMENT_URL, params=params, timeout=4)
     resp.raise_for_status()
     payload = _parse_jsonp(resp.text)
     if not payload.get("success"):

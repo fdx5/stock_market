@@ -37,3 +37,9 @@ jobs:
           for limit in 20 50 200; do
             curl -fsS --max-time 90 "https://kospi-predictor.onrender.com/api/market/kosdaq-map?limit=${limit}" -o /dev/null
           done
+      - name: Warm dashboard default-stock cache (Samsung Electronics, 005930)
+        run: |
+          for path in summary indicators quote news overview; do
+            curl -fsS --max-time 30 "https://kospi-predictor.onrender.com/api/stock/005930/${path}" -o /dev/null
+          done
+          curl -fsS --max-time 30 "https://kospi-predictor.onrender.com/api/investor/indices" -o /dev/null

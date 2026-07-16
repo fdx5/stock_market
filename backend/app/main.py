@@ -57,6 +57,28 @@ def _warm_investor_summary() -> None:
 
 
 @app.on_event("startup")
+def _warm_dashboard_default_stock() -> None:
+    # The dashboard defaults to Samsung Electronics (005930, see DEFAULT_STOCK_CODE
+    # in Dashboard.tsx) whenever it's landed on with no `?code=` in the URL - by far
+    # the most common first request. Unlike the map endpoints above, these per-stock
+    # routes and /investor/indices aren't warmed anywhere else, so a cold cache after
+    # a restart means the first such visitor pays for all these scrapes synchronously
+    # (summary/indicators share one history fetch; quote/news/overview/indices are
+    # each their own). Calling the router functions directly (rather than duplicating
+    # their cache keys here) keeps this in sync with however they cache internally.
+    code = "005930"
+    for fn, args in (
+        (stock.summary, (code,)),
+        (stock.indicators, (code, 3)),
+        (stock.quote, (code,)),
+        (stock.news, (code,)),
+        (stock.overview, (code,)),
+        (investor.indices, (False,)),
+    ):
+        threading.Thread(target=lambda fn=fn, args=args: fn(*args), daemon=True).start()
+
+
+@app.on_event("startup")
 def _warm_english_names() -> None:
     # English-name search matching needs ~2,700 names translated up front; kick that
     # off at boot so it's ready well before most real searches, instead of the first
