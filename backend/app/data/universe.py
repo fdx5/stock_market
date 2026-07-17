@@ -13,14 +13,23 @@ TTL_UNIVERSE_SECONDS = 24 * 3600
 ENGLISH_NAMES_CACHE_KEY = "universe_english_names"
 TTL_ENGLISH_NAMES_SECONDS = 24 * 3600
 
-# Only bites on the very first-ever rebuild (empty name_translation_store) or if Google
-# starts rejecting individual names — every later rebuild only has a handful of new
-# listings to translate. Chunking + a pause between chunks keeps that one-time backfill
-# from firing ~2,700 requests at Google's unofficial translate endpoint back-to-back
-# (risking a temporary rate-limit block), and persisting after each chunk means a
-# restart mid-backfill resumes from where it left off instead of losing all progress.
+# Chunking + a pause between chunks keeps a backfill from firing many requests at
+# Google's unofficial translate endpoint back-to-back (risking a temporary rate-limit
+# block), and persisting after each chunk means a restart mid-backfill resumes from
+# where it left off instead of losing all progress.
 _TRANSLATE_CHUNK_SIZE = 200
 _TRANSLATE_CHUNK_PAUSE_SECONDS = 2
+
+# Caps how many *new* names a single rebuild will live-translate, regardless of how
+# many are missing from name_translation_store. Uncapped, the very first rebuild after
+# this store was introduced tried to translate the entire ~2,700-name universe in one
+# rebuild — on Render's free tier that startup-time load OOM-killed the instance, which
+# then hit the same uncapped batch again on every restart (a permanent crash loop, seen
+# as search 503s across the whole app). With the cap, each rebuild only ever takes on
+# a bounded amount of new work; anything past the cap is picked up by the next rebuild
+# (every TTL_ENGLISH_NAMES_SECONDS) since it's still missing from the store — so the
+# full universe still gets covered, just spread across a few cycles instead of one.
+_MAX_NEW_TRANSLATIONS_PER_REBUILD = 300
 
 _english_names_rebuild_lock = threading.Lock()
 _english_names_rebuilding = False
@@ -60,18 +69,18 @@ def get_top_market_cap(limit: int = 100) -> list[dict]:
 
 
 def _load_english_names() -> dict[str, str]:
-    """Covers the full KOSPI+KOSDAQ universe (~2,700 names), not just the top names by
-    market cap — but only ever live-translates the names missing from
-    name_translation_store (new listings since the last rebuild). Everything already
-    translated in a previous run comes back from one DB read instead of a fresh
-    Google Translate round-trip, so a rebuild (every TTL_ENGLISH_NAMES_SECONDS, or on
-    every cold boot before this was persisted) stays cheap regardless of how often the
-    process restarts."""
+    """Covers the full KOSPI+KOSDAQ universe (~2,700 names) over time, not just the top
+    names by market cap — but only ever live-translates names missing from
+    name_translation_store (new listings, or the next slice of a still-in-progress
+    backfill — see _MAX_NEW_TRANSLATIONS_PER_REBUILD), capped per rebuild. Everything
+    already translated in a previous run comes back from one DB read instead of a
+    fresh Google Translate round-trip, so a rebuild stays cheap on any instance that's
+    already caught up."""
     df = _get_full_universe()
     names = sorted(set(df["Name"].astype(str)))
 
     stored = name_translation_store.get_all()
-    missing = [name for name in names if name not in stored]
+    missing = [name for name in names if name not in stored][:_MAX_NEW_TRANSLATIONS_PER_REBUILD]
     for i in range(0, len(missing), _TRANSLATE_CHUNK_SIZE):
         chunk = missing[i : i + _TRANSLATE_CHUNK_SIZE]
         translated = translate_batch_to_english(chunk)
@@ -81,7 +90,10 @@ def _load_english_names() -> dict[str, str]:
         if i + _TRANSLATE_CHUNK_SIZE < len(missing):
             time.sleep(_TRANSLATE_CHUNK_PAUSE_SECONDS)
 
-    return {name: stored[name] for name in names}
+    # Names past this rebuild's cap aren't in `stored` yet — fall back to the Korean
+    # name itself (matchable by search's existing Korean-name branch) rather than
+    # KeyError; the next rebuild will pick them up.
+    return {name: stored.get(name, name) for name in names}
 
 
 def _rebuild_english_names() -> None:
