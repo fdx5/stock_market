@@ -2,7 +2,7 @@ services:
   - type: web
     name: kospi-predictor
     env: docker
-    plan: free
+    plan: standard
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
     autoDeploy: true
