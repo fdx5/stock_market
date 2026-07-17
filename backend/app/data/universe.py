@@ -3,6 +3,7 @@ import threading
 import FinanceDataReader as fdr
 import pandas as pd
 
+from app.services import name_translation_store
 from app.services.cache import cache
 from app.services.translation import translate_batch_to_english
 
@@ -10,10 +11,6 @@ TTL_UNIVERSE_SECONDS = 24 * 3600
 
 ENGLISH_NAMES_CACHE_KEY = "universe_english_names"
 TTL_ENGLISH_NAMES_SECONDS = 24 * 3600
-# Only the biggest names by market cap are worth pre-translating — realistically the
-# only ones anyone searches by English name — instead of the full ~2,700-name universe,
-# which turned a single rebuild into a multi-minute, 2,700-request translate batch.
-ENGLISH_NAME_CANDIDATE_LIMIT = 500
 
 _english_names_rebuild_lock = threading.Lock()
 _english_names_rebuilding = False
@@ -53,10 +50,25 @@ def get_top_market_cap(limit: int = 100) -> list[dict]:
 
 
 def _load_english_names() -> dict[str, str]:
-    df = _get_full_universe().sort_values("Marcap", ascending=False).head(ENGLISH_NAME_CANDIDATE_LIMIT)
+    """Covers the full KOSPI+KOSDAQ universe (~2,700 names), not just the top names by
+    market cap — but only ever live-translates the names missing from
+    name_translation_store (new listings since the last rebuild). Everything already
+    translated in a previous run comes back from one DB read instead of a fresh
+    Google Translate round-trip, so a rebuild (every TTL_ENGLISH_NAMES_SECONDS, or on
+    every cold boot before this was persisted) stays cheap regardless of how often the
+    process restarts."""
+    df = _get_full_universe()
     names = sorted(set(df["Name"].astype(str)))
-    translations = translate_batch_to_english(names)
-    return dict(zip(names, translations))
+
+    stored = name_translation_store.get_all()
+    missing = [name for name in names if name not in stored]
+    if missing:
+        translated = translate_batch_to_english(missing)
+        new_entries = dict(zip(missing, translated))
+        name_translation_store.upsert_many(new_entries)
+        stored.update(new_entries)
+
+    return {name: stored[name] for name in names}
 
 
 def _rebuild_english_names() -> None:
