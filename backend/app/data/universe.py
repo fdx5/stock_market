@@ -1,4 +1,5 @@
 import threading
+import time
 
 import FinanceDataReader as fdr
 import pandas as pd
@@ -11,6 +12,15 @@ TTL_UNIVERSE_SECONDS = 24 * 3600
 
 ENGLISH_NAMES_CACHE_KEY = "universe_english_names"
 TTL_ENGLISH_NAMES_SECONDS = 24 * 3600
+
+# Only bites on the very first-ever rebuild (empty name_translation_store) or if Google
+# starts rejecting individual names — every later rebuild only has a handful of new
+# listings to translate. Chunking + a pause between chunks keeps that one-time backfill
+# from firing ~2,700 requests at Google's unofficial translate endpoint back-to-back
+# (risking a temporary rate-limit block), and persisting after each chunk means a
+# restart mid-backfill resumes from where it left off instead of losing all progress.
+_TRANSLATE_CHUNK_SIZE = 200
+_TRANSLATE_CHUNK_PAUSE_SECONDS = 2
 
 _english_names_rebuild_lock = threading.Lock()
 _english_names_rebuilding = False
@@ -62,11 +72,14 @@ def _load_english_names() -> dict[str, str]:
 
     stored = name_translation_store.get_all()
     missing = [name for name in names if name not in stored]
-    if missing:
-        translated = translate_batch_to_english(missing)
-        new_entries = dict(zip(missing, translated))
+    for i in range(0, len(missing), _TRANSLATE_CHUNK_SIZE):
+        chunk = missing[i : i + _TRANSLATE_CHUNK_SIZE]
+        translated = translate_batch_to_english(chunk)
+        new_entries = dict(zip(chunk, translated))
         name_translation_store.upsert_many(new_entries)
         stored.update(new_entries)
+        if i + _TRANSLATE_CHUNK_SIZE < len(missing):
+            time.sleep(_TRANSLATE_CHUNK_PAUSE_SECONDS)
 
     return {name: stored[name] for name in names}
 
