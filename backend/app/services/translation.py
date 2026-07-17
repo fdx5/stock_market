@@ -1,7 +1,8 @@
 import hashlib
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import quote
 
-from app.data.translate_fetcher import translate_to_english
+from app.data.translate_fetcher import translate_batch_via_single_call, translate_to_english
 from app.services.cache import cache
 
 # Translations of the same text don't change, so they're cached far longer than any
@@ -17,32 +18,43 @@ _KNOWN_OVERRIDES: dict[str, str] = {
     "카카오": "Kakao Corp",
 }
 
+# Conservative budget for the percent-encoded `q` value of one grouped translate
+# request. Korean text expands roughly 9x once URL-percent-encoded (3 UTF-8 bytes per
+# character, 3 characters per %XX), so this keeps even a batch of all-Korean text
+# comfortably under typical server/proxy URL-length limits (usually 2,000-8,000 chars)
+# without assuming a fixed item count — callers here range from short stock names to
+# much longer news headlines.
+_MAX_BATCH_QUERY_CHARS = 1500
+
 
 def _cache_key(text: str) -> str:
     digest = hashlib.sha1(text.encode("utf-8")).hexdigest()
     return f"translate_en:{digest}"
 
 
-def _translate_one(text: str) -> str:
-    stripped = text.strip()
-    if not stripped:
-        return text
-    if stripped in _KNOWN_OVERRIDES:
-        return _KNOWN_OVERRIDES[stripped]
-    return cache.get_or_set(_cache_key(stripped), TTL_TRANSLATION_SECONDS, lambda: translate_to_english(stripped))
+def _group_into_safe_batches(texts: list[str]) -> list[list[str]]:
+    batches: list[list[str]] = []
+    current: list[str] = []
+    current_len = 0
+    for text in texts:
+        added_len = len(quote(text, safe="")) + 3  # +3 for the "%0A" join separator
+        if current and current_len + added_len > _MAX_BATCH_QUERY_CHARS:
+            batches.append(current)
+            current, current_len = [], 0
+        current.append(text)
+        current_len += added_len
+    if current:
+        batches.append(current)
+    return batches
 
 
-def translate_batch_to_english(texts: list[str]) -> list[str]:
-    """Translates many strings at once, in parallel, each cached independently so a
-    repeated name/headline across pages or polls only ever pays for one live
-    translation call. A failed item falls back to its own original text rather than
-    failing the whole batch."""
-    if not texts:
-        return []
-
+def _translate_individually(texts: list[str]) -> list[str]:
+    """One Google request per text, run concurrently — the fallback path for a batch
+    whose single grouped request failed or came back misaligned, so a batching hiccup
+    only costs that batch's slice of the speed win instead of corrupting results."""
     results: list[str] = list(texts)
     with ThreadPoolExecutor(max_workers=min(20, len(texts))) as pool:
-        futures = {pool.submit(_translate_one, text): i for i, text in enumerate(texts)}
+        futures = {pool.submit(translate_to_english, text): i for i, text in enumerate(texts)}
         for future in as_completed(futures):
             i = futures[future]
             try:
@@ -50,3 +62,56 @@ def translate_batch_to_english(texts: list[str]) -> list[str]:
             except Exception:
                 results[i] = texts[i]
     return results
+
+
+def _translate_batch(batch: list[str]) -> list[str]:
+    result = translate_batch_via_single_call(batch)
+    return result if result is not None else _translate_individually(batch)
+
+
+def _translate_many(texts: list[str]) -> list[str]:
+    """Fetches translations for texts that aren't cached and aren't a known override.
+    Grouped into a handful of batched Google requests (see _group_into_safe_batches)
+    instead of one request per text, cutting request count by roughly the average
+    batch size — e.g. a ~2,700-name backfill drops from ~2,700 requests to a few dozen."""
+    batches = _group_into_safe_batches(texts)
+    if not batches:
+        return []
+    with ThreadPoolExecutor(max_workers=min(10, len(batches))) as pool:
+        batch_results = list(pool.map(_translate_batch, batches))
+    return [item for batch in batch_results for item in batch]
+
+
+def translate_batch_to_english(texts: list[str]) -> list[str]:
+    """Translates many strings at once, each cached independently (7-day TTL) so a
+    repeated name/headline across pages or polls only ever pays for one live
+    translation. Texts not already cached are grouped into a handful of batched Google
+    requests rather than one request per text (see _translate_many); a failed text
+    falls back to its own original text rather than failing the whole call."""
+    if not texts:
+        return []
+
+    results: list[str | None] = [None] * len(texts)
+    to_fetch: list[tuple[int, str]] = []
+
+    for i, text in enumerate(texts):
+        stripped = text.strip()
+        if not stripped:
+            results[i] = text
+            continue
+        if stripped in _KNOWN_OVERRIDES:
+            results[i] = _KNOWN_OVERRIDES[stripped]
+            continue
+        cached = cache.peek(_cache_key(stripped))
+        if cached is not None:
+            results[i] = cached
+        else:
+            to_fetch.append((i, stripped))
+
+    if to_fetch:
+        fetched = _translate_many([stripped for _, stripped in to_fetch])
+        for (i, stripped), translated in zip(to_fetch, fetched):
+            cache.get_or_set(_cache_key(stripped), TTL_TRANSLATION_SECONDS, lambda translated=translated: translated)
+            results[i] = translated
+
+    return [text if r is None else r for text, r in zip(texts, results)]
