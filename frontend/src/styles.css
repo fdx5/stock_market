@@ -1410,7 +1410,25 @@ thead .weekly-foreign-amount-col {
   }
 }
 
+/* A diagonal gloss band sweeps across each pill on top of the neon pulse - mostly
+   parked just off the left edge, then a quick pass to the right before pausing off
+   the right edge, so it reads as a periodic "shine" rather than a continuous scroll.
+   Lives on ::after (painted last, so it passes over the icon+text) and is clipped to
+   the pill by the parent's `overflow: hidden`; `pointer-events: none` keeps it from
+   blocking clicks/hover on the link underneath. */
+@keyframes nav-pill-shimmer {
+  0%,
+  55% {
+    left: -60%;
+  }
+  75%,
+  100% {
+    left: 130%;
+  }
+}
+
 .kospi-map-nav-link {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1422,7 +1440,29 @@ thead .weekly-foreign-amount-col {
   padding: 5px 12px;
   text-decoration: none;
   background: color-mix(in srgb, var(--series-blue) 12%, transparent);
+  overflow: hidden;
   animation: neon-pulse 2.6s ease-in-out infinite;
+}
+
+.kospi-map-nav-link::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 45%;
+  height: 100%;
+  /* currentColor-based (not plain white) so the streak stays visible against the
+     light theme's near-white page background too, instead of washing out - reads as
+     a brighter, whiter-hot flash of the pill's own accent rather than a neutral glare. */
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, currentColor 85%, white 15%) 50%,
+    transparent 70%
+  );
+  transform: skewX(-20deg);
+  animation: nav-pill-shimmer 3.2s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .kospi-map-nav-link:hover {
@@ -1441,6 +1481,10 @@ thead .weekly-foreign-amount-col {
   animation-delay: 0.3s;
 }
 
+.kospi-map-nav-link--kosdaq::after {
+  animation-delay: 0.3s;
+}
+
 .kospi-map-nav-link--kosdaq:hover {
   background: color-mix(in srgb, var(--series-aqua) 22%, transparent);
 }
@@ -1452,6 +1496,10 @@ thead .weekly-foreign-amount-col {
   animation-delay: 0.6s;
 }
 
+.kospi-map-nav-link--battle::after {
+  animation-delay: 0.6s;
+}
+
 .kospi-map-nav-link--battle:hover {
   background: color-mix(in srgb, var(--series-red) 22%, transparent);
 }
@@ -1460,6 +1508,10 @@ thead .weekly-foreign-amount-col {
   color: var(--series-violet);
   border-color: var(--series-violet);
   background: color-mix(in srgb, var(--series-violet) 12%, transparent);
+  animation-delay: 0.9s;
+}
+
+.kospi-map-nav-link--home::after {
   animation-delay: 0.9s;
 }
 
