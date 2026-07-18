@@ -6,6 +6,7 @@ import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import BattleIcon from "./BattleIcon";
 import CheerSection from "./CheerSection";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
@@ -171,6 +172,9 @@ export default function TugOfWarPage() {
           </Link>
           <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
             <MarketIcon /> KOSDAQ
+          </Link>
+          <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
+            <BattleIcon /> {t("시총대결")}
           </Link>
           <VisitorBadge />
         </div>

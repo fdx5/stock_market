@@ -524,14 +524,9 @@ export default function MarketCapFightPage() {
             <DashboardIcon /> {t("홈")}
           </Link>
           {phase === "fight" && (
-            <>
-              <Link to="/battle" className="kospi-map-nav-link fight-nav-link--classic">
-                <MarketIcon /> {t("삼성 vs SK하이닉스")}
-              </Link>
-              <button type="button" className="fight-back-link" onClick={resetSelection}>
-                ◀ PLAYER SELECT
-              </button>
-            </>
+            <Link to="/battle" className="kospi-map-nav-link fight-nav-link--classic">
+              <MarketIcon /> {t("삼성 vs SK하이닉스")}
+            </Link>
           )}
         </div>
         <h1 className="app-title">{t("시총대결")}</h1>

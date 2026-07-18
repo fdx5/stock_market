@@ -3502,10 +3502,22 @@ thead .weekly-foreign-amount-col {
 }
 
 .fight-select-wrap {
-  margin-top: 20px;
+  margin-top: 6px;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+/* Tightens the gap between the "시총대결" h1 and the content right below it — only
+   on this page, since `.app-header`'s margin-bottom and `.battle-arena-wrap`'s
+   margin-top are shared with other pages (including /battle) that weren't asked
+   to change. */
+.fight-page .app-header {
+  margin-bottom: 8px;
+}
+
+.fight-page .battle-arena-wrap {
+  margin-top: 6px;
 }
 
 /* Arcade "PLAYER SELECT" header */
@@ -4406,27 +4418,6 @@ thead .weekly-foreign-amount-col {
 
 .fight-diff-panel-sub-line {
   white-space: nowrap;
-}
-
-/* Top-of-page return to the character-select screen (fight phase only). */
-.fight-back-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 14px;
-  border-radius: 999px;
-  border: 2px solid var(--fight-gold);
-  background: linear-gradient(180deg, #2a2010 0%, #171008 100%);
-  color: var(--fight-gold);
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  text-shadow: 1px 1px 0 #000;
-}
-
-.fight-back-link:hover {
-  box-shadow: 0 0 14px rgba(255, 209, 102, 0.5);
 }
 
 /* Center column: VS badge, crossing lightning, spark particles */
