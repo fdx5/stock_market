@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { GlobalTop20Item, api } from "../api/client";
+import { CompanyNewsItem, GlobalTop20Item, api } from "../api/client";
 import { CEO_NAMES } from "../data/ceoNames";
 import { ceoStylizedImageFor } from "../data/ceoStylizedImages";
 import { hiResFlagUrl } from "../data/flagCodes";
@@ -11,6 +11,7 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import CompanyLogo from "./CompanyLogo";
+import CompanyNewsModal from "./CompanyNewsModal";
 import DashboardIcon from "./DashboardIcon";
 import FightCheerSection from "./FightCheerSection";
 import FightCompanyModal from "./FightCompanyModal";
@@ -364,6 +365,11 @@ export default function MarketCapFightPage() {
   const [companyModalLoading, setCompanyModalLoading] = useState(false);
   const [companyModalError, setCompanyModalError] = useState<string | null>(null);
 
+  const [newsModal, setNewsModal] = useState<{ item: GlobalTop20Item; player: "p1" | "p2" } | null>(null);
+  const [newsItems, setNewsItems] = useState<CompanyNewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState<string | null>(null);
+
   const p1Intro = useCompanyIntro(p1, lang);
   const p2Intro = useCompanyIntro(p2, lang);
 
@@ -385,6 +391,18 @@ export default function MarketCapFightPage() {
       .then((res) => setCompanyModalDesc(res.description || t("회사 정보가 없습니다.")))
       .catch((err: Error) => setCompanyModalError(err.message || "회사 정보를 불러오지 못했습니다."))
       .finally(() => setCompanyModalLoading(false));
+  };
+
+  const openNewsModal = (item: GlobalTop20Item, player: "p1" | "p2") => {
+    setNewsModal({ item, player });
+    setNewsItems([]);
+    setNewsError(null);
+    setNewsLoading(true);
+    api
+      .fightNews(item.code, item.name, lang)
+      .then((res) => setNewsItems(res.items))
+      .catch((err: Error) => setNewsError(err.message || "뉴스를 불러오지 못했습니다."))
+      .finally(() => setNewsLoading(false));
   };
 
   useEffect(() => {
@@ -637,9 +655,29 @@ export default function MarketCapFightPage() {
           {statusError && <div className="error-state">{t(statusError)}</div>}
           {!statusA && !statusB && !statusError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
 
-          <button type="button" className="fight-reset-btn" onClick={resetSelection}>
-            {t("다시 선택")}
-          </button>
+          <div className="fight-action-row">
+            <button
+              type="button"
+              className="fight-news-btn fight-news-btn--p1"
+              onClick={() => openNewsModal(statusA ?? p1, "p1")}
+            >
+              <span className="fight-news-btn-label">
+                {p1.name} {t("주요뉴스")}
+              </span>
+            </button>
+            <button type="button" className="fight-reset-btn" onClick={resetSelection}>
+              {t("다시 선택")}
+            </button>
+            <button
+              type="button"
+              className="fight-news-btn fight-news-btn--p2"
+              onClick={() => openNewsModal(statusB ?? p2, "p2")}
+            >
+              <span className="fight-news-btn-label">
+                {p2.name} {t("주요뉴스")}
+              </span>
+            </button>
+          </div>
 
           {statusA && statusB && (
             <FightCheerSection
@@ -662,6 +700,17 @@ export default function MarketCapFightPage() {
           loading={companyModalLoading}
           error={companyModalError}
           onClose={() => setCompanyModal(null)}
+        />
+      )}
+
+      {newsModal && (
+        <CompanyNewsModal
+          companyName={newsModal.item.name}
+          player={newsModal.player}
+          items={newsItems}
+          loading={newsLoading}
+          error={newsError}
+          onClose={() => setNewsModal(null)}
         />
       )}
 

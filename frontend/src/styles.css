@@ -4588,9 +4588,22 @@ thead .weekly-foreign-amount-col {
   color: var(--fight-p2);
 }
 
+/* Holds the two per-player news buttons flanking "다시 선택" — flex-wrap is
+   deliberately never set to wrap, and every child gets a shrink strategy (the news
+   buttons via flex+ellipsis text, the reset button via a fixed flex-basis) so this
+   row can never break onto a second line regardless of company name length. */
+.fight-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
 .fight-reset-btn {
-  align-self: center;
-  padding: 9px 26px;
+  flex: 0 0 auto;
+  padding: 9px 20px;
   border-radius: 999px;
   border: 2px solid var(--fight-gold);
   background: linear-gradient(180deg, #2a2010 0%, #171008 100%);
@@ -4600,6 +4613,41 @@ thead .weekly-foreign-amount-col {
   letter-spacing: 0.1em;
   cursor: pointer;
   text-shadow: 1px 1px 0 #000;
+  white-space: nowrap;
+}
+
+.fight-news-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 180px;
+  padding: 9px 10px;
+  border-radius: 999px;
+  border: 2px solid;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.fight-news-btn--p1 {
+  border-color: var(--fight-p1);
+  color: var(--fight-p1);
+}
+
+.fight-news-btn--p2 {
+  border-color: var(--fight-p2);
+  color: var(--fight-p2);
+}
+
+.fight-news-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.fight-news-btn-label {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fight-reset-btn:hover {
@@ -4731,6 +4779,21 @@ thead .weekly-foreign-amount-col {
      width/aspect-ratio — gives the logo image more room to render larger. */
   .fight-card-logo-badge {
     padding: 1px 3px;
+  }
+
+  .fight-action-row {
+    gap: 4px;
+  }
+
+  .fight-news-btn {
+    max-width: 120px;
+    padding: 8px 6px;
+    font-size: 10.5px;
+  }
+
+  .fight-reset-btn {
+    padding: 8px 14px;
+    font-size: 11px;
   }
 }
 
@@ -4926,5 +4989,110 @@ thead .weekly-foreign-amount-col {
 
   .fight-company-modal-company {
     font-size: 15px;
+  }
+}
+
+/* ===== CompanyNewsModal — opened by the "[회사명] 주요뉴스" buttons ===== */
+
+.fight-company-news-modal {
+  position: relative;
+  width: 100%;
+  max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
+  border-radius: 18px;
+  background: var(--surface-1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  border: 2px solid #2b3a55;
+}
+
+.fight-company-news-header {
+  padding: 18px 44px 12px 20px;
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.fight-company-news-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+}
+
+.fight-news-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  text-decoration: none;
+  color: inherit;
+}
+
+.fight-news-card:hover {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.fight-news-card-img {
+  flex-shrink: 0;
+  width: 88px;
+  height: 88px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--page-plane);
+}
+
+.fight-news-card-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fight-news-card-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fight-news-card-snippet {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fight-news-card-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: auto;
+}
+
+.fight-news-card-source {
+  font-weight: 700;
+}
+
+@media (max-width: 480px) {
+  .fight-news-card-img {
+    width: 64px;
+    height: 64px;
+  }
+
+  .fight-news-card-title {
+    font-size: 12.5px;
   }
 }

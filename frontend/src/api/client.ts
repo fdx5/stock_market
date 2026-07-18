@@ -213,6 +213,15 @@ export interface GlobalTop20Item {
   detail_path: string | null;
 }
 
+export interface CompanyNewsItem {
+  title: string;
+  link: string;
+  source: string;
+  published: string;
+  image_url: string | null;
+  snippet: string | null;
+}
+
 export interface FightComment {
   id: number;
   company_code: string;
@@ -318,4 +327,8 @@ export const api = {
     ),
   postFightComment: (companyCode: string, username: string, text: string) =>
     postJSON<FightComment>(`${BASE}/fight/comments`, { company_code: companyCode, username, text }),
+  fightNews: (code: string, name: string, lang: string = "ko") =>
+    getJSON<{ items: CompanyNewsItem[] }>(
+      `${BASE}/fight/news?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&lang=${lang}`
+    ),
 };

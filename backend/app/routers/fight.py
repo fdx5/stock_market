@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.services.company_news import get_company_news_translated
 from app.services.fight import get_fight_pair
 from app.services.fight_comment_store import add_comment, count_by_company, list_comments_for_pair
 
@@ -21,6 +22,15 @@ def fight_status(a: str = Query(..., min_length=1), b: str = Query(..., min_leng
     if not pair:
         raise HTTPException(status_code=404, detail="선택한 기업의 시가총액 데이터를 찾을 수 없습니다.")
     return pair
+
+
+@router.get("/news")
+def fight_news(
+    code: str = Query(..., min_length=1),
+    name: str = Query(..., min_length=1),
+    lang: str = Query("ko"),
+):
+    return {"items": get_company_news_translated(code, name, lang)}
 
 
 @router.get("/comments")
