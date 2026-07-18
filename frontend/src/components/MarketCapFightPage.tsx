@@ -21,7 +21,9 @@ import SlotMachineValue from "./SlotMachineValue";
 import ThemeToggle from "./ThemeToggle";
 
 const STATUS_POLL_MS = 3000;
-const INTRO_MAX_CHARS = 240;
+// Tuned to the info card's actual width/font-size so a 2-3 sentence description
+// reliably fits in ~3 lines without the box needing to clip anything.
+const INTRO_MAX_CHARS = 130;
 const TYPE_MS_PER_CHAR = 16;
 
 // Per-tab cache: a company's intro doesn't change, so re-picking it (or swapping
@@ -46,14 +48,24 @@ function formatChangePct(changePct: number | null | undefined): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
-/** Trims the scraped company description to roughly three display lines, cutting at
- * a word boundary so the typewriter never ends mid-word. */
+/** Trims the scraped company description to roughly three display lines by keeping
+ * whole sentences, not by cutting mid-word/mid-sentence and appending "…" — stops
+ * adding sentences once the budget would be exceeded, so the result always ends on
+ * a real period. If even the first sentence alone runs over budget, it's kept in
+ * full rather than chopped, since a slightly-long complete sentence reads better
+ * than a truncated one. */
 function truncateIntro(text: string): string {
   const clean = text.trim();
-  if (clean.length <= INTRO_MAX_CHARS) return clean;
-  const cut = clean.slice(0, INTRO_MAX_CHARS);
-  const lastSpace = cut.lastIndexOf(" ");
-  return `${cut.slice(0, lastSpace > INTRO_MAX_CHARS * 0.6 ? lastSpace : INTRO_MAX_CHARS)}…`;
+  if (!clean) return clean;
+  const sentences = clean.split(/(?<=[.!?])\s+/);
+  let result = "";
+  for (const sentence of sentences) {
+    const candidate = result ? `${result} ${sentence}` : sentence;
+    if (result && candidate.length > INTRO_MAX_CHARS) break;
+    result = candidate;
+    if (candidate.length > INTRO_MAX_CHARS) break;
+  }
+  return result;
 }
 
 function useCompanyIntro(item: GlobalTop20Item | null, lang: string): string | null {
@@ -256,12 +268,18 @@ function FightCard({ item, player }: { item: GlobalTop20Item; player: "p1" | "p2
   return (
     <div className={`fight-fighter fight-fighter--${player}`}>
       <div className="fight-fighter-aura" />
-      <div className={`fight-card${ceoImgSrc ? " fight-card--photo" : ""}`}>
-        {ceoImgSrc ? (
-          <img src={ceoImgSrc} alt={CEO_NAMES[item.code] ?? item.name} className="fight-card-ceo-photo" />
-        ) : (
-          <CompanyLogo item={item} className="fight-logo-img" />
-        )}
+      {/* Separate wrapper (no overflow:hidden) just for the card + its corner badge —
+          the badge intentionally overlaps the card's edge, and `.fight-card` itself
+          needs overflow:hidden to keep the CEO photo's corners rounded, which was
+          clipping the badge's overhanging part before this was split out. */}
+      <div className="fight-card-wrap">
+        <div className={`fight-card${ceoImgSrc ? " fight-card--photo" : ""}`}>
+          {ceoImgSrc ? (
+            <img src={ceoImgSrc} alt={CEO_NAMES[item.code] ?? item.name} className="fight-card-ceo-photo" />
+          ) : (
+            <CompanyLogo item={item} className="fight-logo-img" />
+          )}
+        </div>
         {ceoImgSrc && (
           <div className="fight-card-logo-badge">
             <CompanyLogo item={item} className="fight-logo-img" />

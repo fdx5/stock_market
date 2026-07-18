@@ -3595,34 +3595,44 @@ thead .weekly-foreign-amount-col {
   color: var(--fight-p2);
 }
 
-/* Logo - CEO portrait - flag, left to right, on both mobile and desktop. The CEO
-   portrait is the visual centerpiece (largest cell); logo and flag bracket it at a
-   fixed, smaller width so they never fight it for space at narrow viewports. */
+/* Logo - CEO portrait - flag, left to right, on both mobile and desktop. Each cell's
+   width is driven by its own aspect-ratio rather than by stretching to fill the row
+   — the row previously forced everything into one short, wide strip (84px tall,
+   however wide flex handed it), which squeezed the square CEO photos down to a
+   sliver (showing only hair, cropping out the face), squashed wide logos into a
+   too-narrow column, and cropped flags to whatever leftover shape remained. Sizing
+   each box to match what it actually contains means object-fit:cover/contain never
+   has to crop or distort anything. Row height, not width, is the controlled
+   dimension; the row is centered rather than stretched edge to edge. */
 .fight-info-banner-row {
-  align-self: stretch;
   display: flex;
-  gap: 8px;
-  height: 84px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 96px;
 }
 
 .fight-info-logo-cell {
-  flex: 0 0 64px;
-  height: 100%;
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
   border-radius: 8px;
   background: #fff;
-  padding: 8px;
+  padding: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
-/* Illustrated (not photographic) CEO portrait — the centerpiece of the row. */
+/* Illustrated (not photographic) CEO portrait — the centerpiece of the row. Square,
+   matching the source images' own 1:1 crop exactly, so object-fit:cover shows the
+   whole portrait with no cropping at all (a same-aspect cover is a no-op crop). */
 .fight-info-ceo-wrap {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  border-radius: 8px;
+  flex: 0 0 auto;
+  width: 96px;
+  height: 96px;
+  border-radius: 10px;
   overflow: hidden;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
 }
@@ -3631,14 +3641,19 @@ thead .weekly-foreign-amount-col {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: top center;
+  object-position: center center;
   display: block;
 }
 
+/* Sized to a typical flag aspect ratio (~3:2) instead of an arbitrary fixed width,
+   so cover only trims an imperceptible sliver instead of cropping deep into the
+   flag's pattern. */
 .fight-info-flag-wrap {
-  flex: 0 0 92px;
-  height: 100%;
-  border-radius: 8px;
+  flex: 0 0 auto;
+  width: 84px;
+  height: 56px;
+  align-self: center;
+  border-radius: 6px;
   overflow: hidden;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
 }
@@ -3664,14 +3679,17 @@ thead .weekly-foreign-amount-col {
   color: var(--fight-gold);
 }
 
+/* max-height + overflow:hidden as a silent safety net, not -webkit-line-clamp — the
+   JS-side truncateIntro() keeps this to ~3 lines by trimming at real sentence
+   boundaries, but line-clamp auto-appends its own "…" the instant content exceeds
+   the line count, which is exactly the "말줄임표" look this was meant to avoid.
+   A plain height clip has no such side effect if content ever runs slightly long. */
 .fight-info-intro {
   margin: 2px 0 0;
   font-size: 12.5px;
   line-height: 1.55;
+  max-height: calc(12.5px * 1.55 * 3);
   color: #cfd8ea;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
 }
@@ -3737,15 +3755,23 @@ thead .weekly-foreign-amount-col {
   }
 
   .fight-info-banner-row {
-    height: 68px;
+    height: 76px;
+    gap: 8px;
   }
 
   .fight-info-logo-cell {
-    flex-basis: 52px;
+    width: 52px;
+    height: 52px;
+  }
+
+  .fight-info-ceo-wrap {
+    width: 76px;
+    height: 76px;
   }
 
   .fight-info-flag-wrap {
-    flex-basis: 72px;
+    width: 66px;
+    height: 44px;
   }
 }
 
@@ -4200,10 +4226,20 @@ thead .weekly-foreign-amount-col {
 }
 
 /* Both sides render at the exact same size regardless of each logo's aspect ratio. */
-.fight-card {
+/* Positioning context for `.fight-card` + its corner badge. Deliberately does NOT
+   clip overflow (unlike `.fight-card` itself), so the badge — which intentionally
+   hangs a few px outside the card's edge to read as "stamped on top" — stays fully
+   visible instead of being sliced off by the card's own overflow:hidden. */
+.fight-card-wrap {
   position: relative;
   width: clamp(140px, 20vw, 210px);
   aspect-ratio: 1;
+}
+
+.fight-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
   border-radius: 16px;
   background: #fff;
   padding: 9%;
