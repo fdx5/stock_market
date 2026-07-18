@@ -15,6 +15,42 @@
 - **글로벌 TOP20**: 전 세계 시가총액 상위 20개 기업
 - **지수 차트**: 코스피/코스닥 지수 차트
 
+## 기술 스택
+
+### Backend
+- **Python 3.11 + FastAPI**, Uvicorn(ASGI)으로 서빙, 단일 워커(`WEB_CONCURRENCY=1`)
+  - 캐시가 프로세스 내부 메모리에 상주하므로 워커를 늘리면 캐시가 파편화되기 때문에 의도적으로 1로 고정
+- 주요 라이브러리: `pandas`, `numpy`, `finance-datareader`, `beautifulsoup4`+`lxml`(크롤링), `pydantic`, `libsql`(Turso 클라이언트)
+- 구조: `routers/`(HTTP 레이어) → `services/`(비즈니스 로직) → `data/`(외부 소스별 fetcher)
+
+### Frontend
+- **React 18 + TypeScript**, 빌드는 **Vite**
+- 라우팅은 외부 라이브러리 없이 `window.history.pushState` 기반 자체 구현
+- 차트: TradingView **lightweight-charts**
+- CSS: 프레임워크 없이 순수 CSS 한 파일 (Tailwind/CSS-in-JS 미사용)
+- 라우트별 코드 스플리팅 적용
+
+### 데이터 저장
+전통적인 RDB는 사용하지 않습니다.
+- **시세/지표/번역 데이터**: 전부 자체 구현 **인메모리 TTL 캐시**로만 존재 (DB 테이블 없음). TTL은 데이터 성격에 따라 10초~24시간까지 다양
+- **영구 저장이 필요한 것만 Turso(libSQL)**: 배틀 응원 댓글, 누적 방문자 수 딱 2가지. 로컬 개발 시 Turso 환경변수가 없으면 로컬 SQLite 파일로 자동 폴백
+
+캐시 아키텍처는 **single-flight**(동시 요청 몰려도 upstream fetch는 1번만 실행)와 **stale-while-revalidate**(만료돼도 옛 데이터를 즉시 반환하고 백그라운드에서 갱신)를 자체 구현해 사용 중이며, 서버 기동 시 주요 데이터를 미리 워밍업합니다.
+
+### 외부 연동 (전부 무료, API 키 불필요)
+- **네이버 금융** 크롤링: 실시간 시세, 뉴스, 종목토론방, 10호가 창, 투자자 매매동향
+- **Yahoo Finance** 비공식 차트 API: 원자재/환율/미국지수 등 상단 시세 티커
+- **Google Translate** 비공식 엔드포인트: 동적 텍스트 번역 (배치 처리 + SHA1 해시 기반 7일 캐시)
+- **ip-api.com**: 접속 국가 기반 기본 언어 결정
+- **companiesmarketcap.com**: 글로벌 시가총액 TOP20 크롤링
+
+### 예측 기능
+`predictor.py`는 머신러닝이 아니라 **룰 베이스 휴리스틱**입니다 — SMA/RSI/MACD/볼린저밴드/OBV 등 기술적 지표 점수를 조합해 다음날 방향을 예측합니다.
+
+### 배포/인프라
+- **Render**(Docker 멀티스테이지 빌드: `node:20-alpine`으로 프론트 빌드 → `python:3.11-slim`에 백엔드+빌드 결과물을 합쳐 단일 컨테이너로 API+SPA 동시 서빙), **standard 플랜(2GB RAM/1CPU)**
+- GitHub Actions cron(10분마다)이 헬스체크와 캐시 워밍을 겸함 (별도 테스트 CI는 없음)
+
 ## 로컬 실행 (개발 모드)
 
 ### 1) 백엔드
@@ -48,7 +84,7 @@ docker run -p 8000:8000 k-stock-hub
 
 `http://localhost:8000` 접속 시 프론트엔드(정적 빌드)와 API가 하나의 컨테이너에서 함께 서빙됩니다.
 
-## 외부 접속 가능하도록 배포하기 (Render, 무료 티어)
+## 외부 접속 가능하도록 배포하기 (Render)
 
 1. 이 리포지토리를 GitHub에 push 합니다.
    ```bash
@@ -62,15 +98,18 @@ docker run -p 8000:8000 k-stock-hub
 4. 배포가 완료되면 Render가 발급한 URL로 외부에서 접속할 수 있습니다.
 5. 이후 `main` 브랜치에 push할 때마다 자동으로 재배포됩니다 (`autoDeploy: true`).
 
-> 무료 티어는 일정 시간 요청이 없으면 슬립되며, 다음 요청 시 기동까지 수십 초가 걸릴 수 있습니다.
+> 현재 `standard` 플랜(2GB RAM/1CPU)으로 운영 중이며, `backend/.env`(로컬) 또는 Render 대시보드(운영)에 `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`을 설정해야 배틀 댓글/방문자 수가 재배포 이후에도 유지됩니다. 설정하지 않으면 로컬 파일로 자동 폴백되어 컨테이너가 재시작될 때 초기화됩니다.
 
 ## 프로젝트 구조
 
 ```
-backend/app/          FastAPI 백엔드 (데이터 수집, 지표 계산, 맵/배틀/수급 서비스, API)
-frontend/src/          React + TypeScript 프론트엔드 (대시보드, 맵, 배틀, 수급, 글로벌TOP20, 다국어)
-Dockerfile             프론트엔드 빌드 + 백엔드를 하나의 이미지로 묶는 멀티스테이지 빌드
-render.yaml            Render 배포 설정
+backend/app/routers/   HTTP 레이어 (battle, geo, investor, market_map, search, stock, translate, visitors)
+backend/app/services/  비즈니스 로직 (cache, battle, comment_store, indicators, investor_summary, market_map, predictor, translation, visitor_store 등)
+backend/app/data/      외부 소스별 fetcher (네이버 금융, Yahoo Finance, Google Translate 등 크롤링/호출 계층)
+frontend/src/          React + TypeScript 프론트엔드 (대시보드, 맵, 배틀, 수급, 글로벌TOP20, 다국어 i18n)
+Dockerfile              프론트엔드 빌드 + 백엔드를 하나의 이미지로 묶는 멀티스테이지 빌드
+render.yaml             Render 배포 설정
+.github/workflows/      keep-alive.yml (cron 헬스체크 + 캐시 워밍)
 ```
 
 ## API 엔드포인트
