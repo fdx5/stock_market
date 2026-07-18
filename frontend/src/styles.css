@@ -4305,16 +4305,18 @@ thead .weekly-foreign-amount-col {
    wide), far wider than the badge itself (~84px). `padding: 8%` was silently
    resolving to ~17px against that 140-210px width, eating nearly all of the badge's
    ~38px height and squashing the logo down to a barely-visible 4-5px sliver. */
+/* 60% of the previous size (was 82%/160px) — the bigger badge was overlapping too
+   much of the CEO photo's face. */
 .fight-card-logo-badge {
   position: absolute;
-  right: -8px;
-  bottom: -8px;
-  width: 82%;
-  max-width: 160px;
+  right: -5px;
+  bottom: -5px;
+  width: 49%;
+  max-width: 96px;
   aspect-ratio: 2.2 / 1;
-  border-radius: 10px;
+  border-radius: 6px;
   background: #fff;
-  padding: 4px 8px;
+  padding: 2px 5px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4445,6 +4447,13 @@ thead .weekly-foreign-amount-col {
 
 .fight-diff-panel-sub-line {
   white-space: nowrap;
+}
+
+/* 1위 line reads at ~2x the 2위 line's size so the leader visually dominates the
+   readout instead of both names competing at the same weight. */
+.fight-diff-panel-sub-line--leader {
+  font-size: 2em;
+  font-weight: 900;
 }
 
 /* Center column: VS badge, crossing lightning, spark particles */
@@ -4808,9 +4817,9 @@ thead .weekly-foreign-amount-col {
      160px) — at this card size that box would otherwise cover most of the CEO
      photo's face. */
   .fight-card-logo-badge {
-    width: 62%;
-    max-width: 110px;
-    padding: 1px 4px;
+    width: 37%;
+    max-width: 66px;
+    padding: 1px 2px;
   }
 
   .fight-action-row {

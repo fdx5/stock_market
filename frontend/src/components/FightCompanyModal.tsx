@@ -1,5 +1,6 @@
 import { GlobalTop20Item } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
+import { useBodyScrollLock } from "../useBodyScrollLock";
 import CompanyLogo from "./CompanyLogo";
 
 // Company showcase popup opened from clicking a fighter's CEO photo on the fight
@@ -28,6 +29,7 @@ export default function FightCompanyModal({
   onClose: () => void;
 }) {
   const t = useT();
+  useBodyScrollLock(true);
 
   return (
     <div className="fight-company-modal-backdrop" onClick={onClose}>

@@ -59,6 +59,25 @@ def _is_preferred(source: str) -> bool:
     return any(preferred in normalized for preferred in PREFERRED_SOURCES)
 
 
+# Domains confirmed (by direct request during development) to never yield real
+# article text to a plain server-side fetch, for two different reasons: msn.com
+# renders the article body entirely client-side (bare React root div, no <p> tags or
+# hydration data anywhere in the raw HTML — no extraction library can help, the text
+# genuinely isn't in the response), while seekingalpha.com hard-blocks with a 403.
+# Reuters is deliberately NOT here despite also blocking with a bot-challenge (401 +
+# "enable JS" page): it's one of the most authoritative sources this list has, and
+# even when in-app reading fails for it, "원문에서 보기" still opens fine in a real
+# browser — sorting it out of the list entirely would be the wrong trade-off.
+UNEXTRACTABLE_DOMAINS = {"msn.com", "seekingalpha.com"}
+
+
+def _is_unextractable_domain(link: str) -> bool:
+    """Sorted after everything else (not filtered out) so a company with little
+    coverage outside these domains still gets a full-length list instead of an
+    artificially short one."""
+    return any(domain in link for domain in UNEXTRACTABLE_DOMAINS)
+
+
 def _resolve_bing_real_url(apiclick_link: str) -> str:
     """Bing's <link> is a bing.com/news/apiclick.aspx tracking wrapper, but — unlike
     Google News RSS's wrapper, which only resolves via client-side JS — the real
@@ -109,9 +128,10 @@ def fetch_bing_news(query: str, limit: int) -> list[dict]:
             }
         )
 
-    # Stable sort: RSS already returns newest-first, so preferred-source items keep
-    # their relative recency order within their own group.
-    items.sort(key=lambda it: 0 if _is_preferred(it["source"]) else 1)
+    # Stable sort: RSS already returns newest-first, so items keep their relative
+    # recency order within their own group. Known-unextractable domains are pushed to
+    # the very end regardless of outlet reputation — see _is_unextractable_domain.
+    items.sort(key=lambda it: (_is_unextractable_domain(it["link"]), 0 if _is_preferred(it["source"]) else 1))
     return items[:limit]
 
 

@@ -650,7 +650,7 @@ export default function MarketCapFightPage() {
                 <RollingValue value={diffMarcap} text={`$${diffMarcap.toFixed(2)}${trillionSuffix(lang)}`} />
               </div>
               <div className="fight-diff-panel-sub">
-                <div className="fight-diff-panel-sub-line">
+                <div className="fight-diff-panel-sub-line fight-diff-panel-sub-line--leader">
                   👑 <span className={leader === statusA ? "fight-p1-color" : "fight-p2-color"}>{leaderName}</span>
                 </div>
                 <div className="fight-diff-panel-sub-line">

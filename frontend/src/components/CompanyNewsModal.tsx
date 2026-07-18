@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CompanyNewsItem, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
+import { useBodyScrollLock } from "../useBodyScrollLock";
 
 // Skeleton placeholders shown while the list/article fetch is in flight — the news
 // list depends on a Bing RSS fetch plus (for foreign items) a batched translation
@@ -63,6 +64,7 @@ export default function CompanyNewsModal({
 }) {
   const t = useT();
   const { lang } = useLanguage();
+  useBodyScrollLock(true);
 
   const [selected, setSelected] = useState<CompanyNewsItem | null>(null);
   const [paragraphs, setParagraphs] = useState<string[] | null>(null);
