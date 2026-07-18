@@ -52,7 +52,7 @@ export const DICTIONARY: Record<string, string> = {
   "다시 선택": "Choose again",
   "시총 격차": "MARKET CAP GAP",
   "응원": "Cheer",
-  "고마워요! 🔥": "Thank you! 🔥",
+  "땡큐! 👍": "Thanks! 👍",
   "글로벌 TOP20 데이터를 불러오지 못했습니다.": "Failed to load the global TOP 20 data.",
 
   // GlobalTop20 / CompanyDetailModal

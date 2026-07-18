@@ -79,7 +79,7 @@ export default function FightCheerSection({ sideA, sideB }: { sideA: FightSide; 
       {celebrate && (
         <div className="cheer-celebrate-overlay">
           <div key={celebrate.nonce} className={`cheer-celebrate fight-${celebrate.player}`}>
-            <div className="cheer-celebrate-text">{t("고마워요! 🔥")}</div>
+            <div className="cheer-celebrate-text">{t("땡큐! 👍")}</div>
           </div>
         </div>
       )}

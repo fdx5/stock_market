@@ -3595,11 +3595,34 @@ thead .weekly-foreign-amount-col {
   color: var(--fight-p2);
 }
 
+/* Logo (left) + flag (right), side by side. On desktop the logo cell is hidden —
+   the standalone square portrait beside the roster grid already fills that role —
+   so only the flag shows, full width, same as before. On mobile that standalone
+   portrait is hidden instead (see the 640px block further down) and the logo cell
+   here becomes visible, merging both into one row instead of duplicating either. */
+.fight-info-banner-row {
+  align-self: stretch;
+  display: flex;
+  gap: 8px;
+}
+
+.fight-info-logo-mobile {
+  display: none;
+  flex-shrink: 0;
+  width: 72px;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
 /* Full-width banner (not a small floating icon) so the top of the card has no dead
    space — the flag fills the whole strip edge to edge. */
 .fight-info-flag-wrap {
-  align-self: stretch;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 72px;
   border-radius: 8px;
   overflow: hidden;
@@ -3697,6 +3720,12 @@ thead .weekly-foreign-amount-col {
 
   .fight-info-card {
     min-height: 0;
+  }
+
+  .fight-info-logo-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 }
 
@@ -3991,29 +4020,43 @@ thead .weekly-foreign-amount-col {
   }
 }
 
-/* Split left/right background: each side's flagship product photo, darkened and
-   faded toward the seam so the VS overlay/HP bars on top stay readable. */
+/* Split left/right background: each side's flagship product photo. Previously this
+   combined brightness(0.55) with opacity:0.75 (a ~0.41x multiplier) which left the
+   photos too dim/washed out to actually recognize — legibility for the centered VS
+   text now comes from a dedicated vignette (below) instead of just darkening the
+   whole photo, so the images themselves can stay bright and clear. */
 .fight-arena-bg {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 52%;
+  width: 66%;
   background-size: cover;
   background-position: center;
-  filter: saturate(1.05) brightness(0.55);
-  opacity: 0.75;
+  filter: saturate(1.15) contrast(1.06);
 }
 
 .fight-arena-bg--p1 {
   left: 0;
-  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.9) 55%, transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.9) 55%, transparent 100%);
+  mask-image: linear-gradient(90deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 68%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 68%, transparent 100%);
 }
 
 .fight-arena-bg--p2 {
   right: 0;
-  mask-image: linear-gradient(270deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.9) 55%, transparent 100%);
-  -webkit-mask-image: linear-gradient(270deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.9) 55%, transparent 100%);
+  mask-image: linear-gradient(270deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 68%, transparent 100%);
+  -webkit-mask-image: linear-gradient(270deg, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 1) 68%, transparent 100%);
+}
+
+/* Darkens only the center seam (where VS/lightning sit) and the very top (where the
+   HP-bar overlay's own gradient already helps) — a targeted vignette instead of
+   dimming the photos themselves. */
+.fight-arena-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 38% 90% at 50% 60%, rgba(5, 3, 8, 0.75) 0%, transparent 70%),
+    linear-gradient(180deg, rgba(5, 3, 8, 0.55) 0%, transparent 30%);
 }
 
 .fight-arena-spotlight {
@@ -4532,6 +4575,17 @@ thead .weekly-foreign-amount-col {
   .fight-roster-grid {
     order: 1;
     flex: 1 1 100%;
+  }
+}
+
+/* The top info card already shows the pick (flag banner + merged logo + name), so
+   the square portrait beside the roster grid would just be duplicate content on a
+   phone screen — drop it and let the roster grid use the full width instead. Placed
+   after the unconditional `.fight-select-portrait` rule above (~line 3786) so this
+   override actually wins the cascade instead of being clobbered by it. */
+@media (max-width: 640px) {
+  .fight-select-portrait {
+    display: none;
   }
 }
 

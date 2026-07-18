@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
 import { CEO_NAMES } from "../data/ceoNames";
+import { hiResFlagUrl } from "../data/flagCodes";
 import { productImageFor } from "../data/productImages";
 import { trillionSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
@@ -163,16 +164,28 @@ function InfoCard({
 }) {
   const t = useT();
   const ceo = item ? CEO_NAMES[item.code] : undefined;
+  // flagcdn's vector flag renders crisp at any size; companiesmarketcap's own flag
+  // icon is only 32x32px and visibly blurs stretched across the full-width banner,
+  // so it's kept only as a fallback for a country flagcdn isn't mapped for.
+  const flagSrc = item ? hiResFlagUrl(item.country) ?? item.flag_url : null;
   return (
     <div className={`fight-info-card fight-info-card--${player}${item ? " picked" : ""}`}>
       <div className="fight-info-label">{player === "p1" ? "1P" : "2P"}</div>
       {item ? (
         <>
-          {item.flag_url && (
-            <div className="fight-info-flag-wrap">
-              <img src={item.flag_url} className="fight-info-flag" alt={item.country} />
+          <div className="fight-info-banner-row">
+            {/* Mobile-only: merges the square logo portrait (shown separately next
+                to the roster grid on desktop) in here, to the left of the flag,
+                instead of duplicating it as a whole separate block. */}
+            <div className="fight-info-logo-mobile">
+              <CompanyLogo item={item} className="fight-logo-img" />
             </div>
-          )}
+            {flagSrc && (
+              <div className="fight-info-flag-wrap">
+                <img src={flagSrc} className="fight-info-flag" alt={item.country} />
+              </div>
+            )}
+          </div>
           <div className="fight-info-company">{item.name}</div>
           {ceo && <div className="fight-info-ceo">CEO · {ceo}</div>}
           {intro === null ? (
@@ -327,6 +340,16 @@ export default function MarketCapFightPage() {
   // the countdown below can't fire off a stale completion from the previous pick.
   useEffect(() => setP1IntroDone(false), [p1?.code]);
   useEffect(() => setP2IntroDone(false), [p2?.code]);
+
+  // On mobile the roster grid sits below the fold, so picking 2P (completing the
+  // pair) would otherwise leave the info cards / countdown off-screen — scroll back
+  // to the top so the player actually sees them. Desktop already shows everything
+  // at once, so this is scoped to narrow viewports only.
+  useEffect(() => {
+    if (p1 && p2 && phase === "select" && window.matchMedia("(max-width: 640px)").matches) {
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+  }, [p1, p2, phase]);
 
   // Both intros fully typed out -> run a 3/2/1 countdown, then transition to the
   // fight screen (the countdown's 3 seconds IS the "3 seconds after exposure finishes"
@@ -512,6 +535,7 @@ export default function MarketCapFightPage() {
               className="fight-arena-bg fight-arena-bg--p2"
               style={p2 && productImageFor(p2.code) ? { backgroundImage: `url(${productImageFor(p2.code)})` } : undefined}
             />
+            <div className="fight-arena-vignette" />
             <div className="fight-arena-spotlight" />
             <div className="fight-arena-floor" />
             <div className="fight-arena-flash" />
