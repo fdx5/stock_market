@@ -3478,21 +3478,18 @@ thead .weekly-foreign-amount-col {
   --fight-grid-line: rgba(46, 44, 38, 0.1);
 }
 
-/* Zero-footprint host for the cel-shade SVG filter defs. */
-.fight-svg-defs {
-  position: absolute;
-  width: 0;
-  height: 0;
-  overflow: hidden;
-}
-
-/* Every CEO/logo "face" rendered on this page gets posterized toward an animation-cel
-   look (photo -> flat color bands) plus punchier saturation. */
-.fight-face-img {
+/* High-res company logo rendered inside a light tile (mirrors how the source site
+   presents them — most logos are drawn for a white background). */
+.fight-logo-img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-  filter: url(#fight-cel-shade) saturate(1.35) contrast(1.08);
+  object-fit: contain;
+}
+
+.fight-logo-fallback {
+  font-size: 22px;
+  font-weight: 900;
+  color: #55688c;
 }
 
 .fight-select-wrap {
@@ -3740,11 +3737,12 @@ thead .weekly-foreign-amount-col {
 
 .fight-select-portrait-frame {
   width: 110px;
-  height: 130px;
+  height: 110px;
   border: 3px double #55688c;
   border-radius: 6px;
   overflow: hidden;
-  background: #060a12;
+  background: #fff;
+  padding: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3865,36 +3863,27 @@ thead .weekly-foreign-amount-col {
   background: var(--fight-p2);
 }
 
-.fight-roster-face {
+.fight-roster-logo-tile {
   position: relative;
   width: 100%;
   aspect-ratio: 1;
-  background: #0d1526;
+  background: #fff;
+  padding: 14%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 900;
-  color: #55688c;
 }
 
-/* Absolutely positioned so each photo's natural size can't stretch its cell — every
-   mugshot crops to the same square regardless of the source photo's aspect ratio. */
-.fight-roster-face .fight-face-img {
+/* Absolutely positioned (inside the padding box) so a logo's natural size can never
+   stretch its cell — every tile stays the same square. */
+.fight-roster-logo-tile .fight-logo-img {
   position: absolute;
-  inset: 0;
-}
-
-.fight-roster-logo-chip {
-  position: absolute;
-  bottom: 3px;
-  right: 3px;
-  width: 18px;
-  height: 18px;
-  object-fit: contain;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 1px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  inset: 14%;
+  width: auto;
+  height: auto;
+  max-width: 72%;
+  max-height: 72%;
+  margin: auto;
 }
 
 .fight-roster-name {
@@ -4023,7 +4012,7 @@ thead .weekly-foreign-amount-col {
   }
 }
 
-/* Fighters — upper body, CEO face, burning aura, facing each other */
+/* Fighters — fixed-size logo cards squaring off (no animated figures by design) */
 
 .fight-fighter {
   position: relative;
@@ -4032,26 +4021,12 @@ thead .weekly-foreign-amount-col {
   flex-direction: column;
   align-items: center;
   gap: 10px;
-  animation: fight-fighter-idle 1.3s ease-in-out infinite;
-}
-
-.fight-fighter--p2 {
-  animation-delay: 0.4s;
-}
-
-@keyframes fight-fighter-idle {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-7px);
-  }
 }
 
 .fight-fighter-aura {
   position: absolute;
-  inset: -38px -46px -4px;
-  border-radius: 50% 50% 42% 42%;
+  inset: -34px -42px -6px;
+  border-radius: 50%;
   filter: blur(16px);
   opacity: 1;
   animation: fight-aura-flicker 0.9s ease-in-out infinite;
@@ -4060,13 +4035,13 @@ thead .weekly-foreign-amount-col {
 
 .fight-fighter--p1 .fight-fighter-aura {
   background:
-    radial-gradient(ellipse 62% 55% at 50% 26%, rgba(120, 190, 255, 0.85) 0%, rgba(78, 161, 255, 0.4) 45%, transparent 72%),
+    radial-gradient(ellipse 62% 55% at 50% 30%, rgba(120, 190, 255, 0.85) 0%, rgba(78, 161, 255, 0.4) 45%, transparent 72%),
     radial-gradient(ellipse 50% 75% at 50% 68%, rgba(50, 110, 240, 0.7) 0%, transparent 76%);
 }
 
 .fight-fighter--p2 .fight-fighter-aura {
   background:
-    radial-gradient(ellipse 62% 55% at 50% 26%, rgba(255, 160, 80, 0.9) 0%, rgba(255, 110, 60, 0.45) 45%, transparent 72%),
+    radial-gradient(ellipse 62% 55% at 50% 30%, rgba(255, 160, 80, 0.9) 0%, rgba(255, 110, 60, 0.45) 45%, transparent 72%),
     radial-gradient(ellipse 50% 75% at 50% 68%, rgba(235, 60, 40, 0.75) 0%, transparent 76%);
 }
 
@@ -4085,167 +4060,26 @@ thead .weekly-foreign-amount-col {
   }
 }
 
-.fight-fighter-bust {
+/* Both sides render at the exact same size regardless of each logo's aspect ratio. */
+.fight-card {
   position: relative;
-  width: 168px;
-  height: 200px;
-}
-
-/* P2 mirrors the whole bust so both fighters square off face-to-face; the nameplate
-   below stays unmirrored. */
-.fight-fighter--p2 .fight-fighter-bust {
-  transform: scaleX(-1);
-}
-
-.fight-fighter-head {
-  position: absolute;
-  top: 0;
-  left: 50%;
-  width: 104px;
-  height: 118px;
-  margin-left: -52px;
-  border-radius: 42% 42% 38% 38%;
+  width: clamp(140px, 20vw, 210px);
+  aspect-ratio: 1;
+  border-radius: 16px;
+  background: #fff;
+  padding: 9%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
-  background: #101624;
-  z-index: 2;
-  /* Leaning slightly toward the opponent sells the stare-down. */
-  transform: rotate(4deg);
 }
 
-.fight-fighter--p1 .fight-fighter-head {
-  box-shadow: 0 0 0 3px var(--fight-p1), 0 0 22px rgba(78, 161, 255, 0.65);
+.fight-fighter--p1 .fight-card {
+  box-shadow: 0 0 0 3px var(--fight-p1), 0 0 26px rgba(78, 161, 255, 0.6);
 }
 
-.fight-fighter--p2 .fight-fighter-head {
-  box-shadow: 0 0 0 3px var(--fight-p2), 0 0 22px rgba(255, 90, 90, 0.65);
-}
-
-/* Burning-gaze overlay: an ember glow drifting over the upper (eye) region. */
-.fight-fighter-glare {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: radial-gradient(ellipse 64% 26% at 50% 32%, rgba(255, 120, 30, 0.3) 0%, transparent 70%);
-  mix-blend-mode: screen;
-  animation: fight-glare-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes fight-glare-pulse {
-  0%, 100% {
-    opacity: 0.5;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* Reads as a collar bridging head and shoulders, so it takes the player color. */
-.fight-fighter-neck {
-  position: absolute;
-  top: 112px;
-  left: 50%;
-  width: 30px;
-  height: 22px;
-  margin-left: -15px;
-  border-radius: 4px 4px 0 0;
-  z-index: 1;
-}
-
-.fight-fighter--p1 .fight-fighter-neck {
-  background: linear-gradient(180deg, #2c5fae, #3c86e8);
-}
-
-.fight-fighter--p2 .fight-fighter-neck {
-  background: linear-gradient(180deg, #b03428, #e85a48);
-}
-
-.fight-fighter-shoulders {
-  position: absolute;
-  top: 128px;
-  left: 0;
-  width: 100%;
-  height: 72px;
-  clip-path: polygon(12% 100%, 22% 18%, 40% 0, 60% 0, 78% 18%, 88% 100%);
-  z-index: 1;
-}
-
-.fight-fighter--p1 .fight-fighter-shoulders {
-  background: linear-gradient(180deg, #3c86e8 0%, #1d4f9e 70%, #123162 100%);
-}
-
-.fight-fighter--p2 .fight-fighter-shoulders {
-  background: linear-gradient(180deg, #e85a48 0%, #a52a20 70%, #5f1712 100%);
-}
-
-/* Guard pose: forearms rise out of the shoulders and end in fists — the front fist
-   rides high by the chin (inner side, toward the opponent), the rear guards the body. */
-.fight-fighter-arm {
-  position: absolute;
-  width: 15px;
-  height: 52px;
-  border-radius: 8px;
-  z-index: 2;
-}
-
-.fight-fighter--p1 .fight-fighter-arm {
-  background: linear-gradient(180deg, #2c66b8 0%, #17376b 100%);
-}
-
-.fight-fighter--p2 .fight-fighter-arm {
-  background: linear-gradient(180deg, #c23c2c 0%, #6b1712 100%);
-}
-
-.fight-fighter-arm--front {
-  right: 30px;
-  top: 118px;
-  transform: rotate(30deg);
-  transform-origin: bottom center;
-}
-
-.fight-fighter-arm--rear {
-  left: 34px;
-  top: 138px;
-  transform: rotate(-38deg);
-  transform-origin: bottom center;
-  height: 44px;
-}
-
-.fight-fighter-fist {
-  position: absolute;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  z-index: 3;
-}
-
-.fight-fighter--p1 .fight-fighter-fist {
-  background: radial-gradient(circle at 35% 30%, #6fb1ff 0%, #2c66b8 60%, #17376b 100%);
-}
-
-.fight-fighter--p2 .fight-fighter-fist {
-  background: radial-gradient(circle at 35% 30%, #ff8a70 0%, #c23c2c 60%, #6b1712 100%);
-}
-
-.fight-fighter-fist--front {
-  right: 14px;
-  top: 106px;
-  animation: fight-fist-bob 1.3s ease-in-out infinite;
-}
-
-.fight-fighter-fist--rear {
-  left: 20px;
-  top: 128px;
-  width: 28px;
-  height: 28px;
-}
-
-@keyframes fight-fist-bob {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
+.fight-fighter--p2 .fight-card {
+  box-shadow: 0 0 0 3px var(--fight-p2), 0 0 26px rgba(255, 90, 90, 0.6);
 }
 
 .fight-fighter-nameplate {
@@ -4275,10 +4109,21 @@ thead .weekly-foreign-amount-col {
   text-shadow: 1px 1px 0 #000;
 }
 
-.fight-fighter-nameplate-person {
-  font-size: 11px;
-  font-weight: 700;
+/* Leader/gap readout under the arena (same info the fixed battle page shows). */
+.fight-diff-info {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.fight-diff-leader {
+  font-weight: 900;
+}
+
+.fight-diff-amount {
   color: var(--fight-gold);
+  font-weight: 900;
 }
 
 /* Center column: VS badge, crossing lightning, spark particles */
@@ -4557,42 +4402,8 @@ thead .weekly-foreign-amount-col {
     grid-template-columns: repeat(4, 1fr);
   }
 
-  .fight-fighter-bust {
-    width: 118px;
-    height: 150px;
-  }
-
-  .fight-fighter-head {
-    width: 76px;
-    height: 88px;
-    margin-left: -38px;
-  }
-
-  .fight-fighter-neck {
-    top: 84px;
-  }
-
-  .fight-fighter-shoulders {
-    top: 96px;
-    height: 54px;
-  }
-
-  .fight-fighter-fist--front {
-    top: 80px;
-    right: 2px;
-    width: 26px;
-    height: 26px;
-  }
-
-  .fight-fighter-fist--rear {
-    top: 112px;
-    left: 0;
-    width: 22px;
-    height: 22px;
-  }
-
   .fight-arena {
-    min-height: 300px;
+    min-height: 280px;
     padding: 120px 8px 24px;
   }
 
@@ -4606,9 +4417,5 @@ thead .weekly-foreign-amount-col {
 
   .fight-fighter-nameplate-company {
     font-size: 11px;
-  }
-
-  .fight-fighter-nameplate-person {
-    font-size: 10px;
   }
 }

@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
-import { ceoImageFor } from "../data/ceoImages";
 import { trillionSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { useEffect } from "react";
 import DashboardIcon from "./DashboardIcon";
 import FightCheerSection from "./FightCheerSection";
 import Footer from "./Footer";
@@ -38,43 +38,33 @@ function formatChangePct(changePct: number | null | undefined): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
-/** CEO face when we have one, company logo otherwise. */
-function faceSrc(item: GlobalTop20Item): string | null {
-  return ceoImageFor(item.code)?.src ?? item.logo_url;
-}
-
-/** Posterizes portrait photos into a cel-shaded/anime look purely in the browser —
- * referenced from CSS as `filter: url(#fight-cel-shade)`. Mounted once per page. */
-function CelShadeFilterDefs() {
-  const steps = "0.10 0.30 0.50 0.72 0.94";
+/** companiesmarketcap serves the same logo at /64/, /128/ and /256/ — the roster API
+ * hands us the 64px variant, so swap in the 256px one for crisp large tiles, keeping
+ * the original as an onError fallback in case a particular logo lacks the big size. */
+function CompanyLogo({ item, className }: { item: GlobalTop20Item; className?: string }) {
+  const [failedHiRes, setFailedHiRes] = useState(false);
+  if (!item.logo_url) return <span className="fight-logo-fallback">{item.name.slice(0, 2)}</span>;
+  const src = failedHiRes ? item.logo_url : item.logo_url.replace("/company-logos/64/", "/company-logos/256/");
   return (
-    <svg className="fight-svg-defs" aria-hidden="true" focusable="false">
-      <filter id="fight-cel-shade">
-        <feComponentTransfer>
-          <feFuncR type="discrete" tableValues={steps} />
-          <feFuncG type="discrete" tableValues={steps} />
-          <feFuncB type="discrete" tableValues={steps} />
-        </feComponentTransfer>
-      </filter>
-    </svg>
+    <img
+      src={src}
+      alt={item.name}
+      className={className}
+      onError={() => {
+        if (!failedHiRes) setFailedHiRes(true);
+      }}
+    />
   );
 }
 
 function SelectPortrait({ item, player }: { item: GlobalTop20Item | null; player: "p1" | "p2" }) {
-  const src = item ? faceSrc(item) : null;
-  const ceo = item ? ceoImageFor(item.code) : null;
   return (
     <div className={`fight-select-portrait fight-select-portrait--${player}${item ? " picked" : ""}`}>
       <div className="fight-select-portrait-label">{player === "p1" ? "1P" : "2P"}</div>
       <div className="fight-select-portrait-frame">
-        {src ? (
-          <img src={src} alt={item?.name ?? ""} className="fight-face-img" />
-        ) : (
-          <span className="fight-select-portrait-empty">?</span>
-        )}
+        {item ? <CompanyLogo item={item} className="fight-logo-img" /> : <span className="fight-select-portrait-empty">?</span>}
       </div>
       <div className="fight-select-portrait-name">{item ? item.name : "— — —"}</div>
-      {ceo && <div className="fight-select-portrait-person">{ceo.person}</div>}
     </div>
   );
 }
@@ -88,7 +78,6 @@ function RosterCard({
   slot: "p1" | "p2" | null;
   onClick: () => void;
 }) {
-  const src = faceSrc(item);
   return (
     <button
       type="button"
@@ -97,36 +86,25 @@ function RosterCard({
       title={item.name}
     >
       {slot && <span className={`fight-roster-badge fight-roster-badge--${slot}`}>{slot.toUpperCase()}</span>}
-      <div className="fight-roster-face">
-        {src ? <img src={src} alt={item.name} className="fight-face-img" /> : <span>{item.name.slice(0, 2)}</span>}
-        {item.logo_url && <img src={item.logo_url} alt="" className="fight-roster-logo-chip" />}
+      <div className="fight-roster-logo-tile">
+        <CompanyLogo item={item} className="fight-logo-img" />
       </div>
       <div className="fight-roster-name">{item.name}</div>
     </button>
   );
 }
 
-function FighterFigure({ item, player }: { item: GlobalTop20Item; player: "p1" | "p2" }) {
-  const src = faceSrc(item);
-  const ceo = ceoImageFor(item.code);
+/** One side of the VS composition: a fixed-size logo card with the player-color glow
+ * — deliberately no animated humanoid figure, just the emblem squaring off. */
+function FightCard({ item, player }: { item: GlobalTop20Item; player: "p1" | "p2" }) {
   return (
     <div className={`fight-fighter fight-fighter--${player}`}>
       <div className="fight-fighter-aura" />
-      <div className="fight-fighter-bust">
-        <div className="fight-fighter-arm fight-fighter-arm--rear" />
-        <div className="fight-fighter-fist fight-fighter-fist--rear" />
-        <div className="fight-fighter-shoulders" />
-        <div className="fight-fighter-neck" />
-        <div className="fight-fighter-head">
-          {src && <img src={src} alt={item.name} className="fight-face-img" />}
-          <div className="fight-fighter-glare" />
-        </div>
-        <div className="fight-fighter-arm fight-fighter-arm--front" />
-        <div className="fight-fighter-fist fight-fighter-fist--front" />
+      <div className="fight-card">
+        <CompanyLogo item={item} className="fight-logo-img" />
       </div>
       <div className="fight-fighter-nameplate">
         <span className="fight-fighter-nameplate-company">{item.name}</span>
-        {ceo && <span className="fight-fighter-nameplate-person">{ceo.person}</span>}
       </div>
     </div>
   );
@@ -282,9 +260,17 @@ export default function MarketCapFightPage() {
   const aPct = total > 0 && statusA ? (statusA.marcap_usd / total) * 100 : 50;
   const bPct = 100 - aPct;
 
+  // Same leader/gap readout the fixed battle page shows (2위 · 차이), adapted to USD.
+  const aWinning = aPct >= bPct;
+  const leader = statusA && statusB ? (aWinning ? statusA : statusB) : null;
+  const trailing = statusA && statusB ? (aWinning ? statusB : statusA) : null;
+  const diffMarcap = statusA && statusB ? Math.abs(statusA.marcap_usd - statusB.marcap_usd) / 1_000_000_000_000 : 0;
+  const diffPct = Math.abs(aPct - bPct);
+  const leaderName = useTranslatedText(leader?.name ?? "");
+  const trailingName = useTranslatedText(trailing?.name ?? "");
+
   return (
     <div className="app fight-page">
-      <CelShadeFilterDefs />
       <header className="app-header">
         <div className="app-title-row">
           <Link to="/" className="app-brand" aria-label="K-Stock Hub">
@@ -350,7 +336,7 @@ export default function MarketCapFightPage() {
             <div className="fight-arena-flash" />
             <div className="fight-arena-fight-text">FIGHT!</div>
 
-            <FighterFigure item={p1} player="p1" />
+            <FightCard item={statusA ?? p1} player="p1" />
 
             <div className="fight-arena-center">
               <div className="fight-lightning fight-lightning--a" />
@@ -361,7 +347,7 @@ export default function MarketCapFightPage() {
               <span className="fight-spark fight-spark--3" />
             </div>
 
-            <FighterFigure item={p2} player="p2" />
+            <FightCard item={statusB ?? p2} player="p2" />
 
             {statusA && statusB && (
               <div className="battle-vs-overlay fight-vs-overlay">
@@ -370,6 +356,20 @@ export default function MarketCapFightPage() {
               </div>
             )}
           </div>
+
+          {leader && trailing && (
+            <div className="fight-diff-info">
+              👑 <span className={`fight-diff-leader ${leader === statusA ? "fight-p1-color" : "fight-p2-color"}`}>{leaderName}</span>
+              {" · "}
+              {t("2위")} {trailingName} ·{" "}
+              <RollingValue
+                className="fight-diff-amount"
+                value={diffMarcap}
+                text={`$${diffMarcap.toFixed(2)}${trillionSuffix(lang)}`}
+              />{" "}
+              {t("차이")} (<RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)
+            </div>
+          )}
 
           {statusError && <div className="error-state">{t(statusError)}</div>}
           {!statusA && !statusB && !statusError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
