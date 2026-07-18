@@ -4723,6 +4723,15 @@ thead .weekly-foreign-amount-col {
   .fight-fighter-nameplate-company {
     font-size: 11px;
   }
+
+  /* The badge's fixed px padding eats a much bigger share of its box at mobile
+     sizes (the box itself shrinks with `.fight-card`'s width, but the padding
+     didn't), leaving wordmark logos like Google/Microsoft too small to read.
+     Shrinking the padding — not the badge box itself, which stays the same
+     width/aspect-ratio — gives the logo image more room to render larger. */
+  .fight-card-logo-badge {
+    padding: 1px 3px;
+  }
 }
 
 /* ===== FightCompanyModal — opened by clicking a fighter's CEO portrait ===== */

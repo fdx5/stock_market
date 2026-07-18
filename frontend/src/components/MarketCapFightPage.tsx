@@ -529,7 +529,7 @@ export default function MarketCapFightPage() {
             </Link>
           )}
         </div>
-        <h1 className="app-title">{t("시총대결")}</h1>
+        {phase === "fight" && <h1 className="app-title">{t("시총대결")}</h1>}
       </header>
 
       {phase === "select" && (
