@@ -5213,3 +5213,78 @@ thead .weekly-foreign-amount-col {
 .fight-news-original-link:hover {
   background: color-mix(in srgb, var(--fight-gold) 12%, transparent);
 }
+
+/* Loading skeletons for the news list and article body */
+
+.fight-news-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+
+.fight-news-skeleton-img {
+  flex-shrink: 0;
+  width: 88px;
+  height: 88px;
+  border-radius: 8px;
+}
+
+.fight-news-skeleton-img,
+.fight-news-skeleton-line {
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--text-primary) 8%, transparent) 30%,
+    color-mix(in srgb, var(--text-primary) 16%, transparent) 50%,
+    color-mix(in srgb, var(--text-primary) 8%, transparent) 70%
+  );
+  background-size: 200% 100%;
+  animation: fight-news-shimmer 1.4s ease-in-out infinite;
+}
+
+.fight-news-skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+}
+
+.fight-news-skeleton-line--title {
+  width: 90%;
+  height: 13px;
+}
+
+.fight-news-skeleton-line--title-short {
+  width: 60%;
+  height: 13px;
+}
+
+.fight-news-skeleton-line--meta {
+  width: 40%;
+  height: 10px;
+  margin-top: auto;
+}
+
+.fight-news-skeleton-line--para {
+  width: 100%;
+}
+
+.fight-news-skeleton-line--para-short {
+  width: 70%;
+}
+
+.fight-news-card-body .fight-news-skeleton-line + .fight-news-skeleton-line {
+  margin-top: 6px;
+}
+
+@keyframes fight-news-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .fight-news-skeleton-img {
+    width: 64px;
+    height: 64px;
+  }
+}

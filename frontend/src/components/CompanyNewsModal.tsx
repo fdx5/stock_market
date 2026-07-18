@@ -2,6 +2,43 @@ import { useState } from "react";
 import { CompanyNewsItem, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 
+// Skeleton placeholders shown while the list/article fetch is in flight — the news
+// list depends on a Bing RSS fetch plus (for foreign items) a batched translation
+// call, and the article view fetches+extracts+translates the full page on click, so
+// both can take a couple of seconds; a shimmering shape reads as "still working"
+// much better than a static "불러오는 중..." line sitting alone in an empty modal.
+function NewsListSkeleton() {
+  return (
+    <>
+      {[0, 1, 2, 3].map((i) => (
+        <div key={i} className="fight-news-card fight-news-skeleton" aria-hidden="true">
+          <div className="fight-news-skeleton-img" />
+          <div className="fight-news-card-body">
+            <div className="fight-news-skeleton-line fight-news-skeleton-line--title" />
+            <div className="fight-news-skeleton-line fight-news-skeleton-line--title-short" />
+            <div className="fight-news-skeleton-line fight-news-skeleton-line--meta" />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// The image/title/meta above this are already known (they came from the list item
+// the user clicked) — only the full article body still needs fetching, so the
+// skeleton represents just that: a handful of paragraph-shaped placeholder lines.
+function ArticleBodySkeleton() {
+  return (
+    <div className="fight-news-detail-body fight-news-skeleton" aria-hidden="true">
+      <div className="fight-news-skeleton-line fight-news-skeleton-line--para" />
+      <div className="fight-news-skeleton-line fight-news-skeleton-line--para" />
+      <div className="fight-news-skeleton-line fight-news-skeleton-line--para-short" />
+      <div className="fight-news-skeleton-line fight-news-skeleton-line--para" />
+      <div className="fight-news-skeleton-line fight-news-skeleton-line--para-short" />
+    </div>
+  );
+}
+
 // Popup opened from the "[회사명] 주요뉴스" buttons flanking "다시 선택" on the fight
 // screen — same backdrop/close/loading/error scaffolding as FightCompanyModal.tsx.
 // Two internal views: a scrollable news-card list, and (once a card is clicked) an
@@ -75,7 +112,7 @@ export default function CompanyNewsModal({
                 {selected.published && <span className="fight-news-card-date">{selected.published}</span>}
               </div>
 
-              {articleLoading && <div className="loading-state">{t("불러오는 중...")}</div>}
+              {articleLoading && <ArticleBodySkeleton />}
 
               {!articleLoading && paragraphs && (
                 <div className="fight-news-detail-body">
@@ -111,7 +148,7 @@ export default function CompanyNewsModal({
             </div>
 
             <div className="fight-company-news-body">
-              {loading && <div className="loading-state">{t("불러오는 중...")}</div>}
+              {loading && <NewsListSkeleton />}
               {error && <div className="error-state">{t(error)}</div>}
               {!loading && !error && items.length === 0 && (
                 <div className="loading-state">{t("최근 뉴스가 없습니다.")}</div>

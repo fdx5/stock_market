@@ -17,11 +17,33 @@ def _sha1(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
 
-def _translate_cached(text: str) -> str:
-    if not text:
-        return text
-    key = f"news_ko:{_sha1(text)}"
-    return cache.get_or_set(key, TTL_TRANSLATION_SECONDS, lambda: translate_to_korean(text))
+def _translate_many_cached(texts: list[str]) -> list[str]:
+    """Translates a batch of (non-empty) texts in as few requests as possible: any
+    text already translated before is served from its own per-text cache entry with
+    no request at all, and everything else goes out as a single batched call rather
+    than one sequential request per text — translating a 6-item news list's titles
+    and snippets used to mean up to 12 separate sequential round-trips to Google
+    Translate, which is why opening the popup could visibly take several seconds."""
+    results: list[str | None] = [None] * len(texts)
+    to_fetch: list[str] = []
+    to_fetch_idx: list[int] = []
+    for i, text in enumerate(texts):
+        cached = cache.peek(f"news_ko:{_sha1(text)}")
+        if cached is not None:
+            results[i] = cached
+        else:
+            to_fetch.append(text)
+            to_fetch_idx.append(i)
+
+    if to_fetch:
+        translated = translate_batch_via_single_call(to_fetch, source_lang="en", target_lang="ko")
+        if translated is None:
+            translated = [translate_to_korean(t) for t in to_fetch]
+        for idx, text, result in zip(to_fetch_idx, to_fetch, translated):
+            cache.get_or_set(f"news_ko:{_sha1(text)}", TTL_TRANSLATION_SECONDS, lambda result=result: result)
+            results[idx] = result
+
+    return results
 
 
 def get_company_news_cached(code: str, company_name: str) -> list[dict]:
@@ -37,14 +59,23 @@ def get_company_news_translated(code: str, company_name: str, lang: str = "ko") 
     if lang != "ko" or code.endswith(".KS"):
         return items
 
-    return [
-        {
-            **it,
-            "title": _translate_cached(it["title"]),
-            "snippet": _translate_cached(it["snippet"]) if it.get("snippet") else None,
-        }
-        for it in items
-    ]
+    # Every title/snippet across the whole list goes into one batch, tagged with
+    # where it came from so the results can be scattered back into place.
+    texts: list[str] = []
+    slots: list[tuple[int, str]] = []
+    for i, it in enumerate(items):
+        texts.append(it["title"])
+        slots.append((i, "title"))
+        if it.get("snippet"):
+            texts.append(it["snippet"])
+            slots.append((i, "snippet"))
+
+    translated = _translate_many_cached(texts)
+
+    result = [dict(it) for it in items]
+    for (idx, field), text in zip(slots, translated):
+        result[idx][field] = text
+    return result
 
 
 def _translate_paragraphs(paragraphs: list[str]) -> list[str]:

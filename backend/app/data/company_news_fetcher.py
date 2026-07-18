@@ -175,7 +175,14 @@ def get_company_news(code: str, company_name: str, limit: int = 6) -> list[dict]
             futures = [pool.submit(enrich_with_og_image, it) for it in items]
             return [f.result() for f in futures]
 
-    return fetch_bing_news(f'"{company_name}" stock', limit)
+    items = fetch_bing_news(f'"{company_name}" stock', limit)
+    if not items:
+        # The exact-phrase query can come up empty for compound display names (e.g.
+        # "Meta Platforms (Facebook)" rarely appears verbatim in an article) or from
+        # an occasional empty/blocked response — retry once with a looser, unquoted
+        # query before giving up and showing "no recent news".
+        items = fetch_bing_news(f"{company_name} stock", limit)
+    return items
 
 
 def fetch_article_content(url: str) -> list[str] | None:
