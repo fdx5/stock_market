@@ -3595,35 +3595,49 @@ thead .weekly-foreign-amount-col {
   color: var(--fight-p2);
 }
 
-/* Logo (left) + flag (right), side by side. On desktop the logo cell is hidden —
-   the standalone square portrait beside the roster grid already fills that role —
-   so only the flag shows, full width, same as before. On mobile that standalone
-   portrait is hidden instead (see the 640px block further down) and the logo cell
-   here becomes visible, merging both into one row instead of duplicating either. */
+/* Logo - CEO portrait - flag, left to right, on both mobile and desktop. The CEO
+   portrait is the visual centerpiece (largest cell); logo and flag bracket it at a
+   fixed, smaller width so they never fight it for space at narrow viewports. */
 .fight-info-banner-row {
   align-self: stretch;
   display: flex;
   gap: 8px;
+  height: 84px;
 }
 
-.fight-info-logo-mobile {
-  display: none;
-  flex-shrink: 0;
-  width: 72px;
+.fight-info-logo-cell {
+  flex: 0 0 64px;
+  height: 100%;
   border-radius: 8px;
   background: #fff;
   padding: 8px;
+  display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
-/* Full-width banner (not a small floating icon) so the top of the card has no dead
-   space — the flag fills the whole strip edge to edge. */
-.fight-info-flag-wrap {
+/* Illustrated (not photographic) CEO portrait — the centerpiece of the row. */
+.fight-info-ceo-wrap {
   flex: 1;
   min-width: 0;
-  height: 72px;
+  height: 100%;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.fight-info-ceo-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+
+.fight-info-flag-wrap {
+  flex: 0 0 92px;
+  height: 100%;
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 8px rgba(0, 0, 0, 0.5);
@@ -3722,10 +3736,16 @@ thead .weekly-foreign-amount-col {
     min-height: 0;
   }
 
-  .fight-info-logo-mobile {
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .fight-info-banner-row {
+    height: 68px;
+  }
+
+  .fight-info-logo-cell {
+    flex-basis: 52px;
+  }
+
+  .fight-info-flag-wrap {
+    flex-basis: 72px;
   }
 }
 
@@ -4193,6 +4213,50 @@ thead .weekly-foreign-amount-col {
   overflow: hidden;
 }
 
+/* When a stylized CEO portrait is available it becomes the card's main content —
+   full-bleed photo instead of the padded white logo tile — with the company logo
+   demoted to a small badge (below) so the portrait itself reads clearly. */
+.fight-card--photo {
+  padding: 0;
+  background: #14151c;
+}
+
+.fight-card-ceo-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+
+/* Small logo overlapping the photo's bottom-right corner, riding half-outside the
+   card edge so it reads as a badge stamped on top rather than a cropped-in tile. */
+/* Rounded-rect (not a circle) — most of these logos are square-canvas PNGs with the
+   actual glyph occupying only their vertical-center band, so a wide box gives that
+   band room instead of a circle cropping its corners.
+   Padding is a fixed px value, not a percentage: percentage padding resolves against
+   the CONTAINING BLOCK's width, not the padded element's own box — and this badge's
+   containing block is `.fight-card` (its nearest positioned ancestor, 140-210px
+   wide), far wider than the badge itself (~84px). `padding: 8%` was silently
+   resolving to ~17px against that 140-210px width, eating nearly all of the badge's
+   ~38px height and squashing the logo down to a barely-visible 4-5px sliver. */
+.fight-card-logo-badge {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 42%;
+  max-width: 84px;
+  aspect-ratio: 2.2 / 1;
+  border-radius: 8px;
+  background: #fff;
+  padding: 3px 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+}
+
 .fight-fighter--p1 .fight-card {
   box-shadow: 0 0 0 3px var(--fight-p1), 0 0 26px rgba(78, 161, 255, 0.6);
 }
@@ -4281,9 +4345,17 @@ thead .weekly-foreign-amount-col {
 }
 
 .fight-diff-panel-sub {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
   font-size: 13px;
   font-weight: 800;
   color: var(--text-secondary);
+}
+
+.fight-diff-panel-sub-line {
+  white-space: nowrap;
 }
 
 /* Top-of-page return to the character-select screen (fight phase only). */

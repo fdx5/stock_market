@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
 import { CEO_NAMES } from "../data/ceoNames";
+import { ceoStylizedImageFor } from "../data/ceoStylizedImages";
 import { hiResFlagUrl } from "../data/flagCodes";
 import { productImageFor } from "../data/productImages";
 import { trillionSuffix } from "../i18n/format";
@@ -168,18 +169,22 @@ function InfoCard({
   // icon is only 32x32px and visibly blurs stretched across the full-width banner,
   // so it's kept only as a fallback for a country flagcdn isn't mapped for.
   const flagSrc = item ? hiResFlagUrl(item.country) ?? item.flag_url : null;
+  const ceoImgSrc = item ? ceoStylizedImageFor(item.code) : null;
   return (
     <div className={`fight-info-card fight-info-card--${player}${item ? " picked" : ""}`}>
       <div className="fight-info-label">{player === "p1" ? "1P" : "2P"}</div>
       {item ? (
         <>
+          {/* Logo - CEO portrait - flag, in that order, on both mobile and desktop. */}
           <div className="fight-info-banner-row">
-            {/* Mobile-only: merges the square logo portrait (shown separately next
-                to the roster grid on desktop) in here, to the left of the flag,
-                instead of duplicating it as a whole separate block. */}
-            <div className="fight-info-logo-mobile">
+            <div className="fight-info-logo-cell">
               <CompanyLogo item={item} className="fight-logo-img" />
             </div>
+            {ceoImgSrc && (
+              <div className="fight-info-ceo-wrap">
+                <img src={ceoImgSrc} className="fight-info-ceo-photo" alt={ceo ?? item.name} />
+              </div>
+            )}
             {flagSrc && (
               <div className="fight-info-flag-wrap">
                 <img src={flagSrc} className="fight-info-flag" alt={item.country} />
@@ -241,14 +246,27 @@ function RosterCard({
   );
 }
 
-/** One side of the VS composition: a fixed-size logo card with the player-color glow
- * — deliberately no animated humanoid figure, just the emblem squaring off. */
+/** One side of the VS composition: a fixed-size card with the player-color glow —
+ * deliberately no animated humanoid figure, just the CEO portrait (illustrated, not
+ * a real photo) squaring off, with the company logo as a small badge overlapping its
+ * bottom-right corner. Falls back to the plain logo for any company without a
+ * stylized portrait. */
 function FightCard({ item, player }: { item: GlobalTop20Item; player: "p1" | "p2" }) {
+  const ceoImgSrc = ceoStylizedImageFor(item.code);
   return (
     <div className={`fight-fighter fight-fighter--${player}`}>
       <div className="fight-fighter-aura" />
-      <div className="fight-card">
-        <CompanyLogo item={item} className="fight-logo-img" />
+      <div className={`fight-card${ceoImgSrc ? " fight-card--photo" : ""}`}>
+        {ceoImgSrc ? (
+          <img src={ceoImgSrc} alt={CEO_NAMES[item.code] ?? item.name} className="fight-card-ceo-photo" />
+        ) : (
+          <CompanyLogo item={item} className="fight-logo-img" />
+        )}
+        {ceoImgSrc && (
+          <div className="fight-card-logo-badge">
+            <CompanyLogo item={item} className="fight-logo-img" />
+          </div>
+        )}
       </div>
       <div className="fight-fighter-nameplate">
         <span className="fight-fighter-nameplate-company">{item.name}</span>
@@ -569,9 +587,12 @@ export default function MarketCapFightPage() {
                 <RollingValue value={diffMarcap} text={`$${diffMarcap.toFixed(2)}${trillionSuffix(lang)}`} />
               </div>
               <div className="fight-diff-panel-sub">
-                👑 <span className={leader === statusA ? "fight-p1-color" : "fight-p2-color"}>{leaderName}</span>
-                {" · "}
-                {t("2위")} {trailingName} (<RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} /> {t("차이")})
+                <div className="fight-diff-panel-sub-line">
+                  👑 <span className={leader === statusA ? "fight-p1-color" : "fight-p2-color"}>{leaderName}</span>
+                </div>
+                <div className="fight-diff-panel-sub-line">
+                  {t("2위")} {trailingName} (<RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} /> {t("차이")})
+                </div>
               </div>
             </div>
           )}
