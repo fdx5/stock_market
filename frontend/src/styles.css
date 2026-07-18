@@ -3465,11 +3465,12 @@ thead .weekly-foreign-amount-col {
   }
 }
 
-/* ===== MarketCapFightPage ("시총파이트") ===== */
+/* ===== MarketCapFightPage ("시총파이트") — Street Fighter II-style arcade UI ===== */
 
 :root {
   --fight-p1: #4ea1ff;
   --fight-p2: #ff5a5a;
+  --fight-gold: #ffd166;
   --fight-grid-line: rgba(255, 255, 255, 0.08);
 }
 
@@ -3477,30 +3478,86 @@ thead .weekly-foreign-amount-col {
   --fight-grid-line: rgba(46, 44, 38, 0.1);
 }
 
+/* Zero-footprint host for the cel-shade SVG filter defs. */
+.fight-svg-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}
+
+/* Every CEO/logo "face" rendered on this page gets posterized toward an animation-cel
+   look (photo -> flat color bands) plus punchier saturation. */
+.fight-face-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: url(#fight-cel-shade) saturate(1.35) contrast(1.08);
+}
+
 .fight-select-wrap {
   margin-top: 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
+}
+
+/* Arcade "PLAYER SELECT" header */
+
+.fight-arcade-header {
+  text-align: center;
+  font-size: clamp(20px, 4vw, 34px);
+  font-weight: 900;
+  letter-spacing: 0.35em;
+  text-indent: 0.35em;
+  color: var(--fight-gold);
+  text-shadow:
+    2px 2px 0 #7a4a00,
+    -1px -1px 0 #fff3c4,
+    0 0 18px rgba(255, 209, 102, 0.55);
+  animation: fight-header-flicker 3.2s steps(1) infinite;
+}
+
+@keyframes fight-header-flicker {
+  0%, 92%, 96%, 100% {
+    opacity: 1;
+  }
+  94% {
+    opacity: 0.75;
+  }
 }
 
 .fight-select-hint {
   text-align: center;
   font-size: 14px;
-  font-weight: 800;
-  color: var(--text-secondary);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  color: var(--fight-gold);
+  text-shadow: 1px 1px 0 #000;
+  animation: fight-hint-blink 1.1s steps(2) infinite;
 }
 
-/* World map panel */
+@keyframes fight-hint-blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* World map panel — SF2 world map look: tan landmasses on a deep glowing sea */
 
 .fight-map-panel {
   position: relative;
-  width: 100%;
+  width: min(100%, 880px);
+  margin: 0 auto;
   aspect-ratio: 2 / 1;
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  background: radial-gradient(ellipse at center, #0d1a2b 0%, #060b12 100%);
+  border: 3px solid #2b3a55;
+  box-shadow: inset 0 0 40px rgba(20, 60, 140, 0.55), 0 4px 18px rgba(0, 0, 0, 0.45);
+  background: radial-gradient(ellipse at center, #14335f 0%, #081527 72%, #04080f 100%);
 }
 
 .fight-map-svg {
@@ -3511,9 +3568,10 @@ thead .weekly-foreign-amount-col {
 }
 
 .fight-map-continent {
-  fill: rgba(78, 161, 255, 0.16);
-  stroke: rgba(78, 161, 255, 0.35);
-  stroke-width: 0.2;
+  fill: #c9a15a;
+  stroke: #7a5c24;
+  stroke-width: 0.3;
+  filter: drop-shadow(0.4px 0.6px 0 rgba(0, 0, 0, 0.6));
 }
 
 .fight-map-sweep {
@@ -3530,27 +3588,36 @@ thead .weekly-foreign-amount-col {
   }
 }
 
+/* Ambient roster flags — every fighter's HQ marked SF2-style */
+
 .fight-map-pin-ambient {
   position: absolute;
-  width: 6px;
-  height: 6px;
-  margin: -3px 0 0 -3px;
-  border-radius: 50%;
-  background: rgba(78, 161, 255, 0.55);
-  box-shadow: 0 0 6px rgba(78, 161, 255, 0.6);
-  animation: fight-map-pin-pulse 2.4s ease-in-out infinite;
+  width: 16px;
+  height: 11px;
+  margin: -5px 0 0 -8px;
+  border-radius: 1px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 3px rgba(0, 0, 0, 0.6);
+  animation: fight-map-flag-bob 2.4s ease-in-out infinite;
 }
 
-@keyframes fight-map-pin-pulse {
+.fight-map-pin-ambient img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+@keyframes fight-map-flag-bob {
   0%, 100% {
-    opacity: 0.5;
-    transform: scale(1);
+    transform: translateY(0);
   }
   50% {
-    opacity: 1;
-    transform: scale(1.3);
+    transform: translateY(-2px);
   }
 }
+
+/* Selected 1P/2P pins — glowing emblem ring at HQ */
 
 .fight-map-pin {
   position: absolute;
@@ -3568,6 +3635,7 @@ thead .weekly-foreign-amount-col {
   padding: 1px 5px;
   border-radius: 4px;
   color: #fff;
+  text-shadow: 1px 1px 0 #000;
 }
 
 .fight-map-pin--p1 .fight-map-pin-label {
@@ -3580,22 +3648,22 @@ thead .weekly-foreign-amount-col {
 
 .fight-map-pin-glow {
   position: relative;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-1);
+  background: #0b1526;
   animation: fight-map-pin-glow-anim 1.6s ease-in-out infinite;
 }
 
 .fight-map-pin--p1 .fight-map-pin-glow {
-  box-shadow: 0 0 0 2px var(--fight-p1), 0 0 14px var(--fight-p1);
+  box-shadow: 0 0 0 2px var(--fight-p1), 0 0 16px var(--fight-p1);
 }
 
 .fight-map-pin--p2 .fight-map-pin-glow {
-  box-shadow: 0 0 0 2px var(--fight-p2), 0 0 14px var(--fight-p2);
+  box-shadow: 0 0 0 2px var(--fight-p2), 0 0 16px var(--fight-p2);
 }
 
 @keyframes fight-map-pin-glow-anim {
@@ -3603,13 +3671,13 @@ thead .weekly-foreign-amount-col {
     transform: scale(1);
   }
   50% {
-    transform: scale(1.12);
+    transform: scale(1.14);
   }
 }
 
 .fight-map-pin-logo {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
   border-radius: 50%;
 }
@@ -3617,72 +3685,176 @@ thead .weekly-foreign-amount-col {
 .fight-map-pin-flag {
   position: absolute;
   bottom: -3px;
-  right: -4px;
-  width: 14px;
+  right: -5px;
+  width: 15px;
   height: 10px;
   object-fit: cover;
   border-radius: 2px;
-  box-shadow: 0 0 0 1px var(--surface-1);
+  box-shadow: 0 0 0 1px #000;
 }
 
-/* Roster select grid (5 x 4) */
+/* Select stage: [1P portrait] [roster grid] [2P portrait] */
+
+.fight-select-stage {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.fight-select-portrait {
+  flex: 0 0 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #131a28 0%, #0a0f18 100%);
+  border: 2px solid #2b3a55;
+}
+
+.fight-select-portrait--p1.picked {
+  border-color: var(--fight-p1);
+  box-shadow: 0 0 18px rgba(78, 161, 255, 0.45);
+}
+
+.fight-select-portrait--p2.picked {
+  border-color: var(--fight-p2);
+  box-shadow: 0 0 18px rgba(255, 90, 90, 0.45);
+}
+
+.fight-select-portrait-label {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-shadow: 2px 2px 0 #000;
+}
+
+.fight-select-portrait--p1 .fight-select-portrait-label {
+  color: var(--fight-p1);
+}
+
+.fight-select-portrait--p2 .fight-select-portrait-label {
+  color: var(--fight-p2);
+}
+
+.fight-select-portrait-frame {
+  width: 110px;
+  height: 130px;
+  border: 3px double #55688c;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #060a12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fight-select-portrait--p1.picked .fight-select-portrait-frame {
+  border-color: var(--fight-p1);
+}
+
+.fight-select-portrait--p2.picked .fight-select-portrait-frame {
+  border-color: var(--fight-p2);
+}
+
+.fight-select-portrait-empty {
+  font-size: 52px;
+  font-weight: 900;
+  color: #24324a;
+}
+
+.fight-select-portrait-name {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: #fff;
+  text-align: center;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.fight-select-portrait-person {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fight-gold);
+  text-align: center;
+}
+
+/* Roster select grid (5 x 4), SF2 mugshot wall */
 
 .fight-roster-grid {
+  flex: 1;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-}
-
-@media (max-width: 720px) {
-  .fight-roster-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-@media (max-width: 480px) {
-  .fight-roster-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+  gap: 6px;
+  align-content: center;
+  padding: 10px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #131a28 0%, #0a0f18 100%);
+  border: 2px solid #2b3a55;
 }
 
 .fight-roster-card {
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 6px;
-  border-radius: 12px;
-  border: 2px solid var(--border);
-  background: var(--surface-1);
+  padding: 0;
+  border-radius: 6px;
+  border: 2px solid #3a4a68;
+  background: #060a12;
   cursor: pointer;
-  transition: border-color 0.15s ease, transform 0.15s ease;
+  overflow: hidden;
+  transition: transform 0.12s ease, border-color 0.12s ease;
 }
 
 .fight-roster-card:hover {
-  border-color: var(--text-muted);
-  transform: translateY(-2px);
+  border-color: var(--fight-gold);
+  transform: scale(1.06);
+  z-index: 1;
+  box-shadow: 0 0 14px rgba(255, 209, 102, 0.5);
 }
 
 .fight-roster-card--p1 {
-  border-color: var(--fight-p1);
-  box-shadow: 0 0 12px rgba(78, 161, 255, 0.45);
+  animation: fight-cursor-blink-p1 0.5s steps(2) infinite;
 }
 
 .fight-roster-card--p2 {
-  border-color: var(--fight-p2);
-  box-shadow: 0 0 12px rgba(255, 90, 90, 0.45);
+  animation: fight-cursor-blink-p2 0.5s steps(2) infinite;
+}
+
+@keyframes fight-cursor-blink-p1 {
+  0%, 100% {
+    border-color: var(--fight-p1);
+    box-shadow: 0 0 12px rgba(78, 161, 255, 0.7);
+  }
+  50% {
+    border-color: #fff;
+    box-shadow: 0 0 18px rgba(78, 161, 255, 1);
+  }
+}
+
+@keyframes fight-cursor-blink-p2 {
+  0%, 100% {
+    border-color: var(--fight-p2);
+    box-shadow: 0 0 12px rgba(255, 90, 90, 0.7);
+  }
+  50% {
+    border-color: #fff;
+    box-shadow: 0 0 18px rgba(255, 90, 90, 1);
+  }
 }
 
 .fight-roster-badge {
   position: absolute;
-  top: -8px;
-  right: -6px;
-  font-size: 10px;
+  top: 2px;
+  left: 2px;
+  z-index: 2;
+  font-size: 9px;
   font-weight: 900;
-  padding: 2px 6px;
-  border-radius: 999px;
+  padding: 1px 4px;
+  border-radius: 3px;
   color: #fff;
+  text-shadow: 1px 1px 0 #000;
 }
 
 .fight-roster-badge--p1 {
@@ -3693,186 +3865,580 @@ thead .weekly-foreign-amount-col {
   background: var(--fight-p2);
 }
 
-.fight-roster-logo-wrap {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--page-plane);
+.fight-roster-face {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  background: #0d1526;
   display: flex;
   align-items: center;
   justify-content: center;
-  overflow: hidden;
+  font-weight: 900;
+  color: #55688c;
 }
 
-.fight-roster-logo-wrap img {
-  width: 100%;
-  height: 100%;
+/* Absolutely positioned so each photo's natural size can't stretch its cell — every
+   mugshot crops to the same square regardless of the source photo's aspect ratio. */
+.fight-roster-face .fight-face-img {
+  position: absolute;
+  inset: 0;
+}
+
+.fight-roster-logo-chip {
+  position: absolute;
+  bottom: 3px;
+  right: 3px;
+  width: 18px;
+  height: 18px;
   object-fit: contain;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 1px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 .fight-roster-name {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 800;
   text-align: center;
-  color: var(--text-secondary);
-  line-height: 1.3;
+  color: #cfd8ea;
+  line-height: 1.2;
+  padding: 3px 2px;
+  background: #101827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Fight arena — CSS-built humanoid fighters */
+/* ===== Fight arena ===== */
 
 .fight-arena {
   position: relative;
   display: flex;
   align-items: flex-end;
-  justify-content: space-between;
-  min-height: 260px;
-  padding: 60px 30px 20px;
+  /* Square off near center like a real fighting game, not parked at the edges. */
+  justify-content: center;
+  gap: clamp(12px, 4vw, 56px);
+  min-height: 340px;
+  padding: 96px 18px 30px;
   border-radius: 16px;
   border: 1px solid var(--border);
-  background: linear-gradient(180deg, #10131a 0%, #05070a 100%);
   overflow: hidden;
+  background:
+    radial-gradient(ellipse 70% 45% at 50% 0%, rgba(90, 60, 20, 0.55) 0%, transparent 60%),
+    linear-gradient(180deg, #1a1020 0%, #0c0812 55%, #050308 100%);
+  animation: fight-arena-shake 0.5s ease-out 1;
 }
 
-.fight-arena-vs-badge {
-  position: absolute;
-  top: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 22px;
-  font-weight: 900;
-  color: #ffd166;
-  text-shadow: 2px 2px 0 #000, -2px -2px 0 #000, 2px -2px 0 #000, -2px 2px 0 #000;
+@keyframes fight-arena-shake {
+  0%, 100% {
+    transform: translate(0, 0);
+  }
+  15% {
+    transform: translate(-6px, 3px);
+  }
+  30% {
+    transform: translate(5px, -3px);
+  }
+  45% {
+    transform: translate(-4px, 2px);
+  }
+  60% {
+    transform: translate(3px, -1px);
+  }
+  75% {
+    transform: translate(-2px, 1px);
+  }
 }
+
+.fight-arena-spotlight {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 45% 65% at 50% 100%, rgba(255, 209, 102, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.fight-arena-floor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 42px;
+  background: linear-gradient(180deg, rgba(255, 209, 102, 0.16) 0%, rgba(120, 80, 20, 0.25) 100%);
+  border-top: 2px solid rgba(255, 209, 102, 0.4);
+  pointer-events: none;
+}
+
+.fight-arena-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  z-index: 6;
+  pointer-events: none;
+  animation: fight-arena-flash-anim 0.7s ease-out forwards;
+}
+
+@keyframes fight-arena-flash-anim {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+.fight-arena-fight-text {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  z-index: 5;
+  font-size: clamp(42px, 9vw, 84px);
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 0.05em;
+  color: var(--fight-gold);
+  -webkit-text-stroke: 2px #7a3000;
+  text-shadow: 0 0 26px rgba(255, 130, 20, 0.9), 4px 4px 0 rgba(0, 0, 0, 0.8);
+  pointer-events: none;
+  animation: fight-fight-text-anim 2.2s ease-out forwards;
+}
+
+@keyframes fight-fight-text-anim {
+  0% {
+    transform: translate(-50%, -50%) scale(3.2);
+    opacity: 0;
+  }
+  16% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  78% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(0.92);
+    opacity: 0;
+  }
+}
+
+/* Fighters — upper body, CEO face, burning aura, facing each other */
 
 .fight-fighter {
   position: relative;
-  width: 90px;
-  height: 170px;
-  animation: fight-fighter-idle 1.4s ease-in-out infinite;
-}
-
-.fight-fighter--p1 {
-  transform: scaleX(1);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  animation: fight-fighter-idle 1.3s ease-in-out infinite;
 }
 
 .fight-fighter--p2 {
-  transform: scaleX(-1);
-  animation-delay: 0.3s;
+  animation-delay: 0.4s;
 }
 
 @keyframes fight-fighter-idle {
   0%, 100% {
-    transform: translateY(0) scaleX(var(--fight-flip, 1));
+    transform: translateY(0);
   }
   50% {
-    transform: translateY(-6px) scaleX(var(--fight-flip, 1));
+    transform: translateY(-7px);
   }
 }
 
-.fight-fighter--p1 {
-  --fight-flip: 1;
+.fight-fighter-aura {
+  position: absolute;
+  inset: -38px -46px -4px;
+  border-radius: 50% 50% 42% 42%;
+  filter: blur(16px);
+  opacity: 1;
+  animation: fight-aura-flicker 0.9s ease-in-out infinite;
+  pointer-events: none;
 }
 
-.fight-fighter--p2 {
-  --fight-flip: -1;
+.fight-fighter--p1 .fight-fighter-aura {
+  background:
+    radial-gradient(ellipse 62% 55% at 50% 26%, rgba(120, 190, 255, 0.85) 0%, rgba(78, 161, 255, 0.4) 45%, transparent 72%),
+    radial-gradient(ellipse 50% 75% at 50% 68%, rgba(50, 110, 240, 0.7) 0%, transparent 76%);
+}
+
+.fight-fighter--p2 .fight-fighter-aura {
+  background:
+    radial-gradient(ellipse 62% 55% at 50% 26%, rgba(255, 160, 80, 0.9) 0%, rgba(255, 110, 60, 0.45) 45%, transparent 72%),
+    radial-gradient(ellipse 50% 75% at 50% 68%, rgba(235, 60, 40, 0.75) 0%, transparent 76%);
+}
+
+@keyframes fight-aura-flicker {
+  0%, 100% {
+    transform: scaleY(1) scaleX(1);
+    opacity: 0.85;
+  }
+  35% {
+    transform: scaleY(1.12) scaleX(0.95);
+    opacity: 1;
+  }
+  70% {
+    transform: scaleY(0.95) scaleX(1.05);
+    opacity: 0.7;
+  }
+}
+
+.fight-fighter-bust {
+  position: relative;
+  width: 168px;
+  height: 200px;
+}
+
+/* P2 mirrors the whole bust so both fighters square off face-to-face; the nameplate
+   below stays unmirrored. */
+.fight-fighter--p2 .fight-fighter-bust {
+  transform: scaleX(-1);
 }
 
 .fight-fighter-head {
   position: absolute;
   top: 0;
   left: 50%;
-  width: 40px;
-  height: 40px;
-  margin-left: -20px;
-  border-radius: 50%;
-  background: var(--surface-1);
+  width: 104px;
+  height: 118px;
+  margin-left: -52px;
+  border-radius: 42% 42% 38% 38%;
   overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  background: #101624;
+  z-index: 2;
+  /* Leaning slightly toward the opponent sells the stare-down. */
+  transform: rotate(4deg);
 }
 
 .fight-fighter--p1 .fight-fighter-head {
-  box-shadow: 0 0 0 3px var(--fight-p1), 0 0 14px rgba(78, 161, 255, 0.6);
+  box-shadow: 0 0 0 3px var(--fight-p1), 0 0 22px rgba(78, 161, 255, 0.65);
 }
 
 .fight-fighter--p2 .fight-fighter-head {
-  box-shadow: 0 0 0 3px var(--fight-p2), 0 0 14px rgba(255, 90, 90, 0.6);
+  box-shadow: 0 0 0 3px var(--fight-p2), 0 0 22px rgba(255, 90, 90, 0.65);
 }
 
-.fight-fighter-head img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.fight-fighter-torso {
+/* Burning-gaze overlay: an ember glow drifting over the upper (eye) region. */
+.fight-fighter-glare {
   position: absolute;
-  top: 38px;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 64% 26% at 50% 32%, rgba(255, 120, 30, 0.3) 0%, transparent 70%);
+  mix-blend-mode: screen;
+  animation: fight-glare-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes fight-glare-pulse {
+  0%, 100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* Reads as a collar bridging head and shoulders, so it takes the player color. */
+.fight-fighter-neck {
+  position: absolute;
+  top: 112px;
   left: 50%;
-  width: 34px;
-  height: 60px;
-  margin-left: -17px;
-  border-radius: 10px;
+  width: 30px;
+  height: 22px;
+  margin-left: -15px;
+  border-radius: 4px 4px 0 0;
+  z-index: 1;
 }
 
-.fight-fighter--p1 .fight-fighter-torso {
-  background: var(--fight-p1);
+.fight-fighter--p1 .fight-fighter-neck {
+  background: linear-gradient(180deg, #2c5fae, #3c86e8);
 }
 
-.fight-fighter--p2 .fight-fighter-torso {
-  background: var(--fight-p2);
+.fight-fighter--p2 .fight-fighter-neck {
+  background: linear-gradient(180deg, #b03428, #e85a48);
 }
 
+.fight-fighter-shoulders {
+  position: absolute;
+  top: 128px;
+  left: 0;
+  width: 100%;
+  height: 72px;
+  clip-path: polygon(12% 100%, 22% 18%, 40% 0, 60% 0, 78% 18%, 88% 100%);
+  z-index: 1;
+}
+
+.fight-fighter--p1 .fight-fighter-shoulders {
+  background: linear-gradient(180deg, #3c86e8 0%, #1d4f9e 70%, #123162 100%);
+}
+
+.fight-fighter--p2 .fight-fighter-shoulders {
+  background: linear-gradient(180deg, #e85a48 0%, #a52a20 70%, #5f1712 100%);
+}
+
+/* Guard pose: forearms rise out of the shoulders and end in fists — the front fist
+   rides high by the chin (inner side, toward the opponent), the rear guards the body. */
 .fight-fighter-arm {
   position: absolute;
-  top: 46px;
-  width: 14px;
-  height: 44px;
+  width: 15px;
+  height: 52px;
   border-radius: 8px;
-  background: var(--text-muted);
+  z-index: 2;
+}
+
+.fight-fighter--p1 .fight-fighter-arm {
+  background: linear-gradient(180deg, #2c66b8 0%, #17376b 100%);
+}
+
+.fight-fighter--p2 .fight-fighter-arm {
+  background: linear-gradient(180deg, #c23c2c 0%, #6b1712 100%);
 }
 
 .fight-fighter-arm--front {
-  left: 4px;
-  transform: rotate(-30deg);
-  transform-origin: top center;
+  right: 30px;
+  top: 118px;
+  transform: rotate(30deg);
+  transform-origin: bottom center;
 }
 
-.fight-fighter-arm--back {
-  right: 4px;
-  transform: rotate(20deg);
-  transform-origin: top center;
+.fight-fighter-arm--rear {
+  left: 34px;
+  top: 138px;
+  transform: rotate(-38deg);
+  transform-origin: bottom center;
+  height: 44px;
 }
 
-.fight-fighter-leg {
+.fight-fighter-fist {
   position: absolute;
-  bottom: 0;
-  width: 16px;
-  height: 60px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  z-index: 3;
+}
+
+.fight-fighter--p1 .fight-fighter-fist {
+  background: radial-gradient(circle at 35% 30%, #6fb1ff 0%, #2c66b8 60%, #17376b 100%);
+}
+
+.fight-fighter--p2 .fight-fighter-fist {
+  background: radial-gradient(circle at 35% 30%, #ff8a70 0%, #c23c2c 60%, #6b1712 100%);
+}
+
+.fight-fighter-fist--front {
+  right: 14px;
+  top: 106px;
+  animation: fight-fist-bob 1.3s ease-in-out infinite;
+}
+
+.fight-fighter-fist--rear {
+  left: 20px;
+  top: 128px;
+  width: 28px;
+  height: 28px;
+}
+
+@keyframes fight-fist-bob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.fight-fighter-nameplate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 14px;
   border-radius: 8px;
-  background: var(--text-secondary);
+  background: rgba(5, 8, 14, 0.82);
+  border: 1px solid #3a4a68;
 }
 
-.fight-fighter-leg--front {
-  left: 22px;
-  transform: rotate(8deg);
-  transform-origin: top center;
+.fight-fighter--p1 .fight-fighter-nameplate {
+  border-color: var(--fight-p1);
 }
 
-.fight-fighter-leg--back {
-  right: 22px;
-  transform: rotate(-8deg);
-  transform-origin: top center;
+.fight-fighter--p2 .fight-fighter-nameplate {
+  border-color: var(--fight-p2);
 }
+
+.fight-fighter-nameplate-company {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.fight-fighter-nameplate-person {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fight-gold);
+}
+
+/* Center column: VS badge, crossing lightning, spark particles */
+
+.fight-arena-center {
+  position: relative;
+  align-self: center;
+  width: 90px;
+  height: 160px;
+  flex-shrink: 0;
+  z-index: 1;
+}
+
+.fight-arena-vs-badge {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  font-size: 40px;
+  font-weight: 900;
+  font-style: italic;
+  color: var(--fight-gold);
+  -webkit-text-stroke: 1.5px #7a3000;
+  text-shadow: 0 0 20px rgba(255, 130, 20, 0.85), 3px 3px 0 rgba(0, 0, 0, 0.8);
+  animation: fight-vs-slam 0.55s cubic-bezier(0.2, 1.6, 0.4, 1) 0.35s backwards;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+}
+
+@keyframes fight-vs-slam {
+  0% {
+    transform: translate(-50%, -50%) scale(4) rotate(-18deg);
+    opacity: 0;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+
+.fight-lightning {
+  position: absolute;
+  top: 6%;
+  bottom: 10%;
+  width: 16px;
+  left: 50%;
+  margin-left: -8px;
+  clip-path: polygon(58% 0, 30% 34%, 62% 34%, 22% 72%, 52% 72%, 34% 100%, 78% 58%, 46% 58%, 84% 22%, 52% 22%);
+  animation: fight-lightning-flicker 1.7s steps(1) infinite;
+  pointer-events: none;
+}
+
+.fight-lightning--a {
+  background: linear-gradient(180deg, #fff 0%, #9fd0ff 100%);
+  transform: rotate(-14deg);
+}
+
+.fight-lightning--b {
+  background: linear-gradient(180deg, #fff 0%, #ffc09f 100%);
+  transform: rotate(16deg) scaleX(-1);
+  animation-delay: 0.6s;
+}
+
+@keyframes fight-lightning-flicker {
+  0%, 9%, 48%, 58%, 100% {
+    opacity: 0;
+  }
+  2%, 6% {
+    opacity: 1;
+  }
+  4% {
+    opacity: 0.4;
+  }
+  50%, 55% {
+    opacity: 1;
+  }
+}
+
+.fight-spark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--fight-gold);
+  box-shadow: 0 0 8px rgba(255, 180, 40, 0.9);
+  pointer-events: none;
+  opacity: 0;
+}
+
+.fight-spark--1 {
+  animation: fight-spark-fly-1 1.9s ease-out infinite 0.2s;
+}
+
+.fight-spark--2 {
+  animation: fight-spark-fly-2 2.3s ease-out infinite 0.9s;
+}
+
+.fight-spark--3 {
+  animation: fight-spark-fly-3 2.1s ease-out infinite 1.5s;
+}
+
+@keyframes fight-spark-fly-1 {
+  0% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  60%, 100% {
+    transform: translate(-34px, -52px);
+    opacity: 0;
+  }
+}
+
+@keyframes fight-spark-fly-2 {
+  0% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  60%, 100% {
+    transform: translate(38px, -44px);
+    opacity: 0;
+  }
+}
+
+@keyframes fight-spark-fly-3 {
+  0% {
+    transform: translate(0, 0);
+    opacity: 1;
+  }
+  60%, 100% {
+    transform: translate(6px, -60px);
+    opacity: 0;
+  }
+}
+
+/* HP-bar restyle of the shared battle-vs overlay */
 
 .fight-vs-overlay {
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  padding: 10px 14px;
-  background: none;
+  z-index: 4;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, rgba(0, 0, 0, 0.35) 70%, transparent 100%);
+}
+
+.fight-hp-track {
+  height: 17px;
+  transform: skewX(-14deg);
+  border-width: 2px;
+  background: linear-gradient(180deg, rgba(60, 10, 10, 0.85) 0%, rgba(20, 4, 4, 0.9) 100%);
+}
+
+.battle-vs-bar-fill.fight-p1-fill {
+  background: linear-gradient(180deg, #9fd0ff 0%, var(--fight-p1) 45%, #1d4f9e 100%);
+}
+
+.battle-vs-bar-fill.fight-p2-fill {
+  background: linear-gradient(180deg, #ffc9b0 0%, var(--fight-p2) 45%, #a52a20 100%);
 }
 
 .fight-p1-color {
@@ -3883,28 +4449,22 @@ thead .weekly-foreign-amount-col {
   color: var(--fight-p2);
 }
 
-.battle-vs-bar-fill.fight-p1-fill {
-  background: linear-gradient(90deg, #2f6fe0, var(--fight-p1));
-}
-
-.battle-vs-bar-fill.fight-p2-fill {
-  background: linear-gradient(90deg, #e0402f, var(--fight-p2));
-}
-
 .fight-reset-btn {
   align-self: center;
-  padding: 8px 22px;
+  padding: 9px 26px;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface-1);
-  color: var(--text-primary);
+  border: 2px solid var(--fight-gold);
+  background: linear-gradient(180deg, #2a2010 0%, #171008 100%);
+  color: var(--fight-gold);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 900;
+  letter-spacing: 0.1em;
   cursor: pointer;
+  text-shadow: 1px 1px 0 #000;
 }
 
 .fight-reset-btn:hover {
-  background: var(--page-plane);
+  box-shadow: 0 0 14px rgba(255, 209, 102, 0.5);
 }
 
 /* FightCheerSection color variants (reuses cheer-* structural classes) */
@@ -3972,4 +4532,83 @@ thead .weekly-foreign-amount-col {
 .cheer-celebrate.fight-p1 .cheer-celebrate-text,
 .cheer-celebrate.fight-p2 .cheer-celebrate-text {
   color: #ffd400;
+}
+
+/* Responsive: stack the select stage, shrink fighters */
+
+@media (max-width: 860px) {
+  .fight-select-stage {
+    flex-wrap: wrap;
+  }
+
+  .fight-select-portrait {
+    flex: 1 1 40%;
+    order: 0;
+  }
+
+  .fight-roster-grid {
+    order: 1;
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .fight-roster-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .fight-fighter-bust {
+    width: 118px;
+    height: 150px;
+  }
+
+  .fight-fighter-head {
+    width: 76px;
+    height: 88px;
+    margin-left: -38px;
+  }
+
+  .fight-fighter-neck {
+    top: 84px;
+  }
+
+  .fight-fighter-shoulders {
+    top: 96px;
+    height: 54px;
+  }
+
+  .fight-fighter-fist--front {
+    top: 80px;
+    right: 2px;
+    width: 26px;
+    height: 26px;
+  }
+
+  .fight-fighter-fist--rear {
+    top: 112px;
+    left: 0;
+    width: 22px;
+    height: 22px;
+  }
+
+  .fight-arena {
+    min-height: 300px;
+    padding: 120px 8px 24px;
+  }
+
+  .fight-arena-center {
+    width: 48px;
+  }
+
+  .fight-arena-vs-badge {
+    font-size: 28px;
+  }
+
+  .fight-fighter-nameplate-company {
+    font-size: 11px;
+  }
+
+  .fight-fighter-nameplate-person {
+    font-size: 10px;
+  }
 }

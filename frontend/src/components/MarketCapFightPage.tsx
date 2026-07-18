@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
+import { ceoImageFor } from "../data/ceoImages";
 import { trillionSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
@@ -37,17 +38,43 @@ function formatChangePct(changePct: number | null | undefined): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
-function FighterFigure({ item, player }: { item: GlobalTop20Item; player: "p1" | "p2" }) {
+/** CEO face when we have one, company logo otherwise. */
+function faceSrc(item: GlobalTop20Item): string | null {
+  return ceoImageFor(item.code)?.src ?? item.logo_url;
+}
+
+/** Posterizes portrait photos into a cel-shaded/anime look purely in the browser —
+ * referenced from CSS as `filter: url(#fight-cel-shade)`. Mounted once per page. */
+function CelShadeFilterDefs() {
+  const steps = "0.10 0.30 0.50 0.72 0.94";
   return (
-    <div className={`fight-fighter fight-fighter--${player}`}>
-      <div className="fight-fighter-arm fight-fighter-arm--back" />
-      <div className="fight-fighter-leg fight-fighter-leg--back" />
-      <div className="fight-fighter-leg fight-fighter-leg--front" />
-      <div className="fight-fighter-torso" />
-      <div className="fight-fighter-arm fight-fighter-arm--front" />
-      <div className="fight-fighter-head">
-        {item.logo_url && <img src={item.logo_url} alt={item.name} />}
+    <svg className="fight-svg-defs" aria-hidden="true" focusable="false">
+      <filter id="fight-cel-shade">
+        <feComponentTransfer>
+          <feFuncR type="discrete" tableValues={steps} />
+          <feFuncG type="discrete" tableValues={steps} />
+          <feFuncB type="discrete" tableValues={steps} />
+        </feComponentTransfer>
+      </filter>
+    </svg>
+  );
+}
+
+function SelectPortrait({ item, player }: { item: GlobalTop20Item | null; player: "p1" | "p2" }) {
+  const src = item ? faceSrc(item) : null;
+  const ceo = item ? ceoImageFor(item.code) : null;
+  return (
+    <div className={`fight-select-portrait fight-select-portrait--${player}${item ? " picked" : ""}`}>
+      <div className="fight-select-portrait-label">{player === "p1" ? "1P" : "2P"}</div>
+      <div className="fight-select-portrait-frame">
+        {src ? (
+          <img src={src} alt={item?.name ?? ""} className="fight-face-img" />
+        ) : (
+          <span className="fight-select-portrait-empty">?</span>
+        )}
       </div>
+      <div className="fight-select-portrait-name">{item ? item.name : "— — —"}</div>
+      {ceo && <div className="fight-select-portrait-person">{ceo.person}</div>}
     </div>
   );
 }
@@ -61,18 +88,47 @@ function RosterCard({
   slot: "p1" | "p2" | null;
   onClick: () => void;
 }) {
+  const src = faceSrc(item);
   return (
     <button
       type="button"
       className={`fight-roster-card${slot ? ` fight-roster-card--${slot}` : ""}`}
       onClick={onClick}
+      title={item.name}
     >
       {slot && <span className={`fight-roster-badge fight-roster-badge--${slot}`}>{slot.toUpperCase()}</span>}
-      <div className="fight-roster-logo-wrap">
-        {item.logo_url ? <img src={item.logo_url} alt={item.name} /> : <span>{item.name.slice(0, 2)}</span>}
+      <div className="fight-roster-face">
+        {src ? <img src={src} alt={item.name} className="fight-face-img" /> : <span>{item.name.slice(0, 2)}</span>}
+        {item.logo_url && <img src={item.logo_url} alt="" className="fight-roster-logo-chip" />}
       </div>
       <div className="fight-roster-name">{item.name}</div>
     </button>
+  );
+}
+
+function FighterFigure({ item, player }: { item: GlobalTop20Item; player: "p1" | "p2" }) {
+  const src = faceSrc(item);
+  const ceo = ceoImageFor(item.code);
+  return (
+    <div className={`fight-fighter fight-fighter--${player}`}>
+      <div className="fight-fighter-aura" />
+      <div className="fight-fighter-bust">
+        <div className="fight-fighter-arm fight-fighter-arm--rear" />
+        <div className="fight-fighter-fist fight-fighter-fist--rear" />
+        <div className="fight-fighter-shoulders" />
+        <div className="fight-fighter-neck" />
+        <div className="fight-fighter-head">
+          {src && <img src={src} alt={item.name} className="fight-face-img" />}
+          <div className="fight-fighter-glare" />
+        </div>
+        <div className="fight-fighter-arm fight-fighter-arm--front" />
+        <div className="fight-fighter-fist fight-fighter-fist--front" />
+      </div>
+      <div className="fight-fighter-nameplate">
+        <span className="fight-fighter-nameplate-company">{item.name}</span>
+        {ceo && <span className="fight-fighter-nameplate-person">{ceo.person}</span>}
+      </div>
+    </div>
   );
 }
 
@@ -110,7 +166,7 @@ function FightVsSide({
           </>
         )}
       </div>
-      <div className="battle-vs-bar-track">
+      <div className="battle-vs-bar-track fight-hp-track">
         <div
           className={`battle-vs-bar-fill fight-${player}-fill ${side} ${barsAtZero ? "reset" : ""}`}
           style={{ width: `${barsAtZero ? 0 : pct}%` }}
@@ -153,7 +209,7 @@ export default function MarketCapFightPage() {
   // matching the character-select flow the user asked for (no separate confirm step).
   useEffect(() => {
     if (p1 && p2 && phase === "select") {
-      const id = window.setTimeout(() => setPhase("fight"), 350);
+      const id = window.setTimeout(() => setPhase("fight"), 650);
       return () => window.clearTimeout(id);
     }
   }, [p1, p2, phase]);
@@ -228,6 +284,7 @@ export default function MarketCapFightPage() {
 
   return (
     <div className="app fight-page">
+      <CelShadeFilterDefs />
       <header className="app-header">
         <div className="app-title-row">
           <Link to="/" className="app-brand" aria-label="K-Stock Hub">
@@ -251,26 +308,36 @@ export default function MarketCapFightPage() {
 
       {phase === "select" && (
         <div className="fight-select-wrap">
+          <div className="fight-arcade-header">
+            <span>PLAYER SELECT</span>
+          </div>
+
           <WorldMapPanel roster={roster} p1={p1} p2={p2} />
 
           {rosterError && <div className="error-state">{t(rosterError)}</div>}
           {!roster.length && !rosterError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
 
+          {roster.length > 0 && (
+            <div className="fight-select-stage">
+              <SelectPortrait item={p1} player="p1" />
+              <div className="fight-roster-grid">
+                {roster.map((item) => (
+                  <RosterCard
+                    key={item.code}
+                    item={item}
+                    slot={p1?.code === item.code ? "p1" : p2?.code === item.code ? "p2" : null}
+                    onClick={() => handleRosterClick(item)}
+                  />
+                ))}
+              </div>
+              <SelectPortrait item={p2} player="p2" />
+            </div>
+          )}
+
           <div className="fight-select-hint">
             {!p1 && t("1P를 선택하세요")}
             {p1 && !p2 && t("2P를 선택하세요")}
             {p1 && p2 && t("대결 준비 중...")}
-          </div>
-
-          <div className="fight-roster-grid">
-            {roster.map((item) => (
-              <RosterCard
-                key={item.code}
-                item={item}
-                slot={p1?.code === item.code ? "p1" : p2?.code === item.code ? "p2" : null}
-                onClick={() => handleRosterClick(item)}
-              />
-            ))}
           </div>
         </div>
       )}
@@ -278,8 +345,22 @@ export default function MarketCapFightPage() {
       {phase === "fight" && p1 && p2 && (
         <div className="battle-arena-wrap">
           <div className="fight-arena">
+            <div className="fight-arena-spotlight" />
+            <div className="fight-arena-floor" />
+            <div className="fight-arena-flash" />
+            <div className="fight-arena-fight-text">FIGHT!</div>
+
             <FighterFigure item={p1} player="p1" />
-            <div className="fight-arena-vs-badge">VS</div>
+
+            <div className="fight-arena-center">
+              <div className="fight-lightning fight-lightning--a" />
+              <div className="fight-lightning fight-lightning--b" />
+              <div className="fight-arena-vs-badge">VS</div>
+              <span className="fight-spark fight-spark--1" />
+              <span className="fight-spark fight-spark--2" />
+              <span className="fight-spark fight-spark--3" />
+            </div>
+
             <FighterFigure item={p2} player="p2" />
 
             {statusA && statusB && (
