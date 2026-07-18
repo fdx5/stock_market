@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
 import { CEO_NAMES } from "../data/ceoNames";
+import { productImageFor } from "../data/productImages";
 import { trillionSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
@@ -89,8 +90,10 @@ function useCompanyIntro(item: GlobalTop20Item | null, lang: string): string | n
   return item ? intro : null;
 }
 
-/** Types `text` out one character at a time with a blinking caret. */
-function Typewriter({ text }: { text: string }) {
+/** Types `text` out one character at a time with a blinking caret, then reports
+ * completion once (including immediately for empty text) so the parent can gate the
+ * countdown-to-fight on both sides having finished their intro. */
+function Typewriter({ text, onComplete }: { text: string; onComplete?: () => void }) {
   const [count, setCount] = useState(0);
 
   useEffect(() => {
@@ -109,6 +112,14 @@ function Typewriter({ text }: { text: string }) {
   }, [text]);
 
   const done = count >= text.length;
+
+  useEffect(() => {
+    if (done) onComplete?.();
+    // onComplete intentionally excluded: it should only fire on the done transition,
+    // not on every re-render where the parent passes a new function identity.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [done]);
+
   return (
     <p className="fight-info-intro">
       {text.slice(0, count)}
@@ -136,9 +147,20 @@ function CompanyLogo({ item, className }: { item: GlobalTop20Item; className?: s
   );
 }
 
-/** Replaces the old world-map panel: flag on top, company name under it, the CEO's
- * English name, then a three-line company intro that types itself out. */
-function InfoCard({ item, player, intro }: { item: GlobalTop20Item | null; player: "p1" | "p2"; intro: string | null }) {
+/** Replaces the old world-map panel: a large edge-to-edge flag banner up top, company
+ * name + the CEO's English name under it, then a three-line company intro that types
+ * itself out. */
+function InfoCard({
+  item,
+  player,
+  intro,
+  onIntroDone,
+}: {
+  item: GlobalTop20Item | null;
+  player: "p1" | "p2";
+  intro: string | null;
+  onIntroDone: () => void;
+}) {
   const t = useT();
   const ceo = item ? CEO_NAMES[item.code] : undefined;
   return (
@@ -146,10 +168,18 @@ function InfoCard({ item, player, intro }: { item: GlobalTop20Item | null; playe
       <div className="fight-info-label">{player === "p1" ? "1P" : "2P"}</div>
       {item ? (
         <>
-          {item.flag_url && <img src={item.flag_url} className="fight-info-flag" alt={item.country} />}
+          {item.flag_url && (
+            <div className="fight-info-flag-wrap">
+              <img src={item.flag_url} className="fight-info-flag" alt={item.country} />
+            </div>
+          )}
           <div className="fight-info-company">{item.name}</div>
           {ceo && <div className="fight-info-ceo">CEO · {ceo}</div>}
-          {intro === null ? <div className="fight-info-loading">{t("데이터를 불러오는 중...")}</div> : <Typewriter text={intro} />}
+          {intro === null ? (
+            <div className="fight-info-loading">{t("데이터를 불러오는 중...")}</div>
+          ) : (
+            <Typewriter text={intro} onComplete={onIntroDone} />
+          )}
         </>
       ) : (
         <div className="fight-info-empty">
@@ -274,6 +304,9 @@ export default function MarketCapFightPage() {
   const [p1, setP1] = useState<GlobalTop20Item | null>(null);
   const [p2, setP2] = useState<GlobalTop20Item | null>(null);
   const [phase, setPhase] = useState<"select" | "fight">("select");
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [p1IntroDone, setP1IntroDone] = useState(false);
+  const [p2IntroDone, setP2IntroDone] = useState(false);
 
   const [statusA, setStatusA] = useState<GlobalTop20Item | null>(null);
   const [statusB, setStatusB] = useState<GlobalTop20Item | null>(null);
@@ -290,14 +323,30 @@ export default function MarketCapFightPage() {
       .catch((err: Error) => setRosterError(err.message || "글로벌 TOP20 데이터를 불러오지 못했습니다."));
   }, []);
 
-  // Both slots filled -> lock in and transition to the fight screen automatically,
-  // after a beat long enough to let the intro typing register as part of the show.
+  // A fresh pick on either side invalidates that side's "finished typing" flag, so
+  // the countdown below can't fire off a stale completion from the previous pick.
+  useEffect(() => setP1IntroDone(false), [p1?.code]);
+  useEffect(() => setP2IntroDone(false), [p2?.code]);
+
+  // Both intros fully typed out -> run a 3/2/1 countdown, then transition to the
+  // fight screen (the countdown's 3 seconds IS the "3 seconds after exposure finishes"
+  // beat the user asked for, not an extra wait on top of it).
   useEffect(() => {
-    if (p1 && p2 && phase === "select") {
-      const id = window.setTimeout(() => setPhase("fight"), 3200);
-      return () => window.clearTimeout(id);
-    }
-  }, [p1, p2, phase]);
+    if (phase !== "select" || !p1 || !p2 || !p1IntroDone || !p2IntroDone) return;
+    let n = 3;
+    setCountdown(n);
+    const id = window.setInterval(() => {
+      n -= 1;
+      if (n <= 0) {
+        window.clearInterval(id);
+        setCountdown(null);
+        setPhase("fight");
+        return;
+      }
+      setCountdown(n);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [phase, p1, p2, p1IntroDone, p2IntroDone]);
 
   useEffect(() => {
     if (phase !== "fight" || !p1 || !p2) return;
@@ -360,6 +409,7 @@ export default function MarketCapFightPage() {
     setP2(null);
     setStatusA(null);
     setStatusB(null);
+    setCountdown(null);
     setPhase("select");
   };
 
@@ -411,9 +461,17 @@ export default function MarketCapFightPage() {
           </div>
 
           <div className="fight-info-stage">
-            <InfoCard item={p1} player="p1" intro={p1Intro} />
-            <InfoCard item={p2} player="p2" intro={p2Intro} />
+            <InfoCard item={p1} player="p1" intro={p1Intro} onIntroDone={() => setP1IntroDone(true)} />
+            <InfoCard item={p2} player="p2" intro={p2Intro} onIntroDone={() => setP2IntroDone(true)} />
           </div>
+
+          {countdown !== null && (
+            <div className="fight-countdown-overlay">
+              <div key={countdown} className="fight-countdown-number">
+                {countdown}
+              </div>
+            </div>
+          )}
 
           {rosterError && <div className="error-state">{t(rosterError)}</div>}
           {!roster.length && !rosterError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
@@ -446,6 +504,14 @@ export default function MarketCapFightPage() {
       {phase === "fight" && p1 && p2 && (
         <div className="battle-arena-wrap">
           <div className="fight-arena">
+            <div
+              className="fight-arena-bg fight-arena-bg--p1"
+              style={p1 && productImageFor(p1.code) ? { backgroundImage: `url(${productImageFor(p1.code)})` } : undefined}
+            />
+            <div
+              className="fight-arena-bg fight-arena-bg--p2"
+              style={p2 && productImageFor(p2.code) ? { backgroundImage: `url(${productImageFor(p2.code)})` } : undefined}
+            />
             <div className="fight-arena-spotlight" />
             <div className="fight-arena-floor" />
             <div className="fight-arena-flash" />

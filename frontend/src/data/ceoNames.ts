@@ -20,7 +20,7 @@ export const CEO_NAMES: Record<string, string> = {
   MU: "Sanjay Mehrotra",
   WMT: "Doug McMillon",
   JPM: "Jamie Dimon",
-  "000660.KS": "Kwak Noh-jung",
+  "000660.KS": "Chey Tae-won",
   AMD: "Lisa Su",
   V: "Ryan McInerney",
 };
