@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.data.universe import warm_english_names
-from app.routers import battle, geo, investor, market_map, search, stock, translate, visitors
+from app.routers import battle, fight, geo, investor, market_map, search, stock, translate, visitors
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 
@@ -30,6 +30,7 @@ app.include_router(market_map.router, prefix="/api/market")
 app.include_router(visitors.router, prefix="/api/visitors")
 app.include_router(investor.router, prefix="/api/investor")
 app.include_router(battle.router, prefix="/api/battle")
+app.include_router(fight.router, prefix="/api/fight")
 app.include_router(translate.router, prefix="/api")
 app.include_router(geo.router, prefix="/api")
 

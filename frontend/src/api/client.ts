@@ -213,6 +213,14 @@ export interface GlobalTop20Item {
   detail_path: string | null;
 }
 
+export interface FightComment {
+  id: number;
+  company_code: string;
+  username: string;
+  text: string;
+  created_at: string;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -300,4 +308,14 @@ export const api = {
     ),
   translate: (texts: string[]) =>
     postJSON<{ translations: string[] }>(`${BASE}/translate`, { texts }),
+  fightStatus: (codeA: string, codeB: string) =>
+    getJSON<{ a: GlobalTop20Item; b: GlobalTop20Item }>(
+      `${BASE}/fight/status?a=${encodeURIComponent(codeA)}&b=${encodeURIComponent(codeB)}`
+    ),
+  fightComments: (codeA: string, codeB: string) =>
+    getJSON<{ items: FightComment[]; counts: Record<string, number> }>(
+      `${BASE}/fight/comments?a=${encodeURIComponent(codeA)}&b=${encodeURIComponent(codeB)}`
+    ),
+  postFightComment: (companyCode: string, username: string, text: string) =>
+    postJSON<FightComment>(`${BASE}/fight/comments`, { company_code: companyCode, username, text }),
 };

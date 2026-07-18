@@ -44,6 +44,16 @@ export const DICTIONARY: Record<string, string> = {
   "감사합니다!!": "Thank you!!",
   "HBM 나 너무 좋아": "I love HBM so much",
 
+  // MarketCapFightPage
+  "시총파이트": "Market Cap Fight",
+  "1P를 선택하세요": "Choose Player 1",
+  "2P를 선택하세요": "Choose Player 2",
+  "대결 준비 중...": "Get ready...",
+  "다시 선택": "Choose again",
+  "응원": "Cheer",
+  "고마워요! 🔥": "Thank you! 🔥",
+  "글로벌 TOP20 데이터를 불러오지 못했습니다.": "Failed to load the global TOP 20 data.",
+
   // GlobalTop20 / CompanyDetailModal
   "글로벌 시가총액 TOP 20": "Global Market Cap TOP 20",
   "세계 시총": "World Market Cap Rank #",

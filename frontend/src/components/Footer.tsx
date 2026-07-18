@@ -31,6 +31,9 @@ export default function Footer() {
           <Link to="/battle" className="app-footer-market-link app-footer-market-link--battle">
             <BattleIcon /> {t("시총대결")}
           </Link>
+          <Link to="/fight" className="app-footer-market-link app-footer-market-link--battle">
+            <BattleIcon /> {t("시총파이트")}
+          </Link>
           <a
             href="https://chs2147.github.io/mini-apps"
             target="_blank"
