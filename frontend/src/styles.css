@@ -1496,6 +1496,15 @@ thead .weekly-foreign-amount-col {
   animation-delay: 0.6s;
 }
 
+/* Yellow-toned link back to the original samsung-vs-skhynix battle page, shown from
+   the fight screen only (see MarketCapFightPage.tsx) — distinct from the other
+   colored nav pills since it points to a different mode, not another market view. */
+.fight-nav-link--classic {
+  color: var(--fight-gold, #ffd166);
+  border-color: var(--fight-gold, #ffd166);
+  background: color-mix(in srgb, var(--fight-gold, #ffd166) 14%, transparent);
+}
+
 .kospi-map-nav-link--battle::after {
   animation-delay: 0.6s;
 }
@@ -4236,10 +4245,13 @@ thead .weekly-foreign-amount-col {
   aspect-ratio: 1;
 }
 
+/* This is a <button> (clicking the CEO portrait opens the company showcase modal),
+   so the usual button-element resets apply on top of the visual styling. */
 .fight-card {
   position: relative;
   width: 100%;
   height: 100%;
+  border: none;
   border-radius: 16px;
   background: #fff;
   padding: 9%;
@@ -4247,6 +4259,8 @@ thead .weekly-foreign-amount-col {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  cursor: pointer;
+  font: inherit;
 }
 
 /* When a stylized CEO portrait is available it becomes the card's main content —
@@ -4717,5 +4731,200 @@ thead .weekly-foreign-amount-col {
 
   .fight-fighter-nameplate-company {
     font-size: 11px;
+  }
+}
+
+/* ===== FightCompanyModal — opened by clicking a fighter's CEO portrait ===== */
+
+.fight-company-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.fight-company-modal {
+  position: relative;
+  width: 100%;
+  max-width: 440px;
+  max-height: 85vh;
+  overflow-y: auto;
+  border-radius: 18px;
+  background: var(--surface-1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+  border: 2px solid #2b3a55;
+}
+
+.fight-company-modal--p1 {
+  border-color: var(--fight-p1);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 32px rgba(78, 161, 255, 0.25);
+}
+
+.fight-company-modal--p2 {
+  border-color: var(--fight-p2);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55), 0 0 32px rgba(255, 90, 90, 0.25);
+}
+
+.fight-company-modal-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fight-company-modal-close:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* Hero band: the company's flagship product photo as background, CEO portrait
+   overlapping it like a "guest of honor" cameo, logo stamped as a badge — the same
+   visual language (photo backdrop + player-color glow) as the fight arena itself,
+   so the popup reads as a continuation of that scene rather than a generic dialog. */
+.fight-company-modal-hero {
+  position: relative;
+  height: 160px;
+  background-size: cover;
+  background-position: center;
+  background-color: #12151c;
+  border-radius: 16px 16px 0 0;
+  overflow: hidden;
+}
+
+.fight-company-modal-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(5, 6, 10, 0.15) 0%, rgba(5, 6, 10, 0.55) 60%, rgba(5, 6, 10, 0.88) 100%);
+}
+
+.fight-company-modal-ceo {
+  position: absolute;
+  left: 18px;
+  bottom: 14px;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  object-fit: cover;
+  z-index: 1;
+}
+
+.fight-company-modal--p1 .fight-company-modal-ceo {
+  box-shadow: 0 0 0 3px var(--fight-p1), 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+.fight-company-modal--p2 .fight-company-modal-ceo {
+  box-shadow: 0 0 0 3px var(--fight-p2), 0 4px 14px rgba(0, 0, 0, 0.5);
+}
+
+/* Wider than tall (not square) — most of these logos are wordmarks, and squeezing
+   one into a square box via object-fit:contain shrank it down to an illegible blob
+   (same issue already fixed once for the arena's corner badge). */
+.fight-company-modal-logo-badge {
+  position: absolute;
+  left: 64px;
+  bottom: 8px;
+  width: 46px;
+  height: 30px;
+  border-radius: 6px;
+  background: #fff;
+  padding: 3px 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+  color: #55688c;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+}
+
+.fight-company-modal-hero-text {
+  position: absolute;
+  left: 122px;
+  right: 16px;
+  bottom: 14px;
+  z-index: 1;
+}
+
+.fight-company-modal-company {
+  font-size: 17px;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.fight-company-modal-ceo-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fight-gold);
+}
+
+.fight-company-modal-body {
+  padding: 16px 20px 20px;
+}
+
+.fight-company-modal-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.fight-company-modal-flag {
+  width: 22px;
+  height: 15px;
+  object-fit: cover;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.fight-company-modal-desc {
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  white-space: pre-line;
+}
+
+@media (max-width: 480px) {
+  .fight-company-modal-hero {
+    height: 130px;
+  }
+
+  .fight-company-modal-ceo {
+    width: 60px;
+    height: 60px;
+    left: 14px;
+    bottom: 12px;
+  }
+
+  .fight-company-modal-logo-badge {
+    left: 62px;
+    bottom: 8px;
+    width: 28px;
+    height: 28px;
+  }
+
+  .fight-company-modal-hero-text {
+    left: 82px;
+  }
+
+  .fight-company-modal-company {
+    font-size: 15px;
   }
 }

@@ -45,12 +45,13 @@ export const DICTIONARY: Record<string, string> = {
   "HBM 나 너무 좋아": "I love HBM so much",
 
   // MarketCapFightPage
-  "시총파이트": "Market Cap Fight",
+  "삼성 vs SK하이닉스": "Samsung vs SK Hynix",
   "1P를 선택하세요": "Choose Player 1",
   "2P를 선택하세요": "Choose Player 2",
   "대결 준비 중...": "Get ready...",
   "다시 선택": "Choose again",
   "시총 격차": "MARKET CAP GAP",
+  "회사 정보 보기": "View company info",
   "응원": "Cheer",
   "땡큐! 👍": "Thanks! 👍",
   "글로벌 TOP20 데이터를 불러오지 못했습니다.": "Failed to load the global TOP 20 data.",

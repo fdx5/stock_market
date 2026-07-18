@@ -16,7 +16,7 @@ export default function KosdaqMapPage() {
       fullLimit={200}
       navLinks={[
         { to: "/map", label: "KOSPI", icon: <MarketIcon /> },
-        { to: "/battle", label: "시총대결", icon: <BattleIcon />, className: "kospi-map-nav-link--battle" },
+        { to: "/fight", label: "시총대결", icon: <BattleIcon />, className: "kospi-map-nav-link--battle" },
       ]}
     />
   );

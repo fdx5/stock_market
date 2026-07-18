@@ -247,7 +247,7 @@ export default function Dashboard() {
             <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
               <MarketIcon /> KOSDAQ
             </Link>
-            <Link to="/battle" className="kospi-map-nav-link kospi-map-nav-link--battle">
+            <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
               <BattleIcon /> {t("시총대결")}
             </Link>
             <a

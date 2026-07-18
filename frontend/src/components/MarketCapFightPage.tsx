@@ -10,8 +10,10 @@ import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import CompanyLogo from "./CompanyLogo";
 import DashboardIcon from "./DashboardIcon";
 import FightCheerSection from "./FightCheerSection";
+import FightCompanyModal from "./FightCompanyModal";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
@@ -142,25 +144,6 @@ function Typewriter({ text, onComplete }: { text: string; onComplete?: () => voi
   );
 }
 
-/** companiesmarketcap serves the same logo at /64/, /128/ and /256/ — the roster API
- * hands us the 64px variant, so swap in the 256px one for crisp large tiles, keeping
- * the original as an onError fallback in case a particular logo lacks the big size. */
-function CompanyLogo({ item, className }: { item: GlobalTop20Item; className?: string }) {
-  const [failedHiRes, setFailedHiRes] = useState(false);
-  if (!item.logo_url) return <span className="fight-logo-fallback">{item.name.slice(0, 2)}</span>;
-  const src = failedHiRes ? item.logo_url : item.logo_url.replace("/company-logos/64/", "/company-logos/256/");
-  return (
-    <img
-      src={src}
-      alt={item.name}
-      className={className}
-      onError={() => {
-        if (!failedHiRes) setFailedHiRes(true);
-      }}
-    />
-  );
-}
-
 /** Replaces the old world-map panel: a large edge-to-edge flag banner up top, company
  * name + the CEO's English name under it, then a three-line company intro that types
  * itself out. */
@@ -262,8 +245,17 @@ function RosterCard({
  * deliberately no animated humanoid figure, just the CEO portrait (illustrated, not
  * a real photo) squaring off, with the company logo as a small badge overlapping its
  * bottom-right corner. Falls back to the plain logo for any company without a
- * stylized portrait. */
-function FightCard({ item, player }: { item: GlobalTop20Item; player: "p1" | "p2" }) {
+ * stylized portrait. Clicking the portrait opens the full company showcase modal. */
+function FightCard({
+  item,
+  player,
+  onOpenDetail,
+}: {
+  item: GlobalTop20Item;
+  player: "p1" | "p2";
+  onOpenDetail: () => void;
+}) {
+  const t = useT();
   const ceoImgSrc = ceoStylizedImageFor(item.code);
   return (
     <div className={`fight-fighter fight-fighter--${player}`}>
@@ -273,13 +265,18 @@ function FightCard({ item, player }: { item: GlobalTop20Item; player: "p1" | "p2
           needs overflow:hidden to keep the CEO photo's corners rounded, which was
           clipping the badge's overhanging part before this was split out. */}
       <div className="fight-card-wrap">
-        <div className={`fight-card${ceoImgSrc ? " fight-card--photo" : ""}`}>
+        <button
+          type="button"
+          className={`fight-card${ceoImgSrc ? " fight-card--photo" : ""}`}
+          onClick={onOpenDetail}
+          aria-label={t("회사 정보 보기")}
+        >
           {ceoImgSrc ? (
             <img src={ceoImgSrc} alt={CEO_NAMES[item.code] ?? item.name} className="fight-card-ceo-photo" />
           ) : (
             <CompanyLogo item={item} className="fight-logo-img" />
           )}
-        </div>
+        </button>
         {ceoImgSrc && (
           <div className="fight-card-logo-badge">
             <CompanyLogo item={item} className="fight-logo-img" />
@@ -362,8 +359,33 @@ export default function MarketCapFightPage() {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [barsAtZero, setBarsAtZero] = useState(false);
 
+  const [companyModal, setCompanyModal] = useState<{ item: GlobalTop20Item; player: "p1" | "p2" } | null>(null);
+  const [companyModalDesc, setCompanyModalDesc] = useState<string | null>(null);
+  const [companyModalLoading, setCompanyModalLoading] = useState(false);
+  const [companyModalError, setCompanyModalError] = useState<string | null>(null);
+
   const p1Intro = useCompanyIntro(p1, lang);
   const p2Intro = useCompanyIntro(p2, lang);
+
+  // Full, untruncated description for the popup — deliberately separate from
+  // useCompanyIntro above, which trims to ~3 lines for the select-screen card.
+  const openCompanyModal = (item: GlobalTop20Item, player: "p1" | "p2") => {
+    setCompanyModal({ item, player });
+    setCompanyModalDesc(null);
+    setCompanyModalError(null);
+
+    if (!item.detail_path) {
+      setCompanyModalError("회사 정보가 없습니다.");
+      return;
+    }
+
+    setCompanyModalLoading(true);
+    api
+      .companyDetail(item.detail_path, lang)
+      .then((res) => setCompanyModalDesc(res.description || t("회사 정보가 없습니다.")))
+      .catch((err: Error) => setCompanyModalError(err.message || "회사 정보를 불러오지 못했습니다."))
+      .finally(() => setCompanyModalLoading(false));
+  };
 
   useEffect(() => {
     api
@@ -501,16 +523,18 @@ export default function MarketCapFightPage() {
           <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
-          <Link to="/battle" className="kospi-map-nav-link">
-            <MarketIcon /> {t("시총대결")}
-          </Link>
           {phase === "fight" && (
-            <button type="button" className="fight-back-link" onClick={resetSelection}>
-              ◀ PLAYER SELECT
-            </button>
+            <>
+              <Link to="/battle" className="kospi-map-nav-link fight-nav-link--classic">
+                <MarketIcon /> {t("삼성 vs SK하이닉스")}
+              </Link>
+              <button type="button" className="fight-back-link" onClick={resetSelection}>
+                ◀ PLAYER SELECT
+              </button>
+            </>
           )}
         </div>
-        <h1 className="app-title">{t("시총파이트")}</h1>
+        <h1 className="app-title">{t("시총대결")}</h1>
       </header>
 
       {phase === "select" && (
@@ -577,7 +601,7 @@ export default function MarketCapFightPage() {
             <div className="fight-arena-flash" />
             <div className="fight-arena-fight-text">FIGHT!</div>
 
-            <FightCard item={statusA ?? p1} player="p1" />
+            <FightCard item={statusA ?? p1} player="p1" onOpenDetail={() => openCompanyModal(statusA ?? p1, "p1")} />
 
             <div className="fight-arena-center">
               <div className="fight-lightning fight-lightning--a" />
@@ -588,7 +612,7 @@ export default function MarketCapFightPage() {
               <span className="fight-spark fight-spark--3" />
             </div>
 
-            <FightCard item={statusB ?? p2} player="p2" />
+            <FightCard item={statusB ?? p2} player="p2" onOpenDetail={() => openCompanyModal(statusB ?? p2, "p2")} />
 
             {statusA && statusB && (
               <div className="battle-vs-overlay fight-vs-overlay">
@@ -630,6 +654,20 @@ export default function MarketCapFightPage() {
             />
           )}
         </div>
+      )}
+
+      {companyModal && (
+        <FightCompanyModal
+          item={companyModal.item}
+          player={companyModal.player}
+          ceoName={CEO_NAMES[companyModal.item.code]}
+          ceoPhoto={ceoStylizedImageFor(companyModal.item.code)}
+          productImage={productImageFor(companyModal.item.code)}
+          description={companyModalDesc}
+          loading={companyModalLoading}
+          error={companyModalError}
+          onClose={() => setCompanyModal(null)}
+        />
       )}
 
       <Footer />
