@@ -22,6 +22,7 @@ import MarketIcon from "./MarketIcon";
 import RollingValue from "./RollingValue";
 import SlotMachineValue from "./SlotMachineValue";
 import ThemeToggle from "./ThemeToggle";
+import VisitorBadge from "./VisitorBadge";
 
 const STATUS_POLL_MS = 3000;
 // Tuned to the info card's actual width/font-size so a 2-3 sentence description
@@ -541,11 +542,18 @@ export default function MarketCapFightPage() {
           <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
+          <Link to="/map" className="kospi-map-nav-link">
+            <MarketIcon /> KOSPI
+          </Link>
+          <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+            <MarketIcon /> KOSDAQ
+          </Link>
           {phase === "fight" && (
             <Link to="/battle" className="kospi-map-nav-link fight-nav-link--classic">
               <MarketIcon /> {t("삼성 vs SK하이닉스")}
             </Link>
           )}
+          <VisitorBadge />
         </div>
         {phase === "fight" && <h1 className="app-title">{t("시총대결")}</h1>}
       </header>
@@ -706,6 +714,7 @@ export default function MarketCapFightPage() {
       {newsModal && (
         <CompanyNewsModal
           companyName={newsModal.item.name}
+          companyCode={newsModal.item.code}
           player={newsModal.player}
           items={newsItems}
           loading={newsLoading}

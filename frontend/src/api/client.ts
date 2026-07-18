@@ -331,4 +331,8 @@ export const api = {
     getJSON<{ items: CompanyNewsItem[] }>(
       `${BASE}/fight/news?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&lang=${lang}`
     ),
+  fightArticle: (link: string, code: string, lang: string = "ko") =>
+    getJSON<{ paragraphs: string[] | null }>(
+      `${BASE}/fight/news/article?link=${encodeURIComponent(link)}&code=${encodeURIComponent(code)}&lang=${lang}`
+    ),
 };

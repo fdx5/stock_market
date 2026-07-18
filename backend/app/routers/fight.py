@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app.services.company_news import get_company_news_translated
+from app.services.company_news import get_article_content_translated, get_company_news_translated
 from app.services.fight import get_fight_pair
 from app.services.fight_comment_store import add_comment, count_by_company, list_comments_for_pair
 
@@ -31,6 +31,16 @@ def fight_news(
     lang: str = Query("ko"),
 ):
     return {"items": get_company_news_translated(code, name, lang)}
+
+
+@router.get("/news/article")
+def fight_news_article(
+    link: str = Query(..., min_length=1),
+    code: str = Query(..., min_length=1),
+    lang: str = Query("ko"),
+):
+    content = get_article_content_translated(link, code.endswith(".KS"), lang)
+    return {"paragraphs": content["paragraphs"] if content else None}
 
 
 @router.get("/comments")
