@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { GlobalTop20Item, api } from "../api/client";
+import { CEO_NAMES } from "../data/ceoNames";
 import { trillionSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { useEffect } from "react";
 import DashboardIcon from "./DashboardIcon";
 import FightCheerSection from "./FightCheerSection";
 import Footer from "./Footer";
@@ -16,9 +16,14 @@ import MarketIcon from "./MarketIcon";
 import RollingValue from "./RollingValue";
 import SlotMachineValue from "./SlotMachineValue";
 import ThemeToggle from "./ThemeToggle";
-import WorldMapPanel from "./WorldMapPanel";
 
 const STATUS_POLL_MS = 3000;
+const INTRO_MAX_CHARS = 240;
+const TYPE_MS_PER_CHAR = 16;
+
+// Per-tab cache: a company's intro doesn't change, so re-picking it (or swapping
+// 1P/2P) replays the typing instantly-fetched instead of hitting the API again.
+const INTRO_CACHE = new Map<string, string>();
 
 function formatMarcap(marcapUsd: number, lang: "ko" | "en"): string {
   // marcap_usd is already USD — reuse the same trillion-suffix formatter the battle
@@ -38,6 +43,80 @@ function formatChangePct(changePct: number | null | undefined): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
+/** Trims the scraped company description to roughly three display lines, cutting at
+ * a word boundary so the typewriter never ends mid-word. */
+function truncateIntro(text: string): string {
+  const clean = text.trim();
+  if (clean.length <= INTRO_MAX_CHARS) return clean;
+  const cut = clean.slice(0, INTRO_MAX_CHARS);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${cut.slice(0, lastSpace > INTRO_MAX_CHARS * 0.6 ? lastSpace : INTRO_MAX_CHARS)}…`;
+}
+
+function useCompanyIntro(item: GlobalTop20Item | null, lang: string): string | null {
+  const [intro, setIntro] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!item?.detail_path) {
+      setIntro(item ? "" : null);
+      return;
+    }
+    const key = `${item.detail_path}:${lang}`;
+    const cached = INTRO_CACHE.get(key);
+    if (cached !== undefined) {
+      setIntro(cached);
+      return;
+    }
+    let cancelled = false;
+    setIntro(null);
+    api
+      .companyDetail(item.detail_path, lang)
+      .then((res) => {
+        if (cancelled) return;
+        const trimmed = truncateIntro(res.description || "");
+        INTRO_CACHE.set(key, trimmed);
+        setIntro(trimmed);
+      })
+      .catch(() => {
+        // Intro is decorative — an empty card body beats an error state here.
+        if (!cancelled) setIntro("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item, item?.detail_path, lang]);
+
+  return item ? intro : null;
+}
+
+/** Types `text` out one character at a time with a blinking caret. */
+function Typewriter({ text }: { text: string }) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    setCount(0);
+    if (!text) return;
+    const id = window.setInterval(() => {
+      setCount((c) => {
+        if (c >= text.length) {
+          window.clearInterval(id);
+          return c;
+        }
+        return c + 1;
+      });
+    }, TYPE_MS_PER_CHAR);
+    return () => window.clearInterval(id);
+  }, [text]);
+
+  const done = count >= text.length;
+  return (
+    <p className="fight-info-intro">
+      {text.slice(0, count)}
+      <span className={`fight-info-caret${done ? " done" : ""}`} />
+    </p>
+  );
+}
+
 /** companiesmarketcap serves the same logo at /64/, /128/ and /256/ — the roster API
  * hands us the 64px variant, so swap in the 256px one for crisp large tiles, keeping
  * the original as an onError fallback in case a particular logo lacks the big size. */
@@ -54,6 +133,31 @@ function CompanyLogo({ item, className }: { item: GlobalTop20Item; className?: s
         if (!failedHiRes) setFailedHiRes(true);
       }}
     />
+  );
+}
+
+/** Replaces the old world-map panel: flag on top, company name under it, the CEO's
+ * English name, then a three-line company intro that types itself out. */
+function InfoCard({ item, player, intro }: { item: GlobalTop20Item | null; player: "p1" | "p2"; intro: string | null }) {
+  const t = useT();
+  const ceo = item ? CEO_NAMES[item.code] : undefined;
+  return (
+    <div className={`fight-info-card fight-info-card--${player}${item ? " picked" : ""}`}>
+      <div className="fight-info-label">{player === "p1" ? "1P" : "2P"}</div>
+      {item ? (
+        <>
+          {item.flag_url && <img src={item.flag_url} className="fight-info-flag" alt={item.country} />}
+          <div className="fight-info-company">{item.name}</div>
+          {ceo && <div className="fight-info-ceo">CEO · {ceo}</div>}
+          {intro === null ? <div className="fight-info-loading">{t("데이터를 불러오는 중...")}</div> : <Typewriter text={intro} />}
+        </>
+      ) : (
+        <div className="fight-info-empty">
+          <span>?</span>
+          <span className="fight-info-empty-hint">{player === "p1" ? t("1P를 선택하세요") : t("2P를 선택하세요")}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -176,6 +280,9 @@ export default function MarketCapFightPage() {
   const [statusError, setStatusError] = useState<string | null>(null);
   const [barsAtZero, setBarsAtZero] = useState(false);
 
+  const p1Intro = useCompanyIntro(p1, lang);
+  const p2Intro = useCompanyIntro(p2, lang);
+
   useEffect(() => {
     api
       .globalTop20()
@@ -184,10 +291,10 @@ export default function MarketCapFightPage() {
   }, []);
 
   // Both slots filled -> lock in and transition to the fight screen automatically,
-  // matching the character-select flow the user asked for (no separate confirm step).
+  // after a beat long enough to let the intro typing register as part of the show.
   useEffect(() => {
     if (p1 && p2 && phase === "select") {
-      const id = window.setTimeout(() => setPhase("fight"), 650);
+      const id = window.setTimeout(() => setPhase("fight"), 3200);
       return () => window.clearTimeout(id);
     }
   }, [p1, p2, phase]);
@@ -288,6 +395,11 @@ export default function MarketCapFightPage() {
           <Link to="/battle" className="kospi-map-nav-link">
             <MarketIcon /> {t("시총대결")}
           </Link>
+          {phase === "fight" && (
+            <button type="button" className="fight-back-link" onClick={resetSelection}>
+              ◀ PLAYER SELECT
+            </button>
+          )}
         </div>
         <h1 className="app-title">{t("시총파이트")}</h1>
       </header>
@@ -298,7 +410,10 @@ export default function MarketCapFightPage() {
             <span>PLAYER SELECT</span>
           </div>
 
-          <WorldMapPanel roster={roster} p1={p1} p2={p2} />
+          <div className="fight-info-stage">
+            <InfoCard item={p1} player="p1" intro={p1Intro} />
+            <InfoCard item={p2} player="p2" intro={p2Intro} />
+          </div>
 
           {rosterError && <div className="error-state">{t(rosterError)}</div>}
           {!roster.length && !rosterError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
@@ -358,16 +473,16 @@ export default function MarketCapFightPage() {
           </div>
 
           {leader && trailing && (
-            <div className="fight-diff-info">
-              👑 <span className={`fight-diff-leader ${leader === statusA ? "fight-p1-color" : "fight-p2-color"}`}>{leaderName}</span>
-              {" · "}
-              {t("2위")} {trailingName} ·{" "}
-              <RollingValue
-                className="fight-diff-amount"
-                value={diffMarcap}
-                text={`$${diffMarcap.toFixed(2)}${trillionSuffix(lang)}`}
-              />{" "}
-              {t("차이")} (<RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} />)
+            <div className="fight-diff-panel">
+              <div className="fight-diff-panel-label">💥 {t("시총 격차")}</div>
+              <div className="fight-diff-panel-value">
+                <RollingValue value={diffMarcap} text={`$${diffMarcap.toFixed(2)}${trillionSuffix(lang)}`} />
+              </div>
+              <div className="fight-diff-panel-sub">
+                👑 <span className={leader === statusA ? "fight-p1-color" : "fight-p2-color"}>{leaderName}</span>
+                {" · "}
+                {t("2위")} {trailingName} (<RollingValue value={diffPct} text={`${diffPct.toFixed(1)}%`} /> {t("차이")})
+              </div>
             </div>
           )}
 

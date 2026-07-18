@@ -3543,151 +3543,151 @@ thead .weekly-foreign-amount-col {
   }
 }
 
-/* World map panel — SF2 world map look: tan landmasses on a deep glowing sea */
+/* 1P/2P info cards (replaces the world-map panel): flag, company name, English CEO
+   name, then a three-line company intro typed out character by character. */
 
-.fight-map-panel {
-  position: relative;
-  width: min(100%, 880px);
-  margin: 0 auto;
-  aspect-ratio: 2 / 1;
-  border-radius: 14px;
-  overflow: hidden;
-  border: 3px solid #2b3a55;
-  box-shadow: inset 0 0 40px rgba(20, 60, 140, 0.55), 0 4px 18px rgba(0, 0, 0, 0.45);
-  background: radial-gradient(ellipse at center, #14335f 0%, #081527 72%, #04080f 100%);
+.fight-info-stage {
+  display: flex;
+  gap: 14px;
 }
 
-.fight-map-svg {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.fight-map-continent {
-  fill: #c9a15a;
-  stroke: #7a5c24;
-  stroke-width: 0.3;
-  filter: drop-shadow(0.4px 0.6px 0 rgba(0, 0, 0, 0.6));
-}
-
-.fight-map-sweep {
-  fill: url(#fight-map-sweep-gradient);
-  animation: fight-map-sweep-anim 7s linear infinite;
-}
-
-@keyframes fight-map-sweep-anim {
-  0% {
-    transform: translateX(-30px);
-  }
-  100% {
-    transform: translateX(130px);
-  }
-}
-
-/* Ambient roster flags — every fighter's HQ marked SF2-style */
-
-.fight-map-pin-ambient {
-  position: absolute;
-  width: 16px;
-  height: 11px;
-  margin: -5px 0 0 -8px;
-  border-radius: 1px;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 1px 3px rgba(0, 0, 0, 0.6);
-  animation: fight-map-flag-bob 2.4s ease-in-out infinite;
-}
-
-.fight-map-pin-ambient img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-@keyframes fight-map-flag-bob {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-2px);
-  }
-}
-
-/* Selected 1P/2P pins — glowing emblem ring at HQ */
-
-.fight-map-pin {
-  position: absolute;
+.fight-info-card {
+  flex: 1;
+  min-width: 0;
+  min-height: 172px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  transform: translate(-50%, -50%);
-  z-index: 2;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #131a28 0%, #0a0f18 100%);
+  border: 2px solid #2b3a55;
 }
 
-.fight-map-pin-label {
-  font-size: 10px;
+.fight-info-card--p2 {
+  align-items: flex-end;
+  text-align: right;
+}
+
+.fight-info-card--p1.picked {
+  border-color: var(--fight-p1);
+  box-shadow: 0 0 18px rgba(78, 161, 255, 0.35);
+}
+
+.fight-info-card--p2.picked {
+  border-color: var(--fight-p2);
+  box-shadow: 0 0 18px rgba(255, 90, 90, 0.35);
+}
+
+.fight-info-label {
+  font-size: 15px;
   font-weight: 900;
-  padding: 1px 5px;
-  border-radius: 4px;
+  letter-spacing: 0.1em;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.fight-info-card--p1 .fight-info-label {
+  color: var(--fight-p1);
+}
+
+.fight-info-card--p2 .fight-info-label {
+  color: var(--fight-p2);
+}
+
+.fight-info-flag {
+  width: 42px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.fight-info-company {
+  font-size: 18px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
   color: #fff;
   text-shadow: 1px 1px 0 #000;
 }
 
-.fight-map-pin--p1 .fight-map-pin-label {
-  background: var(--fight-p1);
+.fight-info-ceo {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--fight-gold);
 }
 
-.fight-map-pin--p2 .fight-map-pin-label {
-  background: var(--fight-p2);
+.fight-info-intro {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #cfd8ea;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
 }
 
-.fight-map-pin-glow {
-  position: relative;
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #0b1526;
-  animation: fight-map-pin-glow-anim 1.6s ease-in-out infinite;
+.fight-info-caret {
+  display: inline-block;
+  width: 7px;
+  height: 12px;
+  margin-left: 2px;
+  vertical-align: -1px;
+  background: var(--fight-gold);
+  animation: fight-caret-blink 0.8s steps(2) infinite;
 }
 
-.fight-map-pin--p1 .fight-map-pin-glow {
-  box-shadow: 0 0 0 2px var(--fight-p1), 0 0 16px var(--fight-p1);
+.fight-info-caret.done {
+  animation: fight-caret-blink 0.8s steps(2) 4;
+  animation-fill-mode: forwards;
+  opacity: 0;
 }
 
-.fight-map-pin--p2 .fight-map-pin-glow {
-  box-shadow: 0 0 0 2px var(--fight-p2), 0 0 16px var(--fight-p2);
-}
-
-@keyframes fight-map-pin-glow-anim {
+@keyframes fight-caret-blink {
   0%, 100% {
-    transform: scale(1);
+    opacity: 1;
   }
   50% {
-    transform: scale(1.14);
+    opacity: 0;
   }
 }
 
-.fight-map-pin-logo {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
-  border-radius: 50%;
+.fight-info-loading {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
-.fight-map-pin-flag {
-  position: absolute;
-  bottom: -3px;
-  right: -5px;
-  width: 15px;
-  height: 10px;
-  object-fit: cover;
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px #000;
+.fight-info-empty {
+  align-self: center;
+  margin: auto 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: #24324a;
+}
+
+.fight-info-empty > span:first-child {
+  font-size: 40px;
+  font-weight: 900;
+}
+
+.fight-info-empty-hint {
+  font-size: 11px;
+  font-weight: 700;
+  color: #3a4a68;
+}
+
+@media (max-width: 640px) {
+  .fight-info-stage {
+    flex-direction: column;
+  }
+
+  .fight-info-card {
+    min-height: 0;
+  }
 }
 
 /* Select stage: [1P portrait] [roster grid] [2P portrait] */
@@ -4109,21 +4109,78 @@ thead .weekly-foreign-amount-col {
   text-shadow: 1px 1px 0 #000;
 }
 
-/* Leader/gap readout under the arena (same info the fixed battle page shows). */
-.fight-diff-info {
-  text-align: center;
-  font-size: 14px;
+/* Market-cap gap: a damage-counter style panel — huge glowing gold number. */
+.fight-diff-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 14px 18px 16px;
+  border-radius: 14px;
+  border: 2px solid rgba(255, 209, 102, 0.55);
+  background:
+    radial-gradient(ellipse 70% 90% at 50% 0%, rgba(255, 140, 20, 0.16) 0%, transparent 70%),
+    linear-gradient(180deg, #1a1206 0%, #0d0903 100%);
+  box-shadow: 0 0 22px rgba(255, 160, 30, 0.25), inset 0 0 30px rgba(255, 160, 30, 0.08);
+}
+
+.fight-diff-panel-label {
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.22em;
+  text-indent: 0.22em;
+  color: #ffb057;
+  text-shadow: 1px 1px 0 #000;
+}
+
+.fight-diff-panel-value {
+  font-size: clamp(34px, 6vw, 56px);
+  font-weight: 900;
+  font-style: italic;
+  font-variant-numeric: tabular-nums;
+  color: var(--fight-gold);
+  -webkit-text-stroke: 1.5px #7a3000;
+  text-shadow: 0 0 24px rgba(255, 140, 20, 0.85), 3px 3px 0 rgba(0, 0, 0, 0.8);
+  animation: fight-diff-pulse 1.6s ease-in-out infinite;
+  line-height: 1.1;
+}
+
+@keyframes fight-diff-pulse {
+  0%, 100% {
+    transform: scale(1);
+    text-shadow: 0 0 24px rgba(255, 140, 20, 0.85), 3px 3px 0 rgba(0, 0, 0, 0.8);
+  }
+  50% {
+    transform: scale(1.06);
+    text-shadow: 0 0 40px rgba(255, 160, 30, 1), 3px 3px 0 rgba(0, 0, 0, 0.8);
+  }
+}
+
+.fight-diff-panel-sub {
+  font-size: 13px;
   font-weight: 800;
   color: var(--text-secondary);
 }
 
-.fight-diff-leader {
+/* Top-of-page return to the character-select screen (fight phase only). */
+.fight-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 2px solid var(--fight-gold);
+  background: linear-gradient(180deg, #2a2010 0%, #171008 100%);
+  color: var(--fight-gold);
+  font-size: 12px;
   font-weight: 900;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  text-shadow: 1px 1px 0 #000;
 }
 
-.fight-diff-amount {
-  color: var(--fight-gold);
-  font-weight: 900;
+.fight-back-link:hover {
+  box-shadow: 0 0 14px rgba(255, 209, 102, 0.5);
 }
 
 /* Center column: VS badge, crossing lightning, spark particles */
