@@ -46,8 +46,6 @@ export const DICTIONARY: Record<string, string> = {
 
   // NewsPage
   "글로벌 뉴스": "Global News",
-  "글로벌 시가총액 TOP20 기업의 최신 뉴스를 한눈에 확인하세요.":
-    "See the latest news from the world's TOP20 companies by market cap, all in one place.",
 
   // MarketCapFightPage
   "삼성 vs SK하이닉스": "Samsung vs SK Hynix",

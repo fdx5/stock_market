@@ -193,7 +193,6 @@ export default function NewsPage() {
           <VisitorBadge />
         </div>
         <h1 className="app-title">{t("글로벌 뉴스")}</h1>
-        <p className="app-subtitle">{t("글로벌 시가총액 TOP20 기업의 최신 뉴스를 한눈에 확인하세요.")}</p>
       </header>
 
       {rosterError && <div className="error-state">{t(rosterError)}</div>}
