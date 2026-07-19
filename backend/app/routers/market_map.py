@@ -7,6 +7,7 @@ from app.data.market_ticker_fetcher import get_market_ticker
 from app.data.price_fetcher import get_history
 from app.services.indicators import compute_indicators
 from app.services.market_map import get_kosdaq_map, get_kospi_map
+from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
 from app.utils import dataframe_to_records
 
 router = APIRouter()
@@ -32,6 +33,26 @@ def kospi_map(limit: int = Query(500, ge=1, le=800), fresh: bool = Query(False))
 @router.get("/kosdaq-map")
 def kosdaq_map(limit: int = Query(200, ge=1, le=200), fresh: bool = Query(False)):
     items = get_kosdaq_map(limit, fresh=fresh)
+    return {
+        "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
+        "count": len(items),
+        "items": items,
+    }
+
+
+@router.get("/sp500-map")
+def sp500_map(limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False)):
+    items = get_sp500_map(limit, fresh=fresh)
+    return {
+        "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
+        "count": len(items),
+        "items": items,
+    }
+
+
+@router.get("/nasdaq100-map")
+def nasdaq100_map(limit: int = Query(103, ge=1, le=103), fresh: bool = Query(False)):
+    items = get_nasdaq100_map(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         "count": len(items),

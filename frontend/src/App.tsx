@@ -11,6 +11,8 @@ const InvestorTrendPage = lazy(() => import("./components/InvestorTrendPage"));
 const IndexChartPage = lazy(() => import("./components/IndexChartPage"));
 const KospiMapPage = lazy(() => import("./components/KospiMapPage"));
 const KosdaqMapPage = lazy(() => import("./components/KosdaqMapPage"));
+const Sp500MapPage = lazy(() => import("./components/Sp500MapPage"));
+const Nasdaq100MapPage = lazy(() => import("./components/Nasdaq100MapPage"));
 const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const MarketCapFightPage = lazy(() => import("./components/MarketCapFightPage"));
 const NewsPage = lazy(() => import("./components/NewsPage"));
@@ -34,6 +36,10 @@ export default function App() {
     page = <KospiMapPage />;
   } else if (path === "/kosdaq-map") {
     page = <KosdaqMapPage />;
+  } else if (path === "/sp500-map") {
+    page = <Sp500MapPage />;
+  } else if (path === "/nasdaq100-map") {
+    page = <Nasdaq100MapPage />;
   } else if (path === "/battle") {
     page = <TugOfWarPage />;
   } else if (path === "/fight") {

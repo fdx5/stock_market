@@ -40,6 +40,35 @@ function pct(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
+// US maps have no absolute market-cap figure (see `marcap`'s meaning below) and price
+// a share in dollars rather than won, so every currency-shaped display value branches
+// on `market` instead of `lang` — `lang` only ever changes the UI's language, not
+// which market's data is being shown.
+function formatPrice(close: number, market: "kr" | "us", lang: Lang): string {
+  if (market === "us") {
+    return `$${close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `${close.toLocaleString()}${wonSuffix(lang)}`;
+}
+
+function formatChangeAmount(change: number, market: "kr" | "us", lang: Lang): string {
+  if (market === "us") {
+    const sign = change >= 0 ? "+" : "-";
+    return `${sign}$${Math.abs(change).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+  return `${change >= 0 ? "+" : ""}${change.toLocaleString()}${wonSuffix(lang)}`;
+}
+
+// For KR maps `marcap` is a real won figure. For US maps it's instead the
+// constituent's weight (%) in its index — slickcharts doesn't expose an absolute
+// market cap, but index weight is exactly the market-cap-share a cap-weighted index
+// computes, so it's both an honest number to show and the right value to drive the
+// treemap's tile sizing.
+function formatMarcapOrWeight(marcap: number, market: "kr" | "us", lang: Lang): string {
+  if (market === "us") return `${marcap.toFixed(2)}%`;
+  return formatMarcap(marcap, lang);
+}
+
 const TILE_FONT_FAMILY = "system-ui, -apple-system, 'Segoe UI', sans-serif";
 let measureCtx: CanvasRenderingContext2D | null | undefined;
 
@@ -167,6 +196,14 @@ export interface MarketMapPageProps {
   fullLimit: number;
   /** Extra nav links shown next to the live badge (besides the back-link and visitor badge). */
   navLinks: { to: string; label: string; icon?: ReactNode; className?: string }[];
+  /** "us" switches currency formatting to USD, shows the ticker (not the translated
+   * company name) as each tile/table row's primary label, drops the KR-only company
+   * logo and Dashboard-search-on-click behaviors, and skips the Korean-name
+   * translation pass (US names are already in English). Defaults to "kr". */
+  market?: "kr" | "us";
+  /** Label for the marcap column/tooltip row/legend — e.g. "지수 내 비중" for US maps,
+   * which show index weight rather than an absolute market cap. Defaults to "시가총액". */
+  marcapLabel?: string;
 }
 
 // Shared by KospiMapPage and KosdaqMapPage — both are a Finviz-style sector treemap over
@@ -183,6 +220,8 @@ export default function MarketMapPage({
   tier2Limit,
   fullLimit,
   navLinks,
+  market = "kr",
+  marcapLabel = "시가총액",
 }: MarketMapPageProps) {
   const { lang } = useLanguage();
   const t = useT();
@@ -374,16 +413,27 @@ export default function MarketMapPage({
     );
   }, [size]);
 
-  const handleTileClick = (code: string) => navigate(`/?code=${code}`);
+  // US maps have no per-stock Dashboard to search into (that page's data pipeline is
+  // KR-only), so tapping/clicking a US tile is a no-op — it still hovers/focuses to
+  // show the tooltip, it just doesn't navigate anywhere.
+  const handleTileClick = (code: string) => {
+    if (market === "us") return;
+    navigate(`/?code=${code}`);
+  };
 
   // One batched translation request for every name currently loaded (tiles, table,
-  // tooltip all read from this same array), rather than one call per row.
-  const translatedNames = useTranslatedTexts(items.map((it) => it.name));
+  // tooltip all read from this same array), rather than one call per row. US names
+  // are already in English, so there's nothing to translate — pass an empty array
+  // instead of wasting a translation request on text that never needs it.
+  const translatedNames = useTranslatedTexts(market === "kr" ? items.map((it) => it.name) : []);
   const nameByCode = useMemo(() => {
     const map = new Map<string, string>();
     items.forEach((it, i) => map.set(it.code, translatedNames[i] ?? it.name));
     return map;
   }, [items, translatedNames]);
+  // On US maps the ticker (not the full company name) is the primary label shown on
+  // tiles/table rows; the full English name only shows in the hover/tap tooltip.
+  const tileLabel = (code: string, name: string) => (market === "us" ? code : nameByCode.get(code) ?? name);
 
   const liveBadgeText = lang === "en" ? "Live (rank-based refresh: 10s–1min)" : "실시간 (순위별 10초 ~ 1분단위 갱신)";
 
@@ -409,7 +459,8 @@ export default function MarketMapPage({
     await Promise.all(
       sectorZones.flatMap((zone) =>
         zone.tiles.map(async (tile) => {
-          const name = nameByCode.get(tile.item.code) ?? tile.item.name;
+          if (market === "us") return;
+          const name = tileLabel(tile.item.code, tile.item.name);
           const { showIcon } = tileDisplayInfo(tile.w, tile.h, name);
           if (!showIcon) return;
           const img = await loadIconImage(tile.item.code);
@@ -464,7 +515,7 @@ export default function MarketMapPage({
         ctx.lineWidth = 1;
         ctx.strokeRect(tile.x + 0.5, tile.y + 0.5, Math.max(tile.w - 1, 0), Math.max(tile.h - 1, 0));
 
-        const name = nameByCode.get(tile.item.code) ?? tile.item.name;
+        const name = tileLabel(tile.item.code, tile.item.name);
         const { showName, showPctOnly, fontSizes, showIcon, iconSize, iconGap } = tileDisplayInfo(
           tile.w,
           tile.h,
@@ -477,7 +528,7 @@ export default function MarketMapPage({
         ctx.fillStyle = textColorForRgb(rgb, themeMode);
 
         if (showName) {
-          const icon = showIcon ? iconByCode.get(tile.item.code) : undefined;
+          const icon = market === "kr" && showIcon ? iconByCode.get(tile.item.code) : undefined;
           let textX = tile.x + padX;
           if (icon) {
             ctx.drawImage(icon, tile.x + padX, tile.y + 2, iconSize, iconSize);
@@ -693,12 +744,15 @@ export default function MarketMapPage({
                     const textColor = textColorForRgb(rgb, themeMode);
                     const localX = tile.x - zone.rect.x;
                     const localY = tile.y - zone.rect.y;
-                    const name = nameByCode.get(tile.item.code) ?? tile.item.name;
+                    const name = tileLabel(tile.item.code, tile.item.name);
                     const { showName, showPctOnly, fontSizes, showIcon, iconSize } = tileDisplayInfo(
                       tile.w,
                       tile.h,
                       name
                     );
+                    // No logo source exists for US tickers (StockIcon only resolves KR
+                    // codes against Naver's icon host), so never show one on US maps.
+                    const tileShowIcon = market === "kr" && showIcon;
                     return (
                       <button
                         key={tile.id}
@@ -723,7 +777,7 @@ export default function MarketMapPage({
                         {showName && (
                           <>
                             <span className="kospi-map-tile-name-row">
-                              {showIcon && (
+                              {tileShowIcon && (
                                 <StockIcon
                                   className="kospi-map-tile-icon"
                                   style={{ width: iconSize, height: iconSize }}
@@ -760,7 +814,7 @@ export default function MarketMapPage({
                     <th>#</th>
                     <th>{t("종목명")}</th>
                     <th>{t("업종")}</th>
-                    <th>{t("시가총액")}</th>
+                    <th>{t(marcapLabel)}</th>
                     <th>{t("현재가")}</th>
                     <th>{t("등락률")}</th>
                   </tr>
@@ -778,11 +832,12 @@ export default function MarketMapPage({
                         <tr key={item.code} onClick={() => handleTileClick(item.code)}>
                           <td>{idx + 1}</td>
                           <td className="kospi-map-table-name">
-                            {nameByCode.get(item.code) ?? item.name} <span className="top100-code">{item.code}</span>
+                            {tileLabel(item.code, item.name)}
+                            {market === "kr" && <span className="top100-code">{item.code}</span>}
                           </td>
                           <td>{t(item.sector)}</td>
-                          <td>{formatMarcap(item.marcap, lang)}</td>
-                          <td>{item.close.toLocaleString()}{wonSuffix(lang)}</td>
+                          <td>{formatMarcapOrWeight(item.marcap, market, lang)}</td>
+                          <td>{formatPrice(item.close, market, lang)}</td>
                           <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
                             {pct(item.change_pct)}
                           </td>
@@ -801,14 +856,13 @@ export default function MarketMapPage({
             {nameByCode.get(hovered.code) ?? hovered.name} <span className="top100-code">{hovered.code}</span>
           </div>
           <div className="kospi-map-tooltip-row">{t("업종")} {t(hovered.sector)}</div>
-          <div className="kospi-map-tooltip-row">{t("시가총액")} {formatMarcap(hovered.marcap, lang)}</div>
-          <div className="kospi-map-tooltip-row">{t("현재가")} {hovered.close.toLocaleString()}{wonSuffix(lang)}</div>
+          <div className="kospi-map-tooltip-row">{t(marcapLabel)} {formatMarcapOrWeight(hovered.marcap, market, lang)}</div>
+          <div className="kospi-map-tooltip-row">{t("현재가")} {formatPrice(hovered.close, market, lang)}</div>
           <div
             className="kospi-map-tooltip-row"
             style={{ color: hovered.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}
           >
-            {t("등락")} {hovered.change >= 0 ? "+" : ""}
-            {hovered.change.toLocaleString()}{wonSuffix(lang)} ({pct(hovered.change_pct)})
+            {t("등락")} {formatChangeAmount(hovered.change, market, lang)} ({pct(hovered.change_pct)})
           </div>
           <div className="kospi-map-tooltip-row">
             {t("맵 면적 비중")} {totalMarcap > 0 ? ((hovered.marcap / totalMarcap) * 100).toFixed(2) : "0.00"}%

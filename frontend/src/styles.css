@@ -15,6 +15,8 @@
   --series-yellow: #c98500;
   --series-violet: #9085e9;
   --series-red: #e66767;
+  --series-green: #4caf6e;
+  --series-orange: #e0863f;
 
   --status-good: #0ca30c;
   --status-warning: #fab219;
@@ -59,6 +61,8 @@
   --series-yellow: #9c6a2f;
   --series-violet: #7367bd;
   --series-red: #bd5c66;
+  --series-green: #3f8656;
+  --series-orange: #b06a35;
 
   --status-good: #3f8656;
   --status-warning: #a37a2e;
@@ -1546,6 +1550,38 @@ thead .weekly-foreign-amount-col {
   background: color-mix(in srgb, var(--series-yellow) 22%, transparent);
 }
 
+/* S&P500/NASDAQ100 nav pills — same shimmering-pill treatment as the other markets,
+   each in its own accent so the now-6-wide link row still reads at a glance. */
+.kospi-map-nav-link--sp500 {
+  color: var(--series-green);
+  border-color: var(--series-green);
+  background: color-mix(in srgb, var(--series-green) 12%, transparent);
+  animation-delay: 1.5s;
+}
+
+.kospi-map-nav-link--sp500::after {
+  animation-delay: 1.5s;
+}
+
+.kospi-map-nav-link--sp500:hover {
+  background: color-mix(in srgb, var(--series-green) 22%, transparent);
+}
+
+.kospi-map-nav-link--nasdaq {
+  color: var(--series-orange);
+  border-color: var(--series-orange);
+  background: color-mix(in srgb, var(--series-orange) 12%, transparent);
+  animation-delay: 1.8s;
+}
+
+.kospi-map-nav-link--nasdaq::after {
+  animation-delay: 1.8s;
+}
+
+.kospi-map-nav-link--nasdaq:hover {
+  background: color-mix(in srgb, var(--series-orange) 22%, transparent);
+}
+
 .market-nav-icon {
   width: 14px;
   height: 14px;
@@ -1571,6 +1607,14 @@ thead .weekly-foreign-amount-col {
 .kospi-map-nav-link--news .market-nav-icon,
 .app-footer-market-link--news .market-nav-icon {
   animation-delay: 1.2s;
+}
+
+.kospi-map-nav-link--sp500 .market-nav-icon {
+  animation-delay: 1.5s;
+}
+
+.kospi-map-nav-link--nasdaq .market-nav-icon {
+  animation-delay: 1.8s;
 }
 
 .mini-apps-icon {

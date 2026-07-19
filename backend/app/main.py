@@ -11,6 +11,7 @@ from app.data.universe import warm_english_names
 from app.routers import battle, fight, geo, investor, market_map, search, stock, translate, visitors
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
+from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
 
 app = FastAPI(title="KOSPI 종목 예측")
 
@@ -49,6 +50,11 @@ def _warm_market_maps() -> None:
         threading.Thread(target=lambda limit=limit: get_kospi_map(limit), daemon=True).start()
     for limit in (20, 50, 200):
         threading.Thread(target=lambda limit=limit: get_kosdaq_map(limit), daemon=True).start()
+    # The S&P500/Nasdaq100 maps cache one full-list scrape per market (not per-limit
+    # like the KRX maps above), so warming the full limit alone is enough to make
+    # every frontend tier (20/50/full) hit a warm cache.
+    threading.Thread(target=lambda: get_sp500_map(503), daemon=True).start()
+    threading.Thread(target=lambda: get_nasdaq100_map(103), daemon=True).start()
 
 
 @app.on_event("startup")

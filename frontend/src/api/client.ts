@@ -276,6 +276,14 @@ export const api = {
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/kosdaq-map?limit=${limit}&fresh=${fresh}`
     ),
+  sp500Map: (limit = 503, fresh = false) =>
+    getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
+      `${BASE}/market/sp500-map?limit=${limit}&fresh=${fresh}`
+    ),
+  nasdaq100Map: (limit = 103, fresh = false) =>
+    getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
+      `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`
+    ),
   marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
   indexHistory: (symbol: "KOSPI" | "KOSDAQ", years = 3) =>
     getJSON<{ symbol: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(

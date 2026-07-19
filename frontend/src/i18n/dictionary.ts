@@ -93,6 +93,11 @@ export const DICTIONARY: Record<string, string> = {
   "코스피 시가총액 상위 500개": "KOSPI Top 500",
   "코스닥 시총 200개 종목 데이터를 불러오는 중...": "Loading data for the top 200 KOSDAQ stocks by market cap...",
   "코스닥 시가총액 상위 200개": "KOSDAQ Top 200",
+  "S&P500 종목 데이터를 불러오는 중...": "Loading S&P 500 stock data...",
+  "S&P500 지수 구성 500개": "S&P 500 (all 500 constituents)",
+  "나스닥100 종목 데이터를 불러오는 중...": "Loading NASDAQ-100 stock data...",
+  "나스닥100 지수 구성 100개": "NASDAQ-100 (all 100 constituents)",
+  "지수 내 비중": "Index Weight",
 
   // Sector labels (fixed, small set — see market_map.py's _SECTOR_KEYWORDS)
   "배터리": "Battery",
