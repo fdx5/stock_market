@@ -2340,11 +2340,17 @@ thead .weekly-foreign-amount-col {
 
   /* KOSPI/KOSDAQ/시총대결/Mini Apps + the visitor badge no longer wrap onto a
      second line here - they're squeezed down and, on the narrowest phones,
-     scroll horizontally within their own row instead of breaking the layout. */
+     scroll horizontally within their own row instead of breaking the layout.
+     overflow-y is explicitly hidden: per the CSS Overflow spec, setting only
+     overflow-x computes the other axis's default "visible" to "auto" too, which was
+     making this row also vertically scrollable (nothing here needs more height than
+     one row, but the row still grabbed vertical touch-drag/scroll gestures, which
+     read as broken/janky on mobile). */
   .app-nav-row {
     flex-wrap: nowrap;
     gap: 5px;
     overflow-x: auto;
+    overflow-y: hidden;
     scrollbar-width: none;
   }
 
@@ -3446,6 +3452,11 @@ thead .weekly-foreign-amount-col {
 .app-footer-links a.app-footer-market-link--home {
   color: var(--series-violet);
   animation-delay: 0.9s;
+}
+
+.app-footer-links a.app-footer-market-link--news {
+  color: var(--series-yellow);
+  animation-delay: 1.2s;
 }
 
 .app-footer-bottom {
@@ -5369,6 +5380,7 @@ thead .weekly-foreign-amount-col {
   align-items: center;
   gap: 6px;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--series-yellow) transparent;
   padding: 4px 2px 16px;
@@ -5482,16 +5494,23 @@ thead .weekly-foreign-amount-col {
   flex-shrink: 0;
 }
 
+/* Shown instead of a photo when a source article had no thumbnail — the currently
+   selected company's own logo, rather than a generic icon, so the card still reads as
+   "this company's news" at a glance. Company logos are drawn for a white background
+   (see .fight-logo-img), hence the white fill here even in dark mode. */
 .news-card-img--placeholder {
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #fff;
+  padding: 16%;
+  box-sizing: border-box;
 }
 
-.news-card-img-icon {
-  width: 32px;
-  height: 32px;
-  color: var(--text-muted);
+.news-card-img-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .news-card-body {
@@ -5568,6 +5587,22 @@ thead .weekly-foreign-amount-col {
   max-height: 380px;
   object-fit: cover;
   border-radius: 14px;
+}
+
+.news-article-img--placeholder {
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  padding: 40px;
+  box-sizing: border-box;
+}
+
+.news-article-img-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .news-article-title {

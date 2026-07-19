@@ -1,5 +1,6 @@
 import { api } from "../api/client";
 import BattleIcon from "./BattleIcon";
+import GlobalNewsIcon from "./GlobalNewsIcon";
 import MarketIcon from "./MarketIcon";
 import MarketMapPage from "./MarketMapPage";
 
@@ -17,6 +18,7 @@ export default function KosdaqMapPage() {
       navLinks={[
         { to: "/map", label: "KOSPI", icon: <MarketIcon /> },
         { to: "/fight", label: "시총대결", icon: <BattleIcon />, className: "kospi-map-nav-link--battle" },
+        { to: "/news", label: "NEWS", icon: <GlobalNewsIcon />, className: "kospi-map-nav-link--news" },
       ]}
     />
   );

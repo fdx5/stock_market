@@ -9,7 +9,6 @@ import BattleIcon from "./BattleIcon";
 import CompanyLogo from "./CompanyLogo";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
-import GlobalNewsIcon from "./GlobalNewsIcon";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
@@ -221,7 +220,15 @@ export default function NewsPage() {
             ← {t("목록으로")}
           </button>
 
-          {selected.image_url && <img className="news-article-img" src={selected.image_url} alt="" />}
+          {selected.image_url ? (
+            <img className="news-article-img" src={selected.image_url} alt="" />
+          ) : (
+            active && (
+              <div className="news-article-img news-article-img--placeholder">
+                <CompanyLogo item={active} className="news-article-img-logo" />
+              </div>
+            )
+          )}
           <div className="news-article-title">{selected.title}</div>
           <div className="news-article-meta">
             <span className="news-article-source">{selected.source}</span>
@@ -265,7 +272,7 @@ export default function NewsPage() {
                   <img className="news-card-img" src={item.image_url} alt="" />
                 ) : (
                   <div className="news-card-img news-card-img--placeholder">
-                    <GlobalNewsIcon className="news-card-img-icon" />
+                    {active && <CompanyLogo item={active} className="news-card-img-logo" />}
                   </div>
                 )}
                 <div className="news-card-body">

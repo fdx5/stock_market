@@ -1,3 +1,4 @@
+import re
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -31,6 +32,18 @@ def _resolve_article_link(href: str) -> str:
     return f"https://finance.naver.com{href}" if href.startswith("/") else href
 
 
+def _normalize_title(title: str) -> str:
+    """Loose dedup key for spotting the same story reprinted under a different press
+    office with a near-identical headline (common for wire-service stories on
+    finance.naver's page1) — punctuation stripped, whitespace collapsed, capped to
+    the leading 40 chars so two headlines that only diverge after that point still
+    collide. Same approach as company_news_fetcher._normalize_title, kept local here
+    rather than shared since this module and that one are otherwise independent."""
+    cleaned = re.sub(r"[^\w\s]", "", title.lower())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:40]
+
+
 def _fetch_news(code: str, limit: int) -> list[dict]:
     url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
     resp = requests.get(url, headers=HEADERS, timeout=5)
@@ -39,6 +52,7 @@ def _fetch_news(code: str, limit: int) -> list[dict]:
 
     items: list[dict] = []
     seen_links: set[str] = set()
+    seen_titles: set[str] = set()
     for row in soup.select("table.type5 tr"):
         title_tag = row.select_one("td.title a")
         if not title_tag:
@@ -46,16 +60,20 @@ def _fetch_news(code: str, limit: int) -> list[dict]:
 
         href = title_tag.get("href", "")
         link = _resolve_article_link(href)
-        if link in seen_links:
+        title = title_tag.get_text(strip=True)
+        title_key = _normalize_title(title)
+        if link in seen_links or (title_key and title_key in seen_titles):
             continue
         seen_links.add(link)
+        if title_key:
+            seen_titles.add(title_key)
 
         press_tag = row.select_one("td.info")
         date_tag = row.select_one("td.date")
 
         items.append(
             {
-                "title": title_tag.get_text(strip=True),
+                "title": title,
                 "link": link,
                 "press": press_tag.get_text(strip=True) if press_tag else "",
                 "date": date_tag.get_text(strip=True) if date_tag else "",

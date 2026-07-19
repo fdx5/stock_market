@@ -136,16 +136,19 @@ def _upsize_bing_thumbnail(url: str) -> str:
     accepts width/height/crop-mode query params and serves a real, much
     higher-resolution version of the same source image (confirmed directly: a genuine
     larger original, not an upscaled blur), so those are added here instead of using
-    the URL exactly as Bing hands it back. c=7 keeps the aspect ratio and crops to
-    fit, matching the card's own 16:9 treatment; scheme is forced to https since Bing
-    returns these as plain http, which a browser would otherwise block as mixed
-    content on this app's https pages."""
+    the URL exactly as Bing hands it back. 800x450 was tested directly against several
+    sample thumbnails: c=7 fills that box edge-to-edge with real detail, while going
+    higher (960x540+) started letterboxing with white padding on some images — i.e.
+    800x450 is at or near the real ceiling of what the underlying source images
+    actually contain, so it's the largest size reliably free of padding artifacts.
+    Scheme is forced to https since Bing returns these as plain http, which a browser
+    would otherwise block as mixed content on this app's https pages."""
     if "bing.com/th" not in url:
         return url
     parsed = urlparse(url)
     query = parse_qs(parsed.query)
-    query["w"] = ["640"]
-    query["h"] = ["360"]
+    query["w"] = ["800"]
+    query["h"] = ["450"]
     query["c"] = ["7"]
     new_query = urlencode({k: v[0] for k, v in query.items()})
     return urlunparse(parsed._replace(scheme="https", query=new_query))
@@ -239,14 +242,12 @@ def fetch_bing_news(company_name: str, limit: int) -> list[dict]:
 
 def fetch_naver_news_for_fight(krx_code: str, limit: int) -> list[dict]:
     """Reuses the existing Naver-based fetcher (already used by the per-stock
-    dashboard news tab) and reshapes its {title, link, press, date} into this
-    feature's shape.
-
-    Asks for twice `limit` raw rows (Naver's own page1 listing occasionally carries a
-    wire-service story reprinted under two different press names) so deduping below
-    still leaves a full `limit`-sized list instead of coming up short."""
-    raw_items = news_fetcher.get_news(krx_code, limit * 2)
-    reshaped = [
+    dashboard news tab and its recent-news digest) and reshapes its
+    {title, link, press, date} into this feature's shape. news_fetcher.get_news
+    already dedupes by both link and normalized title before it ever returns, so no
+    separate dedup pass is needed here."""
+    raw_items = news_fetcher.get_news(krx_code, limit)
+    return [
         {
             "title": it["title"],
             "link": it["link"],
@@ -257,7 +258,6 @@ def fetch_naver_news_for_fight(krx_code: str, limit: int) -> list[dict]:
         }
         for it in raw_items
     ]
-    return _dedupe_items(reshaped)[:limit]
 
 
 def enrich_with_og_image(item: dict) -> dict:

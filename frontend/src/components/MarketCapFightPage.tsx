@@ -16,6 +16,7 @@ import DashboardIcon from "./DashboardIcon";
 import FightCheerSection from "./FightCheerSection";
 import FightCompanyModal from "./FightCompanyModal";
 import Footer from "./Footer";
+import GlobalNewsIcon from "./GlobalNewsIcon";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
@@ -553,6 +554,9 @@ export default function MarketCapFightPage() {
               <MarketIcon /> {t("삼성 vs SK하이닉스")}
             </Link>
           )}
+          <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
+            <GlobalNewsIcon /> NEWS
+          </Link>
           <VisitorBadge />
         </div>
         {phase === "fight" && <h1 className="app-title">{t("시총대결")}</h1>}
