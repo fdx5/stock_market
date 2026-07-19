@@ -248,6 +248,12 @@ export default function Dashboard() {
             <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
               <MarketIcon /> KOSDAQ
             </Link>
+            <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
+              <MarketIcon /> S&P500
+            </Link>
+            <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
+              <MarketIcon /> NASDAQ100
+            </Link>
             <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
               <BattleIcon /> {t("시총대결")}
             </Link>

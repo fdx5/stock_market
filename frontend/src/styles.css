@@ -15,7 +15,7 @@
   --series-yellow: #c98500;
   --series-violet: #9085e9;
   --series-red: #e66767;
-  --series-green: #4caf6e;
+  --series-pink: #d1568f;
   --series-orange: #e0863f;
 
   --status-good: #0ca30c;
@@ -61,7 +61,7 @@
   --series-yellow: #9c6a2f;
   --series-violet: #7367bd;
   --series-red: #bd5c66;
-  --series-green: #3f8656;
+  --series-pink: #ab4a78;
   --series-orange: #b06a35;
 
   --status-good: #3f8656;
@@ -1551,11 +1551,13 @@ thead .weekly-foreign-amount-col {
 }
 
 /* S&P500/NASDAQ100 nav pills — same shimmering-pill treatment as the other markets,
-   each in its own accent so the now-6-wide link row still reads at a glance. */
+   each in its own accent so the now-6-wide link row still reads at a glance. S&P500
+   gets a pink distinct from KOSDAQ's teal-green (--series-aqua) — the two sat right
+   next to each other in the row and read as near-identical at a glance. */
 .kospi-map-nav-link--sp500 {
-  color: var(--series-green);
-  border-color: var(--series-green);
-  background: color-mix(in srgb, var(--series-green) 12%, transparent);
+  color: var(--series-pink);
+  border-color: var(--series-pink);
+  background: color-mix(in srgb, var(--series-pink) 12%, transparent);
   animation-delay: 1.5s;
 }
 
@@ -1564,7 +1566,7 @@ thead .weekly-foreign-amount-col {
 }
 
 .kospi-map-nav-link--sp500:hover {
-  background: color-mix(in srgb, var(--series-green) 22%, transparent);
+  background: color-mix(in srgb, var(--series-pink) 22%, transparent);
 }
 
 .kospi-map-nav-link--nasdaq {
@@ -1625,17 +1627,12 @@ thead .weekly-foreign-amount-col {
   flex-shrink: 0;
 }
 
-.kospi-map-page .app-header {
-  margin-bottom: 16px;
-}
-
 .kospi-map-titlebar {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  margin-top: 4px;
 }
 
 .kospi-map-updated {
@@ -2573,7 +2570,12 @@ thead .weekly-foreign-amount-col {
 }
 
 .battle-arena-wrap {
-  margin-top: 24px;
+  /* No margin-top of its own: this is always the first body element right after
+     the header (both here on /battle and on /fight's "fight" phase), so — like
+     every other page's first body element — the gap comes solely from
+     .app-header's own margin-bottom, matching it (24px) exactly instead of the two
+     margins stacking (since .app is a flex column, sibling margins don't collapse
+     the way they would in normal block flow). */
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -3503,6 +3505,16 @@ thead .weekly-foreign-amount-col {
   animation-delay: 1.2s;
 }
 
+.app-footer-links a.app-footer-market-link--sp500 {
+  color: var(--series-pink);
+  animation-delay: 1.5s;
+}
+
+.app-footer-links a.app-footer-market-link--nasdaq {
+  color: var(--series-orange);
+  animation-delay: 1.8s;
+}
+
 .app-footer-bottom {
   display: flex;
   flex-wrap: wrap;
@@ -3580,22 +3592,9 @@ thead .weekly-foreign-amount-col {
 }
 
 .fight-select-wrap {
-  margin-top: 6px;
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-
-/* Tightens the gap between the "시총대결" h1 and the content right below it — only
-   on this page, since `.app-header`'s margin-bottom and `.battle-arena-wrap`'s
-   margin-top are shared with other pages (including /battle) that weren't asked
-   to change. */
-.fight-page .app-header {
-  margin-bottom: 8px;
-}
-
-.fight-page .battle-arena-wrap {
-  margin-top: 6px;
 }
 
 /* Arcade "PLAYER SELECT" header */

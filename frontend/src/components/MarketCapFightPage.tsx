@@ -530,36 +530,44 @@ export default function MarketCapFightPage() {
   return (
     <div className="app fight-page">
       <header className="app-header">
-        <div className="app-title-row">
-          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
-            <Logo className="app-logo-wide" />
-          </Link>
-          <div className="app-header-meta">
-            <LanguageToggle />
-            <ThemeToggle />
-          </div>
-        </div>
-        <div className="app-nav-row">
-          <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
-            <DashboardIcon /> {t("홈")}
-          </Link>
-          <Link to="/map" className="kospi-map-nav-link">
-            <MarketIcon /> KOSPI
-          </Link>
-          <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
-            <MarketIcon /> KOSDAQ
-          </Link>
-          {phase === "fight" && (
-            <Link to="/battle" className="kospi-map-nav-link fight-nav-link--classic">
-              <MarketIcon /> {t("삼성 vs SK하이닉스")}
+        <div>
+          <div className="app-title-row">
+            <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+              <Logo className="app-logo-wide" />
             </Link>
-          )}
-          <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
-            <GlobalNewsIcon /> NEWS
-          </Link>
-          <VisitorBadge />
+            <div className="app-header-meta">
+              <LanguageToggle />
+              <ThemeToggle />
+            </div>
+          </div>
+          <div className="app-nav-row">
+            <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
+              <DashboardIcon /> {t("홈")}
+            </Link>
+            <Link to="/map" className="kospi-map-nav-link">
+              <MarketIcon /> KOSPI
+            </Link>
+            <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+              <MarketIcon /> KOSDAQ
+            </Link>
+            <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
+              <MarketIcon /> S&P500
+            </Link>
+            <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
+              <MarketIcon /> NASDAQ100
+            </Link>
+            {phase === "fight" && (
+              <Link to="/battle" className="kospi-map-nav-link fight-nav-link--classic">
+                <MarketIcon /> {t("삼성 vs SK하이닉스")}
+              </Link>
+            )}
+            <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
+              <GlobalNewsIcon /> NEWS
+            </Link>
+            <VisitorBadge />
+          </div>
+          {phase === "fight" && <h1 className="app-title">{t("시총대결")}</h1>}
         </div>
-        {phase === "fight" && <h1 className="app-title">{t("시총대결")}</h1>}
       </header>
 
       {phase === "select" && (

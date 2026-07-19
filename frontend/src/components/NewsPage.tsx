@@ -168,31 +168,39 @@ export default function NewsPage() {
   return (
     <div className="app news-page">
       <header className="app-header">
-        <div className="app-title-row">
-          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
-            <Logo className="app-logo-wide" />
-          </Link>
-          <div className="app-header-meta">
-            <LanguageToggle />
-            <ThemeToggle />
+        <div>
+          <div className="app-title-row">
+            <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+              <Logo className="app-logo-wide" />
+            </Link>
+            <div className="app-header-meta">
+              <LanguageToggle />
+              <ThemeToggle />
+            </div>
           </div>
+          <div className="app-nav-row">
+            <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
+              <DashboardIcon /> {t("홈")}
+            </Link>
+            <Link to="/map" className="kospi-map-nav-link">
+              <MarketIcon /> KOSPI
+            </Link>
+            <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+              <MarketIcon /> KOSDAQ
+            </Link>
+            <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
+              <MarketIcon /> S&P500
+            </Link>
+            <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
+              <MarketIcon /> NASDAQ100
+            </Link>
+            <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
+              <BattleIcon /> {t("시총대결")}
+            </Link>
+            <VisitorBadge />
+          </div>
+          <h1 className="app-title">{t("글로벌 뉴스")}</h1>
         </div>
-        <div className="app-nav-row">
-          <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
-            <DashboardIcon /> {t("홈")}
-          </Link>
-          <Link to="/map" className="kospi-map-nav-link">
-            <MarketIcon /> KOSPI
-          </Link>
-          <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
-            <MarketIcon /> KOSDAQ
-          </Link>
-          <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
-            <BattleIcon /> {t("시총대결")}
-          </Link>
-          <VisitorBadge />
-        </div>
-        <h1 className="app-title">{t("글로벌 뉴스")}</h1>
       </header>
 
       {rosterError && <div className="error-state">{t(rosterError)}</div>}
