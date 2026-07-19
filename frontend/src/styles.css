@@ -124,11 +124,33 @@ body {
   flex-direction: column;
 }
 
+/* position:sticky is on .app-header itself, not a nested wrapper around just
+   title-row+nav-row — a sticky element only stays pinned while its own containing
+   block still has "room" left to scroll through, and a wrapper only as tall as the
+   title/nav rows themselves runs out of that room almost immediately (confirmed
+   directly: the header's Y position just kept decreasing with scroll instead of
+   clamping at 0). .app-header is already a direct child of .app, which spans the
+   full page, so it has room to stay stuck for the entire scroll. The tradeoff is
+   that the page-specific trailing element (subtitle/h1/kospi-map-titlebar) stays
+   pinned too, not just the brand+nav rows — accepted for now since splitting them
+   apart is what caused the sticky-detachment bug in the first place. An explicit
+   background is required since page content scrolls underneath this once stuck. */
 .app-header {
   display: flex;
   flex-direction: column;
   gap: 16px;
   margin-bottom: 24px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: var(--page-plane);
+}
+
+/* Half the shared 24px default, by request — the tab row of company logos reads as
+   a continuation of the "글로벌 뉴스" title rather than a separate block, so it sits
+   closer than every other page's header-to-body gap. */
+.news-page .app-header {
+  margin-bottom: 12px;
 }
 
 .app-title {

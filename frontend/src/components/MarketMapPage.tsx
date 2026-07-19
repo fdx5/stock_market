@@ -9,6 +9,7 @@ import { loadStockIconUrl } from "../stockIcon";
 import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { useNavRowAutoScroll } from "../useNavRowAutoScroll";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
@@ -240,6 +241,9 @@ export default function MarketMapPage({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
+
+  const navRowRef = useRef<HTMLDivElement>(null);
+  useNavRowAutoScroll(navRowRef);
 
   const TIER1_REFRESH_MS = 10_000;
   const TIER2_REFRESH_MS = 30_000;
@@ -622,7 +626,7 @@ export default function MarketMapPage({
               <ThemeToggle />
             </div>
           </div>
-          <div className="app-nav-row">
+          <div className="app-nav-row" ref={navRowRef}>
             <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
               <DashboardIcon /> {t("홈")}
             </Link>

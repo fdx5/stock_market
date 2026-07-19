@@ -5,6 +5,7 @@ import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { useNavRowAutoScroll } from "../useNavRowAutoScroll";
 import BattleIcon from "./BattleIcon";
 import CompanyLogo from "./CompanyLogo";
 import DashboardIcon from "./DashboardIcon";
@@ -81,6 +82,9 @@ export default function NewsPage() {
   const t = useT();
   const { lang } = useLanguage();
   useDocumentTitle("글로벌 뉴스 | K-Stock Hub");
+
+  const headerNavRowRef = useRef<HTMLDivElement>(null);
+  useNavRowAutoScroll(headerNavRowRef);
 
   const [roster, setRoster] = useState<GlobalTop20Item[]>([]);
   const [rosterError, setRosterError] = useState<string | null>(null);
@@ -178,7 +182,7 @@ export default function NewsPage() {
               <ThemeToggle />
             </div>
           </div>
-          <div className="app-nav-row">
+          <div className="app-nav-row" ref={headerNavRowRef}>
             <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
               <DashboardIcon /> {t("홈")}
             </Link>
