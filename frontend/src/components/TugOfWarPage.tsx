@@ -6,7 +6,6 @@ import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { useNavRowAutoScroll } from "../useNavRowAutoScroll";
 import BattleIcon from "./BattleIcon";
 import CheerSection from "./CheerSection";
 import DashboardIcon from "./DashboardIcon";
@@ -56,9 +55,6 @@ export default function TugOfWarPage() {
   const { lang } = useLanguage();
   const t = useT();
   useDocumentTitle("K-Stock Hub");
-
-  const navRowRef = useRef<HTMLDivElement>(null);
-  useNavRowAutoScroll(navRowRef);
 
   const [samsung, setSamsung] = useState<BattleSide | null>(null);
   const [skhynix, setSkhynix] = useState<BattleSide | null>(null);
@@ -168,7 +164,7 @@ export default function TugOfWarPage() {
             <ThemeToggle />
           </div>
         </div>
-        <div className="app-nav-row" ref={navRowRef}>
+        <div className="app-nav-row">
           <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>

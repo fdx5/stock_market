@@ -7,7 +7,6 @@ import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedText
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { useNavRowAutoScroll } from "../useNavRowAutoScroll";
 import BattleIcon from "./BattleIcon";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
@@ -48,9 +47,6 @@ export default function Dashboard() {
   const { lang } = useLanguage();
   const t = useT();
   useDocumentTitle("K-Stock Hub");
-
-  const navRowRef = useRef<HTMLDivElement>(null);
-  useNavRowAutoScroll(navRowRef);
 
   const [selected, setSelected] = useState<StockSearchResult | null>(() => {
     // No `?code=` in the URL means a plain landing on the dashboard — default
@@ -244,7 +240,7 @@ export default function Dashboard() {
             <ThemeToggle />
           </div>
         </div>
-        <div className="app-nav-row" ref={navRowRef}>
+        <div className="app-nav-row">
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>

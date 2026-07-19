@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { CompanyNewsItem, GlobalTop20Item, api } from "../api/client";
 import { CEO_NAMES } from "../data/ceoNames";
 import { ceoStylizedImageFor } from "../data/ceoStylizedImages";
@@ -10,7 +10,6 @@ import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { useNavRowAutoScroll } from "../useNavRowAutoScroll";
 import CompanyLogo from "./CompanyLogo";
 import CompanyNewsModal from "./CompanyNewsModal";
 import DashboardIcon from "./DashboardIcon";
@@ -349,9 +348,6 @@ export default function MarketCapFightPage() {
   const t = useT();
   useDocumentTitle("시총파이트 | K-Stock Hub");
 
-  const navRowRef = useRef<HTMLDivElement>(null);
-  useNavRowAutoScroll(navRowRef);
-
   const [roster, setRoster] = useState<GlobalTop20Item[]>([]);
   const [rosterError, setRosterError] = useState<string | null>(null);
   const [p1, setP1] = useState<GlobalTop20Item | null>(null);
@@ -543,7 +539,7 @@ export default function MarketCapFightPage() {
             <ThemeToggle />
           </div>
         </div>
-        <div className="app-nav-row" ref={navRowRef}>
+        <div className="app-nav-row">
           <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>

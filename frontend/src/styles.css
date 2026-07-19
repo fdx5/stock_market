@@ -224,15 +224,6 @@ a.app-brand:hover .app-logo-wide {
   margin-left: auto;
 }
 
-/* Hidden outside the mobile ticker breakpoint (see useNavRowAutoScroll.ts's clones,
-   marked with this attribute) — on desktop this row uses flex-wrap:wrap with no
-   overflow clipping, so the cloned second copy would otherwise wrap onto a visible
-   second line instead of staying off-screen the way it does on mobile's
-   nowrap+overflow-x:auto layout below. */
-.app-nav-row [data-ticker-clone] {
-  display: none;
-}
-
 .app-subtitle {
   font-size: 13px;
   color: var(--text-secondary);
@@ -2434,15 +2425,6 @@ thead .weekly-foreign-amount-col {
 
   .app-nav-row::-webkit-scrollbar {
     display: none;
-  }
-
-  /* Un-hidden here (see the desktop-default display:none above) — this row is
-     nowrap+overflow-x:auto at this breakpoint, so the cloned second copy correctly
-     stays off-screen to the right (available for useNavRowAutoScroll.ts's ticker to
-     scroll into view) instead of wrapping visibly like it would under desktop's
-     flex-wrap:wrap. */
-  .app-nav-row [data-ticker-clone] {
-    display: inline-flex;
   }
 
   .kospi-map-nav-link {
