@@ -117,7 +117,12 @@ if STATIC_DIR.exists():
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str):
-        candidate = STATIC_DIR / full_path
-        if full_path and candidate.is_file():
+        # Resolved and containment-checked before serving — unlike the /assets mount
+        # above (Starlette's own StaticFiles, which already guards against this), this
+        # is a hand-rolled file lookup, and a full_path like "../requirements.txt"
+        # would otherwise resolve outside STATIC_DIR and let a request read arbitrary
+        # files from the container's filesystem (source code, dependency list, etc.).
+        candidate = (STATIC_DIR / full_path).resolve()
+        if full_path and candidate.is_relative_to(STATIC_DIR) and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(STATIC_DIR / "index.html")

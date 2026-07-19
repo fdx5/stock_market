@@ -80,14 +80,14 @@ def orderbook(code: str):
 
 
 @router.get("/{code}/history")
-def history(code: str, years: int = 3):
+def history(code: str, years: int = Query(3, ge=1, le=10)):
     name = _resolve_name(code)
     df = _load_history(code, years)
     return {"code": code, "name": name, "points": dataframe_to_records(df)}
 
 
 @router.get("/{code}/indicators")
-def indicators(code: str, years: int = 3):
+def indicators(code: str, years: int = Query(3, ge=1, le=10)):
     name = _resolve_name(code)
     df = _load_history(code, years)
     indicator_df = compute_indicators(df)

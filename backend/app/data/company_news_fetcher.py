@@ -1,6 +1,8 @@
+import ipaddress
 import re
+import socket
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -14,6 +16,51 @@ HEADERS = {
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     ),
 }
+
+_ALLOWED_ARTICLE_SCHEMES = {"http", "https"}
+_MAX_ARTICLE_REDIRECTS = 5
+
+
+def _is_safe_external_url(url: str) -> bool:
+    """Guards fetch_article_content's client-supplied `link` (the one place in this
+    app where the client picks an arbitrary URL for the server to fetch — every other
+    outbound fetch here targets a fixed, hardcoded host) against SSRF: only http(s) is
+    allowed, and every IP the hostname resolves to must be public — not
+    loopback/private/link-local/reserved/multicast. Without this, a crafted `link`
+    could make the server reach its own internal endpoints or other hosts on the
+    hosting platform's private network. This doesn't fully defend against DNS
+    rebinding (the resolved IP isn't pinned to the actual outgoing connection, so a
+    hostname could resolve safely here and then differently at request time) — a
+    known, accepted gap for a best-effort guard at this scale, not a claim of
+    complete protection."""
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in _ALLOWED_ARTICLE_SCHEMES or not parsed.hostname:
+            return False
+        for info in socket.getaddrinfo(parsed.hostname, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def _fetch_article_response(url: str) -> requests.Response | None:
+    """GET with redirects followed manually (not requests' own allow_redirects=True)
+    so every hop — not just the initial URL — is checked by _is_safe_external_url. A
+    malicious server could otherwise pass the first check and then redirect the
+    request to a private address, bypassing SSRF protection entirely."""
+    for _ in range(_MAX_ARTICLE_REDIRECTS):
+        if not _is_safe_external_url(url):
+            return None
+        resp = requests.get(url, headers=HEADERS, timeout=6, allow_redirects=False)
+        location = resp.headers.get("Location")
+        if resp.is_redirect and location:
+            url = urljoin(url, location)
+            continue
+        return resp
+    return None
 
 BING_NEWS_RSS_URL = "https://www.bing.com/news/search"
 
@@ -310,9 +357,13 @@ def fetch_article_content(url: str) -> list[str] | None:
     Returns None (never raises) on any failure, or when the extracted text is too
     short to be a real article body (a login wall, cookie notice, or nav-only page
     read as a false "success") — callers fall back to the list's own snippet plus
-    an external link in that case."""
+    an external link in that case. Also returns None outright for a `url` that fails
+    the SSRF guard (see _is_safe_external_url) — this is the one endpoint in the app
+    where the client picks the URL a server-side fetch targets."""
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=6, allow_redirects=True)
+        resp = _fetch_article_response(url)
+        if resp is None:
+            return None
         resp.raise_for_status()
         summary_html = Document(resp.text).summary()
         soup = BeautifulSoup(summary_html, "html.parser")

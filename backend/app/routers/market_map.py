@@ -45,7 +45,7 @@ def ticker():
 
 
 @router.get("/index/{symbol}/history")
-def index_history(symbol: str, years: int = 3):
+def index_history(symbol: str, years: int = Query(3, ge=1, le=10)):
     code = INDEX_CODES.get(symbol.upper())
     if code is None:
         raise HTTPException(status_code=404, detail=f"지원하지 않는 지수입니다: {symbol}")
