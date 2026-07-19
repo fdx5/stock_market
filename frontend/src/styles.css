@@ -5499,13 +5499,18 @@ thead .weekly-foreign-amount-col {
    selected company's own logo, rather than a generic icon, so the card still reads as
    "this company's news" at a glance. Company logos are drawn for a white background
    (see .fight-logo-img), hence the white fill here even in dark mode.
-   position:relative + an absolutely-inset logo (not display:flex centering a
-   width/height:100% child) deliberately: a flex container with aspect-ratio and a
-   percentage-sized child hits a real Chromium sizing bug where the box collapses to
-   a 1:1 square instead of honoring aspect-ratio: 16/9 — confirmed directly (measured
-   296x296 instead of 296x166.5 on an otherwise-identical 296px-wide card). Absolute
-   positioning resolves against the already-definite aspect-ratio box instead of
-   competing with it during layout. */
+   The logo is deliberately taken fully out of flow (position:absolute + a fixed pixel
+   max-width/max-height, centered via transform) rather than any percentage-based
+   sizing on a normal-flow child. Three things were tried and rejected before landing
+   here, all sharing the same root cause — a flex/grid container whose own height
+   comes from aspect-ratio stops reliably honoring that aspect-ratio once ANY
+   descendant has percentage-based height/max-height sizing (confirmed directly: the
+   card collapsed to a 1:1 square with a width/height:100% child, and to a completely
+   different wrong ratio — coincidentally matching the child's own max-height:70% —
+   with a max-width/max-height:70% child). An absolutely positioned child is excluded
+   from normal-flow sizing entirely by spec, so it can't feed back into the parent's
+   aspect-ratio the way an in-flow child can; fixed pixel caps (not percentages) mean
+   the child's own size has no dependency on the parent's height either. */
 .news-card-img--placeholder {
   position: relative;
   background: #fff;
@@ -5513,7 +5518,13 @@ thead .weekly-foreign-amount-col {
 
 .news-card-img-logo {
   position: absolute;
-  inset: 10%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 55%;
+  max-height: 70px;
+  width: auto;
+  height: auto;
   object-fit: contain;
 }
 
@@ -5599,9 +5610,9 @@ thead .weekly-foreign-amount-col {
   border-radius: 14px;
 }
 
-/* position:relative + an absolutely-inset logo, not flex-centering a width/height:100%
-   child — see .news-card-img--placeholder for why (a real Chromium aspect-ratio +
-   flex + percentage-child sizing bug). */
+/* Out-of-flow + fixed pixel max-height, same reasoning as .news-card-img--placeholder
+   above — an in-flow child with any percentage height/max-height made this box's own
+   aspect-ratio unreliable. */
 .news-article-img--placeholder {
   position: relative;
   background: #fff;
@@ -5609,7 +5620,13 @@ thead .weekly-foreign-amount-col {
 
 .news-article-img-logo {
   position: absolute;
-  inset: 10%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 45%;
+  max-height: 130px;
+  width: auto;
+  height: auto;
   object-fit: contain;
 }
 

@@ -321,6 +321,24 @@ def fetch_article_content(url: str) -> list[str] | None:
         paragraphs = [p for p in paragraphs if len(p) > 20][:MAX_ARTICLE_PARAGRAPHS]
 
         if sum(len(p) for p in paragraphs) < MIN_ARTICLE_CHARS:
+            # Naver's news template (and other, similarly older Korean sites) renders
+            # the whole article body as one block with <br> tags between lines instead
+            # of separate <p> elements — confirmed directly against a real 삼성전자
+            # article where this was the ONLY reason extraction failed: readability
+            # correctly isolated the real ~3800-char article body, but the <p>-only
+            # grab above found just 3 unrelated short strings (byline, copyright
+            # notice) since none of the actual article text was inside a <p> tag at
+            # all. Scoped to the <article> tag readability wraps the identified main
+            # content in (when present) rather than the whole summary, so sibling
+            # chrome it left in (that same byline/copyright) doesn't get pulled in as
+            # false paragraphs alongside the real ones.
+            container = soup.select_one("article") or soup
+            for br in container.select("br"):
+                br.replace_with("\n")
+            lines = [line.strip() for line in container.get_text().split("\n")]
+            paragraphs = [line for line in lines if len(line) > 20][:MAX_ARTICLE_PARAGRAPHS]
+
+        if sum(len(p) for p in paragraphs) < MIN_ARTICLE_CHARS:
             return None
         return paragraphs
     except Exception:
