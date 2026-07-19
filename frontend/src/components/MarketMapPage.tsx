@@ -616,71 +616,72 @@ export default function MarketMapPage({
   return (
     <div className="app kospi-map-page">
       <header className="app-header">
-        <div>
-          <div className="app-title-row">
-            <Link to="/" className="app-brand" aria-label="K-Stock Hub">
-              <Logo className="app-logo-wide" />
-            </Link>
-            <div className="app-header-meta">
-              <LanguageToggle />
-              <ThemeToggle />
-            </div>
-          </div>
-          <div className="app-nav-row" ref={navRowRef}>
-            <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
-              <DashboardIcon /> {t("홈")}
-            </Link>
-            {navLinks.map((link) => (
-              <Link
-                key={link.to}
-                to={link.to}
-                className={`kospi-map-nav-link${link.className ? ` ${link.className}` : ""}`}
-              >
-                {link.icon}
-                {t(link.label)}
-              </Link>
-            ))}
-            <VisitorBadge />
-          </div>
-          <div className="kospi-map-titlebar">
-            <div>
-              <div className="app-title-row">
-                <h1 className="app-title">{pageTitle}</h1>
-                <span className="kospi-map-live-badge">
-                  <span className="kospi-map-live-dot" />
-                  {liveBadgeText}
-                </span>
-              </div>
-              <p className="app-subtitle">
-                {t(subtitlePrefix)} {t("종목 MAP")}
-                {generatedAt && (
-                  <span className="kospi-map-updated">
-                    {lang === "en"
-                      ? ` · as of ${generatedAt.replace("T", " ")}`
-                      : ` · ${generatedAt.replace("T", " ")} 기준`}
-                  </span>
-                )}
-              </p>
-            </div>
-            <div className="kospi-map-view-toggle">
-              <button type="button" className={view === "map" ? "active" : ""} onClick={() => setView("map")}>
-                {t("맵 보기")}
-              </button>
-              <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
-                {t("표로 보기")}
-              </button>
-              <button
-                type="button"
-                className="kospi-map-download-btn"
-                onClick={handleDownloadMap}
-                disabled={sectorZones.length === 0}
-              >
-                {t("MAP 다운로드")}
-              </button>
-            </div>
+        <div className="app-title-row">
+          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+            <Logo className="app-logo-wide" />
+          </Link>
+          <div className="app-header-meta">
+            <LanguageToggle />
+            <ThemeToggle />
           </div>
         </div>
+        <div className="app-nav-row" ref={navRowRef}>
+          <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
+            <DashboardIcon /> {t("홈")}
+          </Link>
+          {navLinks.map((link) => (
+            <Link
+              key={link.to}
+              to={link.to}
+              className={`kospi-map-nav-link${link.className ? ` ${link.className}` : ""}`}
+            >
+              {link.icon}
+              {t(link.label)}
+            </Link>
+          ))}
+          <VisitorBadge />
+        </div>
       </header>
+
+      <div className="app-header-trailing">
+        <div className="kospi-map-titlebar">
+          <div>
+            <div className="app-title-row">
+              <h1 className="app-title">{pageTitle}</h1>
+              <span className="kospi-map-live-badge">
+                <span className="kospi-map-live-dot" />
+                {liveBadgeText}
+              </span>
+            </div>
+            <p className="app-subtitle">
+              {t(subtitlePrefix)} {t("종목 MAP")}
+              {generatedAt && (
+                <span className="kospi-map-updated">
+                  {lang === "en"
+                    ? ` · as of ${generatedAt.replace("T", " ")}`
+                    : ` · ${generatedAt.replace("T", " ")} 기준`}
+                </span>
+              )}
+            </p>
+          </div>
+          <div className="kospi-map-view-toggle">
+            <button type="button" className={view === "map" ? "active" : ""} onClick={() => setView("map")}>
+              {t("맵 보기")}
+            </button>
+            <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
+              {t("표로 보기")}
+            </button>
+            <button
+              type="button"
+              className="kospi-map-download-btn"
+              onClick={handleDownloadMap}
+              disabled={sectorZones.length === 0}
+            >
+              {t("MAP 다운로드")}
+            </button>
+          </div>
+        </div>
+      </div>
 
       <MarketTickerBar />
 

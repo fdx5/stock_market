@@ -234,55 +234,56 @@ export default function Dashboard() {
   return (
     <div className="app">
       <header className="app-header">
-        <div>
-          <div className="app-title-row">
-            <div className="app-brand">
-              <h1 className="sr-only">K-Stock Hub</h1>
-              <Logo className="app-logo-wide" />
-            </div>
-            <div className="app-header-meta">
-              <LanguageToggle />
-              <ThemeToggle />
-            </div>
+        <div className="app-title-row">
+          <div className="app-brand">
+            <h1 className="sr-only">K-Stock Hub</h1>
+            <Logo className="app-logo-wide" />
           </div>
-          <div className="app-nav-row" ref={navRowRef}>
-            <Link to="/map" className="kospi-map-nav-link">
-              <MarketIcon /> KOSPI
-            </Link>
-            <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
-              <MarketIcon /> KOSDAQ
-            </Link>
-            <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
-              <MarketIcon /> S&P500
-            </Link>
-            <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
-              <MarketIcon /> NASDAQ100
-            </Link>
-            <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
-              <BattleIcon /> {t("시총대결")}
-            </Link>
-            <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
-              <GlobalNewsIcon /> NEWS
-            </Link>
-            <a
-              href="https://chs2147.github.io/mini-apps"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="kospi-map-nav-link"
-            >
-              <img src="/img/mini_app.png" alt="" className="mini-apps-icon" />
-              Mini Apps
-            </a>
-            <VisitorBadge />
+          <div className="app-header-meta">
+            <LanguageToggle />
+            <ThemeToggle />
           </div>
-          <p className="app-subtitle">
-            {t(
-              "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다."
-            )}
-          </p>
         </div>
-        <SearchBar onSelect={setSelected} />
+        <div className="app-nav-row" ref={navRowRef}>
+          <Link to="/map" className="kospi-map-nav-link">
+            <MarketIcon /> KOSPI
+          </Link>
+          <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+            <MarketIcon /> KOSDAQ
+          </Link>
+          <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
+            <MarketIcon /> S&P500
+          </Link>
+          <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
+            <MarketIcon /> NASDAQ100
+          </Link>
+          <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
+            <BattleIcon /> {t("시총대결")}
+          </Link>
+          <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
+            <GlobalNewsIcon /> NEWS
+          </Link>
+          <a
+            href="https://chs2147.github.io/mini-apps"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="kospi-map-nav-link"
+          >
+            <img src="/img/mini_app.png" alt="" className="mini-apps-icon" />
+            Mini Apps
+          </a>
+          <VisitorBadge />
+        </div>
       </header>
+
+      <div className="app-header-trailing">
+        <p className="app-subtitle">
+          {t(
+            "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다."
+          )}
+        </p>
+        <SearchBar onSelect={setSelected} />
+      </div>
 
       <MarketOverviewPanel onSelectStock={setSelected} />
 

@@ -124,32 +124,38 @@ body {
   flex-direction: column;
 }
 
-/* position:sticky is on .app-header itself, not a nested wrapper around just
-   title-row+nav-row — a sticky element only stays pinned while its own containing
-   block still has "room" left to scroll through, and a wrapper only as tall as the
-   title/nav rows themselves runs out of that room almost immediately (confirmed
-   directly: the header's Y position just kept decreasing with scroll instead of
-   clamping at 0). .app-header is already a direct child of .app, which spans the
-   full page, so it has room to stay stuck for the entire scroll. The tradeoff is
-   that the page-specific trailing element (subtitle/h1/kospi-map-titlebar) stays
-   pinned too, not just the brand+nav rows — accepted for now since splitting them
-   apart is what caused the sticky-detachment bug in the first place. An explicit
-   background is required since page content scrolls underneath this once stuck. */
+/* Only the brand row + nav-link row stick — the page-specific trailing element
+   (subtitle/h1/kospi-map-titlebar) lives in .app-header-trailing below, a separate
+   sibling that scrolls away normally instead of permanently eating screen space.
+   .app-header is a direct child of .app (which spans the full page), giving the
+   sticky element "room" to stay pinned for the whole scroll — position:sticky only
+   stays stuck while its own containing block still has scroll room left, and an
+   earlier attempt that nested this inside a header-sized (not page-sized) wrapper
+   ran out of that room almost immediately (confirmed directly: its Y position kept
+   decreasing with scroll instead of clamping at 0). An explicit background is
+   required since page content scrolls underneath this once stuck. */
 .app-header {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  margin-bottom: 24px;
   position: sticky;
   top: 0;
   z-index: 40;
   background: var(--page-plane);
 }
 
+/* Everything that used to follow title-row/nav-row inside .app-header — the
+   subtitle, or a page's own <h1>, or (map pages) the whole kospi-map-titlebar —
+   now lives here instead, as .app-header's sibling rather than its child, so it's
+   free to scroll away while the sticky header above it stays put. */
+.app-header-trailing {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
 /* Half the shared 24px default, by request — the tab row of company logos reads as
    a continuation of the "글로벌 뉴스" title rather than a separate block, so it sits
    closer than every other page's header-to-body gap. */
-.news-page .app-header {
+.news-page .app-header-trailing {
   margin-bottom: 12px;
 }
 
@@ -216,6 +222,15 @@ a.app-brand:hover .app-logo-wide {
 
 .app-nav-row .visitor-badge {
   margin-left: auto;
+}
+
+/* Hidden outside the mobile ticker breakpoint (see useNavRowAutoScroll.ts's clones,
+   marked with this attribute) — on desktop this row uses flex-wrap:wrap with no
+   overflow clipping, so the cloned second copy would otherwise wrap onto a visible
+   second line instead of staying off-screen the way it does on mobile's
+   nowrap+overflow-x:auto layout below. */
+.app-nav-row [data-ticker-clone] {
+  display: none;
 }
 
 .app-subtitle {
@@ -2419,6 +2434,15 @@ thead .weekly-foreign-amount-col {
 
   .app-nav-row::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Un-hidden here (see the desktop-default display:none above) — this row is
+     nowrap+overflow-x:auto at this breakpoint, so the cloned second copy correctly
+     stays off-screen to the right (available for useNavRowAutoScroll.ts's ticker to
+     scroll into view) instead of wrapping visibly like it would under desktop's
+     flex-wrap:wrap. */
+  .app-nav-row [data-ticker-clone] {
+    display: inline-flex;
   }
 
   .kospi-map-nav-link {
