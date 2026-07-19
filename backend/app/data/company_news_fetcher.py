@@ -1,6 +1,6 @@
 import re
 from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -129,6 +129,28 @@ def _resolve_bing_real_url(apiclick_link: str) -> str:
     return real_url or apiclick_link
 
 
+def _upsize_bing_thumbnail(url: str) -> str:
+    """Bing's News RSS <Image> tag always points at a fixed 100x100 thumbnail
+    (bing.com/th?id=...&pid=News) — far too small and hard-cropped to look sharp at
+    the card sizes this app displays it at. The same th.bing.com resizing endpoint
+    accepts width/height/crop-mode query params and serves a real, much
+    higher-resolution version of the same source image (confirmed directly: a genuine
+    larger original, not an upscaled blur), so those are added here instead of using
+    the URL exactly as Bing hands it back. c=7 keeps the aspect ratio and crops to
+    fit, matching the card's own 16:9 treatment; scheme is forced to https since Bing
+    returns these as plain http, which a browser would otherwise block as mixed
+    content on this app's https pages."""
+    if "bing.com/th" not in url:
+        return url
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    query["w"] = ["640"]
+    query["h"] = ["360"]
+    query["c"] = ["7"]
+    new_query = urlencode({k: v[0] for k, v in query.items()})
+    return urlunparse(parsed._replace(scheme="https", query=new_query))
+
+
 def _fetch_bing_page(query: str, first: int) -> list[dict]:
     """Fetches one Bing News RSS page (one query phrasing x one `first` result
     offset). Never raises — a failed/empty page just contributes nothing to the
@@ -163,7 +185,7 @@ def _fetch_bing_page(query: str, first: int) -> list[dict]:
                 "source": source_tag.get_text(strip=True) if source_tag else "",
                 "published": date_tag.get_text(strip=True) if date_tag else "",
                 "snippet": desc_tag.get_text(strip=True) if desc_tag else None,
-                "image_url": image_tag.get_text(strip=True) if image_tag else None,
+                "image_url": _upsize_bing_thumbnail(image_tag.get_text(strip=True)) if image_tag else None,
             }
         )
     return items

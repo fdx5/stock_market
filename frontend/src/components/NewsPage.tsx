@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CompanyNewsItem, GlobalTop20Item, api } from "../api/client";
 import { COMPANY_SHORT_NAMES } from "../data/companyShortNames";
 import { useLanguage, useT } from "../i18n/LanguageContext";
@@ -16,9 +16,10 @@ import MarketIcon from "./MarketIcon";
 import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
 
-// A full page gets more room than the fight page's popup (limit=6) — 10 items fills
-// out a proper grid without the last row trailing off half-empty on most viewports.
-const NEWS_LIMIT = 10;
+// A full page gets more room than the fight page's popup (limit=6) — 12 items fills
+// out a proper grid (an even 4x3/3x4 on most viewports) without the last row
+// trailing off half-empty.
+const NEWS_LIMIT = 12;
 
 function NewsTab({
   item,
@@ -94,6 +95,9 @@ export default function NewsPage() {
   const [paragraphs, setParagraphs] = useState<string[] | null>(null);
   const [articleLoading, setArticleLoading] = useState(false);
 
+  const tabRowRef = useRef<HTMLDivElement>(null);
+  const [tabsScrollable, setTabsScrollable] = useState(false);
+
   useEffect(() => {
     api
       .globalTop20()
@@ -103,6 +107,23 @@ export default function NewsPage() {
       })
       .catch((err: Error) => setRosterError(err.message || "글로벌 TOP20 데이터를 불러오지 못했습니다."));
   }, []);
+
+  // Drives the right-edge fade's visibility so it only implies "more to scroll to"
+  // while that's actually true — hidden once the row is scrolled all the way to Visa,
+  // and never shown at all if every tab happens to already fit (narrower roster, wide
+  // viewport).
+  useEffect(() => {
+    const el = tabRowRef.current;
+    if (!el) return;
+    const update = () => setTabsScrollable(el.scrollWidth - el.clientWidth - el.scrollLeft > 4);
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    return () => {
+      el.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+    };
+  }, [roster.length]);
 
   useEffect(() => {
     if (!active) return;
@@ -180,15 +201,17 @@ export default function NewsPage() {
       {!roster.length && !rosterError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
 
       {roster.length > 0 && (
-        <div className="news-tab-row" role="tablist">
-          {roster.map((item) => (
-            <NewsTab
-              key={item.code}
-              item={item}
-              active={active?.code === item.code}
-              onSelect={() => setActive(item)}
-            />
-          ))}
+        <div className={`news-tab-row-wrap${tabsScrollable ? " news-tab-row-wrap--scrollable" : ""}`}>
+          <div className="news-tab-row" role="tablist" ref={tabRowRef}>
+            {roster.map((item) => (
+              <NewsTab
+                key={item.code}
+                item={item}
+                active={active?.code === item.code}
+                onSelect={() => setActive(item)}
+              />
+            ))}
+          </div>
         </div>
       )}
 

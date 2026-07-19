@@ -5332,19 +5332,61 @@ thead .weekly-foreign-amount-col {
    in-place article reader), reusing the fight-news-shimmer keyframe above but with
    its own classes since this is a full page layout, not a compact modal list. */
 
+/* Both a visible scrollbar AND a right-edge fade — belt and suspenders for the same
+   discoverability problem: with all 20 roster tabs, this row overflows even on a wide
+   desktop viewport (~15 tabs fit before the edge), and a fully hidden scrollbar left
+   it looking like a short, complete list with no hint that Walmart/JPMorgan/SK
+   Hynix/AMD/Visa were sitting just off-screen. scrollbar-color isn't supported in
+   Safari at all, and headless/automated screenshot tools render OS scrollbars
+   unreliably even where it is — the fade (plain background gradient, works
+   everywhere, no JS) is the affordance actually guaranteed to show up; the styled
+   scrollbar is a bonus on top where the browser supports it. */
+.news-tab-row-wrap {
+  position: relative;
+}
+
+.news-tab-row-wrap::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 16px;
+  width: 36px;
+  background: linear-gradient(90deg, transparent, var(--page-plane));
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+/* Only shown while the row is actually scrolled short of its end — see the
+   scrollWidth/clientWidth/scrollLeft check driving this class in NewsPage.tsx. */
+.news-tab-row-wrap--scrollable::after {
+  opacity: 1;
+}
+
 .news-tab-row {
   display: flex;
   align-items: center;
   gap: 6px;
   overflow-x: auto;
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--series-yellow) transparent;
   padding: 4px 2px 16px;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--gridline);
 }
 
 .news-tab-row::-webkit-scrollbar {
-  display: none;
+  height: 6px;
+}
+
+.news-tab-row::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.news-tab-row::-webkit-scrollbar-thumb {
+  background: var(--series-yellow);
+  border-radius: 999px;
 }
 
 .news-tab {
