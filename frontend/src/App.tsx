@@ -13,6 +13,7 @@ const KospiMapPage = lazy(() => import("./components/KospiMapPage"));
 const KosdaqMapPage = lazy(() => import("./components/KosdaqMapPage"));
 const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const MarketCapFightPage = lazy(() => import("./components/MarketCapFightPage"));
+const NewsPage = lazy(() => import("./components/NewsPage"));
 
 function RouteFallback() {
   const t = useT();
@@ -37,6 +38,8 @@ export default function App() {
     page = <TugOfWarPage />;
   } else if (path === "/fight") {
     page = <MarketCapFightPage />;
+  } else if (path === "/news") {
+    page = <NewsPage />;
   } else {
     page = <Dashboard />;
   }

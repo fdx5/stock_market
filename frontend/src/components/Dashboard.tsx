@@ -9,6 +9,7 @@ import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import Footer from "./Footer";
+import GlobalNewsIcon from "./GlobalNewsIcon";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
@@ -249,6 +250,9 @@ export default function Dashboard() {
             </Link>
             <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
               <BattleIcon /> {t("시총대결")}
+            </Link>
+            <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
+              <GlobalNewsIcon /> NEWS
             </Link>
             <a
               href="https://chs2147.github.io/mini-apps"

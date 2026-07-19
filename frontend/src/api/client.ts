@@ -327,9 +327,9 @@ export const api = {
     ),
   postFightComment: (companyCode: string, username: string, text: string) =>
     postJSON<FightComment>(`${BASE}/fight/comments`, { company_code: companyCode, username, text }),
-  fightNews: (code: string, name: string, lang: string = "ko") =>
+  fightNews: (code: string, name: string, lang: string = "ko", limit: number = 6) =>
     getJSON<{ items: CompanyNewsItem[] }>(
-      `${BASE}/fight/news?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&lang=${lang}`
+      `${BASE}/fight/news?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&lang=${lang}&limit=${limit}`
     ),
   fightArticle: (link: string, code: string, lang: string = "ko") =>
     getJSON<{ paragraphs: string[] | null }>(

@@ -1528,6 +1528,24 @@ thead .weekly-foreign-amount-col {
   background: color-mix(in srgb, var(--series-violet) 22%, transparent);
 }
 
+/* Yellow-toned nav pill for the NEWS link — --series-yellow already carries a
+   theme-tuned value for both dark (#c98500) and light (#9c6a2f) mode, same as every
+   other nav pill here, so no extra light/dark override is needed. */
+.kospi-map-nav-link--news {
+  color: var(--series-yellow);
+  border-color: var(--series-yellow);
+  background: color-mix(in srgb, var(--series-yellow) 12%, transparent);
+  animation-delay: 1.2s;
+}
+
+.kospi-map-nav-link--news::after {
+  animation-delay: 1.2s;
+}
+
+.kospi-map-nav-link--news:hover {
+  background: color-mix(in srgb, var(--series-yellow) 22%, transparent);
+}
+
 .market-nav-icon {
   width: 14px;
   height: 14px;
@@ -1548,6 +1566,11 @@ thead .weekly-foreign-amount-col {
 .kospi-map-nav-link--home .market-nav-icon,
 .app-footer-market-link--home .market-nav-icon {
   animation-delay: 0.9s;
+}
+
+.kospi-map-nav-link--news .market-nav-icon,
+.app-footer-market-link--news .market-nav-icon {
+  animation-delay: 1.2s;
 }
 
 .mini-apps-icon {
@@ -4394,16 +4417,23 @@ thead .weekly-foreign-amount-col {
   font-variant-numeric: tabular-nums;
   color: var(--fight-gold);
   -webkit-text-stroke: 1px #7a3000;
-  /* Stacked same-direction offsets (no blur) build an extruded/beveled "chunky coin"
-     look — each layer one shade darker, simulating depth — topped with the original
-     soft glow so it still reads as glowing gold, not just a flat emboss. */
-  text-shadow:
-    1px 1px 0 #b8730a,
-    2px 2px 0 #a66200,
-    3px 3px 0 #935500,
-    4px 4px 0 #804800,
-    5px 5px 6px rgba(0, 0, 0, 0.55),
-    0 0 26px rgba(255, 150, 30, 0.85);
+  /* Stacked same-direction drop-shadows (no blur on the first four) build an
+     extruded/beveled "chunky coin" look — each layer one shade darker, simulating
+     depth — topped with a soft glow so it still reads as glowing gold, not just a
+     flat emboss. `filter: drop-shadow` (not `text-shadow`) deliberately: RollingValue
+     renders each character as its own overflow:hidden box for the roll animation,
+     and text-shadow gets clipped at every one of those box edges — the glow didn't
+     blend continuously across digits and instead showed as visible rectangular
+     seams between them ("깍두기"/diced-cube look). drop-shadow composites over the
+     whole element as one unit, ignoring descendant overflow, so the glow reads as
+     one continuous effect across the full number again. */
+  filter:
+    drop-shadow(1px 1px 0 #b8730a)
+    drop-shadow(2px 2px 0 #a66200)
+    drop-shadow(3px 3px 0 #935500)
+    drop-shadow(4px 4px 0 #804800)
+    drop-shadow(5px 5px 6px rgba(0, 0, 0, 0.55))
+    drop-shadow(0 0 26px rgba(255, 150, 30, 0.85));
   animation: fight-diff-3d 3.2s ease-in-out infinite;
   line-height: 1.3;
   padding: 0 4px;
@@ -4422,13 +4452,13 @@ thead .weekly-foreign-amount-col {
   }
   50% {
     transform: perspective(420px) rotateX(0deg) scale(1.07);
-    text-shadow:
-      1px 1px 0 #b8730a,
-      2px 2px 0 #a66200,
-      3px 3px 0 #935500,
-      4px 4px 0 #804800,
-      5px 5px 6px rgba(0, 0, 0, 0.55),
-      0 0 42px rgba(255, 170, 40, 1);
+    filter:
+      drop-shadow(1px 1px 0 #b8730a)
+      drop-shadow(2px 2px 0 #a66200)
+      drop-shadow(3px 3px 0 #935500)
+      drop-shadow(4px 4px 0 #804800)
+      drop-shadow(5px 5px 6px rgba(0, 0, 0, 0.55))
+      drop-shadow(0 0 42px rgba(255, 170, 40, 1));
   }
   75% {
     transform: perspective(420px) rotateX(-10deg) scale(1.03);
@@ -5295,5 +5325,351 @@ thead .weekly-foreign-amount-col {
   .fight-news-skeleton-img {
     width: 64px;
     height: 64px;
+  }
+}
+
+/* ===== NewsPage — the standalone global-TOP20 news hub (tabs + card grid + an
+   in-place article reader), reusing the fight-news-shimmer keyframe above but with
+   its own classes since this is a full page layout, not a compact modal list. */
+
+.news-tab-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 4px 2px 16px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.news-tab-row::-webkit-scrollbar {
+  display: none;
+}
+
+.news-tab {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 76px;
+  padding: 8px 4px;
+  border: none;
+  background: none;
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font: inherit;
+}
+
+.news-tab:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.news-tab--active {
+  color: var(--series-yellow);
+  background: color-mix(in srgb, var(--series-yellow) 14%, transparent);
+}
+
+.news-tab-logo {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border: 2px solid transparent;
+  flex-shrink: 0;
+}
+
+.news-tab--active .news-tab-logo {
+  border-color: var(--series-yellow);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--series-yellow) 25%, transparent);
+}
+
+.news-tab-logo-img {
+  width: 78%;
+  height: 78%;
+  object-fit: contain;
+}
+
+.news-tab-name {
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.news-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.news-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-1);
+  overflow: hidden;
+  cursor: pointer;
+  padding: 0;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.news-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--series-yellow);
+}
+
+.news-card-img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: var(--page-plane);
+  flex-shrink: 0;
+}
+
+.news-card-img--placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.news-card-img-icon {
+  width: 32px;
+  height: 32px;
+  color: var(--text-muted);
+}
+
+.news-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px 14px;
+  flex: 1;
+}
+
+.news-card-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-card-snippet {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.news-card-meta {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.news-card-source {
+  font-weight: 700;
+}
+
+/* Article view (in-place, replaces the grid) — width-capped and centered for a
+   comfortable reading line length instead of stretching across the full 1280px
+   page on desktop. */
+.news-article {
+  max-width: 720px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-bottom: 24px;
+}
+
+.news-article-back {
+  align-self: flex-start;
+  border: none;
+  background: none;
+  color: var(--series-yellow);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  padding: 6px 0;
+}
+
+.news-article-back:hover {
+  text-decoration: underline;
+}
+
+.news-article-img {
+  width: 100%;
+  max-height: 380px;
+  object-fit: cover;
+  border-radius: 14px;
+}
+
+.news-article-title {
+  font-size: 19px;
+  font-weight: 900;
+  color: var(--text-primary);
+  line-height: 1.45;
+}
+
+.news-article-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.news-article-source {
+  font-weight: 700;
+}
+
+.news-article-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 15px;
+  line-height: 1.85;
+  color: var(--text-secondary);
+}
+
+.news-article-fallback-snippet {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.news-article-fallback-note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.news-article-link {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--series-yellow);
+  color: var(--series-yellow);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.news-article-link:hover {
+  background: color-mix(in srgb, var(--series-yellow) 12%, transparent);
+}
+
+/* Loading skeletons for the card grid and article body */
+
+.news-skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+
+.news-skeleton-block,
+.news-skeleton-line {
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--text-primary) 8%, transparent) 30%,
+    color-mix(in srgb, var(--text-primary) 16%, transparent) 50%,
+    color-mix(in srgb, var(--text-primary) 8%, transparent) 70%
+  );
+  background-size: 200% 100%;
+  animation: fight-news-shimmer 1.4s ease-in-out infinite;
+}
+
+.news-skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+}
+
+.news-skeleton-line--title {
+  width: 92%;
+  height: 14px;
+}
+
+.news-skeleton-line--title-short {
+  width: 55%;
+  height: 14px;
+}
+
+.news-skeleton-line--meta {
+  width: 40%;
+  height: 10px;
+  margin-top: auto;
+}
+
+.news-skeleton-line--para {
+  width: 100%;
+  height: 13px;
+}
+
+.news-skeleton-line--para-short {
+  width: 65%;
+  height: 13px;
+}
+
+.news-card-body .news-skeleton-line + .news-skeleton-line {
+  margin-top: 6px;
+}
+
+@media (max-width: 640px) {
+  .news-grid {
+    grid-template-columns: repeat(auto-fill, minmax(145px, 1fr));
+    gap: 10px;
+  }
+
+  .news-card-title {
+    font-size: 12.5px;
+  }
+
+  .news-card-snippet {
+    display: none;
+  }
+
+  .news-tab {
+    width: 62px;
+  }
+
+  .news-tab-logo {
+    width: 38px;
+    height: 38px;
+  }
+
+  .news-article-title {
+    font-size: 17px;
+  }
+
+  .news-article-img {
+    max-height: 220px;
+    border-radius: 10px;
+  }
+
+  .news-article-body {
+    font-size: 14.5px;
+    line-height: 1.8;
   }
 }

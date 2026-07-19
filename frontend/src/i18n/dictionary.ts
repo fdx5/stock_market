@@ -44,6 +44,11 @@ export const DICTIONARY: Record<string, string> = {
   "감사합니다!!": "Thank you!!",
   "HBM 나 너무 좋아": "I love HBM so much",
 
+  // NewsPage
+  "글로벌 뉴스": "Global News",
+  "글로벌 시가총액 TOP20 기업의 최신 뉴스를 한눈에 확인하세요.":
+    "See the latest news from the world's TOP20 companies by market cap, all in one place.",
+
   // MarketCapFightPage
   "삼성 vs SK하이닉스": "Samsung vs SK Hynix",
   "1P를 선택하세요": "Choose Player 1",

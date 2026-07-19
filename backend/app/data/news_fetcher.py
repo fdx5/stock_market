@@ -68,7 +68,11 @@ def _fetch_news(code: str, limit: int) -> list[dict]:
 
 
 def get_news(code: str, limit: int = 15) -> list[dict]:
-    key = f"news:{code}"
+    # limit is part of the cache key: a caller asking for more rows than an earlier
+    # caller already cached for this code (e.g. the NEWS page's larger pool request
+    # after the dashboard's news tab warmed the cache with fewer) must not be served
+    # back that smaller cached list.
+    key = f"news:{code}:{limit}"
     try:
         return cache.get_or_set(key, TTL_NEWS_SECONDS, lambda: _fetch_news(code, limit))
     except Exception:

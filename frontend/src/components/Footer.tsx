@@ -2,6 +2,7 @@ import { useT } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import BattleIcon from "./BattleIcon";
 import DashboardIcon from "./DashboardIcon";
+import GlobalNewsIcon from "./GlobalNewsIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 
@@ -30,6 +31,9 @@ export default function Footer() {
           </Link>
           <Link to="/fight" className="app-footer-market-link app-footer-market-link--battle">
             <BattleIcon /> {t("시총대결")}
+          </Link>
+          <Link to="/news" className="app-footer-market-link app-footer-market-link--news">
+            <GlobalNewsIcon /> NEWS
           </Link>
           <a
             href="https://chs2147.github.io/mini-apps"

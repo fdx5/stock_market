@@ -46,12 +46,17 @@ def _translate_many_cached(texts: list[str]) -> list[str]:
     return results
 
 
-def get_company_news_cached(code: str, company_name: str) -> list[dict]:
-    return cache.get_or_set(f"company_news:{code}", TTL_NEWS_SECONDS, lambda: get_company_news(code, company_name))
+def get_company_news_cached(code: str, company_name: str, limit: int = 6) -> list[dict]:
+    # limit is part of the cache key: the fight page's popup (limit=6) and the NEWS
+    # page's tab (limit=10) hit the same company/code and must not serve each other's
+    # truncated/short list back from a shared entry.
+    return cache.get_or_set(
+        f"company_news:{code}:{limit}", TTL_NEWS_SECONDS, lambda: get_company_news(code, company_name, limit)
+    )
 
 
-def get_company_news_translated(code: str, company_name: str, lang: str = "ko") -> list[dict]:
-    items = get_company_news_cached(code, company_name)
+def get_company_news_translated(code: str, company_name: str, lang: str = "ko", limit: int = 6) -> list[dict]:
+    items = get_company_news_cached(code, company_name, limit)
 
     # Korean-company items are already in Korean (scraped from Naver), and an
     # explicit lang=en caller wants the raw scraped text either way — translation

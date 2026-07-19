@@ -1,6 +1,6 @@
 from app.data.exchange_fetcher import get_usd_krw
 from app.data.global_marketcap_fetcher import get_company_detail, get_global_top20, get_live_quotes_bulk
-from app.data.stock_quote_fetcher import get_stock_quote
+from app.data.stock_quote_fetcher import get_stock_quote, get_stock_quotes_bulk
 from app.data.translate_fetcher import translate_to_korean
 from app.services.cache import cache
 
@@ -39,21 +39,48 @@ def _get_global_top20_snapshot() -> list[dict]:
 
 def get_global_top20_cached() -> list[dict]:
     items = _get_global_top20_snapshot()
-    symbols = [it["code"] for it in items if it.get("code")]
+    codes = [it["code"] for it in items if it.get("code")]
+
+    # The roster's two Korean tickers (Samsung/SK Hynix, "NNNNNN.KS") get overlaid from
+    # Naver's NXT-aware quote instead of Yahoo: Yahoo's regular-session price freezes at
+    # the 15:30 KRX close and has no visibility into NXT's continued pre-/after-hours
+    # trading, so picking either of them as a /fight combatant outside regular hours
+    # would otherwise silently stop updating — unlike every other place in this app that
+    # shows these two (the dedicated battle page, dashboard, KOSPI/KOSDAQ maps), which
+    # already read from stock_quote_fetcher for exactly this reason.
+    krx_codes = [c[: -len(".KS")] for c in codes if c.endswith(".KS")]
+    other_symbols = [c for c in codes if not c.endswith(".KS")]
+
     quotes = cache.get_or_set(
-        "global_top20_quotes", TTL_GLOBAL_TOP20_QUOTES_SECONDS, lambda: get_live_quotes_bulk(symbols)
+        "global_top20_quotes", TTL_GLOBAL_TOP20_QUOTES_SECONDS, lambda: get_live_quotes_bulk(other_symbols)
+    )
+    krx_quotes = (
+        cache.get_or_set(
+            "global_top20_krx_quotes", TTL_GLOBAL_TOP20_QUOTES_SECONDS, lambda: get_stock_quotes_bulk(krx_codes)
+        )
+        if krx_codes
+        else {}
     )
 
     result = []
     for it in items:
-        quote = quotes.get(it["code"])
+        code = it["code"]
+        if code.endswith(".KS"):
+            krx_quote = krx_quotes.get(code[: -len(".KS")])
+            if krx_quote:
+                ratio = 1 + krx_quote["change_pct"] / 100
+                it = {**it, "marcap_usd": it["marcap_usd"] * ratio, "change_pct": krx_quote["change_pct"]}
+            result.append(it)
+            continue
+
+        quote = quotes.get(code)
         if quote and quote["previous_close"]:
             # A same-currency price ratio, not an absolute price — several of these
-            # tickers quote in their home currency on Yahoo (e.g. 005930.KS in KRW,
-            # 2222.SR in SAR) while companiesmarketcap's marcap_usd is USD-denominated.
-            # Multiplying by an absolute foreign-currency price would silently inflate
-            # the USD figure by whatever that currency's exchange rate is; the ratio
-            # sidesteps needing a live FX rate for each ticker's currency at all.
+            # tickers quote in their home currency on Yahoo (e.g. 2222.SR in SAR) while
+            # companiesmarketcap's marcap_usd is USD-denominated. Multiplying by an
+            # absolute foreign-currency price would silently inflate the USD figure by
+            # whatever that currency's exchange rate is; the ratio sidesteps needing a
+            # live FX rate for each ticker's currency at all.
             ratio = quote["price"] / quote["previous_close"]
             it = {**it, "marcap_usd": it["marcap_usd"] * ratio, "change_pct": (ratio - 1) * 100}
         result.append(it)

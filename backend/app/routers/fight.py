@@ -29,8 +29,9 @@ def fight_news(
     code: str = Query(..., min_length=1),
     name: str = Query(..., min_length=1),
     lang: str = Query("ko"),
+    limit: int = Query(6, ge=1, le=20),
 ):
-    return {"items": get_company_news_translated(code, name, lang)}
+    return {"items": get_company_news_translated(code, name, lang, limit)}
 
 
 @router.get("/news/article")

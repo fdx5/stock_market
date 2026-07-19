@@ -1,3 +1,4 @@
+import re
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, quote, urlparse
 
@@ -78,6 +79,46 @@ def _is_unextractable_domain(link: str) -> bool:
     return any(domain in link for domain in UNEXTRACTABLE_DOMAINS)
 
 
+def _normalize_title(title: str) -> str:
+    """Loose dedup key for spotting the same story reposted across outlets/aggregators
+    with a different trailing clause or punctuation ("Nvidia Stock Jumps 5%" vs
+    "Nvidia Stock Jumps 5% After Earnings Beat") — lowercased, punctuation stripped,
+    whitespace collapsed, and capped to the leading 50 chars so two headlines that only
+    diverge after that point still collide."""
+    cleaned = re.sub(r"[^\w\s]", "", title.lower())
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:50]
+
+
+def _normalize_link(link: str) -> str:
+    """Same publisher path with a different tracking query string (utm_*, syndication
+    id, ...) is still the same article for dedup purposes."""
+    parsed = urlparse(link)
+    return f"{parsed.netloc}{parsed.path}".rstrip("/").lower()
+
+
+def _dedupe_items(items: list[dict]) -> list[dict]:
+    """Drops items whose title or link (normalized) has already been seen, keeping the
+    first occurrence — callers sort before calling this, so "first" means
+    highest-priority. Catches wire-service stories syndicated near-identically across
+    several outlets (common in both the Bing and Naver results), which otherwise ate
+    slots in the fixed-size list without adding distinct coverage."""
+    seen_titles: set[str] = set()
+    seen_links: set[str] = set()
+    result = []
+    for it in items:
+        title_key = _normalize_title(it.get("title") or "")
+        link_key = _normalize_link(it.get("link") or "")
+        if (title_key and title_key in seen_titles) or (link_key and link_key in seen_links):
+            continue
+        if title_key:
+            seen_titles.add(title_key)
+        if link_key:
+            seen_links.add(link_key)
+        result.append(it)
+    return result
+
+
 def _resolve_bing_real_url(apiclick_link: str) -> str:
     """Bing's <link> is a bing.com/news/apiclick.aspx tracking wrapper, but — unlike
     Google News RSS's wrapper, which only resolves via client-side JS — the real
@@ -88,20 +129,18 @@ def _resolve_bing_real_url(apiclick_link: str) -> str:
     return real_url or apiclick_link
 
 
-def fetch_bing_news(query: str, limit: int) -> list[dict]:
-    """Bing News RSS search — no API key needed. Unlike Google News RSS, the feed
-    already carries a real (non-wrapper) article URL, a genuine summary, and a
-    thumbnail per item, so no extra per-article scrape is needed to enrich these.
-
-    Without an explicit market, Bing infers one from the request's origin (this
-    server's own region), which surfaced Korean English-language outlets (SBS News,
-    Maeil Business) instead of major US financial press even for US companies —
-    forcing en-US/US here reliably returns outlets like Forbes, Yahoo Finance, and
-    The Motley Fool instead (confirmed by direct comparison during development)."""
-    url = f"{BING_NEWS_RSS_URL}?q={quote(query)}&format=RSS&mkt=en-US&setmkt=en-US&cc=US"
-    resp = requests.get(url, headers=HEADERS, timeout=6)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.content, "xml")
+def _fetch_bing_page(query: str, first: int) -> list[dict]:
+    """Fetches one Bing News RSS page (one query phrasing x one `first` result
+    offset). Never raises — a failed/empty page just contributes nothing to the
+    caller's merged pool, since fetch_bing_news treats every (query, offset) combo
+    uniformly rather than special-casing failures."""
+    url = f"{BING_NEWS_RSS_URL}?q={quote(query)}&format=RSS&mkt=en-US&setmkt=en-US&cc=US&first={first}"
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=6)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.content, "xml")
+    except Exception:
+        return []
 
     items: list[dict] = []
     for entry in soup.select("item"):
@@ -127,12 +166,53 @@ def fetch_bing_news(query: str, limit: int) -> list[dict]:
                 "image_url": image_tag.get_text(strip=True) if image_tag else None,
             }
         )
+    return items
 
-    # Stable sort: RSS already returns newest-first, so items keep their relative
-    # recency order within their own group. Known-unextractable domains are pushed to
-    # the very end regardless of outlet reputation — see _is_unextractable_domain.
-    items.sort(key=lambda it: (_is_unextractable_domain(it["link"]), 0 if _is_preferred(it["source"]) else 1))
-    return items[:limit]
+
+def fetch_bing_news(company_name: str, limit: int) -> list[dict]:
+    """Bing News RSS search — no API key needed. Unlike Google News RSS, the feed
+    already carries a real (non-wrapper) article URL, a genuine summary, and a
+    thumbnail per item, so no extra per-article scrape is needed to enrich these.
+
+    Without an explicit market, Bing infers one from the request's origin (this
+    server's own region), which surfaced Korean English-language outlets (SBS News,
+    Maeil Business) instead of major US financial press even for US companies —
+    forcing en-US/US here reliably returns outlets like Forbes, Yahoo Finance, and
+    The Motley Fool instead (confirmed by direct comparison during development).
+
+    Fetches 2 query phrasings (exact-phrase + loose) x 3 result offsets (Bing's
+    `first` param) in parallel and merges them into one pool before ranking: checked
+    directly against msn.com during development — the response has no <p> tags, no
+    canonical link back to an original (non-MSN) publisher, and no other reference to
+    one anywhere in the page, so an MSN hit can never be extracted server-side no
+    matter how it's fetched. The only lever left is maximizing how many *other*,
+    extractable outlets are even in the candidate pool before the existing
+    unextractable-domain-last sort + dedupe picks the final `limit` — a single page for
+    a single phrasing was frequently >60% MSN for heavily-covered large caps, starving
+    the final list of readable items even though the sort already deprioritizes MSN
+    correctly."""
+    queries = [f'"{company_name}" stock', f"{company_name} stock"]
+    offsets = (1, 11, 21)
+    combos = [(q, first) for q in queries for first in offsets]
+
+    all_items: list[dict] = []
+    seen_raw_links: set[str] = set()
+    with ThreadPoolExecutor(max_workers=len(combos)) as pool:
+        futures = [pool.submit(_fetch_bing_page, q, first) for q, first in combos]
+        for future in futures:
+            for it in future.result():
+                if it["link"] in seen_raw_links:
+                    continue
+                seen_raw_links.add(it["link"])
+                all_items.append(it)
+
+    # Stable sort: RSS already returns newest-first within each page, so items keep
+    # their relative recency order within their own group. Known-unextractable domains
+    # are pushed to the very end regardless of outlet reputation — see
+    # _is_unextractable_domain. Deduping after the sort (not before) means the
+    # higher-priority copy of a reposted story is the one that's kept.
+    all_items.sort(key=lambda it: (_is_unextractable_domain(it["link"]), 0 if _is_preferred(it["source"]) else 1))
+    return _dedupe_items(all_items)[:limit]
 
 
 def fetch_naver_news_for_fight(krx_code: str, limit: int) -> list[dict]:
@@ -140,14 +220,11 @@ def fetch_naver_news_for_fight(krx_code: str, limit: int) -> list[dict]:
     dashboard news tab) and reshapes its {title, link, press, date} into this
     feature's shape.
 
-    news_fetcher.get_news caches under a key that doesn't encode `limit`, so a
-    caller elsewhere requesting a different count (e.g. the dashboard's default-
-    stock startup warmup, which shares this exact Samsung code) can leave more
-    items in that cache entry than this feature asked for — sliced back down to
-    `limit` here so the popup's item count stays predictable regardless of who
-    warmed the cache first."""
-    raw_items = news_fetcher.get_news(krx_code, limit)[:limit]
-    return [
+    Asks for twice `limit` raw rows (Naver's own page1 listing occasionally carries a
+    wire-service story reprinted under two different press names) so deduping below
+    still leaves a full `limit`-sized list instead of coming up short."""
+    raw_items = news_fetcher.get_news(krx_code, limit * 2)
+    reshaped = [
         {
             "title": it["title"],
             "link": it["link"],
@@ -158,6 +235,7 @@ def fetch_naver_news_for_fight(krx_code: str, limit: int) -> list[dict]:
         }
         for it in raw_items
     ]
+    return _dedupe_items(reshaped)[:limit]
 
 
 def enrich_with_og_image(item: dict) -> dict:
@@ -195,14 +273,7 @@ def get_company_news(code: str, company_name: str, limit: int = 6) -> list[dict]
             futures = [pool.submit(enrich_with_og_image, it) for it in items]
             return [f.result() for f in futures]
 
-    items = fetch_bing_news(f'"{company_name}" stock', limit)
-    if not items:
-        # The exact-phrase query can come up empty for compound display names (e.g.
-        # "Meta Platforms (Facebook)" rarely appears verbatim in an article) or from
-        # an occasional empty/blocked response — retry once with a looser, unquoted
-        # query before giving up and showing "no recent news".
-        items = fetch_bing_news(f"{company_name} stock", limit)
-    return items
+    return fetch_bing_news(company_name, limit)
 
 
 def fetch_article_content(url: str) -> list[str] | None:
