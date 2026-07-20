@@ -6031,6 +6031,11 @@ thead .weekly-foreign-amount-col {
   flex-direction: column;
   gap: 20px;
   animation: admin-fade-in 0.35s ease-out;
+  /* Hard backstop: the comments table and live-log list are allowed to scroll
+     horizontally within themselves (see .admin-comments-table / .admin-tail-list),
+     but the page body itself must never gain a horizontal scrollbar — this clips
+     anything that still escapes despite the min-width:0 containment below. */
+  overflow-x: hidden;
 }
 
 .admin-dash-header {
@@ -6558,13 +6563,24 @@ thead .weekly-foreign-amount-col {
 
 .admin-panels-grid {
   display: grid;
-  grid-template-columns: 1.1fr 1fr;
+  /* minmax(0, ...), not a bare 1fr — a bare 1fr's implicit min size is its
+     content's min-content width, so a wide-content descendant (the comments/
+     live-log rows, which can now be wider than the panel via horizontal scroll)
+     would otherwise force the whole grid — and with it the page body — wider
+     than the viewport instead of scrolling inside its own container. */
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
   gap: 16px;
   align-items: start;
 }
 
+.admin-panels-grid > * {
+  min-width: 0;
+}
+
 /* Fixed-height column so its two stacked panels (sessions, comments) can split
-   it exactly 50/50 via flex — an auto-height column has no "50%" to divide. */
+   it exactly 50/50 via flex — an auto-height column has no "50%" to divide. The
+   live-log column (.admin-panel--tail, this column's grid sibling) matches this
+   same height so both columns bottom out evenly on desktop. */
 .admin-left-col {
   display: flex;
   flex-direction: column;
@@ -6575,6 +6591,13 @@ thead .weekly-foreign-amount-col {
 .admin-left-col .admin-panel {
   flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-panel--tail {
+  height: 640px;
   display: flex;
   flex-direction: column;
 }
@@ -6786,7 +6809,12 @@ thead .weekly-foreign-amount-col {
 .admin-tail-list {
   display: flex;
   flex-direction: column;
-  max-height: 420px;
+  /* Fills the rest of .admin-panel--tail's fixed desktop height (see that rule)
+     instead of the old fixed 420px cap, so the log panel's bottom edge lines up
+     with the comments panel's in the grid's other column. */
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
   /* The detail column no longer truncates (see .admin-tail-detail) — a long
      news-click label can now push a row wider than the panel, so this scrolls
@@ -6872,7 +6900,7 @@ thead .weekly-foreign-amount-col {
   }
 
   .admin-panels-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   /* Below this width the left column's two panels stack with everything else
@@ -6885,8 +6913,13 @@ thead .weekly-foreign-amount-col {
     flex: none;
   }
 
+  .admin-panel--tail {
+    height: auto;
+  }
+
   .admin-sessions-table,
-  .admin-comments-table {
+  .admin-comments-table,
+  .admin-tail-list {
     max-height: 320px;
   }
 
