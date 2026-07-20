@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.services import activity_log, page_view_store, visitor_store
+from app.services import activity_log, page_view_store, stock_search_store, visitor_store
 from app.services.admin_auth import require_admin
 from app.services.visitor_tracker import tracker
 from app.services import admin_auth
@@ -57,6 +57,27 @@ def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|7d|30d)$")
     since = datetime.now(timezone.utc) - delta
     points = page_view_store.counts_by_bucket(since.isoformat(), granularity)
     return {"range": range, "points": points}
+
+
+# Both ranking panels (unlike the trend chart) always aggregate over a fixed
+# 1-week window regardless of the chart's own selected range — a ranking that
+# reshuffled every time someone flipped the chart to "1시간" would be more
+# confusing than useful.
+_RANKING_WINDOW = timedelta(days=7)
+
+
+@router.get("/pages/top", dependencies=[Depends(require_admin)])
+def pages_top(limit: int = Query(7, ge=1, le=50)):
+    since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
+    items = page_view_store.counts_by_page(since)[:limit]
+    return {"items": items}
+
+
+@router.get("/stocks/top", dependencies=[Depends(require_admin)])
+def stocks_top(limit: int = Query(10, ge=1, le=50)):
+    since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
+    items = stock_search_store.top_searches(since, limit)
+    return {"items": items}
 
 
 @router.get("/live/tail", dependencies=[Depends(require_admin)])

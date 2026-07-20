@@ -42,6 +42,12 @@ export interface ActivityEvent {
   stock_name: string | null;
 }
 
+export interface StockSearchCount {
+  code: string;
+  name: string;
+  count: number;
+}
+
 export interface ActiveSession {
   session_id: string;
   path: string;
@@ -107,6 +113,10 @@ async function authedGet<T>(path: string): Promise<T> {
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
   trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
+  // Fixed 1-week ranking, independent of the trend chart's own range toggle —
+  // see admin.py's _RANKING_WINDOW.
+  pagesTop: (limit = 7) => authedGet<{ items: PageCount[] }>(`/pages/top?limit=${limit}`),
+  stocksTop: (limit = 10) => authedGet<{ items: StockSearchCount[] }>(`/stocks/top?limit=${limit}`),
   tail: (limit = 100) => authedGet<{ events: ActivityEvent[] }>(`/live/tail?limit=${limit}`),
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
 };

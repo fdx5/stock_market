@@ -4,13 +4,13 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 
-from app.services import page_view_store
+from app.services import page_view_store, stock_search_store
 
 # Bounds memory the same way visitor_tracker.py's session dict does: a fixed-size
 # ring buffer for the live tail (oldest events just fall off) rather than growing
-# without limit. Only page_view events are persisted to page_view_store (for the
-# trend graph) — clicks/stock views stay in-memory only, which keeps Turso writes
-# bounded to real navigations instead of every click.
+# without limit. page_view and click events both persist to page_view_store (the
+# admin dashboard's "조회수"/trend/TOP-pages figures are a page-activity count,
+# not navigations alone) and stock_view persists to stock_search_store.
 TAIL_MAXLEN = 500
 
 # A session counts as "currently active" for the live panel if its last reported
@@ -65,10 +65,20 @@ def record_event(
             state["stock_code"] = stock_code
             state["stock_name"] = stock_name
 
-    if event_type == "page_view":
+    if event_type in ("page_view", "click"):
         threading.Thread(
             target=page_view_store.record_page_view,
             args=(session_id, path, created_at),
+            daemon=True,
+        ).start()
+    elif event_type == "stock_view" and stock_code and stock_name:
+        # The frontend only ever calls reportStockView() for a real search
+        # selection or a code carried in via a link (e.g. a market-map tile) —
+        # the default Samsung Electronics landing on a bare "/" is deliberately
+        # never reported (see Dashboard.tsx), so nothing extra to filter here.
+        threading.Thread(
+            target=stock_search_store.record_search,
+            args=(session_id, stock_code, stock_name, created_at),
             daemon=True,
         ).start()
 

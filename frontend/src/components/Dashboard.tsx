@@ -228,8 +228,21 @@ export default function Dashboard() {
   const summaryName = useTranslatedText(summary?.name ?? "");
   const translatedOverview = useTranslatedTexts(overview);
 
+  // A bare "/" landing silently defaults `selected` to Samsung Electronics (see
+  // the `useState` initializer above) rather than a real search or an incoming
+  // `?code=` link — that synthetic first view shouldn't count in the admin
+  // dashboard's search ranking. Only this very first report is suppressed; any
+  // later selection (search, or a map-tile link landing with `?code=`) reports
+  // normally, which is why the ref flips to false after firing once.
+  const suppressDefaultStockViewRef = useRef(!new URLSearchParams(window.location.search).get("code"));
+
   useEffect(() => {
-    if (summary) reportStockView(summary.code, summary.name);
+    if (!summary) return;
+    if (suppressDefaultStockViewRef.current) {
+      suppressDefaultStockViewRef.current = false;
+      return;
+    }
+    reportStockView(summary.code, summary.name);
   }, [summary]);
 
   return (

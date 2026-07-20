@@ -5,6 +5,8 @@ import {
   AdminAuthError,
   AdminSummary,
   AdminTrendRange,
+  PageCount,
+  StockSearchCount,
   TrendPoint,
   adminApi,
   clearStoredSession,
@@ -239,9 +241,11 @@ export default function AdminDashboardPage() {
   useDocumentTitle("관리자 대시보드 | K-Stock Hub");
   const [authed] = useState(() => !!getStoredSession());
   const [summary, setSummary] = useState<AdminSummary | null>(null);
-  const [range, setRange] = useState<AdminTrendRange>("24h");
+  const [range, setRange] = useState<AdminTrendRange>("3h");
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
   const [trendLoaded, setTrendLoaded] = useState(false);
+  const [pagesTop, setPagesTop] = useState<PageCount[] | null>(null);
+  const [stocksTop, setStocksTop] = useState<StockSearchCount[] | null>(null);
   const [sessions, setSessions] = useState<ActiveSession[] | null>(null);
   const [tail, setTail] = useState<ActivityEvent[] | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
@@ -299,6 +303,27 @@ export default function AdminDashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed, range]);
+
+  useEffect(() => {
+    if (!authed) return undefined;
+    let cancelled = false;
+    const load = () => {
+      Promise.all([adminApi.pagesTop(7), adminApi.stocksTop(10)])
+        .then(([pages, stocks]) => {
+          if (cancelled) return;
+          setPagesTop(pages.items);
+          setStocksTop(stocks.items);
+        })
+        .catch(handleAuthError);
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
 
   useEffect(() => {
     if (!authed) return undefined;
@@ -379,8 +404,18 @@ export default function AdminDashboardPage() {
   if (!authed) return null;
 
   const visibleSeries = series.filter((s) => !hiddenSeries.has(s.path));
-  const rankedPages = series.filter((s) => s.path !== "__other__");
-  const topPageTotal = rankedPages[0]?.total ?? 0;
+
+  // Fixed 1-week ranking (see adminApi.pagesTop/stocksTop) — independent of the
+  // chart's own `range` toggle, and colored from the same fixed categorical set
+  // as the chart for a consistent page-identity language across the dashboard.
+  const rankedPages = (pagesTop ?? []).map((p, i) => ({
+    key: p.path,
+    label: pageLabel(p.path),
+    colorVar: SERIES_VARS[i % SERIES_VARS.length],
+    count: p.count,
+  }));
+  const topPageCount = rankedPages[0]?.count ?? 0;
+  const topStockCount = stocksTop?.[0]?.count ?? 0;
 
   // ~30% of the chart's original footprint (was 760x280) — a compact strip
   // rather than a full-height panel.
@@ -661,8 +696,8 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="admin-trend-toppages">
-          <h3 className="admin-trend-toppages-title">TOP 7 페이지</h3>
-          {!trendLoaded ? (
+          <h3 className="admin-trend-toppages-title">TOP 7 페이지 (7일 누적)</h3>
+          {pagesTop === null ? (
             <div className="admin-toppages-list">
               {[0, 1, 2, 3, 4].map((i) => (
                 <div key={i} className="admin-toppages-row">
@@ -674,12 +709,12 @@ export default function AdminDashboardPage() {
             <p className="admin-empty">아직 수집된 데이터가 없습니다.</p>
           ) : (
             <div className="admin-toppages-list">
-              {rankedPages.map((s, i) => {
+              {rankedPages.map((p, i) => {
                 const rank = i + 1;
                 const medal = RANK_MEDAL[rank];
-                const pct = topPageTotal > 0 ? (s.total / topPageTotal) * 100 : 0;
+                const pct = topPageCount > 0 ? (p.count / topPageCount) * 100 : 0;
                 return (
-                  <div key={s.path} className={`admin-toppages-row${rank <= 3 ? " admin-toppages-row--top" : ""}`}>
+                  <div key={p.key} className={`admin-toppages-row${rank <= 3 ? " admin-toppages-row--top" : ""}`}>
                     {medal ? (
                       <span
                         className="admin-toppages-rank admin-toppages-rank--medal"
@@ -691,15 +726,66 @@ export default function AdminDashboardPage() {
                       <span className="admin-toppages-rank">{rank}</span>
                     )}
                     <div className="admin-toppages-info">
-                      <span className="admin-toppages-label">{s.label}</span>
+                      <span className="admin-toppages-label">{p.label}</span>
                       <div className="admin-toppages-bar-track">
                         <div
                           className="admin-toppages-bar-fill"
-                          style={{ width: `${Math.max(pct, 3)}%`, background: `var(${s.colorVar})` }}
+                          style={{ width: `${Math.max(pct, 3)}%`, background: `var(${p.colorVar})` }}
                         />
                       </div>
                     </div>
-                    <span className="admin-toppages-count">{s.total.toLocaleString()}</span>
+                    <span className="admin-toppages-count">{p.count.toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="admin-trend-topstocks">
+          <h3 className="admin-trend-toppages-title">TOP 10 종목검색 (7일 누적)</h3>
+          {stocksTop === null ? (
+            <div className="admin-toppages-list">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="admin-toppages-row">
+                  <span className="admin-skeleton admin-skeleton--row" />
+                </div>
+              ))}
+            </div>
+          ) : stocksTop.length === 0 ? (
+            <p className="admin-empty">아직 검색 기록이 없습니다.</p>
+          ) : (
+            <div className="admin-toppages-list">
+              {stocksTop.map((s, i) => {
+                const rank = i + 1;
+                const medal = RANK_MEDAL[rank];
+                const pct = topStockCount > 0 ? (s.count / topStockCount) * 100 : 0;
+                return (
+                  <div key={s.code} className={`admin-toppages-row${rank <= 3 ? " admin-toppages-row--top" : ""}`}>
+                    {medal ? (
+                      <span
+                        className="admin-toppages-rank admin-toppages-rank--medal"
+                        style={{ color: medal.fill, filter: `drop-shadow(0 0 4px ${medal.glow})` }}
+                      >
+                        <MedalIcon />
+                      </span>
+                    ) : (
+                      <span className="admin-toppages-rank">{rank}</span>
+                    )}
+                    <div className="admin-toppages-info">
+                      <span className="admin-toppages-label admin-toppages-label--stock">
+                        <StockIcon code={s.code} className="admin-toppages-stock-icon" />
+                        {s.name}
+                        <span className="admin-toppages-stock-code">({s.code})</span>
+                      </span>
+                      <div className="admin-toppages-bar-track">
+                        <div
+                          className="admin-toppages-bar-fill"
+                          style={{ width: `${Math.max(pct, 3)}%`, background: "var(--series-aqua)" }}
+                        />
+                      </div>
+                    </div>
+                    <span className="admin-toppages-count">{s.count.toLocaleString()}</span>
                   </div>
                 );
               })}

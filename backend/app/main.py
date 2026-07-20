@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.data.universe import warm_english_names
 from app.routers import activity, admin, battle, fight, geo, investor, market_map, search, stock, translate, visitors
-from app.services import page_view_store
+from app.services import page_view_store, stock_search_store
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
@@ -98,24 +98,32 @@ def _warm_english_names() -> None:
     threading.Thread(target=warm_english_names, daemon=True).start()
 
 
-def _page_view_retention_loop() -> None:
+def _admin_retention_loop() -> None:
     while True:
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=page_view_store.RETENTION_DAYS)).isoformat()
         try:
-            page_view_store.purge_older_than(cutoff)
+            page_cutoff = (datetime.now(timezone.utc) - timedelta(days=page_view_store.RETENTION_DAYS)).isoformat()
+            page_view_store.purge_older_than(page_cutoff)
         except Exception:
             # A failed purge just means one more day's worth of rows lingers —
             # not worth taking the process down over; the next run retries it.
+            pass
+        try:
+            search_cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=stock_search_store.RETENTION_DAYS)
+            ).isoformat()
+            stock_search_store.purge_older_than(search_cutoff)
+        except Exception:
             pass
         time.sleep(24 * 3600)
 
 
 @app.on_event("startup")
-def _start_page_view_retention() -> None:
-    # Keeps the admin trend chart's backing table bounded to ~30 days of rows
-    # regardless of traffic, instead of growing without limit — the chart never
-    # queries further back than that anyway (see admin.py's pages_trend).
-    threading.Thread(target=_page_view_retention_loop, daemon=True).start()
+def _start_admin_retention() -> None:
+    # Keeps the admin dashboard's backing tables (page views, stock searches)
+    # bounded to ~30 days of rows regardless of traffic, instead of growing
+    # without limit — neither ever gets queried further back than that anyway
+    # (see admin.py's pages_trend / stocks_top).
+    threading.Thread(target=_admin_retention_loop, daemon=True).start()
 
 
 @app.get("/api/health")
