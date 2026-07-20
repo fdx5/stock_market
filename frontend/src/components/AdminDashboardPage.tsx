@@ -128,25 +128,19 @@ function buildTimeline(range: AdminTrendRange, now: Date): string[] {
   return buckets;
 }
 
-/** Uniform Catmull-Rom → cubic Bezier conversion, so the trend line reads as a
- * smooth curve instead of sharp polyline joints, while still passing exactly
- * through every data point. */
-function smoothPath(points: [number, number][]): string {
-  if (points.length === 0) return "";
-  if (points.length === 1) return `M ${points[0][0]},${points[0][1]}`;
-  let d = `M ${points[0][0]},${points[0][1]}`;
-  for (let i = 0; i < points.length - 1; i++) {
-    const p0 = points[i === 0 ? i : i - 1];
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const p3 = points[i + 2 < points.length ? i + 2 : i + 1];
-    const c1x = p1[0] + (p2[0] - p0[0]) / 6;
-    const c1y = p1[1] + (p2[1] - p0[1]) / 6;
-    const c2x = p2[0] - (p3[0] - p1[0]) / 6;
-    const c2y = p2[1] - (p3[1] - p1[1]) / 6;
-    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2[0]},${p2[1]}`;
-  }
-  return d;
+/** A stacked-bar segment with a rounded top edge (the mark's "data end") and a
+ * square baseline-side edge — only the topmost, outward-facing segment of a stack
+ * gets the rounded corners; interior segments stay square and rely on the 2px
+ * surface gap to read as distinct. */
+function roundedTopRectPath(x: number, yTop: number, width: number, height: number, radius: number): string {
+  if (height <= 0) return "";
+  const r = Math.max(0, Math.min(radius, width / 2, height));
+  if (r === 0) return `M ${x},${yTop} h ${width} v ${height} h ${-width} Z`;
+  return (
+    `M ${x},${yTop + height} L ${x},${yTop + r} Q ${x},${yTop} ${x + r},${yTop} ` +
+    `L ${x + width - r},${yTop} Q ${x + width},${yTop} ${x + width},${yTop + r} ` +
+    `L ${x + width},${yTop + height} Z`
+  );
 }
 
 function IconPulse({ className }: { className?: string }) {
@@ -397,7 +391,9 @@ export default function AdminDashboardPage() {
         total: otherTotal,
       });
     }
-    const maxCount = Math.max(1, ...seriesData.flatMap((s) => s.values));
+    // Stacked-bar max is the tallest *summed* bucket, not the tallest single series —
+    // otherwise stacked bars would overflow the chart's top edge.
+    const maxCount = Math.max(1, ...buckets.map((_, i) => seriesData.reduce((sum, s) => sum + s.values[i], 0)));
     return { series: seriesData, categories: buckets, maxCount };
   }, [trendPoints, range]);
 
@@ -429,12 +425,18 @@ export default function AdminDashboardPage() {
   const innerH = height - padding.top - padding.bottom;
   const xStep = categories.length > 1 ? innerW / (categories.length - 1) : 0;
   const xAt = (i: number) => padding.left + i * xStep;
-  // 8% headroom at the top so the smoothed curve's gentle overshoot on sharp
-  // peaks never clips against the chart edge.
+  // 8% headroom at the top so the tallest stacked bar never touches the chart edge.
   const yAt = (v: number) => padding.top + innerH * (1 - (v / maxCount) * 0.92);
-  const baselineY = padding.top + innerH;
   const yTicks = [...new Set([0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxCount * f)))];
   const tickStride = Math.max(1, Math.ceil(categories.length / 6));
+
+  // Bar mark spec: capped at 24px thick, with a 2px surface gap separating adjacent
+  // bars — dropped once a bucket's slot is too narrow to fit a visible gap (dense
+  // per-minute ranges), where bars simply sit flush like a fine-grained histogram.
+  const barSlot = xStep > 0 ? xStep : innerW;
+  const barGapPx = barSlot > 6 ? 2 : 0;
+  const barWidth = Math.max(1, Math.min(24, barSlot - barGapPx));
+  const barCornerR = barWidth >= 6 ? Math.min(4, barWidth / 2) : 0;
 
   return (
     <div className="admin-dash-page">
@@ -554,15 +556,6 @@ export default function AdminDashboardPage() {
               }}
               onMouseLeave={() => setHoverIndex(null)}
             >
-              <defs>
-                {visibleSeries.map((s, i) => (
-                  <linearGradient key={s.path} id={`admin-trend-grad-${i}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={`var(${s.colorVar})`} stopOpacity="0.22" />
-                    <stop offset="100%" stopColor={`var(${s.colorVar})`} stopOpacity="0" />
-                  </linearGradient>
-                ))}
-              </defs>
-
               {yTicks.map((t) => (
                 <g key={t}>
                   <line
@@ -587,65 +580,38 @@ export default function AdminDashboardPage() {
                   )
               )}
               {hoverIndex !== null && (
-                <line
-                  x1={xAt(hoverIndex)}
-                  x2={xAt(hoverIndex)}
-                  y1={padding.top}
-                  y2={baselineY}
-                  stroke="var(--baseline)"
-                  strokeWidth={1}
-                  strokeDasharray="3 3"
+                <rect
+                  x={xAt(hoverIndex) - barWidth / 2 - 3}
+                  y={padding.top}
+                  width={barWidth + 6}
+                  height={innerH}
+                  rx={4}
+                  fill="color-mix(in srgb, var(--text-primary) 6%, transparent)"
                 />
               )}
-              {visibleSeries.map((s, i) => {
-                const points: [number, number][] = s.values.map((v, vi) => [xAt(vi), yAt(v)]);
-                const line = smoothPath(points);
-                const area =
-                  points.length > 1
-                    ? `${line} L ${xAt(points.length - 1)},${baselineY} L ${xAt(0)},${baselineY} Z`
-                    : "";
-                const dimmed = activeLegend !== null && activeLegend !== s.path;
+              {categories.map((c, i) => {
+                const stack = visibleSeries.filter((s) => s.values[i] > 0);
+                if (stack.length === 0) return null;
+                const x = xAt(i) - barWidth / 2;
+                let cumulative = 0;
                 return (
-                  <g key={s.path} className="admin-trend-series" style={{ opacity: dimmed ? 0.18 : 1 }}>
-                    {area && <path d={area} fill={`url(#admin-trend-grad-${i})`} stroke="none" />}
-                    <path
-                      d={line}
-                      fill="none"
-                      stroke={`var(${s.colorVar})`}
-                      strokeWidth={activeLegend === s.path ? 3 : 2}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
+                  <g key={c} className="admin-trend-series">
+                    {stack.map((s, si) => {
+                      const y0 = yAt(cumulative);
+                      cumulative += s.values[i];
+                      const y1 = yAt(cumulative);
+                      const isTop = si === stack.length - 1;
+                      const topY = isTop ? y1 : y1 + barGapPx;
+                      const segH = Math.max(0, y0 - topY);
+                      const dimmed = activeLegend !== null && activeLegend !== s.path;
+                      const d = isTop
+                        ? roundedTopRectPath(x, topY, barWidth, segH, barCornerR)
+                        : `M ${x},${topY} h ${barWidth} v ${segH} h ${-barWidth} Z`;
+                      return <path key={s.path} d={d} fill={`var(${s.colorVar})`} opacity={dimmed ? 0.18 : 1} />;
+                    })}
                   </g>
                 );
               })}
-              {visibleSeries.map((s) => {
-                const lastI = s.values.length - 1;
-                return (
-                  <circle
-                    key={`${s.path}-end`}
-                    cx={xAt(lastI)}
-                    cy={yAt(s.values[lastI])}
-                    r={4}
-                    fill={`var(${s.colorVar})`}
-                    stroke="var(--surface-1)"
-                    strokeWidth={2}
-                    opacity={activeLegend !== null && activeLegend !== s.path ? 0.18 : 1}
-                  />
-                );
-              })}
-              {hoverIndex !== null &&
-                visibleSeries.map((s) => (
-                  <circle
-                    key={`${s.path}-hover`}
-                    cx={xAt(hoverIndex)}
-                    cy={yAt(s.values[hoverIndex])}
-                    r={3.5}
-                    fill={`var(${s.colorVar})`}
-                    stroke="var(--surface-1)"
-                    strokeWidth={1.5}
-                  />
-                ))}
             </svg>
             {hoverIndex !== null && visibleSeries.length > 0 && (
               <div

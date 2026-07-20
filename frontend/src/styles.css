@@ -6317,9 +6317,8 @@ thead .weekly-foreign-amount-col {
   transition: opacity 0.15s ease;
 }
 
-.admin-trend-svg path,
-.admin-trend-svg circle {
-  transition: stroke-width 0.15s ease, opacity 0.15s ease;
+.admin-trend-svg path {
+  transition: opacity 0.15s ease;
 }
 
 .admin-trend-tooltip {
@@ -6402,9 +6401,9 @@ thead .weekly-foreign-amount-col {
 }
 
 .admin-trend-legend-dot {
-  width: 8px;
+  width: 10px;
   height: 8px;
-  border-radius: 50%;
+  border-radius: 2px;
   flex: none;
 }
 
