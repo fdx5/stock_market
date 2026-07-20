@@ -217,7 +217,10 @@ a.app-brand:hover .app-logo-wide {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  margin: 4px 0 8px;
+  /* +3px top/bottom over the old 4px/8px - the nav pills sat close enough to
+     the title row above and page content below that mobile taps near the
+     row's edge would miss the pill and hit a neighbor instead. */
+  margin: 7px 0 11px;
 }
 
 .app-nav-row .visitor-badge {
