@@ -26,6 +26,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   const [comments, setComments] = useState<Record<string, CommentsState>>({});
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const pendingRevealIndex = useRef<number | null>(null);
+  const pendingExpandNid = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +71,23 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     if (!target) return;
     rowRefs.current.get(target.nid)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [posts, visibleCount]);
+
+  // Expanding a row inserts detail+comments directly below it without moving
+  // scrollTop, so a row near the bottom of the list ends up with its newly
+  // loaded content pushed out of view. Scroll the row to the top of the list
+  // once, then again once detail/comments finish loading (their height keeps
+  // growing as each request settles).
+  useEffect(() => {
+    const nid = pendingExpandNid.current;
+    if (!nid || nid !== expandedNid) return;
+    const detailState = details[nid];
+    const commentState = comments[nid];
+    const detailSettled = !detailState || detailState.status !== "loading";
+    const commentSettled = !commentState || commentState.status !== "loading";
+    if (!detailSettled || !commentSettled) return;
+    pendingExpandNid.current = null;
+    rowRefs.current.get(nid)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [expandedNid, details, comments]);
 
   const handleShowMore = () => {
     pendingRevealIndex.current = visibleCount;
@@ -121,6 +139,8 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
       return;
     }
     setExpandedNid(nid);
+    pendingExpandNid.current = nid;
+    rowRefs.current.get(nid)?.scrollIntoView({ behavior: "smooth", block: "start" });
 
     if (!details[nid]) {
       setDetails((prev) => ({ ...prev, [nid]: { status: "loading" } }));

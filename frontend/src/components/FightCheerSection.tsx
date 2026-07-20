@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FightComment, api } from "../api/client";
 import { generateNickname } from "../data/cheerNames";
 import { useT } from "../i18n/LanguageContext";
@@ -26,6 +26,8 @@ export default function FightCheerSection({ sideA, sideB }: { sideA: FightSide; 
   const [error, setError] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [celebrate, setCelebrate] = useState<{ player: "p1" | "p2"; nonce: number } | null>(null);
+  const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const pendingRevealIndex = useRef<number | null>(null);
 
   useEffect(() => {
     api
@@ -47,6 +49,23 @@ export default function FightCheerSection({ sideA, sideB }: { sideA: FightSide; 
 
   const visibleComments = comments.slice(0, visibleCount);
   const translatedCommentTexts = useTranslatedTexts(visibleComments.map((c) => c.text));
+
+  // "더보기" only grows visibleCount client-side, so the scroll container's
+  // scrollTop doesn't move on its own — bring the first newly revealed
+  // comment into view so it's obvious something loaded.
+  useEffect(() => {
+    const revealIndex = pendingRevealIndex.current;
+    if (revealIndex === null) return;
+    pendingRevealIndex.current = null;
+    const target = comments[revealIndex];
+    if (!target) return;
+    rowRefs.current.get(target.id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [comments, visibleCount]);
+
+  const showMore = () => {
+    pendingRevealIndex.current = visibleCount;
+    setVisibleCount((v) => v + PAGE_SIZE);
+  };
 
   const sideForCode = (code: string): FightSide => (code === sideA.code ? sideA : sideB);
 
@@ -125,7 +144,14 @@ export default function FightCheerSection({ sideA, sideB }: { sideA: FightSide; 
         {visibleComments.map((c, idx) => {
           const side = sideForCode(c.company_code);
           return (
-            <div key={c.id} className={`cheer-row fight-${side.player}`}>
+            <div
+              key={c.id}
+              className={`cheer-row fight-${side.player}`}
+              ref={(el) => {
+                if (el) rowRefs.current.set(c.id, el);
+                else rowRefs.current.delete(c.id);
+              }}
+            >
               <div className="cheer-bubble-wrap">
                 <span className={`cheer-badge fight-${side.player}`}>{side.name}</span>
                 <span className="cheer-username">{c.username}</span>
@@ -137,7 +163,7 @@ export default function FightCheerSection({ sideA, sideB }: { sideA: FightSide; 
       </div>
 
       {visibleCount < comments.length && (
-        <button type="button" className="cheer-more-btn" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
+        <button type="button" className="cheer-more-btn" onClick={showMore}>
           {t("더보기")}
         </button>
       )}
