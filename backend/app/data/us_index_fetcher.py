@@ -4,7 +4,7 @@ import FinanceDataReader as fdr
 import pandas as pd
 import requests
 
-from app.data.global_marketcap_fetcher import HEADERS
+from app.data.global_marketcap_fetcher import HEADERS, get_live_quotes_bulk
 from app.services.cache import cache
 
 SLICKCHARTS_URLS = {
@@ -103,3 +103,28 @@ def get_nasdaq100_constituents(fresh: bool = False) -> list[dict]:
         lambda: _with_sector(_fetch_slickcharts("nasdaq100")),
         allow_stale=not fresh,
     )
+
+
+def get_us_stock_quote(code: str, name: str, snapshot: dict | None = None) -> dict:
+    """Live-ish quote for one US ticker's detail page, reusing the same Yahoo Finance
+    chart endpoint the global top-20 board overlays onto companiesmarketcap's
+    snapshot (see global_marketcap_fetcher.get_live_quotes_bulk). Falls back to the
+    slickcharts constituent snapshot (`snapshot`, already carrying a delayed
+    close/change/change_pct — see _fetch_slickcharts) whenever Yahoo's request fails,
+    so the detail page always has a price to show rather than a hard error."""
+    live = get_live_quotes_bulk([code]).get(code)
+    if live and live["previous_close"]:
+        change = live["price"] - live["previous_close"]
+        change_pct = (live["price"] / live["previous_close"] - 1) * 100
+        return {"code": code, "name": name, "close": live["price"], "change": change, "change_pct": change_pct}
+
+    if snapshot:
+        return {
+            "code": code,
+            "name": name,
+            "close": snapshot["close"],
+            "change": snapshot["change"],
+            "change_pct": snapshot["change_pct"],
+        }
+
+    return {"code": code, "name": name, "close": 0.0, "change": 0.0, "change_pct": 0.0}

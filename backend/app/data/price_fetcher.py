@@ -12,6 +12,10 @@ def _load_history(code: str, years: int) -> pd.DataFrame:
     end = dt.date.today()
     start = end - dt.timedelta(days=int(years * 365.25) + 10)
     df = fdr.DataReader(code, start, end)
+    # YahooDailyReader (used for non-KR tickers) returns an unnamed index, unlike
+    # NaverDailyReader's "Date" — reset_index() would otherwise create a column
+    # literally named "index" instead of "Date", breaking the rename below.
+    df.index.name = df.index.name or "Date"
     df = df.reset_index().rename(
         columns={
             "Date": "date",

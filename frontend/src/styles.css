@@ -3056,6 +3056,41 @@ thead .weekly-foreign-amount-col {
   color: var(--status-critical);
 }
 
+/* GlobalBoardPanel.tsx — a single neutral discussion list (no fight-p1/p2 team
+   coloring), unlike the cheer-btn/-gauge styles above which are built for the
+   two-sided battle page. Reuses .cheer-input/.cheer-error as-is. */
+.global-board-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.global-board-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.global-board-submit-btn {
+  padding: 10px 16px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 800;
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+  color: #fff;
+  background: var(--series-blue);
+}
+
+.global-board-submit-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.global-board-comments-list {
+  max-height: 480px;
+}
+
 .cheer-button-row {
   display: flex;
   gap: 10px;

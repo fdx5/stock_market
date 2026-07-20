@@ -230,6 +230,14 @@ export interface FightComment {
   created_at: string;
 }
 
+export interface UsStockQuote {
+  code: string;
+  name: string;
+  close: number;
+  change: number;
+  change_pct: number;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -342,5 +350,14 @@ export const api = {
   fightArticle: (link: string, code: string, lang: string = "ko") =>
     getJSON<{ paragraphs: string[] | null }>(
       `${BASE}/fight/news/article?link=${encodeURIComponent(link)}&code=${encodeURIComponent(code)}&lang=${lang}`
+    ),
+  companyComments: (code: string, limit = 200) =>
+    getJSON<{ items: FightComment[]; count: number }>(
+      `${BASE}/fight/company-comments?code=${encodeURIComponent(code)}&limit=${limit}`
+    ),
+  usStockQuote: (code: string) => getJSON<UsStockQuote>(`${BASE}/us-stock/${code}/quote`),
+  usStockIndicators: (code: string, years = 3) =>
+    getJSON<{ code: string; name: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
+      `${BASE}/us-stock/${code}/indicators?years=${years}`
     ),
 };

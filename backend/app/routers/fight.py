@@ -5,7 +5,12 @@ from pydantic import BaseModel, Field
 
 from app.services.company_news import get_article_content_translated, get_company_news_translated
 from app.services.fight import get_fight_pair
-from app.services.fight_comment_store import add_comment, count_by_company, list_comments_for_pair
+from app.services.fight_comment_store import (
+    add_comment,
+    count_by_company,
+    list_comments_for_company,
+    list_comments_for_pair,
+)
 
 router = APIRouter()
 
@@ -47,6 +52,15 @@ def fight_news_article(
 @router.get("/comments")
 def get_fight_comments(a: str = Query(..., min_length=1), b: str = Query(..., min_length=1)):
     return {"items": list_comments_for_pair(a, b, 200), "counts": count_by_company(a, b)}
+
+
+@router.get("/company-comments")
+def get_company_comments(code: str = Query(..., min_length=1), limit: int = Query(200, ge=1, le=500)):
+    """Same fight_comments table as /comments, scoped to one company — backs the
+    global (S&P500/Nasdaq100) stock detail page's discussion board, which has no
+    "vs" pairing concept unlike the /fight page."""
+    items = list_comments_for_company(code, limit)
+    return {"items": items, "count": len(items)}
 
 
 @router.post("/comments")

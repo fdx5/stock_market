@@ -5,7 +5,7 @@ import { trillionSuffix, wonSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
-import { Link } from "../router";
+import { Link, navigate } from "../router";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
@@ -296,7 +296,17 @@ export default function Dashboard() {
             "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다."
           )}
         </p>
-        <SearchBar onSelect={setSelected} />
+        <SearchBar
+          onSelect={(stock) => {
+            // US search results (S&P500/Nasdaq100) have no KR-pipeline detail view to
+            // select into — route to the global stock page instead.
+            if (stock.market === "US") {
+              navigate(`/global?code=${stock.code}`);
+              return;
+            }
+            setSelected(stock);
+          }}
+        />
       </div>
 
       <MarketOverviewPanel onSelectStock={setSelected} />

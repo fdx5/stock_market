@@ -413,12 +413,8 @@ export default function MarketMapPage({
     );
   }, [size]);
 
-  // US maps have no per-stock Dashboard to search into (that page's data pipeline is
-  // KR-only), so tapping/clicking a US tile is a no-op — it still hovers/focuses to
-  // show the tooltip, it just doesn't navigate anywhere.
   const handleTileClick = (code: string) => {
-    if (market === "us") return;
-    navigate(`/?code=${code}`);
+    navigate(market === "us" ? `/global?code=${code}` : `/?code=${code}`);
   };
 
   // One batched translation request for every name currently loaded (tiles, table,

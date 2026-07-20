@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.data.universe import warm_english_names
+from app.data.us_universe import warm_us_korean_names
 from app.routers import (
     activity,
     admin,
@@ -22,6 +23,7 @@ from app.routers import (
     search,
     stock,
     translate,
+    us_stock,
     visitors,
 )
 from app.services import page_view_store, stock_search_store
@@ -43,6 +45,7 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(search.router, prefix="/api")
 app.include_router(stock.router, prefix="/api/stock")
+app.include_router(us_stock.router, prefix="/api/us-stock")
 app.include_router(market_map.router, prefix="/api/market")
 app.include_router(visitors.router, prefix="/api/visitors")
 app.include_router(investor.router, prefix="/api/investor")
@@ -110,6 +113,14 @@ def _warm_english_names() -> None:
     # off at boot so it's ready well before most real searches, instead of the first
     # search after a cold cache silently falling back to Korean-only matching.
     threading.Thread(target=warm_english_names, daemon=True).start()
+
+
+@app.on_event("startup")
+def _warm_us_korean_names() -> None:
+    # Mirrors _warm_english_names for the reverse direction: S&P500/Nasdaq100 names
+    # translated to Korean up front so "애플"-style search works without the first
+    # such search paying for the translate batch.
+    threading.Thread(target=warm_us_korean_names, daemon=True).start()
 
 
 def _admin_retention_loop() -> None:

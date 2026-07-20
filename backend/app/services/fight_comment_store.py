@@ -132,6 +132,28 @@ def list_comments_for_pair(code_a: str, code_b: str, limit: int = 200, visible_o
     return [_row_to_comment(row) for row in rows]
 
 
+def list_comments_for_company(code: str, limit: int = 200, visible_only: bool = True) -> list[dict]:
+    """Same shape as list_comments_for_pair but scoped to one company — backs the
+    global (S&P500/Nasdaq100) stock detail page's discussion board, which has no
+    "vs" pairing concept."""
+
+    def _run(conn):
+        if visible_only:
+            return conn.execute(
+                "SELECT id, company_code, username, text, created_at, is_visible FROM fight_comments "
+                "WHERE company_code = ? AND is_visible = 'Y' ORDER BY id DESC LIMIT ?",
+                (code, limit),
+            ).fetchall()
+        return conn.execute(
+            "SELECT id, company_code, username, text, created_at, is_visible FROM fight_comments "
+            "WHERE company_code = ? ORDER BY id DESC LIMIT ?",
+            (code, limit),
+        ).fetchall()
+
+    rows = _with_connection(_run)
+    return [_row_to_comment(row) for row in rows]
+
+
 def list_all_comments(limit: int = 500) -> list[dict]:
     """All fight comments across every matchup, newest first, regardless of
     visibility — unlike list_comments_for_pair (scoped to one matchup, visible-only
