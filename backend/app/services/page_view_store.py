@@ -94,13 +94,20 @@ def counts_by_page(since_iso: str) -> list[dict]:
     return [{"path": path, "count": count} for path, count in rows]
 
 
-def counts_by_bucket(since_iso: str, bucket_chars: int) -> list[dict]:
-    """Views per page per time bucket since `since_iso`. `bucket_chars` slices the
-    ISO timestamp to bucket by hour (13 -> "...T12") or by day (10 -> "...12-25")."""
+_BUCKET_FORMAT = {"minute": "%Y-%m-%dT%H:%M", "day": "%Y-%m-%d"}
+
+
+def counts_by_bucket(since_iso: str, granularity: str) -> list[dict]:
+    """Views per page per time bucket since `since_iso`, bucketed in KST (UTC+9) —
+    `created_at` is stored in UTC, but the admin dashboard is read in Korea, so the
+    bucket keys are shifted here rather than left as raw UTC (which read 9 hours
+    behind Korean wall-clock time). `granularity` is "minute" or "day"."""
+
+    fmt = _BUCKET_FORMAT[granularity]
 
     def _run(conn):
         return conn.execute(
-            f"SELECT substr(created_at, 1, {bucket_chars}) AS bucket, path, COUNT(*) "
+            f"SELECT strftime('{fmt}', created_at, '+9 hours') AS bucket, path, COUNT(*) "
             "FROM page_views WHERE created_at >= ? GROUP BY bucket, path ORDER BY bucket",
             (since_iso,),
         ).fetchall()

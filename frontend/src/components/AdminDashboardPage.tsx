@@ -91,7 +91,18 @@ const RANGE_MINUTES: Partial<Record<AdminTrendRange, number>> = {
   "24h": 1440,
 };
 
-/** A full, evenly-spaced UTC timeline for the requested range — independent of
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/** Shifts a real instant by the KST offset before formatting, so the digits read
+ * as Korea wall-clock time (`Date.toISOString()` is otherwise always UTC). Must
+ * match the backend's `strftime(fmt, created_at, '+9 hours')` bucketing exactly
+ * (see page_view_store.counts_by_bucket) or points won't line up with the
+ * timeline's bucket keys. */
+function kstIso(instant: Date): string {
+  return new Date(instant.getTime() + KST_OFFSET_MS).toISOString();
+}
+
+/** A full, evenly-spaced KST timeline for the requested range — independent of
  * which buckets actually have data. Backfilling every minute/day (not just the
  * ones with events) is what makes the line read as a continuous trend instead
  * of jumping between whatever sparse timestamps happened to have traffic. */
@@ -102,14 +113,14 @@ function buildTimeline(range: AdminTrendRange, now: Date): string[] {
     const end = new Date(now);
     end.setUTCSeconds(0, 0);
     for (let i = minutes - 1; i >= 0; i--) {
-      buckets.push(new Date(end.getTime() - i * 60_000).toISOString().slice(0, 16));
+      buckets.push(kstIso(new Date(end.getTime() - i * 60_000)).slice(0, 16));
     }
   } else {
     const days = range === "7d" ? 7 : 30;
-    const end = new Date(now);
-    end.setUTCHours(0, 0, 0, 0);
+    // Truncate to KST midnight — the boundary of "today" in Korea, not UTC.
+    const endOfDayKst = new Date(`${kstIso(now).slice(0, 10)}T00:00:00.000Z`);
     for (let i = days - 1; i >= 0; i--) {
-      buckets.push(new Date(end.getTime() - i * 86_400_000).toISOString().slice(0, 10));
+      buckets.push(new Date(endOfDayKst.getTime() - i * 86_400_000).toISOString().slice(0, 10));
     }
   }
   return buckets;
@@ -205,6 +216,23 @@ interface Series {
   label: string;
   colorVar: string;
   values: number[];
+  total: number;
+}
+
+const RANK_MEDAL: Record<number, { fill: string; glow: string }> = {
+  1: { fill: "#f4c53a", glow: "rgba(244, 197, 58, 0.45)" },
+  2: { fill: "#c7ccd6", glow: "rgba(199, 204, 214, 0.4)" },
+  3: { fill: "#d38a53", glow: "rgba(211, 138, 83, 0.4)" },
+};
+
+function MedalIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7 2h10l-3.3 8.4h-3.4L7 2Z" fill="currentColor" opacity="0.5" />
+      <circle cx="12" cy="15" r="7.2" fill="currentColor" />
+      <circle cx="12" cy="15" r="3.6" fill="none" stroke="rgba(0,0,0,0.25)" strokeWidth="1" />
+    </svg>
+  );
 }
 
 export default function AdminDashboardPage() {
@@ -332,13 +360,16 @@ export default function AdminDashboardPage() {
       label: pageLabel(path),
       colorVar: SERIES_VARS[i],
       values: buckets.map((b) => valueOf(path, b)),
+      total: totals.get(path) ?? 0,
     }));
     if (otherPaths.length > 0) {
+      const otherTotal = otherPaths.reduce((sum, path) => sum + (totals.get(path) ?? 0), 0);
       seriesData.push({
         path: "__other__",
         label: "기타",
         colorVar: "--text-muted",
         values: buckets.map((b) => otherPaths.reduce((sum, path) => sum + valueOf(path, b), 0)),
+        total: otherTotal,
       });
     }
     const maxCount = Math.max(1, ...seriesData.flatMap((s) => s.values));
@@ -348,6 +379,8 @@ export default function AdminDashboardPage() {
   if (!authed) return null;
 
   const visibleSeries = series.filter((s) => !hiddenSeries.has(s.path));
+  const rankedPages = series.filter((s) => s.path !== "__other__");
+  const topPageTotal = rankedPages[0]?.total ?? 0;
 
   // ~30% of the chart's original footprint (was 760x280) — a compact strip
   // rather than a full-height panel.
@@ -464,6 +497,8 @@ export default function AdminDashboardPage() {
             ))}
           </div>
         </div>
+        <div className="admin-trend-layout">
+        <div className="admin-trend-main">
         {!trendLoaded ? (
           <div className="admin-skeleton admin-skeleton--chart" />
         ) : series.length === 0 ? (
@@ -623,6 +658,55 @@ export default function AdminDashboardPage() {
             })}
           </div>
         )}
+        </div>
+
+        <div className="admin-trend-toppages">
+          <h3 className="admin-trend-toppages-title">TOP 7 페이지</h3>
+          {!trendLoaded ? (
+            <div className="admin-toppages-list">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="admin-toppages-row">
+                  <span className="admin-skeleton admin-skeleton--row" />
+                </div>
+              ))}
+            </div>
+          ) : rankedPages.length === 0 ? (
+            <p className="admin-empty">아직 수집된 데이터가 없습니다.</p>
+          ) : (
+            <div className="admin-toppages-list">
+              {rankedPages.map((s, i) => {
+                const rank = i + 1;
+                const medal = RANK_MEDAL[rank];
+                const pct = topPageTotal > 0 ? (s.total / topPageTotal) * 100 : 0;
+                return (
+                  <div key={s.path} className={`admin-toppages-row${rank <= 3 ? " admin-toppages-row--top" : ""}`}>
+                    {medal ? (
+                      <span
+                        className="admin-toppages-rank admin-toppages-rank--medal"
+                        style={{ color: medal.fill, filter: `drop-shadow(0 0 4px ${medal.glow})` }}
+                      >
+                        <MedalIcon />
+                      </span>
+                    ) : (
+                      <span className="admin-toppages-rank">{rank}</span>
+                    )}
+                    <div className="admin-toppages-info">
+                      <span className="admin-toppages-label">{s.label}</span>
+                      <div className="admin-toppages-bar-track">
+                        <div
+                          className="admin-toppages-bar-fill"
+                          style={{ width: `${Math.max(pct, 3)}%`, background: `var(${s.colorVar})` }}
+                        />
+                      </div>
+                    </div>
+                    <span className="admin-toppages-count">{s.total.toLocaleString()}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        </div>
       </section>
 
       <div className="admin-panels-grid">
