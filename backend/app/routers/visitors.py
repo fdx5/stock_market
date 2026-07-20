@@ -1,15 +1,14 @@
 from fastapi import APIRouter, Query, Request
 
 from app.services.visitor_tracker import tracker
+from app.utils import SESSION_ID_PATTERN
 
 router = APIRouter()
 
-# crypto.randomUUID() is exactly what the frontend generates (see
-# useVisitorCount.ts) — anything else is either a bug on the caller's end or a
-# forged value, and it's the "no format check at all" gap that let a script mint
-# unlimited distinct session_ids to both inflate the visitor counter and grow the
-# tracker's in-memory session set without bound.
-_SESSION_ID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+# It's the "no format check at all" gap that used to let a script mint unlimited
+# distinct session_ids to both inflate the visitor counter and grow the tracker's
+# in-memory session set without bound — see SESSION_ID_PATTERN's docstring.
+_SESSION_ID_PATTERN = SESSION_ID_PATTERN
 
 
 def _client_ip(request: Request) -> str | None:

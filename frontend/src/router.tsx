@@ -21,10 +21,14 @@ export function Link({
   to,
   className,
   children,
+  "aria-label": ariaLabel,
+  title,
 }: {
   to: string;
   className?: string;
   children: ReactNode;
+  "aria-label"?: string;
+  title?: string;
 }) {
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -33,7 +37,7 @@ export function Link({
   };
 
   return (
-    <a href={to} className={className} onClick={handleClick}>
+    <a href={to} className={className} aria-label={ariaLabel} title={title} onClick={handleClick}>
       {children}
     </a>
   );

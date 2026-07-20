@@ -58,6 +58,14 @@ class VisitorTracker:
 
         return current, total
 
+    def current_count(self) -> int:
+        """Read-only peek at how many sessions are currently online, for the admin
+        dashboard — unlike heartbeat(), doesn't register a session of its own."""
+        now = time.time()
+        with self._lock:
+            self._prune(now)
+            return len(self._sessions)
+
     def _allow_new_session(self, client_ip: str | None, now: float) -> bool:
         if not client_ip:
             # No IP to key on (shouldn't normally happen behind Cloudflare/Render) —

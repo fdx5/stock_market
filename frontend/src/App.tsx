@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { useT } from "./i18n/LanguageContext";
+import { useActivityTracking } from "./useActivityTracking";
 import { useRoute } from "./router";
 
 // Route-level code splitting: each page only ships the JS it actually needs (e.g. the
@@ -16,6 +17,8 @@ const Nasdaq100MapPage = lazy(() => import("./components/Nasdaq100MapPage"));
 const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const MarketCapFightPage = lazy(() => import("./components/MarketCapFightPage"));
 const NewsPage = lazy(() => import("./components/NewsPage"));
+const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
+const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 
 function RouteFallback() {
   const t = useT();
@@ -24,6 +27,7 @@ function RouteFallback() {
 
 export default function App() {
   const path = useRoute();
+  useActivityTracking(path);
 
   let page;
   const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
@@ -46,6 +50,10 @@ export default function App() {
     page = <MarketCapFightPage />;
   } else if (path === "/news") {
     page = <NewsPage />;
+  } else if (path === "/admin") {
+    page = <AdminLoginPage />;
+  } else if (path === "/admin/dashboard") {
+    page = <AdminDashboardPage />;
   } else {
     page = <Dashboard />;
   }

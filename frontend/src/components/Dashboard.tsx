@@ -6,6 +6,7 @@ import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
+import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import Footer from "./Footer";
@@ -226,6 +227,10 @@ export default function Dashboard() {
 
   const summaryName = useTranslatedText(summary?.name ?? "");
   const translatedOverview = useTranslatedTexts(overview);
+
+  useEffect(() => {
+    if (summary) reportStockView(summary.code, summary.name);
+  }, [summary]);
 
   return (
     <div className="app">

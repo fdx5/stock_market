@@ -58,7 +58,12 @@ export default function Footer() {
             "본 서비스에서 제공하는 시세 및 데이터는 투자 참고용이며, 실제 매매 판단의 근거로 사용할 수 없습니다. 모든 투자 판단과 책임은 이용자 본인에게 있습니다."
           )}
         </p>
-        <p className="app-footer-copy">© {year} K-Stock Hub</p>
+        <p className="app-footer-copy">
+          © {year} K-Stock Hub
+          <Link to="/admin" className="app-footer-admin-link" aria-label="Admin" title="Admin">
+            ⚙
+          </Link>
+        </p>
       </div>
     </footer>
   );

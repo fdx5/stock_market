@@ -1,16 +1,7 @@
 import { useEffect, useState } from "react";
+import { getSessionId } from "./session";
 
-const SESSION_KEY = "visitor_session_id";
 const HEARTBEAT_MS = 20_000;
-
-function getSessionId(): string {
-  let id = sessionStorage.getItem(SESSION_KEY);
-  if (!id) {
-    id = crypto.randomUUID();
-    sessionStorage.setItem(SESSION_KEY, id);
-  }
-  return id;
-}
 
 export interface VisitorCounts {
   /** Browsers with an active heartbeat in the last minute, site-wide. */

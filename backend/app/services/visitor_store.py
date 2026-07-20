@@ -77,3 +77,13 @@ def record_and_total(session_id: str, seen_at: str) -> int:
         return conn.execute("SELECT COUNT(*) FROM visitor_sessions").fetchone()[0]
 
     return _with_connection(_run)
+
+
+def total_count() -> int:
+    """Read-only total, for the admin dashboard — unlike record_and_total(), doesn't
+    register a session of its own."""
+
+    def _run(conn):
+        return conn.execute("SELECT COUNT(*) FROM visitor_sessions").fetchone()[0]
+
+    return _with_connection(_run)
