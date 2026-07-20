@@ -6621,6 +6621,11 @@ thead .weekly-foreign-amount-col {
      only ever scrolls if that fixed width can't fit the panel, and does so
      identically for every row rather than each row having its own width. */
   overflow-x: auto;
+  /* Without this, iOS Safari chains an overscroll past this box's top/left edge
+     into the whole page's own rubber-band bounce — "contain" stops that chaining
+     so hitting a scroll boundary here stays local to this table instead of
+     visibly bouncing the page underneath it. */
+  overscroll-behavior: contain;
 }
 
 .admin-comments-row {
@@ -6858,6 +6863,10 @@ button.admin-comments-text--clickable:hover {
      news-click label can now push a row wider than the panel, so this scrolls
      horizontally instead of clipping it. */
   overflow-x: auto;
+  /* Same fix as .admin-comments-table: without this, iOS Safari chains an
+     overscroll past this list's top/left edge into the whole page's rubber-band
+     bounce instead of stopping locally at this box. */
+  overscroll-behavior: contain;
 }
 
 .admin-tail-row {
