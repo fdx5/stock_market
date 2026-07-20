@@ -308,7 +308,7 @@ export default function AdminDashboardPage() {
     if (!authed) return undefined;
     let cancelled = false;
     const load = () => {
-      Promise.all([adminApi.pagesTop(7), adminApi.stocksTop(10)])
+      Promise.all([adminApi.pagesTop(10), adminApi.stocksTop(10)])
         .then(([pages, stocks]) => {
           if (cancelled) return;
           setPagesTop(pages.items);
@@ -417,11 +417,14 @@ export default function AdminDashboardPage() {
   const topPageCount = rankedPages[0]?.count ?? 0;
   const topStockCount = stocksTop?.[0]?.count ?? 0;
 
-  // ~30% of the chart's original footprint (was 760x280) — a compact strip
-  // rather than a full-height panel.
+  // A 2:1 canvas — close to how wide the 60%-width chart column ends up next to
+  // the trend panel's flexed height (~50% of the page, see .admin-panel--trend /
+  // .admin-trend-chart-wrap) at typical desktop sizes, so the chart fills that
+  // tall wrapper with only slight letterboxing rather than a lot of dead space
+  // above/below it.
   const width = 760;
-  const height = 92;
-  const padding = { top: 10, right: 12, bottom: 18, left: 38 };
+  const height = 380;
+  const padding = { top: 20, right: 16, bottom: 32, left: 46 };
   const innerW = width - padding.left - padding.right;
   const innerH = height - padding.top - padding.bottom;
   const xStep = categories.length > 1 ? innerW / (categories.length - 1) : 0;
@@ -430,7 +433,7 @@ export default function AdminDashboardPage() {
   // peaks never clips against the chart edge.
   const yAt = (v: number) => padding.top + innerH * (1 - (v / maxCount) * 0.92);
   const baselineY = padding.top + innerH;
-  const yTicks = [...new Set([0, 0.5, 1].map((f) => Math.round(maxCount * f)))];
+  const yTicks = [...new Set([0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxCount * f)))];
   const tickStride = Math.max(1, Math.ceil(categories.length / 6));
 
   return (
@@ -696,7 +699,7 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="admin-trend-toppages">
-          <h3 className="admin-trend-toppages-title">TOP 7 페이지 (7일 누적)</h3>
+          <h3 className="admin-trend-toppages-title">TOP 10 페이지 (7일 누적)</h3>
           {pagesTop === null ? (
             <div className="admin-toppages-list">
               {[0, 1, 2, 3, 4].map((i) => (
