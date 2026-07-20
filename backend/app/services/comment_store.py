@@ -98,6 +98,15 @@ def list_comments(limit: int = 200) -> list[dict]:
     return [_row_to_comment(row) for row in rows]
 
 
+def delete_comment(comment_id: int) -> bool:
+    def _run(conn):
+        cursor = conn.execute("DELETE FROM battle_comments WHERE id = ?", (comment_id,))
+        conn.commit()
+        return cursor.rowcount or 0
+
+    return _with_connection(_run) > 0
+
+
 def count_by_side() -> dict[str, int]:
     def _run(conn):
         return conn.execute("SELECT side, COUNT(*) FROM battle_comments GROUP BY side").fetchall()

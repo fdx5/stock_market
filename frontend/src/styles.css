@@ -6563,9 +6563,115 @@ thead .weekly-foreign-amount-col {
   align-items: start;
 }
 
+/* Fixed-height column so its two stacked panels (sessions, comments) can split
+   it exactly 50/50 via flex — an auto-height column has no "50%" to divide. */
+.admin-left-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 640px;
+}
+
+.admin-left-col .admin-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .admin-sessions-table {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.admin-comments-table {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.admin-comments-row {
+  display: grid;
+  grid-template-columns: 44px 88px 1fr 116px 52px;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gridline);
+  font-size: 12px;
+  animation: admin-row-in 0.5s ease-out;
+}
+
+.admin-comments-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+.admin-comments-row--head {
+  color: var(--text-muted);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-bottom: 1px solid var(--border);
+  animation: none;
+}
+
+.admin-comments-row--head:hover {
+  background: none;
+}
+
+.admin-comments-id {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.admin-comments-stock {
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-comments-text {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-comments-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.admin-comments-delete-btn {
+  justify-self: end;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--series-red);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.admin-comments-delete-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--series-red) 12%, transparent);
+  border-color: var(--series-red);
+}
+
+.admin-comments-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .admin-sessions-row {
@@ -6729,6 +6835,21 @@ thead .weekly-foreign-amount-col {
 
   .admin-panels-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Below this width the left column's two panels stack with everything else
+     instead of splitting a fixed-height box, so let each size to its content. */
+  .admin-left-col {
+    height: auto;
+  }
+
+  .admin-left-col .admin-panel {
+    flex: none;
+  }
+
+  .admin-sessions-table,
+  .admin-comments-table {
+    max-height: 320px;
   }
 
   /* Below this width the columns stack, so the 50vh height-share machinery

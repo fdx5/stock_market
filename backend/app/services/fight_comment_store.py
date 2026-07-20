@@ -97,6 +97,31 @@ def list_comments_for_pair(code_a: str, code_b: str, limit: int = 200) -> list[d
     return [_row_to_comment(row) for row in rows]
 
 
+def list_all_comments(limit: int = 500) -> list[dict]:
+    """All fight comments across every matchup, newest first — unlike
+    list_comments_for_pair (scoped to one matchup), this backs the admin moderation
+    panel which needs to see and delete comments regardless of pairing."""
+
+    def _run(conn):
+        return conn.execute(
+            "SELECT id, company_code, username, text, created_at FROM fight_comments "
+            "ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    rows = _with_connection(_run)
+    return [_row_to_comment(row) for row in rows]
+
+
+def delete_comment(comment_id: int) -> bool:
+    def _run(conn):
+        cursor = conn.execute("DELETE FROM fight_comments WHERE id = ?", (comment_id,))
+        conn.commit()
+        return cursor.rowcount or 0
+
+    return _with_connection(_run) > 0
+
+
 def count_by_company(code_a: str, code_b: str) -> dict[str, int]:
     def _run(conn):
         return conn.execute(

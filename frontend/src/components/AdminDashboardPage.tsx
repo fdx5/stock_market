@@ -3,8 +3,10 @@ import {
   ActiveSession,
   ActivityEvent,
   AdminAuthError,
+  AdminComment,
   AdminSummary,
   AdminTrendRange,
+  CommentSource,
   PageCount,
   StockSearchCount,
   TrendPoint,
@@ -67,6 +69,10 @@ function avatarColorVar(id: string): string {
 
 function formatClock(iso: string): string {
   return new Date(iso).toLocaleTimeString("ko-KR", { hour12: false });
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("ko-KR", { hour12: false, month: "2-digit", day: "2-digit" });
 }
 
 function formatBucket(bucket: string): string {
@@ -242,6 +248,8 @@ export default function AdminDashboardPage() {
   const [stocksTop, setStocksTop] = useState<StockSearchCount[] | null>(null);
   const [sessions, setSessions] = useState<ActiveSession[] | null>(null);
   const [tail, setTail] = useState<ActivityEvent[] | null>(null);
+  const [comments, setComments] = useState<AdminComment[] | null>(null);
+  const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [activeLegend, setActiveLegend] = useState<string | null>(null);
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
@@ -358,6 +366,35 @@ export default function AdminDashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
+
+  useEffect(() => {
+    if (!authed) return undefined;
+    let cancelled = false;
+    const load = () => {
+      adminApi
+        .comments(200)
+        .then((r) => !cancelled && setComments(r.items))
+        .catch(handleAuthError);
+    };
+    load();
+    const id = setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  function handleDeleteComment(c: AdminComment) {
+    const key = `${c.source}-${c.id}`;
+    if (deletingKey === key) return;
+    setDeletingKey(key);
+    adminApi
+      .deleteComment(c.source as CommentSource, c.id)
+      .then(() => setComments((prev) => (prev ? prev.filter((x) => !(x.source === c.source && x.id === c.id)) : prev)))
+      .catch(handleAuthError)
+      .finally(() => setDeletingKey(null));
+  }
 
   const { series, categories, maxCount } = useMemo(() => {
     const totals = new Map<string, number>();
@@ -765,6 +802,7 @@ export default function AdminDashboardPage() {
       </section>
 
       <div className="admin-panels-grid">
+        <div className="admin-left-col">
         <section className="admin-panel admin-panel--sessions">
           <h2>
             <span className="admin-live-dot" /> 실시간 세션 {sessions !== null && `(${sessions.length})`}
@@ -811,6 +849,48 @@ export default function AdminDashboardPage() {
             {sessions?.length === 0 && <p className="admin-empty">활성 세션이 없습니다.</p>}
           </div>
         </section>
+
+        <section className="admin-panel admin-panel--comments">
+          <h2>댓글 관리 {comments !== null && `(${comments.length})`}</h2>
+          <div className="admin-comments-table">
+            <div className="admin-comments-row admin-comments-row--head">
+              <span>번호</span>
+              <span>종목명</span>
+              <span>댓글 내용</span>
+              <span>작성일시</span>
+              <span></span>
+            </div>
+            {comments === null &&
+              [0, 1, 2].map((i) => (
+                <div key={i} className="admin-comments-row">
+                  <span className="admin-skeleton admin-skeleton--row" />
+                </div>
+              ))}
+            {comments?.map((c) => {
+              const key = `${c.source}-${c.id}`;
+              return (
+                <div key={key} className="admin-comments-row">
+                  <span className="admin-comments-id">{c.id}</span>
+                  <span className="admin-comments-stock">{c.stock_name}</span>
+                  <span className="admin-comments-text" title={c.text}>
+                    {c.text}
+                  </span>
+                  <span className="admin-comments-time">{formatDateTime(c.created_at)}</span>
+                  <button
+                    type="button"
+                    className="admin-comments-delete-btn"
+                    disabled={deletingKey === key}
+                    onClick={() => handleDeleteComment(c)}
+                  >
+                    삭제
+                  </button>
+                </div>
+              );
+            })}
+            {comments?.length === 0 && <p className="admin-empty">등록된 댓글이 없습니다.</p>}
+          </div>
+        </section>
+        </div>
 
         <section className="admin-panel admin-panel--tail">
           <h2>

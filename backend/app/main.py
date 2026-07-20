@@ -10,7 +10,20 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.data.universe import warm_english_names
-from app.routers import activity, admin, battle, fight, geo, investor, market_map, search, stock, translate, visitors
+from app.routers import (
+    activity,
+    admin,
+    admin_comments,
+    battle,
+    fight,
+    geo,
+    investor,
+    market_map,
+    search,
+    stock,
+    translate,
+    visitors,
+)
 from app.services import page_view_store, stock_search_store
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
@@ -39,6 +52,7 @@ app.include_router(translate.router, prefix="/api")
 app.include_router(geo.router, prefix="/api")
 app.include_router(activity.router, prefix="/api/activity")
 app.include_router(admin.router, prefix="/api/admin")
+app.include_router(admin_comments.router, prefix="/api/admin")
 
 
 @app.on_event("startup")

@@ -57,6 +57,16 @@ export interface ActiveSession {
   last_seen: number;
 }
 
+export type CommentSource = "battle" | "fight";
+
+export interface AdminComment {
+  id: number;
+  source: CommentSource;
+  stock_name: string;
+  text: string;
+  created_at: string;
+}
+
 export function getStoredSession(): AdminSession | null {
   const raw = localStorage.getItem(TOKEN_KEY);
   if (!raw) return null;
@@ -114,6 +124,20 @@ async function authedGet<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function authedDelete(path: string): Promise<void> {
+  const session = getStoredSession();
+  if (!session) throw new AdminAuthError("로그인이 필요합니다.");
+  const res = await fetch(`${BASE}${path}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${session.token}` },
+  });
+  if (res.status === 401) {
+    clearStoredSession();
+    throw new AdminAuthError("세션이 만료되었습니다. 다시 로그인해 주세요.");
+  }
+  if (!res.ok) throw new Error(`Admin API error: ${res.status}`);
+}
+
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
   trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
@@ -123,4 +147,6 @@ export const adminApi = {
   stocksTop: (limit = 10) => authedGet<{ items: StockSearchCount[] }>(`/stocks/top?limit=${limit}`),
   tail: (limit = 100) => authedGet<{ events: ActivityEvent[] }>(`/live/tail?limit=${limit}`),
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
+  comments: (limit = 200) => authedGet<{ items: AdminComment[] }>(`/comments?limit=${limit}`),
+  deleteComment: (source: CommentSource, id: number) => authedDelete(`/comments/${source}/${id}`),
 };
