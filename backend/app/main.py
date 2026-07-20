@@ -9,6 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.data.global_discussion_fetcher import warm_nasdaq_symbols
 from app.data.universe import warm_english_names
 from app.data.us_universe import warm_us_korean_names
 from app.routers import (
@@ -123,6 +124,15 @@ def _warm_us_korean_names() -> None:
     # translated to Korean up front so "애플"-style search works without the first
     # such search paying for the translate batch.
     threading.Thread(target=warm_us_korean_names, daemon=True).start()
+
+
+@app.on_event("startup")
+def _warm_nasdaq_symbols() -> None:
+    # The /global page's discussion board resolves each ticker's Nasdaq (.O) vs
+    # other (.K) Naver suffix against this ~4,000-row listing on every request — a
+    # multi-second FinanceDataReader fetch cold, warmed here so the first visitor's
+    # discussion-board load after a deploy isn't the one who pays for it.
+    threading.Thread(target=warm_nasdaq_symbols, daemon=True).start()
 
 
 def _admin_retention_loop() -> None:

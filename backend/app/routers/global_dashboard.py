@@ -10,11 +10,13 @@ router = APIRouter()
 # FinanceDataReader dispatches these non-KR-style codes to Yahoo Finance under the
 # hood — DJI/IXIC are Yahoo's index codes (^DJI/^IXIC), same mechanism already proven
 # for arbitrary US tickers by price_fetcher.get_history / us_stock.py.
+# DJI/IXIC are point-valued indices; SOXL/TQQQ are ETFs whose "close" is a real
+# per-share USD price — "unit" tells the frontend which of those to display.
 INDEX_WIDGETS = [
-    {"key": "dow", "label": "다우존스", "code": "DJI"},
-    {"key": "nasdaq", "label": "나스닥종합", "code": "IXIC"},
-    {"key": "soxl", "label": "SOXL", "code": "SOXL"},
-    {"key": "tqqq", "label": "TQQQ", "code": "TQQQ"},
+    {"key": "dow", "label": "다우존스", "code": "DJI", "unit": "index"},
+    {"key": "nasdaq", "label": "나스닥종합", "code": "IXIC", "unit": "index"},
+    {"key": "soxl", "label": "SOXL", "code": "SOXL", "unit": "usd"},
+    {"key": "tqqq", "label": "TQQQ", "code": "TQQQ", "unit": "usd"},
 ]
 
 # ~3 months of daily closes — enough for a simple sparkline trend without shipping a
@@ -55,5 +57,5 @@ def enrichment(code: str, lang: str = Query("ko")):
 
 
 @router.get("/{code}/discussion")
-def discussion(code: str, limit: int = Query(20, ge=1, le=100)):
-    return {"items": global_discussion_fetcher.get_discussion(code, limit)}
+def discussion(code: str, limit: int = Query(10, ge=1, le=50), offset: str | None = Query(None)):
+    return global_discussion_fetcher.get_discussion(code, limit, offset)

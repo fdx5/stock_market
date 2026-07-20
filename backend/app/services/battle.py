@@ -126,7 +126,11 @@ def get_global_enrichment(code: str, name: str, lang: str = "ko") -> dict:
     everything else falls back to a name-slug guess against companiesmarketcap.com (see
     global_marketcap_fetcher.resolve_detail_path). Each field degrades to None
     independently on failure rather than failing the whole response."""
-    logo_url = f"{global_marketcap_fetcher.BASE_URL}/img/company-logos/256/{code}.png"
+    # financialmodelingprep's public logo image endpoint (no API key needed for the
+    # image itself) - clearly sharper, transparent-background icons than
+    # companiesmarketcap.com's own /company-logos/ CDN, compared directly across a
+    # dozen tickers before switching.
+    logo_url = f"https://financialmodelingprep.com/image-stock/{code}.png"
 
     top20_item = _find_top20_item(code)
     if top20_item:

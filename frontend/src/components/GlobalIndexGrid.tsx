@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { GlobalIndexPoint, GlobalIndexWidget, api } from "../api/client";
 
-function formatIndexValue(v: number): string {
-  return v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+function formatIndexValue(v: number, unit: "index" | "usd"): string {
+  const formatted = v.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return unit === "usd" ? `$${formatted}` : formatted;
 }
 
 function changeClass(pct: number): string {
@@ -46,7 +47,7 @@ function IndexTile({ item }: { item: GlobalIndexWidget }) {
         <span className="global-index-tile-label">{item.label}</span>
         {item.close !== null ? (
           <>
-            <span className="global-index-tile-value">{formatIndexValue(item.close)}</span>
+            <span className="global-index-tile-value">{formatIndexValue(item.close, item.unit)}</span>
             <span className={`global-index-tile-change ${cls}`}>
               {pct > 0 ? "+" : ""}
               {pct.toFixed(2)}%

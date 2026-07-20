@@ -874,7 +874,8 @@ a.app-brand:hover .app-logo-wide {
 
 .board-comment-meta {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   font-size: 11px;
   color: var(--text-muted);
 }
@@ -882,6 +883,8 @@ a.app-brand:hover .app-logo-wide {
 .board-comment-author {
   font-weight: 600;
   color: var(--text-secondary);
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .board-comment-text {
@@ -890,6 +893,12 @@ a.app-brand:hover .app-logo-wide {
   line-height: 1.5;
   color: var(--text-primary);
   white-space: pre-line;
+  /* Real user-written posts (Naver's global board especially) routinely include long
+     unbroken runs — a URL, or a string of repeated "ㅋㅋㅋㅋㅋㅋ...")/"ㄷㄷㄷㄷㄷㄷ..." with
+     no spaces — that would otherwise force this fixed-width column wider than its
+     container instead of wrapping, producing page-level horizontal scroll. */
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .board-comment-stat {
@@ -3178,6 +3187,8 @@ thead .weekly-foreign-amount-col {
   font-size: 13px;
   font-weight: 700;
   color: var(--text-primary);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .global-board-post-title + .board-comment-text {
@@ -3192,6 +3203,31 @@ thead .weekly-foreign-amount-col {
 
 .global-board-comments-list {
   max-height: 480px;
+}
+
+.global-board-more-btn {
+  align-self: center;
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.global-board-more-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--series-blue) 10%, transparent);
+  border-color: var(--series-blue);
+  color: var(--series-blue);
+}
+
+.global-board-more-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .cheer-button-row {

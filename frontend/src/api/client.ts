@@ -247,6 +247,7 @@ export interface GlobalIndexWidget {
   key: string;
   label: string;
   code: string;
+  unit: "index" | "usd";
   close: number | null;
   change: number | null;
   change_pct: number | null;
@@ -397,6 +398,8 @@ export const api = {
   globalIndices: () => getJSON<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
   globalEnrichment: (code: string, lang: string = "ko") =>
     getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`),
-  globalDiscussion: (code: string, limit = 20) =>
-    getJSON<{ items: GlobalDiscussionPost[] }>(`${BASE}/global/${code}/discussion?limit=${limit}`),
+  globalDiscussion: (code: string, limit = 10, offset?: string | null) =>
+    getJSON<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
+      `${BASE}/global/${code}/discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
+    ),
 };

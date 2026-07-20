@@ -32,6 +32,15 @@ def _get_nasdaq_symbols() -> set[str]:
     return cache.get_or_set("nasdaq_symbols", TTL_NASDAQ_LISTING_SECONDS, _load_nasdaq_symbols)
 
 
+def warm_nasdaq_symbols() -> None:
+    """Fetching FinanceDataReader's full NASDAQ listing (~4,000 rows) takes several
+    seconds on a cold cache — resolve_naver_suffix needs it for every discussion-board
+    request, so without warming this at boot, whichever visitor's request happens to be
+    the first one after a deploy pays that multi-second delay synchronously instead of
+    the discussion board just loading fast like every request after it."""
+    _get_nasdaq_symbols()
+
+
 def resolve_naver_suffix(code: str) -> str:
     """Naver's world-stock discussion board keys posts by `{TICKER}.O` for Nasdaq-listed
     tickers and `{TICKER}.K` for everything else (NYSE and other US exchanges) - found by
@@ -46,20 +55,23 @@ def resolve_naver_suffix(code: str) -> str:
     return "O" if is_nasdaq else "K"
 
 
-def _fetch_discussion(code: str, limit: int) -> list[dict]:
+def _fetch_discussion(code: str, limit: int, offset: str | None) -> dict:
     item_code = f"{code}.{resolve_naver_suffix(code)}"
-    params = {
+    params: dict[str, object] = {
         "discussionType": "foreignStock",
         "itemCode": item_code,
         "pageSize": limit,
     }
+    if offset is not None:
+        params["offset"] = offset
     resp = _session.get(DISCUSSION_URL, params=params, timeout=4)
     resp.raise_for_status()
     payload = resp.json()
     if not payload.get("isSuccess"):
-        return []
+        return {"items": [], "next_offset": None}
 
-    posts = (payload.get("result") or {}).get("posts") or []
+    result = payload.get("result") or {}
+    posts = result.get("posts") or []
     items = []
     for p in posts:
         # Mirrors board_fetcher.py's Cleanbot filtering for the domestic board — a
@@ -80,12 +92,15 @@ def _fetch_discussion(code: str, limit: int) -> list[dict]:
                 "is_reply": (p.get("replyDepth") or 0) > 0,
             }
         )
-    return items
+    # An empty page (rather than a missing lastOffset) is the reliable "no more
+    # pages" signal — Naver still returns a lastOffset value on an empty page.
+    next_offset = result.get("lastOffset") if posts else None
+    return {"items": items, "next_offset": next_offset}
 
 
-def get_discussion(code: str, limit: int = 20) -> list[dict]:
-    key = f"global_discussion:{code}:{limit}"
+def get_discussion(code: str, limit: int = 10, offset: str | None = None) -> dict:
+    key = f"global_discussion:{code}:{limit}:{offset or 'first'}"
     try:
-        return cache.get_or_set(key, TTL_DISCUSSION_SECONDS, lambda: _fetch_discussion(code, limit))
+        return cache.get_or_set(key, TTL_DISCUSSION_SECONDS, lambda: _fetch_discussion(code, limit, offset))
     except Exception:
-        return []
+        return {"items": [], "next_offset": None}
