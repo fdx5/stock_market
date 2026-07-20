@@ -1,17 +1,42 @@
 import datetime as dt
+import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 import FinanceDataReader as fdr
 import pandas as pd
 
 from app.services.cache import cache
 
+logger = logging.getLogger(__name__)
+
 TTL_PRICE_SECONDS = 6 * 3600
+
+# fdr.DataReader's Yahoo path issues a plain requests.get with no timeout, so a
+# stalled/blocked upstream (e.g. Yahoo silently throttling a datacenter IP) hangs the
+# call forever. That hang is fatal to TTLCache's background-refresh bookkeeping: the
+# refresh thread never reaches its `finally`, so the key is marked "refreshing"
+# permanently and never retried again — the cache silently freezes at its last-good
+# value. Running the fetch in a worker with a hard deadline turns that indefinite hang
+# into an ordinary exception the cache/caller can recover from.
+FETCH_TIMEOUT_SECONDS = 20
 
 
 def _load_history(code: str, years: int) -> pd.DataFrame:
     end = dt.date.today()
     start = end - dt.timedelta(days=int(years * 365.25) + 10)
-    df = fdr.DataReader(code, start, end)
+    # shutdown(wait=False): if the fetch times out, the still-hung worker thread is
+    # abandoned rather than blocked on — ThreadPoolExecutor's default context-manager
+    # exit calls shutdown(wait=True), which would just re-introduce the same hang here.
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(fdr.DataReader, code, start, end)
+        try:
+            df = future.result(timeout=FETCH_TIMEOUT_SECONDS)
+        except FutureTimeoutError:
+            logger.warning("price_fetcher: DataReader(%s) timed out after %ss", code, FETCH_TIMEOUT_SECONDS)
+            raise
+    finally:
+        pool.shutdown(wait=False)
     # YahooDailyReader (used for non-KR tickers) returns an unnamed index, unlike
     # NaverDailyReader's "Date" — reset_index() would otherwise create a column
     # literally named "index" instead of "Date", breaking the rename below.

@@ -1,9 +1,13 @@
+import logging
+
 from fastapi import APIRouter, Query
 
 from app.data import global_discussion_fetcher, price_fetcher
 from app.data.us_universe import get_us_stock_item
 from app.services.battle import get_global_enrichment
 from app.utils import dataframe_to_records
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -28,6 +32,7 @@ def _widget_data(widget: dict) -> dict:
     try:
         df = price_fetcher.get_history(widget["code"], years=1)
     except Exception:
+        logger.exception("global_dashboard: failed to load history for %s", widget["code"])
         return {**widget, "close": None, "change": None, "change_pct": None, "points": []}
 
     tail = df.tail(SPARKLINE_POINTS)
