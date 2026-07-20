@@ -1,3 +1,4 @@
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
@@ -140,3 +141,67 @@ def get_company_detail(detail_path: str) -> dict | None:
         description = meta["content"].strip() if meta and meta.get("content") else ""
 
     return {"description": description}
+
+
+# companiesmarketcap.com has no ticker-keyed lookup, only name-slug URLs
+# (/nvidia/marketcap/) — this strips common corporate suffixes off a company name to
+# guess that slug. Order matters: suffixes are stripped before punctuation/whitespace
+# collapse to hyphens, so "Alphabet Inc." -> "alphabet" rather than "alphabet-inc".
+_SUFFIX_RE = re.compile(
+    r"\b(inc|incorporated|corp|corporation|co|company|ltd|limited|plc|group|holdings?|"
+    r"class\s+[ab]|n\.?v\.?|s\.?a\.?|se|ag)\b\.?",
+    re.IGNORECASE,
+)
+
+
+def _slugify_company_name(name: str) -> str:
+    text = re.sub(r"[(),.]", "", name)
+    text = _SUFFIX_RE.sub("", text)
+    text = re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
+    return text
+
+
+def resolve_detail_path(ticker: str, name: str) -> str | None:
+    """Guesses a companiesmarketcap.com detail-page slug from the company name, then
+    verifies the resulting page is genuinely about this ticker (its own `.company-code`
+    cell must match) before trusting it — a wrong guess would otherwise silently show a
+    different company's market cap/description. Returns None (not an error) whenever the
+    guess can't be verified, which callers should treat as "no data available"."""
+    slug = _slugify_company_name(name)
+    if not slug:
+        return None
+    path = f"/{slug}/marketcap/"
+    try:
+        resp = requests.get(BASE_URL + path, headers=HEADERS, timeout=4)
+        if resp.status_code != 200:
+            return None
+        soup = BeautifulSoup(resp.text, "html.parser")
+        code_el = soup.select_one(".company-code")
+        if not code_el or code_el.get_text(strip=True).upper() != ticker.upper():
+            return None
+        return path
+    except Exception:
+        return None
+
+
+_MARKETCAP_TEXT_RE = re.compile(r"\$([\d.]+)\s*(Trillion|Billion|Million)", re.IGNORECASE)
+_MARKETCAP_SCALE = {"trillion": 1_000_000_000_000, "billion": 1_000_000_000, "million": 1_000_000}
+
+
+def get_marketcap_usd(detail_path: str) -> float | None:
+    """Parses the `$X Trillion/Billion USD` figure off a companiesmarketcap.com detail
+    page — the same page resolve_detail_path already verified matches this ticker."""
+    try:
+        resp = requests.get(BASE_URL + detail_path, headers=HEADERS, timeout=4)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        el = soup.select_one(".marketcap")
+        if not el:
+            return None
+        match = _MARKETCAP_TEXT_RE.search(el.get_text())
+        if not match:
+            return None
+        value, unit = match.groups()
+        return float(value) * _MARKETCAP_SCALE[unit.lower()]
+    except Exception:
+        return None

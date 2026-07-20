@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { CompanyNewsItem, IndicatorPoint, UsStockQuote, api } from "../api/client";
+import { CompanyNewsItem, GlobalEnrichment, IndicatorPoint, UsStockQuote, api } from "../api/client";
 import { syncTimeScales } from "../chartSync";
+import { trillionSuffix, wonSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
@@ -8,6 +9,7 @@ import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import Footer from "./Footer";
 import GlobalBoardPanel from "./GlobalBoardPanel";
+import GlobalIndexGrid from "./GlobalIndexGrid";
 import GlobalNewsList from "./GlobalNewsList";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
@@ -28,12 +30,36 @@ function formatUsdChange(change: number): string {
   return `${sign}$${Math.abs(change).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function formatMarcapKrw(krw: number, lang: "ko" | "en"): string {
+  return `${(krw / 1_000_000_000_000).toFixed(1)}${trillionSuffix(lang)}${wonSuffix(lang)}`;
+}
+
+function formatMarcapUsd(usd: number): string {
+  if (usd >= 1_000_000_000_000) return `$${(usd / 1_000_000_000_000).toFixed(2)}T`;
+  if (usd >= 1_000_000_000) return `$${(usd / 1_000_000_000).toFixed(2)}B`;
+  return `$${(usd / 1_000_000).toFixed(1)}M`;
+}
+
+/** Splits a single-paragraph description into up to 5 whole-sentence lines, mirroring
+ * how Dashboard.tsx's own overview block reads (several short <p> lines, not one dense
+ * paragraph) even though this description arrives as one string, not pre-split bullets. */
+function splitDescriptionLines(text: string, maxLines = 5): string[] {
+  const sentences = text
+    .trim()
+    .split(/(?<=[.!?다요])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return sentences.slice(0, maxLines);
+}
+
 export default function GlobalStockPage() {
   const t = useT();
   const { lang } = useLanguage();
   const code = new URLSearchParams(window.location.search).get("code") ?? "";
 
   const [quote, setQuote] = useState<UsStockQuote | null>(null);
+  const [enrichment, setEnrichment] = useState<GlobalEnrichment | null>(null);
+  const [logoFailed, setLogoFailed] = useState(false);
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
   const [news, setNews] = useState<CompanyNewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
@@ -75,6 +101,27 @@ export default function GlobalStockPage() {
       cancelled = true;
     };
   }, [code]);
+
+  // Logo/market-cap/description — independent of the quote poll above (its own
+  // slug-guess + scrape round trip can take longer), so it fills in progressively
+  // rather than blocking the price/chart from rendering.
+  useEffect(() => {
+    if (!code) return;
+    let cancelled = false;
+    setEnrichment(null);
+    setLogoFailed(false);
+    api
+      .globalEnrichment(code, lang)
+      .then((res) => {
+        if (!cancelled) setEnrichment(res);
+      })
+      .catch(() => {
+        // A missed enrichment fetch just leaves the logo/marcap/description blank.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [code, lang]);
 
   // Live-ish price/change, refreshed on its own short interval — same role as
   // Dashboard's liveQuote poll for KR stocks.
@@ -167,6 +214,8 @@ export default function GlobalStockPage() {
         </div>
       </header>
 
+      <GlobalIndexGrid />
+
       {loading && (
         <span className="sr-only" role="status">
           {t("데이터를 불러오는 중...")}
@@ -192,13 +241,40 @@ export default function GlobalStockPage() {
               </div>
             ) : (
               <div className="card stock-header">
-                <span className="name">{quote.name}</span>
+                <span className="name">
+                  {enrichment && !logoFailed ? (
+                    <img
+                      src={enrichment.logo_url}
+                      alt=""
+                      className="stock-header-logo"
+                      onError={() => setLogoFailed(true)}
+                    />
+                  ) : (
+                    <span className="fight-logo-fallback stock-header-logo">{quote.name.slice(0, 2)}</span>
+                  )}
+                  {quote.name}
+                </span>
                 <span className="code">{quote.code}</span>
                 <span
                   className={`price ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}
                 >
                   {formatUsd(quote.close)} ({formatUsdChange(quote.change)}, {quote.change_pct.toFixed(2)}%)
                 </span>
+                {enrichment?.marcap_krw != null && (
+                  <span
+                    className={`marcap ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}
+                  >
+                    {t("시가총액")} {formatMarcapKrw(enrichment.marcap_krw, lang)}
+                    {enrichment.marcap_usd != null && ` (${formatMarcapUsd(enrichment.marcap_usd)})`}
+                  </span>
+                )}
+                {enrichment?.description && (
+                  <div className="overview">
+                    {splitDescriptionLines(enrichment.description).map((line, idx) => (
+                      <p key={idx}>{line}</p>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

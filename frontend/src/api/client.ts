@@ -238,6 +238,40 @@ export interface UsStockQuote {
   change_pct: number;
 }
 
+export interface GlobalIndexPoint {
+  date: string;
+  close: number;
+}
+
+export interface GlobalIndexWidget {
+  key: string;
+  label: string;
+  code: string;
+  close: number | null;
+  change: number | null;
+  change_pct: number | null;
+  points: GlobalIndexPoint[];
+}
+
+export interface GlobalEnrichment {
+  logo_url: string;
+  marcap_usd: number | null;
+  marcap_krw: number | null;
+  description: string | null;
+}
+
+export interface GlobalDiscussionPost {
+  id: string;
+  title: string;
+  text: string;
+  author: string;
+  written_at: string;
+  likes: number;
+  dislikes: number;
+  views: number;
+  is_reply: boolean;
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -360,4 +394,9 @@ export const api = {
     getJSON<{ code: string; name: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
       `${BASE}/us-stock/${code}/indicators?years=${years}`
     ),
+  globalIndices: () => getJSON<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
+  globalEnrichment: (code: string, lang: string = "ko") =>
+    getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`),
+  globalDiscussion: (code: string, limit = 20) =>
+    getJSON<{ items: GlobalDiscussionPost[] }>(`${BASE}/global/${code}/discussion?limit=${limit}`),
 };

@@ -355,6 +355,16 @@ a.app-brand:hover .app-logo-wide {
   flex-shrink: 0;
 }
 
+.stock-header .fight-logo-fallback.stock-header-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 800;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+}
+
 .stock-header .code {
   color: var(--text-muted);
   font-size: 14px;
@@ -392,6 +402,92 @@ a.app-brand:hover .app-logo-wide {
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.5;
+}
+
+/* Dow / Nasdaq / SOXL / TQQQ mini-dashboard atop the /global stock page — a fixed
+   2x2 grid (checkerboard, per the request) of compact stat tiles, each with a
+   decorative trend sparkline rather than a full interactive chart. */
+.global-index-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.global-index-tile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+}
+
+.global-index-tile--skeleton {
+  height: 68px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-1) 25%,
+    color-mix(in srgb, var(--text-primary) 6%, var(--surface-1)) 37%,
+    var(--surface-1) 63%
+  );
+  background-size: 400% 100%;
+  animation: admin-shimmer 1.4s ease infinite;
+}
+
+.global-index-tile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.global-index-tile-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.global-index-tile-value {
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.global-index-tile-value--empty {
+  color: var(--text-muted);
+}
+
+.global-index-tile-change {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.global-index-spark {
+  width: 100px;
+  height: 36px;
+  flex: none;
+}
+
+.global-index-spark--empty {
+  width: 100px;
+  height: 36px;
+  flex: none;
+}
+
+@media (max-width: 640px) {
+  .global-index-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .global-index-spark,
+  .global-index-spark--empty {
+    width: 84px;
+  }
 }
 
 .stock-header .overview p {
@@ -3065,26 +3161,33 @@ thead .weekly-foreign-amount-col {
   gap: 10px;
 }
 
-.global-board-input-row {
-  display: flex;
-  gap: 8px;
+.global-board-source-link {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--series-blue);
+  text-decoration: none;
 }
 
-.global-board-submit-btn {
-  padding: 10px 16px;
-  border-radius: 8px;
-  border: none;
-  font-weight: 800;
+.global-board-source-link:hover {
+  text-decoration: underline;
+}
+
+.global-board-post-title {
+  margin: 4px 0 0;
   font-size: 13px;
-  white-space: nowrap;
-  cursor: pointer;
-  color: #fff;
-  background: var(--series-blue);
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
-.global-board-submit-btn:disabled {
-  opacity: 0.6;
-  cursor: default;
+.global-board-post-title + .board-comment-text {
+  margin-top: 2px;
+}
+
+.global-board-reply {
+  margin-left: 16px;
+  padding-left: 10px;
+  border-left: 2px solid var(--gridline);
 }
 
 .global-board-comments-list {

@@ -1,3 +1,4 @@
+from app.data import global_marketcap_fetcher
 from app.data.exchange_fetcher import get_usd_krw
 from app.data.global_marketcap_fetcher import get_company_detail, get_global_top20, get_live_quotes_bulk
 from app.data.stock_quote_fetcher import get_stock_quote, get_stock_quotes_bulk
@@ -105,3 +106,61 @@ def get_company_detail_cached(detail_path: str, lang: str = "ko") -> dict | None
         lambda: translate_to_korean(raw["description"]),
     )
     return {"description": description_ko}
+
+
+TTL_DETAIL_PATH_SECONDS = 24 * 3600
+TTL_MARKETCAP_GUESS_SECONDS = 60 * 60
+
+
+def _find_top20_item(code: str) -> dict | None:
+    for item in get_global_top20_cached():
+        if item.get("code") == code:
+            return item
+    return None
+
+
+def get_global_enrichment(code: str, name: str, lang: str = "ko") -> dict:
+    """Logo URL (constructed, no fetch needed), market cap (USD, converted to KRW via
+    the existing FX rate), and a short company description for the /global stock detail
+    page. The already-cached top-20 snapshot covers most-viewed large caps for free;
+    everything else falls back to a name-slug guess against companiesmarketcap.com (see
+    global_marketcap_fetcher.resolve_detail_path). Each field degrades to None
+    independently on failure rather than failing the whole response."""
+    logo_url = f"{global_marketcap_fetcher.BASE_URL}/img/company-logos/256/{code}.png"
+
+    top20_item = _find_top20_item(code)
+    if top20_item:
+        detail_path = top20_item.get("detail_path")
+        marcap_usd = top20_item.get("marcap_usd")
+    else:
+        detail_path = cache.get_or_set(
+            f"detail_path:{code}",
+            TTL_DETAIL_PATH_SECONDS,
+            lambda: global_marketcap_fetcher.resolve_detail_path(code, name),
+        )
+        marcap_usd = (
+            cache.get_or_set(
+                f"marketcap_guess:{code}",
+                TTL_MARKETCAP_GUESS_SECONDS,
+                lambda: global_marketcap_fetcher.get_marketcap_usd(detail_path),
+            )
+            if detail_path
+            else None
+        )
+
+    description = None
+    if detail_path:
+        detail = get_company_detail_cached(detail_path, lang)
+        description = detail["description"] if detail else None
+
+    marcap_krw = None
+    fx = get_exchange_rate()
+    if marcap_usd is not None and fx and fx.get("rate"):
+        marcap_krw = marcap_usd * fx["rate"]
+
+    return {
+        "logo_url": logo_url,
+        "marcap_usd": marcap_usd,
+        "marcap_krw": marcap_krw,
+        "description": description,
+    }

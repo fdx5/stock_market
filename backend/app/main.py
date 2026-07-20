@@ -18,6 +18,7 @@ from app.routers import (
     battle,
     fight,
     geo,
+    global_dashboard,
     investor,
     market_map,
     search,
@@ -51,6 +52,7 @@ app.include_router(visitors.router, prefix="/api/visitors")
 app.include_router(investor.router, prefix="/api/investor")
 app.include_router(battle.router, prefix="/api/battle")
 app.include_router(fight.router, prefix="/api/fight")
+app.include_router(global_dashboard.router, prefix="/api/global")
 app.include_router(translate.router, prefix="/api")
 app.include_router(geo.router, prefix="/api")
 app.include_router(activity.router, prefix="/api/activity")
