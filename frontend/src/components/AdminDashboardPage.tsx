@@ -88,6 +88,16 @@ function formatDateTime(iso: string): string {
   });
 }
 
+const COMMENT_PREVIEW_LEN = 20;
+
+/** Truncates to a fixed character count (not CSS ellipsis, which truncates by
+ * rendered width) so every row's preview is the same length regardless of the
+ * comment's actual content — the fixed-width column then never has to reflow. */
+function truncateComment(text: string): { preview: string; truncated: boolean } {
+  if (text.length <= COMMENT_PREVIEW_LEN) return { preview: text, truncated: false };
+  return { preview: `${text.slice(0, COMMENT_PREVIEW_LEN)}...`, truncated: true };
+}
+
 function formatBucket(bucket: string): string {
   // Minute bucket "2026-07-20T14:05" (24h view) or daily bucket "2026-07-20" (7d/30d).
   if (bucket.length > 10) return bucket.slice(11, 16);
@@ -269,6 +279,7 @@ export default function AdminDashboardPage() {
   const [sessions, setSessions] = useState<ActiveSession[] | null>(null);
   const [tail, setTail] = useState<ActivityEvent[] | null>(null);
   const [comments, setComments] = useState<AdminComment[] | null>(null);
+  const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [activeLegend, setActiveLegend] = useState<string | null>(null);
@@ -430,6 +441,15 @@ export default function AdminDashboardPage() {
       setComments((prev) =>
         prev ? prev.map((x) => (x.source === c.source && x.id === c.id ? { ...x, visible: c.visible } : x)) : prev
       );
+    });
+  }
+
+  function toggleCommentExpanded(key: string) {
+    setExpandedComments((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
     });
   }
 
@@ -937,29 +957,43 @@ export default function AdminDashboardPage() {
               ))}
             {comments?.map((c) => {
               const key = `${c.source}-${c.id}`;
+              const { preview, truncated } = truncateComment(c.text);
+              const expanded = expandedComments.has(key);
               return (
-                <div key={key} className="admin-comments-row">
-                  <span className="admin-comments-id">{c.id}</span>
-                  <span className="admin-comments-stock">{c.stock_name}</span>
-                  <span className="admin-comments-text" title={c.text}>
-                    {c.text}
-                  </span>
-                  <span className="admin-comments-time">{formatDateTime(c.created_at)}</span>
-                  <button
-                    type="button"
-                    className={`admin-comments-visibility-btn${c.visible ? "" : " admin-comments-visibility-btn--hidden"}`}
-                    onClick={() => handleToggleVisibility(c)}
-                  >
-                    {c.visible ? "전시" : "미전시"}
-                  </button>
-                  <button
-                    type="button"
-                    className="admin-comments-delete-btn"
-                    disabled={deletingKey === key}
-                    onClick={() => handleDeleteComment(c)}
-                  >
-                    삭제
-                  </button>
+                <div key={key} className="admin-comments-row-group">
+                  <div className="admin-comments-row">
+                    <span className="admin-comments-id">{c.id}</span>
+                    <span className="admin-comments-stock">{c.stock_name}</span>
+                    {truncated ? (
+                      <button
+                        type="button"
+                        className="admin-comments-text admin-comments-text--clickable"
+                        aria-expanded={expanded}
+                        onClick={() => toggleCommentExpanded(key)}
+                      >
+                        {preview}
+                      </button>
+                    ) : (
+                      <span className="admin-comments-text">{preview}</span>
+                    )}
+                    <span className="admin-comments-time">{formatDateTime(c.created_at)}</span>
+                    <button
+                      type="button"
+                      className={`admin-comments-visibility-btn${c.visible ? "" : " admin-comments-visibility-btn--hidden"}`}
+                      onClick={() => handleToggleVisibility(c)}
+                    >
+                      {c.visible ? "전시" : "미전시"}
+                    </button>
+                    <button
+                      type="button"
+                      className="admin-comments-delete-btn"
+                      disabled={deletingKey === key}
+                      onClick={() => handleDeleteComment(c)}
+                    >
+                      삭제
+                    </button>
+                  </div>
+                  {expanded && <div className="admin-comments-detail-row">{c.text}</div>}
                 </div>
               );
             })}

@@ -6616,11 +6616,19 @@ thead .weekly-foreign-amount-col {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Every row below shares the exact same fixed grid-template-columns (see
+     .admin-comments-row), so this table always has one constant width — this
+     only ever scrolls if that fixed width can't fit the panel, and does so
+     identically for every row rather than each row having its own width. */
+  overflow-x: auto;
 }
 
 .admin-comments-row {
   display: grid;
-  grid-template-columns: 44px 88px 1fr 150px 74px 52px;
+  /* Fixed px, not 1fr — comment text is capped to a fixed character count (see
+     truncateComment), so the column never needs to flex, and every row ends up
+     pixel-identical instead of shifting width with content. */
+  grid-template-columns: 44px 88px 200px 150px 74px 52px;
   gap: 10px;
   align-items: center;
   padding: 8px 0;
@@ -6665,6 +6673,36 @@ thead .weekly-foreign-amount-col {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+button.admin-comments-text--clickable {
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--text-secondary);
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+button.admin-comments-text--clickable:hover {
+  color: var(--text-primary);
+}
+
+.admin-comments-detail-row {
+  margin: -1px 0 4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border-bottom: 1px solid var(--gridline);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  animation: admin-row-in 0.3s ease-out;
 }
 
 .admin-comments-time {
@@ -6982,23 +7020,12 @@ thead .weekly-foreign-amount-col {
     display: none;
   }
 
-  /* Comment content no longer truncates below this width — the row grows to fit
-     its full text and .admin-comments-table scrolls horizontally to reveal it,
-     rather than cutting it off with an ellipsis nobody on a touch device can hover
-     to reveal. */
-  .admin-comments-table {
-    overflow-x: auto;
-  }
-
+  /* Same fixed-column idea as the base rule, just narrower — every row is still
+     pixel-identical (no per-row width shifting under touch), and the full comment
+     text is reachable by tapping a truncated one open (see truncateComment /
+     .admin-comments-detail-row) rather than by scrolling or hovering a tooltip. */
   .admin-comments-row {
-    grid-template-columns: 34px 74px minmax(160px, max-content) 150px 74px 52px;
-    width: max-content;
-    min-width: 100%;
-  }
-
-  .admin-comments-text {
-    overflow: visible;
-    text-overflow: unset;
-    white-space: nowrap;
+    grid-template-columns: 26px 58px 148px 118px 64px 44px;
+    gap: 8px;
   }
 }
