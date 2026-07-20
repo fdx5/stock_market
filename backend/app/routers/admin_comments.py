@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.services import comment_store, fight_comment_store
 from app.services.admin_auth import require_admin
@@ -9,10 +10,16 @@ router = APIRouter()
 _BATTLE_SIDE_NAMES = {"samsung": "삼성전자", "skhynix": "SK하이닉스"}
 
 
+class VisibilityUpdate(BaseModel):
+    visible: bool
+
+
 @router.get("/comments", dependencies=[Depends(require_admin)])
 def list_comments(limit: int = 200):
     """Merges the /battle (fixed samsung/skhynix) and /fight (dynamic matchup) cheer
-    comment tables into one newest-first feed for the admin moderation panel."""
+    comment tables into one newest-first feed for the admin moderation panel — unlike
+    the public endpoints, this includes hidden ('N') comments too, so the admin can
+    see and toggle them back to visible."""
     roster_names = {item["code"]: item["name"] for item in get_global_top20_cached() if item.get("code")}
 
     items = [
@@ -22,8 +29,9 @@ def list_comments(limit: int = 200):
             "stock_name": _BATTLE_SIDE_NAMES.get(c["side"], c["side"]),
             "text": c["text"],
             "created_at": c["created_at"],
+            "visible": c["is_visible"] == "Y",
         }
-        for c in comment_store.list_comments(limit)
+        for c in comment_store.list_comments(limit, visible_only=False)
     ] + [
         {
             "id": c["id"],
@@ -31,11 +39,25 @@ def list_comments(limit: int = 200):
             "stock_name": roster_names.get(c["company_code"], c["company_code"]),
             "text": c["text"],
             "created_at": c["created_at"],
+            "visible": c["is_visible"] == "Y",
         }
         for c in fight_comment_store.list_all_comments(limit)
     ]
     items.sort(key=lambda c: c["created_at"], reverse=True)
     return {"items": items[:limit]}
+
+
+@router.patch("/comments/{source}/{comment_id}/visibility", dependencies=[Depends(require_admin)])
+def update_comment_visibility(source: str, comment_id: int, payload: VisibilityUpdate):
+    if source == "battle":
+        updated = comment_store.set_visibility(comment_id, payload.visible)
+    elif source == "fight":
+        updated = fight_comment_store.set_visibility(comment_id, payload.visible)
+    else:
+        raise HTTPException(status_code=400, detail="source는 battle 또는 fight여야 합니다.")
+    if not updated:
+        raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
+    return {"visible": payload.visible}
 
 
 @router.delete("/comments/{source}/{comment_id}", dependencies=[Depends(require_admin)])

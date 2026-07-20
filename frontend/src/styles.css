@@ -6597,7 +6597,7 @@ thead .weekly-foreign-amount-col {
 
 .admin-comments-row {
   display: grid;
-  grid-template-columns: 44px 88px 1fr 116px 52px;
+  grid-template-columns: 44px 88px 1fr 150px 74px 52px;
   gap: 10px;
   align-items: center;
   padding: 8px 0;
@@ -6649,6 +6649,33 @@ thead .weekly-foreign-amount-col {
   font-variant-numeric: tabular-nums;
   font-size: 11px;
   white-space: nowrap;
+}
+
+.admin-comments-visibility-btn {
+  justify-self: start;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--series-blue);
+  background: none;
+  color: var(--series-blue);
+  font-size: 11px;
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.admin-comments-visibility-btn:hover {
+  background: color-mix(in srgb, var(--series-blue) 12%, transparent);
+}
+
+.admin-comments-visibility-btn--hidden {
+  border-color: var(--text-muted);
+  color: var(--text-muted);
+}
+
+.admin-comments-visibility-btn--hidden:hover {
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
 }
 
 .admin-comments-delete-btn {
@@ -6761,17 +6788,30 @@ thead .weekly-foreign-amount-col {
   flex-direction: column;
   max-height: 420px;
   overflow-y: auto;
+  /* The detail column no longer truncates (see .admin-tail-detail) — a long
+     news-click label can now push a row wider than the panel, so this scrolls
+     horizontally instead of clipping it. */
+  overflow-x: auto;
 }
 
 .admin-tail-row {
   display: grid;
-  grid-template-columns: 66px 66px 68px 1fr;
+  grid-template-columns: 66px 66px 68px max-content;
+  width: max-content;
+  min-width: 100%;
   gap: 8px;
   align-items: center;
   padding: 6px 0;
   border-bottom: 1px solid var(--gridline);
   font-size: 11.5px;
   animation: admin-row-in 0.5s ease-out;
+  /* iOS Safari's automatic text-size-adjust ("font boosting") inflates the font
+     size of longer text nodes more than short ones, which read as an inconsistent
+     size specifically on entries with long detail text (e.g. news click labels)
+     vs. short ones — pinning this to 100% keeps every row's type consistent with
+     the font-size actually set here. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 .admin-tail-row:hover {
@@ -6815,8 +6855,6 @@ thead .weekly-foreign-amount-col {
   align-items: center;
   gap: 6px;
   color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -6904,10 +6942,30 @@ thead .weekly-foreign-amount-col {
   }
 
   .admin-tail-row {
-    grid-template-columns: 52px 60px 1fr;
+    grid-template-columns: 52px 60px max-content;
   }
 
   .admin-tail-session {
     display: none;
+  }
+
+  /* Comment content no longer truncates below this width — the row grows to fit
+     its full text and .admin-comments-table scrolls horizontally to reveal it,
+     rather than cutting it off with an ellipsis nobody on a touch device can hover
+     to reveal. */
+  .admin-comments-table {
+    overflow-x: auto;
+  }
+
+  .admin-comments-row {
+    grid-template-columns: 34px 74px minmax(160px, max-content) 150px 74px 52px;
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .admin-comments-text {
+    overflow: visible;
+    text-overflow: unset;
+    white-space: nowrap;
   }
 }

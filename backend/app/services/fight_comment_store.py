@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS fight_comments (
     company_code TEXT NOT NULL,
     username TEXT NOT NULL,
     text TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    is_visible TEXT NOT NULL DEFAULT 'Y'
 )
 """
 
@@ -36,10 +37,21 @@ def _connect():
     return libsql.connect(database=str(LOCAL_DB_PATH))
 
 
+def _ensure_is_visible_column(conn):
+    """Same backfill approach as comment_store.py: ADD COLUMN ... DEFAULT 'Y' sets
+    the default and retroactively fills every pre-existing row with 'Y' in one
+    statement, so comments created before this column existed stay displayed."""
+    cols = [row[1] for row in conn.execute("PRAGMA table_info(fight_comments)").fetchall()]
+    if "is_visible" not in cols:
+        conn.execute("ALTER TABLE fight_comments ADD COLUMN is_visible TEXT NOT NULL DEFAULT 'Y'")
+        conn.commit()
+
+
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
     conn.commit()
+    _ensure_is_visible_column(conn)
     return conn
 
 
@@ -64,31 +76,54 @@ def _with_connection(fn):
 
 
 def _row_to_comment(row: tuple) -> dict:
-    id_, company_code, username, text, created_at = row
-    return {"id": id_, "company_code": company_code, "username": username, "text": text, "created_at": created_at}
+    id_, company_code, username, text, created_at, is_visible = row
+    return {
+        "id": id_,
+        "company_code": company_code,
+        "username": username,
+        "text": text,
+        "created_at": created_at,
+        "is_visible": is_visible,
+    }
 
 
 def add_comment(company_code: str, username: str, text: str, created_at: str) -> dict:
     def _run(conn):
         cursor = conn.execute(
-            "INSERT INTO fight_comments (company_code, username, text, created_at) VALUES (?, ?, ?, ?)",
+            "INSERT INTO fight_comments (company_code, username, text, created_at, is_visible) "
+            "VALUES (?, ?, ?, ?, 'Y')",
             (company_code, username, text, created_at),
         )
         conn.commit()
         return cursor.lastrowid
 
     new_id = _with_connection(_run)
-    return {"id": new_id, "company_code": company_code, "username": username, "text": text, "created_at": created_at}
+    return {
+        "id": new_id,
+        "company_code": company_code,
+        "username": username,
+        "text": text,
+        "created_at": created_at,
+        "is_visible": "Y",
+    }
 
 
-def list_comments_for_pair(code_a: str, code_b: str, limit: int = 200) -> list[dict]:
+def list_comments_for_pair(code_a: str, code_b: str, limit: int = 200, visible_only: bool = True) -> list[dict]:
     """Comments are stored per company, not per matchup — this merges the two
     companies' comment pools and returns them newest-first, so whichever pairing the
-    user picks always shows that pairing's combined, up-to-date discussion."""
+    user picks always shows that pairing's combined, up-to-date discussion.
+    `visible_only` (default True) hides admin-moderated ('N') comments; the public
+    /fight page relies on this default."""
 
     def _run(conn):
+        if visible_only:
+            return conn.execute(
+                "SELECT id, company_code, username, text, created_at, is_visible FROM fight_comments "
+                "WHERE company_code IN (?, ?) AND is_visible = 'Y' ORDER BY id DESC LIMIT ?",
+                (code_a, code_b, limit),
+            ).fetchall()
         return conn.execute(
-            "SELECT id, company_code, username, text, created_at FROM fight_comments "
+            "SELECT id, company_code, username, text, created_at, is_visible FROM fight_comments "
             "WHERE company_code IN (?, ?) ORDER BY id DESC LIMIT ?",
             (code_a, code_b, limit),
         ).fetchall()
@@ -98,13 +133,14 @@ def list_comments_for_pair(code_a: str, code_b: str, limit: int = 200) -> list[d
 
 
 def list_all_comments(limit: int = 500) -> list[dict]:
-    """All fight comments across every matchup, newest first — unlike
-    list_comments_for_pair (scoped to one matchup), this backs the admin moderation
-    panel which needs to see and delete comments regardless of pairing."""
+    """All fight comments across every matchup, newest first, regardless of
+    visibility — unlike list_comments_for_pair (scoped to one matchup, visible-only
+    by default), this backs the admin moderation panel which needs to see and
+    moderate every comment including ones already hidden."""
 
     def _run(conn):
         return conn.execute(
-            "SELECT id, company_code, username, text, created_at FROM fight_comments "
+            "SELECT id, company_code, username, text, created_at, is_visible FROM fight_comments "
             "ORDER BY id DESC LIMIT ?",
             (limit,),
         ).fetchall()
@@ -122,10 +158,23 @@ def delete_comment(comment_id: int) -> bool:
     return _with_connection(_run) > 0
 
 
+def set_visibility(comment_id: int, visible: bool) -> bool:
+    def _run(conn):
+        cursor = conn.execute(
+            "UPDATE fight_comments SET is_visible = ? WHERE id = ?",
+            ("Y" if visible else "N", comment_id),
+        )
+        conn.commit()
+        return cursor.rowcount or 0
+
+    return _with_connection(_run) > 0
+
+
 def count_by_company(code_a: str, code_b: str) -> dict[str, int]:
     def _run(conn):
         return conn.execute(
-            "SELECT company_code, COUNT(*) FROM fight_comments WHERE company_code IN (?, ?) GROUP BY company_code",
+            "SELECT company_code, COUNT(*) FROM fight_comments "
+            "WHERE company_code IN (?, ?) AND is_visible = 'Y' GROUP BY company_code",
             (code_a, code_b),
         ).fetchall()
 

@@ -18,7 +18,7 @@ export interface AdminSummary {
   top_pages: PageCount[];
 }
 
-export type AdminTrendRange = "1h" | "3h" | "6h" | "12h" | "24h" | "7d" | "30d";
+export type AdminTrendRange = "1h" | "3h" | "6h" | "12h" | "24h" | "3d" | "7d" | "30d";
 
 export interface TrendPoint {
   bucket: string;
@@ -65,6 +65,7 @@ export interface AdminComment {
   stock_name: string;
   text: string;
   created_at: string;
+  visible: boolean;
 }
 
 export function getStoredSession(): AdminSession | null {
@@ -138,6 +139,22 @@ async function authedDelete(path: string): Promise<void> {
   if (!res.ok) throw new Error(`Admin API error: ${res.status}`);
 }
 
+async function authedPatch<T>(path: string, body: unknown): Promise<T> {
+  const session = getStoredSession();
+  if (!session) throw new AdminAuthError("로그인이 필요합니다.");
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.token}` },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) {
+    clearStoredSession();
+    throw new AdminAuthError("세션이 만료되었습니다. 다시 로그인해 주세요.");
+  }
+  if (!res.ok) throw new Error(`Admin API error: ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
   trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
@@ -149,4 +166,6 @@ export const adminApi = {
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
   comments: (limit = 200) => authedGet<{ items: AdminComment[] }>(`/comments?limit=${limit}`),
   deleteComment: (source: CommentSource, id: number) => authedDelete(`/comments/${source}/${id}`),
+  setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>
+    authedPatch<{ visible: boolean }>(`/comments/${source}/${id}/visibility`, { visible }),
 };

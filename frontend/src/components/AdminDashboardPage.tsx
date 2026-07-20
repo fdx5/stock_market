@@ -14,10 +14,16 @@ import {
   clearStoredSession,
   getStoredSession,
 } from "../adminApi";
-import { navigate } from "../router";
+import { Link, navigate } from "../router";
 import { pageLabel } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
+import BattleIcon from "./BattleIcon";
+import Footer from "./Footer";
+import GlobalNewsIcon from "./GlobalNewsIcon";
+import Logo from "./Logo";
+import MarketIcon from "./MarketIcon";
 import StockIcon from "./StockIcon";
+import ThemeToggle from "./ThemeToggle";
 
 // Fixed categorical order (never cycled) — reuses this app's existing series
 // tokens (styles.css :root), which already implement the validated dataviz
@@ -72,7 +78,14 @@ function formatClock(iso: string): string {
 }
 
 function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("ko-KR", { hour12: false, month: "2-digit", day: "2-digit" });
+  return new Date(iso).toLocaleString("ko-KR", {
+    hour12: false,
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function formatBucket(bucket: string): string {
@@ -87,6 +100,7 @@ const RANGE_OPTIONS: { value: AdminTrendRange; label: string }[] = [
   { value: "6h", label: "6시간" },
   { value: "12h", label: "12시간" },
   { value: "24h", label: "24시간" },
+  { value: "3d", label: "3일" },
   { value: "7d", label: "7일" },
   { value: "30d", label: "30일" },
 ];
@@ -97,6 +111,12 @@ const RANGE_MINUTES: Partial<Record<AdminTrendRange, number>> = {
   "6h": 360,
   "12h": 720,
   "24h": 1440,
+};
+
+const RANGE_DAYS: Partial<Record<AdminTrendRange, number>> = {
+  "3d": 3,
+  "7d": 7,
+  "30d": 30,
 };
 
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
@@ -124,7 +144,7 @@ function buildTimeline(range: AdminTrendRange, now: Date): string[] {
       buckets.push(kstIso(new Date(end.getTime() - i * 60_000)).slice(0, 16));
     }
   } else {
-    const days = range === "7d" ? 7 : 30;
+    const days = RANGE_DAYS[range] ?? 30;
     // Truncate to KST midnight — the boundary of "today" in Korea, not UTC.
     const endOfDayKst = new Date(`${kstIso(now).slice(0, 10)}T00:00:00.000Z`);
     for (let i = days - 1; i >= 0; i--) {
@@ -388,12 +408,29 @@ export default function AdminDashboardPage() {
   function handleDeleteComment(c: AdminComment) {
     const key = `${c.source}-${c.id}`;
     if (deletingKey === key) return;
+    if (!window.confirm("이 댓글을 삭제하시겠습니까? 삭제한 댓글은 복구할 수 없습니다.")) return;
     setDeletingKey(key);
     adminApi
       .deleteComment(c.source as CommentSource, c.id)
       .then(() => setComments((prev) => (prev ? prev.filter((x) => !(x.source === c.source && x.id === c.id)) : prev)))
       .catch(handleAuthError)
       .finally(() => setDeletingKey(null));
+  }
+
+  function handleToggleVisibility(c: AdminComment) {
+    const key = `${c.source}-${c.id}`;
+    if (deletingKey === key) return;
+    const nextVisible = !c.visible;
+    setComments((prev) =>
+      prev ? prev.map((x) => (x.source === c.source && x.id === c.id ? { ...x, visible: nextVisible } : x)) : prev
+    );
+    adminApi.setCommentVisibility(c.source as CommentSource, c.id, nextVisible).catch((err) => {
+      handleAuthError(err);
+      // Roll back the optimistic flip if the request failed.
+      setComments((prev) =>
+        prev ? prev.map((x) => (x.source === c.source && x.id === c.id ? { ...x, visible: c.visible } : x)) : prev
+      );
+    });
   }
 
   const { series, categories, maxCount } = useMemo(() => {
@@ -477,6 +514,37 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="admin-dash-page">
+      <header className="app-header">
+        <div className="app-title-row">
+          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+            <Logo className="app-logo-wide" />
+          </Link>
+          <div className="app-header-meta">
+            <ThemeToggle />
+          </div>
+        </div>
+        <div className="app-nav-row">
+          <Link to="/map" className="kospi-map-nav-link">
+            <MarketIcon /> KOSPI
+          </Link>
+          <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+            <MarketIcon /> KOSDAQ
+          </Link>
+          <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
+            <MarketIcon /> S&P500
+          </Link>
+          <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
+            <MarketIcon /> NASDAQ100
+          </Link>
+          <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
+            <BattleIcon /> 시총대결
+          </Link>
+          <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
+            <GlobalNewsIcon /> NEWS
+          </Link>
+        </div>
+      </header>
+
       <header className="admin-dash-header">
         <div>
           <h1 className="admin-dash-title">
@@ -858,6 +926,7 @@ export default function AdminDashboardPage() {
               <span>종목명</span>
               <span>댓글 내용</span>
               <span>작성일시</span>
+              <span>전시여부</span>
               <span></span>
             </div>
             {comments === null &&
@@ -876,6 +945,13 @@ export default function AdminDashboardPage() {
                     {c.text}
                   </span>
                   <span className="admin-comments-time">{formatDateTime(c.created_at)}</span>
+                  <button
+                    type="button"
+                    className={`admin-comments-visibility-btn${c.visible ? "" : " admin-comments-visibility-btn--hidden"}`}
+                    onClick={() => handleToggleVisibility(c)}
+                  >
+                    {c.visible ? "전시" : "미전시"}
+                  </button>
                   <button
                     type="button"
                     className="admin-comments-delete-btn"
@@ -932,6 +1008,8 @@ export default function AdminDashboardPage() {
           </div>
         </section>
       </div>
+
+      <Footer />
     </div>
   );
 }

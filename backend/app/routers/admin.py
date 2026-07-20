@@ -52,13 +52,14 @@ _RANGE_CONFIG: dict[str, tuple[timedelta, str]] = {
     "6h": (timedelta(hours=6), "minute"),
     "12h": (timedelta(hours=12), "minute"),
     "24h": (timedelta(hours=24), "minute"),
+    "3d": (timedelta(days=3), "day"),
     "7d": (timedelta(days=7), "day"),
     "30d": (timedelta(days=30), "day"),
 }
 
 
 @router.get("/pages/trend", dependencies=[Depends(require_admin)])
-def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|7d|30d)$")):
+def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
     delta, granularity = _RANGE_CONFIG[range]
     since = datetime.now(timezone.utc) - delta
     points = page_view_store.counts_by_bucket(since.isoformat(), granularity)
