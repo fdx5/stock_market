@@ -18,7 +18,13 @@ class LoginPayload(BaseModel):
 
 @router.post("/login")
 def login(payload: LoginPayload):
-    result = admin_auth.login(payload.username, payload.password)
+    try:
+        result = admin_auth.login(payload.username, payload.password)
+    except admin_auth.AccountLockedError:
+        raise HTTPException(
+            status_code=423,
+            detail="로그인 5회 실패로 계정이 잠겼습니다. 비밀번호를 변경할 때까지 로그인할 수 없습니다.",
+        )
     if result is None:
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다.")
     token, expires_at = result

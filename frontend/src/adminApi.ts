@@ -90,7 +90,11 @@ export async function login(username: string, password: string): Promise<void> {
     body: JSON.stringify({ username, password }),
   });
   if (!res.ok) {
-    throw new AdminAuthError("아이디 또는 비밀번호가 올바르지 않습니다.");
+    const detail = await res
+      .json()
+      .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+      .catch(() => null);
+    throw new AdminAuthError(detail ?? "아이디 또는 비밀번호가 올바르지 않습니다.");
   }
   const data = (await res.json()) as AdminSession;
   setStoredSession(data);

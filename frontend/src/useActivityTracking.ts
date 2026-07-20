@@ -19,6 +19,10 @@ export function pageLabel(path: string): string {
   return "대시보드";
 }
 
+function isAdminPath(path: string): boolean {
+  return path === "/admin" || path.startsWith("/admin/");
+}
+
 function sendEvent(body: Record<string, unknown>) {
   fetch(EVENT_ENDPOINT, {
     method: "POST",
@@ -31,6 +35,7 @@ function sendEvent(body: Record<string, unknown>) {
 }
 
 export function reportStockView(code: string, name: string): void {
+  if (isAdminPath(window.location.pathname)) return;
   sendEvent({
     type: "stock_view",
     path: window.location.pathname,
@@ -41,16 +46,21 @@ export function reportStockView(code: string, name: string): void {
 
 /** Mounted once at the app root. Reports a page_view whenever `path` changes, and a
  * click event (debounced per label+path) for clicks on interactive elements — the
- * data behind the admin dashboard's live tail and per-page trend graph. */
+ * data behind the admin dashboard's live tail and per-page trend graph. Events that
+ * occur on the admin pages themselves are never sent, so admin usage never pollutes
+ * the stats it displays. */
 export function useActivityTracking(path: string): void {
   const lastClickRef = useRef<{ key: string; ts: number } | null>(null);
 
   useEffect(() => {
+    if (isAdminPath(path)) return;
     sendEvent({ type: "page_view", path, label: pageLabel(path) });
   }, [path]);
 
   useEffect(() => {
     function onClick(event: MouseEvent) {
+      const currentPath = window.location.pathname;
+      if (isAdminPath(currentPath)) return;
       const target = event.target as HTMLElement | null;
       if (!target) return;
       const interactive = target.closest("a, button, [role='button'], .search-option");
@@ -60,7 +70,6 @@ export function useActivityTracking(path: string): void {
         interactive.getAttribute("title") ||
         interactive.textContent?.trim().slice(0, 100) ||
         interactive.tagName.toLowerCase();
-      const currentPath = window.location.pathname;
       const key = `${currentPath}::${label}`;
       const now = Date.now();
       const last = lastClickRef.current;
