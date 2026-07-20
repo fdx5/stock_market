@@ -38,12 +38,12 @@ def summary():
 
 
 @router.get("/pages/trend", dependencies=[Depends(require_admin)])
-def pages_trend(range: str = Query("24h", pattern="^(24h|7d)$")):
+def pages_trend(range: str = Query("24h", pattern="^(24h|7d|30d)$")):
     if range == "24h":
         since = datetime.now(timezone.utc) - timedelta(hours=24)
-        bucket_chars = 13  # "...T14" — hourly buckets
+        bucket_chars = 16  # "...T14:05" — minute buckets
     else:
-        since = datetime.now(timezone.utc) - timedelta(days=7)
+        since = datetime.now(timezone.utc) - timedelta(days=7 if range == "7d" else 30)
         bucket_chars = 10  # "...12-25" — daily buckets
     points = page_view_store.counts_by_bucket(since.isoformat(), bucket_chars)
     return {"range": range, "points": points}

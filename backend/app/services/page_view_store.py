@@ -28,6 +28,12 @@ CREATE TABLE IF NOT EXISTS page_views (
 """
 _INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_created_at ON page_views (created_at)"
 
+# The trend chart only ever queries the last 30 days (see admin.py's pages_trend),
+# so rows older than that are pure dead weight on the table — purged on a timer in
+# main.py's startup thread to keep it bounded regardless of traffic volume, rather
+# than growing forever.
+RETENTION_DAYS = 30
+
 
 def _connect():
     if TURSO_DATABASE_URL:
@@ -108,5 +114,14 @@ def count_today(since_iso: str) -> int:
         return conn.execute(
             "SELECT COUNT(*) FROM page_views WHERE created_at >= ?", (since_iso,)
         ).fetchone()[0]
+
+    return _with_connection(_run)
+
+
+def purge_older_than(cutoff_iso: str) -> int:
+    def _run(conn):
+        cursor = conn.execute("DELETE FROM page_views WHERE created_at < ?", (cutoff_iso,))
+        conn.commit()
+        return cursor.rowcount or 0
 
     return _with_connection(_run)

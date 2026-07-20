@@ -25,7 +25,7 @@ export interface TrendPoint {
 }
 
 export interface TrendResponse {
-  range: "24h" | "7d";
+  range: "24h" | "7d" | "30d";
   points: TrendPoint[];
 }
 
@@ -104,7 +104,7 @@ async function authedGet<T>(path: string): Promise<T> {
 
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
-  trend: (range: "24h" | "7d") => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
+  trend: (range: "24h" | "7d" | "30d") => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
   tail: (limit = 100) => authedGet<{ events: ActivityEvent[] }>(`/live/tail?limit=${limit}`),
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
 };

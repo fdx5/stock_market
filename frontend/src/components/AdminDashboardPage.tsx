@@ -67,9 +67,32 @@ function formatClock(iso: string): string {
 }
 
 function formatBucket(bucket: string): string {
-  // Hourly bucket "2026-07-20T14" or daily bucket "2026-07-20".
-  if (bucket.length > 10) return `${bucket.slice(11, 13)}시`;
+  // Minute bucket "2026-07-20T14:05" (24h view) or daily bucket "2026-07-20" (7d/30d).
+  if (bucket.length > 10) return bucket.slice(11, 16);
   return bucket.slice(5).replace("-", "/");
+}
+
+/** A full, evenly-spaced UTC timeline for the requested range — independent of
+ * which buckets actually have data. Backfilling every minute/day (not just the
+ * ones with events) is what makes the line read as a continuous trend instead
+ * of jumping between whatever sparse timestamps happened to have traffic. */
+function buildTimeline(range: "24h" | "7d" | "30d", now: Date): string[] {
+  const buckets: string[] = [];
+  if (range === "24h") {
+    const end = new Date(now);
+    end.setUTCSeconds(0, 0);
+    for (let i = 1439; i >= 0; i--) {
+      buckets.push(new Date(end.getTime() - i * 60_000).toISOString().slice(0, 16));
+    }
+  } else {
+    const days = range === "7d" ? 7 : 30;
+    const end = new Date(now);
+    end.setUTCHours(0, 0, 0, 0);
+    for (let i = days - 1; i >= 0; i--) {
+      buckets.push(new Date(end.getTime() - i * 86_400_000).toISOString().slice(0, 10));
+    }
+  }
+  return buckets;
 }
 
 /** Uniform Catmull-Rom → cubic Bezier conversion, so the trend line reads as a
@@ -168,7 +191,7 @@ export default function AdminDashboardPage() {
   useDocumentTitle("관리자 대시보드 | K-Stock Hub");
   const [authed] = useState(() => !!getStoredSession());
   const [summary, setSummary] = useState<AdminSummary | null>(null);
-  const [range, setRange] = useState<"24h" | "7d">("24h");
+  const [range, setRange] = useState<"24h" | "7d" | "30d">("24h");
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
   const [trendLoaded, setTrendLoaded] = useState(false);
   const [sessions, setSessions] = useState<ActiveSession[] | null>(null);
@@ -275,10 +298,14 @@ export default function AdminDashboardPage() {
     const orderedPaths = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([path]) => path);
     const topPaths = orderedPaths.slice(0, SERIES_VARS.length);
     const otherPaths = orderedPaths.slice(SERIES_VARS.length);
-    const buckets = [...new Set(trendPoints.map((p) => p.bucket))].sort();
+    const buckets = buildTimeline(range, new Date());
 
-    const valueOf = (path: string, bucket: string) =>
-      trendPoints.find((p) => p.path === path && p.bucket === bucket)?.count ?? 0;
+    // O(1) per-point lookup — the 24h view backfills 1,440 one-minute buckets,
+    // so an O(n) `.find()` per (path, bucket) pair would mean over a million
+    // scans across a handful of series.
+    const valueMap = new Map<string, number>();
+    for (const p of trendPoints) valueMap.set(`${p.path} ${p.bucket}`, p.count);
+    const valueOf = (path: string, bucket: string) => valueMap.get(`${path} ${bucket}`) ?? 0;
 
     const seriesData: Series[] = topPaths.map((path, i) => ({
       path,
@@ -296,15 +323,17 @@ export default function AdminDashboardPage() {
     }
     const maxCount = Math.max(1, ...seriesData.flatMap((s) => s.values));
     return { series: seriesData, categories: buckets, maxCount };
-  }, [trendPoints]);
+  }, [trendPoints, range]);
 
   if (!authed) return null;
 
   const visibleSeries = series.filter((s) => !hiddenSeries.has(s.path));
 
+  // ~30% of the chart's original footprint (was 760x280) — a compact strip
+  // rather than a full-height panel.
   const width = 760;
-  const height = 280;
-  const padding = { top: 16, right: 16, bottom: 28, left: 44 };
+  const height = 92;
+  const padding = { top: 10, right: 12, bottom: 18, left: 38 };
   const innerW = width - padding.left - padding.right;
   const innerH = height - padding.top - padding.bottom;
   const xStep = categories.length > 1 ? innerW / (categories.length - 1) : 0;
@@ -313,7 +342,7 @@ export default function AdminDashboardPage() {
   // peaks never clips against the chart edge.
   const yAt = (v: number) => padding.top + innerH * (1 - (v / maxCount) * 0.92);
   const baselineY = padding.top + innerH;
-  const yTicks = [...new Set([0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(maxCount * f)))];
+  const yTicks = [...new Set([0, 0.5, 1].map((f) => Math.round(maxCount * f)))];
   const tickStride = Math.max(1, Math.ceil(categories.length / 6));
 
   return (
@@ -410,11 +439,14 @@ export default function AdminDashboardPage() {
             <button className={range === "7d" ? "active" : ""} onClick={() => setRange("7d")}>
               7일
             </button>
+            <button className={range === "30d" ? "active" : ""} onClick={() => setRange("30d")}>
+              30일
+            </button>
           </div>
         </div>
         {!trendLoaded ? (
           <div className="admin-skeleton admin-skeleton--chart" />
-        ) : categories.length === 0 ? (
+        ) : series.length === 0 ? (
           <p className="admin-empty">아직 수집된 데이터가 없습니다.</p>
         ) : (
           <div className="admin-trend-chart-wrap">
