@@ -4,6 +4,7 @@ import {
   ActivityEvent,
   AdminAuthError,
   AdminSummary,
+  AdminTrendRange,
   TrendPoint,
   adminApi,
   clearStoredSession,
@@ -72,16 +73,35 @@ function formatBucket(bucket: string): string {
   return bucket.slice(5).replace("-", "/");
 }
 
+const RANGE_OPTIONS: { value: AdminTrendRange; label: string }[] = [
+  { value: "1h", label: "1시간" },
+  { value: "3h", label: "3시간" },
+  { value: "6h", label: "6시간" },
+  { value: "12h", label: "12시간" },
+  { value: "24h", label: "24시간" },
+  { value: "7d", label: "7일" },
+  { value: "30d", label: "30일" },
+];
+
+const RANGE_MINUTES: Partial<Record<AdminTrendRange, number>> = {
+  "1h": 60,
+  "3h": 180,
+  "6h": 360,
+  "12h": 720,
+  "24h": 1440,
+};
+
 /** A full, evenly-spaced UTC timeline for the requested range — independent of
  * which buckets actually have data. Backfilling every minute/day (not just the
  * ones with events) is what makes the line read as a continuous trend instead
  * of jumping between whatever sparse timestamps happened to have traffic. */
-function buildTimeline(range: "24h" | "7d" | "30d", now: Date): string[] {
+function buildTimeline(range: AdminTrendRange, now: Date): string[] {
   const buckets: string[] = [];
-  if (range === "24h") {
+  const minutes = RANGE_MINUTES[range];
+  if (minutes !== undefined) {
     const end = new Date(now);
     end.setUTCSeconds(0, 0);
-    for (let i = 1439; i >= 0; i--) {
+    for (let i = minutes - 1; i >= 0; i--) {
       buckets.push(new Date(end.getTime() - i * 60_000).toISOString().slice(0, 16));
     }
   } else {
@@ -191,7 +211,7 @@ export default function AdminDashboardPage() {
   useDocumentTitle("관리자 대시보드 | K-Stock Hub");
   const [authed] = useState(() => !!getStoredSession());
   const [summary, setSummary] = useState<AdminSummary | null>(null);
-  const [range, setRange] = useState<"24h" | "7d" | "30d">("24h");
+  const [range, setRange] = useState<AdminTrendRange>("24h");
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
   const [trendLoaded, setTrendLoaded] = useState(false);
   const [sessions, setSessions] = useState<ActiveSession[] | null>(null);
@@ -433,15 +453,15 @@ export default function AdminDashboardPage() {
         <div className="admin-panel-head">
           <h2>페이지별 접속 추이</h2>
           <div className="admin-range-toggle">
-            <button className={range === "24h" ? "active" : ""} onClick={() => setRange("24h")}>
-              24시간
-            </button>
-            <button className={range === "7d" ? "active" : ""} onClick={() => setRange("7d")}>
-              7일
-            </button>
-            <button className={range === "30d" ? "active" : ""} onClick={() => setRange("30d")}>
-              30일
-            </button>
+            {RANGE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                className={range === opt.value ? "active" : ""}
+                onClick={() => setRange(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         </div>
         {!trendLoaded ? (

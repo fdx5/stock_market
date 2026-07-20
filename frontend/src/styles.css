@@ -6250,8 +6250,10 @@ thead .weekly-foreign-amount-col {
 
 .admin-panel-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   margin-bottom: 14px;
 }
 
@@ -6261,6 +6263,8 @@ thead .weekly-foreign-amount-col {
 
 .admin-range-toggle {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 4px;
   padding: 3px;
   border-radius: 8px;
@@ -6269,7 +6273,7 @@ thead .weekly-foreign-amount-col {
 }
 
 .admin-range-toggle button {
-  padding: 5px 10px;
+  padding: 5px 9px;
   border: none;
   border-radius: 6px;
   background: transparent;

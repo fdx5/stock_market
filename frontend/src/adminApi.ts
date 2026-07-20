@@ -18,6 +18,8 @@ export interface AdminSummary {
   top_pages: PageCount[];
 }
 
+export type AdminTrendRange = "1h" | "3h" | "6h" | "12h" | "24h" | "7d" | "30d";
+
 export interface TrendPoint {
   bucket: string;
   path: string;
@@ -25,7 +27,7 @@ export interface TrendPoint {
 }
 
 export interface TrendResponse {
-  range: "24h" | "7d" | "30d";
+  range: AdminTrendRange;
   points: TrendPoint[];
 }
 
@@ -104,7 +106,7 @@ async function authedGet<T>(path: string): Promise<T> {
 
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
-  trend: (range: "24h" | "7d" | "30d") => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
+  trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
   tail: (limit = 100) => authedGet<{ events: ActivityEvent[] }>(`/live/tail?limit=${limit}`),
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
 };

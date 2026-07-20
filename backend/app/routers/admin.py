@@ -37,14 +37,27 @@ def summary():
     }
 
 
+_MINUTE_BUCKET_CHARS = 16  # "...T14:05" — minute buckets
+_DAY_BUCKET_CHARS = 10  # "...12-25" — daily buckets
+
+# (timedelta, bucket_chars) per range — anything an hour scale or finer buckets by
+# minute so the chart stays continuous even over a short window; day-scale ranges
+# bucket by day so a month of points doesn't mean a month of per-minute rows.
+_RANGE_CONFIG: dict[str, tuple[timedelta, int]] = {
+    "1h": (timedelta(hours=1), _MINUTE_BUCKET_CHARS),
+    "3h": (timedelta(hours=3), _MINUTE_BUCKET_CHARS),
+    "6h": (timedelta(hours=6), _MINUTE_BUCKET_CHARS),
+    "12h": (timedelta(hours=12), _MINUTE_BUCKET_CHARS),
+    "24h": (timedelta(hours=24), _MINUTE_BUCKET_CHARS),
+    "7d": (timedelta(days=7), _DAY_BUCKET_CHARS),
+    "30d": (timedelta(days=30), _DAY_BUCKET_CHARS),
+}
+
+
 @router.get("/pages/trend", dependencies=[Depends(require_admin)])
-def pages_trend(range: str = Query("24h", pattern="^(24h|7d|30d)$")):
-    if range == "24h":
-        since = datetime.now(timezone.utc) - timedelta(hours=24)
-        bucket_chars = 16  # "...T14:05" — minute buckets
-    else:
-        since = datetime.now(timezone.utc) - timedelta(days=7 if range == "7d" else 30)
-        bucket_chars = 10  # "...12-25" — daily buckets
+def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|7d|30d)$")):
+    delta, bucket_chars = _RANGE_CONFIG[range]
+    since = datetime.now(timezone.utc) - delta
     points = page_view_store.counts_by_bucket(since.isoformat(), bucket_chars)
     return {"range": range, "points": points}
 
