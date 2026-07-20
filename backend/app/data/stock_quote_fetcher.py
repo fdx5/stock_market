@@ -23,9 +23,12 @@ def _quote_from_data(data: dict) -> dict:
     """Korea's NXT alternative exchange keeps trading before 09:00 and after 15:30,
     which moves market cap outside the regular KRX session — but that continued
     trading only shows up in `overMarketPriceInfo`, not in the regular
-    closePrice/marketValueFull fields (which freeze at the 15:30 close). When that NXT
-    session is open, we recompute market cap from its price instead of the frozen
-    regular-session figure."""
+    closePrice/marketValueFull fields (which freeze at the 15:30 close). Whenever the
+    regular session isn't open, we prefer NXT's price over the frozen regular-session
+    figure — including once the NXT after-market session itself has closed for the
+    day (overMarketStatus flips to "CLOSE" at 20:00), so the display keeps showing
+    that final NXT price through the evening instead of reverting to the stale 15:30
+    close. It only stops applying once the regular session reopens the next morning."""
     close_price = float(data["closePriceRaw"])
     change = float(data["compareToPreviousClosePriceRaw"])
     change_pct = float(data["fluctuationsRatioRaw"])
@@ -33,7 +36,7 @@ def _quote_from_data(data: dict) -> dict:
     shares = marcap / close_price if close_price else 0.0
 
     over = data.get("overMarketPriceInfo")
-    if over and over.get("overMarketStatus") == "OPEN":
+    if over and data.get("marketStatus") != "OPEN":
         over_price = _parse_signed(over["overPrice"])
         change = _parse_signed(over["compareToPreviousClosePrice"])
         change_pct = _parse_signed(over["fluctuationsRatio"])
