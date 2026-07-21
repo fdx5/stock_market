@@ -7,15 +7,19 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
+import BattleIcon from "./BattleIcon";
 import Footer from "./Footer";
 import GlobalBoardPanel from "./GlobalBoardPanel";
 import GlobalIndexGrid from "./GlobalIndexGrid";
+import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobalNewsList from "./GlobalNewsList";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
+import MarketIcon from "./MarketIcon";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
 import ThemeToggle from "./ThemeToggle";
+import VisitorBadge from "./VisitorBadge";
 
 const QUOTE_POLL_MS = 10_000;
 
@@ -211,6 +215,36 @@ export default function GlobalStockPage() {
             <LanguageToggle />
             <ThemeToggle />
           </div>
+        </div>
+        <div className="app-nav-row">
+          <Link to="/map" className="kospi-map-nav-link">
+            <MarketIcon /> KOSPI
+          </Link>
+          <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+            <MarketIcon /> KOSDAQ
+          </Link>
+          <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
+            <MarketIcon /> S&P500
+          </Link>
+          <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
+            <MarketIcon /> NASDAQ100
+          </Link>
+          <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
+            <BattleIcon /> {t("시총대결")}
+          </Link>
+          <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
+            <GlobalNewsIcon /> NEWS
+          </Link>
+          <a
+            href="https://chs2147.github.io/mini-apps"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="kospi-map-nav-link"
+          >
+            <img src="/img/mini_app.png" alt="" className="mini-apps-icon" />
+            Mini Apps
+          </a>
+          <VisitorBadge />
         </div>
       </header>
 
