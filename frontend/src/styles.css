@@ -3221,12 +3221,15 @@ thead .weekly-foreign-amount-col {
   cursor: pointer;
 }
 
-/* The selected tab is filled, not merely tinted: it is the only thing on screen
-   saying which of the three lists the chips underneath belong to. */
+/* Filled, not merely tinted: this is the only thing on screen saying which of the
+   three lists the chips underneath belong to. The fill is --series-blue, matching
+   .market-overview-tab.active — the app's existing "this tab is selected" colour.
+   It was --text-primary at first, which is #ffffff in the dark theme and put a slab
+   of pure white at the top of the phone view, brighter than anything around it. */
 .quick-access-tab.is-active {
-  border-color: transparent;
-  background: var(--text-primary);
-  color: var(--surface-1);
+  border-color: var(--series-blue);
+  background: var(--series-blue);
+  color: #fff;
 }
 
 .quick-access-tab-count {
