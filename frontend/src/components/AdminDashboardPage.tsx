@@ -179,6 +179,74 @@ function roundedTopRectPath(x: number, yTop: number, width: number, height: numb
   );
 }
 
+type Pt = { x: number; y: number };
+
+/** Monotone cubic (Fritsch–Carlson) interpolation through the points — the same
+ * curve d3's `curveMonotoneX` draws. Chosen over a plain Catmull-Rom because it's
+ * shape-preserving: the smoothed line never overshoots below a local minimum, so
+ * stacked-area boundaries can't dip past their own data and cross into the band
+ * beneath them. Returns an SVG path starting with a single `M`. */
+function monotonePath(pts: Pt[]): string {
+  const n = pts.length;
+  if (n === 0) return "";
+  if (n === 1) return `M ${pts[0].x},${pts[0].y}`;
+  const dx: number[] = [];
+  const slope: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = pts[i + 1].x - pts[i].x;
+    slope[i] = dx[i] === 0 ? 0 : (pts[i + 1].y - pts[i].y) / dx[i];
+  }
+  const tan: number[] = new Array(n);
+  tan[0] = slope[0];
+  tan[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    if (slope[i - 1] * slope[i] <= 0) {
+      tan[i] = 0;
+    } else {
+      const w1 = 2 * dx[i] + dx[i - 1];
+      const w2 = dx[i] + 2 * dx[i - 1];
+      tan[i] = (w1 + w2) / (w1 / slope[i - 1] + w2 / slope[i]);
+    }
+  }
+  let d = `M ${pts[0].x},${pts[0].y}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i] / 3;
+    d +=
+      ` C ${pts[i].x + h},${pts[i].y + tan[i] * h}` +
+      ` ${pts[i + 1].x - h},${pts[i + 1].y - tan[i + 1] * h}` +
+      ` ${pts[i + 1].x},${pts[i + 1].y}`;
+  }
+  return d;
+}
+
+/** A filled stacked-area band: the smooth upper boundary drawn left→right, then the
+ * smooth lower boundary drawn right→left and closed — so the two curves enclose the
+ * band without a straight seam. */
+function areaBandPath(upper: Pt[], lower: Pt[]): string {
+  if (upper.length === 0) return "";
+  const top = monotonePath(upper);
+  const bottomReversed = monotonePath([...lower].reverse());
+  // Swap the reversed lower path's leading `M` for an `L` so it continues the top
+  // path instead of starting a new subpath.
+  return `${top} L${bottomReversed.slice(1)} Z`;
+}
+
+function IconArea({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 15l5-6 4 3 4-6 5 4v8H3z" />
+    </svg>
+  );
+}
+
+function IconBars({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 20V10M12 20V4M19 20v-7" />
+    </svg>
+  );
+}
+
 function IconPulse({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -284,6 +352,7 @@ export default function AdminDashboardPage() {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [activeLegend, setActiveLegend] = useState<string | null>(null);
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
+  const [chartMode, setChartMode] = useState<"area" | "bars">("area");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
   useEffect(() => {
@@ -491,22 +560,6 @@ export default function AdminDashboardPage() {
     return { series: seriesData, categories: buckets, maxCount };
   }, [trendPoints, range]);
 
-  if (!authed) return null;
-
-  const visibleSeries = series.filter((s) => !hiddenSeries.has(s.path));
-
-  // Fixed 1-week ranking (see adminApi.pagesTop/stocksTop) — independent of the
-  // chart's own `range` toggle, and colored from the same fixed categorical set
-  // as the chart for a consistent page-identity language across the dashboard.
-  const rankedPages = (pagesTop ?? []).map((p, i) => ({
-    key: p.path,
-    label: pageLabel(p.path),
-    colorVar: SERIES_VARS[i % SERIES_VARS.length],
-    count: p.count,
-  }));
-  const topPageCount = rankedPages[0]?.count ?? 0;
-  const topStockCount = stocksTop?.[0]?.count ?? 0;
-
   // A 2:1 canvas — close to how wide the 60%-width chart column ends up next to
   // the trend panel's flexed height (~50% of the page, see .admin-panel--trend /
   // .admin-trend-chart-wrap) at typical desktop sizes, so the chart fills that
@@ -514,7 +567,7 @@ export default function AdminDashboardPage() {
   // above/below it.
   const width = 760;
   const height = 380;
-  const padding = { top: 20, right: 16, bottom: 32, left: 46 };
+  const padding = { top: 22, right: 16, bottom: 32, left: 46 };
   const innerW = width - padding.left - padding.right;
   const innerH = height - padding.top - padding.bottom;
   const xStep = categories.length > 1 ? innerW / (categories.length - 1) : 0;
@@ -531,6 +584,104 @@ export default function AdminDashboardPage() {
   const barGapPx = barSlot > 6 ? 2 : 0;
   const barWidth = Math.max(1, Math.min(24, barSlot - barGapPx));
   const barCornerR = barWidth >= 6 ? Math.min(4, barWidth / 2) : 0;
+
+  // The heavy path geometry (smooth stacked-area bands can be 1,400+ cubic
+  // segments each on the 24h view) is memoized so a hover — which only moves the
+  // lightweight crosshair/tooltip overlay — never rebuilds it. Keyed on the data,
+  // the visible-series set, the axis scale, and the render mode; NOT on hoverIndex
+  // or activeLegend, which are applied as cheap per-render attributes below.
+  const chartGeom = useMemo(() => {
+    const n = categories.length;
+    const vis = series.filter((s) => !hiddenSeries.has(s.path));
+    const totals = categories.map((_, i) => vis.reduce((sum, s) => sum + s.values[i], 0));
+    let peakIdx = 0;
+    for (let i = 1; i < n; i++) if (totals[i] > totals[peakIdx]) peakIdx = i;
+    const grandTotal = totals.reduce((a, b) => a + b, 0);
+
+    // Stacked-area bands: each series is the ribbon between the running cumulative
+    // below it and the cumulative including it, both smoothed independently so the
+    // band's two edges curve in parallel.
+    const bands: {
+      path: string;
+      label: string;
+      colorVar: string;
+      fill: string;
+      stroke: string;
+      topPts: Pt[];
+      values: number[];
+    }[] = [];
+    if (chartMode === "area") {
+      const cum = new Array(n).fill(0);
+      for (const s of vis) {
+        const upper: Pt[] = [];
+        const lower: Pt[] = [];
+        for (let i = 0; i < n; i++) {
+          const lo = cum[i];
+          const hi = lo + s.values[i];
+          cum[i] = hi;
+          lower.push({ x: xAt(i), y: yAt(lo) });
+          upper.push({ x: xAt(i), y: yAt(hi) });
+        }
+        bands.push({
+          path: s.path,
+          label: s.label,
+          colorVar: s.colorVar,
+          fill: areaBandPath(upper, lower),
+          stroke: monotonePath(upper),
+          topPts: upper,
+          values: s.values,
+        });
+      }
+    }
+
+    // Stacked rounded bars: one flattened segment per (bucket, series) so each can
+    // carry its own path + color and be dimmed individually.
+    const bars: { path: string; colorVar: string; d: string }[] = [];
+    if (chartMode === "bars") {
+      for (let i = 0; i < n; i++) {
+        const stack = vis.filter((s) => s.values[i] > 0);
+        const x = xAt(i) - barWidth / 2;
+        let cumulative = 0;
+        stack.forEach((s, si) => {
+          const y0 = yAt(cumulative);
+          cumulative += s.values[i];
+          const y1 = yAt(cumulative);
+          const isTop = si === stack.length - 1;
+          const topY = isTop ? y1 : y1 + barGapPx;
+          const segH = Math.max(0, y0 - topY);
+          const d = isTop
+            ? roundedTopRectPath(x, topY, barWidth, segH, barCornerR)
+            : `M ${x},${topY} h ${barWidth} v ${segH} h ${-barWidth} Z`;
+          bars.push({ path: s.path, colorVar: s.colorVar, d });
+        });
+      }
+    }
+
+    return { bands, bars, totals, peakIdx, grandTotal };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series, hiddenSeries, categories, maxCount, chartMode]);
+
+  if (!authed) return null;
+
+  const visibleSeries = series.filter((s) => !hiddenSeries.has(s.path));
+  // Unique color tokens among the visible bands — one <linearGradient> per token
+  // powers the area fills (the gradient tracks the CSS var, so it re-tints on a
+  // theme flip for free).
+  const gradientVars = [...new Set(visibleSeries.map((s) => s.colorVar))];
+  const gradId = (colorVar: string) => `admtg-${colorVar.replace(/[^a-z0-9]/gi, "")}`;
+  const peakTotal = chartGeom.totals[chartGeom.peakIdx] ?? 0;
+
+  // Fixed 1-week ranking (see adminApi.pagesTop/stocksTop) — independent of the
+  // chart's own `range` toggle, and colored from the same fixed categorical set
+  // as the chart for a consistent page-identity language across the dashboard.
+  const rankedPages = (pagesTop ?? []).map((p, i) => ({
+    key: p.path,
+    label: pageLabel(p.path),
+    colorVar: SERIES_VARS[i % SERIES_VARS.length],
+    count: p.count,
+  }));
+  const topPageCount = rankedPages[0]?.count ?? 0;
+  const topStockCount = stocksTop?.[0]?.count ?? 0;
 
   return (
     <div className="admin-dash-page">
@@ -650,16 +801,40 @@ export default function AdminDashboardPage() {
       <section className="admin-panel admin-panel--trend">
         <div className="admin-panel-head">
           <h2>페이지별 접속 추이</h2>
-          <div className="admin-range-toggle">
-            {RANGE_OPTIONS.map((opt) => (
+          <div className="admin-panel-controls">
+            <div className="admin-trend-mode-toggle" role="group" aria-label="차트 형태">
               <button
-                key={opt.value}
-                className={range === opt.value ? "active" : ""}
-                onClick={() => setRange(opt.value)}
+                type="button"
+                className={chartMode === "area" ? "active" : ""}
+                onClick={() => setChartMode("area")}
+                aria-pressed={chartMode === "area"}
+                title="영역 차트"
               >
-                {opt.label}
+                <IconArea className="admin-trend-mode-icon" />
+                영역
               </button>
-            ))}
+              <button
+                type="button"
+                className={chartMode === "bars" ? "active" : ""}
+                onClick={() => setChartMode("bars")}
+                aria-pressed={chartMode === "bars"}
+                title="막대 차트"
+              >
+                <IconBars className="admin-trend-mode-icon" />
+                막대
+              </button>
+            </div>
+            <div className="admin-range-toggle">
+              {RANGE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  className={range === opt.value ? "active" : ""}
+                  onClick={() => setRange(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div className="admin-trend-layout">
@@ -669,97 +844,184 @@ export default function AdminDashboardPage() {
         ) : series.length === 0 ? (
           <p className="admin-empty">아직 수집된 데이터가 없습니다.</p>
         ) : (
-          <div className="admin-trend-chart-wrap">
-            <svg
-              viewBox={`0 0 ${width} ${height}`}
-              className="admin-trend-svg"
-              onMouseMove={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const mouseX = ((e.clientX - rect.left) / rect.width) * width;
-                const idx = xStep > 0 ? Math.round((mouseX - padding.left) / xStep) : 0;
-                setHoverIndex(Math.min(Math.max(idx, 0), categories.length - 1));
-              }}
-              onMouseLeave={() => setHoverIndex(null)}
-            >
-              {yTicks.map((t) => (
-                <g key={t}>
-                  <line
-                    x1={padding.left}
-                    x2={width - padding.right}
-                    y1={yAt(t)}
-                    y2={yAt(t)}
-                    stroke="var(--gridline)"
-                    strokeWidth={1}
-                  />
-                  <text x={padding.left - 8} y={yAt(t) + 3} textAnchor="end" fontSize={10} fill="var(--text-muted)">
-                    {formatCount(t)}
-                  </text>
-                </g>
-              ))}
-              {categories.map(
-                (c, i) =>
-                  i % tickStride === 0 && (
-                    <text key={c} x={xAt(i)} y={height - 6} textAnchor="middle" fontSize={10} fill="var(--text-muted)">
-                      {formatBucket(c)}
-                    </text>
-                  )
-              )}
-              {hoverIndex !== null && (
-                <rect
-                  x={xAt(hoverIndex) - barWidth / 2 - 3}
-                  y={padding.top}
-                  width={barWidth + 6}
-                  height={innerH}
-                  rx={4}
-                  fill="color-mix(in srgb, var(--text-primary) 6%, transparent)"
-                />
-              )}
-              {categories.map((c, i) => {
-                const stack = visibleSeries.filter((s) => s.values[i] > 0);
-                if (stack.length === 0) return null;
-                const x = xAt(i) - barWidth / 2;
-                let cumulative = 0;
-                return (
-                  <g key={c} className="admin-trend-series">
-                    {stack.map((s, si) => {
-                      const y0 = yAt(cumulative);
-                      cumulative += s.values[i];
-                      const y1 = yAt(cumulative);
-                      const isTop = si === stack.length - 1;
-                      const topY = isTop ? y1 : y1 + barGapPx;
-                      const segH = Math.max(0, y0 - topY);
-                      const dimmed = activeLegend !== null && activeLegend !== s.path;
-                      const d = isTop
-                        ? roundedTopRectPath(x, topY, barWidth, segH, barCornerR)
-                        : `M ${x},${topY} h ${barWidth} v ${segH} h ${-barWidth} Z`;
-                      return <path key={s.path} d={d} fill={`var(${s.colorVar})`} opacity={dimmed ? 0.18 : 1} />;
-                    })}
-                  </g>
-                );
-              })}
-            </svg>
-            {hoverIndex !== null && visibleSeries.length > 0 && (
-              <div
-                className="admin-trend-tooltip"
-                style={{
-                  left: `${(xAt(hoverIndex) / width) * 100}%`,
-                  transform:
-                    hoverIndex / categories.length > 0.7 ? "translateX(-100%)" : "translateX(-8px)",
-                }}
-              >
-                <div className="admin-trend-tooltip-date">{categories[hoverIndex]}</div>
-                {[...visibleSeries]
-                  .sort((a, b) => b.values[hoverIndex] - a.values[hoverIndex])
-                  .map((s) => (
-                    <div key={s.path} className="admin-trend-tooltip-row">
-                      <span className="admin-trend-tooltip-key" style={{ background: `var(${s.colorVar})` }} />
-                      <span className="admin-trend-tooltip-value">{s.values[hoverIndex]}</span>
-                      <span className="admin-trend-tooltip-label">{s.label}</span>
-                    </div>
-                  ))}
+          <>
+            <div className="admin-trend-summary">
+              <div className="admin-trend-summary-item">
+                <span className="admin-trend-summary-label">범위 합계</span>
+                <span className="admin-trend-summary-value">{formatCount(chartGeom.grandTotal)}</span>
               </div>
-            )}
-          </div>
+              <span className="admin-trend-summary-divider" />
+              <div className="admin-trend-summary-item">
+                <span className="admin-trend-summary-label">피크</span>
+                <span className="admin-trend-summary-value">{formatCount(peakTotal)}</span>
+                {categories[chartGeom.peakIdx] && (
+                  <span className="admin-trend-summary-sub">{formatBucket(categories[chartGeom.peakIdx])}</span>
+                )}
+              </div>
+            </div>
+            <div className="admin-trend-chart-wrap">
+              <svg
+                viewBox={`0 0 ${width} ${height}`}
+                className={`admin-trend-svg admin-trend-svg--${chartMode}`}
+                onMouseMove={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const mouseX = ((e.clientX - rect.left) / rect.width) * width;
+                  const idx = xStep > 0 ? Math.round((mouseX - padding.left) / xStep) : 0;
+                  setHoverIndex(Math.min(Math.max(idx, 0), categories.length - 1));
+                }}
+                onMouseLeave={() => setHoverIndex(null)}
+              >
+                <defs>
+                  {chartMode === "area" &&
+                    gradientVars.map((cv) => (
+                      <linearGradient key={cv} id={gradId(cv)} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={`var(${cv})`} stopOpacity={0.5} />
+                        <stop offset="55%" stopColor={`var(${cv})`} stopOpacity={0.22} />
+                        <stop offset="100%" stopColor={`var(${cv})`} stopOpacity={0.06} />
+                      </linearGradient>
+                    ))}
+                </defs>
+
+                {yTicks.map((t) => (
+                  <g key={t}>
+                    <line
+                      x1={padding.left}
+                      x2={width - padding.right}
+                      y1={yAt(t)}
+                      y2={yAt(t)}
+                      stroke="var(--gridline)"
+                      strokeWidth={1}
+                    />
+                    <text x={padding.left - 8} y={yAt(t) + 3} textAnchor="end" fontSize={10} fill="var(--text-muted)">
+                      {formatCount(t)}
+                    </text>
+                  </g>
+                ))}
+                {categories.map(
+                  (c, i) =>
+                    i % tickStride === 0 && (
+                      <text key={c} x={xAt(i)} y={height - 6} textAnchor="middle" fontSize={10} fill="var(--text-muted)">
+                        {formatBucket(c)}
+                      </text>
+                    )
+                )}
+
+                {/* Idle peak marker — a soft halo on the tallest bucket, hidden while
+                    hovering so it never competes with the crosshair readout. */}
+                {hoverIndex === null && peakTotal > 0 && categories.length > 1 && (
+                  <g className="admin-trend-peak">
+                    <circle cx={xAt(chartGeom.peakIdx)} cy={yAt(peakTotal)} r={11} className="admin-trend-peak-halo" />
+                    <circle cx={xAt(chartGeom.peakIdx)} cy={yAt(peakTotal)} r={3} className="admin-trend-peak-dot" />
+                  </g>
+                )}
+
+                {/* Crosshair guide — a single vertical rule at the hovered bucket. In
+                    bar mode it sits behind a soft column highlight so the hovered
+                    stack reads as the focus. */}
+                {hoverIndex !== null && (
+                  <>
+                    {chartMode === "bars" && (
+                      <rect
+                        x={xAt(hoverIndex) - barWidth / 2 - 3}
+                        y={padding.top}
+                        width={barWidth + 6}
+                        height={innerH}
+                        rx={4}
+                        fill="color-mix(in srgb, var(--text-primary) 6%, transparent)"
+                      />
+                    )}
+                    <line
+                      className="admin-trend-crosshair"
+                      x1={xAt(hoverIndex)}
+                      x2={xAt(hoverIndex)}
+                      y1={padding.top}
+                      y2={padding.top + innerH}
+                    />
+                  </>
+                )}
+
+                {/* Marks. Keyed on mode+range so a mode switch or range change
+                    remounts the group and replays the CSS wipe/rise entrance — but a
+                    routine 60s data refresh (same key) just updates paths in place. */}
+                <g key={`${chartMode}-${range}`} className="admin-trend-marks">
+                  {chartMode === "area"
+                    ? chartGeom.bands.map((b) => {
+                        const dimmed = activeLegend !== null && activeLegend !== b.path;
+                        return (
+                          <g key={b.path} className="admin-trend-band" opacity={dimmed ? 0.2 : 1}>
+                            <path d={b.fill} fill={`url(#${gradId(b.colorVar)})`} />
+                            <path
+                              d={b.stroke}
+                              fill="none"
+                              stroke={`var(${b.colorVar})`}
+                              strokeWidth={1.6}
+                              strokeLinejoin="round"
+                              strokeLinecap="round"
+                              className="admin-trend-band-stroke"
+                            />
+                          </g>
+                        );
+                      })
+                    : chartGeom.bars.map((seg, i) => {
+                        const dimmed = activeLegend !== null && activeLegend !== seg.path;
+                        return <path key={i} d={seg.d} fill={`var(${seg.colorVar})`} opacity={dimmed ? 0.18 : 1} />;
+                      })}
+                </g>
+
+                {/* Focus dots — one per non-zero band at the hovered bucket, sitting
+                    on that band's smoothed upper edge with a surface ring so it reads
+                    over any fill. */}
+                {hoverIndex !== null &&
+                  chartMode === "area" &&
+                  chartGeom.bands.map((b) => {
+                    if ((b.values[hoverIndex] ?? 0) <= 0) return null;
+                    const pt = b.topPts[hoverIndex];
+                    if (!pt) return null;
+                    const dimmed = activeLegend !== null && activeLegend !== b.path;
+                    return (
+                      <circle
+                        key={b.path}
+                        className="admin-trend-dot"
+                        cx={pt.x}
+                        cy={pt.y}
+                        r={3.4}
+                        fill={`var(${b.colorVar})`}
+                        opacity={dimmed ? 0.25 : 1}
+                      />
+                    );
+                  })}
+              </svg>
+              {hoverIndex !== null && visibleSeries.length > 0 && (
+                <div
+                  className="admin-trend-tooltip"
+                  style={{
+                    left: `${(xAt(hoverIndex) / width) * 100}%`,
+                    transform:
+                      hoverIndex / categories.length > 0.7 ? "translateX(-100%)" : "translateX(-8px)",
+                  }}
+                >
+                  <div className="admin-trend-tooltip-date">{categories[hoverIndex]}</div>
+                  {[...visibleSeries]
+                    .filter((s) => s.values[hoverIndex] > 0)
+                    .sort((a, b) => b.values[hoverIndex] - a.values[hoverIndex])
+                    .map((s) => (
+                      <div key={s.path} className="admin-trend-tooltip-row">
+                        <span className="admin-trend-tooltip-key" style={{ background: `var(${s.colorVar})` }} />
+                        <span className="admin-trend-tooltip-value">{s.values[hoverIndex]}</span>
+                        <span className="admin-trend-tooltip-label">{s.label}</span>
+                      </div>
+                    ))}
+                  <div className="admin-trend-tooltip-row admin-trend-tooltip-row--total">
+                    <span className="admin-trend-tooltip-key admin-trend-tooltip-key--total" />
+                    <span className="admin-trend-tooltip-value">
+                      {visibleSeries.reduce((sum, s) => sum + s.values[hoverIndex], 0)}
+                    </span>
+                    <span className="admin-trend-tooltip-label">합계</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
         )}
         {series.length > 0 && (
           <div className="admin-trend-legend">

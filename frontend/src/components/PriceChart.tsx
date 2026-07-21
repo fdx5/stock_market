@@ -35,6 +35,18 @@ const RANGE_OPTIONS: { label: string; days: number | null }[] = [
 
 const MA_KEYS = ["sma5", "sma20", "sma60"] as const;
 
+// Toggleable overlay series, keyed the same as the legend chips below. "bb"
+// covers both Bollinger boundary lines as one unit.
+type OverlayKey = "sma5" | "sma20" | "sma60" | "bb";
+
+interface Readout {
+  time: Time;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 // Points arrive as "YYYY-MM-DD" business-day strings — split directly rather than
 // going through Date (which would apply local-timezone shifting) to get "MM.dd".
 function formatMonthDay(time: Time): string {
@@ -55,6 +67,8 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
   const bbUpperRef = useRef<ISeriesApi<"Line"> | null>(null);
   const bbLowerRef = useRef<ISeriesApi<"Line"> | null>(null);
   const [range, setRange] = useState<string>("3M");
+  const [hidden, setHidden] = useState<Set<OverlayKey>>(new Set());
+  const [readout, setReadout] = useState<Readout | null>(null);
   const stateRef = useRef({ points, range });
   stateRef.current = { points, range };
 
@@ -136,6 +150,21 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
     bbUpperRef.current = bbUpper;
     bbLowerRef.current = bbLower;
 
+    // Live OHLC readout: the bar under the crosshair while hovering, cleared on
+    // leave so the header falls back to the latest bar (handled in render).
+    chart.subscribeCrosshairMove((param) => {
+      if (!param.point || param.time === undefined) {
+        setReadout(null);
+        return;
+      }
+      const bar = param.seriesData.get(candleSeries) as CandlestickData<Time> | undefined;
+      if (bar && typeof bar.open === "number") {
+        setReadout({ time: param.time, open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+      } else {
+        setReadout(null);
+      }
+    });
+
     const stopWatching = watchTheme((next) => {
       chart.applyOptions({
         layout: { textColor: next.textSecondary },
@@ -216,10 +245,69 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
     chartRef.current?.timeScale().fitContent();
   }, [points, range]);
 
+  // Interactive legend: clicking a chip hides/shows its overlay series without
+  // touching the underlying data (re-applied here so it survives a data refresh).
+  useEffect(() => {
+    MA_KEYS.forEach((key) => smaSeriesRef.current[key]?.applyOptions({ visible: !hidden.has(key) }));
+    const bbVisible = !hidden.has("bb");
+    bbUpperRef.current?.applyOptions({ visible: bbVisible });
+    bbLowerRef.current?.applyOptions({ visible: bbVisible });
+  }, [hidden, points]);
+
+  const legendItems: { key: OverlayKey; colorVar: string; label: string }[] = [
+    { key: "sma5", colorVar: "--series-yellow", label: "SMA5" },
+    { key: "sma20", colorVar: "--series-aqua", label: "SMA20" },
+    { key: "sma60", colorVar: "--series-violet", label: "SMA60" },
+    { key: "bb", colorVar: "--series-blue", label: t("볼린저밴드(20,2)") },
+  ];
+
+  const lastPoint = points[points.length - 1];
+  const bar: Readout | null =
+    readout ??
+    (lastPoint
+      ? {
+          time: lastPoint.date as Time,
+          open: lastPoint.open,
+          high: lastPoint.high,
+          low: lastPoint.low,
+          close: lastPoint.close,
+        }
+      : null);
+  const barUp = bar ? bar.close >= bar.open : true;
+
+  const toggleOverlay = (key: OverlayKey) =>
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+
   return (
     <div className="card">
       <div className="chart-toolbar">
         <span className="chart-title">{t("일봉 차트")}</span>
+        {bar && (
+          <div className="chart-readout" aria-hidden="true">
+            <span className="chart-readout-date">{formatMonthDay(bar.time)}</span>
+            <span className="chart-readout-item">
+              <b>O</b>
+              {bar.open.toLocaleString()}
+            </span>
+            <span className="chart-readout-item">
+              <b>H</b>
+              {bar.high.toLocaleString()}
+            </span>
+            <span className="chart-readout-item">
+              <b>L</b>
+              {bar.low.toLocaleString()}
+            </span>
+            <span className={`chart-readout-item chart-readout-close chart-readout-close--${barUp ? "up" : "down"}`}>
+              <b>C</b>
+              {bar.close.toLocaleString()}
+            </span>
+          </div>
+        )}
         <div className="range-toggle">
           {RANGE_OPTIONS.map((opt) => (
             <button
@@ -234,22 +322,18 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
         </div>
       </div>
       <div className="chart-legend">
-        <span className="item">
-          <span className="swatch" style={{ background: "var(--series-yellow)" }} />
-          SMA5
-        </span>
-        <span className="item">
-          <span className="swatch" style={{ background: "var(--series-aqua)" }} />
-          SMA20
-        </span>
-        <span className="item">
-          <span className="swatch" style={{ background: "var(--series-violet)" }} />
-          SMA60
-        </span>
-        <span className="item">
-          <span className="swatch" style={{ background: "var(--series-blue)" }} />
-          {t("볼린저밴드(20,2)")}
-        </span>
+        {legendItems.map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={`chart-legend-item${hidden.has(item.key) ? " chart-legend-item--off" : ""}`}
+            onClick={() => toggleOverlay(item.key)}
+            aria-pressed={!hidden.has(item.key)}
+          >
+            <span className="swatch" style={{ background: `var(${item.colorVar})` }} />
+            {item.label}
+          </button>
+        ))}
       </div>
       <div className="chart-main-wrap">
         <div ref={containerRef} className="chart-main" />
