@@ -76,8 +76,12 @@ export default function GlobalNewsList({
     );
   }
 
+  // The modifier marks the list view specifically: inside the /global side panel it
+  // scrolls within a capped box (see styles.css) so switching tabs doesn't change the
+  // page height. The article view above deliberately keeps flowing with the page —
+  // a capped reader would scroll its own "목록으로" button out of reach.
   return (
-    <div className="fight-company-news-body">
+    <div className="fight-company-news-body fight-company-news-body--list">
       {loading && <div className="loading-state">{t("불러오는 중...")}</div>}
       {!loading && items.length === 0 && (
         <div className="empty-state">

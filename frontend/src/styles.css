@@ -308,9 +308,16 @@ a.app-brand:hover .app-logo-wide {
   font-variant-numeric: tabular-nums;
 }
 
+/* The discussion/news/orderbook panel used to sit in a fixed 320px rail, narrow
+   enough that board titles and news snippets wrapped every few words while the
+   chart column had width to spare. The main column gives up ~15% of its width to
+   it (at the 1280px page cap: 900px -> 765px, rail 320px -> 455px). Both tracks
+   are fractional now rather than "1fr + a fixed rail", so that split holds at every
+   desktop width instead of only at the cap; the 320px floor keeps the panel usable
+   at the narrow end, just before the 920px block below stacks the two columns. */
 .layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1.68fr) minmax(320px, 1fr);
   gap: 20px;
   align-items: start;
 }
@@ -4361,6 +4368,66 @@ thead .weekly-foreign-amount-col {
      posts to be worth scrolling. */
   .global-board-comments-list {
     max-height: 380px;
+  }
+}
+
+/* ===== /global side panel — making the widened rail actually pay off =====
+   Both tab bodies arrived here from somewhere else: the news list from
+   CompanyNewsModal (which renders it edge-to-edge) and the discussion list from the
+   narrow rail. Inside .side-panel they were paying for padding twice and clamping
+   text that now has room. Every rule below is scoped to .side-panel so the modal and
+   the standalone pages that share these classes keep their own sizing — and that
+   two-class specificity is also what lets them sit here, ahead of the .fight-news-*
+   definitions further down the file, and still win. */
+
+/* .card already supplies 18px/20px around this; the body's own 14px stacked on top
+   of it, spending ~28px of the width this change set out to gain. */
+.side-panel .fight-company-news-body {
+  padding: 0;
+}
+
+/* Uncapped, the news tab ran well past the bottom of the chart column and made the
+   page height jump every time the tabs were switched. Capped to the same height as
+   the discussion list opposite it, scrolling in place — the pattern .board-list and
+   .board-comments-list already use. Only the list view takes the cap; the article
+   view shares the base class but keeps flowing with the page, since scrolling it
+   inside a box would carry its own "목록으로" button out of reach. */
+.side-panel .fight-company-news-body--list {
+  max-height: 520px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.side-panel .global-board-comments-list {
+  max-height: 520px;
+}
+
+/* 320px only ever had room for a 2-line snippet beside the thumbnail; at ~455px the
+   card carries a third line and a larger image without growing any taller, since the
+   text block was the shorter of the two all along. */
+.side-panel .fight-news-card-img {
+  width: 96px;
+  height: 96px;
+}
+
+.side-panel .fight-news-card-snippet {
+  -webkit-line-clamp: 3;
+}
+
+/* Below 920px .layout stacks and the panel spans the full page, so the desktop caps
+   and the roomier card both stop making sense — these restate the shared mobile
+   values that the scoped rules above would otherwise outrank. */
+@media (max-width: 640px) {
+  .side-panel .fight-company-news-body--list,
+  .side-panel .global-board-comments-list {
+    max-height: 380px;
+  }
+}
+
+@media (max-width: 480px) {
+  .side-panel .fight-news-card-img {
+    width: 64px;
+    height: 64px;
   }
 }
 

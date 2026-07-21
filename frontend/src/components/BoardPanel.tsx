@@ -5,6 +5,41 @@ import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 
 const PAGE_SIZE = 10;
 
+/** Breathing room left between the sticky header and the row it scrolls to. */
+const HEADER_CLEARANCE = 12;
+
+/** Brings an expanded row to the top of both scrollers it sits in — the capped
+ * `.board-list` and the page itself.
+ *
+ * `scrollIntoView({ block: "start" })` did the first part correctly but aligned the
+ * row with the very top of the *viewport*, which is exactly where the sticky
+ * `.app-header` sits — so the post title and the opening lines of the body landed
+ * underneath it and every click needed a manual scroll correction afterwards. The
+ * list has no header of its own, so it still aligns flush; only the page scroll is
+ * offset, and by the header's measured height rather than a constant, since the nav
+ * row wraps to a second line as the viewport narrows.
+ */
+function scrollRowToTop(row: HTMLElement) {
+  let rowTop = row.getBoundingClientRect().top;
+
+  // The list moves first, instantly (not smoothly): the page offset below has to be
+  // measured from where the row actually ends up, and near the bottom of the list
+  // that is short of where it was asked to go — hence the clamp to the real scroll
+  // range instead of just trusting the requested delta.
+  const list = row.closest<HTMLElement>(".board-list");
+  if (list) {
+    const wanted = rowTop - list.getBoundingClientRect().top;
+    const maxScroll = list.scrollHeight - list.clientHeight;
+    const applied = Math.min(Math.max(list.scrollTop + wanted, 0), maxScroll) - list.scrollTop;
+    list.scrollTop += applied;
+    rowTop -= applied;
+  }
+
+  const header = document.querySelector<HTMLElement>(".app-header");
+  const clearance = (header?.getBoundingClientRect().height ?? 0) + HEADER_CLEARANCE;
+  window.scrollTo({ top: window.scrollY + rowTop - clearance, behavior: "smooth" });
+}
+
 type DetailState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; detail: BoardDetail };
 type CommentsState =
   | { status: "loading" }
@@ -86,7 +121,8 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     const commentSettled = !commentState || commentState.status !== "loading";
     if (!detailSettled || !commentSettled) return;
     pendingExpandNid.current = null;
-    rowRefs.current.get(nid)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const row = rowRefs.current.get(nid);
+    if (row) scrollRowToTop(row);
   }, [expandedNid, details, comments]);
 
   const handleShowMore = () => {
@@ -140,7 +176,8 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     }
     setExpandedNid(nid);
     pendingExpandNid.current = nid;
-    rowRefs.current.get(nid)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const row = rowRefs.current.get(nid);
+    if (row) scrollRowToTop(row);
 
     if (!details[nid]) {
       setDetails((prev) => ({ ...prev, [nid]: { status: "loading" } }));
