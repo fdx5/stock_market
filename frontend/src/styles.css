@@ -3257,20 +3257,22 @@ thead .weekly-foreign-amount-col {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* Below this width the side panel stops being a fixed-height column beside the
-     charts and becomes a full-width block under them — at which point every
-     capped, independently scrolling list inside it is a scroll trap: a drag that
-     starts over the list scrolls the list, not the page, and only chains to the
-     page once the list bottoms out. Releasing the caps lets all of it scroll as
-     one document, which is the only behaviour that feels right on touch. */
-     NOTE: only lists whose base rule sits *above* this block belong here. The
-     /global board's list is capped further down the file, so releasing it from
-     here does nothing about its max-height while still switching its overflow to
-     visible — a capped-but-unclipped box that spills over everything below it.
-     Its release lives next to its own declaration instead. */
-  .news-list,
-  .board-list,
-  .board-comments-list {
+  /* The news panel flows with the page below this width rather than scrolling
+     inside its own box — long-standing behaviour, left as it was.
+
+     The board lists deliberately do NOT join it: they keep their caps at every
+     width, and rely on `overscroll-behavior: contain` (set on their base rules)
+     so a drag that reaches either end stops there instead of also dragging the
+     page. That combination is what the "inner and outer scroll both fire" report
+     was actually about; releasing the caps was the wrong lever, and it made the
+     board the tallest thing on the page.
+
+     Anything added here must have its base rule ABOVE this block. A selector
+     declared further down the file wins at equal specificity, so a release
+     written here would silently apply only half — see
+     .global-board-comments-list, whose cap survived a release from here while its
+     overflow did not, leaving an unclipped box that spilled over the footer. */
+  .news-list {
     max-height: none;
     overflow-y: visible;
   }
@@ -3391,6 +3393,18 @@ thead .weekly-foreign-amount-col {
   .history-table th,
   .history-table td {
     padding: 8px 10px;
+  }
+
+  /* Same reasoning as .global-board-comments-list: the desktop caps are sized
+     against a side column, which is most of a phone screen once that column
+     becomes a full-width block. Kept capped (not released) so the board stays one
+     panel among several instead of the page's dominant element. */
+  .board-list {
+    max-height: 380px;
+  }
+
+  .board-comments-list {
+    max-height: 260px;
   }
 
   .top50-table,
@@ -4144,17 +4158,19 @@ thead .weekly-foreign-amount-col {
 
 /* A taller cap than the shared .board-comments-list default, because on /global this
    list is the panel's primary content rather than a nested comment thread.
-   Both the cap and its mobile release have to live here, after the shared responsive
-   block earlier in the file: at equal specificity the later rule wins, so a release
-   written up there would leave this max-height standing. */
+   Every responsive tweak to it has to live here too, after this declaration: the
+   shared responsive block sits earlier in the file, and at equal specificity the
+   later rule wins — so an override written up there would apply only partially. */
 .global-board-comments-list {
   max-height: 480px;
 }
 
-@media (max-width: 920px) {
+@media (max-width: 640px) {
+  /* 480px is most of a phone screen. Tightened so the board reads as one panel
+     among several rather than the whole viewport, while still showing enough
+     posts to be worth scrolling. */
   .global-board-comments-list {
-    max-height: none;
-    overflow-y: visible;
+    max-height: 380px;
   }
 }
 
