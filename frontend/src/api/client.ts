@@ -101,6 +101,17 @@ export interface MarketMapItem {
   change_pct: number;
 }
 
+export interface SectorMap {
+  code: string;
+  market: "KOSPI" | "KOSDAQ";
+  sector: string;
+  /** Market-cap-weighted change across `items`, matching how the full map's sector
+   * zone headers compute theirs. */
+  avg_change_pct: number;
+  count: number;
+  items: MarketMapItem[];
+}
+
 export interface BoardPost {
   nid: string;
   title: string;
@@ -341,6 +352,8 @@ export const api = {
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`
     ),
+  sectorMap: (code: string, limit = 40) =>
+    getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
   marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
   indexHistory: (symbol: "KOSPI" | "KOSDAQ", years = 3) =>
     getJSON<{ symbol: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(

@@ -5,6 +5,7 @@ import pandas as pd
 
 from app.data.naver_price_fetcher import NAVER_PAGE_SIZE, fetch_market_cap_page
 from app.data.stock_quote_fetcher import get_stock_quotes_bulk
+from app.data.universe import get_stock_market
 from app.services.cache import cache
 
 # Ranks by market cap refresh on three cadences — the top of the board is what carries
@@ -179,3 +180,40 @@ def get_kospi_map(limit: int = 500, fresh: bool = False) -> list[dict]:
 
 def get_kosdaq_map(limit: int = 200, fresh: bool = False) -> list[dict]:
     return _get_market_map("kosdaq", 1, limit, fresh)
+
+
+SECTOR_PEER_LIMIT = 40
+
+
+def get_sector_map(code: str, limit: int = SECTOR_PEER_LIMIT) -> dict:
+    """The sector cohort around one stock — what the dashboard draws beside the chart.
+
+    Deliberately built by filtering the full market map rather than by its own scrape:
+    those snapshots are already cached per Naver page and already carry live NXT-aware
+    quotes, and the keep-alive workflow warms exactly these two limits (KOSPI 500 /
+    KOSDAQ 200) every 10 minutes. So the common case costs no upstream request at all,
+    and every tile here shows the same number the full map would for that stock.
+
+    A stock outside its market's ranked window (a small cap below KOSPI's top 500) still
+    resolves a sector and still gets its cohort back; it just won't be among the tiles.
+    The caller decides what to do about that — there's no per-stock quote fetch here to
+    force it in, which would cost a round trip on exactly the page that can least
+    afford one.
+    """
+    market = get_stock_market(code) or "KOSPI"
+    ranked = get_kospi_map() if market == "KOSPI" else get_kosdaq_map()
+
+    sector = _classify_sector(_get_industry_map().get(code))
+    peers = [it for it in ranked if it["sector"] == sector][:limit]
+
+    total_marcap = sum(it["marcap"] for it in peers)
+    weighted_change = sum(it["change_pct"] * it["marcap"] for it in peers)
+
+    return {
+        "code": code,
+        "market": market,
+        "sector": sector,
+        "avg_change_pct": weighted_change / total_marcap if total_marcap > 0 else 0.0,
+        "count": len(peers),
+        "items": peers,
+    }

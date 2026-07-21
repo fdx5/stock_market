@@ -329,10 +329,101 @@ a.app-brand:hover .app-logo-wide {
   min-width: 0;
 }
 
+/* The dashboard's right-hand column. `align-self` overrides .layout's `align-items:
+   start` for this item only — /global still has a bare .side-panel as its grid item
+   and must keep hugging its content — so the column runs the full height of the chart
+   column beside it and .sector-map-card below can claim the leftover. */
+.side-col {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  align-self: stretch;
+  min-width: 0;
+}
+
 .side-panel {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* Sits under the discussion/news panel and takes the rest of the column: the chart
+   column is far the taller of the two, and that difference used to be dead space on
+   every desktop view. flex-basis 0 with grow means the leftover drives the height
+   rather than the content, and min-height keeps it from collapsing to nothing on the
+   short-lived layouts (initial load, a stock with no overview text) where the two
+   columns are briefly close in height. */
+/* Qualified with .card deliberately: this block sits above .card in the file, so at
+   equal specificity .card's own 18px/20px padding would win the tighter value below.
+   The map wants the extra ~12px of drawing width more than it wants the card gutter. */
+.card.sector-map-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 0;
+  min-height: 260px;
+  padding: 14px;
+}
+
+.sector-map-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sector-map-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+.sector-map-sector {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sector-map-avg {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* The positioning context the absolutely-placed .kospi-map-tile children measure
+   against — same contract as .kospi-map-canvas, but sized by the flex remainder
+   above instead of the fixed height a full-page map can afford. */
+.sector-map-canvas {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.sector-map-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* Marks the stock the page is about. An outline rather than a fill change, drawn
+   inside the tile so it can't be clipped by the neighbour that overlaps it. */
+.sector-map-tile--current {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+  z-index: 3;
 }
 
 .card {
@@ -2843,8 +2934,17 @@ thead .weekly-foreign-amount-col {
   margin-bottom: 28px;
 }
 
+/* The last zone used to zero this out and let the footer's own padding do the
+   separating, which was fine while the side column ended early and left the bottom
+   of the page mostly empty. Now both columns run to the same line — the chart
+   column's indicator panel and the side column's sector map — so that line met the
+   footer rule with only the footer's 20px under it, and three hard edges stacked up
+   against each other. Deliberately less than the 28px between zones: this is a gap
+   to a rule, not a break between two bands of content, and at the full zone rhythm
+   the page just trailed off. With the footer's own padding under it the cards clear
+   the rule by 12px and the footer text by 32px. */
 .dash-zone:last-of-type {
-  margin-bottom: 0;
+  margin-bottom: 12px;
 }
 
 .dash-zone-head {
@@ -3059,6 +3159,60 @@ thead .weekly-foreign-amount-col {
 
 .quick-access-clear:hover {
   color: var(--text-primary);
+}
+
+/* ── Quick access, mobile: three labelled rows collapse into a tab strip ──────
+   Rendered only below 640px (StockQuickAccess switches trees, it doesn't just
+   restyle), so these need no media query of their own — the markup they select
+   does not exist on a desktop. */
+.quick-access--mobile {
+  gap: 6px;
+}
+
+.quick-access-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.quick-access-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* Sized for a thumb, not a cursor: 32px tall and generously padded, since these
+   three are now the only way to reach two of the groups. */
+.quick-access-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* The selected tab is filled, not merely tinted: it is the only thing on screen
+   saying which of the three lists the chips underneath belong to. */
+.quick-access-tab.is-active {
+  border-color: transparent;
+  background: var(--text-primary);
+  color: var(--surface-1);
+}
+
+.quick-access-tab-count {
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.72;
 }
 
 /* ── Search dropdown suggestion groups ───────────────────────────────────── */
@@ -3435,6 +3589,33 @@ thead .weekly-foreign-amount-col {
     font-size: 17px;
     flex-shrink: 0;
   }
+
+  /* Note the name: .mobile-stock-bar-close above is the closing *price*, not this.
+     Deliberately quieter than the star beside it — dismissing the bar should be
+     available, not inviting, and it sits at the screen edge where a mis-tap while
+     scrolling is most likely. */
+  .mobile-stock-bar-dismiss {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    margin-right: -4px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: none;
+    color: var(--text-muted);
+    font-size: 17px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .mobile-stock-bar-dismiss:active {
+    background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+    color: var(--text-primary);
+  }
 }
 
 /* Responsive overrides live last so they win over the base rules above
@@ -3771,6 +3952,13 @@ thead .weekly-foreign-amount-col {
     padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom, 0px));
   }
 
+  /* Dismissed for the session (see mobileBarPreference.ts) — with no bar to clear,
+     that reserved strip is just dead space at the bottom of the page, so it goes
+     back to the plain mobile page padding. */
+  .app--dashboard.app--bar-dismissed {
+    padding-bottom: 48px;
+  }
+
   .dash-zone {
     margin-bottom: 22px;
   }
@@ -3779,18 +3967,10 @@ thead .weekly-foreign-amount-col {
     margin-bottom: 10px;
   }
 
-  /* The fixed-width label column is a desktop nicety — on a phone every pixel of
-     that 76px is better spent on the chips, so the label sits above its own row
-     instead of beside it. */
-  .quick-access-row {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-  }
-
-  .quick-access-label {
-    width: auto;
-  }
+  /* .quick-access-row / .quick-access-label have no mobile rules because they have no
+     mobile markup: StockQuickAccess renders the tab strip instead below this width.
+     Stacking the label over its own chips was the previous answer to the 76px label
+     column not fitting, and it cost a line per group — three groups, six lines. */
 
   .quick-access-chip {
     max-width: 150px;

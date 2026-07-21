@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.data.market_ticker_fetcher import get_market_ticker
 from app.data.price_fetcher import get_history
 from app.services.indicators import compute_indicators
-from app.services.market_map import get_kosdaq_map, get_kospi_map
+from app.services.market_map import SECTOR_PEER_LIMIT, get_kosdaq_map, get_kospi_map, get_sector_map
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
 from app.utils import dataframe_to_records
 
@@ -58,6 +58,14 @@ def nasdaq100_map(limit: int = Query(103, ge=1, le=103), fresh: bool = Query(Fal
         "count": len(items),
         "items": items,
     }
+
+
+@router.get("/sector-map")
+def sector_map(code: str = Query(..., min_length=6, max_length=6), limit: int = Query(SECTOR_PEER_LIMIT, ge=1, le=120)):
+    """Peers sharing the given stock's sector, sized and colored like the full market
+    map — the dashboard draws these into the space left beside its chart column."""
+    result = get_sector_map(code, limit)
+    return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), **result}
 
 
 @router.get("/ticker")

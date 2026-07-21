@@ -36,6 +36,11 @@ export const DICTIONARY: Record<string, string> = {
   "기록 삭제": "Clear",
   "관심종목에 추가": "Add to watchlist",
   "관심종목에서 제거": "Remove from watchlist",
+  // Short forms for the mobile tab strip, where the labels above are too long to
+  // fit three tabs across a phone.
+  "인기": "Hot",
+  "관심": "Saved",
+  "최근": "Recent",
 
   // Macro rates strip (USD/KRW, WTI)
   "원/달러 환율": "USD/KRW",
@@ -149,6 +154,11 @@ export const DICTIONARY: Record<string, string> = {
   "등락률": "Change %",
   "등락": "Change",
   "맵 면적 비중": "Map Area Share",
+  // Dashboard sector map (the treemap beside the chart column)
+  "업종 맵": "Sector Map",
+  "같은 업종의 종목을 찾지 못했습니다.": "No peers found in this sector.",
+  // Mobile bottom stock bar
+  "이번 접속 동안 숨기기": "Hide for this visit",
   "시총 500개 종목 데이터를 불러오는 중...": "Loading data for the top 500 stocks by market cap...",
   "코스피 시가총액 상위 500개": "KOSPI Top 500",
   "코스닥 시총 200개 종목 데이터를 불러오는 중...": "Loading data for the top 200 KOSDAQ stocks by market cap...",

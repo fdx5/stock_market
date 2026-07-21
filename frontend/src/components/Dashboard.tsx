@@ -4,6 +4,7 @@ import { syncTimeScales } from "../chartSync";
 import { trillionSuffix, wonSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
+import { useMobileBarDismissed } from "../mobileBarPreference";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { reportStockView } from "../useActivityTracking";
@@ -26,6 +27,7 @@ import OrderBookBalance from "./OrderBookBalance";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
 import RecentNewsDigest from "./RecentNewsDigest";
 import SearchBar from "./SearchBar";
+import SectorMapPanel from "./SectorMapPanel";
 import SidePanel from "./SidePanel";
 import StockIcon from "./StockIcon";
 import StockQuickAccess from "./StockQuickAccess";
@@ -235,6 +237,7 @@ export default function Dashboard() {
 
   const summaryName = useTranslatedText(summary?.name ?? "");
   const translatedOverview = useTranslatedTexts(overview);
+  const mobileBarDismissed = useMobileBarDismissed();
 
   // A bare "/" landing silently defaults `selected` to Samsung Electronics (see
   // the `useState` initializer above) rather than a real search or an incoming
@@ -270,8 +273,10 @@ export default function Dashboard() {
 
   return (
     // The modifier only exists so mobile can reserve room for the fixed bottom
-    // stock bar below — every other page keeps the plain .app padding.
-    <div className="app app--dashboard">
+    // stock bar below — every other page keeps the plain .app padding. Once the bar
+    // is dismissed for the session there is nothing left to reserve for, so the
+    // second modifier hands that strip back to the page.
+    <div className={`app app--dashboard ${mobileBarDismissed ? "app--bar-dismissed" : ""}`}>
       <header className="app-header">
         <div className="app-title-row">
           <div className="app-brand">
@@ -456,7 +461,13 @@ export default function Dashboard() {
             />
           </div>
 
-          <SidePanel code={selected.code} name={summaryName} news={news} />
+          {/* The side column stretches to the chart column's height (see .side-col in
+              styles.css) so the sector map can absorb whatever height the discussion
+              panel above it leaves over — on desktop that gap was most of the column. */}
+          <div className="side-col">
+            <SidePanel code={selected.code} name={summaryName} news={news} />
+            <SectorMapPanel code={selected.code} onSelectStock={selectStock} />
+          </div>
           </div>
         </section>
       )}
