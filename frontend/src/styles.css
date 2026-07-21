@@ -1399,6 +1399,157 @@ a.app-brand:hover .app-logo-wide {
   color: white;
 }
 
+/* ── Rotating alert beacon on the 급등/급락 tabs ─────────────────────────────
+   One rotation period drives all three layers. The lamp carries two opposed light
+   cones, so the front-facing flash happens twice per turn — hence the halo and core
+   run at half the sweep's duration, which is what makes the flash land exactly as a
+   cone crosses the front instead of drifting against it. */
+.market-overview-tab--beacon {
+  position: relative;
+  /* Clears the beacon's own box (see .tab-beacon below) so the label never sits
+     under the light — the side beams make it wider than it is tall. */
+  padding-left: 28px;
+}
+
+.tab-beacon {
+  position: absolute;
+  /* Parked in the button's top-left corner rather than centred: it reads as a
+     warning lamp mounted on the tab, not as a leading icon. Everything stays inside
+     the button's own box — the tab bar scrolls with overflow-y:hidden on mobile and
+     would clip anything poking above it. */
+  top: 3px;
+  left: 4px;
+  width: 20px;
+  height: 13px;
+  pointer-events: none;
+  /* Orange, not the up-colour red: this is a warning lamp, and orange is what a
+     real one is. It also stops the beacon from reading as another price-direction
+     cue next to the red/blue numbers in the tables below. */
+  --beacon: var(--series-orange);
+}
+
+.tab-beacon--down {
+  --beacon: var(--down-color);
+}
+
+/* Mount the lamp sits on. Neutral rather than tinted so the coloured glass reads as
+   the only lit part. */
+.tab-beacon-base {
+  position: absolute;
+  left: 4px;
+  bottom: 0;
+  width: 12px;
+  height: 3px;
+  border-radius: 1px 1px 2px 2px;
+  background: color-mix(in srgb, var(--text-primary) 55%, transparent);
+}
+
+/* The glass itself — domed top, flat where it meets the base. */
+.tab-beacon-dome {
+  position: absolute;
+  left: 5px;
+  top: 3px;
+  width: 10px;
+  height: 8px;
+  border-radius: 5px 5px 1.5px 1.5px;
+  background: radial-gradient(
+    circle at 34% 26%,
+    color-mix(in srgb, var(--beacon) 15%, white) 0%,
+    var(--beacon) 55%,
+    color-mix(in srgb, var(--beacon) 72%, black) 100%
+  );
+  animation: tab-beacon-flare 0.7s ease-in-out infinite;
+}
+
+.tab-beacon-glow {
+  position: absolute;
+  left: 1px;
+  top: 0;
+  width: 18px;
+  height: 13px;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--beacon) 50%, transparent) 0%, transparent 68%);
+  animation: tab-beacon-flare 0.7s ease-in-out infinite;
+}
+
+/* Light thrown sideways out of the dome. Each beam is a wedge that widens as it
+   travels, faded to nothing at its tip. */
+.tab-beacon-beam {
+  position: absolute;
+  top: 3px;
+  width: 5px;
+  height: 8px;
+  animation: tab-beacon-beam 1.4s ease-in-out infinite;
+}
+
+.tab-beacon-beam--right {
+  right: 0;
+  transform-origin: left center;
+  clip-path: polygon(0 38%, 100% 0, 100% 100%, 0 62%);
+  background: linear-gradient(to right, color-mix(in srgb, var(--beacon) 85%, transparent), transparent 92%);
+}
+
+/* Half a cycle behind its partner, so the light swings one way and then the other
+   the way a turning reflector actually throws it. */
+.tab-beacon-beam--left {
+  left: 0;
+  transform-origin: right center;
+  clip-path: polygon(100% 38%, 0 0, 0 100%, 100% 62%);
+  background: linear-gradient(to left, color-mix(in srgb, var(--beacon) 85%, transparent), transparent 92%);
+  animation-delay: -0.7s;
+}
+
+/* On the active tab the pill turns solid --series-blue, which would swallow the
+   blue beacon whole. White keeps both lamps legible; the red/blue coding still
+   reads from the inactive tab beside it. */
+.market-overview-tab.active .tab-beacon {
+  --beacon: #fff;
+}
+
+/* One beam's full cycle: flare out, retract, then stay dark while the opposite beam
+   takes its turn. */
+@keyframes tab-beacon-beam {
+  0%,
+  100% {
+    opacity: 0;
+    transform: scaleX(0.5);
+  }
+  14% {
+    opacity: 0.95;
+    transform: scaleX(1);
+  }
+  38% {
+    opacity: 0;
+    transform: scaleX(0.5);
+  }
+}
+
+/* Half the beam period, because the lamp faces front once on every half turn. */
+@keyframes tab-beacon-flare {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Still a lit lamp, just not a turning one — the beams settle at a steady, even
+     spread instead of disappearing entirely. */
+  .tab-beacon-dome,
+  .tab-beacon-glow {
+    animation: none;
+  }
+
+  .tab-beacon-beam {
+    animation: none;
+    opacity: 0.5;
+    transform: scaleX(0.8);
+  }
+}
+
 .top50-table-wrap {
   /* Sized to show ~5 data rows before scrolling (50 stocks total). */
   max-height: 180px;
@@ -3678,6 +3829,16 @@ thead .weekly-foreign-amount-col {
     flex-shrink: 0;
     font-size: 12px;
     padding: 7px 11px;
+  }
+
+  /* The beacon keeps its size on mobile — shrinking it any further would lose the
+     sweep — so only the label's clearance tightens with the rest of the padding. */
+  .market-overview-tab--beacon {
+    padding-left: 26px;
+  }
+
+  .tab-beacon {
+    left: 3px;
   }
 
   .indicator-badge {

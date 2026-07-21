@@ -13,6 +13,7 @@ import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedText
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import MacroRatesStrip from "./MacroRatesStrip";
+import TabBeacon from "./TabBeacon";
 
 type Tab = "top50" | "kosdaq50" | "gainers" | "losers" | "investor" | "foreignBuyTop20" | "foreignSellTop20";
 
@@ -557,16 +558,18 @@ export default function MarketOverviewPanel({
           </button>
           <button
             type="button"
-            className={`market-overview-tab ${tab === "gainers" ? "active" : ""}`}
+            className={`market-overview-tab market-overview-tab--beacon ${tab === "gainers" ? "active" : ""}`}
             onClick={() => setTab("gainers")}
           >
+            <TabBeacon tone="up" />
             {t("급등 TOP")}
           </button>
           <button
             type="button"
-            className={`market-overview-tab ${tab === "losers" ? "active" : ""}`}
+            className={`market-overview-tab market-overview-tab--beacon ${tab === "losers" ? "active" : ""}`}
             onClick={() => setTab("losers")}
           >
+            <TabBeacon tone="down" />
             {t("급락 TOP")}
           </button>
           <button
