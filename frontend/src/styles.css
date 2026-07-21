@@ -267,6 +267,9 @@ a.app-brand:hover .app-logo-wide {
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   max-height: 320px;
   overflow-y: auto;
+  /* Scrolling to the end of the suggestions must not carry on into the page
+     behind the dropdown. */
+  overscroll-behavior: contain;
 }
 
 .search-option {
@@ -847,6 +850,11 @@ a.app-brand:hover .app-logo-wide {
   gap: 2px;
   max-height: 480px;
   overflow-y: auto;
+  /* Desktop keeps the capped column (it sits beside the charts, so its height is
+     what holds the two columns in balance) — `contain` stops a wheel gesture that
+     bottoms out here from continuing into the page. Below 920px the cap is lifted
+     entirely; see the responsive block. */
+  overscroll-behavior: contain;
 }
 
 .board-row-wrap:last-child .board-row {
@@ -873,13 +881,17 @@ a.app-brand:hover .app-logo-wide {
   background: color-mix(in srgb, var(--text-primary) 6%, var(--surface-1));
 }
 
+/* Board titles wrap instead of ellipsing. Truncation hid the one part of a row
+   that decides whether it's worth opening — and on a phone, where the column is
+   narrowest, it was cutting most titles mid-word. break-word covers the pathological
+   case (an unbroken run of characters with no spaces) so a title can never push the
+   row wider than the panel. */
 .board-row-title {
   font-size: 13px;
   color: var(--text-primary);
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .board-row-meta {
@@ -947,6 +959,7 @@ a.app-brand:hover .app-logo-wide {
   gap: 10px;
   max-height: 320px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .board-comments-list li {
@@ -1252,11 +1265,112 @@ a.app-brand:hover .app-logo-wide {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── USD/KRW + WTI, under the index tiles ────────────────────────────────────
+   Deliberately a step quieter than .index-tile above it: no border box, a lighter
+   surface tint, and a smaller value size — these are context for the index, not
+   peers of it. */
+.macro-rates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.macro-rates--inline {
+  margin-top: 2px;
+}
+
+/* On the global page these stand alone under the index grid rather than hanging off
+   the index tiles, so they take that grid's own spacing and tile chrome — same gap,
+   same border/surface/padding as .global-index-tile — instead of the quieter inline
+   treatment. Two visually different tile styles stacked would read as two unrelated
+   widgets. */
+.macro-rates--card {
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.macro-rate-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.macro-rates--card .macro-rate-tile {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+}
+
+/* The source art is a circular disc with its own baked-in backdrop, so it gets no
+   ring, border, or shadow of its own here — anything extra would read as a second
+   outline around an already-round icon. */
+.macro-rate-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.macro-rate-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+
+.macro-rate-label {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.macro-rate-sublabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.macro-rate-value {
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.macro-rate-change {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.macro-rate-spark {
+  width: 62px;
+  height: 30px;
+  flex: none;
+}
+
 .investor-table-wrap {
   /* Sized to show ~5 data rows before scrolling (100 stocks total). */
   max-height: 180px;
   overflow-y: auto;
   overflow-x: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -1290,6 +1404,11 @@ a.app-brand:hover .app-logo-wide {
   max-height: 180px;
   overflow-y: auto;
   overflow-x: auto;
+  /* These two ranking tables keep their inner scroll at every width — 50 rows
+     (200 for the movers) released into page flow would bury everything below
+     them. `contain` is the compromise: the list scrolls on its own, but hitting
+     either end stops there instead of grabbing the page and yanking it. */
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -1640,14 +1759,21 @@ thead .weekly-foreign-amount-col {
    Lives on ::after (painted last, so it passes over the icon+text) and is clipped to
    the pill by the parent's `overflow: hidden`; `pointer-events: none` keeps it from
    blocking clicks/hover on the link underneath. */
+/* Travels on `transform`, not `left`. Animating `left` re-ran layout on every frame
+   of every one of these pills (seven of them, on every page, forever) — the sweep
+   looks identical either way, but only this version stays on the compositor. The
+   422% is that same -60%..130% journey expressed in multiples of the streak's own
+   width (190% of the pill / 45% of the pill), since translateX percentages resolve
+   against the element, not its parent. skewX is repeated in each frame because a
+   transform keyframe replaces the property outright. */
 @keyframes nav-pill-shimmer {
   0%,
   55% {
-    left: -60%;
+    transform: translateX(0) skewX(-20deg);
   }
   75%,
   100% {
-    left: 130%;
+    transform: translateX(422%) skewX(-20deg);
   }
 }
 
@@ -1686,6 +1812,7 @@ thead .weekly-foreign-amount-col {
   );
   transform: skewX(-20deg);
   animation: nav-pill-shimmer 3.2s ease-in-out infinite;
+  will-change: transform;
   pointer-events: none;
 }
 
@@ -2124,6 +2251,12 @@ thead .weekly-foreign-amount-col {
   border-radius: 8px;
   background: var(--surface-1);
   margin-bottom: 16px;
+  /* Walls the belt off from the rest of the page: layout and paint work inside it
+     (a 5s data refresh touching 44 cards) can't invalidate anything outside, and
+     nothing outside can force it to re-lay-out. The belt is the one element here
+     that animates continuously, so it's the one that most needs the isolation —
+     on the dashboard it sits among three chart canvases and a dozen live panels. */
+  contain: layout paint;
 }
 
 .ticker-track {
@@ -2134,6 +2267,10 @@ thead .weekly-foreign-amount-col {
   /* The track holds the item list twice; animating exactly one set's width
      (0% -> -50%) makes the loop seamless. Direction is right-to-left by design. */
   animation: ticker-scroll 46s linear infinite;
+  /* Promotes the track to its own compositor layer up front, so the animation runs
+     off the main thread and stays smooth while React is busy elsewhere on the page
+     — rather than the browser discovering it needs a layer mid-animation. */
+  will-change: transform;
 }
 
 @keyframes ticker-scroll {
@@ -2554,6 +2691,565 @@ thead .weekly-foreign-amount-col {
   font-size: 13px;
 }
 
+/* ── Dashboard zones ──────────────────────────────────────────────────────────
+   The dashboard stacks two unrelated things: the market as a whole, then one
+   stock in depth. Without a break between them the page reads as one endless
+   column of cards, so each zone gets a quiet label + rule rather than another
+   boxed container (which would mean a card inside a card inside a card). */
+.dash-zone {
+  margin-bottom: 28px;
+}
+
+.dash-zone:last-of-type {
+  margin-bottom: 0;
+}
+
+.dash-zone-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dash-zone-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Fills whatever the title leaves — a hairline that carries the eye across the
+   break without adding another border-box to the page. */
+.dash-zone-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--gridline);
+}
+
+.dash-subzone-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* ── Quick access strip (popular / favourites / recents) ──────────────────── */
+.quick-access {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quick-access-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.quick-access-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+  /* Keeps the three row labels left-aligned as a column even though each row is
+     its own flex line — without it the chips start at a different x per row and
+     the strip reads as ragged. */
+  width: 76px;
+}
+
+.quick-access-label-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* Chips scroll sideways instead of wrapping: a wrapped row silently doubles the
+   header's height on the exact screens that can least afford it, and horizontal
+   scroll is the established pattern on this page (see .app-nav-row). */
+.quick-access-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding: 2px 0;
+  /* Fades the last chip out at the right edge so a cut-off chip reads as "more
+     to scroll" rather than as a rendering glitch. */
+  mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent 100%);
+}
+
+.quick-access-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-access-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 168px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.quick-access-chip:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.quick-access-chip.is-active {
+  border-color: var(--series-blue);
+  background: color-mix(in srgb, var(--series-blue) 12%, var(--surface-1));
+  color: var(--text-primary);
+}
+
+.quick-access-chip--skeleton {
+  width: 96px;
+  height: 28px;
+  cursor: default;
+  background: linear-gradient(
+    90deg,
+    var(--surface-1) 25%,
+    color-mix(in srgb, var(--text-primary) 6%, var(--surface-1)) 37%,
+    var(--surface-1) 63%
+  );
+  background-size: 400% 100%;
+  animation: admin-shimmer 1.4s ease infinite;
+}
+
+.quick-access-rank {
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  min-width: 9px;
+  text-align: center;
+}
+
+.quick-access-rank.is-top {
+  color: var(--up-color);
+}
+
+.quick-access-chip-logo {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.quick-access-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A starred chip carries its own remove control, which can't be a <button> inside
+   a <button> — the wrapper turns into the chip and the two children split it. */
+.quick-access-chip--removable {
+  padding: 0 4px 0 10px;
+  gap: 2px;
+}
+
+.quick-access-chip-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 5px 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.quick-access-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.quick-access-chip-remove:hover {
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  color: var(--text-primary);
+}
+
+.quick-access-clear {
+  flex-shrink: 0;
+  padding: 5px 8px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.quick-access-clear:hover {
+  color: var(--text-primary);
+}
+
+/* ── Search dropdown suggestion groups ───────────────────────────────────── */
+.search-group + .search-group {
+  border-top: 1px solid var(--gridline);
+}
+
+.search-group-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+/* ── Market status pill ──────────────────────────────────────────────────── */
+.market-overview-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.market-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.market-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.market-status-pill.is-open {
+  color: var(--status-good);
+  border-color: color-mix(in srgb, var(--status-good) 45%, transparent);
+}
+
+.market-status-pill.is-open .market-status-dot {
+  background: var(--status-good);
+  animation: market-status-pulse 2s ease-in-out infinite;
+}
+
+.market-status-pill.is-pre {
+  color: var(--status-warning);
+  border-color: color-mix(in srgb, var(--status-warning) 45%, transparent);
+}
+
+.market-status-pill.is-pre .market-status-dot {
+  background: var(--status-warning);
+}
+
+@keyframes market-status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-good) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .market-status-pill.is-open .market-status-dot {
+    animation: none;
+  }
+}
+
+/* ── Gainers / losers table ──────────────────────────────────────────────── */
+.movers-table .top50-table-name button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* KOSPI and KOSDAQ names sit in one ranking here, so each row has to say which
+   board it came from — a two-letter tag rather than a full word, since this
+   column is the one that has to survive the narrowest phone. */
+.movers-market-tag {
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-primary) 9%, transparent);
+  color: var(--text-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+/* ── Technical signal badges ─────────────────────────────────────────────── */
+.indicator-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+
+.indicator-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.indicator-badge.is-bull {
+  color: var(--up-color);
+  background: color-mix(in srgb, var(--up-color) 12%, transparent);
+  border-color: color-mix(in srgb, var(--up-color) 32%, transparent);
+}
+
+.indicator-badge.is-bear {
+  color: var(--down-color);
+  background: color-mix(in srgb, var(--down-color) 12%, transparent);
+  border-color: color-mix(in srgb, var(--down-color) 32%, transparent);
+}
+
+.indicator-badge.is-warn {
+  color: var(--status-warning);
+  background: color-mix(in srgb, var(--status-warning) 12%, transparent);
+  border-color: color-mix(in srgb, var(--status-warning) 32%, transparent);
+}
+
+.indicator-badge.is-neutral {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border-color: var(--border);
+}
+
+/* ── Order book balance bar ──────────────────────────────────────────────── */
+.orderbook-balance {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 2px;
+}
+
+.orderbook-balance-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.orderbook-balance-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.orderbook-balance-lean {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.orderbook-balance-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--gridline);
+}
+
+.orderbook-balance-fill {
+  height: 100%;
+  transition: width 0.4s ease;
+}
+
+.orderbook-balance-fill.is-bid {
+  background: var(--up-color);
+}
+
+.orderbook-balance-fill.is-ask {
+  background: var(--down-color);
+}
+
+.orderbook-balance-legend {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Favourite star ──────────────────────────────────────────────────────── */
+.favorite-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 32px square: comfortably over the ~28px minimum for a reliable thumb tap,
+     without visually competing with the stock name it sits beside. */
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.favorite-button:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--status-warning);
+}
+
+.favorite-button.is-on {
+  color: var(--status-warning);
+}
+
+.favorite-button.is-on:active {
+  transform: scale(0.88);
+}
+
+/* ── Mobile stock bar ────────────────────────────────────────────────────── */
+/* Hidden outright above the phone breakpoint: on a desktop the stock header is
+   only ever a short scroll away, and a permanent bottom bar there would just eat
+   viewport from the charts. */
+.mobile-stock-bar {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .mobile-stock-bar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    /* Clears the iOS home indicator instead of sitting under it. */
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border);
+    /* visibility (not just opacity) so the star inside leaves the tab order
+       entirely while the bar is hidden. */
+    visibility: hidden;
+    opacity: 0;
+    transform: translateY(100%);
+    transition: transform 0.22s ease, opacity 0.22s ease, visibility 0.22s;
+  }
+
+  .mobile-stock-bar.is-visible {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-stock-bar {
+      transition: none;
+    }
+  }
+
+  .mobile-stock-bar-id {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .mobile-stock-bar-logo {
+    width: 18px;
+    height: 18px;
+    object-fit: contain;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+
+  .mobile-stock-bar-name {
+    font-size: 13px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-stock-bar-price {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .mobile-stock-bar-close {
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .mobile-stock-bar-change {
+    font-size: 10px;
+    font-weight: 600;
+  }
+
+  .mobile-stock-bar-star {
+    width: 30px;
+    height: 30px;
+    font-size: 17px;
+    flex-shrink: 0;
+  }
+}
+
 /* Responsive overrides live last so they win over the base rules above
    regardless of selector order (equal specificity => source order decides). */
 @media (max-width: 920px) {
@@ -2561,9 +3257,16 @@ thead .weekly-foreign-amount-col {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* A second nested scrollbar inside the news panel is awkward once it sits
-     below the main column instead of beside it — let it flow with the page. */
-  .news-list {
+  /* Below this width the side panel stops being a fixed-height column beside the
+     charts and becomes a full-width block under them — at which point every
+     capped, independently scrolling list inside it is a scroll trap: a drag that
+     starts over the list scrolls the list, not the page, and only chains to the
+     page once the list bottoms out. Releasing the caps lets all of it scroll as
+     one document, which is the only behaviour that feels right on touch. */
+  .news-list,
+  .board-list,
+  .board-comments-list,
+  .global-board-comments-list {
     max-height: none;
     overflow-y: visible;
   }
@@ -2789,6 +3492,149 @@ thead .weekly-foreign-amount-col {
   .index-tile-investor {
     font-size: 10px;
     gap: 1px;
+  }
+
+  /* Two tiles still fit side by side at phone widths, but only once the
+     decorative sparkline and the latin sublabel give up their space — the number
+     itself is the part that has to stay legible. */
+  .macro-rates {
+    gap: 8px;
+  }
+
+  .macro-rate-tile {
+    gap: 8px;
+    padding: 8px 9px;
+  }
+
+  .macro-rate-icon {
+    width: 28px;
+    height: 28px;
+  }
+
+  .macro-rate-spark,
+  .macro-rate-sublabel {
+    display: none;
+  }
+
+  /* The card variant goes single-column here, exactly like the .global-index-grid
+     it sits under — which leaves a full row per tile, so the sparkline and sublabel
+     it just gave up are affordable again. */
+  .macro-rates--card {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .macro-rates--card .macro-rate-tile {
+    padding: 12px 14px;
+  }
+
+  .macro-rates--card .macro-rate-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .macro-rates--card .macro-rate-spark {
+    display: block;
+    width: 84px;
+  }
+
+  .macro-rates--card .macro-rate-sublabel {
+    display: inline;
+  }
+
+  .macro-rates--card .macro-rate-value {
+    font-size: 15px;
+  }
+
+  .macro-rates--card .macro-rate-label,
+  .macro-rates--card .macro-rate-change {
+    font-size: 11px;
+  }
+
+  .macro-rate-value {
+    font-size: 13px;
+  }
+
+  .macro-rate-label,
+  .macro-rate-change {
+    font-size: 10px;
+  }
+
+  /* Reserves room for the fixed bottom stock bar so the footer (and the last
+     card's final line) can still be scrolled clear of it. */
+  .app--dashboard {
+    padding-bottom: calc(48px + 52px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .dash-zone {
+    margin-bottom: 22px;
+  }
+
+  .dash-zone-head {
+    margin-bottom: 10px;
+  }
+
+  /* The fixed-width label column is a desktop nicety — on a phone every pixel of
+     that 76px is better spent on the chips, so the label sits above its own row
+     instead of beside it. */
+  .quick-access-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .quick-access-label {
+    width: auto;
+  }
+
+  .quick-access-chip {
+    max-width: 150px;
+    /* Slightly taller than desktop: these are the page's primary one-tap
+       shortcuts and need to survive an imprecise thumb. */
+    padding: 6px 11px;
+  }
+
+  .quick-access-chips {
+    gap: 5px;
+  }
+
+  /* Seven tabs cannot wrap into three lines on a phone without pushing the table
+     itself below the fold — same single-row scroll treatment as .app-nav-row. */
+  .market-overview-tab-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .market-overview-tab-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .market-overview-tab {
+    flex-shrink: 0;
+    font-size: 12px;
+    padding: 7px 11px;
+  }
+
+  .indicator-badge {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+
+  .orderbook-balance-legend,
+  .orderbook-balance-title,
+  .orderbook-balance-lean {
+    font-size: 10px;
+  }
+
+  /* The star must not be squeezed between the name and the price line when the
+     header wraps — it keeps its own slot right after the name. */
+  .stock-header .favorite-button {
+    width: 30px;
+    height: 30px;
+    font-size: 18px;
   }
 }
 

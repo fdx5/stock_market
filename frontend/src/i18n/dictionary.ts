@@ -24,6 +24,61 @@ export const DICTIONARY: Record<string, string> = {
   "추정PER": "Est. PER",
   "상장주식수": "Shares Outstanding",
 
+  // Dashboard zones
+  "마켓 개요": "Market Overview",
+  "종목 상세": "Stock Detail",
+  "글로벌 지수": "Global Indices",
+
+  // Quick access strip / search suggestions
+  "실시간 인기": "Trending",
+  "관심종목": "Watchlist",
+  "최근 본 종목": "Recently Viewed",
+  "기록 삭제": "Clear",
+  "관심종목에 추가": "Add to watchlist",
+  "관심종목에서 제거": "Remove from watchlist",
+
+  // Macro rates strip (USD/KRW, WTI)
+  "원/달러 환율": "USD/KRW",
+  "국제유가": "Crude Oil",
+
+  // Market session status
+  "장중": "Open",
+  "장마감": "Closed",
+  "장 시작 전": "Pre-market",
+
+  // Gainers / losers tab
+  "급등 TOP": "Top Gainers",
+  "급락 TOP": "Top Losers",
+  "코스피·코스닥 시총 200위 이내 종목의 당일 등락률 순위입니다. · KP=코스피, KQ=코스닥":
+    "Ranked by today's move among the top 200 stocks by market cap on each board. · KP=KOSPI, KQ=KOSDAQ",
+
+  // Technical signal badges
+  "정배열": "Bullish MA Stack",
+  "역배열": "Bearish MA Stack",
+  "5일선 > 20일선 > 60일선": "MA5 > MA20 > MA60",
+  "5일선 < 20일선 < 60일선": "MA5 < MA20 < MA60",
+  "골든크로스": "Golden Cross",
+  "데드크로스": "Death Cross",
+  "5일선이 20일선을 상향 돌파": "MA5 crossed above MA20",
+  "5일선이 20일선을 하향 돌파": "MA5 crossed below MA20",
+  "과매수": "Overbought",
+  "과매도": "Oversold",
+  "중립": "Neutral",
+  "RSI(14) · 70 이상 과매수, 30 이하 과매도": "RSI(14) · 70+ overbought, 30- oversold",
+  "볼린저 상단": "Above Upper Band",
+  "볼린저 하단": "Below Lower Band",
+  "종가가 볼린저밴드 상단 위": "Close is above the upper Bollinger band",
+  "종가가 볼린저밴드 하단 아래": "Close is below the lower Bollinger band",
+  "거래량 급증": "Volume Spike",
+  "20일 평균 거래량 대비": "vs. the 20-day average volume",
+
+  // Order book balance bar
+  "호가 잔량": "Order Book Depth",
+  "매수 우위": "Bids Lead",
+  "매도 우위": "Asks Lead",
+  "매수": "Bid",
+  "매도": "Ask",
+
   // Battle page (TugOfWarPage)
   "시총 줄다리기 (삼성전자 VS SK하이닉스)": "Market Cap Tug-of-War (Samsung Electronics VS SK Hynix)",
   "시총대결": "Market Cap Battle",

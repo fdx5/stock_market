@@ -1,10 +1,6 @@
-import { useEffect, useState } from "react";
-import { MarketTickerItem, api } from "../api/client";
-import { startVisibilityAwareInterval } from "../pollVisibility";
-
-// Backend TTL_TICKER_SECONDS is 10s, so anything faster than that just re-fetches
-// the same cached snapshot from our own API.
-const TICKER_POLL_MS = 5_000;
+import { memo } from "react";
+import { MarketTickerItem } from "../api/client";
+import { useMarketTicker } from "../useMarketTicker";
 
 const ICONS: Record<string, string> = {
   "KRW=X": "/img/ticker/usdkrw.png",
@@ -64,47 +60,38 @@ function Sparkline({ points, up }: { points: number[]; up: boolean }) {
   );
 }
 
-function TickerCard({ item }: { item: MarketTickerItem }) {
-  const up = item.change >= 0;
-  return (
-    <div className="ticker-card">
-      <TickerIcon symbol={item.symbol} label={item.label} />
-      <div className="ticker-card-label">{item.label}</div>
-      <Sparkline points={item.points} up={up} />
-      <div className="ticker-card-price">
-        <span className="ticker-card-value">{formatPrice(item)}</span>
-        <span className={`ticker-card-change ${up ? "change-up" : "change-down"}`}>
-          {up ? "▲" : "▼"} {Math.abs(item.change_pct).toFixed(2)}%
-        </span>
+/** Memoised on the fields it actually paints. The belt holds 44 cards (the symbol
+ * list twice), and a refresh typically moves only a handful of them — without this,
+ * every poll rebuilt all 44 sparkline paths mid-animation. `points` is compared by
+ * identity, which is exactly right: the fetch hands back a fresh array only when new
+ * data arrived for that symbol. */
+const TickerCard = memo(
+  function TickerCard({ item }: { item: MarketTickerItem }) {
+    const up = item.change >= 0;
+    return (
+      <div className="ticker-card">
+        <TickerIcon symbol={item.symbol} label={item.label} />
+        <div className="ticker-card-label">{item.label}</div>
+        <Sparkline points={item.points} up={up} />
+        <div className="ticker-card-price">
+          <span className="ticker-card-value">{formatPrice(item)}</span>
+          <span className={`ticker-card-change ${up ? "change-up" : "change-down"}`}>
+            {up ? "▲" : "▼"} {Math.abs(item.change_pct).toFixed(2)}%
+          </span>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  },
+  (prev, next) =>
+    prev.item.symbol === next.item.symbol &&
+    prev.item.price === next.item.price &&
+    prev.item.change === next.item.change &&
+    prev.item.change_pct === next.item.change_pct &&
+    prev.item.points === next.item.points
+);
 
 export default function MarketTickerBar() {
-  const [items, setItems] = useState<MarketTickerItem[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = () => {
-      api
-        .marketTicker()
-        .then((res) => {
-          if (!cancelled) setItems(res.items);
-        })
-        .catch(() => {
-          // A missed refresh just keeps the belt moving with the last known values.
-        });
-    };
-
-    load();
-    const stopPolling = startVisibilityAwareInterval(load, TICKER_POLL_MS);
-    return () => {
-      cancelled = true;
-      stopPolling();
-    };
-  }, []);
+  const items = useMarketTicker();
 
   if (items.length === 0) return <div className="ticker-bar" />;
 

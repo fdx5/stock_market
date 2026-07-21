@@ -6,6 +6,13 @@ export interface StockSearchResult {
   market: string;
 }
 
+export interface PopularStock {
+  code: string;
+  name: string;
+  market: string;
+  count: number;
+}
+
 export interface OhlcvPoint {
   date: string;
   open: number;
@@ -297,6 +304,7 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 
 export const api = {
   search: (q: string) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
+  popularSearches: (limit = 8) => getJSON<{ items: PopularStock[] }>(`${BASE}/search/popular?limit=${limit}`),
   summary: (code: string) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`),
   quote: (code: string) => getJSON<StockQuote>(`${BASE}/stock/${code}/quote`),
   overview: (code: string) => getJSON<CompanyOverview>(`${BASE}/stock/${code}/overview`),

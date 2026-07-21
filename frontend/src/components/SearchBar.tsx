@@ -1,11 +1,22 @@
-import { KeyboardEvent, useEffect, useRef, useState } from "react";
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api, StockSearchResult } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
+import { usePopularStocks } from "../usePopularStocks";
+import { useWatchlist } from "../useWatchlist";
 import StockIcon from "./StockIcon";
 
 interface Props {
   onSelect: (stock: StockSearchResult) => void;
+}
+
+const SUGGESTION_LIMIT = 6;
+
+interface SuggestionGroup {
+  key: string;
+  label: string;
+  icon: string;
+  items: StockSearchResult[];
 }
 
 export default function SearchBar({ onSelect }: Props) {
@@ -15,13 +26,14 @@ export default function SearchBar({ onSelect }: Props) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
-  const translatedNames = useTranslatedTexts(results.map((r) => r.name));
+  const { favorites, recents } = useWatchlist();
+  const popular = usePopularStocks(SUGGESTION_LIMIT);
 
   useEffect(() => {
     const trimmed = query.trim();
     if (!trimmed) {
       setResults([]);
-      setOpen(false);
+      setActiveIndex(-1);
       return;
     }
     const handle = setTimeout(() => {
@@ -50,6 +62,44 @@ export default function SearchBar({ onSelect }: Props) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Shown when the box is focused but empty — the old behaviour was a dead
+  // dropdown until the visitor typed. Favourites first (an explicit choice), then
+  // their own history, then what everyone else is watching. A stock already listed
+  // in a higher group is skipped rather than repeated down the list.
+  const suggestionGroups = useMemo<SuggestionGroup[]>(() => {
+    const seen = new Set<string>();
+    const take = (items: StockSearchResult[]) => {
+      const picked: StockSearchResult[] = [];
+      for (const item of items) {
+        if (seen.has(item.code)) continue;
+        seen.add(item.code);
+        picked.push(item);
+        if (picked.length >= SUGGESTION_LIMIT) break;
+      }
+      return picked;
+    };
+
+    const groups: SuggestionGroup[] = [
+      { key: "favorites", label: t("관심종목"), icon: "★", items: take(favorites) },
+      { key: "recents", label: t("최근 본 종목"), icon: "🕘", items: take(recents) },
+      {
+        key: "popular",
+        label: t("실시간 인기"),
+        icon: "🔥",
+        items: take(
+          (popular ?? []).map((item) => ({ code: item.code, name: item.name, market: item.market }))
+        ),
+      },
+    ];
+    return groups.filter((group) => group.items.length > 0);
+  }, [favorites, recents, popular, t]);
+
+  const isSuggesting = query.trim().length === 0;
+  // One flat list behind the grouped rendering, so arrow keys walk the whole
+  // dropdown in visual order regardless of which group a row belongs to.
+  const navigable = isSuggesting ? suggestionGroups.flatMap((group) => group.items) : results;
+  const translatedNames = useTranslatedTexts(navigable.map((r) => r.name));
+
   function choose(stock: StockSearchResult) {
     onSelect(stock);
     setQuery(`${stock.name} (${stock.code})`);
@@ -60,16 +110,19 @@ export default function SearchBar({ onSelect }: Props) {
     if (!open) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setActiveIndex((prev) => Math.min(prev + 1, results.length - 1));
+      setActiveIndex((prev) => Math.min(prev + 1, navigable.length - 1));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setActiveIndex((prev) => Math.max(prev - 1, 0));
     } else if (e.key === "Enter" && activeIndex >= 0) {
-      choose(results[activeIndex]);
+      choose(navigable[activeIndex]);
     } else if (e.key === "Escape") {
       setOpen(false);
     }
   }
+
+  const showDropdown = open && navigable.length > 0;
+  let flatIndex = -1;
 
   return (
     <div className="search-wrap" ref={containerRef}>
@@ -79,23 +132,49 @@ export default function SearchBar({ onSelect }: Props) {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
-        onFocus={() => results.length > 0 && setOpen(true)}
+        onFocus={() => setOpen(true)}
       />
-      {open && (
+      {showDropdown && (
         <div className="search-dropdown">
-          {results.map((r, idx) => (
-            <div
-              key={r.code}
-              className={`search-option ${idx === activeIndex ? "active" : ""}`}
-              onMouseDown={() => choose(r)}
-            >
-              <span className="search-option-name">
-                <StockIcon className="search-option-logo" code={r.code} />
-                {translatedNames[idx] ?? r.name}
-              </span>
-              <span className="code">{r.code}</span>
-            </div>
-          ))}
+          {isSuggesting
+            ? suggestionGroups.map((group) => (
+                <div key={group.key} className="search-group">
+                  <div className="search-group-label">
+                    <span aria-hidden="true">{group.icon}</span>
+                    {group.label}
+                  </div>
+                  {group.items.map((item) => {
+                    flatIndex += 1;
+                    const idx = flatIndex;
+                    return (
+                      <div
+                        key={`${group.key}-${item.code}`}
+                        className={`search-option ${idx === activeIndex ? "active" : ""}`}
+                        onMouseDown={() => choose(item)}
+                      >
+                        <span className="search-option-name">
+                          <StockIcon className="search-option-logo" code={item.code} />
+                          {translatedNames[idx] ?? item.name}
+                        </span>
+                        <span className="code">{item.code}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))
+            : results.map((r, idx) => (
+                <div
+                  key={r.code}
+                  className={`search-option ${idx === activeIndex ? "active" : ""}`}
+                  onMouseDown={() => choose(r)}
+                >
+                  <span className="search-option-name">
+                    <StockIcon className="search-option-logo" code={r.code} />
+                    {translatedNames[idx] ?? r.name}
+                  </span>
+                  <span className="code">{r.code}</span>
+                </div>
+              ))}
         </div>
       )}
     </div>

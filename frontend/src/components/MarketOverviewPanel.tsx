@@ -12,8 +12,16 @@ import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
+import MacroRatesStrip from "./MacroRatesStrip";
 
-type Tab = "top50" | "kosdaq50" | "investor" | "foreignBuyTop20" | "foreignSellTop20";
+type Tab = "top50" | "kosdaq50" | "gainers" | "losers" | "investor" | "foreignBuyTop20" | "foreignSellTop20";
+
+// How deep into each market's cap ranking the gain/loss ranking looks. Deep enough
+// that a real mover isn't missed for sitting outside the mega caps, shallow enough
+// that the ranking isn't dominated by illiquid micro caps whose 30% day means very
+// little — and both responses are already warmed in the backend's map cache.
+const MOVERS_UNIVERSE = 200;
+const MOVERS_LIMIT = 20;
 
 // Shared by every table on this panel (top50, investor, weekly foreign) while their
 // first response is still in flight — enough rows to fill each table's scroll area
@@ -64,6 +72,29 @@ function MarketInvestorLine({ summary }: { summary: MarketInvestorSummary | null
         {t("기관")} {formatAmount(summary.institution_amount, lang)}
       </span>
     </div>
+  );
+}
+
+/** Naver reports the session state alongside every index quote ("OPEN", "CLOSE",
+ * "PREOPEN"); the dashboard already had the field and never showed it. Anything
+ * unrecognised renders nothing rather than guessing — a wrong "장중" badge is worse
+ * than no badge. */
+function MarketStatusPill({ status }: { status: string | null }) {
+  const t = useT();
+  if (!status) return null;
+  const upper = status.toUpperCase();
+  const known: Record<string, { label: string; tone: string }> = {
+    OPEN: { label: t("장중"), tone: "is-open" },
+    CLOSE: { label: t("장마감"), tone: "is-closed" },
+    PREOPEN: { label: t("장 시작 전"), tone: "is-pre" },
+  };
+  const info = known[upper];
+  if (!info) return null;
+  return (
+    <span className={`market-status-pill ${info.tone}`}>
+      <span className="market-status-dot" aria-hidden="true" />
+      {info.label}
+    </span>
   );
 }
 
@@ -198,6 +229,113 @@ function Top50PriceList({
                   </td>
                 </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Top gainers/losers across KOSPI + KOSDAQ, ranked client-side from the two map
+ * payloads the backend already caches for the treemap pages — no new endpoint, and
+ * the fetch only fires once a visitor actually opens one of these two tabs. */
+function MoversList({
+  onSelectStock,
+  direction,
+}: {
+  onSelectStock: (stock: StockSearchResult) => void;
+  direction: "up" | "down";
+}) {
+  const { lang } = useLanguage();
+  const t = useT();
+  const [items, setItems] = useState<(MarketMapItem & { market: "KOSPI" | "KOSDAQ" })[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const REFRESH_MS = 60_000;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = (isInitial: boolean) => {
+      if (isInitial) setLoading(true);
+      Promise.all([api.marketMap(MOVERS_UNIVERSE), api.kosdaqMap(MOVERS_UNIVERSE)])
+        .then(([kospiRes, kosdaqRes]) => {
+          if (cancelled) return;
+          const merged = [
+            ...kospiRes.items.map((it) => ({ ...it, market: "KOSPI" as const })),
+            ...kosdaqRes.items.map((it) => ({ ...it, market: "KOSDAQ" as const })),
+          ];
+          setItems(merged);
+          setError(null);
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          if (isInitial) setError(err.message || "데이터를 불러오지 못했습니다.");
+        })
+        .finally(() => {
+          if (isInitial && !cancelled) setLoading(false);
+        });
+    };
+
+    load(true);
+    const stopPolling = startVisibilityAwareInterval(() => load(false), REFRESH_MS);
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+  }, []);
+
+  // Sorted per render rather than in state: `items` is the one raw list, and both
+  // tabs read it through this hook, so flipping direction never refetches.
+  const ranked = [...items]
+    .sort((a, b) => (direction === "up" ? b.change_pct - a.change_pct : a.change_pct - b.change_pct))
+    .slice(0, MOVERS_LIMIT);
+
+  const translatedNames = useTranslatedTexts(ranked.map((it) => it.name));
+
+  if (error) return <div className="error-state">{t(error)}</div>;
+
+  return (
+    <div className="top50-table-wrap">
+      <table className="top50-table movers-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>{t("종목명")}</th>
+            <th>{t("현재가")}</th>
+            <th>{t("등락")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading
+            ? SKELETON_ROWS.map((i) => (
+                <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
+                  <td colSpan={4}>
+                    <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
+                  </td>
+                </tr>
+              ))
+            : ranked.map((item, idx) => (
+                <tr key={`${item.market}-${item.code}`}>
+                  <td className="top50-table-rank">{idx + 1}</td>
+                  <td className="top50-table-name">
+                    <button
+                      type="button"
+                      onClick={() => onSelectStock({ code: item.code, name: item.name, market: item.market })}
+                    >
+                      {translatedNames[idx] ?? item.name}
+                      <span className="movers-market-tag">{item.market === "KOSPI" ? "KP" : "KQ"}</span>
+                    </button>
+                  </td>
+                  <td>
+                    {item.close.toLocaleString()}
+                    {lang === "en" ? " KRW" : "원"}
+                  </td>
+                  <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
+                    {pct(item.change_pct)}
+                  </td>
+                </tr>
+              ))}
         </tbody>
       </table>
     </div>
@@ -383,7 +521,10 @@ export default function MarketOverviewPanel({
   return (
     <section className="card market-overview-panel">
       <div className="market-overview-half market-overview-index">
-        <h2>{t("코스피 · 코스닥 지수")}</h2>
+        <div className="market-overview-heading">
+          <h2>{t("코스피 · 코스닥 지수")}</h2>
+          <MarketStatusPill status={kospi?.market_status ?? kosdaq?.market_status ?? null} />
+        </div>
         <p className="market-overview-subtitle">
           {t("지수 하단은 시장 전체 개인/외국인/기관 누적 순매수(억원)이며, 매수는 빨간색, 매도는 파란색입니다.")}
         </p>
@@ -391,6 +532,11 @@ export default function MarketOverviewPanel({
           <IndexTile index={kospi} investor={kospiInvestor} label="코스피" />
           <IndexTile index={kosdaq} investor={kosdaqInvestor} label="코스닥" />
         </div>
+
+        {/* The two macro numbers a KR investor reads next to the index itself.
+            Polled on the ticker's own cadence rather than the index refresh, since
+            they come from the ticker payload. */}
+        <MacroRatesStrip />
       </div>
 
       <div className="market-overview-half market-overview-investor">
@@ -408,6 +554,20 @@ export default function MarketOverviewPanel({
             onClick={() => setTab("kosdaq50")}
           >
             {t("코스닥 시총 50위")}
+          </button>
+          <button
+            type="button"
+            className={`market-overview-tab ${tab === "gainers" ? "active" : ""}`}
+            onClick={() => setTab("gainers")}
+          >
+            {t("급등 TOP")}
+          </button>
+          <button
+            type="button"
+            className={`market-overview-tab ${tab === "losers" ? "active" : ""}`}
+            onClick={() => setTab("losers")}
+          >
+            {t("급락 TOP")}
           </button>
           <button
             type="button"
@@ -435,6 +595,15 @@ export default function MarketOverviewPanel({
         {tab === "top50" && <Top50PriceList onSelectStock={onSelectStock} market="KOSPI" />}
 
         {tab === "kosdaq50" && <Top50PriceList onSelectStock={onSelectStock} market="KOSDAQ" />}
+
+        {(tab === "gainers" || tab === "losers") && (
+          <>
+            <p className="market-overview-subtitle">
+              {t("코스피·코스닥 시총 200위 이내 종목의 당일 등락률 순위입니다. · KP=코스피, KQ=코스닥")}
+            </p>
+            <MoversList onSelectStock={onSelectStock} direction={tab === "gainers" ? "up" : "down"} />
+          </>
+        )}
 
         {(tab === "foreignBuyTop20" || tab === "foreignSellTop20") && (
           <>

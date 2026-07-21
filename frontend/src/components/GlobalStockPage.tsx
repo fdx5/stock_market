@@ -4,10 +4,12 @@ import { syncTimeScales } from "../chartSync";
 import { trillionSuffix, wonSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
-import { Link } from "../router";
+import { Link, navigate } from "../router";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
+import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalBoardPanel from "./GlobalBoardPanel";
 import GlobalIndexGrid from "./GlobalIndexGrid";
@@ -16,8 +18,12 @@ import GlobalNewsList from "./GlobalNewsList";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
+import MacroRatesStrip from "./MacroRatesStrip";
 import MarketIcon from "./MarketIcon";
+import MarketTickerBar from "./MarketTickerBar";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
+import SearchBar from "./SearchBar";
+import StockQuickAccess from "./StockQuickAccess";
 import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
 
@@ -59,7 +65,18 @@ function splitDescriptionLines(text: string, maxLines = 5): string[] {
 export default function GlobalStockPage() {
   const t = useT();
   const { lang } = useLanguage();
-  const code = new URLSearchParams(window.location.search).get("code") ?? "";
+  // Read as state, not straight off `window.location`: the app's router keys only on
+  // pathname, so a /global -> /global hop (picking another US stock from the search
+  // below) changes nothing it watches and would leave this page showing the previous
+  // ticker. popstate is what navigate() fires, so listening to it covers both that
+  // hop and the browser's own back/forward.
+  const [code, setCode] = useState(() => new URLSearchParams(window.location.search).get("code") ?? "");
+
+  useEffect(() => {
+    const syncCode = () => setCode(new URLSearchParams(window.location.search).get("code") ?? "");
+    window.addEventListener("popstate", syncCode);
+    return () => window.removeEventListener("popstate", syncCode);
+  }, []);
 
   const [quote, setQuote] = useState<UsStockQuote | null>(null);
   const [enrichment, setEnrichment] = useState<GlobalEnrichment | null>(null);
@@ -76,6 +93,13 @@ export default function GlobalStockPage() {
   const reportedRef = useRef(false);
 
   useDocumentTitle(quote ? `${quote.name} - K-Stock Hub` : "K-Stock Hub");
+
+  // A US pick stays on this page (swapping the ?code=), a KR pick has to go back to
+  // the dashboard, which owns the KR pipeline — the inverse of Dashboard's own
+  // handler, so the two pages hand off to each other in both directions.
+  const selectStock = (stock: { code: string; market: string }) => {
+    navigate(stock.market === "US" ? `/global?code=${stock.code}` : `/?code=${stock.code}`);
+  };
 
   useEffect(() => {
     if (!code) {
@@ -175,6 +199,10 @@ export default function GlobalStockPage() {
     if (!quote || reportedRef.current) return;
     reportedRef.current = true;
     reportStockView(quote.code, quote.name);
+    // Mirrors Dashboard: a US name opened here belongs in the same "최근 본 종목"
+    // strip as a KR one. Stored with market "US" so the chip routes back to this
+    // page rather than the KR detail view, which can't resolve a ticker.
+    recordRecent({ code: quote.code, name: quote.name, market: "US" });
   }, [quote]);
 
   useEffect(() => {
@@ -248,7 +276,28 @@ export default function GlobalStockPage() {
         </div>
       </header>
 
+      {/* Same live belt as the dashboard, and the same reason for it here: this
+          page is about a US name, and the belt carries the FX/index/commodity
+          context that name trades against. Sits directly under the nav so it reads
+          as a live band across the top of the page. */}
+      <MarketTickerBar />
+
+      {/* Until now this page was a navigation dead end: a visitor arriving from a
+          map tile or a trending chip could only leave via the browser's back
+          button or a market-map link. It gets the dashboard's own search + shortcut
+          strip so any stock, KR or US, is reachable from here too. */}
+      <div className="app-header-trailing">
+        <SearchBar onSelect={selectStock} />
+        <StockQuickAccess onSelect={selectStock} activeCode={code} />
+      </div>
+
       <GlobalIndexGrid />
+
+      {/* The dashboard's own FX/oil pair, repeated here under the index grid. It
+          reads from the shared market-ticker poller, so a second placement costs
+          no extra request — and a US name is quoted in the dollar this rate
+          converts, which makes it more relevant on this page, not less. */}
+      <MacroRatesStrip variant="card" />
 
       {loading && (
         <span className="sr-only" role="status">
@@ -288,6 +337,7 @@ export default function GlobalStockPage() {
                   )}
                   {quote.name}
                 </span>
+                <FavoriteButton stock={{ code: quote.code, name: quote.name, market: "US" }} />
                 <span className="code">{quote.code}</span>
                 <span
                   className={`price ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}

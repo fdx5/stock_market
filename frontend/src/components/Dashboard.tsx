@@ -8,19 +8,27 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
+import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
+import GlobalIndexGrid from "./GlobalIndexGrid";
 import GlobalNewsIcon from "./GlobalNewsIcon";
+import IndicatorBadges from "./IndicatorBadges";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import MarketOverviewPanel from "./MarketOverviewPanel";
+import MarketTickerBar from "./MarketTickerBar";
+import MobileStockBar from "./MobileStockBar";
+import OrderBookBalance from "./OrderBookBalance";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
 import RecentNewsDigest from "./RecentNewsDigest";
 import SearchBar from "./SearchBar";
 import SidePanel from "./SidePanel";
 import StockIcon from "./StockIcon";
+import StockQuickAccess from "./StockQuickAccess";
 import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
 
@@ -243,10 +251,27 @@ export default function Dashboard() {
       return;
     }
     reportStockView(summary.code, summary.name);
-  }, [summary]);
+    // Recorded off the same signal (and behind the same suppression) as the view
+    // report: the "최근 본 종목" strip should list stocks the visitor actually chose,
+    // not the Samsung default a bare "/" landing silently selects.
+    recordRecent({ code: summary.code, name: summary.name, market: selected?.market ?? "KOSPI" });
+  }, [summary, selected]);
+
+  // US results have no KR-pipeline detail view to select into — they route to the
+  // global stock page instead. Shared by the search bar and the quick-access chips
+  // so both behave identically.
+  const selectStock = (stock: StockSearchResult) => {
+    if (stock.market === "US") {
+      navigate(`/global?code=${stock.code}`);
+      return;
+    }
+    setSelected(stock);
+  };
 
   return (
-    <div className="app">
+    // The modifier only exists so mobile can reserve room for the fixed bottom
+    // stock bar below — every other page keeps the plain .app padding.
+    <div className="app app--dashboard">
       <header className="app-header">
         <div className="app-title-row">
           <div className="app-brand">
@@ -296,20 +321,27 @@ export default function Dashboard() {
             "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다."
           )}
         </p>
-        <SearchBar
-          onSelect={(stock) => {
-            // US search results (S&P500/Nasdaq100) have no KR-pipeline detail view to
-            // select into — route to the global stock page instead.
-            if (stock.market === "US") {
-              navigate(`/global?code=${stock.code}`);
-              return;
-            }
-            setSelected(stock);
-          }}
-        />
+        <SearchBar onSelect={selectStock} />
+        <StockQuickAccess onSelect={selectStock} activeCode={selected?.code} />
       </div>
 
-      <MarketOverviewPanel onSelectStock={setSelected} />
+      {/* Zone 1 — the market as a whole. Everything above the stock detail block is
+          about "what is the market doing right now", so it reads as one band
+          instead of a stack of unrelated cards. */}
+      <section className="dash-zone" aria-labelledby="dash-zone-market">
+        <div className="dash-zone-head">
+          <h2 className="dash-zone-title" id="dash-zone-market">
+            {t("마켓 개요")}
+          </h2>
+          <span className="dash-zone-rule" aria-hidden="true" />
+        </div>
+
+        <MarketTickerBar />
+        <MarketOverviewPanel onSelectStock={selectStock} />
+
+        <h3 className="dash-subzone-title">{t("글로벌 지수")}</h3>
+        <GlobalIndexGrid />
+      </section>
 
       {!selected && <div className="empty-state">{t("종목을 검색해 주세요. (예: 삼성전자, 005930)")}</div>}
       {loading && (
@@ -320,7 +352,15 @@ export default function Dashboard() {
       {error && <div className="error-state">{t(error)}</div>}
 
       {selected && !error && (
-        <div className="layout">
+        <section className="dash-zone" aria-labelledby="dash-zone-stock">
+          <div className="dash-zone-head">
+            <h2 className="dash-zone-title" id="dash-zone-stock">
+              {t("종목 상세")}
+            </h2>
+            <span className="dash-zone-rule" aria-hidden="true" />
+          </div>
+
+          <div className="layout">
           <div className="main-col">
             {(() => {
               // Keeps the header card mounted (and its layout stable) through a stock
@@ -362,6 +402,9 @@ export default function Dashboard() {
                     <StockIcon className="stock-header-logo" code={summary.code} />
                     {summaryName}
                   </span>
+                  <FavoriteButton
+                    stock={{ code: summary.code, name: summary.name, market: selected?.market ?? "KOSPI" }}
+                  />
                   <span className="code">{summary.code}</span>
                   <span
                     className={`price ${change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}`}
@@ -386,6 +429,12 @@ export default function Dashboard() {
                         `${t("상장주식수")} ${formatShares(sharesOutstanding, lang)}`}
                     </span>
                   )}
+                  {/* Both rows are derived from data the page already has (the
+                      indicator series) or one extra cached call (the ladder), and
+                      each hides itself when it has nothing to say — so the header
+                      never grows taller than the information it's carrying. */}
+                  <IndicatorBadges points={indicatorPoints} />
+                  <OrderBookBalance code={summary.code} />
                   {translatedOverview.length > 0 && (
                     <div className="overview">
                       {translatedOverview.map((line, idx) => (
@@ -408,7 +457,19 @@ export default function Dashboard() {
           </div>
 
           <SidePanel code={selected.code} name={summaryName} news={news} />
-        </div>
+          </div>
+        </section>
+      )}
+
+      {summary && (
+        <MobileStockBar
+          anchorRef={stockHeaderRef}
+          stock={{ code: summary.code, name: summary.name, market: selected?.market ?? "KOSPI" }}
+          displayName={summaryName}
+          close={liveQuote?.close ?? summary.close}
+          change={liveQuote?.change ?? summary.change}
+          changePct={liveQuote?.change_pct ?? summary.change_pct}
+        />
       )}
 
       <Footer />

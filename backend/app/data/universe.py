@@ -138,3 +138,13 @@ def get_stock_name(code: str) -> str | None:
     if row.empty:
         return None
     return str(row.iloc[0]["Name"])
+
+
+def get_stock_market(code: str) -> str | None:
+    """KOSPI/KOSDAQ for a KR code, or None for anything not in the KR universe
+    (a US ticker recorded by the activity tracker, or a delisted code)."""
+    df = get_universe()
+    row = df[df["Code"].astype(str) == code]
+    if row.empty:
+        return None
+    return str(row.iloc[0]["Market"])
