@@ -3263,10 +3263,14 @@ thead .weekly-foreign-amount-col {
      starts over the list scrolls the list, not the page, and only chains to the
      page once the list bottoms out. Releasing the caps lets all of it scroll as
      one document, which is the only behaviour that feels right on touch. */
+     NOTE: only lists whose base rule sits *above* this block belong here. The
+     /global board's list is capped further down the file, so releasing it from
+     here does nothing about its max-height while still switching its overflow to
+     visible — a capped-but-unclipped box that spills over everything below it.
+     Its release lives next to its own declaration instead. */
   .news-list,
   .board-list,
-  .board-comments-list,
-  .global-board-comments-list {
+  .board-comments-list {
     max-height: none;
     overflow-y: visible;
   }
@@ -4138,8 +4142,20 @@ thead .weekly-foreign-amount-col {
   border-left: 2px solid var(--gridline);
 }
 
+/* A taller cap than the shared .board-comments-list default, because on /global this
+   list is the panel's primary content rather than a nested comment thread.
+   Both the cap and its mobile release have to live here, after the shared responsive
+   block earlier in the file: at equal specificity the later rule wins, so a release
+   written up there would leave this max-height standing. */
 .global-board-comments-list {
   max-height: 480px;
+}
+
+@media (max-width: 920px) {
+  .global-board-comments-list {
+    max-height: none;
+    overflow-y: visible;
+  }
 }
 
 .global-board-more-btn {
