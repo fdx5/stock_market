@@ -3187,38 +3187,53 @@ thead .weekly-foreign-amount-col {
    restyle), so these need no media query of their own — the markup they select
    does not exist on a desktop. */
 .quick-access--mobile {
-  gap: 6px;
+  gap: 5px;
 }
 
 .quick-access-tabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   overflow-x: auto;
   scrollbar-width: none;
+  /* Room for the tabs' extended hit area below to live in without being clipped by
+     the horizontal scroll — padding is inside the scroll box, so it is not. */
+  padding: 4px 0;
 }
 
 .quick-access-tabs::-webkit-scrollbar {
   display: none;
 }
 
-/* Sized for a thumb, not a cursor: 32px tall and generously padded, since these
-   three are now the only way to reach two of the groups. */
+/* Drawn small — this strip sits above the fold on a phone and every pixel it takes
+   is one the chart below does not get. It is *tapped* bigger than it is drawn: see
+   the ::after hit area below, which is what lets the box shrink without the target
+   shrinking with it. */
 .quick-access-tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
-  min-height: 32px;
-  padding: 5px 12px;
+  min-height: 22px;
+  padding: 3px 9px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: none;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
+}
+
+/* Extends the tap target past the drawn pill, vertically only: the row scrolls
+   horizontally and neighbours sit a few px apart, so growing sideways would have
+   each tab stealing taps meant for the next one. */
+.quick-access-tab::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
 }
 
 /* Filled, not merely tinted: this is the only thing on screen saying which of the
@@ -3233,7 +3248,7 @@ thead .weekly-foreign-amount-col {
 }
 
 .quick-access-tab-count {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   opacity: 0.72;
@@ -4004,15 +4019,76 @@ thead .weekly-foreign-amount-col {
      Stacking the label over its own chips was the previous answer to the 76px label
      column not fitting, and it cost a line per group — three groups, six lines. */
 
+  /* Drawn smaller than desktop, not larger. The earlier "bigger for thumbs" sizing
+     spent a lot of an above-the-fold strip on padding; the chips are ~30% less box
+     now and buy the tap tolerance back through the ::after hit area below instead,
+     which costs no layout. */
   .quick-access-chip {
-    max-width: 150px;
-    /* Slightly taller than desktop: these are the page's primary one-tap
-       shortcuts and need to survive an imprecise thumb. */
-    padding: 6px 11px;
+    max-width: 128px;
+    padding: 4px 8px;
+    gap: 4px;
+    font-size: 11px;
+  }
+
+  /* A starred chip splits into a name button plus a remove button, so it keeps the
+     asymmetric padding its base rule gives it (room on the right for the ×) rather
+     than the even padding above — which, sitting later in the file at equal
+     specificity, would otherwise win and collapse the × against the edge. */
+  .quick-access-chip--removable {
+    padding: 0 3px 0 8px;
+  }
+
+  .quick-access-chip-main {
+    padding: 4px 0;
+  }
+
+  /* Only the plain <button> chips — the starred ones are a <span> wrapping two real
+     buttons, and a pseudo-element on that wrapper would paint over both and swallow
+     the taps it is meant to help. Those get theirs on .quick-access-chip-main. */
+  button.quick-access-chip,
+  .quick-access-chip-main {
+    position: relative;
+  }
+
+  button.quick-access-chip::after,
+  .quick-access-chip-main::after {
+    content: "";
+    position: absolute;
+    inset: -5px 0;
+  }
+
+  /* Fixed dimensions, so it has to be resized alongside the real chips or the row
+     visibly shrinks the moment the first response lands. */
+  .quick-access-chip--skeleton {
+    width: 80px;
+    height: 23px;
+  }
+
+  .quick-access-chip-logo {
+    width: 12px;
+    height: 12px;
+  }
+
+  .quick-access-rank {
+    font-size: 9px;
+  }
+
+  .quick-access-chip-remove {
+    width: 18px;
+    height: 18px;
+    font-size: 13px;
+  }
+
+  .quick-access-clear {
+    padding: 4px 6px;
+    font-size: 10px;
   }
 
   .quick-access-chips {
-    gap: 5px;
+    gap: 4px;
+    /* Same reason as .quick-access-tabs: somewhere for the hit area to sit that the
+       row's own overflow will not clip. */
+    padding: 5px 0;
   }
 
   /* Seven tabs cannot wrap into three lines on a phone without pushing the table
