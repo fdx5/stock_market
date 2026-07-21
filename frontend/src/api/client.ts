@@ -76,6 +76,10 @@ export interface CompanyOverview {
   shares_outstanding: number | null;
 }
 
+/** Which US trading session a quote came from. Anything without a pre/post session
+ * of its own — FX, futures, crypto, indices — is always "regular". */
+export type MarketSession = "pre" | "regular" | "post";
+
 export interface MarketTickerItem {
   symbol: string;
   label: string;
@@ -84,6 +88,7 @@ export interface MarketTickerItem {
   change_pct: number;
   points: number[];
   currency: string;
+  session: MarketSession;
 }
 
 export interface MarketMapItem {
@@ -243,6 +248,7 @@ export interface UsStockQuote {
   close: number;
   change: number;
   change_pct: number;
+  session: MarketSession;
 }
 
 export interface GlobalIndexPoint {

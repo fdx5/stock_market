@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
 
+from app.data import yahoo_quote
 from app.services.cache import cache
 
 # A 3s-polled ticker still needs to be cheap on the upstream (unauthenticated,
@@ -47,9 +48,16 @@ SYMBOLS = [
 ]
 
 
+# A sparkline needs a shape, not just a couple of dots. Early in a pre-market
+# session "1d" holds only the handful of bars printed since 04:00 ET, so anything
+# under this count gets refetched over a wider window.
+MIN_SPARKLINE_POINTS = 12
+
+
 def _fetch_closes(symbol: str, range_: str) -> list[float]:
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
-    resp = requests.get(url, headers=HEADERS, params={"interval": "15m", "range": range_}, timeout=4)
+    params = {"interval": "15m", "range": range_, **yahoo_quote.BASE_PARAMS}
+    resp = requests.get(url, headers=HEADERS, params=params, timeout=4)
     resp.raise_for_status()
     result = resp.json()["chart"]["result"][0]
     closes = result.get("indicators", {}).get("quote", [{}])[0].get("close") or []
@@ -60,23 +68,30 @@ def _fetch_one(entry: dict) -> dict | None:
     symbol = entry["symbol"]
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
     try:
-        resp = requests.get(url, headers=HEADERS, params={"interval": "15m", "range": "1d"}, timeout=4)
+        params = {"interval": "15m", "range": "1d", **yahoo_quote.BASE_PARAMS}
+        resp = requests.get(url, headers=HEADERS, params=params, timeout=4)
         resp.raise_for_status()
         result = resp.json()["chart"]["result"][0]
         meta = result["meta"]
-        price = meta.get("regularMarketPrice")
-        prev_close = meta.get("chartPreviousClose") or meta.get("previousClose")
-        if price is None or prev_close is None:
+        # Extended hours included: the US equities on this belt (NVDA, AAPL, TSLA, ...)
+        # otherwise froze at the previous close for the whole Korean evening. The
+        # FX/futures/crypto entries are unaffected — they have no pre/post session, so
+        # extract_quote returns them on the regular path.
+        quote = yahoo_quote.extract_quote(result)
+        if quote is None:
             return None
+        price, prev_close = quote["price"], quote["previous_close"]
 
         closes = result.get("indicators", {}).get("quote", [{}])[0].get("close") or []
         points = [round(float(c), 4) for c in closes if c is not None]
 
-        # Futures (GC=F, SI=F, CL=F, ...) report an empty "1d" series whenever
-        # today's session hasn't traded yet (e.g. the weekend gap before Globex
-        # reopens) — unlike equities/FX, Yahoo doesn't fall back to the last
-        # completed session for them. Widen the window to recover a trend line.
-        if len(points) < 2:
+        # Two cases land here. Futures (GC=F, SI=F, CL=F, ...) report an empty "1d"
+        # series whenever today's session hasn't traded yet (e.g. the weekend gap
+        # before Globex reopens) — unlike equities/FX, Yahoo doesn't fall back to the
+        # last completed session for them. And a US equity a few minutes into
+        # pre-market has only those few minutes in "1d". Either way, widen the window
+        # so the card gets a real trend line instead of a stub.
+        if len(points) < MIN_SPARKLINE_POINTS:
             try:
                 points = _fetch_closes(symbol, "5d")[-96:]
             except Exception:
@@ -92,6 +107,7 @@ def _fetch_one(entry: dict) -> dict | None:
             "change_pct": round(change_pct, 2),
             "points": points,
             "currency": meta.get("currency") or "USD",
+            "session": quote["session"],
         }
     except Exception:
         return None

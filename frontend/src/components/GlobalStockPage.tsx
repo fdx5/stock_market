@@ -23,6 +23,7 @@ import MarketIcon from "./MarketIcon";
 import MarketTickerBar from "./MarketTickerBar";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
 import SearchBar from "./SearchBar";
+import SessionBadge from "./SessionBadge";
 import StockQuickAccess from "./StockQuickAccess";
 import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
@@ -342,6 +343,7 @@ export default function GlobalStockPage() {
                 <span
                   className={`price ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}
                 >
+                  <SessionBadge session={quote.session} />
                   {formatUsd(quote.close)} ({formatUsdChange(quote.change)}, {quote.change_pct.toFixed(2)}%)
                 </span>
                 {enrichment?.marcap_krw != null && (

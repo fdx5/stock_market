@@ -3018,6 +3018,50 @@ thead .weekly-foreign-amount-col {
   letter-spacing: 0.03em;
 }
 
+/* ── Extended-hours session badge ────────────────────────────────────────────
+   Amber rather than the up/down palette on purpose: it says *when* the price was
+   struck, not which way it moved, and reusing red/blue here would read as a
+   direction. Sits inline with the price it qualifies. */
+.session-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--status-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--status-warning) 12%, transparent);
+  color: var(--status-warning);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.session-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* The belt's cards are 60px tall and already carry an icon, label, sparkline and
+   two numbers — the badge shrinks to a 3-letter tag there rather than pushing the
+   price out of the card. */
+.session-badge.is-compact {
+  margin: 0 0 0 5px;
+  padding: 1px 4px;
+  font-size: 9px;
+  gap: 3px;
+}
+
+.session-badge.is-compact .session-badge-dot {
+  width: 4px;
+  height: 4px;
+}
+
 /* ── Technical signal badges ─────────────────────────────────────────────── */
 .indicator-badges {
   display: flex;

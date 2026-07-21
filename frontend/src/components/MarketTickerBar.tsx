@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { MarketTickerItem } from "../api/client";
 import { useMarketTicker } from "../useMarketTicker";
+import SessionBadge from "./SessionBadge";
 
 const ICONS: Record<string, string> = {
   "KRW=X": "/img/ticker/usdkrw.png",
@@ -74,7 +75,10 @@ const TickerCard = memo(
         <div className="ticker-card-label">{item.label}</div>
         <Sparkline points={item.points} up={up} />
         <div className="ticker-card-price">
-          <span className="ticker-card-value">{formatPrice(item)}</span>
+          <span className="ticker-card-value">
+            {formatPrice(item)}
+            <SessionBadge session={item.session} compact />
+          </span>
           <span className={`ticker-card-change ${up ? "change-up" : "change-down"}`}>
             {up ? "▲" : "▼"} {Math.abs(item.change_pct).toFixed(2)}%
           </span>
@@ -87,6 +91,7 @@ const TickerCard = memo(
     prev.item.price === next.item.price &&
     prev.item.change === next.item.change &&
     prev.item.change_pct === next.item.change_pct &&
+    prev.item.session === next.item.session &&
     prev.item.points === next.item.points
 );
 

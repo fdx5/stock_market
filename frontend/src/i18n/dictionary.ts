@@ -41,6 +41,11 @@ export const DICTIONARY: Record<string, string> = {
   "원/달러 환율": "USD/KRW",
   "국제유가": "Crude Oil",
 
+  // US extended-hours session badge
+  "프리장": "Pre-market",
+  "애프터장": "After-hours",
+  "미국 정규장 시간외 거래": "Traded outside US regular hours",
+
   // Market session status
   "장중": "Open",
   "장마감": "Closed",

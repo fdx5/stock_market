@@ -116,8 +116,18 @@ def get_us_stock_quote(code: str, name: str, snapshot: dict | None = None) -> di
     if live and live["previous_close"]:
         change = live["price"] - live["previous_close"]
         change_pct = (live["price"] / live["previous_close"] - 1) * 100
-        return {"code": code, "name": name, "close": live["price"], "change": change, "change_pct": change_pct}
+        return {
+            "code": code,
+            "name": name,
+            "close": live["price"],
+            "change": change,
+            "change_pct": change_pct,
+            "session": live["session"],
+        }
 
+    # Both fallbacks are regular-session figures by construction: the slickcharts
+    # snapshot is scraped from a regular-hours table, and the zero row is a
+    # placeholder. Neither should ever be labelled pre/post in the UI.
     if snapshot:
         return {
             "code": code,
@@ -125,6 +135,7 @@ def get_us_stock_quote(code: str, name: str, snapshot: dict | None = None) -> di
             "close": snapshot["close"],
             "change": snapshot["change"],
             "change_pct": snapshot["change_pct"],
+            "session": "regular",
         }
 
-    return {"code": code, "name": name, "close": 0.0, "change": 0.0, "change_pct": 0.0}
+    return {"code": code, "name": name, "close": 0.0, "change": 0.0, "change_pct": 0.0, "session": "regular"}

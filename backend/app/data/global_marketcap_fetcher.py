@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from bs4 import BeautifulSoup
 
+from app.data import yahoo_quote
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -80,17 +82,14 @@ def _fetch_live_quote(symbol: str) -> dict | None:
     """Live-ish intraday price for one ticker via Yahoo Finance's chart endpoint — the
     v7/v10 quote endpoints now require an auth crumb we don't have, but this one still
     answers without auth and includes `previousClose`, letting us compute change% the
-    same way Yahoo itself does."""
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=1m&range=1d"
+    same way Yahoo itself does. Extended-hours handling (and the `session` field that
+    comes with it) lives in yahoo_quote.extract_quote."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    params = {"interval": "1m", "range": "1d", **yahoo_quote.BASE_PARAMS}
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=4)
+        resp = requests.get(url, headers=HEADERS, params=params, timeout=4)
         resp.raise_for_status()
-        meta = resp.json()["chart"]["result"][0]["meta"]
-        price = meta.get("regularMarketPrice")
-        previous_close = meta.get("previousClose")
-        if price is None or previous_close is None:
-            return None
-        return {"price": float(price), "previous_close": float(previous_close)}
+        return yahoo_quote.extract_quote(resp.json()["chart"]["result"][0])
     except Exception:
         return None
 
