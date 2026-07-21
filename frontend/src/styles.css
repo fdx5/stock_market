@@ -1857,32 +1857,17 @@ thead .weekly-foreign-amount-col {
   flex-wrap: wrap;
 }
 
-/* Neon-sign glow shared by the nav pills (box+text shadow) and the plain footer
-   links (text shadow only, since they have no border/pill background to glow
-   around) - both read `currentColor`, so each variant's existing accent color
-   (blue/aqua/red/violet) shows through unchanged, just breathing brighter/dimmer
-   like a lit tube instead of the flat static outline they had before.
-   The blur radii/opacity swing wide and the pill adds a small scale pulse on top -
-   at typical desktop viewing distance a few px of shadow alone reads as a barely-
-   perceptible flicker rather than a glow, so the visible range needs to be much
-   bigger than it looks in a close-up screenshot. */
-@keyframes neon-pulse {
-  0%,
-  100% {
-    box-shadow:
-      0 0 6px color-mix(in srgb, currentColor 60%, transparent),
-      0 0 16px color-mix(in srgb, currentColor 35%, transparent);
-    text-shadow: 0 0 4px color-mix(in srgb, currentColor 65%, transparent);
-    transform: scale(1);
-  }
-  50% {
-    box-shadow:
-      0 0 16px color-mix(in srgb, currentColor 100%, transparent),
-      0 0 32px color-mix(in srgb, currentColor 65%, transparent);
-    text-shadow: 0 0 11px color-mix(in srgb, currentColor 100%, transparent);
-    transform: scale(1.045);
-  }
-}
+/* The nav pills used to breathe this glow in and out (`neon-pulse`: box-shadow,
+   text-shadow and a small scale, on eight pills, forever). Measured over a 10s
+   window on the dashboard, that one animation accounted for more than half of all
+   style-recalculation work on the page — 521ms down to 221ms with it gone — and the
+   scale was the worst part of it, because growing the pill re-rasterises its glyphs
+   on every frame. It was the reason the ticker belt dropped frames here but not on
+   the map pages, whose lighter DOM absorbed the same cost unnoticed.
+
+   The glow is now painted once, at roughly the brightness the pulse spent most of
+   its time at, and the periodic "shine" the pills still show comes from the
+   ::after shimmer below — which travels on `transform` and stays on the compositor. */
 
 @keyframes neon-text-pulse {
   0%,
@@ -1894,15 +1879,10 @@ thead .weekly-foreign-amount-col {
   }
 }
 
-@keyframes neon-icon-pulse {
-  0%,
-  100% {
-    filter: drop-shadow(0 0 2px color-mix(in srgb, currentColor 65%, transparent));
-  }
-  50% {
-    filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 100%, transparent));
-  }
-}
+/* `neon-icon-pulse` used to animate this same drop-shadow on the nav icons. An
+   animated filter re-runs the shadow through the paint pipeline every frame, and it
+   was measured alongside the pill glow above as part of the same jank; the icons now
+   carry the shadow statically. */
 
 /* A diagonal gloss band sweeps across each pill on top of the neon pulse - mostly
    parked just off the left edge, then a quick pass to the right before pausing off
@@ -1942,7 +1922,12 @@ thead .weekly-foreign-amount-col {
   text-decoration: none;
   background: color-mix(in srgb, var(--series-blue) 12%, transparent);
   overflow: hidden;
-  animation: neon-pulse 2.6s ease-in-out infinite;
+  /* Static, not animated — see the note above @keyframes nav-pill-shimmer.
+     currentColor keeps each variant's own accent (blue/aqua/red/violet). */
+  box-shadow:
+    0 0 12px color-mix(in srgb, currentColor 78%, transparent),
+    0 0 26px color-mix(in srgb, currentColor 50%, transparent);
+  text-shadow: 0 0 8px color-mix(in srgb, currentColor 85%, transparent);
 }
 
 .kospi-map-nav-link::after {
@@ -2086,7 +2071,7 @@ thead .weekly-foreign-amount-col {
   width: 14px;
   height: 14px;
   flex-shrink: 0;
-  animation: neon-icon-pulse 2.6s ease-in-out infinite;
+  filter: drop-shadow(0 0 3.5px color-mix(in srgb, currentColor 85%, transparent));
 }
 
 .kospi-map-nav-link--kosdaq .market-nav-icon,
