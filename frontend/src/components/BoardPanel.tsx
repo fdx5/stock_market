@@ -2,30 +2,21 @@ import { useEffect, useRef, useState } from "react";
 import { BoardComment, BoardDetail, BoardPost, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
+import { scrollViewportTopTo } from "../stickyScroll";
 
 const PAGE_SIZE = 10;
 
-/** Breathing room left between the sticky header and the row it scrolls to. */
-const HEADER_CLEARANCE = 12;
-
 /** Brings an expanded row to the top of both scrollers it sits in — the capped
- * `.board-list` and the page itself.
- *
- * `scrollIntoView({ block: "start" })` did the first part correctly but aligned the
- * row with the very top of the *viewport*, which is exactly where the sticky
- * `.app-header` sits — so the post title and the opening lines of the body landed
- * underneath it and every click needed a manual scroll correction afterwards. The
- * list has no header of its own, so it still aligns flush; only the page scroll is
- * offset, and by the header's measured height rather than a constant, since the nav
- * row wraps to a second line as the viewport narrows.
- */
+ * `.board-list` and the page itself (see stickyScroll.ts for why the page scroll is
+ * offset rather than a plain `scrollIntoView`). */
 function scrollRowToTop(row: HTMLElement) {
   let rowTop = row.getBoundingClientRect().top;
 
   // The list moves first, instantly (not smoothly): the page offset below has to be
   // measured from where the row actually ends up, and near the bottom of the list
   // that is short of where it was asked to go — hence the clamp to the real scroll
-  // range instead of just trusting the requested delta.
+  // range instead of just trusting the requested delta. The list has no header of
+  // its own, so it aligns the row flush.
   const list = row.closest<HTMLElement>(".board-list");
   if (list) {
     const wanted = rowTop - list.getBoundingClientRect().top;
@@ -35,9 +26,7 @@ function scrollRowToTop(row: HTMLElement) {
     rowTop -= applied;
   }
 
-  const header = document.querySelector<HTMLElement>(".app-header");
-  const clearance = (header?.getBoundingClientRect().height ?? 0) + HEADER_CLEARANCE;
-  window.scrollTo({ top: window.scrollY + rowTop - clearance, behavior: "smooth" });
+  scrollViewportTopTo(rowTop);
 }
 
 type DetailState = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; detail: BoardDetail };

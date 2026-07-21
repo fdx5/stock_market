@@ -7,6 +7,7 @@ import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedText
 import { useMobileBarDismissed } from "../mobileBarPreference";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
+import { scrollBelowStickyHeader } from "../stickyScroll";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
@@ -110,15 +111,20 @@ export default function Dashboard() {
 
     const scrollToResult = () => {
       if (skipScroll || cancelled) return;
-      requestAnimationFrame(() => stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+      // Offset by the sticky header rather than scrollIntoView'd flush to the viewport
+      // top, which put the stock's name and price underneath .app-header and left the
+      // visitor scrolling back up by hand. Worst on a phone, where the nav row wraps
+      // and the header is at its tallest — see stickyScroll.ts.
+      const align = () => {
+        const target = stockHeaderRef.current;
+        if (target) scrollBelowStickyHeader(target);
+      };
+      requestAnimationFrame(align);
       // The price chart (canvas-based, autoSize) and board panel can still be
       // settling their own layout a moment after this first paint — on mobile
       // especially, that late reflow can nudge the page enough to leave the
       // result just off the top. A follow-up scroll corrects for it.
-      followUpTimer = window.setTimeout(
-        () => stockHeaderRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
-        400
-      );
+      followUpTimer = window.setTimeout(align, 400);
     };
 
     // Fired independently instead of behind one Promise.all: the price header/chart
