@@ -125,19 +125,30 @@ function IndexTile({
   }
 
   const color = index.change >= 0 ? "var(--up-color)" : "var(--down-color)";
+  // The link is the index number alone, not the whole tile. As a full-tile link this
+  // navigated on any stray tap — and the tile also carries the investor-flow lines,
+  // which are their own thing to read rather than a handle for opening a chart.
   return (
-    <Link to={`/index/${index.symbol.toLowerCase()}`} className="index-tile index-tile-link">
+    <div className="index-tile">
       <div className="index-tile-name">{t(label)}</div>
-      <div className="index-tile-value" style={{ color }}>
+      <Link
+        to={`/index/${index.symbol.toLowerCase()}`}
+        className="index-tile-value index-tile-value-link"
+        style={{ color }}
+        title={`${t(label)} ${t("지수 차트 보기")}`}
+      >
         {index.close.toLocaleString()}
-      </div>
+        <span className="index-tile-value-cue" aria-hidden="true">
+          ↗
+        </span>
+      </Link>
       <div className="index-tile-change" style={{ color }}>
         {index.change >= 0 ? "▲" : "▼"} {Math.abs(index.change).toLocaleString()} (
         {index.change_pct >= 0 ? "+" : ""}
         {index.change_pct}%)
       </div>
       <MarketInvestorLine summary={investor} />
-    </Link>
+    </div>
   );
 }
 

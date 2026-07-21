@@ -154,6 +154,8 @@ export const DICTIONARY: Record<string, string> = {
   "등락률": "Change %",
   "등락": "Change",
   "맵 면적 비중": "Map Area Share",
+  // Index tiles — only the number links out to the index chart page
+  "지수 차트 보기": "view index chart",
   // Dashboard sector map (the treemap beside the chart column)
   "업종 맵": "Sector Map",
   "같은 업종의 종목을 찾지 못했습니다.": "No peers found in this sector.",

@@ -1319,19 +1319,6 @@ a.app-brand:hover .app-logo-wide {
   padding: 12px 14px;
 }
 
-.index-tile-link {
-  display: block;
-  color: inherit;
-  text-decoration: none;
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-
-.index-tile-link:hover {
-  border-color: var(--text-muted);
-  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-}
-
 .index-tile-name {
   font-size: 12px;
   color: var(--text-muted);
@@ -1342,6 +1329,40 @@ a.app-brand:hover .app-logo-wide {
   font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+/* The number is the whole hit area now (the tile used to be), so it has to look like
+   one — inline-flex keeps the target to the digits plus the cue rather than the full
+   width of the row, which is the point of the change. */
+.index-tile-value-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  cursor: pointer;
+  border-radius: 6px;
+  /* Vertical padding is negative-margined back out so gaining a hit area does not
+     also push .index-tile-change down and re-space the tile. */
+  padding: 3px 6px;
+  margin: -3px -6px;
+  transition: background 0.15s ease;
+}
+
+.index-tile-value-link:hover {
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.index-tile-value-link:hover .index-tile-value-cue {
+  opacity: 1;
+}
+
+/* A standing hint that the number opens something — faint, because the number's job
+   is to be read, and it is only nudged to full strength on hover. */
+.index-tile-value-cue {
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
 }
 
 .index-tile-change {
@@ -3869,6 +3890,14 @@ thead .weekly-foreign-amount-col {
 
   .index-tile-value {
     font-size: 17px;
+  }
+
+  /* The number carries the whole link now, and at 17px it would be a thin target for
+     a thumb — padded out vertically (and negative-margined back, so the tile keeps its
+     spacing) to roughly a fingertip. */
+  .index-tile-value-link {
+    padding: 7px 8px;
+    margin: -7px -8px;
   }
 
   .index-tile-change {
