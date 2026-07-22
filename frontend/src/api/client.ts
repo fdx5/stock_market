@@ -276,6 +276,10 @@ export interface GlobalIndexWidget {
   change: number | null;
   change_pct: number | null;
   points: GlobalIndexPoint[];
+  /** A second instrument sharing this tile's slot, which the grid alternates with.
+   * Only the SOXL tile gets one, and only while a KOSPI 200 futures session is open —
+   * the backend picks the day- or night-session instrument to match. */
+  alt?: GlobalIndexWidget;
 }
 
 export interface GlobalEnrichment {

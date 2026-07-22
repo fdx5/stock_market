@@ -1,5 +1,15 @@
 import { useEffect, useState } from "react";
 import { GlobalIndexPoint, GlobalIndexWidget, api } from "../api/client";
+import { startVisibilityAwareInterval } from "../pollVisibility";
+
+/** How long each face of a rotating tile is held still before the next slide. */
+const ROTATE_HOLD_MS = 5000;
+/** Must stay in sync with the .global-index-track transition in styles.css. */
+const ROTATE_SLIDE_MS = 600;
+/** Whether a KOSPI futures session is open — and so whether the SOXL tile has a
+ * partner to rotate with at all — changes on the clock, so the grid can't be a
+ * fetch-once widget. A minute of lag on a session boundary is invisible. */
+const REFRESH_MS = 60_000;
 
 function formatIndexValue(v: number, unit: "index" | "usd"): string {
   const formatted = v.toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -37,12 +47,12 @@ function Sparkline({ points, colorVar }: { points: GlobalIndexPoint[]; colorVar:
   );
 }
 
-function IndexTile({ item }: { item: GlobalIndexWidget }) {
+function TileFace({ item }: { item: GlobalIndexWidget }) {
   const pct = item.change_pct ?? 0;
   const cls = changeClass(pct);
   const colorVar = pct < 0 ? "var(--down-color)" : "var(--up-color)";
   return (
-    <div className="global-index-tile">
+    <div className="global-index-face">
       <div className="global-index-tile-info">
         <span className="global-index-tile-label">{item.label}</span>
         {item.close !== null ? (
@@ -62,21 +72,85 @@ function IndexTile({ item }: { item: GlobalIndexWidget }) {
   );
 }
 
+/** One slot of the grid. Normally a single static face; when the backend hands the
+ * tile an `alt` (the SOXL slot during a KOSPI 200 futures session) the two take turns,
+ * the incoming one entering from the right and pushing the outgoing one off to the
+ * left.
+ *
+ * The two faces sit side by side in a track twice the slot's width. A rotation slides
+ * the track one full face left, then — with the transition off — swaps which face is
+ * rendered first and resets the offset to zero. That snap is invisible because the
+ * face now sitting at offset zero is the same one that just finished sliding into
+ * view, and it's what keeps every rotation running right-to-left instead of the second
+ * one reversing back the way it came. */
+function IndexTile({ item }: { item: GlobalIndexWidget }) {
+  const alt = item.alt;
+  // Keyed on identity, not the object: the grid refetches every minute and would
+  // otherwise restart the rotation clock mid-cycle on every refresh.
+  const altKey = alt?.key;
+  const [flips, setFlips] = useState(0);
+  const [sliding, setSliding] = useState(false);
+
+  useEffect(() => {
+    if (!altKey) return;
+    let slideId: number | undefined;
+    const holdId = window.setInterval(() => {
+      setSliding(true);
+      slideId = window.setTimeout(() => {
+        setFlips((n) => n + 1);
+        setSliding(false);
+      }, ROTATE_SLIDE_MS);
+    }, ROTATE_HOLD_MS + ROTATE_SLIDE_MS);
+    return () => {
+      window.clearInterval(holdId);
+      window.clearTimeout(slideId);
+      // A session that just closed takes the partner face with it; landing back on the
+      // primary face keeps the slot from being stranded mid-slide showing a stale one.
+      setSliding(false);
+    };
+  }, [altKey]);
+
+  if (!alt) {
+    return (
+      <div className="global-index-tile">
+        <TileFace item={item} />
+      </div>
+    );
+  }
+
+  const [front, back] = flips % 2 === 0 ? [item, alt] : [alt, item];
+  return (
+    <div className="global-index-tile global-index-tile--rotating">
+      <div className={`global-index-track ${sliding ? "is-sliding" : ""}`}>
+        <TileFace item={front} />
+        <TileFace item={back} />
+      </div>
+    </div>
+  );
+}
+
 export default function GlobalIndexGrid() {
   const [items, setItems] = useState<GlobalIndexWidget[] | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .globalIndices()
-      .then((res) => {
-        if (!cancelled) setItems(res.items);
-      })
-      .catch(() => {
-        if (!cancelled) setItems([]);
-      });
+    const load = (isFirst: boolean) =>
+      api
+        .globalIndices()
+        .then((res) => {
+          if (!cancelled) setItems(res.items);
+        })
+        .catch(() => {
+          // A failed refresh keeps whatever is already on screen; only the first load
+          // has nothing to fall back to and has to resolve the skeletons.
+          if (!cancelled && isFirst) setItems([]);
+        });
+
+    load(true);
+    const stop = startVisibilityAwareInterval(() => load(false), REFRESH_MS);
     return () => {
       cancelled = true;
+      stop();
     };
   }, []);
 
