@@ -526,6 +526,44 @@ a.app-brand:hover .app-logo-wide {
   border: 1px solid var(--border);
 }
 
+.global-index-face {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* The SOXL slot while a KOSPI 200 futures session is open: it holds two faces that
+   take turns, so the padding moves to the faces' shared track and the tile itself
+   becomes the window they slide through. */
+.global-index-tile--rotating {
+  padding: 0;
+  overflow: hidden;
+}
+
+.global-index-track {
+  display: flex;
+  width: 200%;
+  flex: none;
+  transform: translateX(0);
+}
+
+.global-index-track > .global-index-face {
+  width: 50%;
+  flex: none;
+  padding: 14px 16px;
+}
+
+/* Only the sliding state carries a transition. The reset back to 0 that follows every
+   slide has to be instantaneous — animating it would run the whole thing backwards in
+   view, which is exactly the left-to-right motion this is avoiding. */
+.global-index-track.is-sliding {
+  transform: translateX(-50%);
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .global-index-tile--skeleton {
   height: 68px;
   background: linear-gradient(
@@ -1394,8 +1432,72 @@ a.app-brand:hover .app-logo-wide {
   gap: 10px;
 }
 
+/* The dashboard variant keeps the two-column layout but each column is now a vertical
+   flip-tile: FX crosses cycle in the left slot, crude/gold/silver in the right, each
+   rolling its members bottom-to-top on its own clock. */
 .macro-rates--inline {
   margin-top: 2px;
+}
+
+/* One flip-tile: a viewport exactly one row tall (--flip-h) that clips a taller
+   vertical stack. Same paint/layout isolation as the main ticker — the continuous
+   transform can't invalidate the panels packed around it. */
+.macro-flip {
+  --flip-h: 60px;
+  height: var(--flip-h);
+  overflow: hidden;
+  border-radius: 10px;
+  contain: layout paint;
+}
+
+.macro-flip-track {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+
+/* Every member (plus the trailing duplicate of the first) is exactly one viewport
+   tall, so a translateY step of one member height reads as a clean flip. */
+.macro-flip .macro-rate-tile {
+  height: var(--flip-h);
+  box-sizing: border-box;
+  flex: 0 0 var(--flip-h);
+  border-radius: 0;
+}
+
+/* translateY here is a percentage of the *track's own* height. A 4-member FX tile
+   builds a 5-tile track (members + duplicate-first), so one member is 20% of it; the
+   3-member commodity tile builds a 4-tile track, so one member is 25%. Each keyframe
+   pair holds a member in view for the bulk of its slice, then slides up to the next —
+   the final stop lands on the duplicate first, matching 0% so the loop is seamless. */
+.macro-flip--4 .macro-flip-track {
+  animation: macro-flip-4 13s ease-in-out infinite;
+}
+
+.macro-flip--3 .macro-flip-track {
+  animation: macro-flip-3 10s ease-in-out infinite;
+}
+
+@keyframes macro-flip-4 {
+  0%, 17.5% { transform: translateY(0); }
+  25%, 42.5% { transform: translateY(-20%); }
+  50%, 67.5% { transform: translateY(-40%); }
+  75%, 92.5% { transform: translateY(-60%); }
+  100% { transform: translateY(-80%); }
+}
+
+@keyframes macro-flip-3 {
+  0%, 23.33% { transform: translateY(0); }
+  33.33%, 56.66% { transform: translateY(-25%); }
+  66.66%, 90% { transform: translateY(-50%); }
+  100% { transform: translateY(-75%); }
+}
+
+/* No motion: park each tile on its first member instead of animating. */
+@media (prefers-reduced-motion: reduce) {
+  .macro-flip-track {
+    animation: none;
+  }
 }
 
 /* On the global page these stand alone under the index grid rather than hanging off

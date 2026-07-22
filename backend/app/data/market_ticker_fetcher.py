@@ -22,6 +22,13 @@ HEADERS = {
 SYMBOLS = [
     {"symbol": "CL=F", "label": "WTI Crude"},
     {"symbol": "KRW=X", "label": "USD/KRW"},
+    # Cross rates the macro strip cycles through next to USD/KRW. JPY is quoted per
+    # 100 yen (Korean convention) — Yahoo reports it per 1 yen, so scale price and
+    # every derived number by 100. These three ride the ticker payload for the macro
+    # strip only; MarketTickerBar filters them back out of the scrolling belt.
+    {"symbol": "JPYKRW=X", "label": "JPY/KRW", "scale": 100},
+    {"symbol": "EURKRW=X", "label": "EUR/KRW"},
+    {"symbol": "GBPKRW=X", "label": "GBP/KRW"},
     {"symbol": "^GSPC", "label": "S&P 500"},
     {"symbol": "^NDX", "label": "Nasdaq 100"},
     {"symbol": "NVDA", "label": "NVIDIA"},
@@ -80,10 +87,14 @@ def _fetch_one(entry: dict) -> dict | None:
         quote = yahoo_quote.extract_quote(result)
         if quote is None:
             return None
-        price, prev_close = quote["price"], quote["previous_close"]
+        # Some FX crosses (notably JPY/KRW) are shown on a scaled basis — apply it
+        # uniformly to price, previous close, and every sparkline point so the change
+        # amount stays consistent with the displayed price (change_pct is unaffected).
+        scale = entry.get("scale", 1)
+        price, prev_close = quote["price"] * scale, quote["previous_close"] * scale
 
         closes = result.get("indicators", {}).get("quote", [{}])[0].get("close") or []
-        points = [round(float(c), 4) for c in closes if c is not None]
+        points = [round(float(c) * scale, 4) for c in closes if c is not None]
 
         # Two cases land here. Futures (GC=F, SI=F, CL=F, ...) report an empty "1d"
         # series whenever today's session hasn't traded yet (e.g. the weekend gap
@@ -93,7 +104,7 @@ def _fetch_one(entry: dict) -> dict | None:
         # so the card gets a real trend line instead of a stub.
         if len(points) < MIN_SPARKLINE_POINTS:
             try:
-                points = _fetch_closes(symbol, "5d")[-96:]
+                points = [round(c * scale, 4) for c in _fetch_closes(symbol, "5d")[-96:]]
             except Exception:
                 pass
 

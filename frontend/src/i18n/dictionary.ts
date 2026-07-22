@@ -42,8 +42,13 @@ export const DICTIONARY: Record<string, string> = {
   "관심": "Saved",
   "최근": "Recent",
 
-  // Macro rates strip (USD/KRW, WTI)
+  // Macro rates strip (USD/KRW, WTI). The first tile cycles through these four FX
+  // crosses; JPY is quoted per 100 yen.
   "원/달러 환율": "USD/KRW",
+  "원/엔 환율": "JPY/KRW",
+  "원/유로 환율": "EUR/KRW",
+  "원/파운드 환율": "GBP/KRW",
+  "100엔": "per 100",
   "국제유가": "Crude Oil",
 
   // US extended-hours session badge

@@ -27,6 +27,10 @@ const ICONS: Record<string, string> = {
   "SI=F": "/img/ticker/silver.png",
 };
 
+// These cross rates ride the shared ticker payload so the macro strip can cycle
+// through them, but they aren't part of the scrolling belt's line-up.
+const BELT_EXCLUDED = new Set(["JPYKRW=X", "EURKRW=X", "GBPKRW=X"]);
+
 function formatPrice(item: MarketTickerItem): string {
   const value =
     item.symbol === "BTC-USD" || item.symbol === "ETH-USD"
@@ -96,7 +100,7 @@ const TickerCard = memo(
 );
 
 export default function MarketTickerBar() {
-  const items = useMarketTicker();
+  const items = useMarketTicker().filter((item) => !BELT_EXCLUDED.has(item.symbol));
 
   if (items.length === 0) return <div className="ticker-bar" />;
 
