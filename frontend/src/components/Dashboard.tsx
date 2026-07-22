@@ -15,6 +15,7 @@ import BattleIcon from "./BattleIcon";
 import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
+import HeaderDateTime from "./HeaderDateTime";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import IndicatorBadges from "./IndicatorBadges";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
@@ -326,9 +327,12 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="app-header-trailing">
-        <SearchBar onSelect={selectStock} />
-        <StockQuickAccess onSelect={selectStock} activeCode={selected?.code} />
+      <div className="app-header-trailing app-header-trailing--dash">
+        <div className="app-header-trailing-main">
+          <SearchBar onSelect={selectStock} />
+          <StockQuickAccess onSelect={selectStock} activeCode={selected?.code} />
+        </div>
+        <HeaderDateTime />
       </div>
 
       {/* Zone 1 — the market as a whole. Everything above the stock detail block is

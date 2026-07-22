@@ -359,6 +359,8 @@ export const api = {
   sectorMap: (code: string, limit = 40) =>
     getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
   marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
+  seoulWeather: () =>
+    getJSON<{ temperature: number; code: number; is_day: boolean }>(`${BASE}/market/weather`),
   indexHistory: (symbol: "KOSPI" | "KOSDAQ", years = 3) =>
     getJSON<{ symbol: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
       `${BASE}/market/index/${symbol}/history?years=${years}`

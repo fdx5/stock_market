@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from app.data.market_ticker_fetcher import get_market_ticker
 from app.data.price_fetcher import get_history
+from app.data.weather_fetcher import get_seoul_weather
 from app.services.indicators import compute_indicators
 from app.services.market_map import SECTOR_PEER_LIMIT, get_kosdaq_map, get_kospi_map, get_sector_map
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
@@ -71,6 +72,12 @@ def sector_map(code: str = Query(..., min_length=6, max_length=6), limit: int = 
 @router.get("/ticker")
 def ticker():
     return {"items": get_market_ticker()}
+
+
+@router.get("/weather")
+def weather():
+    """Current Seoul weather for the dashboard header calendar."""
+    return get_seoul_weather()
 
 
 @router.get("/index/{symbol}/history")
