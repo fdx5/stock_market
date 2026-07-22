@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -59,11 +59,31 @@ function wxType(code: number): Wx {
 
 const CLOUD = "M8 15.5h9a3.2 3.2 0 0 0 .3-6.38A4.6 4.6 0 0 0 8.5 8 3.75 3.75 0 0 0 8 15.5Z";
 
+/** Sun / moon as a fixed-box inline SVG rather than the ☀/☾ emoji — the two glyphs
+ * have different advance widths and side bearings, so emoji never line up in a column
+ * however they're boxed; identical SVG viewBoxes do. */
+function DayNightIcon({ day }: { day: boolean }) {
+  return (
+    <svg className="deskcal-daynight" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
+      {day ? (
+        <g stroke="#e0a83a" strokeWidth="2" strokeLinecap="round">
+          <circle cx="12" cy="12" r="4.5" fill="#eab34a" stroke="none" />
+          <path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.2 5.2l1.9 1.9M16.9 16.9l1.9 1.9M18.8 5.2l-1.9 1.9M7.1 16.9l-1.9 1.9" />
+        </g>
+      ) : (
+        /* Crescent whose bounding box is centred on the sun's (translate tuned so the
+           moon sits directly under the sun, not shifted aside). */
+        <path transform="translate(-1 0)" d="M20 13.2A8 8 0 1 1 10.8 4.2 6.3 6.3 0 0 0 20 13.2Z" fill="#c8cede" />
+      )}
+    </svg>
+  );
+}
+
 /** Small inline weather glyph — colored so it reads at a glance (gold sun, blue rain)
  * rather than tinting to text color like the rest of the block. */
 function WeatherIcon({ type, day }: { type: Wx; day: boolean }) {
   return (
-    <svg className="deskcal-wx" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+    <svg className="deskcal-wx" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
       {type === "clear" && day && (
         <g stroke="#f5a623" strokeWidth="1.6" strokeLinecap="round">
           <circle cx="12" cy="12" r="4.2" fill="#f7b733" stroke="none" />
@@ -195,19 +215,21 @@ export default function HeaderDateTime() {
             )}
           </div>
 
+          {/* A 2-column grid (city | time) rather than a row per city, so both cities'
+              time cells start at the same x — the two clocks read as an aligned column. */}
           <div className="deskcal-clocks">
             {cities.map((c) => (
-              <div className="deskcal-clock" key={c.key}>
+              <Fragment key={c.key}>
                 <span className="deskcal-city">
                   <img className="deskcal-flag" src={c.flag} alt="" />
                   {c.label}
                 </span>
                 <span className="deskcal-time">
-                  <span className="deskcal-daynight">{isDaytime(now, c.key) ? "☀" : "☾"}</span>
+                  <DayNightIcon day={isDaytime(now, c.key)} />
                   {clock(now, c.key)}
                   <span className="deskcal-tz">{tzAbbr(now, c.key)}</span>
                 </span>
-              </div>
+              </Fragment>
             ))}
           </div>
         </div>

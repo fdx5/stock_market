@@ -168,6 +168,9 @@ body {
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
+  /* Half the shared 24px trailing gap: the tabbed shortcuts + calendar are a compact
+     band now, so the market-overview zone below sits closer beneath them. */
+  margin-bottom: 12px;
 }
 
 .app-header-trailing-main {
@@ -189,13 +192,13 @@ body {
   display: flex;
   align-items: center;
   perspective: 900px;
-  padding-top: 7px; /* headroom for the binding rings that sit above the card */
+  padding-top: 6px; /* headroom for the binding rings that sit above the card */
 }
 
 .deskcal-card {
   position: relative;
-  width: 196px;
-  border-radius: 12px;
+  width: 210px;
+  border-radius: 11px;
   border: 1px solid var(--border);
   background: linear-gradient(158deg, var(--surface-1), color-mix(in srgb, var(--surface-1) 82%, var(--page-plane)));
   transform: rotateX(6deg) rotateY(-9deg);
@@ -218,18 +221,18 @@ body {
 
 .deskcal-binding {
   position: absolute;
-  top: -6px;
+  top: -5px;
   left: 0;
   right: 0;
   display: flex;
   justify-content: center;
-  gap: 52px;
+  gap: 46px;
   transform: translateZ(14px);
 }
 
 .deskcal-ring {
-  width: 8px;
-  height: 12px;
+  width: 7px;
+  height: 10px;
   border-radius: 3px;
   background: linear-gradient(180deg, #d0d3d8, #797c81);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.15);
@@ -239,41 +242,41 @@ body {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  padding: 9px 13px 7px;
-  border-radius: 11px 11px 0 0;
+  padding: 7px 11px 6px;
+  border-radius: 10px 10px 0 0;
   color: #fff;
   background: linear-gradient(158deg, var(--series-red), color-mix(in srgb, var(--series-red) 70%, #000));
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset;
 }
 
 .deskcal-month {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.12em;
 }
 
 .deskcal-year {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   letter-spacing: 0.08em;
   opacity: 0.82;
 }
 
 .deskcal-body {
-  padding: 9px 13px 11px;
+  padding: 7px 11px 9px;
 }
 
 .deskcal-date {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 9px;
-  padding-bottom: 9px;
+  gap: 7px;
+  margin-bottom: 7px;
+  padding-bottom: 7px;
   border-bottom: 1px dashed var(--border);
 }
 
 .deskcal-day {
-  font-size: 37px;
+  font-size: 31px;
   font-weight: 800;
   line-height: 1;
   color: var(--text-primary);
@@ -281,7 +284,7 @@ body {
 }
 
 .deskcal-weekday {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
 }
@@ -311,29 +314,25 @@ body {
 }
 
 .deskcal-temp {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
 
 .deskcal-clocks {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.deskcal-clock {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 10px;
+  row-gap: 4px;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .deskcal-city {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  white-space: nowrap;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -341,10 +340,11 @@ body {
 }
 
 .deskcal-flag {
-  width: 16px;
-  height: 11px;
+  width: 15px;
+  height: 10px;
   border-radius: 2px;
   object-fit: cover;
+  flex: none;
   box-shadow: 0 0 0 1px var(--border);
 }
 
@@ -352,20 +352,33 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+  /* Pinned to the right edge of the card. Both rows are forced to the same width
+     (fixed day/night glyph + tabular time + fixed-width tz badge), so right-aligning
+     keeps their left edges — the sun/moon column — lined up too. */
+  justify-self: end;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
 }
 
+/* Fixed-box SVG (see DayNightIcon) — identical width both rows, so the HH:MM:SS
+   digits after it stay in a clean column. */
 .deskcal-daynight {
-  font-size: 10px;
-  opacity: 0.8;
+  display: block;
+  flex: none;
+  opacity: 0.9;
 }
 
+/* Fixed width (border-box) so GMT+9 and EDT badges are identical — that's what keeps
+   both right-aligned time blocks the same width, so the day/night glyph before them
+   lands in one column. */
 .deskcal-tz {
+  width: 38px;
+  box-sizing: border-box;
   padding: 1px 3px;
   border-radius: 3px;
+  text-align: center;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -3347,33 +3360,6 @@ thead .weekly-foreign-amount-col {
   gap: 8px;
 }
 
-.quick-access-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.quick-access-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--text-muted);
-  white-space: nowrap;
-  /* Keeps the three row labels left-aligned as a column even though each row is
-     its own flex line — without it the chips start at a different x per row and
-     the strip reads as ragged. */
-  width: 76px;
-}
-
-.quick-access-label-icon {
-  font-size: 12px;
-  line-height: 1;
-}
-
 /* Chips scroll sideways instead of wrapping: a wrapped row silently doubles the
    header's height on the exact screens that can least afford it, and horizontal
    scroll is the established pattern on this page (see .app-nav-row). */
@@ -3523,18 +3509,14 @@ thead .weekly-foreign-amount-col {
   color: var(--text-primary);
 }
 
-/* ── Quick access, mobile: three labelled rows collapse into a tab strip ──────
-   Rendered only below 640px (StockQuickAccess switches trees, it doesn't just
-   restyle), so these need no media query of their own — the markup they select
-   does not exist on a desktop. */
-.quick-access--mobile {
-  gap: 5px;
-}
-
+/* ── Quick access tabs: one strip on every viewport ───────────────────────────
+   Popular / favourites / recents share a single tab strip over one row of chips,
+   so the header stays two lines instead of three-plus. Desktop gets the roomier
+   pill below; the phone shrinks it back down through .quick-access--mobile. */
 .quick-access-tabs {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
   /* Room for the tabs' extended hit area below to live in without being clipped by
@@ -3546,26 +3528,33 @@ thead .weekly-foreign-amount-col {
   display: none;
 }
 
-/* Drawn small — this strip sits above the fold on a phone and every pixel it takes
-   is one the chart below does not get. It is *tapped* bigger than it is drawn: see
-   the ::after hit area below, which is what lets the box shrink without the target
-   shrinking with it. */
 .quick-access-tab {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   flex-shrink: 0;
-  min-height: 22px;
-  padding: 3px 9px;
+  min-height: 28px;
+  padding: 5px 12px;
   border: 1px solid var(--border);
   border-radius: 999px;
-  background: none;
+  background: var(--surface-1);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.quick-access-tab:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.quick-access-tab-icon {
+  font-size: 12px;
+  line-height: 1;
 }
 
 /* Extends the tap target past the drawn pill, vertically only: the row scrolls
@@ -3579,9 +3568,7 @@ thead .weekly-foreign-amount-col {
 
 /* Filled, not merely tinted: this is the only thing on screen saying which of the
    three lists the chips underneath belong to. The fill is --series-blue, matching
-   .market-overview-tab.active — the app's existing "this tab is selected" colour.
-   It was --text-primary at first, which is #ffffff in the dark theme and put a slab
-   of pure white at the top of the phone view, brighter than anything around it. */
+   .market-overview-tab.active — the app's existing "this tab is selected" colour. */
 .quick-access-tab.is-active {
   border-color: var(--series-blue);
   background: var(--series-blue);
@@ -3589,10 +3576,29 @@ thead .weekly-foreign-amount-col {
 }
 
 .quick-access-tab-count {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   opacity: 0.72;
+}
+
+/* Phone: draw the strip small again — it sits above the fold and every pixel it
+   takes is one the chart below does not get. The ::after hit area above keeps the
+   tap target from shrinking with the box, and the terse labels keep it compact. */
+.quick-access--mobile {
+  gap: 5px;
+}
+
+.quick-access--mobile .quick-access-tab {
+  min-height: 22px;
+  gap: 4px;
+  padding: 3px 9px;
+  background: none;
+  font-size: 11px;
+}
+
+.quick-access--mobile .quick-access-tab-count {
+  font-size: 9px;
 }
 
 /* ── Search dropdown suggestion groups ───────────────────────────────────── */

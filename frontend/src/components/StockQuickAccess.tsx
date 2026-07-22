@@ -140,35 +140,19 @@ export default function StockQuickAccess({ onSelect, activeCode }: Props) {
     });
   }
 
-  if (!isMobile) {
-    return (
-      <div className="quick-access">
-        {groups.map((group) => (
-          <div className="quick-access-row" key={group.key}>
-            <span className="quick-access-label">
-              <span className="quick-access-label-icon" aria-hidden="true">
-                {group.icon}
-              </span>
-              {group.label}
-            </span>
-            <div className="quick-access-chips">
-              {group.chips}
-              {group.trailing}
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
   // Falling back to the first group rather than tracking the selection in an effect:
   // a group can vanish under the tab that selects it (clearing history while on 최근,
   // unstarring the last favourite), and resolving that at render keeps the strip from
   // ever painting an empty row first.
   const active = groups.find((group) => group.key === activeTab) ?? groups[0];
 
+  // One tabbed strip on every viewport now: three stacked labelled rows read fine on a
+  // phone but ate a disproportionate slab of the desktop header for lists a visitor
+  // dips into occasionally. Collapsing to tabs shows one list at a time — the header
+  // stays two lines, and the calendar beside it shrinks to match. Desktop spells the
+  // labels out (it has the room); a phone keeps the terse ones.
   return (
-    <div className="quick-access quick-access--mobile">
+    <div className={`quick-access quick-access--tabbed${isMobile ? " quick-access--mobile" : ""}`}>
       {/* Only worth a tab strip when there is more than one group to switch between —
           a lone "인기" tab would be a control that does nothing. */}
       {groups.length > 1 && (
@@ -182,15 +166,17 @@ export default function StockQuickAccess({ onSelect, activeCode }: Props) {
               className={`quick-access-tab ${group.key === active.key ? "is-active" : ""}`}
               onClick={() => setActiveTab(group.key)}
             >
-              <span aria-hidden="true">{group.icon}</span>
-              {group.shortLabel}
+              <span className="quick-access-tab-icon" aria-hidden="true">
+                {group.icon}
+              </span>
+              {isMobile ? group.shortLabel : group.label}
               {group.count !== null && <span className="quick-access-tab-count">{group.count}</span>}
             </button>
           ))}
         </div>
       )}
 
-      <div className="quick-access-chips">
+      <div className="quick-access-chips" role="tabpanel">
         {active.chips}
         {active.trailing}
       </div>
