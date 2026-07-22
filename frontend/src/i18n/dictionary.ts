@@ -191,8 +191,6 @@ export const DICTIONARY: Record<string, string> = {
   "전체": "All",
 
   // Dashboard (App.tsx)
-  "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다.":
-    "Search for a stock to see its current price and change rate, chart, discussion board, and news.",
   "종목을 검색해 주세요. (예: 삼성전자, 005930)": "Please search for a stock (e.g. Samsung Electronics, 005930)",
 
   // SidePanel / BoardPanel

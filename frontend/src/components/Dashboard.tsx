@@ -327,11 +327,6 @@ export default function Dashboard() {
       </header>
 
       <div className="app-header-trailing">
-        <p className="app-subtitle">
-          {t(
-            "종목 검색시 현재 시세 및 등락률, 차트, 종목토론과 뉴스를 확인할 수 있습니다."
-          )}
-        </p>
         <SearchBar onSelect={selectStock} />
         <StockQuickAccess onSelect={selectStock} activeCode={selected?.code} />
       </div>
