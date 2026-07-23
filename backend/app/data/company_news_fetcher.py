@@ -1,7 +1,9 @@
+import datetime as dt
 import ipaddress
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
+from email.utils import parsedate_to_datetime
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
 import requests
@@ -98,6 +100,31 @@ PREFERRED_SOURCES = {
 # rather than real article body, so the caller falls back to the list snippet.
 MIN_ARTICLE_CHARS = 200
 MAX_ARTICLE_PARAGRAPHS = 12
+
+
+# Bing returns each result page in relevance order, not newest-first (confirmed by
+# direct request: pubDates within one page arrive out of order, and Bing's own
+# sortbydate param had no effect), so recency has to be reconstructed from each item's
+# pubDate and sorted on explicitly — otherwise a highly-relevant but weeks-old article
+# outranks fresh coverage, which is exactly the "not the latest news" symptom.
+_OLDEST = dt.datetime(1970, 1, 1, tzinfo=dt.timezone.utc)
+
+
+def _published_dt(published: str) -> dt.datetime:
+    """Parse an RSS RFC-822 pubDate ('Wed, 22 Jul 2026 06:57:00 GMT') into a
+    timezone-aware datetime for recency sorting. Anything missing or unparseable sorts
+    as oldest (epoch) so dated items always rank above undated ones — and the epoch
+    sentinel keeps every value at or after 1970, avoiding the Windows OSError that
+    datetime.min.timestamp() raises for pre-1970 dates."""
+    if not published:
+        return _OLDEST
+    try:
+        parsed = parsedate_to_datetime(published)
+    except (TypeError, ValueError, IndexError):
+        return _OLDEST
+    if parsed is None:
+        return _OLDEST
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=dt.timezone.utc)
 
 
 def _is_preferred(source: str) -> bool:
@@ -278,12 +305,20 @@ def fetch_bing_news(company_name: str, limit: int) -> list[dict]:
                 seen_raw_links.add(it["link"])
                 all_items.append(it)
 
-    # Stable sort: RSS already returns newest-first within each page, so items keep
-    # their relative recency order within their own group. Known-unextractable domains
-    # are pushed to the very end regardless of outlet reputation — see
-    # _is_unextractable_domain. Deduping after the sort (not before) means the
-    # higher-priority copy of a reposted story is the one that's kept.
-    all_items.sort(key=lambda it: (_is_unextractable_domain(it["link"]), 0 if _is_preferred(it["source"]) else 1))
+    # Recency is the primary sort so the list actually leads with the latest coverage
+    # (see _published_dt for why Bing's own order can't be trusted for this). Known-
+    # unextractable domains are still pushed to the very end regardless of how fresh
+    # they are — they can't render an in-app article body, so a readable slightly-older
+    # story is more useful there. Preferred-source reputation drops to a tiebreaker,
+    # only deciding order between items published at the same minute. Deduping after the
+    # sort (not before) means the higher-priority copy of a reposted story is kept.
+    all_items.sort(
+        key=lambda it: (
+            _is_unextractable_domain(it["link"]),
+            -_published_dt(it["published"]).timestamp(),
+            0 if _is_preferred(it["source"]) else 1,
+        )
+    )
     return _dedupe_items(all_items)[:limit]
 
 

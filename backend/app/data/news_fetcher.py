@@ -1,3 +1,4 @@
+import datetime as dt
 import re
 from urllib.parse import parse_qs, urlparse
 
@@ -44,6 +45,22 @@ def _normalize_title(title: str) -> str:
     return cleaned[:40]
 
 
+_OLDEST_DATE = dt.datetime.min
+
+
+def _parse_naver_date(date_str: str) -> dt.datetime:
+    """Parse finance.naver's 'YYYY.MM.DD HH:MM' (occasionally date-only) timestamp for
+    recency sorting. Anything unparseable sorts as oldest so it never displaces a
+    genuinely dated article at the top of the list."""
+    text = (date_str or "").strip()
+    for fmt in ("%Y.%m.%d %H:%M", "%Y.%m.%d"):
+        try:
+            return dt.datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return _OLDEST_DATE
+
+
 def _fetch_news(code: str, limit: int) -> list[dict]:
     url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
     resp = requests.get(url, headers=HEADERS, timeout=5)
@@ -53,6 +70,12 @@ def _fetch_news(code: str, limit: int) -> list[dict]:
     items: list[dict] = []
     seen_links: set[str] = set()
     seen_titles: set[str] = set()
+    # Collect the whole first page before truncating: Naver groups related articles
+    # into clusters ("연관뉴스 묶기"), so the raw row order isn't strictly newest-first —
+    # a fresh headline can sit several rows below an older one it's clustered with.
+    # Breaking at `limit` in raw order could therefore drop a more recent article than
+    # the ones kept, so every row is gathered here and the newest `limit` are chosen
+    # after the date sort below.
     for row in soup.select("table.type5 tr"):
         title_tag = row.select_one("td.title a")
         if not title_tag:
@@ -79,10 +102,9 @@ def _fetch_news(code: str, limit: int) -> list[dict]:
                 "date": date_tag.get_text(strip=True) if date_tag else "",
             }
         )
-        if len(items) >= limit:
-            break
 
-    return items
+    items.sort(key=lambda it: _parse_naver_date(it["date"]), reverse=True)
+    return items[:limit]
 
 
 def get_news(code: str, limit: int = 15) -> list[dict]:
