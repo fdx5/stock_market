@@ -347,7 +347,7 @@ body {
     0 0 0 1px color-mix(in srgb, var(--led-red) 60%, #000),
     0 0 5px 1px var(--led-red),
     0 0 12px 3px color-mix(in srgb, var(--led-red) 70%, transparent);
-  animation: led-blink 1.4s steps(1, end) infinite;
+  animation: led-blink 2.3s ease-in-out infinite;
 }
 
 .led-dot.is-open {
@@ -488,8 +488,8 @@ body {
 }
 
 @keyframes led-blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0.15; }
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
 }
 
 .led-tz {
