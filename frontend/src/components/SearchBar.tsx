@@ -26,8 +26,35 @@ export default function SearchBar({ onSelect }: Props) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const { favorites, recents } = useWatchlist();
   const popular = usePopularStocks(SUGGESTION_LIMIT);
+
+  // iPadOS Safari hands focus back to the last-focused form control whenever it
+  // re-shows a page — bfcache back/forward, a reopened tab, session restore. On the
+  // dashboard that control is this box, so simply landing on the page threw the
+  // on-screen keyboard over the content before the visitor had touched anything.
+  // Focus arriving with no prior gesture on the page is never the visitor asking for
+  // the keyboard, so it gets handed straight back. Both real routes in — tapping the
+  // box, or tabbing to it — are preceded by a pointerdown/keydown, which is what this
+  // watches for, so neither is affected.
+  const userGestureRef = useRef(false);
+
+  useEffect(() => {
+    const mark = () => {
+      userGestureRef.current = true;
+    };
+    // Capture phase, so the gesture is recorded before the focus it causes arrives.
+    document.addEventListener("pointerdown", mark, true);
+    document.addEventListener("keydown", mark, true);
+    // Focus restored before this component mounted fires no onFocus for us to catch,
+    // so the same rule is applied once to whatever already holds it.
+    if (document.activeElement === inputRef.current) inputRef.current?.blur();
+    return () => {
+      document.removeEventListener("pointerdown", mark, true);
+      document.removeEventListener("keydown", mark, true);
+    };
+  }, []);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -127,12 +154,19 @@ export default function SearchBar({ onSelect }: Props) {
   return (
     <div className="search-wrap" ref={containerRef}>
       <input
+        ref={inputRef}
         className="search-input"
         placeholder={t("종목명 또는 코드 검색 (예: 삼성전자, 005930)")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={handleKeyDown}
-        onFocus={() => setOpen(true)}
+        onFocus={(e) => {
+          if (!userGestureRef.current) {
+            e.target.blur();
+            return;
+          }
+          setOpen(true);
+        }}
       />
       {showDropdown && (
         <div className="search-dropdown">
