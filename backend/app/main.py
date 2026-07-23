@@ -189,6 +189,15 @@ if STATIC_DIR.exists():
             response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
         elif path.startswith(("/video/", "/img/", "/favicon", "/apple-touch-icon")):
             response.headers["Cache-Control"] = STATIC_CACHE_CONTROL
+        elif not path.startswith("/api/"):
+            # The SPA shell (index.html, served for "/" and every client route) must be
+            # revalidated on every load. Without this it has no Cache-Control at all, so
+            # browsers heuristically cache it and — after a deploy replaces the hashed
+            # /assets chunks — keep serving a stale index.html that points at now-deleted
+            # chunk filenames, which 404 and leave a blank white screen until a hard
+            # reload. "no-cache" means "always revalidate via ETag", so a plain refresh
+            # picks up the new index.html (and thus the new chunk names) immediately.
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
     @app.get("/{full_path:path}")
