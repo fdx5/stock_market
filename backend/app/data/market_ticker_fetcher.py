@@ -24,8 +24,9 @@ SYMBOLS = [
     {"symbol": "KRW=X", "label": "USD/KRW"},
     # Cross rates the macro strip cycles through next to USD/KRW. JPY is quoted per
     # 100 yen (Korean convention) — Yahoo reports it per 1 yen, so scale price and
-    # every derived number by 100. These three ride the ticker payload for the macro
-    # strip only; MarketTickerBar filters them back out of the scrolling belt.
+    # every derived number by 100. These, USD/KRW above, and the two metals at the
+    # bottom of the list ride the ticker payload for the macro strip only —
+    # MarketTickerBar filters them back out of the scrolling belt.
     {"symbol": "JPYKRW=X", "label": "JPY/KRW", "scale": 100},
     {"symbol": "EURKRW=X", "label": "EUR/KRW"},
     {"symbol": "GBPKRW=X", "label": "GBP/KRW"},

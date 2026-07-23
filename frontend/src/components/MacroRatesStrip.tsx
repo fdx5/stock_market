@@ -10,6 +10,34 @@ interface Row {
   sublabel: string;
   // A small qualifier printed after the label — JPY is quoted per 100 yen.
   noteKo?: string;
+  // The two precious metals wear a shimmering ring in their own metal's colour, so
+  // they're spottable the instant the commodity tile flips to them.
+  metal?: "gold" | "silver";
+  // Price levels that turn the tile into a warning light. Crude is the one number here
+  // that's bad news for a Korean investor when it *rises* — the country imports
+  // essentially all of it — so the tile goes amber above the first level and red above
+  // the second, and back to its quiet self below the first.
+  alert?: { warn: number; danger: number };
+  // The crude art carries a thin white rim baked into the PNG that reads as a scruffy
+  // outline next to the other discs — clipped off in CSS rather than by re-cutting the
+  // asset, since the belt still uses the same file.
+  trimRim?: boolean;
+}
+
+type AlertLevel = "" | "warn" | "danger" | "cool";
+
+// A drop of this much against the previous close means the level is coming off, not
+// building — the tile says so in blue instead of shouting in amber or red.
+const COOLDOWN_DROP = -2;
+
+/** Strictly above each level, so a print sitting exactly on the threshold stays calm —
+ * and dropping back under `warn` clears the tile entirely. Inside the alert zone the
+ * day's direction outranks the absolute level: $88 that fell $3 today is a market
+ * cooling off, and painting it the same red as $88 on the way up would be a lie. */
+function alertLevel(row: Row, item: MarketTickerItem | null): AlertLevel {
+  if (!row.alert || !item || item.price <= row.alert.warn) return "";
+  if (item.change <= COOLDOWN_DROP) return "cool";
+  return item.price > row.alert.danger ? "danger" : "warn";
 }
 
 // The same icons the scrolling ticker uses for these symbols — one visual identity
@@ -21,9 +49,16 @@ const ROWS: Row[] = [
   { symbol: "JPYKRW=X", icon: "/img/ticker/jpykrw.png", labelKo: "원/엔 환율", sublabel: "JPY/KRW", noteKo: "100엔" },
   { symbol: "EURKRW=X", icon: "/img/ticker/eurkrw.png", labelKo: "원/유로 환율", sublabel: "EUR/KRW" },
   { symbol: "GBPKRW=X", icon: "/img/ticker/gbpkrw.png", labelKo: "원/파운드 환율", sublabel: "GBP/KRW" },
-  { symbol: "CL=F", icon: "/img/ticker/oil.png", labelKo: "국제유가", sublabel: "WTI" },
-  { symbol: "GC=F", icon: "/img/ticker/gold.png", labelKo: "금", sublabel: "Gold" },
-  { symbol: "SI=F", icon: "/img/ticker/silver.png", labelKo: "은", sublabel: "Silver" },
+  {
+    symbol: "CL=F",
+    icon: "/img/ticker/oil.png",
+    labelKo: "국제유가",
+    sublabel: "WTI",
+    alert: { warn: 80, danger: 85 },
+    trimRim: true,
+  },
+  { symbol: "GC=F", icon: "/img/ticker/gold.png", labelKo: "금", sublabel: "Gold", metal: "gold" },
+  { symbol: "SI=F", icon: "/img/ticker/silver.png", labelKo: "은", sublabel: "Silver", metal: "silver" },
 ];
 
 function formatValue(item: MarketTickerItem, lang: Lang): string {
@@ -57,6 +92,37 @@ function Sparkline({ points, up }: { points: number[]; up: boolean }) {
   );
 }
 
+/** The icon, plus — for gold and silver only — the sparkle rig around it: a rotating
+ * metallic ring, a breathing halo, and three four-point glints that twinkle off-beat.
+ * The glints are separate elements rather than pseudo-elements because the art itself
+ * is an <img>, which can't carry any. Everything is decorative, so it's all aria-hidden
+ * by way of the empty alt and presentational spans. */
+function MacroIcon({ row, alert }: { row: Row; alert: AlertLevel }) {
+  const img = (
+    <img
+      className={`macro-rate-icon${row.trimRim ? " macro-rate-icon--trim" : ""}`}
+      src={row.icon}
+      alt=""
+      loading="lazy"
+    />
+  );
+
+  // An alerting row borrows the same wrap, but the ring pulses in the alert's colour
+  // instead of spinning, and it grows no glints — crude above $80 is a warning light,
+  // not something to make pretty.
+  if (alert) return <span className={`macro-rate-icon-wrap macro-rate-icon-wrap--${alert}`}>{img}</span>;
+  if (!row.metal) return img;
+
+  return (
+    <span className={`macro-rate-icon-wrap macro-rate-icon-wrap--${row.metal}`}>
+      {img}
+      <span className="macro-glint macro-glint--a" />
+      <span className="macro-glint macro-glint--b" />
+      <span className="macro-glint macro-glint--c" />
+    </span>
+  );
+}
+
 function MacroTile({ row, item }: { row: Row; item: MarketTickerItem | null }) {
   const { lang } = useLanguage();
   const t = useT();
@@ -64,7 +130,7 @@ function MacroTile({ row, item }: { row: Row; item: MarketTickerItem | null }) {
   if (!item) {
     return (
       <div className="macro-rate-tile" aria-hidden="true">
-        <img className="macro-rate-icon" src={row.icon} alt="" />
+        <MacroIcon row={row} alert="" />
         <div className="macro-rate-body">
           <span className="macro-rate-label">{t(row.labelKo)}</span>
           <span className="skeleton" style={{ width: "70%", height: 16, marginTop: 4 }} />
@@ -74,9 +140,10 @@ function MacroTile({ row, item }: { row: Row; item: MarketTickerItem | null }) {
   }
 
   const up = item.change >= 0;
+  const alert = alertLevel(row, item);
   return (
-    <div className="macro-rate-tile">
-      <img className="macro-rate-icon" src={row.icon} alt="" loading="lazy" />
+    <div className={`macro-rate-tile${alert ? ` macro-rate-tile--${alert}` : ""}`}>
+      <MacroIcon row={row} alert={alert} />
       <div className="macro-rate-body">
         <span className="macro-rate-label">
           {t(row.labelKo)}
@@ -87,6 +154,9 @@ function MacroTile({ row, item }: { row: Row; item: MarketTickerItem | null }) {
           {/* JPY is quoted per 100 yen — flag it in both languages so the value isn't
               misread against the other, per-unit crosses. */}
           {row.noteKo && <span className="macro-rate-sublabel">({t(row.noteKo)})</span>}
+          {/* A bare mark, no number: the colour carries the level, and a glyph reads the
+              same in both languages. Snowflake for the cooling case, siren otherwise. */}
+          {alert && <span className="macro-alert-badge">{alert === "cool" ? "❄" : "⚠"}</span>}
         </span>
         <span className="macro-rate-value">{formatValue(item, lang)}</span>
         <span className={`macro-rate-change ${up ? "change-up" : "change-down"}`}>

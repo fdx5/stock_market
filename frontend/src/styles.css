@@ -2099,6 +2099,373 @@ a.app-brand:hover .app-logo-wide {
   display: block;
 }
 
+/* Crops the outer ~7% of the disc, which is where the crude art's baked-in white rim
+   lives — it read as a scruffy outline beside the other icons. Scaling back up by the
+   same ratio keeps the barrel the size of its neighbours. */
+.macro-rate-icon--trim {
+  clip-path: circle(46.5%);
+  transform: scale(1.075);
+}
+
+/* ── Gold / silver: the sparkle rig ──────────────────────────────────────────
+   The two metals are the only members of the commodity flip-tile worth catching the
+   eye mid-rotation, so they get a ring of their own metal that spins, a halo that
+   breathes, and three glints that twinkle off-beat. Everything is drawn from the
+   --metal-* trio the two modifier classes below set, so the two variants are one
+   piece of machinery in two colourways. All of it stays inside ~11px of the disc:
+   the flip viewport clips at the tile edge, and the icon only has ~13px of room
+   above and below it there. */
+.macro-rate-icon-wrap {
+  position: relative;
+  display: block;
+  flex-shrink: 0;
+  line-height: 0;
+  border-radius: 50%;
+}
+
+.macro-rate-icon-wrap--gold {
+  --metal-core: #f0a500;
+  --metal-hi: #fff2ba;
+  --metal-glow: rgba(255, 190, 60, 0.9);
+}
+
+.macro-rate-icon-wrap--silver {
+  --metal-core: #9fb0c2;
+  --metal-hi: #ffffff;
+  --metal-glow: rgba(203, 220, 236, 0.85);
+}
+
+/* The art is a disc with its own backdrop, so it has to sit above the halo. */
+.macro-rate-icon-wrap .macro-rate-icon {
+  position: relative;
+  z-index: 1;
+}
+
+.macro-rate-icon-wrap::before,
+.macro-rate-icon-wrap::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* The ring: a conic sweep with two bright arcs, masked down to a 2.5px band so only
+   its rim shows. Spinning the gradient is what makes the highlight travel around the
+   icon rather than just sitting on one side. */
+.macro-rate-icon-wrap::before {
+  inset: -3px;
+  z-index: 2;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0deg,
+    var(--metal-core) 30deg,
+    var(--metal-hi) 55deg,
+    var(--metal-core) 80deg,
+    transparent 130deg,
+    transparent 190deg,
+    var(--metal-core) 220deg,
+    var(--metal-hi) 245deg,
+    var(--metal-core) 270deg,
+    transparent 320deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 2.5px));
+  animation: macro-metal-spin 3.4s linear infinite;
+}
+
+/* The halo, behind the disc — the part that reads as "이거 빛난다" from across the
+   dashboard even when the ring's highlight is on the far side. */
+.macro-rate-icon-wrap::after {
+  inset: 0;
+  z-index: 0;
+  box-shadow: 0 0 4px 0 var(--metal-glow), 0 0 10px 1px var(--metal-glow);
+  animation: macro-metal-pulse 2.6s ease-in-out infinite;
+}
+
+/* Four-point glints pinned around the rim. Different sizes and delays so they never
+   blink in unison — three synchronised stars read as a loading spinner, not a
+   sparkle. */
+.macro-glint {
+  position: absolute;
+  z-index: 3;
+  width: 9px;
+  height: 9px;
+  background: var(--metal-hi);
+  clip-path: polygon(50% 0%, 58% 42%, 100% 50%, 58% 58%, 50% 100%, 42% 58%, 0% 50%, 42% 42%);
+  filter: drop-shadow(0 0 3px var(--metal-glow));
+  opacity: 0;
+  pointer-events: none;
+  animation: macro-glint-twinkle 2.6s ease-in-out infinite;
+}
+
+.macro-glint--a {
+  top: -5px;
+  right: 0;
+}
+
+.macro-glint--b {
+  width: 7px;
+  height: 7px;
+  bottom: -3px;
+  left: -2px;
+  animation-delay: 0.85s;
+}
+
+.macro-glint--c {
+  width: 6px;
+  height: 6px;
+  top: 45%;
+  right: -5px;
+  animation-delay: 1.7s;
+}
+
+@keyframes macro-metal-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes macro-metal-pulse {
+  0%, 100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* The star peaks upright — a four-point star caught at 45° just reads as an ×. The
+   rotation is spent on the way in and out, where it's a shimmer rather than a shape. */
+@keyframes macro-glint-twinkle {
+  0%, 60%, 100% {
+    opacity: 0;
+    transform: scale(0.25) rotate(-30deg);
+  }
+  74% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+  86% {
+    opacity: 0.3;
+    transform: scale(0.55) rotate(25deg);
+  }
+}
+
+/* ── Crude above its alert levels ────────────────────────────────────────────
+   Korea imports essentially all of its oil, so a rising WTI print is the one number
+   in this strip that's bad news going up. Above $80 the whole tile turns into an
+   amber warning light; above $85 it goes red and starts breathing. Both states reuse
+   the metals' icon-wrap rig with the ring pulsing instead of spinning — same
+   machinery, opposite mood.
+
+   The alert colours ride --alert-* so the two levels differ only in this block. */
+.macro-rate-tile--warn {
+  --alert-edge: #ff9f1c;
+  --alert-text: #ffb648;
+  --alert-wash: rgba(255, 145, 20, 0.16);
+}
+
+.macro-rate-tile--danger {
+  --alert-edge: #ff3b30;
+  --alert-text: #ff7a6e;
+  --alert-wash: rgba(255, 45, 30, 0.2);
+}
+
+/* Still above $80, but coming down hard today — the level is unwinding, so the tile
+   swings to the cold end of the scale instead of the hot one. Same rig, blue paint,
+   and none of the urgency: no throb, a slower ring. */
+.macro-rate-tile--cool {
+  --alert-edge: #2f9bff;
+  --alert-text: #74c2ff;
+  --alert-wash: rgba(45, 140, 255, 0.18);
+}
+
+/* Doubled class on purpose: the card variant zeroes .macro-rate-tile's background at
+   two-class specificity, and the wash is the whole point of the alert. */
+.macro-rate-tile.macro-rate-tile--warn,
+.macro-rate-tile.macro-rate-tile--danger,
+.macro-rate-tile.macro-rate-tile--cool {
+  position: relative;
+  /* Hottest at the left edge, where the icon is, fading out under the sparkline —
+     a wash, not a flat fill, so the number on top stays readable. */
+  background: linear-gradient(90deg, var(--alert-wash), transparent 85%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--alert-edge) 42%, transparent);
+}
+
+/* A solid bar down the leading edge — the part that still registers at a glance when
+   the tile is only half in view mid-flip. */
+.macro-rate-tile--warn::before,
+.macro-rate-tile--danger::before,
+.macro-rate-tile--cool::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--alert-edge);
+}
+
+/* Danger keeps everything warn has and adds the pulse: the wash and the inner ring
+   breathe together, which is what separates "high" from "alarming" without needing a
+   second, louder colour. */
+.macro-rate-tile--danger {
+  animation: macro-alert-throb 1.5s ease-in-out infinite;
+}
+
+.macro-rate-tile--warn .macro-rate-value,
+.macro-rate-tile--danger .macro-rate-value,
+.macro-rate-tile--cool .macro-rate-value {
+  color: var(--alert-text);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--alert-edge) 45%, transparent);
+}
+
+.macro-rate-tile--warn .macro-rate-label,
+.macro-rate-tile--danger .macro-rate-label,
+.macro-rate-tile--cool .macro-rate-label {
+  color: color-mix(in srgb, var(--alert-text) 80%, var(--text-primary));
+}
+
+/* A round chip carrying just the mark — ⚠ when the level is building, ❄ when it's
+   coming off. The colour already says how serious it is, so the chip stays a glyph
+   rather than spelling out a threshold. */
+.macro-alert-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex: none;
+  /* The label row aligns on the baseline; a glyph in a circle wants its middle. */
+  align-self: center;
+  font-size: 9px;
+  line-height: 1;
+  border-radius: 50%;
+  color: var(--alert-edge);
+  border: 1px solid color-mix(in srgb, var(--alert-edge) 55%, transparent);
+  background: color-mix(in srgb, var(--alert-edge) 16%, transparent);
+}
+
+.macro-rate-tile--danger .macro-alert-badge {
+  color: #fff;
+  background: var(--alert-edge);
+  border-color: var(--alert-edge);
+  animation: macro-alert-blink 1.5s steps(1, end) infinite;
+}
+
+/* The icon's ring in alert colours — pulsing, not spinning. Inherits the shared
+   ::before/::after geometry defined above; only the paint and cadence change. */
+.macro-rate-icon-wrap--warn,
+.macro-rate-icon-wrap--danger,
+.macro-rate-icon-wrap--cool {
+  --metal-glow: color-mix(in srgb, var(--alert-edge) 70%, transparent);
+}
+
+.macro-rate-icon-wrap--warn::before,
+.macro-rate-icon-wrap--danger::before,
+.macro-rate-icon-wrap--cool::before {
+  background: var(--alert-edge);
+  animation: macro-metal-pulse 1.5s ease-in-out infinite;
+}
+
+.macro-rate-icon-wrap--danger::after {
+  animation-duration: 1.5s;
+}
+
+/* Cooling breathes at half the alarm's rate — present, but visibly unhurried. */
+.macro-rate-icon-wrap--cool::before,
+.macro-rate-icon-wrap--cool::after {
+  animation-duration: 3.2s;
+}
+
+@keyframes macro-alert-throb {
+  0%, 100% {
+    background: linear-gradient(90deg, var(--alert-wash), transparent 85%);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--alert-edge) 42%, transparent);
+  }
+  50% {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--alert-edge) 34%, transparent), transparent 80%);
+    box-shadow:
+      inset 0 0 0 1px var(--alert-edge),
+      inset 0 0 18px color-mix(in srgb, var(--alert-edge) 30%, transparent);
+  }
+}
+
+@keyframes macro-alert-blink {
+  0%, 60% {
+    opacity: 1;
+  }
+  61%, 100% {
+    opacity: 0.45;
+  }
+}
+
+/* Light theme: the washes are tuned for a dark surface and read as a faint pastel on
+   a white one. Deepen the edge and drop the value to a colour that still passes as
+   text rather than decoration. */
+:root[data-theme="light"] .macro-rate-tile--warn {
+  --alert-edge: #e07800;
+  --alert-text: #b85f00;
+  --alert-wash: rgba(255, 150, 20, 0.2);
+}
+
+:root[data-theme="light"] .macro-rate-tile--danger {
+  --alert-edge: #d62012;
+  --alert-text: #b81a0e;
+  --alert-wash: rgba(230, 40, 25, 0.18);
+}
+
+:root[data-theme="light"] .macro-rate-tile--cool {
+  --alert-edge: #0a72d6;
+  --alert-text: #0a5fb4;
+  --alert-wash: rgba(30, 120, 230, 0.18);
+}
+
+/* No motion: the tiles keep their colour and badge, they just stop throbbing. */
+@media (prefers-reduced-motion: reduce) {
+  .macro-rate-tile--danger,
+  .macro-rate-tile--danger .macro-alert-badge,
+  .macro-rate-icon-wrap--warn::before,
+  .macro-rate-icon-wrap--danger::before,
+  .macro-rate-icon-wrap--cool::before {
+    animation: none;
+  }
+}
+
+/* On the light theme the metals sit on a near-white surface, so pure white glints and
+   a pale halo disappear. Deepen both — the ring's inner highlight stays bright because
+   it's drawn over the icon's own dark disc. */
+:root[data-theme="light"] .macro-rate-icon-wrap--gold {
+  --metal-core: #d98800;
+  --metal-hi: #ffd75e;
+  --metal-glow: rgba(214, 140, 0, 0.75);
+}
+
+:root[data-theme="light"] .macro-rate-icon-wrap--silver {
+  --metal-core: #7d8fa3;
+  --metal-hi: #cfdae6;
+  --metal-glow: rgba(112, 132, 154, 0.7);
+}
+
+/* No motion: keep the ring and halo, drop everything that moves — the metals still
+   read as highlighted, they just stop twinkling. */
+@media (prefers-reduced-motion: reduce) {
+  .macro-rate-icon-wrap::before,
+  .macro-rate-icon-wrap::after {
+    animation: none;
+  }
+
+  .macro-rate-icon-wrap::after {
+    opacity: 0.7;
+  }
+
+  .macro-glint {
+    animation: none;
+    opacity: 0.55;
+    transform: scale(0.85);
+  }
+}
+
 .macro-rate-body {
   display: flex;
   flex-direction: column;

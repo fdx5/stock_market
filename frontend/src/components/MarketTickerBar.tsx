@@ -4,7 +4,6 @@ import { useMarketTicker } from "../useMarketTicker";
 import SessionBadge from "./SessionBadge";
 
 const ICONS: Record<string, string> = {
-  "KRW=X": "/img/ticker/usdkrw.png",
   "^GSPC": "/img/ticker/spx500.png",
   "^NDX": "/img/ticker/nas100.png",
   NVDA: "/img/ticker/nvidia.png",
@@ -23,13 +22,13 @@ const ICONS: Record<string, string> = {
   "BTC-USD": "/img/ticker/btc.png",
   "ETH-USD": "/img/ticker/eth.png",
   "XRP-USD": "/img/ticker/xrp.png",
-  "GC=F": "/img/ticker/gold.png",
-  "SI=F": "/img/ticker/silver.png",
 };
 
-// These cross rates ride the shared ticker payload so the macro strip can cycle
-// through them, but they aren't part of the scrolling belt's line-up.
-const BELT_EXCLUDED = new Set(["JPYKRW=X", "EURKRW=X", "GBPKRW=X"]);
+// FX crosses and the two metals ride the shared ticker payload so the macro strip
+// can cycle through them, but they aren't part of the scrolling belt's line-up —
+// the flip-tiles under the index already carry them, and printing them twice on the
+// same screen just made the belt longer without saying anything new.
+const BELT_EXCLUDED = new Set(["KRW=X", "JPYKRW=X", "EURKRW=X", "GBPKRW=X", "GC=F", "SI=F"]);
 
 function formatPrice(item: MarketTickerItem): string {
   const value =
