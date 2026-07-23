@@ -2,13 +2,9 @@ import { useEffect, useState } from "react";
 import { GlobalIndexPoint, GlobalIndexWidget, api } from "../api/client";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 
-/** How long each face of a rotating tile is held still before the next slide. */
-const ROTATE_HOLD_MS = 5000;
-/** Must stay in sync with the .global-index-track transition in styles.css. */
-const ROTATE_SLIDE_MS = 600;
-/** Whether a KOSPI futures session is open — and so whether the SOXL tile has a
- * partner to rotate with at all — changes on the clock, so the grid can't be a
- * fetch-once widget. A minute of lag on a session boundary is invisible. */
+/** Whether a KOSPI futures session is open — and so how many members the US flip-tile
+ * cycles through — changes on the clock, so the grid can't be a fetch-once widget. A
+ * minute of lag on a session boundary is invisible. */
 const REFRESH_MS = 60_000;
 
 function formatIndexValue(v: number, unit: "index" | "usd"): string {
@@ -54,7 +50,12 @@ function TileFace({ item }: { item: GlobalIndexWidget }) {
   return (
     <div className="global-index-face">
       <div className="global-index-tile-info">
-        <span className="global-index-tile-label">{item.label}</span>
+        <span className="global-index-tile-label">
+          {item.flag && (
+            <img className="global-index-tile-flag" src={`/img/flag/${item.flag}.svg`} alt="" loading="lazy" />
+          )}
+          <span className="global-index-tile-name">{item.label}</span>
+        </span>
         {item.close !== null ? (
           <>
             <span className="global-index-tile-value">{formatIndexValue(item.close, item.unit)}</span>
@@ -72,58 +73,28 @@ function TileFace({ item }: { item: GlobalIndexWidget }) {
   );
 }
 
-/** One slot of the grid. Normally a single static face; when the backend hands the
- * tile an `alt` (the SOXL slot during a KOSPI 200 futures session) the two take turns,
- * the incoming one entering from the right and pushing the outgoing one off to the
- * left.
- *
- * The two faces sit side by side in a track twice the slot's width. A rotation slides
- * the track one full face left, then — with the transition off — swaps which face is
- * rendered first and resets the offset to zero. That snap is invisible because the
- * face now sitting at offset zero is the same one that just finished sliding into
- * view, and it's what keeps every rotation running right-to-left instead of the second
- * one reversing back the way it came. */
-function IndexTile({ item }: { item: GlobalIndexWidget }) {
-  const alt = item.alt;
-  // Keyed on identity, not the object: the grid refetches every minute and would
-  // otherwise restart the rotation clock mid-cycle on every refresh.
-  const altKey = alt?.key;
-  const [flips, setFlips] = useState(0);
-  const [sliding, setSliding] = useState(false);
-
-  useEffect(() => {
-    if (!altKey) return;
-    let slideId: number | undefined;
-    const holdId = window.setInterval(() => {
-      setSliding(true);
-      slideId = window.setTimeout(() => {
-        setFlips((n) => n + 1);
-        setSliding(false);
-      }, ROTATE_SLIDE_MS);
-    }, ROTATE_HOLD_MS + ROTATE_SLIDE_MS);
-    return () => {
-      window.clearInterval(holdId);
-      window.clearTimeout(slideId);
-      // A session that just closed takes the partner face with it; landing back on the
-      // primary face keeps the slot from being stranded mid-slide showing a stale one.
-      setSliding(false);
-    };
-  }, [altKey]);
-
-  if (!alt) {
+/** One slot of the grid: a viewport exactly one face tall that rolls a vertical stack
+ * of its members upward, one at a time, on a CSS clock — the same bottom-to-top flip
+ * the FX/commodity strip uses. The first member is repeated at the end of the track so
+ * the wrap from the last member back to the first is seamless (the duplicate sits where
+ * the original starts). The keyframes are picked by member count (`--3`…`--6`) so the
+ * dwell-then-slide cadence stays even however many indices the group holds — the US
+ * group grows by one while a KOSPI 200 futures session is open. */
+function FlipTile({ members }: { members: GlobalIndexWidget[] }) {
+  // A lone member (or none) has nothing to roll to, so it sits still — no duplicate,
+  // no animation class — rather than sliding a tile into a copy of itself.
+  if (members.length <= 1) {
     return (
-      <div className="global-index-tile">
-        <TileFace item={item} />
-      </div>
+      <div className="global-index-tile">{members[0] && <TileFace item={members[0]} />}</div>
     );
   }
 
-  const [front, back] = flips % 2 === 0 ? [item, alt] : [alt, item];
   return (
     <div className="global-index-tile global-index-tile--rotating">
-      <div className={`global-index-track ${sliding ? "is-sliding" : ""}`}>
-        <TileFace item={front} />
-        <TileFace item={back} />
+      <div className={`global-index-flip-track global-index-flip-track--${members.length}`}>
+        {[...members, members[0]].map((item, idx) => (
+          <TileFace key={`${item.key}-${idx}`} item={item} />
+        ))}
       </div>
     </div>
   );
@@ -154,13 +125,22 @@ export default function GlobalIndexGrid() {
     };
   }, []);
 
+  // Two rolling tiles, split by the group the backend tags each index with — US majors
+  // (plus the live KOSPI futures print when its session is open) in one, the overseas
+  // markets in the other. Order within each group is preserved as sent.
+  const usMembers = items?.filter((it) => it.group !== "overseas") ?? [];
+  const overseasMembers = items?.filter((it) => it.group === "overseas") ?? [];
+
   return (
     <div className="global-index-grid">
-      {items === null &&
-        [0, 1, 2, 3].map((i) => <div key={i} className="global-index-tile global-index-tile--skeleton" />)}
-      {items?.map((item) => (
-        <IndexTile key={item.key} item={item} />
-      ))}
+      {items === null ? (
+        [0, 1].map((i) => <div key={i} className="global-index-tile global-index-tile--skeleton" />)
+      ) : (
+        <>
+          <FlipTile members={usMembers} />
+          <FlipTile members={overseasMembers} />
+        </>
+      )}
     </div>
   );
 }

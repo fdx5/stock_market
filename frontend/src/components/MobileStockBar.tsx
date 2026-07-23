@@ -15,9 +15,21 @@ interface Props {
   close: number;
   change: number;
   changePct: number;
+  /** While the newly selected stock's first live quote is still in flight, the price
+   * shown here would be the stale daily-bar close — so hold it on a skeleton until the
+   * realtime value lands, matching the in-page header. */
+  awaitingQuote?: boolean;
 }
 
-export default function MobileStockBar({ anchorRef, stock, displayName, close, change, changePct }: Props) {
+export default function MobileStockBar({
+  anchorRef,
+  stock,
+  displayName,
+  close,
+  change,
+  changePct,
+  awaitingQuote = false,
+}: Props) {
   const { lang } = useLanguage();
   const t = useT();
   const dismissed = useMobileBarDismissed();
@@ -48,16 +60,22 @@ export default function MobileStockBar({ anchorRef, stock, displayName, close, c
         <StockIcon className="mobile-stock-bar-logo" code={stock.code} />
         <span className="mobile-stock-bar-name">{displayName}</span>
       </div>
-      <div className={`mobile-stock-bar-price ${tone}`}>
-        <span className="mobile-stock-bar-close">
-          {close.toLocaleString()}
-          {wonSuffix(lang)}
-        </span>
-        <span className="mobile-stock-bar-change">
-          {change >= 0 ? "▲" : "▼"} {Math.abs(change).toLocaleString()} ({changePct >= 0 ? "+" : ""}
-          {changePct}%)
-        </span>
-      </div>
+      {awaitingQuote ? (
+        <div className="mobile-stock-bar-price">
+          <span className="skeleton" style={{ width: 110, height: 16 }} />
+        </div>
+      ) : (
+        <div className={`mobile-stock-bar-price ${tone}`}>
+          <span className="mobile-stock-bar-close">
+            {close.toLocaleString()}
+            {wonSuffix(lang)}
+          </span>
+          <span className="mobile-stock-bar-change">
+            {change >= 0 ? "▲" : "▼"} {Math.abs(change).toLocaleString()} ({changePct >= 0 ? "+" : ""}
+            {changePct}%)
+          </span>
+        </div>
+      )}
       <FavoriteButton stock={stock} className="mobile-stock-bar-star" />
       <button
         type="button"

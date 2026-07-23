@@ -276,10 +276,11 @@ export interface GlobalIndexWidget {
   change: number | null;
   change_pct: number | null;
   points: GlobalIndexPoint[];
-  /** A second instrument sharing this tile's slot, which the grid alternates with.
-   * Only the SOXL tile gets one, and only while a KOSPI 200 futures session is open —
-   * the backend picks the day- or night-session instrument to match. */
-  alt?: GlobalIndexWidget;
+  /** Country code resolved to /img/flag/<flag>.svg, shown ahead of the label. */
+  flag?: string;
+  /** Which rolling flip-tile this index belongs to: the US majors or the overseas
+   * markets. The live KOSPI 200 futures print joins "us" while its session is open. */
+  group?: "us" | "overseas";
 }
 
 export interface GlobalEnrichment {
@@ -310,6 +311,19 @@ async function getJSON<T>(url: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Like getJSON but bypasses the HTTP cache. For realtime reads (the live quote) that
+ * must reflect the server's current value on every call — including an immediate re-entry
+ * into a detail view (KOSPI map tile / search) where the browser could otherwise serve a
+ * previously cached response and flash a stale price. */
+async function getJSONFresh<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { detail?: string });
+    throw new Error(body.detail || `요청 실패 (${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function postJSON<T>(url: string, payload: unknown): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
@@ -327,7 +341,7 @@ export const api = {
   search: (q: string) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
   popularSearches: (limit = 8) => getJSON<{ items: PopularStock[] }>(`${BASE}/search/popular?limit=${limit}`),
   summary: (code: string) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`),
-  quote: (code: string) => getJSON<StockQuote>(`${BASE}/stock/${code}/quote`),
+  quote: (code: string) => getJSONFresh<StockQuote>(`${BASE}/stock/${code}/quote`),
   overview: (code: string) => getJSON<CompanyOverview>(`${BASE}/stock/${code}/overview`),
   history: (code: string, years = 3) =>
     getJSON<{ code: string; name: string; points: OhlcvPoint[] }>(

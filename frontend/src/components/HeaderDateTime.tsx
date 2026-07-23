@@ -4,16 +4,17 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
 
-/** A desk-calendar-style date/clock block for the empty right side of the dashboard
- * header strip. Desktop only — on a phone the header is already two lines of search +
- * shortcuts with no room to spare, so this declines to mount there (and stops its
- * per-second timer from running on the device that least wants a background tick).
+/** An airport split-flap departure-board rendered date/clock block for the empty right
+ * side of the dashboard header strip. Desktop only — on a phone the header is already
+ * two lines of search + shortcuts with no room to spare, so this declines to mount there
+ * (and stops its per-second timer from running on the device that least wants a
+ * background tick).
  *
  * The date and weekday follow Korea (the site's home market); two live clocks below
- * carry Seoul and New York, the two sessions a KR investor watches; and a small
- * weather glyph beside the weekday reports Seoul's current sky. Times are derived with
- * Intl in the given time zone, so they stay correct wherever the visitor's own clock
- * is set and flip DST on their own. */
+ * carry Seoul and New York, the two sessions a KR investor watches, laid out like flight
+ * times; and a small weather glyph beside the date reports Seoul's current sky. Times are
+ * derived with Intl in the given time zone, so they stay correct wherever the visitor's
+ * own clock is set and flip DST on their own. */
 function parts(now: Date, tz: string, opts: Intl.DateTimeFormatOptions): Record<string, string> {
   const out: Record<string, string> = {};
   for (const p of new Intl.DateTimeFormat("en-US", { timeZone: tz, ...opts }).formatToParts(now)) {
@@ -43,6 +44,16 @@ function isDaytime(now: Date, tz: string): boolean {
   return h >= 6 && h < 18;
 }
 
+/** Whether the KRX regular session is live: weekdays 09:00–15:30 KST. Holidays aren't
+ * tracked here, so a holiday still reads as "open" during those hours — good enough for
+ * the header's live/closed pip and label. */
+function isKrxOpen(now: Date): boolean {
+  const p = parts(now, "Asia/Seoul", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  if (p.weekday === "Sat" || p.weekday === "Sun") return false;
+  const mins = (Number(p.hour) % 24) * 60 + Number(p.minute);
+  return mins >= 9 * 60 && mins < 15 * 60 + 30;
+}
+
 type Wx = "clear" | "partly" | "cloudy" | "fog" | "rain" | "snow" | "thunder";
 
 /** Collapse the WMO weather-interpretation code Open-Meteo returns into the handful
@@ -64,7 +75,7 @@ const CLOUD = "M8 15.5h9a3.2 3.2 0 0 0 .3-6.38A4.6 4.6 0 0 0 8.5 8 3.75 3.75 0 0
  * however they're boxed; identical SVG viewBoxes do. */
 function DayNightIcon({ day }: { day: boolean }) {
   return (
-    <svg className="deskcal-daynight" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
+    <svg className="led-daynight" viewBox="0 0 24 24" width="11" height="11" aria-hidden="true">
       {day ? (
         <g stroke="#e0a83a" strokeWidth="2" strokeLinecap="round">
           <circle cx="12" cy="12" r="4.5" fill="#eab34a" stroke="none" />
@@ -83,7 +94,7 @@ function DayNightIcon({ day }: { day: boolean }) {
  * rather than tinting to text color like the rest of the block. */
 function WeatherIcon({ type, day }: { type: Wx; day: boolean }) {
   return (
-    <svg className="deskcal-wx" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+    <svg className="led-wx" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
       {type === "clear" && day && (
         <g stroke="#f5a623" strokeWidth="1.6" strokeLinecap="round">
           <circle cx="12" cy="12" r="4.2" fill="#f7b733" stroke="none" />
@@ -139,6 +150,22 @@ function WeatherIcon({ type, day }: { type: Wx; day: boolean }) {
   );
 }
 
+/** Render an "HH:MM:SS" time as LED dot-matrix segments with blinking colons between
+ * them — each numeric group and colon becomes a masked (dotted) glyph on the sign. */
+function LedClock({ text }: { text: string }) {
+  const segs = text.split(":");
+  return (
+    <span className="led-clock">
+      {segs.map((seg, i) => (
+        <Fragment key={i}>
+          {i > 0 && <span className="led-col">:</span>}
+          <span className="led-seg">{seg}</span>
+        </Fragment>
+      ))}
+    </span>
+  );
+}
+
 export default function HeaderDateTime() {
   const { lang } = useLanguage();
   const isMobile = useMediaQuery(MOBILE_QUERY);
@@ -185,49 +212,66 @@ export default function HeaderDateTime() {
   // Korean calendar convention: Sunday numbers in red, Saturday in blue.
   const weekendTone = weekdayEn === "SUN" ? "is-sun" : weekdayEn === "SAT" ? "is-sat" : "";
 
+  // KRX session state drives the status pip (green live / red closed) and its label.
+  const krxOpen = isKrxOpen(now);
+  const statusLabel = krxOpen ? (lang === "ko" ? "장중" : "OPEN") : lang === "ko" ? "장마감" : "CLOSED";
+
   const cities = [
     { key: SEOUL, label: lang === "ko" ? "서울" : "SEOUL", flag: "/img/flag/kr.svg" },
     { key: NY, label: lang === "ko" ? "뉴욕" : "NEW YORK", flag: "/img/flag/us.svg" },
   ];
 
   return (
-    <div className="deskcal" aria-hidden="true">
-      <div className="deskcal-card">
-        <div className="deskcal-binding">
-          <span className="deskcal-ring" />
-          <span className="deskcal-ring" />
+    <div className="led" aria-hidden="true">
+      <div className="led-cabinet">
+        <div className="led-corners">
+          <i />
+          <i />
+          <i />
+          <i />
         </div>
 
-        <div className="deskcal-header">
-          <span className="deskcal-month">{monthEn}</span>
-          <span className="deskcal-year">{year}</span>
-        </div>
+        <div className="led-screen">
+          <div className="led-topbar">
+            <span className="led-brand">
+              <span className={`led-dot${krxOpen ? " is-open" : ""}`} />
+              {statusLabel}
+            </span>
+            <span className="led-sub">
+              {monthEn} {year}
+            </span>
+          </div>
 
-        <div className="deskcal-body">
-          <div className="deskcal-date">
-            <span className={`deskcal-day ${weekendTone}`}>{day}</span>
-            <span className={`deskcal-weekday ${weekendTone}`}>{weekday}</span>
+          <div className="led-date">
+            <span className={`led-big ${weekendTone}`}>{day}</span>
+            <div className="led-datemeta">
+              <span className={`led-weekday ${weekendTone}`}>{weekday}</span>
+              <span className="led-monthday">
+                {monthEn} {day}
+              </span>
+            </div>
             {weather && (
-              <span className="deskcal-weather" title={`서울 ${weather.temperature}°C`}>
+              <span className="led-weather" title={`서울 ${weather.temperature}°C`}>
                 <WeatherIcon type={wxType(weather.code)} day={weather.is_day} />
-                <span className="deskcal-temp">{weather.temperature}°</span>
+                <span className="led-temp">{weather.temperature}°</span>
               </span>
             )}
           </div>
 
           {/* A 2-column grid (city | time) rather than a row per city, so both cities'
-              time cells start at the same x — the two clocks read as an aligned column. */}
-          <div className="deskcal-clocks">
+              LED time blocks pin to the same right edge — the two clocks read as an
+              aligned column. */}
+          <div className="led-rows">
             {cities.map((c) => (
               <Fragment key={c.key}>
-                <span className="deskcal-city">
-                  <img className="deskcal-flag" src={c.flag} alt="" />
+                <span className="led-city">
+                  <img className="led-flag" src={c.flag} alt="" />
                   {c.label}
                 </span>
-                <span className="deskcal-time">
+                <span className="led-time">
                   <DayNightIcon day={isDaytime(now, c.key)} />
-                  {clock(now, c.key)}
-                  <span className="deskcal-tz">{tzAbbr(now, c.key)}</span>
+                  <LedClock text={clock(now, c.key)} />
+                  <span className="led-tz">{tzAbbr(now, c.key)}</span>
                 </span>
               </Fragment>
             ))}

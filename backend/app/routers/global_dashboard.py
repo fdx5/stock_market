@@ -18,11 +18,25 @@ router = APIRouter()
 # for arbitrary US tickers by price_fetcher.get_history / us_stock.py.
 # DJI/IXIC are point-valued indices; SOXL/TQQQ are ETFs whose "close" is a real
 # per-share USD price — "unit" tells the frontend which of those to display.
-INDEX_WIDGETS = [
-    {"key": "dow", "label": "다우존스", "code": "DJI", "unit": "index"},
-    {"key": "nasdaq", "label": "나스닥종합", "code": "IXIC", "unit": "index"},
-    {"key": "soxl", "label": "SOXL", "code": "SOXL", "unit": "usd"},
-    {"key": "tqqq", "label": "TQQQ", "code": "TQQQ", "unit": "usd"},
+# "flag" is a country code the frontend resolves to /img/flag/<code>.svg — an image, not
+# an emoji, because Chrome on Windows renders regional-indicator emoji as bare letter
+# pairs ("US") rather than a flag. "group" sorts each index into one of the dashboard's
+# two rolling flip-tiles (US vs. overseas). FDR only auto-prepends Yahoo's "^" for index
+# codes it recognises — DJI/IXIC/N225/SSEC/HSI/FTSE are on that list, but the Taiwan
+# weighted index is not, so it's passed as the explicit Yahoo symbol "^TWII".
+US_WIDGETS = [
+    {"key": "dow", "label": "다우존스", "code": "DJI", "unit": "index", "flag": "us", "group": "us"},
+    {"key": "nasdaq", "label": "나스닥종합", "code": "IXIC", "unit": "index", "flag": "us", "group": "us"},
+    {"key": "soxl", "label": "SOXL", "code": "SOXL", "unit": "usd", "flag": "us", "group": "us"},
+    {"key": "tqqq", "label": "TQQQ", "code": "TQQQ", "unit": "usd", "flag": "us", "group": "us"},
+]
+
+OVERSEAS_WIDGETS = [
+    {"key": "nikkei", "label": "니케이225", "code": "N225", "unit": "index", "flag": "jp", "group": "overseas"},
+    {"key": "shanghai", "label": "상하이종합", "code": "SSEC", "unit": "index", "flag": "cn", "group": "overseas"},
+    {"key": "hangseng", "label": "항셍지수", "code": "HSI", "unit": "index", "flag": "hk", "group": "overseas"},
+    {"key": "taiwan", "label": "대만 가권", "code": "^TWII", "unit": "index", "flag": "tw", "group": "overseas"},
+    {"key": "ftse", "label": "FTSE 100", "code": "FTSE", "unit": "index", "flag": "gb", "group": "overseas"},
 ]
 
 # ~3 months of daily closes — enough for a simple sparkline trend without shipping a
@@ -48,6 +62,8 @@ KOSPI_SESSION_WIDGETS = {
         "label": "코스피200 주간선물",
         "code": "FUT",
         "unit": "index",
+        "flag": "kr",
+        "group": "us",
         "source": "naver",
     },
     "night": {
@@ -55,6 +71,8 @@ KOSPI_SESSION_WIDGETS = {
         "label": "코스피 야간선물 (KORU)",
         "code": "KORU",
         "unit": "usd",
+        "flag": "kr",
+        "group": "us",
         "source": "yahoo",
     },
 }
@@ -113,17 +131,20 @@ def _widget_data(widget: dict) -> dict:
 
 @router.get("/indices")
 def indices():
-    items = [_widget_data(w) for w in INDEX_WIDGETS]
+    items = [_widget_data(w) for w in US_WIDGETS]
 
     session = _kospi_session(dt.datetime.now(KST))
     if session:
         partner = _widget_data(KOSPI_SESSION_WIDGETS[session])
-        # A tile that failed to load has nothing to rotate to, so leave the slot alone
-        # rather than flipping SOXL out for a dash every few seconds.
+        # A tile that failed to load has nothing to show, so drop it rather than flipping
+        # a dash into the US rotation every few seconds. When it did load, it rides the
+        # same bottom-to-top flip as everything else — slotted right after SOXL, the tile
+        # it historically doubled for.
         if partner["close"] is not None:
-            for item in items:
-                if item["key"] == "soxl":
-                    item["alt"] = partner
+            soxl_at = next((i for i, it in enumerate(items) if it["key"] == "soxl"), len(items) - 1)
+            items.insert(soxl_at + 1, partner)
+
+    items += [_widget_data(w) for w in OVERSEAS_WIDGETS]
 
     return {"items": items}
 

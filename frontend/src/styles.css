@@ -181,126 +181,230 @@ body {
   min-width: 0;
 }
 
-/* ── Desk-calendar date/clock block (desktop right side of the header strip) ──
-   A tear-off desk calendar rendered in 3D: a tilted card with a spiral binding, a
-   red month band, the big Korea date, and two live session clocks. It straightens
-   toward the viewer on hover. All colors are theme tokens, so it re-tones itself in
-   light mode along with the rest of the page. */
-.deskcal {
+/* ── LED dot-matrix date/clock block (desktop right of the header strip) ──
+   A premium, cyber-HUD take on an LED sign: warm amber data (big Korea date + the Seoul
+   and New York session clocks) punched out of a fine dot grid via a radial-gradient mask,
+   set on a dark glass screen, framed by a flat neon-edged panel with luminous corner
+   brackets and cool cyan chrome labels for a two-tone HUD feel. No 3D tilt — the panel is
+   flat and lifts only its neon aura on hover. The look is committed here (fixed dark screen
+   in both page themes); the Sun/Sat weekend accent recolors the date dots red / cyan for
+   the KR convention, and a status pip + label read the KRX session (green live / red closed). */
+.led {
   flex-shrink: 0;
   align-self: stretch;
   display: flex;
   align-items: center;
-  perspective: 900px;
-  padding-top: 6px; /* headroom for the binding rings that sit above the card */
+  padding-top: 2px;
+
+  /* LED palette — scoped to the block so nothing else on the page inherits it. */
+  --led-amber: #ffc846;    /* warm data glyphs */
+  --led-amber-dim: #c79433;
+  --led-label: #8fbad4;    /* cool cyan chrome for labels/captions */
+  --led-red: #ff5647;      /* Sunday / market closed */
+  --led-cyan: #57d3ff;     /* Saturday */
+  --led-green: #35e86a;    /* market open */
+  --led-aura: 88, 200, 255; /* cyan aura rgb, for the frame glow */
+  --led-screen: #05070c;
+  --led-font: "Consolas", ui-monospace, "DejaVu Sans Mono", monospace;
 }
 
-.deskcal-card {
+.led-cabinet {
   position: relative;
-  width: 210px;
-  border-radius: 11px;
-  border: 1px solid var(--border);
-  background: linear-gradient(158deg, var(--surface-1), color-mix(in srgb, var(--surface-1) 82%, var(--page-plane)));
-  transform: rotateX(6deg) rotateY(-9deg);
-  transform-style: preserve-3d;
+  width: 228px;
+  padding: 10px;
+  border-radius: 13px;
+  background:
+    linear-gradient(180deg, rgba(24, 29, 38, 0.96), rgba(9, 11, 16, 0.98));
+  border: 1px solid rgba(var(--led-aura), 0.16);
   box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 12%, transparent) inset,
-    0 14px 24px -12px rgba(0, 0, 0, 0.6),
-    0 34px 48px -28px rgba(0, 0, 0, 0.5);
-  transition: transform 0.55s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.55s ease;
-  will-change: transform;
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 0 20px -3px rgba(var(--led-aura), 0.12),
+    0 16px 32px -18px rgba(0, 0, 0, 0.8),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: box-shadow 0.45s ease, border-color 0.45s ease;
 }
 
-.deskcal:hover .deskcal-card {
-  transform: rotateX(2deg) rotateY(0deg);
+.led:hover .led-cabinet {
+  border-color: rgba(var(--led-aura), 0.34);
   box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 14%, transparent) inset,
-    0 18px 28px -12px rgba(0, 0, 0, 0.62),
-    0 40px 56px -30px rgba(0, 0, 0, 0.5);
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 0 30px -1px rgba(var(--led-aura), 0.26),
+    0 18px 36px -18px rgba(0, 0, 0, 0.82),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
-.deskcal-binding {
+/* Luminous HUD corner brackets (reusing the four <i> nodes) — L-shaped neon accents. */
+.led-corners i {
   position: absolute;
-  top: -5px;
-  left: 0;
-  right: 0;
-  display: flex;
-  justify-content: center;
-  gap: 46px;
-  transform: translateZ(14px);
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid rgba(var(--led-aura), 0.75);
+  box-shadow: 0 0 6px rgba(var(--led-aura), 0.45);
+}
+.led-corners i:nth-child(1) { top: 5px; left: 5px; border-right: 0; border-bottom: 0; border-radius: 4px 0 0 0; }
+.led-corners i:nth-child(2) { top: 5px; right: 5px; border-left: 0; border-bottom: 0; border-radius: 0 4px 0 0; }
+.led-corners i:nth-child(3) { bottom: 5px; left: 5px; border-right: 0; border-top: 0; border-radius: 0 0 0 4px; }
+.led-corners i:nth-child(4) { bottom: 5px; right: 5px; border-left: 0; border-top: 0; border-radius: 0 0 4px 0; }
+
+/* The recessed LED screen: near-black with a faint unlit-dot grid + scanlines. */
+.led-screen {
+  position: relative;
+  overflow: hidden;
+  border-radius: 5px;
+  padding: 8px 10px 10px;
+  background-color: var(--led-screen);
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(255, 210, 130, 0.035) 32%, transparent 34%),
+    radial-gradient(130% 90% at 50% -10%, rgba(255, 194, 51, 0.06), transparent 62%);
+  background-size: 3px 3px, 100% 100%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.85), inset 0 6px 14px -6px rgba(0, 0, 0, 0.9);
 }
 
-.deskcal-ring {
-  width: 7px;
-  height: 10px;
-  border-radius: 3px;
-  background: linear-gradient(180deg, #d0d3d8, #797c81);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.15);
+/* Faint scanlines over the screen — kept light so they don't eat the text. */
+.led-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.12) 0 1px, transparent 1px 3px);
 }
 
-.deskcal-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  padding: 7px 11px 6px;
-  border-radius: 10px 10px 0 0;
-  color: #fff;
-  background: linear-gradient(158deg, var(--series-red), color-mix(in srgb, var(--series-red) 70%, #000));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.18) inset;
+/* Cool glass sheen sweeping the top of the screen — the cyber gloss. */
+.led-screen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    177deg,
+    rgba(var(--led-aura), 0.1) 0%,
+    rgba(var(--led-aura), 0) 26%,
+    rgba(var(--led-aura), 0) 100%
+  );
 }
 
-.deskcal-month {
-  font-size: 12px;
+/* Lit dot-matrix glyphs: bright glyph masked into round pixels. Two pitches — a coarse
+   grid for the big date, a fine grid for the smaller readouts so they stay legible.
+   text-shadow uses currentColor so recolored weekend text glows in its own hue. */
+.led-big,
+.led-weekday,
+.led-temp,
+.led-seg,
+.led-col {
+  display: inline-block;
+  font-family: var(--led-font);
   font-weight: 800;
-  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  color: var(--led-amber);
+  /* Larger lit pixels (bigger opaque core, small gaps) keep the glyphs mostly filled so
+     they read cleanly while still showing the dot grid; the layered bloom fills the seams. */
+  text-shadow: 0 0 2px currentColor, 0 0 5px color-mix(in srgb, currentColor 70%, transparent);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 50%, transparent 58%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 50%, transparent 58%);
+  -webkit-mask-size: 2px 2px;
+  mask-size: 2px 2px;
 }
 
-.deskcal-year {
+.led-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  position: relative;
+  z-index: 1;
+  padding-bottom: 8px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid rgba(var(--led-aura), 0.16);
+}
+
+.led-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--led-red); /* closed: label matches the red pip */
+  text-shadow: 0 0 6px currentColor;
+}
+
+/* Open session: label + pip go green. */
+.led-brand:has(.is-open) {
+  color: var(--led-green);
+}
+
+/* Status pip. Bigger, with a solid bright core, a matching halo ring, and a strong
+   bloom so it stays clearly visible against the busy dot-matrix screen. Red = closed
+   (default), green = live session. */
+.led-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #fff 0%, var(--led-red) 42%, color-mix(in srgb, var(--led-red) 55%, #000) 100%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--led-red) 60%, #000),
+    0 0 5px 1px var(--led-red),
+    0 0 12px 3px color-mix(in srgb, var(--led-red) 70%, transparent);
+  animation: led-blink 1.4s steps(1, end) infinite;
+}
+
+.led-dot.is-open {
+  background: radial-gradient(circle at 50% 40%, #fff 0%, var(--led-green) 42%, color-mix(in srgb, var(--led-green) 55%, #000) 100%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--led-green) 60%, #000),
+    0 0 5px 1px var(--led-green),
+    0 0 12px 3px color-mix(in srgb, var(--led-green) 70%, transparent);
+}
+
+.led-sub {
   font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  opacity: 0.82;
+  letter-spacing: 0.16em;
+  color: var(--led-label);
+  text-shadow: 0 0 8px rgba(var(--led-aura), 0.35);
 }
 
-.deskcal-body {
-  padding: 7px 11px 9px;
-}
-
-.deskcal-date {
+.led-date {
   display: flex;
-  align-items: baseline;
-  gap: 7px;
-  margin-bottom: 7px;
-  padding-bottom: 7px;
-  border-bottom: 1px dashed var(--border);
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 10px;
+  position: relative;
+  z-index: 1;
 }
 
-.deskcal-day {
-  font-size: 31px;
-  font-weight: 800;
-  line-height: 1;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
+.led-big {
+  font-size: 33px;
+  line-height: 0.86;
+  letter-spacing: 0.02em;
+  -webkit-mask-size: 3.2px 3.2px;
+  mask-size: 3.2px 3.2px;
+}
+.led-big.is-sun { color: var(--led-red); }
+.led-big.is-sat { color: var(--led-cyan); }
+
+.led-datemeta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.15;
 }
 
-.deskcal-weekday {
+.led-weekday {
   font-size: 12px;
+  letter-spacing: 0.06em;
+}
+.led-weekday.is-sun { color: var(--led-red); }
+.led-weekday.is-sat { color: var(--led-cyan); }
+
+.led-monthday {
+  font-size: 9px;
   font-weight: 700;
-  color: var(--text-secondary);
+  letter-spacing: 0.14em;
+  color: var(--led-label);
+  opacity: 0.85;
 }
 
-.deskcal-day.is-sun,
-.deskcal-weekday.is-sun {
-  color: var(--series-red);
-}
-
-.deskcal-day.is-sat,
-.deskcal-weekday.is-sat {
-  color: var(--series-blue);
-}
-
-/* Sky glyph + temperature, parked at the right edge of the date row. */
-.deskcal-weather {
+.led-weather {
   display: inline-flex;
   align-items: center;
   gap: 3px;
@@ -308,94 +412,188 @@ body {
   align-self: center;
 }
 
-.deskcal-wx {
+.led-wx {
   display: block;
   flex: none;
 }
 
-.deskcal-temp {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
+.led-temp {
+  font-size: 13px;
 }
 
-.deskcal-clocks {
+/* Two clock rows: [flag+city] left, [glyph + LED time + tz] pinned right so both clocks
+   form an aligned column. */
+.led-rows {
   display: grid;
   grid-template-columns: max-content 1fr;
   column-gap: 10px;
-  row-gap: 4px;
+  row-gap: 7px;
   align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
-.deskcal-city {
+.led-city {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   white-space: nowrap;
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--text-muted);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--led-label);
+  text-shadow: 0 0 7px rgba(var(--led-aura), 0.3);
 }
 
-.deskcal-flag {
+.led-flag {
   width: 15px;
   height: 10px;
   border-radius: 2px;
   object-fit: cover;
   flex: none;
-  box-shadow: 0 0 0 1px var(--border);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
 }
 
-.deskcal-time {
+.led-time {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  /* Pinned to the right edge of the card. Both rows are forced to the same width
-     (fixed day/night glyph + tabular time + fixed-width tz badge), so right-aligning
-     keeps their left edges — the sun/moon column — lined up too. */
+  gap: 6px;
   justify-self: end;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
 }
 
-/* Fixed-box SVG (see DayNightIcon) — identical width both rows, so the HH:MM:SS
-   digits after it stay in a clean column. */
-.deskcal-daynight {
+.led-daynight {
   display: block;
   flex: none;
   opacity: 0.9;
 }
 
-/* Fixed width (border-box) so GMT+9 and EDT badges are identical — that's what keeps
-   both right-aligned time blocks the same width, so the day/night glyph before them
-   lands in one column. */
-.deskcal-tz {
+.led-clock {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+}
+
+.led-seg {
+  font-size: 13px;
+}
+
+/* The colon blinks once a second, like a scoreboard clock. */
+.led-col {
+  font-size: 13px;
+  padding: 0 1px;
+  animation: led-blink 1s steps(1, end) infinite;
+}
+
+@keyframes led-blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0.15; }
+}
+
+.led-tz {
   width: 38px;
   box-sizing: border-box;
   padding: 1px 3px;
   border-radius: 3px;
   text-align: center;
   font-size: 8px;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.04em;
-  color: var(--text-muted);
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--led-label);
+  background: rgba(var(--led-aura), 0.09);
+  border: 1px solid rgba(var(--led-aura), 0.26);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .deskcal-card {
+  .led-cabinet {
     transition: none;
+  }
+  .led-dot,
+  .led-col {
+    animation: none;
   }
 }
 
-/* Below this width the search + shortcuts need the whole row, so the calendar steps
-   aside rather than squeezing them. */
+/* ── Light theme: a wholly different palette ──────────────────────────────────────────
+   On the white page the glowing dark-glass LED would clash, so it flips to a bright LCD:
+   a pale cool screen with dark indigo ink dots (no glow), a brushed-silver frame, and
+   slate chrome — dark-on-light instead of light-on-dark. Most pieces recolor through the
+   scoped vars; the few rules with baked colors (screen texture, glyph glow, frame) are
+   re-stated here for the light context. */
+:root[data-theme="light"] .led {
+  --led-amber: #26356e;    /* indigo data ink */
+  --led-amber-dim: #6a7691;
+  --led-label: #55637f;    /* slate chrome for labels/captions */
+  --led-red: #d8433a;      /* Sunday / market closed */
+  --led-cyan: #1f7fc4;     /* Saturday */
+  --led-green: #1f9b4e;    /* market open */
+  --led-aura: 96, 116, 150; /* slate accents for the frame + labels */
+  --led-screen: #e9ecf2;   /* pale cool LCD glass */
+}
+
+:root[data-theme="light"] .led-cabinet {
+  background: linear-gradient(180deg, #ffffff, #e8ebf1);
+  border: 1px solid rgba(var(--led-aura), 0.34);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset,
+    0 8px 20px -12px rgba(40, 55, 90, 0.35),
+    0 2px 6px -2px rgba(40, 55, 90, 0.14);
+}
+
+:root[data-theme="light"] .led:hover .led-cabinet {
+  border-color: rgba(var(--led-aura), 0.55);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.95) inset,
+    0 0 0 1px rgba(var(--led-aura), 0.16) inset,
+    0 10px 24px -12px rgba(40, 55, 90, 0.4),
+    0 3px 8px -2px rgba(40, 55, 90, 0.16);
+}
+
+:root[data-theme="light"] .led-screen {
+  background-image:
+    radial-gradient(circle at 50% 50%, rgba(38, 53, 90, 0.11) 32%, transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.5), rgba(255, 255, 255, 0));
+  box-shadow: inset 0 0 0 1px rgba(var(--led-aura), 0.22), inset 0 2px 6px -3px rgba(40, 55, 90, 0.28);
+}
+
+/* Soft white gloss instead of the cyan neon sheen. */
+:root[data-theme="light"] .led-screen::before {
+  background: linear-gradient(177deg, rgba(255, 255, 255, 0.6) 0%, rgba(255, 255, 255, 0) 24%, transparent 100%);
+}
+
+/* Lighter LCD grid lines. */
+:root[data-theme="light"] .led-screen::after {
+  background: repeating-linear-gradient(0deg, rgba(38, 53, 90, 0.06) 0 1px, transparent 1px 3px);
+}
+
+/* Ink dots read crisp on light — drop the glow. */
+:root[data-theme="light"] .led-big,
+:root[data-theme="light"] .led-weekday,
+:root[data-theme="light"] .led-temp,
+:root[data-theme="light"] .led-seg,
+:root[data-theme="light"] .led-col {
+  text-shadow: none;
+}
+
+/* Status pip: keep the color coding, but a soft light-mode halo rather than a bloom. */
+:root[data-theme="light"] .led-dot {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--led-red) 45%, #fff),
+    0 0 5px 0 color-mix(in srgb, var(--led-red) 55%, transparent);
+}
+:root[data-theme="light"] .led-dot.is-open {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--led-green) 45%, #fff),
+    0 0 5px 0 color-mix(in srgb, var(--led-green) 55%, transparent);
+}
+:root[data-theme="light"] .led-brand {
+  text-shadow: none;
+}
+
+/* Below this width the search + shortcuts need the whole row, so the sign steps aside
+   rather than squeezing them. */
 @media (max-width: 820px) {
-  .deskcal {
+  .led {
     display: none;
   }
 }
@@ -787,37 +985,106 @@ a.app-brand:hover .app-logo-wide {
   min-width: 0;
 }
 
-/* The SOXL slot while a KOSPI 200 futures session is open: it holds two faces that
-   take turns, so the padding moves to the faces' shared track and the tile itself
-   becomes the window they slide through. */
+/* A tile that rolls several indices through one slot: the tile becomes a viewport
+   exactly one face tall (--gi-flip-h) and the padding moves to the faces stacked inside
+   it, so the tile itself is just the window they flip through bottom-to-top.
+   display:block is essential — it drops the base tile's flex row + align-items:center,
+   which would otherwise vertically centre the much-taller track in the short window and
+   leave the flip permanently misaligned to the tile edges. */
 .global-index-tile--rotating {
+  --gi-flip-h: 80px;
+  display: block;
+  height: var(--gi-flip-h);
   padding: 0;
   overflow: hidden;
+  /* The continuous transform is isolated so it can't invalidate the panels around it —
+     same treatment as the FX flip-strip and the main ticker. */
+  contain: layout paint;
 }
 
-.global-index-track {
+.global-index-flip-track {
   display: flex;
-  width: 200%;
-  flex: none;
-  transform: translateX(0);
+  flex-direction: column;
+  /* Span the tile so each face fills its full width — otherwise the track shrink-wraps
+     to its content and the sparkline never reaches the right edge, leaving the gap. */
+  width: 100%;
+  will-change: transform;
 }
 
-.global-index-track > .global-index-face {
-  width: 50%;
-  flex: none;
-  padding: 14px 16px;
+/* Every member (plus the trailing duplicate of the first) is exactly one viewport tall,
+   so a translateY step of one member height reads as a clean flip. */
+.global-index-flip-track > .global-index-face {
+  width: 100%;
+  height: var(--gi-flip-h);
+  flex: 0 0 var(--gi-flip-h);
+  box-sizing: border-box;
+  padding: 13px 16px;
 }
 
-/* Only the sliding state carries a transition. The reset back to 0 that follows every
-   slide has to be instantaneous — animating it would run the whole thing backwards in
-   view, which is exactly the left-to-right motion this is avoiding. */
-.global-index-track.is-sliding {
-  transform: translateX(-50%);
-  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+/* translateY here is a percentage of the *track's own* height. An N-member group builds
+   an (N+1)-tile track (members + duplicate-first), so one member is 100/(N+1)% of it.
+   Each keyframe pair holds a member in view for the bulk of its slice, then slides up to
+   the next — the final stop lands on the duplicate first, matching 0% so the loop is
+   seamless. Durations scale with member count to keep the per-member dwell even. */
+.global-index-flip-track--3 {
+  animation: global-index-flip-3 10s ease-in-out infinite;
+}
+
+.global-index-flip-track--4 {
+  animation: global-index-flip-4 13s ease-in-out infinite;
+}
+
+.global-index-flip-track--5 {
+  animation: global-index-flip-5 16s ease-in-out infinite;
+}
+
+.global-index-flip-track--6 {
+  animation: global-index-flip-6 19s ease-in-out infinite;
+}
+
+@keyframes global-index-flip-3 {
+  0%, 23.33% { transform: translateY(0); }
+  33.33%, 56.66% { transform: translateY(-25%); }
+  66.66%, 90% { transform: translateY(-50%); }
+  100% { transform: translateY(-75%); }
+}
+
+@keyframes global-index-flip-4 {
+  0%, 17.5% { transform: translateY(0); }
+  25%, 42.5% { transform: translateY(-20%); }
+  50%, 67.5% { transform: translateY(-40%); }
+  75%, 92.5% { transform: translateY(-60%); }
+  100% { transform: translateY(-80%); }
+}
+
+@keyframes global-index-flip-5 {
+  0%, 14% { transform: translateY(0); }
+  20%, 34% { transform: translateY(-16.667%); }
+  40%, 54% { transform: translateY(-33.333%); }
+  60%, 74% { transform: translateY(-50%); }
+  80%, 94% { transform: translateY(-66.667%); }
+  100% { transform: translateY(-83.333%); }
+}
+
+@keyframes global-index-flip-6 {
+  0%, 11.67% { transform: translateY(0); }
+  16.67%, 28.33% { transform: translateY(-14.286%); }
+  33.33%, 45% { transform: translateY(-28.571%); }
+  50%, 61.67% { transform: translateY(-42.857%); }
+  66.67%, 78.33% { transform: translateY(-57.143%); }
+  83.33%, 95% { transform: translateY(-71.429%); }
+  100% { transform: translateY(-85.714%); }
+}
+
+/* No motion: park each tile on its first member instead of rolling. */
+@media (prefers-reduced-motion: reduce) {
+  .global-index-flip-track {
+    animation: none;
+  }
 }
 
 .global-index-tile--skeleton {
-  height: 68px;
+  height: 80px;
   background: linear-gradient(
     90deg,
     var(--surface-1) 25%,
@@ -836,9 +1103,33 @@ a.app-brand:hover .app-logo-wide {
 }
 
 .global-index-tile-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
+}
+
+/* The country flag ahead of each index name — a real SVG rather than an emoji, since
+   Chrome on Windows renders flag emoji as bare letter pairs. Sized to sit on the label
+   baseline with a hairline edge so light flags (Japan) still read against the tile. */
+.global-index-tile-flag {
+  width: 18px;
+  height: 12px;
+  flex-shrink: 0;
+  border-radius: 2px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+/* The name truncates rather than wrapping — a second line would overflow the fixed
+   one-face height the flip viewport clips to (e.g. "코스피 야간선물 (KORU)"). */
+.global-index-tile-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .global-index-tile-value {
@@ -858,16 +1149,17 @@ a.app-brand:hover .app-logo-wide {
   font-variant-numeric: tabular-nums;
 }
 
-.global-index-spark {
-  width: 100px;
-  height: 36px;
-  flex: none;
-}
-
+/* The trend line takes roughly a third of the tile and is pinned to the right edge by
+   the face's space-between, with the numbers on the left — a moderate strip rather than
+   a full-width stretch. viewBox uses preserveAspectRatio="none", so it just fits the box
+   it's given. */
+.global-index-spark,
 .global-index-spark--empty {
-  width: 100px;
-  height: 36px;
   flex: none;
+  width: 30%;
+  max-width: 180px;
+  height: 42px;
+  margin-left: 8px;
 }
 
 @media (max-width: 640px) {
@@ -877,7 +1169,8 @@ a.app-brand:hover .app-logo-wide {
 
   .global-index-spark,
   .global-index-spark--empty {
-    width: 84px;
+    width: 34%;
+    height: 40px;
   }
 }
 

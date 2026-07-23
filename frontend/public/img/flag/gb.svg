@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 24" role="img" aria-label="영국 국기">
+  <rect width="36" height="24" fill="#012169"/>
+  <!-- Diagonals: white saltire under a thinner red saltire -->
+  <g stroke="#fff" stroke-width="4">
+    <line x1="0" y1="0" x2="36" y2="24"/>
+    <line x1="36" y1="0" x2="0" y2="24"/>
+  </g>
+  <g stroke="#c8102e" stroke-width="2">
+    <line x1="0" y1="0" x2="36" y2="24"/>
+    <line x1="36" y1="0" x2="0" y2="24"/>
+  </g>
+  <!-- St George's cross: white ground, red on top -->
+  <rect x="15" width="6" height="24" fill="#fff"/>
+  <rect y="9" width="36" height="6" fill="#fff"/>
+  <rect x="16.5" width="3" height="24" fill="#c8102e"/>
+  <rect y="10.5" width="36" height="3" fill="#c8102e"/>
+</svg>

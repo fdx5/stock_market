@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 24" role="img" aria-label="중국 국기">
+  <rect width="36" height="24" fill="#de2910"/>
+  <g fill="#ffde00">
+    <!-- Large star, plus four small stars simplified to dots around it -->
+    <path d="M7 2 L7.90 4.76 L10.80 4.76 L8.45 6.47 L9.35 9.24 L7 7.53 L4.65 9.24 L5.55 6.47 L3.20 4.76 L6.10 4.76 Z"/>
+    <circle cx="12.5" cy="2.4" r="0.8"/>
+    <circle cx="14.4" cy="4.8" r="0.8"/>
+    <circle cx="14.4" cy="7.8" r="0.8"/>
+    <circle cx="12.5" cy="10.2" r="0.8"/>
+  </g>
+</svg>

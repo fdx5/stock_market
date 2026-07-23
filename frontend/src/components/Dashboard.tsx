@@ -69,6 +69,11 @@ export default function Dashboard() {
   });
   const [summary, setSummary] = useState<StockSummary | null>(null);
   const [liveQuote, setLiveQuote] = useState<StockQuote | null>(null);
+  // True from the moment a (re)selected stock's live-quote fetch is kicked off until its
+  // first response lands. While it's true and no quote has arrived yet, the header shows a
+  // price skeleton rather than the stale daily-bar close from /summary — so entering a
+  // detail view (map tile / search / re-entry) never flashes an out-of-date price.
+  const [quotePending, setQuotePending] = useState(false);
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
@@ -192,7 +197,11 @@ export default function Dashboard() {
   // endpoint instead, polled on its own short interval.
   useEffect(() => {
     setLiveQuote(null);
-    if (!selected) return;
+    setQuotePending(true);
+    if (!selected) {
+      setQuotePending(false);
+      return;
+    }
     const code = selected.code;
     let cancelled = false;
 
@@ -204,6 +213,11 @@ export default function Dashboard() {
         })
         .catch(() => {
           // A missed refresh just keeps showing the last known price.
+        })
+        .finally(() => {
+          // First response in (success or failure) — stop deferring to the skeleton so
+          // the header shows either the fresh quote or, on failure, the /summary fallback.
+          if (!cancelled) setQuotePending(false);
         });
     };
 
@@ -245,6 +259,11 @@ export default function Dashboard() {
   const summaryName = useTranslatedText(summary?.name ?? "");
   const translatedOverview = useTranslatedTexts(overview);
   const mobileBarDismissed = useMobileBarDismissed();
+
+  // Until the first live quote for the selected stock lands, both the in-page header and
+  // the mobile bar hold the price on a skeleton instead of the stale daily-bar close — so
+  // an entry via map tile or search shows the realtime price the moment it arrives.
+  const awaitingQuote = quotePending && liveQuote === null;
 
   // A bare "/" landing silently defaults `selected` to Samsung Electronics (see
   // the `useState` initializer above) rather than a real search or an incoming
@@ -416,12 +435,18 @@ export default function Dashboard() {
                     stock={{ code: summary.code, name: summary.name, market: selected?.market ?? "KOSPI" }}
                   />
                   <span className="code">{summary.code}</span>
-                  <span
-                    className={`price ${change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}`}
-                  >
-                    {close.toLocaleString()}{wonSuffix(lang)} ({change >= 0 ? "+" : ""}
-                    {change.toLocaleString()}, {changePct}%)
-                  </span>
+                  {awaitingQuote ? (
+                    <span className="price">
+                      <span className="skeleton" style={{ width: 150, height: 22 }} />
+                    </span>
+                  ) : (
+                    <span
+                      className={`price ${change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}`}
+                    >
+                      {close.toLocaleString()}{wonSuffix(lang)} ({change >= 0 ? "+" : ""}
+                      {change.toLocaleString()}, {changePct}%)
+                    </span>
+                  )}
                   {marcap !== undefined && marcapChange !== undefined && (
                     <span
                       className={`marcap ${marcapChange > 0 ? "change-up" : marcapChange < 0 ? "change-down" : "change-flat"}`}
@@ -485,6 +510,7 @@ export default function Dashboard() {
           close={liveQuote?.close ?? summary.close}
           change={liveQuote?.change ?? summary.change}
           changePct={liveQuote?.change_pct ?? summary.change_pct}
+          awaitingQuote={awaitingQuote}
         />
       )}
 
