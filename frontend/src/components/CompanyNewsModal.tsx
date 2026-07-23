@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CompanyNewsItem, api } from "../api/client";
+import { formatNewsDate } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 
@@ -111,7 +112,9 @@ export default function CompanyNewsModal({
               <div className="fight-news-detail-title">{selected.title}</div>
               <div className="fight-news-card-meta">
                 <span className="fight-news-card-source">{selected.source}</span>
-                {selected.published && <span className="fight-news-card-date">{selected.published}</span>}
+                {selected.published && (
+                  <span className="fight-news-card-date">{formatNewsDate(selected.published, lang)}</span>
+                )}
               </div>
 
               {articleLoading && <ArticleBodySkeleton />}
@@ -169,7 +172,9 @@ export default function CompanyNewsModal({
                     {item.snippet && <div className="fight-news-card-snippet">{item.snippet}</div>}
                     <div className="fight-news-card-meta">
                       <span className="fight-news-card-source">{item.source}</span>
-                      {item.published && <span className="fight-news-card-date">{item.published}</span>}
+                      {item.published && (
+                        <span className="fight-news-card-date">{formatNewsDate(item.published, lang)}</span>
+                      )}
                     </div>
                   </div>
                 </button>
