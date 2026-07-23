@@ -52,13 +52,85 @@ _SECTOR_KEYWORDS: list[tuple[str, list[str]]] = [
 ]
 
 
-def _classify_sector(industry) -> str:
+# Code-level overrides for names the KSIC industry string misclassifies. The big
+# offender is holding companies: KRX files nearly every 지주회사 under "기타 금융업"
+# (other financial services), so the keyword map drops them into 금융 even though they
+# are not financial businesses. Diversified conglomerate holdcos belong in 지주/서비스;
+# single-industry group holdcos (에코프로, 세아제강지주 …) read far better in their
+# operating sector — that's exactly the 에코프로→배터리 fix the map needed. Genuine
+# financial-group holdcos (KB금융, 신한지주, 증권/보험/은행) are intentionally absent
+# here so they stay in 금융. Keyed by 6-char code.
+_SECTOR_OVERRIDES: dict[str, str] = {
+    # Single-industry group holdcos → operating sector
+    "086520": "배터리",         # 에코프로 (이차전지 소재 그룹 지주)
+    "009540": "자동차/조선",     # HD한국조선해양 (조선 중간지주)
+    "003030": "철강/금속",       # 세아제강지주
+    "005810": "철강/금속",       # 풍산홀딩스
+    "010060": "화학/소재",       # OCI홀딩스 (폴리실리콘/화학)
+    "008930": "제약/바이오",     # 한미사이언스 (한미약품 지주)
+    "000640": "제약/바이오",     # 동아쏘시오홀딩스
+    "096760": "제약/바이오",     # JW홀딩스
+    "001800": "식품/음료",       # 오리온홀딩스
+    "072710": "식품/음료",       # 농심홀딩스
+    "000140": "식품/음료",       # 하이트진로홀딩스
+    "084690": "식품/음료",       # 대상홀딩스
+    "007700": "유통/소비재",     # F&F홀딩스 (의류)
+    # Diversified conglomerate / miscellaneous holdcos → 지주/서비스
+    "034730": "지주/서비스",     # SK
+    "402340": "지주/서비스",     # SK스퀘어
+    "006120": "지주/서비스",     # SK디스커버리
+    "003550": "지주/서비스",     # LG
+    "006260": "지주/서비스",     # LS
+    "078930": "지주/서비스",     # GS
+    "001040": "지주/서비스",     # CJ
+    "267250": "지주/서비스",     # HD현대
+    "004990": "지주/서비스",     # 롯데지주
+    "004800": "지주/서비스",     # 효성
+    "002020": "지주/서비스",     # 코오롱
+    "012630": "지주/서비스",     # HDC
+    "027410": "지주/서비스",     # BGF
+    "060980": "지주/서비스",     # HL홀딩스
+    "000240": "지주/서비스",     # 한국앤컴퍼니
+    "005440": "지주/서비스",     # 현대지에프홀딩스
+    "009970": "지주/서비스",     # 영원무역홀딩스
+    "192400": "지주/서비스",     # 쿠쿠홀딩스
+    "036530": "지주/서비스",     # SNT홀딩스
+    "383800": "지주/서비스",     # LX홀딩스
+    "015860": "지주/서비스",     # 일진홀딩스
+    "024720": "지주/서비스",     # 콜마홀딩스
+    "001230": "지주/서비스",     # 동국홀딩스
+    "000320": "지주/서비스",     # 노루홀딩스
+    "000070": "지주/서비스",     # 삼양홀딩스
+    "006040": "지주/서비스",     # 동원산업 (그룹 지주)
+    "180640": "지주/서비스",     # 한진칼 (한진그룹 지주)
+    "006840": "지주/서비스",     # AK홀딩스
+    "000480": "지주/서비스",     # 조선내화
+}
+
+
+def _classify_industry(industry) -> str:
     if not industry or (isinstance(industry, float) and pd.isna(industry)):
         return "기타"
     for sector, keywords in _SECTOR_KEYWORDS:
         if any(kw in industry for kw in keywords):
             return sector
     return "기타"
+
+
+def _resolve_sector(code: str, industry_by_code: dict[str, str]) -> str:
+    """Sector for one stock: manual override first, then KSIC keyword match, then a
+    preferred-share fallback. Preferred shares (우선주) carry no industry string of their
+    own so they'd otherwise all land in 기타; the common share shares the first five code
+    digits and ends in 0 (삼성전자우 005935 → 삼성전자 005930, 현대차2우B 005387 →
+    현대차 005380), so inherit its sector."""
+    override = _SECTOR_OVERRIDES.get(code)
+    if override:
+        return override
+    sector = _classify_industry(industry_by_code.get(code))
+    if sector == "기타" and len(code) == 6 and not code.endswith("0"):
+        common = code[:5] + "0"
+        return _SECTOR_OVERRIDES.get(common) or _classify_industry(industry_by_code.get(common))
+    return sector
 
 
 def _naver_page_ttl(page: int) -> int:
@@ -69,14 +141,16 @@ def _naver_page_ttl(page: int) -> int:
     return LONG_TAIL_TTL_SECONDS
 
 
-# Mirrors the map page's own rank tiers exactly, since this is keyed by the same
-# `limit` values it requests (20 / 50 / fullLimit): rank 1-20 refreshes most often,
-# since that's exactly where an NXT after-hours move is most likely to be noticed.
+# Live-quote overlay TTL, keyed by the same `limit` values the callers request
+# (20 / 50 / fullLimit). The top 50 is the tier the dashboard's headline "시총 50위"
+# table and the map's tier-2 both draw, and it's exactly where an NXT after-hours move
+# is worth noticing, so it refreshes on the fast 10s cadence — one bulk Naver poll of
+# 50 codes, the same cheap request the top-20 already makes. Only the long tail (the
+# full 500/200 list, whose lower ranks barely move moment-to-moment) stays on the slow
+# cadence to avoid re-fetching hundreds of codes every few seconds.
 def _realtime_quotes_ttl(limit: int) -> int:
-    if limit <= 20:
-        return FIRST_TIER_TTL_SECONDS
     if limit <= 50:
-        return SECOND_TIER_TTL_SECONDS
+        return FIRST_TIER_TTL_SECONDS
     return LONG_TAIL_TTL_SECONDS
 
 
@@ -140,7 +214,7 @@ def _get_market_map(market: str, sosok: int, limit: int, fresh: bool = False) ->
     while True:
         snapshot = _get_price_snapshot(market, sosok, pages, fresh)
         items = [
-            {**row, "sector": _classify_sector(industry_by_code.get(row["code"]))}
+            {**row, "sector": _resolve_sector(row["code"], industry_by_code)}
             for row in snapshot
             if row["marcap"] > 0 and row["code"] not in etf_codes
         ]
@@ -203,7 +277,7 @@ def get_sector_map(code: str, limit: int = SECTOR_PEER_LIMIT) -> dict:
     market = get_stock_market(code) or "KOSPI"
     ranked = get_kospi_map() if market == "KOSPI" else get_kosdaq_map()
 
-    sector = _classify_sector(_get_industry_map().get(code))
+    sector = _resolve_sector(code, _get_industry_map())
     peers = [it for it in ranked if it["sector"] == sector][:limit]
 
     total_marcap = sum(it["marcap"] for it in peers)

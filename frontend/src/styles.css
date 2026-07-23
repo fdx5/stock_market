@@ -285,7 +285,10 @@ body {
 
 /* Lit dot-matrix glyphs: bright glyph masked into round pixels. Two pitches — a coarse
    grid for the big date, a fine grid for the smaller readouts so they stay legible.
-   text-shadow uses currentColor so recolored weekend text glows in its own hue. */
+   text-shadow uses currentColor so recolored weekend text glows in its own hue.
+   The small readouts (time / weekday / temp) run at ~13px, where a coarse grid eats too
+   much of each thin stroke; a finer 1.5px pitch with a slightly larger lit core packs more
+   dots into every glyph so the letterforms stay crisp and clearly readable. */
 .led-big,
 .led-weekday,
 .led-temp,
@@ -299,10 +302,10 @@ body {
   /* Larger lit pixels (bigger opaque core, small gaps) keep the glyphs mostly filled so
      they read cleanly while still showing the dot grid; the layered bloom fills the seams. */
   text-shadow: 0 0 2px currentColor, 0 0 5px color-mix(in srgb, currentColor 70%, transparent);
-  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 50%, transparent 58%);
-  mask-image: radial-gradient(circle at 50% 50%, #000 50%, transparent 58%);
-  -webkit-mask-size: 2px 2px;
-  mask-size: 2px 2px;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 56%, transparent 64%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 56%, transparent 64%);
+  -webkit-mask-size: 1.5px 1.5px;
+  mask-size: 1.5px 1.5px;
 }
 
 .led-topbar {

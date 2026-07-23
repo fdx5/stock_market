@@ -165,7 +165,10 @@ function Top50PriceList({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const REFRESH_MS = 30_000;
+  // Matches the backend's fast 10s TTL for the top-50 live-quote overlay (see
+  // _realtime_quotes_ttl in market_map.py), so this headline table tracks the NXT-aware
+  // price/change closely instead of trailing a poll behind it.
+  const REFRESH_MS = 10_000;
 
   useEffect(() => {
     let cancelled = false;
