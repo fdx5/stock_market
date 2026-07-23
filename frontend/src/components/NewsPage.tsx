@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CompanyNewsItem, GlobalTop20Item, api } from "../api/client";
 import { COMPANY_SHORT_NAMES } from "../data/companyShortNames";
+import { formatNewsDate } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
@@ -240,7 +241,7 @@ export default function NewsPage() {
           <div className="news-article-title">{selected.title}</div>
           <div className="news-article-meta">
             <span className="news-article-source">{selected.source}</span>
-            {selected.published && <span className="news-article-date">{selected.published}</span>}
+            {selected.published && <span className="news-article-date">{formatNewsDate(selected.published, lang)}</span>}
           </div>
 
           {articleLoading && <ArticleBodySkeleton />}
@@ -288,7 +289,7 @@ export default function NewsPage() {
                   {item.snippet && <div className="news-card-snippet">{item.snippet}</div>}
                   <div className="news-card-meta">
                     <span className="news-card-source">{item.source}</span>
-                    {item.published && <span className="news-card-date">{item.published}</span>}
+                    {item.published && <span className="news-card-date">{formatNewsDate(item.published, lang)}</span>}
                   </div>
                 </div>
               </button>
