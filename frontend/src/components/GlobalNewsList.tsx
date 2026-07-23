@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { CompanyNewsItem, api } from "../api/client";
+import { formatNewsDate } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 
 // Doubles as both the "recent news" and "related news" spot on the global stock page:
@@ -47,7 +48,9 @@ export default function GlobalNewsList({
         <div className="fight-news-detail-title">{selected.title}</div>
         <div className="fight-news-card-meta">
           <span className="fight-news-card-source">{selected.source}</span>
-          {selected.published && <span className="fight-news-card-date">{selected.published}</span>}
+          {selected.published && (
+            <span className="fight-news-card-date">{formatNewsDate(selected.published, lang)}</span>
+          )}
         </div>
 
         {articleLoading && <div className="loading-state">{t("불러오는 중...")}</div>}
@@ -96,7 +99,9 @@ export default function GlobalNewsList({
             {item.snippet && <div className="fight-news-card-snippet">{item.snippet}</div>}
             <div className="fight-news-card-meta">
               <span className="fight-news-card-source">{item.source}</span>
-              {item.published && <span className="fight-news-card-date">{item.published}</span>}
+              {item.published && (
+                <span className="fight-news-card-date">{formatNewsDate(item.published, lang)}</span>
+              )}
             </div>
           </div>
         </button>
