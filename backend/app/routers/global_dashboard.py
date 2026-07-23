@@ -1,5 +1,6 @@
 import datetime as dt
 import logging
+import math
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query
@@ -97,6 +98,20 @@ def _kospi_session(now: dt.datetime) -> str | None:
     return None
 
 
+def _sanitized(item: dict, empty: dict) -> dict:
+    """Guarantee one tile is JSON-renderable, whatever its feed returned.
+
+    Starlette renders with allow_nan=False, so a single non-finite number anywhere in
+    the payload raises at render time and takes the *entire* grid down with a 500 —
+    which is exactly how every index once vanished at once. A tile whose quote didn't
+    come through cleanly degrades to its own empty state instead; the rest still ship."""
+    if not all(math.isfinite(item[k]) for k in ("close", "change", "change_pct") if item.get(k) is not None):
+        logger.warning("global_dashboard: non-finite quote for %s, blanking tile", item.get("key"))
+        return empty
+    item["points"] = [p for p in item["points"] if p.get("close") is not None and math.isfinite(p["close"])]
+    return item
+
+
 def _widget_data(widget: dict) -> dict:
     # "source" only steers the fetch below; it isn't part of the wire format.
     meta = {k: v for k, v in widget.items() if k != "source"}
@@ -104,7 +119,7 @@ def _widget_data(widget: dict) -> dict:
 
     if widget.get("source") == "naver":
         try:
-            return {**meta, **kospi_futures_fetcher.get_index(widget["code"])}
+            return _sanitized({**meta, **kospi_futures_fetcher.get_index(widget["code"])}, empty)
         except Exception:
             logger.exception("global_dashboard: failed to load Naver index %s", widget["code"])
             return empty
@@ -120,13 +135,16 @@ def _widget_data(widget: dict) -> dict:
     prev = df.iloc[-2] if len(df) > 1 else latest
     change = float(latest["close"] - prev["close"])
     change_pct = float(change / prev["close"] * 100) if prev["close"] else 0.0
-    return {
-        **meta,
-        "close": float(latest["close"]),
-        "change": change,
-        "change_pct": change_pct,
-        "points": dataframe_to_records(tail[["date", "close"]]),
-    }
+    return _sanitized(
+        {
+            **meta,
+            "close": float(latest["close"]),
+            "change": change,
+            "change_pct": change_pct,
+            "points": dataframe_to_records(tail[["date", "close"]]),
+        },
+        empty,
+    )
 
 
 @router.get("/indices")

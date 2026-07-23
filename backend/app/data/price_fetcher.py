@@ -52,6 +52,14 @@ def _load_history(code: str, years: int) -> pd.DataFrame:
         }
     )
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    # Yahoo pads its daily series with a placeholder bar for a session that hasn't
+    # printed a close yet — open/high/low filled in, Close literally NaN. Asian indices
+    # (N225/SSEC/HSI/TWII) carry one most of the day because their session boundary sits
+    # a calendar day ahead of the US series. That NaN is not a price, and letting it
+    # through poisons every caller: `float(latest["close"])` yields nan, and Starlette
+    # renders responses with allow_nan=False, so a single NaN close 500s the whole
+    # endpoint rather than blanking one row. Drop those bars at the source.
+    df = df.dropna(subset=["close"]).reset_index(drop=True)
     return df[["date", "open", "high", "low", "close", "volume"]]
 
 
