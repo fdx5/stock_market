@@ -99,10 +99,10 @@ function MacroTile({ row, item }: { row: Row; item: MarketTickerItem | null }) {
   );
 }
 
-// The dashboard splits the strip into two independent vertical flip-tiles: the FX
-// crosses cycle in one slot, the commodities (crude + the two metals) in the other.
-// Each rolls its own members bottom-to-top on its own clock — they aren't a single
-// belt. Split by symbol so the ROWS order above stays the single source of truth.
+// The strip splits into two independent vertical flip-tiles: the FX crosses cycle in
+// one slot, the commodities (crude + the two metals) in the other. Each rolls its own
+// members bottom-to-top on its own clock — they aren't a single belt. Split by symbol
+// so the ROWS order above stays the single source of truth.
 const FX_SYMBOLS = new Set(["KRW=X", "JPYKRW=X", "EURKRW=X", "GBPKRW=X"]);
 const FX_ROWS = ROWS.filter((r) => FX_SYMBOLS.has(r.symbol));
 const COMMODITY_ROWS = ROWS.filter((r) => !FX_SYMBOLS.has(r.symbol));
@@ -127,30 +127,22 @@ function MacroFlip({ rows, bySymbol }: { rows: Row[]; bySymbol: Map<string, Mark
 /** Live FX and commodity numbers under the index tiles — the values a Korean investor
  * checks alongside the index itself, all riding the market-ticker payload so this
  * costs no new endpoint, just a second reader of it. */
-/** `variant` only changes the tile chrome, never the data: "inline" (the dashboard)
- * shows two rolling flip-tiles — FX crosses in one, crude/gold/silver in the other —
- * while "card" (the global page) has the vertical room to lay every row out at once
- * as a static grid matching the bordered index tiles above it. */
+/** Both variants roll the same two flip-tiles — FX crosses in one slot,
+ * crude/gold/silver in the other — so the global page reads the same way the
+ * dashboard does. `variant` only changes the chrome around them, never the data or the
+ * grouping: "inline" (the dashboard) is the quiet, borderless treatment that hangs off
+ * the index tiles, while "card" (the global page) wears the bordered surface of the
+ * index grid it sits under. */
 export default function MacroRatesStrip({ variant = "inline" }: { variant?: "inline" | "card" }) {
   // Shares the scrolling belt's single poller rather than running one of its own —
   // see useMarketTicker for why that mattered.
   const items = useMarketTicker();
   const bySymbol = new Map(items.map((item) => [item.symbol, item]));
 
-  if (variant === "inline") {
-    return (
-      <div className="macro-rates macro-rates--inline">
-        <MacroFlip rows={FX_ROWS} bySymbol={bySymbol} />
-        <MacroFlip rows={COMMODITY_ROWS} bySymbol={bySymbol} />
-      </div>
-    );
-  }
-
   return (
-    <div className="macro-rates macro-rates--card">
-      {ROWS.map((row) => (
-        <MacroTile key={row.symbol} row={row} item={bySymbol.get(row.symbol) ?? null} />
-      ))}
+    <div className={`macro-rates macro-rates--${variant}`}>
+      <MacroFlip rows={FX_ROWS} bySymbol={bySymbol} />
+      <MacroFlip rows={COMMODITY_ROWS} bySymbol={bySymbol} />
     </div>
   );
 }
