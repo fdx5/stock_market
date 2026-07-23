@@ -2055,7 +2055,10 @@ a.app-brand:hover .app-logo-wide {
    widgets. */
 .macro-rates--card {
   gap: 12px;
-  margin-bottom: 20px;
+  /* Half the index grid's own 20px bottom margin: this strip closes out the index
+     block, so the seam to the stock detail below reads tighter than the seams
+     *within* the block. */
+  margin-bottom: 10px;
 }
 
 /* The card's chrome lives on the flip viewport, not on the rows inside it: the
