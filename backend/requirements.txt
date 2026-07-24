@@ -10,3 +10,10 @@ pydantic==2.9.2
 libsql==0.1.11
 python-dotenv==1.2.2
 readability-lxml==0.8.4.1
+# The prediction batch's 60% qualitative block calls Claude when ANTHROPIC_API_KEY is
+# set; without the key it never imports this and falls back to the in-process engine.
+anthropic==0.75.0
+# zoneinfo reads the OS tz database, and python:3.11-slim ships without one — the
+# prediction batch anchors both market calendars to Asia/Seoul and America/New_York,
+# so the lookup has to succeed in the container, not just on a dev machine.
+tzdata==2025.2

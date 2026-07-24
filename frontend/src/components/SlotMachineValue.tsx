@@ -84,6 +84,18 @@ export default function SlotMachineValue({
     return () => {
       intervalIds.forEach((id) => window.clearInterval(id));
       timeoutIds.forEach((id) => window.clearTimeout(id));
+      // Teardown means this spin never reached its landing timeouts, so the digits are
+      // still the randomized placeholder from `useState`. Clearing the marker makes the
+      // next effect run treat the value as new and actually spin, instead of hitting the
+      // `changed` guard above and leaving fake digits on screen permanently.
+      //
+      // React StrictMode double-invokes effects in development, which is exactly this
+      // mount → cleanup → mount sequence. On the fight page that was invisible: its
+      // market-cap value polls continuously, so the next real change re-ran the effect
+      // and landed the digits within seconds. On a value that never changes after mount
+      // (a stored prediction) nothing ever re-triggered it, and the card showed random
+      // numbers where a price should be.
+      prevValueRef.current = null;
     };
   }, [value, text]);
 

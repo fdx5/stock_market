@@ -1,9 +1,15 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.services import activity_log, page_view_store, stock_search_store, visitor_store
+from app.services import (
+    activity_log,
+    page_view_store,
+    prediction_batch,
+    stock_search_store,
+    visitor_store,
+)
 from app.services.admin_auth import require_admin
 from app.services.visitor_tracker import tracker
 from app.services import admin_auth
@@ -95,3 +101,28 @@ def live_tail(limit: int = Query(100, ge=1, le=500)):
 @router.get("/live/sessions", dependencies=[Depends(require_admin)])
 def live_sessions():
     return {"sessions": activity_log.active_sessions()}
+
+
+@router.get("/prediction/status", dependencies=[Depends(require_admin)])
+def prediction_status():
+    """Batch health for the admin panel: what's running, each region's last outcome,
+    and the DB-derived per-market snapshot."""
+    return prediction_batch.get_status()
+
+
+@router.post("/prediction/run", dependencies=[Depends(require_admin)])
+def prediction_run(background: BackgroundTasks, region: str = Query(..., pattern=r"^(KR|US)$")):
+    """Admin-triggered manual re-run. Authenticated by the admin session, NOT the
+    PREDICTION_BATCH_TOKEN cron secret — so the dashboard can trigger a batch without
+    that secret ever reaching the browser.
+
+    Always force=True (a manual re-run means 'regenerate this session', deleting and
+    recreating the day's rows — see prediction_batch/prediction_store). Runs in the
+    background because a full region takes minutes; the panel polls /prediction/status
+    to watch it. Refuses if that region is already in flight so a double-click can't
+    stack two runs.
+    """
+    if prediction_batch.is_running(region):
+        raise HTTPException(status_code=409, detail=f"{region} 배치가 이미 실행 중입니다.")
+    background.add_task(prediction_batch.run_batch, region, True, "admin")
+    return {"region": region, "status": "accepted"}

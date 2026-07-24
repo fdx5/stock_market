@@ -11,6 +11,7 @@ import CompanyLogo from "./CompanyLogo";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
+import PredictIcon from "./PredictIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import ThemeToggle from "./ThemeToggle";
@@ -196,6 +197,9 @@ export default function NewsPage() {
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}
+          </Link>
+          <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
+            <PredictIcon /> AI 예측
           </Link>
           <VisitorBadge />
         </div>

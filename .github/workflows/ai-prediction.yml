@@ -1,0 +1,105 @@
+name: AI 종목예측 batch
+
+# Fires the prediction batch just after each market's close. Two schedules rather than
+# one, because the two closes are ~14 hours apart and each run only makes sense once
+# its own market has actually stopped trading:
+#
+#   06:45 UTC = 15:45 KST  -> KOSPI/KOSDAQ, 15 minutes after the 15:30 KRX close
+#   21:15 UTC = 16:15 ET (EST) / 20:15 UTC = 16:15 ET (EDT)
+#
+# GitHub cron has no timezone support — schedules are always UTC — so the US close is
+# listed at both offsets to cover standard and daylight time. That means one of the two
+# fires an hour early or late half the year, and the early one is the reason the batch
+# is idempotent per (수집일자, market): whichever firing lands after the close does the
+# work, and the other one hits `has_run` and returns "skipped" without scraping
+# anything. The backend's own schedule check (prediction_batch._should_run_now) is what
+# stops the too-early firing from collecting a partial session.
+#
+# The 15-minute delay after each bell is not padding: Naver's end-of-session figures
+# (final close, full-day investor flows) settle over the minutes after the close, and
+# scraping at the bell reliably picks up an incomplete day.
+#
+# Caveats inherited from GitHub's scheduler, same as keep-alive.yml: scheduled
+# workflows are disabled after 60 days with no commits to the repo, and firing can be
+# delayed several minutes under GitHub-wide load. The backend also runs its own
+# in-process scheduler as a second trigger for exactly that reason — see
+# prediction_batch.start_scheduler.
+
+on:
+  schedule:
+    - cron: "45 6 * * 1-5"   # 15:45 KST — KRX close (KST has no DST)
+    - cron: "15 21 * * 1-5"  # 16:15 ET during EST
+    - cron: "15 20 * * 1-5"  # 16:15 ET during EDT
+  workflow_dispatch:
+    inputs:
+      region:
+        description: "Which market to run (KR = 코스피/코스닥, US = 나스닥)"
+        required: true
+        default: KR
+        type: choice
+        options: [KR, US]
+      force:
+        description: "Re-run even if this session already has rows"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  # A delayed schedule overlapping the next one would have both runs racing on the
+  # same rows. The backend refuses concurrent runs anyway, but stopping it here means
+  # the second run doesn't burn a job slot to be told "already running".
+  group: ai-prediction
+  cancel-in-progress: false
+
+env:
+  BASE_URL: https://kospi-predictor.onrender.com
+
+jobs:
+  predict:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve region
+        id: region
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "region=${{ inputs.region }}" >> "$GITHUB_OUTPUT"
+            echo "force=${{ inputs.force }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "45 6 * * 1-5" ]; then
+            echo "region=KR" >> "$GITHUB_OUTPUT"
+            echo "force=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "region=US" >> "$GITHUB_OUTPUT"
+            echo "force=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wake the service
+        # Render can have the instance cold; a 60s cold start inside the batch request
+        # would eat most of the timeout budget below. Waking it first (and tolerating
+        # a failure here) keeps that cost out of the run itself.
+        run: curl -fsS --max-time 90 "$BASE_URL/api/health" || true
+
+      - name: Run prediction batch
+        env:
+          TOKEN: ${{ secrets.PREDICTION_BATCH_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::error::PREDICTION_BATCH_TOKEN secret is not set — the endpoint will reject this run."
+            exit 1
+          fi
+          # wait=true so this step's exit status reflects whether the batch actually
+          # succeeded. The fire-and-forget mode would make every run look green even
+          # when nothing was saved, which defeats the point of having a run log.
+          # 15 minutes covers a full ~33-stock run including the Claude call.
+          response=$(curl -fsS --max-time 900 -X POST \
+            -H "Authorization: Bearer $TOKEN" \
+            "$BASE_URL/api/prediction/run?region=${{ steps.region.outputs.region }}&force=${{ steps.region.outputs.force }}&wait=true")
+          echo "$response" | jq '{region, status, collect_date, predict_date, predict_weekday, saved, markets, warnings}'
+          # A "skipped" status is a success (the guard worked); a run that saved zero
+          # rows without being skipped means every stock failed collection, which is a
+          # real failure the log should show red.
+          status=$(echo "$response" | jq -r '.status')
+          saved=$(echo "$response" | jq -r '.saved')
+          if [ "$status" != "skipped" ] && [ "$saved" -eq 0 ]; then
+            echo "::error::Batch reported status=$status but saved 0 rows."
+            exit 1
+          fi

@@ -22,13 +22,14 @@ from app.routers import (
     global_dashboard,
     investor,
     market_map,
+    prediction,
     search,
     stock,
     translate,
     us_stock,
     visitors,
 )
-from app.services import page_view_store, stock_search_store
+from app.services import page_view_store, prediction_batch, stock_search_store
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
@@ -54,6 +55,7 @@ app.include_router(investor.router, prefix="/api/investor")
 app.include_router(battle.router, prefix="/api/battle")
 app.include_router(fight.router, prefix="/api/fight")
 app.include_router(global_dashboard.router, prefix="/api/global")
+app.include_router(prediction.router, prefix="/api/prediction")
 app.include_router(translate.router, prefix="/api")
 app.include_router(geo.router, prefix="/api")
 app.include_router(activity.router, prefix="/api/activity")
@@ -161,6 +163,17 @@ def _start_admin_retention() -> None:
     # without limit — neither ever gets queried further back than that anyway
     # (see admin.py's pages_trend / stocks_top).
     threading.Thread(target=_admin_retention_loop, daemon=True).start()
+
+
+@app.on_event("startup")
+def _start_prediction_scheduler() -> None:
+    # Secondary trigger for the AI 종목예측 batch. GitHub Actions cron is the primary
+    # one (it survives restarts and leaves a log), but GitHub disables scheduled
+    # workflows after 60 days with no commits — the same caveat keep-alive.yml already
+    # carries — so this thread covers the window where cron has gone quiet. Both paths
+    # call the same run_batch, which is idempotent per (수집일자, market), so whichever
+    # fires first does the work and the other one no-ops.
+    threading.Thread(target=prediction_batch.start_scheduler, daemon=True).start()
 
 
 @app.get("/api/health")

@@ -18,6 +18,7 @@ const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const GlobalStockPage = lazy(() => import("./components/GlobalStockPage"));
 const MarketCapFightPage = lazy(() => import("./components/MarketCapFightPage"));
 const NewsPage = lazy(() => import("./components/NewsPage"));
+const AiPredictionPage = lazy(() => import("./components/AiPredictionPage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 
@@ -53,6 +54,8 @@ export default function App() {
     page = <MarketCapFightPage />;
   } else if (path === "/news") {
     page = <NewsPage />;
+  } else if (path === "/ai-prediction") {
+    page = <AiPredictionPage />;
   } else if (path === "/admin") {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {

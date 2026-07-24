@@ -57,6 +57,40 @@ export interface ActiveSession {
   last_seen: number;
 }
 
+/** One region's last-run outcome, as remembered by the web process (volatile — see
+ * prediction_batch._last_runs). Absent after a restart until the next run. */
+export interface PredictionRunRecord {
+  status: "ok" | "skipped" | "error" | null;
+  reason: string | null;
+  collect_date: string | null;
+  predict_date: string | null;
+  predict_weekday: string | null;
+  saved: number;
+  markets: Record<string, { count: number; ai_source: string }>;
+  elapsed_seconds: number | null;
+  warnings: string[];
+  triggered_by: string | null;
+  error: string | null;
+  finished_at: string;
+}
+
+/** DB-derived per-market snapshot (restart-proof — reflects what was actually saved). */
+export interface PredictionMarketStat {
+  collect_date: string;
+  predict_date: string;
+  count: number;
+  updated_at: string;
+}
+
+export interface PredictionStatus {
+  running: string[];
+  last_runs: Record<string, PredictionRunRecord>;
+  markets: Record<string, PredictionMarketStat>;
+  regions: Record<string, string[]>;
+}
+
+export type BatchRegion = "KR" | "US";
+
 export type CommentSource = "battle" | "fight";
 
 export interface AdminComment {
@@ -155,6 +189,29 @@ async function authedPatch<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function authedPost<T>(path: string): Promise<T> {
+  const session = getStoredSession();
+  if (!session) throw new AdminAuthError("로그인이 필요합니다.");
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.token}` },
+  });
+  if (res.status === 401) {
+    clearStoredSession();
+    throw new AdminAuthError("세션이 만료되었습니다. 다시 로그인해 주세요.");
+  }
+  if (!res.ok) {
+    // Surface the server's own message (e.g. "KR 배치가 이미 실행 중입니다.") so a
+    // 409 from a double-click reads as a real explanation, not a bare status code.
+    const detail = await res
+      .json()
+      .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+      .catch(() => null);
+    throw new Error(detail ?? `Admin API error: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
   trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
@@ -168,4 +225,7 @@ export const adminApi = {
   deleteComment: (source: CommentSource, id: number) => authedDelete(`/comments/${source}/${id}`),
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>
     authedPatch<{ visible: boolean }>(`/comments/${source}/${id}/visibility`, { visible }),
+  predictionStatus: () => authedGet<PredictionStatus>("/prediction/status"),
+  runPrediction: (region: BatchRegion) =>
+    authedPost<{ region: string; status: string }>(`/prediction/run?region=${region}`),
 };

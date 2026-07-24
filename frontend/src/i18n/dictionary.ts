@@ -97,6 +97,7 @@ export const DICTIONARY: Record<string, string> = {
   // Battle page (TugOfWarPage)
   "시총 줄다리기 (삼성전자 VS SK하이닉스)": "Market Cap Tug-of-War (Samsung Electronics VS SK Hynix)",
   "시총대결": "Market Cap Battle",
+  "AI 예측": "AI Forecast",
   "시가총액 데이터를 불러오지 못했습니다.": "Failed to load market cap data.",
   "2위": "#2",
   "차이": "difference",

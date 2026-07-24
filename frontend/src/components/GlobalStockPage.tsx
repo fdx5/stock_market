@@ -17,6 +17,7 @@ import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobalNewsList from "./GlobalNewsList";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
+import PredictIcon from "./PredictIcon";
 import Logo from "./Logo";
 import MacroRatesStrip from "./MacroRatesStrip";
 import MarketIcon from "./MarketIcon";
@@ -263,6 +264,9 @@ export default function GlobalStockPage() {
           </Link>
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
+          </Link>
+          <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
+            <PredictIcon /> AI 예측
           </Link>
           <a
             href="https://chs2147.github.io/mini-apps"

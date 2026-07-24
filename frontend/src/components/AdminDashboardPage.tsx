@@ -6,8 +6,10 @@ import {
   AdminComment,
   AdminSummary,
   AdminTrendRange,
+  BatchRegion,
   CommentSource,
   PageCount,
+  PredictionStatus,
   StockSearchCount,
   TrendPoint,
   adminApi,
@@ -354,6 +356,9 @@ export default function AdminDashboardPage() {
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
   const [chartMode, setChartMode] = useState<"area" | "bars">("area");
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [prediction, setPrediction] = useState<PredictionStatus | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [runningRegion, setRunningRegion] = useState<BatchRegion | null>(null);
 
   useEffect(() => {
     if (!getStoredSession()) navigate("/admin");
@@ -484,6 +489,50 @@ export default function AdminDashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
+
+  useEffect(() => {
+    if (!authed) return undefined;
+    let cancelled = false;
+    const load = () => {
+      adminApi
+        .predictionStatus()
+        .then((s) => !cancelled && setPrediction(s))
+        .catch(handleAuthError);
+    };
+    load();
+    // Polls faster (5s) than the summary panels because a manual re-run is watched
+    // here — the operator presses the button and wants to see it flip to 실행 중 and
+    // then to the fresh result without a 30s wait.
+    const id = setInterval(load, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  function handleRunBatch(region: BatchRegion) {
+    if (runningRegion) return;
+    const label = region === "KR" ? "코스피·코스닥" : "나스닥";
+    if (!window.confirm(`${label} 배치를 지금 재실행하시겠습니까? 해당 일자 데이터를 삭제 후 재생성합니다.`)) {
+      return;
+    }
+    setRunningRegion(region);
+    setRunError(null);
+    adminApi
+      .runPrediction(region)
+      .then(() => {
+        // The run is now in-flight server-side; the 5s poll above will pick up the
+        // 'running' state and then the result. Refresh once immediately so the panel
+        // reflects 실행 중 without waiting for the next tick.
+        return adminApi.predictionStatus().then((s) => setPrediction(s));
+      })
+      .catch((err) => {
+        handleAuthError(err);
+        setRunError(err instanceof Error ? err.message : "배치 실행에 실패했습니다.");
+      })
+      .finally(() => setRunningRegion(null));
+  }
 
   function handleDeleteComment(c: AdminComment) {
     const key = `${c.source}-${c.id}`;
@@ -1264,6 +1313,10 @@ export default function AdminDashboardPage() {
         </section>
         </div>
 
+        {/* The right-hand column: the live log keeps 70% of the fixed column height,
+            and the batch-status panel below takes the remaining 30% (see
+            .admin-tail-col / .admin-panel--batch in styles.css). */}
+        <div className="admin-tail-col">
         <section className="admin-panel admin-panel--tail">
           <h2>
             <span className="admin-live-dot" /> 실시간 로그
@@ -1303,6 +1356,76 @@ export default function AdminDashboardPage() {
             {tail?.length === 0 && <p className="admin-empty">이벤트를 기다리는 중...</p>}
           </div>
         </section>
+
+        <section className="admin-panel admin-panel--batch">
+          <h2>
+            <span className="admin-live-dot" /> AI 예측 배치
+          </h2>
+          <div className="admin-batch-body">
+            {prediction === null ? (
+              <div className="admin-batch-row">
+                <span className="admin-skeleton admin-skeleton--row" />
+              </div>
+            ) : (
+              (["KR", "US"] as BatchRegion[]).map((region) => {
+                const label = region === "KR" ? "한국장 (코스피·코스닥)" : "미국장 (나스닥)";
+                const last = prediction.last_runs[region] ?? null;
+                const isRunning = prediction.running.includes(region) || runningRegion === region;
+                // The process-memory record is richest, but dies with a restart —
+                // fall back to the DB snapshot (per this region's markets) so
+                // "최근 실행" still shows real data after a redeploy.
+                const marketStats = (prediction.regions[region] ?? [])
+                  .map((m) => prediction.markets[m])
+                  .filter(Boolean);
+                const dbUpdated = marketStats.length
+                  ? marketStats.map((m) => m.updated_at).sort().slice(-1)[0]
+                  : null;
+                const dbCount = marketStats.reduce((sum, m) => sum + m.count, 0);
+                const finishedAt = last?.finished_at ?? dbUpdated;
+                const ok = last ? last.status === "ok" || last.status === "skipped" : dbCount > 0;
+                const statusLabel = isRunning
+                  ? "실행 중"
+                  : last
+                    ? last.status === "ok"
+                      ? "성공"
+                      : last.status === "skipped"
+                        ? "스킵"
+                        : "실패"
+                    : dbCount > 0
+                      ? "성공"
+                      : "기록 없음";
+                return (
+                  <div key={region} className="admin-batch-row">
+                    <span
+                      className={`admin-batch-status admin-batch-status--${
+                        isRunning ? "running" : ok ? "ok" : "fail"
+                      }`}
+                    >
+                      {statusLabel}
+                    </span>
+                    <span className="admin-batch-name">{label}</span>
+                    <span className="admin-batch-meta">
+                      {last?.saved != null && last.status === "ok" ? `${last.saved}종목 저장 · ` : ""}
+                      {last?.triggered_by === "admin" ? "수동 · " : ""}
+                      {finishedAt ? `최근 ${formatDateTime(finishedAt)}` : "실행 이력 없음"}
+                      {last?.error ? ` · ${last.error}` : ""}
+                    </span>
+                    <button
+                      type="button"
+                      className="admin-batch-run-btn"
+                      disabled={isRunning || runningRegion !== null}
+                      onClick={() => handleRunBatch(region)}
+                    >
+                      {isRunning ? "실행 중..." : "수동 재실행"}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+            {runError && <p className="admin-batch-error">{runError}</p>}
+          </div>
+        </section>
+        </div>
       </div>
 
       <Footer />

@@ -9478,10 +9478,130 @@ thead .weekly-foreign-amount-col {
   flex-direction: column;
 }
 
-.admin-panel--tail {
-  height: 640px;
+/* The grid's right column: a fixed-height flex stack (matching .admin-left-col's
+   640px so both columns bottom out evenly) split 70/30 between the live log and the
+   batch-status panel below it. flex-basis 0 on both children makes the ratio an
+   exact 70:30 of the space left after the gap, rather than content-dependent. */
+.admin-tail-col {
   display: flex;
   flex-direction: column;
+  gap: 16px;
+  height: 640px;
+  min-width: 0;
+}
+
+.admin-panel--tail {
+  flex: 7 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-panel--batch {
+  flex: 3 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-batch-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.admin-batch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--page-plane);
+  min-width: 0;
+}
+
+/* Status is a state, so it wears the status ramp — and always as a labelled chip
+   ("성공"/"실패"/"실행 중"), never colour alone. */
+.admin-batch-status {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.admin-batch-status--ok {
+  color: var(--status-good);
+}
+
+.admin-batch-status--fail {
+  color: var(--status-critical);
+}
+
+.admin-batch-status--running {
+  color: var(--status-warning);
+  animation: admin-batch-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes admin-batch-blink {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.admin-batch-name {
+  flex: 0 0 auto;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.admin-batch-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.admin-batch-run-btn {
+  flex: 0 0 auto;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--series-violet);
+  background: color-mix(in srgb, var(--series-violet) 14%, transparent);
+  color: var(--series-violet);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-batch-run-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--series-violet) 26%, transparent);
+}
+
+.admin-batch-run-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.admin-batch-error {
+  margin: 0;
+  font-size: 11px;
+  color: var(--status-critical);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-batch-status--running {
+    animation: none;
+  }
 }
 
 .admin-sessions-table {
@@ -9842,8 +9962,15 @@ button.admin-comments-text--clickable:hover {
     flex: none;
   }
 
-  .admin-panel--tail {
+  /* Stacked layout: the fixed 640px 70/30 column gives way to natural per-panel
+     sizing, same reset as .admin-left-col above. */
+  .admin-tail-col {
     height: auto;
+  }
+
+  .admin-panel--tail,
+  .admin-panel--batch {
+    flex: none;
   }
 
   .admin-sessions-table,
@@ -9918,5 +10045,2047 @@ button.admin-comments-text--clickable:hover {
   .admin-comments-row {
     grid-template-columns: 26px 58px 148px 118px 64px 44px;
     gap: 8px;
+  }
+}
+
+/* ==========================================================================
+   AI 종목예측 (/ai-prediction)
+   --------------------------------------------------------------------------
+   The page's accent is --series-violet, the one series hue the nav row hadn't
+   claimed (blue KOSPI / aqua KOSDAQ / pink S&P500 / orange NASDAQ100 / red 시총대결 /
+   yellow NEWS), so the seventh pill still reads at a glance against the other six.
+
+   Direction is encoded with the same diverging pair the rest of the app uses for
+   price: warm --up-color (red) up, cool --down-color (blue) down, neutral
+   --status-neutral at the midpoint. Korean market convention puts red on the up side,
+   and every other surface here already follows it — flipping it on one page would
+   make a reader parse the whole board backwards. Every value the colour encodes is
+   also printed as text, and the modal carries a full table of past calls, so nothing
+   is reachable by colour or hover alone.
+   ========================================================================== */
+
+.kospi-map-nav-link--predict {
+  color: var(--series-violet);
+  border-color: var(--series-violet);
+  background: color-mix(in srgb, var(--series-violet) 12%, transparent);
+  animation-delay: 2.1s;
+}
+
+.kospi-map-nav-link--predict::after {
+  animation-delay: 2.1s;
+}
+
+.kospi-map-nav-link--predict:hover {
+  background: color-mix(in srgb, var(--series-violet) 22%, transparent);
+}
+
+.kospi-map-nav-link--predict .market-nav-icon,
+.app-footer-market-link--predict .market-nav-icon {
+  animation-delay: 2.1s;
+}
+
+.app-footer-links a.app-footer-market-link--predict {
+  color: var(--series-violet);
+  animation-delay: 2.1s;
+}
+
+/* --- Hero ---------------------------------------------------------------- */
+
+.pred-hero {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface-1);
+  margin-bottom: 18px;
+  isolation: isolate;
+}
+
+/* A slow drifting wash rather than a static gradient — the page's one large
+   decorative surface, kept behind the content at low alpha so the type on top keeps
+   its full contrast. Sized well past the box and translated, not scaled, so the
+   animation never resamples the blur. */
+.pred-hero-aurora {
+  position: absolute;
+  inset: -40% -20%;
+  z-index: -1;
+  background:
+    radial-gradient(38% 46% at 22% 34%, color-mix(in srgb, var(--series-violet) 42%, transparent), transparent 70%),
+    radial-gradient(34% 42% at 74% 26%, color-mix(in srgb, var(--up-color) 28%, transparent), transparent 70%),
+    radial-gradient(40% 48% at 58% 82%, color-mix(in srgb, var(--down-color) 26%, transparent), transparent 72%);
+  filter: blur(38px);
+  opacity: 0.55;
+  animation: pred-aurora 22s ease-in-out infinite alternate;
+  will-change: transform;
+  pointer-events: none;
+}
+
+@keyframes pred-aurora {
+  from {
+    transform: translate3d(-3%, -2%, 0) rotate(-2deg);
+  }
+  to {
+    transform: translate3d(4%, 3%, 0) rotate(3deg);
+  }
+}
+
+.pred-hero-inner {
+  padding: 26px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.pred-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--series-violet);
+  border: 1px solid color-mix(in srgb, var(--series-violet) 55%, transparent);
+  background: color-mix(in srgb, var(--series-violet) 14%, transparent);
+  border-radius: 999px;
+  padding: 5px 13px;
+}
+
+/* "Live" pulse on the badge dot — the one always-on motion cue that this page's data
+   is a standing forecast rather than a static archive. */
+.pred-hero-badge-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--series-violet);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--series-violet) 70%, transparent);
+  animation: pred-pulse 2.4s ease-out infinite;
+}
+
+@keyframes pred-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--series-violet) 70%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 9px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.pred-hero-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+  margin: 2px 0 0;
+  /* The hero figure is the page's own sans at display size — no serif or display
+     face, and proportional (not tabular) figures, which read tighter at this scale. */
+  font-size: clamp(26px, 5vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  line-height: 1.15;
+}
+
+.pred-hero-weekday {
+  font-size: 0.62em;
+  font-weight: 700;
+  color: var(--series-violet);
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--series-violet) 16%, transparent);
+}
+
+.pred-hero-sub {
+  margin: 0;
+  /* Widened from 56ch to fit the caveat on the same line at desktop widths — it is
+     meant to sit beside the claim, not under it. Still wraps to a second centered line
+     below ~1000px rather than being clipped. */
+  max-width: min(100%, 62rem);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* Muted and one step down in size: present enough to be read alongside the claim,
+   recessive enough that it doesn't compete with it. Deliberately not coloured as a
+   warning — this is a standing qualification on every forecast, not an alert about
+   one. */
+.pred-hero-caution {
+  margin-left: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  word-break: keep-all;
+}
+
+/* Keeps a token like "TOP10" from breaking mid-word across a line wrap. */
+.pred-nowrap {
+  white-space: nowrap;
+}
+
+.pred-hero-generated {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.pred-countdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 8px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--page-plane) 70%, transparent);
+}
+
+.pred-countdown-label {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.pred-countdown-value {
+  /* The one place tabular figures belong on this page: a per-second countdown whose
+     digits would otherwise jitter the whole row on every tick. */
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.pred-countdown-value--open {
+  font-size: 14px;
+  color: var(--status-good);
+}
+
+/* --- Controls (one filter row above everything it scopes) ---------------- */
+
+.pred-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.pred-datenav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pred-datenav-arrow {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pred-datenav-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pred-datenav-arrow:not(:disabled):hover {
+  color: var(--text-primary);
+  border-color: var(--series-violet);
+}
+
+.pred-datenav-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
+}
+
+.pred-datenav-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.pred-datechip {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 46px;
+  padding: 6px 8px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.pred-datechip:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--series-violet) 55%, transparent);
+}
+
+.pred-datechip.is-active {
+  color: var(--text-primary);
+  border-color: var(--series-violet);
+  background: color-mix(in srgb, var(--series-violet) 16%, transparent);
+}
+
+.pred-datechip-day {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.pred-datechip-weekday {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.pred-datechip.is-active .pred-datechip-weekday {
+  color: var(--series-violet);
+}
+
+.pred-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pred-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pred-tab {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.pred-tab:hover {
+  color: var(--text-primary);
+}
+
+.pred-tab.is-active {
+  color: var(--text-primary);
+  border-color: var(--series-violet);
+  background: color-mix(in srgb, var(--series-violet) 18%, transparent);
+}
+
+.pred-sort select {
+  padding: 6px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* --- Stat tiles ---------------------------------------------------------- */
+
+.pred-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.pred-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 13px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  /* A hairline accent on the leading edge instead of a coloured fill — the tile is
+     chrome around a number, not a data mark, so it stays recessive. */
+  border-left: 3px solid var(--baseline);
+}
+
+.pred-stat--up {
+  border-left-color: var(--up-color);
+}
+
+.pred-stat--down {
+  border-left-color: var(--down-color);
+}
+
+.pred-stat--flat {
+  border-left-color: var(--status-neutral);
+}
+
+.pred-stat-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pred-stat-value {
+  font-size: 21px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.pred-stat-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* --- Group headers ------------------------------------------------------- */
+
+.pred-body {
+  transition: opacity 0.2s ease;
+}
+
+/* Holds the previous render at reduced opacity while a new date loads — no skeleton
+   flash, no layout jump, on a refetch that usually returns in well under a second. */
+.pred-body.is-refreshing {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.pred-group {
+  margin-bottom: 26px;
+}
+
+.pred-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.pred-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.pred-group-count {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.pred-group-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.pred-group-chip {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-weight: 700;
+  border: 1px solid currentColor;
+}
+
+.pred-group-chip--up {
+  color: var(--up-color);
+}
+
+.pred-group-chip--down {
+  color: var(--down-color);
+}
+
+.pred-group-chip--flat {
+  color: var(--status-neutral);
+}
+
+.pred-group-avg,
+.pred-group-collect {
+  color: var(--text-muted);
+}
+
+/* --- Card grid ----------------------------------------------------------- */
+
+.pred-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 12px;
+}
+
+.pred-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px 16px 13px;
+  border-radius: 15px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  /* Entrance is opt-in via .is-revealed (set when the card scrolls into view), so the
+     animation plays as the reader reaches each card rather than all at once above the
+     fold. Cards start invisible; anything that never reveals is caught by the
+     reduced-motion and no-IntersectionObserver fallbacks below. */
+  opacity: 0;
+  transform: translateY(14px);
+  transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.pred-card.is-revealed {
+  animation: pred-card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes pred-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.pred-card:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--series-violet) 60%, transparent);
+  box-shadow: 0 10px 28px color-mix(in srgb, black 34%, transparent);
+}
+
+.pred-card:focus-visible {
+  outline: 2px solid var(--series-violet);
+  outline-offset: 2px;
+}
+
+/* Directional wash bleeding in from the card's top-right corner. Very low alpha: it
+   reinforces the verdict the badge already states in words, and must never be the
+   thing carrying it. */
+.pred-card-glow {
+  position: absolute;
+  inset: -30% -30% 40% 30%;
+  z-index: -1;
+  filter: blur(30px);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.pred-card--up .pred-card-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--up-color) 40%, transparent), transparent 70%);
+}
+
+.pred-card--down .pred-card-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--down-color) 40%, transparent), transparent 70%);
+}
+
+.pred-card--flat .pred-card-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--status-neutral) 34%, transparent), transparent 70%);
+}
+
+/* A high-conviction call gets a standing ring rather than a louder fill — it marks
+   the handful of rows worth reading first without changing how the data itself is
+   drawn. */
+.pred-card--strong {
+  border-color: color-mix(in srgb, var(--series-violet) 50%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--series-violet) 22%, transparent);
+}
+
+.pred-card-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.pred-card-logo {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--page-plane);
+  overflow: hidden;
+}
+
+.pred-card-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.pred-card-logo-mono {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-secondary);
+}
+
+.pred-card-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pred-card-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pred-card-code {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-verdict {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  border: 1px solid currentColor;
+}
+
+.pred-verdict-arrow {
+  font-size: 9px;
+}
+
+.pred-verdict--up {
+  color: var(--up-color);
+  background: color-mix(in srgb, var(--up-color) 13%, transparent);
+}
+
+.pred-verdict--down {
+  color: var(--down-color);
+  background: color-mix(in srgb, var(--down-color) 13%, transparent);
+}
+
+.pred-verdict--flat {
+  color: var(--status-neutral);
+  background: color-mix(in srgb, var(--status-neutral) 13%, transparent);
+}
+
+.pred-card-price {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pred-card-price-main {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pred-price-value {
+  font-size: 23px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.pred-price-unit {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* The "$" sits ahead of the number (US convention) rather than after it, hugged
+   close so it reads as one currency amount, not a number labelled with a symbol. */
+.pred-price-unit--pre {
+  margin-right: 1px;
+}
+
+.pred-card-change {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.pred-card-change--up {
+  color: var(--up-color);
+}
+
+.pred-card-change--down {
+  color: var(--down-color);
+}
+
+.pred-card-change--flat {
+  color: var(--status-neutral);
+}
+
+.pred-card-base {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* --- Conviction gauge (diverging bar) ------------------------------------
+   Zero at the centre, length = |score|, side = direction. A diverging bar is the
+   right form here because the value carries both magnitude and polarity, and a
+   centred baseline shows both in one mark. The numeric score is printed directly
+   beneath it, so the encoding is never the only way to read the value.
+   ------------------------------------------------------------------------- */
+
+.pred-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pred-gauge-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--baseline) 45%, transparent);
+  overflow: hidden;
+}
+
+/* The zero rule is a hairline one shade off the track — recessive chrome, solid (not
+   dashed), so it reads as an axis rather than a threshold. */
+.pred-gauge-zero {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--text-muted);
+  opacity: 0.55;
+}
+
+.pred-gauge-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Rounded only on the outer data end; the end at the zero line stays square so the
+     bar visibly starts *at* the baseline instead of floating beside it. */
+  border-radius: 4px;
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pred-gauge-fill--up {
+  background: var(--up-color);
+  border-bottom-left-radius: 0;
+  border-top-left-radius: 0;
+}
+
+.pred-gauge-fill--down {
+  background: var(--down-color);
+  border-bottom-right-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.pred-gauge-fill--flat {
+  background: var(--status-neutral);
+}
+
+.pred-gauge-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+}
+
+.pred-conf {
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+/* Confidence is a state, not an identity, so it wears the status ramp — and always
+   with its own text label ("확신도 강"), never colour alone. */
+.pred-conf--high {
+  color: var(--status-good);
+}
+
+.pred-conf--mid {
+  color: var(--status-warning);
+}
+
+.pred-conf--low {
+  color: var(--status-neutral);
+}
+
+.pred-gauge-score {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-card-cta {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--series-violet);
+}
+
+/* --- Empty / error / skeleton -------------------------------------------- */
+
+.pred-empty,
+.pred-error {
+  margin: 28px 0;
+  padding: 22px;
+  border-radius: 14px;
+  border: 1px dashed var(--border);
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.pred-error {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--status-critical) 45%, transparent);
+  color: var(--status-critical);
+}
+
+.pred-card--skeleton {
+  opacity: 1;
+  transform: none;
+  cursor: default;
+  gap: 12px;
+}
+
+.pred-skeleton-row {
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--baseline) 40%, transparent) 25%,
+    color-mix(in srgb, var(--baseline) 68%, transparent) 50%,
+    color-mix(in srgb, var(--baseline) 40%, transparent) 75%
+  );
+  background-size: 220% 100%;
+  animation: pred-shimmer 1.5s linear infinite;
+}
+
+.pred-skeleton-row--head {
+  height: 30px;
+}
+
+.pred-skeleton-row--price {
+  height: 26px;
+  width: 70%;
+}
+
+.pred-skeleton-row--bar {
+  height: 6px;
+}
+
+@keyframes pred-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* --- Detail modal --------------------------------------------------------- */
+
+.pred-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.66);
+  backdrop-filter: blur(3px);
+  animation: pred-fade 0.18s ease both;
+}
+
+@keyframes pred-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.pred-modal {
+  position: relative;
+  width: min(620px, 100%);
+  max-height: min(86vh, 780px);
+  overflow-y: auto;
+  padding: 22px;
+  border-radius: 18px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  animation: pred-modal-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes pred-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A 3px top edge in the verdict's own colour — the modal's only large use of the
+   direction hue, so the body text underneath keeps its full contrast. */
+.pred-modal::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  border-radius: 18px 18px 0 0;
+}
+
+.pred-modal--up::before {
+  background: var(--up-color);
+}
+
+.pred-modal--down::before {
+  background: var(--down-color);
+}
+
+.pred-modal--flat::before {
+  background: var(--status-neutral);
+}
+
+.pred-modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pred-modal-close:hover {
+  color: var(--text-primary);
+}
+
+.pred-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding-right: 38px;
+  margin-bottom: 16px;
+}
+
+.pred-modal-logo {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--page-plane);
+  overflow: hidden;
+}
+
+.pred-modal-id {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pred-modal-id strong {
+  font-size: 17px;
+  color: var(--text-primary);
+}
+
+.pred-modal-sub {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.pred-modal-figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.pred-modal-figures > div {
+  padding: 10px 12px;
+  border-radius: 11px;
+  background: var(--page-plane);
+}
+
+.pred-modal-figures dt {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  margin-bottom: 3px;
+}
+
+.pred-modal-figures dd {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.pred-modal-figure--up {
+  color: var(--up-color);
+}
+
+.pred-modal-figure--down {
+  color: var(--down-color);
+}
+
+.pred-modal-figure--flat {
+  color: var(--status-neutral);
+}
+
+.pred-modal-gauge {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.pred-modal-gauge .pred-gauge-track {
+  height: 8px;
+  border-radius: 4px;
+}
+
+.pred-modal-gauge-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.pred-modal-section {
+  margin-bottom: 18px;
+}
+
+.pred-modal-section h3 {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.pred-modal-detail {
+  margin: 0 0 6px;
+  padding: 13px 15px;
+  border-radius: 12px;
+  background: var(--page-plane);
+  border-left: 3px solid var(--series-violet);
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--text-primary);
+  word-break: keep-all;
+}
+
+.pred-modal-meta,
+.pred-modal-empty {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pred-modal-empty {
+  padding: 14px;
+  text-align: center;
+}
+
+/* The table view — every value the cards encode with colour and bar length, also
+   available as plain text. */
+.pred-history-scroll {
+  overflow-x: auto;
+}
+
+.pred-history {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.pred-history th,
+.pred-history td {
+  padding: 7px 8px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.pred-history th {
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.pred-history td {
+  color: var(--text-secondary);
+}
+
+.pred-history-num {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.pred-history-result {
+  font-weight: 700;
+}
+
+.pred-history-result--up {
+  color: var(--up-color);
+}
+
+.pred-history-result--down {
+  color: var(--down-color);
+}
+
+.pred-history-result--flat {
+  color: var(--status-neutral);
+}
+
+.pred-modal-foot {
+  padding-top: 14px;
+  border-top: 1px solid var(--gridline);
+}
+
+.pred-modal-link {
+  display: inline-block;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--series-violet);
+  text-decoration: none;
+}
+
+.pred-modal-link:hover {
+  text-decoration: underline;
+}
+
+.pred-modal-disclaimer {
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--text-muted);
+  word-break: keep-all;
+}
+
+/* --- Direction probability bar -------------------------------------------
+   A 100%-stacked bar, not a diverging one. The three outcomes are shares of a
+   single certain event, so the form that matches the data is one whole divided
+   three ways — the reader's question is "how likely is each", and a stacked bar
+   answers it by construction (the parts must total the whole).
+
+   Segment order is fixed 상승 / 보합 / 하락 left to right across every instance on
+   the page. A bar whose segments reorder by size would make two cards
+   incomparable at a glance, which is the entire job of putting them in a grid.
+
+   Correctness colours (적중/빗나감) deliberately use green/red, which are NOT the
+   direction palette (red up / blue down) — being right is a different axis from
+   going up, and reusing one palette for both would make "적중" read as "상승".
+   ------------------------------------------------------------------------- */
+
+.pred-prob {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pred-prob-bar {
+  display: flex;
+  width: 100%;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--baseline) 40%, transparent);
+}
+
+.pred-prob--compact .pred-prob-bar {
+  height: 8px;
+}
+
+.pred-prob-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pred-prob-seg--up {
+  background: var(--up-color);
+}
+
+.pred-prob-seg--down {
+  background: var(--down-color);
+}
+
+.pred-prob-seg--flat {
+  background: var(--status-neutral);
+}
+
+/* The in-segment number only appears on the full-size bar and only when the segment
+   is wide enough to hold it; the legend below carries every value regardless, so
+   nothing is reachable only through the graphic. */
+.pred-prob-seg-num {
+  display: none;
+}
+
+.pred-prob:not(.pred-prob--compact) .pred-prob-bar {
+  height: 20px;
+}
+
+.pred-prob:not(.pred-prob--compact) .pred-prob-seg-num {
+  display: block;
+  font-size: 11px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: -0.01em;
+}
+
+.pred-prob-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pred-prob-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.pred-prob-key b {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-prob-key-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.pred-prob-key--up {
+  color: var(--up-color);
+}
+
+.pred-prob-key--down {
+  color: var(--down-color);
+}
+
+.pred-prob-key--flat {
+  color: var(--status-neutral);
+}
+
+/* --- Card: probability, chips, close summary, evidence, outcome ----------- */
+
+.pred-card-prob,
+.pred-card-close {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.pred-card-section-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.pred-card-likeliest {
+  font-weight: 700;
+  color: var(--status-warning);
+}
+
+.pred-card-close-rate {
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-card-close-rate--up {
+  color: var(--up-color);
+}
+
+.pred-card-close-rate--down {
+  color: var(--down-color);
+}
+
+.pred-card-close-rate--flat {
+  color: var(--status-neutral);
+}
+
+/* Clamped to three lines on the card; the modal shows the paragraph in full. A card
+   is a scannable summary — letting one verbose explanation set the height of an entire
+   grid row would break the scan it exists for. */
+.pred-card-close-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  word-break: keep-all;
+}
+
+.pred-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.pred-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pred-chip b {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.pred-chip--high {
+  color: var(--status-good);
+}
+
+.pred-chip--mid {
+  color: var(--status-neutral);
+}
+
+.pred-chip--low {
+  color: var(--status-warning);
+}
+
+.pred-chip--up {
+  color: var(--up-color);
+}
+
+.pred-chip--down {
+  color: var(--down-color);
+}
+
+.pred-chip--flat {
+  color: var(--status-neutral);
+}
+
+/* Reliability is the one chip that gets a tinted fill: it is the field that should
+   stop a reader, and an outline alone put it at the same visual weight as the two
+   chips beside it. */
+.pred-chip--reliability {
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.pred-card-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pred-evchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--baseline) 35%, transparent);
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.pred-outcome {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.pred-outcome--hit {
+  background: color-mix(in srgb, var(--status-good) 13%, transparent);
+  color: var(--status-good);
+}
+
+.pred-outcome--miss {
+  background: color-mix(in srgb, var(--status-critical) 13%, transparent);
+  color: var(--status-critical);
+}
+
+.pred-outcome-mark {
+  font-size: 13px;
+}
+
+.pred-outcome-text {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+.pred-outcome--hit .pred-outcome-text,
+.pred-outcome--miss .pred-outcome-text {
+  color: inherit;
+}
+
+.pred-outcome-actual--up {
+  color: var(--up-color);
+}
+
+.pred-outcome-actual--down {
+  color: var(--down-color);
+}
+
+.pred-outcome-actual--flat {
+  color: var(--status-neutral);
+}
+
+/* A dashed edge rather than a colour wash: the card still has to be read for its
+   forecast, and tinting the whole surface would fight the direction colour that is
+   already doing work on it. */
+.pred-card--unreliable {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--status-warning) 55%, var(--border));
+}
+
+.pred-card--hit {
+  border-color: color-mix(in srgb, var(--status-good) 45%, var(--border));
+}
+
+.pred-card--miss {
+  border-color: color-mix(in srgb, var(--status-critical) 40%, var(--border));
+}
+
+/* --- Hero scoreboard ------------------------------------------------------ */
+
+.pred-scoreboard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.pred-score-headline,
+.pred-score-aggregate {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-right: 14px;
+}
+
+.pred-score-headline {
+  border-right: 1px solid var(--gridline);
+}
+
+.pred-score-label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.pred-score-value {
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-score-value small {
+  font-size: 14px;
+  margin-left: 1px;
+}
+
+.pred-score-headline--good .pred-score-value {
+  color: var(--status-good);
+}
+
+.pred-score-headline--bad .pred-score-value {
+  color: var(--status-critical);
+}
+
+.pred-score-agg-value {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.pred-score-agg-value--up {
+  color: var(--status-good);
+}
+
+.pred-score-agg-value--down {
+  color: var(--status-critical);
+}
+
+.pred-score-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+/* One bar per graded session, oldest left. Deliberately unlabelled and small: it is a
+   shape, not a chart — its job is to show whether the hit rate is steady or erratic,
+   and the exact per-day numbers live in the tooltip and the modal. */
+.pred-score-spark {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 44px;
+  margin-left: auto;
+  padding-left: 10px;
+}
+
+.pred-score-bar {
+  width: 7px;
+  border-radius: 2px 2px 0 0;
+  background: var(--status-neutral);
+}
+
+.pred-score-bar--good {
+  background: var(--status-good);
+}
+
+.pred-score-bar--mid {
+  background: var(--status-warning);
+}
+
+.pred-score-bar--bad {
+  background: var(--status-critical);
+}
+
+.pred-score-bar--none {
+  background: var(--baseline);
+}
+
+.pred-settled {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 12px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--status-good) 14%, transparent);
+  color: var(--status-good);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.pred-settled-mark {
+  font-size: 14px;
+}
+
+/* --- Stat tile distribution bar ------------------------------------------- */
+
+.pred-stat-dist {
+  display: flex;
+  height: 10px;
+  margin: 3px 0 1px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--baseline) 40%, transparent);
+}
+
+.pred-stat-dist-seg--up {
+  background: var(--up-color);
+}
+
+.pred-stat-dist-seg--down {
+  background: var(--down-color);
+}
+
+.pred-stat-dist-seg--flat {
+  background: var(--status-neutral);
+}
+
+/* --- "그 시장은 다른 날짜에 있습니다" ---------------------------------------
+   The two batches legitimately target different 예측일자, so a market absent from the
+   selected day is an ordinary state rather than a failure. It gets a live control
+   pointing at where it is — a market that just disappears reads as a broken batch.
+   ------------------------------------------------------------------------- */
+
+.pred-tab--elsewhere {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  border-style: dashed;
+  opacity: 0.75;
+}
+
+.pred-tab--elsewhere:hover {
+  opacity: 1;
+}
+
+.pred-tab-elsewhere-date {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.pred-elsewhere {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.pred-elsewhere-link {
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--series-violet) 45%, var(--border));
+  background: color-mix(in srgb, var(--series-violet) 10%, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.pred-elsewhere-link b {
+  color: var(--series-violet);
+}
+
+.pred-elsewhere-link:hover {
+  border-color: var(--series-violet);
+}
+
+.pred-elsewhere-why {
+  color: var(--text-muted);
+  font-size: 11px;
+  word-break: keep-all;
+}
+
+/* Market-wide context, stated once per group instead of on every card in it. */
+.pred-group-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin: -4px 0 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.pred-group-context b {
+  color: var(--text-secondary);
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+/* --- Filter tools --------------------------------------------------------- */
+
+.pred-filter-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pred-toggle {
+  padding: 7px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pred-toggle:hover {
+  border-color: var(--status-warning);
+}
+
+.pred-toggle.is-active {
+  border-color: var(--status-warning);
+  background: color-mix(in srgb, var(--status-warning) 15%, transparent);
+  color: var(--status-warning);
+}
+
+.pred-group-chip--hit {
+  background: color-mix(in srgb, var(--status-good) 14%, transparent);
+  color: var(--status-good);
+}
+
+.pred-group-chip--miss {
+  background: color-mix(in srgb, var(--status-critical) 14%, transparent);
+  color: var(--status-critical);
+}
+
+/* --- Modal: reliability, evidence, accuracy ------------------------------- */
+
+.pred-modal-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pred-modal-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-muted);
+  word-break: keep-all;
+}
+
+.pred-modal-note em {
+  font-style: normal;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.pred-modal-figure--hit {
+  color: var(--status-good);
+}
+
+.pred-modal-figure--miss {
+  color: var(--status-critical);
+}
+
+.pred-modal-figure-tag {
+  margin-left: 5px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.pred-reliability-track {
+  position: relative;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--baseline) 40%, transparent);
+  overflow: hidden;
+}
+
+.pred-reliability-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pred-reliability-fill--high {
+  background: var(--status-good);
+}
+
+.pred-reliability-fill--mid {
+  background: var(--status-neutral);
+}
+
+.pred-reliability-fill--low {
+  background: var(--status-warning);
+}
+
+.pred-reliability-notes {
+  margin: 10px 0 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  word-break: keep-all;
+}
+
+.pred-evidence {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pred-evidence-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--baseline) 22%, transparent);
+  /* The leading edge carries the direction of the evidence, so a reader can see which
+     way each input pushed without reading every value. */
+  border-left: 3px solid var(--status-neutral);
+}
+
+.pred-evidence-item--positive {
+  border-left-color: var(--up-color);
+}
+
+.pred-evidence-item--negative {
+  border-left-color: var(--down-color);
+}
+
+.pred-evidence-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 74px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.pred-evidence-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.pred-evidence-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pred-evidence-value {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: keep-all;
+}
+
+.pred-acc-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.pred-acc-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--baseline);
+  background: var(--surface-1);
+}
+
+.pred-acc-tile--up {
+  border-left-color: var(--status-good);
+}
+
+.pred-acc-tile--down {
+  border-left-color: var(--status-critical);
+}
+
+.pred-acc-tile--flat {
+  border-left-color: var(--status-neutral);
+}
+
+.pred-acc-label {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.pred-acc-value {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.pred-acc-hint {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.pred-history tr.is-hit td:first-child {
+  box-shadow: inset 2px 0 0 var(--status-good);
+}
+
+.pred-history tr.is-miss td:first-child {
+  box-shadow: inset 2px 0 0 var(--status-critical);
+}
+
+.pred-history-mark {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pred-history-mark--hit {
+  color: var(--status-good);
+}
+
+.pred-history-mark--miss {
+  color: var(--status-critical);
+}
+
+/* Not a miss — the session either hasn't traded or hasn't been graded. Muted so it
+   reads as "no result yet" rather than as a third outcome. */
+.pred-history-pending {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* --- Motion & viewport --------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Everything decorative stops; nothing that carries information is animated in the
+     first place, so the page is fully readable with all of it off. Cards must be
+     forced visible here — their default state is transparent, and the entrance
+     animation that normally reveals them is exactly what's being disabled. */
+  .pred-hero-aurora,
+  .pred-hero-badge-dot,
+  .pred-skeleton-row {
+    animation: none;
+  }
+
+  .pred-card,
+  .pred-card.is-revealed {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+
+  .pred-card:hover {
+    transform: none;
+  }
+
+  .pred-datechip:hover {
+    transform: none;
+  }
+
+  .pred-gauge-fill,
+  .pred-prob-seg,
+  .pred-reliability-fill {
+    transition: none;
+  }
+
+  .pred-modal,
+  .pred-modal-backdrop {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .pred-hero-inner {
+    padding: 20px 16px 18px;
+  }
+
+  .pred-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .pred-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .pred-filter-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pred-filter-tools {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pred-toggle,
+  .pred-sort select {
+    width: 100%;
+  }
+
+  /* The spark strip is the first thing to go: on one column it would wrap under the
+     two figures and read as a chart in its own right, which it isn't. The numbers it
+     summarizes are still both present above it. */
+  .pred-score-spark {
+    display: none;
+  }
+
+  .pred-scoreboard {
+    gap: 8px 14px;
+  }
+
+  .pred-score-headline {
+    border-right: none;
+  }
+
+  .pred-acc-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pred-evidence-item {
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .pred-modal {
+    padding: 18px 15px;
+    max-height: 92vh;
+  }
+
+  .pred-modal-backdrop {
+    padding: 10px;
   }
 }

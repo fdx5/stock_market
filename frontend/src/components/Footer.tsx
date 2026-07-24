@@ -5,6 +5,7 @@ import DashboardIcon from "./DashboardIcon";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
+import PredictIcon from "./PredictIcon";
 
 export default function Footer() {
   const t = useT();
@@ -40,6 +41,9 @@ export default function Footer() {
           </Link>
           <Link to="/news" className="app-footer-market-link app-footer-market-link--news">
             <GlobalNewsIcon /> NEWS
+          </Link>
+          <Link to="/ai-prediction" className="app-footer-market-link app-footer-market-link--predict">
+            <PredictIcon /> {t("AI 예측")}
           </Link>
           <a
             href="https://chs2147.github.io/mini-apps"

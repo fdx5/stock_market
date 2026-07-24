@@ -302,6 +302,151 @@ export interface GlobalDiscussionPost {
   is_reply: boolean;
 }
 
+export type PredictionDirection = "상승" | "하락" | "보합";
+
+/** One input the call was actually computed from. Categories with no data are absent
+ * from the list rather than present-and-empty — see prediction_quality.build_evidence. */
+export interface PredictionEvidence {
+  category: "주가" | "거래량" | "수급" | "업종지수" | "환율" | "뉴스" | "호가";
+  label: string;
+  value: string;
+  impact: "positive" | "negative" | "neutral";
+}
+
+/** `rate` is null when the window holds no graded predictions at all — which is a
+ * different fact from a 0% hit rate and has to render differently. */
+export interface AccuracyWindow {
+  total: number;
+  hit: number;
+  rate: number | null;
+}
+
+export interface AccuracyWindows {
+  recent20: AccuracyWindow;
+  recent60: AccuracyWindow;
+  all: AccuracyWindow;
+}
+
+export interface SessionScore {
+  predict_date: string;
+  total: number;
+  hit: number;
+  rate: number | null;
+}
+
+/** One stock's next-session call, as written by the batch (see prediction_store).
+ *
+ * Fields fall into three groups: the call itself (result/predict_price/change_rate),
+ * the call's account of itself (probabilities, reliability, close explanation,
+ * evidence), and what actually happened (the actual_ fields and `hit`) — the last of
+ * which stays null until the predicted session has traded and been graded. */
+export interface PredictionItem {
+  /** 수집일자 — the session the prediction was computed from. */
+  collect_date: string;
+  /** 예측일자 — the session being predicted. */
+  predict_date: string;
+  code: string;
+  name: string;
+  market: string;
+  result: PredictionDirection;
+  base_price: number;
+  predict_price: number;
+  change_rate: number;
+  /** Combined 40% technical + 60% qualitative score, -1..1. Drives the conviction bar. */
+  score: number;
+  confidence: "강" | "중" | "약";
+  detail: string;
+
+  /** Whole percentages summing to exactly 100. Null on rows written before the
+   * probability model shipped. */
+  prob_up: number | null;
+  prob_flat: number | null;
+  prob_down: number | null;
+  /** The ±% band this row counts as 보합, and the band its grade was judged against. */
+  flat_band: number | null;
+
+  /** 0-100 with its grade and the specific reasons it isn't 100. Distinct from
+   * `confidence`: that is how hard the inputs lean, this is what they're worth. */
+  reliability: number | null;
+  reliability_grade: "높음" | "보통" | "낮음" | null;
+  reliability_notes: string[];
+
+  /** The 수집일자 session's own move, and why it closed there. */
+  close_change_rate: number | null;
+  close_summary: string | null;
+  evidence: PredictionEvidence[];
+
+  /** 시가총액 as of the 수집일자, snapshotted on the row. KRX rows carry won; NASDAQ
+   * rows carry index weight, a cap-share proxy — comparable within a market but not
+   * across them, which is fine because the page only ever sorts inside one group. */
+  market_cap: number | null;
+
+  /** Null until the predicted session has closed and been graded. */
+  actual_price: number | null;
+  actual_change_rate: number | null;
+  actual_result: PredictionDirection | null;
+  hit: boolean | null;
+  graded_at: string | null;
+
+  /** Attached by the API for every code on the page, so a card can show its track
+   * record without a request per card. */
+  accuracy?: AccuracyWindows | null;
+
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PredictionSummary {
+  up: number;
+  down: number;
+  flat: number;
+  avg_change_rate: number;
+  strong: number;
+  avg_reliability: number | null;
+  low_reliability: number;
+  /** How many of this group's rows have been graded, and how many of those were right.
+   * Both zero on a day whose session hasn't traded yet. */
+  graded: number;
+  hit: number;
+}
+
+export interface PredictionGroup {
+  market: string;
+  label: string;
+  items: PredictionItem[];
+  summary: PredictionSummary;
+}
+
+export interface PredictionDateOption {
+  date: string;
+  iso: string;
+  weekday: string;
+  label: string;
+  /** Markets with rows on this 예측일자. The KR and US batches usually target
+   * different days, so this is how the page finds where a missing market went.
+   * Absent on `previous_session`, which is a scoreboard entry rather than a
+   * navigator option. */
+  markets?: string[];
+}
+
+export interface PredictionDay extends PredictionDateOption {
+  groups: PredictionGroup[];
+  count: number;
+  generated_at: string | null;
+  collect_dates: string[];
+  /** Recent graded sessions, newest first — the header's 적중 이력 strip. */
+  scoreboard: SessionScore[];
+  /** The most recent graded session older than the one on screen. Today's own
+   * predictions are ungraded by definition, so this is the last checkable result. */
+  previous_session: (SessionScore & PredictionDateOption) | null;
+}
+
+export interface PredictionAccuracy {
+  markets: Record<string, AccuracyWindows>;
+  sessions: SessionScore[];
+  windows: { short: number; long: number };
+}
+
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) {
@@ -449,4 +594,24 @@ export const api = {
     getJSON<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
       `${BASE}/global/${code}/discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
     ),
+  predictionDates: (limit = 30) =>
+    getJSON<{ items: PredictionDateOption[] }>(`${BASE}/prediction/dates?limit=${limit}`),
+  // `date` is the 예측일자 (the session being predicted), which is what the page's
+  // date navigator moves through — a reader picks which day's forecast to look at,
+  // not which day it was computed on.
+  predictions: (date?: string | null, market?: string | null) => {
+    const params = new URLSearchParams();
+    if (date) params.set("date", date);
+    if (market) params.set("market", market);
+    const query = params.toString();
+    return getJSON<PredictionDay>(`${BASE}/prediction${query ? `?${query}` : ""}`);
+  },
+  predictionHistory: (code: string, limit = 20) =>
+    getJSON<{
+      code: string;
+      name: string;
+      items: PredictionItem[];
+      accuracy: AccuracyWindows | null;
+    }>(`${BASE}/prediction/stock/${encodeURIComponent(code)}?limit=${limit}`),
+  predictionAccuracy: () => getJSON<PredictionAccuracy>(`${BASE}/prediction/accuracy`),
 };

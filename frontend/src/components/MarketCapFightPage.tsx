@@ -18,6 +18,7 @@ import FightCompanyModal from "./FightCompanyModal";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import LanguageToggle from "./LanguageToggle";
+import PredictIcon from "./PredictIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import RollingValue from "./RollingValue";
@@ -562,6 +563,9 @@ export default function MarketCapFightPage() {
           )}
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
+          </Link>
+          <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
+            <PredictIcon /> AI 예측
           </Link>
           <VisitorBadge />
         </div>
