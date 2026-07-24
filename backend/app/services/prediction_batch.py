@@ -208,7 +208,7 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
             # sector averages inside it are a property of the whole group — the thing
             # that lets a single row say whether the stock moved or the market did.
             market_ctx = prediction_quality.build_market_context(market, payloads, index, fx)
-            judgements, source = ai_analyst.analyze(market, payloads, market_ctx)
+            judgements, source, ai_error = ai_analyst.analyze(market, payloads, market_ctx)
 
             # Falling back to the heuristic is correct when no key is configured, but
             # falling back *with* a key set means the Claude call failed — a wrong
@@ -216,13 +216,11 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
             # path is caught inside analyze() so the batch still produces rows, which
             # is the right behaviour and also why it went unnoticed for a full day of
             # runs: every batch reported success while every rationale came from the
-            # fallback. Surfacing it as a warning puts it in the cron log and the
-            # admin panel, where the next occurrence is visible in seconds.
-            if source != ai_analyst.SOURCE_CLAUDE and ai_analyst.ANTHROPIC_API_KEY:
-                warnings.append(
-                    f"{market}: ANTHROPIC_API_KEY가 설정되어 있으나 Claude 분석에 실패해 "
-                    "휴리스틱으로 폴백함 (원인은 서버 로그의 'ai_analyst' 항목 참조)"
-                )
+            # fallback. The exception text rides along in the warning so the cron
+            # output and the admin panel name the actual cause, instead of pointing
+            # at a server log the operator has to go read on the host.
+            if ai_error:
+                warnings.append(f"{market}: Claude 분석 실패로 휴리스틱 폴백 — {ai_error}")
 
             for payload in payloads:
                 code = payload["item"]["code"]

@@ -430,17 +430,24 @@ def analyze_with_claude(market: str, payloads: list[dict], market_ctx: dict) -> 
     return _parse_response(text, payloads)
 
 
-def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[str, dict], str]:
-    """Returns (results-by-code, source-label).
+def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[str, dict], str, str | None]:
+    """Returns (results-by-code, source-label, failure-reason).
 
     Falls back per *market*, not per stock: mixing a Claude judgement for one name
     with a lexicon judgement for the next would make the scores on a single page
     incomparable, which is worse than a page that is uniformly heuristic and says so.
     Any stock Claude omits from an otherwise-valid response is individually backfilled
     from the heuristic, since dropping it entirely would leave a hole in the roster.
+
+    The third element is the exception text when the Claude path was attempted and
+    failed, and None otherwise. It exists because the fallback is deliberately silent
+    to the caller — the batch keeps running and reports success — so without carrying
+    the reason out, diagnosing a misconfiguration meant reading the server's own log
+    on the host. The batch puts this string straight into its warnings, which reach
+    the cron output and the admin panel.
     """
     if not payloads:
-        return {}, SOURCE_HEURISTIC
+        return {}, SOURCE_HEURISTIC, None
 
     if ANTHROPIC_API_KEY:
         try:
@@ -454,8 +461,9 @@ def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[s
                     market,
                 )
                 results.update(analyze_heuristic(missing))
-            return results, SOURCE_CLAUDE
+            return results, SOURCE_CLAUDE, None
         except Exception as exc:  # noqa: BLE001 - a batch that runs beats one that doesn't
             logger.warning("ai_analyst: Claude analysis failed for %s (%s); using heuristic", market, exc)
+            return analyze_heuristic(payloads), SOURCE_HEURISTIC, f"{type(exc).__name__}: {exc}"
 
-    return analyze_heuristic(payloads), SOURCE_HEURISTIC
+    return analyze_heuristic(payloads), SOURCE_HEURISTIC, None
