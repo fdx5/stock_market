@@ -480,6 +480,35 @@ def _resolve_claude_cli() -> str:
     return resolved
 
 
+# Any credential of this family is base64url-ish: no whitespace is ever legal inside
+# one, which is what makes both stripping and matching them unambiguous.
+_SECRET_RE = re.compile(r"sk-ant-[A-Za-z0-9_-]+")
+
+
+def _redact(text: str) -> str:
+    """Removes credentials from CLI output before it is stored or displayed.
+
+    This is not hypothetical tidiness: the CLI echoes the offending header value back
+    when the token is malformed, and that string travels into the run's warnings —
+    which the admin panel renders and the GitHub Actions workflow prints into its log.
+    A token that reaches a build log has to be treated as disclosed.
+
+    Literal replacement of the known env values comes first because it catches a
+    mangled token the pattern can't (a stray newline inside one splits it in two); the
+    regex is the backstop for anything else of the same shape.
+    """
+    out = text
+    for name in ("CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"):
+        value = os.environ.get(name)
+        if not value or len(value.strip()) < 8:
+            continue
+        out = out.replace(value, f"<{name}>")
+        compact = "".join(value.split())
+        if compact != value:
+            out = out.replace(compact, f"<{name}>")
+    return _SECRET_RE.sub("sk-ant-<redacted>", out)
+
+
 def _extract_json(text: str) -> str:
     """Pulls the JSON object out of the CLI's free-text answer.
 
@@ -519,6 +548,17 @@ def analyze_with_claude_subscription(market: str, payloads: list[dict], market_c
     # which is exactly what a stray ANTHROPIC_API_KEY would cause, since Claude Code
     # prefers the key over the OAuth token. Drop it for this subprocess only.
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+
+    # A token pasted into a hosting dashboard routinely arrives with a newline or
+    # trailing space picked up from the terminal line-wrap it was copied out of. The
+    # CLI forwards the value verbatim into an Authorization header, where whitespace is
+    # fatal — the request dies with "Header '14' has invalid value" before it ever
+    # reaches Anthropic, and the whole market falls back to the heuristic. No token of
+    # this shape legitimately contains whitespace, so removing it repairs the paste
+    # instead of failing a batch over one invisible character.
+    token = env.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if token:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = "".join(token.split())
 
     # --system-prompt *replaces* Claude Code's own agent preamble rather than appending
     # to it, and --tools "" leaves the model nothing to call. Together they turn the CLI
@@ -560,20 +600,21 @@ def analyze_with_claude_subscription(market: str, payloads: list[dict], market_c
         raise RuntimeError(f"claude CLI가 {AI_TIMEOUT}s 내에 응답하지 않음 (market={market})") from exc
 
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout or "").strip()[:500]
+        detail = _redact((proc.stderr or proc.stdout or "").strip())[:500]
         raise RuntimeError(f"claude CLI 실패 (rc={proc.returncode}, market={market}): {detail}")
 
     try:
         envelope = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(
-            f"claude CLI가 JSON 봉투를 반환하지 않음 (market={market}): {proc.stdout[:300]}"
+            f"claude CLI가 JSON 봉투를 반환하지 않음 (market={market}): {_redact(proc.stdout)[:300]}"
         ) from exc
 
+    # A non-zero exit is not the only failure mode: the CLI reports auth and API errors
+    # inside a rc=0 envelope with is_error set, which is how a malformed token surfaces.
     if envelope.get("is_error"):
-        raise RuntimeError(
-            f"claude CLI가 오류를 반환함 (market={market}): {envelope.get('result') or envelope.get('subtype')}"
-        )
+        detail = _redact(str(envelope.get("result") or envelope.get("subtype")))[:500]
+        raise RuntimeError(f"claude CLI가 오류를 반환함 (market={market}): {detail}")
 
     text = envelope.get("result", "")
     if not text:
