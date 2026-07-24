@@ -9513,13 +9513,23 @@ thead .weekly-foreign-amount-col {
   overflow-y: auto;
 }
 
+/* One region's whole block: the status line, plus the detail line and any
+   warnings the last run produced. The plane moved here from .admin-batch-row so
+   a region's rows read as one card rather than three stacked strips. */
+.admin-batch-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--page-plane);
+  min-width: 0;
+}
+
 .admin-batch-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 11px;
-  border-radius: 10px;
-  background: var(--page-plane);
   min-width: 0;
 }
 
@@ -9590,6 +9600,91 @@ thead .weekly-foreign-amount-col {
 .admin-batch-run-btn:disabled {
   opacity: 0.45;
   cursor: default;
+}
+
+/* Second line: which analyst path each market took, then the run's own facts. */
+.admin-batch-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* A labelled chip, never colour alone — the market name and the path are both
+   spelled out, so the tint only reinforces a distinction the text already makes. */
+.admin-batch-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+/* Claude wears the same violet as the 수동 재실행 action — the panel's "AI did
+   this" accent. The heuristic is the status ramp's warning step: the run
+   succeeded, but on the offline engine rather than the model. */
+.admin-batch-source--claude {
+  color: var(--series-violet);
+}
+
+.admin-batch-source--heuristic {
+  color: var(--status-warning);
+}
+
+.admin-batch-source--unknown {
+  color: var(--text-muted);
+}
+
+.admin-batch-source-market {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  opacity: 0.85;
+}
+
+.admin-batch-source-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+
+.admin-batch-detail-note {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Warnings are per-run notes (a Claude fallback, skipped thin-history names), not
+   failures — muted body text behind a warning-tinted rule, so they're legible
+   without competing with the status chip above. */
+.admin-batch-warnings {
+  margin: 0;
+  padding: 0 0 0 9px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  border-left: 2px solid color-mix(in srgb, var(--status-warning) 55%, transparent);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.admin-batch-warnings-more {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--series-violet);
+  cursor: pointer;
+}
+
+.admin-batch-warnings-more:hover {
+  text-decoration: underline;
 }
 
 .admin-batch-error {

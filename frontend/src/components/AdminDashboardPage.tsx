@@ -90,6 +90,20 @@ function formatDateTime(iso: string): string {
   });
 }
 
+/** How the 60% qualitative layer was produced, as reported per market by
+ * ai_analyst (SOURCE_CLAUDE / SOURCE_HEURISTIC). The distinction is the panel's
+ * whole reason for showing this: a heuristic run is a *successful* run of a
+ * degraded pipeline, so it gets the warning ramp rather than the failure one —
+ * nothing is broken, but the analysis is the offline lexicon engine, not Claude. */
+const AI_SOURCE_META: Record<string, { label: string; tone: string }> = {
+  claude: { label: "Claude", tone: "claude" },
+  heuristic: { label: "휴리스틱", tone: "heuristic" },
+};
+
+/** A run that skipped a dozen thin-history names would otherwise push the second
+ * region's row out of this short panel entirely. */
+const WARNING_PREVIEW_COUNT = 2;
+
 const COMMENT_PREVIEW_LEN = 20;
 
 /** Truncates to a fixed character count (not CSS ellipsis, which truncates by
@@ -350,6 +364,7 @@ export default function AdminDashboardPage() {
   const [tail, setTail] = useState<ActivityEvent[] | null>(null);
   const [comments, setComments] = useState<AdminComment[] | null>(null);
   const [expandedComments, setExpandedComments] = useState<Set<string>>(new Set());
+  const [expandedWarnings, setExpandedWarnings] = useState<Set<string>>(new Set());
   const [deletingKey, setDeletingKey] = useState<string | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [activeLegend, setActiveLegend] = useState<string | null>(null);
@@ -562,6 +577,15 @@ export default function AdminDashboardPage() {
     });
   }
 
+  function toggleWarnings(key: string) {
+    setExpandedWarnings((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   function toggleCommentExpanded(key: string) {
     setExpandedComments((prev) => {
       const next = new Set(prev);
@@ -582,9 +606,14 @@ export default function AdminDashboardPage() {
     // O(1) per-point lookup — the 24h view backfills 1,440 one-minute buckets,
     // so an O(n) `.find()` per (path, bucket) pair would mean over a million
     // scans across a handful of series.
+    //
+    // The separator is US (U+001F), not NUL: a literal NUL anywhere in the file
+    // makes ripgrep classify the whole thing as binary and skip it, so this
+    // component silently disappears from every repo-wide content search. Neither a
+    // URL path nor a bucket timestamp can contain either character.
     const valueMap = new Map<string, number>();
-    for (const p of trendPoints) valueMap.set(`${p.path} ${p.bucket}`, p.count);
-    const valueOf = (path: string, bucket: string) => valueMap.get(`${path} ${bucket}`) ?? 0;
+    for (const p of trendPoints) valueMap.set(`${p.path}\u001f${p.bucket}`, p.count);
+    const valueOf = (path: string, bucket: string) => valueMap.get(`${path}\u001f${bucket}`) ?? 0;
 
     const seriesData: Series[] = topPaths.map((path, i) => ({
       path,
@@ -1394,30 +1423,97 @@ export default function AdminDashboardPage() {
                     : dbCount > 0
                       ? "성공"
                       : "기록 없음";
+                // Which analyst path actually produced the 60%, per market. This is
+                // the one thing the panel can say that no other view can: the run
+                // succeeds either way, so "성공" alone doesn't distinguish a Claude
+                // analysis from a heuristic fallback. Ordered by the region's own
+                // market list (KOSPI before KOSDAQ) rather than object key order.
+                const sources = (prediction.regions[region] ?? [])
+                  .map((market) => ({ market, stat: last?.markets?.[market] }))
+                  .filter((entry): entry is { market: string; stat: { count: number; ai_source: string } } =>
+                    Boolean(entry.stat)
+                  );
+                const warnings = last?.warnings ?? [];
+                const warnKey = `warn-${region}`;
+                const warnExpanded = expandedWarnings.has(warnKey);
+                const shownWarnings = warnExpanded ? warnings : warnings.slice(0, WARNING_PREVIEW_COUNT);
                 return (
-                  <div key={region} className="admin-batch-row">
-                    <span
-                      className={`admin-batch-status admin-batch-status--${
-                        isRunning ? "running" : ok ? "ok" : "fail"
-                      }`}
-                    >
-                      {statusLabel}
-                    </span>
-                    <span className="admin-batch-name">{label}</span>
-                    <span className="admin-batch-meta">
-                      {last?.saved != null && last.status === "ok" ? `${last.saved}종목 저장 · ` : ""}
-                      {last?.triggered_by === "admin" ? "수동 · " : ""}
-                      {finishedAt ? `최근 ${formatDateTime(finishedAt)}` : "실행 이력 없음"}
-                      {last?.error ? ` · ${last.error}` : ""}
-                    </span>
-                    <button
-                      type="button"
-                      className="admin-batch-run-btn"
-                      disabled={isRunning || runningRegion !== null}
-                      onClick={() => handleRunBatch(region)}
-                    >
-                      {isRunning ? "실행 중..." : "수동 재실행"}
-                    </button>
+                  <div key={region} className="admin-batch-item">
+                    <div className="admin-batch-row">
+                      <span
+                        className={`admin-batch-status admin-batch-status--${
+                          isRunning ? "running" : ok ? "ok" : "fail"
+                        }`}
+                      >
+                        {statusLabel}
+                      </span>
+                      <span className="admin-batch-name">{label}</span>
+                      <span className="admin-batch-meta">
+                        {last?.saved != null && last.status === "ok" ? `${last.saved}종목 저장 · ` : ""}
+                        {last?.triggered_by === "admin" ? "수동 · " : ""}
+                        {finishedAt ? `최근 ${formatDateTime(finishedAt)}` : "실행 이력 없음"}
+                        {last?.error ? ` · ${last.error}` : ""}
+                      </span>
+                      <button
+                        type="button"
+                        className="admin-batch-run-btn"
+                        disabled={isRunning || runningRegion !== null}
+                        onClick={() => handleRunBatch(region)}
+                      >
+                        {isRunning ? "실행 중..." : "수동 재실행"}
+                      </button>
+                    </div>
+                    {(sources.length > 0 || last?.elapsed_seconds != null) && (
+                      <div className="admin-batch-detail">
+                        {sources.map(({ market, stat }) => {
+                          const meta = AI_SOURCE_META[stat.ai_source] ?? {
+                            label: stat.ai_source,
+                            tone: "unknown",
+                          };
+                          return (
+                            <span
+                              key={market}
+                              className={`admin-batch-source admin-batch-source--${meta.tone}`}
+                              title={`${market} ${stat.count}종목 · 60% 정성 판단: ${meta.label}`}
+                            >
+                              <span className="admin-batch-source-market">{market}</span>
+                              {meta.label}
+                              <span className="admin-batch-source-count">{stat.count}</span>
+                            </span>
+                          );
+                        })}
+                        {last?.predict_date && (
+                          <span className="admin-batch-detail-note">
+                            예측일 {last.predict_date.slice(5)}
+                            {last.predict_weekday ? `(${last.predict_weekday})` : ""}
+                          </span>
+                        )}
+                        {last?.elapsed_seconds != null && (
+                          <span className="admin-batch-detail-note">{last.elapsed_seconds}초 소요</span>
+                        )}
+                      </div>
+                    )}
+                    {warnings.length > 0 && (
+                      <ul className="admin-batch-warnings">
+                        {shownWarnings.map((w, i) => (
+                          <li key={i}>{w}</li>
+                        ))}
+                        {warnings.length > WARNING_PREVIEW_COUNT && (
+                          <li>
+                            <button
+                              type="button"
+                              className="admin-batch-warnings-more"
+                              aria-expanded={warnExpanded}
+                              onClick={() => toggleWarnings(warnKey)}
+                            >
+                              {warnExpanded
+                                ? "접기"
+                                : `외 ${warnings.length - WARNING_PREVIEW_COUNT}건 더 보기`}
+                            </button>
+                          </li>
+                        )}
+                      </ul>
+                    )}
                   </div>
                 );
               })
