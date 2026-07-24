@@ -1,3 +1,4 @@
+import hashlib
 import os
 import secrets
 import threading
@@ -5,10 +6,29 @@ import time
 
 from fastapi import Header, HTTPException
 
-# Overridable on Render via env vars without a code change; these defaults are the
-# credentials the admin dashboard was commissioned with.
+# Credentials are never stored in source as plaintext. The password is compared as a
+# salted PBKDF2 hash so the source reveals nothing usable if it leaks. Deployments can
+# override either the raw password (ADMIN_PASSWORD, hashed at startup) or supply their
+# own precomputed hash (ADMIN_PASSWORD_HASH); the baked-in default hash below is only a
+# fallback so the internal dashboard keeps working without env config.
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "fdx5")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "***REDACTED***")
+
+_PASSWORD_SALT = os.environ.get("ADMIN_PASSWORD_SALT", "9f3c1a7e2b")
+_PBKDF2_ITERATIONS = 200_000
+_DEFAULT_PASSWORD_HASH = "01b168cbd08d19fbeb28999d128b3c684a510e26785d0ea8dd4456a9f747696e"
+
+
+def _hash_password(password: str) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), _PASSWORD_SALT.encode(), _PBKDF2_ITERATIONS
+    ).hex()
+
+
+_env_password = os.environ.get("ADMIN_PASSWORD")
+if _env_password:
+    ADMIN_PASSWORD_HASH = _hash_password(_env_password)
+else:
+    ADMIN_PASSWORD_HASH = os.environ.get("ADMIN_PASSWORD_HASH", _DEFAULT_PASSWORD_HASH)
 
 TOKEN_TTL_SECONDS = 12 * 60 * 60
 
@@ -38,7 +58,10 @@ def login(username: str, password: str) -> tuple[str, float] | None:
         if _failed_login_count >= MAX_LOGIN_ATTEMPTS:
             raise AccountLockedError()
 
-    if not (secrets.compare_digest(username, ADMIN_USERNAME) and secrets.compare_digest(password, ADMIN_PASSWORD)):
+    if not (
+        secrets.compare_digest(username, ADMIN_USERNAME)
+        and secrets.compare_digest(_hash_password(password), ADMIN_PASSWORD_HASH)
+    ):
         with _lock:
             _failed_login_count += 1
         return None
