@@ -196,6 +196,35 @@ def stock_history(code: str, limit: int = Query(20, ge=1, le=90)):
     }
 
 
+@router.get("/run/status")
+def run_status(
+    region: str = Query(..., pattern=r"^(KR|US)$"),
+    authorization: str | None = Header(None),
+):
+    """Whether that region's batch is in flight, and how the last one ended.
+
+    Exists so the cron can trigger the batch and then *poll*, rather than holding one
+    HTTP connection open for the whole run. Once Claude is actually in the loop a
+    region takes minutes, and a request that long dies at the edge proxy (Cloudflare
+    returns 522 to the caller) long before the batch finishes — the run itself is fine,
+    but the trigger reports a failure and the step never sees the result.
+
+    Behind the same batch token as /run: it exposes operational detail (timings,
+    warnings, error strings) that has no reason to be public.
+    """
+    _require_batch_token(authorization)
+    status = prediction_batch.get_status()
+    return {
+        "region": region,
+        "running": region in status["running"],
+        # Volatile — this is the web process's own memory of its last run, so it is
+        # empty after a restart until the next run. The poller compares finished_at
+        # against the value it read before triggering, which is what distinguishes
+        # "this run finished" from "a previous run's record is still sitting here".
+        "last_run": status["last_runs"].get(region),
+    }
+
+
 @router.post("/run")
 def run(
     background: BackgroundTasks,

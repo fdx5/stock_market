@@ -81,25 +81,63 @@ jobs:
       - name: Run prediction batch
         env:
           TOKEN: ${{ secrets.PREDICTION_BATCH_TOKEN }}
+          REGION: ${{ steps.region.outputs.region }}
+          FORCE: ${{ steps.region.outputs.force }}
         run: |
+          set -euo pipefail
           if [ -z "$TOKEN" ]; then
             echo "::error::PREDICTION_BATCH_TOKEN secret is not set — the endpoint will reject this run."
             exit 1
           fi
-          # wait=true so this step's exit status reflects whether the batch actually
-          # succeeded. The fire-and-forget mode would make every run look green even
-          # when nothing was saved, which defeats the point of having a run log.
-          # 15 minutes covers a full ~33-stock run including the Claude call.
-          response=$(curl -fsS --max-time 900 -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            "$BASE_URL/api/prediction/run?region=${{ steps.region.outputs.region }}&force=${{ steps.region.outputs.force }}&wait=true")
-          echo "$response" | jq '{region, status, collect_date, predict_date, predict_weekday, saved, markets, warnings}'
-          # A "skipped" status is a success (the guard worked); a run that saved zero
-          # rows without being skipped means every stock failed collection, which is a
-          # real failure the log should show red.
-          status=$(echo "$response" | jq -r '.status')
-          saved=$(echo "$response" | jq -r '.saved')
-          if [ "$status" != "skipped" ] && [ "$saved" -eq 0 ]; then
-            echo "::error::Batch reported status=$status but saved 0 rows."
-            exit 1
-          fi
+
+          # Trigger, then poll — do not hold the connection for the whole run.
+          #
+          # This step used to POST with wait=true so its exit status reflected the
+          # batch outcome. That worked only while the 60% layer was the in-process
+          # heuristic and a region finished in ~30s. With Claude actually in the loop
+          # a region takes minutes, and the edge proxy in front of the app closes an
+          # idle request long before that: curl returned `(22) ... error: 522` while
+          # the batch was still working. Polling keeps the same "step fails when the
+          # batch failed" property without any long-lived connection.
+          auth=(-H "Authorization: Bearer $TOKEN")
+          status_url="$BASE_URL/api/prediction/run/status?region=$REGION"
+
+          # The finished_at of whatever run this process last remembers. Everything
+          # below waits for this value to *change* — without it, a previous run's
+          # record would be mistaken for this one's the moment polling starts.
+          before=$(curl -fsS --max-time 60 "${auth[@]}" "$status_url" | jq -r '.last_run.finished_at // "none"')
+
+          curl -fsS --max-time 60 -X POST "${auth[@]}" \
+            "$BASE_URL/api/prediction/run?region=$REGION&force=$FORCE" | jq -c '{region, status}'
+
+          # 60 × 20s = 20 minutes. A full US roster at high effort is the long case;
+          # the batch's own in-process lock means a run that somehow overruns this is
+          # still finishing, not lost — the next poll cycle or the next cron picks the
+          # result up from the database.
+          for _ in $(seq 1 60); do
+            sleep 20
+            body=$(curl -fsS --max-time 60 "${auth[@]}" "$status_url") || continue
+            running=$(echo "$body" | jq -r '.running')
+            finished=$(echo "$body" | jq -r '.last_run.finished_at // "none"')
+            [ "$running" = "false" ] && [ "$finished" != "$before" ] || continue
+
+            echo "$body" | jq '.last_run | {status, reason, collect_date, predict_date, predict_weekday, saved, markets, grading, elapsed_seconds, warnings, error}'
+            run_status=$(echo "$body" | jq -r '.last_run.status')
+            saved=$(echo "$body" | jq -r '.last_run.saved // 0')
+            # A "skipped" status is a success (the idempotency guard worked); an
+            # "error" is the batch raising; and a run that saved zero rows without
+            # being skipped means every stock failed collection. The first is green,
+            # the other two are real failures the run log should show red.
+            if [ "$run_status" = "error" ]; then
+              echo "::error::Batch raised: $(echo "$body" | jq -r '.last_run.error')"
+              exit 1
+            fi
+            if [ "$run_status" != "skipped" ] && [ "$saved" -eq 0 ]; then
+              echo "::error::Batch reported status=$run_status but saved 0 rows."
+              exit 1
+            fi
+            exit 0
+          done
+
+          echo "::error::Batch did not report a finished run within 20 minutes."
+          exit 1
