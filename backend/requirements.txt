@@ -12,7 +12,13 @@ python-dotenv==1.2.2
 readability-lxml==0.8.4.1
 # The prediction batch's 60% qualitative block calls Claude when ANTHROPIC_API_KEY is
 # set; without the key it never imports this and falls back to the in-process engine.
-anthropic==0.75.0
+#
+# The floor here is load-bearing: ai_analyst passes `output_config` to messages.stream()
+# for the effort level and the json_schema structured output. 0.75.0 predates that
+# parameter and raised "Messages.stream() got an unexpected keyword argument
+# 'output_config'" — which ai_analyst.analyze() caught and silently degraded to the
+# heuristic, so the batch stayed green while every rationale came from the fallback.
+anthropic==0.119.0
 # zoneinfo reads the OS tz database, and python:3.11-slim ships without one — the
 # prediction batch anchors both market calendars to Asia/Seoul and America/New_York,
 # so the lookup has to succeed in the container, not just on a dev machine.

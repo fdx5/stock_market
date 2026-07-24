@@ -210,6 +210,20 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
             market_ctx = prediction_quality.build_market_context(market, payloads, index, fx)
             judgements, source = ai_analyst.analyze(market, payloads, market_ctx)
 
+            # Falling back to the heuristic is correct when no key is configured, but
+            # falling back *with* a key set means the Claude call failed — a wrong
+            # model name, an expired key, an SDK too old for `output_config`. That
+            # path is caught inside analyze() so the batch still produces rows, which
+            # is the right behaviour and also why it went unnoticed for a full day of
+            # runs: every batch reported success while every rationale came from the
+            # fallback. Surfacing it as a warning puts it in the cron log and the
+            # admin panel, where the next occurrence is visible in seconds.
+            if source != ai_analyst.SOURCE_CLAUDE and ai_analyst.ANTHROPIC_API_KEY:
+                warnings.append(
+                    f"{market}: ANTHROPIC_API_KEY가 설정되어 있으나 Claude 분석에 실패해 "
+                    "휴리스틱으로 폴백함 (원인은 서버 로그의 'ai_analyst' 항목 참조)"
+                )
+
             for payload in payloads:
                 code = payload["item"]["code"]
                 judgement = judgements.get(code)
