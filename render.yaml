@@ -11,3 +11,13 @@ services:
         sync: false
       - key: TURSO_AUTH_TOKEN
         sync: false
+      # Run the prediction batch's 60% Claude analysis on a Claude subscription via the
+      # Claude Code CLI, not the metered API. Leave ANTHROPIC_API_KEY UNSET — if it is
+      # set, ai_analyst still strips it for the CLI subprocess, but keeping it off the
+      # service avoids any accidental metered calls elsewhere.
+      - key: PREDICTION_AI_BACKEND
+        value: subscription
+      # Long-lived subscription token from `claude setup-token` (run locally while
+      # logged into Claude Code on a Pro/Max plan). Set as a secret in the dashboard.
+      - key: CLAUDE_CODE_OAUTH_TOKEN
+        sync: false

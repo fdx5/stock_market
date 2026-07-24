@@ -6,11 +6,22 @@ what the press is saying, how the index and the sector are behaving, whether for
 and institutional money is behind the move, and how a name's situation compares with
 its peers on the same day.
 
-Two implementations, one contract. When ANTHROPIC_API_KEY is set, Claude reads the
-whole market's roster in a single call and returns a judgement per stock; when it
-isn't, a deterministic lexicon-and-macro engine produces the same shape offline. The
-batch runs either way — the key upgrades the quality of the 60%, it isn't a
-prerequisite for the pipeline existing.
+Three backends, one contract. Claude reads the whole market's roster in a single call
+and returns a judgement per stock; a deterministic lexicon-and-macro engine produces
+the same shape offline when no Claude access is configured. The batch runs either way —
+Claude upgrades the quality of the 60%, it isn't a prerequisite for the pipeline
+existing.
+
+The Claude call has two billing paths, selected by PREDICTION_AI_BACKEND:
+  - "api": the metered Anthropic API (ANTHROPIC_API_KEY), via the anthropic SDK.
+  - "subscription": shells out to the Claude Code CLI, which bills a Claude Pro/Max
+    subscription (CLAUDE_CODE_OAUTH_TOKEN) instead of API credits. The CLI takes the
+    same schema (--json-schema) and system prompt (--system-prompt) as the SDK call,
+    and runs with tools disabled, so it is the same request over a different meter —
+    not a coding agent asked to do analysis on the side.
+  - "heuristic": the offline engine, always available.
+"auto" (the default) picks subscription when a subscription token is present, else the
+API key, else the heuristic.
 
 Claude sees the *whole market at once* rather than one stock per call, which is both
 the cheaper shape and the better one: same-day peer comparison ("every memory name
@@ -22,6 +33,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 
 from dotenv import load_dotenv
 
@@ -36,6 +49,18 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 # kind of call a weaker model gets confidently wrong.
 AI_MODEL = os.environ.get("PREDICTION_AI_MODEL", "claude-opus-4-8")
 AI_EFFORT = os.environ.get("PREDICTION_AI_EFFORT", "high")
+
+# Which billing path the Claude call takes: "api" | "subscription" | "heuristic" |
+# "auto". See the module docstring; "auto" is resolved in _select_backend().
+AI_BACKEND = os.environ.get("PREDICTION_AI_BACKEND", "auto").lower()
+# The `claude` binary the subscription backend invokes. Resolved through shutil.which
+# so a Windows dev box (where it's claude.cmd) works the same as the Linux container.
+CLAUDE_CLI = os.environ.get("PREDICTION_CLAUDE_CLI", "claude")
+# Opus over a full roster is a multi-minute generation; the subprocess must outlive it.
+AI_TIMEOUT = int(os.environ.get("PREDICTION_AI_TIMEOUT", "600"))
+# What `claude --effort` accepts. The API path's effort vocabulary is the same today,
+# but it is the SDK's to change, so the CLI's is spelled out separately here.
+_CLI_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
 DETAIL_MAX_CHARS = 500
 CLOSE_SUMMARY_MAX_CHARS = 260
@@ -83,6 +108,16 @@ _SYSTEM_PROMPT = """당신은 한국 증권사 리서치센터의 시니어 애�
 투자 권유 표현("매수하십시오", "지금 사야 합니다")은 쓰지 마십시오. 관측과 판단만 서술하십시오. 데이터에 없는 수치를 만들어내지 마십시오.
 
 로스터의 모든 종목에 대해 빠짐없이 응답하십시오."""
+
+# Both backends pin the shape with a schema (output_config for the API, --json-schema
+# for the CLI). The CLI path additionally states it in the prompt: schema enforcement
+# there is a flag on a wrapper rather than a documented API guarantee, and a run that
+# quietly ignored it would cost a whole market's analysis.
+_JSON_INSTRUCTION = """반드시 아래 형식의 JSON 객체 하나만 출력하십시오. 코드블록 표시(```), 머리말, 설명 문장 없이 순수 JSON만 반환하십시오.
+
+{"stocks": [{"code": "종목코드", "ai_score": -1.0~1.0 사이 실수, "confidence": "강" 또는 "중" 또는 "약", "drivers": ["핵심 근거", ...], "detail": "500자 이내 근거 서술", "close_summary": "당일 종가 변동 설명"}, ...]}
+
+로스터의 모든 종목을 stocks 배열에 빠짐없이 포함하십시오."""
 
 _OUTPUT_SCHEMA = {
     "type": "object",
@@ -430,6 +465,135 @@ def analyze_with_claude(market: str, payloads: list[dict], market_ctx: dict) -> 
     return _parse_response(text, payloads)
 
 
+# ---------------------------------------------------------------------------
+# Claude subscription path (Claude Code CLI)
+# ---------------------------------------------------------------------------
+
+
+def _resolve_claude_cli() -> str:
+    resolved = shutil.which(CLAUDE_CLI)
+    if not resolved:
+        raise RuntimeError(
+            f"'{CLAUDE_CLI}' 실행 파일을 찾을 수 없습니다. Claude Code CLI가 설치돼 있고 "
+            "CLAUDE_CODE_OAUTH_TOKEN이 설정됐는지 확인하십시오."
+        )
+    return resolved
+
+
+def _extract_json(text: str) -> str:
+    """Pulls the JSON object out of the CLI's free-text answer.
+
+    Without output_config's json_schema the model occasionally wraps its answer in a
+    ```json fence or a sentence of preamble despite the instruction. Strip the fence,
+    then take the outermost brace pair — _parse_response does the real validation."""
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z]*\s*", "", s)
+        s = re.sub(r"\s*```$", "", s).strip()
+    start = s.find("{")
+    end = s.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        raise RuntimeError("Claude 응답에서 JSON 객체를 찾지 못했습니다")
+    return s[start : end + 1]
+
+
+def analyze_with_claude_subscription(market: str, payloads: list[dict], market_ctx: dict) -> dict[str, dict]:
+    """Same contract as analyze_with_claude, but routed through the Claude Code CLI so
+    the call bills a Claude subscription (CLAUDE_CODE_OAUTH_TOKEN) rather than API
+    credits. Raises on any failure so the caller falls back per-market exactly as it
+    does for the API path.
+
+    The whole prompt is passed as one argv entry (subprocess with a list, no shell), so
+    the Korean text and the roster JSON need no escaping and can't be misread as flags.
+    ~50KB is far under ARG_MAX."""
+    cli = _resolve_claude_cli()
+    prompt = "\n\n".join(
+        [
+            "다음은 분석 대상 데이터입니다:",
+            _build_request_payload(market, payloads, market_ctx),
+            _JSON_INSTRUCTION,
+        ]
+    )
+
+    # A subscription-authed run must not silently fall back to metered API billing —
+    # which is exactly what a stray ANTHROPIC_API_KEY would cause, since Claude Code
+    # prefers the key over the OAuth token. Drop it for this subprocess only.
+    env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
+
+    # --system-prompt *replaces* Claude Code's own agent preamble rather than appending
+    # to it, and --tools "" leaves the model nothing to call. Together they turn the CLI
+    # into a plain one-shot completion on subscription billing: no tool descriptions, no
+    # repo context from the container's cwd, nothing to make this read differently from
+    # the API path. --no-session-persistence keeps a twice-daily batch from accumulating
+    # transcripts in the container's HOME.
+    cmd = [
+        cli,
+        "-p",
+        prompt,
+        "--system-prompt",
+        _SYSTEM_PROMPT,
+        "--tools",
+        "",
+        "--json-schema",
+        json.dumps(_OUTPUT_SCHEMA),
+        "--output-format",
+        "json",
+        "--model",
+        AI_MODEL,
+        "--no-session-persistence",
+    ]
+    # Shared with the API path, but the CLI validates the value up front and exits
+    # non-zero on an unknown one — so a typo'd env var would take the whole market
+    # down to the heuristic. Pass it only when it is one of the levels the CLI accepts.
+    if AI_EFFORT in _CLI_EFFORT_LEVELS:
+        cmd += ["--effort", AI_EFFORT]
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            env=env,
+            timeout=AI_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"claude CLI가 {AI_TIMEOUT}s 내에 응답하지 않음 (market={market})") from exc
+
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "").strip()[:500]
+        raise RuntimeError(f"claude CLI 실패 (rc={proc.returncode}, market={market}): {detail}")
+
+    try:
+        envelope = json.loads(proc.stdout)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"claude CLI가 JSON 봉투를 반환하지 않음 (market={market}): {proc.stdout[:300]}"
+        ) from exc
+
+    if envelope.get("is_error"):
+        raise RuntimeError(
+            f"claude CLI가 오류를 반환함 (market={market}): {envelope.get('result') or envelope.get('subtype')}"
+        )
+
+    text = envelope.get("result", "")
+    if not text:
+        raise RuntimeError(f"claude CLI 응답에 result 텍스트가 없음 (market={market})")
+    return _parse_response(_extract_json(text), payloads)
+
+
+def _select_backend() -> str:
+    if AI_BACKEND in ("subscription", "api", "heuristic"):
+        return AI_BACKEND
+    # auto: a subscription token wins over an API key, so a box that happens to have
+    # both configured doesn't quietly pay per-token when the operator meant to use the
+    # flat-rate subscription.
+    if os.environ.get("CLAUDE_CODE_OAUTH_TOKEN"):
+        return "subscription"
+    if ANTHROPIC_API_KEY:
+        return "api"
+    return "heuristic"
+
+
 def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[str, dict], str, str | None]:
     """Returns (results-by-code, source-label, failure-reason).
 
@@ -449,13 +613,16 @@ def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[s
     if not payloads:
         return {}, SOURCE_HEURISTIC, None
 
-    if ANTHROPIC_API_KEY:
+    backend = _select_backend()
+    if backend in ("subscription", "api"):
+        runner = analyze_with_claude_subscription if backend == "subscription" else analyze_with_claude
         try:
-            results = analyze_with_claude(market, payloads, market_ctx)
+            results = runner(market, payloads, market_ctx)
             missing = [p for p in payloads if p["item"]["code"] not in results]
             if missing:
                 logger.warning(
-                    "ai_analyst: Claude omitted %d/%d stocks for %s; backfilling from heuristic",
+                    "ai_analyst: Claude(%s) omitted %d/%d stocks for %s; backfilling from heuristic",
+                    backend,
                     len(missing),
                     len(payloads),
                     market,
@@ -463,7 +630,9 @@ def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[s
                 results.update(analyze_heuristic(missing))
             return results, SOURCE_CLAUDE, None
         except Exception as exc:  # noqa: BLE001 - a batch that runs beats one that doesn't
-            logger.warning("ai_analyst: Claude analysis failed for %s (%s); using heuristic", market, exc)
+            logger.warning(
+                "ai_analyst: Claude(%s) analysis failed for %s (%s); using heuristic", backend, market, exc
+            )
             return analyze_heuristic(payloads), SOURCE_HEURISTIC, f"{type(exc).__name__}: {exc}"
 
     return analyze_heuristic(payloads), SOURCE_HEURISTIC, None

@@ -63,7 +63,9 @@
 - GitHub Actions cron(10분마다)이 헬스체크와 캐시 워밍을 겸함. AI 종목예측 배치는 별도 cron 워크플로(`ai-prediction.yml`)로 실행 (별도 테스트 CI는 없음)
 - **AI 종목예측 관련 환경변수** — Render 대시보드(또는 로컬 `backend/.env`)에 설정:
   - `PREDICTION_BATCH_TOKEN`(필수): 배치 트리거 엔드포인트의 공유 시크릿. **미설정 시 `/api/prediction/run`이 503으로 비활성화**되어 공개된 배치 트리거가 남지 않음. GitHub 저장소 Secrets에도 같은 값을 등록해야 cron이 인증됨.
-  - `ANTHROPIC_API_KEY`(선택): 있으면 60% 정성 판단을 Claude가 수행, 없으면 내장 휴리스틱으로 폴백. `PREDICTION_AI_MODEL`(기본 `claude-opus-4-8`), `PREDICTION_AI_EFFORT`(기본 `high`)로 조정 가능.
+  - **60% 정성 판단 백엔드** — `PREDICTION_AI_BACKEND`(`auto`/`subscription`/`api`/`heuristic`, 기본 `auto`)로 선택. `auto`는 구독 토큰 → API 키 → 휴리스틱 순으로 잡고(둘 다 있으면 정액제인 구독이 우선), 실패 시에도 항상 휴리스틱으로 내려앉고 사유를 admin 패널·cron 로그에 남김. `PREDICTION_AI_MODEL`(기본 `claude-opus-4-8`)과 `PREDICTION_AI_EFFORT`(기본 `high`)는 두 경로 모두에 적용.
+    - `subscription`: **Claude 구독(Pro/Max)** 으로 실행. `claude setup-token`으로 발급한 장기 토큰을 `CLAUDE_CODE_OAUTH_TOKEN`에 설정하면 API 크레딧 없이 동작(Claude Code CLI가 컨테이너에 설치돼 있어야 함 — Dockerfile에서 처리). `ANTHROPIC_API_KEY`는 설정하지 말 것 — 설정돼 있으면 CLI가 구독 대신 종량제로 과금하므로, 코드가 이 서브프로세스 한정으로 키를 제거함. 세부 조정: `PREDICTION_CLAUDE_CLI`(기본 `claude`, 실행 파일 경로), `PREDICTION_AI_TIMEOUT`(기본 `600`초).
+    - `api`: 기존 방식. `ANTHROPIC_API_KEY`를 설정하면 종량제 Anthropic API로 실행.
   - `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`(선택): 예측 이력을 Turso에 영구 저장. 미설정 시 `app/data/store/predictions.db` 로컬 파일로 폴백(git-ignored, 컨테이너 재시작 시 초기화).
 
 ## 로컬 실행 (개발 모드)
