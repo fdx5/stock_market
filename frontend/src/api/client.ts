@@ -159,6 +159,28 @@ export interface OrderBook {
   total_bid_qty: number;
 }
 
+export interface DailyPricePoint {
+  date: string;
+  close: number;
+  change: number;
+  change_pct: number;
+  volume: number;
+  /** 거래대금, derived from volume x typical price — see the backend's daily_prices
+   * service for why no free feed carries the exchange's own figure. */
+  value: number;
+  open: number;
+  high: number;
+  low: number;
+}
+
+export interface DailyPricePage {
+  code: string;
+  name: string;
+  items: DailyPricePoint[];
+  has_more: boolean;
+  total: number;
+}
+
 export interface IndexQuote {
   symbol: string;
   name: string;
@@ -499,6 +521,8 @@ export const api = {
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
   orderbook: (code: string) => getJSON<OrderBook>(`${BASE}/stock/${code}/orderbook`),
+  dailyPrices: (code: string, offset = 0, limit = 20) =>
+    getJSON<DailyPricePage>(`${BASE}/stock/${code}/daily?offset=${offset}&limit=${limit}`),
   marketMap: (limit = 500, fresh = false) =>
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/map?limit=${limit}&fresh=${fresh}`
@@ -587,6 +611,8 @@ export const api = {
     getJSON<{ code: string; name: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
       `${BASE}/us-stock/${code}/indicators?years=${years}`
     ),
+  usDailyPrices: (code: string, offset = 0, limit = 20) =>
+    getJSON<DailyPricePage>(`${BASE}/us-stock/${code}/daily?offset=${offset}&limit=${limit}`),
   globalIndices: () => getJSON<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
   globalEnrichment: (code: string, lang: string = "ko") =>
     getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`),

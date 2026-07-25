@@ -220,6 +220,21 @@ export const DICTIONARY: Record<string, string> = {
   "20분 전 시세, 실시간 갱신": "20-min delayed, live updates",
   "호가 데이터를 가져오지 못했습니다.": "Failed to load order book data.",
 
+  // SidePanel / DailyPricePanel
+  "일별": "Daily",
+  "일자": "Date",
+  "주가": "Close",
+  "대비": "Change",
+  "거래량": "Volume",
+  "거래대금": "Value",
+  "시가": "Open",
+  "고가": "High",
+  "저가": "Low",
+  "일별 시세가 없습니다.": "No daily prices available.",
+  "일별 시세를 불러오지 못했습니다.": "Failed to load daily prices.",
+  "거래대금은 거래량 × 평균가 기준 추정치입니다.":
+    "Value is an estimate (volume x average price), not the exchange's published figure.",
+
   // MarketOverviewPanel
   "코스피": "KOSPI",
   "코스닥": "KOSDAQ",

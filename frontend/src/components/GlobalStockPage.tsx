@@ -9,6 +9,7 @@ import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
+import DailyPricePanel from "./DailyPricePanel";
 import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalBoardPanel from "./GlobalBoardPanel";
@@ -31,7 +32,7 @@ import VisitorBadge from "./VisitorBadge";
 
 const QUOTE_POLL_MS = 10_000;
 
-type Tab = "news" | "board";
+type Tab = "news" | "board" | "daily";
 
 function formatUsd(value: number): string {
   return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -392,12 +393,20 @@ export default function GlobalStockPage() {
               >
                 {t("종목토론방")}
               </button>
+              <button
+                type="button"
+                className={`market-overview-tab ${tab === "daily" ? "active" : ""}`}
+                onClick={() => setTab("daily")}
+              >
+                {t("일별")}
+              </button>
             </div>
 
             {tab === "news" && (
               <GlobalNewsList code={code} name={quote?.name ?? code} items={news} loading={newsLoading} />
             )}
             {tab === "board" && <GlobalBoardPanel code={code} name={quote?.name ?? code} />}
+            {tab === "daily" && <DailyPricePanel code={code} market="US" />}
           </div>
         </div>
       )}

@@ -2,10 +2,11 @@ import { useState } from "react";
 import type { NewsItem } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import BoardPanel from "./BoardPanel";
+import DailyPricePanel from "./DailyPricePanel";
 import NewsPanel from "./NewsPanel";
 import OrderBookPanel from "./OrderBookPanel";
 
-type Tab = "board" | "news" | "orderbook";
+type Tab = "board" | "news" | "daily" | "orderbook";
 
 export default function SidePanel({ code, name, news }: { code: string; name: string; news: NewsItem[] }) {
   const t = useT();
@@ -30,6 +31,13 @@ export default function SidePanel({ code, name, news }: { code: string; name: st
         </button>
         <button
           type="button"
+          className={`market-overview-tab ${tab === "daily" ? "active" : ""}`}
+          onClick={() => setTab("daily")}
+        >
+          {t("일별")}
+        </button>
+        <button
+          type="button"
           className={`market-overview-tab ${tab === "orderbook" ? "active" : ""}`}
           onClick={() => setTab("orderbook")}
         >
@@ -39,6 +47,7 @@ export default function SidePanel({ code, name, news }: { code: string; name: st
 
       {tab === "board" && <BoardPanel code={code} name={name} />}
       {tab === "news" && <NewsPanel items={news} name={name} />}
+      {tab === "daily" && <DailyPricePanel code={code} />}
       {tab === "orderbook" && <OrderBookPanel code={code} />}
     </div>
   );

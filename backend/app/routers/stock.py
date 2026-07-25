@@ -5,6 +5,7 @@ from app.data import board_fetcher, company_overview_fetcher, news_fetcher, orde
 from app.data.stock_quote_fetcher import get_stock_quote
 from app.data.universe import get_stock_name
 from app.services.cache import cache
+from app.services.daily_prices import build_daily_rows
 from app.services.indicators import compute_indicators
 from app.services.predictor import predict_next_day
 from app.utils import dataframe_to_records
@@ -84,6 +85,19 @@ def history(code: str, years: int = Query(3, ge=1, le=10)):
     name = _resolve_name(code)
     df = _load_history(code, years)
     return {"code": code, "name": name, "points": dataframe_to_records(df)}
+
+
+@router.get("/{code}/daily")
+def daily(code: str, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+    """One page of the 일별 시세 table, newest session first.
+
+    years=3 keeps this on the same cache key /summary and /indicators already warm,
+    so the panel's first page is served without an upstream call — and 3 years of
+    sessions is far more than the table can page through in practice.
+    """
+    name = _resolve_name(code)
+    df = _load_history(code, years=3)
+    return {"code": code, "name": name, **build_daily_rows(df, offset, limit)}
 
 
 @router.get("/{code}/indicators")

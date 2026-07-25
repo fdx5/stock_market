@@ -1863,6 +1863,98 @@ a.app-brand:hover .app-logo-wide {
   background: color-mix(in srgb, var(--up-color) 22%, transparent);
 }
 
+.daily-price-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.daily-price-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 4px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* Eight numeric columns do not fit the side rail at its 320px floor, so the table
+   keeps its natural width and scrolls sideways inside this box rather than wrapping
+   cells into unreadable stacks. The vertical cap is what makes the panel a section of
+   the page instead of the page — and on a phone it is also the scroller the
+   auto-load's IntersectionObserver measures its sentinel against
+   (see DailyPricePanel.tsx), so it must stay capped at every width. */
+.daily-price-wrap {
+  max-height: 480px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.daily-price-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-price-table th,
+.daily-price-table td {
+  padding: 6px 7px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.daily-price-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  /* Opaque, not transparent: rows scroll underneath this row. */
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.daily-price-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.daily-price-table th:first-child,
+.daily-price-table td.daily-price-date {
+  text-align: left;
+  color: var(--text-secondary);
+}
+
+.daily-price-close {
+  font-weight: 700;
+}
+
+/* The absolute move and the percentage share one cell (they are one fact, and eight
+   columns leave no room for a ninth) — stacked so neither is truncated. */
+.daily-price-change-abs,
+.daily-price-change-pct {
+  display: block;
+}
+
+.daily-price-change-pct {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
+.daily-price-sentinel {
+  height: 1px;
+}
+
+.daily-price-note {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 .market-overview-panel {
   display: flex;
   gap: 20px;
@@ -4830,6 +4922,17 @@ thead .weekly-foreign-amount-col {
      panel among several instead of the page's dominant element. */
   .board-list {
     max-height: 380px;
+  }
+
+  /* Same trade as .board-list — and here the cap does double duty as the scroller the
+     auto-load watches, so it is tightened rather than released. */
+  .daily-price-wrap {
+    max-height: 380px;
+  }
+
+  .daily-price-table th,
+  .daily-price-table td {
+    padding: 6px 6px;
   }
 
   .board-comments-list {

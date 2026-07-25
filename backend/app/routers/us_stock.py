@@ -5,6 +5,7 @@ from app.data.us_index_fetcher import get_us_stock_quote
 from app.data.us_universe import get_us_stock_item
 from app.services import fight_comment_store
 from app.services.cache import cache
+from app.services.daily_prices import build_daily_rows
 from app.services.indicators import compute_indicators
 from app.utils import dataframe_to_records
 
@@ -44,6 +45,15 @@ def history(code: str, years: int = Query(3, ge=1, le=10)):
     item = _resolve_item(code)
     df = _load_history(code, years)
     return {"code": code, "name": item["name"], "points": dataframe_to_records(df)}
+
+
+@router.get("/{code}/daily")
+def daily(code: str, offset: int = Query(0, ge=0), limit: int = Query(20, ge=1, le=100)):
+    """The 일별 시세 table for a US symbol — same shape and paging as stock.py's own
+    /daily, off the same shared history frame (Yahoo-backed here rather than Naver)."""
+    item = _resolve_item(code)
+    df = _load_history(code, years=3)
+    return {"code": code, "name": item["name"], **build_daily_rows(df, offset, limit)}
 
 
 @router.get("/{code}/indicators")
