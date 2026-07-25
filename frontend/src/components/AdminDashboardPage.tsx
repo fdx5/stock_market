@@ -20,6 +20,7 @@ import { Link, navigate } from "../router";
 import { pageLabel } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
+import DbIcon from "./DbIcon";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import Logo from "./Logo";
@@ -796,6 +797,11 @@ export default function AdminDashboardPage() {
           </Link>
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
+          </Link>
+          {/* Admin-only, and only ever rendered here — the DB console has no entry point
+              outside this page, and the page itself is behind the login. */}
+          <Link to="/admin/db" className="kospi-map-nav-link kospi-map-nav-link--db">
+            <DbIcon /> DB 조회
           </Link>
         </div>
       </header>

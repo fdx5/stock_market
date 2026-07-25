@@ -16,6 +16,7 @@ from app.routers import (
     activity,
     admin,
     admin_comments,
+    admin_db,
     battle,
     fight,
     geo,
@@ -61,6 +62,7 @@ app.include_router(geo.router, prefix="/api")
 app.include_router(activity.router, prefix="/api/activity")
 app.include_router(admin.router, prefix="/api/admin")
 app.include_router(admin_comments.router, prefix="/api/admin")
+app.include_router(admin_db.router, prefix="/api/admin")
 
 
 @app.on_event("startup")

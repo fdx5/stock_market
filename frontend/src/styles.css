@@ -12257,3 +12257,694 @@ button.admin-comments-text--clickable:hover {
     padding: 10px;
   }
 }
+
+/* ==========================================================================
+   Admin DB 조회 console (/admin/db, AdminDbPage.tsx)
+   ========================================================================== */
+
+/* Deliberately not one of the seven market accents used by the nav pills around it —
+   this is the one admin-only link in that row, and a neutral slate pill reads as a tool
+   rather than as another market view. */
+.kospi-map-nav-link--db {
+  color: var(--text-secondary);
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
+  animation-delay: 2.4s;
+}
+
+.kospi-map-nav-link--db:hover {
+  background: color-mix(in srgb, var(--text-secondary) 18%, transparent);
+  color: var(--text-primary);
+}
+
+/* A console, not a document: the page itself never scrolls, so the table list and the
+   result grid each keep their own scroll position and the SQL editor stays put while
+   you page through rows. Reverted to natural flow on narrow screens (see the media
+   query at the end of this block), where a fixed-height two-pane layout has no room. */
+.admin-db-page {
+  height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(720px 320px at 12% -8%, color-mix(in srgb, var(--series-blue) 7%, transparent), transparent),
+    var(--page-plane);
+  color: var(--text-primary);
+  padding: 16px 20px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: admin-fade-in 0.35s ease-out;
+}
+
+.admin-db-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex: none;
+}
+
+.admin-db-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-db-title-icon {
+  font-size: 17px;
+}
+
+.admin-db-subtitle {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Which database the numbers above refer to — worth stating on a page whose whole
+   purpose is reading production data. */
+.admin-db-source-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-db-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.admin-db-btn,
+.admin-db-select,
+.admin-db-run-btn {
+  padding: 7px 13px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.admin-db-btn:hover:not(:disabled),
+.admin-db-select:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+}
+
+.admin-db-btn:disabled,
+.admin-db-run-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.admin-db-run-btn {
+  background: var(--series-blue);
+  border-color: var(--series-blue);
+  color: #fff;
+}
+
+.admin-db-run-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--series-blue) 84%, #000);
+}
+
+.admin-db-btn--excel {
+  color: var(--series-aqua);
+  border-color: color-mix(in srgb, var(--series-aqua) 45%, transparent);
+}
+
+.admin-db-btn--excel:hover:not(:disabled) {
+  color: var(--series-aqua);
+  background: color-mix(in srgb, var(--series-aqua) 12%, transparent);
+  border-color: var(--series-aqua);
+}
+
+.admin-db-icon-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-db-icon-btn:hover {
+  color: var(--text-primary);
+}
+
+.admin-db-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 290px minmax(0, 1fr);
+  gap: 14px;
+}
+
+/* --- left: table list ---------------------------------------------------- */
+
+.admin-db-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  min-height: 0;
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+}
+
+.admin-db-sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.admin-db-sidebar-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.admin-db-filter {
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
+.admin-db-filter::placeholder {
+  color: var(--text-muted);
+}
+
+.admin-db-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.admin-db-table-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -6px;
+  padding: 0 6px;
+}
+
+.admin-db-table-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  /* The row's action is a double-click; a text selection forming on the first click
+     makes the second one read as a drag instead. */
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.admin-db-table-item:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+
+.admin-db-table-item--active {
+  background: color-mix(in srgb, var(--series-blue) 16%, transparent);
+  color: var(--text-primary);
+}
+
+.admin-db-type {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--series-blue) 22%, transparent);
+  color: var(--series-blue);
+}
+
+.admin-db-type--view {
+  background: color-mix(in srgb, var(--series-violet) 22%, transparent);
+  color: var(--series-violet);
+}
+
+.admin-db-table-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-db-table-rows {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-db-column-list {
+  list-style: none;
+  margin: 2px 0 6px;
+  padding: 6px 8px 6px 30px;
+  border-left: 2px solid color-mix(in srgb, var(--series-blue) 35%, transparent);
+  margin-left: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.admin-db-column-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.admin-db-column-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-db-pk {
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--series-yellow) 26%, transparent);
+  color: var(--series-yellow);
+}
+
+.admin-db-column-type {
+  flex: none;
+  font-size: 10.5px;
+  opacity: 0.75;
+}
+
+/* --- right: editor + grid ------------------------------------------------ */
+
+.admin-db-main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  min-width: 0;
+}
+
+.admin-db-editor-panel,
+.admin-db-result-panel {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.admin-db-editor-panel {
+  flex: none;
+  gap: 9px;
+}
+
+/* The grid takes whatever the editor leaves, and scrolls inside itself — the point of
+   the page is the data, so it gets the room. */
+.admin-db-result-panel {
+  flex: 1;
+  gap: 10px;
+}
+
+.admin-db-editor-head,
+.admin-db-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.admin-db-editor-head h2 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.admin-db-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-db-limit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.admin-db-limit select {
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.admin-db-editor {
+  width: 100%;
+  min-height: 116px;
+  max-height: 40vh;
+  resize: vertical;
+  padding: 11px 12px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.admin-db-editor:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--series-blue) 60%, transparent);
+}
+
+.admin-db-editor::placeholder {
+  color: var(--text-muted);
+}
+
+.admin-db-editor-note {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.admin-db-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+
+.admin-db-result-sep {
+  color: var(--text-muted);
+}
+
+.admin-db-muted {
+  color: var(--text-muted);
+}
+
+.admin-db-error {
+  color: var(--series-red);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.admin-db-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: color-mix(in srgb, var(--series-blue) 16%, transparent);
+  color: var(--series-blue);
+}
+
+.admin-db-badge--warn {
+  background: color-mix(in srgb, var(--series-yellow) 18%, transparent);
+  color: var(--series-yellow);
+}
+
+.admin-db-grid-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+}
+
+.admin-db-grid {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: max-content;
+  min-width: 100%;
+  font-size: 12px;
+}
+
+/* Sticky through the grid's own scroll container, so the column names stay readable
+   however far down a 2,000-row result you are. */
+.admin-db-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 11px;
+  text-align: left;
+  white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-db-grid tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+.admin-db-grid tbody tr:hover {
+  background: color-mix(in srgb, var(--series-blue) 10%, transparent);
+}
+
+.admin-db-cell {
+  padding: 6px 11px;
+  border-bottom: 1px solid color-mix(in srgb, var(--gridline) 60%, transparent);
+  /* One line per row so a 4,000-character JSON column can't make a single row taller
+     than the viewport; the full value is a double-click away (CellDetailModal). */
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-primary);
+  cursor: cell;
+}
+
+.admin-db-cell--num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-db-cell--null {
+  color: var(--text-muted);
+}
+
+.admin-db-null {
+  font-style: italic;
+  opacity: 0.7;
+}
+
+/* Row ordinal — pinned left so it stays a reference point while scrolling a wide table
+   sideways. */
+.admin-db-grid-num {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 46px;
+  padding: 6px 10px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: var(--page-plane);
+  border-bottom: 1px solid color-mix(in srgb, var(--gridline) 60%, transparent);
+  border-right: 1px solid var(--border);
+}
+
+.admin-db-grid thead .admin-db-grid-num {
+  z-index: 2;
+  background: var(--surface-1);
+}
+
+.admin-db-grid tbody tr:nth-child(even) .admin-db-grid-num {
+  background: color-mix(in srgb, var(--text-primary) 3%, var(--page-plane));
+}
+
+.admin-db-empty {
+  padding: 14px 4px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.admin-db-empty--grid {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 120px;
+}
+
+/* --- cell detail popup --------------------------------------------------- */
+
+.admin-db-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(2px);
+  animation: admin-fade-in 0.15s ease-out;
+}
+
+.admin-db-modal {
+  width: min(880px, 100%);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 13px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.admin-db-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-db-modal-col {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.admin-db-modal-meta {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-db-modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.admin-db-modal-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.admin-db-modal-close:hover {
+  color: var(--text-primary);
+}
+
+.admin-db-modal-body {
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  /* Long unbroken values (URLs, base64, one-line JSON) wrap instead of forcing the
+     popup into a horizontal scroll the reader has to chase. */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.admin-db-modal-body--null {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+@media (max-width: 900px) {
+  /* Two fixed-height panes have nowhere to go on a phone: the page goes back to
+     scrolling normally and the panes stack at their natural heights. */
+  .admin-db-page {
+    height: auto;
+    overflow: visible;
+  }
+
+  .admin-db-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .admin-db-sidebar {
+    max-height: 320px;
+  }
+
+  .admin-db-result-panel {
+    min-height: 420px;
+  }
+
+  .admin-db-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .admin-db-cell {
+    max-width: 220px;
+  }
+}

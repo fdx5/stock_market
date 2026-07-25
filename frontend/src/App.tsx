@@ -21,6 +21,7 @@ const NewsPage = lazy(() => import("./components/NewsPage"));
 const AiPredictionPage = lazy(() => import("./components/AiPredictionPage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
+const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
 
 function RouteFallback() {
   const t = useT();
@@ -60,6 +61,8 @@ export default function App() {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {
     page = <AdminDashboardPage />;
+  } else if (path === "/admin/db") {
+    page = <AdminDbPage />;
   } else {
     page = <Dashboard />;
   }
