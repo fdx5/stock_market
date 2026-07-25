@@ -24,6 +24,7 @@ import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
+import PredictIcon from "./PredictIcon";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
 
@@ -784,6 +785,9 @@ export default function AdminDashboardPage() {
           </Link>
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
+          </Link>
+          <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
+            <PredictIcon /> AI 예측
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> 시총대결

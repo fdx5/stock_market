@@ -195,11 +195,11 @@ export default function NewsPage() {
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
           </Link>
-          <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
-            <BattleIcon /> {t("시총대결")}
-          </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
             <PredictIcon /> AI 예측
+          </Link>
+          <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
+            <BattleIcon /> {t("시총대결")}
           </Link>
           <VisitorBadge />
         </div>

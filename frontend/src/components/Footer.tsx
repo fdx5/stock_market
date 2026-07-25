@@ -36,14 +36,14 @@ export default function Footer() {
           <Link to="/nasdaq100-map" className="app-footer-market-link app-footer-market-link--nasdaq">
             <MarketIcon /> NASDAQ100
           </Link>
+          <Link to="/ai-prediction" className="app-footer-market-link app-footer-market-link--predict">
+            <PredictIcon /> {t("AI 예측")}
+          </Link>
           <Link to="/fight" className="app-footer-market-link app-footer-market-link--battle">
             <BattleIcon /> {t("시총대결")}
           </Link>
           <Link to="/news" className="app-footer-market-link app-footer-market-link--news">
             <GlobalNewsIcon /> NEWS
-          </Link>
-          <Link to="/ai-prediction" className="app-footer-market-link app-footer-market-link--predict">
-            <PredictIcon /> {t("AI 예측")}
           </Link>
           <a
             href="https://chs2147.github.io/mini-apps"

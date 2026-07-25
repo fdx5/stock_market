@@ -556,6 +556,11 @@ export default function MarketCapFightPage() {
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
           </Link>
+          {/* This page IS 시총대결, so the slot the link would occupy on every other
+              header is the one immediately after it — same position, one link earlier. */}
+          <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
+            <PredictIcon /> AI 예측
+          </Link>
           {phase === "fight" && (
             <Link to="/battle" className="kospi-map-nav-link fight-nav-link--classic">
               <MarketIcon /> {t("삼성 vs SK하이닉스")}
@@ -563,9 +568,6 @@ export default function MarketCapFightPage() {
           )}
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
-          </Link>
-          <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
-            <PredictIcon /> AI 예측
           </Link>
           <VisitorBadge />
         </div>
