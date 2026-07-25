@@ -8938,10 +8938,13 @@ thead .weekly-foreign-amount-col {
   height: 20px;
 }
 
+/* Stands in for .admin-trend-chart-wrap while the trend data loads, so it tracks that
+   wrapper's min-height — otherwise the panel visibly shrinks the moment the real chart
+   arrives to replace it. */
 .admin-skeleton--chart {
   width: 100%;
   flex: 1;
-  min-height: 320px;
+  min-height: 208px;
   border-radius: 10px;
 }
 
@@ -9018,7 +9021,7 @@ thead .weekly-foreign-amount-col {
 .admin-trend-chart-wrap {
   position: relative;
   flex: 1;
-  min-height: 320px;
+  min-height: 208px;
 }
 
 .admin-trend-svg {
@@ -9294,13 +9297,16 @@ thead .weekly-foreign-amount-col {
   background: var(--text-secondary);
 }
 
-/* Reserves ~half the page's viewport height for the trend panel, so the chart
-   (flexed to fill .admin-trend-main below) reads as the dashboard's dominant
-   section rather than one tile among many. */
+/* A floor, not the panel's usual height: once the chart renders it sizes itself from
+   its viewBox ratio (see AdminDashboardPage) and the panel comes out taller than this
+   at desktop widths. What this actually governs is the loading and empty states, where
+   there is no chart to give the panel a height. It was 50vh, paired with the old 2:1
+   canvas; both came down by the same factor so the trend panel stops pushing the
+   panels below it off the first screen. */
 .admin-panel--trend {
   display: flex;
   flex-direction: column;
-  min-height: 50vh;
+  min-height: 32.5vh;
 }
 
 .admin-trend-layout {
@@ -9479,9 +9485,11 @@ thead .weekly-foreign-amount-col {
 }
 
 /* The grid's right column: a fixed-height flex stack (matching .admin-left-col's
-   640px so both columns bottom out evenly) split 70/30 between the live log and the
+   640px so both columns bottom out evenly) split 60/40 between the live log and the
    batch-status panel below it. flex-basis 0 on both children makes the ratio an
-   exact 70:30 of the space left after the gap, rather than content-dependent. */
+   exact 60:40 of the space left after the gap, rather than content-dependent.
+   The batch panel was 30 and grew a second detail line plus a warnings list per
+   region, which left it scrolling while the log above had room to spare. */
 .admin-tail-col {
   display: flex;
   flex-direction: column;
@@ -9491,14 +9499,14 @@ thead .weekly-foreign-amount-col {
 }
 
 .admin-panel--tail {
-  flex: 7 1 0;
+  flex: 6 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
 }
 
 .admin-panel--batch {
-  flex: 3 1 0;
+  flex: 4 1 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -10057,7 +10065,7 @@ button.admin-comments-text--clickable:hover {
     flex: none;
   }
 
-  /* Stacked layout: the fixed 640px 70/30 column gives way to natural per-panel
+  /* Stacked layout: the fixed 640px 60/40 column gives way to natural per-panel
      sizing, same reset as .admin-left-col above. */
   .admin-tail-col {
     height: auto;
@@ -10088,11 +10096,14 @@ button.admin-comments-text--clickable:hover {
     flex: none;
   }
 
+  /* Stacked, the chart gets an explicit height instead of sizing from its viewBox, so
+     these numbers have to track that ratio or the drawing letterboxes inside the box.
+     They were 50vh/480px against the old 2:1 canvas; same factor as everywhere else. */
   .admin-trend-chart-wrap,
   .admin-skeleton--chart {
     flex: none;
-    height: 50vh;
-    max-height: 480px;
+    height: 32.5vh;
+    max-height: 312px;
   }
 
   .admin-trend-toppages,

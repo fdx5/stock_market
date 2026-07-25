@@ -639,13 +639,15 @@ export default function AdminDashboardPage() {
     return { series: seriesData, categories: buckets, maxCount };
   }, [trendPoints, range]);
 
-  // A 2:1 canvas — close to how wide the 60%-width chart column ends up next to
-  // the trend panel's flexed height (~50% of the page, see .admin-panel--trend /
-  // .admin-trend-chart-wrap) at typical desktop sizes, so the chart fills that
-  // tall wrapper with only slight letterboxing rather than a lot of dead space
-  // above/below it.
+  // Roughly 3:1 — and on desktop this ratio is what sets the trend panel's height,
+  // not the other way round: .admin-trend-chart-wrap is flex:1 inside an auto-height
+  // column, so the SVG sizes itself from this viewBox against the 60%-wide chart
+  // column. At 1920 that column is ~1074px, giving a ~349px-tall chart where the old
+  // 2:1 canvas gave ~537px and pushed the panels below it off the first screen. The
+  // wrap's min-height only takes over below ~1200px wide, and there the fit-both-axes
+  // scaling leaves a little dead space above/below rather than at the sides.
   const width = 760;
-  const height = 380;
+  const height = 247;
   const padding = { top: 22, right: 16, bottom: 32, left: 46 };
   const innerW = width - padding.left - padding.right;
   const innerH = height - padding.top - padding.bottom;
