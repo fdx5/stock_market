@@ -10096,14 +10096,18 @@ button.admin-comments-text--clickable:hover {
     flex: none;
   }
 
-  /* Stacked, the chart gets an explicit height instead of sizing from its viewBox, so
-     these numbers have to track that ratio or the drawing letterboxes inside the box.
-     They were 50vh/480px against the old 2:1 canvas; same factor as everywhere else. */
+  /* Stacked, the box follows the drawing rather than a slice of the viewport. It was
+     50vh capped at 480px, which roughly agreed with the old 2:1 canvas; against a 3:1
+     one no fixed height can agree at every width, so tying the box to the ratio is
+     what keeps dead space out of it. The trade is a short chart on phones — ~117px at
+     430px wide — which is what the ratio honestly gives at that width. The base
+     min-height has to go, or it would re-introduce the letterboxing below ~640px. */
   .admin-trend-chart-wrap,
   .admin-skeleton--chart {
     flex: none;
-    height: 32.5vh;
-    max-height: 312px;
+    height: auto;
+    min-height: 0;
+    aspect-ratio: 760 / 247;
   }
 
   .admin-trend-toppages,
