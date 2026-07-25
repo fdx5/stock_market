@@ -1,35 +1,51 @@
 name: AI 종목예측 batch
 
-# Fires the prediction batch just after each market's close. Two schedules rather than
-# one, because the two closes are ~14 hours apart and each run only makes sense once
-# its own market has actually stopped trading:
+# Fires the prediction batch in each market's own evening, hours after that market's
+# close. Separate schedules per region, because the two closes are ~14 hours apart and
+# each run only makes sense once its own market has actually stopped trading.
 #
-#   06:45 UTC = 15:45 KST  -> KOSPI/KOSDAQ, 15 minutes after the 15:30 KRX close
-#   21:15 UTC = 16:15 ET (EST) / 20:15 UTC = 16:15 ET (EDT)
+# Weekday slot — 23:00 local, the session that closed earlier the same day:
 #
-# GitHub cron has no timezone support — schedules are always UTC — so the US close is
-# listed at both offsets to cover standard and daylight time. That means one of the two
-# fires an hour early or late half the year, and the early one is the reason the batch
-# is idempotent per (수집일자, market): whichever firing lands after the close does the
-# work, and the other one hits `has_run` and returns "skipped" without scraping
-# anything. The backend's own schedule check (prediction_batch._should_run_now) is what
-# stops the too-early firing from collecting a partial session.
+#   14:00 UTC = 23:00 KST (Mon-Fri)  -> KOSPI/KOSDAQ
+#   03:00 UTC = 23:00 ET during EDT / 04:00 UTC = 23:00 ET during EST (Tue-Sat UTC,
+#   because 23:00 ET is already the next UTC day)
 #
-# The 15-minute delay after each bell is not padding: Naver's end-of-session figures
-# (final close, full-day investor flows) settle over the minutes after the close, and
-# scraping at the bell reliably picks up an incomplete day.
+# Sunday slot — 22:00 local, and it always runs, with force=true. No new session has
+# closed since Friday, so without forcing, `has_run` would return "skipped" every week
+# and the slot would only ever do something after a Friday failure. Forced, it
+# re-collects and re-scores Friday's session (upsert per (수집일자, 종목코드), so
+# Friday's rows are refreshed, not duplicated) and doubles as the recovery path when
+# Friday's own run never landed.
+#
+#   13:00 UTC Sun = 22:00 KST Sun     -> KOSPI/KOSDAQ
+#   02:00 UTC Mon = 22:00 ET Sun during EDT / 03:00 UTC Mon = 22:00 ET Sun during EST
+#
+# Saturday has no slot at all, in either region.
+#
+# GitHub cron has no timezone support — schedules are always UTC — so every US slot is
+# listed at both offsets to cover standard and daylight time, and half the year the
+# wrong one of each pair fires an hour off (including at 00:00 ET Saturday). That used
+# to be harmless because `has_run` absorbed the duplicate, but a forced Sunday run has
+# no such guard and would do the work twice. So the job's first step checks the fired
+# cron against the market's own wall clock and exits unless the local hour is the
+# intended one — see "Resolve region and slot" below. That check, not the cron DOW
+# fields, is what actually keeps Saturday and double-firings out.
 #
 # Caveats inherited from GitHub's scheduler, same as keep-alive.yml: scheduled
 # workflows are disabled after 60 days with no commits to the repo, and firing can be
-# delayed several minutes under GitHub-wide load. The backend also runs its own
-# in-process scheduler as a second trigger for exactly that reason — see
+# delayed several minutes under GitHub-wide load — a delay past the hour boundary now
+# means the local-hour check drops that firing. The backend runs the same two slots
+# in-process as a second trigger for exactly these cases — see
 # prediction_batch.start_scheduler.
 
 on:
   schedule:
-    - cron: "45 6 * * 1-5"   # 15:45 KST — KRX close (KST has no DST)
-    - cron: "15 21 * * 1-5"  # 16:15 ET during EST
-    - cron: "15 20 * * 1-5"  # 16:15 ET during EDT
+    - cron: "0 14 * * 1-5"  # 23:00 KST, Mon-Fri (KST has no DST)
+    - cron: "0 13 * * 0"    # 22:00 KST, Sunday catch-up
+    - cron: "0 3 * * 2-6"   # 23:00 ET during EDT (previous weekday in ET)
+    - cron: "0 4 * * 2-6"   # 23:00 ET during EST (previous weekday in ET)
+    - cron: "0 2 * * 1"     # 22:00 ET Sunday during EDT
+    - cron: "0 3 * * 1"     # 22:00 ET Sunday during EST
   workflow_dispatch:
     inputs:
       region:
@@ -58,27 +74,78 @@ jobs:
   predict:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve region
+      - name: Resolve region and slot
         id: region
         run: |
+          set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "region=${{ inputs.region }}" >> "$GITHUB_OUTPUT"
             echo "force=${{ inputs.force }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "45 6 * * 1-5" ]; then
-            echo "region=KR" >> "$GITHUB_OUTPUT"
-            echo "force=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "region=US" >> "$GITHUB_OUTPUT"
-            echo "force=false" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Which region and slot a scheduled run is for is decided by *which* cron
+          # fired — matched against the literal strings in the `schedule:` block above,
+          # so editing a cron expression there means editing it here too.
+          case "${{ github.event.schedule }}" in
+            "0 14 * * 1-5")            region=KR slot=weekday ;;
+            "0 13 * * 0")              region=KR slot=sunday  ;;
+            "0 3 * * 2-6"|"0 4 * * 2-6") region=US slot=weekday ;;
+            "0 2 * * 1"|"0 3 * * 1")     region=US slot=sunday  ;;
+            *)
+              echo "::error::Unmapped schedule '${{ github.event.schedule }}' — add it to this case."
+              exit 1
+              ;;
+          esac
+
+          # Then confirm against the market's own wall clock, because the UTC cron pair
+          # covering US DST means one of the two always lands an hour off: during EDT the
+          # EST line fires at 22:00 ET on a weekday (and 00:00 ET on Saturday), during
+          # EST the EDT line fires at 00:00/21:00 ET. Only the firing that matches the
+          # intended local hour proceeds; the other exits here without touching the
+          # service. This is what keeps Saturday out of the schedule entirely, and what
+          # stops the forced Sunday run below from being done twice.
+          case "$region" in
+            KR) tz=Asia/Seoul ;;
+            US) tz=America/New_York ;;
+          esac
+          dow=$(TZ=$tz date +%u)   # 1=Mon … 7=Sun
+          hour=$(TZ=$tz date +%H)
+          local_now=$(TZ=$tz date +'%Y-%m-%d %H:%M %a')
+
+          skip=true
+          if [ "$slot" = "weekday" ] && [ "$dow" -le 5 ] && [ "$hour" = "23" ]; then
+            skip=false
+          elif [ "$slot" = "sunday" ] && [ "$dow" -eq 7 ] && [ "$hour" = "22" ]; then
+            skip=false
+          fi
+
+          # The Sunday slot must actually produce a run, and no new session has closed
+          # since Friday — so `has_run` would skip it as "already ran". force=true is
+          # what makes it re-collect and re-score that same session; the batch upserts
+          # per (수집일자, 종목코드), so this refreshes Friday's rows rather than
+          # appending a second set.
+          force=false
+          [ "$slot" = "sunday" ] && force=true
+
+          echo "region=$region" >> "$GITHUB_OUTPUT"
+          echo "force=$force" >> "$GITHUB_OUTPUT"
+          echo "skip=$skip" >> "$GITHUB_OUTPUT"
+          echo "region=$region slot=$slot force=$force skip=$skip (local $local_now, $tz)"
+          if [ "$skip" = "true" ]; then
+            echo "::notice::Off-slot firing for $region $slot at $local_now $tz — nothing to do."
           fi
 
       - name: Wake the service
+        if: steps.region.outputs.skip != 'true'
         # Render can have the instance cold; a 60s cold start inside the batch request
         # would eat most of the timeout budget below. Waking it first (and tolerating
         # a failure here) keeps that cost out of the run itself.
         run: curl -fsS --max-time 90 "$BASE_URL/api/health" || true
 
       - name: Run prediction batch
+        if: steps.region.outputs.skip != 'true'
         env:
           TOKEN: ${{ secrets.PREDICTION_BATCH_TOKEN }}
           REGION: ${{ steps.region.outputs.region }}

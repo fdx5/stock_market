@@ -656,7 +656,7 @@ export default function AiPredictionPage() {
           <p className="pred-empty">
             {hideUnreliable && (day?.count ?? 0) > 0
               ? "신뢰도 낮음을 숨기면 표시할 종목이 없습니다. 필터를 해제해 보세요."
-              : "선택한 날짜에 예측 데이터가 없습니다. 배치는 한국장 마감 직후와 뉴욕장 마감 직후에 각각 실행됩니다."}
+              : "선택한 날짜에 예측 데이터가 없습니다. 배치는 평일 밤 11시에 한국장·뉴욕장 각 현지시각으로 따로 실행됩니다."}
           </p>
         ) : null}
 

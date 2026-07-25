@@ -3,8 +3,11 @@
 Two independent runs, because the two markets close ~14 hours apart and neither
 should wait on the other:
 
-  region="KR"  fires after the KRX close (15:30 KST) and covers KOSPI + KOSDAQ
-  region="US"  fires after the NYSE/Nasdaq close (16:00 ET) and covers NASDAQ
+  region="KR"  runs 23:00 KST on a KRX session day, covers KOSPI + KOSDAQ
+  region="US"  runs 23:00 ET on a NYSE/Nasdaq session day, covers NASDAQ
+
+plus a 22:00-local Sunday slot per region that always re-runs the Friday session,
+forced (see the scheduler section at the bottom). Saturday never runs.
 
 They share every stage below and differ only in roster, calendar, and trigger time,
 so they are one function parameterized by region rather than two pipelines that would
@@ -346,37 +349,85 @@ def run_batch(region: str, force: bool = False, triggered_by: str = "system") ->
 # disables scheduled workflows after 60 days without a commit (the same caveat already
 # documented in keep-alive.yml), and cron firing can be delayed under GitHub-wide
 # load. Both triggers hit the same idempotent run_batch, so whichever arrives first
-# does the work and the other skips.
+# does the work and the other skips. The two slots below mirror the cron expressions in
+# ai-prediction.yml; changing one without the other makes the safety net fire at a
+# different time than the thing it is backing up.
 
-# Minutes after each close before running. The delay is not cosmetic: Naver's
-# end-of-session figures (final close, full-day investor flows) settle over the few
-# minutes after the bell, and scraping at the bell reliably picks up a partial day.
-KR_RUN_AFTER = dt.time(15, 45)
-US_RUN_AFTER = dt.time(16, 15)
+# Each slot is in the market's *own* local time (KST for KR, ET for US), so the two
+# regions share these clock times while running ~14 hours apart in absolute terms.
+#
+# Weekday: 23:00, long after both bells (15:30 KST / 16:00 ET). The gap is deliberate
+# headroom, not a bell offset — Naver's end-of-session figures (final close, full-day
+# investor flows) are settled many hours by then, and a same-evening slot still leaves
+# the whole night for a failure to be noticed before the next open.
+WEEKDAY_RUN_AFTER = dt.time(23, 0)
+# Sunday: 22:00, and it always runs — forced. Friday's is still the most recent closed
+# session, so an unforced Sunday run would hit `has_run` and skip every week; forcing
+# re-collects and re-scores that session (an upsert, so Friday's rows are refreshed
+# rather than duplicated) and covers a Friday run that never landed. Saturday has no
+# slot in either region.
+WEEKEND_RUN_AFTER = dt.time(22, 0)
 
 _SCHEDULER_POLL_SECONDS = 300
 
+# Slots this process has already completed, region -> slot key. The weekday slot is
+# self-limiting (once it saves rows, `has_run` stops the next poll), but a forced
+# Sunday run has no such guard and would otherwise restart every 5 minutes until
+# midnight. Recorded only on success, so a failed run is retried by the next poll.
+# In-process and volatile: a restart inside the Sunday window costs one repeat run,
+# which is an upsert of the same session.
+_slots_done: dict[str, str] = {}
 
-def _should_run_now(region: str) -> bool:
+
+def _due_slot(region: str) -> tuple[str, bool] | None:
+    """The slot this region owes right now as (slot_key, force), or None.
+
+    Mirrors the cron slots in ai-prediction.yml: 23:00 local on a session day, 22:00
+    local on Sunday. A holiday or Saturday matches neither and returns None.
+    """
     now = cal.now_kst() if region == REGION_KR else cal.now_et()
-    threshold = KR_RUN_AFTER if region == REGION_KR else US_RUN_AFTER
-    if not cal.is_trading_day(now.date(), region):
-        return False
-    if now.time() < threshold:
-        return False
-    return not prediction_store.has_run(cal.to_key(now.date()), REGION_MARKETS[region][0])
+    if cal.is_trading_day(now.date(), region):
+        if now.time() < WEEKDAY_RUN_AFTER:
+            return None
+        slot, force = "weekday", False
+    elif now.weekday() == 6:  # Sunday
+        if now.time() < WEEKEND_RUN_AFTER:
+            return None
+        slot, force = "sunday", True
+    else:
+        return None
+
+    key = f"{cal.to_key(now.date())}:{slot}"
+    if _slots_done.get(region) == key:
+        return None
+    if not force:
+        # Keyed on the session being reported, not on today's date — after a holiday the
+        # two differ, and run_batch resolves the session the same way.
+        session = cal.to_key(cal.session_date(region))
+        if prediction_store.has_run(session, REGION_MARKETS[region][0]):
+            return None
+    return key, force
 
 
 def _scheduler_loop() -> None:
     while True:
         for region in (REGION_KR, REGION_US):
             try:
-                if _should_run_now(region):
-                    logger.info("prediction_batch: in-process scheduler triggering %s", region)
-                    run_batch(region)
+                due = _due_slot(region)
+                if due is None:
+                    continue
+                key, force = due
+                logger.info(
+                    "prediction_batch: in-process scheduler triggering %s (%s, force=%s)",
+                    region,
+                    key,
+                    force,
+                )
+                run_batch(region, force=force)
+                _slots_done[region] = key
             except Exception:
-                # A failed run must not kill the loop — the next poll retries, and the
-                # `has_run` guard means a run that did succeed isn't repeated.
+                # A failed run must not kill the loop — the next poll retries, since the
+                # slot is only marked done above on success.
                 logger.exception("prediction_batch: scheduled run failed for %s", region)
         time.sleep(_SCHEDULER_POLL_SECONDS)
 
