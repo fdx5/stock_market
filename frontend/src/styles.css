@@ -10174,6 +10174,64 @@ button.admin-comments-text--clickable:hover {
   background: color-mix(in srgb, var(--series-violet) 22%, transparent);
 }
 
+/* "NEW" flag on the newest pill in the row.
+
+   Inline rather than pinned to a corner: the pill sets overflow:hidden to clip the
+   shimmer streak (see .kospi-map-nav-link::after), so anything outside the border
+   radius is cut off — a corner badge would simply disappear. ::before makes it the
+   row's first flex item, which also puts it on the edge the eye reaches first when
+   the nav scrolls horizontally on mobile.
+   ::after is already the shimmer, so this is the one pseudo-element left.
+   Sized in em so it tracks the pill's own font-size down to the mobile 11px step
+   without a second media query. The fill is the pill's accent with page-background
+   text, which inverts correctly in both themes: dark text on violet in dark mode,
+   light text on violet in light mode. */
+.kospi-map-nav-link--predict::before {
+  content: "NEW";
+  font-size: 0.72em;
+  font-weight: 900;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  padding: 0.22em 0.36em;
+  border-radius: 0.36em;
+  /* White chip, deep-violet lettering — the one pairing that stays legible in both
+     themes. Filling with --series-violet and colouring the text with a background
+     token fails: the dark theme's plane is near-black (fine) but the light theme's is
+     cream, which lands at roughly 2.4:1 on violet — unreadable at this size. Inverting
+     it puts ~7:1 behind the letters either way, and a white sticker inside a
+     violet-glowing pill is the louder read besides. */
+  color: color-mix(in srgb, var(--series-violet) 62%, black);
+  background: #fff;
+  /* The pill sets a currentColor text-shadow for its neon look; inherited here it
+     would halo the badge in its own background colour and smear the letters. */
+  text-shadow: none;
+  animation: nav-new-twinkle 1.5s ease-in-out infinite;
+}
+
+@keyframes nav-new-twinkle {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 4px color-mix(in srgb, var(--series-violet) 70%, transparent);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow:
+      0 0 10px color-mix(in srgb, var(--series-violet) 95%, transparent),
+      0 0 20px color-mix(in srgb, var(--series-violet) 55%, transparent);
+    filter: brightness(1.4);
+  }
+}
+
+/* The badge is a decoration on a link that is already labelled — with motion off it
+   still reads as a filled "NEW" chip, so nothing is lost by holding it still. */
+@media (prefers-reduced-motion: reduce) {
+  .kospi-map-nav-link--predict::before {
+    animation: none;
+  }
+}
+
 .kospi-map-nav-link--predict .market-nav-icon,
 .app-footer-market-link--predict .market-nav-icon {
   animation-delay: 2.1s;
