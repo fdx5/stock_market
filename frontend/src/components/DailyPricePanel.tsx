@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { DailyPricePoint, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
@@ -197,6 +197,10 @@ export default function DailyPricePanel({ code, market = "KR" }: { code: string;
   return (
     <div className="daily-price-panel">
       <div className="daily-price-wrap" ref={scrollerRef}>
+        {/* Four header columns, not eight. All eight requested figures are here, but
+            the last four ride a second line per session (below) — see the widths note
+            on .daily-price-table in styles.css for why eight columns cannot fit the
+            side rail at any viewport width. */}
         <table className="daily-price-table">
           <thead>
             <tr>
@@ -204,41 +208,64 @@ export default function DailyPricePanel({ code, market = "KR" }: { code: string;
               <th scope="col">{t("주가")}</th>
               <th scope="col">{t("대비")}</th>
               <th scope="col">{t("거래량")}</th>
-              <th scope="col">{t("거래대금")}</th>
-              <th scope="col">{t("시가")}</th>
-              <th scope="col">{t("고가")}</th>
-              <th scope="col">{t("저가")}</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr
-                key={row.date}
-                ref={(el) => {
-                  if (el) rowRefs.current.set(row.date, el);
-                  else rowRefs.current.delete(row.date);
-                }}
-              >
-                <td className="daily-price-date" title={row.date}>
-                  {shortDate(row.date)}
-                </td>
-                <td className="daily-price-close">{formatPrice(row.close, market)}</td>
-                <td className={changeClass(row.change)}>
-                  <span className="daily-price-change-abs">
-                    {row.change > 0 ? "▲" : row.change < 0 ? "▼" : ""}
-                    {formatPrice(Math.abs(row.change), market)}
-                  </span>
-                  <span className="daily-price-change-pct">
-                    {row.change > 0 ? "+" : ""}
-                    {row.change_pct}%
-                  </span>
-                </td>
-                <td>{compactCount(row.volume, lang)}</td>
-                <td>{money(row.value)}</td>
-                <td>{formatPrice(row.open, market)}</td>
-                <td className="change-up">{formatPrice(row.high, market)}</td>
-                <td className="change-down">{formatPrice(row.low, market)}</td>
-              </tr>
+              <Fragment key={row.date}>
+                <tr
+                  className="daily-price-row-main"
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(row.date, el);
+                    else rowRefs.current.delete(row.date);
+                  }}
+                >
+                  <td className="daily-price-date" title={row.date}>
+                    {shortDate(row.date)}
+                  </td>
+                  <td className="daily-price-close">{formatPrice(row.close, market)}</td>
+                  <td className={changeClass(row.change)}>
+                    <span className="daily-price-change-abs">
+                      {row.change > 0 ? "▲" : row.change < 0 ? "▼" : ""}
+                      {formatPrice(Math.abs(row.change), market)}
+                    </span>
+                    <span className="daily-price-change-pct">
+                      {row.change > 0 ? "+" : ""}
+                      {row.change_pct}%
+                    </span>
+                  </td>
+                  <td>{compactCount(row.volume, lang)}</td>
+                </tr>
+                {/* Carries its own labels rather than borrowing the header above: these
+                    four have no column of their own, so unlabelled they would be four
+                    anonymous numbers. Wraps instead of overflowing when the rail is at
+                    its narrowest. */}
+                <tr className="daily-price-row-sub">
+                  <td colSpan={4}>
+                    <div className="daily-price-sub-fields">
+                      {/* Abbreviated labels (시/고/저/대금, O/H/L/Val) so all four fields
+                          hold one line even at the rail's 281px floor — the full names
+                          would push them to 308px and wrap. Spelled out in `title`. */}
+                      <span className="daily-price-field" title={t("시가")}>
+                        <i>{t("시")}</i>
+                        {formatPrice(row.open, market)}
+                      </span>
+                      <span className="daily-price-field" title={t("고가")}>
+                        <i>{t("고")}</i>
+                        <b className="change-up">{formatPrice(row.high, market)}</b>
+                      </span>
+                      <span className="daily-price-field" title={t("저가")}>
+                        <i>{t("저")}</i>
+                        <b className="change-down">{formatPrice(row.low, market)}</b>
+                      </span>
+                      <span className="daily-price-field" title={t("거래대금")}>
+                        <i>{t("대금")}</i>
+                        {money(row.value)}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </Fragment>
             ))}
           </tbody>
         </table>

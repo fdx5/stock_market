@@ -230,6 +230,12 @@ export const DICTIONARY: Record<string, string> = {
   "시가": "Open",
   "고가": "High",
   "저가": "Low",
+  // Abbreviated forms for the daily table's second line, where the full labels do not
+  // fit the rail at its narrowest — see DailyPricePanel.tsx.
+  "시": "O",
+  "고": "H",
+  "저": "L",
+  "대금": "Val",
   "일별 시세가 없습니다.": "No daily prices available.",
   "일별 시세를 불러오지 못했습니다.": "Failed to load daily prices.",
   "거래대금은 거래량 × 평균가 기준 추정치입니다.":

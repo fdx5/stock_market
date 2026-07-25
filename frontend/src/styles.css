@@ -1880,22 +1880,35 @@ a.app-brand:hover .app-logo-wide {
   font-size: 13px;
 }
 
-/* Eight numeric columns do not fit the side rail at its 320px floor, so the table
-   keeps its natural width and scrolls sideways inside this box rather than wrapping
-   cells into unreadable stacks. The vertical cap is what makes the panel a section of
-   the page instead of the page — and on a phone it is also the scroller the
-   auto-load's IntersectionObserver measures its sentinel against
-   (see DailyPricePanel.tsx), so it must stay capped at every width. */
+/* Vertical scroll only. The cap is what keeps the panel a section of the page rather
+   than the page — and it is also the scroller the mobile auto-load's
+   IntersectionObserver measures its sentinel against (see DailyPricePanel.tsx), so it
+   stays capped at every width. overflow-x is hidden rather than auto because the row
+   layout below is built never to need it. */
 .daily-price-wrap {
   max-height: 480px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: 8px;
 }
 
+/* All eight requested figures are here, but as four columns over two lines per
+   session rather than eight columns over one.
+
+   Eight columns cannot fit this rail at ANY viewport width: their natural width is
+   ~459px at 11px, while the rail's content box is ~415px at the 1280px page cap and
+   ~281px just above the 920px stacking breakpoint. Shrinking to 9px and dropping the
+   thousands separators would technically fit, at the cost of making six-figure won
+   prices unreadable. Four columns need ~221px, so the primary line has room to spare
+   even at the floor, and the remaining four ride a labelled second line that wraps.
+
+   table-layout: fixed makes that guarantee unconditional — the table can never exceed
+   its container no matter how long a price gets. */
 .daily-price-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -1903,10 +1916,9 @@ a.app-brand:hover .app-logo-wide {
 
 .daily-price-table th,
 .daily-price-table td {
-  padding: 6px 7px;
+  padding: 5px 7px;
   text-align: right;
   white-space: nowrap;
-  border-bottom: 1px solid var(--gridline);
 }
 
 .daily-price-table thead th {
@@ -1917,10 +1929,23 @@ a.app-brand:hover .app-logo-wide {
   background: var(--surface-1);
   color: var(--text-muted);
   font-weight: 600;
+  border-bottom: 1px solid var(--gridline);
 }
 
-.daily-price-table tbody tr:last-child td {
-  border-bottom: none;
+/* Widths are declared rather than left to the content because table-layout: fixed
+   takes them from the first row and would otherwise split the rail evenly — 일자 needs
+   far less than the three numeric columns. */
+.daily-price-table th:nth-child(1) {
+  width: 19%;
+}
+.daily-price-table th:nth-child(2) {
+  width: 27%;
+}
+.daily-price-table th:nth-child(3) {
+  width: 28%;
+}
+.daily-price-table th:nth-child(4) {
+  width: 26%;
 }
 
 .daily-price-table th:first-child,
@@ -1933,8 +1958,8 @@ a.app-brand:hover .app-logo-wide {
   font-weight: 700;
 }
 
-/* The absolute move and the percentage share one cell (they are one fact, and eight
-   columns leave no room for a ninth) — stacked so neither is truncated. */
+/* The absolute move and the percentage share one cell — one fact, and a column of its
+   own would cost the primary line its headroom. Stacked so neither is truncated. */
 .daily-price-change-abs,
 .daily-price-change-pct {
   display: block;
@@ -1943,6 +1968,47 @@ a.app-brand:hover .app-logo-wide {
 .daily-price-change-pct {
   font-size: 10px;
   opacity: 0.85;
+}
+
+/* The two rows are one session, so the rule goes under the pair, not between them. */
+.daily-price-row-main td {
+  padding-bottom: 1px;
+}
+
+/* The flex container is a div inside the cell rather than the cell itself: a `<td>`
+   switched to display:flex stops being a table cell, and this one carries a colSpan. */
+.daily-price-row-sub td {
+  padding-top: 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.daily-price-sub-fields {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px 10px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.daily-price-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.daily-price-field {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+}
+
+.daily-price-field i {
+  font-style: normal;
+  color: var(--text-muted);
+}
+
+.daily-price-field b {
+  font-weight: inherit;
 }
 
 .daily-price-sentinel {
@@ -4930,9 +4996,12 @@ thead .weekly-foreign-amount-col {
     max-height: 380px;
   }
 
+  /* Horizontal padding only — the shorthand would reset the vertical padding that
+     pairs each session's two rows into one visual block. */
   .daily-price-table th,
   .daily-price-table td {
-    padding: 6px 6px;
+    padding-left: 5px;
+    padding-right: 5px;
   }
 
   .board-comments-list {
