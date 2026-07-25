@@ -782,10 +782,10 @@ a.app-brand:hover .app-logo-wide {
   min-width: 0;
 }
 
-/* The dashboard's right-hand column. `align-self` overrides .layout's `align-items:
-   start` for this item only — /global still has a bare .side-panel as its grid item
-   and must keep hugging its content — so the column runs the full height of the chart
-   column beside it and .sector-map-card below can claim the leftover. */
+/* The right-hand column on both the dashboard and /global. `align-self` overrides
+   .layout's `align-items: start` for this item only — every other grid item must keep
+   hugging its content — so the column runs the full height of the chart column beside
+   it and .sector-map-card below can claim the leftover. */
 .side-col {
   display: flex;
   flex-direction: column;

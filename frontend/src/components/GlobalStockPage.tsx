@@ -28,6 +28,7 @@ import SearchBar from "./SearchBar";
 import SessionBadge from "./SessionBadge";
 import StockQuickAccess from "./StockQuickAccess";
 import ThemeToggle from "./ThemeToggle";
+import UsSectorMapPanel from "./UsSectorMapPanel";
 import VisitorBadge from "./VisitorBadge";
 
 const QUOTE_POLL_MS = 10_000;
@@ -374,39 +375,47 @@ export default function GlobalStockPage() {
               points={indicatorPoints}
               latest={indicatorPoints[indicatorPoints.length - 1] ?? null}
               ref={indicatorPanelRef}
+              defaultExpanded
             />
           </div>
 
-          <div className="card side-panel">
-            <div className="market-overview-tab-bar">
-              <button
-                type="button"
-                className={`market-overview-tab ${tab === "news" ? "active" : ""}`}
-                onClick={() => setTab("news")}
-              >
-                {t("관련 뉴스")}
-              </button>
-              <button
-                type="button"
-                className={`market-overview-tab ${tab === "board" ? "active" : ""}`}
-                onClick={() => setTab("board")}
-              >
-                {t("종목토론방")}
-              </button>
-              <button
-                type="button"
-                className={`market-overview-tab ${tab === "daily" ? "active" : ""}`}
-                onClick={() => setTab("daily")}
-              >
-                {t("일별")}
-              </button>
+          {/* Stretched to the chart column's height (see .side-col in styles.css) so
+              the sector map below can absorb whatever height the news/discussion panel
+              leaves over — on desktop that gap was most of the column. */}
+          <div className="side-col">
+            <div className="card side-panel">
+              <div className="market-overview-tab-bar">
+                <button
+                  type="button"
+                  className={`market-overview-tab ${tab === "news" ? "active" : ""}`}
+                  onClick={() => setTab("news")}
+                >
+                  {t("관련 뉴스")}
+                </button>
+                <button
+                  type="button"
+                  className={`market-overview-tab ${tab === "board" ? "active" : ""}`}
+                  onClick={() => setTab("board")}
+                >
+                  {t("종목토론방")}
+                </button>
+                <button
+                  type="button"
+                  className={`market-overview-tab ${tab === "daily" ? "active" : ""}`}
+                  onClick={() => setTab("daily")}
+                >
+                  {t("일별")}
+                </button>
+              </div>
+
+              {tab === "news" && (
+                <GlobalNewsList code={code} name={quote?.name ?? code} items={news} loading={newsLoading} />
+              )}
+              {tab === "board" && <GlobalBoardPanel code={code} name={quote?.name ?? code} />}
+              {tab === "daily" && <DailyPricePanel code={code} market="US" />}
             </div>
 
-            {tab === "news" && (
-              <GlobalNewsList code={code} name={quote?.name ?? code} items={news} loading={newsLoading} />
-            )}
-            {tab === "board" && <GlobalBoardPanel code={code} name={quote?.name ?? code} />}
-            {tab === "daily" && <DailyPricePanel code={code} market="US" />}
+            <UsSectorMapPanel code={code} onSelectStock={selectStock} />
           </div>
         </div>
       )}

@@ -19,6 +19,11 @@ import ChartSkeleton from "./ChartSkeleton";
 interface Props {
   points: IndicatorPoint[];
   latest: IndicatorPoint | null;
+  /** Initial fold state only — the toggle still owns it from the first click on.
+   * /global opens expanded: its chart column has no news digest or badge rows above
+   * the charts, so collapsed it left the column visibly shorter than the side column
+   * beside it. The KR dashboard keeps the collapsed default. */
+  defaultExpanded?: boolean;
 }
 
 export interface IndicatorPanelHandle {
@@ -49,9 +54,9 @@ function macdHistData(points: IndicatorPoint[], colors: ThemeColors): HistogramD
     }));
 }
 
-const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest }, ref) => {
+const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest, defaultExpanded = false }, ref) => {
   const t = useT();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const rsiContainerRef = useRef<HTMLDivElement>(null);
   const macdContainerRef = useRef<HTMLDivElement>(null);
   const rsiChartRef = useRef<IChartApi | null>(null);

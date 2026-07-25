@@ -112,6 +112,21 @@ export interface SectorMap {
   items: MarketMapItem[];
 }
 
+/** The /global page's counterpart to SectorMap: the S&P 500 cohort sharing one US
+ * ticker's GICS sector. `marcap` on each item is the constituent's index weight (%),
+ * not an absolute market cap — see MarketMapPage's note on the same field. */
+export interface UsSectorMap {
+  code: string;
+  index: "S&P500";
+  /** null when the ticker is in neither index snapshot, which also means no `items`. */
+  sector: string | null;
+  /** Weight-weighted change across `items`, matching how the S&P500 map's own sector
+   * zone headers compute theirs. */
+  avg_change_pct: number;
+  count: number;
+  items: MarketMapItem[];
+}
+
 export interface BoardPost {
   nid: string;
   title: string;
@@ -541,6 +556,10 @@ export const api = {
     ),
   sectorMap: (code: string, limit = 40) =>
     getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
+  usSectorMap: (code: string, limit = 40) =>
+    getJSON<UsSectorMap & { generated_at: string }>(
+      `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`
+    ),
   marketTicker: () => getJSON<{ items: MarketTickerItem[] }>(`${BASE}/market/ticker`),
   seoulWeather: () =>
     getJSON<{ temperature: number; code: number; is_day: boolean }>(`${BASE}/market/weather`),

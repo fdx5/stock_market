@@ -8,7 +8,7 @@ from app.data.price_fetcher import get_history
 from app.data.weather_fetcher import get_seoul_weather
 from app.services.indicators import compute_indicators
 from app.services.market_map import SECTOR_PEER_LIMIT, get_kosdaq_map, get_kospi_map, get_sector_map
-from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
+from app.services.us_market_map import US_SECTOR_PEER_LIMIT, get_nasdaq100_map, get_sp500_map, get_us_sector_map
 from app.utils import dataframe_to_records
 
 router = APIRouter()
@@ -66,6 +66,19 @@ def sector_map(code: str = Query(..., min_length=6, max_length=6), limit: int = 
     """Peers sharing the given stock's sector, sized and colored like the full market
     map — the dashboard draws these into the space left beside its chart column."""
     result = get_sector_map(code, limit)
+    return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), **result}
+
+
+@router.get("/us-sector-map")
+def us_sector_map(
+    code: str = Query(..., min_length=1, max_length=10),
+    limit: int = Query(US_SECTOR_PEER_LIMIT, ge=1, le=120),
+):
+    """S&P 500 peers sharing the given US ticker's GICS sector, sized by index weight
+    and colored by change — /global draws these into the space beside its chart column,
+    the way /sector-map serves the KR dashboard. Tickers, unlike the 6-digit KR codes
+    above, vary in length (from `V` to `GOOGL`), hence the wider bounds."""
+    result = get_us_sector_map(code, limit)
     return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), **result}
 
 
