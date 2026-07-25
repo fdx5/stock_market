@@ -9,6 +9,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import CompanyLogo from "./CompanyLogo";
 import DashboardIcon from "./DashboardIcon";
+import LoadingState from "./LoadingState";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import PredictIcon from "./PredictIcon";
@@ -210,7 +211,7 @@ export default function NewsPage() {
       </div>
 
       {rosterError && <div className="error-state">{t(rosterError)}</div>}
-      {!roster.length && !rosterError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
+      {!roster.length && !rosterError && <LoadingState />}
 
       {roster.length > 0 && (
         <div className={`news-tab-row-wrap${tabsScrollable ? " news-tab-row-wrap--scrollable" : ""}`}>

@@ -9,6 +9,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import CheerSection from "./CheerSection";
 import DashboardIcon from "./DashboardIcon";
+import LoadingState from "./LoadingState";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobalTop20 from "./GlobalTop20";
@@ -200,7 +201,7 @@ export default function TugOfWarPage() {
 
       {error && <div className="error-state">{t(error)}</div>}
 
-      {!samsung && !skhynix && !error && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
+      {!samsung && !skhynix && !error && <LoadingState />}
 
       {samsung && skhynix && leader && trailing && (
         <div className="battle-arena-wrap">

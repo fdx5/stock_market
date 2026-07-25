@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { useT } from "./i18n/LanguageContext";
+import LoadingState from "./components/LoadingState";
 import { useActivityTracking } from "./useActivityTracking";
 import { useRoute } from "./router";
 
@@ -22,11 +22,6 @@ const AiPredictionPage = lazy(() => import("./components/AiPredictionPage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
-
-function RouteFallback() {
-  const t = useT();
-  return <div className="loading-state">{t("데이터를 불러오는 중...")}</div>;
-}
 
 export default function App() {
   const path = useRoute();
@@ -67,5 +62,8 @@ export default function App() {
     page = <Dashboard />;
   }
 
-  return <Suspense fallback={<RouteFallback />}>{page}</Suspense>;
+  // The fallback stays silent for its first 2.5s (see LoadingState): a cached route
+  // chunk resolves in milliseconds, and the old fallback made every navigation flash a
+  // loading line before the page it was standing in for even had a chance to render.
+  return <Suspense fallback={<LoadingState />}>{page}</Suspense>;
 }

@@ -3,6 +3,7 @@ import { GlobalTop20Item, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import CompanyDetailModal from "./CompanyDetailModal";
+import LoadingState from "./LoadingState";
 import RollingValue from "./RollingValue";
 
 // The live-quote overlay this feeds from refreshes server-side every 10s (see
@@ -88,7 +89,7 @@ export default function GlobalTop20() {
       <div className="global-top20-header">🌍 {t("글로벌 시가총액 TOP 20")}</div>
 
       {error && <div className="error-state">{t(error)}</div>}
-      {items.length === 0 && !error && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
+      {items.length === 0 && !error && <LoadingState />}
 
       {items.length > 0 && (
         <div className="global-top20-list">

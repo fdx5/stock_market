@@ -13,6 +13,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import CompanyLogo from "./CompanyLogo";
 import CompanyNewsModal from "./CompanyNewsModal";
 import DashboardIcon from "./DashboardIcon";
+import LoadingState from "./LoadingState";
 import FightCheerSection from "./FightCheerSection";
 import FightCompanyModal from "./FightCompanyModal";
 import Footer from "./Footer";
@@ -597,7 +598,7 @@ export default function MarketCapFightPage() {
           )}
 
           {rosterError && <div className="error-state">{t(rosterError)}</div>}
-          {!roster.length && !rosterError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
+          {!roster.length && !rosterError && <LoadingState />}
 
           {roster.length > 0 && (
             <div className="fight-select-stage">
@@ -680,7 +681,7 @@ export default function MarketCapFightPage() {
           )}
 
           {statusError && <div className="error-state">{t(statusError)}</div>}
-          {!statusA && !statusB && !statusError && <div className="loading-state">{t("데이터를 불러오는 중...")}</div>}
+          {!statusA && !statusB && !statusError && <LoadingState />}
 
           <div className="fight-action-row">
             <button
