@@ -616,18 +616,18 @@ body:has(.hb) {
 }
 
 /* Stands in for the star/planet depth-sort across the previous .hb-plane/
-   .hb-starwrap boundary (see Hub.tsx). Derived from this same element's own
-   geometry: after `.hb-arm`'s translateX(radius) translateZ(14px) and this
-   rotateX(tilt)·rotateZ(t), a planet's depth relative to the plane's origin
-   works out to radius·sin(tilt)·sin(t) + 14·cos(tilt) — positive (nearer
-   than the star, which sits at the origin) for t in (0°, 180°) and negative
-   (farther) for t in (180°, 360°). Since `hb-orbit` runs t = 0→360° linearly
-   over the same duration, 0%–50% of that same span is exactly the "nearer"
-   half. `.hb-starwrap` sits at z-index: 4. */
+   .hb-starwrap boundary (see Hub.tsx). The geometry (`.hb-arm`'s
+   translateX(radius) translateZ(14px) under this rotateX(tilt)·rotateZ(t))
+   puts the actual front/back crossover at t = 0°/180°, so the swap below
+   sits at 0%/50% of `hb-orbit`'s same t = 0→360° span — which half is
+   "nearer" (gets the above-the-star z-index) was confirmed by eye on an
+   actual iPad rather than trusted from the sign work alone, since CSS's
+   rotateX/rotateZ handedness is easy to get backwards on paper. `.hb-starwrap`
+   sits at z-index: 4. */
 @keyframes hb-orbit-depth {
-  0%, 49.9% { z-index: 10; }
-  50%, 99.9% { z-index: 2; }
-  100% { z-index: 10; }
+  0%, 49.9% { z-index: 2; }
+  50%, 99.9% { z-index: 10; }
+  100% { z-index: 2; }
 }
 
 .hb-arm {
