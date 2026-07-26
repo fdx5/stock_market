@@ -1,317 +1,154 @@
 /* ============================================================================
-   Procedural planets and a star, drawn as SVG.
+   Photographic planets and a procedural star.
    ----------------------------------------------------------------------------
-   The first pass built these from stacked CSS radial-gradients, which failed on
-   two counts. A gradient with a handful of stops bands — the sun's bloom showed
-   as four concentric rings and its "granulation" as five hard-edged discs — and
-   every glow layer (`inset: -42%`) overflowed its element, which the compositor
-   then clipped to a hard rectangle inside the page's preserve-3d subtree.
+   The seven hub planets used to be procedurally generated noise (feTurbulence
+   displaced through a colour ramp, lit with feDiffuseLighting) — good enough to
+   read as "a planet" but never close to a photograph, and the filter chain was
+   the single heaviest thing on the page: five SVG filter primitives recomputed
+   per body, times seven bodies, every frame the "drift" animation ran.
 
-   Both go away in SVG, and the result is a real surface rather than a painted
-   one. The chain per body is:
+   PhotoPlanetBody replaces that with real equirectangular photography (Solar
+   System Scope's CC BY 4.0 texture set, itself built from NASA/JPL imagery —
+   see frontend/public/img/planets/ and the source list in Hub.tsx). The globe
+   is plain HTML: two copies of the texture sit side by side and slide on
+   `transform: translateX`, which is compositor-only work — the browser never
+   repaints the pixels, just moves an existing layer — so seven of these
+   spinning at once costs a fraction of the old filter chains and the rotation
+   reads as continuous, not the old back-and-forth "weather drift". Because an
+   equirectangular map's left and right edges are the same meridian, the loop is
+   seamless.
 
-     1. feTurbulence, stretched horizontally, for latitude banding
-     2. a second turbulence displacing the first, for storm curl
-     3. desaturate, then feComponentTransfer through a five-colour ramp — the
-        albedo (what the surface *is*)
-     4. feDiffuseLighting over a finer turbulence, lit from up-and-left — the
-        relief (how the surface *catches light*)
-     5. multiply the two together
+   The lighting on top (terminator, limb darkening, specular, atmosphere) stays
+   cheap CSS radial-gradients rather than feDiffuseLighting, since a real photo
+   already carries its own shading and only needs a light varnish to sit inside
+   this scene's own light direction. Only the rim-light arc and Saturn's ring
+   stay in SVG, where their geometry (a dashed arc, a stroked/filled ellipse)
+   is the natural fit — neither one is part of the rotating layer, so neither
+   costs anything per frame.
 
-   Step 4 is what stops it looking like a sticker: without it the texture is
-   evenly lit and the eye reads a flat disc no matter how good the pattern is.
-   On top of that go limb darkening, a terminator, a specular, and a rim light.
-
-   Every body fits a 0 0 100 100 viewBox with the disc at r = 34, leaving margin
-   for the atmosphere — so nothing overflows the element and there is nothing to
-   clip.
+   The star (StarBody) and the departing probe (VoyagerCraft) below are
+   unchanged: procedural SVG, same as before.
    ========================================================================= */
 
 const C = 50;
-/** Default disc radius in the 100-unit box. Ringed bodies shrink it (see
- * `BodySkin.discR`) to make room for the ring, which would otherwise extend past
- * the viewBox and be cut off mid-ellipse. */
+/** Default disc radius in the 100-unit box the ring/rim overlay SVG shares
+ * with the old planet convention. Ringed bodies shrink it (see
+ * `PhotoSkin.discR`) to make room for the ring, which would otherwise extend
+ * past the viewBox and be cut off mid-ellipse. */
 const BASE_R = 34;
-
-/* ───────────────────────────── colour ramp ───────────────────────────── */
-
-function hexToRgb01(hex: string): [number, number, number] {
-  const clean = hex.replace("#", "");
-  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
-  return [
-    parseInt(full.slice(0, 2), 16) / 255,
-    parseInt(full.slice(2, 4), 16) / 255,
-    parseInt(full.slice(4, 6), 16) / 255,
-  ];
-}
-
-/** `feComponentTransfer` tableValues for one channel. A table is a piecewise
- * linear ramp, so five colours give four smooth segments — no stops to band. */
-function rampTable(colors: string[], channel: 0 | 1 | 2): string {
-  return colors.map((c) => hexToRgb01(c)[channel].toFixed(4)).join(" ");
-}
-
-export interface BodySkin {
-  /** Darkest to lightest. Five entries reads as a surface; three looks drawn. */
-  ramp: string[];
-  /** Horizontal frequency far below vertical stretches the noise into latitude
-   * bands, which is the strongest single cue that this is a planet. Rocky worlds
-   * want the two closer together so the noise reads as terrain instead. */
-  freq: [number, number];
-  octaves: number;
-  /** How hard the second field pushes the first: high for Jovian storm curl,
-   * low for quiet terrain. */
-  warp: number;
-  seed: number;
-  /** Relief depth. Rock takes a high value, gas almost none. */
-  relief: number;
-  /** Atmospheric limb glow. */
-  glow: string;
-  /** Rim light on the lit edge. */
-  rim: string;
-  /** Seconds for the surface to drift across the face. */
-  spin: number;
-  /** Disc radius override, in viewBox units out of 100. Only ringed bodies set
-   * it; the ring needs the margin the disc gives up. */
-  discR?: number;
-  /** A separate high-albedo layer drifting at its own rate, for worlds with
-   * weather. Absent on airless bodies. */
-  clouds?: { opacity: number; freq: [number, number]; seed: number; spin: number };
-  ringed?: boolean;
-}
 
 /* ───────────────────────────── planet ───────────────────────────── */
 
-export function PlanetBody({ id, skin }: { id: string; skin: BodySkin }) {
-  const R = skin.discR ?? BASE_R;
-  // The shell hugs the disc at any radius — see the note on the atmo gradient.
-  const atmoR = R * 1.42;
-  const surf = `s-${id}`;
-  const cloud = `cd-${id}`;
-  const shade = `sh-${id}`;
-  const spec = `sp-${id}`;
-  const atmo = `at-${id}`;
-  const clip = `cl-${id}`;
-  const ring = `rg-${id}`;
-  const ringTop = `rt-${id}`;
-  const ringBot = `rb-${id}`;
-  const bulge = `bg-${id}`;
-  const bulgeMask = `bm-${id}`;
+export interface PhotoSkin {
+  /** Path under /img/planets, e.g. "/img/planets/earth.webp". */
+  texture: string;
+  /** Seconds for one full, clearly-visible rotation. Deliberately a "reads at a
+   * glance" speed rather than a scaled-down real rotation period — Mercury's
+   * actual ~59-day spin would just look motionless here. */
+  spinSeconds: number;
+  /** Venus and Uranus really do rotate retrograde; flipping their spin
+   * direction is a small, free nod to that. */
+  reverseSpin?: boolean;
+  /** Atmospheric limb glow, in this body's own real colour. */
+  glow: string;
+  /** Disc radius override, in viewBox units out of 100 — see BASE_R. */
+  discR?: number;
+  ringed?: boolean;
+}
+
+/** One concentric line of Saturn's ring, as a fraction of the disc radius R.
+ * No band has any real "thickness" here — each is a thin stroked ellipse, and
+ * the ring as a whole is just many of these at different radii, brightnesses
+ * and colours. That's the deliberate difference from the two earlier passes,
+ * which both tried to fill a wide band (first with a real ring-density photo
+ * at `multiply`, which just muddied into a flat haze at this element's actual
+ * on-screen size; then with solid-coloured annuli, which read as thickness
+ * rather than as rings). Many thin concentric lines, bright where real
+ * Saturn's B ring is brightest and gapped where the Cassini division actually
+ * falls, is what reads as layered circles instead of a dyed swath. */
+interface RingLine {
+  r: number;
+  strokeWidth: number;
+  color: string;
+  opacity: number;
+}
+
+const SATURN_RING_LINES: RingLine[] = [
+  { r: 1.16, strokeWidth: 0.55, color: "#a98a55", opacity: 0.4 },
+  { r: 1.24, strokeWidth: 0.45, color: "#c9a565", opacity: 0.45 },
+  { r: 1.33, strokeWidth: 0.7, color: "#e3c98f", opacity: 0.6 },
+  { r: 1.44, strokeWidth: 0.9, color: "#fdf1cf", opacity: 0.85 },
+  { r: 1.54, strokeWidth: 0.7, color: "#f2dfab", opacity: 0.8 },
+  { r: 1.64, strokeWidth: 0.95, color: "#fffaea", opacity: 0.92 },
+  // gap 1.64–1.78: the Cassini division.
+  { r: 1.86, strokeWidth: 0.6, color: "#e3c98f", opacity: 0.6 },
+  { r: 1.96, strokeWidth: 0.5, color: "#d4b787", opacity: 0.5 },
+  { r: 2.06, strokeWidth: 0.4, color: "#f7ecce", opacity: 0.35 },
+  { r: 2.18, strokeWidth: 0.35, color: "#f7ecce", opacity: 0.2 },
+];
+
+/** One half (far or near) of the ring, all lines together. */
+function RingHalf({ id, half, R }: { id: string; half: "far" | "near"; R: number }) {
+  const halfClip = `rh-${id}-${half}`;
 
   return (
-    <svg className="hb-body" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+    <svg className="hb-photo-ring" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
       <defs>
-        <filter id={surf} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency={`${skin.freq[0]} ${skin.freq[1]}`}
-            numOctaves={skin.octaves}
-            seed={skin.seed}
-            result="bands"
-          />
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.03"
-            numOctaves="3"
-            seed={skin.seed + 17}
-            result="warp"
-          />
-          <feDisplacementMap
-            in="bands"
-            in2="warp"
-            scale={skin.warp}
-            xChannelSelector="R"
-            yChannelSelector="G"
-            result="swirled"
-          />
-          {/* albedo */}
-          <feColorMatrix in="swirled" type="saturate" values="0" result="grey" />
-          <feComponentTransfer in="grey" result="albedo">
-            <feFuncR type="table" tableValues={rampTable(skin.ramp, 0)} />
-            <feFuncG type="table" tableValues={rampTable(skin.ramp, 1)} />
-            <feFuncB type="table" tableValues={rampTable(skin.ramp, 2)} />
-            <feFuncA type="table" tableValues="1 1" />
-          </feComponentTransfer>
-
-          {/* relief — the fine field is a height map, lit from the same direction
-              as the terminator below so the two agree */}
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.09"
-            numOctaves="4"
-            seed={skin.seed + 5}
-            result="bump"
-          />
-          <feDiffuseLighting
-            in="bump"
-            surfaceScale={skin.relief}
-            diffuseConstant="1.05"
-            lightingColor="#ffffff"
-            result="relief"
-          >
-            <feDistantLight azimuth="228" elevation="58" />
-          </feDiffuseLighting>
-
-          {/* albedo x relief */}
-          <feComposite in="albedo" in2="relief" operator="arithmetic" k1="1" k2="0" k3="0" k4="0" />
-        </filter>
-
-        {skin.clouds && (
-          <filter id={cloud} x="0" y="0" width="100%" height="100%" colorInterpolationFilters="sRGB">
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency={`${skin.clouds.freq[0]} ${skin.clouds.freq[1]}`}
-              numOctaves="5"
-              seed={skin.clouds.seed}
-              result="c"
-            />
-            <feColorMatrix in="c" type="saturate" values="0" result="cg" />
-            {/* Only the top of the noise range becomes cloud; the rest is clear
-                sky, which is what gives broken cover rather than a white wash. */}
-            <feComponentTransfer in="cg">
-              <feFuncR type="table" tableValues="1 1" />
-              <feFuncG type="table" tableValues="1 1" />
-              <feFuncB type="table" tableValues="1 1" />
-              <feFuncA type="table" tableValues="0 0 0 0.25 0.85 1" />
-            </feComponentTransfer>
-          </filter>
-        )}
-
-        {/* Limb darkening and terminator, lit from up-and-left to agree with the
-            relief above and with the star at the centre of the system. */}
-        <radialGradient id={shade} cx="31%" cy="25%" r="92%">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.24" />
-          <stop offset="14%" stopColor="#ffffff" stopOpacity="0.12" />
-          <stop offset="28%" stopColor="#ffffff" stopOpacity="0.02" />
-          <stop offset="40%" stopColor="#000000" stopOpacity="0.12" />
-          <stop offset="52%" stopColor="#000000" stopOpacity="0.3" />
-          <stop offset="63%" stopColor="#000000" stopOpacity="0.5" />
-          <stop offset="73%" stopColor="#000000" stopOpacity="0.68" />
-          <stop offset="82%" stopColor="#000000" stopOpacity="0.82" />
-          <stop offset="91%" stopColor="#000000" stopOpacity="0.91" />
-          <stop offset="100%" stopColor="#000000" stopOpacity="0.96" />
-        </radialGradient>
-
-        <radialGradient id={spec} cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.42" />
-          <stop offset="45%" stopColor="#ffffff" stopOpacity="0.1" />
-          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-        </radialGradient>
-
-        {/* Atmospheric scattering: a thin bright shell sitting directly on the
-            disc's edge. The offsets are relative to `atmoR`, not fixed, because
-            the ringed body shrinks its disc — with the stops hardcoded, its
-            shell detached from the planet and floated as a separate circle. */}
-        <radialGradient id={atmo} cx="50%" cy="50%" r="50%">
-          <stop offset="69%" stopColor={skin.glow} stopOpacity="0" />
-          <stop offset="70.5%" stopColor={skin.glow} stopOpacity="0.4" />
-          <stop offset="74%" stopColor={skin.glow} stopOpacity="0.26" />
-          <stop offset="80%" stopColor={skin.glow} stopOpacity="0.13" />
-          <stop offset="88%" stopColor={skin.glow} stopOpacity="0.05" />
-          <stop offset="95%" stopColor={skin.glow} stopOpacity="0.012" />
-          <stop offset="100%" stopColor={skin.glow} stopOpacity="0" />
-        </radialGradient>
-
-        <clipPath id={clip}>
-          <circle cx={C} cy={C} r={R} />
+        <clipPath id={halfClip}>
+          <rect x="0" y={half === "far" ? 0 : C} width="100" height={C} />
         </clipPath>
-
-        {/* Foreshortening mask. A sphere's texture is magnified where the surface
-            faces the camera and compressed toward the limb; a single flat texture
-            has none of that, which is most of why an unaided disc reads as a
-            sticker. Showing a scaled-up copy of the same surface through this
-            mask reproduces the effect: coarse features at the centre, fine ones
-            at the edge. */}
-        <radialGradient id={bulge} cx="42%" cy="38%" r="52%">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
-          <stop offset="45%" stopColor="#ffffff" stopOpacity="0.82" />
-          <stop offset="72%" stopColor="#ffffff" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-        </radialGradient>
-        <mask id={bulgeMask}>
-          <rect x="0" y="0" width="100" height="100" fill={`url(#${bulge})`} />
-        </mask>
-
-        {skin.ringed && (
-          <>
-            <linearGradient id={ring} x1="0" y1="0" x2="1" y2="0">
-              <stop offset="0%" stopColor={skin.glow} stopOpacity="0" />
-              <stop offset="14%" stopColor={skin.rim} stopOpacity="0.55" />
-              <stop offset="32%" stopColor="#ffffff" stopOpacity="0.72" />
-              <stop offset="50%" stopColor={skin.rim} stopOpacity="0.4" />
-              <stop offset="68%" stopColor="#ffffff" stopOpacity="0.72" />
-              <stop offset="86%" stopColor={skin.rim} stopOpacity="0.55" />
-              <stop offset="100%" stopColor={skin.glow} stopOpacity="0" />
-            </linearGradient>
-            <clipPath id={ringTop}>
-              <rect x="0" y="0" width="100" height={C} />
-            </clipPath>
-            <clipPath id={ringBot}>
-              <rect x="0" y={C} width="100" height={C} />
-            </clipPath>
-          </>
-        )}
       </defs>
-
-      <circle cx={C} cy={C} r={atmoR} fill={`url(#${atmo})`} />
-
-      {/* Ring, far half — drawn before the body so the planet occludes it. */}
-      {skin.ringed && (
-        <g transform={`rotate(-12 ${C} ${C})`} clipPath={`url(#${ringTop})`}>
-          <ellipse cx={C} cy={C} rx={R * 1.78} ry={R * 0.4} fill="none" stroke={`url(#${ring})`} strokeWidth="2.6" opacity="0.5" />
-          <ellipse cx={C} cy={C} rx={R * 1.42} ry={R * 0.32} fill="none" stroke={`url(#${ring})`} strokeWidth="1.6" opacity="0.4" />
-        </g>
-      )}
-
-      <g clipPath={`url(#${clip})`}>
-        {/* The surface is wider than the disc and drifts across it. The drift
-            alternates rather than looping: fractal noise does not tile, so a
-            one-way loop would jump at the seam. At this speed it reads as
-            weather moving over the face. */}
-        <g className="hb-body-drift" style={{ animationDuration: `${skin.spin}s` }}>
-          <rect x="-70" y="6" width="240" height="88" filter={`url(#${surf})`} />
-        </g>
-        <g mask={`url(#${bulgeMask})`}>
-          <g className="hb-body-drift" style={{ animationDuration: `${skin.spin}s` }}>
-            <g transform={`translate(${C} ${C}) scale(1.75) translate(${-C} ${-C})`}>
-              <rect x="-70" y="6" width="240" height="88" filter={`url(#${surf})`} />
-            </g>
-          </g>
-        </g>
-        {skin.clouds && (
-          <g
-            className="hb-body-drift hb-body-drift--alt"
-            style={{ animationDuration: `${skin.clouds.spin}s`, opacity: skin.clouds.opacity }}
-          >
-            <rect x="-70" y="6" width="240" height="88" filter={`url(#${cloud})`} />
-          </g>
-        )}
-        <circle cx={C} cy={C} r={R} fill={`url(#${shade})`} />
-        <ellipse cx={C - R * 0.36} cy={C - R * 0.42} rx={R * 0.42} ry={R * 0.32} fill={`url(#${spec})`} />
+      <g clipPath={`url(#${halfClip})`} transform={`rotate(-12 ${C} ${C})`} opacity={half === "far" ? 0.62 : 1}>
+        {SATURN_RING_LINES.map((line, i) => {
+          const rx = line.r * R;
+          const ry = rx * 0.225;
+          return (
+            <ellipse
+              key={i}
+              cx={C}
+              cy={C}
+              rx={rx}
+              ry={ry}
+              fill="none"
+              stroke={line.color}
+              strokeOpacity={line.opacity}
+              strokeWidth={line.strokeWidth}
+            />
+          );
+        })}
       </g>
-
-      {/* Rim light on the lit limb only. A full stroke reads as an outline and
-          instantly makes the body look drawn rather than lit. */}
-      <circle
-        cx={C}
-        cy={C}
-        r={R - 0.4}
-        fill="none"
-        stroke={skin.rim}
-        strokeWidth="0.85"
-        strokeOpacity="0.6"
-        strokeDasharray={`${2 * Math.PI * R * 0.4} ${2 * Math.PI * R}`}
-        transform={`rotate(-152 ${C} ${C})`}
-      />
-
-      {/* Ring, near half. */}
-      {skin.ringed && (
-        <g transform={`rotate(-12 ${C} ${C})`} clipPath={`url(#${ringBot})`}>
-          <ellipse cx={C} cy={C} rx={R * 1.78} ry={R * 0.4} fill="none" stroke={`url(#${ring})`} strokeWidth="2.6" opacity="0.9" />
-          <ellipse cx={C} cy={C} rx={R * 1.42} ry={R * 0.32} fill="none" stroke={`url(#${ring})`} strokeWidth="1.6" opacity="0.75" />
-        </g>
-      )}
     </svg>
+  );
+}
+
+export function PhotoPlanetBody({ id, skin }: { id: string; skin: PhotoSkin }) {
+  const R = skin.discR ?? BASE_R;
+  const discPct = (R * 2) / 100;
+
+  const style = {
+    "--disc-pct": `${(discPct * 100).toFixed(2)}%`,
+    "--glow": skin.glow,
+  } as React.CSSProperties;
+
+  return (
+    <div className="hb-photobody" style={style}>
+      {skin.ringed && <RingHalf id={id} half="far" R={R} />}
+      <div className="hb-photo-disc">
+        <div
+          className="hb-photo-spin"
+          style={{
+            animationDuration: `${skin.spinSeconds}s`,
+            animationDirection: skin.reverseSpin ? "reverse" : "normal",
+          }}
+        >
+          <img src={skin.texture} alt="" draggable={false} />
+          <img src={skin.texture} alt="" draggable={false} />
+        </div>
+        <div className="hb-photo-shade" />
+        <div className="hb-photo-spec" />
+      </div>
+      {skin.ringed && <RingHalf id={id} half="near" R={R} />}
+    </div>
   );
 }
 
@@ -585,6 +422,62 @@ export function VoyagerCraft() {
       {/* ── one hard specular, from the star it is leaving ── */}
       <ellipse cx="130" cy="45" rx="12" ry="3.4" fill="#fffdf2" opacity="0.5" transform="rotate(-17 130 45)" />
       <ellipse cx="196" cy="66" rx="7" ry="2.6" fill="#ffffff" opacity="0.42" transform="rotate(-28 196 66)" />
+    </svg>
+  );
+}
+
+/* ───────────────────────────── rocket ───────────────────────────── */
+
+/** A generic two-stage rocket for the Earth→Mars run (see Hub.tsx's
+ * `.hb-rocket-*` orbiter). Deliberately not a reproduction of any real launch
+ * provider's actual wordmark/logo — a decorative flourish on a public page
+ * isn't the kind of "identify this company" use the site's stock logos are
+ * (those label the actual companies being tracked); this is drawn in the same
+ * hand-built vector language as VoyagerCraft above instead, with its own
+ * paint scheme so the two read as distinct craft. */
+export function RocketCraft() {
+  return (
+    <svg viewBox="0 0 60 140" className="hb-rocket-art" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="rk-body" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#8d95a3" />
+          <stop offset="30%" stopColor="#f4f6fa" />
+          <stop offset="55%" stopColor="#ffffff" />
+          <stop offset="78%" stopColor="#c7cedb" />
+          <stop offset="100%" stopColor="#7b8494" />
+        </linearGradient>
+        <linearGradient id="rk-fin" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#e14b3a" />
+          <stop offset="100%" stopColor="#9c2a1e" />
+        </linearGradient>
+        <radialGradient id="rk-flame" cx="50%" cy="0%" r="85%">
+          <stop offset="0%" stopColor="#fff6d0" stopOpacity="0.95" />
+          <stop offset="35%" stopColor="#ffb454" stopOpacity="0.85" />
+          <stop offset="70%" stopColor="#ff6a3d" stopOpacity="0.45" />
+          <stop offset="100%" stopColor="#ff6a3d" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      {/* engine flame, trailing behind (below) the craft */}
+      <ellipse cx="30" cy="122" rx="10" ry="26" fill="url(#rk-flame)" className="hb-rocket-flame" />
+
+      {/* fins */}
+      <path d="M13 92 L2 122 L16 110 Z" fill="url(#rk-fin)" stroke="#6e1a11" strokeWidth="0.6" />
+      <path d="M47 92 L58 122 L44 110 Z" fill="url(#rk-fin)" stroke="#6e1a11" strokeWidth="0.6" />
+
+      {/* body */}
+      <path
+        d="M30 4 C 40 22 44 52 44 92 L16 92 C 16 52 20 22 30 4 Z"
+        fill="url(#rk-body)"
+        stroke="#5b6270"
+        strokeWidth="1"
+      />
+      {/* nose cap */}
+      <path d="M30 4 C 34 12 37 20 38.5 30 L21.5 30 C 23 20 26 12 30 4 Z" fill="#d3392b" stroke="#8a2018" strokeWidth="0.7" />
+      {/* body stripe + window */}
+      <rect x="16" y="58" width="28" height="6" fill="#d3392b" opacity="0.9" />
+      <circle cx="30" cy="46" r="6.5" fill="#274058" stroke="#eef2f8" strokeWidth="1.6" />
+      <circle cx="28" cy="44" r="2" fill="#8fc4ff" opacity="0.8" />
     </svg>
   );
 }

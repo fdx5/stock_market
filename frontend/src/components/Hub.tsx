@@ -4,8 +4,9 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { BodySkin, PlanetBody, StarBody, VoyagerCraft } from "./CelestialBody";
+import { PhotoPlanetBody, PhotoSkin, RocketCraft, StarBody, VoyagerCraft } from "./CelestialBody";
 import LanguageToggle from "./LanguageToggle";
+import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
 import "./hub.css";
 
@@ -42,180 +43,138 @@ interface PlanetSpec {
   /** Where on the ring it starts, 0..1 — applied as a negative animation-delay
    * so the planet and its counter-rotating billboard stay locked together. */
   phase: number;
-  /** How the body is generated — see CelestialBody.tsx. */
-  skin: BodySkin;
+  /** Real photographic texture + lighting — see CelestialBody.tsx. */
+  skin: PhotoSkin;
   /** Which live index (if any) prints on the body. */
   feed?: "KOSPI" | "KOSDAQ" | "SPX" | "NDX";
 }
 
-/* One ring per planet. Spacing is 1.5x what it started at, which pushes the
-   outermost orbit well past what a phone can show — the narrow tiers pull the
-   whole system back in with --orbit-scale and --orbit-base (see hub.css), so the
-   desktop layout is no longer the one constrained by the smallest screen. Sizes are the SVG
-   element's, and the disc inside it is 68% of that (CelestialBody draws r = 34
-   in a 100-unit box) — the remaining margin is where the atmosphere lives, which
-   is what keeps the glow from overflowing and being clipped. */
+/* One ring per planet, in real solar-system order (Mercury innermost through
+   Uranus outermost). Radii are spread further apart than the first pass at
+   this reorder — Earth/Mars and Saturn/Uranus originally landed on the exact
+   same radius (338 and 512 respectively), sharing one visual track apiece —
+   now strictly increasing with a widening gap outward (150→610), which is
+   also why hub.css's --orbit-unit clamp divisors were rescaled to match the
+   new 610 outer radius (see that comment). `size` is independent of the
+   orbit and is graded to each planet's actual relative scale instead (Jupiter
+   biggest, Mercury smallest; Saturn sized up further so its ring has room to
+   read). Sizes are the container's, and the disc inside it is 68% of that by
+   default (CelestialBody's BASE_R = 34 in a 100-unit box). */
 const PLANETS: PlanetSpec[] = [
   {
-    key: "kospi",
-    to: "/map",
-    ko: "코스피",
-    en: "KOSPI",
-    radius: 165,
-    size: 92,
+    key: "mercury",
+    to: "/news",
+    ko: "글로벌 뉴스",
+    en: "GLOBAL NEWS",
+    radius: 150,
+    size: 60,
     duration: 34,
     phase: 0.06,
-    feed: "KOSPI",
     skin: {
-      // Rocky and iron-oxide red: near-isotropic noise, so it reads as terrain
-      // rather than the banded atmosphere of the gas giants below.
-      ramp: ["#2b0f06", "#6d2a12", "#a94f27", "#d4884f", "#f3c99b"],
-      freq: [0.03, 0.052],
-      octaves: 5,
-      warp: 7,
-      seed: 3,
-      relief: 4.6,
-      glow: "#ff9d5c",
-      rim: "#ffd9b5",
-      spin: 21,
+      texture: "/img/planets/mercury.webp",
+      spinSeconds: 9,
+      glow: "#c9beae",
     },
   },
   {
-    key: "kosdaq",
+    key: "venus",
     to: "/kosdaq-map",
     ko: "코스닥",
     en: "KOSDAQ",
-    radius: 223,
-    size: 74,
+    radius: 215,
+    size: 86,
     duration: 40,
     phase: 0.56,
     feed: "KOSDAQ",
     skin: {
-      // Ocean, landmass, cloud.
-      ramp: ["#04243a", "#0a5570", "#1c8f6a", "#7fc98d", "#f2fbf6"],
-      freq: [0.024, 0.042],
-      octaves: 5,
-      warp: 11,
-      seed: 21,
-      relief: 3.0,
-      glow: "#4fe3ad",
-      rim: "#d3fff0",
-      spin: 24,
-      clouds: { opacity: 0.5, freq: [0.03, 0.05], seed: 77, spin: 36 },
+      texture: "/img/planets/venus.webp",
+      spinSeconds: 13,
+      // Venus's real rotation is retrograde.
+      reverseSpin: true,
+      glow: "#f5e2ab",
     },
   },
   {
-    key: "sp500",
-    to: "/sp500-map",
-    ko: "S&P 500",
-    en: "S&P 500",
-    radius: 338,
-    size: 86,
+    key: "earth",
+    to: "/map",
+    ko: "코스피",
+    en: "KOSPI",
+    radius: 285,
+    size: 90,
     duration: 50,
     phase: 0.2,
-    feed: "SPX",
+    feed: "KOSPI",
     skin: {
-      // Ice giant: strongly banded, lightly swirled, methane blue.
-      ramp: ["#04173f", "#0e357e", "#2f6cc4", "#7cb2ee", "#e8f3ff"],
-      freq: [0.01, 0.056],
-      octaves: 4,
-      warp: 15,
-      seed: 44,
-      relief: 1.2,
-      glow: "#5f9dff",
-      rim: "#dfeaff",
-      spin: 27,
+      texture: "/img/planets/earth.webp",
+      spinSeconds: 11,
+      glow: "#5fa8ff",
     },
   },
   {
-    key: "nasdaq",
+    key: "mars",
     to: "/nasdaq100-map",
     ko: "나스닥 100",
     en: "NASDAQ 100",
-    radius: 338,
-    size: 78,
+    radius: 355,
+    size: 68,
     duration: 58,
     phase: 0.68,
     feed: "NDX",
     skin: {
-      // Gas giant: the lowest horizontal frequency here, plus the heaviest warp,
-      // which is what turns flat bands into storm curls.
-      ramp: ["#1b0a3d", "#402076", "#7853c2", "#b79ae8", "#f0e6ff"],
-      freq: [0.008, 0.062],
-      octaves: 5,
-      warp: 21,
-      seed: 66,
-      relief: 0.85,
-      glow: "#a274ff",
-      rim: "#ece0ff",
-      spin: 23,
+      texture: "/img/planets/mars.webp",
+      spinSeconds: 10,
+      glow: "#ff8f5c",
     },
   },
   {
-    key: "ai",
+    key: "jupiter",
+    to: "/sp500-map",
+    ko: "S&P 500",
+    en: "S&P 500",
+    radius: 440,
+    size: 132,
+    duration: 74,
+    phase: 0.78,
+    feed: "SPX",
+    skin: {
+      texture: "/img/planets/jupiter.webp",
+      spinSeconds: 16,
+      glow: "#e0b177",
+    },
+  },
+  {
+    key: "saturn",
     to: "/ai-prediction",
     ko: "AI 예측",
     en: "AI FORECAST",
-    radius: 512,
-    size: 132,
+    radius: 525,
+    size: 150,
     duration: 66,
     phase: 0.42,
     skin: {
-      ramp: ["#03252f", "#0a5c72", "#22a6c4", "#8fe2f2", "#f0feff"],
-      freq: [0.011, 0.05],
-      octaves: 4,
-      warp: 13,
-      seed: 88,
-      relief: 1.7,
-      glow: "#46dcff",
-      rim: "#d9fbff",
-      spin: 30,
+      texture: "/img/planets/saturn.webp",
+      spinSeconds: 18,
+      glow: "#e8cf9a",
       discR: 25,
       ringed: true,
     },
   },
   {
-    key: "battle",
+    key: "uranus",
     to: "/fight",
     ko: "시총 대결",
     en: "CAP BATTLE",
-    radius: 454,
-    size: 70,
-    duration: 74,
-    phase: 0.78,
-    skin: {
-      // Volcanic: a dark crust with molten fissures, so the ramp spends most of
-      // its range near black and spikes at the top end.
-      ramp: ["#120503", "#3d0f06", "#8f2b0b", "#e0701c", "#ffd483"],
-      freq: [0.036, 0.046],
-      octaves: 5,
-      warp: 9,
-      seed: 105,
-      relief: 5.2,
-      glow: "#ff9436",
-      rim: "#ffd3a2",
-      spin: 19,
-    },
-  },
-  {
-    key: "news",
-    to: "/news",
-    ko: "글로벌 뉴스",
-    en: "GLOBAL NEWS",
-    radius: 512,
-    size: 66,
+    radius: 610,
+    size: 78,
     duration: 84,
     phase: 0.14,
     skin: {
-      ramp: ["#2b0620", "#6b1745", "#b03a75", "#e07fae", "#ffe4f2"],
-      freq: [0.009, 0.058],
-      octaves: 4,
-      warp: 18,
-      seed: 131,
-      relief: 0.9,
-      glow: "#ff7cc4",
-      rim: "#ffdcef",
-      spin: 26,
+      texture: "/img/planets/uranus.webp",
+      spinSeconds: 14,
+      // Uranus's real rotation is retrograde (its axis is tipped ~98°, but a
+      // full barrel-roll is out of scope for this billboard).
+      reverseSpin: true,
+      glow: "#8fe9e0",
     },
   },
 ];
@@ -338,6 +297,93 @@ function toneOf(value: number | null | undefined): "up" | "down" | "flat" {
   return "flat";
 }
 
+/* ───────────────────────────── moons ─────────────────────────────
+   Small satellites orbiting a specific planet rather than the sun. They sit
+   inside that planet's own `.hb-billboard` (see Planet below), which is
+   already the flattened, camera-facing frame the planet's own face uses — a
+   plain 2D rotate here is enough to sweep them around the disc; there is no
+   tilt left to cancel at that point in the transform chain.
+
+   Two kinds:
+   - "stock": Earth's Samsung/SK hynix satellites — real logos (the existing
+     StockIcon component, same Naver-backed source every other logo in this
+     app uses), clicking through to that company's actual stock page (see
+     App.tsx: any "open a stock" route now targets /dashboard?code=).
+   - "rocket": Mars's satellite. There's no stock page to link to (SpaceX
+     isn't listed on any exchange this app tracks), and — unlike the Samsung/
+     SK logos above, which identify real tickers this app actually covers —
+     stamping SpaceX's actual trademarked wordmark on a decorative orbiter
+     isn't the same kind of use. This reuses CelestialBody's RocketCraft (the
+     same generic vector built for the earlier, now-removed Earth→Mars
+     flourish) as a stand-in, and links to /global?code=SPCX (GlobalStockPage,
+     which reads ?code= itself) per an explicit request for that destination. */
+
+interface MoonSpec {
+  key: string;
+  to: string;
+  ko: string;
+  en: string;
+  /** Added to the host planet's own rendered radius, in px, so the orbit
+   * always clears the planet regardless of viewport scale (both are in the
+   * same --size / --body-unit units via the CSS calc in .hb-moon-arm). */
+  offsetPx: number;
+  durationSeconds: number;
+  phase: number;
+  kind: "stock" | "rocket";
+  /** Stock code for StockIcon — only set when kind is "stock". */
+  code?: string;
+}
+
+const EARTH_MOONS: MoonSpec[] = [
+  { key: "samsung", to: "/dashboard?code=005930", ko: "삼성전자", en: "Samsung", offsetPx: 33, durationSeconds: 7, phase: 0, kind: "stock", code: "005930" },
+  { key: "skhynix", to: "/dashboard?code=000660", ko: "SK하이닉스", en: "SK hynix", offsetPx: 59, durationSeconds: 11, phase: 0.5, kind: "stock", code: "000660" },
+];
+
+// "/global?code=SPCX" rather than the full production URL — GlobalStockPage
+// (App.tsx's "/global" route) already reads ?code= itself, and a relative
+// path keeps this working through the SPA's own navigate() in local dev too;
+// a hardcoded https://kospi-predictor.onrender.com/... would send local
+// testing off to the live site instead of whatever's actually running here.
+const MARS_MOONS: MoonSpec[] = [
+  { key: "spacex", to: "/global?code=SPCX", ko: "SpaceX", en: "SpaceX", offsetPx: 24, durationSeconds: 9, phase: 0.25, kind: "rocket" },
+];
+
+function Moonlet({ spec, en, onOpen }: { spec: MoonSpec; en: boolean; onOpen: (to: string) => void }) {
+  const label = en ? spec.en : spec.ko;
+  const delay = `${-spec.durationSeconds * spec.phase}s`;
+  const style = {
+    "--md": `${spec.durationSeconds}s`,
+    "--mdelay": delay,
+    "--mr": `${spec.offsetPx}px`,
+  } as React.CSSProperties;
+
+  return (
+    <div className="hb-moon-orbiter" style={style}>
+      <div className="hb-moon-arm">
+        <div className="hb-moon-face">
+          <button
+            type="button"
+            className={spec.kind === "rocket" ? "hb-moon hb-moon--rocket" : "hb-moon"}
+            onClick={() => onOpen(spec.to)}
+            aria-label={`${en ? "Satellite" : "위성"}: ${label}`}
+            title={label}
+          >
+            {spec.kind === "rocket" ? (
+              <RocketCraft />
+            ) : (
+              <>
+                <span className="hb-moon-wing hb-moon-wing--l" />
+                <StockIcon code={spec.code!} className="hb-moon-logo" />
+                <span className="hb-moon-wing hb-moon-wing--r" />
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ───────────────────────────── planet ───────────────────────────── */
 
 function Planet({
@@ -376,7 +422,7 @@ function Planet({
             onClick={() => onOpen(spec.to)}
             aria-label={`${en ? "Planet" : "행성"}: ${label}`}
           >
-            <PlanetBody id={spec.key} skin={spec.skin} />
+            <PhotoPlanetBody id={spec.key} skin={spec.skin} />
             <span className="hb-tag">
               <span className="hb-tag-name">{label}</span>
               {change !== null && (
@@ -384,6 +430,13 @@ function Planet({
               )}
             </span>
           </button>
+          {(spec.key === "earth" || spec.key === "mars") && (
+            <div className="hb-moons">
+              {(spec.key === "earth" ? EARTH_MOONS : MARS_MOONS).map((moon) => (
+                <Moonlet key={moon.key} spec={moon} en={en} onOpen={onOpen} />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -24,18 +24,23 @@
 
   /* Radii and body sizes are authored at desktop scale and multiplied here, so
      one pair of numbers reflows the entire system per breakpoint. */
-  /* The system's scale, as a length per design unit (a radius of 512 becomes
-     512 * --orbit-unit). Derived from the viewport rather than picked per
-     breakpoint: the binding constraint is how far the near side of the outer
-     orbit swings down the screen, which is a function of height, and tiers kept
-     letting the outermost label land on the hint line at whichever size had not
-     been tuned yet. Both terms are the geometry solved for scale — vertical
-     room below the system centre, and horizontal room either side — and the
-     smaller wins.
+  /* The system's scale, as a length per design unit (a radius of 610 — now
+     Uranus's, the outermost track — becomes 610 * --orbit-unit). Derived from
+     the viewport rather than picked per breakpoint: the binding constraint is
+     how far the near side of the outer orbit swings down the screen, which is
+     a function of height, and tiers kept letting the outermost label land on
+     the hint line at whichever size had not been tuned yet. Both terms are the
+     geometry solved for scale — vertical room below the system centre, and
+     horizontal room either side — and the smaller wins. The two divisors below
+     were originally solved for a 512 outer radius; when that radius grew to
+     610 (spreading the rings apart to stop two pairs sharing a track — see
+     PLANETS in Hub.tsx) both were scaled by the same 610/512 ratio rather than
+     re-derived, which keeps the exact fit this comment describes instead of
+     guessing new numbers.
 
      Everything else follows from this one number, so orbit size, planet spacing
      and body size all grow and shrink together. */
-  --orbit-unit: clamp(0.2px, min((100vh - 380px) / 640, (100vw - 250px) / 1120), 1.3px);
+  --orbit-unit: clamp(0.2px, min((100vh - 380px) / 762, (100vw - 250px) / 1334), 1.3px);
   --body-unit: calc(var(--orbit-unit) * 1.26);
   --star-min: calc(128 * var(--body-unit));
   /* Added to every orbit radius after scaling. Planets have a 40px tap-target
@@ -553,6 +558,26 @@ body:has(.hb) {
   to { transform: rotate(360deg); }
 }
 
+/* ── rocket art ──
+   RocketCraft (CelestialBody.tsx) is reused as the Mars satellite's badge (see
+   .hb-moon-rocket below) — these two classes are the SVG's own sizing/glow
+   and its engine-flame flicker, used wherever the craft is rendered. */
+.hb-rocket-art {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 0 5px rgba(255, 150, 90, 0.55));
+}
+
+.hb-rocket-flame {
+  animation: hb-rocket-flicker 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes hb-rocket-flicker {
+  from { opacity: 0.75; transform: scaleY(0.92); }
+  to { opacity: 1; transform: scaleY(1.08); }
+}
+
 /* ── orbiting bodies ── */
 
 /* The spinning frame. One per planet so each can carry its own radius, period
@@ -601,6 +626,128 @@ body:has(.hb) {
   to { transform: rotateZ(-360deg) rotateX(calc(var(--tilt) * -1)); }
 }
 
+/* ── Earth's satellites ──
+   These live inside `.hb-billboard`, which by this point in the transform
+   chain is already flattened and camera-facing (that's the whole point of the
+   billboard trick) — so unlike the planets themselves, a moon's sweep needs no
+   tilt to cancel, just a plain 2D rotate. `--size`/`--body-unit` are inherited
+   from the enclosing `.hb-orbiter`/`.hb` (custom properties cross transformed
+   boundaries fine), which is what lets `.hb-moon-arm` clear Earth's own
+   rendered radius at any viewport scale. */
+.hb-moons {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
+.hb-moon-orbiter {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  animation: hb-moon-cw var(--md) linear infinite;
+  animation-delay: var(--mdelay);
+}
+
+@keyframes hb-moon-cw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes hb-moon-ccw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+.hb-moon-arm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateX(calc((var(--size) * var(--body-unit) / 2) + var(--mr)));
+}
+
+/* Counter-rotates on the same duration/delay as the orbiter above so the
+   satellite itself stays upright while it sweeps — same cancellation trick as
+   .hb-billboard, just without a tilt term to also undo. */
+.hb-moon-face {
+  animation: hb-moon-ccw var(--md) linear infinite;
+  animation-delay: var(--mdelay);
+}
+
+/* Another 1.5x on top of the first bump (18px → 27px → 40px) — the logos were
+   still reading as barely-legible dots at 27px. */
+.hb-moon {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin: -20px 0 0 -20px;
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #eef2f8 0%, #b9c2d0 45%, #6b7385 100%);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35), 0 1px 4px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
+}
+
+.hb-moon:hover,
+.hb-moon:focus-visible {
+  transform: scale(1.25);
+  outline: none;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6), 0 0 10px rgba(255, 255, 255, 0.6), 0 1px 6px rgba(0, 0, 0, 0.6);
+  z-index: 6;
+}
+
+.hb-moon-logo {
+  position: absolute;
+  inset: 4px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: #fff;
+}
+
+/* Small solar-panel tabs either side of the logo badge — just enough for the
+   silhouette to read as "a small satellite", not a bare floating icon. */
+.hb-moon-wing {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 22px;
+  transform: translateY(-50%);
+  background: linear-gradient(180deg, #6fa8dc 0%, #2e5f96 100%);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.hb-moon-wing--l { left: -18px; }
+.hb-moon-wing--r { right: -18px; }
+
+/* Mars's satellite: RocketCraft's own art already reads as a small craft, so
+   this drops the circular badge/wings treatment the stock logos need and just
+   gives the SVG room at the same scale as the other two satellites. */
+.hb-moon--rocket {
+  width: 24px;
+  height: 55px;
+  margin: -27.5px 0 0 -12px;
+  background: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.hb-moon--rocket:hover,
+.hb-moon--rocket:focus-visible {
+  box-shadow: none;
+}
+
 .hb-planet {
   position: relative;
   display: block;
@@ -633,12 +780,15 @@ body:has(.hb) {
    tight white rim and a wider coloured bloom in the body's own atmosphere
    colour, which each planet passes down as --glow. */
 .hb-planet .hb-body,
+.hb-planet .hb-photobody,
 .hb-star {
   transition: filter 0.28s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .hb-planet:hover .hb-body,
-.hb-planet:focus-visible .hb-body {
+.hb-planet:focus-visible .hb-body,
+.hb-planet:hover .hb-photobody,
+.hb-planet:focus-visible .hb-photobody {
   filter:
     drop-shadow(0 0 3px rgba(255, 255, 255, 0.95))
     drop-shadow(0 0 10px var(--glow))
@@ -731,6 +881,115 @@ body:has(.hb) {
 .hb-bloom-pulse {
   animation: hb-breathe 5.5s ease-in-out infinite reverse;
   transform-origin: center;
+}
+
+/* ── photographic planets ──
+   See CelestialBody.tsx's PhotoPlanetBody. `--disc-pct`/`--glow` arrive as
+   inline custom properties, one set per body, computed from that body's own
+   disc radius. There used to be an atmospheric glow halo here too — a
+   radial-gradient ring just past the disc's edge — but at this element's
+   actual size it read as a hard artificial circle around the planet rather
+   than a soft haze, so it's gone; `--glow` now only feeds the hover flare
+   (see `.hb-planet:hover .hb-photobody` below). */
+
+.hb-photobody {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.hb-photo-disc {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--disc-pct);
+  height: var(--disc-pct);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden;
+  /* Establishes a stacking/compositing context for the spin layer beneath, so
+     the browser can promote it once rather than re-evaluate the clip every
+     frame. */
+  isolation: isolate;
+}
+
+/* The rotating globe. Two copies of the same equirectangular texture sit side
+   by side and slide left on a plain transform — compositor-only work, and the
+   loop is seamless because an equirectangular map's left and right edges are
+   the same meridian. This is the actual "you can see it spin" requirement;
+   the old noise planets only ever drifted a few pixels back and forth. */
+.hb-photo-spin {
+  position: absolute;
+  inset: 0;
+  width: 200%;
+  height: 100%;
+  display: flex;
+  animation-name: hb-photo-spin;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+
+.hb-photo-spin img {
+  width: 50%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+@keyframes hb-photo-spin {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* Terminator + limb darkening, ported from the old radialGradient's exact
+   stops — a real photo already carries its own shading, so this only needs to
+   agree with the scene's light direction (up-and-left), not invent relief. */
+.hb-photo-shade {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at 31% 25%,
+    rgba(255, 255, 255, 0.24) 0%,
+    rgba(255, 255, 255, 0.12) 14%,
+    rgba(255, 255, 255, 0.02) 28%,
+    rgba(0, 0, 0, 0.12) 40%,
+    rgba(0, 0, 0, 0.3) 52%,
+    rgba(0, 0, 0, 0.5) 63%,
+    rgba(0, 0, 0, 0.68) 73%,
+    rgba(0, 0, 0, 0.82) 82%,
+    rgba(0, 0, 0, 0.91) 91%,
+    rgba(0, 0, 0, 0.96) 100%
+  );
+}
+
+.hb-photo-spec {
+  position: absolute;
+  top: 29%;
+  left: 30%;
+  width: 42%;
+  height: 34%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 255, 255, 0.42) 0%,
+    rgba(255, 255, 255, 0.1) 45%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+.hb-photo-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
 }
 
 .hb-tag {
@@ -1029,8 +1288,14 @@ body:has(.hb) {
    o'clock. Pausing freezes each one exactly where its phase placed it. */
 @media (prefers-reduced-motion: reduce) {
   .hb-orbiter,
-  .hb-billboard {
+  .hb-billboard,
+  .hb-moon-orbiter,
+  .hb-moon-face {
     animation-play-state: paused;
+  }
+
+  .hb-rocket-flame {
+    animation: none;
   }
 
   .hb-nebula,
@@ -1039,6 +1304,7 @@ body:has(.hb) {
   .hb-shooting,
   .hb-ring-arc,
   .hb-body-drift,
+  .hb-photo-spin,
   .hb-corona-pulse,
   .hb-bloom-pulse,
   .hb-wordmark-main {
