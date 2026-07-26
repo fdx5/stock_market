@@ -91,6 +91,24 @@ export interface PredictionStatus {
 
 export type BatchRegion = "KR" | "US";
 
+/** One outcome of the hourly KakaoTalk visitor-stats notification (see
+ * backend/app/services/kakao_notify.py), regardless of which of the three triggers
+ * (cron, in-process fallback, or this panel's own button) produced it. */
+export interface KakaoNotifyRun {
+  status: "sent" | "not_configured" | "error" | "skipped_recent";
+  message?: string;
+  stats?: { online_now: number; total_visits: number; views_24h: number };
+  error?: string;
+  last_sent_at?: string;
+  triggered_by: "cron" | "in_process" | "admin";
+  finished_at: string;
+}
+
+export interface KakaoNotifyStatus {
+  configured: boolean;
+  last_run: KakaoNotifyRun | null;
+}
+
 export type CommentSource = "battle" | "fight";
 
 export interface AdminComment {
@@ -318,6 +336,9 @@ export const adminApi = {
   predictionStatus: () => authedGet<PredictionStatus>("/prediction/status"),
   runPrediction: (region: BatchRegion) =>
     authedPost<{ region: string; status: string }>(`/prediction/run?region=${region}`),
+
+  kakaoNotifyStatus: () => authedGet<KakaoNotifyStatus>("/notify/kakao/status"),
+  runKakaoNotify: () => authedPost<KakaoNotifyRun>("/notify/kakao/run"),
 
   dbSources: () => authedGet<{ sources: DbSource[] }>("/db/sources"),
   dbTables: (source: string | null) =>

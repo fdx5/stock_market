@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -40,6 +41,30 @@ _REFRESH_MARGIN = timedelta(minutes=10)
 # last recorded snapshot is what stops the admin from getting two KakaoTalk messages
 # back to back instead of one.
 _MIN_INTERVAL = timedelta(minutes=50)
+
+# The admin dashboard's manual "지금 발송" button (see routers/admin.py) and its
+# polling read of "what happened last" both need the *same* record regardless of
+# which trigger (cron, in-process fallback, or that button) produced it — mirrors
+# prediction_batch's own volatile in-memory _last_runs cache. Resets on restart,
+# which is fine: there is nothing to recover, just "what happened since boot".
+_last_run_lock = threading.Lock()
+_last_run: dict | None = None
+
+
+def _record_last_run(result: dict) -> dict:
+    global _last_run
+    with _last_run_lock:
+        _last_run = result
+    return result
+
+
+def get_last_run() -> dict | None:
+    with _last_run_lock:
+        return _last_run
+
+
+def is_configured() -> bool:
+    return bool(KAKAO_REST_API_KEY) and kakao_token_store.get() is not None
 
 
 class KakaoNotConfigured(Exception):
@@ -156,41 +181,57 @@ def build_message(online_now: int, total_visits: int, views_24h: int, previous: 
     return "\n".join(lines)
 
 
-def run() -> dict:
+def run(force: bool = False, triggered_by: str = "cron") -> dict:
     """Collects the current stats, records this run as a snapshot, compares against
     the snapshot closest to 24 hours ago, and sends the result via Kakao "나에게 보내기".
-    Called by the hourly cron trigger (see routers/notify.py) and, as a fallback, by
-    the in-process scheduler in main.py — the same dual-trigger shape prediction_batch
-    uses, since Render's free-tier instance can otherwise sleep through GitHub's cron.
+    Called by the hourly cron trigger (see routers/notify.py), by main.py's
+    in-process fallback scheduler, and by the admin dashboard's manual "지금 발송"
+    button (routers/admin.py) — the last of which passes force=True so a deliberate
+    click always actually sends, bypassing the _MIN_INTERVAL de-dupe guard meant only
+    to stop the first two triggers from double-sending within the same hour.
+
+    Every outcome — sent, skipped, not configured, or errored — is recorded via
+    _record_last_run so the dashboard can show "what happened last" regardless of
+    which of the three triggers produced it.
     """
     now = datetime.now(timezone.utc)
+    finished_at = _iso(now)
 
-    last = notify_stats_store.latest()
-    if last is not None and now - datetime.fromisoformat(last["created_at"]) < _MIN_INTERVAL:
-        return {"status": "skipped_recent", "last_sent_at": last["created_at"]}
+    if not force:
+        last = notify_stats_store.latest()
+        if last is not None and now - datetime.fromisoformat(last["created_at"]) < _MIN_INTERVAL:
+            return _record_last_run(
+                {
+                    "status": "skipped_recent",
+                    "last_sent_at": last["created_at"],
+                    "triggered_by": triggered_by,
+                    "finished_at": finished_at,
+                }
+            )
 
     since_24h = (now - timedelta(hours=24)).isoformat()
 
     online_now = tracker.current_count()
     total_visits = visitor_store.total_count()
     views_24h = page_view_store.count_today(since_24h)
+    stats = {"online_now": online_now, "total_visits": total_visits, "views_24h": views_24h}
 
     previous = notify_stats_store.closest_to((now - timedelta(hours=24)).isoformat())
+    # Recorded regardless of what happens below — it's a true reading of the site
+    # at this instant, and future runs need it as their own "24h ago" baseline even
+    # if this particular send never went out.
     notify_stats_store.record(now.isoformat(), online_now, total_visits, views_24h)
 
     message = build_message(online_now, total_visits, views_24h, previous)
+    base = {"message": message, "stats": stats, "triggered_by": triggered_by, "finished_at": finished_at}
 
     if not KAKAO_REST_API_KEY or kakao_token_store.get() is None:
-        return {
-            "status": "not_configured",
-            "message": message,
-            "stats": {"online_now": online_now, "total_visits": total_visits, "views_24h": views_24h},
-        }
+        return _record_last_run({**base, "status": "not_configured"})
 
-    access_token = get_valid_access_token()
-    send_text_message(access_token, message)
-    return {
-        "status": "sent",
-        "message": message,
-        "stats": {"online_now": online_now, "total_visits": total_visits, "views_24h": views_24h},
-    }
+    try:
+        access_token = get_valid_access_token()
+        send_text_message(access_token, message)
+    except Exception as exc:
+        return _record_last_run({**base, "status": "error", "error": str(exc)})
+
+    return _record_last_run({**base, "status": "sent"})

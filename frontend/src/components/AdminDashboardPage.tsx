@@ -8,6 +8,7 @@ import {
   AdminTrendRange,
   BatchRegion,
   CommentSource,
+  KakaoNotifyStatus,
   PageCount,
   PredictionStatus,
   StockSearchCount,
@@ -376,6 +377,9 @@ export default function AdminDashboardPage() {
   const [prediction, setPrediction] = useState<PredictionStatus | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runningRegion, setRunningRegion] = useState<BatchRegion | null>(null);
+  const [kakaoStatus, setKakaoStatus] = useState<KakaoNotifyStatus | null>(null);
+  const [kakaoRunning, setKakaoRunning] = useState(false);
+  const [kakaoError, setKakaoError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getStoredSession()) navigate("/admin");
@@ -527,6 +531,40 @@ export default function AdminDashboardPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
+
+  useEffect(() => {
+    if (!authed) return undefined;
+    let cancelled = false;
+    const load = () => {
+      adminApi
+        .kakaoNotifyStatus()
+        .then((s) => !cancelled && setKakaoStatus(s))
+        .catch(handleAuthError);
+    };
+    load();
+    // Same 5s cadence as the prediction poll above, for the same reason: a manual
+    // send is watched here right after the button is pressed.
+    const id = setInterval(load, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  function handleRunKakaoNotify() {
+    if (kakaoRunning) return;
+    setKakaoRunning(true);
+    setKakaoError(null);
+    adminApi
+      .runKakaoNotify()
+      .then((r) => setKakaoStatus((prev) => (prev ? { ...prev, last_run: r } : { configured: true, last_run: r })))
+      .catch((err) => {
+        handleAuthError(err);
+        setKakaoError(err instanceof Error ? err.message : "카카오 알림 발송에 실패했습니다.");
+      })
+      .finally(() => setKakaoRunning(false));
+  }
 
   function handleRunBatch(region: BatchRegion) {
     if (runningRegion) return;
@@ -1399,6 +1437,8 @@ export default function AdminDashboardPage() {
         </section>
 
         <section className="admin-panel admin-panel--batch">
+          <div className="admin-batch-split">
+          <div className="admin-batch-half">
           <h2>
             <span className="admin-live-dot" /> AI 예측 배치
           </h2>
@@ -1531,6 +1571,81 @@ export default function AdminDashboardPage() {
               })
             )}
             {runError && <p className="admin-batch-error">{runError}</p>}
+          </div>
+          </div>
+
+          <div className="admin-batch-half admin-notify-half">
+            <h2>
+              <span className="admin-live-dot" /> 카카오 알림
+            </h2>
+            <div className="admin-notify-body">
+              {(() => {
+                const last = kakaoStatus?.last_run ?? null;
+                const configured = kakaoStatus?.configured ?? false;
+                const tone = kakaoRunning
+                  ? "running"
+                  : !configured
+                    ? "neutral"
+                    : last
+                      ? last.status === "sent" || last.status === "skipped_recent"
+                        ? "ok"
+                        : "fail"
+                      : "neutral";
+                const statusLabel = kakaoRunning
+                  ? "발송 중"
+                  : !configured
+                    ? "미설정"
+                    : last
+                      ? last.status === "sent"
+                        ? "성공"
+                        : last.status === "skipped_recent"
+                          ? "스킵"
+                          : last.status === "error"
+                            ? "실패"
+                            : "미설정"
+                      : "기록 없음";
+                const triggeredLabel =
+                  last?.triggered_by === "admin"
+                    ? "수동"
+                    : last?.triggered_by === "in_process"
+                      ? "자동(서버)"
+                      : last?.triggered_by === "cron"
+                        ? "자동(cron)"
+                        : null;
+                const metaText = !configured
+                  ? "REST API 키 · 토큰 설정이 필요합니다."
+                  : last
+                    ? `${triggeredLabel ? `${triggeredLabel} · ` : ""}${formatDateTime(last.finished_at)}` +
+                      (last.status === "error" && last.error ? ` · ${last.error}` : "") +
+                      (last.status === "skipped_recent" && last.last_sent_at
+                        ? ` · 최근 발송 ${formatDateTime(last.last_sent_at)}`
+                        : "")
+                    : "아직 실행 이력이 없습니다.";
+                return kakaoStatus === null ? (
+                  <div className="admin-batch-row">
+                    <span className="admin-skeleton admin-skeleton--row" />
+                  </div>
+                ) : (
+                  <div className="admin-batch-item">
+                    <div className="admin-batch-row">
+                      <span className={`admin-batch-status admin-batch-status--${tone}`}>{statusLabel}</span>
+                      <span className="admin-batch-meta">{metaText}</span>
+                      <button
+                        type="button"
+                        className="admin-batch-run-btn"
+                        disabled={kakaoRunning}
+                        onClick={handleRunKakaoNotify}
+                      >
+                        {kakaoRunning ? "발송 중..." : "지금 발송"}
+                      </button>
+                    </div>
+                    {last?.message && <pre className="admin-notify-message">{last.message}</pre>}
+                  </div>
+                );
+              })()}
+              {kakaoError && <p className="admin-batch-error">{kakaoError}</p>}
+            </div>
+          </div>
           </div>
         </section>
         </div>

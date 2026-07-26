@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.services import (
     activity_log,
+    kakao_notify,
     page_view_store,
     prediction_batch,
     stock_search_store,
@@ -108,6 +109,25 @@ def prediction_status():
     """Batch health for the admin panel: what's running, each region's last outcome,
     and the DB-derived per-market snapshot."""
     return prediction_batch.get_status()
+
+
+@router.get("/notify/kakao/status", dependencies=[Depends(require_admin)])
+def kakao_notify_status():
+    """Whether the Kakao integration has a stored token yet, and how the last send
+    (by any of the three triggers — cron, in-process fallback, or this panel's own
+    button) went. `last_run` is None only if the process hasn't run it even once
+    since it last restarted."""
+    return {"configured": kakao_notify.is_configured(), "last_run": kakao_notify.get_last_run()}
+
+
+@router.post("/notify/kakao/run", dependencies=[Depends(require_admin)])
+def kakao_notify_run():
+    """Manual send from the admin dashboard's '지금 발송' button. Always force=True —
+    a deliberate click should always actually send, bypassing the _MIN_INTERVAL guard
+    that only exists to stop the hourly cron and the in-process fallback from
+    double-sending within the same hour. Runs inline (unlike the prediction batch's
+    background+poll dance) because a Kakao send takes a couple seconds, not minutes."""
+    return kakao_notify.run(force=True, triggered_by="admin")
 
 
 @router.post("/prediction/run", dependencies=[Depends(require_admin)])

@@ -176,10 +176,26 @@ def _start_admin_retention() -> None:
     threading.Thread(target=_admin_retention_loop, daemon=True).start()
 
 
+def _seconds_until_next_hour() -> float:
+    now = datetime.now(timezone.utc)
+    next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+    return (next_hour - now).total_seconds()
+
+
 def _kakao_notify_loop() -> None:
+    # Waits for the next hour boundary before its first run, rather than firing the
+    # instant the process comes up. Every deploy/restart empties visitor_tracker's
+    # in-memory session set, so an immediate run here would read (and could actually
+    # send) "현재 접속자: 0명" even while real visitors are online — it just takes a
+    # restart landing right before this loop's tick for the notification to capture
+    # that momentary empty state. Waiting for the aligned hour gives the tracker
+    # comfortably long — usually most of an hour — to refill from real heartbeats
+    # first, the same way the GitHub Actions cron (which runs on its own clock,
+    # independent of this process's restarts) naturally does.
+    time.sleep(_seconds_until_next_hour())
     while True:
         try:
-            kakao_notify.run()
+            kakao_notify.run(triggered_by="in_process")
         except Exception:
             # A missed hour just means the next tick (or the GitHub Actions cron
             # covering the same job) tries again — not worth taking the process down

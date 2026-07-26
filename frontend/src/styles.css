@@ -9684,7 +9684,33 @@ thead .weekly-foreign-amount-col {
   flex-direction: column;
 }
 
-.admin-batch-body {
+/* Splits the panel's body in two: AI 예측 배치 keeps its existing content on the
+   left, and the KakaoTalk visitor-stats notification (kakao_notify.py) gets an
+   equal-width panel on the right rather than its own separate section — the two
+   are both "batch job status + manual re-run button" cards, so sharing one panel
+   frame reads as one category of dashboard content. */
+.admin-batch-split {
+  display: flex;
+  gap: 14px;
+  flex: 1;
+  min-height: 0;
+}
+
+.admin-batch-half {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-notify-half {
+  border-left: 1px solid var(--border);
+  padding-left: 14px;
+}
+
+.admin-batch-body,
+.admin-notify-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -9735,6 +9761,12 @@ thead .weekly-foreign-amount-col {
 .admin-batch-status--running {
   color: var(--status-warning);
   animation: admin-batch-blink 1.2s ease-in-out infinite;
+}
+
+/* Neither a success nor a failure — "설정 전" or "실행 이력 없음" — so it gets
+   neither status color, just muted text. */
+.admin-batch-status--neutral {
+  color: var(--text-muted);
 }
 
 @keyframes admin-batch-blink {
@@ -9871,6 +9903,23 @@ thead .weekly-foreign-amount-col {
   margin: 0;
   font-size: 11px;
   color: var(--status-critical);
+}
+
+/* The actual KakaoTalk message text from the last send attempt (see
+ * kakao_notify.build_message) — kept as literal line breaks via <pre>, since the
+ * message's own "현재 접속자 / 누적 방문자 / 최근 24시간 조회수" line structure is part
+ * of what the admin is checking, not just its content. */
+.admin-notify-message {
+  margin: 0;
+  padding: 9px 11px;
+  border-radius: 10px;
+  background: var(--page-plane);
+  font-family: inherit;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -10252,6 +10301,20 @@ button.admin-comments-text--clickable:hover {
   .admin-comments-table,
   .admin-tail-list {
     max-height: 320px;
+  }
+
+  /* The AI 예측 배치 / 카카오 알림 side-by-side split only makes sense at the
+     desktop width it was designed for — below this breakpoint the two stack like
+     every other panel here, and the divider moves from the left edge to the top. */
+  .admin-batch-split {
+    flex-direction: column;
+  }
+
+  .admin-notify-half {
+    border-left: none;
+    border-top: 1px solid var(--border);
+    padding-left: 0;
+    padding-top: 14px;
   }
 
   /* Below this width the columns stack, so the 50vh height-share machinery
