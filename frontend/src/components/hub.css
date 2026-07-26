@@ -1241,9 +1241,7 @@ body:has(.hb) {
   .hb-hint p { font-size: 11px; }
   .hb-wordmark { flex-direction: column; align-items: center; gap: 4px; }
 
-  /* Half the desktop size (40px → 20px) — the Samsung/SK badges. Excludes
-     .hb-moon--rocket (Mars's satellite), which isn't part of this ask and
-     keeps its own explicit dimensions regardless. */
+  /* Half the desktop size (40px → 20px) — the Samsung/SK badges. */
   .hb-moon:not(.hb-moon--rocket) {
     width: 20px;
     height: 20px;
@@ -1263,6 +1261,13 @@ body:has(.hb) {
 
   .hb-moon-wing--l { left: -9px; }
   .hb-moon-wing--r { right: -9px; }
+
+  /* Half the desktop size (24x55 → 12x27.5) — the Mars/SpaceX satellite. */
+  .hb-moon--rocket {
+    width: 12px;
+    height: 27.5px;
+    margin: -13.75px 0 0 -6px;
+  }
 }
 
 @media (max-width: 380px) {

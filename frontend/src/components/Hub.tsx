@@ -156,7 +156,7 @@ const PLANETS: PlanetSpec[] = [
       spinSeconds: 18,
       glow: "#e8cf9a",
       discR: 25,
-      ringed: true,
+      ring: { style: "saturn", tiltDeg: -12 },
     },
   },
   {
@@ -172,9 +172,12 @@ const PLANETS: PlanetSpec[] = [
       texture: "/img/planets/uranus.webp",
       spinSeconds: 14,
       // Uranus's real rotation is retrograde (its axis is tipped ~98°, but a
-      // full barrel-roll is out of scope for this billboard).
+      // full barrel-roll is out of scope for this billboard). That same ~98°
+      // tilt is also why its ring gets a tiltDeg 90° past Saturn's — see
+      // PhotoSkin.ring's comment in CelestialBody.tsx.
       reverseSpin: true,
       glow: "#8fe9e0",
+      ring: { style: "uranus", tiltDeg: 78 },
     },
   },
 ];

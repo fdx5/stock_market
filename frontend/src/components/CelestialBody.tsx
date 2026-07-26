@@ -39,6 +39,10 @@ const BASE_R = 34;
 
 /* ───────────────────────────── planet ───────────────────────────── */
 
+/** Which planet's ring set to draw — see SATURN_RING_LINES / URANUS_RING_LINES
+ * below, both real but visually distinct ring systems. */
+type RingStyle = "saturn" | "uranus";
+
 export interface PhotoSkin {
   /** Path under /img/planets, e.g. "/img/planets/earth.webp". */
   texture: string;
@@ -53,7 +57,19 @@ export interface PhotoSkin {
   glow: string;
   /** Disc radius override, in viewBox units out of 100 — see BASE_R. */
   discR?: number;
-  ringed?: boolean;
+  ring?: {
+    /** Which set of concentric lines and colours to draw — see
+     * SATURN_RING_LINES / URANUS_RING_LINES below. */
+    style: RingStyle;
+    /** Degrees to rotate the whole ring. Saturn's real ~27° axial tilt reads
+     * as a fairly open ellipse (-12° here, close to face-on). Uranus's real
+     * axial tilt is ~98° — it rotates almost lying on its side — which turns
+     * its ring plane roughly 90° from Saturn's; rotating this far past
+     * Saturn's angle is what actually shows that difference, since the
+     * ellipse's own flatness (ry/rx) stays the same either way and only the
+     * angle distinguishes "Saturn's tilt" from "Uranus's tilt" here. */
+    tiltDeg: number;
+  };
 }
 
 /** One concentric line of Saturn's ring, as a fraction of the disc radius R.
@@ -87,8 +103,43 @@ const SATURN_RING_LINES: RingLine[] = [
   { r: 2.18, strokeWidth: 0.35, color: "#f7ecce", opacity: 0.2 },
 ];
 
+/** Uranus's real rings (13 known) are nothing like Saturn's: dark
+ * carbon-rich material at roughly 2% albedo instead of bright ice, narrow
+ * instead of broad, and sitting much closer to the planet — the outermost
+ * (epsilon, the brightest of a faint set) is only around 2x Uranus's radius
+ * versus Saturn's rings reaching past 2.3x. Fewer lines, low opacity, cool
+ * greys instead of gold, and a tighter radial span is what keeps this reading
+ * as "a different, much fainter ring system" rather than a recolored copy of
+ * Saturn's. */
+const URANUS_RING_LINES: RingLine[] = [
+  { r: 1.14, strokeWidth: 0.3, color: "#7c8593", opacity: 0.3 },
+  { r: 1.22, strokeWidth: 0.35, color: "#5c6572", opacity: 0.4 },
+  { r: 1.3, strokeWidth: 0.3, color: "#7c8593", opacity: 0.32 },
+  // gap — Uranus's rings are individually narrow with real dark gaps between.
+  { r: 1.44, strokeWidth: 0.55, color: "#aab4c0", opacity: 0.6 },
+  { r: 1.52, strokeWidth: 0.3, color: "#545d69", opacity: 0.28 },
+  { r: 1.6, strokeWidth: 0.35, color: "#8a94a2", opacity: 0.35 },
+];
+
+const RING_STYLES: Record<RingStyle, RingLine[]> = {
+  saturn: SATURN_RING_LINES,
+  uranus: URANUS_RING_LINES,
+};
+
 /** One half (far or near) of the ring, all lines together. */
-function RingHalf({ id, half, R }: { id: string; half: "far" | "near"; R: number }) {
+function RingHalf({
+  id,
+  half,
+  R,
+  lines,
+  tiltDeg,
+}: {
+  id: string;
+  half: "far" | "near";
+  R: number;
+  lines: RingLine[];
+  tiltDeg: number;
+}) {
   const halfClip = `rh-${id}-${half}`;
 
   return (
@@ -98,8 +149,8 @@ function RingHalf({ id, half, R }: { id: string; half: "far" | "near"; R: number
           <rect x="0" y={half === "far" ? 0 : C} width="100" height={C} />
         </clipPath>
       </defs>
-      <g clipPath={`url(#${halfClip})`} transform={`rotate(-12 ${C} ${C})`} opacity={half === "far" ? 0.62 : 1}>
-        {SATURN_RING_LINES.map((line, i) => {
+      <g clipPath={`url(#${halfClip})`} transform={`rotate(${tiltDeg} ${C} ${C})`} opacity={half === "far" ? 0.62 : 1}>
+        {lines.map((line, i) => {
           const rx = line.r * R;
           const ry = rx * 0.225;
           return (
@@ -132,7 +183,9 @@ export function PhotoPlanetBody({ id, skin }: { id: string; skin: PhotoSkin }) {
 
   return (
     <div className="hb-photobody" style={style}>
-      {skin.ringed && <RingHalf id={id} half="far" R={R} />}
+      {skin.ring && (
+        <RingHalf id={id} half="far" R={R} lines={RING_STYLES[skin.ring.style]} tiltDeg={skin.ring.tiltDeg} />
+      )}
       <div className="hb-photo-disc">
         <div
           className="hb-photo-spin"
@@ -147,7 +200,9 @@ export function PhotoPlanetBody({ id, skin }: { id: string; skin: PhotoSkin }) {
         <div className="hb-photo-shade" />
         <div className="hb-photo-spec" />
       </div>
-      {skin.ringed && <RingHalf id={id} half="near" R={R} />}
+      {skin.ring && (
+        <RingHalf id={id} half="near" R={R} lines={RING_STYLES[skin.ring.style]} tiltDeg={skin.ring.tiltDeg} />
+      )}
     </div>
   );
 }
