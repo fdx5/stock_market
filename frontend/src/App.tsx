@@ -8,6 +8,10 @@ import { useRoute } from "./router";
 // InvestorTrend use) instead of every route's code landing in one bundle regardless
 // of which page a visitor lands on first.
 const Dashboard = lazy(() => import("./components/Dashboard"));
+// Prototype redesign of the landing page — same data, new header/body/footer.
+// Lives on its own route so it can be shown side by side with the live "/" it is
+// proposing to replace, rather than swapping it out before it's been judged.
+const Dashboard2 = lazy(() => import("./components/Dashboard2"));
 const InvestorTrendPage = lazy(() => import("./components/InvestorTrendPage"));
 const IndexChartPage = lazy(() => import("./components/IndexChartPage"));
 const KospiMapPage = lazy(() => import("./components/KospiMapPage"));
@@ -34,6 +38,8 @@ export default function App() {
     page = <InvestorTrendPage code={investorMatch[1]} />;
   } else if (indexMatch) {
     page = <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
+  } else if (path === "/v2" || path === "/dashboard2") {
+    page = <Dashboard2 />;
   } else if (path === "/map") {
     page = <KospiMapPage />;
   } else if (path === "/kosdaq-map") {
