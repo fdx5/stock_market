@@ -21,3 +21,13 @@ services:
       # logged into Claude Code on a Pro/Max plan). Set as a secret in the dashboard.
       - key: CLAUDE_CODE_OAUTH_TOKEN
         sync: false
+      # KakaoTalk "나에게 보내기" 방문자 통계 알림 (see app/services/kakao_notify.py
+      # and .github/workflows/kakao-notify.yml). The refresh/access token itself is
+      # not an env var — it lives in the Turso DB via kakao_token_store.py, seeded
+      # once by scripts/kakao_get_refresh_token.py.
+      - key: KAKAO_REST_API_KEY
+        sync: false
+      - key: KAKAO_CLIENT_SECRET
+        sync: false
+      - key: KAKAO_NOTIFY_TOKEN
+        sync: false

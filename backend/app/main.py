@@ -23,6 +23,7 @@ from app.routers import (
     global_dashboard,
     investor,
     market_map,
+    notify,
     prediction,
     search,
     stock,
@@ -30,7 +31,7 @@ from app.routers import (
     us_stock,
     visitors,
 )
-from app.services import page_view_store, prediction_batch, stock_search_store
+from app.services import kakao_notify, notify_stats_store, page_view_store, prediction_batch, stock_search_store
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
@@ -63,6 +64,7 @@ app.include_router(activity.router, prefix="/api/activity")
 app.include_router(admin.router, prefix="/api/admin")
 app.include_router(admin_comments.router, prefix="/api/admin")
 app.include_router(admin_db.router, prefix="/api/admin")
+app.include_router(notify.router, prefix="/api/notify")
 
 
 @app.on_event("startup")
@@ -155,6 +157,13 @@ def _admin_retention_loop() -> None:
             stock_search_store.purge_older_than(search_cutoff)
         except Exception:
             pass
+        try:
+            notify_cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=notify_stats_store.RETENTION_DAYS)
+            ).isoformat()
+            notify_stats_store.purge_older_than(notify_cutoff)
+        except Exception:
+            pass
         time.sleep(24 * 3600)
 
 
@@ -165,6 +174,29 @@ def _start_admin_retention() -> None:
     # without limit — neither ever gets queried further back than that anyway
     # (see admin.py's pages_trend / stocks_top).
     threading.Thread(target=_admin_retention_loop, daemon=True).start()
+
+
+def _kakao_notify_loop() -> None:
+    while True:
+        try:
+            kakao_notify.run()
+        except Exception:
+            # A missed hour just means the next tick (or the GitHub Actions cron
+            # covering the same job) tries again — not worth taking the process down
+            # over a single failed KakaoTalk send.
+            pass
+        time.sleep(3600)
+
+
+@app.on_event("startup")
+def _start_kakao_notify_scheduler() -> None:
+    # Secondary trigger for the hourly KakaoTalk visitor-stats notification, same
+    # dual-trigger shape as _start_prediction_scheduler: GitHub Actions cron (see
+    # .github/workflows/kakao-notify.yml) is primary, this thread covers the window
+    # where Render's free-tier instance is asleep when that cron fires. kakao_notify's
+    # own _MIN_INTERVAL guard is what stops both triggers landing in the same hour
+    # from sending the admin two messages back to back.
+    threading.Thread(target=_kakao_notify_loop, daemon=True).start()
 
 
 @app.on_event("startup")

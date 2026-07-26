@@ -1,0 +1,44 @@
+name: Kakao 방문자 통계 알림
+
+# Hourly trigger for the "나에게 보내기" KakaoTalk notification — current online count,
+# cumulative visitor total, and last-24h page views, each with a day-over-day diff
+# (see backend/app/services/kakao_notify.py). Same primary/fallback split as
+# ai-prediction.yml: this cron is primary, and main.py's in-process thread covers the
+# window where Render's free-tier instance is asleep when this fires. Both call the
+# same endpoint, which is safe to double-fire — kakao_notify's own _MIN_INTERVAL guard
+# skips a run that lands within 50 minutes of the last one instead of sending twice.
+#
+# Fired 5 minutes past the hour rather than exactly on it, just to avoid piling onto
+# keep-alive.yml's own */10 top-of-hour tick.
+#
+# Same GitHub scheduler caveats as the other workflows here: disabled after 60 days
+# with no commits to the repo, and firing can be delayed a few minutes under
+# GitHub-wide load.
+on:
+  schedule:
+    - cron: "5 * * * *"
+  workflow_dispatch: {}
+
+env:
+  BASE_URL: https://kospi-predictor.onrender.com
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the service
+        # Tolerate failure here (same as ai-prediction.yml) — a cold instance just
+        # means the actual trigger step below pays the cold-start cost instead.
+        run: curl -fsS --max-time 90 "$BASE_URL/api/health" || true
+
+      - name: Trigger Kakao notify
+        env:
+          TOKEN: ${{ secrets.KAKAO_NOTIFY_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TOKEN" ]; then
+            echo "::error::KAKAO_NOTIFY_TOKEN secret is not set — the endpoint will reject this run."
+            exit 1
+          fi
+          curl -fsS --max-time 30 -X POST -H "Authorization: Bearer $TOKEN" \
+            "$BASE_URL/api/notify/kakao/run" | jq -c '.'
