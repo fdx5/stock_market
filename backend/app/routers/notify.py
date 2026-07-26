@@ -29,11 +29,14 @@ def _require_notify_token(authorization: str | None) -> None:
 @router.post("/kakao/run")
 def run_kakao_notify(authorization: str | None = Header(None)):
     """Hourly cron trigger: computes visitor stats, compares against ~24h ago, and
-    sends the result via KakaoTalk "나에게 보내기". See kakao_notify.run() for the
-    actual logic and services/kakao_token_store.py for how the OAuth token is kept
-    fresh between calls."""
+    sends the result via KakaoTalk "나에게 보내기" — the '사이트 방문자 현황' message.
+    See kakao_notify.run_visitor_stats() for the actual logic and
+    services/kakao_token_store.py for how the OAuth token is kept fresh between
+    calls. The separate 'AI 예측 배치 실행결과' notification has no cron endpoint of
+    its own — it fires automatically from prediction_batch.run_batch (see
+    kakao_notify.schedule_prediction_result), 10 minutes after each region's run."""
     _require_notify_token(authorization)
     try:
-        return kakao_notify.run()
+        return kakao_notify.run_visitor_stats()
     except kakao_notify.KakaoNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc))

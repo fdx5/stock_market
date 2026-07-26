@@ -195,7 +195,7 @@ def _kakao_notify_loop() -> None:
     time.sleep(_seconds_until_next_hour())
     while True:
         try:
-            kakao_notify.run(triggered_by="in_process")
+            kakao_notify.run_visitor_stats(triggered_by="in_process")
         except Exception:
             # A missed hour just means the next tick (or the GitHub Actions cron
             # covering the same job) tries again — not worth taking the process down

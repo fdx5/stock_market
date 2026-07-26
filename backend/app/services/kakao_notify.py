@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import requests
@@ -47,20 +48,46 @@ _MIN_INTERVAL = timedelta(minutes=50)
 # which trigger (cron, in-process fallback, or that button) produced it — mirrors
 # prediction_batch's own volatile in-memory _last_runs cache. Resets on restart,
 # which is fine: there is nothing to recover, just "what happened since boot".
-_last_run_lock = threading.Lock()
-_last_run: dict | None = None
+#
+# Named "visitor" to distinguish it from the separate 예측 배치 결과 notification's own
+# cache below (_last_prediction_runs) — two independent message types, two caches.
+_last_visitor_run_lock = threading.Lock()
+_last_visitor_run: dict | None = None
 
 
-def _record_last_run(result: dict) -> dict:
-    global _last_run
-    with _last_run_lock:
-        _last_run = result
+def _record_last_visitor_run(result: dict) -> dict:
+    global _last_visitor_run
+    with _last_visitor_run_lock:
+        _last_visitor_run = result
     return result
 
 
-def get_last_run() -> dict | None:
-    with _last_run_lock:
-        return _last_run
+def get_last_visitor_run() -> dict | None:
+    with _last_visitor_run_lock:
+        return _last_visitor_run
+
+
+# One slot per region (KR/US run independently, ~14 hours apart) rather than a single
+# value — the admin dashboard's 예측 배치 결과 card shows both at once, same shape as
+# prediction_batch's own per-region _last_runs.
+_last_prediction_lock = threading.Lock()
+_last_prediction_runs: dict[str, dict] = {}
+
+
+def _record_last_prediction_run(region: str, result: dict) -> dict:
+    with _last_prediction_lock:
+        _last_prediction_runs[region] = result
+    return result
+
+
+def get_last_prediction_run(region: str) -> dict | None:
+    with _last_prediction_lock:
+        return _last_prediction_runs.get(region)
+
+
+def get_last_prediction_runs() -> dict[str, dict]:
+    with _last_prediction_lock:
+        return dict(_last_prediction_runs)
 
 
 def is_configured() -> bool:
@@ -181,18 +208,19 @@ def build_message(online_now: int, total_visits: int, views_24h: int, previous: 
     return "\n".join(lines)
 
 
-def run(force: bool = False, triggered_by: str = "cron") -> dict:
+def run_visitor_stats(force: bool = False, triggered_by: str = "cron") -> dict:
     """Collects the current stats, records this run as a snapshot, compares against
     the snapshot closest to 24 hours ago, and sends the result via Kakao "나에게 보내기".
-    Called by the hourly cron trigger (see routers/notify.py), by main.py's
-    in-process fallback scheduler, and by the admin dashboard's manual "지금 발송"
-    button (routers/admin.py) — the last of which passes force=True so a deliberate
-    click always actually sends, bypassing the _MIN_INTERVAL de-dupe guard meant only
-    to stop the first two triggers from double-sending within the same hour.
+    This is the "사이트 방문자 현황" notification. Called by the hourly cron trigger
+    (see routers/notify.py), by main.py's in-process fallback scheduler, and by the
+    admin dashboard's manual "지금 발송" button (routers/admin.py) — the last of which
+    passes force=True so a deliberate click always actually sends, bypassing the
+    _MIN_INTERVAL de-dupe guard meant only to stop the first two triggers from
+    double-sending within the same hour.
 
     Every outcome — sent, skipped, not configured, or errored — is recorded via
-    _record_last_run so the dashboard can show "what happened last" regardless of
-    which of the three triggers produced it.
+    _record_last_visitor_run so the dashboard can show "what happened last" regardless
+    of which of the three triggers produced it.
     """
     now = datetime.now(timezone.utc)
     finished_at = _iso(now)
@@ -200,7 +228,7 @@ def run(force: bool = False, triggered_by: str = "cron") -> dict:
     if not force:
         last = notify_stats_store.latest()
         if last is not None and now - datetime.fromisoformat(last["created_at"]) < _MIN_INTERVAL:
-            return _record_last_run(
+            return _record_last_visitor_run(
                 {
                     "status": "skipped_recent",
                     "last_sent_at": last["created_at"],
@@ -226,12 +254,134 @@ def run(force: bool = False, triggered_by: str = "cron") -> dict:
     base = {"message": message, "stats": stats, "triggered_by": triggered_by, "finished_at": finished_at}
 
     if not KAKAO_REST_API_KEY or kakao_token_store.get() is None:
-        return _record_last_run({**base, "status": "not_configured"})
+        return _record_last_visitor_run({**base, "status": "not_configured"})
 
     try:
         access_token = get_valid_access_token()
         send_text_message(access_token, message)
     except Exception as exc:
-        return _record_last_run({**base, "status": "error", "error": str(exc)})
+        return _record_last_visitor_run({**base, "status": "error", "error": str(exc)})
 
-    return _record_last_run({**base, "status": "sent"})
+    return _record_last_visitor_run({**base, "status": "sent"})
+
+
+# ---------------------------------------------------------------------------
+# AI 예측 배치 실행결과 notification
+# ---------------------------------------------------------------------------
+#
+# Separate from run_visitor_stats above: this fires once per prediction_batch region
+# run (KR = 코스피·코스닥, US = 나스닥), ~10 minutes after that run finishes — see
+# schedule_prediction_result, called from prediction_batch.run_batch. There is no
+# _MIN_INTERVAL guard here: unlike the hourly visitor stats (which has three
+# overlapping triggers racing for the same clock hour), each region run is its own
+# one-off event with nothing else contending for it, and the admin dashboard's own
+# manual "지금 발송" button is a deliberate re-send of the same data, not a race.
+
+_PREDICTION_NOTIFY_DELAY_SECONDS = 10 * 60
+
+_REGION_LABELS = {"KR": "한국장 (코스피·코스닥)", "US": "미국장 (나스닥)"}
+_PREDICTION_STATUS_LABELS = {"ok": "성공", "skipped": "스킵", "error": "실패"}
+_AI_SOURCE_LABELS = {"claude": "Claude", "heuristic": "휴리스틱"}
+
+_SKIP_REASON_LABELS = {
+    "already_ran": "이미 실행됨(중복 방지)",
+    "already_running": "다른 실행이 진행 중이라 건너뜀",
+}
+
+
+def _format_kst(iso_str: str | None) -> str:
+    if not iso_str:
+        return _kst_now().strftime("%m/%d %H:%M")
+    return (datetime.fromisoformat(iso_str) + timedelta(hours=9)).strftime("%m/%d %H:%M")
+
+
+def build_prediction_message(region: str, summary: dict) -> str:
+    label = _REGION_LABELS.get(region, region)
+    status = summary.get("status")
+    status_label = _PREDICTION_STATUS_LABELS.get(status, status or "알 수 없음")
+    when = _format_kst(summary.get("finished_at"))
+
+    lines = [f"🤖 AI 예측 배치 실행결과 ({when} 완료)", f"{label} — {status_label}"]
+
+    if status == "error":
+        lines.append(f"오류: {summary.get('error') or '알 수 없는 오류'}")
+        return "\n".join(lines)
+
+    if status == "skipped":
+        reason = _SKIP_REASON_LABELS.get(summary.get("reason"), summary.get("reason") or "알 수 없음")
+        lines.append(f"사유: {reason}")
+        return "\n".join(lines)
+
+    saved = summary.get("saved") or 0
+    detail = f"{saved}종목 저장"
+    elapsed = summary.get("elapsed_seconds")
+    if elapsed is not None:
+        detail += f" · {elapsed}초 소요"
+    lines.append(detail)
+
+    for market, stat in (summary.get("markets") or {}).items():
+        source = stat.get("ai_source")
+        source_label = _AI_SOURCE_LABELS.get(source, source or "확인 불가")
+        lines.append(f"· {market}: {source_label} ({stat.get('count', 0)}종목)")
+
+    predict_date = summary.get("predict_date")
+    if predict_date and len(predict_date) == 8:
+        weekday = summary.get("predict_weekday")
+        date_label = f"{predict_date[4:6]}/{predict_date[6:8]}"
+        lines.append(f"예측일 {date_label}" + (f"({weekday})" if weekday else ""))
+
+    warnings = summary.get("warnings") or []
+    if warnings:
+        preview = warnings[:2]
+        more = len(warnings) - len(preview)
+        note = " / ".join(preview) + (f" 외 {more}건" if more > 0 else "")
+        lines.append(f"⚠ 경고 {len(warnings)}건: {note}")
+
+    return "\n".join(lines)
+
+
+def send_prediction_result(region: str, summary: dict, triggered_by: str) -> dict:
+    """Builds and sends the "AI 예측 배치 실행결과" message for one region's run
+    summary (the same shape prediction_batch._record keeps), recording the outcome
+    under get_last_prediction_run(region) regardless of how it turns out."""
+    message = build_prediction_message(region, summary)
+    base = {
+        "region": region,
+        "message": message,
+        "triggered_by": triggered_by,
+        "finished_at": summary.get("finished_at") or _iso(datetime.now(timezone.utc)),
+    }
+
+    if not KAKAO_REST_API_KEY or kakao_token_store.get() is None:
+        return _record_last_prediction_run(region, {**base, "status": "not_configured"})
+
+    try:
+        access_token = get_valid_access_token()
+        send_text_message(access_token, message)
+    except Exception as exc:
+        return _record_last_prediction_run(region, {**base, "status": "error", "error": str(exc)})
+
+    return _record_last_prediction_run(region, {**base, "status": "sent"})
+
+
+def _delayed_prediction_send(region: str, summary: dict) -> None:
+    time.sleep(_PREDICTION_NOTIFY_DELAY_SECONDS)
+    try:
+        send_prediction_result(region, summary, triggered_by="auto_delayed")
+    except Exception:
+        # Mirrors the tolerance in main.py's _kakao_notify_loop — a failed send here
+        # (network blip, Kakao API hiccup) isn't worth doing anything more than
+        # dropping, since there is no retry queue for this one-off notification.
+        pass
+
+
+def schedule_prediction_result(region: str, summary: dict) -> None:
+    """Fires 10 minutes after a prediction_batch region run finishes (see
+    prediction_batch.run_batch, the only caller) — long enough that the admin
+    dashboard's own view of the run has settled before the KakaoTalk copy goes out.
+
+    Runs in a daemon thread rather than a persistent job queue: if the process
+    restarts inside that 10-minute window the send is simply lost, the same
+    volatility already accepted for prediction_batch's own in-memory _last_runs.
+    """
+    threading.Thread(target=_delayed_prediction_send, args=(region, summary), daemon=True).start()

@@ -91,10 +91,11 @@ export interface PredictionStatus {
 
 export type BatchRegion = "KR" | "US";
 
-/** One outcome of the hourly KakaoTalk visitor-stats notification (see
- * backend/app/services/kakao_notify.py), regardless of which of the three triggers
- * (cron, in-process fallback, or this panel's own button) produced it. */
-export interface KakaoNotifyRun {
+/** One outcome of the hourly "사이트 방문자 현황" KakaoTalk notification (see
+ * backend/app/services/kakao_notify.py's run_visitor_stats), regardless of which of
+ * the three triggers (cron, in-process fallback, or this panel's own button)
+ * produced it. */
+export interface KakaoVisitorRun {
   status: "sent" | "not_configured" | "error" | "skipped_recent";
   message?: string;
   stats?: { online_now: number; total_visits: number; views_24h: number };
@@ -104,9 +105,27 @@ export interface KakaoNotifyRun {
   finished_at: string;
 }
 
-export interface KakaoNotifyStatus {
+export interface KakaoVisitorStatus {
   configured: boolean;
-  last_run: KakaoNotifyRun | null;
+  last_run: KakaoVisitorRun | null;
+}
+
+/** One outcome of the "AI 예측 배치 실행결과" KakaoTalk notification for a single
+ * region, sent ~10 minutes after that region's prediction_batch run finishes (see
+ * kakao_notify.schedule_prediction_result) or resent on demand via this panel's
+ * '지금 발송' button. */
+export interface KakaoPredictionRun {
+  region: BatchRegion;
+  status: "sent" | "not_configured" | "error";
+  message?: string;
+  error?: string;
+  triggered_by: "auto_delayed" | "admin";
+  finished_at: string;
+}
+
+export interface KakaoPredictionStatus {
+  configured: boolean;
+  last_runs: Partial<Record<BatchRegion, KakaoPredictionRun>>;
 }
 
 export type CommentSource = "battle" | "fight";
@@ -337,8 +356,12 @@ export const adminApi = {
   runPrediction: (region: BatchRegion) =>
     authedPost<{ region: string; status: string }>(`/prediction/run?region=${region}`),
 
-  kakaoNotifyStatus: () => authedGet<KakaoNotifyStatus>("/notify/kakao/status"),
-  runKakaoNotify: () => authedPost<KakaoNotifyRun>("/notify/kakao/run"),
+  kakaoVisitorStatus: () => authedGet<KakaoVisitorStatus>("/notify/kakao/visitors/status"),
+  runKakaoVisitorNotify: () => authedPost<KakaoVisitorRun>("/notify/kakao/visitors/run"),
+
+  kakaoPredictionStatus: () => authedGet<KakaoPredictionStatus>("/notify/kakao/prediction/status"),
+  runKakaoPredictionNotify: (region: BatchRegion) =>
+    authedPost<KakaoPredictionRun>(`/notify/kakao/prediction/run?region=${region}`),
 
   dbSources: () => authedGet<{ sources: DbSource[] }>("/db/sources"),
   dbTables: (source: string | null) =>

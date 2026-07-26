@@ -9685,10 +9685,11 @@ thead .weekly-foreign-amount-col {
 }
 
 /* Splits the panel's body in two: AI 예측 배치 keeps its existing content on the
-   left, and the KakaoTalk visitor-stats notification (kakao_notify.py) gets an
-   equal-width panel on the right rather than its own separate section — the two
-   are both "batch job status + manual re-run button" cards, so sharing one panel
-   frame reads as one category of dashboard content. */
+   left, and the right half holds the two KakaoTalk notifications this app sends
+   (kakao_notify.py) — "사이트 방문자 현황" (hourly) and "AI 예측 배치 실행결과" (per
+   region, ~10min after each prediction_batch run) — stacked as their own sections
+   rather than separate panels, since both are "job status + manual re-send button"
+   cards belonging to the same Kakao integration. */
 .admin-batch-split {
   display: flex;
   gap: 14px;
@@ -9707,16 +9708,46 @@ thead .weekly-foreign-amount-col {
 .admin-notify-half {
   border-left: 1px solid var(--border);
   padding-left: 14px;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
-.admin-batch-body,
-.admin-notify-body {
+/* One notification type's block within the right half — its own sub-heading plus
+   a body that can scroll independently once both sections are visible together. */
+.admin-notify-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.admin-notify-section-title {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.admin-batch-body {
   display: flex;
   flex-direction: column;
   gap: 8px;
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+}
+
+/* Unlike .admin-batch-body, this doesn't scroll on its own — .admin-notify-half
+   (its ancestor, two sections deep) is the single scroll container for the whole
+   right half, so both notification sections scroll together rather than each
+   fighting the other for a fixed height. */
+.admin-notify-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 /* One region's whole block: the status line, plus the detail line and any

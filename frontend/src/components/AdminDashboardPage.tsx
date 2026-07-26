@@ -8,7 +8,8 @@ import {
   AdminTrendRange,
   BatchRegion,
   CommentSource,
-  KakaoNotifyStatus,
+  KakaoPredictionStatus,
+  KakaoVisitorStatus,
   PageCount,
   PredictionStatus,
   StockSearchCount,
@@ -377,9 +378,12 @@ export default function AdminDashboardPage() {
   const [prediction, setPrediction] = useState<PredictionStatus | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runningRegion, setRunningRegion] = useState<BatchRegion | null>(null);
-  const [kakaoStatus, setKakaoStatus] = useState<KakaoNotifyStatus | null>(null);
-  const [kakaoRunning, setKakaoRunning] = useState(false);
-  const [kakaoError, setKakaoError] = useState<string | null>(null);
+  const [kakaoVisitorStatus, setKakaoVisitorStatus] = useState<KakaoVisitorStatus | null>(null);
+  const [kakaoVisitorRunning, setKakaoVisitorRunning] = useState(false);
+  const [kakaoVisitorError, setKakaoVisitorError] = useState<string | null>(null);
+  const [kakaoPredictionStatus, setKakaoPredictionStatus] = useState<KakaoPredictionStatus | null>(null);
+  const [kakaoPredictionRunning, setKakaoPredictionRunning] = useState<BatchRegion | null>(null);
+  const [kakaoPredictionError, setKakaoPredictionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getStoredSession()) navigate("/admin");
@@ -537,8 +541,8 @@ export default function AdminDashboardPage() {
     let cancelled = false;
     const load = () => {
       adminApi
-        .kakaoNotifyStatus()
-        .then((s) => !cancelled && setKakaoStatus(s))
+        .kakaoVisitorStatus()
+        .then((s) => !cancelled && setKakaoVisitorStatus(s))
         .catch(handleAuthError);
     };
     load();
@@ -552,18 +556,60 @@ export default function AdminDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
-  function handleRunKakaoNotify() {
-    if (kakaoRunning) return;
-    setKakaoRunning(true);
-    setKakaoError(null);
+  useEffect(() => {
+    if (!authed) return undefined;
+    let cancelled = false;
+    const load = () => {
+      adminApi
+        .kakaoPredictionStatus()
+        .then((s) => !cancelled && setKakaoPredictionStatus(s))
+        .catch(handleAuthError);
+    };
+    load();
+    // 5s cadence, same reasoning as the other two polls above: also watches the
+    // automatic 10-minutes-after-batch send land without a page refresh.
+    const id = setInterval(load, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  function handleRunKakaoVisitorNotify() {
+    if (kakaoVisitorRunning) return;
+    setKakaoVisitorRunning(true);
+    setKakaoVisitorError(null);
     adminApi
-      .runKakaoNotify()
-      .then((r) => setKakaoStatus((prev) => (prev ? { ...prev, last_run: r } : { configured: true, last_run: r })))
+      .runKakaoVisitorNotify()
+      .then((r) =>
+        setKakaoVisitorStatus((prev) => (prev ? { ...prev, last_run: r } : { configured: true, last_run: r }))
+      )
       .catch((err) => {
         handleAuthError(err);
-        setKakaoError(err instanceof Error ? err.message : "카카오 알림 발송에 실패했습니다.");
+        setKakaoVisitorError(err instanceof Error ? err.message : "카카오 알림 발송에 실패했습니다.");
       })
-      .finally(() => setKakaoRunning(false));
+      .finally(() => setKakaoVisitorRunning(false));
+  }
+
+  function handleRunKakaoPredictionNotify(region: BatchRegion) {
+    if (kakaoPredictionRunning) return;
+    setKakaoPredictionRunning(region);
+    setKakaoPredictionError(null);
+    adminApi
+      .runKakaoPredictionNotify(region)
+      .then((r) =>
+        setKakaoPredictionStatus((prev) =>
+          prev
+            ? { ...prev, last_runs: { ...prev.last_runs, [region]: r } }
+            : { configured: true, last_runs: { [region]: r } }
+        )
+      )
+      .catch((err) => {
+        handleAuthError(err);
+        setKakaoPredictionError(err instanceof Error ? err.message : "카카오 알림 발송에 실패했습니다.");
+      })
+      .finally(() => setKakaoPredictionRunning(null));
   }
 
   function handleRunBatch(region: BatchRegion) {
@@ -1578,72 +1624,140 @@ export default function AdminDashboardPage() {
             <h2>
               <span className="admin-live-dot" /> 카카오 알림
             </h2>
-            <div className="admin-notify-body">
-              {(() => {
-                const last = kakaoStatus?.last_run ?? null;
-                const configured = kakaoStatus?.configured ?? false;
-                const tone = kakaoRunning
-                  ? "running"
-                  : !configured
-                    ? "neutral"
+
+            <div className="admin-notify-section">
+              <h3 className="admin-notify-section-title">사이트 방문자 현황</h3>
+              <div className="admin-notify-body">
+                {(() => {
+                  const last = kakaoVisitorStatus?.last_run ?? null;
+                  const configured = kakaoVisitorStatus?.configured ?? false;
+                  const tone = kakaoVisitorRunning
+                    ? "running"
+                    : !configured
+                      ? "neutral"
+                      : last
+                        ? last.status === "sent" || last.status === "skipped_recent"
+                          ? "ok"
+                          : "fail"
+                        : "neutral";
+                  const statusLabel = kakaoVisitorRunning
+                    ? "발송 중"
+                    : !configured
+                      ? "미설정"
+                      : last
+                        ? last.status === "sent"
+                          ? "성공"
+                          : last.status === "skipped_recent"
+                            ? "스킵"
+                            : last.status === "error"
+                              ? "실패"
+                              : "미설정"
+                        : "기록 없음";
+                  const triggeredLabel =
+                    last?.triggered_by === "admin"
+                      ? "수동"
+                      : last?.triggered_by === "in_process"
+                        ? "자동(서버)"
+                        : last?.triggered_by === "cron"
+                          ? "자동(cron)"
+                          : null;
+                  const metaText = !configured
+                    ? "REST API 키 · 토큰 설정이 필요합니다."
                     : last
-                      ? last.status === "sent" || last.status === "skipped_recent"
-                        ? "ok"
-                        : "fail"
-                      : "neutral";
-                const statusLabel = kakaoRunning
-                  ? "발송 중"
-                  : !configured
-                    ? "미설정"
-                    : last
-                      ? last.status === "sent"
-                        ? "성공"
-                        : last.status === "skipped_recent"
-                          ? "스킵"
-                          : last.status === "error"
-                            ? "실패"
-                            : "미설정"
-                      : "기록 없음";
-                const triggeredLabel =
-                  last?.triggered_by === "admin"
-                    ? "수동"
-                    : last?.triggered_by === "in_process"
-                      ? "자동(서버)"
-                      : last?.triggered_by === "cron"
-                        ? "자동(cron)"
-                        : null;
-                const metaText = !configured
-                  ? "REST API 키 · 토큰 설정이 필요합니다."
-                  : last
-                    ? `${triggeredLabel ? `${triggeredLabel} · ` : ""}${formatDateTime(last.finished_at)}` +
-                      (last.status === "error" && last.error ? ` · ${last.error}` : "") +
-                      (last.status === "skipped_recent" && last.last_sent_at
-                        ? ` · 최근 발송 ${formatDateTime(last.last_sent_at)}`
-                        : "")
-                    : "아직 실행 이력이 없습니다.";
-                return kakaoStatus === null ? (
+                      ? `${triggeredLabel ? `${triggeredLabel} · ` : ""}${formatDateTime(last.finished_at)}` +
+                        (last.status === "error" && last.error ? ` · ${last.error}` : "") +
+                        (last.status === "skipped_recent" && last.last_sent_at
+                          ? ` · 최근 발송 ${formatDateTime(last.last_sent_at)}`
+                          : "")
+                      : "아직 실행 이력이 없습니다.";
+                  return kakaoVisitorStatus === null ? (
+                    <div className="admin-batch-row">
+                      <span className="admin-skeleton admin-skeleton--row" />
+                    </div>
+                  ) : (
+                    <div className="admin-batch-item">
+                      <div className="admin-batch-row">
+                        <span className={`admin-batch-status admin-batch-status--${tone}`}>{statusLabel}</span>
+                        <span className="admin-batch-meta">{metaText}</span>
+                        <button
+                          type="button"
+                          className="admin-batch-run-btn"
+                          disabled={kakaoVisitorRunning}
+                          onClick={handleRunKakaoVisitorNotify}
+                        >
+                          {kakaoVisitorRunning ? "발송 중..." : "지금 발송"}
+                        </button>
+                      </div>
+                      {last?.message && <pre className="admin-notify-message">{last.message}</pre>}
+                    </div>
+                  );
+                })()}
+                {kakaoVisitorError && <p className="admin-batch-error">{kakaoVisitorError}</p>}
+              </div>
+            </div>
+
+            <div className="admin-notify-section">
+              <h3 className="admin-notify-section-title">AI 예측 배치 실행결과</h3>
+              <div className="admin-notify-body">
+                {kakaoPredictionStatus === null ? (
                   <div className="admin-batch-row">
                     <span className="admin-skeleton admin-skeleton--row" />
                   </div>
                 ) : (
-                  <div className="admin-batch-item">
-                    <div className="admin-batch-row">
-                      <span className={`admin-batch-status admin-batch-status--${tone}`}>{statusLabel}</span>
-                      <span className="admin-batch-meta">{metaText}</span>
-                      <button
-                        type="button"
-                        className="admin-batch-run-btn"
-                        disabled={kakaoRunning}
-                        onClick={handleRunKakaoNotify}
-                      >
-                        {kakaoRunning ? "발송 중..." : "지금 발송"}
-                      </button>
-                    </div>
-                    {last?.message && <pre className="admin-notify-message">{last.message}</pre>}
-                  </div>
-                );
-              })()}
-              {kakaoError && <p className="admin-batch-error">{kakaoError}</p>}
+                  (["KR", "US"] as BatchRegion[]).map((region) => {
+                    const regionLabel = region === "KR" ? "한국장 (코스피·코스닥)" : "미국장 (나스닥)";
+                    const configured = kakaoPredictionStatus?.configured ?? false;
+                    const last = kakaoPredictionStatus?.last_runs[region] ?? null;
+                    const isSending = kakaoPredictionRunning === region;
+                    const tone = isSending
+                      ? "running"
+                      : !configured
+                        ? "neutral"
+                        : last
+                          ? last.status === "sent"
+                            ? "ok"
+                            : "fail"
+                          : "neutral";
+                    const statusLabel = isSending
+                      ? "발송 중"
+                      : !configured
+                        ? "미설정"
+                        : last
+                          ? last.status === "sent"
+                            ? "성공"
+                            : last.status === "error"
+                              ? "실패"
+                              : "미설정"
+                          : "기록 없음";
+                    const triggeredLabel = last?.triggered_by === "admin" ? "수동" : last?.triggered_by === "auto_delayed" ? "자동(10분 지연)" : null;
+                    const metaText = !configured
+                      ? "REST API 키 · 토큰 설정이 필요합니다."
+                      : last
+                        ? `${triggeredLabel ? `${triggeredLabel} · ` : ""}${formatDateTime(last.finished_at)}` +
+                          (last.status === "error" && last.error ? ` · ${last.error}` : "")
+                        : "아직 실행 이력이 없습니다.";
+                    return (
+                      <div key={region} className="admin-batch-item">
+                        <div className="admin-batch-row">
+                          <span className={`admin-batch-status admin-batch-status--${tone}`}>{statusLabel}</span>
+                          <span className="admin-batch-name">{regionLabel}</span>
+                          <span className="admin-batch-meta">{metaText}</span>
+                          <button
+                            type="button"
+                            className="admin-batch-run-btn"
+                            disabled={kakaoPredictionRunning !== null}
+                            onClick={() => handleRunKakaoPredictionNotify(region)}
+                          >
+                            {isSending ? "발송 중..." : "지금 발송"}
+                          </button>
+                        </div>
+                        {last?.message && <pre className="admin-notify-message">{last.message}</pre>}
+                      </div>
+                    );
+                  })
+                )}
+                {kakaoPredictionError && <p className="admin-batch-error">{kakaoPredictionError}</p>}
+              </div>
             </div>
           </div>
           </div>

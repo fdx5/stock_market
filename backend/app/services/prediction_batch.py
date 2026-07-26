@@ -27,6 +27,7 @@ from app.data import exchange_fetcher
 from app.data.prediction_universe import KR_MARKETS, US_MARKETS, get_roster
 from app.services import (
     ai_analyst,
+    kakao_notify,
     prediction_engine,
     prediction_features,
     prediction_grader,
@@ -291,27 +292,34 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
         _run_lock.release()
 
 
-def _record(region: str, summary: dict) -> None:
-    """Stores a trimmed copy of a run's outcome for the admin panel. The full summary
-    carries every stock's per-factor debug — far more than a status widget needs and
-    not worth holding in memory indefinitely — so only the headline fields are kept.
+def _record(region: str, summary: dict) -> dict:
+    """Stores a trimmed copy of a run's outcome for the admin panel, and returns that
+    same trimmed copy — the run_batch caller hands it straight to
+    kakao_notify.schedule_prediction_result rather than the raw (much larger)
+    summary, so the KakaoTalk message describes exactly what the admin panel shows.
+
+    The full summary carries every stock's per-factor debug — far more than a status
+    widget needs and not worth holding in memory indefinitely — so only the headline
+    fields are kept.
     """
+    recorded = {
+        "status": summary.get("status"),
+        "reason": summary.get("reason"),
+        "collect_date": summary.get("collect_date"),
+        "predict_date": summary.get("predict_date"),
+        "predict_weekday": summary.get("predict_weekday"),
+        "saved": summary.get("saved", 0),
+        "markets": summary.get("markets", {}),
+        "grading": summary.get("grading"),
+        "elapsed_seconds": summary.get("elapsed_seconds"),
+        "warnings": summary.get("warnings", []),
+        "triggered_by": summary.get("triggered_by"),
+        "error": summary.get("error"),
+        "finished_at": _now_iso(),
+    }
     with _status_lock:
-        _last_runs[region] = {
-            "status": summary.get("status"),
-            "reason": summary.get("reason"),
-            "collect_date": summary.get("collect_date"),
-            "predict_date": summary.get("predict_date"),
-            "predict_weekday": summary.get("predict_weekday"),
-            "saved": summary.get("saved", 0),
-            "markets": summary.get("markets", {}),
-            "grading": summary.get("grading"),
-            "elapsed_seconds": summary.get("elapsed_seconds"),
-            "warnings": summary.get("warnings", []),
-            "triggered_by": summary.get("triggered_by"),
-            "error": summary.get("error"),
-            "finished_at": _now_iso(),
-        }
+        _last_runs[region] = recorded
+    return recorded
 
 
 def run_batch(region: str, force: bool = False, triggered_by: str = "system") -> dict:
@@ -330,10 +338,16 @@ def run_batch(region: str, force: bool = False, triggered_by: str = "system") ->
     try:
         summary = _run_batch_impl(region, force, triggered_by)
     except Exception as exc:  # noqa: BLE001 - record then re-raise, don't swallow
-        _record(region, {"status": "error", "error": str(exc), "triggered_by": triggered_by})
+        recorded = _record(region, {"status": "error", "error": str(exc), "triggered_by": triggered_by})
+        kakao_notify.schedule_prediction_result(region, recorded)
         raise
     else:
-        _record(region, summary)
+        recorded = _record(region, summary)
+        # "AI 예측 배치 실행결과" KakaoTalk notification — fires ~10 minutes from now,
+        # independent of this call returning immediately. Scheduled for every
+        # completion (ok, skipped, or error above), since a skip is itself a fact
+        # worth knowing ("이미 실행됨" vs the batch silently never having fired at all).
+        kakao_notify.schedule_prediction_result(region, recorded)
         return summary
     finally:
         with _status_lock:
