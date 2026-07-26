@@ -596,13 +596,38 @@ body:has(.hb) {
      input; `.hb-arm` and `.hb-billboard` inherit this and the button opts back
      in below. */
   pointer-events: none;
-  animation: hb-orbit var(--d) linear infinite;
-  animation-delay: var(--delay);
+  /* hb-orbit carries the revolution itself (now with the plane's tilt baked
+     in — see its own comment); hb-orbit-depth is a same-duration, same-delay
+     z-index swap that stands in for real cross-boundary 3D depth-sorting
+     against the star, which iPad/iOS Safari doesn't do reliably — see the
+     comment on this element's render call in Hub.tsx. */
+  animation: hb-orbit var(--d) linear infinite, hb-orbit-depth var(--d) linear infinite;
+  animation-delay: var(--delay), var(--delay);
 }
 
+/* Used to be just rotateZ, with the plane's rotateX(tilt) coming for free
+   from `.hb-orbiter` living inside `.hb-plane`. Baked in directly now that
+   `.hb-orbiter` is a direct `.hb-system` child instead (see Hub.tsx) — the
+   composed matrix reaching `.hb-arm` is identical either way, so
+   `.hb-billboard`'s cancellation math below is untouched. */
 @keyframes hb-orbit {
-  from { transform: rotateZ(0deg); }
-  to { transform: rotateZ(360deg); }
+  from { transform: rotateX(var(--tilt)) rotateZ(0deg); }
+  to { transform: rotateX(var(--tilt)) rotateZ(360deg); }
+}
+
+/* Stands in for the star/planet depth-sort across the previous .hb-plane/
+   .hb-starwrap boundary (see Hub.tsx). Derived from this same element's own
+   geometry: after `.hb-arm`'s translateX(radius) translateZ(14px) and this
+   rotateX(tilt)·rotateZ(t), a planet's depth relative to the plane's origin
+   works out to radius·sin(tilt)·sin(t) + 14·cos(tilt) — positive (nearer
+   than the star, which sits at the origin) for t in (0°, 180°) and negative
+   (farther) for t in (180°, 360°). Since `hb-orbit` runs t = 0→360° linearly
+   over the same duration, 0%–50% of that same span is exactly the "nearer"
+   half. `.hb-starwrap` sits at z-index: 4. */
+@keyframes hb-orbit-depth {
+  0%, 49.9% { z-index: 10; }
+  50%, 99.9% { z-index: 2; }
+  100% { z-index: 10; }
 }
 
 .hb-arm {

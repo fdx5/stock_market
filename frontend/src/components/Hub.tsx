@@ -674,17 +674,34 @@ export default function Hub() {
                   <span className="hb-ring-arc" style={{ animationDuration: `${spec.duration * 1.6}s` }} />
                 </div>
               ))}
-
-              {PLANETS.map((spec) => (
-                <Planet
-                  key={spec.key}
-                  spec={spec}
-                  change={spec.feed ? feed[spec.feed] : null}
-                  en={en}
-                  onOpen={open}
-                />
-              ))}
             </div>
+
+            {/* Planets are direct .hb-system children — NOT nested inside
+                .hb-plane like the rings above — so each one's front/back
+                relationship to the star can be driven by plain z-index (see
+                .hb-orbiter's hb-orbit-depth animation in hub.css) instead of
+                relying on the browser to 3D-depth-sort across the .hb-plane/
+                .hb-starwrap sibling boundary. That cross-boundary sort is
+                real per spec (both are preserve-3d children of this same
+                .hb-system) and does work on most browsers, but iPad/iOS
+                Safari renders it inconsistently — a planet's box starts
+                painting over the sun well before its actual orbital position
+                would place it in front. .hb-orbit's keyframes now carry
+                rotateX(var(--tilt)) directly (baked into the same transform
+                that used to come for free from being .hb-plane's child), so
+                moving out here changes nothing about each planet's own
+                position or its billboard's face-the-camera cancellation
+                math — only which element the browser has to cross-sort
+                against the star. */}
+            {PLANETS.map((spec) => (
+              <Planet
+                key={spec.key}
+                spec={spec}
+                change={spec.feed ? feed[spec.feed] : null}
+                en={en}
+                onOpen={open}
+              />
+            ))}
 
             {/* ── the star: the hub itself, and the way in ──
                 The three soft light layers are siblings of the button rather
