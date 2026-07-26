@@ -1625,6 +1625,29 @@ export default function AdminDashboardPage() {
               <span className="admin-live-dot" /> 카카오 알림
             </h2>
 
+            {(() => {
+              // One token backs both notification types, so this warning belongs to the
+              // card rather than either section. Only the refresh token is worth
+              // surfacing: the access token refreshes itself every few hours, while the
+              // refresh token expires roughly every 2 months and takes both
+              // notifications down until scripts/kakao_get_refresh_token.py is run again
+              // — silently, unless something says so before the deadline.
+              const expiresAt =
+                kakaoVisitorStatus?.token?.refresh_expires_at ??
+                kakaoPredictionStatus?.token?.refresh_expires_at ??
+                null;
+              if (!expiresAt) return null;
+              const daysLeft = (new Date(expiresAt).getTime() - Date.now()) / 86_400_000;
+              if (daysLeft > 14) return null;
+              return (
+                <p className="admin-batch-error">
+                  {daysLeft <= 0
+                    ? `카카오 refresh 토큰이 만료되었습니다 (${formatDateTime(expiresAt)}). scripts/kakao_get_refresh_token.py로 재발급이 필요합니다.`
+                    : `카카오 refresh 토큰이 ${Math.ceil(daysLeft)}일 뒤 만료됩니다 (${formatDateTime(expiresAt)}). scripts/kakao_get_refresh_token.py로 재발급해 주세요.`}
+                </p>
+              );
+            })()}
+
             <div className="admin-notify-section">
               <h3 className="admin-notify-section-title">사이트 방문자 현황</h3>
               <div className="admin-notify-body">

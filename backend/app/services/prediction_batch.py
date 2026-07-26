@@ -90,6 +90,48 @@ def get_status() -> dict:
     }
 
 
+def last_run_or_snapshot(region: str) -> dict | None:
+    """This region's last run as a summary, falling back to one rebuilt from the stored
+    rows when `_last_runs` has no memory of it.
+
+    `_last_runs` only covers runs this process performed, and a region runs roughly once
+    a day while the service restarts on every deploy — so for most of any given day
+    there is a perfectly good batch result in the database and nothing in memory
+    describing it. Callers that only want to *describe* the last run (the admin panel's
+    manual KakaoTalk resend) should use this rather than `get_status()["last_runs"]`,
+    which would tell them no run ever happened.
+
+    The rebuilt summary is marked `source: "db_snapshot"` and carries only what the rows
+    can prove — how many were saved, for which 예측일, and when they landed. Fields that
+    exist solely in a live run's memory (elapsed time, per-market analyst path, warnings)
+    are absent rather than guessed. Returns None when the region has no stored rows at
+    all, which is the one case that genuinely has nothing to report.
+    """
+    with _status_lock:
+        recorded = _last_runs.get(region)
+        if recorded is not None:
+            return dict(recorded)
+
+    markets = REGION_MARKETS.get(region)
+    if not markets:
+        return None
+
+    by_market = prediction_store.latest_run_by_market()
+    present = {market: by_market[market] for market in markets if market in by_market}
+    if not present:
+        return None
+
+    return {
+        "status": "ok",
+        "source": "db_snapshot",
+        "collect_date": max(s["collect_date"] for s in present.values()),
+        "predict_date": max(s["predict_date"] for s in present.values()),
+        "saved": sum(s["count"] for s in present.values()),
+        "markets": {market: {"count": s["count"]} for market, s in present.items()},
+        "finished_at": max(s["updated_at"] for s in present.values()),
+    }
+
+
 def _group_by_market(features: list[dict]) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {}
     for f in features:

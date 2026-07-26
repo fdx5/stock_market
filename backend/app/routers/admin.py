@@ -116,8 +116,14 @@ def kakao_notify_visitors_status():
     """'사이트 방문자 현황' card: whether the Kakao integration has a stored token yet,
     and how the last send (by any of the three triggers — cron, in-process fallback,
     or this panel's own button) went. `last_run` is None only if the process hasn't
-    run it even once since it last restarted."""
-    return {"configured": kakao_notify.is_configured(), "last_run": kakao_notify.get_last_visitor_run()}
+    run it even once since it last restarted. `token` carries the stored token's two
+    expiry timestamps (no token material) so a refresh token nearing its ~2-month end
+    is visible here before it takes the notifications down."""
+    return {
+        "configured": kakao_notify.is_configured(),
+        "last_run": kakao_notify.get_last_visitor_run(),
+        "token": kakao_notify.describe_token(),
+    }
 
 
 @router.post("/notify/kakao/visitors/run", dependencies=[Depends(require_admin)])
@@ -135,21 +141,28 @@ def kakao_notify_visitors_run():
 def kakao_notify_prediction_status():
     """'AI 예측 배치 실행결과' card: per-region (KR/US) last-send outcome. A region is
     absent from `last_runs` if no send (scheduled or manual) has completed for it
-    since this process last restarted."""
-    return {"configured": kakao_notify.is_configured(), "last_runs": kakao_notify.get_last_prediction_runs()}
+    since this process last restarted. `token` is the same expiry view as the visitor
+    card's — one integration, one token."""
+    return {
+        "configured": kakao_notify.is_configured(),
+        "last_runs": kakao_notify.get_last_prediction_runs(),
+        "token": kakao_notify.describe_token(),
+    }
 
 
 @router.post("/notify/kakao/prediction/run", dependencies=[Depends(require_admin)])
 def kakao_notify_prediction_run(region: str = Query(..., pattern=r"^(KR|US)$")):
     """Manual send from the '지금 발송' button in the same card, for one region.
-    Uses that region's last recorded prediction_batch outcome (from
-    prediction_batch.get_status()['last_runs'], the same record the AI 예측 배치
-    panel itself renders) rather than re-running the batch — this button resends
-    the notification for whatever already happened, it doesn't trigger a new batch
-    run. Errors if that region hasn't completed a run yet this process lifetime,
-    since there is nothing yet to describe."""
-    last_runs = prediction_batch.get_status()["last_runs"]
-    summary = last_runs.get(region)
+    Describes that region's last batch outcome rather than re-running the batch — this
+    button resends the notification for whatever already happened.
+
+    Goes through prediction_batch.last_run_or_snapshot rather than reading
+    get_status()['last_runs'] directly: that dict only remembers runs *this process*
+    performed, so after any restart (every deploy, and each region only runs about once
+    a day) it is empty and this button answered 404 for both regions even though the
+    batch results were sitting in the database. The 404 now means what it says — no
+    stored rows for the region at all."""
+    summary = prediction_batch.last_run_or_snapshot(region)
     if summary is None:
         raise HTTPException(
             status_code=404,

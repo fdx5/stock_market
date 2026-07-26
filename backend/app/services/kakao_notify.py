@@ -94,9 +94,89 @@ def is_configured() -> bool:
     return bool(KAKAO_REST_API_KEY) and kakao_token_store.get() is not None
 
 
+def describe_token() -> dict | None:
+    """Expiry-only view of the stored token for the admin dashboard's 카카오 알림 cards.
+    Deliberately carries no token material — just the two timestamps that explain the
+    two ways this integration goes quiet: the access token expiring (normal, refreshed
+    automatically) and the refresh token expiring (~2 months, needs
+    scripts/kakao_get_refresh_token.py run again). Without these on screen there is no
+    way to tell "about to re-auth" from "already dead" until a send fails."""
+    stored = kakao_token_store.get()
+    if stored is None:
+        return None
+    return {
+        "access_expires_at": stored["access_expires_at"],
+        "refresh_expires_at": stored["refresh_expires_at"],
+    }
+
+
 class KakaoNotConfigured(Exception):
     """Raised when KAKAO_REST_API_KEY is unset or no refresh token has been stored yet
     (see scripts/kakao_get_refresh_token.py for the one-time setup that provides it)."""
+
+
+class KakaoApiError(Exception):
+    """A Kakao HTTP call that came back non-2xx (or 200 with a failing result_code).
+
+    Exists because requests' own HTTPError stops at "401 Client Error: Unauthorized
+    for url: https://kauth.kakao.com/oauth/token", which is the same string for every
+    possible cause — and that string was all the admin dashboard could show. Kakao puts
+    the actual reason in the response body, so this carries it through to the dashboard
+    instead of throwing it away at the raise_for_status() call.
+    """
+
+    def __init__(self, message: str, status_code: int | None = None, code=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.code = code
+
+
+# Kakao's error bodies name the failure but not the fix; these map the codes this
+# integration can actually hit onto the specific thing to go change. KOE010 in
+# particular is what a server missing KAKAO_CLIENT_SECRET looks like — the same token
+# refresh succeeds from a machine whose .env has it, which is exactly how it stays
+# hidden until you compare the two.
+_KAKAO_ERROR_HINTS = {
+    "KOE010": (
+        "앱 키/Client Secret이 카카오 앱 설정과 일치하지 않습니다. "
+        "배포 환경의 KAKAO_REST_API_KEY와 KAKAO_CLIENT_SECRET 환경변수를 확인하세요 "
+        "(카카오 개발자 콘솔에서 Client Secret을 켰다면 서버에도 반드시 설정해야 합니다)."
+    ),
+    "KOE320": "인가 코드가 유효하지 않습니다. scripts/kakao_get_refresh_token.py로 토큰을 다시 발급하세요.",
+    "-401": "토큰이 만료되었거나 연결이 해제되었습니다. scripts/kakao_get_refresh_token.py로 다시 인증하세요.",
+    "-402": "카카오 앱에 '카카오톡 메시지 전송(talk_message)' 동의항목 권한이 없습니다.",
+    "-403": "메시지 전송 한도를 초과했습니다. 잠시 후 다시 시도하세요.",
+}
+
+
+def _kakao_error(action: str, resp: requests.Response) -> KakaoApiError:
+    """Turns a failed Kakao response into a message an admin can act on. The two Kakao
+    hosts disagree on error schema — kauth (토큰) answers with error/error_description/
+    error_code, kapi (메시지) with msg/code — so both spellings are read here."""
+    try:
+        body = resp.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        body = {}
+
+    code = body.get("error_code", body.get("code"))
+    detail = (
+        body.get("error_description")
+        or body.get("msg")
+        or body.get("error")
+        or (resp.text or "").strip()[:200]
+    )
+
+    message = f"{action} 실패 (HTTP {resp.status_code})"
+    if detail:
+        message += f": {detail}"
+    if code is not None:
+        message += f" [{code}]"
+    hint = _KAKAO_ERROR_HINTS.get(str(code))
+    if hint:
+        message += f" — {hint}"
+    return KakaoApiError(message, status_code=resp.status_code, code=code)
 
 
 def _iso(dt: datetime) -> str:
@@ -116,7 +196,8 @@ def _refresh_access_token(stored: dict) -> str:
         payload["client_secret"] = KAKAO_CLIENT_SECRET
 
     resp = requests.post(KAKAO_TOKEN_URL, data=payload, timeout=10)
-    resp.raise_for_status()
+    if not resp.ok:
+        raise _kakao_error("카카오 토큰 갱신", resp)
     data = resp.json()
 
     now = datetime.now(timezone.utc)
@@ -162,7 +243,49 @@ def send_text_message(access_token: str, text: str) -> None:
         data={"template_object": json.dumps(template_object, ensure_ascii=False)},
         timeout=10,
     )
-    resp.raise_for_status()
+    if not resp.ok:
+        raise _kakao_error("카카오 메시지 발송", resp)
+
+    # A successful send answers 200 {"result_code":0}. Kakao also uses 200 with a
+    # non-zero result_code for partial/soft failures, so status alone would report
+    # those as sent.
+    try:
+        body = resp.json()
+    except ValueError:
+        return
+    if isinstance(body, dict) and body.get("result_code") not in (0, None):
+        raise KakaoApiError(
+            f"카카오 메시지 발송 실패 (result_code={body['result_code']})",
+            status_code=resp.status_code,
+            code=body.get("result_code"),
+        )
+
+
+def send_message(text: str) -> None:
+    """The one send entry point both notification types go through.
+
+    Retries once on a 401 from the send API after forcing a token refresh. The stored
+    access_expires_at is only Kakao's estimate from issue time: a token can stop being
+    accepted before it — the account re-consents, another refresh supersedes it, the
+    clocks disagree — and get_valid_access_token(), which trusts that timestamp, would
+    otherwise hand back the dead token on every attempt with no path to recovery short
+    of waiting out the recorded expiry. A 401 from the *token* endpoint is not retried
+    here: that one is a credentials problem (see KOE010 above), and repeating it just
+    produces the same answer.
+    """
+    try:
+        send_text_message(get_valid_access_token(), text)
+        return
+    except KakaoApiError as exc:
+        if exc.status_code != 401:
+            raise
+
+    stored = kakao_token_store.get()
+    if stored is None:
+        raise KakaoNotConfigured(
+            "No Kakao refresh token stored yet — run scripts/kakao_get_refresh_token.py once."
+        )
+    send_text_message(_refresh_access_token(stored), text)
 
 
 def _diff_and_pct(current: int, previous: int | None) -> tuple[int | None, float | None]:
@@ -239,26 +362,36 @@ def run_visitor_stats(force: bool = False, triggered_by: str = "cron") -> dict:
 
     since_24h = (now - timedelta(hours=24)).isoformat()
 
-    online_now = tracker.current_count()
-    total_visits = visitor_store.total_count()
-    views_24h = page_view_store.count_today(since_24h)
+    base = {"triggered_by": triggered_by, "finished_at": finished_at}
+
+    # Gathering the numbers touches four stores, three of them over the network
+    # (Turso) — so it fails for its own reasons, independent of anything Kakao does.
+    # Recorded as an error like any other rather than allowed to escape: uncaught, it
+    # leaves the admin's manual send as a bare HTTP 500 with nothing in the card's
+    # last-run history to explain it.
+    try:
+        online_now = tracker.current_count()
+        total_visits = visitor_store.total_count()
+        views_24h = page_view_store.count_today(since_24h)
+        previous = notify_stats_store.closest_to((now - timedelta(hours=24)).isoformat())
+        # Recorded regardless of what happens below — it's a true reading of the site
+        # at this instant, and future runs need it as their own "24h ago" baseline even
+        # if this particular send never went out.
+        notify_stats_store.record(now.isoformat(), online_now, total_visits, views_24h)
+    except Exception as exc:
+        return _record_last_visitor_run(
+            {**base, "status": "error", "error": f"방문자 통계 조회 실패: {exc}"}
+        )
+
     stats = {"online_now": online_now, "total_visits": total_visits, "views_24h": views_24h}
-
-    previous = notify_stats_store.closest_to((now - timedelta(hours=24)).isoformat())
-    # Recorded regardless of what happens below — it's a true reading of the site
-    # at this instant, and future runs need it as their own "24h ago" baseline even
-    # if this particular send never went out.
-    notify_stats_store.record(now.isoformat(), online_now, total_visits, views_24h)
-
     message = build_message(online_now, total_visits, views_24h, previous)
-    base = {"message": message, "stats": stats, "triggered_by": triggered_by, "finished_at": finished_at}
+    base = {**base, "message": message, "stats": stats}
 
     if not KAKAO_REST_API_KEY or kakao_token_store.get() is None:
         return _record_last_visitor_run({**base, "status": "not_configured"})
 
     try:
-        access_token = get_valid_access_token()
-        send_text_message(access_token, message)
+        send_message(message)
     except Exception as exc:
         return _record_last_visitor_run({**base, "status": "error", "error": str(exc)})
 
@@ -320,9 +453,22 @@ def build_prediction_message(region: str, summary: dict) -> str:
     lines.append(detail)
 
     for market, stat in (summary.get("markets") or {}).items():
-        source = stat.get("ai_source")
+        count = stat.get("count", 0)
+        # A db_snapshot summary has no ai_source at all — which analyst path ran is only
+        # known to the process that ran it. Drop the field rather than print
+        # "확인 불가", which would read as a failed detection.
+        if "ai_source" not in stat:
+            lines.append(f"· {market}: {count}종목")
+            continue
+        source = stat["ai_source"]
         source_label = _AI_SOURCE_LABELS.get(source, source or "확인 불가")
-        lines.append(f"· {market}: {source_label} ({stat.get('count', 0)}종목)")
+        lines.append(f"· {market}: {source_label} ({count}종목)")
+
+    if summary.get("source") == "db_snapshot":
+        # Rebuilt from stored rows because the process that ran the batch is gone (see
+        # prediction_batch.last_run_or_snapshot) — say so, since the missing 소요시간 and
+        # 분석 경로 are absent for that reason rather than because the run lacked them.
+        lines.append("(서버 재시작으로 실행 로그가 없어 저장된 예측 데이터 기준으로 요약했습니다)")
 
     predict_date = summary.get("predict_date")
     if predict_date and len(predict_date) == 8:
@@ -356,8 +502,7 @@ def send_prediction_result(region: str, summary: dict, triggered_by: str) -> dic
         return _record_last_prediction_run(region, {**base, "status": "not_configured"})
 
     try:
-        access_token = get_valid_access_token()
-        send_text_message(access_token, message)
+        send_message(message)
     except Exception as exc:
         return _record_last_prediction_run(region, {**base, "status": "error", "error": str(exc)})
 

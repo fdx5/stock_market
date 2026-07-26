@@ -105,9 +105,19 @@ export interface KakaoVisitorRun {
   finished_at: string;
 }
 
+/** Expiry-only view of the stored Kakao token (no token material) — the access token
+ * refreshes itself, but the refresh token expires roughly every 2 months and needs
+ * scripts/kakao_get_refresh_token.py run again, which the panel warns about while
+ * there is still time to act. Null when no token has been stored yet. */
+export interface KakaoTokenInfo {
+  access_expires_at: string;
+  refresh_expires_at: string | null;
+}
+
 export interface KakaoVisitorStatus {
   configured: boolean;
   last_run: KakaoVisitorRun | null;
+  token?: KakaoTokenInfo | null;
 }
 
 /** One outcome of the "AI 예측 배치 실행결과" KakaoTalk notification for a single
@@ -126,6 +136,7 @@ export interface KakaoPredictionRun {
 export interface KakaoPredictionStatus {
   configured: boolean;
   last_runs: Partial<Record<BatchRegion, KakaoPredictionRun>>;
+  token?: KakaoTokenInfo | null;
 }
 
 export type CommentSource = "battle" | "fight";
