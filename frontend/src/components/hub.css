@@ -1241,7 +1241,9 @@ body:has(.hb) {
      were balanced against the neon glow that used to sit under them: two thirds
      of each cell was dark at ~0.9, which the bloom filled back in. With the glow
      gone that was simply a dim readout, so the bright core of each cell grows
-     and the surrounding ink drops to about half strength. */
+     and the surrounding ink drops to about half strength. The fill stays a
+     saturated yellow rather than a pale one: the lightened grid is what carries
+     the brightness now, which leaves the hue free to be a real amber. */
   background-image:
     radial-gradient(
       circle at 50% 50%,
@@ -1250,7 +1252,7 @@ body:has(.hb) {
       rgba(40, 19, 0, 0.36) 58%,
       rgba(34, 16, 0, 0.5) 100%
     ),
-    linear-gradient(#fffbd6, #ffdc52);
+    linear-gradient(#ffe74f, #ffc10f);
   background-size: 1.9px 1.9px, 100% 100%;
   -webkit-background-clip: text;
   background-clip: text;
