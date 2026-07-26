@@ -148,7 +148,7 @@ export default function PredictionDetailModal({
   const tone = RESULT_CLASS[item.result];
   const logo = usLogoUrl(item.code);
   // KRX names have a detail page on this site; US tickers live on the global page.
-  const detailHref = isKrxCode(item.code) ? `/?code=${item.code}` : `/global?code=${item.code}`;
+  const detailHref = isKrxCode(item.code) ? `/dashboard?code=${item.code}` : `/global?code=${item.code}`;
   const evidence = sortEvidence(item.evidence);
   const top = likeliest(item);
 

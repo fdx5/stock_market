@@ -5,6 +5,11 @@ const EVENT_ENDPOINT = "/api/activity/event";
 const CLICK_DEBOUNCE_MS = 500;
 
 export function pageLabel(path: string): string {
+  // "/" is the orbit entrance now, not the stock desk — the desk moved to
+  // /dashboard. Without this the admin dashboard filed every landing on the new
+  // main page under "대시보드" and the two were indistinguishable in the stats.
+  if (path === "/") return "메인 (태양계)";
+  if (path === "/dashboard") return "대시보드";
   if (/^\/investor\//.test(path)) return "투자자 동향";
   if (/^\/index\/(kospi|kosdaq)/i.test(path)) return "지수 차트";
   if (path === "/map") return "KOSPI 맵";

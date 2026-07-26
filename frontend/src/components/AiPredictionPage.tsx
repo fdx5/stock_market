@@ -17,6 +17,7 @@ import BattleIcon from "./BattleIcon";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import LanguageToggle from "./LanguageToggle";
+import DashboardIcon from "./DashboardIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import PredictionCard from "./PredictionCard";
@@ -402,6 +403,9 @@ export default function AiPredictionPage() {
           </div>
         </div>
         <div className="app-nav-row">
+          <Link to="/dashboard" className="kospi-map-nav-link kospi-map-nav-link--home">
+            <DashboardIcon /> {t("홈")}
+          </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>

@@ -369,7 +369,7 @@ export default function MarketMapPage({
   }, [size]);
 
   const handleTileClick = (code: string) => {
-    navigate(market === "us" ? `/global?code=${code}` : `/?code=${code}`);
+    navigate(market === "us" ? `/global?code=${code}` : `/dashboard?code=${code}`);
   };
 
   // One batched translation request for every name currently loaded (tiles, table,
@@ -573,7 +573,7 @@ export default function MarketMapPage({
           </div>
         </div>
         <div className="app-nav-row">
-          <Link to="/" className="kospi-map-nav-link kospi-map-nav-link--home">
+          <Link to="/dashboard" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
           {navLinks.map((link) => (

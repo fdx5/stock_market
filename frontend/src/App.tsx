@@ -8,10 +8,10 @@ import { useRoute } from "./router";
 // InvestorTrend use) instead of every route's code landing in one bundle regardless
 // of which page a visitor lands on first.
 const Dashboard = lazy(() => import("./components/Dashboard"));
-// Prototype redesign of the landing page — same data, new header/body/footer.
-// Lives on its own route so it can be shown side by side with the live "/" it is
-// proposing to replace, rather than swapping it out before it's been judged.
-const Dashboard2 = lazy(() => import("./components/Dashboard2"));
+// The entrance. "/" is now a gateway rather than a dashboard — the stock desk it
+// used to be lives at /dashboard and is reached from the star at the centre of
+// this page. Anything that means "open a stock" now targets /dashboard?code=.
+const Hub = lazy(() => import("./components/Hub"));
 const InvestorTrendPage = lazy(() => import("./components/InvestorTrendPage"));
 const IndexChartPage = lazy(() => import("./components/IndexChartPage"));
 const KospiMapPage = lazy(() => import("./components/KospiMapPage"));
@@ -38,8 +38,8 @@ export default function App() {
     page = <InvestorTrendPage code={investorMatch[1]} />;
   } else if (indexMatch) {
     page = <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
-  } else if (path === "/v2" || path === "/dashboard2") {
-    page = <Dashboard2 />;
+  } else if (path === "/dashboard") {
+    page = <Dashboard />;
   } else if (path === "/map") {
     page = <KospiMapPage />;
   } else if (path === "/kosdaq-map") {
@@ -65,7 +65,9 @@ export default function App() {
   } else if (path === "/admin/db") {
     page = <AdminDbPage />;
   } else {
-    page = <Dashboard />;
+    // "/" and anything unrecognised land on the entrance rather than dropping
+    // straight into the stock desk.
+    page = <Hub />;
   }
 
   // The fallback stays silent for its first 2.5s (see LoadingState): a cached route

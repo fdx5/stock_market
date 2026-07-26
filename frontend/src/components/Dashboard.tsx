@@ -306,9 +306,14 @@ export default function Dashboard() {
     <div className={`app app--dashboard ${mobileBarDismissed ? "app--bar-dismissed" : ""}`}>
       <header className="app-header">
         <div className="app-title-row">
+          {/* The desk is no longer the site root, so its own wordmark has to be
+              the way back out to the entrance — every other page's brand mark
+              already behaves this way. */}
           <div className="app-brand">
             <h1 className="sr-only">K-Stock Hub</h1>
-            <Logo className="app-logo-wide" />
+            <Link to="/" aria-label="K-Stock Hub">
+              <Logo className="app-logo-wide" />
+            </Link>
           </div>
           <div className="app-header-meta">
             <LanguageToggle />

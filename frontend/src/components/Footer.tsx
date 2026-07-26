@@ -21,7 +21,7 @@ export default function Footer() {
           {t("실시간 시세, 시가총액 맵, 시총 대결까지 한눈에 보는 국내 증시 허브.")}
         </p>
         <nav className="app-footer-links">
-          <Link to="/" className="app-footer-market-link app-footer-market-link--home">
+          <Link to="/dashboard" className="app-footer-market-link app-footer-market-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
           <Link to="/map" className="app-footer-market-link">

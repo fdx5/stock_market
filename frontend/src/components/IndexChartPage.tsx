@@ -84,7 +84,7 @@ export default function IndexChartPage({ symbol }: { symbol: "KOSPI" | "KOSDAQ" 
   return (
     <div className="app">
       <header className="app-header">
-        <Link to="/" className="back-link">
+        <Link to="/dashboard" className="back-link">
           ← {t("메인으로")}
         </Link>
         <div>

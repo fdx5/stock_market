@@ -1,0 +1,1284 @@
+/* ============================================================================
+   ORBIT — entrance page styling.
+   ----------------------------------------------------------------------------
+   Everything is prefixed `hb-` and scoped under `.hb`, so this file never
+   reaches the rest of the app and can be deleted whole.
+
+   The solar system is real 3D: `.hb-plane` is tilted on X inside a perspective
+   container, orbit rings live on that plane, and each planet counter-rotates so
+   its face stays square to the camera while its ring spins underneath it.
+
+   The page commits to a dark sky in both themes — a "light mode" starfield is
+   not a thing — so it reads its own palette rather than the app's surface
+   variables. Light mode only warms the sky and lifts the copy, which is checked
+   at the bottom of this file.
+   ========================================================================= */
+
+.hb {
+  --ink: #f2f6ff;
+  --ink-dim: #9fb0cd;
+  --ink-faint: #64758f;
+  --void: #03040a;
+  --void-2: #070a18;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
+
+  /* Radii and body sizes are authored at desktop scale and multiplied here, so
+     one pair of numbers reflows the entire system per breakpoint. */
+  /* The system's scale, as a length per design unit (a radius of 512 becomes
+     512 * --orbit-unit). Derived from the viewport rather than picked per
+     breakpoint: the binding constraint is how far the near side of the outer
+     orbit swings down the screen, which is a function of height, and tiers kept
+     letting the outermost label land on the hint line at whichever size had not
+     been tuned yet. Both terms are the geometry solved for scale — vertical
+     room below the system centre, and horizontal room either side — and the
+     smaller wins.
+
+     Everything else follows from this one number, so orbit size, planet spacing
+     and body size all grow and shrink together. */
+  --orbit-unit: clamp(0.2px, min((100vh - 380px) / 640, (100vw - 250px) / 1120), 1.3px);
+  --body-unit: calc(var(--orbit-unit) * 1.26);
+  --star-min: calc(128 * var(--body-unit));
+  /* Added to every orbit radius after scaling. Planets have a 40px tap-target
+     floor that does not shrink with the system, so on a phone a purely
+     multiplicative scale either buried the inner ring inside the sun or ran the
+     outer ring off the sides. Scaling down while offsetting outward keeps all
+     three rings clear of the sun and inside the viewport at once. */
+  --orbit-base: 0px;
+  /* The plane's tilt. Shared with the billboard keyframes, which have to undo
+     exactly this angle — hard-coding it in two places meant a responsive tilt
+     change left every planet leaning back. */
+  --tilt: 72deg;
+  /* Written from JS on pointermove (see Hub.tsx); the defaults keep the scene
+     perfectly centred when nothing is tracking. */
+  --px: 0;
+  --py: 0;
+
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: hidden;
+  background: var(--void);
+  color: var(--ink);
+  isolation: isolate;
+}
+
+/* The entrance page owns the whole viewport — no page chrome scrolls behind it. */
+body:has(.hb) {
+  overflow: hidden;
+}
+
+/* ─────────────────────────── deep space ─────────────────────────── */
+
+.hb-space {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 50% 46%, #0d1430 0%, #070a18 42%, var(--void) 78%);
+}
+
+/* Three slow, enormous colour clouds. Blurred past the point of showing any
+   edge, so what reads is depth rather than three circles. */
+.hb-nebula {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  mix-blend-mode: screen;
+  will-change: transform;
+}
+
+.hb-nebula--a {
+  width: 62vw;
+  height: 62vw;
+  min-width: 520px;
+  min-height: 520px;
+  top: -18vh;
+  left: -12vw;
+  background: radial-gradient(circle, rgba(94, 74, 255, 0.5), rgba(94, 74, 255, 0) 66%);
+  animation: hb-drift-a 44s ease-in-out infinite;
+}
+
+.hb-nebula--b {
+  width: 56vw;
+  height: 56vw;
+  min-width: 460px;
+  min-height: 460px;
+  bottom: -22vh;
+  right: -14vw;
+  background: radial-gradient(circle, rgba(0, 194, 224, 0.42), rgba(0, 194, 224, 0) 66%);
+  animation: hb-drift-b 56s ease-in-out infinite;
+}
+
+.hb-nebula--c {
+  width: 44vw;
+  height: 44vw;
+  min-width: 380px;
+  min-height: 380px;
+  top: 34vh;
+  left: 46vw;
+  background: radial-gradient(circle, rgba(236, 72, 173, 0.3), rgba(236, 72, 173, 0) 66%);
+  animation: hb-drift-c 68s ease-in-out infinite;
+}
+
+@keyframes hb-drift-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(7vw, 6vh, 0) scale(1.16); }
+}
+
+@keyframes hb-drift-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.1); }
+  50% { transform: translate3d(-8vw, -5vh, 0) scale(0.92); }
+}
+
+@keyframes hb-drift-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.94); }
+  50% { transform: translate3d(-6vw, 7vh, 0) scale(1.2); }
+}
+
+/* A faint galactic band raked across the sky behind everything, turning very
+   slowly — the thing that stops the background reading as a flat gradient. */
+.hb-galaxy {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 170vmax;
+  height: 170vmax;
+  margin: -85vmax 0 0 -85vmax;
+  background:
+    conic-gradient(
+      from 210deg,
+      transparent 0deg,
+      rgba(150, 170, 255, 0.07) 40deg,
+      rgba(215, 180, 255, 0.11) 80deg,
+      transparent 140deg,
+      transparent 220deg,
+      rgba(120, 220, 255, 0.08) 280deg,
+      transparent 340deg
+    );
+  mask-image: radial-gradient(closest-side, #000 12%, rgba(0, 0, 0, 0.5) 42%, transparent 74%);
+  -webkit-mask-image: radial-gradient(closest-side, #000 12%, rgba(0, 0, 0, 0.5) 42%, transparent 74%);
+  animation: hb-galaxy-spin 240s linear infinite;
+  opacity: 0.9;
+}
+
+@keyframes hb-galaxy-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Each layer is one element painting its whole star field through box-shadow.
+   The element itself is a 1px dot parked off-screen; only its shadows show. */
+.hb-stars {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  border-radius: 50%;
+  background: transparent;
+  will-change: transform;
+}
+
+/* Layers move at different rates against the pointer, which is the whole
+   parallax effect — and each drifts on its own clock so the sky is never still. */
+.hb-stars--far {
+  opacity: 0.55;
+  transform: translate3d(calc(var(--px) * -6px), calc(var(--py) * -6px), 0);
+}
+
+.hb-stars--mid {
+  opacity: 0.8;
+  transform: translate3d(calc(var(--px) * -16px), calc(var(--py) * -16px), 0);
+}
+
+.hb-stars--near {
+  opacity: 1;
+  transform: translate3d(calc(var(--px) * -34px), calc(var(--py) * -34px), 0);
+}
+
+/* The three box-shadow fields no longer pulse as a whole — one synchronised
+   brightness animation across every star read as the screen flashing. The
+   twinkling is carried by `.hb-twinkle` below, where each star has its own
+   period and phase. */
+
+.hb-twinklers {
+  position: absolute;
+  inset: 0;
+}
+
+.hb-twinkle {
+  position: absolute;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 4px 0.5px rgba(200, 224, 255, 0.9);
+  opacity: 0;
+  will-change: opacity, transform;
+  animation-name: hb-twinkle-one;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+
+/* Never fully out and never a hard on/off: a real star scintillates around a
+   baseline. --peak is per-star, so no two reach the same brightness. */
+@keyframes hb-twinkle-one {
+  0%, 100% { opacity: 0.1; transform: scale(0.65); }
+  40% { opacity: calc(var(--peak) * 0.55); transform: scale(0.92); }
+  55% { opacity: var(--peak); transform: scale(1.12); }
+  72% { opacity: calc(var(--peak) * 0.45); transform: scale(0.88); }
+}
+
+/* Only the brightest few get diffraction spikes, as a real exposure would. */
+.hb-twinkle.has-flare::before,
+.hb-twinkle.has-flare::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: linear-gradient(90deg, transparent, rgba(210, 232, 255, 0.75), transparent);
+}
+
+.hb-twinkle.has-flare::before {
+  width: 14px;
+  height: 1px;
+  transform: translate(-50%, -50%);
+}
+
+.hb-twinkle.has-flare::after {
+  width: 1px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  background: linear-gradient(180deg, transparent, rgba(210, 232, 255, 0.75), transparent);
+}
+
+/* Comet. The first version was a 1px hairline and read as a scratch; this is a
+   long bright tail with an actual nucleus at the leading end, and enough bloom
+   around it to catch the eye across a dark field. Still rare — the long dead
+   time between passes is what makes it an event rather than wallpaper. */
+.hb-shooting {
+  position: absolute;
+  width: 320px;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(140, 190, 255, 0.15) 18%,
+    rgba(200, 228, 255, 0.55) 52%,
+    rgba(255, 255, 255, 0.98) 88%,
+    #ffffff 100%
+  );
+  filter:
+    drop-shadow(0 0 6px rgba(190, 225, 255, 0.95))
+    drop-shadow(0 0 18px rgba(120, 185, 255, 0.7))
+    drop-shadow(0 0 42px rgba(80, 150, 255, 0.4));
+  opacity: 0;
+}
+
+/* the nucleus */
+.hb-shooting::after {
+  content: "";
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin-top: -6.5px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #ffffff 0%, #dbeeff 32%, rgba(130, 190, 255, 0.55) 62%, transparent 100%);
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.95)) drop-shadow(0 0 26px rgba(140, 200, 255, 0.8));
+}
+
+.hb-shooting--1 {
+  top: 14%;
+  left: -340px;
+  animation: hb-shoot 15s ease-in infinite 3s;
+}
+
+.hb-shooting--2 {
+  top: 58%;
+  left: -340px;
+  animation: hb-shoot 23s ease-in infinite 11s;
+  transform-origin: center;
+}
+
+@keyframes hb-shoot {
+  0% { opacity: 0; transform: translate3d(0, 0, 0) rotate(14deg) scale(0.7); }
+  3% { opacity: 1; }
+  11% { opacity: 0; transform: translate3d(125vw, 32vh, 0) rotate(14deg) scale(1.05); }
+  100% { opacity: 0; transform: translate3d(125vw, 32vh, 0) rotate(14deg) scale(1.05); }
+}
+
+.hb-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 100% at 50% 50%, transparent 40%, rgba(2, 3, 8, 0.72) 100%);
+}
+
+/* ─────────────────────────── chrome ─────────────────────────── */
+
+.hb-controls {
+  position: absolute;
+  top: 20px;
+  right: 22px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0.68;
+  transition: opacity 0.3s ease;
+}
+
+.hb-controls:hover {
+  opacity: 1;
+}
+
+/* ─────────────────────────── stage ─────────────────────────── */
+
+.hb-stage {
+  position: relative;
+  z-index: 10;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  /* Raised from 1180px: the near side of the outer orbit sits ~350px toward the
+     camera, and at a short focal length perspective magnified that arc by over
+     1.5x — enough to push the outermost planet down through the hint text at
+     the bottom of the screen. Lengthened again when the system grew 30%. */
+  perspective: 1950px;
+  perspective-origin: 50% 46%;
+}
+
+.hb-parallax {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
+  justify-items: center;
+  transform-style: preserve-3d;
+  pointer-events: none;
+  /* The counter-drift to the starfield: content leans very slightly into the
+     pointer while the sky leans away, which is what sells the depth. */
+  transform: rotateX(calc(var(--py) * -1.6deg)) rotateY(calc(var(--px) * 2.2deg));
+  transition: transform 0.2s ease-out;
+}
+
+/* ─────────────────────────── lockup ─────────────────────────── */
+
+.hb-lockup {
+  position: relative;
+  z-index: 3;
+  padding: clamp(30px, 5.5vh, 60px) 20px 0;
+  text-align: center;
+  /* Modest lift. At translateZ(60px) the perspective divide pushed the block's
+     top edge above the viewport (measured at y = -23), clipping the status pill. */
+  transform: translateZ(26px);
+}
+
+.hb-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  /* Sized and lit to be read, not inferred. At 10px in --ink-dim on a busy sky
+     this was effectively invisible; it is the one piece of state on the page
+     that says whether the market is live. */
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: rgba(6, 10, 24, 0.78);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  font-weight: 800;
+  color: var(--ink);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  box-shadow: 0 0 14px rgba(0, 0, 0, 0.5);
+}
+
+.hb-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 9px currentColor;
+}
+
+.hb-status.is-open {
+  color: #5bf58e;
+  box-shadow: 0 0 16px rgba(60, 230, 130, 0.35), inset 0 0 12px rgba(60, 230, 130, 0.12);
+}
+.hb-status.is-open .hb-status-dot { animation: hb-blip 1.7s ease-in-out infinite; }
+.hb-status.is-pre {
+  color: #ffc93c;
+  box-shadow: 0 0 16px rgba(255, 190, 40, 0.35), inset 0 0 12px rgba(255, 190, 40, 0.12);
+}
+
+/* Closed is still a state worth reading, so it keeps full weight and a visible
+   rim — only the hue goes cool. */
+.hb-status.is-closed {
+  color: #9fb6d8;
+  box-shadow: 0 0 14px rgba(120, 160, 220, 0.25), inset 0 0 12px rgba(120, 160, 220, 0.1);
+}
+
+.hb-status.is-sync {
+  color: #7ceeff;
+  box-shadow: 0 0 16px rgba(90, 225, 255, 0.3), inset 0 0 12px rgba(90, 225, 255, 0.12);
+}
+
+@keyframes hb-blip {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.7); }
+}
+
+.hb-wordmark {
+  margin: 16px 0 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: clamp(10px, 1.6vw, 20px);
+  line-height: 0.9;
+  font-weight: 800;
+}
+
+.hb-wordmark-main {
+  font-size: clamp(38px, 7.2vw, 92px);
+  letter-spacing: clamp(2px, 0.6vw, 10px);
+  background: linear-gradient(96deg, #ffffff 6%, #b9d4ff 38%, #8fb6ff 62%, #ffffff 96%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* A slow specular travelling across the letters — the only motion in the
+     lockup, and the reason it doesn't read as flat text over a busy scene. */
+  background-size: 260% 100%;
+  animation: hb-sheen 9s ease-in-out infinite;
+  filter: drop-shadow(0 0 26px rgba(120, 170, 255, 0.4));
+}
+
+@keyframes hb-sheen {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.hb-wordmark-sub {
+  font-family: var(--mono);
+  font-size: clamp(15px, 2.2vw, 30px);
+  font-weight: 300;
+  letter-spacing: clamp(6px, 1.2vw, 18px);
+  color: rgba(190, 215, 255, 0.62);
+  text-transform: uppercase;
+}
+
+.hb-tagline {
+  margin: 14px 0 0;
+  font-size: clamp(12.5px, 1.5vw, 16px);
+  letter-spacing: 0.06em;
+  color: var(--ink-dim);
+}
+
+/* ─────────────────────────── the system ─────────────────────────── */
+
+.hb-system {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+/* The orbital plane. Everything on it inherits this tilt; planets undo it. */
+.hb-plane {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  transform: rotateX(var(--tilt));
+  pointer-events: none;
+}
+
+/* ── orbit rings ── */
+
+.hb-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc((var(--r) * var(--orbit-unit) + var(--orbit-base)) * 2);
+  height: calc((var(--r) * var(--orbit-unit) + var(--orbit-base)) * 2);
+  margin-top: calc((var(--r) * var(--orbit-unit) + var(--orbit-base)) * -1);
+  margin-left: calc((var(--r) * var(--orbit-unit) + var(--orbit-base)) * -1);
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+
+.hb-ring-base,
+.hb-ring-arc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  /* Both are filled discs cut down to a hairline by a mask, which is the only
+     way to get a ring whose brightness varies around its circumference —
+     border-color cannot take a gradient. */
+  mask-image: radial-gradient(closest-side, transparent calc(100% - 1.4px), #000 calc(100% - 1.4px));
+  -webkit-mask-image: radial-gradient(closest-side, transparent calc(100% - 1.4px), #000 calc(100% - 1.4px));
+}
+
+.hb-ring-base {
+  background: rgba(150, 185, 255, 0.16);
+}
+
+.hb-ring-arc {
+  background: conic-gradient(
+    from 0deg,
+    transparent 0%,
+    rgba(150, 210, 255, 0.75) 12%,
+    rgba(190, 160, 255, 0.35) 26%,
+    transparent 44%,
+    transparent 100%
+  );
+  filter: blur(0.4px) drop-shadow(0 0 8px rgba(130, 190, 255, 0.5));
+  animation: hb-arc 22s linear infinite;
+}
+
+.hb-ring:nth-of-type(2) .hb-ring-arc { animation-duration: 34s; animation-direction: reverse; }
+.hb-ring:nth-of-type(3) .hb-ring-arc { animation-duration: 48s; }
+
+@keyframes hb-arc {
+  to { transform: rotate(360deg); }
+}
+
+/* ── orbiting bodies ── */
+
+/* The spinning frame. One per planet so each can carry its own radius, period
+   and phase; the phase is a negative delay on this and on the billboard below,
+   and because both use the same duration and delay the cancellation is exact. */
+.hb-orbiter {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  /* The scaffolding is invisible but still hit-testable, and each arm shrink-
+     wraps its own planet out at orbit radius — so one planet's arm sat over
+     another planet's face and swallowed the click. Only the planet itself takes
+     input; `.hb-arm` and `.hb-billboard` inherit this and the button opts back
+     in below. */
+  pointer-events: none;
+  animation: hb-orbit var(--d) linear infinite;
+  animation-delay: var(--delay);
+}
+
+@keyframes hb-orbit {
+  from { transform: rotateZ(0deg); }
+  to { transform: rotateZ(360deg); }
+}
+
+.hb-arm {
+  position: absolute;
+  transform-style: preserve-3d;
+  transform: translateX(calc(var(--r) * var(--orbit-unit) + var(--orbit-base))) translateZ(14px);
+}
+
+/* Undoes the ring's spin and the plane's tilt, in that order, so the planet
+   always faces the camera however far round the orbit it is. Deriving it: the
+   parent chain applies Rx(64)·Rz(t), so the inverse is Rz(-t)·Rx(-64), which is
+   exactly the order written here. */
+.hb-billboard {
+  transform-style: preserve-3d;
+  animation: hb-billboard var(--d) linear infinite;
+  animation-delay: var(--delay);
+}
+
+@keyframes hb-billboard {
+  from { transform: rotateZ(0deg) rotateX(calc(var(--tilt) * -1)); }
+  to { transform: rotateZ(-360deg) rotateX(calc(var(--tilt) * -1)); }
+}
+
+.hb-planet {
+  position: relative;
+  display: block;
+  width: calc(var(--size) * var(--body-unit));
+  height: calc(var(--size) * var(--body-unit));
+  /* Never smaller than a comfortable tap target, however far the scene scales
+     down — the planets are the navigation. */
+  min-width: 40px;
+  min-height: 40px;
+  pointer-events: auto;
+  margin: calc(var(--size) * var(--body-unit) / -2) 0 0 calc(var(--size) * var(--body-unit) / -2);
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hb-planet:hover,
+.hb-planet:focus-visible {
+  transform: scale(1.22);
+  outline: none;
+  z-index: 5;
+}
+
+/* Hover flare. drop-shadow follows the rendered alpha of the SVG, so the glow
+   traces the actual disc (and the ring, on the ringed body) instead of boxing
+   it — a box-shadow here would light up the square element. Two shadows: a
+   tight white rim and a wider coloured bloom in the body's own atmosphere
+   colour, which each planet passes down as --glow. */
+.hb-planet .hb-body,
+.hb-star {
+  transition: filter 0.28s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hb-planet:hover .hb-body,
+.hb-planet:focus-visible .hb-body {
+  filter:
+    drop-shadow(0 0 3px rgba(255, 255, 255, 0.95))
+    drop-shadow(0 0 10px var(--glow))
+    drop-shadow(0 0 26px var(--glow))
+    brightness(1.16);
+  animation: hb-rim-flare 1.5s ease-in-out infinite;
+}
+
+@keyframes hb-rim-flare {
+  0%, 100% {
+    filter:
+      drop-shadow(0 0 3px rgba(255, 255, 255, 0.9))
+      drop-shadow(0 0 9px var(--glow))
+      drop-shadow(0 0 22px var(--glow))
+      brightness(1.12);
+  }
+  50% {
+    filter:
+      drop-shadow(0 0 6px rgba(255, 255, 255, 1))
+      drop-shadow(0 0 18px var(--glow))
+      drop-shadow(0 0 40px var(--glow))
+      brightness(1.26);
+  }
+}
+
+.hb-starwrap:has(.hb-star:hover) .hb-starbody,
+.hb-starwrap:has(.hb-star:focus-visible) .hb-starbody {
+  animation: hb-star-flare 1.6s ease-in-out infinite;
+}
+
+@keyframes hb-star-flare {
+  0%, 100% {
+    filter: drop-shadow(0 0 10px rgba(255, 214, 150, 0.75)) drop-shadow(0 0 34px rgba(255, 160, 70, 0.5)) brightness(1.04);
+  }
+  50% {
+    filter: drop-shadow(0 0 22px rgba(255, 235, 190, 1)) drop-shadow(0 0 62px rgba(255, 170, 80, 0.85)) brightness(1.18);
+  }
+}
+
+/* The generated body fills its button exactly — disc at 68% of the box, the rest
+   atmosphere — so nothing overflows and nothing can be clipped to a rectangle. */
+.hb-body {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.hb-starbody {
+  transition: filter 0.3s ease;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* Surface drift. Alternating rather than looping: fractal noise does not tile,
+   so a one-way cycle would visibly jump when it wrapped. */
+.hb-body-drift {
+  animation-name: hb-drift-surface;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+  animation-direction: alternate;
+}
+
+.hb-body-drift--alt {
+  animation-name: hb-drift-surface-alt;
+}
+
+@keyframes hb-drift-surface {
+  from { transform: translateX(0); }
+  to { transform: translateX(-52px); }
+}
+
+/* Clouds run the other way and further, so the two layers separate instead of
+   moving as one sheet. */
+@keyframes hb-drift-surface-alt {
+  from { transform: translateX(-14px); }
+  to { transform: translateX(46px); }
+}
+
+.hb-corona-pulse {
+  animation: hb-breathe 7.5s ease-in-out infinite;
+  transform-origin: center;
+}
+
+.hb-bloom-pulse {
+  animation: hb-breathe 5.5s ease-in-out infinite reverse;
+  transform-origin: center;
+}
+
+.hb-tag {
+  position: absolute;
+  top: calc(100% - 12%);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 9px;
+  border-radius: 8px;
+  white-space: nowrap;
+  pointer-events: none;
+  /* A plate behind the text. Over a starfield and a lit planet the labels were
+     competing with whatever happened to be behind them; a dark, blurred plate
+     gives every label the same background regardless of what it crosses. */
+  background: rgba(5, 8, 18, 0.88);
+  border: 1px solid rgba(150, 190, 255, 0.22);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.55);
+}
+
+.hb-tag-name {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+.hb-tag-move {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+}
+
+/* Korean market convention, matching every other surface in the app: red up,
+   blue down. Brightened from the earlier pair, which sat too close to the sky
+   to read at a glance. */
+.hb-tag-move.is-up { color: #ff9090; }
+.hb-tag-move.is-down { color: #82bcff; }
+.hb-tag-move.is-flat { color: #b9c7dd; }
+
+.hb-planet:hover .hb-tag,
+.hb-planet:focus-visible .hb-tag {
+  background: rgba(10, 17, 36, 0.96);
+  border-color: rgba(160, 210, 255, 0.55);
+}
+
+/* ─────────────────────────── the star ─────────────────────────── */
+
+/* Holds the sun and its light.
+   Sized to contain the glows rather than shrink-wrapping the button, which is
+   the whole point of it. Measured: with the wrapper at the button's 190px the
+   aura (which reaches ~3.7x that) was clipped flat along the wrapper's top and
+   left edges, printing a hard-cornered rectangle of light across the sky —
+   the compositor sizes this element's layer from its border box and does not
+   grow it for a child that paints outside. Giving the box the glow's real
+   extent removes the clip instead of fighting it.
+   Carries no transform: the sun belongs at z = 0, which is the height of the
+   orbital plane it is the centre of. */
+.hb-starwrap {
+  /* Out of flow and centred by hand on the same origin as .hb-plane. In flow it
+     was a ~720px grid item, which stretched the middle row and pushed the hint
+     line off the bottom of the screen — the box exists for the glow's sake and
+     should not drive layout. */
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 4;
+  width: calc(190 * var(--body-unit) * 3.8);
+  height: calc(190 * var(--body-unit) * 3.8);
+  min-width: calc(var(--star-min) * 3.8);
+  min-height: calc(var(--star-min) * 3.8);
+  display: grid;
+  place-items: center;
+  /* The box is far wider than the sun and sits above the orbital plane, so it
+     would otherwise swallow clicks meant for the planets crossing behind it.
+     Only the button inside takes input. */
+  pointer-events: none;
+}
+
+.hb-star {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+  width: calc(190 * var(--body-unit));
+  height: calc(190 * var(--body-unit));
+  min-width: var(--star-min);
+  min-height: var(--star-min);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 2;
+}
+
+.hb-star:hover,
+.hb-star:focus-visible {
+  transform: scale(1.07);
+  outline: none;
+}
+
+/* The glows are decoration only — the button underneath has to stay clickable
+   across its whole face. */
+.hb-star-face {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  /* The photosphere behind this is near-white at its centre, so the label is
+     dark-on-light — an outline or a glow here would be unreadable. */
+  color: #5c1f04;
+  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.6);
+  pointer-events: none;
+}
+
+.hb-star-enter {
+  font-family: var(--mono);
+  font-size: clamp(9px, 1vw, 11px);
+  letter-spacing: 0.34em;
+  font-weight: 700;
+  opacity: 0.72;
+  text-indent: 0.34em;
+}
+
+.hb-star-dest {
+  font-size: clamp(15px, 1.7vw, 21px);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+/* ─────────────────────────── hint ─────────────────────────── */
+
+.hb-hint {
+  position: relative;
+  z-index: 3;
+  padding: 14px 20px clamp(18px, 3.5vh, 36px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  /* No Z lift. Sitting below the perspective origin, pushing this toward the
+     camera magnified it downward and ran its last ~14px off the bottom of every
+     viewport tested. It reads fine on the page plane. */
+  transform: none;
+}
+
+.hb-hint p {
+  margin: 0;
+  max-width: 34ch;
+  word-break: keep-all;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  color: var(--ink-faint);
+}
+
+.hb-mini {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: rgba(160, 200, 255, 0.6);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(150, 190, 255, 0.18);
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.hb-mini:hover {
+  color: #fff;
+  border-color: rgba(150, 190, 255, 0.5);
+  background: rgba(120, 170, 255, 0.12);
+}
+
+/* ─────────────────────────── entrance ─────────────────────────── */
+
+/* The system unfolds once on mount: the plane drops into its tilt, the star
+   ignites, the copy rises. Staggered so it resolves as one movement. */
+.hb-plane,
+.hb-starwrap,
+.hb-lockup,
+.hb-hint {
+  transition:
+    transform 1.4s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 1.1s ease;
+}
+
+.hb:not(.is-entered) .hb-plane {
+  transform: rotateX(var(--tilt)) scale(0.55);
+  opacity: 0;
+}
+
+.hb:not(.is-entered) .hb-starwrap {
+  transform: translate(-50%, -50%) scale(0.3);
+  opacity: 0;
+}
+
+.hb:not(.is-entered) .hb-lockup {
+  transform: translateZ(26px) translateY(-26px);
+  opacity: 0;
+}
+
+.hb:not(.is-entered) .hb-hint {
+  transform: translateY(18px);
+  opacity: 0;
+}
+
+.hb.is-entered .hb-starwrap { transition-delay: 0.12s; }
+.hb.is-entered .hb-plane { transition-delay: 0.26s; }
+.hb.is-entered .hb-lockup { transition-delay: 0.42s; }
+.hb.is-entered .hb-hint { transition-delay: 0.6s; }
+
+/* ─────────────────────────── responsive ─────────────────────────── */
+
+/* Width-driven tiers only. Height is handled by --orbit-unit above; what is
+   left here is the phone, where planets cannot shrink below a 40px tap target
+   and so need the additive --orbit-base to clear the sun, and the flatter tilt
+   that keeps the rings reading as ellipses on a narrow screen. */
+@media (max-width: 900px) {
+  .hb { --tilt: 64deg; }
+}
+
+@media (max-width: 640px) {
+  .hb {
+    --orbit-unit: 0.2px;
+    --body-unit: 0.38px;
+    --orbit-base: 40px;
+    --star-min: 80px;
+    --tilt: 40deg;
+  }
+
+  .hb-controls { top: 14px; right: 14px; }
+  .hb-tag { padding: 3px 7px; }
+  .hb-tag-name { font-size: 10px; letter-spacing: 0.06em; }
+  .hb-tag-move { font-size: 11px; }
+  .hb-hint p { font-size: 11px; }
+  .hb-wordmark { flex-direction: column; align-items: center; gap: 4px; }
+}
+
+@media (max-width: 380px) {
+  .hb {
+    --orbit-unit: 0.17px;
+    --body-unit: 0.34px;
+    --orbit-base: 36px;
+    --star-min: 72px;
+  }
+}
+
+@media (max-height: 560px) {
+  .hb-lockup { padding-top: 12px; }
+
+}
+
+/* ─────────────────────────── light theme ─────────────────────────── */
+
+/* The scene stays a night sky — there is no daylight version of a starfield —
+   but the app's light theme means a visitor arrived expecting less contrast, so
+   the sky warms toward deep indigo and the nebulae come up. */
+:root[data-theme="light"] .hb {
+  --void: #0a0a18;
+  --void-2: #12122a;
+  --ink-dim: #b6c4de;
+  --ink-faint: #8593ad;
+}
+
+:root[data-theme="light"] .hb-space {
+  background: radial-gradient(120% 90% at 50% 46%, #1b1f45 0%, #12132c 44%, var(--void) 80%);
+}
+
+:root[data-theme="light"] .hb-nebula {
+  filter: blur(96px);
+  opacity: 1.15;
+}
+
+:root[data-theme="light"] .hb-vignette {
+  background: radial-gradient(120% 100% at 50% 50%, transparent 44%, rgba(6, 6, 18, 0.6) 100%);
+}
+
+/* ─────────────────────────── reduced motion ─────────────────────────── */
+
+/* Orbits are paused rather than removed: the planets' positions come from their
+   animation delay, so cancelling the animation would stack all seven at three
+   o'clock. Pausing freezes each one exactly where its phase placed it. */
+@media (prefers-reduced-motion: reduce) {
+  .hb-orbiter,
+  .hb-billboard {
+    animation-play-state: paused;
+  }
+
+  .hb-nebula,
+  .hb-galaxy,
+  .hb-stars,
+  .hb-shooting,
+  .hb-ring-arc,
+  .hb-body-drift,
+  .hb-corona-pulse,
+  .hb-bloom-pulse,
+  .hb-wordmark-main {
+    animation: none;
+  }
+
+  .hb-shooting { opacity: 0; }
+
+  /* The twinkle is the one animation that cannot simply stop: the stars are
+     drawn at opacity 0 and animated up, so cancelling it would empty the sky.
+     They hold at their peak instead. */
+  .hb-twinkle {
+    animation: none;
+    opacity: var(--peak);
+  }
+
+  .hb-plane,
+  .hb-starwrap,
+  .hb-lockup,
+  .hb-hint {
+    transition: none;
+  }
+
+  .hb-parallax {
+    transform: none;
+  }
+}
+
+/* ─────────────────────────── voyager ─────────────────────────── */
+
+/* The craft coasts out of the system on a long loop: it fades in just outside
+   the outermost orbit, drifts up and to the right shrinking as it goes, leaves
+   the frame, and — after a long dark pause — starts again. The pause is the
+   point. A spacecraft crossing every few seconds is decoration; one that
+   appears, leaves, and is gone for a while reads as a journey. */
+.hb-voyager {
+  position: absolute;
+  z-index: 20;
+  left: 50%;
+  top: 50%;
+  width: clamp(87px, 10.5vw, 156px);
+  aspect-ratio: 230 / 150;
+  display: block;
+  opacity: 0;
+  pointer-events: auto;
+  animation: hb-voyage 38s linear infinite;
+  transform-origin: center;
+}
+
+.hb-voyager-art {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 0 6px rgba(150, 190, 255, 0.35));
+  transition: filter 0.3s ease;
+}
+
+.hb-voyager:hover .hb-voyager-art,
+.hb-voyager:focus-visible .hb-voyager-art {
+  filter: drop-shadow(0 0 12px rgba(180, 220, 255, 0.9)) brightness(1.15);
+}
+
+.hb-voyager-tip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(5, 8, 18, 0.9);
+  border: 1px solid rgba(150, 190, 255, 0.3);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: #cfe2ff;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.hb-voyager:hover .hb-voyager-tip,
+.hb-voyager:focus-visible .hb-voyager-tip {
+  opacity: 1;
+}
+
+/* Percentages here are of the element's own box, so the path is expressed in
+   craft-widths and scales with the clamp above rather than drifting off-course
+   at different viewport sizes. Travel is up-and-right, away from the sun, and
+   the craft shrinks the whole way — the only cue available for "receding" once
+   it is past the outermost ring. */
+@keyframes hb-voyage {
+  0% { transform: translate(330%, 118%) scale(0.88) rotate(-4deg); opacity: 0; }
+  7% { opacity: 0.95; }
+  36% { opacity: 0.95; }
+  50% { transform: translate(760%, -380%) scale(0.4) rotate(-9deg); opacity: 0; }
+  100% { transform: translate(760%, -380%) scale(0.4) rotate(-9deg); opacity: 0; }
+}
+
+@media (max-width: 640px) {
+  /* A phone has no room for the long diagonal, so the crossing is shorter and
+     steeper — it still leaves the frame, just sooner. */
+  @keyframes hb-voyage {
+    0% { transform: translate(150%, 190%) scale(0.85) rotate(-4deg); opacity: 0; }
+    9% { opacity: 0.95; }
+    38% { opacity: 0.95; }
+    52% { transform: translate(400%, -520%) scale(0.4) rotate(-9deg); opacity: 0; }
+    100% { transform: translate(400%, -520%) scale(0.4) rotate(-9deg); opacity: 0; }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Parked just outside the outer orbit and left there — still a link, no drift. */
+  .hb-voyager {
+    animation: none;
+    opacity: 0.95;
+    transform: translate(330%, 118%) scale(0.88);
+  }
+}
+
+/* ─────────────────────────── clocks ─────────────────────────── */
+
+.hb-clocks {
+  position: absolute;
+  top: 62px;
+  right: 22px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(5, 8, 18, 0.72);
+  border: 1px solid rgba(255, 200, 90, 0.22);
+  box-shadow: inset 0 0 18px rgba(180, 130, 20, 0.14), 0 6px 20px rgba(0, 0, 0, 0.55);
+}
+
+.hb-clock-row {
+  display: grid;
+  grid-template-columns: 18px 30px auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.hb-clock-flag {
+  width: 18px;
+  height: 12px;
+  object-fit: cover;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.hb-clock-code {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: var(--ink-faint);
+}
+
+/* Dot-matrix digits. The glyphs are filled with a tiled dot pattern through
+   background-clip:text rather than drawn with a segment font — same readout look
+   as the dashboard's LED panel, with no font to ship. The colour has to be
+   transparent for the clip to show, so the glow is a drop-shadow rather than a
+   text-shadow (which would have nothing to cast from). */
+.hb-clock-time {
+  font-family: var(--mono);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  /* Dark grid over a solid amber fill — the inverse of the first attempt, which
+     drew bright dots on a dark backing. There, most of each stroke was gap, so
+     any pitch fine enough to read as "high resolution" broke the digits apart.
+     Laying the grid on top keeps the glyph at full luminance and demotes the
+     dots to texture, which is what lets the pitch go down to 2px — roughly
+     twice the dots per digit — while the strokes stay continuous. */
+  background-image:
+    radial-gradient(
+      circle at 50% 50%,
+      rgba(40, 19, 0, 0) 20%,
+      rgba(40, 19, 0, 0.1) 30%,
+      rgba(36, 17, 0, 0.82) 46%,
+      rgba(30, 14, 0, 0.95) 100%
+    ),
+    linear-gradient(#ffd946, #ffb700);
+  background-size: 1.9px 1.9px, 100% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* Amber neon. The fill is transparent for the clip to show, so the glow has to
+     be a drop-shadow — a text-shadow would have nothing to cast from. */
+  filter:
+    drop-shadow(0 0 2px rgba(255, 232, 130, 0.95))
+    drop-shadow(0 0 8px rgba(255, 196, 40, 0.8))
+    drop-shadow(0 0 18px rgba(255, 158, 0, 0.5));
+}
+
+/* Responsive clock placement.
+   These must live *after* the base `.hb-clocks` rule above, not inside the
+   earlier breakpoint blocks: source order decides between equal-specificity
+   selectors, and up there the base rule won — `top` and `bottom` both applied
+   at once and stretched the panel to 400x320 across a landscape phone. */
+@media (max-width: 1100px) {
+  /* Bottom centre once the title block is wide enough to reach the corner. The top-right corner already carries the language
+     and theme controls, and the scene needs its corners. */
+  .hb-clocks {
+    top: auto;
+    right: auto;
+    bottom: 92px;
+    left: 50%;
+    transform: translateX(-50%);
+    flex-direction: row;
+    gap: 16px;
+    padding: 7px 13px;
+  }
+
+  .hb-clock-row { grid-template-columns: 16px auto; gap: 6px; }
+  .hb-clock-code { display: none; }
+  .hb-clock-time { font-size: 16px; background-size: 1.7px 1.7px, 100% 100%; }
+}
+
+/* Landscape phones are too wide for the phone tier and far too short for a
+   top-right stack, which put the panel straight through the title. */
+@media (max-height: 560px) {
+  .hb-clocks {
+    top: auto;
+    right: auto;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    flex-direction: row;
+    gap: 16px;
+    padding: 5px 12px;
+  }
+
+  .hb-clock-row { grid-template-columns: 16px auto; gap: 6px; }
+  .hb-clock-code { display: none; }
+  .hb-clock-time { font-size: 15px; background-size: 1.6px 1.6px, 100% 100%; }
+  .hb-hint { display: none; }
+}
