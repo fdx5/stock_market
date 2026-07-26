@@ -646,7 +646,7 @@ export default function Hub() {
                 aria-label={en ? "Star: Home (dashboard)" : "항성: 홈 (대시보드)"}
               >
                 <span className="hb-star-face">
-                  <span className="hb-star-dest">HOME</span>
+                  <span className="hb-star-dest">HUB</span>
                 </span>
               </button>
             </div>

@@ -1069,11 +1069,10 @@ body:has(.hb) {
 
 /* ─────────────────────────── voyager ─────────────────────────── */
 
-/* The craft coasts out of the system on a long loop: it fades in just outside
-   the outermost orbit, drifts up and to the right shrinking as it goes, leaves
-   the frame, and — after a long dark pause — starts again. The pause is the
-   point. A spacecraft crossing every few seconds is decoration; one that
-   appears, leaves, and is gone for a while reads as a journey. */
+/* The craft coasts out of the system on a continuous loop: it fades in just
+   outside the outermost orbit, drifts up and away shrinking as it goes, leaves
+   the frame, and immediately begins the next crossing. The earlier version held
+   off-frame for half the cycle, which meant most visits never saw it at all. */
 .hb-voyager {
   position: absolute;
   z-index: 20;
@@ -1084,7 +1083,7 @@ body:has(.hb) {
   display: block;
   opacity: 0;
   pointer-events: auto;
-  animation: hb-voyage 38s linear infinite;
+  animation: hb-voyage 30s linear infinite;
   transform-origin: center;
 }
 
@@ -1133,32 +1132,49 @@ body:has(.hb) {
    the craft shrinks the whole way — the only cue available for "receding" once
    it is past the outermost ring. */
 @keyframes hb-voyage {
-  0% { transform: translate(330%, 118%) scale(0.88) rotate(-4deg); opacity: 0; }
-  7% { opacity: 0.95; }
-  36% { opacity: 0.95; }
-  50% { transform: translate(760%, -380%) scale(0.4) rotate(-9deg); opacity: 0; }
-  100% { transform: translate(760%, -380%) scale(0.4) rotate(-9deg); opacity: 0; }
+  0% { transform: translate(330%, 118%) scale(0.92) rotate(-4deg); opacity: 0; }
+  8% { opacity: 0.95; }
+  86% { opacity: 0.95; }
+  100% { transform: translate(780%, -390%) scale(0.38) rotate(-9deg); opacity: 0; }
+}
+
+/* Phones get their own path, under its own name rather than by redefining
+   `hb-voyage` inside a media query — a duplicated @keyframes name resolves by
+   source order and is exactly the kind of thing a CSS minifier is free to
+   rearrange. The desktop path starts three craft-widths right of centre, which
+   on a 390px-wide screen is already past the right edge, and then travels
+   further right: the craft was on screen for none of the loop, which is why it
+   read as missing on mobile. Portrait climbs instead — up from below the outer
+   orbit, drifting a little right, out through the top. */
+@keyframes hb-voyage-sm {
+  0% { transform: translate(60%, 400%) scale(0.95) rotate(-4deg); opacity: 0; }
+  9% { opacity: 0.95; }
+  84% { opacity: 0.95; }
+  100% { transform: translate(150%, -820%) scale(0.42) rotate(-9deg); opacity: 0; }
 }
 
 @media (max-width: 640px) {
-  /* A phone has no room for the long diagonal, so the crossing is shorter and
-     steeper — it still leaves the frame, just sooner. */
-  @keyframes hb-voyage {
-    0% { transform: translate(150%, 190%) scale(0.85) rotate(-4deg); opacity: 0; }
-    9% { opacity: 0.95; }
-    38% { opacity: 0.95; }
-    52% { transform: translate(400%, -520%) scale(0.4) rotate(-9deg); opacity: 0; }
-    100% { transform: translate(400%, -520%) scale(0.4) rotate(-9deg); opacity: 0; }
+  .hb-voyager {
+    animation-name: hb-voyage-sm;
+    /* Below the clamp's floor the craft is 87px wide against a ~390px viewport;
+       any smaller and the dish and boom stop resolving at all. */
+    width: clamp(84px, 24vw, 120px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  /* Parked just outside the outer orbit and left there — still a link, no drift. */
+  /* Parked just outside the outer orbit and left there — still a link, no drift.
+     Each tier parks on its own path, since the desktop resting point is off the
+     side of a phone. */
   .hb-voyager {
     animation: none;
     opacity: 0.95;
-    transform: translate(330%, 118%) scale(0.88);
+    transform: translate(330%, 118%) scale(0.9);
   }
+}
+
+@media (prefers-reduced-motion: reduce) and (max-width: 640px) {
+  .hb-voyager { transform: translate(60%, 330%) scale(0.95); }
 }
 
 /* ─────────────────────────── clocks ─────────────────────────── */
@@ -1174,8 +1190,10 @@ body:has(.hb) {
   padding: 8px 10px;
   border-radius: 10px;
   background: rgba(5, 8, 18, 0.72);
-  border: 1px solid rgba(255, 200, 90, 0.22);
-  box-shadow: inset 0 0 18px rgba(180, 130, 20, 0.14), 0 6px 20px rgba(0, 0, 0, 0.55);
+  /* Neutral plate, matching the planet labels. The amber rim and inner glow that
+     used to be here were the panel half of the neon readout. */
+  border: 1px solid rgba(150, 190, 255, 0.2);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55);
 }
 
 .hb-clock-row {
@@ -1231,12 +1249,10 @@ body:has(.hb) {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  /* Amber neon. The fill is transparent for the clip to show, so the glow has to
-     be a drop-shadow — a text-shadow would have nothing to cast from. */
-  filter:
-    drop-shadow(0 0 2px rgba(255, 232, 130, 0.95))
-    drop-shadow(0 0 8px rgba(255, 196, 40, 0.8))
-    drop-shadow(0 0 18px rgba(255, 158, 0, 0.5));
+  /* No glow. The fill is transparent for the background-clip to show, so the
+     only shadow left is a tight dark one for separation from the sky — a
+     text-shadow would have nothing to cast from, hence drop-shadow. */
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.85));
 }
 
 /* Responsive clock placement.
@@ -1263,8 +1279,8 @@ body:has(.hb) {
   .hb-clock-time { font-size: 16px; background-size: 1.7px 1.7px, 100% 100%; }
 }
 
-/* Landscape phones are too wide for the phone tier and far too short for a
-   top-right stack, which put the panel straight through the title. */
+/* Short viewports of any width: the hint line goes, and the clock cannot stack
+   in the top-right corner without crossing the title. */
 @media (max-height: 560px) {
   .hb-clocks {
     top: auto;
@@ -1281,4 +1297,55 @@ body:has(.hb) {
   .hb-clock-code { display: none; }
   .hb-clock-time { font-size: 15px; background-size: 1.6px 1.6px, 100% 100%; }
   .hb-hint { display: none; }
+}
+
+/* ─────────────────────── landscape phone ─────────────────────── */
+
+/* The one tier where height, not width, is the binding constraint, and the only
+   one where the width-driven rules above all miss: a 844x390 phone is wider than
+   the 640px phone breakpoint, so it was getting desktop spacing inside a 390px-
+   tall frame. Three things went wrong there and all three are geometry:
+
+   1. --orbit-unit bottoms out at its 0.2px floor, which puts the inner ring at
+      33px — inside the sun — while the planets stop shrinking at their 40px tap
+      floor. The additive --orbit-base is what pushes the rings back outside it,
+      the same trick the portrait tier uses.
+   2. The tilt goes the other way from portrait. Rings cost vertical space in
+      proportion to cos(tilt), and here vertical space is the scarce one, so the
+      plane lies down further rather than opening up.
+   3. Even then the system, centred in the 1fr row under a full-height title
+      block, reached the clock panel parked at the bottom edge. The lockup is cut
+      down to give the row its height back and the clock moves to the top-left —
+      the last free corner, since the language and theme controls own the right.
+*/
+@media (orientation: landscape) and (max-height: 560px) {
+  .hb {
+    --orbit-base: 34px;
+    --tilt: 76deg;
+  }
+
+  .hb-lockup { padding: 8px 20px 0; }
+  .hb-status { padding: 4px 11px; font-size: 10px; letter-spacing: 0.16em; }
+  .hb-wordmark { margin-top: 7px; gap: 10px; }
+  .hb-wordmark-main { font-size: clamp(26px, 8.5vh, 42px); letter-spacing: 3px; }
+  .hb-wordmark-sub { font-size: clamp(11px, 3.4vh, 15px); letter-spacing: 6px; }
+  .hb-tagline { display: none; }
+
+  .hb-tag { padding: 2px 6px; }
+  .hb-tag-name { font-size: 9.5px; letter-spacing: 0.05em; }
+  .hb-tag-move { font-size: 10.5px; }
+
+  /* Out of the system's way entirely: the rings are centred and the corners are
+     the only space a short frame has left. */
+  .hb-clocks {
+    top: 10px;
+    left: 12px;
+    right: auto;
+    bottom: auto;
+    transform: none;
+    gap: 12px;
+    padding: 4px 10px;
+  }
+
+  .hb-clock-time { font-size: 14px; }
 }
