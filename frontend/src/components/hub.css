@@ -1235,16 +1235,22 @@ body:has(.hb) {
      any pitch fine enough to read as "high resolution" broke the digits apart.
      Laying the grid on top keeps the glyph at full luminance and demotes the
      dots to texture, which is what lets the pitch go down to 2px — roughly
-     twice the dots per digit — while the strokes stay continuous. */
+     twice the dots per digit — while the strokes stay continuous.
+
+     The grid is much lighter than it was, and the fill brighter. Those numbers
+     were balanced against the neon glow that used to sit under them: two thirds
+     of each cell was dark at ~0.9, which the bloom filled back in. With the glow
+     gone that was simply a dim readout, so the bright core of each cell grows
+     and the surrounding ink drops to about half strength. */
   background-image:
     radial-gradient(
       circle at 50% 50%,
-      rgba(40, 19, 0, 0) 20%,
-      rgba(40, 19, 0, 0.1) 30%,
-      rgba(36, 17, 0, 0.82) 46%,
-      rgba(30, 14, 0, 0.95) 100%
+      rgba(46, 22, 0, 0) 26%,
+      rgba(46, 22, 0, 0.05) 38%,
+      rgba(40, 19, 0, 0.36) 58%,
+      rgba(34, 16, 0, 0.5) 100%
     ),
-    linear-gradient(#ffd946, #ffb700);
+    linear-gradient(#fffbd6, #ffdc52);
   background-size: 1.9px 1.9px, 100% 100%;
   -webkit-background-clip: text;
   background-clip: text;
