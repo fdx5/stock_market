@@ -9714,12 +9714,19 @@ thead .weekly-foreign-amount-col {
 }
 
 /* One notification type's block within the right half — its own sub-heading plus
-   a body that can scroll independently once both sections are visible together. */
+   body. flex-shrink:0 (not min-height:0) is deliberate: .admin-notify-half is the
+   single scroll boundary for the whole right half (it alone carries min-height:0 +
+   overflow-y:auto, the standard flex-scroll-container pairing), so its two section
+   children must keep their natural content height. Giving a section min-height:0
+   instead let the flex algorithm squeeze it shorter than its own rendered content
+   under real Kakao message text — the box shrank but its content (overflow:visible
+   by default) kept painting past the box's bottom edge, visually overlapping
+   whichever section came next rather than scrolling. */
 .admin-notify-section {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 0;
+  flex-shrink: 0;
 }
 
 .admin-notify-section-title {
