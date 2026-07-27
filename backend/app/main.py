@@ -237,6 +237,45 @@ def health():
     return {"status": "ok", "commit": os.environ.get("RENDER_GIT_COMMIT")}
 
 
+@app.get("/api/health/price-debug")
+def price_debug(code: str = "GOOGL"):
+    """Temporary: exposes exactly what this running container computes and receives
+    for one ticker's price fetch, bypassing every cache. A US ticker's fetch has
+    repeatedly come back a session short specifically in production despite the
+    identical code returning correctly everywhere else it's been run — this answers
+    "what is different about *this* container's environment" directly instead of by
+    further guessing. Remove once that's actually understood; it's not something a
+    long-lived endpoint should be, even though it only ever reveals public stock
+    prices.
+    """
+    from app.data import price_fetcher
+
+    now_utc = datetime.now(timezone.utc)
+    end = now_utc.date() + timedelta(days=1)
+    start = end - timedelta(days=int(2 * 365.25) + 10)
+    try:
+        df = price_fetcher._fetch_yahoo_direct(code, start, end)
+        rows = df.tail(5).reset_index()
+        rows.columns = ["date", *rows.columns[1:]]
+        sample = [
+            {"date": str(r["date"]), "close": float(r["Close"]) if r["Close"] == r["Close"] else None}
+            for _, r in rows.iterrows()
+        ]
+        error = None
+    except Exception as exc:  # noqa: BLE001 - this is a diagnostic, report don't hide
+        sample = []
+        error = f"{type(exc).__name__}: {exc}"
+
+    return {
+        "now_utc": now_utc.isoformat(),
+        "computed_start": start.isoformat(),
+        "computed_end": end.isoformat(),
+        "code": code,
+        "sample_tail": sample,
+        "error": error,
+    }
+
+
 # Populated by the Docker build (frontend build output copied here). Absent during
 # local backend-only dev, where the Vite dev server serves the frontend instead.
 STATIC_DIR = Path(__file__).resolve().parent / "static"
