@@ -4,7 +4,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { PhotoPlanetBody, PhotoSkin, RocketCraft, StarBody, VoyagerCraft } from "./CelestialBody";
+import { BASE_R, PhotoPlanetBody, PhotoSkin, RocketCraft, SatelliteCraft, StarBody, VoyagerCraft } from "./CelestialBody";
 import LanguageToggle from "./LanguageToggle";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
@@ -180,6 +180,25 @@ const PLANETS: PlanetSpec[] = [
       ring: { style: "uranus", tiltDeg: 78 },
     },
   },
+  {
+    key: "neptune",
+    to: "/battle",
+    ko: "삼성 vs 하이닉스",
+    en: "Samsung vs Hynix",
+    // The outermost ring, past Uranus's 610 — same spacing step (~85-95) the
+    // radii already climb by further out in the list.
+    radius: 700,
+    // Same size as Uranus per an explicit request, rather than following the
+    // usual "outer planets read bigger" pattern the rest of the list uses.
+    size: 78,
+    duration: 104,
+    phase: 0.32,
+    skin: {
+      texture: "/img/planets/neptune.webp",
+      spinSeconds: 15,
+      glow: "#4d6dff",
+    },
+  },
 ];
 
 /* ───────────────────────────── starfield ───────────────────────────── */
@@ -197,6 +216,35 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/** Real starlight isn't uniformly white — a star's colour is its surface
+ * temperature (blue-white hottest, down through white and yellow-white to
+ * orange and red coolest), and a wide-field photo of the night sky shows all
+ * of those at once. Weighted so the field still reads as "mostly white" at a
+ * glance (real skies are, and an even split would look like confetti) while
+ * a clear minority visibly read as teal, orange or red — an explicit request
+ * for variety over strict realism. Each entry is [r, g, b, weight]. */
+const STAR_PALETTE: [number, number, number, number][] = [
+  [255, 255, 255, 0.32], // white
+  [210, 225, 255, 0.18], // blue-white
+  [255, 244, 214, 0.16], // warm white / yellow-white
+  [120, 235, 224, 0.1], // teal
+  [255, 176, 102, 0.14], // orange
+  [255, 106, 92, 0.1], // red
+];
+const STAR_PALETTE_TOTAL = STAR_PALETTE.reduce((sum, [, , , w]) => sum + w, 0);
+
+/** Picks one palette colour, weighted, and returns it as an "r, g, b" string
+ * ready to drop into `rgba(${c}, alpha)` or `rgb(${c})`. */
+function pickStarColor(rand: () => number): string {
+  let roll = rand() * STAR_PALETTE_TOTAL;
+  for (const [r, g, b, weight] of STAR_PALETTE) {
+    roll -= weight;
+    if (roll <= 0) return `${r}, ${g}, ${b}`;
+  }
+  const [r, g, b] = STAR_PALETTE[STAR_PALETTE.length - 1];
+  return `${r}, ${g}, ${b}`;
+}
+
 /** One parallax layer of stars as a single element's box-shadow list. Thousands
  * of DOM nodes would be the obvious way and the wrong one; this paints the whole
  * layer from one node, which is what makes three drifting layers cheap. */
@@ -208,7 +256,8 @@ function starLayer(seed: number, count: number, spread: number, maxSize: number)
     const y = (rand() * spread).toFixed(0);
     const size = (0.5 + rand() * maxSize).toFixed(2);
     const alpha = (0.28 + rand() * 0.72).toFixed(2);
-    parts.push(`${x}px ${y}px 0 ${size}px rgba(255,255,255,${alpha})`);
+    const color = pickStarColor(rand);
+    parts.push(`${x}px ${y}px 0 ${size}px rgba(${color}, ${alpha})`);
   }
   return parts.join(",");
 }
@@ -226,6 +275,8 @@ interface Twinkler {
   delay: number;
   peak: number;
   flare: boolean;
+  /** "r, g, b" — see STAR_PALETTE/pickStarColor. */
+  color: string;
 }
 
 function twinkleField(seed: number, count: number): Twinkler[] {
@@ -242,6 +293,7 @@ function twinkleField(seed: number, count: number): Twinkler[] {
       peak: 0.5 + rand() * 0.5,
       // Only the biggest few get diffraction spikes, as in a real exposure.
       flare: size > 2.7,
+      color: pickStarColor(rand),
     };
   });
 }
@@ -307,7 +359,7 @@ function toneOf(value: number | null | undefined): "up" | "down" | "flat" {
    plain 2D rotate here is enough to sweep them around the disc; there is no
    tilt left to cancel at that point in the transform chain.
 
-   Two kinds:
+   Three kinds:
    - "stock": Earth's Samsung/SK hynix satellites — real logos (the existing
      StockIcon component, same Naver-backed source every other logo in this
      app uses), clicking through to that company's actual stock page (see
@@ -319,27 +371,62 @@ function toneOf(value: number | null | undefined): "up" | "down" | "flat" {
      isn't the same kind of use. This reuses CelestialBody's RocketCraft (the
      same generic vector built for the earlier, now-removed Earth→Mars
      flourish) as a stand-in, and links to /global?code=SPCX (GlobalStockPage,
-     which reads ?code= itself) per an explicit request for that destination. */
+     which reads ?code= itself) per an explicit request for that destination.
+   - "lunar": Earth's other satellite — the actual Moon, orbiting further out
+     than the two stock badges. No text/tooltip by design (an explicit
+     request: unlike the other two kinds, nothing is written on or over it),
+     just an aria-label for screen readers; clicking it opens the same /map
+     KOSPI destination Earth itself does. */
 
 interface MoonSpec {
   key: string;
   to: string;
   ko: string;
   en: string;
-  /** Added to the host planet's own rendered radius, in px, so the orbit
-   * always clears the planet regardless of viewport scale (both are in the
-   * same --size / --body-unit units via the CSS calc in .hb-moon-arm). */
+  /** For stock moons: added to the host planet's own rendered radius, in px,
+   * so the orbit always clears the planet regardless of viewport scale (both
+   * are in the same --size / --body-unit units via the CSS calc in
+   * .hb-moon-arm). For the rocket: subtracted instead, pulling its landed
+   * position down past the planet's edge so the engine actually reaches the
+   * surface — see .hb-mars-rocket-arm in hub.css. Unused for "lunar" — that
+   * orbit's gap is fixed in size units directly in .hb-earth-moon-arm
+   * instead, since the Moon's own box scales with Earth's size/--body-unit
+   * rather than being a flat px badge like the other two kinds, and a flat
+   * px gap next to a scaling body would drift out of proportion at the
+   * extremes (see the rocket's own --mr-extra fix for exactly this class of
+   * bug). */
   offsetPx: number;
+  /** Orbit period for stock moons and the Moon; full liftoff→hover→landing
+   * cycle length for the rocket. */
   durationSeconds: number;
   phase: number;
-  kind: "stock" | "rocket";
+  kind: "stock" | "rocket" | "lunar";
   /** Stock code for StockIcon — only set when kind is "stock". */
   code?: string;
 }
 
+// Real texture (same Solar System Scope CC BY 4.0 source/pipeline as the
+// planets — see /img/planets/) rather than a procedural body: an earlier,
+// drawn version was replaced per an explicit request for a real photo here
+// too. spinSeconds is well under Earth's 11s — visibly faster, matching a
+// separate explicit request — rather than the Moon's real ~27-day tidally
+// locked rotation, which read as motionless like Mercury's would.
+const MOON_SKIN: PhotoSkin = {
+  texture: "/img/planets/moon.webp",
+  spinSeconds: 6,
+  glow: "#cfc9be",
+};
+
 const EARTH_MOONS: MoonSpec[] = [
-  { key: "samsung", to: "/dashboard?code=005930", ko: "삼성전자", en: "Samsung", offsetPx: 33, durationSeconds: 7, phase: 0, kind: "stock", code: "005930" },
-  { key: "skhynix", to: "/dashboard?code=000660", ko: "SK하이닉스", en: "SK hynix", offsetPx: 59, durationSeconds: 11, phase: 0.5, kind: "stock", code: "000660" },
+  { key: "samsung", to: "/dashboard?code=005930", ko: "삼성전자", en: "Samsung", offsetPx: 7, durationSeconds: 7, phase: 0, kind: "stock", code: "005930" },
+  { key: "skhynix", to: "/dashboard?code=000660", ko: "SK하이닉스", en: "SK hynix", offsetPx: 12, durationSeconds: 11, phase: 0.5, kind: "stock", code: "000660" },
+  // Slower than the two badges, and a tight orbit hugging Earth's own edge
+  // (see .hb-earth-moon-arm in hub.css) — the real Moon should read as a
+  // heavier, more deliberate body than a couple of quick tech-logo satellites.
+  // phase 0 starts it level with Earth's own centre (the ellipse's rightmost
+  // point) rather than at the top, which is where an earlier phase (0.75)
+  // happened to place it.
+  { key: "moon", to: "/map", ko: "달", en: "Moon", offsetPx: 0, durationSeconds: 24, phase: 0, kind: "lunar" },
 ];
 
 // "/global?code=SPCX" rather than the full production URL — GlobalStockPage
@@ -348,7 +435,7 @@ const EARTH_MOONS: MoonSpec[] = [
 // a hardcoded https://kospi-predictor.onrender.com/... would send local
 // testing off to the live site instead of whatever's actually running here.
 const MARS_MOONS: MoonSpec[] = [
-  { key: "spacex", to: "/global?code=SPCX", ko: "SpaceX", en: "SpaceX", offsetPx: 24, durationSeconds: 9, phase: 0.25, kind: "rocket" },
+  { key: "spacex", to: "/global?code=SPCX", ko: "SpaceX", en: "SpaceX", offsetPx: 14, durationSeconds: 9, phase: 0.25, kind: "rocket" },
 ];
 
 function Moonlet({ spec, en, onOpen }: { spec: MoonSpec; en: boolean; onOpen: (to: string) => void }) {
@@ -360,26 +447,74 @@ function Moonlet({ spec, en, onOpen }: { spec: MoonSpec; en: boolean; onOpen: (t
     "--mr": `${spec.offsetPx}px`,
   } as React.CSSProperties;
 
+  // The rocket doesn't orbit like the stock-badge moons — it parks at Mars's
+  // north pole and cycles between sitting there and lifting straight up off
+  // it, so it gets its own (non-rotating) positioning chain. See the
+  // `.hb-mars-rocket-*` rules in hub.css for the actual liftoff/landing
+  // keyframes.
+  if (spec.kind === "rocket") {
+    return (
+      <div className="hb-mars-rocket-orbiter" style={style}>
+        <div className="hb-mars-rocket-arm">
+          <div className="hb-mars-rocket-face">
+            <button
+              type="button"
+              className="hb-moon hb-moon--rocket"
+              onClick={() => onOpen(spec.to)}
+              aria-label={`${en ? "Satellite" : "위성"}: ${label}`}
+              title={label}
+            >
+              <RocketCraft />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // The Moon reuses the same circular-sweep rig the stock badges use below
+  // (.hb-moon-orbiter/.hb-moon-face), just with its own arm and the
+  // --equatorial modifiers, which flatten the sweep into an ellipse hugging
+  // Earth's equator rather than a full circle reaching as far "over the
+  // poles" as it does past the sides (an explicit request) — its orbit
+  // radius is a fixed size-unit gap past Earth's actual edge rather than a
+  // flat px one, so it scales with Earth instead of drifting out of
+  // proportion at extreme viewport sizes (see offsetPx's comment above). No
+  // `title` here, unlike the other two kinds — an explicit request that
+  // nothing be written on this one; aria-label alone still names it for
+  // screen readers.
+  if (spec.kind === "lunar") {
+    return (
+      <div className="hb-moon-orbiter hb-moon-orbiter--equatorial" style={style}>
+        <div className="hb-earth-moon-arm">
+          <div className="hb-moon-face hb-moon-face--equatorial">
+            <button
+              type="button"
+              className="hb-moon hb-moon--lunar"
+              onClick={() => onOpen(spec.to)}
+              aria-label={`${en ? "Satellite" : "위성"}: ${label}`}
+            >
+              <PhotoPlanetBody id="moon" skin={MOON_SKIN} />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="hb-moon-orbiter" style={style}>
       <div className="hb-moon-arm">
         <div className="hb-moon-face">
           <button
             type="button"
-            className={spec.kind === "rocket" ? "hb-moon hb-moon--rocket" : "hb-moon"}
+            className="hb-moon"
             onClick={() => onOpen(spec.to)}
             aria-label={`${en ? "Satellite" : "위성"}: ${label}`}
             title={label}
           >
-            {spec.kind === "rocket" ? (
-              <RocketCraft />
-            ) : (
-              <>
-                <span className="hb-moon-wing hb-moon-wing--l" />
-                <StockIcon code={spec.code!} className="hb-moon-logo" />
-                <span className="hb-moon-wing hb-moon-wing--r" />
-              </>
-            )}
+            <SatelliteCraft />
+            <StockIcon code={spec.code!} className="hb-moon-logo" />
           </button>
         </div>
       </div>
@@ -413,6 +548,12 @@ function Planet({
     "--delay": delay,
     "--size": String(spec.size),
     "--glow": spec.skin.glow,
+    // The rendered photo disc only fills this fraction of the button's own
+    // box (PhotoPlanetBody draws it at (discR*2)/100 of the box — the rest is
+    // transparent atmosphere margin around it). The Mars rocket needs this to
+    // land on the planet's actual visible edge rather than the invisible
+    // edge of the full box; see .hb-mars-rocket-arm in hub.css.
+    "--disc-pct": String(((spec.skin.discR ?? BASE_R) * 2) / 100),
   } as React.CSSProperties;
 
   return (
@@ -585,6 +726,7 @@ export default function Hub() {
     <div className={`hb ${entered ? "is-entered" : ""}`}>
       {/* ── deep space ── */}
       <div className="hb-space" aria-hidden="true">
+        <div className="hb-milkyway" />
         <div className="hb-nebula hb-nebula--a" />
         <div className="hb-nebula hb-nebula--b" />
         <div className="hb-nebula hb-nebula--c" />
@@ -605,6 +747,7 @@ export default function Hub() {
                 animationDuration: `${t.dur}s`,
                 animationDelay: `${t.delay}s`,
                 ["--peak" as string]: String(t.peak),
+                ["--tc" as string]: t.color,
               }}
             />
           ))}

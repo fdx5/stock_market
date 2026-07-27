@@ -35,7 +35,7 @@ const C = 50;
  * with the old planet convention. Ringed bodies shrink it (see
  * `PhotoSkin.discR`) to make room for the ring, which would otherwise extend
  * past the viewBox and be cut off mid-ellipse. */
-const BASE_R = 34;
+export const BASE_R = 34;
 
 /* ───────────────────────────── planet ───────────────────────────── */
 
@@ -223,6 +223,8 @@ export function StarBody({ id }: { id: string }) {
   const core = `sr-${id}`;
   const bulge = `sg-${id}`;
   const bulgeMask = `sm-${id}`;
+  const edge = `se-${id}`;
+  const edgeMask = `sf-${id}`;
 
   return (
     <svg className="hb-starbody" viewBox="0 0 260 260" aria-hidden="true" focusable="false">
@@ -252,6 +254,22 @@ export function StarBody({ id }: { id: string }) {
         <clipPath id={clip}>
           <circle cx="130" cy="130" r="46" />
         </clipPath>
+
+        {/* Feathers the last ~10% of the photosphere radius to transparent.
+            The granulation filter's noise still has full contrast right up to
+            the disc edge; cutting it with a hard circular clip alone lands the
+            clip boundary mid-noise-texel, which reads as a jagged, staticky
+            rim rather than a clean limb. Fading the surface out just before
+            the clip line hides that boundary; the chromosphere ring below
+            supplies the actual crisp edge on top of the fade. */}
+        <radialGradient id={edge} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="88%" stopColor="#ffffff" stopOpacity="1" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+        </radialGradient>
+        <mask id={edgeMask}>
+          <rect x="0" y="0" width="260" height="260" fill={`url(#${edge})`} />
+        </mask>
 
         {/* Foreshortening. A sphere magnifies its surface where it faces the
             camera and compresses it toward the limb; a single evenly-scaled
@@ -323,7 +341,7 @@ export function StarBody({ id }: { id: string }) {
       <circle cx="130" cy="130" r="130" fill={`url(#${corona})`} className="hb-corona-pulse" />
       <circle cx="130" cy="130" r="78" fill={`url(#${bloom})`} className="hb-bloom-pulse" />
 
-      <g clipPath={`url(#${clip})`}>
+      <g clipPath={`url(#${clip})`} mask={`url(#${edgeMask})`}>
         <g className="hb-body-drift" style={{ animationDuration: "30s" }}>
           <rect x="8" y="68" width="244" height="124" filter={`url(#${surf})`} />
         </g>
@@ -339,9 +357,14 @@ export function StarBody({ id }: { id: string }) {
       </g>
 
       {/* Chromosphere. A real star's edge is a hard bright line against black,
-          and it is the last cue separating a sphere from a soft blob. */}
-      <circle cx="130" cy="130" r="45.4" fill="none" stroke="#ffe6ae" strokeOpacity="0.26" strokeWidth="0.9" />
-      <circle cx="130" cy="130" r="46.5" fill="none" stroke="#ff8f2e" strokeOpacity="0.16" strokeWidth="1.8" />
+          and it is the last cue separating a sphere from a soft blob. Widened
+          from the original 0.9px/1.8px strokes — at this element's typical
+          rendered size those fell to well under a device pixel, so browsers
+          anti-aliased them into a grainy, flickery-looking ring instead of a
+          clean line. Opacity is pulled down to match, so the edge stays the
+          same visual weight, just crisp instead of noisy. */}
+      <circle cx="130" cy="130" r="45.6" fill="none" stroke="#ffe6ae" strokeOpacity="0.22" strokeWidth="1.5" />
+      <circle cx="130" cy="130" r="47" fill="none" stroke="#ff8f2e" strokeOpacity="0.13" strokeWidth="2.6" />
     </svg>
   );
 }
@@ -481,6 +504,68 @@ export function VoyagerCraft() {
   );
 }
 
+/* ───────────────────────────── satellite ───────────────────────────── */
+
+/** A small generic comsat bus for Earth's two orbiters (Samsung, SK hynix —
+ * see Hub.tsx's `.hb-moon` satellites). Replaces the previous plain circular
+ * badge with a pair of blue rectangle "wings" bolted on: at 40px that read as
+ * a coin with tabs, not a spacecraft. This is a proper (if schematic) comsat
+ * silhouette instead — a ribbed solar array on each side of a boxy bus, with
+ * a mast and dish canted off the top for an antenna — built from the same
+ * bold-mass, few-parts approach as RocketCraft below, since anything finer
+ * than that collapses at this render size. The company logo (a raster asset,
+ * so not drawn here) sits on top as the bus's payload/sensor plate; see
+ * `.hb-moon-logo` in hub.css for how it's centred on this SVG's own (50, 50)
+ * bus centre. */
+export function SatelliteCraft() {
+  return (
+    <svg viewBox="0 0 100 100" className="hb-sat-art" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="sat-panel" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#9ecbf5" />
+          <stop offset="45%" stopColor="#3f74ad" />
+          <stop offset="100%" stopColor="#1c3c63" />
+        </linearGradient>
+        <linearGradient id="sat-bus" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#f2f4f8" />
+          <stop offset="45%" stopColor="#c7ced9" />
+          <stop offset="100%" stopColor="#828b9b" />
+        </linearGradient>
+      </defs>
+
+      {/* solar arrays, each ribbed into cells so the panel reads as an array
+          rather than a flat tab */}
+      <g stroke="#0f2440" strokeWidth="0.9">
+        <rect x="2" y="37" width="26" height="26" rx="1.2" fill="url(#sat-panel)" />
+        <line x1="9.7" y1="37" x2="9.7" y2="63" opacity="0.6" />
+        <line x1="17.3" y1="37" x2="17.3" y2="63" opacity="0.6" />
+        <line x1="24.7" y1="37" x2="24.7" y2="63" opacity="0.6" />
+        <line x1="2" y1="50" x2="28" y2="50" opacity="0.45" />
+
+        <rect x="72" y="37" width="26" height="26" rx="1.2" fill="url(#sat-panel)" />
+        <line x1="79.7" y1="37" x2="79.7" y2="63" opacity="0.6" />
+        <line x1="87.3" y1="37" x2="87.3" y2="63" opacity="0.6" />
+        <line x1="94.7" y1="37" x2="94.7" y2="63" opacity="0.6" />
+        <line x1="72" y1="50" x2="98" y2="50" opacity="0.45" />
+      </g>
+
+      {/* booms carrying the arrays out from the bus */}
+      <rect x="28" y="47.5" width="9" height="5" fill="#9aa3b2" />
+      <rect x="63" y="47.5" width="9" height="5" fill="#9aa3b2" />
+
+      {/* antenna: mast canted off the bus, dish at its tip */}
+      <line x1="52" y1="31" x2="61" y2="14" stroke="#9aa3b2" strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="62" cy="12" r="4.6" fill="#e4e9f0" stroke="#828b9b" strokeWidth="1" />
+      <circle cx="62" cy="12" r="1.4" fill="#828b9b" />
+
+      {/* bus */}
+      <rect x="33" y="31" width="34" height="38" rx="3.5" fill="url(#sat-bus)" stroke="#5b6270" strokeWidth="1.3" />
+      {/* thruster nozzle */}
+      <rect x="44" y="67" width="12" height="8" rx="1.6" fill="#4b5262" stroke="#282d38" strokeWidth="0.8" />
+    </svg>
+  );
+}
+
 /* ───────────────────────────── rocket ───────────────────────────── */
 
 /** A generic two-stage rocket for the Earth→Mars run (see Hub.tsx's
@@ -495,38 +580,56 @@ export function RocketCraft() {
     <svg viewBox="0 0 60 140" className="hb-rocket-art" aria-hidden="true" focusable="false">
       <defs>
         <linearGradient id="rk-body" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#8d95a3" />
-          <stop offset="30%" stopColor="#f4f6fa" />
-          <stop offset="55%" stopColor="#ffffff" />
-          <stop offset="78%" stopColor="#c7cedb" />
-          <stop offset="100%" stopColor="#7b8494" />
+          <stop offset="0%" stopColor="#7d8494" />
+          <stop offset="22%" stopColor="#eef1f7" />
+          <stop offset="48%" stopColor="#ffffff" />
+          <stop offset="62%" stopColor="#dfe4ee" />
+          <stop offset="82%" stopColor="#aab1c1" />
+          <stop offset="100%" stopColor="#6d7583" />
         </linearGradient>
         <linearGradient id="rk-fin" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#e14b3a" />
-          <stop offset="100%" stopColor="#9c2a1e" />
+          <stop offset="0%" stopColor="#ea5a46" />
+          <stop offset="100%" stopColor="#8f2519" />
         </linearGradient>
-        <radialGradient id="rk-flame" cx="50%" cy="0%" r="85%">
-          <stop offset="0%" stopColor="#fff6d0" stopOpacity="0.95" />
-          <stop offset="35%" stopColor="#ffb454" stopOpacity="0.85" />
-          <stop offset="70%" stopColor="#ff6a3d" stopOpacity="0.45" />
+        <linearGradient id="rk-nozzle" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#4b5262" />
+          <stop offset="55%" stopColor="#282d38" />
+          <stop offset="100%" stopColor="#111318" />
+        </linearGradient>
+        <radialGradient id="rk-flame-outer" cx="50%" cy="0%" r="85%">
+          <stop offset="0%" stopColor="#fff6d0" stopOpacity="0.9" />
+          <stop offset="35%" stopColor="#ffb454" stopOpacity="0.8" />
+          <stop offset="70%" stopColor="#ff6a3d" stopOpacity="0.4" />
           <stop offset="100%" stopColor="#ff6a3d" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="rk-flame-core" cx="50%" cy="0%" r="80%">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+          <stop offset="50%" stopColor="#ffe49a" stopOpacity="0.85" />
+          <stop offset="100%" stopColor="#ffb454" stopOpacity="0" />
         </radialGradient>
       </defs>
 
-      {/* engine flame, trailing behind (below) the craft */}
-      <ellipse cx="30" cy="122" rx="10" ry="26" fill="url(#rk-flame)" className="hb-rocket-flame" />
+      {/* engine flame, trailing behind (below) the craft — a wider soft outer
+          plume plus a brighter, faster-flickering inner core for some depth */}
+      <ellipse cx="30" cy="120" rx="11" ry="28" fill="url(#rk-flame-outer)" className="hb-rocket-flame" />
+      <ellipse cx="30" cy="116" rx="5.5" ry="17" fill="url(#rk-flame-core)" className="hb-rocket-flame hb-rocket-flame--core" />
+
+      {/* engine nozzle, grounding the flame into the hull */}
+      <path d="M18 90 L42 90 L37 100 L23 100 Z" fill="url(#rk-nozzle)" stroke="#05060a" strokeWidth="0.6" />
 
       {/* fins */}
-      <path d="M13 92 L2 122 L16 110 Z" fill="url(#rk-fin)" stroke="#6e1a11" strokeWidth="0.6" />
-      <path d="M47 92 L58 122 L44 110 Z" fill="url(#rk-fin)" stroke="#6e1a11" strokeWidth="0.6" />
+      <path d="M13 88 L2 120 L16 106 Z" fill="url(#rk-fin)" stroke="#6e1a11" strokeWidth="0.6" />
+      <path d="M47 88 L58 120 L44 106 Z" fill="url(#rk-fin)" stroke="#6e1a11" strokeWidth="0.6" />
 
       {/* body */}
       <path
-        d="M30 4 C 40 22 44 52 44 92 L16 92 C 16 52 20 22 30 4 Z"
+        d="M30 4 C 40 22 44 52 44 90 L16 90 C 16 52 20 22 30 4 Z"
         fill="url(#rk-body)"
         stroke="#5b6270"
         strokeWidth="1"
       />
+      {/* gloss highlight down the sunlit side */}
+      <path d="M23 14 C 20 34 18.5 58 18.5 84 L22 84 C 22 58 23.5 34 27 14 Z" fill="#ffffff" opacity="0.35" />
       {/* nose cap */}
       <path d="M30 4 C 34 12 37 20 38.5 30 L21.5 30 C 23 20 26 12 30 4 Z" fill="#d3392b" stroke="#8a2018" strokeWidth="0.7" />
       {/* body stripe + window */}

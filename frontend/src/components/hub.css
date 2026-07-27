@@ -84,6 +84,37 @@ body:has(.hb) {
     radial-gradient(120% 90% at 50% 46%, #0d1430 0%, #070a18 42%, var(--void) 78%);
 }
 
+/* A real Milky Way photograph (ESO's all-sky panorama, CC BY 4.0 — see
+   /img/milkyway.webp), covering a large area from the top-left in toward the
+   centre per an explicit request. mix-blend-mode: screen is what lets it sit
+   inside an existing dark scene without showing as a pasted-in rectangle:
+   screen can only ever add light, so the photo's own near-black background
+   (most of the frame) contributes nothing and only its bright structure —
+   the galactic band, its stars and dust glow — shows through, on top of the
+   scene's own gradient and colour. The mask fades that structure out well
+   before this element's own edges, for the same reason .hb-galaxy is masked
+   below: a photo with a visible boundary reads as a sticker, not sky. The
+   mild hue-rotate/saturate nudges the photo's naturally warm amber core
+   toward the scene's own cool blue-violet palette (an explicit request that
+   the two match) without fully bleaching out the photo's real colour. */
+.hb-milkyway {
+  position: absolute;
+  top: -14%;
+  left: -20%;
+  width: 95vw;
+  height: 92vh;
+  min-width: 900px;
+  min-height: 560px;
+  background-image: url("/img/milkyway.webp");
+  background-size: cover;
+  background-position: 38% 42%;
+  mix-blend-mode: screen;
+  opacity: 0.68;
+  filter: saturate(0.82) hue-rotate(-10deg) brightness(1.08);
+  mask-image: radial-gradient(72% 72% at 32% 32%, #000 0%, rgba(0, 0, 0, 0.55) 52%, transparent 84%);
+  -webkit-mask-image: radial-gradient(72% 72% at 32% 32%, #000 0%, rgba(0, 0, 0, 0.55) 52%, transparent 84%);
+}
+
 /* Three slow, enormous colour clouds. Blurred past the point of showing any
    edge, so what reads is depth rather than three circles. */
 .hb-nebula {
@@ -212,11 +243,23 @@ body:has(.hb) {
   inset: 0;
 }
 
+/* --tc ("r, g, b", set per-star in Hub.tsx from STAR_PALETTE/pickStarColor)
+   feeds both the disc colour and its glow — real starlight colour, not a
+   uniform white field. */
+/* Three-layer glow — a tight white-hot core (real star cores overexpose to
+   white regardless of surface temperature, so this one layer stays
+   colour-neutral), a mid-range tint in the star's own colour, and a soft
+   wide bloom in the same colour — reads as a brighter, more visible point of
+   light than the old single 4px shadow, per an explicit request for more
+   noticeable sparkle. */
 .hb-twinkle {
   position: absolute;
   border-radius: 50%;
-  background: #ffffff;
-  box-shadow: 0 0 4px 0.5px rgba(200, 224, 255, 0.9);
+  background: rgb(var(--tc));
+  box-shadow:
+    0 0 3px 0.5px rgba(255, 255, 255, 0.95),
+    0 0 8px 1.5px rgba(var(--tc), 0.85),
+    0 0 17px 3px rgba(var(--tc), 0.45);
   opacity: 0;
   will-change: opacity, transform;
   animation-name: hb-twinkle-one;
@@ -225,12 +268,13 @@ body:has(.hb) {
 }
 
 /* Never fully out and never a hard on/off: a real star scintillates around a
-   baseline. --peak is per-star, so no two reach the same brightness. */
+   baseline. --peak is per-star, so no two reach the same brightness. Scale
+   swing widened (was 0.65→1.12) for a more visible pulse. */
 @keyframes hb-twinkle-one {
-  0%, 100% { opacity: 0.1; transform: scale(0.65); }
-  40% { opacity: calc(var(--peak) * 0.55); transform: scale(0.92); }
-  55% { opacity: var(--peak); transform: scale(1.12); }
-  72% { opacity: calc(var(--peak) * 0.45); transform: scale(0.88); }
+  0%, 100% { opacity: 0.12; transform: scale(0.6); }
+  40% { opacity: calc(var(--peak) * 0.6); transform: scale(1.05); }
+  55% { opacity: var(--peak); transform: scale(1.4); }
+  72% { opacity: calc(var(--peak) * 0.5); transform: scale(0.98); }
 }
 
 /* Only the brightest few get diffraction spikes, as a real exposure would. */
@@ -240,20 +284,20 @@ body:has(.hb) {
   position: absolute;
   left: 50%;
   top: 50%;
-  background: linear-gradient(90deg, transparent, rgba(210, 232, 255, 0.75), transparent);
+  background: linear-gradient(90deg, transparent, rgba(var(--tc), 0.85), transparent);
 }
 
 .hb-twinkle.has-flare::before {
-  width: 14px;
+  width: 18px;
   height: 1px;
   transform: translate(-50%, -50%);
 }
 
 .hb-twinkle.has-flare::after {
   width: 1px;
-  height: 14px;
+  height: 18px;
   transform: translate(-50%, -50%);
-  background: linear-gradient(180deg, transparent, rgba(210, 232, 255, 0.75), transparent);
+  background: linear-gradient(180deg, transparent, rgba(var(--tc), 0.85), transparent);
 }
 
 /* Comet. The first version was a 1px hairline and read as a scratch; this is a
@@ -534,8 +578,21 @@ body:has(.hb) {
   -webkit-mask-image: radial-gradient(closest-side, transparent calc(100% - 1.4px), #000 calc(100% - 1.4px));
 }
 
+/* Brighter along the bottom than the top. `.hb-ring` sits in `.hb-plane`,
+   which tilts the whole orbital plane on X (see --tilt) — under that
+   perspective the bottom of the ring is the near edge, swung out toward the
+   camera, and the top is the far edge, tipped back away from it. A flat
+   colour here read as a ring drawn flat on the screen; fading it dim-to-
+   bright top-to-bottom is what makes it recede in the same depth the tilt
+   already implies for the planet riding it. */
 .hb-ring-base {
-  background: rgba(150, 185, 255, 0.16);
+  background: linear-gradient(
+    to bottom,
+    rgba(150, 185, 255, 0.05) 0%,
+    rgba(150, 185, 255, 0.14) 45%,
+    rgba(160, 195, 255, 0.24) 78%,
+    rgba(180, 210, 255, 0.34) 100%
+  );
 }
 
 .hb-ring-arc {
@@ -571,6 +628,13 @@ body:has(.hb) {
 
 .hb-rocket-flame {
   animation: hb-rocket-flicker 0.4s ease-in-out infinite alternate;
+}
+
+/* The brighter inner core layer flickers on its own faster, reversed cycle so
+   it doesn't pulse in lockstep with the outer plume — reads as live fire
+   instead of one shape breathing uniformly. */
+.hb-rocket-flame--core {
+  animation: hb-rocket-flicker 0.32s ease-in-out infinite alternate-reverse;
 }
 
 @keyframes hb-rocket-flicker {
@@ -688,6 +752,67 @@ body:has(.hb) {
   to { transform: rotate(-360deg); }
 }
 
+/* The Moon's own orbit plane: a flattened ellipse hugging Earth's equator
+   rather than the full circle the stock badges sweep (which passes just as
+   far over the "poles" as it does past the sides) — an explicit request.
+   scaleY squashes the circle vertically; order matters here, since CSS
+   composes transform functions right-to-left onto the point. Written as
+   "scaleY(...) rotate(t)", rotate applies first (tracing the normal circle
+   at radius r), then scaleY flattens the *result* — (r cos t, r sin t)
+   becomes (r cos t, --eq-squash · r sin t), an ellipse centred on Earth's
+   own centre (this element is zero-sized, so its transform-origin is that
+   same centre point already used for the plain circular orbiters above).
+   --eq-offset-y then shifts that whole ellipse straight down by a flat px
+   amount — leading (leftmost) in the transform list, so it's the outermost
+   operation and moves the already-computed ellipse as a rigid unit rather
+   than distorting it further; a translation needs no counter-cancellation
+   in hb-moon-face--equatorial below the way the squash does, since moving a
+   shape doesn't warp it.
+   .hb-moon-face--equatorial below undoes the squash (and the rotation) for
+   the Moon's own body, the same billboard-cancellation idea `.hb-billboard`
+   uses for planets — otherwise the Moon's round disc would render squashed
+   into an oval along with its orbit path. */
+.hb-moon-orbiter--equatorial {
+  /* Set once here rather than as a matching fallback on both this and
+     hb-moon-ccw-equatorial below — --eq-squash inherits down through
+     .hb-earth-moon-arm to .hb-moon-face--equatorial fine, and a single
+     source avoids the two ever drifting out of sync (they have to cancel
+     exactly). Tightened repeatedly per feedback that the orbit still swung
+     too far above/below Earth's own centre line. */
+  --eq-squash: 0.1;
+  /* Pushed down per an explicit request that the whole orbit sit lower than
+     Earth's exact centre, not just hug it more tightly. */
+  --eq-offset-y: 65px;
+  /* A second animation, sharing this element's own duration/delay from the
+     base .hb-moon-orbiter rule (a comma-separated animation-name list reuses
+     a single non-list animation-delay/duration for every name in it) — see
+     hb-moon-orbit-depth-equatorial below for what it does. Together these
+     read as one continuous, one-directional revolution (0°→360°, never
+     reversing) that also passes behind and back in front of Earth once per
+     lap, rather than a flat side-to-side wobble. */
+  animation-name: hb-moon-cw-equatorial, hb-moon-orbit-depth-equatorial;
+}
+
+@keyframes hb-moon-cw-equatorial {
+  from { transform: translateY(var(--eq-offset-y)) scaleY(var(--eq-squash)) rotate(0deg); }
+  to { transform: translateY(var(--eq-offset-y)) scaleY(var(--eq-squash)) rotate(360deg); }
+}
+
+/* Passes behind Earth for the half of the lap where the ellipse math above
+   places it in the upper half (t 180°-360°, negative sin), and back in front
+   for the lower half (t 0°-180°) — an arbitrary but fixed choice (there's no
+   real depth axis on a flat billboard to derive it from, the same situation
+   .hb-orbit-depth and the Saturn/Uranus ring near/far split are already in).
+   Negative z-index paints below a z-index:auto sibling, which is what
+   .hb-planet still is — no change needed there — while the positive value
+   paints above it; z-index isn't smoothly animatable, so like hb-orbit-depth
+   this snaps at each stop rather than easing. */
+@keyframes hb-moon-orbit-depth-equatorial {
+  0%, 49.9% { z-index: 6; }
+  50%, 99.9% { z-index: -1; }
+  100% { z-index: 6; }
+}
+
 .hb-moon-arm {
   position: absolute;
   top: 0;
@@ -697,80 +822,204 @@ body:has(.hb) {
 
 /* Counter-rotates on the same duration/delay as the orbiter above so the
    satellite itself stays upright while it sweeps — same cancellation trick as
-   .hb-billboard, just without a tilt term to also undo. */
+   .hb-billboard, just without a tilt term to also undo. Shared by the stock
+   badges and the Moon below (.hb-earth-moon-arm has its own transform, but
+   still rides this same counter-rotation). */
 .hb-moon-face {
   animation: hb-moon-ccw var(--md) linear infinite;
   animation-delay: var(--mdelay);
 }
 
-/* Another 1.5x on top of the first bump (18px → 27px → 40px) — the logos were
-   still reading as barely-legible dots at 27px. */
+/* Cancels both the orbiter's rotation AND its equatorial squash, in that
+   order (scaleY applied first/innermost, rotate applied last/outermost —
+   the exact inverse composition of hb-moon-cw-equatorial above), so the
+   Moon's own disc stays a perfect circle instead of inheriting the
+   flattened orbit path's distortion. */
+.hb-moon-face--equatorial {
+  animation-name: hb-moon-ccw-equatorial;
+}
+
+@keyframes hb-moon-ccw-equatorial {
+  from { transform: rotate(0deg) scaleY(calc(1 / var(--eq-squash))); }
+  to { transform: rotate(-360deg) scaleY(calc(1 / var(--eq-squash))); }
+}
+
+/* Earth's Moon. Unlike .hb-moon-arm above (a flat --mr px past the planet's
+   box radius — fine for a fixed-size logo badge), the Moon's own box scales
+   with Earth's --size/--body-unit, so its orbit gap is a fixed amount of the
+   same size unit (1.5 — tightened twice now per explicit requests to hug
+   Earth's edge as closely as the orbit math allows) rather than a flat px
+   one, which would grow or shrink out of proportion to the Moon itself at
+   the extremes — exactly the bug the rocket's landing needed --mr-extra to
+   fix. */
+.hb-earth-moon-arm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateX(calc((var(--size) * var(--body-unit) / 2) + (1.5 * var(--body-unit))));
+}
+
+/* ── Mars's rocket ──
+   Unlike the stock-badge moons above, the rocket doesn't sweep around Mars —
+   it stays parked over the north pole and cycles between resting there and
+   lifting straight off it, so it gets its own chain instead of reusing
+   .hb-moon-orbiter/.hb-moon-arm (which carry the circular sweep). */
+.hb-mars-rocket-orbiter {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+/* Parks the craft at the pole: straight up from Mars's own centre by its
+   actual VISIBLE radius — (--size * --body-unit / 2) is only the half-width
+   of the whole .hb-planet button, most of which is transparent atmosphere
+   margin around the photo disc (see PhotoPlanetBody/--disc-pct); multiplying
+   by --disc-pct scales that down to where Mars's texture actually ends. Using
+   the un-scaled box radius here was the earlier bug — the rocket "landed" at
+   the edge of Mars's invisible bounding box, well above its real surface, so
+   it visibly stopped short instead of touching down.
+   --mr then pulls that point further down into the surface — tuned by eye
+   (see MARS_MOONS's offsetPx in Hub.tsx) rather than derived, since the
+   planet's rendered radius, this button's own negative-margin centring, and
+   the photo disc's soft edge all stack in ways that are easier to nudge
+   visually than to solve exactly. `.hb-moon--rocket` above anchors the
+   rocket's box by its BOTTOM edge here, so a larger --mr sinks the craft
+   further past the pole rather than just closing a small remaining gap.
+   --mr-extra is a second, CSS-only nudge on top of that (default 31px):
+   --mr comes in from Hub.tsx as an inline style, so a plain stylesheet rule
+   in the mobile media query below can't override it (inline always wins on
+   the same property/element) — 14px already lands correctly at mobile's
+   fixed, small --body-unit, but under desktop's much larger fluid
+   --body-unit the same 14px barely dents the gap. --mr-extra carries the
+   desktop-only difference instead, since it's never set inline and the
+   mobile query can freely zero it back out. */
+.hb-mars-rocket-arm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateY(calc((-1 * var(--size) * var(--body-unit) / 2 * var(--disc-pct)) + var(--mr) + var(--mr-extra, 31px)));
+}
+
+/* The liftoff/hover/landing cycle itself. Rises ~50px off the pole, hangs
+   with a small drift and tilt while airborne, then settles back down —
+   repeats on the spec's own duration/phase. */
+.hb-mars-rocket-face {
+  animation: hb-rocket-hover var(--md) ease-in-out infinite;
+  animation-delay: var(--mdelay);
+}
+
+@keyframes hb-rocket-hover {
+  0% { transform: translateY(0) rotate(0deg); }
+  6% { transform: translateY(-4px) rotate(-1deg); }
+  40% { transform: translateY(-50px) rotate(1deg); }
+  50% { transform: translateY(-52px) rotate(-1deg); }
+  60% { transform: translateY(-50px) rotate(1deg); }
+  94% { transform: translateY(-4px) rotate(1deg); }
+  100% { transform: translateY(0) rotate(0deg); }
+}
+
+/* Shared shell for both satellite kinds — sizing/position/interaction only.
+   Neither kind paints a background here any more: SatelliteCraft and
+   RocketCraft (CelestialBody.tsx) are full-bleed SVGs that supply their own
+   silhouette, so a circular badge behind them would just show as a mismatched
+   edge. Sized at 40px — the logos read as barely-legible dots below that. */
 .hb-moon {
   position: relative;
-  display: flex;
-  align-items: center;
-  gap: 1px;
+  display: block;
   margin: -20px 0 0 -20px;
   padding: 0;
   width: 40px;
   height: 40px;
   border: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #eef2f8 0%, #b9c2d0 45%, #6b7385 100%);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.35), 0 1px 4px rgba(0, 0, 0, 0.5);
+  background: none;
   cursor: pointer;
   pointer-events: auto;
-  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.25s ease;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .hb-moon:hover,
 .hb-moon:focus-visible {
   transform: scale(1.25);
   outline: none;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6), 0 0 10px rgba(255, 255, 255, 0.6), 0 1px 6px rgba(0, 0, 0, 0.6);
   z-index: 6;
+}
+
+/* SK hynix/Samsung satellites: SatelliteCraft draws the bus, solar arrays
+   and dish; the stock logo sits on top as the payload plate at the bus's
+   centre (SatelliteCraft's bus is centred in its own 100x100 viewBox, hence
+   the plain 50%/50% + translate here rather than the per-kind math the
+   rocket's arm needs). */
+.hb-sat-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5));
+  transition: filter 0.25s ease;
+}
+
+.hb-moon:hover .hb-sat-art,
+.hb-moon:focus-visible .hb-sat-art {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.7)) drop-shadow(0 0 9px rgba(120, 180, 255, 0.6));
 }
 
 .hb-moon-logo {
   position: absolute;
-  inset: 4px;
-  width: 32px;
-  height: 32px;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   object-fit: contain;
   background: #fff;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85), 0 0 0 2.5px rgba(0, 0, 0, 0.35);
 }
 
-/* Small solar-panel tabs either side of the logo badge — just enough for the
-   silhouette to read as "a small satellite", not a bare floating icon. */
-.hb-moon-wing {
-  position: absolute;
-  top: 50%;
-  width: 16px;
-  height: 22px;
-  transform: translateY(-50%);
-  background: linear-gradient(180deg, #6fa8dc 0%, #2e5f96 100%);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-}
-
-.hb-moon-wing--l { left: -18px; }
-.hb-moon-wing--r { right: -18px; }
-
-/* Mars's satellite: RocketCraft's own art already reads as a small craft, so
-   this drops the circular badge/wings treatment the stock logos need and just
-   gives the SVG room at the same scale as the other two satellites. */
+/* Mars's satellite: RocketCraft's own art already reads as a small craft at
+   its own aspect ratio, so this just gives the SVG room at that shape instead
+   of the square stock-satellite box. Anchored by its BOTTOM edge (margin-top
+   is the full box height, not half) rather than centred like the stock
+   satellites above — the rocket's landed position needs to place its engine
+   on the surface, not its geometric middle, so `.hb-mars-rocket-arm` below
+   positions this box's bottom edge directly instead of a centre point. */
 .hb-moon--rocket {
   width: 24px;
   height: 55px;
-  margin: -27.5px 0 0 -12px;
-  background: none;
-  box-shadow: none;
-  border-radius: 0;
+  margin: -55px 0 0 -12px;
 }
 
-.hb-moon--rocket:hover,
-.hb-moon--rocket:focus-visible {
-  box-shadow: none;
+/* Earth's Moon: sized to a third of Earth's own rendered diameter (an
+   explicit request), so unlike the fixed-px badges above this scales with
+   --size/--body-unit like a planet does rather than staying a constant
+   pixel size. min-width/height floors it the same way .hb-planet floors
+   itself, so it doesn't vanish at the smallest viewport scales. */
+.hb-moon--lunar {
+  width: calc(var(--size) * var(--body-unit) / 3);
+  height: calc(var(--size) * var(--body-unit) / 3);
+  margin: calc(var(--size) * var(--body-unit) / -6) 0 0 calc(var(--size) * var(--body-unit) / -6);
+  min-width: 14px;
+  min-height: 14px;
+  border-radius: 50%;
+}
+
+/* The Moon renders through PhotoPlanetBody now (a real texture, like the
+   seven planets), so it gets the same permanent separation-from-the-sky
+   shadow/glow those get from `.hb-planet .hb-photobody` — just re-scoped to
+   `.hb-moon--lunar`, since this button carries `.hb-moon` rather than
+   `.hb-planet`. */
+.hb-moon--lunar .hb-photobody {
+  filter: drop-shadow(2px 4px 3px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 5px rgba(207, 201, 190, 0.5));
+  transition: filter 0.25s ease;
+}
+
+.hb-moon--lunar:hover .hb-photobody,
+.hb-moon--lunar:focus-visible .hb-photobody {
+  filter: drop-shadow(2px 4px 3px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.65)) drop-shadow(0 0 9px rgba(200, 210, 230, 0.55));
 }
 
 .hb-planet {
@@ -799,16 +1048,31 @@ body:has(.hb) {
   z-index: 5;
 }
 
+.hb-star {
+  transition: filter 0.28s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* A faint always-on shadow + glow, so planets read as lit spheres catching
+   light in open space rather than flat stickers pasted on the starfield —
+   before this they carried zero separation from the sky until hovered. The
+   shadow is cast down-and-right, away from .hb-photo-shade's own light
+   direction (up-left), so the two agree on where the light in this scene is
+   coming from; the glow is a bare hint of the body's own atmosphere colour.
+   Both are much fainter than the hover flare below so hovering still reads
+   as a clear jump, not a repeat of the resting state. */
+.hb-planet .hb-body,
+.hb-planet .hb-photobody {
+  transition: filter 0.28s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  filter:
+    drop-shadow(3px 6px 4px rgba(0, 0, 0, 0.5))
+    drop-shadow(0 0 6px var(--glow));
+}
+
 /* Hover flare. drop-shadow follows the rendered alpha of the SVG, so the glow
    traces the actual disc (and the ring, on the ringed body) instead of boxing
    it — a box-shadow here would light up the square element. Two shadows: a
    tight white rim and a wider coloured bloom in the body's own atmosphere
    colour, which each planet passes down as --glow. */
-.hb-planet .hb-body,
-.hb-planet .hb-photobody,
-.hb-star {
-  transition: filter 0.28s ease, transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-}
 
 .hb-planet:hover .hb-body,
 .hb-planet:focus-visible .hb-body,
@@ -971,25 +1235,40 @@ body:has(.hb) {
 
 /* Terminator + limb darkening, ported from the old radialGradient's exact
    stops — a real photo already carries its own shading, so this only needs to
-   agree with the scene's light direction (up-and-left), not invent relief. */
+   agree with the scene's light direction (up-and-left), not invent relief.
+   Deepened further from that original pass (darker terminator, brighter lit
+   corner) for more contrast between the two hemispheres — the shallower
+   version read as a light tint over the whole disc rather than a true
+   day/night line. The second, smaller gradient adds a thin rim-light glint on
+   the dark limb opposite the light source: real photos of planets in direct
+   sunlight still show a faint bright edge on the "night" side from scattered
+   light, and without it the shadowed limb was pure black, flattening the
+   sphere back into a silhouette right where the roundness matters most. */
 .hb-photo-shade {
   position: absolute;
   inset: 0;
   border-radius: 50%;
   pointer-events: none;
-  background: radial-gradient(
-    circle at 31% 25%,
-    rgba(255, 255, 255, 0.24) 0%,
-    rgba(255, 255, 255, 0.12) 14%,
-    rgba(255, 255, 255, 0.02) 28%,
-    rgba(0, 0, 0, 0.12) 40%,
-    rgba(0, 0, 0, 0.3) 52%,
-    rgba(0, 0, 0, 0.5) 63%,
-    rgba(0, 0, 0, 0.68) 73%,
-    rgba(0, 0, 0, 0.82) 82%,
-    rgba(0, 0, 0, 0.91) 91%,
-    rgba(0, 0, 0, 0.96) 100%
-  );
+  background:
+    radial-gradient(
+      circle at 76% 80%,
+      rgba(170, 205, 255, 0.28) 0%,
+      rgba(170, 205, 255, 0.12) 5%,
+      rgba(170, 205, 255, 0) 11%
+    ),
+    radial-gradient(
+      circle at 31% 25%,
+      rgba(255, 255, 255, 0.32) 0%,
+      rgba(255, 255, 255, 0.15) 14%,
+      rgba(255, 255, 255, 0.02) 28%,
+      rgba(0, 0, 0, 0.16) 40%,
+      rgba(0, 0, 0, 0.38) 52%,
+      rgba(0, 0, 0, 0.6) 63%,
+      rgba(0, 0, 0, 0.78) 73%,
+      rgba(0, 0, 0, 0.9) 82%,
+      rgba(0, 0, 0, 0.96) 91%,
+      rgba(0, 0, 0, 0.99) 100%
+    );
 }
 
 .hb-photo-spec {
@@ -1266,32 +1545,30 @@ body:has(.hb) {
   .hb-hint p { font-size: 11px; }
   .hb-wordmark { flex-direction: column; align-items: center; gap: 4px; }
 
-  /* Half the desktop size (40px → 20px) — the Samsung/SK badges. */
-  .hb-moon:not(.hb-moon--rocket) {
+  /* Half the desktop size (40px → 20px) — the Samsung/SK satellites. */
+  .hb-moon:not(.hb-moon--rocket):not(.hb-moon--lunar) {
     width: 20px;
     height: 20px;
     margin: -10px 0 0 -10px;
   }
 
   .hb-moon-logo {
-    inset: 2px;
-    width: 16px;
-    height: 16px;
+    width: 9px;
+    height: 9px;
   }
-
-  .hb-moon-wing {
-    width: 8px;
-    height: 11px;
-  }
-
-  .hb-moon-wing--l { left: -9px; }
-  .hb-moon-wing--r { right: -9px; }
 
   /* Half the desktop size (24x55 → 12x27.5) — the Mars/SpaceX satellite. */
   .hb-moon--rocket {
     width: 12px;
     height: 27.5px;
-    margin: -13.75px 0 0 -6px;
+    margin: -27.5px 0 0 -6px;
+  }
+
+  /* Cancels the desktop-only extra sink (see .hb-mars-rocket-arm) — at this
+     breakpoint's small, fixed --body-unit the base --mr already lands the
+     rocket correctly; adding the same flat extra here would bury it. */
+  .hb-mars-rocket-arm {
+    --mr-extra: 0px;
   }
 }
 
@@ -1343,11 +1620,13 @@ body:has(.hb) {
   .hb-orbiter,
   .hb-billboard,
   .hb-moon-orbiter,
-  .hb-moon-face {
+  .hb-moon-face,
+  .hb-mars-rocket-face {
     animation-play-state: paused;
   }
 
-  .hb-rocket-flame {
+  .hb-rocket-flame,
+  .hb-rocket-flame--core {
     animation: none;
   }
 
