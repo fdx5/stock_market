@@ -111,6 +111,15 @@ class TTLCache:
             self._evict_if_needed_locked()
         return value
 
+    def invalidate(self, key: str) -> None:
+        """Drops a key outright so the next `get_or_set` call is a cold start and must
+        fetch synchronously, regardless of `allow_stale` — for a caller that has
+        positively confirmed the cached value is wrong (not just past its TTL) and
+        needs the next read to hit the upstream for real rather than possibly reusing
+        the same bad value for the rest of its TTL window."""
+        with self._lock:
+            self._store.pop(key, None)
+
     def peek(self, key: str) -> Any | None:
         """Non-blocking read: returns the cached value if present and unexpired,
         otherwise None — never calls a factory. For callers on a latency-sensitive

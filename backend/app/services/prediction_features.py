@@ -48,12 +48,13 @@ def _safe(label: str, code: str, fn, default):
         return default
 
 
-def _load_indicators(code: str) -> pd.DataFrame | None:
-    # allow_stale=False: the batch scores off the close that just printed, so a cache
-    # entry that expired hours ago (e.g. last fetched mid-session, before today's close
-    # existed) must be refreshed synchronously here rather than handed back stale while
-    # a background thread quietly catches it up after this call already used it.
-    df = price_fetcher.get_history(code, HISTORY_YEARS, allow_stale=False)
+def _load_indicators(code: str, session: dt.date) -> pd.DataFrame | None:
+    # allow_stale=False rules out our own cache handing back a value fetched earlier
+    # that day, before `session`'s close existed. get_history_confirmed goes one step
+    # further and retries the live fetch itself a couple of times when even a fresh
+    # call comes back short of `session` — see its docstring for why that's needed on
+    # top of allow_stale (an upstream/CDN propagation lag, not anything in our cache).
+    df = price_fetcher.get_history_confirmed(code, HISTORY_YEARS, session)
     if df is None or df.empty:
         return None
     return compute_indicators(df)
@@ -186,13 +187,13 @@ def get_index_context(market: str) -> dict | None:
     )
 
 
-def collect_for_stock(item: dict) -> dict | None:
+def collect_for_stock(item: dict, session: dt.date) -> dict | None:
     """Every input for one stock. Returns None only when price history is missing —
     without a close there is nothing to predict a move *from*, so that one failure is
     fatal for the stock (and the batch skips it) while every other gap is tolerated.
     """
     code = item["code"]
-    indicator_df = _safe("history", code, lambda: _load_indicators(code), None)
+    indicator_df = _safe("history", code, lambda: _load_indicators(code, session), None)
     if indicator_df is None or len(indicator_df) < 30:
         logger.warning("prediction_features: insufficient history for %s, skipping", code)
         return None
@@ -212,7 +213,7 @@ def collect_for_stock(item: dict) -> dict | None:
     }
 
 
-def collect_all(roster: list[dict], max_workers: int = 4) -> list[dict]:
+def collect_all(roster: list[dict], session: dt.date, max_workers: int = 4) -> list[dict]:
     """Collects the whole roster concurrently.
 
     Capped low on purpose: each stock fans out to several scraped endpoints on the
@@ -223,7 +224,7 @@ def collect_all(roster: list[dict], max_workers: int = 4) -> list[dict]:
     if not roster:
         return []
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        results = list(pool.map(collect_for_stock, roster))
+        results = list(pool.map(lambda item: collect_for_stock(item, session), roster))
     return [r for r in results if r is not None]
 
 

@@ -219,7 +219,7 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
             warnings.append(f"이전 예측 채점 실패: {exc}")
             grading = {"checked": 0, "graded": 0, "pending": 0, "hits": 0}
 
-        features = prediction_features.collect_all(roster)
+        features = prediction_features.collect_all(roster, session)
         collected_codes = {f["item"]["code"] for f in features}
         skipped = [it["code"] for it in roster if it["code"] not in collected_codes]
         if skipped:

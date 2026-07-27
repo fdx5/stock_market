@@ -229,7 +229,7 @@ def run_status(
 def run(
     background: BackgroundTasks,
     region: str = Query(..., pattern=r"^(KR|US)$"),
-    force: bool = Query(False),
+    force: bool = Query(True),
     wait: bool = Query(False),
     authorization: str | None = Header(None),
 ):
@@ -240,6 +240,14 @@ def run(
     one network blip away from a false failure. `wait=true` runs it inline and returns
     the full per-stock summary — that's the mode to use when triggering it by hand and
     actually wanting to see what it decided.
+
+    `force` defaults to true: a caller hitting this endpoint at all wants that day's
+    rows recomputed, and the only reason to skip that is the normal weekday cron
+    protecting itself against a duplicate firing — which is exactly why it always
+    passes `force=false` explicitly (see ai-prediction.yml). Any other caller —
+    admin panel, a manual curl, workflow_dispatch — gets a real delete-and-regenerate
+    unless it explicitly opts out, instead of silently no-op'ing because that day's
+    session already has rows (the common case, since the daily cron already ran it).
     """
     _require_batch_token(authorization)
 
