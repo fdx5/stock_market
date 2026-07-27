@@ -8,6 +8,7 @@ from app.services import (
     kakao_notify,
     page_view_store,
     prediction_batch,
+    prediction_store,
     stock_search_store,
     visitor_store,
 )
@@ -187,3 +188,19 @@ def prediction_run(background: BackgroundTasks, region: str = Query(..., pattern
         raise HTTPException(status_code=409, detail=f"{region} 배치가 이미 실행 중입니다.")
     background.add_task(prediction_batch.run_batch, region, True, "admin")
     return {"region": region, "status": "accepted"}
+
+
+@router.delete("/prediction", dependencies=[Depends(require_admin)])
+def prediction_delete(
+    predict_date: str = Query(..., pattern=r"^\d{8}$"),
+    market: str = Query(..., pattern=r"^(KOSPI|KOSDAQ|NASDAQ)$"),
+):
+    """Takes down one (예측일자, 시장) slice with no replacement — for a day already
+    known to be wrong (bad upstream data, a bug since fixed) that shouldn't keep
+    showing on the page while nobody has decided yet whether/when to regenerate it.
+    Deliberately separate from `/prediction/run`, which always deletes *and*
+    regenerates in the same call — sometimes the right next step is just "make the bad
+    rows go away" without also kicking off a multi-minute rerun in the same breath.
+    """
+    deleted = prediction_store.delete_predictions_by_predict_date(predict_date, market)
+    return {"predict_date": predict_date, "market": market, "deleted": deleted}

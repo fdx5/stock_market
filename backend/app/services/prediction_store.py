@@ -293,6 +293,30 @@ def _insert(conn, row: dict) -> None:
     )
 
 
+def delete_predictions_by_predict_date(predict_date: str, market: str) -> int:
+    """Removes every row for one (예측일자, 시장) slice with no replacement — for
+    clearing a run's rows outright (e.g. one known to have been built from bad upstream
+    data) rather than regenerating them immediately. `replace_predictions` always pairs
+    its delete with a fresh insert in the same transaction, keyed on 수집일자; this is
+    the standalone half, keyed on 예측일자 instead because that's the date an admin is
+    actually looking at on the page when a specific day's rows turn out to be wrong.
+
+    Not paired with an insert — the caller decides separately whether and when to
+    re-run, so a bad day can be taken down immediately without also having to be ready
+    to regenerate it in the same breath.
+    """
+
+    def _run(conn):
+        cur = conn.execute(
+            "DELETE FROM stock_predictions WHERE predict_date = ? AND market = ?",
+            (predict_date, market),
+        )
+        conn.commit()
+        return cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+
+    return _with_connection(_run)
+
+
 def replace_predictions(rows: list[dict]) -> int:
     """Deletes every existing row for the (수집일자, 시장) pairs this run produced, then
     inserts the new rows — a clean regenerate rather than the field-by-field overwrite
