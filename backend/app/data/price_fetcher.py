@@ -85,7 +85,16 @@ _FDR_SPECIAL_SYMBOLS = {
 
 
 def _load_history(code: str, years: int) -> pd.DataFrame:
-    end = dt.date.today()
+    # dt.date.today() reads the container's *local* notion of "now" — whatever timezone
+    # (or lack of one) the container happens to be configured with. Every one of the
+    # NASDAQ roster's 12 stocks landed on exactly Thursday's close instead of Friday's,
+    # matched to the cent against an identical fetch made elsewhere — that's not one
+    # flaky ticker, that's the request window itself being anchored a day early on this
+    # container. datetime.now(UTC) is unambiguous regardless of how the container's
+    # local time is configured, and the +1 day pads past any boundary entirely rather
+    # than trying to reason about exactly where it sits — Yahoo has no data for a future
+    # date anyway, so the pad costs nothing.
+    end = dt.datetime.now(dt.timezone.utc).date() + dt.timedelta(days=1)
     start = end - dt.timedelta(days=int(years * 365.25) + 10)
     # KRX equity codes are 6-digit numeric strings (see
     # prediction_universe._load_krx_top); the special index symbols above need FDR's
