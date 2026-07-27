@@ -364,8 +364,13 @@ export const adminApi = {
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>
     authedPatch<{ visible: boolean }>(`/comments/${source}/${id}/visibility`, { visible }),
   predictionStatus: () => authedGet<PredictionStatus>("/prediction/status"),
+  // force=true always: the confirm dialog in front of this call already promises
+  // "해당 일자 데이터를 삭제 후 재생성합니다" (delete and regenerate that day's rows), which
+  // is only true with force — without it, a day that already has rows (the common
+  // case; the weekday cron or the Sunday catch-up already ran) makes this a silent
+  // no-op that leaves the existing rows untouched instead of regenerating them.
   runPrediction: (region: BatchRegion) =>
-    authedPost<{ region: string; status: string }>(`/prediction/run?region=${region}`),
+    authedPost<{ region: string; status: string }>(`/prediction/run?region=${region}&force=true`),
 
   kakaoVisitorStatus: () => authedGet<KakaoVisitorStatus>("/notify/kakao/visitors/status"),
   runKakaoVisitorNotify: () => authedPost<KakaoVisitorRun>("/notify/kakao/visitors/run"),
