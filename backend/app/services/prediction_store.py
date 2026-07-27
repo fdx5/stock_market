@@ -18,6 +18,8 @@ from pathlib import Path
 import libsql
 from dotenv import load_dotenv
 
+from app.data.prediction_universe import MARKET_KOSDAQ, MARKET_KOSPI, MARKET_NASDAQ
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -645,7 +647,7 @@ def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> di
         sql = (
             "SELECT stock_code, stock_name, market, predict_date, predict_result, "
             "predict_price, change_rate, confidence, actual_result, actual_price, "
-            "actual_change_rate, hit "
+            "actual_change_rate, hit, market_cap "
             f"FROM stock_predictions WHERE predict_date IN ({date_placeholders})"
         )
         params: list = list(dates)
@@ -653,6 +655,10 @@ def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> di
             market_placeholders = ", ".join("?" for _ in markets)
             sql += f" AND market IN ({market_placeholders})"
             params.extend(markets)
+        # Newest date first per code, so the first row seen below is that stock's most
+        # recent 시가총액 snapshot — the one the row order should reflect, not whichever
+        # date the DB happens to return first.
+        sql += " ORDER BY predict_date DESC"
         return conn.execute(sql, params).fetchall()
 
     by_code: dict[str, dict] = {}
@@ -669,8 +675,11 @@ def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> di
         actual_price,
         actual_change_rate,
         hit,
+        market_cap,
     ) in _with_connection(_rows):
-        entry = by_code.setdefault(code, {"code": code, "name": name, "market": market, "cells": {}})
+        entry = by_code.setdefault(
+            code, {"code": code, "name": name, "market": market, "market_cap": market_cap, "cells": {}}
+        )
         entry["cells"][predict_date] = {
             "result": result,
             "predict_price": predict_price,
@@ -682,7 +691,16 @@ def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> di
             "hit": None if hit is None else bool(hit),
         }
 
-    rows = sorted(by_code.values(), key=lambda r: (r["market"], r["code"]))
+    # 코스피 → 코스닥 → 나스닥, and within each market by market-cap rank — the same
+    # order the roster itself is built in (prediction_universe top-N by cap), so the
+    # matrix reads top-to-bottom the way a reader already expects from the AI 예측 page.
+    market_order = {MARKET_KOSPI: 0, MARKET_KOSDAQ: 1, MARKET_NASDAQ: 2}
+    rows = sorted(
+        by_code.values(),
+        key=lambda r: (market_order.get(r["market"], 99), -(r["market_cap"] or 0), r["code"]),
+    )
+    for row in rows:
+        row.pop("market_cap", None)
     return {"dates": dates, "rows": rows}
 
 
