@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 
 import FinanceDataReader as fdr
 import pandas as pd
+import requests
 
 from app.services.cache import cache
 
@@ -27,15 +28,63 @@ STALE_RETRY_DELAY_SECONDS = 4.0
 FETCH_TIMEOUT_SECONDS = 20
 
 
+def _fetch_yahoo_direct(code: str, start: dt.date, end: dt.date) -> pd.DataFrame:
+    """The same query2.finance.yahoo.com chart endpoint FinanceDataReader's
+    YahooDailyReader hits for every non-KRX ticker, called directly instead so a
+    cache-busting param and explicit no-cache headers can be added.
+
+    Reason this exists: a US ticker's fetch from Render was repeatedly coming back one
+    session short of what the identical request returned from a different network,
+    consistently — not a one-off, and not something retrying the exact same request a
+    few seconds later fixed (see get_history_confirmed's docstring for the retry that
+    *didn't* resolve it). `period1`/`period2` are whole-day granularity (derived from
+    `date.today()`), so every request issued on the same calendar day is byte-identical
+    — exactly the shape of URL a cache sitting between Render and Yahoo would happily
+    keep serving from whenever it first saw that URL that day, no matter how many times
+    it's asked again. `Cache-Control`/`Pragma: no-cache` asks any compliant cache to
+    revalidate against Yahoo's origin instead of serving its stored copy; the trailing
+    `_=` nonce further guarantees the URL itself differs request to request, which
+    defeats a cache that keys on the full URL without honoring those headers at all.
+    """
+    start_ts = int(dt.datetime(start.year, start.month, start.day, tzinfo=dt.timezone.utc).timestamp())
+    end_ts = int(dt.datetime(end.year, end.month, end.day, tzinfo=dt.timezone.utc).timestamp()) + 86400
+    url = (
+        f"https://query2.finance.yahoo.com/v8/finance/chart/{code}"
+        f"?period1={start_ts}&period2={end_ts}&interval=1d&includeAdjustedClose=true"
+        f"&_={int(time.time() * 1000)}"
+    )
+    resp = requests.get(
+        url,
+        headers={
+            "user-agent": "Mozilla/5.0 AppleWebKit/537.36",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+        },
+        timeout=FETCH_TIMEOUT_SECONDS,
+    )
+    resp.raise_for_status()
+    result = resp.json()["chart"]["result"][0]
+    index = pd.to_datetime(result["timestamp"], unit="s").normalize()
+    quote = result["indicators"]["quote"][0]
+    return pd.DataFrame(quote, index=index).rename(
+        columns={"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
+    )
+
+
 def _load_history(code: str, years: int) -> pd.DataFrame:
     end = dt.date.today()
     start = end - dt.timedelta(days=int(years * 365.25) + 10)
+    # KRX codes are 6-digit numeric strings (see prediction_universe._load_krx_top);
+    # everything else in this app is a US ticker. Only the US path goes through the
+    # cache-busting fetch above — the KRX/Naver path isn't the one that's been seen
+    # serving stale data, and fdr.DataReader already handles it correctly.
+    fetch = fdr.DataReader if code.isdigit() else _fetch_yahoo_direct
     # shutdown(wait=False): if the fetch times out, the still-hung worker thread is
     # abandoned rather than blocked on — ThreadPoolExecutor's default context-manager
     # exit calls shutdown(wait=True), which would just re-introduce the same hang here.
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        future = pool.submit(fdr.DataReader, code, start, end)
+        future = pool.submit(fetch, code, start, end)
         try:
             df = future.result(timeout=FETCH_TIMEOUT_SECONDS)
         except FutureTimeoutError:
