@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -228,7 +229,12 @@ def _start_prediction_scheduler() -> None:
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    # RENDER_GIT_COMMIT is set automatically by Render at runtime for a git-connected
+    # service — surfacing it here is the one reliable way to answer "is my latest push
+    # actually live yet" from outside the dashboard, instead of guessing from how many
+    # minutes have passed since the push (a multi-stage Docker build here easily takes
+    # longer than that).
+    return {"status": "ok", "commit": os.environ.get("RENDER_GIT_COMMIT")}
 
 
 # Populated by the Docker build (frontend build output copied here). Absent during
