@@ -63,9 +63,17 @@ def _load_history(code: str, years: int) -> pd.DataFrame:
     return df[["date", "open", "high", "low", "close", "volume"]]
 
 
-def get_history(code: str, years: int = 3) -> pd.DataFrame:
+def get_history(code: str, years: int = 3, allow_stale: bool = True) -> pd.DataFrame:
+    """`allow_stale=False` is for callers that score off today's close (the prediction
+    batch, grading) — an expired cache entry must be refreshed synchronously so the
+    call reflects the session that just closed, not whatever was last fetched during
+    the trading day. The stale-while-revalidate default is right for page views, which
+    would rather render a few hours late than block, but wrong here: it would hand the
+    batch yesterday's close while quietly refreshing to today's in the background,
+    after the batch already read the stale frame.
+    """
     key = f"history:{code}:{years}"
-    df = cache.get_or_set(key, TTL_PRICE_SECONDS, lambda: _load_history(code, years))
+    df = cache.get_or_set(key, TTL_PRICE_SECONDS, lambda: _load_history(code, years), allow_stale=allow_stale)
     if df.empty:
         raise ValueError(f"No price history found for code={code}")
     return df

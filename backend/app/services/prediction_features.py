@@ -49,7 +49,11 @@ def _safe(label: str, code: str, fn, default):
 
 
 def _load_indicators(code: str) -> pd.DataFrame | None:
-    df = price_fetcher.get_history(code, HISTORY_YEARS)
+    # allow_stale=False: the batch scores off the close that just printed, so a cache
+    # entry that expired hours ago (e.g. last fetched mid-session, before today's close
+    # existed) must be refreshed synchronously here rather than handed back stale while
+    # a background thread quietly catches it up after this call already used it.
+    df = price_fetcher.get_history(code, HISTORY_YEARS, allow_stale=False)
     if df is None or df.empty:
         return None
     return compute_indicators(df)
@@ -147,7 +151,7 @@ def _load_index_context(market: str) -> dict | None:
     if not symbol_name:
         return None
     symbol, label = symbol_name
-    df = price_fetcher.get_history(symbol, 1)
+    df = price_fetcher.get_history(symbol, 1, allow_stale=False)
     if df is None or len(df) < 25:
         return None
 
@@ -170,10 +174,15 @@ def _load_index_context(market: str) -> dict | None:
 
 
 def get_index_context(market: str) -> dict | None:
+    # allow_stale=False for the same reason as _load_indicators: this is only called
+    # from the prediction batch, which needs the index reading as of the session that
+    # just closed, not a half-hour-old value served while a background thread catches
+    # up after the fact.
     return cache.get_or_set(
         f"prediction_index_context:{market}",
         TTL_INDEX_CONTEXT_SECONDS,
         lambda: _load_index_context(market),
+        allow_stale=False,
     )
 
 

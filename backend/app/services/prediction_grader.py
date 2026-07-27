@@ -77,7 +77,11 @@ def grade_pending(markets: tuple[str, ...], today: dt.date, now_iso: str) -> dic
     unresolved = 0
     for code, rows in by_code.items():
         try:
-            df = price_fetcher.get_history(code, 1)
+            # allow_stale=False: grading reads the session that just closed, and a
+            # cache entry last filled during the trading day (before that close
+            # existed) would otherwise be handed back as-is while a background
+            # refresh quietly catches up after this read already missed it.
+            df = price_fetcher.get_history(code, 1, allow_stale=False)
         except Exception as exc:  # noqa: BLE001 - one dead ticker must not stop the rest
             logger.warning("prediction_grader: price history failed for %s (%s)", code, exc)
             unresolved += len(rows)
