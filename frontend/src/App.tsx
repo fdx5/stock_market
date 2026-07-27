@@ -23,6 +23,7 @@ const GlobalStockPage = lazy(() => import("./components/GlobalStockPage"));
 const MarketCapFightPage = lazy(() => import("./components/MarketCapFightPage"));
 const NewsPage = lazy(() => import("./components/NewsPage"));
 const AiPredictionPage = lazy(() => import("./components/AiPredictionPage"));
+const PredictionGradingPage = lazy(() => import("./components/PredictionGradingPage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
@@ -58,6 +59,8 @@ export default function App() {
     page = <NewsPage />;
   } else if (path === "/ai-prediction") {
     page = <AiPredictionPage />;
+  } else if (path === "/ai-prediction/grading") {
+    page = <PredictionGradingPage />;
   } else if (path === "/admin") {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {

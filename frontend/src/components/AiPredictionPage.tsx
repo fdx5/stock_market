@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { PredictionDateOption, PredictionDay, PredictionItem, SessionScore, api } from "../api/client";
+import {
+  PredictionAccuracy,
+  PredictionDateOption,
+  PredictionDay,
+  PredictionItem,
+  SessionScore,
+  api,
+} from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import {
   accuracyTone,
@@ -39,6 +46,10 @@ const MARKET_LABELS: Record<string, string> = {
   KOSDAQ: "코스닥",
   NASDAQ: "나스닥",
 };
+
+// Fixed display order for the per-market accuracy cards — matches the market tab
+// strip below, so the two don't disagree about reading order.
+const MARKET_ORDER = ["KOSPI", "KOSDAQ", "NASDAQ"];
 
 const SORT_LABELS: Record<SortKey, string> = {
   marketcap: "시가총액순",
@@ -90,50 +101,55 @@ function rollup(scoreboard: SessionScore[], sessions: number) {
   return { total, hit, rate: total ? Math.round((hit / total) * 100) : null };
 }
 
-/** The page's trust anchor, directly under the title: how the last checked session
- * actually turned out, and a bar per recent session behind it.
- *
- * It sits above the forecasts rather than below them on purpose. A prediction page
- * that shows its track record only after you scroll is asking to be believed first and
- * audited later; this asks to be audited first.
- */
-function Scoreboard({ day }: { day: PredictionDay }) {
-  const previous = day.previous_session;
-  const recent = rollup(day.scoreboard, 20);
-  if (!previous && recent.rate === null) return null;
+/** One market's column in the header scoreboard: its last graded session, its
+ * trailing-20 rate, and a bar per recent session behind them. */
+function MarketScoreCard({ label, sessions }: { label: string; sessions: SessionScore[] }) {
+  const latest = sessions[0] ?? null;
+  const recent = rollup(sessions, 20);
 
   return (
-    <div className="pred-scoreboard">
-      {previous ? (
-        <div className={`pred-score-headline pred-score-headline--${previous.rate !== null && previous.rate >= 50 ? "good" : "bad"}`}>
-          <span className="pred-score-label">직전 채점 결과 · {previous.label}</span>
-          <span className="pred-score-value">
-            {previous.rate}
-            <small>%</small>
-          </span>
-          <span className="pred-score-hint">
-            {previous.total}종목 중 {previous.hit}종목 적중
-          </span>
-        </div>
-      ) : null}
+    <div className="pred-market-score">
+      <span className="pred-market-score-label">{label}</span>
+      <div className="pred-market-score-body">
+        {latest ? (
+          <div
+            className={`pred-score-headline pred-score-headline--${
+              latest.rate !== null && latest.rate >= 50 ? "good" : "bad"
+            }`}
+          >
+            <span className="pred-score-label">직전 {formatFullDate(latest.predict_date).slice(5)}</span>
+            <span className="pred-score-value">
+              {latest.rate}
+              <small>%</small>
+            </span>
+            <span className="pred-score-hint">
+              {latest.total}종목 중 {latest.hit}종목 적중
+            </span>
+          </div>
+        ) : (
+          <div className="pred-score-headline">
+            <span className="pred-score-label">채점 이력 없음</span>
+          </div>
+        )}
 
-      {recent.rate !== null ? (
-        <div className="pred-score-aggregate">
-          <span className="pred-score-label">최근 20거래일 누적</span>
-          <span className={`pred-score-agg-value pred-score-agg-value--${accuracyTone({ ...recent })}`}>
-            {recent.rate}%
-          </span>
-          <span className="pred-score-hint">
-            {recent.total}건 중 {recent.hit}건 적중
-          </span>
-        </div>
-      ) : null}
+        {recent.rate !== null ? (
+          <div className="pred-score-aggregate">
+            <span className="pred-score-label">최근 20거래일</span>
+            <span className={`pred-score-agg-value pred-score-agg-value--${accuracyTone({ ...recent })}`}>
+              {recent.rate}%
+            </span>
+            <span className="pred-score-hint">
+              {recent.total}건 중 {recent.hit}건 적중
+            </span>
+          </div>
+        ) : null}
+      </div>
 
-      {day.scoreboard.length > 1 ? (
-        <div className="pred-score-spark" role="img" aria-label="최근 채점된 예측일자별 적중률">
+      {sessions.length > 1 ? (
+        <div className="pred-score-spark" role="img" aria-label={`${label} 최근 채점된 예측일자별 적중률`}>
           {/* Oldest on the left so the series reads left-to-right like every other
               time axis on the site; the API returns it newest-first. */}
-          {[...day.scoreboard].slice(0, 14).reverse().map((s) => (
+          {[...sessions].slice(0, 14).reverse().map((s) => (
             <span
               key={s.predict_date}
               className={`pred-score-bar pred-score-bar--${
@@ -145,6 +161,28 @@ function Scoreboard({ day }: { day: PredictionDay }) {
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/** The page's trust anchor, directly under the title: how each market's last checked
+ * session actually turned out, kept apart rather than pooled into one number — KOSPI,
+ * KOSDAQ and NASDAQ grade on independent calendars and can be having very different
+ * runs at the same moment, and a single blended rate would hide exactly that.
+ *
+ * It sits above the forecasts rather than below them on purpose. A prediction page
+ * that shows its track record only after you scroll is asking to be believed first and
+ * audited later; this asks to be audited first.
+ */
+function Scoreboard({ accuracy }: { accuracy: PredictionAccuracy }) {
+  const markets = MARKET_ORDER.filter((m) => accuracy.sessions_by_market[m]?.length);
+  if (!markets.length) return null;
+
+  return (
+    <div className="pred-scoreboard pred-scoreboard--markets">
+      {markets.map((m) => (
+        <MarketScoreCard key={m} label={MARKET_LABELS[m] ?? m} sessions={accuracy.sessions_by_market[m]} />
+      ))}
     </div>
   );
 }
@@ -252,12 +290,25 @@ export default function AiPredictionPage() {
   const [dates, setDates] = useState<PredictionDateOption[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [day, setDay] = useState<PredictionDay | null>(null);
+  const [accuracy, setAccuracy] = useState<PredictionAccuracy | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [market, setMarket] = useState<string>("ALL");
   const [sort, setSort] = useState<SortKey>("marketcap");
   const [hideUnreliable, setHideUnreliable] = useState(false);
   const [selected, setSelected] = useState<PredictionItem | null>(null);
+
+  useEffect(() => {
+    // Independent of the date navigator — this is each market's own trailing record,
+    // not a property of whichever session happens to be on screen.
+    api
+      .predictionAccuracy()
+      .then((res) => setAccuracy(res))
+      .catch(() => {
+        // The header cards are an enhancement over the per-card track records shown
+        // further down; a failed fetch here shouldn't block the rest of the page.
+      });
+  }, []);
 
   useEffect(() => {
     api
@@ -418,6 +469,9 @@ export default function AiPredictionPage() {
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
+          <Link to="/ai-prediction/grading" className="kospi-map-nav-link">
+            채점 결과 매트릭스
+          </Link>
           <VisitorBadge />
         </div>
       </header>
@@ -460,10 +514,13 @@ export default function AiPredictionPage() {
               {Math.round((totals.hit / totals.total) * 100)}%)
             </div>
           ) : null}
-          {day ? <Scoreboard day={day} /> : null}
+          {accuracy ? <Scoreboard accuracy={accuracy} /> : null}
           {day?.generated_at ? (
             <p className="pred-hero-generated">분석 완료 {formatGeneratedAt(day.generated_at)} (KST)</p>
           ) : null}
+          <Link to="/ai-prediction/grading" className="pred-matrix-link">
+            날짜 × 종목 채점 결과 매트릭스 보기 <span aria-hidden="true">→</span>
+          </Link>
         </div>
       </section>
 

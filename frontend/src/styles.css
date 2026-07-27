@@ -11298,6 +11298,188 @@ button.admin-comments-text--clickable:hover {
   color: var(--series-violet);
 }
 
+/* --- 채점 결과 매트릭스 page ------------------------------------------------ */
+
+.pred-matrix-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--series-violet);
+}
+
+.pred-matrix-link:hover {
+  text-decoration: underline;
+}
+
+.pred-matrix-hero {
+  max-width: 1100px;
+  margin: 28px auto 0;
+  padding: 0 20px;
+}
+
+.pred-matrix-title {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.pred-matrix-sub {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.pred-matrix-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  max-width: 1100px;
+  margin: 16px auto 0;
+  padding: 0 20px;
+}
+
+.pred-matrix-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pred-matrix-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pred-matrix-loading {
+  max-width: 1100px;
+  margin: 20px auto;
+  padding: 0 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.pred-matrix-scroll {
+  max-width: 1100px;
+  margin: 18px auto 40px;
+  padding: 0 20px;
+  overflow-x: auto;
+}
+
+.pred-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 12.5px;
+}
+
+.pred-matrix th,
+.pred-matrix td {
+  padding: 0;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.pred-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 6px 4px;
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.pred-matrix-stockhead {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--surface-1);
+  text-align: left !important;
+  padding: 7px 12px !important;
+  min-width: 132px;
+  border-right: 1px solid var(--gridline);
+  border-bottom: 1px solid var(--gridline);
+}
+
+thead .pred-matrix-stockhead {
+  z-index: 4;
+}
+
+.pred-matrix-stockname {
+  display: block;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.pred-matrix-stockmarket {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.pred-matrix-cell {
+  width: 34px;
+  height: 30px;
+  border-bottom: 1px solid color-mix(in srgb, var(--gridline) 60%, transparent);
+}
+
+.pred-matrix-cell--hit {
+  background: color-mix(in srgb, var(--status-good) 16%, transparent);
+}
+
+.pred-matrix-cell--miss {
+  background: color-mix(in srgb, var(--status-critical) 14%, transparent);
+}
+
+.pred-matrix-cell--pending {
+  background: color-mix(in srgb, var(--baseline) 30%, transparent);
+}
+
+.pred-matrix-cell--empty {
+  background: transparent;
+}
+
+.pred-matrix-mark {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pred-matrix-cell--hit .pred-matrix-mark,
+.pred-matrix-mark--hit {
+  color: var(--status-good);
+}
+
+.pred-matrix-cell--miss .pred-matrix-mark,
+.pred-matrix-mark--miss {
+  color: var(--status-critical);
+}
+
+.pred-matrix-cell--pending .pred-matrix-mark,
+.pred-matrix-mark--pending {
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .pred-matrix-stockhead {
+    min-width: 96px;
+  }
+
+  .pred-matrix-cell {
+    width: 28px;
+  }
+}
+
 /* --- Empty / error / skeleton -------------------------------------------- */
 
 .pred-empty,
@@ -12060,6 +12242,53 @@ button.admin-comments-text--clickable:hover {
   background: var(--baseline);
 }
 
+/* Per-market scoreboard cards — KOSPI/KOSDAQ/NASDAQ side by side instead of one
+   pooled number, since the three grade on independent calendars. */
+.pred-scoreboard--markets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.pred-market-score {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-right: 1px solid var(--gridline);
+}
+
+.pred-market-score:last-child {
+  border-right: none;
+}
+
+.pred-market-score-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.pred-market-score-body {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.pred-market-score .pred-score-headline,
+.pred-market-score .pred-score-aggregate {
+  padding-right: 0;
+  border-right: none;
+}
+
+.pred-market-score .pred-score-spark {
+  margin-left: 0;
+  padding-left: 0;
+  height: 30px;
+}
+
 .pred-settled {
   display: inline-flex;
   align-items: center;
@@ -12510,6 +12739,24 @@ button.admin-comments-text--clickable:hover {
 
   .pred-score-headline {
     border-right: none;
+  }
+
+  .pred-scoreboard--markets {
+    grid-template-columns: 1fr;
+  }
+
+  .pred-market-score {
+    border-right: none;
+    border-bottom: 1px solid var(--gridline);
+    padding: 10px 2px;
+  }
+
+  .pred-market-score:last-child {
+    border-bottom: none;
+  }
+
+  .pred-market-score .pred-score-spark {
+    display: none;
   }
 
   .pred-acc-row {

@@ -9,14 +9,18 @@ fallback pattern rather than the cache.
 """
 
 import json
+import logging
 import os
 import threading
+import time
 from pathlib import Path
 
 import libsql
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
@@ -206,24 +210,56 @@ def _new_ready_connection():
     return conn
 
 
+# A single retry used to be enough here (see comment_store._with_connection for the
+# original reasoning), but the batch's price fetch now spends much longer per stock
+# retrying a stale Yahoo session (see price_fetcher.get_history_confirmed) — long
+# enough that this connection, last touched by the grading pass at the start of the
+# run, sits idle through the whole collection phase and comes back to a Turso Hrana
+# stream the server has since dropped ("stream not found"). One reconnect attempt can
+# still land on that same just-severed stream, so this gives recovery a few tries with
+# a short pause between them instead of taking the whole run down over what is, from
+# Turso's side, an ordinary idle-timeout reclaim rather than a real outage.
+_RECONNECT_ATTEMPTS = 3
+_RECONNECT_DELAY_SECONDS = 1.0
+
+
 def _with_connection(fn):
-    """One lazily-created process-wide connection serialized behind `_lock`, with a
-    single retry on a fresh connection if the existing one turns out to be dead —
-    same reasoning as comment_store._with_connection (concurrent open/close cycles
-    race in the libsql client and Turso closes idle streams server-side)."""
+    """One lazily-created process-wide connection serialized behind `_lock`, reconnecting
+    on a fresh connection (up to `_RECONNECT_ATTEMPTS` times) if the existing one turns
+    out to be dead — concurrent open/close cycles race in the libsql client and Turso
+    closes idle streams server-side, either of which this recovers from rather than
+    failing the caller over a connection issue that a fresh connect() resolves."""
     global _conn
     with _lock:
         if _conn is None:
             _conn = _new_ready_connection()
         try:
             return fn(_conn)
-        except Exception:
+        except Exception as first_exc:
             try:
                 _conn.close()
             except Exception:
                 pass
-            _conn = _new_ready_connection()
-            return fn(_conn)
+            last_exc = first_exc
+            for attempt in range(_RECONNECT_ATTEMPTS):
+                if attempt:
+                    time.sleep(_RECONNECT_DELAY_SECONDS)
+                try:
+                    _conn = _new_ready_connection()
+                    return fn(_conn)
+                except Exception as exc:
+                    logger.warning(
+                        "prediction_store: reconnect attempt %d/%d failed (%s)",
+                        attempt + 1,
+                        _RECONNECT_ATTEMPTS,
+                        exc,
+                    )
+                    last_exc = exc
+                    try:
+                        _conn.close()
+                    except Exception:
+                        pass
+            raise last_exc
 
 
 def _decode(key: str, value):
@@ -539,6 +575,110 @@ def session_scoreboard(limit: int = 20) -> list[dict]:
         }
         for predict_date, total, hits in _with_connection(_run)
     ]
+
+
+def session_scoreboard_by_market(limit: int = 20) -> dict[str, list[dict]]:
+    """Same per-session hit tallies as `session_scoreboard`, split per market.
+
+    `session_scoreboard` pools every market into one tally per predict_date, which
+    hides which market a good or bad stretch actually belongs to — exactly what the
+    page's header needs to stop doing. `limit` caps each market's own newest-first
+    list independently rather than the combined row count, so a market with fewer
+    graded sessions isn't starved by rows a busier market already used up.
+    """
+
+    def _run(conn):
+        return conn.execute(
+            "SELECT market, predict_date, COUNT(*) AS total, SUM(hit) AS hits "
+            "FROM stock_predictions WHERE hit IS NOT NULL "
+            "GROUP BY market, predict_date ORDER BY market, predict_date DESC"
+        ).fetchall()
+
+    by_market: dict[str, list[dict]] = {}
+    for market, predict_date, total, hits in _with_connection(_run):
+        rows = by_market.setdefault(market, [])
+        if len(rows) >= limit:
+            continue
+        rows.append(
+            {
+                "predict_date": predict_date,
+                "total": int(total or 0),
+                "hit": int(hits or 0),
+                "rate": round((hits or 0) / total * 100) if total else None,
+            }
+        )
+    return by_market
+
+
+def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> dict:
+    """Date x 종목 shape for the 채점결과 매트릭스 page: the most recent `limit_dates`
+    graded 예측일자 as columns, one row per stock, each cell the call and its outcome.
+
+    Two queries rather than one, deliberately: the date window has to be the N most
+    recent graded *sessions* regardless of roster size (one query, grouped), then every
+    row inside that window is pulled per stock (second query) — a single query
+    aggregated by stock would instead cap at N *rows* per stock, which shortens the
+    window for a market whose roster is smaller than another's.
+    """
+
+    def _dates(conn):
+        if markets:
+            placeholders = ", ".join("?" for _ in markets)
+            return conn.execute(
+                "SELECT DISTINCT predict_date FROM stock_predictions "
+                f"WHERE hit IS NOT NULL AND market IN ({placeholders}) "
+                "ORDER BY predict_date DESC LIMIT ?",
+                (*markets, limit_dates),
+            ).fetchall()
+        return conn.execute(
+            "SELECT DISTINCT predict_date FROM stock_predictions "
+            "WHERE hit IS NOT NULL ORDER BY predict_date DESC LIMIT ?",
+            (limit_dates,),
+        ).fetchall()
+
+    dates = [row[0] for row in _with_connection(_dates)]
+    if not dates:
+        return {"dates": [], "rows": []}
+
+    def _rows(conn):
+        date_placeholders = ", ".join("?" for _ in dates)
+        sql = (
+            "SELECT stock_code, stock_name, market, predict_date, predict_result, "
+            "change_rate, confidence, actual_result, actual_change_rate, hit "
+            f"FROM stock_predictions WHERE predict_date IN ({date_placeholders})"
+        )
+        params: list = list(dates)
+        if markets:
+            market_placeholders = ", ".join("?" for _ in markets)
+            sql += f" AND market IN ({market_placeholders})"
+            params.extend(markets)
+        return conn.execute(sql, params).fetchall()
+
+    by_code: dict[str, dict] = {}
+    for (
+        code,
+        name,
+        market,
+        predict_date,
+        result,
+        change_rate,
+        confidence,
+        actual_result,
+        actual_change_rate,
+        hit,
+    ) in _with_connection(_rows):
+        entry = by_code.setdefault(code, {"code": code, "name": name, "market": market, "cells": {}})
+        entry["cells"][predict_date] = {
+            "result": result,
+            "change_rate": change_rate,
+            "confidence": confidence,
+            "actual_result": actual_result,
+            "actual_change_rate": actual_change_rate,
+            "hit": None if hit is None else bool(hit),
+        }
+
+    rows = sorted(by_code.values(), key=lambda r: (r["market"], r["code"]))
+    return {"dates": dates, "rows": rows}
 
 
 def has_run(collect_date: str, market: str) -> bool:

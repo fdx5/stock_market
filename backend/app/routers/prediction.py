@@ -177,7 +177,27 @@ def accuracy():
     return {
         "markets": prediction_grader.market_accuracy(),
         "sessions": prediction_store.session_scoreboard(limit=60),
+        "sessions_by_market": prediction_store.session_scoreboard_by_market(limit=20),
         "windows": {"short": prediction_grader.WINDOW_SHORT, "long": prediction_grader.WINDOW_LONG},
+    }
+
+
+@router.get("/grading-matrix")
+def grading_matrix(
+    market: str | None = Query(None, pattern=r"^(KOSPI|KOSDAQ|NASDAQ)$"),
+    limit: int = Query(20, ge=1, le=60),
+):
+    """Date x 종목 매트릭스 for the 채점결과 page: the most recent `limit` graded
+    예측일자 across the top, one row per stock, each cell that call's outcome.
+
+    `market` narrows to one region's roster; omitted returns every market's stocks
+    together, sorted by market then code so the three rosters stay visually grouped.
+    """
+    markets = (market,) if market else None
+    data = prediction_store.grading_matrix(markets, limit)
+    return {
+        "dates": [_decorate(d) for d in data["dates"]],
+        "rows": data["rows"],
     }
 
 

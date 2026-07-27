@@ -481,7 +481,36 @@ export interface PredictionDay extends PredictionDateOption {
 export interface PredictionAccuracy {
   markets: Record<string, AccuracyWindows>;
   sessions: SessionScore[];
+  /** `sessions`, split per market — KOSPI/KOSDAQ/NASDAQ grade on independent
+   * calendars, so a pooled tally hides which one a stretch actually belongs to. */
+  sessions_by_market: Record<string, SessionScore[]>;
   windows: { short: number; long: number };
+}
+
+/** One stock x 예측일자 cell in the 채점결과 매트릭스. Absent (rather than present with
+ * nulls) when that stock had no prediction on that date at all — a roster only
+ * partially overlaps across sessions as market-cap rank shifts. */
+export interface GradingMatrixCell {
+  result: PredictionDirection;
+  change_rate: number;
+  confidence: "강" | "중" | "약";
+  /** Null until the session has traded and been graded — a real "not yet known"
+   * state, distinct from a miss. */
+  actual_result: PredictionDirection | null;
+  actual_change_rate: number | null;
+  hit: boolean | null;
+}
+
+export interface GradingMatrixRow {
+  code: string;
+  name: string;
+  market: string;
+  cells: Record<string, GradingMatrixCell>;
+}
+
+export interface GradingMatrixResponse {
+  dates: PredictionDateOption[];
+  rows: GradingMatrixRow[];
 }
 
 async function getJSON<T>(url: string): Promise<T> {
@@ -659,4 +688,10 @@ export const api = {
       accuracy: AccuracyWindows | null;
     }>(`${BASE}/prediction/stock/${encodeURIComponent(code)}?limit=${limit}`),
   predictionAccuracy: () => getJSON<PredictionAccuracy>(`${BASE}/prediction/accuracy`),
+  predictionGradingMatrix: (market?: string | null, limit = 20) => {
+    const params = new URLSearchParams();
+    if (market) params.set("market", market);
+    params.set("limit", String(limit));
+    return getJSON<GradingMatrixResponse>(`${BASE}/prediction/grading-matrix?${params.toString()}`);
+  },
 };
