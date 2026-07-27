@@ -71,14 +71,31 @@ def _fetch_yahoo_direct(code: str, start: dt.date, end: dt.date) -> pd.DataFrame
     )
 
 
+# Index symbols FDR's own DataReader resolves specially before ever reaching Yahoo:
+# KS11/KQ11/KS200 route to its KRX index cache (never touch Yahoo at all), and
+# DJI/IXIC/US500/etc. get rewritten to their real Yahoo symbol (IXIC -> ^IXIC) — a plain
+# ticker fetch doesn't know either of those tricks and 404s on the raw name. This app
+# only ever hits this set via prediction_features._load_index_context; the equity
+# roster (GOOGL, 005930, ...) never collides with it.
+_FDR_SPECIAL_SYMBOLS = {
+    "KS11", "KOSPI", "KQ11", "KOSDAQ", "KS200", "KPI200",
+    "DJI", "IXIC", "US500", "S&P500", "RUT", "VIX", "N225", "SSEC",
+    "FTSE", "HSI", "FCHI", "GDAXI", "US5YT", "US10YT", "US30YT",
+}
+
+
 def _load_history(code: str, years: int) -> pd.DataFrame:
     end = dt.date.today()
     start = end - dt.timedelta(days=int(years * 365.25) + 10)
-    # KRX codes are 6-digit numeric strings (see prediction_universe._load_krx_top);
-    # everything else in this app is a US ticker. Only the US path goes through the
-    # cache-busting fetch above — the KRX/Naver path isn't the one that's been seen
-    # serving stale data, and fdr.DataReader already handles it correctly.
-    fetch = fdr.DataReader if code.isdigit() else _fetch_yahoo_direct
+    # KRX equity codes are 6-digit numeric strings (see
+    # prediction_universe._load_krx_top); the special index symbols above need FDR's
+    # own routing/rewriting. Only a plain US equity ticker goes through the
+    # cache-busting fetch — the KRX/Naver and index paths were never the ones seen
+    # serving stale data, and fdr.DataReader already handles both correctly.
+    if code.isdigit() or code.upper() in _FDR_SPECIAL_SYMBOLS:
+        fetch = fdr.DataReader
+    else:
+        fetch = _fetch_yahoo_direct
     # shutdown(wait=False): if the fetch times out, the still-hung worker thread is
     # abandoned rather than blocked on — ThreadPoolExecutor's default context-manager
     # exit calls shutdown(wait=True), which would just re-introduce the same hang here.
