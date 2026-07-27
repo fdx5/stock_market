@@ -58,6 +58,22 @@ function useRevealOnScroll<T extends HTMLElement>() {
   return { ref, revealed };
 }
 
+/** Corner ribbon stamping a graded card as 예측 적중 / 예측 실패 at a glance, in the same
+ * top-right corner every product-card "SALE" ribbon lives in. Absent on an ungraded
+ * card (today's still-open forecast) — there is nothing to stamp yet, and a badge here
+ * would read as a verdict that hasn't actually happened. The `Outcome` line below still
+ * carries the actual numbers; this is the one-glance version scanning a full grid needs
+ * before reading any of them. */
+function GradeStamp({ item }: { item: PredictionItem }) {
+  if (item.hit === null) return null;
+  return (
+    <span className={`pred-stamp pred-stamp--${item.hit ? "hit" : "miss"}`} aria-hidden="true">
+      <span>예측</span>
+      <span>{item.hit ? "적중" : "실패"}</span>
+    </span>
+  );
+}
+
 /** The verdict of a graded call. Present only on a past session — today's forecast has
  * no outcome yet, and an empty placeholder here would imply one is missing. */
 function Outcome({ item }: { item: PredictionItem }) {
@@ -119,6 +135,7 @@ export default function PredictionCard({
       }. 상세 보기`}
     >
       <span className="pred-card-glow" aria-hidden="true" />
+      <GradeStamp item={item} />
 
       <span className="pred-card-head">
         <span className="pred-card-logo">

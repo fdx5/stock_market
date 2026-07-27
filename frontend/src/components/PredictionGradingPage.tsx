@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { GradingMatrixResponse, api } from "../api/client";
-import { formatChangeRate } from "../prediction";
+import { GradingMatrixResponse, PredictionItem, api } from "../api/client";
+import { formatChangeRate, formatMoney } from "../prediction";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
+import PredictionDetailModal from "./PredictionDetailModal";
 import ThemeToggle from "./ThemeToggle";
 
 const MARKET_TABS = [
@@ -18,6 +19,11 @@ const MARKET_TABS = [
 
 const LIMIT_OPTIONS = [20, 40, 60];
 
+// The matrix's own date window tops out at 60 sessions; a stock's full history call
+// is asked for at least that many rows so the clicked column is never older than what
+// predictionHistory actually returns (see openCell below).
+const HISTORY_FETCH_LIMIT = 90;
+
 /** "20260727" -> "7/27" — the matrix header needs a column label narrow enough that
  * 20-60 of them still fit across a screen; the full "2026년 7월 27일" the rest of the
  * page uses would blow the column width out immediately. */
@@ -26,25 +32,48 @@ function shortDateLabel(dateKey: string): string {
   return `${Number(dateKey.slice(4, 6))}/${Number(dateKey.slice(6, 8))}`;
 }
 
-/** One matrix cell: a small tile whose fill says hit/miss/pending and whose tooltip
- * carries the actual numbers, so the grid stays scannable as a shape while the detail
- * is still one hover away. */
-function MatrixCell({ cell }: { cell: GradingMatrixResponse["rows"][number]["cells"][string] | undefined }) {
+type Cell = GradingMatrixResponse["rows"][number]["cells"][string];
+
+/** One matrix cell: predicted price/rate on top, actual price/rate (or a pending
+ * marker) below, tinted by hit/miss/pending so the grid still reads as a shape from a
+ * distance even with the extra numbers. Clickable — it opens the same detail popup
+ * the AI 예측 page uses, for the specific (종목, 예측일자) pair this cell represents. */
+function MatrixCell({
+  cell,
+  market,
+  busy,
+  onOpen,
+}: {
+  cell: Cell | undefined;
+  market: string;
+  busy: boolean;
+  onOpen: () => void;
+}) {
   if (!cell) {
     return <td className="pred-matrix-cell pred-matrix-cell--empty" aria-label="예측 없음" />;
   }
   const state = cell.hit === null ? "pending" : cell.hit ? "hit" : "miss";
-  const title =
-    cell.hit === null
-      ? `예측 ${cell.result} (${formatChangeRate(cell.change_rate)}) · 채점 대기`
-      : `예측 ${cell.result} (${formatChangeRate(cell.change_rate)}) → 실제 ${cell.actual_result} (${formatChangeRate(
-          cell.actual_change_rate ?? 0
-        )}) · ${cell.hit ? "적중" : "실패"}`;
   return (
-    <td className={`pred-matrix-cell pred-matrix-cell--${state}`} title={title}>
-      <span className="pred-matrix-mark" aria-hidden="true">
-        {state === "pending" ? "···" : state === "hit" ? "✓" : "✕"}
-      </span>
+    <td className={`pred-matrix-cell pred-matrix-cell--${state}`}>
+      <button type="button" className="pred-matrix-cellbtn" disabled={busy} aria-busy={busy} onClick={onOpen}>
+        <span className="pred-matrix-mark" aria-hidden="true">
+          {busy ? "…" : state === "pending" ? "···" : state === "hit" ? "✓" : "✕"}
+        </span>
+        <span className="pred-matrix-line pred-matrix-line--predict">
+          예측 {formatMoney(cell.predict_price, market)}
+          <em>{formatChangeRate(cell.change_rate)}</em>
+        </span>
+        <span className="pred-matrix-line pred-matrix-line--actual">
+          {cell.hit === null || cell.actual_price === null ? (
+            "채점 대기"
+          ) : (
+            <>
+              실제 {formatMoney(cell.actual_price, market)}
+              <em>{formatChangeRate(cell.actual_change_rate ?? 0)}</em>
+            </>
+          )}
+        </span>
+      </button>
     </td>
   );
 }
@@ -57,6 +86,12 @@ export default function PredictionGradingPage() {
   const [data, setData] = useState<GradingMatrixResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [selected, setSelected] = useState<PredictionItem | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  // Tracks which (code, date) cell is mid-fetch so its button can show a busy state
+  // rather than the whole page blocking for what is otherwise a per-cell popup.
+  const [pendingCell, setPendingCell] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,6 +118,32 @@ export default function PredictionGradingPage() {
   const dates = useMemo(() => (data ? [...data.dates].reverse() : []), [data]);
 
   const rows = data?.rows ?? [];
+
+  /** The matrix only carries the compact per-cell fields (price/rate/hit) — the
+   * detail popup needs the full call (probabilities, reliability, evidence, close
+   * explanation) that only the per-stock history endpoint returns, so a click fetches
+   * that on demand and opens the same PredictionDetailModal the AI 예측 page uses. */
+  function openCell(code: string, date: string) {
+    const key = `${code}:${date}`;
+    setModalError(null);
+    setPendingCell(key);
+    api
+      .predictionHistory(code, HISTORY_FETCH_LIMIT)
+      .then((res) => {
+        const item = res.items.find((i) => i.predict_date === date);
+        if (item) {
+          setSelected(item);
+        } else {
+          setModalError("해당 날짜의 예측 상세를 찾을 수 없습니다.");
+        }
+      })
+      .catch((err: Error) => {
+        setModalError(err.message || "예측 상세를 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        setPendingCell((cur) => (cur === key ? null : cur));
+      });
+  }
 
   return (
     <div className="app app--prediction-grading">
@@ -111,7 +172,8 @@ export default function PredictionGradingPage() {
       <section className="pred-matrix-hero">
         <h1 className="pred-matrix-title">채점 결과 매트릭스</h1>
         <p className="pred-matrix-sub">
-          최근 {limit}거래일 동안 종목별 예측이 실제로 맞았는지 한 화면에서 확인합니다.
+          최근 {limit}거래일 동안 종목별 예측이 실제로 맞았는지 한 화면에서 확인합니다. 칸을 클릭하면 해당
+          종목·날짜의 예측 상세를 볼 수 있습니다.
         </p>
       </section>
 
@@ -154,6 +216,7 @@ export default function PredictionGradingPage() {
       </div>
 
       {error ? <p className="pred-error">{error}</p> : null}
+      {modalError ? <p className="pred-error">{modalError}</p> : null}
 
       {!error && loading ? <p className="pred-matrix-loading">불러오는 중…</p> : null}
 
@@ -183,13 +246,23 @@ export default function PredictionGradingPage() {
                     <span className="pred-matrix-stockname">{row.name}</span>
                     <span className="pred-matrix-stockmarket">{row.market}</span>
                   </th>
-                  {dates.map((d) => <MatrixCell key={d.date} cell={row.cells[d.date]} />)}
+                  {dates.map((d) => (
+                    <MatrixCell
+                      key={d.date}
+                      cell={row.cells[d.date]}
+                      market={row.market}
+                      busy={pendingCell === `${row.code}:${d.date}`}
+                      onOpen={() => openCell(row.code, d.date)}
+                    />
+                  ))}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : null}
+
+      {selected ? <PredictionDetailModal item={selected} onClose={() => setSelected(null)} /> : null}
 
       <Footer />
     </div>

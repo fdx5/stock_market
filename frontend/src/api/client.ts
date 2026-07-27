@@ -492,11 +492,13 @@ export interface PredictionAccuracy {
  * partially overlaps across sessions as market-cap rank shifts. */
 export interface GradingMatrixCell {
   result: PredictionDirection;
+  predict_price: number;
   change_rate: number;
   confidence: "강" | "중" | "약";
   /** Null until the session has traded and been graded — a real "not yet known"
    * state, distinct from a miss. */
   actual_result: PredictionDirection | null;
+  actual_price: number | null;
   actual_change_rate: number | null;
   hit: boolean | null;
 }

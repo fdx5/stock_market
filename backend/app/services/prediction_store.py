@@ -644,7 +644,8 @@ def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> di
         date_placeholders = ", ".join("?" for _ in dates)
         sql = (
             "SELECT stock_code, stock_name, market, predict_date, predict_result, "
-            "change_rate, confidence, actual_result, actual_change_rate, hit "
+            "predict_price, change_rate, confidence, actual_result, actual_price, "
+            "actual_change_rate, hit "
             f"FROM stock_predictions WHERE predict_date IN ({date_placeholders})"
         )
         params: list = list(dates)
@@ -661,18 +662,22 @@ def grading_matrix(markets: tuple[str, ...] | None, limit_dates: int = 20) -> di
         market,
         predict_date,
         result,
+        predict_price,
         change_rate,
         confidence,
         actual_result,
+        actual_price,
         actual_change_rate,
         hit,
     ) in _with_connection(_rows):
         entry = by_code.setdefault(code, {"code": code, "name": name, "market": market, "cells": {}})
         entry["cells"][predict_date] = {
             "result": result,
+            "predict_price": predict_price,
             "change_rate": change_rate,
             "confidence": confidence,
             "actual_result": actual_result,
+            "actual_price": actual_price,
             "actual_change_rate": actual_change_rate,
             "hit": None if hit is None else bool(hit),
         }
