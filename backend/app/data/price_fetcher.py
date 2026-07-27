@@ -158,6 +158,35 @@ def _load_history(code: str, years: int, host: str = _YAHOO_HOSTS[0]) -> pd.Data
     return df[["date", "open", "high", "low", "close", "volume"]]
 
 
+def _meta_last_price(code: str, host: str) -> tuple[float, dt.date] | None:
+    """Yahoo's chart response carries a top-level `meta` block (regularMarketPrice,
+    regularMarketTime) computed on a different path from the per-day quote array this
+    module otherwise reads. Diagnostic evidence showed a case where the array's tail
+    entry for a session was a null-close placeholder — Yahoo's own "hasn't printed a
+    close yet" marker, for a session that in reality had already closed days
+    earlier — while `meta.regularMarketPrice` in that same response still correctly
+    reflected that session's close. This is a last-resort fallback for exactly that
+    shape of failure, not a general-purpose quote fetch: it doesn't return OHLCV, only
+    a single price, and the caller decides whether it's safe to trust (see
+    get_history_confirmed — only when `regularMarketTime` is still dated the expected
+    session, i.e. no newer session has opened since, which the batch's own timing
+    already guarantees).
+    """
+    url = f"https://{host}/v8/finance/chart/{code}?range=5d&interval=1d"
+    resp = requests.get(
+        url,
+        headers={"user-agent": "Mozilla/5.0 AppleWebKit/537.36", "Cache-Control": "no-cache"},
+        timeout=FETCH_TIMEOUT_SECONDS,
+    )
+    resp.raise_for_status()
+    meta = resp.json()["chart"]["result"][0].get("meta") or {}
+    price = meta.get("regularMarketPrice")
+    market_time = meta.get("regularMarketTime")
+    if price is None or market_time is None:
+        return None
+    return float(price), dt.datetime.fromtimestamp(market_time, tz=dt.timezone.utc).date()
+
+
 def get_history(
     code: str, years: int = 3, allow_stale: bool = True, host: str = _YAHOO_HOSTS[0]
 ) -> pd.DataFrame:
@@ -221,5 +250,44 @@ def get_history_confirmed(code: str, years: int, expected_date: dt.date) -> pd.D
         # against that same host has no reason to fix.
         cache.invalidate(key)
         df = get_history(code, years, allow_stale=False, host=_YAHOO_HOSTS[attempt % len(_YAHOO_HOSTS)])
+
+    if (
+        (df.empty or df.iloc[-1]["date"] < expected_date.isoformat())
+        and not code.isdigit()
+        and code.upper() not in _FDR_SPECIAL_SYMBOLS
+    ):
+        try:
+            fallback = _meta_last_price(code, _YAHOO_HOSTS[0])
+        except Exception as exc:  # noqa: BLE001 - this is itself a fallback; failing quietly is correct
+            logger.warning("price_fetcher: %s meta fallback failed (%s)", code, exc)
+            fallback = None
+        if fallback is not None:
+            price, as_of = fallback
+            # Only trust this when Yahoo's own "current session" clock still reads the
+            # exact session we're missing — that's what rules out this actually being a
+            # live quote for a *later* session that's simply moved on, rather than the
+            # thing this fallback exists for (a stale placeholder for the one we want).
+            if as_of == expected_date:
+                logger.warning(
+                    "price_fetcher: %s recovered %s close (%.2f) via Yahoo meta fallback",
+                    code,
+                    expected_date.isoformat(),
+                    price,
+                )
+                # No OHLCV breakdown from this path, only a price — carry the prior
+                # day's volume forward rather than 0, which would otherwise register as
+                # a (fake) massive volume collapse in the volume-based indicators.
+                prev_volume = float(df.iloc[-1]["volume"]) if not df.empty else 0.0
+                new_row = pd.DataFrame([{
+                    "date": expected_date.isoformat(),
+                    "open": price,
+                    "high": price,
+                    "low": price,
+                    "close": price,
+                    "volume": prev_volume,
+                }])
+                if not df.empty and df.iloc[-1]["date"] == expected_date.isoformat():
+                    df = df.iloc[:-1]
+                df = pd.concat([df, new_row], ignore_index=True)
 
     return df
