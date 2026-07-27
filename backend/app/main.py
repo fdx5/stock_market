@@ -255,17 +255,41 @@ def price_debug(code: str = "GOOGL"):
     start = end - timedelta(days=int(2 * 365.25) + 10)
 
     def _try(host: str) -> dict:
+        import requests
+
+        start_ts = int(datetime(start.year, start.month, start.day, tzinfo=timezone.utc).timestamp())
+        end_ts = int(datetime(end.year, end.month, end.day, tzinfo=timezone.utc).timestamp()) + 86400
+        url = (
+            f"https://{host}/v8/finance/chart/{code}"
+            f"?period1={start_ts}&period2={end_ts}&interval=1d&includeAdjustedClose=true"
+        )
         try:
-            df = price_fetcher._fetch_yahoo_direct(code, start, end, host=host)
-            rows = df.tail(5).reset_index()
-            rows.columns = ["date", *rows.columns[1:]]
+            resp = requests.get(url, headers={"user-agent": "Mozilla/5.0 AppleWebKit/537.36"}, timeout=20)
+            resp.raise_for_status()
+            result = resp.json()["chart"]["result"][0]
+            timestamps = result["timestamp"]
+            closes = result["indicators"]["quote"][0]["close"]
             sample = [
-                {"date": str(r["date"]), "close": float(r["Close"]) if r["Close"] == r["Close"] else None}
-                for _, r in rows.iterrows()
+                {"date": datetime.fromtimestamp(t, tz=timezone.utc).date().isoformat(), "close": c}
+                for t, c in zip(timestamps[-5:], closes[-5:])
             ]
-            return {"sample_tail": sample, "error": None}
+            # meta carries Yahoo's own top-line "what is the current/previous price"
+            # fields, computed on a different path than the per-day quote array — worth
+            # seeing whether it agrees with the array when the array's tail is null.
+            meta = {
+                k: result.get("meta", {}).get(k)
+                for k in (
+                    "regularMarketPrice",
+                    "regularMarketTime",
+                    "chartPreviousClose",
+                    "previousClose",
+                    "regularMarketDayHigh",
+                    "regularMarketDayLow",
+                )
+            }
+            return {"sample_tail": sample, "meta": meta, "error": None}
         except Exception as exc:  # noqa: BLE001 - this is a diagnostic, report don't hide
-            return {"sample_tail": [], "error": f"{type(exc).__name__}: {exc}"}
+            return {"sample_tail": [], "meta": None, "error": f"{type(exc).__name__}: {exc}"}
 
     # Both Yahoo chart hosts, side by side — checking whether one host's response
     # disagrees with the other's is exactly what tells us if this is a single
