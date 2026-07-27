@@ -28,7 +28,19 @@ STALE_RETRY_DELAY_SECONDS = 4.0
 FETCH_TIMEOUT_SECONDS = 20
 
 
-def _fetch_yahoo_direct(code: str, start: dt.date, end: dt.date) -> pd.DataFrame:
+# Yahoo serves the chart API from both hosts; they aren't guaranteed to hit the same
+# backend/edge cluster. Diagnostic evidence (GET /api/health/price-debug) showed
+# query2 handing this container a real timestamp entry for the session in question
+# with `close: null` — Yahoo's own "session hasn't printed a close yet" placeholder,
+# for a session that in reality closed days earlier — which points at a specific
+# backend/cache node behind query2 not having ingested that close, not at anything
+# request-shape related. get_history_confirmed alternates hosts on retry so a repeat
+# has a chance of landing on a different node instead of asking the same stale one
+# again.
+_YAHOO_HOSTS = ("query2.finance.yahoo.com", "query1.finance.yahoo.com")
+
+
+def _fetch_yahoo_direct(code: str, start: dt.date, end: dt.date, host: str = _YAHOO_HOSTS[0]) -> pd.DataFrame:
     """The same query2.finance.yahoo.com chart endpoint FinanceDataReader's
     YahooDailyReader hits for every non-KRX ticker, called directly instead so a
     cache-busting param and explicit no-cache headers can be added.
@@ -49,7 +61,7 @@ def _fetch_yahoo_direct(code: str, start: dt.date, end: dt.date) -> pd.DataFrame
     start_ts = int(dt.datetime(start.year, start.month, start.day, tzinfo=dt.timezone.utc).timestamp())
     end_ts = int(dt.datetime(end.year, end.month, end.day, tzinfo=dt.timezone.utc).timestamp()) + 86400
     url = (
-        f"https://query2.finance.yahoo.com/v8/finance/chart/{code}"
+        f"https://{host}/v8/finance/chart/{code}"
         f"?period1={start_ts}&period2={end_ts}&interval=1d&includeAdjustedClose=true"
         f"&_={int(time.time() * 1000)}"
     )
@@ -84,7 +96,7 @@ _FDR_SPECIAL_SYMBOLS = {
 }
 
 
-def _load_history(code: str, years: int) -> pd.DataFrame:
+def _load_history(code: str, years: int, host: str = _YAHOO_HOSTS[0]) -> pd.DataFrame:
     # dt.date.today() reads the container's *local* notion of "now" — whatever timezone
     # (or lack of one) the container happens to be configured with. Every one of the
     # NASDAQ roster's 12 stocks landed on exactly Thursday's close instead of Friday's,
@@ -103,14 +115,16 @@ def _load_history(code: str, years: int) -> pd.DataFrame:
     # serving stale data, and fdr.DataReader already handles both correctly.
     if code.isdigit() or code.upper() in _FDR_SPECIAL_SYMBOLS:
         fetch = fdr.DataReader
+        fetch_args = (code, start, end)
     else:
         fetch = _fetch_yahoo_direct
+        fetch_args = (code, start, end, host)
     # shutdown(wait=False): if the fetch times out, the still-hung worker thread is
     # abandoned rather than blocked on — ThreadPoolExecutor's default context-manager
     # exit calls shutdown(wait=True), which would just re-introduce the same hang here.
     pool = ThreadPoolExecutor(max_workers=1)
     try:
-        future = pool.submit(fetch, code, start, end)
+        future = pool.submit(fetch, *fetch_args)
         try:
             df = future.result(timeout=FETCH_TIMEOUT_SECONDS)
         except FutureTimeoutError:
@@ -144,7 +158,9 @@ def _load_history(code: str, years: int) -> pd.DataFrame:
     return df[["date", "open", "high", "low", "close", "volume"]]
 
 
-def get_history(code: str, years: int = 3, allow_stale: bool = True) -> pd.DataFrame:
+def get_history(
+    code: str, years: int = 3, allow_stale: bool = True, host: str = _YAHOO_HOSTS[0]
+) -> pd.DataFrame:
     """`allow_stale=False` is for callers that score off today's close (the prediction
     batch, grading) — an expired cache entry must be refreshed synchronously so the
     call reflects the session that just closed, not whatever was last fetched during
@@ -154,7 +170,9 @@ def get_history(code: str, years: int = 3, allow_stale: bool = True) -> pd.DataF
     after the batch already read the stale frame.
     """
     key = f"history:{code}:{years}"
-    df = cache.get_or_set(key, TTL_PRICE_SECONDS, lambda: _load_history(code, years), allow_stale=allow_stale)
+    df = cache.get_or_set(
+        key, TTL_PRICE_SECONDS, lambda: _load_history(code, years, host=host), allow_stale=allow_stale
+    )
     if df.empty:
         raise ValueError(f"No price history found for code={code}")
     return df
@@ -181,7 +199,7 @@ def get_history_confirmed(code: str, years: int, expected_date: dt.date) -> pd.D
     and the caller (prediction_engine.stale_note) still surfaces the gap as a warning.
     """
     key = f"history:{code}:{years}"
-    df = get_history(code, years, allow_stale=False)
+    df = get_history(code, years, allow_stale=False, host=_YAHOO_HOSTS[0])
 
     attempt = 0
     while attempt < STALE_RETRY_ATTEMPTS and (df.empty or df.iloc[-1]["date"] < expected_date.isoformat()):
@@ -197,8 +215,11 @@ def get_history_confirmed(code: str, years: int, expected_date: dt.date) -> pd.D
         time.sleep(STALE_RETRY_DELAY_SECONDS)
         # Drop the just-cached (short) frame before asking again — otherwise this
         # retry, and the TTL's remaining hours, would just keep handing back the exact
-        # same result get_or_set already stored a few lines up.
+        # same result get_or_set already stored a few lines up. Alternate hosts too:
+        # diagnostic evidence showed the *same* host handing back a null-close
+        # placeholder for a session that had genuinely already closed, which a retry
+        # against that same host has no reason to fix.
         cache.invalidate(key)
-        df = get_history(code, years, allow_stale=False)
+        df = get_history(code, years, allow_stale=False, host=_YAHOO_HOSTS[attempt % len(_YAHOO_HOSTS)])
 
     return df

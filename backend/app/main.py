@@ -253,26 +253,31 @@ def price_debug(code: str = "GOOGL"):
     now_utc = datetime.now(timezone.utc)
     end = now_utc.date() + timedelta(days=1)
     start = end - timedelta(days=int(2 * 365.25) + 10)
-    try:
-        df = price_fetcher._fetch_yahoo_direct(code, start, end)
-        rows = df.tail(5).reset_index()
-        rows.columns = ["date", *rows.columns[1:]]
-        sample = [
-            {"date": str(r["date"]), "close": float(r["Close"]) if r["Close"] == r["Close"] else None}
-            for _, r in rows.iterrows()
-        ]
-        error = None
-    except Exception as exc:  # noqa: BLE001 - this is a diagnostic, report don't hide
-        sample = []
-        error = f"{type(exc).__name__}: {exc}"
 
+    def _try(host: str) -> dict:
+        try:
+            df = price_fetcher._fetch_yahoo_direct(code, start, end, host=host)
+            rows = df.tail(5).reset_index()
+            rows.columns = ["date", *rows.columns[1:]]
+            sample = [
+                {"date": str(r["date"]), "close": float(r["Close"]) if r["Close"] == r["Close"] else None}
+                for _, r in rows.iterrows()
+            ]
+            return {"sample_tail": sample, "error": None}
+        except Exception as exc:  # noqa: BLE001 - this is a diagnostic, report don't hide
+            return {"sample_tail": [], "error": f"{type(exc).__name__}: {exc}"}
+
+    # Both Yahoo chart hosts, side by side — checking whether one host's response
+    # disagrees with the other's is exactly what tells us if this is a single
+    # backend/cache node behind one host lagging, versus something true of Yahoo's
+    # data for this ticker across the board.
     return {
         "now_utc": now_utc.isoformat(),
         "computed_start": start.isoformat(),
         "computed_end": end.isoformat(),
         "code": code,
-        "sample_tail": sample,
-        "error": error,
+        "query2": _try("query2.finance.yahoo.com"),
+        "query1": _try("query1.finance.yahoo.com"),
     }
 
 
