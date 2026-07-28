@@ -868,7 +868,7 @@ const PLUTO_SKIN: PhotoSkin = {
 // between centres" into a right-edge CSS offset). All per an explicit
 // request pinning the approach distance to the hole's centre specifically.
 const PLUTO_START_GAP = 300;
-const PLUTO_SPEED = 20; // px/s, approach only — see the piecewise gap(t) in usePlutoEvent
+const PLUTO_SPEED = 15; // px/s, approach only — see the piecewise gap(t) in usePlutoEvent
 const PLUTO_TEAR_GAP = 150; // destruction begins once the approach reaches this
 
 // Once destruction starts it's timed by a fixed total duration rather than
@@ -881,7 +881,7 @@ const PLUTO_DESTROY_DURATION = 3;
 const PLUTO_TEAR_LEN = PLUTO_DESTROY_DURATION * (4 / 7); // ~1.71s
 const PLUTO_SWIRL_LEN = PLUTO_DESTROY_DURATION - PLUTO_TEAR_LEN; // ~1.29s
 
-const PLUTO_TEAR_START = (PLUTO_START_GAP - PLUTO_TEAR_GAP) / PLUTO_SPEED; // 7.5s
+const PLUTO_TEAR_START = (PLUTO_START_GAP - PLUTO_TEAR_GAP) / PLUTO_SPEED; // 10s
 const PLUTO_SWIRL_START = PLUTO_TEAR_START + PLUTO_TEAR_LEN;
 const PLUTO_MOTION = PLUTO_TEAR_START + PLUTO_DESTROY_DURATION; // gap hits 0 here
 const PLUTO_CYCLE = PLUTO_MOTION + PLUTO_FLASH_HOLD; // then it repeats
@@ -906,24 +906,44 @@ const PLUTO_TEETH: PlutoTooth[] = (() => {
   }));
 })();
 
+/** How far each tooth erodes at full tear progress — 1 would eat the whole
+ * disc, same as an earlier version of this did. Capped short of that now:
+ * the surviving sliver past this point is what PLUTO_STRETCH_MAX/SQUASH_MAX
+ * below stretch into the spaghettified thread, so there has to still be a
+ * "core" left for that transform to act on rather than the clip alone
+ * already having erased everything by the time the stretch matters. */
+const PLUTO_EROSION_MAX = 0.62;
+
 /** The clip-path polygon's `points`, in the 0..1 objectBoundingBox space
  * `#hb-pluto-erosion` uses (see the inline `<clipPath>` in the JSX below).
- * p1 is tear progress, 0 (intact) to 1 (fully eroded) — see PLUTO_TEAR_*.
- * Each tooth erodes from the right edge (x=1) toward the left (x=0) on its
- * own delayed/eased schedule, so the boundary reads as a ragged tear line
- * sweeping across the disc rather than a straight wipe. */
+ * p1 is tear progress, 0 (intact) to 1 (fully eroded up to PLUTO_EROSION_MAX)
+ * — see PLUTO_TEAR_*. Each tooth erodes from the right edge (x=1) toward the
+ * left on its own delayed/eased schedule, so the boundary reads as a ragged
+ * tear line sweeping across the disc rather than a straight wipe. */
 function plutoErosionPoints(p1: number): string {
   const pts: string[] = ["0,0"];
   for (const tooth of PLUTO_TEETH) {
     const local = Math.min(1, Math.max(0, (p1 - tooth.stagger) / (1 - tooth.stagger)));
     const eased = local * local * (3 - 2 * local);
-    const x = (1 - eased).toFixed(3);
+    const x = (1 - eased * PLUTO_EROSION_MAX).toFixed(3);
     pts.push(`${x},${tooth.yStart.toFixed(3)}`);
     pts.push(`${x},${tooth.yEnd.toFixed(3)}`);
   }
   pts.push("0,1");
   return pts.join(" ");
 }
+
+/** Spaghettification — the real astrophysical term for exactly this, a body
+ * stretched radially and squeezed tangentially by a black hole's tidal
+ * gradient — applied to whatever the erosion clip above hasn't already torn
+ * off. PLUTO_STRETCH_MAX is added to scaleX and PLUTO_SQUASH_MAX subtracted
+ * from scaleY, both scaled by p1, so intact (p1=0) is a plain 1/1 and full
+ * tear progress (p1=1) is a long, thin thread — 4.2x its own width, 18% of
+ * its own height. Applied with `transform-origin: 0% 50%` (see
+ * .hb-pluto-body in hub.css) so the stretch reaches out to the right, into
+ * the black hole, rather than growing symmetrically from the centre. */
+const PLUTO_STRETCH_MAX = 3.2;
+const PLUTO_SQUASH_MAX = 0.82;
 
 interface PlutoFragment {
   kind: "chunk" | "dust";
@@ -954,16 +974,17 @@ interface PlutoFragment {
   startTheta: number;
 }
 
-// 96 pieces total (>= the 90 asked for) — up from an earlier 30, which read
-// as too sparse for a planet actually breaking apart. Each fragment's own
-// `life` is shorter than that earlier version too, scaled down to match
-// PLUTO_DESTROY_DURATION's much tighter 3-second window instead of the old
-// 7-second tear+swirl span, so pieces still visibly complete their own
-// flight instead of every fragment's tail overrunning into the next phase.
+// 212 pieces total (180 rock chunks, per an explicit request, plus the
+// original 32 dust motes) — up from an earlier 96, itself already an
+// increase from 30 that had read as too sparse for a planet actually
+// breaking apart. Each fragment's own `life` stays short (see the earlier
+// 96-fragment pass's own note) to match PLUTO_DESTROY_DURATION's tight
+// 3-second window rather than every fragment's tail overrunning into the
+// next phase.
 const PLUTO_FRAGMENTS: PlutoFragment[] = (() => {
   const rand = mulberry32(31337);
   const list: PlutoFragment[] = [];
-  const CHUNKS = 64;
+  const CHUNKS = 180;
   for (let i = 0; i < CHUNKS; i += 1) {
     list.push({
       kind: "chunk",
@@ -1029,6 +1050,7 @@ function fireBlackHoleFeed(ref: React.RefObject<HTMLButtonElement>) {
 
 function usePlutoEvent(
   eventRef: React.RefObject<HTMLDivElement>,
+  bodyRef: React.RefObject<HTMLDivElement>,
   erosionRef: React.RefObject<SVGPolygonElement>,
   fragRefs: React.RefObject<(HTMLSpanElement | null)[]>,
   blackHoleRef: React.RefObject<HTMLButtonElement>
@@ -1078,6 +1100,19 @@ function usePlutoEvent(
       const p1 = Math.min(1, Math.max(0, (cycleElapsed - PLUTO_TEAR_START) / PLUTO_TEAR_LEN));
       const poly = erosionRef.current;
       if (poly) poly.setAttribute("points", plutoErosionPoints(p1));
+
+      // Spaghettification — see PLUTO_STRETCH_MAX/SQUASH_MAX's own comment.
+      // Fades out over the tear phase's last 20%, so the stretched thread
+      // has visibly thinned to nothing by the time the swirl/dust phase
+      // (p1 already at 1 by then) takes over the "being consumed" visual.
+      const body = bodyRef.current;
+      if (body) {
+        const stretchX = 1 + p1 * PLUTO_STRETCH_MAX;
+        const squashY = 1 - p1 * PLUTO_SQUASH_MAX;
+        const bodyOpacity = p1 < 0.8 ? 1 : Math.max(0, 1 - (p1 - 0.8) / 0.2);
+        body.style.transform = `scaleX(${stretchX.toFixed(3)}) scaleY(${squashY.toFixed(3)})`;
+        body.style.opacity = bodyOpacity.toFixed(2);
+      }
 
       // gap is measured centre-to-centre (see PLUTO_START_GAP's own
       // comment), so Pluto's own centre is simply the hole's centre minus
@@ -1156,7 +1191,7 @@ function usePlutoEvent(
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
     };
-  }, [eventRef, erosionRef, fragRefs, blackHoleRef]);
+  }, [eventRef, bodyRef, erosionRef, fragRefs, blackHoleRef]);
 }
 
 /* ───────────────────────────── page ───────────────────────────── */
@@ -1178,9 +1213,10 @@ export default function Hub() {
 
   const blackHoleRef = useRef<HTMLButtonElement>(null);
   const plutoEventRef = useRef<HTMLDivElement>(null);
+  const plutoBodyRef = useRef<HTMLDivElement>(null);
   const plutoErosionRef = useRef<SVGPolygonElement>(null);
   const plutoFragRefs = useRef<(HTMLSpanElement | null)[]>([]);
-  usePlutoEvent(plutoEventRef, plutoErosionRef, plutoFragRefs, blackHoleRef);
+  usePlutoEvent(plutoEventRef, plutoBodyRef, plutoErosionRef, plutoFragRefs, blackHoleRef);
 
   /* The page's entire data budget: two cached endpoints, one poll. */
   useEffect(() => {
@@ -1427,7 +1463,7 @@ export default function Hub() {
             </clipPath>
           </defs>
         </svg>
-        <div className="hb-pluto-body">
+        <div className="hb-pluto-body" ref={plutoBodyRef}>
           <PhotoPlanetBody id="pluto" skin={PLUTO_SKIN} />
         </div>
       </div>
