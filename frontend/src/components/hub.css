@@ -421,6 +421,15 @@ body:has(.hb) {
      the bottom of the screen. Lengthened again when the system grew 30%. */
   perspective: 1950px;
   perspective-origin: 50% 46%;
+  /* This box is the full viewport at z-index 10, which paints it above every
+     corner element on the page — `.hb-blackhole` (3), `.hb-pluto-event` (4),
+     `.hb-neutron-binary` (1) — so with hit-testing left at its default it
+     swallowed clicks meant for all of them, anywhere on screen. Nothing here
+     needs to receive a click itself: `.hb-parallax` inside it is already
+     `pointer-events: none` and the two things that ARE interactive
+     (`.hb-planet`, `.hb-moon`) opt back in with `auto` of their own, which
+     works through an ancestor set to none. */
+  pointer-events: none;
 }
 
 .hb-parallax {
@@ -2702,6 +2711,22 @@ body:has(.hb) {
    clipping; height only needs to clear one star's own diameter, since
    nothing here moves vertically any more. */
 .hb-neutron-binary {
+  /* A <button> since this pair became the way into the KOSDAQ map — the
+     stylesheet notes above still describe it as scenery with "no destination
+     and no hit target", which was true until it got one. Everything from
+     `padding` down is undoing what a button brings with it; the geometry
+     below is unchanged from when this was a div, and has to be: both stars
+     and the merged remnant are positioned off this box's own 50%/50%. */
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  /* `.hb-space` next to it is `pointer-events: none`; this one has to take a
+     click, and `.hb-stage` above it no longer swallows them (see its own
+     rule). */
+  pointer-events: auto;
   position: absolute;
   /* +40px on every term of the clamp (was 92/13vh/172) rather than only the
      preferred one — a clamp lowered in the middle alone would still pin to
@@ -2723,6 +2748,30 @@ body:has(.hb) {
   /* 0 while there are two stars, 1 once they are one body — see
      useNeutronBinary, and .hb-neutron-merged below for what it crossfades. */
   --merged: 0;
+}
+
+/* The tap target, as its own layer rather than by growing the box. This
+   element is only ~41x12px at tablet scale — far under the ~44px a finger
+   needs — but its width and height are load-bearing geometry: both stars and
+   the merged remnant hang off its 50%/50% centre, so enlarging it would move
+   the whole system. An absolutely positioned overlay adds the reach without
+   touching any of that. Inset asymmetrically because the art is much taller
+   than the box that nominally contains it. */
+.hb-neutron-binary::before {
+  content: "";
+  position: absolute;
+  inset: -22px -14px;
+  border-radius: 999px;
+}
+
+/* Keyboard focus only — no hover state. The pair is in the middle of the sky
+   with no chrome around it, so a permanent hover treatment would read as the
+   scenery glitching rather than as a control responding; the `title` already
+   names the destination for a mouse. */
+.hb-neutron-binary:focus-visible {
+  outline: 2px solid rgba(190, 225, 255, 0.9);
+  outline-offset: 14px;
+  border-radius: 4px;
 }
 
 /* Half the Moon's own rendered size per an explicit request (.hb-moon--lunar

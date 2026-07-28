@@ -750,7 +750,7 @@ function fireNeutronFlash(ref: React.RefObject<HTMLDivElement>) {
 }
 
 function useNeutronBinary(
-  ref: React.RefObject<HTMLDivElement>,
+  ref: React.RefObject<HTMLButtonElement>,
   flashRef: React.RefObject<HTMLDivElement>
 ) {
   useEffect(() => {
@@ -1522,7 +1522,7 @@ export default function Hub() {
   const minimal = tier === "minimal";
 
   const stageRef = useRef<HTMLDivElement>(null);
-  const neutronRef = useRef<HTMLDivElement>(null);
+  const neutronRef = useRef<HTMLButtonElement>(null);
   const neutronFlashRef = useRef<HTMLDivElement>(null);
   useNeutronBinary(neutronRef, neutronFlashRef);
 
@@ -1720,45 +1720,6 @@ export default function Hub() {
         </div>
         <div className="hb-shooting hb-shooting--1" />
         <div className="hb-shooting hb-shooting--2" />
-        {/* Two equal-size neutron stars, mutually orbiting a shared centre
-            along a single horizontal line (facing each other, side to
-            side) rather than one orbiting the other or a full circular
-            sweep, per an explicit request. See useNeutronBinary above and
-            .hb-neutron-binary/.hb-neutron-flash in hub.css for the timing:
-            period and separation shrink together — 5s→4s→3s→2s→1s→0.5s→
-            0.2s, 20 laps total — then the pair plunges together into one
-            merged body, firing a screen-wide gamma-ray-burst-style flash
-            at the instant of merger, holds merged for a couple of
-            seconds, then splits back apart to start the next cycle. */}
-        <div className="hb-neutron-binary" ref={neutronRef} aria-hidden="true">
-          <span className="hb-neutron-star hb-neutron-star--a" />
-          <span className="hb-neutron-star hb-neutron-star--b" />
-          {/* What the two of them become: one blue remnant at twice a single
-              star's size, held for ten seconds before it splits back apart
-              and the next inspiral starts, per an explicit request.
-
-              The bars are diffraction spikes, matched to a reference photo of
-              the real thing. One bar is two opposing spikes, so this is eight
-              spikes, not six — and the split matters, because it is what makes
-              the shape recognisable rather than merely six-fold. Three bright
-              bars at 30°/90°/150° give the six spikes the hexagonal primary
-              mirror produces (60° apart, and note that one of them is
-              VERTICAL — a set at 0°/60°/120° is the same six-fold symmetry
-              rotated, and reads wrong: it puts a bright pair on the horizontal
-              where the real image has its faintest). The fourth bar is the
-              horizontal pair thrown by the secondary mirror's support strut,
-              which in the photograph is visibly shorter and dimmer than the
-              other six — see .hb-neutron-spike--strut in hub.css. */}
-          <span className="hb-neutron-merged">
-            <i className="hb-neutron-spike" style={{ ["--sa" as string]: "30deg" }} />
-            <i className="hb-neutron-spike" style={{ ["--sa" as string]: "90deg" }} />
-            <i className="hb-neutron-spike" style={{ ["--sa" as string]: "150deg" }} />
-            <i
-              className="hb-neutron-spike hb-neutron-spike--strut"
-              style={{ ["--sa" as string]: "0deg" }}
-            />
-          </span>
-        </div>
         <div className="hb-vignette" />
       </div>
 
@@ -1790,10 +1751,11 @@ export default function Hub() {
         <span className="hb-voyager-tip">{en ? "GLOBAL NEWS" : "글로벌 뉴스"}</span>
       </a>
 
-      {/* A second, purely decorative way into the dashboard, parked in the
-          corner rather than on the orbital plane — same destination as the
-          star, so it carries no separate aria semantics beyond naming itself
-          as a curiosity. Fixed to the viewport for the same reason
+      {/* A second way into the KOSPI map, parked in the corner rather than on
+          the orbital plane (Earth carries the same destination out on the
+          rings, as does the Moon) — so it names that destination in its own
+          aria-label rather than relying on the body it duplicates.
+          Fixed to the viewport for the same reason
           `.hb-voyager` sits outside `.hb-stage`: it isn't part of the solar
           system's 3D geometry, so it has no business inside the tilted plane
           that geometry lives on. No oversized wrap box around this one the
@@ -1807,9 +1769,9 @@ export default function Hub() {
         type="button"
         ref={blackHoleRef}
         className="hb-blackhole"
-        onClick={() => open("/dashboard")}
-        aria-label={en ? "Black hole: Home (dashboard)" : "블랙홀: 홈 (대시보드)"}
-        title={en ? "Gargantua" : "가르강튀아"}
+        onClick={() => open("/map")}
+        aria-label={en ? "Black hole: KOSPI market map" : "블랙홀: 코스피 맵"}
+        title={en ? "Gargantua — KOSPI map" : "가르강튀아 — 코스피 맵"}
       >
         {/* The hole's breathing bloom, deliberately a sibling of the art
             rather than part of it — see .hb-bh-bloom in hub.css for why an
@@ -1854,6 +1816,60 @@ export default function Hub() {
         ))}
       </div>
 
+      {/* Two equal-size neutron stars, mutually orbiting a shared centre
+          along a single horizontal line (facing each other, side to side)
+          rather than one orbiting the other or a full circular sweep, per an
+          explicit request. See useNeutronBinary above and
+          .hb-neutron-binary/.hb-neutron-flash in hub.css for the timing:
+          period and separation shrink together — 5s→4s→3s→2s→1s→0.5s→0.2s,
+          20 laps total — then the pair plunges together into one merged body,
+          firing a screen-wide gamma-ray-burst-style flash at the instant of
+          merger, holds merged for ten seconds, then splits back apart to
+          start the next cycle.
+
+          A real control now (the KOSDAQ map), which is why it sits out here
+          rather than inside `.hb-space` where it used to: that layer is
+          `aria-hidden`, and a focusable button inside an aria-hidden subtree
+          is reachable by tab and invisible to a screen reader at the same
+          time, which is worse than either alone. `.hb-space` is `inset: 0` on
+          `.hb`, so moving up one level leaves its own absolute position
+          exactly where it was. */}
+      <button
+        type="button"
+        ref={neutronRef}
+        className="hb-neutron-binary"
+        onClick={() => open("/kosdaq-map")}
+        aria-label={en ? "Neutron binary: KOSDAQ market map" : "중성자 쌍성: 코스닥 맵"}
+        title={en ? "Neutron star merger — KOSDAQ map" : "중성자별 병합 — 코스닥 맵"}
+      >
+        <span className="hb-neutron-star hb-neutron-star--a" />
+        <span className="hb-neutron-star hb-neutron-star--b" />
+        {/* What the two of them become: one blue remnant at twice a single
+            star's size, held for ten seconds before it splits back apart and
+            the next inspiral starts, per an explicit request.
+
+            The bars are diffraction spikes, matched to a reference photo of
+            the real thing. One bar is two opposing spikes, so this is eight
+            spikes, not six — and the split matters, because it is what makes
+            the shape recognisable rather than merely six-fold. Three bright
+            bars at 30°/90°/150° give the six spikes the hexagonal primary
+            mirror produces (60° apart, and note that one of them is
+            VERTICAL — a set at 0°/60°/120° is the same six-fold symmetry
+            rotated, and reads wrong: it puts a bright pair on the horizontal
+            where the real image has its faintest). The fourth bar is the
+            horizontal pair thrown by the secondary mirror's support strut,
+            which in the photograph is visibly shorter and dimmer than the
+            other six — see .hb-neutron-spike--strut in hub.css. */}
+        <span className="hb-neutron-merged">
+          <i className="hb-neutron-spike" style={{ ["--sa" as string]: "30deg" }} />
+          <i className="hb-neutron-spike" style={{ ["--sa" as string]: "90deg" }} />
+          <i className="hb-neutron-spike" style={{ ["--sa" as string]: "150deg" }} />
+          <i
+            className="hb-neutron-spike hb-neutron-spike--strut"
+            style={{ ["--sa" as string]: "0deg" }}
+          />
+        </span>
+      </button>
       {/* The neutron binary's merger flash (see useNeutronBinary/
           fireNeutronFlash in the component below) — fixed to the whole
           viewport rather than scoped to `.hb-space`, since "화면 전체를
