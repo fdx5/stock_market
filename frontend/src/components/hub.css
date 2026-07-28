@@ -2044,29 +2044,46 @@ body:has(.hb) {
    Positioned off `--bh-right`/`--bh-bottom`/`--bh-size` (see `.hb` root and
    `.hb-blackhole` above) rather than duplicating those numbers, so this
    always anchors to the black hole's own actual on-screen spot even if that
-   clamp() is ever retuned. --pluto-gap is the one thing usePlutoEvent
-   writes here every frame — the live px distance from the black hole's own
-   CENTRE to Pluto's centre, counting down from 300, per an explicit request
-   pinning the approach distance to the hole's centre specifically rather
-   than its edge. The `(--bh-size - --pluto-size) / 2` term is what performs
-   that centre-to-edge translation for both axes: it's added to `right`
-   here for the same reason it's already added to `bottom` below — a plain
-   `--pluto-gap` offset from the hole's own edge would put Pluto's centre
-   --bh-size/2 too close once gap reached 0, not touching the hole's centre
-   the way the request describes. Vertically centred on the black hole's
-   own box for the same reason: the two aren't the same height, and
-   bottom-aligning them outright would visibly drop Pluto's own centre
-   below the hole's. */
+   clamp() is ever retuned. `right`/`bottom` below are both static — set
+   once, at the STARTING (gap=300) position, and never touched again — with
+   the actual approach animated entirely through `transform: translateX()`
+   instead (see --pluto-gap below). An earlier version drove `right` itself
+   from --pluto-gap every frame, which visibly dropped frames on iPad:
+   `right` is a layout property, so every write forces the browser to
+   re-run layout for the whole page before it can even composite the next
+   frame, 60 times a second, for the entire ~10-second approach — not just
+   whenever fragments are actually on screen. `transform` is compositor-only
+   (no layout, often no paint either), which is the whole reason "animate
+   transform/opacity, not top/left/right/bottom" is the standard performance
+   rule it is; this element is the concrete case that rule is for. The
+   `(--bh-size - --pluto-size) / 2` term performs the centre-to-edge
+   translation the request's "gap measured from the hole's own centre"
+   needs — see --pluto-gap's own comment — for both axes: added to `right`
+   here for the same reason it's added to `bottom`, so Pluto's own centre,
+   not just its edge, ends up --pluto-gap px from the hole's centre.
+   Vertically centred on the black hole's own box for the same reason: the
+   two aren't the same height, and bottom-aligning them outright would
+   visibly drop Pluto's own centre below the hole's. */
 .hb-pluto-event {
   --pluto-size: calc(68 * var(--body-unit));
+  /* The live px distance from the black hole's own centre to Pluto's
+     centre, counting down from 300 — the one thing usePlutoEvent writes
+     here every frame (see the translateX below, and the comment above on
+     why that — not `right` — is what actually reads it). */
   --pluto-gap: 300;
   position: fixed;
-  right: calc(var(--bh-right) + (var(--bh-size) - var(--pluto-size)) / 2 + var(--pluto-gap) * 1px);
+  right: calc(var(--bh-right) + (var(--bh-size) - var(--pluto-size)) / 2 + 300px);
   bottom: calc(var(--bh-bottom) + (var(--bh-size) - var(--pluto-size)) / 2);
   z-index: 4;
   width: var(--pluto-size);
   height: var(--pluto-size);
   pointer-events: none;
+  /* Positive as --pluto-gap counts down from its own 300px starting value
+     — moving the element rightward, toward the black hole, exactly as far
+     as `right` would have shrunk under the old layout-driven approach,
+     just composited instead of laid out. */
+  transform: translateX(calc((300 - var(--pluto-gap)) * 1px));
+  will-change: transform;
 }
 
 /* The clip-path polygon (#hb-pluto-erosion, defined inline next to this in

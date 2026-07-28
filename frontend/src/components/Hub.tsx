@@ -884,6 +884,11 @@ const PLUTO_SWIRL_LEN = PLUTO_DESTROY_DURATION - PLUTO_TEAR_LEN; // ~1.29s
 const PLUTO_TEAR_START = (PLUTO_START_GAP - PLUTO_TEAR_GAP) / PLUTO_SPEED; // 10s
 const PLUTO_SWIRL_START = PLUTO_TEAR_START + PLUTO_TEAR_LEN;
 const PLUTO_MOTION = PLUTO_TEAR_START + PLUTO_DESTROY_DURATION; // gap hits 0 here
+// Padded ~1s past PLUTO_MOTION — comfortably past the latest a dust mote's
+// own life can run on (activates as late as ~0.28s before MOTION, up to
+// 0.9s life, so ~0.62s past it at the extreme) — so the destroy-window
+// gate below never cuts off a fragment's own fade-out mid-flight.
+const PLUTO_DESTROY_TAIL_END = PLUTO_MOTION + 1;
 const PLUTO_CYCLE = PLUTO_MOTION + PLUTO_FLASH_HOLD; // then it repeats
 
 /** One vertical "tooth" of the erosion clip-path — see plutoErosionPoints.
@@ -1072,6 +1077,7 @@ function usePlutoEvent(
     let raf = 0;
     const startedAt = performance.now();
     let fired = false;
+    let wasDestroying = false;
 
     const tick = (now: number) => {
       const elapsed = (now - startedAt) / 1000;
@@ -1092,84 +1098,123 @@ function usePlutoEvent(
       }
       gap = Math.min(PLUTO_START_GAP, Math.max(0, gap));
 
+      // --pluto-gap is the one per-frame write that always has to happen —
+      // Pluto is visually moving (or, past PLUTO_MOTION, freshly consumed)
+      // for the entire cycle. Everything below this — erosion, the
+      // spaghettification stretch, all 40 fragments — only ever has
+      // anything to actually draw during the destruction window itself
+      // (TEAR_START through a short tail past MOTION for the last
+      // fragments' own fade-outs), so it's skipped entirely outside that
+      // window instead of doing (and writing) the same "nothing's
+      // happening" result every frame for the ~80% of the cycle that's
+      // just the approach and the post-flash hold. An earlier version did
+      // that unconditional per-frame work for all 40 fragments regardless
+      // of phase, which was real, measurable cost for no visual return.
       eventEl.style.setProperty("--pluto-gap", gap.toFixed(2));
 
-      // Tear progress is purely time-based now (see PLUTO_TEAR_START/LEN
-      // above) rather than derived from gap, since destruction's own pace
-      // no longer tracks the approach speed once it starts.
-      const p1 = Math.min(1, Math.max(0, (cycleElapsed - PLUTO_TEAR_START) / PLUTO_TEAR_LEN));
-      const poly = erosionRef.current;
-      if (poly) poly.setAttribute("points", plutoErosionPoints(p1));
+      const destroying = cycleElapsed >= PLUTO_TEAR_START && cycleElapsed < PLUTO_DESTROY_TAIL_END;
+      if (destroying) {
+        // Tear progress is purely time-based (see PLUTO_TEAR_START/LEN
+        // above) rather than derived from gap, since destruction's own
+        // pace no longer tracks the approach speed once it starts.
+        const p1 = Math.min(1, Math.max(0, (cycleElapsed - PLUTO_TEAR_START) / PLUTO_TEAR_LEN));
+        const poly = erosionRef.current;
+        if (poly) poly.setAttribute("points", plutoErosionPoints(p1));
 
-      // Spaghettification — see PLUTO_STRETCH_MAX/SQUASH_MAX's own comment.
-      // Fades out over the tear phase's last 20%, so the stretched thread
-      // has visibly thinned to nothing by the time the swirl/dust phase
-      // (p1 already at 1 by then) takes over the "being consumed" visual.
-      const body = bodyRef.current;
-      if (body) {
-        const stretchX = 1 + p1 * PLUTO_STRETCH_MAX;
-        const squashY = 1 - p1 * PLUTO_SQUASH_MAX;
-        const bodyOpacity = p1 < 0.8 ? 1 : Math.max(0, 1 - (p1 - 0.8) / 0.2);
-        body.style.transform = `scaleX(${stretchX.toFixed(3)}) scaleY(${squashY.toFixed(3)})`;
-        body.style.opacity = bodyOpacity.toFixed(2);
+        // Spaghettification — see PLUTO_STRETCH_MAX/SQUASH_MAX's own
+        // comment. Fades out over the tear phase's last 20%, so the
+        // stretched thread has visibly thinned to nothing by the time the
+        // swirl/dust phase (p1 already at 1 by then) takes over the
+        // "being consumed" visual.
+        const body = bodyRef.current;
+        if (body) {
+          const stretchX = 1 + p1 * PLUTO_STRETCH_MAX;
+          const squashY = 1 - p1 * PLUTO_SQUASH_MAX;
+          const bodyOpacity = p1 < 0.8 ? 1 : Math.max(0, 1 - (p1 - 0.8) / 0.2);
+          body.style.transform = `scaleX(${stretchX.toFixed(3)}) scaleY(${squashY.toFixed(3)})`;
+          body.style.opacity = bodyOpacity.toFixed(2);
+        }
+
+        // gap is measured centre-to-centre (see PLUTO_START_GAP's own
+        // comment), so Pluto's own centre is simply the hole's centre
+        // minus that many px — no separate right-edge bookkeeping needed.
+        const plutoCenterX = geo.bhCenterX - gap;
+        const plutoRadius = geo.plutoSize * 0.34; // BASE_R/100 — see CelestialBody.tsx
+        const frags = fragRefs.current;
+
+        PLUTO_FRAGMENTS.forEach((frag, i) => {
+          const el = frags?.[i];
+          if (!el) return;
+
+          const activateElapsed =
+            frag.kind === "chunk"
+              ? PLUTO_TEAR_START + frag.activateAt * PLUTO_TEAR_LEN
+              : PLUTO_SWIRL_START + frag.activateAt * PLUTO_SWIRL_LEN;
+          const t = (cycleElapsed - activateElapsed) / frag.life;
+          if (t < 0 || t > 1) {
+            // Skip the write once it's already hidden — most fragments sit
+            // in this branch most of the destroy window (each is only
+            // actually mid-flight for a fraction of it), and re-writing
+            // the same "0" every frame is exactly the kind of no-op DOM
+            // mutation this whole gating pass is about cutting out.
+            if (el.style.opacity !== "0") el.style.opacity = "0";
+            return;
+          }
+
+          if (frag.kind === "chunk") {
+            const rad = (frag.angleDeg * Math.PI) / 180;
+            const rimX = plutoCenterX + plutoRadius * Math.cos(rad);
+            const rimY = geo.bhCenterY + plutoRadius * Math.sin(rad);
+            const outX = rimX + Math.cos(rad) * frag.fling;
+            const outY = rimY + Math.sin(rad) * frag.fling;
+            // A quadratic bezier from the rim, bulging outward through the
+            // tidal-sling control point, curving in to the hole's centre —
+            // eased (not linear) so the sling and the final plunge each
+            // get their own visible pace instead of one constant-speed
+            // sweep.
+            const eased = t * t * (3 - 2 * t);
+            const mt = 1 - eased;
+            const x = mt * mt * rimX + 2 * mt * eased * outX + eased * eased * geo.bhCenterX;
+            const y = mt * mt * rimY + 2 * mt * eased * outY + eased * eased * geo.bhCenterY;
+            const rot = frag.spin * (t * frag.life);
+            const scale = 1 - 0.55 * eased;
+            const opacity = t < 0.12 ? t / 0.12 : t > 0.7 ? Math.max(0, 1 - (t - 0.7) / 0.3) : 1;
+            el.style.transform = `translate(${(x - frag.size / 2).toFixed(1)}px, ${(y - frag.size / 2).toFixed(1)}px) rotate(${rot.toFixed(0)}deg) scale(${scale.toFixed(2)})`;
+            el.style.opacity = opacity.toFixed(2);
+          } else {
+            // Polar spiral around the hole's own centre — radius shrinks
+            // linearly while the angle winds up as t^2, so the spin
+            // visibly accelerates on the way in, the same "faster as it
+            // narrows" read as water actually going down a drain.
+            const r0 = frag.startR * plutoRadius;
+            const r = r0 * (1 - t);
+            const theta = frag.startTheta + frag.turns * Math.PI * 2 * (t * t);
+            const x = geo.bhCenterX + r * Math.cos(theta);
+            const y = geo.bhCenterY + r * Math.sin(theta);
+            const scale = 1 - 0.4 * t;
+            const opacity = t < 0.1 ? t / 0.1 : t > 0.75 ? Math.max(0, 1 - (t - 0.75) / 0.25) : 1;
+            el.style.transform = `translate(${(x - frag.size / 2).toFixed(1)}px, ${(y - frag.size / 2).toFixed(1)}px) scale(${scale.toFixed(2)})`;
+            el.style.opacity = opacity.toFixed(2);
+          }
+        });
+
+        wasDestroying = true;
+      } else if (wasDestroying) {
+        // Just left the destroy window — reset every piece to its resting
+        // state exactly once, rather than continuing to write it every
+        // frame for the rest of the cycle.
+        const poly = erosionRef.current;
+        if (poly) poly.setAttribute("points", "0,0 1,0 1,1 0,1");
+        const body = bodyRef.current;
+        if (body) {
+          body.style.transform = "";
+          body.style.opacity = "";
+        }
+        fragRefs.current?.forEach((el) => {
+          if (el) el.style.opacity = "0";
+        });
+        wasDestroying = false;
       }
-
-      // gap is measured centre-to-centre (see PLUTO_START_GAP's own
-      // comment), so Pluto's own centre is simply the hole's centre minus
-      // that many px — no separate right-edge bookkeeping needed.
-      const plutoCenterX = geo.bhCenterX - gap;
-      const plutoRadius = geo.plutoSize * 0.34; // BASE_R/100 — see CelestialBody.tsx
-      const frags = fragRefs.current;
-
-      PLUTO_FRAGMENTS.forEach((frag, i) => {
-        const el = frags?.[i];
-        if (!el) return;
-
-        const activateElapsed =
-          frag.kind === "chunk"
-            ? PLUTO_TEAR_START + frag.activateAt * PLUTO_TEAR_LEN
-            : PLUTO_SWIRL_START + frag.activateAt * PLUTO_SWIRL_LEN;
-        const t = (cycleElapsed - activateElapsed) / frag.life;
-        if (t < 0 || t > 1) {
-          el.style.opacity = "0";
-          return;
-        }
-
-        if (frag.kind === "chunk") {
-          const rad = (frag.angleDeg * Math.PI) / 180;
-          const rimX = plutoCenterX + plutoRadius * Math.cos(rad);
-          const rimY = geo.bhCenterY + plutoRadius * Math.sin(rad);
-          const outX = rimX + Math.cos(rad) * frag.fling;
-          const outY = rimY + Math.sin(rad) * frag.fling;
-          // A quadratic bezier from the rim, bulging outward through the
-          // tidal-sling control point, curving in to the hole's centre —
-          // eased (not linear) so the sling and the final plunge each get
-          // their own visible pace instead of one constant-speed sweep.
-          const eased = t * t * (3 - 2 * t);
-          const mt = 1 - eased;
-          const x = mt * mt * rimX + 2 * mt * eased * outX + eased * eased * geo.bhCenterX;
-          const y = mt * mt * rimY + 2 * mt * eased * outY + eased * eased * geo.bhCenterY;
-          const rot = frag.spin * (t * frag.life);
-          const scale = 1 - 0.55 * eased;
-          const opacity = t < 0.12 ? t / 0.12 : t > 0.7 ? Math.max(0, 1 - (t - 0.7) / 0.3) : 1;
-          el.style.transform = `translate(${(x - frag.size / 2).toFixed(1)}px, ${(y - frag.size / 2).toFixed(1)}px) rotate(${rot.toFixed(0)}deg) scale(${scale.toFixed(2)})`;
-          el.style.opacity = opacity.toFixed(2);
-        } else {
-          // Polar spiral around the hole's own centre — radius shrinks
-          // linearly while the angle winds up as t^2, so the spin visibly
-          // accelerates on the way in, the same "faster as it narrows" read
-          // as water actually going down a drain.
-          const r0 = frag.startR * plutoRadius;
-          const r = r0 * (1 - t);
-          const theta = frag.startTheta + frag.turns * Math.PI * 2 * (t * t);
-          const x = geo.bhCenterX + r * Math.cos(theta);
-          const y = geo.bhCenterY + r * Math.sin(theta);
-          const scale = 1 - 0.4 * t;
-          const opacity = t < 0.1 ? t / 0.1 : t > 0.75 ? Math.max(0, 1 - (t - 0.75) / 0.25) : 1;
-          el.style.transform = `translate(${(x - frag.size / 2).toFixed(1)}px, ${(y - frag.size / 2).toFixed(1)}px) scale(${scale.toFixed(2)})`;
-          el.style.opacity = opacity.toFixed(2);
-        }
-      });
 
       // One-shot per cycle: fires the instant the approach finishes (gap
       // hits 0), then re-arms itself once a fresh cycle is clearly under
