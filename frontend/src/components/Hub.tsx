@@ -756,6 +756,13 @@ function useNeutronBinary(
     let amp = first.amp;
     let glow = first.glow;
     let mscale = 1;
+    // Last values actually written out — see the write-gating at the end of
+    // tick(). Seeded to -Infinity rather than NaN so the first frame's
+    // difference check is unambiguously "far enough" and both get written
+    // once up front (any comparison against NaN is false, which would have
+    // suppressed the initial write entirely instead of forcing it).
+    let lastGlow = Number.NEGATIVE_INFINITY;
+    let lastMscale = Number.NEGATIVE_INFINITY;
 
     const tick = (now: number) => {
       // Capped so a background/throttled tab doesn't dump one huge dt on
@@ -825,10 +832,24 @@ function useNeutronBinary(
         }
       }
 
+      // --nx genuinely has to be written every frame: the pair is in motion
+      // for the entire cycle. --glow and --mscale are not — both ease toward
+      // a target that only moves at a stage boundary or at the merge, so they
+      // sit effectively still for seconds at a time. Setting a custom property
+      // invalidates style for everything that reads it whether or not the
+      // value actually changed, so these two are held until they've drifted
+      // far enough to be worth a repaint. Two decimal places on --nx for the
+      // same reason: the third was sub-pixel at any viewport this renders at.
       const nx = amp * Math.cos(phase);
-      el.style.setProperty("--nx", nx.toFixed(3));
-      el.style.setProperty("--glow", glow.toFixed(3));
-      el.style.setProperty("--mscale", mscale.toFixed(3));
+      el.style.setProperty("--nx", nx.toFixed(2));
+      if (Math.abs(glow - lastGlow) >= 0.005) {
+        lastGlow = glow;
+        el.style.setProperty("--glow", glow.toFixed(3));
+      }
+      if (Math.abs(mscale - lastMscale) >= 0.005) {
+        lastMscale = mscale;
+        el.style.setProperty("--mscale", mscale.toFixed(3));
+      }
 
       raf = requestAnimationFrame(tick);
     };
@@ -1248,7 +1269,28 @@ function usePlutoEvent(
   }, [eventRef, bodyRef, erosionRef, fragRefs, blackHoleRef]);
 }
 
-/* ───────────────────────────── page ───────────────────────────── */
+/* ───────────────────────────── page ─────────────────────────────
+
+   `lite` below is this page's one device tier, separate from the width
+   breakpoints in hub.css. Those ask "how much room is there"; this asks "how
+   much GPU is there", and the two are not the same question — an iPad sits
+   comfortably above every width breakpoint on this page and so gets the full
+   desktop scene, on a fill-rate budget nothing like a desktop's. The
+   difference showed up as dropped frames rather than as anything visibly
+   broken, which is exactly why it needs its own signal.
+
+   Coarse pointer / no hover is the proxy: it catches tablets and phones, and
+   deliberately does not catch a desktop with a touchscreen (media queries
+   report the PRIMARY pointer, and on those machines that is still the mouse).
+   A low core count is a second, independent way in for genuinely weak
+   hardware whatever it's driving. Read once, at mount, with no listener —
+   neither of these changes under a visitor mid-session, and re-tiering the
+   scene live would mean rebuilding the star field for nothing. */
+function detectLiteScene(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.matchMedia("(hover: none), (pointer: coarse)").matches) return true;
+  return (navigator.hardwareConcurrency ?? 8) <= 4;
+}
 
 export default function Hub() {
   const { lang } = useLanguage();
@@ -1259,6 +1301,10 @@ export default function Hub() {
   const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
   const [globals, setGlobals] = useState<GlobalIndexWidget[]>([]);
   const [entered, setEntered] = useState(false);
+  // Lazy initialiser, not an effect: the tier decides how many twinklers get
+  // built, and settling it after the first paint would mean rendering one
+  // star count and then immediately throwing it away for another.
+  const [lite] = useState(detectLiteScene);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const neutronRef = useRef<HTMLDivElement>(null);
@@ -1352,7 +1398,13 @@ export default function Hub() {
     };
   }, []);
 
-  const twinklers = useMemo(() => twinkleField(90210, 84), []);
+  /* Every twinkler is its own composited layer (see .hb-twinkle's will-change
+     in hub.css) carrying a three-stop box-shadow, and they all animate
+     continuously — 84 of those is a fine load for a desktop GPU and a real
+     one for a tablet. Halved on the lite tier; the field is randomly
+     distributed, so a smaller count reads as a slightly sparser sky rather
+     than as a missing region of it. */
+  const twinklers = useMemo(() => twinkleField(90210, lite ? 44 : 84), [lite]);
 
   const skies = useMemo(
     () => ({
@@ -1398,7 +1450,7 @@ export default function Hub() {
   const open = (to: string) => navigate(to);
 
   return (
-    <div className={`hb ${entered ? "is-entered" : ""}`}>
+    <div className={`hb ${entered ? "is-entered" : ""} ${lite ? "is-lite" : ""}`}>
       {/* ── deep space ── */}
       <div className="hb-space" aria-hidden="true">
         <div className="hb-milkyway" />
