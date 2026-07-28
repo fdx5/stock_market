@@ -673,11 +673,13 @@ function Planet({
    need dozens of hand-timed keyframe stops to fake in pure CSS.
 
    The cycle ends in an actual merger: after the last lap the two stars
-   plunge together, and the instant they touch, useNeutronBinary fires
-   .hb-neutron-flash — a screen-wide burst standing in for a gamma-ray
-   burst, the real astrophysical signature of a neutron-star merger, per an
-   explicit request. They then sit merged for a couple of seconds before
-   splitting back apart to start the next cycle. */
+   plunge together, and the instant they touch, useNeutronBinary fires two
+   things at once (see fireMergerBurst below) — .hb-neutron-flash, the
+   sub-second white gamma-ray-burst flash, and .hb-supernova, a thirty-second
+   expanding ejecta cloud that takes over from it and does the actual work.
+   They sit merged for those same thirty seconds, and the cloud has faded to
+   nothing by the moment the remnant splits back apart, so every cycle starts
+   from a clean sky. */
 
 /** How separated (amp, in --body-unit units — see .hb-neutron-binary in
  * hub.css) and how bright (glow, a filter: brightness() multiplier) the
@@ -731,27 +733,49 @@ const NEUTRON_MERGE_DURATION = 0.45;
 const NEUTRON_MERGE_GLOW = 2.6;
 const NEUTRON_MERGE_SCALE = 2;
 /** Seconds the merged body is held before it splits back apart and the next
- * inspiral begins — per an explicit request (was 2). Long enough that the
- * merged remnant is something the eye settles on rather than a moment in a
- * transition; the six-spike bloom it holds (see .hb-neutron-merged in
- * hub.css) is the point of the whole sequence now, not punctuation on it. */
-const NEUTRON_HOLD_DURATION = 10;
+ * inspiral begins — per an explicit request (was 10, and 2 before that). This
+ * number and the supernova's own animation length are the same thirty
+ * seconds on purpose: the ejecta cloud is authored to fade out on its last
+ * keyframe, so the sky is empty again at the exact moment the remnant splits
+ * and the next inspiral starts, per an explicit request that everything be
+ * back to its original state after thirty seconds. Anything that changes
+ * here has to change with the 30s animation durations in hub.css's
+ * "supernova ejecta" section too — and with buildEjectaKnots' own per-knot
+ * durations below, which are all authored to finish inside that window. */
+const NEUTRON_HOLD_DURATION = 30;
 
-/** Restarts `.hb-neutron-flash`'s burst animation — remove+reflow+add
- * rather than just add, since the class may already be present (holding
- * its post-animation resting state) from a previous merge and a bare
- * add() wouldn't retrigger the CSS animation in that case. */
-function fireNeutronFlash(ref: React.RefObject<HTMLDivElement>) {
-  const flash = ref.current;
-  if (!flash) return;
-  flash.classList.remove("is-flashing");
-  void flash.offsetWidth;
-  flash.classList.add("is-flashing");
+/** Restarts the merger's two burst animations — the sub-second white flash
+ * and the thirty-second ejecta cloud that takes over from it. remove+reflow+
+ * add rather than just add, since the classes may already be present (holding
+ * their post-animation resting state) from a previous merge and a bare add()
+ * wouldn't retrigger a CSS animation in that case.
+ *
+ * Both are restarted from this one call so they share an origin instant: the
+ * cloud's first keyframes are authored to emerge from underneath the flash
+ * while it is still washing the screen out, which only reads as one event if
+ * neither can start a frame ahead of the other. */
+function fireMergerBurst(
+  flashRef: React.RefObject<HTMLDivElement>,
+  novaRef: React.RefObject<HTMLDivElement>
+) {
+  const flash = flashRef.current;
+  if (flash) {
+    flash.classList.remove("is-flashing");
+    void flash.offsetWidth;
+    flash.classList.add("is-flashing");
+  }
+  const nova = novaRef.current;
+  if (nova) {
+    nova.classList.remove("is-bursting");
+    void nova.offsetWidth;
+    nova.classList.add("is-bursting");
+  }
 }
 
 function useNeutronBinary(
   ref: React.RefObject<HTMLButtonElement>,
-  flashRef: React.RefObject<HTMLDivElement>
+  flashRef: React.RefObject<HTMLDivElement>,
+  novaRef: React.RefObject<HTMLDivElement>
 ) {
   useEffect(() => {
     const el = ref.current;
@@ -846,7 +870,7 @@ function useNeutronBinary(
           amp = 0;
           mode = "hold";
           holdElapsed = 0;
-          fireNeutronFlash(flashRef);
+          fireMergerBurst(flashRef, novaRef);
         }
       } else if (mode === "hold") {
         holdElapsed += dt;
@@ -891,8 +915,105 @@ function useNeutronBinary(
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [ref, flashRef]);
+  }, [ref, flashRef, novaRef]);
 }
+
+/* ─────────────────────────── supernova ejecta ───────────────────────────
+   What the merger throws off, and the reason the white flash is now only the
+   first half-second of the event rather than the whole of it.
+
+   Built from what a real remnant actually looks like rather than from the
+   cartoon "orange fireball": Cassiopeia A, the Crab and Tycho are all a
+   HOLLOW, lumpy shell, not a filled ball — a fast blue-white shock front
+   running ahead (the shocked, doubly-ionised oxygen that gives Tycho and the
+   Crab their blue), a thick churning body of red and orange behind it
+   (sulphur and hydrogen filaments, the dominant colour in every one of these
+   photographs), gold and white where the material is hottest and closest in,
+   and the whole thing threaded with radial filaments and studded with
+   discrete knots of ejecta flying out at their own speeds and their own
+   angles. Nothing about a real one is symmetric, and that asymmetry is most
+   of what makes the image read as an explosion rather than as a ring.
+
+   The shells and filaments are CSS (see .hb-supernova in hub.css — layered
+   radial and conic gradients, animated on transform and opacity only, so a
+   full-screen effect running for thirty seconds costs the compositor and not
+   the painter). These knots are the asymmetry: each one is thrown on its own
+   heading at its own speed, deterministically, so the remnant has clumps and
+   gaps in it instead of expanding as a clean disc. */
+
+/** Emission colours, as bare `r, g, b` triples for the gradients in hub.css
+ * to wrap in their own alphas. Ordered hottest-to-coolest, which is also
+ * fastest-to-slowest: the blue end is the leading shock, the red end is the
+ * bulk of the ejecta trailing behind it. */
+const EJECTA_TINTS = [
+  "255, 246, 224",
+  "255, 214, 122",
+  "255, 158, 54",
+  "255, 96, 44",
+  "236, 48, 62",
+  "236, 74, 168",
+  "120, 196, 255",
+  "88, 132, 255",
+];
+
+interface EjectaKnot {
+  /** Heading, in degrees. */
+  angle: number;
+  /** How far out it gets by the end of its own flight, in vmax — the fastest
+   * ones leave the frame entirely, which is what they should do. */
+  distance: number;
+  /** Diameter at launch, in vmax. */
+  size: number;
+  tint: string;
+  /** Seconds into the 30s life it is thrown, and how long its flight runs. */
+  delay: number;
+  duration: number;
+  /** How much it spreads out as it goes — a clump of gas dissipates as it
+   * expands, so it ends much larger and much fainter than it started. */
+  grow: number;
+}
+
+/** Deterministic, same reasoning as the starfield and the black hole's disc:
+ * a remnant that reshuffled its own clumps on every mount would read as the
+ * explosion changing shape rather than as one fixed object. */
+function buildEjectaKnots(count: number, seed: number): EjectaKnot[] {
+  const rand = mulberry32(seed);
+  const knots: EjectaKnot[] = [];
+  for (let i = 0; i < count; i += 1) {
+    // Evenly spaced headings with a wide random wobble on top, rather than
+    // fully random angles: pure randomness clusters, and a clump of clumps
+    // all on one side reads as a mistake rather than as asymmetry. This
+    // covers every direction — "사방으로", in all directions — while still
+    // being visibly uneven.
+    const angle = (360 / count) * i + (rand() - 0.5) * (300 / count);
+    // Hot fast material leads, cool slow material trails: the tint index is
+    // taken from the same roll that sets the speed, so the blue-white knots
+    // are the ones out in front and the deep red ones lag behind, the way the
+    // colour is layered in a real remnant.
+    const speed = rand();
+    const tintIndex = Math.min(
+      EJECTA_TINTS.length - 1,
+      Math.floor((1 - speed) * 0.55 * EJECTA_TINTS.length + (rand() < 0.22 ? 5 : 0))
+    );
+    knots.push({
+      angle,
+      distance: 34 + speed * 78,
+      size: 5 + rand() * 13,
+      tint: EJECTA_TINTS[tintIndex],
+      // Delay plus duration has to stay under the thirty seconds the merged
+      // remnant is held for (NEUTRON_HOLD_DURATION above): 3.4 + 25 leaves
+      // the slowest, latest-thrown clump a second and a half of margin, so
+      // every knot has finished fading before the pair splits back apart and
+      // none of them is still on screen when the sky is supposed to be clear.
+      delay: 0.3 + rand() * 3.1,
+      duration: 14 + (1 - speed) * 11,
+      grow: 2.4 + rand() * 3.4,
+    });
+  }
+  return knots;
+}
+
+const EJECTA_KNOTS = buildEjectaKnots(20, 60217);
 
 /* ───────────────────────────── pluto event ─────────────────────────────
    A standing vignette next to the black hole, independent of the solar
@@ -1524,7 +1645,8 @@ export default function Hub() {
   const stageRef = useRef<HTMLDivElement>(null);
   const neutronRef = useRef<HTMLButtonElement>(null);
   const neutronFlashRef = useRef<HTMLDivElement>(null);
-  useNeutronBinary(neutronRef, neutronFlashRef);
+  const supernovaRef = useRef<HTMLDivElement>(null);
+  useNeutronBinary(neutronRef, neutronFlashRef, supernovaRef);
 
   const blackHoleRef = useRef<HTMLButtonElement>(null);
   const plutoEventRef = useRef<HTMLDivElement>(null);
@@ -1824,8 +1946,9 @@ export default function Hub() {
           period and separation shrink together — 5s→4s→3s→2s→1s→0.5s→0.2s,
           20 laps total — then the pair plunges together into one merged body,
           firing a screen-wide gamma-ray-burst-style flash at the instant of
-          merger, holds merged for ten seconds, then splits back apart to
-          start the next cycle.
+          merger, holds merged for thirty seconds while the ejecta cloud
+          expands across the sky behind it, then splits back apart to start
+          the next cycle.
 
           A real control now (the KOSDAQ map), which is why it sits out here
           rather than inside `.hb-space` where it used to: that layer is
@@ -1845,8 +1968,8 @@ export default function Hub() {
         <span className="hb-neutron-star hb-neutron-star--a" />
         <span className="hb-neutron-star hb-neutron-star--b" />
         {/* What the two of them become: one blue remnant at twice a single
-            star's size, held for ten seconds before it splits back apart and
-            the next inspiral starts, per an explicit request.
+            star's size, held for thirty seconds before it splits back apart
+            and the next inspiral starts, per an explicit request.
 
             The bars are diffraction spikes, matched to a reference photo of
             the real thing. One bar is two opposing spikes, so this is eight
@@ -1870,12 +1993,59 @@ export default function Hub() {
           />
         </span>
       </button>
-      {/* The neutron binary's merger flash (see useNeutronBinary/
-          fireNeutronFlash in the component below) — fixed to the whole
-          viewport rather than scoped to `.hb-space`, since "화면 전체를
-          밝게" means the entire screen, not just the hero section the
-          binary itself sits in. See .hb-neutron-flash in hub.css. */}
+      {/* The merger's first half-second: the white gamma-ray-burst flash (see
+          useNeutronBinary/fireMergerBurst above) — fixed to the whole viewport
+          rather than scoped to `.hb-space`, since "화면 전체를 밝게" means the
+          entire screen, not just the hero section the binary itself sits in.
+          See .hb-neutron-flash in hub.css. */}
       <div className="hb-neutron-flash" ref={neutronFlashRef} aria-hidden="true" />
+
+      {/* …and the thirty seconds after it: the ejecta cloud, expanding from
+          the merger point out across the whole sky and fading to nothing just
+          as the remnant splits back apart. See the "supernova ejecta" section
+          above for what it is modelled on and .hb-supernova in hub.css for how
+          each layer is built.
+
+          Sits BELOW `.hb-stage` in the stacking order (see its z-index) so it
+          expands behind the solar system and the wordmark rather than over
+          them — 배경에 걸쳐, across the background. The shells are hollow, so
+          the merged remnant itself stays visible in the middle of its own
+          explosion; `mix-blend-mode: screen` means every layer can only ever
+          ADD light to the starfield underneath, never box it out, which is
+          what keeps a full-screen effect from reading as a pasted-on
+          rectangle. */}
+      <div className="hb-supernova" ref={supernovaRef} aria-hidden="true">
+        {/* The leading shock front, the blue-white ring that runs out ahead of
+            everything else and is off the screen inside a few seconds. */}
+        <span className="hb-sn-shock" />
+        {/* The body of the remnant, four nested shells that expand at their
+            own rates and cool through their own colours as they go. */}
+        <span className="hb-sn-shell hb-sn-shell--core" />
+        <span className="hb-sn-shell hb-sn-shell--hot" />
+        <span className="hb-sn-shell hb-sn-shell--main" />
+        <span className="hb-sn-shell hb-sn-shell--outer" />
+        {/* Radial filaments — the streaky, spoked structure every photograph
+            of a real remnant has, counter-rotating so the cloud churns. */}
+        <span className="hb-sn-fil hb-sn-fil--warm" />
+        <span className="hb-sn-fil hb-sn-fil--cool" />
+        {EJECTA_KNOTS.map((knot, i) => (
+          <span
+            key={i}
+            className="hb-sn-knot"
+            style={
+              {
+                "--a": `${knot.angle.toFixed(1)}deg`,
+                "--d": `${knot.distance.toFixed(1)}vmax`,
+                "--sz": `${knot.size.toFixed(1)}vmax`,
+                "--tint": knot.tint,
+                "--grow": knot.grow.toFixed(2),
+                animationDelay: `${knot.delay.toFixed(2)}s`,
+                animationDuration: `${knot.duration.toFixed(2)}s`,
+              } as React.CSSProperties
+            }
+          />
+        ))}
+      </div>
 
       <div className="hb-stage" ref={stageRef}>
         <div className="hb-parallax">

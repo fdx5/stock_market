@@ -483,9 +483,18 @@ function buildDiscLines(count: number, innerR: number, outerR: number, ryRatio: 
     // Many short segments rather than a few long ones, per an explicit
     // request: at pathLength=100 the old 11-18 on / 7-14 off put only three
     // to five dashes around a whole ellipse, which read as a few detached
-    // bars sweeping round. Twenty-odd short ones at a ~2:1 duty read as a
-    // line with fine breaks in it — still visibly made of moving material,
-    // but continuous, which is what was asked for.
+    // bars sweeping round. Fifteen-odd short ones read as a line with fine
+    // breaks in it — still visibly made of moving material, but continuous,
+    // which is what was asked for.
+    //
+    // Pulled back from 17-24 at a 0.62-0.74 duty, and paired with the
+    // continuous underlay stroke BlackHoleBody now draws beneath every line:
+    // at the old density each dash was barely a pixel or two long on screen,
+    // and a chain of one-pixel beads sliding past each other across sixty
+    // stacked ellipses is exactly the fizzing, low-resolution look this is
+    // fixing. Slightly fewer, slightly longer dashes at a higher duty — over
+    // a line that never actually breaks — reads as brightness travelling
+    // along a solid line instead of as a dotted one.
     //
     // The count is a whole number and the on/off split is derived FROM it, so
     // the pattern's period divides pathLength exactly. That matters: the flow
@@ -493,9 +502,9 @@ function buildDiscLines(count: number, innerR: number, outerR: number, ryRatio: 
     // period doesn't divide evenly into that the pattern lands out of phase
     // with itself at the end of every lap and snaps. It always did; short
     // dashes just would have made the snap land more often.
-    const dashCount = 17 + Math.floor(rand() * 8);
+    const dashCount = 13 + Math.floor(rand() * 6);
     const dashPeriod = 100 / dashCount;
-    const dashOn = dashPeriod * (0.62 + rand() * 0.12);
+    const dashOn = dashPeriod * (0.72 + rand() * 0.1);
     const dashOff = dashPeriod - dashOn;
     // Roughly two and a half times the speed of the first pass (which ran
     // 1.6s at the inner edge out to ~9s at the outer), per an explicit
@@ -504,9 +513,15 @@ function buildDiscLines(count: number, innerR: number, outerR: number, ryRatio: 
     // edge manages is the Keplerian read, and speeding everything up by one
     // constant preserves it exactly.
     const flowDur = 0.62 + frac ** 1.3 * 3.1 * (0.85 + rand() * 0.3);
+    // Sub-pixel radial nudge off the even pitch. Sixty strokes stacked on an
+    // exactly regular spacing all land their anti-aliased edges at the same
+    // fractional offset as their neighbours', which beats against the pixel
+    // grid and is the other half of why the disc fizzed; scattering the pitch
+    // by a fraction of one line's spacing breaks that up.
+    const r = rx + (rand() - 0.5) * ((outerR - innerR) / count) * 0.9;
     lines.push({
-      rx,
-      ry: rx * ryRatio,
+      rx: r,
+      ry: r * ryRatio,
       color: discColorAt(frac),
       opacity: Math.min(0.95, Math.max(0.04, base * jitter)),
       dash: `${dashOn.toFixed(2)} ${dashOff.toFixed(2)}`,
@@ -559,9 +574,16 @@ function buildArcBundle(count: number, seed: number, sign: 1 | -1): ArcLine[] {
     // dashoffset loop. A few long bars here against a near-continuous line
     // there would read as two unrelated systems, and these arcs are meant to
     // be the same material seen bent over the pole.
-    const dashCount = 15 + Math.floor(rand() * 8);
+    //
+    // These were the worst offender for the fizz: a 1.1-wide stroke broken
+    // into 15-23 pieces is a dotted hairline, and thirty-six of them stacked
+    // over each other beat against the pixel grid. Fewer, longer dashes at a
+    // higher duty, over the continuous underlay BlackHoleBody now draws
+    // beneath them, and a slightly wider stroke so each one actually covers
+    // a device pixel instead of being anti-aliased into a grey smear.
+    const dashCount = 11 + Math.floor(rand() * 6);
     const dashPeriod = 100 / dashCount;
-    const dashOn = dashPeriod * (0.6 + rand() * 0.12);
+    const dashOn = dashPeriod * (0.7 + rand() * 0.1);
     lines.push({
       d: `M ${x0.toFixed(1)} 130 Q 130 ${peak.toFixed(1)} ${x1.toFixed(1)} 130`,
       color: discColorAt(0.12 + frac * 0.55),
@@ -673,7 +695,17 @@ export function BlackHoleBody({
   const arcBottom = thin(ARC_BOTTOM_BUCKETS);
 
   return (
-    <svg className="hb-blackhole-body" viewBox="0 0 260 260" aria-hidden="true" focusable="false">
+    <svg
+      className="hb-blackhole-body"
+      viewBox="0 0 260 260"
+      aria-hidden="true"
+      focusable="false"
+      /* The disc is dozens of thin, nearly-overlapping strokes, which is the
+         one case where a browser's default `auto` shape-rendering is allowed
+         to trade accuracy for speed and produce visibly ragged edges. Ask for
+         the accurate rasteriser explicitly. */
+      shapeRendering="geometricPrecision"
+    >
       <defs>
         {/* The ambient bloom and the outermost bleed used to be two more
             radialGradients here, painted onto two <circle>s carrying
@@ -708,182 +740,246 @@ export function BlackHoleBody({
         </radialGradient>
       </defs>
 
-      <circle cx="130" cy="130" r="90" fill="none" stroke={`url(#${under})`} strokeWidth="34" />
+      {/* The whole rendered unit's fixed 15° counter-clockwise presentation
+          tilt. This used to be `transform: rotate(-15deg)` in CSS on the
+          <svg> element itself, which rotates the SVG's rasterised OUTPUT:
+          the browser inks the disc at one angle and then resamples that
+          bitmap to another, and resampling dozens of hairline strokes is
+          exactly the "looks like a low-resolution image" complaint. Inside
+          the SVG it is geometry instead — every line is rasterised once,
+          already at its final angle, at full device resolution. */}
+      <g transform="rotate(-15 130 130)">
+        <circle cx="130" cy="130" r="90" fill="none" stroke={`url(#${under})`} strokeWidth="34" />
 
-      {/* the disc's far side, bent up and over each pole — drawn well before
-          the horizon below, so anywhere these dip toward the centre they
-          simply disappear behind it.
+        {/* the disc's far side, bent up and over each pole — drawn well before
+            the horizon below, so anywhere these dip toward the centre they
+            simply disappear behind it.
 
-          Every one of these buckets used to carry its own inline
-          `filter: drop-shadow()` for a soft neon edge — 22 of them across the
-          two arc bundles and the disc below. The note that used to sit here
-          called that cheap because it was one filter per bucket rather than
-          one per line, and per-render it is. Per-FRAME it is not, and that is
-          the number that mattered: a filter is re-run whenever anything
-          inside it moves, every bucket has an opacity shimmer on it, and the
-          disc's lines flow their dashes continuously — so all 22 gaussian
-          blurs were being recomputed on every single frame, in software,
-          inside an SVG that cannot composite its own subtrees. On a retina
-          tablet that alone is enough to put the whole page on the floor.
+            Every one of these buckets used to carry its own inline
+            `filter: drop-shadow()` for a soft neon edge — 22 of them across the
+            two arc bundles and the disc below. The note that used to sit here
+            called that cheap because it was one filter per bucket rather than
+            one per line, and per-render it is. Per-FRAME it is not, and that is
+            the number that mattered: a filter is re-run whenever anything
+            inside it moves, every bucket has an opacity shimmer on it, and the
+            disc's lines flow their dashes continuously — so all 22 gaussian
+            blurs were being recomputed on every single frame, in software,
+            inside an SVG that cannot composite its own subtrees. On a retina
+            tablet that alone is enough to put the whole page on the floor.
 
-          The glow is a second, wider, fainter stroke underneath each line
-          instead (see the disc below — the arcs are faint enough at 1.1 wide
-          that they carry their own bloom). Stroking a path twice is a
-          rounding error next to blurring a region 60 times a second. */}
-      <g aria-hidden="true">
-        {arcTop.map((bucket, bi) => (
-          <g
-            key={`t${bi}`}
-            className="hb-bh-shimmer"
-            style={{
-              animationDelay: `${-(bi * 0.6)}s`,
-              animationDuration: `${5 + (bi % 4)}s`,
-            }}
-          >
-            {bucket.map((line, li) => (
-              <path
-                key={li}
-                d={line.d}
-                fill="none"
-                stroke={line.color}
-                strokeOpacity={line.opacity}
-                strokeWidth="1.1"
-                strokeLinecap="round"
-                pathLength={100}
-                strokeDasharray={line.dash}
-                className="hb-bh-line-flow"
-                style={arcFlowStyle(line, lite)}
-              />
-            ))}
+            The glow is a second, wider, fainter stroke underneath each line
+            instead (see the disc below — the arcs are faint enough at 1.4 wide
+            that they carry their own bloom). Stroking a path twice is a
+            rounding error next to blurring a region 60 times a second. */}
+        <g aria-hidden="true">
+          {/* Continuous underlay, static, beneath every dashed arc above it.
+              Same geometry and colour, no dash and no animation, at roughly
+              half the visible line's own opacity — so where a dash's gap falls
+              the line dims rather than disappearing. That single change is
+              what turns the whole bundle from a field of sliding dots (which
+              is what read as jagged and low-resolution, worst of all where
+              thirty-six hairlines cross each other near the poles) into solid
+              lines with brightness travelling along them. */}
+          <g opacity="0.85">
+            {[...arcTop, ...arcBottom].map((bucket, bi) =>
+              bucket.map((line, li) => (
+                <path
+                  key={`u${bi}-${li}`}
+                  d={line.d}
+                  fill="none"
+                  stroke={line.color}
+                  strokeOpacity={line.opacity * 0.5}
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                />
+              ))
+            )}
           </g>
-        ))}
-        {arcBottom.map((bucket, bi) => (
-          <g
-            key={`b${bi}`}
-            className="hb-bh-shimmer"
-            style={{
-              animationDelay: `${-(bi * 0.6 + 0.3)}s`,
-              animationDuration: `${5.4 + (bi % 4)}s`,
-            }}
-          >
-            {bucket.map((line, li) => (
-              <path
-                key={li}
-                d={line.d}
-                fill="none"
-                stroke={line.color}
-                strokeOpacity={line.opacity}
-                strokeWidth="1.1"
-                strokeLinecap="round"
-                pathLength={100}
-                strokeDasharray={line.dash}
-                className="hb-bh-line-flow"
-                style={arcFlowStyle(line, lite)}
-              />
-            ))}
-          </g>
-        ))}
-      </g>
+          {arcTop.map((bucket, bi) => (
+            <g
+              key={`t${bi}`}
+              className="hb-bh-shimmer"
+              style={{
+                animationDelay: `${-(bi * 0.6)}s`,
+                animationDuration: `${5 + (bi % 4)}s`,
+              }}
+            >
+              {bucket.map((line, li) => (
+                <path
+                  key={li}
+                  d={line.d}
+                  fill="none"
+                  stroke={line.color}
+                  strokeOpacity={line.opacity}
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  pathLength={100}
+                  strokeDasharray={line.dash}
+                  className="hb-bh-line-flow"
+                  style={arcFlowStyle(line, lite)}
+                />
+              ))}
+            </g>
+          ))}
+          {arcBottom.map((bucket, bi) => (
+            <g
+              key={`b${bi}`}
+              className="hb-bh-shimmer"
+              style={{
+                animationDelay: `${-(bi * 0.6 + 0.3)}s`,
+                animationDuration: `${5.4 + (bi % 4)}s`,
+              }}
+            >
+              {bucket.map((line, li) => (
+                <path
+                  key={li}
+                  d={line.d}
+                  fill="none"
+                  stroke={line.color}
+                  strokeOpacity={line.opacity}
+                  strokeWidth="1.4"
+                  strokeLinecap="round"
+                  pathLength={100}
+                  strokeDasharray={line.dash}
+                  className="hb-bh-line-flow"
+                  style={arcFlowStyle(line, lite)}
+                />
+              ))}
+            </g>
+          ))}
+        </g>
 
-      {/* the disc's near side, crossing directly across the hole — each
-          line's own ellipse (rx/ry/tilt) is completely static, Saturn-ring
-          style; only its dash pattern slides along that fixed path
-          (line.dash/flowDur/flowDelay, fast inner lines to slow outer ones;
-          see buildDiscLines), which is what reads as material orbiting a
-          ring rather than the ring itself turning. pathLength="100" lets
-          the dash values/animation below be expressed as a flat percentage
-          of one full lap regardless of each line's own real circumference,
-          so the same -100 dashoffset keyframe loops seamlessly for every
-          line at once. Bucketed for the shimmer, and for a soft neon
-          drop-shadow keyed to that bucket's own colour along the ramp (see
-          the arc bundles above for why the per-bucket drop-shadow filter that
-          used to be here is gone). */}
-      <g aria-hidden="true">
-        {/* The disc's bloom, standing in for those filters: each line's own
-            ellipse again, undashed, stroked much wider and very faint, with
-            no animation on it at all. Undashed on purpose — a 4px blur over a
-            dashed line smears most of the way across its own gaps anyway, so
-            a continuous faint band is closer to what the filter actually drew
-            than a second dashed copy would be, and being static it paints
-            once into the same buffer the rest of this SVG repaints into
-            rather than adding anything per frame. Drawn as one group beneath
-            every bucket so it never shows through a gap in the sharp lines
-            above it. Skipped entirely on the lite tier. */}
-        {!lite && (
-          <g opacity="0.5">
+        {/* the disc's near side, crossing directly across the hole — each
+            line's own ellipse (rx/ry/tilt) is completely static, Saturn-ring
+            style; only its dash pattern slides along that fixed path
+            (line.dash/flowDur/flowDelay, fast inner lines to slow outer ones;
+            see buildDiscLines), which is what reads as material orbiting a
+            ring rather than the ring itself turning. pathLength="100" lets
+            the dash values/animation below be expressed as a flat percentage
+            of one full lap regardless of each line's own real circumference,
+            so the same -100 dashoffset keyframe loops seamlessly for every
+            line at once. Bucketed for the shimmer, and for a soft neon
+            drop-shadow keyed to that bucket's own colour along the ramp (see
+            the arc bundles above for why the per-bucket drop-shadow filter that
+            used to be here is gone). */}
+        <g aria-hidden="true">
+          {/* The disc's bloom, standing in for those filters: each line's own
+              ellipse again, undashed, stroked much wider and very faint, with
+              no animation on it at all. Undashed on purpose — a 4px blur over a
+              dashed line smears most of the way across its own gaps anyway, so
+              a continuous faint band is closer to what the filter actually drew
+              than a second dashed copy would be, and being static it paints
+              once into the same buffer the rest of this SVG repaints into
+              rather than adding anything per frame. Drawn as one group beneath
+              every bucket so it never shows through a gap in the sharp lines
+              above it. Skipped entirely on the lite tier. */}
+          {!lite && (
+            <g opacity="0.5">
+              {discBuckets.map((bucket, bi) =>
+                bucket.map((line, li) => (
+                  <ellipse
+                    key={`${bi}-${li}`}
+                    cx="130"
+                    cy="130"
+                    rx={line.rx}
+                    ry={line.ry}
+                    fill="none"
+                    stroke={line.color}
+                    strokeOpacity={line.opacity * 0.42}
+                    strokeWidth="8"
+                  />
+                ))
+              )}
+            </g>
+          )}
+          {/* The continuous underlay — the actual fix for the disc reading as
+              fizzy and low-resolution. The bloom above is eight units wide and
+              very faint, which glows but does nothing to fill a dash gap; what
+              a gap needed was the SAME line at the SAME width, just dimmer.
+              With this beneath them the dashes stop being holes punched
+              through the disc and become brightness travelling along solid
+              rings, which is what the moving material should have read as all
+              along. Static, so it costs the per-frame repaint only its own
+              ink, and it is kept on every tier (including lite/minimal, where
+              the dashes are stepped and their gaps would otherwise strobe). */}
+          <g>
             {discBuckets.map((bucket, bi) =>
               bucket.map((line, li) => (
                 <ellipse
-                  key={`${bi}-${li}`}
+                  key={`u${bi}-${li}`}
                   cx="130"
                   cy="130"
                   rx={line.rx}
                   ry={line.ry}
                   fill="none"
                   stroke={line.color}
-                  strokeOpacity={line.opacity * 0.42}
-                  strokeWidth="7"
+                  strokeOpacity={line.opacity * 0.5}
+                  strokeWidth="3.1"
                 />
               ))
             )}
           </g>
-        )}
-        {discBuckets.map((bucket, bi) => (
-          <g
-            key={bi}
-            className="hb-bh-shimmer"
-            style={{
-              animationDelay: `${-(bi * 0.45)}s`,
-              animationDuration: `${4.2 + (bi % 5) * 0.6}s`,
-            }}
-          >
-            {bucket.map((line, li) => (
-              <ellipse
-                key={li}
-                cx="130"
-                cy="130"
-                rx={line.rx}
-                ry={line.ry}
-                pathLength={100}
-                fill="none"
-                stroke={line.color}
-                strokeOpacity={line.opacity}
-                strokeWidth="2.8"
-                strokeDasharray={line.dash}
-                className="hb-bh-line-flow"
-                /* One shared duration and no per-line delay on the lite tier,
-                   which is what lets the stepped timing function over in
-                   hub.css actually pay off. Stepping each line individually
-                   would not have helped: the SVG repaints if ANY line moves,
-                   so thirty lines stepping on thirty different clocks still
-                   lands a step on nearly every frame. In lockstep the whole
-                   disc advances a few times a second and the SVG repaints
-                   exactly that often. What's given up is the Keplerian read
-                   (inner lines fast, outer slow), which is a fair trade for
-                   the disc still moving at all on a device that was managing
-                   two frames a second with it. */
-                style={
-                  lite
-                    ? { animationDuration: LITE_FLOW_DUR, animationDelay: "0s" }
-                    : { animationDuration: `${line.flowDur.toFixed(2)}s`, animationDelay: `${line.flowDelay.toFixed(2)}s` }
-                }
-              />
-            ))}
-          </g>
-        ))}
+          {discBuckets.map((bucket, bi) => (
+            <g
+              key={bi}
+              className="hb-bh-shimmer"
+              style={{
+                animationDelay: `${-(bi * 0.45)}s`,
+                animationDuration: `${4.2 + (bi % 5) * 0.6}s`,
+              }}
+            >
+              {bucket.map((line, li) => (
+                <ellipse
+                  key={li}
+                  cx="130"
+                  cy="130"
+                  rx={line.rx}
+                  ry={line.ry}
+                  pathLength={100}
+                  fill="none"
+                  stroke={line.color}
+                  strokeOpacity={line.opacity}
+                  strokeWidth="3.1"
+                  strokeLinecap="round"
+                  strokeDasharray={line.dash}
+                  className="hb-bh-line-flow"
+                  /* One shared duration and no per-line delay on the lite tier,
+                     which is what lets the stepped timing function over in
+                     hub.css actually pay off. Stepping each line individually
+                     would not have helped: the SVG repaints if ANY line moves,
+                     so thirty lines stepping on thirty different clocks still
+                     lands a step on nearly every frame. In lockstep the whole
+                     disc advances a few times a second and the SVG repaints
+                     exactly that often. What's given up is the Keplerian read
+                     (inner lines fast, outer slow), which is a fair trade for
+                     the disc still moving at all on a device that was managing
+                     two frames a second with it. */
+                  style={
+                    lite
+                      ? { animationDuration: LITE_FLOW_DUR, animationDelay: "0s" }
+                      : {
+                          animationDuration: `${line.flowDur.toFixed(2)}s`,
+                          animationDelay: `${line.flowDelay.toFixed(2)}s`,
+                        }
+                  }
+                />
+              ))}
+            </g>
+          ))}
+        </g>
+
+        {/* event horizon — opaque, and painted last of the disc/arc stack, so
+            it hides every line above wherever they'd otherwise show through
+            it. Nothing behind this circle is ever visible past its edge. */}
+        <circle cx="130" cy="130" r="52" fill={`url(#${horizon})`} />
+
+        {/* photon ring — thin and true bright, tracing the horizon's own edge
+            rather than its face, so it belongs on top of the horizon rather
+            than behind it. Static; it's the horizon's own edge, not a
+            separate moving part. */}
+        <circle cx="130" cy="130" r="52" fill="none" stroke="#fff8e8" strokeWidth="1.7" opacity="0.95" />
+        <circle cx="130" cy="130" r="54" fill="none" stroke="#ffb168" strokeWidth="3.2" opacity="0.4" />
       </g>
-
-      {/* event horizon — opaque, and painted last of the disc/arc stack, so
-          it hides every line above wherever they'd otherwise show through
-          it. Nothing behind this circle is ever visible past its edge. */}
-      <circle cx="130" cy="130" r="52" fill={`url(#${horizon})`} />
-
-      {/* photon ring — thin and true bright, tracing the horizon's own edge
-          rather than its face, so it belongs on top of the horizon rather
-          than behind it. Static; it's the horizon's own edge, not a
-          separate moving part. */}
-      <circle cx="130" cy="130" r="52" fill="none" stroke="#fff8e8" strokeWidth="1.7" opacity="0.95" />
-      <circle cx="130" cy="130" r="54" fill="none" stroke="#ffb168" strokeWidth="3.2" opacity="0.4" />
     </svg>
   );
 }
