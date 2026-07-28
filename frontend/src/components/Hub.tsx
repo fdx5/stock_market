@@ -683,13 +683,19 @@ export default function Hub() {
   const neutronFlashRef = useRef<HTMLDivElement>(null);
 
   const blackHoleRef = useRef<HTMLButtonElement>(null);
-  // Checked here too (not just inside PlutoScene/NeutronScene themselves)
-  // so a reduced-motion visitor never even triggers either lazy import —
-  // no reason to fetch a ~225KB gzipped WebGL chunk for a scene that's
-  // about to render nothing. Shared between both scenes since they're
-  // gated on the exact same condition.
+  // Checked here (not just inside SpaceScene itself) so a reduced-motion or
+  // mobile visitor never even triggers the lazy import — no reason to
+  // fetch a ~225KB gzipped WebGL chunk for a scene that's about to render
+  // nothing (reduced motion) or that shouldn't run there at all (mobile:
+  // per an explicit request, after touch events on the page stopped
+  // responding on a phone with the scene loaded — same 640px breakpoint
+  // every other decorative element on this page already hides at, e.g. the
+  // asteroid belt). iPad sits above that breakpoint, so this doesn't touch
+  // the device the whole WebGL rewrite was actually for.
   const webglScenesEnabled =
-    typeof window !== "undefined" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    typeof window !== "undefined" &&
+    !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
+    window.matchMedia("(min-width: 641px)").matches;
 
   /* The page's entire data budget: two cached endpoints, one poll. */
   useEffect(() => {

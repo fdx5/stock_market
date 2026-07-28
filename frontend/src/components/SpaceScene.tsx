@@ -135,12 +135,14 @@ interface PlutoFragment {
   startTheta: number;
 }
 
-// 55 pieces total (40 chunks + 15 dust) — cut down hard from an earlier
-// 240 (180 + 60), which was cheap to draw call-wise (still just two Points
-// clouds) but genuinely expensive fragment-shader/overdraw work once the
-// culling bug above was fixed and they actually started rendering.
-const PLUTO_CHUNK_COUNT = 40;
-const PLUTO_DUST_COUNT = 15;
+// 35 pieces total (25 chunks + 10 dust) — cut down hard from an earlier
+// 240 (180 + 60, then 55), which was cheap to draw call-wise (still just
+// two Points clouds) but genuinely expensive fragment-shader/overdraw work
+// once the culling bug above was fixed and they actually started
+// rendering. Erring conservative here given iPad frame rate is still the
+// open problem.
+const PLUTO_CHUNK_COUNT = 25;
+const PLUTO_DUST_COUNT = 10;
 /** Chunks only ever shed from this many degrees of the disc — the ~40% of
  * it actually facing the hole (0deg = straight at the hole from wherever
  * Pluto currently is) — per an explicit request ("우측 40%가 파괴"). 144deg
@@ -230,10 +232,9 @@ function makeParticleGeometry(count: number): THREE.BufferGeometry {
 
 interface PlutoRigProps {
   blackHoleRef: React.RefObject<HTMLButtonElement>;
-  probeRef: React.RefObject<HTMLDivElement>;
 }
 
-function PlutoRig({ blackHoleRef, probeRef }: PlutoRigProps) {
+function PlutoRig({ blackHoleRef }: PlutoRigProps) {
   const texture = useLoader(THREE.TextureLoader, "/img/planets/pluto.webp");
   const meshRef = useRef<THREE.Mesh>(null!);
   const materialRef = useRef<THREE.MeshBasicMaterial>(null!);
@@ -255,21 +256,24 @@ function PlutoRig({ blackHoleRef, probeRef }: PlutoRigProps) {
   useEffect(() => {
     const measure = () => {
       const bhEl = blackHoleRef.current;
-      const probeEl = probeRef.current;
-      if (!bhEl || !probeEl) return;
+      if (!bhEl) return;
       const bhRect = bhEl.getBoundingClientRect();
-      const probeRect = probeEl.getBoundingClientRect();
       // Plain viewport-absolute coordinates — this scene's canvas covers
       // the full viewport (see .hb-space-canvas in hub.css), so there's no
-      // separate local-space offset to subtract.
+      // separate local-space offset to subtract. plutoRadius is computed
+      // straight from the viewport (half of Mars's own `68 * --body-unit`
+      // size expression — see PLANETS in Hub.tsx) rather than measured off
+      // a separate probe `<div>`, for the same reason computeNeutronAnchor
+      // replaced a DOM-measured one: one fewer element whose own CSS
+      // positioning context this could silently drift out of sync with.
       state.current.bhCenterX = bhRect.left + bhRect.width / 2;
       state.current.bhCenterY = bhRect.top + bhRect.height / 2;
-      state.current.plutoRadius = probeRect.width / 2;
+      state.current.plutoRadius = 34 * computeBodyUnitPx();
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [blackHoleRef, probeRef]);
+  }, [blackHoleRef]);
 
   useFrame((_, delta) => {
     const s = state.current;
@@ -301,16 +305,15 @@ function PlutoRig({ blackHoleRef, probeRef }: PlutoRigProps) {
       plutoCenterY = s.bhCenterY;
       faceAngle = 0;
     } else {
-      // Stretch + swirl: one full lap around the hole, radius shrinking
-      // from 150 to 0 in step with it, so the two finish together exactly
-      // at PLUTO_MOTION. theta starts at PI (due west, continuous with
-      // where the break phase left it) and sweeps a full 2*PI.
+      // Stretch: a straight pull the rest of the way into the hole's
+      // centre — no more sweeping a lap around it first, per an explicit
+      // request to remove that — elongating (spaghettification) along
+      // that same straight line as it closes the remaining 150px.
       const u = Math.min(1, (cycleElapsed - PLUTO_BREAK_END) / PLUTO_STRETCH_DURATION);
-      const theta = Math.PI + u * Math.PI * 2;
-      const radius = PLUTO_TEAR_GAP * (1 - u);
-      plutoCenterX = s.bhCenterX + radius * Math.cos(theta);
-      plutoCenterY = s.bhCenterY + radius * Math.sin(theta);
-      faceAngle = theta + Math.PI; // from Pluto's own position, back toward the hole
+      const remaining = PLUTO_TEAR_GAP * (1 - u);
+      plutoCenterX = s.bhCenterX - remaining;
+      plutoCenterY = s.bhCenterY;
+      faceAngle = 0;
       stretchX = 1 + u * PLUTO_STRETCH_MAX;
       squashY = 1 - u * PLUTO_SQUASH_MAX;
       bodyOpacity = u < 0.82 ? 1 : Math.max(0, 1 - (u - 0.82) / 0.18);
@@ -318,18 +321,12 @@ function PlutoRig({ blackHoleRef, probeRef }: PlutoRigProps) {
 
     const mesh = meshRef.current;
     if (mesh) {
-      // Stretch axis follows the direction of travel (the tangent to the
-      // swirl, faceAngle - PI/2) rather than always +X, so the elongated
-      // shape actually reads as sweeping around the hole instead of just
-      // growing sideways in place. During approach/break, stretchX is 1
-      // (a no-op), so rotation/offset there are harmless no-ops too.
-      const travelAngle = faceAngle - Math.PI / 2;
-      mesh.rotation.z = travelAngle;
-      mesh.position.set(
-        plutoCenterX + Math.cos(travelAngle) * R * (stretchX - 1),
-        plutoCenterY + Math.sin(travelAngle) * R * (stretchX - 1),
-        0
-      );
+      // Stretch axis follows faceAngle (always due east/+X here, since the
+      // whole approach/break/stretch sequence is one straight line into
+      // the hole) rather than a tangent — there's no orbital sweep left to
+      // be tangent to. During approach/break, stretchX is 1 (a no-op), so
+      // the offset there is a harmless no-op too.
+      mesh.position.set(plutoCenterX + Math.cos(faceAngle) * R * (stretchX - 1), plutoCenterY + Math.sin(faceAngle) * R * (stretchX - 1), 0);
       mesh.scale.set(R * stretchX, R * squashY, R * squashY);
       mesh.rotation.y += (delta * (Math.PI * 2)) / PLUTO_SPIN_SECONDS;
       mesh.visible = bodyOpacity > 0.01;
@@ -507,6 +504,43 @@ const NEUTRON_HOLD_DURATION = 2;
 const NEUTRON_STAR_SIZE_UNITS = 15;
 const NEUTRON_CONTAINER_UNITS = 64;
 
+function clampNum(min: number, val: number, max: number): number {
+  return Math.min(max, Math.max(min, val));
+}
+
+/** Mirrors --orbit-unit/--body-unit's own clamp() formula in hub.css
+ * exactly, so this scene's sizing tracks the same responsive scale as
+ * every other body on the page without needing to read it back out of the
+ * DOM (a custom property's own calc()/clamp() doesn't resolve to a plain
+ * number through getComputedStyle — there's no clean way to read it back,
+ * only to recompute it). */
+function computeBodyUnitPx(): number {
+  const orbitUnit = clampNum(0.2, Math.min((window.innerHeight - 380) / 762, (window.innerWidth - 250) / 1334), 1.3);
+  return orbitUnit * 1.26;
+}
+
+/** Where the neutron binary sits — mirrors .hb-neutron-canvas's own
+ * top/right/width/height in hub.css exactly, computed straight from the
+ * viewport instead of measured off a DOM element. An earlier pass measured
+ * a positioned `<div>` via getBoundingClientRect() instead; that div had
+ * been moved to a different spot in the DOM tree than `.hb-neutron-canvas`'s
+ * CSS assumed (a different `position: absolute` containing block), which
+ * silently placed the whole binary off in the wrong spot — computing this
+ * directly removes that whole class of bug, since there's no longer a DOM
+ * element's own position this can drift out of sync with. */
+function computeNeutronAnchor(): { centerX: number; centerY: number; pxPerUnit: number } {
+  const bodyUnit = computeBodyUnitPx();
+  const topPx = clampNum(92, window.innerHeight * 0.13, 172);
+  const rightPx = clampNum(54, window.innerWidth * 0.09, 150);
+  const widthPx = NEUTRON_CONTAINER_UNITS * bodyUnit;
+  const heightPx = 18 * bodyUnit;
+  return {
+    centerX: window.innerWidth - rightPx - widthPx / 2,
+    centerY: topPx + heightPx / 2,
+    pxPerUnit: bodyUnit,
+  };
+}
+
 /** Restarts `.hb-neutron-flash`'s burst animation — remove+reflow+add
  * rather than just add, since the class may already be present (holding
  * its post-animation resting state) from a previous merge. */
@@ -518,11 +552,10 @@ function fireNeutronFlash(el: HTMLElement | null) {
 }
 
 interface NeutronRigProps {
-  containerRef: React.RefObject<HTMLDivElement>;
   flashRef: React.RefObject<HTMLDivElement>;
 }
 
-function NeutronRig({ containerRef, flashRef }: NeutronRigProps) {
+function NeutronRig({ flashRef }: NeutronRigProps) {
   const starARef = useRef<THREE.Sprite>(null!);
   const starBRef = useRef<THREE.Sprite>(null!);
 
@@ -544,20 +577,15 @@ function NeutronRig({ containerRef, flashRef }: NeutronRigProps) {
 
   useEffect(() => {
     const measure = () => {
-      const el = containerRef.current;
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      state.current.pxPerUnit = rect.width / NEUTRON_CONTAINER_UNITS;
-      // Viewport-absolute — this scene's canvas covers the full viewport
-      // now, so the star's centre is just the probe box's own centre in
-      // the same coordinates, no local-space offset needed.
-      state.current.centerX = rect.left + rect.width / 2;
-      state.current.centerY = rect.top + rect.height / 2;
+      const { centerX, centerY, pxPerUnit } = computeNeutronAnchor();
+      state.current.centerX = centerX;
+      state.current.centerY = centerY;
+      state.current.pxPerUnit = pxPerUnit;
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [containerRef]);
+  }, []);
 
   useFrame((_, delta) => {
     const s = state.current;
@@ -665,36 +693,21 @@ export default function SpaceScene({
   blackHoleRef: React.RefObject<HTMLButtonElement>;
   neutronFlashRef: React.RefObject<HTMLDivElement>;
 }) {
-  const probeRef = useRef<HTMLDivElement>(null);
-  const neutronProbeRef = useRef<HTMLDivElement>(null);
   const enabled = useSpaceSceneEnabled();
 
   return (
     <>
-      {/* Invisible sizing probe — the only reliable way to read
-          `calc(68 * var(--body-unit))` (Mars's own size expression; see
-          PLANETS in Hub.tsx) back out as a resolved px number, since a
-          custom property's computed value doesn't resolve its own calc()
-          through getComputedStyle. */}
-      <div
-        ref={probeRef}
-        aria-hidden="true"
-        style={{ position: "fixed", top: 0, left: 0, width: "calc(68 * var(--body-unit))", height: "calc(68 * var(--body-unit))", visibility: "hidden", pointerEvents: "none" }}
-      />
-      {/* Neutron binary positioning probe — same spot/size the old DOM
-          version's own container used (see .hb-neutron-canvas in hub.css);
-          purely a measurement reference now; nothing renders inside it. */}
-      <div className="hb-neutron-canvas" ref={neutronProbeRef} aria-hidden="true" />
       {enabled && (
         <div className="hb-space-canvas" aria-hidden="true">
-          {/* antialias off, dpr capped at 1.5: MSAA plus a high device-pixel-
-              ratio full-screen canvas is real fill-rate cost every frame,
-              and iPad's GPU felt it. The soft circular sprite every particle
-              already uses anti-aliases their own edges regardless of MSAA. */}
-          <Canvas orthographic gl={{ alpha: true, antialias: false }} dpr={[1, 1.5]}>
+          {/* antialias off, dpr fixed at 1 (not even a [1, x] range): MSAA
+              plus a high device-pixel-ratio full-screen canvas is real
+              fill-rate cost every frame, and iPad's GPU (commonly DPR 2-3)
+              felt it. The soft circular sprite every particle already uses
+              anti-aliases their own edges regardless of MSAA. */}
+          <Canvas orthographic gl={{ alpha: true, antialias: false }} dpr={1}>
             <ScreenSpaceCamera />
-            <PlutoRig blackHoleRef={blackHoleRef} probeRef={probeRef} />
-            <NeutronRig containerRef={neutronProbeRef} flashRef={neutronFlashRef} />
+            <PlutoRig blackHoleRef={blackHoleRef} />
+            <NeutronRig flashRef={neutronFlashRef} />
           </Canvas>
         </div>
       )}

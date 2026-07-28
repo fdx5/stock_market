@@ -2055,6 +2055,17 @@ body:has(.hb) {
   pointer-events: none;
 }
 
+/* Belt-and-suspenders alongside Hub.tsx's own JS check (which is what
+   actually stops the lazy import from firing at all on a narrow viewport,
+   per an explicit request after touch stopped responding on a phone with
+   this scene loaded) — same 640px breakpoint every other decorative
+   element on this page already hides at. */
+@media (max-width: 640px) {
+  .hb-space-canvas {
+    display: none;
+  }
+}
+
 .hb-space-canvas canvas {
   display: block;
   width: 100%;
