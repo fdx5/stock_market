@@ -2827,18 +2827,63 @@ body:has(.hb) {
   height: calc(30 * var(--body-unit));
   margin: calc(-15 * var(--body-unit)) 0 0 calc(-15 * var(--body-unit));
   border-radius: 50%;
-  background: radial-gradient(
-    circle at 40% 36%,
-    #ffffff 0%,
-    #dcefff 22%,
-    #8fc6ff 52%,
-    #3f8fe6 82%,
-    #2470c9 100%
-  );
+  /* Four layers, bottom to top in this list's own reverse order: the sphere
+     itself last, and above it three tiled cell gradients that give the
+     surface its granulation — a mottled, close-grained texture, per an
+     explicit request, rather than a smooth airbrushed ball.
+
+     The three cell layers are the same dot gradient at three coprime tile
+     sizes (5/8/11px) and offset from each other. That coprimality is the
+     whole trick: any single tiled layer is a visibly regular grid, but three
+     grids that only re-align every 440px beat against each other into a
+     pattern the eye reads as irregular at this body's ~20-35px size. It is
+     also completely static, which is the point — the sun's surface on this
+     same page gets its granulation from three feTurbulence generators, and
+     because those sit inside continuously translating groups they were being
+     recomputed every frame and cost this page most of its frame rate. Tiled
+     gradients are rasterised once and never touched again.
+
+     background-blend-mode composites the cells INTO the sphere rather than
+     over it, so they shade with its own lighting instead of sitting on top as
+     a flat speckle. Unlike mix-blend-mode this never involves the backdrop —
+     it resolves inside this one element at raster time — so it carries none
+     of the compositing cost that made mix-blend-mode worth stripping out of
+     the sky layer. */
+  background:
+    radial-gradient(circle, rgba(232, 247, 255, 0.55) 0%, rgba(232, 247, 255, 0) 58%),
+    radial-gradient(circle, rgba(18, 78, 165, 0.6) 0%, rgba(18, 78, 165, 0) 60%),
+    radial-gradient(circle, rgba(150, 212, 255, 0.45) 0%, rgba(150, 212, 255, 0) 62%),
+    radial-gradient(
+      circle at 38% 32%,
+      #f4fcff 0%,
+      #a8dcff 12%,
+      #46a2f5 34%,
+      #1668d4 60%,
+      #0b449c 82%,
+      #072d6b 100%
+    );
+  /* Sized as PERCENTAGES of the body, not in px. This element is
+     `30 * --body-unit`, which resolves to roughly 19px on a 1024x768 tablet
+     and 35px on a 1080p desktop — a fixed px cell would have been a handful
+     of blotches at one end of that range and invisible at the other. In
+     percent the grain holds the same ~11/8/6 cells across at every viewport,
+     so it reads as the same surface everywhere. */
+  background-size: 9% 9%, 13% 13%, 17% 17%, 100% 100%;
+  background-position: 0 0, 2px 3px, 4px 1px, 0 0;
+  background-blend-mode: soft-light, overlay, soft-light, normal;
   box-shadow:
-    0 0 10px 3px rgba(255, 255, 255, 0.9),
-    0 0 30px 10px rgba(140, 200, 255, 0.7),
-    0 0 70px 24px rgba(70, 150, 255, 0.42);
+    /* The outline. A hairline of lit rim right at the edge is what gives the
+       body a defined contour instead of letting its own glow wash the
+       boundary out — per an explicit request that the edge read as an edge.
+       The second inset is limb darkening on the side away from the light, so
+       the disc reads as a sphere rather than a flat coin. */
+    inset 0 0 0 1px rgba(186, 230, 255, 0.85),
+    inset -3px -4px 11px 2px rgba(3, 20, 54, 0.72),
+    /* Brighter and more saturated than the pair it replaces, per the same
+       request — this is the moment the whole sequence builds to. */
+    0 0 14px 4px rgba(214, 240, 255, 0.95),
+    0 0 38px 13px rgba(96, 180, 255, 0.85),
+    0 0 88px 30px rgba(38, 128, 255, 0.5);
   opacity: var(--merged);
   will-change: opacity;
   pointer-events: none;
@@ -2869,24 +2914,31 @@ body:has(.hb) {
      the centre with long faint tails, for the same reason: a spike that is
      uniformly bright along its length reads as a drawn line.
 
-     400% and not more: `.hb-space` clips at the viewport edge, and this body
-     sits inset from the right corner. At the tightest inset this renders at
-     (right: 9vw just past the 640px breakpoint below, where the pair is
-     hidden entirely), the 30° bars reach ~85px horizontally against ~110px of
-     available room. A longer spike would be cut off square by that edge,
-     which is worse than a shorter one. */
-  width: 400%;
+     500%, per an explicit request, and the clearance was re-checked rather
+     than assumed — `.hb-space` clips at the viewport edge and this body sits
+     inset from the right corner, so an over-long spike gets cut off square
+     there. Worked through at both ends of the range: on a 1024x768 tablet
+     --body-unit resolves to ~0.64px, so the body is ~19px and a 30° bar
+     reaches ~42px horizontally against ~112px of room; on a 1920x1080 desktop
+     it is ~35px, reaching ~75px against ~187px. Comfortable at both. (An
+     earlier 400% cap here was set from a --body-unit ceiling that needs a
+     viewport over 1371px TALL to actually reach.) */
+  width: 500%;
   height: 2px;
   transform: translate(-50%, -50%) rotate(var(--sa));
+  /* Deeper in the tails and brighter through the core than the first pass,
+     per an explicit request. The saturated blue carries far enough out that
+     the spike still reads as blue where it is faint, instead of desaturating
+     to a grey hairline the way the paler mix did. */
   background: linear-gradient(
     90deg,
-    rgba(140, 200, 255, 0) 0%,
-    rgba(150, 205, 255, 0.16) 28%,
-    rgba(185, 222, 255, 0.5) 43%,
-    rgba(235, 246, 255, 1) 50%,
-    rgba(185, 222, 255, 0.5) 57%,
-    rgba(150, 205, 255, 0.16) 72%,
-    rgba(140, 200, 255, 0) 100%
+    rgba(56, 140, 240, 0) 0%,
+    rgba(70, 158, 250, 0.26) 26%,
+    rgba(150, 212, 255, 0.72) 42%,
+    rgba(255, 255, 255, 1) 50%,
+    rgba(150, 212, 255, 0.72) 58%,
+    rgba(70, 158, 250, 0.26) 74%,
+    rgba(56, 140, 240, 0) 100%
   );
   pointer-events: none;
   /* The scintillation, on its own uneven clock per bar (below) so the six
@@ -2904,15 +2956,15 @@ body:has(.hb) {
    other direction (eight equal spikes) is what makes a rendering of this look
    like a generic sparkle instead of like the telescope. */
 .hb-neutron-spike--strut {
-  width: 240%;
-  opacity: 0.45;
+  width: 250%;
+  opacity: 0.5;
   background: linear-gradient(
     90deg,
-    rgba(140, 200, 255, 0) 0%,
-    rgba(150, 205, 255, 0.2) 30%,
-    rgba(205, 232, 255, 0.72) 50%,
-    rgba(150, 205, 255, 0.2) 70%,
-    rgba(140, 200, 255, 0) 100%
+    rgba(56, 140, 240, 0) 0%,
+    rgba(70, 158, 250, 0.22) 30%,
+    rgba(186, 228, 255, 0.8) 50%,
+    rgba(70, 158, 250, 0.22) 70%,
+    rgba(56, 140, 240, 0) 100%
   );
   animation: none;
 }
