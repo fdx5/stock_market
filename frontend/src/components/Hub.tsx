@@ -974,23 +974,23 @@ interface PlutoFragment {
   startTheta: number;
 }
 
-// 212 pieces total (180 rock chunks, per an explicit request, plus the
-// original 32 dust motes) — up from an earlier 96, itself already an
-// increase from 30 that had read as too sparse for a planet actually
-// breaking apart. Each fragment's own `life` stays short (see the earlier
-// 96-fragment pass's own note) to match PLUTO_DESTROY_DURATION's tight
-// 3-second window rather than every fragment's tail overrunning into the
-// next phase.
+// 40 pieces total (20 rock chunks + 20 dust motes) — pulled back down from
+// a 212-piece pass (180 chunks + 32 dust) that visibly dropped frames: each
+// fragment costs real per-frame trig plus a style write, and 212 of those
+// every tick was more than the page could sustain smoothly. Fewer, individually
+// bigger/longer-lived pieces (see the size/life bumps below) is what keeps this
+// still reading as "breaking apart" rather than a handful of specks, at a
+// frame rate that's actually fluid instead of stepping.
 const PLUTO_FRAGMENTS: PlutoFragment[] = (() => {
   const rand = mulberry32(31337);
   const list: PlutoFragment[] = [];
-  const CHUNKS = 180;
+  const CHUNKS = 20;
   for (let i = 0; i < CHUNKS; i += 1) {
     list.push({
       kind: "chunk",
       activateAt: Math.min(1, (i / CHUNKS) * 0.85 + rand() * 0.18),
-      life: 0.4 + rand() * 0.5,
-      size: 3 + rand() * 6,
+      life: 0.55 + rand() * 0.6,
+      size: 5 + rand() * 9,
       angleDeg: -75 + rand() * 150,
       fling: 12 + rand() * 22,
       spin: (rand() < 0.5 ? -1 : 1) * (140 + rand() * 320),
@@ -999,13 +999,13 @@ const PLUTO_FRAGMENTS: PlutoFragment[] = (() => {
       startTheta: 0,
     });
   }
-  const DUST = 32;
+  const DUST = 20;
   for (let i = 0; i < DUST; i += 1) {
     list.push({
       kind: "dust",
       activateAt: Math.min(1, (i / DUST) * 0.6 + rand() * 0.18),
-      life: 0.35 + rand() * 0.4,
-      size: 2 + rand() * 2.5,
+      life: 0.45 + rand() * 0.45,
+      size: 2.5 + rand() * 3,
       angleDeg: 0,
       fling: 0,
       spin: 0,
