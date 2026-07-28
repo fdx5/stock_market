@@ -4,24 +4,38 @@ import { getSessionId } from "./session";
 const EVENT_ENDPOINT = "/api/activity/event";
 const CLICK_DEBOUNCE_MS = 500;
 
+/** A route's display name in the admin statistics.
+ *
+ * Every route App.tsx can render needs its own entry here, and the fallback
+ * has to be something that reads as "unrecognised". Three separate rows in
+ * the admin ranking used to come back labelled "대시보드" with no way to tell
+ * them apart: /dashboard, which really is the stock desk, plus /global and
+ * /ai-prediction, which had no case of their own and so landed on the old
+ * fallback — which returned "대시보드" too. Anything unmatched is now "기타",
+ * so a route added to App.tsx without a line here shows up as obviously
+ * missing rather than quietly impersonating the desk. */
 export function pageLabel(path: string): string {
   // "/" is the orbit entrance now, not the stock desk — the desk moved to
   // /dashboard. Without this the admin dashboard filed every landing on the new
   // main page under "대시보드" and the two were indistinguishable in the stats.
   if (path === "/") return "메인 (태양계)";
-  if (path === "/dashboard") return "대시보드";
+  if (path === "/dashboard") return "종목 대시보드";
   if (/^\/investor\//.test(path)) return "투자자 동향";
   if (/^\/index\/(kospi|kosdaq)/i.test(path)) return "지수 차트";
   if (path === "/map") return "KOSPI 맵";
   if (path === "/kosdaq-map") return "KOSDAQ 맵";
   if (path === "/sp500-map") return "S&P500 맵";
   if (path === "/nasdaq100-map") return "NASDAQ100 맵";
+  if (path === "/global") return "해외 종목";
   if (path === "/battle") return "줄다리기";
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";
+  if (path === "/ai-prediction") return "AI 종목예측";
+  if (path === "/ai-prediction/grading") return "AI 예측 채점";
   if (path === "/admin") return "관리자 로그인";
   if (path === "/admin/dashboard") return "관리자 대시보드";
-  return "대시보드";
+  if (path === "/admin/db") return "관리자 DB";
+  return "기타";
 }
 
 function isAdminPath(path: string): boolean {

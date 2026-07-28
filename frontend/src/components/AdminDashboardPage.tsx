@@ -44,6 +44,9 @@ const SERIES_VARS = [
   "--series-orange",
 ];
 
+/** Minimum searches for a stock to appear in the ranking at all. */
+const STOCK_RANK_MIN_COUNT = 10;
+
 const TYPE_META: Record<string, { label: string; colorVar: string }> = {
   page_view: { label: "이동", colorVar: "--series-blue" },
   click: { label: "클릭", colorVar: "--series-violet" },
@@ -440,7 +443,11 @@ export default function AdminDashboardPage() {
     if (!authed) return undefined;
     let cancelled = false;
     const load = () => {
-      Promise.all([adminApi.pagesTop(10), adminApi.stocksTop(10)])
+      // Both lists scroll past their first ten now, so they are fetched whole
+      // rather than pre-truncated to what fits: every route the app has for
+      // pages, and enough stocks that the 10-search floor applied below is
+      // what actually ends the list rather than this number.
+      Promise.all([adminApi.pagesTop(200), adminApi.stocksTop(500)])
         .then(([pages, stocks]) => {
           if (cancelled) return;
           setPagesTop(pages.items);
@@ -847,7 +854,14 @@ export default function AdminDashboardPage() {
     count: p.count,
   }));
   const topPageCount = rankedPages[0]?.count ?? 0;
-  const topStockCount = stocksTop?.[0]?.count ?? 0;
+
+  /* Every stock searched at least ten times, per an explicit request — the
+     list shows its top ten without scrolling and the rest are reachable by
+     scrolling it. The floor is what keeps that from running to hundreds of
+     rows: single-digit counts are mostly one person opening one thing once,
+     which is noise in a ranking rather than a tail of it. */
+  const rankedStocks = (stocksTop ?? []).filter((s) => s.count >= STOCK_RANK_MIN_COUNT);
+  const topStockCount = rankedStocks[0]?.count ?? 0;
 
   return (
     <div className="admin-dash-page">
@@ -1226,7 +1240,10 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="admin-trend-toppages">
-          <h3 className="admin-trend-toppages-title">TOP 10 페이지 (7일 누적)</h3>
+          <h3 className="admin-trend-toppages-title">
+            페이지 순위 (7일 누적)
+            <span className="admin-toppages-hint">스크롤하면 전체</span>
+          </h3>
           {pagesTop === null ? (
             <div className="admin-toppages-list">
               {[0, 1, 2, 3, 4].map((i) => (
@@ -1238,7 +1255,7 @@ export default function AdminDashboardPage() {
           ) : rankedPages.length === 0 ? (
             <p className="admin-empty">아직 수집된 데이터가 없습니다.</p>
           ) : (
-            <div className="admin-toppages-list">
+            <div className="admin-toppages-list admin-toppages-list--scroll">
               {rankedPages.map((p, i) => {
                 const rank = i + 1;
                 const medal = RANK_MEDAL[rank];
@@ -1273,7 +1290,10 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="admin-trend-topstocks">
-          <h3 className="admin-trend-toppages-title">TOP 10 종목검색 (7일 누적)</h3>
+          <h3 className="admin-trend-toppages-title">
+            종목검색 순위 (7일 누적)
+            <span className="admin-toppages-hint">10회 이상 · 스크롤하면 전체</span>
+          </h3>
           {stocksTop === null ? (
             <div className="admin-toppages-list">
               {[0, 1, 2, 3, 4].map((i) => (
@@ -1282,11 +1302,15 @@ export default function AdminDashboardPage() {
                 </div>
               ))}
             </div>
-          ) : stocksTop.length === 0 ? (
-            <p className="admin-empty">아직 검색 기록이 없습니다.</p>
+          ) : rankedStocks.length === 0 ? (
+            <p className="admin-empty">
+              {stocksTop.length === 0
+                ? "아직 검색 기록이 없습니다."
+                : `${STOCK_RANK_MIN_COUNT}회 이상 검색된 종목이 아직 없습니다.`}
+            </p>
           ) : (
-            <div className="admin-toppages-list">
-              {stocksTop.map((s, i) => {
+            <div className="admin-toppages-list admin-toppages-list--scroll">
+              {rankedStocks.map((s, i) => {
                 const rank = i + 1;
                 const medal = RANK_MEDAL[rank];
                 const pct = topStockCount > 0 ? (s.count / topStockCount) * 100 : 0;

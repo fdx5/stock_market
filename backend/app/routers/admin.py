@@ -81,15 +81,19 @@ def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)
 _RANKING_WINDOW = timedelta(days=7)
 
 
+# The admin ranking lists scroll past their top ten now, so these ceilings are
+# what actually bounds them. Both are well past the real cardinality: the app
+# has a couple of dozen distinct routes, and a stock ranking is filtered client
+# side to searches with double-digit counts before it is drawn.
 @router.get("/pages/top", dependencies=[Depends(require_admin)])
-def pages_top(limit: int = Query(7, ge=1, le=50)):
+def pages_top(limit: int = Query(7, ge=1, le=200)):
     since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
     items = page_view_store.counts_by_page(since)[:limit]
     return {"items": items}
 
 
 @router.get("/stocks/top", dependencies=[Depends(require_admin)])
-def stocks_top(limit: int = Query(10, ge=1, le=50)):
+def stocks_top(limit: int = Query(10, ge=1, le=500)):
     since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
     items = stock_search_store.top_searches(since, limit)
     return {"items": items}

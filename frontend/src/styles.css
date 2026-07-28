@@ -9507,16 +9507,64 @@ thead .weekly-foreign-amount-col {
 
 .admin-trend-toppages-title {
   margin: 0 0 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--text-muted);
 }
 
+/* Says the list keeps going. Without it a list that happens to fill its own
+   height exactly looks like the whole set — the scrollbar is the only other
+   cue and on a trackpad or a touchscreen it isn't drawn until you scroll. */
+.admin-toppages-hint {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0;
+  color: var(--text-muted);
+  opacity: 0.72;
+}
+
 .admin-toppages-list {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* Ten rows tall, scrolling past that. These rankings used to be cut to ten
+   server-side; they now come back whole (every route for pages, every stock
+   past a 10-search floor) and this is what keeps the panel the same size it
+   was while making the rest reachable.
+
+   The height is the row box (~29px) plus its 4px gap, times ten, less the one
+   trailing gap — and deliberately lands mid-row rather than flush, so a
+   partly visible eleventh row is itself the signal that there is more below.
+   `overscroll-behavior` keeps a flick at the end of the list from carrying on
+   into the page behind it. */
+.admin-toppages-list--scroll {
+  max-height: 336px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Room for the scrollbar so the bars underneath don't reflow when it
+     appears, and so it never sits on top of a count. */
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.admin-toppages-list--scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.admin-toppages-list--scroll::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
+}
+
+.admin-toppages-list--scroll::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .admin-toppages-row {
