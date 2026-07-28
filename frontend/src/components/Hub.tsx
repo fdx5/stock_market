@@ -823,6 +823,19 @@ export default function Hub() {
         </div>
         <div className="hb-shooting hb-shooting--1" />
         <div className="hb-shooting hb-shooting--2" />
+        {/* Two equal-size neutron stars, mutually orbiting a shared centre
+            (not one orbiting the other) — a single rotating pivot holding
+            both bodies at opposite ends of one diameter, per an explicit
+            request. See .hb-neutron-binary in hub.css for the spin/glow
+            timing (2s→1s→0.5s→0.2s orbital period over the first 10s, then
+            a faster 1s→0.5s→0.2s sweep repeating forever, brightness rising
+            with speed at every stage). */}
+        <div className="hb-neutron-binary" aria-hidden="true">
+          <div className="hb-neutron-orbit">
+            <span className="hb-neutron-star hb-neutron-star--a" />
+            <span className="hb-neutron-star hb-neutron-star--b" />
+          </div>
+        </div>
         <div className="hb-vignette" />
       </div>
 
