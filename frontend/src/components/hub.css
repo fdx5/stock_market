@@ -2094,12 +2094,26 @@ body:has(.hb) {
 .hb-pluto-body {
   width: 100%;
   height: 100%;
-  clip-path: url(#hb-pluto-erosion);
   /* Left edge pinned, so usePlutoEvent's scaleX/scaleY spaghettification
      stretch (see PLUTO_STRETCH_MAX/SQUASH_MAX in Hub.tsx) grows out to the
      right — into the black hole — instead of symmetrically from the
      centre, which wouldn't read as being pulled toward anything. */
   transform-origin: 0% 50%;
+}
+
+/* clip-path lives on its own class, added only for the ~4s destroy window
+   (see usePlutoEvent's `destroying`/`wasDestroying` handling in Hub.tsx)
+   rather than sitting on `.hb-pluto-body` permanently. Pluto's texture is
+   spinning (see PhotoPlanetBody/.hb-photo-spin) for the entire ~15s cycle,
+   not just while it's being torn apart, and Safari/iPadOS in particular
+   tends to fall off its normal hardware-accelerated compositing path for
+   an element carrying an SVG clip-path, repainting it in software on every
+   frame something inside it moves — which a continuous spin animation
+   does constantly. Keeping the clip off entirely outside the one phase
+   that actually needs it is what lets the other ~11 of every 15 seconds
+   composite the spin cheaply. */
+.hb-pluto-body.is-tearing {
+  clip-path: url(#hb-pluto-erosion);
   will-change: transform, opacity;
 }
 

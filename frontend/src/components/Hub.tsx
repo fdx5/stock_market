@@ -1114,6 +1114,14 @@ function usePlutoEvent(
 
       const destroying = cycleElapsed >= PLUTO_TEAR_START && cycleElapsed < PLUTO_DESTROY_TAIL_END;
       if (destroying) {
+        if (!wasDestroying) {
+          // Just entered the destroy window — this is the one moment
+          // .hb-pluto-body actually needs its clip-path (see
+          // .hb-pluto-body.is-tearing in hub.css for why that class isn't
+          // just left on permanently).
+          bodyRef.current?.classList.add("is-tearing");
+        }
+
         // Tear progress is purely time-based (see PLUTO_TEAR_START/LEN
         // above) rather than derived from gap, since destruction's own
         // pace no longer tracks the approach speed once it starts.
@@ -1207,6 +1215,7 @@ function usePlutoEvent(
         if (poly) poly.setAttribute("points", "0,0 1,0 1,1 0,1");
         const body = bodyRef.current;
         if (body) {
+          body.classList.remove("is-tearing");
           body.style.transform = "";
           body.style.opacity = "";
         }
