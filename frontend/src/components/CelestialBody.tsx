@@ -597,11 +597,12 @@ export function BlackHoleBody({ id }: { id: string }) {
   return (
     <svg className="hb-blackhole-body" viewBox="0 0 260 260" aria-hidden="true" focusable="false">
       <defs>
-        {/* A third, very large and very faint layer — the outermost bleed,
-            reaching almost to the edge of `.hb-blackhole-wrap`'s own extra
-            headroom (see hub.css: the wrap is sized 1.9x the visible button
-            specifically so glow this size has room to actually spread into
-            rather than clipping at the button's own edge). */}
+        {/* A third, very large and very faint layer — the outermost bleed.
+            Safe to draw this far past the viewBox's own 130 half-width
+            (r=225) since `.hb-blackhole-body` has overflow:visible and,
+            unlike the sun, this button carries no 3D transform of its own
+            for a composited layer to clip the ink to — see `.hb-blackhole`
+            in hub.css for why it needs no oversized wrap box either. */}
         <radialGradient id={farBloom} cx="50%" cy="50%" r="50%">
           <stop offset="0%" stopColor="#ffdca0" stopOpacity="0.28" />
           <stop offset="45%" stopColor="#ffa855" stopOpacity="0.13" />

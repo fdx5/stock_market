@@ -860,18 +860,22 @@ export default function Hub() {
           as a curiosity. Fixed to the viewport for the same reason
           `.hb-voyager` sits outside `.hb-stage`: it isn't part of the solar
           system's 3D geometry, so it has no business inside the tilted plane
-          that geometry lives on. */}
-      <div className="hb-blackhole-wrap">
-        <button
-          type="button"
-          className="hb-blackhole"
-          onClick={() => open("/dashboard")}
-          aria-label={en ? "Black hole: Home (dashboard)" : "블랙홀: 홈 (대시보드)"}
-          title={en ? "Gargantua" : "가르강튀아"}
-        >
-          <BlackHoleBody id="hub" />
-        </button>
-      </div>
+          that geometry lives on. No oversized wrap box around this one the
+          way `.hb-starwrap` has around the sun — that box exists to work
+          around a Chromium quirk that only bites inside `.hb-system`'s
+          preserve-3d stage (see that comment), which this button, sitting
+          outside the stage with no 3D transforms of its own, was never
+          part of; a copied-over wrap box here only added a second layer of
+          corner-anchor math to get wrong; see hub.css. */}
+      <button
+        type="button"
+        className="hb-blackhole"
+        onClick={() => open("/dashboard")}
+        aria-label={en ? "Black hole: Home (dashboard)" : "블랙홀: 홈 (대시보드)"}
+        title={en ? "Gargantua" : "가르강튀아"}
+      >
+        <BlackHoleBody id="hub" />
+      </button>
 
       <div className="hb-stage" ref={stageRef}>
         <div className="hb-parallax">
