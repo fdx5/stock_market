@@ -1,9 +1,21 @@
 name: Keep Render instance awake
 
-# Render's free plan spins the service down after ~15 minutes with no traffic and
-# pays a 30-60s cold-start on the next request. Pinging on a tighter cadence than
-# that keeps it warm - this workflow needs no secrets or external accounts, just
-# GitHub's own scheduler.
+# This ran every 10 minutes to stop Render's FREE plan spinning the service down
+# after ~15 idle minutes. The service is on `standard` now (see render.yaml), which
+# does not spin down at all, so that original reason is gone - and the cache-warming
+# reason below does not need ten-minute resolution either: the map caches live 10-60
+# seconds (FIRST/SECOND/LONG_TAIL_TTL_SECONDS in services/market_map.py), so a warm
+# only helps a visitor who arrives inside the minute after this job runs. At ten
+# minutes that was a ~10% window; the other ~90% of visitors were always going to
+# refill the cache themselves either way.
+#
+# The case a warm genuinely matters for is a cold process, and main.py already warms
+# every one of these on startup (_warm_market_maps / _warm_dashboard_default_stock),
+# which is correlated with a restart in a way a wall-clock cron never is.
+#
+# So: 30 minutes. A third of the runs, the same practical freshness, and together
+# with --compressed below it takes this job from roughly 650 MB a month to under 50.
+# Hourly would also be defensible on the reasoning above if bandwidth gets tighter.
 #
 # Beyond just keeping the process alive, this also pings the KOSPI/KOSDAQ map API
 # directly (not just /api/health) at the exact same `limit` tiers the frontend
@@ -27,7 +39,7 @@ name: Keep Render instance awake
 # are outside this workflow's control.
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/30 * * * *"
   workflow_dispatch: {}
 
 jobs:
