@@ -486,16 +486,20 @@ function Moonlet({ spec, en, onOpen }: { spec: MoonSpec; en: boolean; onOpen: (t
   if (spec.kind === "lunar") {
     return (
       <div className="hb-moon-orbiter hb-moon-orbiter--equatorial" style={style}>
-        <div className="hb-earth-moon-arm">
-          <div className="hb-moon-face hb-moon-face--equatorial">
-            <button
-              type="button"
-              className="hb-moon hb-moon--lunar"
-              onClick={() => onOpen(spec.to)}
-              aria-label={`${en ? "Satellite" : "위성"}: ${label}`}
-            >
-              <PhotoPlanetBody id="moon" skin={MOON_SKIN} />
-            </button>
+        {/* The depth swap sits on its own element — see .hb-moon-depth in
+            hub.css, and .hb-orbit-spin for the same split on the planets. */}
+        <div className="hb-moon-depth">
+          <div className="hb-earth-moon-arm">
+            <div className="hb-moon-face hb-moon-face--equatorial">
+              <button
+                type="button"
+                className="hb-moon hb-moon--lunar"
+                onClick={() => onOpen(spec.to)}
+                aria-label={`${en ? "Satellite" : "위성"}: ${label}`}
+              >
+                <PhotoPlanetBody id="moon" skin={MOON_SKIN} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -622,9 +626,14 @@ function Planet({
   } as React.CSSProperties;
 
   return (
+    /* Two nested elements rather than one carrying both animations — see
+       .hb-orbiter/.hb-orbit-spin in hub.css. The revolution has to sit on an
+       element whose animations are ALL compositable, and the z-index swap
+       that stands in for depth sorting is not one. */
     <div className="hb-orbiter" style={style}>
-      <div className="hb-arm">
-        <div className="hb-billboard">
+      <div className="hb-orbit-spin">
+        <div className="hb-arm">
+          <div className="hb-billboard">
           <button
             type="button"
             className="hb-planet"
@@ -639,13 +648,14 @@ function Planet({
               )}
             </span>
           </button>
-          {(spec.key === "earth" || spec.key === "mars") && (
-            <div className="hb-moons">
-              {(spec.key === "earth" ? EARTH_MOONS : MARS_MOONS).map((moon) => (
-                <Moonlet key={moon.key} spec={moon} en={en} onOpen={onOpen} />
-              ))}
-            </div>
-          )}
+            {(spec.key === "earth" || spec.key === "mars") && (
+              <div className="hb-moons">
+                {(spec.key === "earth" ? EARTH_MOONS : MARS_MOONS).map((moon) => (
+                  <Moonlet key={moon.key} spec={moon} en={en} onOpen={onOpen} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

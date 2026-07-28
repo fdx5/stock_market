@@ -723,13 +723,39 @@ body:has(.hb) {
      input; `.hb-arm` and `.hb-billboard` inherit this and the button opts back
      in below. */
   pointer-events: none;
-  /* hb-orbit carries the revolution itself (now with the plane's tilt baked
-     in — see its own comment); hb-orbit-depth is a same-duration, same-delay
-     z-index swap that stands in for real cross-boundary 3D depth-sorting
-     against the star, which iPad/iOS Safari doesn't do reliably — see the
-     comment on this element's render call in Hub.tsx. */
-  animation: hb-orbit var(--d) linear infinite, hb-orbit-depth var(--d) linear infinite;
-  animation-delay: var(--delay), var(--delay);
+  /* hb-orbit-depth ONLY. It is a same-duration, same-delay z-index swap that
+     stands in for real cross-boundary 3D depth-sorting against the star,
+     which iPad/iOS Safari doesn't do reliably — see the comment on this
+     element's render call in Hub.tsx.
+
+     The revolution itself used to run here too, as a second name in this same
+     list. That pairing is why it moved: `z-index` is not a property a
+     compositor can animate, and an element with any non-compositable
+     animation on it has ALL of its animations demoted to the main thread —
+     including a `transform` that would otherwise have run entirely on the
+     GPU. So every planet's orbit was driving a full style/layout/paint pass
+     through the whole `preserve-3d` stage on every frame, purely because it
+     shared an element with a z-index swap that changes value twice per lap.
+     Splitting them costs one wrapper element and nothing else: this element
+     is zero-sized and sits at the same origin as the child below, so the
+     composed transform reaching `.hb-arm` is identical either way. */
+  animation: hb-orbit-depth var(--d) linear infinite;
+  animation-delay: var(--delay);
+}
+
+/* The revolution. Nothing but a compositable transform animation on this
+   element, which is the entire point of it existing separately from
+   `.hb-orbiter` above. */
+.hb-orbit-spin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  transform-style: preserve-3d;
+  animation: hb-orbit var(--d) linear infinite;
+  animation-delay: var(--delay);
+  will-change: transform;
 }
 
 /* Used to be just rotateZ, with the plane's rotateX(tilt) coming for free
@@ -771,6 +797,10 @@ body:has(.hb) {
   transform-style: preserve-3d;
   animation: hb-billboard var(--d) linear infinite;
   animation-delay: var(--delay);
+  /* One per planet, running for the life of the page, and the counterpart to
+     `.hb-orbit-spin`'s: both have to be composited or the pair of them drags
+     the whole 3D stage onto the main thread between them. */
+  will-change: transform;
 }
 
 @keyframes hb-billboard {
@@ -851,14 +881,29 @@ body:has(.hb) {
      mobile's much smaller, fixed --body-unit, so the orbit visibly detached
      and swung far below the now much-smaller planet. */
   --eq-offset-y: calc(56 * var(--body-unit));
-  /* A second animation, sharing this element's own duration/delay from the
-     base .hb-moon-orbiter rule (a comma-separated animation-name list reuses
-     a single non-list animation-delay/duration for every name in it) — see
-     hb-moon-orbit-depth-equatorial below for what it does. Together these
-     read as one continuous, one-directional revolution (0°→360°, never
-     reversing) that also passes behind and back in front of Earth once per
-     lap, rather than a flat side-to-side wobble. */
-  animation-name: hb-moon-cw-equatorial, hb-moon-orbit-depth-equatorial;
+  /* The sweep only. Its depth swap (hb-moon-orbit-depth-equatorial, which is
+     what makes the Moon pass behind Earth and back in front once per lap
+     rather than wobble flatly side to side) used to be a second name in this
+     same list, and moved to `.hb-moon-depth` below for exactly the reason
+     `.hb-orbiter`'s did: it animates z-index, and one non-compositable
+     animation demotes every other animation on the same element to the main
+     thread with it. */
+  animation-name: hb-moon-cw-equatorial;
+}
+
+/* Carries the equatorial Moon's depth swap, wrapping the arm rather than
+   sharing an element with the sweep above. Zero-sized and unpositioned in its
+   own right, so it contributes no geometry — see `.hb-orbit-spin` for the
+   same split on the planets themselves, and the note there for why one
+   z-index animation was worth this much trouble to isolate. */
+.hb-moon-depth {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  animation: hb-moon-orbit-depth-equatorial var(--md) linear infinite;
+  animation-delay: var(--mdelay);
 }
 
 @keyframes hb-moon-cw-equatorial {
@@ -1844,6 +1889,17 @@ body:has(.hb) {
   display: none;
 }
 
+/* Three orbit rings, each rotating a conic-gradient arc for the life of the
+   page — with a filter on it. A filter and an animating transform on the same
+   element is the compositing question `.hb-orbiter`'s split is about, from the
+   other direction: the transform can be composited only if the filtered result
+   can be cached, and inside a preserve-3d stage that is not something to rely
+   on. The blur was 0.4px in any case, which is below what this ever resolved
+   to on screen. */
+.hb.is-lite .hb-ring-arc {
+  filter: none;
+}
+
 /* Three stacked drop-shadows, the widest a 42px blur, on an element that
    crosses the entire viewport — cut to the two that carry the bloom. */
 .hb.is-lite .hb-shooting {
@@ -1889,6 +1945,17 @@ body:has(.hb) {
 .hb.is-minimal .hb-twinklers,
 .hb.is-minimal .hb-shooting {
   display: none;
+}
+
+/* Ten sliding textures — one per planet, plus Pluto and the Moon — each two
+   full-size images wide, all of them inside the `preserve-3d` stage that
+   measurement showed owns this page's frame rate. Frozen, every planet's
+   subtree is static content under a transform, which is the cheapest thing a
+   compositor handles; the planets still orbit and still face the camera. The
+   textures stop turning, which is a real loss and the reason this is only
+   here, at the bottom tier, and not one step up. */
+.hb.is-minimal .hb-photo-spin {
+  animation: none;
 }
 
 /* The disc stops entirely, which takes the black hole's SVG from repainting
@@ -1975,8 +2042,10 @@ body:has(.hb) {
    o'clock. Pausing freezes each one exactly where its phase placed it. */
 @media (prefers-reduced-motion: reduce) {
   .hb-orbiter,
+  .hb-orbit-spin,
   .hb-billboard,
   .hb-moon-orbiter,
+  .hb-moon-depth,
   .hb-moon-face,
   .hb-mars-rocket-face,
   .hb-asteroid-belt {
