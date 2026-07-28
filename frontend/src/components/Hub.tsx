@@ -4,7 +4,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { BASE_R, BlackHoleBody, PhotoPlanetBody, PhotoSkin, RocketCraft, SatelliteCraft, StarBody, VoyagerCraft } from "./CelestialBody";
+import { BASE_R, BlackHoleBody, PhotoPlanetBody, PhotoSkin, RocketCraft, SatelliteCraft, StarBody, SupernovaGas, VoyagerCraft } from "./CelestialBody";
 import LanguageToggle from "./LanguageToggle";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
@@ -2035,18 +2035,28 @@ export default function Hub() {
           rectangle. */}
       <div className="hb-supernova" ref={supernovaRef} aria-hidden="true">
         {/* The leading shock front, the blue-white ring that runs out ahead of
-            everything else and is off the screen inside a few seconds. */}
+            everything else and is off the screen inside a few seconds. Still a
+            CSS gradient: it is thin, bright and moving fast enough that the
+            procedural gas below would be wasted on it. */}
         <span className="hb-sn-shock" />
-        {/* The body of the remnant, four nested shells that expand at their
-            own rates and cool through their own colours as they go. */}
+        {/* The fireball, likewise still a plain gradient — for its first
+            couple of seconds the material really is an opaque, structureless
+            ball of light, and it is mostly hidden under the flash anyway. */}
         <span className="hb-sn-shell hb-sn-shell--core" />
-        <span className="hb-sn-shell hb-sn-shell--hot" />
-        <span className="hb-sn-shell hb-sn-shell--main" />
-        <span className="hb-sn-shell hb-sn-shell--outer" />
-        {/* Radial filaments — the streaky, spoked structure every photograph
-            of a real remnant has, counter-rotating so the cloud churns. */}
-        <span className="hb-sn-fil hb-sn-fil--warm" />
-        <span className="hb-sn-fil hb-sn-fil--cool" />
+        {/* The body of the remnant: four procedurally warped gas shells (see
+            SupernovaGas in CelestialBody.tsx) expanding at their own rates and
+            cooling through their own colours. These replaced four smooth CSS
+            ring gradients plus two counter-rotating conic "spoke" layers —
+            perfect ramps banded against the dark sky and read as airbrushed
+            hoops, and evenly spaced radial spokes are a symmetry no real
+            remnant has. Turbulence-displaced ramps with a lacy filament net
+            over them is what the Crab actually looks like.
+            The synchrotron haze is painted first, so it sits INSIDE the
+            filamentary shells the way it does in the real object. */}
+        <SupernovaGas id="hub" variant="synchrotron" />
+        <SupernovaGas id="hub" variant="hot" />
+        <SupernovaGas id="hub" variant="main" />
+        <SupernovaGas id="hub" variant="outer" />
         {EJECTA_KNOTS.map((knot, i) => (
           <span
             key={i}

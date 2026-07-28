@@ -1254,3 +1254,274 @@ export function RocketCraft() {
     </svg>
   );
 }
+
+/* ───────────────────────────── supernova gas ─────────────────────────────
+
+   The ejecta cloud's shells, as procedural gas rather than as the smooth CSS
+   radial gradients they started as.
+
+   That first pass got the STRUCTURE right — hollow, layered by speed, red and
+   orange bulk with a blue shock ahead of it — but every layer of it was a
+   mathematically perfect circular ramp, and that is the one thing a real
+   nebula never is. Perfect ramps band (a large, slowly-scaled gradient over a
+   near-black sky quantises into visible concentric steps) and they have no
+   edge: gas is ragged, wispy and lacy, and a smooth ramp reads as an
+   airbrushed ring however well the colours are chosen.
+
+   Both problems have the same fix, which is what this component is:
+   `feTurbulence` fractal noise driving a `feDisplacementMap` over the ramp.
+   The ring keeps its overall radial structure and its colour, but its edges
+   are pushed and pulled into wisps and streamers — and the displacement
+   scatters the gradient's own quantisation steps while it is at it, so the
+   banding stops being visible because no two neighbouring pixels sit on the
+   same step any more. A second turbulence pass, pushed to high contrast and
+   used as a mask, lays the lacy filament NET over the top: the Crab's actual
+   signature is a web of fine bright threads with dark lanes between them, not
+   the evenly-spaced radial spokes a repeating-conic-gradient produces (which
+   is what this replaces — no real remnant has that kind of symmetry).
+
+   Cost, and why these filters are affordable when the same ones had to be
+   taken off the black hole: nothing animates INSIDE these SVGs. Every filter
+   runs exactly once, when the layer is first rasterised, and from then on the
+   element is only scaled and faded by the compositor with no repaint at all.
+   That is the exact opposite of the black hole's arrangement, where a live
+   animation inside the SVG forced its filters to re-run every frame. The
+   one-time cost also lands in the same instant the white flash is washing the
+   whole screen out, so any hitch it causes is hidden behind it. numOctaves
+   stays at 3 and each element is authored well under its final on-screen size
+   for the same reason; the compositor's upscale softens them, which for gas
+   is the wanted direction anyway. */
+
+interface GasShell {
+  /** Displacement strength, in the 400-unit viewBox's own units. Large values
+   * tear the ring into separate streamers; small ones only roughen its edge. */
+  warp: number;
+  /** Turbulence scale. Low frequency = big lazy billows, high = fine wisps. */
+  frequency: string;
+  /** Post-displacement blur, which is what keeps the warp reading as gas
+   * rather than as a noisy edge — feDisplacementMap moves pixels, and moved
+   * pixels have hard boundaries until something softens them. */
+  soften: number;
+  seed: number;
+  /** This shell's colour ramp, inner to outer, as [offset, colour, alpha].
+   * Many stops on purpose: the displacement hides banding, but starting from
+   * a smooth ramp means there is less of it to hide. */
+  stops: [number, string, number][];
+  /** The lacy filament net over the top. Omitted where it would only add
+   * noise — the smooth synchrotron interior has no filaments in the real
+   * thing either. */
+  lace?: { frequency: string; seed: number; color: string; opacity: number };
+}
+
+/** Crab-inspired, and deliberately not one hue per shell: the real object's
+ * colour comes from several emission lines overlapping at different radii,
+ * which is why each ramp below crosses two or three hues rather than fading a
+ * single colour out to transparent. */
+const GAS_SHELLS = {
+  /* The hot inner body: white-gold through amber into deep red. */
+  hot: {
+    warp: 34,
+    frequency: "0.009 0.013",
+    soften: 3.5,
+    seed: 17,
+    stops: [
+      [0, "#fff6e2", 0],
+      [0.16, "#ffe9bd", 0.16],
+      [0.3, "#ffca7a", 0.4],
+      [0.44, "#ff9d4e", 0.52],
+      [0.58, "#f4653a", 0.46],
+      [0.72, "#c8312f", 0.3],
+      [0.86, "#7c1636", 0.12],
+      [1, "#3a0a24", 0],
+    ],
+    lace: { frequency: "0.05 0.042", seed: 31, color: "#ffd9a0", opacity: 0.5 },
+  },
+  /* The bulk of the remnant, carrying the Crab's own signature colour:
+     scarlet H-alpha filaments shading out through magenta. */
+  main: {
+    warp: 52,
+    frequency: "0.006 0.0085",
+    soften: 4.5,
+    seed: 53,
+    stops: [
+      [0, "#ff8a5c", 0],
+      [0.2, "#ff7a4e", 0.1],
+      [0.34, "#f4553f", 0.3],
+      [0.48, "#e0304a", 0.42],
+      [0.62, "#c02463", 0.4],
+      [0.76, "#8e2183", 0.26],
+      [0.9, "#4a1a6e", 0.1],
+      [1, "#1d0b38", 0],
+    ],
+    lace: { frequency: "0.038 0.032", seed: 71, color: "#ff9d86", opacity: 0.62 },
+  },
+  /* The cool outer halo — [O III] teal running into indigo. This is what is
+     left once the hot material has faded, and the last thing on screen. */
+  outer: {
+    warp: 66,
+    frequency: "0.0045 0.006",
+    soften: 6,
+    seed: 97,
+    stops: [
+      [0, "#7fd4ff", 0],
+      [0.26, "#6fc4ff", 0.08],
+      [0.42, "#5aa2ff", 0.22],
+      [0.56, "#5b7ef0", 0.26],
+      [0.7, "#7a5ad8", 0.22],
+      [0.84, "#5b2f9e", 0.12],
+      [1, "#1a0a3c", 0],
+    ],
+    lace: { frequency: "0.03 0.026", seed: 113, color: "#a9e6ff", opacity: 0.42 },
+  },
+  /* The synchrotron interior: the diffuse blue-white haze filling the middle
+     of the Crab, and the one part of it that genuinely is smooth — it is not
+     line emission from filaments but relativistic electrons spiralling in the
+     remnant's magnetic field. Barely warped, no lace, and it FILLS rather
+     than rings, which is what makes the cloud read as a luminous body seen
+     through rather than as a hoop. */
+  synchrotron: {
+    warp: 16,
+    frequency: "0.011 0.009",
+    soften: 7,
+    seed: 149,
+    stops: [
+      [0, "#dff2ff", 0.34],
+      [0.28, "#b8dcff", 0.24],
+      [0.5, "#8fb8f2", 0.15],
+      [0.72, "#6d84d8", 0.07],
+      [1, "#2a2a6e", 0],
+    ],
+  },
+} satisfies Record<string, GasShell>;
+
+export type GasVariant = keyof typeof GAS_SHELLS;
+
+export function SupernovaGas({ id, variant }: { id: string; variant: GasVariant }) {
+  const shell: GasShell = GAS_SHELLS[variant];
+  const warpId = `sng-w-${id}-${variant}`;
+  const laceId = `sng-l-${id}-${variant}`;
+  const rampId = `sng-r-${id}-${variant}`;
+  const laceRampId = `sng-lr-${id}-${variant}`;
+
+  return (
+    <svg
+      className={`hb-sn-gas hb-sn-gas--${variant}`}
+      viewBox="0 0 400 400"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        {/* The warp. Generous filter region on purpose — displacement pushes
+            pixels well outside the source circle's own bounds, and the default
+            -10%/120% region would clip those streamers off square, which is
+            the one artifact that would give the whole thing away. */}
+        <filter
+          id={warpId}
+          x="-35%"
+          y="-35%"
+          width="170%"
+          height="170%"
+          colorInterpolationFilters="sRGB"
+        >
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency={shell.frequency}
+            numOctaves="3"
+            seed={shell.seed}
+            result="rawNoise"
+          />
+          {/* feTurbulence generates a noisy ALPHA channel alongside its RGB,
+              and filter operations work on premultiplied colour — so the R/G
+              the displacement below steers by come back scaled down by that
+              random alpha, wherever it happens to be low. Flattening alpha to
+              1 first (the last column of this matrix) is what makes the warp
+              strength actually mean what `scale` says rather than varying
+              randomly across the field. */}
+          <feColorMatrix
+            in="rawNoise"
+            type="matrix"
+            values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0 1"
+            result="noise"
+          />
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="noise"
+            scale={shell.warp}
+            xChannelSelector="R"
+            yChannelSelector="G"
+            result="warped"
+          />
+          <feGaussianBlur in="warped" stdDeviation={shell.soften} />
+        </filter>
+
+        {/* The filament net. luminanceToAlpha turns the noise field into an
+            alpha field, and the steep table on top of it is what separates
+            that into bright threads with dark lanes between — without the
+            table this reads as uniform haze rather than as filaments. */}
+        {shell.lace && (
+          <filter
+            id={laceId}
+            x="-35%"
+            y="-35%"
+            width="170%"
+            height="170%"
+            colorInterpolationFilters="sRGB"
+          >
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency={shell.lace.frequency}
+              numOctaves="3"
+              seed={shell.lace.seed}
+              result="lraw"
+            />
+            {/* Same alpha flattening as the warp filter above, and for the
+                same reason: luminanceToAlpha reads the RGB, and premultiplied
+                RGB under a random alpha is not the noise field that was
+                generated. Without this the threads come out patchy in a way
+                that tracks the noise's alpha rather than its luminance. */}
+            <feColorMatrix
+              in="lraw"
+              type="matrix"
+              values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0 1"
+              result="lnoise"
+            />
+            <feColorMatrix in="lnoise" type="luminanceToAlpha" result="lalpha" />
+            <feComponentTransfer in="lalpha" result="threads">
+              <feFuncA type="table" tableValues="0 0 0.05 0.45 1" />
+            </feComponentTransfer>
+            <feComposite in="SourceGraphic" in2="threads" operator="in" result="laced" />
+            <feGaussianBlur in="laced" stdDeviation="1.6" />
+          </filter>
+        )}
+
+        <radialGradient id={rampId} cx="50%" cy="50%" r="50%">
+          {shell.stops.map(([offset, color, alpha], i) => (
+            <stop key={i} offset={`${offset * 100}%`} stopColor={color} stopOpacity={alpha} />
+          ))}
+        </radialGradient>
+
+        {/* The lace is confined to the shell's own annulus — filaments belong
+            in the expanding material, not smeared across the hollow middle. */}
+        {shell.lace && (
+          <radialGradient id={laceRampId} cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor={shell.lace.color} stopOpacity="0" />
+            <stop offset="30%" stopColor={shell.lace.color} stopOpacity="0" />
+            <stop offset="48%" stopColor={shell.lace.color} stopOpacity={shell.lace.opacity * 0.7} />
+            <stop offset="64%" stopColor={shell.lace.color} stopOpacity={shell.lace.opacity} />
+            <stop offset="82%" stopColor={shell.lace.color} stopOpacity={shell.lace.opacity * 0.45} />
+            <stop offset="100%" stopColor={shell.lace.color} stopOpacity="0" />
+          </radialGradient>
+        )}
+      </defs>
+
+      <g filter={`url(#${warpId})`}>
+        <circle cx="200" cy="200" r="196" fill={`url(#${rampId})`} />
+      </g>
+      {shell.lace && (
+        <g filter={`url(#${laceId})`}>
+          <circle cx="200" cy="200" r="196" fill={`url(#${laceRampId})`} />
+        </g>
+      )}
+    </svg>
+  );
+}

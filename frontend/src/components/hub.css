@@ -3227,19 +3227,28 @@ body:has(.hb) {
        remnant stay visible inside its own explosion after the first seconds.
      · the colour is LAYERED BY SPEED. Shocked, doubly-ionised oxygen glows
        blue and runs out in front (.hb-sn-shock); hydrogen and sulphur glow
-       red and orange and make up the slow bulk behind it (.hb-sn-shell--main
-       / --outer); the hottest material, white through gold, is closest in
-       and dies first (--core / --hot). Painting the whole thing one colour
-       is the single thing that most makes a rendered explosion look fake.
-     · it is FILAMENTARY and LUMPY. The radial streaks (.hb-sn-fil) and the
-       twenty discrete clumps thrown on their own headings (.hb-sn-knot; see
+       red and orange and make up the slow bulk behind it
+       (.hb-sn-gas--main / --outer); the hottest material, white through
+       gold, is closest in (.hb-sn-shell--core / .hb-sn-gas--hot) and dies
+       first. Painting the whole thing one colour is the single thing that
+       most makes a rendered explosion look fake.
+     · the middle is SMOOTH where the shell is not. The Crab's interior is
+       filled with a structureless blue-white synchrotron haze — not line
+       emission from filaments but electrons spiralling in the remnant's
+       magnetic field — and .hb-sn-gas--synchrotron is it. Without something
+       filling the middle the cloud reads as a hoop rather than as a body.
+     · it is FILAMENTARY and LUMPY. The lacy filament net (built into each
+       .hb-sn-gas shell — see SupernovaGas in CelestialBody.tsx for the
+       turbulence warp and the thread mask that make it) and the twenty
+       discrete clumps thrown on their own headings (.hb-sn-knot; see
        buildEjectaKnots in Hub.tsx) are what stop it reading as a clean
        expanding disc.
 
    Everything animates transform and opacity ONLY. A full-screen effect held
    for thirty seconds is exactly the kind of thing that can put a page on the
    floor, and the way it doesn't here is that no frame of it repaints
-   anything: each layer is one gradient, rasterised once, then scaled and
+   anything: each layer is rasterised once — gradients and SVG filters alike,
+   which is why the filters are affordable at all — then scaled and
    rotated and faded by the compositor. Every element is also authored much
    smaller than its final size and scaled up rather than being authored at
    full size — a 150vmax layer is tens of megabytes of texture, and the
@@ -3355,79 +3364,41 @@ body:has(.hb) {
   );
 }
 
-/* Gold and orange, the first genuinely hollow shell. */
-.hb-sn-shell--hot {
-  --size: 55vmax;
-  background:
-    radial-gradient(34% 34% at 64% 36%, rgba(255, 236, 170, 0.3), rgba(255, 150, 50, 0) 100%),
-    radial-gradient(30% 30% at 32% 66%, rgba(255, 190, 90, 0.26), rgba(255, 110, 40, 0) 100%),
-    radial-gradient(
-      circle closest-side,
-      rgba(255, 200, 90, 0) 0%,
-      rgba(255, 208, 100, 0.07) 24%,
-      rgba(255, 196, 92, 0.28) 44%,
-      rgba(255, 148, 52, 0.42) 60%,
-      rgba(255, 96, 40, 0.32) 74%,
-      rgba(214, 44, 46, 0.13) 88%,
-      rgba(150, 24, 60, 0) 100%
-    );
+/* ── the procedurally warped gas shells ──
+   These three used to be CSS ring gradients here. They are inline SVGs now
+   (SupernovaGas in CelestialBody.tsx), because a CSS radial-gradient can only
+   ever draw a mathematically perfect ring: it banded into visible concentric
+   steps against the dark sky, and its edge was an airbrushed arc where a real
+   remnant's is torn into wisps. All that is left for CSS to do is place and
+   animate them; the shape, the colour ramp, the turbulence warp and the lacy
+   filament net all live in the SVG. Sizes stay as they were, so the radial
+   ordering (synchrotron innermost, outer halo widest) is unchanged. */
+.hb-sn-gas {
+  overflow: visible;
 }
 
-/* The bulk of the remnant: red and orange, the dominant colour in every
-   photograph of the real thing, and the layer that is on screen longest at
-   full strength. */
-.hb-sn-shell--main {
-  --size: 66vmax;
-  background:
-    radial-gradient(30% 30% at 26% 34%, rgba(255, 150, 60, 0.26), rgba(255, 90, 40, 0) 100%),
-    radial-gradient(26% 26% at 72% 62%, rgba(236, 60, 70, 0.24), rgba(200, 30, 60, 0) 100%),
-    radial-gradient(22% 22% at 58% 20%, rgba(255, 220, 140, 0.2), rgba(255, 160, 60, 0) 100%),
-    radial-gradient(
-      circle closest-side,
-      rgba(255, 120, 50, 0) 0%,
-      rgba(255, 120, 50, 0.05) 26%,
-      rgba(255, 138, 56, 0.22) 42%,
-      rgba(248, 88, 46, 0.36) 56%,
-      rgba(214, 40, 56, 0.32) 70%,
-      rgba(150, 26, 74, 0.15) 84%,
-      rgba(84, 18, 80, 0) 100%
-    );
-}
-
-/* The cool outermost halo — blue oxygen bleeding into violet, the widest and
-   the last to go. Ending the whole sequence on the cold end rather than the
-   hot one is what makes it read as something dissipating rather than as
-   something being switched off. */
-.hb-sn-shell--outer {
-  --size: 84vmax;
-  background:
-    radial-gradient(24% 24% at 34% 70%, rgba(110, 200, 255, 0.2), rgba(60, 140, 255, 0) 100%),
-    radial-gradient(20% 20% at 70% 28%, rgba(150, 120, 255, 0.18), rgba(90, 60, 220, 0) 100%),
-    radial-gradient(
-      circle closest-side,
-      rgba(90, 170, 255, 0) 0%,
-      rgba(90, 170, 255, 0.04) 34%,
-      rgba(120, 200, 255, 0.15) 52%,
-      rgba(96, 140, 255, 0.19) 66%,
-      rgba(168, 84, 230, 0.15) 80%,
-      rgba(120, 40, 180, 0.06) 90%,
-      rgba(60, 20, 120, 0) 100%
-    );
-}
+.hb-sn-gas--synchrotron { --size: 28vmax; }
+.hb-sn-gas--hot { --size: 33vmax; }
+.hb-sn-gas--main { --size: 40vmax; }
+.hb-sn-gas--outer { --size: 50vmax; }
 
 .hb-supernova.is-bursting .hb-sn-shell--core {
   animation: hb-sn-core 30s linear 1 both;
 }
 
-.hb-supernova.is-bursting .hb-sn-shell--hot {
+.hb-supernova.is-bursting .hb-sn-gas--synchrotron {
+  animation: hb-sn-synchrotron 30s linear 1 both;
+}
+
+.hb-supernova.is-bursting .hb-sn-gas--hot {
   animation: hb-sn-hot 30s linear 1 both;
 }
 
-.hb-supernova.is-bursting .hb-sn-shell--main {
+.hb-supernova.is-bursting .hb-sn-gas--main {
   animation: hb-sn-main 30s linear 1 both;
 }
 
-.hb-supernova.is-bursting .hb-sn-shell--outer {
+.hb-supernova.is-bursting .hb-sn-gas--outer {
   animation: hb-sn-outer 30s linear 1 both;
 }
 
@@ -3446,116 +3417,45 @@ body:has(.hb) {
   100% { opacity: 0; transform: scale(1.62) rotate(22deg); }
 }
 
+@keyframes hb-sn-synchrotron {
+  0% { opacity: 0; transform: scale(0.083) rotate(0deg); }
+  3% { opacity: 0.5; transform: scale(0.500) rotate(1deg); }
+  10% { opacity: 0.9; transform: scale(1.300) rotate(3deg); }
+  24% { opacity: 1; transform: scale(2.133) rotate(6deg); }
+  46% { opacity: 0.82; transform: scale(2.933) rotate(11deg); }
+  70% { opacity: 0.48; transform: scale(3.467) rotate(16deg); }
+  90% { opacity: 0.16; transform: scale(3.767) rotate(20deg); }
+  100% { opacity: 0; transform: scale(3.867) rotate(22deg); }
+}
+
 @keyframes hb-sn-hot {
-  0% { opacity: 0; transform: scale(0.05) rotate(0deg); }
-  2% { opacity: 0.9; transform: scale(0.34) rotate(-2deg); }
-  9% { opacity: 1; transform: scale(0.82) rotate(-5deg); }
-  25% { opacity: 0.72; transform: scale(1.42) rotate(-11deg); }
-  50% { opacity: 0.36; transform: scale(1.94) rotate(-18deg); }
-  78% { opacity: 0.1; transform: scale(2.2) rotate(-24deg); }
-  100% { opacity: 0; transform: scale(2.3) rotate(-27deg); }
+  0% { opacity: 0; transform: scale(0.083) rotate(0deg); }
+  2% { opacity: 0.9; transform: scale(0.567) rotate(-2deg); }
+  9% { opacity: 1; transform: scale(1.367) rotate(-5deg); }
+  25% { opacity: 0.72; transform: scale(2.367) rotate(-11deg); }
+  50% { opacity: 0.36; transform: scale(3.233) rotate(-18deg); }
+  78% { opacity: 0.1; transform: scale(3.667) rotate(-24deg); }
+  100% { opacity: 0; transform: scale(3.833) rotate(-27deg); }
 }
 
 @keyframes hb-sn-main {
-  0% { opacity: 0; transform: scale(0.06) rotate(0deg); }
-  3% { opacity: 0.55; transform: scale(0.32) rotate(2deg); }
-  10% { opacity: 0.95; transform: scale(0.8) rotate(4deg); }
-  28% { opacity: 1; transform: scale(1.5) rotate(9deg); }
-  55% { opacity: 0.66; transform: scale(2.08) rotate(15deg); }
-  82% { opacity: 0.22; transform: scale(2.46) rotate(21deg); }
-  100% { opacity: 0; transform: scale(2.62) rotate(24deg); }
+  0% { opacity: 0; transform: scale(0.100) rotate(0deg); }
+  3% { opacity: 0.55; transform: scale(0.533) rotate(2deg); }
+  10% { opacity: 0.95; transform: scale(1.333) rotate(4deg); }
+  28% { opacity: 1; transform: scale(2.500) rotate(9deg); }
+  55% { opacity: 0.66; transform: scale(3.467) rotate(15deg); }
+  82% { opacity: 0.22; transform: scale(4.100) rotate(21deg); }
+  100% { opacity: 0; transform: scale(4.367) rotate(24deg); }
 }
 
 @keyframes hb-sn-outer {
-  0% { opacity: 0; transform: scale(0.08) rotate(0deg); }
-  5% { opacity: 0.3; transform: scale(0.36) rotate(-1deg); }
-  16% { opacity: 0.8; transform: scale(0.92) rotate(-4deg); }
-  38% { opacity: 1; transform: scale(1.5) rotate(-9deg); }
-  66% { opacity: 0.74; transform: scale(2) rotate(-15deg); }
-  88% { opacity: 0.3; transform: scale(2.3) rotate(-20deg); }
-  100% { opacity: 0; transform: scale(2.42) rotate(-22deg); }
-}
-
-/* ── radial filaments ──
-   The spoked, streaky structure that every photograph of a remnant has and
-   that no stack of smooth radial gradients will ever produce on its own. A
-   repeating conic gradient is exactly a fan of radial spokes; masking it to
-   a ring is what keeps them in the shell rather than converging into a
-   starburst at the centre. Two of them, counter-rotating at different spoke
-   frequencies, so the pattern churns instead of turning as a rigid wheel. */
-.hb-sn-fil {
-  --size: 72vmax;
-  will-change: transform, opacity;
-  -webkit-mask-image: radial-gradient(
-    circle closest-side,
-    transparent 0%,
-    transparent 24%,
-    #000 44%,
-    #000 68%,
-    transparent 93%
-  );
-  mask-image: radial-gradient(
-    circle closest-side,
-    transparent 0%,
-    transparent 24%,
-    #000 44%,
-    #000 68%,
-    transparent 93%
-  );
-}
-
-/* The mask is one gradient sized to the whole element, so it must not tile.
-   `repeat` is the initial value of mask-repeat, and a tiled mask here would
-   put a second, cropped copy of the spoke ring in every direction. */
-.hb-sn-fil {
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-}
-
-.hb-sn-fil--warm {
-  background: repeating-conic-gradient(
-    from 0deg at 50% 50%,
-    rgba(255, 200, 120, 0) 0deg 1.7deg,
-    rgba(255, 216, 146, 0.34) 1.7deg 2.5deg,
-    rgba(255, 118, 58, 0.14) 2.5deg 3.4deg,
-    rgba(255, 118, 58, 0) 3.4deg 5.2deg
-  );
-}
-
-.hb-sn-fil--cool {
-  background: repeating-conic-gradient(
-    from 13deg at 50% 50%,
-    rgba(120, 200, 255, 0) 0deg 2.4deg,
-    rgba(170, 226, 255, 0.26) 2.4deg 3.1deg,
-    rgba(96, 132, 255, 0.12) 3.1deg 4.2deg,
-    rgba(96, 132, 255, 0) 4.2deg 7deg
-  );
-}
-
-.hb-supernova.is-bursting .hb-sn-fil--warm {
-  animation: hb-sn-fil-warm 30s linear 1 both;
-}
-
-.hb-supernova.is-bursting .hb-sn-fil--cool {
-  animation: hb-sn-fil-cool 30s linear 1 both;
-}
-
-@keyframes hb-sn-fil-warm {
-  0% { opacity: 0; transform: scale(0.12) rotate(0deg); }
-  6% { opacity: 0.5; transform: scale(0.6) rotate(3deg); }
-  22% { opacity: 0.8; transform: scale(1.24) rotate(9deg); }
-  52% { opacity: 0.5; transform: scale(1.86) rotate(19deg); }
-  82% { opacity: 0.16; transform: scale(2.14) rotate(28deg); }
-  100% { opacity: 0; transform: scale(2.24) rotate(33deg); }
-}
-
-@keyframes hb-sn-fil-cool {
-  0% { opacity: 0; transform: scale(0.14) rotate(0deg); }
-  8% { opacity: 0.34; transform: scale(0.7) rotate(-4deg); }
-  30% { opacity: 0.66; transform: scale(1.45) rotate(-12deg); }
-  60% { opacity: 0.42; transform: scale(1.98) rotate(-23deg); }
-  86% { opacity: 0.12; transform: scale(2.26) rotate(-33deg); }
-  100% { opacity: 0; transform: scale(2.36) rotate(-38deg); }
+  0% { opacity: 0; transform: scale(0.133) rotate(0deg); }
+  5% { opacity: 0.3; transform: scale(0.600) rotate(-1deg); }
+  16% { opacity: 0.8; transform: scale(1.533) rotate(-4deg); }
+  38% { opacity: 1; transform: scale(2.500) rotate(-9deg); }
+  66% { opacity: 0.74; transform: scale(3.333) rotate(-15deg); }
+  88% { opacity: 0.3; transform: scale(3.833) rotate(-20deg); }
+  100% { opacity: 0; transform: scale(4.033) rotate(-22deg); }
 }
 
 /* ── ejecta knots ──
@@ -3611,16 +3511,25 @@ body:has(.hb) {
 }
 
 /* Tier reductions. The container's children are, in order: the shock front
-   (1), the four shells (2-5), the two filament rings (6-7) and then the
-   twenty knots (8-27) — so one nth-child cut takes everything from a given
-   layer outward. Lite keeps the shells, the filaments and ten knots; minimal
-   keeps the shock and the shells only, which is still a full four-colour
-   cloud, just a smooth one. */
-.hb.is-lite .hb-supernova > :nth-child(n + 18) {
+   (1), the fireball (2), the four procedural gas shells (3-6) and then the
+   twenty knots (7-26) — so one nth-child cut takes everything from a given
+   layer outward. Lite keeps every shell and ten knots; minimal keeps the
+   shock, the fireball and the shells, which is still the whole four-colour
+   cloud, just without the discrete clumps flying through it.
+
+   The gas shells survive both cuts deliberately. Their filters are a
+   one-time rasterisation cost, not a per-frame one (see SupernovaGas in
+   CelestialBody.tsx), so what they cost a weak device is a single hitch
+   behind the flash rather than thirty seconds of dropped frames — and they
+   are the entire reason the cloud looks like gas instead of like a stack of
+   airbrushed rings. Dropping the knots, which are twenty separately
+   composited layers held for the full thirty seconds, is the cut that
+   actually buys something back. */
+.hb.is-lite .hb-supernova > :nth-child(n + 17) {
   display: none;
 }
 
-.hb.is-minimal .hb-supernova > :nth-child(n + 6) {
+.hb.is-minimal .hb-supernova > :nth-child(n + 7) {
   display: none;
 }
 
