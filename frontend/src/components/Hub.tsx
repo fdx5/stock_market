@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { GlobalIndexWidget, IndexQuote, api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -8,6 +8,19 @@ import { BASE_R, BlackHoleBody, PhotoPlanetBody, PhotoSkin, RocketCraft, Satelli
 import LanguageToggle from "./LanguageToggle";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
+
+// three/@react-three/fiber pull the Hub route's JS from ~40KB to ~230KB
+// gzipped (see PlutoScene.tsx's own doc comment for why WebGL replaced the
+// old DOM version at all) — a synchronous import would make that whole cost
+// part of the hub's own initial parse/render, working against the exact
+// "keep this smooth" goal the switch to WebGL was for. A lazy import keeps
+// it off the critical path: the rest of the hub (title, planets, star,
+// black hole) paints first, and the Pluto scene's own bundle streams in and
+// mounts a beat later — the entrance is already static images the audience
+// glances over, so there's nothing lost by the debris not appearing on
+// literally the first frame the way there would be on, say, a scroll-driven
+// hero animation.
+const PlutoScene = lazy(() => import("./PlutoScene"));
 import "./hub.css";
 
 /* ============================================================================
@@ -838,416 +851,6 @@ function useNeutronBinary(
   }, [ref, flashRef]);
 }
 
-/* ───────────────────────────── pluto event ─────────────────────────────
-   A standing vignette next to the black hole, independent of the solar
-   system proper: Mars-sized Pluto drifts in from the hole's left (centre to
-   centre) at a literal 20px/s, starts tearing apart once that distance
-   reaches 150px, and is fully torn into 96 pieces and pulled in within a
-   fixed 3 seconds of that — the hole itself flaring red for two seconds —
-   before the whole thing resets and repeats, per an explicit request laying
-   out each of those numbers and the black hole's own reaction. Every
-   distance below is real screen pixels (not the --body-unit design units
-   the rest of the system scales with), which is what the request specified
-   and also just makes sense for something anchored to a fixed-position
-   corner button rather than the tilted, responsively-scaled orbital plane.
-
-   Timed the same way useNeutronBinary above is: one rAF loop, no CSS
-   keyframes, because position, tear damage, the debris field and the black
-   hole's own flare all have to read one shared clock rather than run on
-   independent timers that could drift apart from each other. */
-
-const PLUTO_SKIN: PhotoSkin = {
-  texture: "/img/planets/pluto.webp",
-  spinSeconds: 17,
-  glow: "#d9b48f",
-};
-
-// --pluto-gap is the live distance from the black hole's own CENTRE to
-// Pluto's centre, px (not its right edge — see .hb-pluto-event in hub.css,
-// which adds the (--bh-size - --pluto-size) / 2 term to translate "distance
-// between centres" into a right-edge CSS offset). All per an explicit
-// request pinning the approach distance to the hole's centre specifically.
-const PLUTO_START_GAP = 300;
-const PLUTO_SPEED = 15; // px/s, approach only — see the piecewise gap(t) in usePlutoEvent
-const PLUTO_TEAR_GAP = 150; // destruction begins once the approach reaches this
-
-// Once destruction starts it's timed by a fixed total duration rather than
-// by more distance thresholds — "모두 3초 내에 돌조각으로 파괴되어... 빨려들어가게"
-// (all of it torn into rock and pulled in within 3 seconds), an explicit
-// request. Split tear:swirl roughly 4:3, the same ratio an earlier
-// distance-based version of this used, rather than an even half-half.
-const PLUTO_FLASH_HOLD = 2; // seconds — matches .hb-blackhole.is-feeding's hold
-const PLUTO_DESTROY_DURATION = 3;
-const PLUTO_TEAR_LEN = PLUTO_DESTROY_DURATION * (4 / 7); // ~1.71s
-const PLUTO_SWIRL_LEN = PLUTO_DESTROY_DURATION - PLUTO_TEAR_LEN; // ~1.29s
-
-const PLUTO_TEAR_START = (PLUTO_START_GAP - PLUTO_TEAR_GAP) / PLUTO_SPEED; // 10s
-const PLUTO_SWIRL_START = PLUTO_TEAR_START + PLUTO_TEAR_LEN;
-const PLUTO_MOTION = PLUTO_TEAR_START + PLUTO_DESTROY_DURATION; // gap hits 0 here
-// Padded ~1s past PLUTO_MOTION — comfortably past the latest a dust mote's
-// own life can run on (activates as late as ~0.28s before MOTION, up to
-// 0.9s life, so ~0.62s past it at the extreme) — so the destroy-window
-// gate below never cuts off a fragment's own fade-out mid-flight.
-const PLUTO_DESTROY_TAIL_END = PLUTO_MOTION + 1;
-const PLUTO_CYCLE = PLUTO_MOTION + PLUTO_FLASH_HOLD; // then it repeats
-
-/** One vertical "tooth" of the erosion clip-path — see plutoErosionPoints.
- * Bands are even (yStart/yEnd just slice the disc into 12 equal strips);
- * only each tooth's own stagger is randomised, which is what keeps the
- * torn edge from eroding as one clean vertical line. */
-interface PlutoTooth {
-  yStart: number;
-  yEnd: number;
-  stagger: number;
-}
-
-const PLUTO_TEETH: PlutoTooth[] = (() => {
-  const n = 12;
-  const rand = mulberry32(20260728);
-  return Array.from({ length: n }, (_, i) => ({
-    yStart: i / n,
-    yEnd: (i + 1) / n,
-    stagger: rand() * 0.4,
-  }));
-})();
-
-/** How far each tooth erodes at full tear progress — 1 would eat the whole
- * disc, same as an earlier version of this did. Capped short of that now:
- * the surviving sliver past this point is what PLUTO_STRETCH_MAX/SQUASH_MAX
- * below stretch into the spaghettified thread, so there has to still be a
- * "core" left for that transform to act on rather than the clip alone
- * already having erased everything by the time the stretch matters. */
-const PLUTO_EROSION_MAX = 0.62;
-
-/** The clip-path polygon's `points`, in the 0..1 objectBoundingBox space
- * `#hb-pluto-erosion` uses (see the inline `<clipPath>` in the JSX below).
- * p1 is tear progress, 0 (intact) to 1 (fully eroded up to PLUTO_EROSION_MAX)
- * — see PLUTO_TEAR_*. Each tooth erodes from the right edge (x=1) toward the
- * left on its own delayed/eased schedule, so the boundary reads as a ragged
- * tear line sweeping across the disc rather than a straight wipe. */
-function plutoErosionPoints(p1: number): string {
-  const pts: string[] = ["0,0"];
-  for (const tooth of PLUTO_TEETH) {
-    const local = Math.min(1, Math.max(0, (p1 - tooth.stagger) / (1 - tooth.stagger)));
-    const eased = local * local * (3 - 2 * local);
-    const x = (1 - eased * PLUTO_EROSION_MAX).toFixed(3);
-    pts.push(`${x},${tooth.yStart.toFixed(3)}`);
-    pts.push(`${x},${tooth.yEnd.toFixed(3)}`);
-  }
-  pts.push("0,1");
-  return pts.join(" ");
-}
-
-/** Spaghettification — the real astrophysical term for exactly this, a body
- * stretched radially and squeezed tangentially by a black hole's tidal
- * gradient — applied to whatever the erosion clip above hasn't already torn
- * off. PLUTO_STRETCH_MAX is added to scaleX and PLUTO_SQUASH_MAX subtracted
- * from scaleY, both scaled by p1, so intact (p1=0) is a plain 1/1 and full
- * tear progress (p1=1) is a long, thin thread — 4.2x its own width, 18% of
- * its own height. Applied with `transform-origin: 0% 50%` (see
- * .hb-pluto-body in hub.css) so the stretch reaches out to the right, into
- * the black hole, rather than growing symmetrically from the centre. */
-const PLUTO_STRETCH_MAX = 3.2;
-const PLUTO_SQUASH_MAX = 0.82;
-
-interface PlutoFragment {
-  kind: "chunk" | "dust";
-  /** 0..1 progress through this fragment's own phase (tear for chunks,
-   * swirl for dust) at which it activates — staggered across the pool so
-   * the tear/swirl reads as continuous shedding, not one synchronised pop. */
-  activateAt: number;
-  /** Seconds this fragment's own flight takes once activated. */
-  life: number;
-  /** Rendered size, px. */
-  size: number;
-  /** Degrees around Pluto's east-facing hemisphere (0 = pointing straight
-   * at the black hole) a chunk breaks off from. Chunks only. */
-  angleDeg: number;
-  /** How far a chunk first flings outward — tidal sling — before its path
-   * curves in toward the hole, px. Chunks only. */
-  fling: number;
-  /** Degrees/second tumble as a chunk flies in. Chunks only. */
-  spin: number;
-  /** Starting radius a dust mote spirals in from, as a fraction of Pluto's
-   * own on-screen radius at the moment it activates. Dust only. */
-  startR: number;
-  /** Radians of extra winding a dust mote completes before reaching the
-   * hole's centre — the "water down a drain" accelerating spiral. Dust
-   * only. */
-  turns: number;
-  /** Starting angle, radians, for a dust mote's spiral. Dust only. */
-  startTheta: number;
-}
-
-// 40 pieces total (20 rock chunks + 20 dust motes) — pulled back down from
-// a 212-piece pass (180 chunks + 32 dust) that visibly dropped frames: each
-// fragment costs real per-frame trig plus a style write, and 212 of those
-// every tick was more than the page could sustain smoothly. Fewer, individually
-// bigger/longer-lived pieces (see the size/life bumps below) is what keeps this
-// still reading as "breaking apart" rather than a handful of specks, at a
-// frame rate that's actually fluid instead of stepping.
-const PLUTO_FRAGMENTS: PlutoFragment[] = (() => {
-  const rand = mulberry32(31337);
-  const list: PlutoFragment[] = [];
-  const CHUNKS = 20;
-  for (let i = 0; i < CHUNKS; i += 1) {
-    list.push({
-      kind: "chunk",
-      activateAt: Math.min(1, (i / CHUNKS) * 0.85 + rand() * 0.18),
-      life: 0.55 + rand() * 0.6,
-      size: 5 + rand() * 9,
-      angleDeg: -75 + rand() * 150,
-      fling: 12 + rand() * 22,
-      spin: (rand() < 0.5 ? -1 : 1) * (140 + rand() * 320),
-      startR: 0,
-      turns: 0,
-      startTheta: 0,
-    });
-  }
-  const DUST = 20;
-  for (let i = 0; i < DUST; i += 1) {
-    list.push({
-      kind: "dust",
-      activateAt: Math.min(1, (i / DUST) * 0.6 + rand() * 0.18),
-      life: 0.45 + rand() * 0.45,
-      size: 2.5 + rand() * 3,
-      angleDeg: 0,
-      fling: 0,
-      spin: 0,
-      startR: 0.35 + rand() * 0.55,
-      turns: 2.2 + rand() * 2.4,
-      startTheta: rand() * Math.PI * 2,
-    });
-  }
-  return list;
-})();
-
-interface PlutoGeometry {
-  bhCenterX: number;
-  bhCenterY: number;
-  plutoSize: number;
-}
-
-function measurePlutoGeometry(bhEl: HTMLElement, plutoEl: HTMLElement): PlutoGeometry {
-  const bhRect = bhEl.getBoundingClientRect();
-  const plutoRect = plutoEl.getBoundingClientRect();
-  return {
-    bhCenterX: bhRect.left + bhRect.width / 2,
-    bhCenterY: bhRect.top + bhRect.height / 2,
-    plutoSize: plutoRect.width,
-  };
-}
-
-/** Swings the black hole's own glow to red for PLUTO_FLASH_HOLD seconds —
- * see .hb-blackhole.is-feeding in hub.css. Plain class + setTimeout rather
- * than a CSS `animation`, since (unlike the neutron merger's burst) this is
- * just two end states and a hold, which is what a transition already
- * expresses; a timeout owning the "how long" keeps that single number in
- * one place instead of split between JS's cadence and a CSS duration. */
-function fireBlackHoleFeed(ref: React.RefObject<HTMLButtonElement>) {
-  const el = ref.current;
-  if (!el) return;
-  el.classList.add("is-feeding");
-  window.setTimeout(() => {
-    el.classList.remove("is-feeding");
-  }, PLUTO_FLASH_HOLD * 1000);
-}
-
-function usePlutoEvent(
-  eventRef: React.RefObject<HTMLDivElement>,
-  bodyRef: React.RefObject<HTMLDivElement>,
-  erosionRef: React.RefObject<SVGPolygonElement>,
-  fragRefs: React.RefObject<(HTMLSpanElement | null)[]>,
-  blackHoleRef: React.RefObject<HTMLButtonElement>
-) {
-  useEffect(() => {
-    const eventEl = eventRef.current;
-    const bhEl = blackHoleRef.current;
-    if (!eventEl || !bhEl) return;
-    // Static resting frame instead (see .hb-pluto-event's reduced-motion
-    // rule in hub.css) — no rAF loop, and the black hole never flares.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    let geo = measurePlutoGeometry(bhEl, eventEl);
-    const onResize = () => {
-      geo = measurePlutoGeometry(bhEl, eventEl);
-    };
-    window.addEventListener("resize", onResize);
-
-    let raf = 0;
-    const startedAt = performance.now();
-    let fired = false;
-    let wasDestroying = false;
-
-    const tick = (now: number) => {
-      const elapsed = (now - startedAt) / 1000;
-      const cycleElapsed = elapsed % PLUTO_CYCLE;
-
-      // Two regimes: a constant-speed approach down to the 150px tear
-      // threshold, then — once destruction starts — a straight-line decay
-      // to 0 over the fixed PLUTO_DESTROY_DURATION regardless of the
-      // approach speed above it, since "all of it torn apart and pulled in
-      // within 3 seconds" is a duration, not a speed.
-      let gap: number;
-      if (cycleElapsed < PLUTO_TEAR_START) {
-        gap = PLUTO_START_GAP - PLUTO_SPEED * cycleElapsed;
-      } else if (cycleElapsed < PLUTO_MOTION) {
-        gap = PLUTO_TEAR_GAP * (1 - (cycleElapsed - PLUTO_TEAR_START) / PLUTO_DESTROY_DURATION);
-      } else {
-        gap = 0;
-      }
-      gap = Math.min(PLUTO_START_GAP, Math.max(0, gap));
-
-      // --pluto-gap is the one per-frame write that always has to happen —
-      // Pluto is visually moving (or, past PLUTO_MOTION, freshly consumed)
-      // for the entire cycle. Everything below this — erosion, the
-      // spaghettification stretch, all 40 fragments — only ever has
-      // anything to actually draw during the destruction window itself
-      // (TEAR_START through a short tail past MOTION for the last
-      // fragments' own fade-outs), so it's skipped entirely outside that
-      // window instead of doing (and writing) the same "nothing's
-      // happening" result every frame for the ~80% of the cycle that's
-      // just the approach and the post-flash hold. An earlier version did
-      // that unconditional per-frame work for all 40 fragments regardless
-      // of phase, which was real, measurable cost for no visual return.
-      eventEl.style.setProperty("--pluto-gap", gap.toFixed(2));
-
-      const destroying = cycleElapsed >= PLUTO_TEAR_START && cycleElapsed < PLUTO_DESTROY_TAIL_END;
-      if (destroying) {
-        if (!wasDestroying) {
-          // Just entered the destroy window — this is the one moment
-          // .hb-pluto-body actually needs its clip-path (see
-          // .hb-pluto-body.is-tearing in hub.css for why that class isn't
-          // just left on permanently).
-          bodyRef.current?.classList.add("is-tearing");
-        }
-
-        // Tear progress is purely time-based (see PLUTO_TEAR_START/LEN
-        // above) rather than derived from gap, since destruction's own
-        // pace no longer tracks the approach speed once it starts.
-        const p1 = Math.min(1, Math.max(0, (cycleElapsed - PLUTO_TEAR_START) / PLUTO_TEAR_LEN));
-        const poly = erosionRef.current;
-        if (poly) poly.setAttribute("points", plutoErosionPoints(p1));
-
-        // Spaghettification — see PLUTO_STRETCH_MAX/SQUASH_MAX's own
-        // comment. Fades out over the tear phase's last 20%, so the
-        // stretched thread has visibly thinned to nothing by the time the
-        // swirl/dust phase (p1 already at 1 by then) takes over the
-        // "being consumed" visual.
-        const body = bodyRef.current;
-        if (body) {
-          const stretchX = 1 + p1 * PLUTO_STRETCH_MAX;
-          const squashY = 1 - p1 * PLUTO_SQUASH_MAX;
-          const bodyOpacity = p1 < 0.8 ? 1 : Math.max(0, 1 - (p1 - 0.8) / 0.2);
-          body.style.transform = `scaleX(${stretchX.toFixed(3)}) scaleY(${squashY.toFixed(3)})`;
-          body.style.opacity = bodyOpacity.toFixed(2);
-        }
-
-        // gap is measured centre-to-centre (see PLUTO_START_GAP's own
-        // comment), so Pluto's own centre is simply the hole's centre
-        // minus that many px — no separate right-edge bookkeeping needed.
-        const plutoCenterX = geo.bhCenterX - gap;
-        const plutoRadius = geo.plutoSize * 0.34; // BASE_R/100 — see CelestialBody.tsx
-        const frags = fragRefs.current;
-
-        PLUTO_FRAGMENTS.forEach((frag, i) => {
-          const el = frags?.[i];
-          if (!el) return;
-
-          const activateElapsed =
-            frag.kind === "chunk"
-              ? PLUTO_TEAR_START + frag.activateAt * PLUTO_TEAR_LEN
-              : PLUTO_SWIRL_START + frag.activateAt * PLUTO_SWIRL_LEN;
-          const t = (cycleElapsed - activateElapsed) / frag.life;
-          if (t < 0 || t > 1) {
-            // Skip the write once it's already hidden — most fragments sit
-            // in this branch most of the destroy window (each is only
-            // actually mid-flight for a fraction of it), and re-writing
-            // the same "0" every frame is exactly the kind of no-op DOM
-            // mutation this whole gating pass is about cutting out.
-            if (el.style.opacity !== "0") el.style.opacity = "0";
-            return;
-          }
-
-          if (frag.kind === "chunk") {
-            const rad = (frag.angleDeg * Math.PI) / 180;
-            const rimX = plutoCenterX + plutoRadius * Math.cos(rad);
-            const rimY = geo.bhCenterY + plutoRadius * Math.sin(rad);
-            const outX = rimX + Math.cos(rad) * frag.fling;
-            const outY = rimY + Math.sin(rad) * frag.fling;
-            // A quadratic bezier from the rim, bulging outward through the
-            // tidal-sling control point, curving in to the hole's centre —
-            // eased (not linear) so the sling and the final plunge each
-            // get their own visible pace instead of one constant-speed
-            // sweep.
-            const eased = t * t * (3 - 2 * t);
-            const mt = 1 - eased;
-            const x = mt * mt * rimX + 2 * mt * eased * outX + eased * eased * geo.bhCenterX;
-            const y = mt * mt * rimY + 2 * mt * eased * outY + eased * eased * geo.bhCenterY;
-            const rot = frag.spin * (t * frag.life);
-            const scale = 1 - 0.55 * eased;
-            const opacity = t < 0.12 ? t / 0.12 : t > 0.7 ? Math.max(0, 1 - (t - 0.7) / 0.3) : 1;
-            el.style.transform = `translate(${(x - frag.size / 2).toFixed(1)}px, ${(y - frag.size / 2).toFixed(1)}px) rotate(${rot.toFixed(0)}deg) scale(${scale.toFixed(2)})`;
-            el.style.opacity = opacity.toFixed(2);
-          } else {
-            // Polar spiral around the hole's own centre — radius shrinks
-            // linearly while the angle winds up as t^2, so the spin
-            // visibly accelerates on the way in, the same "faster as it
-            // narrows" read as water actually going down a drain.
-            const r0 = frag.startR * plutoRadius;
-            const r = r0 * (1 - t);
-            const theta = frag.startTheta + frag.turns * Math.PI * 2 * (t * t);
-            const x = geo.bhCenterX + r * Math.cos(theta);
-            const y = geo.bhCenterY + r * Math.sin(theta);
-            const scale = 1 - 0.4 * t;
-            const opacity = t < 0.1 ? t / 0.1 : t > 0.75 ? Math.max(0, 1 - (t - 0.75) / 0.25) : 1;
-            el.style.transform = `translate(${(x - frag.size / 2).toFixed(1)}px, ${(y - frag.size / 2).toFixed(1)}px) scale(${scale.toFixed(2)})`;
-            el.style.opacity = opacity.toFixed(2);
-          }
-        });
-
-        wasDestroying = true;
-      } else if (wasDestroying) {
-        // Just left the destroy window — reset every piece to its resting
-        // state exactly once, rather than continuing to write it every
-        // frame for the rest of the cycle.
-        const poly = erosionRef.current;
-        if (poly) poly.setAttribute("points", "0,0 1,0 1,1 0,1");
-        const body = bodyRef.current;
-        if (body) {
-          body.classList.remove("is-tearing");
-          body.style.transform = "";
-          body.style.opacity = "";
-        }
-        fragRefs.current?.forEach((el) => {
-          if (el) el.style.opacity = "0";
-        });
-        wasDestroying = false;
-      }
-
-      // One-shot per cycle: fires the instant the approach finishes (gap
-      // hits 0), then re-arms itself once a fresh cycle is clearly under
-      // way again so the next merger can fire too.
-      if (cycleElapsed >= PLUTO_MOTION) {
-        if (!fired) {
-          fired = true;
-          fireBlackHoleFeed(blackHoleRef);
-        }
-      } else if (cycleElapsed < 0.5) {
-        fired = false;
-      }
-
-      raf = requestAnimationFrame(tick);
-    };
-
-    raf = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [eventRef, bodyRef, erosionRef, fragRefs, blackHoleRef]);
-}
-
 /* ───────────────────────────── page ───────────────────────────── */
 
 export default function Hub() {
@@ -1266,11 +869,12 @@ export default function Hub() {
   useNeutronBinary(neutronRef, neutronFlashRef);
 
   const blackHoleRef = useRef<HTMLButtonElement>(null);
-  const plutoEventRef = useRef<HTMLDivElement>(null);
-  const plutoBodyRef = useRef<HTMLDivElement>(null);
-  const plutoErosionRef = useRef<SVGPolygonElement>(null);
-  const plutoFragRefs = useRef<(HTMLSpanElement | null)[]>([]);
-  usePlutoEvent(plutoEventRef, plutoBodyRef, plutoErosionRef, plutoFragRefs, blackHoleRef);
+  // Checked here too (not just inside PlutoScene itself) so a
+  // reduced-motion visitor never even triggers the lazy import — no reason
+  // to fetch a ~225KB gzipped WebGL chunk for a scene that's about to
+  // render nothing.
+  const plutoSceneEnabled =
+    typeof window !== "undefined" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /* The page's entire data budget: two cached endpoints, one poll. */
   useEffect(() => {
@@ -1499,46 +1103,20 @@ export default function Hub() {
       </button>
 
       {/* Pluto, drifting in from the black hole's left and eventually
-          consumed by it — see usePlutoEvent above for the full timeline
-          (approach, then tidal tearing and a final debris swirl once the
-          gap hits 150px, all of it torn apart within 3 seconds, then the
-          black hole's own red flare, a reset, and repeat), per an explicit
-          request. `#hb-pluto-erosion` is what actually
-          tears .hb-pluto-body apart — see plutoErosionPoints; the polygon
-          starts as a plain full-coverage rectangle and only usePlutoEvent
-          ever rewrites its points. Sits outside `.hb-stage` for the same
-          reason the black hole and Voyager do: it isn't part of the solar
-          system's own orbital geometry. */}
-      <div className="hb-pluto-event" ref={plutoEventRef} aria-hidden="true">
-        <svg width="0" height="0" style={{ position: "absolute" }}>
-          <defs>
-            <clipPath id="hb-pluto-erosion" clipPathUnits="objectBoundingBox">
-              <polygon ref={plutoErosionRef} points="0,0 1,0 1,1 0,1" />
-            </clipPath>
-          </defs>
-        </svg>
-        <div className="hb-pluto-body" ref={plutoBodyRef}>
-          <PhotoPlanetBody id="pluto" skin={PLUTO_SKIN} />
-        </div>
-      </div>
-
-      {/* Pluto's own torn-off chunks and final dust swirl — a separate,
-          full-viewport layer rather than nested inside .hb-pluto-event
-          above; see the comment on .hb-pluto-fx in hub.css for why each
-          fragment's flight needs plain screen coordinates instead of that
-          box's own constantly-moving one. */}
-      <div className="hb-pluto-fx" aria-hidden="true">
-        {PLUTO_FRAGMENTS.map((frag, i) => (
-          <span
-            key={i}
-            className={`hb-pluto-frag hb-pluto-frag--${frag.kind}`}
-            ref={(el) => {
-              plutoFragRefs.current[i] = el;
-            }}
-            style={{ width: `${frag.size}px`, height: `${frag.size}px` }}
-          />
-        ))}
-      </div>
+          consumed by it — approach, tidal tearing (spaghettification) and a
+          final debris swirl once the gap hits 150px, all torn apart within
+          3 seconds, then the black hole's own red flare above, a reset, and
+          repeat, per an explicit request. Rendered as a small WebGL scene
+          (see PlutoScene.tsx) rather than DOM/CSS — an earlier DOM version
+          of this kept dropping frames on iPad even after several targeted
+          fixes, and a couple hundred individually-animated fragments is
+          exactly the kind of workload a single GPU draw call handles that
+          DOM nodes don't. */}
+      {plutoSceneEnabled && (
+        <Suspense fallback={null}>
+          <PlutoScene blackHoleRef={blackHoleRef} />
+        </Suspense>
+      )}
 
       {/* The neutron binary's merger flash (see useNeutronBinary/
           fireNeutronFlash in the component below) — fixed to the whole

@@ -63,11 +63,11 @@
   --py: 0;
 
   /* The black hole's own corner anchor and size, shared out here rather than
-     declared only on `.hb-blackhole` below — the Pluto event (see
-     .hb-pluto-event further down, and usePlutoEvent in Hub.tsx) has to
-     anchor its own approach distance to the exact same point, and duplicating
-     the clamp()/calc() expressions in two places would drift the moment
-     either one was tuned again. */
+     declared only on `.hb-blackhole` below — PlutoScene.tsx's WebGL scene
+     (see .hb-pluto-canvas further down) reads `.hb-blackhole`'s own
+     getBoundingClientRect() directly rather than these variables, but
+     `.hb-blackhole` itself still needs them named once here rather than
+     inline, so a re-tune can't drift the two apart. */
   --bh-right: clamp(8px, 3vw, 40px);
   --bh-bottom: clamp(6px, 2vh, 28px);
   --bh-size: max(calc(133 * var(--body-unit) * 4 / 3), calc(var(--star-min) * 4 / 3));
@@ -1927,7 +1927,7 @@ body:has(.hb) {
 }
 
 /* Fires once per Pluto-event cycle, the instant the last of it is consumed
-   (see fireBlackHoleFeed/usePlutoEvent in Hub.tsx) — the hole's own glow
+   (see fireBlackHoleFeed in PlutoScene.tsx) — the hole's own glow
    swings from its resting warm amber to a hot red for two seconds, per an
    explicit request ("블랙홀 천체가 붉은 색으로 밝게 빛을 2초간 내면서"). Toggled
    as a plain class with its own transition rather than a keyframe
@@ -2033,146 +2033,28 @@ body:has(.hb) {
 
 /* ─────────────────────────── pluto event ─────────────────────────── */
 
-/* Mars-sized Pluto (see PLUTO_SKIN in Hub.tsx — same PhotoPlanetBody every
-   other planet uses, just parked outside `.hb-system`'s orbital geometry),
-   drifting in from the black hole's left at a literal 20px/s and eventually
-   consumed by it — a standing, endlessly-repeating vignette rather than
-   part of the solar system proper, per an explicit request. See
-   usePlutoEvent in Hub.tsx for the full timeline (approach, tidal tearing,
-   final swirl, the black hole's own red flare above, then reset).
-
-   Positioned off `--bh-right`/`--bh-bottom`/`--bh-size` (see `.hb` root and
-   `.hb-blackhole` above) rather than duplicating those numbers, so this
-   always anchors to the black hole's own actual on-screen spot even if that
-   clamp() is ever retuned. `right`/`bottom` below are both static — set
-   once, at the STARTING (gap=300) position, and never touched again — with
-   the actual approach animated entirely through `transform: translateX()`
-   instead (see --pluto-gap below). An earlier version drove `right` itself
-   from --pluto-gap every frame, which visibly dropped frames on iPad:
-   `right` is a layout property, so every write forces the browser to
-   re-run layout for the whole page before it can even composite the next
-   frame, 60 times a second, for the entire ~10-second approach — not just
-   whenever fragments are actually on screen. `transform` is compositor-only
-   (no layout, often no paint either), which is the whole reason "animate
-   transform/opacity, not top/left/right/bottom" is the standard performance
-   rule it is; this element is the concrete case that rule is for. The
-   `(--bh-size - --pluto-size) / 2` term performs the centre-to-edge
-   translation the request's "gap measured from the hole's own centre"
-   needs — see --pluto-gap's own comment — for both axes: added to `right`
-   here for the same reason it's added to `bottom`, so Pluto's own centre,
-   not just its edge, ends up --pluto-gap px from the hole's centre.
-   Vertically centred on the black hole's own box for the same reason: the
-   two aren't the same height, and bottom-aligning them outright would
-   visibly drop Pluto's own centre below the hole's. */
-.hb-pluto-event {
-  --pluto-size: calc(68 * var(--body-unit));
-  /* The live px distance from the black hole's own centre to Pluto's
-     centre, counting down from 300 — the one thing usePlutoEvent writes
-     here every frame (see the translateX below, and the comment above on
-     why that — not `right` — is what actually reads it). */
-  --pluto-gap: 300;
-  position: fixed;
-  right: calc(var(--bh-right) + (var(--bh-size) - var(--pluto-size)) / 2 + 300px);
-  bottom: calc(var(--bh-bottom) + (var(--bh-size) - var(--pluto-size)) / 2);
-  z-index: 4;
-  width: var(--pluto-size);
-  height: var(--pluto-size);
-  pointer-events: none;
-  /* Positive as --pluto-gap counts down from its own 300px starting value
-     — moving the element rightward, toward the black hole, exactly as far
-     as `right` would have shrunk under the old layout-driven approach,
-     just composited instead of laid out. */
-  transform: translateX(calc((300 - var(--pluto-gap)) * 1px));
-  will-change: transform;
-}
-
-/* The clip-path polygon (#hb-pluto-erosion, defined inline next to this in
-   Hub.tsx) is what actually tears the disc apart — see plutoErosionPoints.
-   It reads as intact at rest (a plain 0..1 rectangle) and only usePlutoEvent
-   ever rewrites its points, once the approach passes the 150px tear
-   threshold. */
-.hb-pluto-body {
-  width: 100%;
-  height: 100%;
-  /* Left edge pinned, so usePlutoEvent's scaleX/scaleY spaghettification
-     stretch (see PLUTO_STRETCH_MAX/SQUASH_MAX in Hub.tsx) grows out to the
-     right — into the black hole — instead of symmetrically from the
-     centre, which wouldn't read as being pulled toward anything. */
-  transform-origin: 0% 50%;
-}
-
-/* clip-path lives on its own class, added only for the ~4s destroy window
-   (see usePlutoEvent's `destroying`/`wasDestroying` handling in Hub.tsx)
-   rather than sitting on `.hb-pluto-body` permanently. Pluto's texture is
-   spinning (see PhotoPlanetBody/.hb-photo-spin) for the entire ~15s cycle,
-   not just while it's being torn apart, and Safari/iPadOS in particular
-   tends to fall off its normal hardware-accelerated compositing path for
-   an element carrying an SVG clip-path, repainting it in software on every
-   frame something inside it moves — which a continuous spin animation
-   does constantly. Keeping the clip off entirely outside the one phase
-   that actually needs it is what lets the other ~11 of every 15 seconds
-   composite the spin cheaply. */
-.hb-pluto-body.is-tearing {
-  clip-path: url(#hb-pluto-erosion);
-  will-change: transform, opacity;
-}
-
-/* Debris — both the torn-off chunks and the final dust swirl — live in one
-   viewport-fixed, full-bleed layer rather than nested inside
-   `.hb-pluto-event`: each piece's own flight path is computed in real
-   screen coordinates straight from the black hole's and Pluto's own
-   getBoundingClientRect() (see usePlutoEvent), which only works cleanly
-   against a fixed (0, 0) origin — nesting them inside the constantly
-   repositioning `.hb-pluto-event` box would mean fighting that box's own
-   moving coordinate space on top of each fragment's already-independent
-   motion. */
-.hb-pluto-fx {
+/* The Pluto-into-the-black-hole vignette now renders as a small WebGL scene
+   (see PlutoScene.tsx) instead of the DOM/CSS version this replaced — a
+   couple hundred individually-animated fragments plus an SVG clip-path kept
+   dropping frames on iPad even after several DOM-specific fixes (animating
+   transform instead of `right`, gating work to the destroy window, scoping
+   the clip-path to only that window); Safari/iPadOS in particular tends to
+   fall off hardware-accelerated compositing for that combination, and each
+   fragment being its own DOM node has a real per-node style/paint cost a
+   single WebGL draw call doesn't. This wrapper just sizes and positions the
+   `<canvas>` React Three Fiber mounts — everything about what's drawn on it
+   lives in PlutoScene.tsx instead of here. */
+.hb-pluto-canvas {
   position: fixed;
   inset: 0;
   z-index: 4;
   pointer-events: none;
 }
 
-.hb-pluto-frag {
-  position: absolute;
-  top: 0;
-  left: 0;
-  opacity: 0;
-  will-change: transform, opacity;
-}
-
-/* Torn rock chunks — an irregular blob (mismatched border-radius corners,
-   same trick a hand-drawn rock silhouette uses) rather than a plain circle,
-   coloured off Pluto's own tan/umber palette so the debris visibly belongs
-   to the body it came from. */
-.hb-pluto-frag--chunk {
-  border-radius: 38% 62% 55% 45% / 45% 40% 60% 55%;
-  background: radial-gradient(circle at 35% 30%, #e2c39a 0%, #a67a4c 55%, #4a2f1c 100%);
-  box-shadow: 0 0 5px 1px rgba(255, 205, 150, 0.4);
-}
-
-/* Fine dust for the final swirl — small, round, and brighter/hotter-looking
-   than the chunks (closer to the horizon by the time these spawn), so the
-   last moments read as material actually heating up on the way in rather
-   than just smaller versions of the same rock. */
-.hb-pluto-frag--dust {
-  border-radius: 50%;
-  background: radial-gradient(circle, #fbe7c8 0%, #d69a5c 60%, transparent 100%);
-  box-shadow: 0 0 7px 2px rgba(255, 210, 150, 0.55);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .hb-pluto-event,
-  .hb-pluto-fx {
-    display: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .hb-pluto-event,
-  .hb-pluto-fx {
-    display: none;
-  }
+.hb-pluto-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* ─────────────────────────── neutron binary ─────────────────────────── */
