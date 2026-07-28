@@ -660,7 +660,14 @@ function Planet({
    keyframes: the orbital period, the separation between the two stars, and
    the glow all have to move together (closer = faster = brighter, also per
    an explicit request), which is a small time-stepped loop here and would
-   need dozens of hand-timed keyframe stops to fake in pure CSS. */
+   need dozens of hand-timed keyframe stops to fake in pure CSS.
+
+   The cycle ends in an actual merger: after the last lap the two stars
+   plunge together, and the instant they touch, useNeutronBinary fires
+   .hb-neutron-flash — a screen-wide burst standing in for a gamma-ray
+   burst, the real astrophysical signature of a neutron-star merger, per an
+   explicit request. They then sit merged for a couple of seconds before
+   splitting back apart to start the next cycle. */
 
 /** How separated (amp, in --body-unit units — see .hb-neutron-binary in
  * hub.css) and how bright (glow, a filter: brightness() multiplier) the
@@ -680,87 +687,155 @@ interface NeutronStage {
   /** Orbital period in seconds — looked up in NEUTRON_ANCHORS. */
   period: number;
   /** How many full laps to run at that period before moving to the next
-   * stage — this is what makes 10 laps land exactly on the 0.2s turnaround
-   * (1+1+1+1+1+2+3), per an explicit request. */
+   * stage — this is what makes 20 laps land exactly on the final 0.2s
+   * stage (2+2+2+2+2+4+6), per an explicit request. */
   laps: number;
 }
 
-/* One full breathing cycle, repeated forever by useNeutronBinary below: the
- * period shortens 5s -> 4s -> 3s -> 2s -> 1s -> 0.5s -> 0.2s (10 laps total,
- * closing in as it speeds up), then lengthens back out 0.5s -> 1s -> 2s ->
- * 3s -> 4s -> 5s (drifting apart, slowing down) before looping back to the
- * start — the exact sequence and lap counts from an explicit request. */
+/* The inspiral: the period shortens 5s -> 4s -> 3s -> 2s -> 1s -> 0.5s ->
+ * 0.2s, 20 laps total, closing in as it speeds up — the exact sequence and
+ * lap count from an explicit request. useNeutronBinary below runs this
+ * once per cycle and then hands off to the merge/flash/hold sequence,
+ * rather than looping this array directly — there is no "drifting back
+ * apart" stage any more; the pair now merges instead (see MERGE_* below). */
 const NEUTRON_STAGES: NeutronStage[] = [
-  { period: 5, laps: 1 },
-  { period: 4, laps: 1 },
-  { period: 3, laps: 1 },
-  { period: 2, laps: 1 },
-  { period: 1, laps: 1 },
-  { period: 0.5, laps: 2 },
-  { period: 0.2, laps: 3 },
-  { period: 0.5, laps: 1 },
-  { period: 1, laps: 1 },
-  { period: 2, laps: 1 },
-  { period: 3, laps: 1 },
-  { period: 4, laps: 1 },
-  { period: 5, laps: 1 },
+  { period: 5, laps: 2 },
+  { period: 4, laps: 2 },
+  { period: 3, laps: 2 },
+  { period: 2, laps: 2 },
+  { period: 1, laps: 2 },
+  { period: 0.5, laps: 4 },
+  { period: 0.2, laps: 6 },
 ];
 
-function useNeutronBinary(ref: React.RefObject<HTMLDivElement>) {
+/** Seconds to plunge from the last stage's separation down to 0 once all
+ * 20 laps are done — fast enough to read as a final infall, not another
+ * orbital stage. */
+const NEUTRON_MERGE_DURATION = 0.45;
+/** Brightness/scale the merged single body holds at, both eased toward
+ * over the plunge and held through NEUTRON_HOLD_DURATION. */
+const NEUTRON_MERGE_GLOW = 2.6;
+const NEUTRON_MERGE_SCALE = 1.55;
+/** Seconds the two stars stay merged as one body before splitting back
+ * apart to start the next cycle — per an explicit request. */
+const NEUTRON_HOLD_DURATION = 2;
+
+/** Restarts `.hb-neutron-flash`'s burst animation — remove+reflow+add
+ * rather than just add, since the class may already be present (holding
+ * its post-animation resting state) from a previous merge and a bare
+ * add() wouldn't retrigger the CSS animation in that case. */
+function fireNeutronFlash(ref: React.RefObject<HTMLDivElement>) {
+  const flash = ref.current;
+  if (!flash) return;
+  flash.classList.remove("is-flashing");
+  void flash.offsetWidth;
+  flash.classList.add("is-flashing");
+}
+
+function useNeutronBinary(
+  ref: React.RefObject<HTMLDivElement>,
+  flashRef: React.RefObject<HTMLDivElement>
+) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     // Static resting frame instead (see .hb-neutron-binary's reduced-motion
-    // rule in hub.css) — no rAF loop to skip.
+    // rule in hub.css) — no rAF loop, and the flash never fires.
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     let raf = 0;
     let last = performance.now();
+    let mode: "orbit" | "merge" | "hold" = "orbit";
     let stageIndex = 0;
     let stageElapsed = 0;
+    let mergeElapsed = 0;
+    let holdElapsed = 0;
+    let ampAtMergeStart = 0;
     let phase = 0;
     const first = NEUTRON_ANCHORS[String(NEUTRON_STAGES[0].period)];
     let amp = first.amp;
     let glow = first.glow;
+    let mscale = 1;
 
     const tick = (now: number) => {
       // Capped so a background/throttled tab doesn't dump one huge dt on
-      // return and skip whole stages in a single frame.
+      // return and skip whole stages (or the entire merge) in one frame.
       const dt = Math.min((now - last) / 1000, 0.1);
       last = now;
 
-      stageElapsed += dt;
-      let stage = NEUTRON_STAGES[stageIndex];
-      let stageDuration = stage.period * stage.laps;
-      while (stageElapsed >= stageDuration) {
-        stageElapsed -= stageDuration;
-        stageIndex = (stageIndex + 1) % NEUTRON_STAGES.length;
-        stage = NEUTRON_STAGES[stageIndex];
-        stageDuration = stage.period * stage.laps;
+      if (mode === "orbit") {
+        stageElapsed += dt;
+        let stage = NEUTRON_STAGES[stageIndex];
+        let stageDuration = stage.period * stage.laps;
+        while (stageElapsed >= stageDuration) {
+          stageElapsed -= stageDuration;
+          stageIndex += 1;
+          if (stageIndex >= NEUTRON_STAGES.length) {
+            // All 20 laps done — hand off to the plunge/merge below instead
+            // of wrapping back to stage 0 directly.
+            mode = "merge";
+            mergeElapsed = 0;
+            ampAtMergeStart = amp;
+            break;
+          }
+          stage = NEUTRON_STAGES[stageIndex];
+          stageDuration = stage.period * stage.laps;
+        }
+        if (mode === "orbit") {
+          // Eased toward the new stage's separation/glow rather than
+          // snapped, so a stage boundary reads as the pair drifting
+          // closer rather than teleporting. The angular speed itself
+          // still changes instantly at the boundary — that discontinuity
+          // is the actual "speeds up" effect that was asked for.
+          const target = NEUTRON_ANCHORS[String(stage.period)];
+          const ease = 1 - Math.exp(-dt / 0.35);
+          amp += (target.amp - amp) * ease;
+          glow += (target.glow - glow) * ease;
+          mscale += (1 - mscale) * ease;
+          phase += ((2 * Math.PI) / stage.period) * dt;
+        }
       }
 
-      // Eased toward the new stage's separation/glow rather than snapped,
-      // so a stage boundary reads as the pair drifting closer/further
-      // rather than teleporting. The angular speed itself still changes
-      // instantly at the boundary — that discontinuity is the actual
-      // "speeds up/slows down" effect that was asked for.
-      const target = NEUTRON_ANCHORS[String(stage.period)];
-      const ease = 1 - Math.exp(-dt / 0.35);
-      amp += (target.amp - amp) * ease;
-      glow += (target.glow - glow) * ease;
+      if (mode === "merge") {
+        mergeElapsed += dt;
+        const t = Math.min(mergeElapsed / NEUTRON_MERGE_DURATION, 1);
+        const eased = t * t * (3 - 2 * t); // smoothstep — accelerating infall
+        amp = ampAtMergeStart * (1 - eased);
+        glow += (NEUTRON_MERGE_GLOW - glow) * (1 - Math.exp(-dt / 0.15));
+        mscale += (NEUTRON_MERGE_SCALE - mscale) * (1 - Math.exp(-dt / 0.2));
+        // Keep spinning at the fastest rate right through the final plunge.
+        phase += ((2 * Math.PI) / 0.2) * dt;
+        if (t >= 1) {
+          amp = 0;
+          mode = "hold";
+          holdElapsed = 0;
+          fireNeutronFlash(flashRef);
+        }
+      } else if (mode === "hold") {
+        holdElapsed += dt;
+        amp = 0;
+        glow += (NEUTRON_MERGE_GLOW - glow) * (1 - Math.exp(-dt / 0.3));
+        if (holdElapsed >= NEUTRON_HOLD_DURATION) {
+          // Back to stage 0 — amp/glow/mscale ease back out toward the
+          // wide/dim/normal-size resting values on their own from here,
+          // via the same easing the "orbit" branch above already does.
+          mode = "orbit";
+          stageIndex = 0;
+          stageElapsed = 0;
+        }
+      }
 
-      phase += ((2 * Math.PI) / stage.period) * dt;
       const nx = amp * Math.cos(phase);
-
       el.style.setProperty("--nx", nx.toFixed(3));
       el.style.setProperty("--glow", glow.toFixed(3));
+      el.style.setProperty("--mscale", mscale.toFixed(3));
 
       raf = requestAnimationFrame(tick);
     };
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [ref]);
+  }, [ref, flashRef]);
 }
 
 /* ───────────────────────────── page ───────────────────────────── */
@@ -777,7 +852,8 @@ export default function Hub() {
 
   const stageRef = useRef<HTMLDivElement>(null);
   const neutronRef = useRef<HTMLDivElement>(null);
-  useNeutronBinary(neutronRef);
+  const neutronFlashRef = useRef<HTMLDivElement>(null);
+  useNeutronBinary(neutronRef, neutronFlashRef);
 
   /* The page's entire data budget: two cached endpoints, one poll. */
   useEffect(() => {
@@ -940,10 +1016,12 @@ export default function Hub() {
             along a single horizontal line (facing each other, side to
             side) rather than one orbiting the other or a full circular
             sweep, per an explicit request. See useNeutronBinary above and
-            .hb-neutron-binary in hub.css for the timing: period and
-            separation shrink together — 5s→4s→3s→2s→1s→0.5s→0.2s, 10 laps
-            total — then both grow back out 0.5s→1s→2s→3s→4s→5s, repeating
-            forever; glow brightens as they close in. */}
+            .hb-neutron-binary/.hb-neutron-flash in hub.css for the timing:
+            period and separation shrink together — 5s→4s→3s→2s→1s→0.5s→
+            0.2s, 20 laps total — then the pair plunges together into one
+            merged body, firing a screen-wide gamma-ray-burst-style flash
+            at the instant of merger, holds merged for a couple of
+            seconds, then splits back apart to start the next cycle. */}
         <div className="hb-neutron-binary" ref={neutronRef} aria-hidden="true">
           <span className="hb-neutron-star hb-neutron-star--a" />
           <span className="hb-neutron-star hb-neutron-star--b" />
@@ -1001,6 +1079,13 @@ export default function Hub() {
       >
         <BlackHoleBody id="hub" />
       </button>
+
+      {/* The neutron binary's merger flash (see useNeutronBinary/
+          fireNeutronFlash in the component below) — fixed to the whole
+          viewport rather than scoped to `.hb-space`, since "화면 전체를
+          밝게" means the entire screen, not just the hero section the
+          binary itself sits in. See .hb-neutron-flash in hub.css. */}
+      <div className="hb-neutron-flash" ref={neutronFlashRef} aria-hidden="true" />
 
       <div className="hb-stage" ref={stageRef}>
         <div className="hb-parallax">

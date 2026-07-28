@@ -2037,9 +2037,12 @@ body:has(.hb) {
   width: calc(64 * var(--body-unit));
   height: calc(18 * var(--body-unit));
   /* Resting values for the instant before useNeutronBinary's first frame
-     lands, and the only values used at all under reduced motion below. */
+     lands, and the only values used at all under reduced motion below.
+     --mscale is the merged-body scale bump (see NEUTRON_MERGE_SCALE in
+     Hub.tsx) — 1 the rest of the time. */
   --nx: 22;
   --glow: 1;
+  --mscale: 1;
 }
 
 /* Half the Moon's own rendered size per an explicit request (.hb-moon--lunar
@@ -2068,18 +2071,22 @@ body:has(.hb) {
 /* Opposite signs on the same --nx — one star out to each side of the shared
    centre, moving together as --nx changes every frame, which is what makes
    them mutually orbit (both sides of one horizontal line) rather than one
-   sitting still while the other sweeps around it. */
+   sitting still while the other sweeps around it. --mscale is shared and
+   unsigned (it's a size, not a position), so it just multiplies straight
+   through — both stars swell together as they merge, reading as one body
+   growing rather than two discs individually inflating. */
 .hb-neutron-star--a {
-  transform: translateX(calc(var(--nx) * var(--body-unit)));
+  transform: translateX(calc(var(--nx) * var(--body-unit))) scale(var(--mscale));
 }
 
 .hb-neutron-star--b {
-  transform: translateX(calc(var(--nx) * var(--body-unit) * -1));
+  transform: translateX(calc(var(--nx) * var(--body-unit) * -1)) scale(var(--mscale));
 }
 
 /* useNeutronBinary itself no-ops under reduced motion (see Hub.tsx), so
    these are the only values the pair ever shows there — a mid-separation,
-   mid-brightness resting frame instead of the animated extremes. */
+   mid-brightness resting frame instead of the animated extremes, and no
+   merge (so no flash) ever happens. */
 @media (prefers-reduced-motion: reduce) {
   .hb-neutron-binary {
     --nx: 10;
@@ -2090,6 +2097,75 @@ body:has(.hb) {
 @media (max-width: 640px) {
   .hb-neutron-binary {
     display: none;
+  }
+}
+
+/* ─────────────────────────── neutron merger flash ─────────────────────────── */
+
+/* Fired once per cycle, the instant the two stars finish their 20-lap
+   inspiral and plunge together (see useNeutronBinary/fireNeutronFlash in
+   Hub.tsx) — a stand-in for a gamma-ray burst, the real signature astronomers
+   actually see from a neutron-star merger, per an explicit request: a burst
+   of light from the merger point that washes the whole screen bright, not
+   just a glow around the star itself.
+
+   Fixed to the viewport and z-indexed above everything else on the page
+   (`.hb-controls`/`.hb-clocks` included) rather than scoped to `.hb-space`,
+   the hero section the binary itself lives in — "화면 전체를 밝게" means the
+   whole screen. `pointer-events: none` throughout: it's light, not a modal,
+   and must never swallow a click on whatever is actually onscreen under it.
+
+   --origin approximates .hb-neutron-binary's own on-screen position (that
+   element's radius varies with --nx, so there's no single point to read
+   back from it exactly; this is close enough for a light burst) — both the
+   gradient's centre and the scale's transform-origin read the same value,
+   so the burst visibly originates from the merger rather than the screen's
+   own centre. */
+.hb-neutron-flash {
+  --origin: 91% 13%;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.1);
+  transform-origin: var(--origin);
+  background: radial-gradient(
+    circle at var(--origin),
+    #ffffff 0%,
+    rgba(230, 240, 255, 0.92) 20%,
+    rgba(190, 215, 255, 0.55) 44%,
+    rgba(190, 215, 255, 0) 72%
+  );
+}
+
+/* An `animation` (triggered by adding this class) rather than a `transition`
+   on directly-written opacity/transform values: the burst needs opacity and
+   scale choreographed together against one shared clock (near-instant flash
+   in, brief hold, slower fade-and-continue-expanding out) — one keyframe
+   timeline expresses that cleanly, where two independently-timed transitions
+   would fight each other. fireNeutronFlash (Hub.tsx) removes and re-adds
+   this class on every merge so the animation actually restarts each time,
+   rather than staying a no-op after the first merge (re-adding a class
+   that's already present doesn't retrigger a CSS animation). */
+.hb-neutron-flash.is-flashing {
+  animation: hb-neutron-grb 1.6s cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+
+@keyframes hb-neutron-grb {
+  0% { opacity: 0; transform: scale(0.08); }
+  8% { opacity: 1; transform: scale(1.05); }
+  22% { opacity: 0.95; transform: scale(1.18); }
+  100% { opacity: 0; transform: scale(1.6); }
+}
+
+/* useNeutronBinary's rAF loop never runs under reduced motion (see
+   .hb-neutron-binary's own reduced-motion rule above), so .is-flashing is
+   never added in the first place — this only guards against the burst ever
+   playing if that ever changes. */
+@media (prefers-reduced-motion: reduce) {
+  .hb-neutron-flash.is-flashing {
+    animation: none;
   }
 }
 
