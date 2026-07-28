@@ -723,12 +723,19 @@ const NEUTRON_STAGES: NeutronStage[] = [
  * orbital stage. */
 const NEUTRON_MERGE_DURATION = 0.45;
 /** Brightness/scale the merged single body holds at, both eased toward
- * over the plunge and held through NEUTRON_HOLD_DURATION. */
+ * over the plunge and held through NEUTRON_HOLD_DURATION. The scale is
+ * literally 2 — twice one star's own size, per an explicit request — and it
+ * applies to the two stars themselves as they converge, which is what makes
+ * the handover to the merged body below read as one thing swelling rather
+ * than as a swap between two different objects. */
 const NEUTRON_MERGE_GLOW = 2.6;
-const NEUTRON_MERGE_SCALE = 1.55;
-/** Seconds the two stars stay merged as one body before splitting back
- * apart to start the next cycle — per an explicit request. */
-const NEUTRON_HOLD_DURATION = 2;
+const NEUTRON_MERGE_SCALE = 2;
+/** Seconds the merged body is held before it splits back apart and the next
+ * inspiral begins — per an explicit request (was 2). Long enough that the
+ * merged remnant is something the eye settles on rather than a moment in a
+ * transition; the six-spike bloom it holds (see .hb-neutron-merged in
+ * hub.css) is the point of the whole sequence now, not punctuation on it. */
+const NEUTRON_HOLD_DURATION = 10;
 
 /** Restarts `.hb-neutron-flash`'s burst animation — remove+reflow+add
  * rather than just add, since the class may already be present (holding
@@ -766,6 +773,12 @@ function useNeutronBinary(
     let amp = first.amp;
     let glow = first.glow;
     let mscale = 1;
+    // 0 while the pair is still two stars, 1 once they are one body — the
+    // crossfade between the orbiting pair and the merged remnant (see
+    // .hb-neutron-merged in hub.css). Eased rather than switched, so the
+    // handover happens across the plunge instead of popping at the instant
+    // the separation reaches zero.
+    let merged = 0;
     // Last values actually written out — see the write-gating at the end of
     // tick(). Seeded to -Infinity rather than NaN so the first frame's
     // difference check is unambiguously "far enough" and both get written
@@ -773,6 +786,7 @@ function useNeutronBinary(
     // suppressed the initial write entirely instead of forcing it).
     let lastGlow = Number.NEGATIVE_INFINITY;
     let lastMscale = Number.NEGATIVE_INFINITY;
+    let lastMerged = Number.NEGATIVE_INFINITY;
 
     const tick = (now: number) => {
       // Capped so a background/throttled tab doesn't dump one huge dt on
@@ -809,6 +823,7 @@ function useNeutronBinary(
           amp += (target.amp - amp) * ease;
           glow += (target.glow - glow) * ease;
           mscale += (1 - mscale) * ease;
+          merged += (0 - merged) * ease;
           phase += ((2 * Math.PI) / stage.period) * dt;
         }
       }
@@ -820,6 +835,11 @@ function useNeutronBinary(
         amp = ampAtMergeStart * (1 - eased);
         glow += (NEUTRON_MERGE_GLOW - glow) * (1 - Math.exp(-dt / 0.15));
         mscale += (NEUTRON_MERGE_SCALE - mscale) * (1 - Math.exp(-dt / 0.2));
+        // Slower than the plunge itself, so the two stars are already on top
+        // of each other and swollen before the merged body has fully taken
+        // over from them — the pair reads as becoming the remnant rather than
+        // being replaced by it.
+        merged += (1 - merged) * (1 - Math.exp(-dt / 0.18));
         // Keep spinning at the fastest rate right through the final plunge.
         phase += ((2 * Math.PI) / 0.2) * dt;
         if (t >= 1) {
@@ -832,6 +852,7 @@ function useNeutronBinary(
         holdElapsed += dt;
         amp = 0;
         glow += (NEUTRON_MERGE_GLOW - glow) * (1 - Math.exp(-dt / 0.3));
+        merged += (1 - merged) * (1 - Math.exp(-dt / 0.3));
         if (holdElapsed >= NEUTRON_HOLD_DURATION) {
           // Back to stage 0 — amp/glow/mscale ease back out toward the
           // wide/dim/normal-size resting values on their own from here,
@@ -859,6 +880,10 @@ function useNeutronBinary(
       if (Math.abs(mscale - lastMscale) >= 0.005) {
         lastMscale = mscale;
         el.style.setProperty("--mscale", mscale.toFixed(3));
+      }
+      if (Math.abs(merged - lastMerged) >= 0.005) {
+        lastMerged = merged;
+        el.style.setProperty("--merged", merged.toFixed(3));
       }
 
       raf = requestAnimationFrame(tick);
@@ -1708,6 +1733,31 @@ export default function Hub() {
         <div className="hb-neutron-binary" ref={neutronRef} aria-hidden="true">
           <span className="hb-neutron-star hb-neutron-star--a" />
           <span className="hb-neutron-star hb-neutron-star--b" />
+          {/* What the two of them become: one blue remnant at twice a single
+              star's size, held for ten seconds before it splits back apart
+              and the next inspiral starts, per an explicit request.
+
+              The bars are diffraction spikes, matched to a reference photo of
+              the real thing. One bar is two opposing spikes, so this is eight
+              spikes, not six — and the split matters, because it is what makes
+              the shape recognisable rather than merely six-fold. Three bright
+              bars at 30°/90°/150° give the six spikes the hexagonal primary
+              mirror produces (60° apart, and note that one of them is
+              VERTICAL — a set at 0°/60°/120° is the same six-fold symmetry
+              rotated, and reads wrong: it puts a bright pair on the horizontal
+              where the real image has its faintest). The fourth bar is the
+              horizontal pair thrown by the secondary mirror's support strut,
+              which in the photograph is visibly shorter and dimmer than the
+              other six — see .hb-neutron-spike--strut in hub.css. */}
+          <span className="hb-neutron-merged">
+            <i className="hb-neutron-spike" style={{ ["--sa" as string]: "30deg" }} />
+            <i className="hb-neutron-spike" style={{ ["--sa" as string]: "90deg" }} />
+            <i className="hb-neutron-spike" style={{ ["--sa" as string]: "150deg" }} />
+            <i
+              className="hb-neutron-spike hb-neutron-spike--strut"
+              style={{ ["--sa" as string]: "0deg" }}
+            />
+          </span>
         </div>
         <div className="hb-vignette" />
       </div>

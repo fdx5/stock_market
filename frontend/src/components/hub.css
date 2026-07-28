@@ -2706,6 +2706,9 @@ body:has(.hb) {
   --nx: 22;
   --glow: 1;
   --mscale: 1;
+  /* 0 while there are two stars, 1 once they are one body — see
+     useNeutronBinary, and .hb-neutron-merged below for what it crossfades. */
+  --merged: 0;
 }
 
 /* Half the Moon's own rendered size per an explicit request (.hb-moon--lunar
@@ -2729,7 +2732,11 @@ body:has(.hb) {
   /* Both halves of the transform this element ever gets (--nx below, --mscale
      during the merge) are written every frame, so it's declared as a layer up
      front instead of leaving Safari to promote and de-promote it repeatedly. */
-  will-change: transform;
+  will-change: transform, opacity;
+  /* Handed over to `.hb-neutron-merged` as the pair converges. The two fade
+     across each other rather than one switching off and the other on, which
+     is why both read this same one number from opposite ends. */
+  opacity: calc(1 - var(--merged));
 }
 
 /* --glow used to drive a `filter: brightness() drop-shadow(...)` on the star
@@ -2799,6 +2806,129 @@ body:has(.hb) {
 
 .hb-neutron-star--b {
   transform: translateX(calc(var(--nx) * var(--body-unit) * -1)) scale(var(--mscale));
+}
+
+/* ── the merged remnant ──
+   What the pair becomes: one blue body at twice a single star's diameter
+   (15 -> 30 --body-unit), held for ten seconds before splitting back apart,
+   per an explicit request. It crossfades with the two stars on the same
+   --merged number they read from the other end, so through the plunge both
+   are briefly on screen together — the pair swollen to the same 2x by
+   --mscale and already stacked on top of each other by then, so what reads is
+   one body forming rather than a substitution.
+
+   Blue rather than the pair's own blue-white: the remnant is a different
+   object, and the colour is what says so before the spikes do. */
+.hb-neutron-merged {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(30 * var(--body-unit));
+  height: calc(30 * var(--body-unit));
+  margin: calc(-15 * var(--body-unit)) 0 0 calc(-15 * var(--body-unit));
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 40% 36%,
+    #ffffff 0%,
+    #dcefff 22%,
+    #8fc6ff 52%,
+    #3f8fe6 82%,
+    #2470c9 100%
+  );
+  box-shadow:
+    0 0 10px 3px rgba(255, 255, 255, 0.9),
+    0 0 30px 10px rgba(140, 200, 255, 0.7),
+    0 0 70px 24px rgba(70, 150, 255, 0.42);
+  opacity: var(--merged);
+  will-change: opacity;
+  pointer-events: none;
+}
+
+/* One diffraction spike bar — a thin line through the body's own centre, so
+   each bar is a PAIR of opposing spikes. Three of these at 30°/90°/150° (set
+   inline per bar off --sa, see Hub.tsx) give the six spikes the James Webb
+   telescope's hexagonal primary mirror produces, and a fourth at 0° below
+   gives the shorter, dimmer horizontal pair its secondary-mirror strut adds —
+   eight in total, which is what the real photographs show.
+
+   The same hairline-gradient trick `.hb-twinkle`'s own flares already use
+   elsewhere in this file, just far longer and rotated.
+
+   Transparent at both ends and brightest at the middle, which is what makes a
+   spike taper away from the star rather than end in a hard stop. `left/top:
+   50%` with the translate in the same transform keeps the bar centred on the
+   body whatever its own length is. */
+.hb-neutron-spike {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  /* Long and thin against the core, which is the proportion that reads as a
+     diffraction spike rather than as a four-pointed sparkle — in the
+     reference photograph the spikes run several times the visible width of
+     the star they come from. Brightness is concentrated in a narrow band at
+     the centre with long faint tails, for the same reason: a spike that is
+     uniformly bright along its length reads as a drawn line.
+
+     400% and not more: `.hb-space` clips at the viewport edge, and this body
+     sits inset from the right corner. At the tightest inset this renders at
+     (right: 9vw just past the 640px breakpoint below, where the pair is
+     hidden entirely), the 30° bars reach ~85px horizontally against ~110px of
+     available room. A longer spike would be cut off square by that edge,
+     which is worse than a shorter one. */
+  width: 400%;
+  height: 2px;
+  transform: translate(-50%, -50%) rotate(var(--sa));
+  background: linear-gradient(
+    90deg,
+    rgba(140, 200, 255, 0) 0%,
+    rgba(150, 205, 255, 0.16) 28%,
+    rgba(185, 222, 255, 0.5) 43%,
+    rgba(235, 246, 255, 1) 50%,
+    rgba(185, 222, 255, 0.5) 57%,
+    rgba(150, 205, 255, 0.16) 72%,
+    rgba(140, 200, 255, 0) 100%
+  );
+  pointer-events: none;
+  /* The scintillation, on its own uneven clock per bar (below) so the six
+     points don't brighten in lockstep — the same reasoning `.hb-twinkle`
+     gives for never letting a whole star field pulse as one. Opacity only, on
+     three elements two pixels tall: the whole of it is compositor work, which
+     is the bar anything continuously animating on this page has to clear. */
+  animation: hb-neutron-spike-pulse 3.4s ease-in-out infinite;
+}
+
+/* The secondary mirror's strut pair. Distinctly shorter and dimmer than the
+   six the primary mirror throws — in the reference photograph it reaches
+   roughly half as far and is faint enough to read as a different feature
+   rather than as two more spikes of the same set. Getting this wrong in the
+   other direction (eight equal spikes) is what makes a rendering of this look
+   like a generic sparkle instead of like the telescope. */
+.hb-neutron-spike--strut {
+  width: 240%;
+  opacity: 0.45;
+  background: linear-gradient(
+    90deg,
+    rgba(140, 200, 255, 0) 0%,
+    rgba(150, 205, 255, 0.2) 30%,
+    rgba(205, 232, 255, 0.72) 50%,
+    rgba(150, 205, 255, 0.2) 70%,
+    rgba(140, 200, 255, 0) 100%
+  );
+  animation: none;
+}
+
+.hb-neutron-spike:nth-child(2) { animation-duration: 4.1s; animation-delay: -1.2s; }
+.hb-neutron-spike:nth-child(3) { animation-duration: 4.8s; animation-delay: -2.5s; }
+
+@keyframes hb-neutron-spike-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-neutron-spike {
+    animation: none;
+  }
 }
 
 /* useNeutronBinary itself no-ops under reduced motion (see Hub.tsx), so
