@@ -36,6 +36,7 @@ from app.routers import (
 from app.services import kakao_notify, notify_stats_store, page_view_store, prediction_batch, stock_search_store
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
+from app.services.stock_board import warm_boards
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
 
 app = FastAPI(title="KOSPI 종목 예측")
@@ -88,6 +89,12 @@ def _warm_market_maps() -> None:
     # every frontend tier (20/50/full) hit a warm cache.
     threading.Thread(target=lambda: get_sp500_map(503), daemon=True).start()
     threading.Thread(target=lambda: get_nasdaq100_map(103), daemon=True).start()
+    # The three 100-종목 card boards ride on the snapshots above, but each also needs a
+    # year of daily bars per symbol for its sparklines — the one part of a board
+    # request that can touch the network. Warmed here so the first visitor after a
+    # deploy doesn't pay for 300 history fetches inline. Runs after (not alongside) the
+    # roster warms above, since it reads them.
+    threading.Thread(target=warm_boards, daemon=True).start()
 
 
 @app.on_event("startup")

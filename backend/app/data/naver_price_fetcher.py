@@ -41,6 +41,18 @@ def _parse_number(text: str) -> float:
     return float(cleaned) if cleaned else 0.0
 
 
+def _parse_optional(text: str) -> float | None:
+    """For the fundamentals columns, where "N/A" is a real answer rather than a parse
+    failure — a loss-making company genuinely has no PER, and reporting that as 0.0
+    (what `_parse_number` would give) would rank it as the cheapest stock on the board.
+    """
+    cleaned = text.replace(",", "").replace("%", "").strip()
+    try:
+        return float(cleaned)
+    except ValueError:
+        return None
+
+
 def fetch_market_cap_page(page: int, sosok: int = 0) -> list[dict]:
     """One page (50 rows) of the market-cap ranking, live — `sosok=0` for KOSPI,
     `sosok=1` for KOSDAQ. Includes ETFs — callers that need companies only should
@@ -69,16 +81,31 @@ def fetch_market_cap_page(page: int, sosok: int = 0) -> list[dict]:
             continue
 
         try:
-            rows.append(
-                {
-                    "code": code,
-                    "name": link.get_text(strip=True),
-                    "close": _parse_number(cells[2]),
-                    "change": _parse_change(cells[3]),
-                    "change_pct": _parse_number(cells[4]),
-                    "marcap": _parse_number(cells[6]) * 100_000_000,  # 억원 -> 원
-                }
-            )
+            row = {
+                "code": code,
+                "name": link.get_text(strip=True),
+                "close": _parse_number(cells[2]),
+                "change": _parse_change(cells[3]),
+                "change_pct": _parse_number(cells[4]),
+                "marcap": _parse_number(cells[6]) * 100_000_000,  # 억원 -> 원
+            }
+            # The default column set carries 상장주식수 / 외국인비율 / 거래량 / PER / ROE
+            # to the right of 시가총액 — free with the page this scrape is already
+            # paying for, which is why the board cards can show fundamentals without a
+            # second request per stock. Optional rather than assumed: the column set is
+            # user-configurable on Naver's side, so a page served with a narrower table
+            # still yields a valid price row instead of failing to parse at all.
+            if len(cells) >= 12:
+                row.update(
+                    {
+                        "shares": _parse_number(cells[7]) * 1_000,  # 천주 -> 주
+                        "foreign_ratio": _parse_optional(cells[8]),
+                        "volume": _parse_number(cells[9]),
+                        "per": _parse_optional(cells[10]),
+                        "roe": _parse_optional(cells[11]),
+                    }
+                )
+            rows.append(row)
         except (ValueError, IndexError):
             continue
     return rows

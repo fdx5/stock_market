@@ -127,6 +127,75 @@ export interface UsSectorMap {
   items: MarketMapItem[];
 }
 
+/** Trailing returns off the same daily series the sparkline is drawn from. Any of
+ * them is null when the window doesn't reach that far back — a stock listed three
+ * weeks ago has no 3-month return, and `ytd` is null until the series crosses a New
+ * Year. Null renders as "—", never as 0%. */
+export interface BoardReturns {
+  w1: number | null;
+  m1: number | null;
+  m3: number | null;
+  ytd: number | null;
+}
+
+/** One card on a /kospi-100 · /kosdaq-100 · /nasdaq-100 board. */
+export interface StockBoardItem {
+  rank: number;
+  code: string;
+  name: string;
+  /** NASDAQ only: the Korean rendering of `name`, or null while the translate cache
+   * is still warming (the card then shows the English name). */
+  name_ko?: string | null;
+  sector: string;
+  close: number;
+  change: number;
+  change_pct: number;
+  /** Won for the KR boards; index weight (%) for NASDAQ — see `marcap_kind`. */
+  marcap: number;
+  /** KR boards only — these ride along on the market-cap page scrape. Null when the
+   * figure genuinely doesn't exist (a loss-making company has no PER). */
+  volume?: number | null;
+  per?: number | null;
+  roe?: number | null;
+  foreign_ratio?: number | null;
+  /** ~3 months of closes, oldest first, with the last point pinned to `close`. */
+  points: number[];
+  week52_high: number | null;
+  week52_low: number | null;
+  /** Where `close` sits in the 52-week range, 0 (low) to 1 (high). Null when the
+   * range is unusable. */
+  week52_pos: number | null;
+  returns: Partial<BoardReturns>;
+}
+
+export interface StockBoardSector {
+  sector: string;
+  count: number;
+  marcap: number;
+  /** Cap-weighted, matching how the market map's sector zones compute theirs. */
+  avg_change_pct: number;
+  up: number;
+  flat: number;
+  down: number;
+}
+
+export interface StockBoard {
+  market: "kospi" | "kosdaq" | "nasdaq";
+  label: string;
+  currency: "KRW" | "USD";
+  /** What `marcap` on each item means — an absolute won figure, or an index weight. */
+  marcap_kind: "krw" | "weight";
+  generated_at: string;
+  /** The sparkline window's session dates (YYYYMMDD), sent once for the whole board
+   * instead of repeated on every card. Align to an item's `points` from the END. */
+  spark_dates: string[];
+  count: number;
+  breadth: { up: number; flat: number; down: number; avg_change_pct: number };
+  /** Ordered by combined size — the order the page stacks its groups in. */
+  sectors: StockBoardSector[];
+  items: StockBoardItem[];
+}
+
 export interface BoardPost {
   nid: string;
   title: string;
@@ -585,6 +654,8 @@ export const api = {
     getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
       `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`
     ),
+  stockBoard: (market: "kospi" | "kosdaq" | "nasdaq", fresh = false) =>
+    getJSON<StockBoard>(`${BASE}/market/board?market=${market}&fresh=${fresh}`),
   sectorMap: (code: string, limit = 40) =>
     getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
   usSectorMap: (code: string, limit = 40) =>

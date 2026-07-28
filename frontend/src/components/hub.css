@@ -2403,6 +2403,69 @@ body:has(.hb) {
   transition: opacity 0.35s ease-out;
 }
 
+/* The hole's destination label, mirroring `.hb-voyager-tip` above — same
+   monospace/letter-spaced treatment so the two viewport-fixed controls read as
+   one family. Hung ABOVE the art (`bottom: 100%`), unlike Voyager's: this
+   button is anchored to the bottom-right corner, so a tip below it would sit
+   off the viewport. Its own colour is the hole's amber rather than Voyager's
+   blue, matching the corona it labels. */
+.hb-blackhole-tip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(14, 8, 4, 0.9);
+  border: 1px solid rgba(255, 180, 110, 0.34);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: #ffd9ac;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.hb-blackhole:hover .hb-blackhole-tip,
+.hb-blackhole:focus-visible .hb-blackhole-tip {
+  opacity: 1;
+}
+
+/* The neutron binary's own label, same family as the two above. Hung BELOW the
+   pair (this body sits in open sky, not a corner, so there is nothing to fall
+   off) and tinted its blue rather than the hole's amber. `top: 100%` is measured
+   against the button box, which the inspiral animates the stars inside of —
+   the label therefore holds still while they orbit. */
+.hb-neutron-tip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 8px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: rgba(4, 9, 20, 0.9);
+  border: 1px solid rgba(150, 200, 255, 0.34);
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  font-weight: 700;
+  color: #cfe6ff;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
+}
+
+.hb-neutron-binary:hover .hb-neutron-tip,
+.hb-neutron-binary:focus-visible .hb-neutron-tip {
+  opacity: 1;
+}
+
 /* brightness/saturate stay on the button — they're per-pixel colour maths
    with no blur kernel behind them, which is a different order of cost from
    the drop-shadows that used to sit alongside them here, and they're what

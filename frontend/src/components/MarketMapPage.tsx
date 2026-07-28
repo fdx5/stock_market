@@ -15,6 +15,7 @@ import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import MarketTickerBar from "./MarketTickerBar";
+import RankIcon from "./RankIcon";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
@@ -106,6 +107,15 @@ function downloadTimestamp(): string {
 // Sentinel for the sector filter's "show everything" option — distinct from any real
 // sector label (including "기타") so it can never collide with backend-assigned data.
 const ALL_SECTORS = "__all__";
+
+// The TOP 100 card boards, offered beside the live badge on every map. Labels are
+// left untranslated on purpose: they are the boards' own page titles ("KOSPI TOP
+// 100"), which read identically in both languages.
+const BOARD_LINKS = [
+  { to: "/kospi-100", label: "KOSPI TOP 100" },
+  { to: "/kosdaq-100", label: "KOSDAQ TOP 100" },
+  { to: "/nasdaq-100", label: "NASDAQ TOP 100" },
+];
 
 // Arbitrary relative sizes for the loading skeleton's placeholder blocks - not real
 // data, just enough variation for squarify to produce a plausible-looking treemap
@@ -598,6 +608,21 @@ export default function MarketMapPage({
               <span className="kospi-map-live-badge">
                 <span className="kospi-map-live-dot" />
                 {liveBadgeText}
+              </span>
+              {/* The three card boards, right where a reader has just been told this
+                  map is live — the map answers "what is the whole market doing", the
+                  boards answer "what is each name doing", so this is the point in the
+                  page where the second question is most likely to occur. Shown on all
+                  four maps, this one included: the set of boards doesn't depend on
+                  which map you're standing on, and leaving one map out would make the
+                  boards look like they belong to the others. */}
+              <span className="kospi-map-board-links">
+                {BOARD_LINKS.map((board) => (
+                  <Link key={board.to} to={board.to} className="kospi-map-board-link">
+                    <RankIcon className="kospi-map-board-icon" />
+                    {board.label}
+                  </Link>
+                ))}
               </span>
             </div>
             <p className="app-subtitle">

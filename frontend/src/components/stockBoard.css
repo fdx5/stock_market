@@ -1,0 +1,1141 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   /kospi-100 · /kosdaq-100 · /nasdaq-100 — the 100-종목 card boards.
+
+   Kept in its own stylesheet (like hub.css) rather than appended to styles.css:
+   nothing here is shared with another page, and the file is long enough that
+   folding it into the 13k-line global sheet would make both harder to read.
+
+   Everything reads from the theme tokens in styles.css :root, so the whole
+   board follows the site's light/dark switch with no per-rule branching except
+   where a token genuinely can't express the difference (noted inline).
+
+   Two rules the layout keeps to:
+   - Color means direction. --up-color / --down-color / --text-muted for flat,
+     the same three the maps and the dashboard use. Nothing is tinted for
+     decoration, so any color on screen is a fact about a price.
+   - Text wears text tokens. Values and labels stay in primary/secondary/muted
+     ink; the colored mark next to them carries the signal. The one exception
+     is the change badge, which IS the signal.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.sb-page {
+  max-width: 1560px;
+  gap: 0;
+
+  /* The sticky stack, declared once. `.app-header` is sticky at top: 0 and these two
+     park underneath it, so every offset below is derived from these rather than
+     written out as a magic number in three places. Measured heights of the two bars
+     at this breakpoint; each `top` then subtracts 2-3px so the element tucks *under*
+     the one above rather than leaving a transparent seam for content to scroll
+     through (the header carries z-index 40, the toolbar 30, the sector head 20, so
+     the overlap always paints in the right order). */
+  --sb-header-h: 86px;
+  --sb-toolbar-h: 59px;
+}
+
+/* ───────────────────────────────── hero ───────────────────────────────── */
+
+.sb-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px 28px;
+  padding: 22px 0 18px;
+}
+
+.sb-hero-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 22px;
+  min-width: 0;
+}
+
+.sb-title {
+  margin: 0;
+  font-size: clamp(26px, 4.2vw, 40px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  color: var(--text-primary);
+}
+
+.sb-subtitle {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.sb-updated {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.sb-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-good) 22%, transparent);
+  animation: sb-live-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes sb-live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* The switch between the three sibling boards. A segmented control rather than
+   three links, because they are one choice with three states — the active tab is
+   marked by fill, not only by color, so it survives a grayscale render. */
+.sb-switch {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-1);
+}
+
+.sb-switch-tab {
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.sb-switch-tab:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.sb-switch-tab.is-active {
+  background: var(--text-primary);
+  color: var(--surface-1);
+}
+
+/* The board's own one-line verdict. A hero number plus a breadth bar — not a
+   chart, because there is exactly one figure and one 3-part split to show. */
+.sb-pulse {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-1);
+}
+
+.sb-pulse-figure {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+}
+
+.sb-pulse-value {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.sb-pulse-figure[data-dir="up"] .sb-pulse-value {
+  color: var(--up-color);
+}
+
+.sb-pulse-figure[data-dir="down"] .sb-pulse-value {
+  color: var(--down-color);
+}
+
+.sb-pulse-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sb-pulse-breadth {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 190px;
+}
+
+/* Three segments, up / flat / down, each separated by a 2px gap in the page
+   surface so adjacent fills never blend into one bar. */
+.sb-breadth {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--gridline);
+}
+
+.sb-breadth-seg {
+  min-width: 0;
+  transition: width 0.4s ease;
+}
+
+.sb-breadth-seg[data-dir="up"] {
+  background: var(--up-color);
+  border-radius: 999px 0 0 999px;
+}
+
+.sb-breadth-seg[data-dir="flat"] {
+  background: var(--baseline);
+}
+
+.sb-breadth-seg[data-dir="down"] {
+  background: var(--down-color);
+  border-radius: 0 999px 999px 0;
+}
+
+.sb-breadth-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* A dot ahead of each count, so the legend maps to the bar by shape+position
+   rather than by the reader remembering which end is which. */
+.sb-breadth-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: baseline;
+}
+
+.sb-breadth-legend span[data-dir="up"]::before {
+  background: var(--up-color);
+}
+
+.sb-breadth-legend span[data-dir="flat"]::before {
+  background: var(--baseline);
+}
+
+.sb-breadth-legend span[data-dir="down"]::before {
+  background: var(--down-color);
+}
+
+.sb-breadth--mini {
+  height: 6px;
+  width: 84px;
+  flex: none;
+}
+
+/* ─────────────────────────────── toolbar ─────────────────────────────── */
+
+.sb-toolbar {
+  position: sticky;
+  /* The controls stay reachable through a 100-card scroll — see the offsets on
+     .sb-page for how this clears the app header. */
+  top: calc(var(--sb-header-h) - 2px);
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0 10px;
+  background: var(--page-plane);
+}
+
+.sb-search {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+
+.sb-search input {
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.sb-search input:focus-visible,
+.sb-select select:focus-visible {
+  outline: 2px solid var(--series-blue);
+  outline-offset: 1px;
+}
+
+.sb-select select {
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.sb-toggles {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-1);
+}
+
+.sb-toggles button {
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 13px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.sb-toggles button.is-active {
+  background: var(--text-primary);
+  color: var(--surface-1);
+}
+
+/* ──────────────────────────── sector chips ──────────────────────────── */
+
+.sb-chips {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0 16px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  /* The row is a horizontal scroller on every width, not only on mobile — 16
+     업종 never fit a line, and a wrapping row would push the cards below the
+     fold on the page's first paint. */
+  -webkit-overflow-scrolling: touch;
+}
+
+.sb-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sb-chip:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.sb-chip.is-active {
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 10%, var(--surface-1));
+}
+
+.sb-chip b {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+.sb-chip i {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.sb-chip i[data-dir="up"] {
+  color: var(--up-color);
+}
+
+.sb-chip i[data-dir="down"] {
+  color: var(--down-color);
+}
+
+/* The chip's swatch carries the sector's cap-weighted move on the same
+   diverging scale the market map paints its tiles with — so the chip row is
+   itself a read of the market before anything is clicked. */
+.sb-chip-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex: none;
+}
+
+/* ───────────────────────────── sector groups ───────────────────────────── */
+
+.sb-body {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.sb-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sb-sector-head {
+  position: sticky;
+  /* Parks under the toolbar, so scrolling through 100 cards always shows which 업종
+     the cards on screen belong to. */
+  top: calc(var(--sb-header-h) + var(--sb-toolbar-h) - 3px);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 9px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-1) 92%, var(--page-plane));
+  backdrop-filter: blur(6px);
+}
+
+.sb-sector-swatch {
+  width: 12px;
+  height: 24px;
+  border-radius: 4px;
+  flex: none;
+}
+
+.sb-sector-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.sb-sector-count,
+.sb-sector-size {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-sector-avg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.sb-sector-avg[data-dir="up"] {
+  color: var(--up-color);
+}
+
+.sb-sector-avg[data-dir="down"] {
+  color: var(--down-color);
+}
+
+.sb-sector-avg i {
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+/* ──────────────────────────────── the grid ──────────────────────────────── */
+
+.sb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.sb-grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+
+/* ──────────────────────────────── the card ──────────────────────────────── */
+
+.sb-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Removes the grid item's automatic minimum size, which is otherwise the card's
+     own min-content width — and that is set by the longest company name in the
+     whole grid, since `.sb-name` is nowrap. Without this, one "Seagate Technology
+     Holdings PLC Ordinary Shares (Ireland)" widened every track in its sector to
+     541px and pushed the entire page into a horizontal scroll on a phone. The
+     desktop track never showed it: `minmax(320px, 1fr)` states its own minimum, so
+     the automatic one is never consulted there. */
+  min-width: 0;
+  padding: 14px 16px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  /* The direction stripe: a 3px edge in the card's own up/down color. Costs no
+     layout, and it is what makes a 100-card grid scannable at a glance without
+     tinting whole card backgrounds (which would fight every number on them). */
+  border-left: 3px solid var(--baseline);
+  transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+}
+
+.sb-card[data-dir="up"] {
+  border-left-color: var(--up-color);
+}
+
+.sb-card[data-dir="down"] {
+  border-left-color: var(--down-color);
+}
+
+.sb-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.22);
+  border-color: color-mix(in srgb, var(--text-primary) 24%, transparent);
+}
+
+/* The card-wide click target. Sits above the card's padding but BELOW the
+   sparkline (which has its own pointer handling for the hover readout), so the
+   chart stays interactive while everywhere else opens the stock. */
+.sb-card-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+.sb-card-hit:focus-visible {
+  outline: 2px solid var(--series-blue);
+  outline-offset: 2px;
+}
+
+.sb-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.sb-rank {
+  flex: none;
+  min-width: 22px;
+  font-size: 11px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.sb-logo {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface-1));
+  border: 1px solid var(--border);
+}
+
+.sb-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* US names have no logo feed of their own here, so the ticker itself becomes the
+   mark — consistent size and position with the KR logo tile so the two boards'
+   cards stay visually interchangeable. */
+.sb-logo-ticker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--text-secondary);
+}
+
+.sb-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sb-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sb-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.sb-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.sb-sector {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sb-price-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sb-price {
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.sb-change {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.sb-change[data-dir="up"] {
+  color: var(--up-color);
+}
+
+.sb-change[data-dir="down"] {
+  color: var(--down-color);
+}
+
+.sb-change-pct {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.sb-change-amt {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* Direction is also stated in words for the assistive/grayscale case — the arrow
+   glyph rides in front of the percentage rather than the color carrying it alone. */
+.sb-change[data-dir="up"] .sb-change-pct::before {
+  content: "▲ ";
+  font-size: 9px;
+}
+
+.sb-change[data-dir="down"] .sb-change-pct::before {
+  content: "▼ ";
+  font-size: 9px;
+}
+
+.sb-relative {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sb-relative-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.sb-relative-item b {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.sb-relative-item[data-dir="up"] b {
+  color: var(--up-color);
+}
+
+.sb-relative-item[data-dir="down"] b {
+  color: var(--down-color);
+}
+
+/* ─────────────────────────────── sparkline ─────────────────────────────── */
+
+.sb-spark {
+  position: relative;
+  height: 62px;
+  /* Above .sb-card-hit so the hover readout works; the card is still fully
+     clickable everywhere else, and the chart itself is not a link. */
+  z-index: 2;
+  --spark-color: var(--baseline);
+}
+
+.sb-spark[data-trend="up"] {
+  --spark-color: var(--up-color);
+}
+
+.sb-spark[data-trend="down"] {
+  --spark-color: var(--down-color);
+}
+
+.sb-spark--empty {
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  border: 1px dashed var(--gridline);
+  border-radius: 8px;
+}
+
+.sb-spark-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  touch-action: pan-y;
+}
+
+.sb-spark-line {
+  fill: none;
+  stroke: var(--spark-color);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.sb-spark-area {
+  fill: var(--spark-color);
+  opacity: 0.13;
+  stroke: none;
+}
+
+/* The window's opening price. Recessive by design — it is a reference line, not
+   a series, so it never competes with the line drawn against it. */
+.sb-spark-base {
+  stroke: var(--text-muted);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 3;
+  opacity: 0.5;
+}
+
+.sb-spark-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.sb-spark-dot {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--spark-color);
+  /* A 2px ring in the card surface, so the marker stays separate from the line
+     it sits on even where the line doubles back under it. */
+  box-shadow: 0 0 0 2px var(--surface-1);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: left 0.06s linear, top 0.06s linear;
+}
+
+/* The readout sits in the chart's top-left corner, where a 3-month series almost
+   never has its own data, rather than following the pointer — a tooltip that
+   moves inside a 62px-tall box spends most of its time covering the line. */
+.sb-spark-readout {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.sb-spark:hover .sb-spark-readout,
+.sb-spark-readout[data-active="true"] {
+  opacity: 1;
+}
+
+.sb-spark-readout b {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.sb-spark-readout i {
+  font-style: normal;
+  color: var(--text-muted);
+}
+
+/* ────────────────────────────── 52-week track ────────────────────────────── */
+
+.sb-range {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.sb-range-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.sb-range-title {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+
+.sb-range-pos {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.sb-range-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--gridline);
+}
+
+/* Fill from the low end to the current price: a single-hue magnitude ramp, which
+   is the right encoding for "how far up the range are we" — the marker gives the
+   exact spot, the fill makes it readable from across the grid. */
+.sb-range-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text-primary) 18%, transparent),
+    color-mix(in srgb, var(--text-primary) 46%, transparent)
+  );
+}
+
+.sb-range-marker {
+  position: absolute;
+  top: 50%;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--text-primary);
+  box-shadow: 0 0 0 2px var(--surface-1);
+  transform: translate(-50%, -50%);
+}
+
+.sb-range-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+/* ────────────────────────────── return chips ────────────────────────────── */
+
+.sb-returns {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+
+.sb-return {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 2px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+.sb-return-label {
+  font-size: 9.5px;
+  color: var(--text-muted);
+}
+
+.sb-return-value {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.sb-return[data-dir="up"] .sb-return-value {
+  color: var(--up-color);
+}
+
+.sb-return[data-dir="down"] .sb-return-value {
+  color: var(--down-color);
+}
+
+.sb-return[data-dir="na"] .sb-return-value {
+  opacity: 0.6;
+}
+
+/* ───────────────────────────── fundamentals row ───────────────────────────── */
+
+.sb-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.sb-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+}
+
+.sb-stat dt {
+  color: var(--text-muted);
+}
+
+.sb-stat dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+/* ─────────────────────────────── compact mode ───────────────────────────────
+   Same card, stripped to the four things worth scanning 100 of: identity,
+   price, today's move, and the shape of the last three months. */
+
+.sb-card--compact {
+  gap: 8px;
+  padding: 11px 13px 12px;
+}
+
+.sb-card--compact .sb-price {
+  font-size: 18px;
+}
+
+.sb-card--compact .sb-change-pct {
+  font-size: 14px;
+}
+
+.sb-card--compact .sb-spark {
+  height: 38px;
+}
+
+.sb-card--compact .sb-logo {
+  width: 28px;
+  height: 28px;
+}
+
+.sb-card--compact .sb-name {
+  font-size: 13.5px;
+}
+
+/* ─────────────────────────────── misc states ─────────────────────────────── */
+
+.sb-loading,
+.sb-empty {
+  padding: 48px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.sb-provenance {
+  margin: 12px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+  line-height: 1.7;
+  color: var(--text-muted);
+}
+
+/* ─────────────────────────────── responsive ───────────────────────────────
+   The breakpoints below only reflow; nothing is hidden on a small screen. A
+   card that drops its 52-week track on mobile would be a different product,
+   not a smaller one. */
+
+@media (max-width: 900px) {
+  .sb-hero {
+    align-items: stretch;
+    padding: 16px 0 14px;
+  }
+
+  .sb-hero-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .sb-pulse {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .sb-switch {
+    width: 100%;
+  }
+
+  .sb-switch-tab {
+    flex: 1;
+    text-align: center;
+    padding: 8px 6px;
+  }
+}
+
+@media (max-width: 720px) {
+  .sb-page {
+    padding: 16px 12px 56px;
+  }
+
+  .sb-grid,
+  .sb-grid--compact {
+    grid-template-columns: 1fr;
+  }
+
+  .sb-page {
+    --sb-header-h: 75px;
+  }
+
+  /* The toolbar stops being sticky here. Its controls wrap to three rows on a phone
+     (~143px), which stacked under a 75px header and above a 56px sector header would
+     permanently occupy a third of the screen — on the one device with the least of it
+     to spare. The group header stays pinned, because knowing which 업종 you are
+     scrolling through is what the page is organised around; the controls are one
+     flick away. */
+  .sb-toolbar {
+    position: static;
+    gap: 8px;
+    padding: 10px 0 8px;
+  }
+
+  .sb-sector-head {
+    top: calc(var(--sb-header-h) - 2px);
+    gap: 8px 10px;
+    padding: 8px 11px;
+  }
+
+  .sb-sector-avg {
+    font-size: 13px;
+  }
+
+  .sb-breadth--mini {
+    width: 100%;
+    order: 5;
+  }
+
+  .sb-search {
+    flex: 1 1 100%;
+    order: -1;
+  }
+
+  .sb-toolbar .sb-select,
+  .sb-toolbar .sb-toggles {
+    flex: 1 1 auto;
+  }
+
+  .sb-select select {
+    width: 100%;
+  }
+
+  .sb-toggles {
+    justify-content: center;
+  }
+
+  .sb-toggles button {
+    flex: 1;
+  }
+
+  .sb-pulse {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+
+  .sb-pulse-breadth {
+    min-width: 0;
+  }
+
+  /* Touch has no hover, so the sparkline readout would never appear — pin it on
+     permanently, showing the latest close, which is the value it defaults to. */
+  .sb-spark-readout {
+    opacity: 1;
+  }
+
+  .sb-provenance {
+    font-size: 11px;
+  }
+}
+
+/* A pointer-less device (touch) never gets the lift-on-hover, which on touch
+   fires on tap and reads as the card twitching before it navigates. */
+@media (hover: none) {
+  .sb-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-live-dot,
+  .sb-breadth-seg,
+  .sb-card,
+  .sb-spark-dot,
+  .sb-spark-readout {
+    animation: none;
+    transition: none;
+  }
+}

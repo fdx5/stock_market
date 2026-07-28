@@ -14,6 +14,11 @@ const Dashboard = lazy(() => import("./components/Dashboard"));
 const Hub = lazy(() => import("./components/Hub"));
 const InvestorTrendPage = lazy(() => import("./components/InvestorTrendPage"));
 const IndexChartPage = lazy(() => import("./components/IndexChartPage"));
+// The three sibling card boards — top 100 by size, grouped by 업종. All three render
+// the same component, so they share a chunk rather than shipping three copies of it.
+const KospiBoardPage = lazy(() => import("./components/KospiBoardPage"));
+const KosdaqBoardPage = lazy(() => import("./components/KosdaqBoardPage"));
+const NasdaqBoardPage = lazy(() => import("./components/NasdaqBoardPage"));
 const KospiMapPage = lazy(() => import("./components/KospiMapPage"));
 const KosdaqMapPage = lazy(() => import("./components/KosdaqMapPage"));
 const Sp500MapPage = lazy(() => import("./components/Sp500MapPage"));
@@ -41,6 +46,12 @@ export default function App() {
     page = <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
   } else if (path === "/dashboard") {
     page = <Dashboard />;
+  } else if (path === "/kospi-100") {
+    page = <KospiBoardPage />;
+  } else if (path === "/kosdaq-100") {
+    page = <KosdaqBoardPage />;
+  } else if (path === "/nasdaq-100") {
+    page = <NasdaqBoardPage />;
   } else if (path === "/map") {
     page = <KospiMapPage />;
   } else if (path === "/kosdaq-map") {

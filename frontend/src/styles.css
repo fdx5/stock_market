@@ -3373,6 +3373,52 @@ thead .weekly-foreign-amount-col {
   background: color-mix(in srgb, var(--series-orange) 22%, transparent);
 }
 
+/* TOP 100's pill is the one filled shape in a row of outlined neon ones.
+   Every --series-* hue was already spoken for (blue/aqua/red/violet/yellow/pink/
+   orange) and green is the live badge sitting a few pixels away on the map pages,
+   so an eighth outlined pill in a near-duplicate hue would have been the least
+   findable thing in the row rather than the most. Inverting it instead makes it read
+   as the row's primary destination at a glance, and matches the filled active tab of
+   the segmented switcher on the board it opens.
+
+   currentColor is the page surface here, so the base rule's currentColor-derived
+   glow and shimmer would both paint dark-on-dark — each is restated below against
+   --text-primary explicitly. */
+.kospi-map-nav-link--top100 {
+  color: var(--surface-1);
+  border-color: var(--text-primary);
+  background: var(--text-primary);
+  animation-delay: 2.4s;
+  text-shadow: none;
+  box-shadow:
+    0 0 12px color-mix(in srgb, var(--text-primary) 40%, transparent),
+    0 0 26px color-mix(in srgb, var(--text-primary) 22%, transparent);
+}
+
+.kospi-map-nav-link--top100::after {
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in srgb, var(--page-plane) 55%, transparent) 50%,
+    transparent 70%
+  );
+  animation-delay: 2.4s;
+}
+
+.kospi-map-nav-link--top100:hover {
+  background: color-mix(in srgb, var(--text-primary) 82%, var(--series-blue));
+}
+
+.app-footer-links a.app-footer-market-link--top100 {
+  color: var(--text-primary);
+  animation-delay: 2.4s;
+}
+
+.kospi-map-nav-link--top100 .market-nav-icon,
+.app-footer-market-link--top100 .market-nav-icon {
+  animation-delay: 2.4s;
+}
+
 .market-nav-icon {
   width: 14px;
   height: 14px;
@@ -3438,6 +3484,75 @@ thead .weekly-foreign-amount-col {
   border: 1px solid color-mix(in srgb, var(--status-good) 45%, transparent);
   border-radius: 999px;
   padding: 4px 10px;
+}
+
+/* The TOP 100 board links that follow the live badge on the map titlebars.
+
+   Deliberately quieter than the neon pills in the nav row above: they sit inline with
+   an <h1> and a status badge, and three glowing pills at that size would out-shout the
+   page's own title. Outlined chips that fill in on hover instead — still obviously
+   clickable, but subordinate to the heading they follow. Wraps to its own line on a
+   narrow titlebar rather than squeezing the badge. */
+.kospi-map-board-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.kospi-map-board-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  text-decoration: none;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: var(--surface-1);
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.kospi-map-board-link:hover,
+.kospi-map-board-link:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 10%, var(--surface-1));
+}
+
+.kospi-map-board-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 720px) {
+  /* Full-width row under the title on a phone, where the titlebar has no room to
+     the right of the badge. An explicit 3-column grid rather than a wrapping flex
+     row: wrapping put two chips on one line and one on the next, which reads as two
+     groups instead of one set of three siblings. */
+  .kospi-map-board-links {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    width: 100%;
+    gap: 5px;
+  }
+
+  .kospi-map-board-link {
+    justify-content: center;
+    padding: 6px 4px;
+    font-size: 10px;
+    letter-spacing: -0.01em;
+  }
+
+  /* The icon is what stops three labels fitting one line at this width, and it is
+     the most redundant thing on the chip — "KOSDAQ TOP 100" already says it. */
+  .kospi-map-board-icon {
+    display: none;
+  }
 }
 
 .kospi-map-live-dot {

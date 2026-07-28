@@ -8,6 +8,7 @@ from app.data.price_fetcher import get_history
 from app.data.weather_fetcher import get_seoul_weather
 from app.services.indicators import compute_indicators
 from app.services.market_map import SECTOR_PEER_LIMIT, get_kosdaq_map, get_kospi_map, get_sector_map
+from app.services.stock_board import BOARD_LIMIT, MARKETS, get_board
 from app.services.us_market_map import US_SECTOR_PEER_LIMIT, get_nasdaq100_map, get_sp500_map, get_us_sector_map
 from app.utils import dataframe_to_records
 
@@ -59,6 +60,20 @@ def nasdaq100_map(limit: int = Query(103, ge=1, le=103), fresh: bool = Query(Fal
         "count": len(items),
         "items": items,
     }
+
+
+@router.get("/board")
+def stock_board(
+    market: str = Query(..., pattern="^(kospi|kosdaq|nasdaq)$"),
+    limit: int = Query(BOARD_LIMIT, ge=10, le=BOARD_LIMIT),
+    fresh: bool = Query(False),
+):
+    """The 100-종목 card board — the ranked roster plus, per card, a sparkline, its
+    52-week range and its trailing returns, and per 업종 a cap-weighted summary.
+    See services/stock_board for what it's assembled from."""
+    if market not in MARKETS:  # pragma: no cover - the pattern above already rejects these
+        raise HTTPException(status_code=404, detail=f"지원하지 않는 시장입니다: {market}")
+    return get_board(market, limit, fresh=fresh)
 
 
 @router.get("/sector-map")

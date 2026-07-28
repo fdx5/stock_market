@@ -29,6 +29,7 @@ import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import PredictionCard from "./PredictionCard";
 import PredictionDetailModal from "./PredictionDetailModal";
+import RankIcon from "./RankIcon";
 import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
 
@@ -462,6 +463,11 @@ export default function AiPredictionPage() {
           </Link>
           <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
             <MarketIcon /> KOSDAQ
+          </Link>
+          {/* This row has no NASDAQ100 link to sit after (unlike the map/dashboard
+              rows), so TOP 100 closes the market-destination block instead. */}
+          <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
+            <RankIcon /> TOP 100
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}

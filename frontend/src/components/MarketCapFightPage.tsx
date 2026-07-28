@@ -20,6 +20,7 @@ import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import LanguageToggle from "./LanguageToggle";
 import PredictIcon from "./PredictIcon";
+import RankIcon from "./RankIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import RollingValue from "./RollingValue";
@@ -559,6 +560,9 @@ export default function MarketCapFightPage() {
           </Link>
           {/* This page IS 시총대결, so the slot the link would occupy on every other
               header is the one immediately after it — same position, one link earlier. */}
+          <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
+            <RankIcon /> TOP 100
+          </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
             <PredictIcon /> AI 예측
           </Link>

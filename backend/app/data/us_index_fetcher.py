@@ -78,13 +78,45 @@ def _get_sp500_sectors() -> dict[str, str]:
     return cache.get_or_set("sp500_sectors", TTL_SECTOR_SECONDS, _load_sp500_sectors)
 
 
+# The S&P 500 sector map covers most of the Nasdaq-100 but structurally cannot cover
+# the members that aren't in the S&P at all — foreign issuers (ASML, ARM, Shopify,
+# PDD, MELI, Ferrovial, Coca-Cola Europacific, Thomson Reuters), which are ineligible
+# for the S&P 500 by domicile rather than by size, plus recent listings that haven't
+# been added yet. That was ~15 of 100 names all landing in "Other", which is fine for
+# a treemap's leftover zone but not for a page that groups *by* sector. These are
+# hand-assigned to the GICS sector each company's own listing reports, using the same
+# sector strings the map above emits so nothing downstream has to special-case them.
+# A member not listed here still falls back to "Other" — this is a patch over a known
+# gap, not a second classification source.
+_NON_SP500_SECTORS = {
+    "ASML": "Information Technology",
+    "ARM": "Information Technology",
+    "SHOP": "Information Technology",
+    "ALAB": "Information Technology",
+    "NBIS": "Information Technology",
+    "CRWV": "Information Technology",
+    "MSTR": "Information Technology",
+    "PDD": "Consumer Discretionary",
+    "MELI": "Consumer Discretionary",
+    "CCEP": "Consumer Staples",
+    "TRI": "Industrials",
+    "FER": "Industrials",
+    "RKLB": "Industrials",
+    "SPCX": "Industrials",
+    "ALNY": "Health Care",
+}
+
+
 def _with_sector(items: list[dict]) -> list[dict]:
     # The S&P 500's GICS sector map also covers the large majority of Nasdaq-100
-    # names (heavy overlap between the two indices) — names it doesn't cover (e.g. a
-    # recent IPO, a non-S&P Nasdaq-100 member) fall back to "Other" rather than
-    # attempting a second, less reliable classification source.
+    # names (heavy overlap between the two indices); the rest are picked up by the
+    # hand-assigned table above, and anything in neither falls back to "Other" rather
+    # than attempting a second, less reliable classification source.
     sectors = _get_sp500_sectors()
-    return [{**it, "sector": sectors.get(it["code"], "Other")} for it in items]
+    return [
+        {**it, "sector": sectors.get(it["code"]) or _NON_SP500_SECTORS.get(it["code"], "Other")}
+        for it in items
+    ]
 
 
 def get_sp500_constituents(fresh: bool = False) -> list[dict]:

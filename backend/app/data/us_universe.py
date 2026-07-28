@@ -87,6 +87,15 @@ def _get_korean_names_if_ready() -> dict[str, str] | None:
     return None
 
 
+def get_korean_names_ready() -> dict[str, str]:
+    """English company name -> Korean, for callers that want to *display* the Korean
+    name rather than search by it. Empty while the translate batch is still warming,
+    which reads as "show the English name" — the same non-blocking bargain search makes
+    above, and the right one for a page render: a board of 100 cards must not wait on a
+    multi-second translation to paint."""
+    return _get_korean_names_if_ready() or {}
+
+
 def search_us_stocks(query: str, limit: int = 30) -> list[dict]:
     query = query.strip()
     if not query:

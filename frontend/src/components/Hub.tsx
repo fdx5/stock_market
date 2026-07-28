@@ -1873,10 +1873,11 @@ export default function Hub() {
         <span className="hb-voyager-tip">{en ? "GLOBAL NEWS" : "글로벌 뉴스"}</span>
       </a>
 
-      {/* A second way into the KOSPI map, parked in the corner rather than on
-          the orbital plane (Earth carries the same destination out on the
-          rings, as does the Moon) — so it names that destination in its own
-          aria-label rather than relying on the body it duplicates.
+      {/* The way into the KOSPI TOP 100 board — a destination nothing else on
+          this page carries, unlike the KOSPI map it used to open, which Earth
+          and the Moon both still reach from the orbital plane. Its counterpart
+          is the neutron binary below, which opens the KOSDAQ board on the same
+          logic (Venus still carries the KOSDAQ map).
           Fixed to the viewport for the same reason
           `.hb-voyager` sits outside `.hb-stage`: it isn't part of the solar
           system's 3D geometry, so it has no business inside the tilted plane
@@ -1891,9 +1892,9 @@ export default function Hub() {
         type="button"
         ref={blackHoleRef}
         className="hb-blackhole"
-        onClick={() => open("/map")}
-        aria-label={en ? "Black hole: KOSPI market map" : "블랙홀: 코스피 맵"}
-        title={en ? "Gargantua — KOSPI map" : "가르강튀아 — 코스피 맵"}
+        onClick={() => open("/kospi-100")}
+        aria-label={en ? "Black hole: KOSPI TOP 100" : "블랙홀: 코스피 TOP 100"}
+        title={en ? "Gargantua — KOSPI TOP 100" : "가르강튀아 — 코스피 TOP 100"}
       >
         {/* The hole's breathing bloom, deliberately a sibling of the art
             rather than part of it — see .hb-bh-bloom in hub.css for why an
@@ -1901,6 +1902,16 @@ export default function Hub() {
             accretion disc on every frame. */}
         <span className="hb-bh-bloom" aria-hidden="true" />
         <BlackHoleBody id="hub" lite={lite} minimal={minimal} />
+        {/* Named on hover the way Voyager is. The bodies on the orbital plane
+            get their destination from the planet you already recognise; the
+            hole doesn't, and it is now the only route to the TOP 100 boards,
+            so it says so. Sits above the art rather than below it — this
+            button is anchored to the bottom-right corner, where a tip hung
+            underneath would fall off the viewport. */}
+        {/* Names the market, not just "TOP 100" — the neutron binary opens the
+            KOSDAQ board, so a generic label on either one would leave the pair
+            looking like two routes to the same place. */}
+        <span className="hb-blackhole-tip">{en ? "KOSPI TOP 100" : "코스피 TOP 100"}</span>
       </button>
 
       {/* Pluto, drifting in from the black hole's left and eventually
@@ -1950,7 +1961,10 @@ export default function Hub() {
           expands across the sky behind it, then splits back apart to start
           the next cycle.
 
-          A real control now (the KOSDAQ map), which is why it sits out here
+          A real control now (the KOSDAQ TOP 100 board — the black hole's
+          counterpart, on the same logic: Venus already carries the KOSDAQ map
+          out on the orbital plane, so this is free to name the destination
+          nothing else here reaches), which is why it sits out here
           rather than inside `.hb-space` where it used to: that layer is
           `aria-hidden`, and a focusable button inside an aria-hidden subtree
           is reachable by tab and invisible to a screen reader at the same
@@ -1961,9 +1975,9 @@ export default function Hub() {
         type="button"
         ref={neutronRef}
         className="hb-neutron-binary"
-        onClick={() => open("/kosdaq-map")}
-        aria-label={en ? "Neutron binary: KOSDAQ market map" : "중성자 쌍성: 코스닥 맵"}
-        title={en ? "Neutron star merger — KOSDAQ map" : "중성자별 병합 — 코스닥 맵"}
+        onClick={() => open("/kosdaq-100")}
+        aria-label={en ? "Neutron binary: KOSDAQ TOP 100" : "중성자 쌍성: 코스닥 TOP 100"}
+        title={en ? "Neutron star merger — KOSDAQ TOP 100" : "중성자별 병합 — 코스닥 TOP 100"}
       >
         <span className="hb-neutron-star hb-neutron-star--a" />
         <span className="hb-neutron-star hb-neutron-star--b" />
@@ -1992,6 +2006,11 @@ export default function Hub() {
             style={{ ["--sa" as string]: "0deg" }}
           />
         </span>
+        {/* Named on hover, like the black hole and Voyager. This body sits in
+            open sky rather than a corner, so its tip hangs below — nothing to
+            fall off, and it keeps the label clear of the merged remnant's
+            diffraction spikes above. */}
+        <span className="hb-neutron-tip">{en ? "KOSDAQ TOP 100" : "코스닥 TOP 100"}</span>
       </button>
       {/* The merger's first half-second: the white gamma-ray-burst flash (see
           useNeutronBinary/fireMergerBurst above) — fixed to the whole viewport

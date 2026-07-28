@@ -21,6 +21,7 @@ import IndicatorBadges from "./IndicatorBadges";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
 import PredictIcon from "./PredictIcon";
+import RankIcon from "./RankIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import MarketOverviewPanel from "./MarketOverviewPanel";
@@ -332,6 +333,9 @@ export default function Dashboard() {
           </Link>
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
+          </Link>
+          <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
+            <RankIcon /> TOP 100
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
             <PredictIcon /> AI 예측

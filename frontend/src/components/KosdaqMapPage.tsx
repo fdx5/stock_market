@@ -4,6 +4,7 @@ import GlobalNewsIcon from "./GlobalNewsIcon";
 import MarketIcon from "./MarketIcon";
 import MarketMapPage from "./MarketMapPage";
 import PredictIcon from "./PredictIcon";
+import RankIcon from "./RankIcon";
 
 export default function KosdaqMapPage() {
   return (
@@ -20,6 +21,7 @@ export default function KosdaqMapPage() {
         { to: "/map", label: "KOSPI", icon: <MarketIcon /> },
         { to: "/sp500-map", label: "S&P500", icon: <MarketIcon />, className: "kospi-map-nav-link--sp500" },
         { to: "/nasdaq100-map", label: "NASDAQ100", icon: <MarketIcon />, className: "kospi-map-nav-link--nasdaq" },
+        { to: "/kospi-100", label: "TOP 100", icon: <RankIcon />, className: "kospi-map-nav-link--top100" },
         { to: "/ai-prediction", label: "AI 예측", icon: <PredictIcon />, className: "kospi-map-nav-link--predict" },
         { to: "/fight", label: "시총대결", icon: <BattleIcon />, className: "kospi-map-nav-link--battle" },
         { to: "/news", label: "NEWS", icon: <GlobalNewsIcon />, className: "kospi-map-nav-link--news" },
