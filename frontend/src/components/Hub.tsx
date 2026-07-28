@@ -10,19 +10,19 @@ import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
 import "./hub.css";
 
-// three/@react-three/fiber pull each of these two chunks to ~230KB gzipped
-// (see PlutoScene.tsx's own doc comment for why WebGL replaced the DOM
-// versions of both this and the neutron binary at all) — a synchronous
-// import would make that whole cost part of the hub's own initial
-// parse/render, working against the exact "keep this smooth" goal the
-// switch to WebGL was for. Lazy imports keep them off the critical path:
-// the rest of the hub (title, planets, star, black hole) paints first, and
-// each scene's own bundle streams in and mounts a beat later — the
-// entrance is already static images the audience glances over, so there's
-// nothing lost by the debris/stars not appearing on literally the first
-// frame the way there would be on, say, a scroll-driven hero animation.
-const PlutoScene = lazy(() => import("./PlutoScene"));
-const NeutronScene = lazy(() => import("./NeutronScene"));
+// three/@react-three/fiber pull this to ~230KB gzipped (see SpaceScene.tsx's
+// own doc comment for why WebGL replaced the DOM versions of both Pluto and
+// the neutron binary, and why both now share one scene/canvas) — a
+// synchronous import would make that whole cost part of the hub's own
+// initial parse/render, working against the exact "keep this smooth" goal
+// the switch to WebGL was for. A lazy import keeps it off the critical
+// path: the rest of the hub (title, planets, star, black hole) paints
+// first, and the scene's own bundle streams in and mounts a beat later —
+// the entrance is already static images the audience glances over, so
+// there's nothing lost by the debris/stars not appearing on literally the
+// first frame the way there would be on, say, a scroll-driven hero
+// animation.
+const SpaceScene = lazy(() => import("./SpaceScene"));
 
 /* ============================================================================
    ORBIT — the site's entrance.
@@ -848,23 +848,17 @@ export default function Hub() {
         </div>
         <div className="hb-shooting hb-shooting--1" />
         <div className="hb-shooting hb-shooting--2" />
-        {/* Two equal-size neutron stars, mutually orbiting a shared centre
-            along a single horizontal line (facing each other, side to
-            side) rather than one orbiting the other or a full circular
-            sweep, per an explicit request: period and separation shrink
-            together — 5s→4s→3s→2s→1s→0.5s→0.2s, 20 laps total — then the
-            pair plunges together into one merged body, firing a
-            screen-wide gamma-ray-burst-style flash at the instant of
-            merger, holds merged for a couple of seconds, then splits back
-            apart to start the next cycle. Rendered as a small WebGL scene
-            (see NeutronScene.tsx) rather than DOM/CSS for the same reason
-            PlutoScene.tsx replaced Pluto's own DOM version — see that
-            file's own doc comment. */}
-        {webglScenesEnabled && (
-          <Suspense fallback={null}>
-            <NeutronScene flashRef={neutronFlashRef} />
-          </Suspense>
-        )}
+        {/* The neutron binary itself renders inside <SpaceScene> (mounted
+            once, further down near the black hole — see that component's
+            own doc comment): two equal-size neutron stars, mutually
+            orbiting a shared centre along a single horizontal line (facing
+            each other, side to side) rather than one orbiting the other or
+            a full circular sweep, per an explicit request. Period and
+            separation shrink together — 5s→4s→3s→2s→1s→0.5s→0.2s, 20 laps
+            total — then the pair plunges together into one merged body,
+            firing a screen-wide gamma-ray-burst-style flash at the instant
+            of merger, holds merged for a couple of seconds, then splits
+            back apart to start the next cycle. */}
         <div className="hb-vignette" />
       </div>
 
@@ -920,27 +914,25 @@ export default function Hub() {
         <BlackHoleBody id="hub" />
       </button>
 
-      {/* Pluto, drifting in from the black hole's left and eventually
-          consumed by it — approach, tidal tearing (spaghettification) and a
-          final debris swirl once the gap hits 150px, all torn apart within
-          3 seconds, then the black hole's own red flare above, a reset, and
-          repeat, per an explicit request. Rendered as a small WebGL scene
-          (see PlutoScene.tsx) rather than DOM/CSS — an earlier DOM version
-          of this kept dropping frames on iPad even after several targeted
-          fixes, and a couple hundred individually-animated fragments is
-          exactly the kind of workload a single GPU draw call handles that
-          DOM nodes don't. */}
+      {/* The whole dynamic WebGL layer — Pluto drifting in from the black
+          hole's left and eventually consumed by it (approach, then a
+          1-second break where ~40% of the disc facing the hole shatters,
+          then a 2-second spaghettification stretch sweeping one full lap
+          around the hole before the last of it is absorbed, then the black
+          hole's own red flare, a reset, and repeat) and the neutron binary
+          (see the comment on that section in .hb-space above) — both live
+          in one shared scene now; see SpaceScene.tsx's own doc comment for
+          why. */}
       {webglScenesEnabled && (
         <Suspense fallback={null}>
-          <PlutoScene blackHoleRef={blackHoleRef} />
+          <SpaceScene blackHoleRef={blackHoleRef} neutronFlashRef={neutronFlashRef} />
         </Suspense>
       )}
 
-      {/* The neutron binary's merger flash (see useNeutronBinary/
-          fireNeutronFlash in the component below) — fixed to the whole
-          viewport rather than scoped to `.hb-space`, since "화면 전체를
-          밝게" means the entire screen, not just the hero section the
-          binary itself sits in. See .hb-neutron-flash in hub.css. */}
+      {/* The neutron binary's merger flash — fixed to the whole viewport
+          rather than scoped to `.hb-space`, since "화면 전체를 밝게" means
+          the entire screen, not just the hero section the binary itself
+          sits in. See .hb-neutron-flash in hub.css. */}
       <div className="hb-neutron-flash" ref={neutronFlashRef} aria-hidden="true" />
 
       <div className="hb-stage" ref={stageRef}>

@@ -63,8 +63,8 @@
   --py: 0;
 
   /* The black hole's own corner anchor and size, shared out here rather than
-     declared only on `.hb-blackhole` below — PlutoScene.tsx's WebGL scene
-     (see .hb-pluto-canvas further down) reads `.hb-blackhole`'s own
+     declared only on `.hb-blackhole` below — SpaceScene.tsx's WebGL scene
+     (see .hb-space-canvas further down) reads `.hb-blackhole`'s own
      getBoundingClientRect() directly rather than these variables, but
      `.hb-blackhole` itself still needs them named once here rather than
      inline, so a re-tune can't drift the two apart. */
@@ -1927,7 +1927,7 @@ body:has(.hb) {
 }
 
 /* Fires once per Pluto-event cycle, the instant the last of it is consumed
-   (see fireBlackHoleFeed in PlutoScene.tsx) — the hole's own glow
+   (see fireBlackHoleFeed in SpaceScene.tsx) — the hole's own glow
    swings from its resting warm amber to a hot red for two seconds, per an
    explicit request ("블랙홀 천체가 붉은 색으로 밝게 빛을 2초간 내면서"). Toggled
    as a plain class with its own transition rather than a keyframe
@@ -2031,40 +2031,31 @@ body:has(.hb) {
   }
 }
 
-/* ─────────────────────────── pluto event ─────────────────────────── */
+/* ─────────────────────────── space scene (WebGL) ─────────────────────────── */
 
-/* The Pluto-into-the-black-hole vignette now renders as a small WebGL scene
-   (see PlutoScene.tsx) instead of the DOM/CSS version this replaced — a
-   couple hundred individually-animated fragments plus an SVG clip-path kept
-   dropping frames on iPad even after several DOM-specific fixes (animating
-   transform instead of `right`, gating work to the destroy window, scoping
-   the clip-path to only that window); Safari/iPadOS in particular tends to
-   fall off hardware-accelerated compositing for that combination, and each
-   fragment being its own DOM node has a real per-node style/paint cost a
-   single WebGL draw call doesn't. This wrapper just sizes and positions the
+/* Both dynamic WebGL vignettes — Pluto falling into the black hole, and the
+   neutron binary — now share one scene/canvas (see SpaceScene.tsx's own doc
+   comment for why: running them as two separate contexts is what made the
+   neutron binary stop rendering at all, and was pure duplicated render-loop
+   overhead besides). This wrapper just sizes and positions the one
    `<canvas>` React Three Fiber mounts — everything about what's drawn on it
-   lives in PlutoScene.tsx instead of here.
+   lives in SpaceScene.tsx instead of here.
 
-   Bounded to a small box anchored to the black hole's own corner (right: 0;
-   bottom: 0, sized out from there) rather than `inset: 0` covering the full
-   viewport, which an earlier pass used — a full-viewport transparent WebGL
-   canvas still has to be cleared and composited every frame regardless of
-   how little of it has anything drawn on it, and on iPad that fill-rate
-   cost alone was still enough to drop frames even after fixing the actual
-   rendering bugs. 460px covers the widest approach distance (300px) plus
-   room for a chunk's own radius and outward tidal-sling fling; 160px
-   likewise covers the tallest a chunk's arc swings vertically. */
-.hb-pluto-canvas {
+   Full viewport (`inset: 0`) rather than a bounded box some earlier passes
+   tried: a transparent canvas doesn't cost much to clear/composite just for
+   being large — the actual per-frame cost is the particle/shader work
+   happening on it, which SpaceScene.tsx's own doc comment covers (the real
+   culling bug, and the fragment counts cut down once that was fixed).
+   Coordinates throughout SpaceScene.tsx are plain viewport-absolute px as a
+   result — no local canvas-offset math needed. */
+.hb-space-canvas {
   position: fixed;
-  right: 0;
-  bottom: 0;
-  width: calc(var(--bh-right) + var(--bh-size) + 460px);
-  height: calc(var(--bh-bottom) + var(--bh-size) + 160px);
+  inset: 0;
   z-index: 4;
   pointer-events: none;
 }
 
-.hb-pluto-canvas canvas {
+.hb-space-canvas canvas {
   display: block;
   width: 100%;
   height: 100%;
@@ -2072,14 +2063,12 @@ body:has(.hb) {
 
 /* ─────────────────────────── neutron binary ─────────────────────────── */
 
-/* The neutron binary now renders as a small WebGL scene (see
-   NeutronScene.tsx) instead of the DOM/CSS version this replaced — two
-   `<span>` discs lit with box-shadow + filter: brightness/drop-shadow,
-   both rewritten every frame. It was much cheaper than Pluto's own old DOM
-   version (only two elements), but drop-shadow filters are exactly the
-   kind of thing Safari/iPadOS tends to composite in software, and it still
-   touched the DOM every frame for the full ~15s cycle. This wrapper just
-   sizes and positions the `<canvas>` React Three Fiber mounts.
+/* The neutron binary itself renders inside <SpaceScene>'s shared canvas
+   above — this box is now purely a position/size *probe*: SpaceScene.tsx
+   reads its getBoundingClientRect() every resize to know where to centre
+   the stars and how to convert their abstract "units" (amp, star size)
+   into real px (see NEUTRON_CONTAINER_UNITS there), but nothing paints
+   inside this element itself.
 
    Lives inside `.hb-space` (the starfield/nebula layer, already
    `pointer-events: none` and non-interactive) rather than as a
@@ -2091,9 +2080,7 @@ body:has(.hb) {
    this layer on their own z-index regardless. Width is generous (64 vs. the
    15-wide stars) to clear the widest separation without clipping; height
    only needs to clear one star's own diameter, since nothing here moves
-   vertically. NeutronScene.tsx reads this box's own rendered width via
-   getBoundingClientRect() to convert its abstract "units" (amp, star size)
-   into real px — see NEUTRON_CONTAINER_UNITS there. */
+   vertically. */
 .hb-neutron-canvas {
   position: absolute;
   top: clamp(92px, 13vh, 172px);
@@ -2104,15 +2091,9 @@ body:has(.hb) {
   pointer-events: none;
 }
 
-.hb-neutron-canvas canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-/* NeutronScene itself doesn't mount under reduced motion (see
-   useNeutronSceneEnabled there), so this plain static glow — no WebGL, no
-   merge, no flash — is the only thing shown there instead. */
+/* SpaceScene itself doesn't mount under reduced motion (see
+   useSpaceSceneEnabled there), so this plain static glow — no WebGL, no
+   merge, no flash — is the only thing shown here instead. */
 @media (prefers-reduced-motion: reduce) {
   .hb-neutron-canvas {
     background: radial-gradient(circle at 38% 50%, rgba(238, 244, 255, 0.9), transparent 70%);
@@ -2128,7 +2109,7 @@ body:has(.hb) {
 /* ─────────────────────────── neutron merger flash ─────────────────────────── */
 
 /* Fired once per cycle, the instant the two stars finish their 20-lap
-   inspiral and plunge together (see fireNeutronFlash in NeutronScene.tsx)
+   inspiral and plunge together (see fireNeutronFlash in SpaceScene.tsx)
    — a stand-in for a gamma-ray burst, the real signature astronomers
    actually see from a neutron-star merger, per an explicit request: a burst
    of light from the merger point that washes the whole screen bright, not
