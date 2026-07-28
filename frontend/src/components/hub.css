@@ -2007,11 +2007,16 @@ body:has(.hb) {
 
 /* A tight binary pair, upper-right of the system, purely decorative — two
    equal-size bodies mutually orbiting a shared centre (neither one orbits
-   the other), per an explicit request. Modelled as a single rotating pivot
-   holding both stars at opposite ends of one diameter: spinning the pivot
-   sweeps both around each other for the cost of one transform, instead of
-   animating two independent orbits that would have to be hand-kept exactly
-   180deg out of phase.
+   the other), swept out along a single horizontal line rather than a full
+   circular sweep (an edge-on "facing each other, side to side" view, per an
+   explicit request to change this from an earlier top/bottom-inclusive
+   circular version). --nx (the current translateX offset, in --body-unit
+   units) and --glow (a filter: brightness() multiplier) are written every
+   frame by useNeutronBinary in Hub.tsx rather than driven by CSS keyframes:
+   the orbital period, the separation between the two stars, and the glow
+   all have to change together (closer = faster = brighter, per an explicit
+   request), which is a straightforward time-stepped loop in JS and would
+   need dozens of hand-timed keyframe stops to fake in pure CSS.
 
    Lives inside `.hb-space` (the starfield/nebula layer, already
    `pointer-events: none` and non-interactive) rather than as a
@@ -2020,59 +2025,28 @@ body:has(.hb) {
    other ambient scenery that layer already holds (nebulae, twinklers), not
    with the two corner buttons that are actually clickable. Inset from the
    literal corner so it clears `.hb-controls`/`.hb-clocks`, which sit above
-   this layer on their own z-index regardless. */
+   this layer on their own z-index regardless. Width is generous (64 vs. the
+   15-wide stars) to clear the widest separation (--nx up to 22) without
+   clipping; height only needs to clear one star's own diameter, since
+   nothing here moves vertically any more. */
 .hb-neutron-binary {
   position: absolute;
   top: clamp(92px, 13vh, 172px);
   right: clamp(54px, 9vw, 150px);
   z-index: 1;
-  width: calc(15 * var(--body-unit) * 3);
-  height: calc(15 * var(--body-unit) * 3);
-}
-
-.hb-neutron-orbit {
-  position: absolute;
-  inset: 0;
-  /* Two chained animations on the same property rather than one: the first
-     plays once — 2s → 1s → 0.5s → 0.2s orbital period, speeding up over
-     10s total, per an explicit request — and simply ends; the second,
-     delayed to start the instant the first finishes, then repeats the
-     faster 1s → 0.5s → 0.2s sweep forever (skipping the slow 2s stage on
-     every loop after the first, also per that request). Both keyframe sets
-     land on an exact multiple of 360deg at their own end (7560deg and
-     3240deg), so the hand-off and every later loop are seamless. */
-  animation:
-    hb-neutron-spin-intro 10s linear 1,
-    hb-neutron-spin-loop 4s linear infinite 10s;
-}
-
-@keyframes hb-neutron-spin-intro {
-  /* 0%–40% (4s): 2 laps at a 2s period. */
-  0% { transform: rotate(0deg); }
-  40% { transform: rotate(720deg); }
-  /* 40%–60% (2s): 2 laps at a 1s period. */
-  60% { transform: rotate(1440deg); }
-  /* 60%–70% (1s): 2 laps at a 0.5s period. */
-  70% { transform: rotate(2160deg); }
-  /* 70%–100% (3s): 15 laps at a 0.2s period. */
-  100% { transform: rotate(7560deg); }
-}
-
-@keyframes hb-neutron-spin-loop {
-  /* 0%–50% (2s): 2 laps at a 1s period. */
-  0% { transform: rotate(0deg); }
-  50% { transform: rotate(720deg); }
-  /* 50%–75% (1s): 2 laps at a 0.5s period. */
-  75% { transform: rotate(1440deg); }
-  /* 75%–100% (1s): 5 laps at a 0.2s period. */
-  100% { transform: rotate(3240deg); }
+  width: calc(64 * var(--body-unit));
+  height: calc(18 * var(--body-unit));
+  /* Resting values for the instant before useNeutronBinary's first frame
+     lands, and the only values used at all under reduced motion below. */
+  --nx: 22;
+  --glow: 1;
 }
 
 /* Half the Moon's own rendered size per an explicit request (.hb-moon--lunar
    is `--size(90) * --body-unit / 3`, i.e. 30 * --body-unit — this is half
-   that, 15). Both stars share this one rule; only their translateX offset
+   that, 15). Both stars share this one rule; only their translateX sign
    (below) differs, which is what puts them on opposite sides of the shared
-   pivot rather than stacked on top of each other. */
+   centre instead of stacked on top of each other. */
 .hb-neutron-star {
   position: absolute;
   top: 50%;
@@ -2086,50 +2060,30 @@ body:has(.hb) {
     0 0 6px 2px rgba(255, 255, 255, 0.95),
     0 0 18px 6px rgba(200, 220, 255, 0.75),
     0 0 40px 14px rgba(150, 190, 255, 0.4);
-  /* Same two-stage chain as `.hb-neutron-orbit`'s spin, keyframed on the
-     same 10s/4s timeline (identical percentage breakpoints) so the glow
-     visibly brightens in lockstep with each speed-up rather than drifting
-     on a clock of its own. */
-  animation:
-    hb-neutron-glow-intro 10s linear 1,
-    hb-neutron-glow-loop 4s linear infinite 10s;
+  filter:
+    brightness(var(--glow))
+    drop-shadow(0 0 calc(4px + var(--glow) * 10px) rgba(200, 225, 255, 0.9));
 }
 
-/* Opposite ends of one diameter — offset out from the shared pivot in one
-   direction for A, the other for B — rather than each carrying its own
-   orbit. The offset (10 * --body-unit) is kept clear of the star's own
-   radius (7.5 * --body-unit) so the two discs read as separated, facing
-   bodies instead of overlapping at the centre. */
+/* Opposite signs on the same --nx — one star out to each side of the shared
+   centre, moving together as --nx changes every frame, which is what makes
+   them mutually orbit (both sides of one horizontal line) rather than one
+   sitting still while the other sweeps around it. */
 .hb-neutron-star--a {
-  transform: translateX(calc(10 * var(--body-unit)));
+  transform: translateX(calc(var(--nx) * var(--body-unit)));
 }
 
 .hb-neutron-star--b {
-  transform: translateX(calc(-10 * var(--body-unit)));
+  transform: translateX(calc(var(--nx) * var(--body-unit) * -1));
 }
 
-@keyframes hb-neutron-glow-intro {
-  0% { filter: brightness(1) drop-shadow(0 0 4px rgba(255, 255, 255, 0.6)); }
-  40% { filter: brightness(1.05) drop-shadow(0 0 4px rgba(255, 255, 255, 0.6)); }
-  60% { filter: brightness(1.2) drop-shadow(0 0 8px rgba(220, 235, 255, 0.75)); }
-  70% { filter: brightness(1.4) drop-shadow(0 0 12px rgba(210, 230, 255, 0.85)); }
-  100% { filter: brightness(1.75) drop-shadow(0 0 20px rgba(200, 225, 255, 1)); }
-}
-
-@keyframes hb-neutron-glow-loop {
-  0% { filter: brightness(1.2) drop-shadow(0 0 8px rgba(220, 235, 255, 0.75)); }
-  50% { filter: brightness(1.4) drop-shadow(0 0 12px rgba(210, 230, 255, 0.85)); }
-  75% { filter: brightness(1.6) drop-shadow(0 0 16px rgba(205, 228, 255, 0.92)); }
-  100% { filter: brightness(1.85) drop-shadow(0 0 22px rgba(200, 225, 255, 1)); }
-}
-
+/* useNeutronBinary itself no-ops under reduced motion (see Hub.tsx), so
+   these are the only values the pair ever shows there — a mid-separation,
+   mid-brightness resting frame instead of the animated extremes. */
 @media (prefers-reduced-motion: reduce) {
-  .hb-neutron-orbit,
-  .hb-neutron-star {
-    animation: none;
-  }
-  .hb-neutron-star {
-    filter: brightness(1.3) drop-shadow(0 0 10px rgba(220, 235, 255, 0.8));
+  .hb-neutron-binary {
+    --nx: 10;
+    --glow: 1.4;
   }
 }
 

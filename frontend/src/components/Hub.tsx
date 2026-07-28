@@ -652,6 +652,117 @@ function Planet({
   );
 }
 
+/* ───────────────────────────── neutron binary ─────────────────────────────
+   Two equal-size neutron stars in the upper-right sky, mutually orbiting a
+   shared centre along a single horizontal line — an edge-on, "facing each
+   other, side to side" view, not a full circular sweep — rather than one
+   orbiting the other, per an explicit request. Driven by rAF instead of CSS
+   keyframes: the orbital period, the separation between the two stars, and
+   the glow all have to move together (closer = faster = brighter, also per
+   an explicit request), which is a small time-stepped loop here and would
+   need dozens of hand-timed keyframe stops to fake in pure CSS. */
+
+/** How separated (amp, in --body-unit units — see .hb-neutron-binary in
+ * hub.css) and how bright (glow, a filter: brightness() multiplier) the
+ * pair is at a given orbital period. Keyed by the exact period values
+ * NEUTRON_STAGES uses below. */
+const NEUTRON_ANCHORS: Record<string, { amp: number; glow: number }> = {
+  "5": { amp: 22, glow: 1.0 },
+  "4": { amp: 19, glow: 1.1 },
+  "3": { amp: 16, glow: 1.25 },
+  "2": { amp: 13, glow: 1.4 },
+  "1": { amp: 10, glow: 1.6 },
+  "0.5": { amp: 7, glow: 1.8 },
+  "0.2": { amp: 5, glow: 2.0 },
+};
+
+interface NeutronStage {
+  /** Orbital period in seconds — looked up in NEUTRON_ANCHORS. */
+  period: number;
+  /** How many full laps to run at that period before moving to the next
+   * stage — this is what makes 10 laps land exactly on the 0.2s turnaround
+   * (1+1+1+1+1+2+3), per an explicit request. */
+  laps: number;
+}
+
+/* One full breathing cycle, repeated forever by useNeutronBinary below: the
+ * period shortens 5s -> 4s -> 3s -> 2s -> 1s -> 0.5s -> 0.2s (10 laps total,
+ * closing in as it speeds up), then lengthens back out 0.5s -> 1s -> 2s ->
+ * 3s -> 4s -> 5s (drifting apart, slowing down) before looping back to the
+ * start — the exact sequence and lap counts from an explicit request. */
+const NEUTRON_STAGES: NeutronStage[] = [
+  { period: 5, laps: 1 },
+  { period: 4, laps: 1 },
+  { period: 3, laps: 1 },
+  { period: 2, laps: 1 },
+  { period: 1, laps: 1 },
+  { period: 0.5, laps: 2 },
+  { period: 0.2, laps: 3 },
+  { period: 0.5, laps: 1 },
+  { period: 1, laps: 1 },
+  { period: 2, laps: 1 },
+  { period: 3, laps: 1 },
+  { period: 4, laps: 1 },
+  { period: 5, laps: 1 },
+];
+
+function useNeutronBinary(ref: React.RefObject<HTMLDivElement>) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Static resting frame instead (see .hb-neutron-binary's reduced-motion
+    // rule in hub.css) — no rAF loop to skip.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let raf = 0;
+    let last = performance.now();
+    let stageIndex = 0;
+    let stageElapsed = 0;
+    let phase = 0;
+    const first = NEUTRON_ANCHORS[String(NEUTRON_STAGES[0].period)];
+    let amp = first.amp;
+    let glow = first.glow;
+
+    const tick = (now: number) => {
+      // Capped so a background/throttled tab doesn't dump one huge dt on
+      // return and skip whole stages in a single frame.
+      const dt = Math.min((now - last) / 1000, 0.1);
+      last = now;
+
+      stageElapsed += dt;
+      let stage = NEUTRON_STAGES[stageIndex];
+      let stageDuration = stage.period * stage.laps;
+      while (stageElapsed >= stageDuration) {
+        stageElapsed -= stageDuration;
+        stageIndex = (stageIndex + 1) % NEUTRON_STAGES.length;
+        stage = NEUTRON_STAGES[stageIndex];
+        stageDuration = stage.period * stage.laps;
+      }
+
+      // Eased toward the new stage's separation/glow rather than snapped,
+      // so a stage boundary reads as the pair drifting closer/further
+      // rather than teleporting. The angular speed itself still changes
+      // instantly at the boundary — that discontinuity is the actual
+      // "speeds up/slows down" effect that was asked for.
+      const target = NEUTRON_ANCHORS[String(stage.period)];
+      const ease = 1 - Math.exp(-dt / 0.35);
+      amp += (target.amp - amp) * ease;
+      glow += (target.glow - glow) * ease;
+
+      phase += ((2 * Math.PI) / stage.period) * dt;
+      const nx = amp * Math.cos(phase);
+
+      el.style.setProperty("--nx", nx.toFixed(3));
+      el.style.setProperty("--glow", glow.toFixed(3));
+
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [ref]);
+}
+
 /* ───────────────────────────── page ───────────────────────────── */
 
 export default function Hub() {
@@ -665,6 +776,8 @@ export default function Hub() {
   const [entered, setEntered] = useState(false);
 
   const stageRef = useRef<HTMLDivElement>(null);
+  const neutronRef = useRef<HTMLDivElement>(null);
+  useNeutronBinary(neutronRef);
 
   /* The page's entire data budget: two cached endpoints, one poll. */
   useEffect(() => {
@@ -824,17 +937,16 @@ export default function Hub() {
         <div className="hb-shooting hb-shooting--1" />
         <div className="hb-shooting hb-shooting--2" />
         {/* Two equal-size neutron stars, mutually orbiting a shared centre
-            (not one orbiting the other) — a single rotating pivot holding
-            both bodies at opposite ends of one diameter, per an explicit
-            request. See .hb-neutron-binary in hub.css for the spin/glow
-            timing (2s→1s→0.5s→0.2s orbital period over the first 10s, then
-            a faster 1s→0.5s→0.2s sweep repeating forever, brightness rising
-            with speed at every stage). */}
-        <div className="hb-neutron-binary" aria-hidden="true">
-          <div className="hb-neutron-orbit">
-            <span className="hb-neutron-star hb-neutron-star--a" />
-            <span className="hb-neutron-star hb-neutron-star--b" />
-          </div>
+            along a single horizontal line (facing each other, side to
+            side) rather than one orbiting the other or a full circular
+            sweep, per an explicit request. See useNeutronBinary above and
+            .hb-neutron-binary in hub.css for the timing: period and
+            separation shrink together — 5s→4s→3s→2s→1s→0.5s→0.2s, 10 laps
+            total — then both grow back out 0.5s→1s→2s→3s→4s→5s, repeating
+            forever; glow brightens as they close in. */}
+        <div className="hb-neutron-binary" ref={neutronRef} aria-hidden="true">
+          <span className="hb-neutron-star hb-neutron-star--a" />
+          <span className="hb-neutron-star hb-neutron-star--b" />
         </div>
         <div className="hb-vignette" />
       </div>
