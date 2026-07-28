@@ -480,8 +480,23 @@ function buildDiscLines(count: number, innerR: number, outerR: number, ryRatio: 
     const rx = innerR + (outerR - innerR) * frac;
     const base = 0.85 - frac * 0.72;
     const jitter = 0.55 + rand() * 0.75;
-    const dashOn = 11 + rand() * 7;
-    const dashOff = 7 + rand() * 7;
+    // Many short segments rather than a few long ones, per an explicit
+    // request: at pathLength=100 the old 11-18 on / 7-14 off put only three
+    // to five dashes around a whole ellipse, which read as a few detached
+    // bars sweeping round. Twenty-odd short ones at a ~2:1 duty read as a
+    // line with fine breaks in it — still visibly made of moving material,
+    // but continuous, which is what was asked for.
+    //
+    // The count is a whole number and the on/off split is derived FROM it, so
+    // the pattern's period divides pathLength exactly. That matters: the flow
+    // animation runs dashoffset a flat -100, one full path length, and if the
+    // period doesn't divide evenly into that the pattern lands out of phase
+    // with itself at the end of every lap and snaps. It always did; short
+    // dashes just would have made the snap land more often.
+    const dashCount = 17 + Math.floor(rand() * 8);
+    const dashPeriod = 100 / dashCount;
+    const dashOn = dashPeriod * (0.62 + rand() * 0.12);
+    const dashOff = dashPeriod - dashOn;
     // Roughly two and a half times the speed of the first pass (which ran
     // 1.6s at the inner edge out to ~9s at the outer), per an explicit
     // request for a fast disc. The frac**1.3 falloff is kept, not flattened:
@@ -494,7 +509,7 @@ function buildDiscLines(count: number, innerR: number, outerR: number, ryRatio: 
       ry: rx * ryRatio,
       color: discColorAt(frac),
       opacity: Math.min(0.95, Math.max(0.04, base * jitter)),
-      dash: `${dashOn.toFixed(1)} ${dashOff.toFixed(1)}`,
+      dash: `${dashOn.toFixed(2)} ${dashOff.toFixed(2)}`,
       flowDur,
       flowDelay: -rand() * flowDur,
     });
@@ -539,11 +554,19 @@ function buildArcBundle(count: number, seed: number, sign: 1 | -1): ArcLine[] {
     const peak = sign === -1 ? -6 - rand() * 30 : 266 + rand() * 30;
     const opacity = Math.min(0.7, Math.max(0.03, (0.5 - frac * 0.34) * (0.6 + rand() * 0.7)));
     const flowDur = 1.5 + frac * 2.4 * (0.85 + rand() * 0.3);
+    // Matched to the disc's own fine dashes (see buildDiscLines), including
+    // the whole-number count that keeps the pattern in phase across the -100
+    // dashoffset loop. A few long bars here against a near-continuous line
+    // there would read as two unrelated systems, and these arcs are meant to
+    // be the same material seen bent over the pole.
+    const dashCount = 15 + Math.floor(rand() * 8);
+    const dashPeriod = 100 / dashCount;
+    const dashOn = dashPeriod * (0.6 + rand() * 0.12);
     lines.push({
       d: `M ${x0.toFixed(1)} 130 Q 130 ${peak.toFixed(1)} ${x1.toFixed(1)} 130`,
       color: discColorAt(0.12 + frac * 0.55),
       opacity,
-      dash: `${(9 + rand() * 6).toFixed(1)} ${(6 + rand() * 6).toFixed(1)}`,
+      dash: `${dashOn.toFixed(2)} ${(dashPeriod - dashOn).toFixed(2)}`,
       flowDur,
       flowDelay: -rand() * flowDur,
     });
