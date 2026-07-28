@@ -116,7 +116,7 @@ const US_LOGO_FILES: Record<string, string> = {
 
 export function usLogoUrl(code: string): string | null {
   const file = US_LOGO_FILES[code];
-  return file ? `/img/ticker/${file}.png` : null;
+  return file ? `/img/ticker/${file}.webp` : null;
 }
 
 /** KRX prices are whole won; US tickers quote to the cent. */

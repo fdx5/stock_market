@@ -280,7 +280,7 @@ export default function GlobalStockPage() {
             rel="noopener noreferrer"
             className="kospi-map-nav-link"
           >
-            <img src="/img/mini_app.png" alt="" className="mini-apps-icon" />
+            <img src="/img/mini_app.webp" alt="" className="mini-apps-icon" />
             Mini Apps
           </a>
           <VisitorBadge />

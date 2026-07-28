@@ -37,5 +37,5 @@ const HAS_STYLIZED_IMAGE = new Set([
 
 export function ceoStylizedImageFor(code: string): string | null {
   if (!HAS_STYLIZED_IMAGE.has(code)) return null;
-  return `/img/ceo_stylized/${sanitize(code)}.jpg`;
+  return `/img/ceo_stylized/${sanitize(code)}.webp`;
 }

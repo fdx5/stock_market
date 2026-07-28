@@ -142,7 +142,7 @@ jobs:
         # Render can have the instance cold; a 60s cold start inside the batch request
         # would eat most of the timeout budget below. Waking it first (and tolerating
         # a failure here) keeps that cost out of the run itself.
-        run: curl -fsS --max-time 90 "$BASE_URL/api/health" || true
+        run: curl -fsS --compressed --max-time 90 "$BASE_URL/api/health" || true
 
       - name: Run prediction batch
         if: steps.region.outputs.skip != 'true'
@@ -172,9 +172,9 @@ jobs:
           # The finished_at of whatever run this process last remembers. Everything
           # below waits for this value to *change* — without it, a previous run's
           # record would be mistaken for this one's the moment polling starts.
-          before=$(curl -fsS --max-time 60 "${auth[@]}" "$status_url" | jq -r '.last_run.finished_at // "none"')
+          before=$(curl -fsS --compressed --max-time 60 "${auth[@]}" "$status_url" | jq -r '.last_run.finished_at // "none"')
 
-          curl -fsS --max-time 60 -X POST "${auth[@]}" \
+          curl -fsS --compressed --max-time 60 -X POST "${auth[@]}" \
             "$BASE_URL/api/prediction/run?region=$REGION&force=$FORCE" | jq -c '{region, status}'
 
           # 60 × 20s = 20 minutes. A full US roster at high effort is the long case;
@@ -183,7 +183,7 @@ jobs:
           # result up from the database.
           for _ in $(seq 1 60); do
             sleep 20
-            body=$(curl -fsS --max-time 60 "${auth[@]}" "$status_url") || continue
+            body=$(curl -fsS --compressed --max-time 60 "${auth[@]}" "$status_url") || continue
             running=$(echo "$body" | jq -r '.running')
             finished=$(echo "$body" | jq -r '.last_run.finished_at // "none"')
             [ "$running" = "false" ] && [ "$finished" != "$before" ] || continue

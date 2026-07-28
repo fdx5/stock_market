@@ -45,20 +45,20 @@ function alertLevel(row: Row, item: MarketTickerItem | null): AlertLevel {
 // baked in. The four FX crosses are grouped first (USD, then JPY/EUR/GBP), each shown
 // exactly the way USD/KRW is; the belt rolls them all past infinitely.
 const ROWS: Row[] = [
-  { symbol: "KRW=X", icon: "/img/ticker/usdkrw.png", labelKo: "원/달러 환율", sublabel: "USD/KRW" },
-  { symbol: "JPYKRW=X", icon: "/img/ticker/jpykrw.png", labelKo: "원/엔 환율", sublabel: "JPY/KRW", noteKo: "100엔" },
-  { symbol: "EURKRW=X", icon: "/img/ticker/eurkrw.png", labelKo: "원/유로 환율", sublabel: "EUR/KRW" },
-  { symbol: "GBPKRW=X", icon: "/img/ticker/gbpkrw.png", labelKo: "원/파운드 환율", sublabel: "GBP/KRW" },
+  { symbol: "KRW=X", icon: "/img/ticker/usdkrw.webp", labelKo: "원/달러 환율", sublabel: "USD/KRW" },
+  { symbol: "JPYKRW=X", icon: "/img/ticker/jpykrw.webp", labelKo: "원/엔 환율", sublabel: "JPY/KRW", noteKo: "100엔" },
+  { symbol: "EURKRW=X", icon: "/img/ticker/eurkrw.webp", labelKo: "원/유로 환율", sublabel: "EUR/KRW" },
+  { symbol: "GBPKRW=X", icon: "/img/ticker/gbpkrw.webp", labelKo: "원/파운드 환율", sublabel: "GBP/KRW" },
   {
     symbol: "CL=F",
-    icon: "/img/ticker/oil.png",
+    icon: "/img/ticker/oil.webp",
     labelKo: "국제유가",
     sublabel: "WTI",
     alert: { warn: 80, danger: 85 },
     trimRim: true,
   },
-  { symbol: "GC=F", icon: "/img/ticker/gold.png", labelKo: "금", sublabel: "Gold", metal: "gold" },
-  { symbol: "SI=F", icon: "/img/ticker/silver.png", labelKo: "은", sublabel: "Silver", metal: "silver" },
+  { symbol: "GC=F", icon: "/img/ticker/gold.webp", labelKo: "금", sublabel: "Gold", metal: "gold" },
+  { symbol: "SI=F", icon: "/img/ticker/silver.webp", labelKo: "은", sublabel: "Silver", metal: "silver" },
 ];
 
 function formatValue(item: MarketTickerItem, lang: Lang): string {

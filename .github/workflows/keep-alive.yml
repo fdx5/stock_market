@@ -13,6 +13,15 @@ name: Keep Render instance awake
 # pays a synchronous multi-page Naver scrape. Doing that scrape here instead means
 # a background CI job eats the cold-start latency instead of a real visitor.
 #
+# Every curl here passes --compressed. Render bills outbound bandwidth, the backend
+# has had GZipMiddleware on it the whole time, and curl does NOT send an
+# Accept-Encoding header unless asked - so this workflow was pulling every response
+# uncompressed, 144 times a day, forever. The full KOSPI map alone is 70 KB plain
+# against 14 KB gzipped; across the twelve requests below that is the difference
+# between roughly 650 MB and 150 MB a month for a job that nobody ever reads the
+# output of. --compressed changes nothing else: curl decompresses transparently, so
+# the steps that pipe into jq still see plain JSON.
+#
 # Caveat: GitHub disables scheduled workflows after 60 days with no commits to the
 # repo, and cron firing can be delayed a few minutes under GitHub-wide load - both
 # are outside this workflow's control.
@@ -26,20 +35,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping health endpoint
-        run: curl -fsS --max-time 20 https://kospi-predictor.onrender.com/api/health
+        run: curl -fsS --compressed --max-time 20 https://kospi-predictor.onrender.com/api/health
       - name: Warm KOSPI map cache (tier1/tier2/full)
         run: |
           for limit in 20 50 500; do
-            curl -fsS --max-time 90 "https://kospi-predictor.onrender.com/api/market/map?limit=${limit}" -o /dev/null
+            curl -fsS --compressed --max-time 90 "https://kospi-predictor.onrender.com/api/market/map?limit=${limit}" -o /dev/null
           done
       - name: Warm KOSDAQ map cache (tier1/tier2/full)
         run: |
           for limit in 20 50 200; do
-            curl -fsS --max-time 90 "https://kospi-predictor.onrender.com/api/market/kosdaq-map?limit=${limit}" -o /dev/null
+            curl -fsS --compressed --max-time 90 "https://kospi-predictor.onrender.com/api/market/kosdaq-map?limit=${limit}" -o /dev/null
           done
       - name: Warm dashboard default-stock cache (Samsung Electronics, 005930)
         run: |
           for path in summary indicators quote news overview; do
-            curl -fsS --max-time 30 "https://kospi-predictor.onrender.com/api/stock/005930/${path}" -o /dev/null
+            curl -fsS --compressed --max-time 30 "https://kospi-predictor.onrender.com/api/stock/005930/${path}" -o /dev/null
           done
-          curl -fsS --max-time 30 "https://kospi-predictor.onrender.com/api/investor/indices" -o /dev/null
+          curl -fsS --compressed --max-time 30 "https://kospi-predictor.onrender.com/api/investor/indices" -o /dev/null

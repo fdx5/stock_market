@@ -51,7 +51,7 @@ export default function Footer() {
             rel="noopener noreferrer"
             className="app-footer-mini-apps"
           >
-            <img src="/img/mini_app.png" alt="" className="mini-apps-icon" />
+            <img src="/img/mini_app.webp" alt="" className="mini-apps-icon" />
             Mini Apps
           </a>
         </nav>

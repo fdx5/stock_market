@@ -13,8 +13,8 @@ const CELEBRATE_TEXT: Record<CheerSide, string> = {
 };
 
 const CELEBRATE_IMG: Record<CheerSide, string> = {
-  samsung: "/img/samsung.png",
-  skhynix: "/img/skhynix.jpg",
+  samsung: "/img/samsung.webp",
+  skhynix: "/img/skhynix.webp",
 };
 
 export default function CheerSection() {

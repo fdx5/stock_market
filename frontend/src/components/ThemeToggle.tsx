@@ -9,10 +9,10 @@ export default function ThemeToggle() {
   return (
     <button type="button" className="theme-toggle-btn" onClick={toggleThemeMode} aria-label={label} title={label}>
       <span className={`theme-toggle-icon ${mode === "dark" ? "is-risen" : "is-set"}`}>
-        <img src="/img/theme-moon.png" alt="" aria-hidden="true" />
+        <img src="/img/theme-moon.webp" alt="" aria-hidden="true" />
       </span>
       <span className={`theme-toggle-icon ${mode === "light" ? "is-risen" : "is-set"}`}>
-        <img src="/img/theme-sun.png" alt="" aria-hidden="true" />
+        <img src="/img/theme-sun.webp" alt="" aria-hidden="true" />
       </span>
     </button>
   );

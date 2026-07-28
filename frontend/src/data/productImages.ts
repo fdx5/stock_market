@@ -38,5 +38,5 @@ const HAS_PRODUCT_IMAGE = new Set([
 
 export function productImageFor(code: string): string | null {
   if (!HAS_PRODUCT_IMAGE.has(code)) return null;
-  return `/img/products/${sanitize(code)}.jpg`;
+  return `/img/products/${sanitize(code)}.webp`;
 }

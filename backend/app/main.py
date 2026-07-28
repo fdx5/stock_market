@@ -4,11 +4,12 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.staticfiles import NotModifiedResponse
 
 from app.data.global_discussion_fetcher import warm_nasdaq_symbols
 from app.data.universe import warm_english_names
@@ -35,6 +36,7 @@ from app.routers import (
 from app.services import kakao_notify, notify_stats_store, page_view_store, prediction_batch, stock_search_store
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
+from app.services.stock_board import warm_boards
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
 
 app = FastAPI(title="KOSPI 종목 예측")
@@ -87,6 +89,12 @@ def _warm_market_maps() -> None:
     # every frontend tier (20/50/full) hit a warm cache.
     threading.Thread(target=lambda: get_sp500_map(503), daemon=True).start()
     threading.Thread(target=lambda: get_nasdaq100_map(103), daemon=True).start()
+    # The three 100-종목 card boards ride on the snapshots above, but each also needs a
+    # year of daily bars per symbol for its sparklines — the one part of a board
+    # request that can touch the network. Warmed here so the first visitor after a
+    # deploy doesn't pay for 300 history fetches inline. Runs after (not alongside) the
+    # roster warms above, since it reads them.
+    threading.Thread(target=warm_boards, daemon=True).start()
 
 
 @app.on_event("startup")
@@ -337,8 +345,21 @@ if STATIC_DIR.exists():
             response.headers["Cache-Control"] = "no-cache"
         return response
 
+    # Starlette's own StaticFiles (which backs the /assets mount above) answers a
+    # conditional request with 304 and an empty body; a bare FileResponse does not —
+    # it sets an ETag and a Last-Modified but then sends the whole file anyway, even
+    # when the client just told us it already has exactly that version. Everything
+    # this hand-rolled handler serves was therefore paid for in full on every
+    # revalidation: the SPA shell on every single page load (it is deliberately
+    # `no-cache`, i.e. revalidate always), and all ~8 MB of /img and /video every
+    # time a returning visitor came back after STATIC_CACHE_CONTROL's week expired.
+    # Borrowing StaticFiles' own comparison keeps the ETag/If-Modified-Since
+    # semantics identical to the mounted half of the site rather than reimplementing
+    # them slightly differently here.
+    _conditional = StaticFiles(directory=STATIC_DIR)
+
     @app.get("/{full_path:path}")
-    def spa_fallback(full_path: str):
+    def spa_fallback(full_path: str, request: Request):
         # Resolved and containment-checked before serving — unlike the /assets mount
         # above (Starlette's own StaticFiles, which already guards against this), this
         # is a hand-rolled file lookup, and a full_path like "../requirements.txt"
@@ -346,5 +367,14 @@ if STATIC_DIR.exists():
         # files from the container's filesystem (source code, dependency list, etc.).
         candidate = (STATIC_DIR / full_path).resolve()
         if full_path and candidate.is_relative_to(STATIC_DIR) and candidate.is_file():
-            return FileResponse(candidate)
-        return FileResponse(STATIC_DIR / "index.html")
+            target = candidate
+        else:
+            target = STATIC_DIR / "index.html"
+
+        # stat_result is passed in so FileResponse fills in etag/last-modified during
+        # construction instead of lazily while streaming the body — they have to
+        # exist before we can decide whether to send a body at all.
+        response = FileResponse(target, stat_result=target.stat())
+        if _conditional.is_not_modified(response.headers, request.headers):
+            return NotModifiedResponse(response.headers)
+        return response
