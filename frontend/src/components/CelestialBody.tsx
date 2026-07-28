@@ -482,7 +482,13 @@ function buildDiscLines(count: number, innerR: number, outerR: number, ryRatio: 
     const jitter = 0.55 + rand() * 0.75;
     const dashOn = 11 + rand() * 7;
     const dashOff = 7 + rand() * 7;
-    const flowDur = 1.6 + frac ** 1.3 * 7.5 * (0.85 + rand() * 0.3);
+    // Roughly two and a half times the speed of the first pass (which ran
+    // 1.6s at the inner edge out to ~9s at the outer), per an explicit
+    // request for a fast disc. The frac**1.3 falloff is kept, not flattened:
+    // inner material completing a lap several times for every one the outer
+    // edge manages is the Keplerian read, and speeding everything up by one
+    // constant preserves it exactly.
+    const flowDur = 0.62 + frac ** 1.3 * 3.1 * (0.85 + rand() * 0.3);
     lines.push({
       rx,
       ry: rx * ryRatio,
@@ -500,6 +506,18 @@ interface ArcLine {
   d: string;
   color: string;
   opacity: number;
+  /** Dash pattern, as a percentage of the arc's own length (every arc is
+   * given pathLength=100, same as the disc's ellipses) — see flowDur. */
+  dash: string;
+  /** Seconds for one full traverse of this arc, and a negative delay to
+   * scatter where each starts. These used to be still, on the reasoning that
+   * the arcs are the far side's bent IMAGE rather than a second ring with its
+   * own orbit — but the material forming that image is the same material
+   * circling the disc, so a still arc over a moving disc is the inconsistent
+   * option, not the careful one. Slower than the disc's own lines: this is
+   * the far side, further away and seen foreshortened. */
+  flowDur: number;
+  flowDelay: number;
 }
 
 /** One bundle of thin lensed-arc lines (the disc's far side, bent up and
@@ -520,14 +538,33 @@ function buildArcBundle(count: number, seed: number, sign: 1 | -1): ArcLine[] {
     const x1 = 202 - spread;
     const peak = sign === -1 ? -6 - rand() * 30 : 266 + rand() * 30;
     const opacity = Math.min(0.7, Math.max(0.03, (0.5 - frac * 0.34) * (0.6 + rand() * 0.7)));
+    const flowDur = 1.5 + frac * 2.4 * (0.85 + rand() * 0.3);
     lines.push({
       d: `M ${x0.toFixed(1)} 130 Q 130 ${peak.toFixed(1)} ${x1.toFixed(1)} 130`,
       color: discColorAt(0.12 + frac * 0.55),
       opacity,
+      dash: `${(9 + rand() * 6).toFixed(1)} ${(6 + rand() * 6).toFixed(1)}`,
+      flowDur,
+      flowDelay: -rand() * flowDur,
     });
   }
   return lines;
 }
+
+/** One arc line's flow timing. On the lite tiers every line in this SVG
+ * shares one duration and no delay, which is what lets the stepped timing
+ * function in hub.css actually cut the repaint rate — the SVG repaints if ANY
+ * line moves, so lines stepping on their own clocks would land a step on
+ * nearly every frame anyway. See the same split on the disc's ellipses. */
+function arcFlowStyle(line: ArcLine, lite: boolean): React.CSSProperties {
+  return lite
+    ? { animationDuration: LITE_FLOW_DUR, animationDelay: "0s" }
+    : { animationDuration: `${line.flowDur.toFixed(2)}s`, animationDelay: `${line.flowDelay.toFixed(2)}s` };
+}
+
+/** The one duration every flowing line in this SVG shares on the lite tiers.
+ * Paired with `steps()` in hub.css — see .hb.is-lite .hb-bh-line-flow. */
+const LITE_FLOW_DUR = "2.2s";
 
 function bucketize<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -681,7 +718,19 @@ export function BlackHoleBody({
             }}
           >
             {bucket.map((line, li) => (
-              <path key={li} d={line.d} fill="none" stroke={line.color} strokeOpacity={line.opacity} strokeWidth="1.1" strokeLinecap="round" />
+              <path
+                key={li}
+                d={line.d}
+                fill="none"
+                stroke={line.color}
+                strokeOpacity={line.opacity}
+                strokeWidth="1.1"
+                strokeLinecap="round"
+                pathLength={100}
+                strokeDasharray={line.dash}
+                className="hb-bh-line-flow"
+                style={arcFlowStyle(line, lite)}
+              />
             ))}
           </g>
         ))}
@@ -695,7 +744,19 @@ export function BlackHoleBody({
             }}
           >
             {bucket.map((line, li) => (
-              <path key={li} d={line.d} fill="none" stroke={line.color} strokeOpacity={line.opacity} strokeWidth="1.1" strokeLinecap="round" />
+              <path
+                key={li}
+                d={line.d}
+                fill="none"
+                stroke={line.color}
+                strokeOpacity={line.opacity}
+                strokeWidth="1.1"
+                strokeLinecap="round"
+                pathLength={100}
+                strokeDasharray={line.dash}
+                className="hb-bh-line-flow"
+                style={arcFlowStyle(line, lite)}
+              />
             ))}
           </g>
         ))}
@@ -780,7 +841,7 @@ export function BlackHoleBody({
                    two frames a second with it. */
                 style={
                   lite
-                    ? { animationDuration: "5s", animationDelay: "0s" }
+                    ? { animationDuration: LITE_FLOW_DUR, animationDelay: "0s" }
                     : { animationDuration: `${line.flowDur.toFixed(2)}s`, animationDelay: `${line.flowDelay.toFixed(2)}s` }
                 }
               />

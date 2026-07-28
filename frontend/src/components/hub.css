@@ -1874,9 +1874,14 @@ body:has(.hb) {
 }
 
 .hb.is-lite .hb-bh-line-flow {
-  /* 40 steps over the 5s duration BlackHoleBody gives every line on this
-     tier — eight repaints a second for the whole SVG instead of sixty. */
-  animation-timing-function: steps(40, end);
+  /* Stepped, in lockstep with the one shared duration BlackHoleBody gives
+     every flowing line on this tier (LITE_FLOW_DUR, 2.2s) — 44 steps over
+     2.2s is 20 repaints a second for the whole SVG rather than sixty. Enough
+     resolution that a fast flow still reads as flow, and still a third of the
+     work. Stepping only pays off in lockstep: the SVG repaints if any line
+     moves, so lines stepping on their own clocks would land a step on nearly
+     every frame regardless. */
+  animation-timing-function: steps(44, end);
 }
 
 /* Two extra elements per flared star, each a gradient hairline a couple of
@@ -1984,15 +1989,18 @@ body:has(.hb) {
   animation: none;
 }
 
-/* The disc stops entirely, which takes the black hole's SVG from repainting
-   ~8 times a second on the lite tier to not repainting at all: with the
-   shimmer already off and the bloom breathing outside the SVG (see
-   .hb-bh-bloom), nothing inside it changes any more, so it rasterises once at
-   mount and is pure composite from then on. The hole still breathes and still
-   flares red when it feeds — both of those live outside the SVG. */
-.hb.is-minimal .hb-bh-line-flow {
-  animation: none;
-}
+/* The disc used to be stopped outright here, which took the black hole's SVG
+   to zero repaints. That is off again on purpose: the disc turning is what
+   the black hole IS, and stopping it was a guess made while the page's real
+   cost was still unidentified. It turned out to be the sun's noise filter
+   inside the stage (see .hb.is-lite .hb-body-drift), not this — and with that
+   fixed the measured frame rate came back with the flow running. The stepped
+   lockstep one tier up still applies here, so this SVG repaints ~20 times a
+   second rather than 60 even at the bottom tier.
+
+   If a device is ever found that still cannot afford it, ?hboff=bh isolates
+   this SVG in one reload — but it should be measured, not assumed, which is
+   exactly the mistake the rule that used to be here made. */
 
 /* Opacity only. The full burst also scales a viewport-sized radial gradient
    from 0.08 to 1.6, which is a full-screen re-rasterisation on every frame of
