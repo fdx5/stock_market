@@ -1978,16 +1978,22 @@ body:has(.hb) {
   display: none;
 }
 
-/* Ten sliding textures — one per planet, plus Pluto and the Moon — each two
-   full-size images wide, all of them inside the `preserve-3d` stage that
-   measurement showed owns this page's frame rate. Frozen, every planet's
-   subtree is static content under a transform, which is the cheapest thing a
-   compositor handles; the planets still orbit and still face the camera. The
-   textures stop turning, which is a real loss and the reason this is only
-   here, at the bottom tier, and not one step up. */
-.hb.is-minimal .hb-photo-spin {
-  animation: none;
-}
+/* The planet textures used to be frozen here, and are not any more — the
+   rotation is back on every tier, per an explicit request.
+
+   Freezing them was a guess made while this page's cost was still
+   unidentified: the stage had been measured as expensive (?hboff=system read
+   60fps against 4), and ten sliding textures inside it looked like a fair
+   suspect. They were not. The cost was the sun's feTurbulence chain, also in
+   the stage (see .hb.is-lite .hb-body-drift), and this was collateral.
+
+   It should not have been a suspect on the evidence available either. The
+   spin is `transform: translateX` on a layer that already declares
+   will-change — the browser moves an existing texture rather than repainting
+   anything, which is the cheapest work a compositor does and the entire
+   reason this file's header gives for moving the planets off procedural
+   noise in the first place. ?hboff=spin still isolates it if that ever needs
+   re-testing, which is the way to settle it rather than another guess. */
 
 /* The disc used to be stopped outright here, which took the black hole's SVG
    to zero repaints. That is off again on purpose: the disc turning is what
