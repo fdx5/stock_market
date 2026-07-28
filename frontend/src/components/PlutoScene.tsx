@@ -218,9 +218,10 @@ function ScreenSpaceCamera() {
 interface PlutoRigProps {
   blackHoleRef: React.RefObject<HTMLButtonElement>;
   probeRef: React.RefObject<HTMLDivElement>;
+  wrapRef: React.RefObject<HTMLDivElement>;
 }
 
-function PlutoRig({ blackHoleRef, probeRef }: PlutoRigProps) {
+function PlutoRig({ blackHoleRef, probeRef, wrapRef }: PlutoRigProps) {
   const texture = useLoader(THREE.TextureLoader, "/img/planets/pluto.webp");
   const meshRef = useRef<THREE.Mesh>(null!);
   const materialRef = useRef<THREE.MeshBasicMaterial>(null!);
@@ -243,17 +244,24 @@ function PlutoRig({ blackHoleRef, probeRef }: PlutoRigProps) {
     const measure = () => {
       const bhEl = blackHoleRef.current;
       const probeEl = probeRef.current;
-      if (!bhEl || !probeEl) return;
+      const wrapEl = wrapRef.current;
+      if (!bhEl || !probeEl || !wrapEl) return;
       const bhRect = bhEl.getBoundingClientRect();
       const probeRect = probeEl.getBoundingClientRect();
-      state.current.bhCenterX = bhRect.left + bhRect.width / 2;
-      state.current.bhCenterY = bhRect.top + bhRect.height / 2;
+      const wrapRect = wrapEl.getBoundingClientRect();
+      // Converted into the canvas's own local space (subtracting the
+      // wrapper's own viewport offset) right here, the one place that
+      // matters, rather than at every site below that reads bhCenterX/Y —
+      // see .hb-pluto-canvas in hub.css for why the canvas is a small
+      // bounded box near the hole rather than the full viewport now.
+      state.current.bhCenterX = bhRect.left + bhRect.width / 2 - wrapRect.left;
+      state.current.bhCenterY = bhRect.top + bhRect.height / 2 - wrapRect.top;
       state.current.plutoRadius = probeRect.width / 2;
     };
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [blackHoleRef, probeRef]);
+  }, [blackHoleRef, probeRef, wrapRef]);
 
   useFrame((_, delta) => {
     const s = state.current;
@@ -313,7 +321,18 @@ function PlutoRig({ blackHoleRef, probeRef }: PlutoRigProps) {
         <sphereGeometry args={[1, 40, 40]} />
         <meshBasicMaterial ref={materialRef} map={texture} transparent toneMapped={false} />
       </mesh>
-      <points geometry={chunkGeo}>
+      {/* frustumCulled={false} on both: THREE computes a Points object's
+          culling bounds from its geometry's bounding sphere, which is
+          otherwise only ever (re)computed once, from makeParticleGeometry's
+          initial all-off-screen (-99999, -99999) fill — every position
+          written afterward in updateParticles moves points without ever
+          updating that stale sphere, so the whole cloud silently stayed
+          classified as outside the view frustum and was never drawn at
+          all. Disabling culling is simpler and cheaper than recomputing the
+          bounding sphere every frame, and correct here regardless — the
+          cloud is always a small, known region near the black hole, never
+          large enough for culling to actually save anything. */}
+      <points geometry={chunkGeo} frustumCulled={false}>
         <shaderMaterial
           vertexShader={PARTICLE_VERTEX_SHADER}
           fragmentShader={PARTICLE_FRAGMENT_SHADER}
@@ -325,7 +344,7 @@ function PlutoRig({ blackHoleRef, probeRef }: PlutoRigProps) {
           depthWrite={false}
         />
       </points>
-      <points geometry={dustGeo}>
+      <points geometry={dustGeo} frustumCulled={false}>
         <shaderMaterial
           vertexShader={PARTICLE_VERTEX_SHADER}
           fragmentShader={PARTICLE_FRAGMENT_SHADER}
@@ -424,6 +443,7 @@ function usePlutoSceneEnabled(): boolean {
 
 export default function PlutoScene({ blackHoleRef }: { blackHoleRef: React.RefObject<HTMLButtonElement> }) {
   const probeRef = useRef<HTMLDivElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const enabled = usePlutoSceneEnabled();
 
   return (
@@ -447,10 +467,17 @@ export default function PlutoScene({ blackHoleRef }: { blackHoleRef: React.RefOb
         }}
       />
       {enabled && (
-        <div className="hb-pluto-canvas" aria-hidden="true">
-          <Canvas orthographic gl={{ alpha: true, antialias: true }} dpr={[1, 2]}>
+        <div className="hb-pluto-canvas" ref={wrapRef} aria-hidden="true">
+          {/* antialias off, dpr capped at 1.5: this canvas used to cover the
+              full viewport (see .hb-pluto-canvas in hub.css for why it's a
+              small bounded box near the hole now instead) — MSAA plus a 2x
+              device-pixel-ratio full-screen transparent canvas is real
+              fill-rate cost every frame, and iPad's GPU felt all of it. The
+              soft circular sprite the particles already use (PARTICLE_SPRITE)
+              anti-aliases their own edges regardless of MSAA. */}
+          <Canvas orthographic gl={{ alpha: true, antialias: false }} dpr={[1, 1.5]}>
             <ScreenSpaceCamera />
-            <PlutoRig blackHoleRef={blackHoleRef} probeRef={probeRef} />
+            <PlutoRig blackHoleRef={blackHoleRef} probeRef={probeRef} wrapRef={wrapRef} />
           </Canvas>
         </div>
       )}

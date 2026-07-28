@@ -2043,10 +2043,23 @@ body:has(.hb) {
    fragment being its own DOM node has a real per-node style/paint cost a
    single WebGL draw call doesn't. This wrapper just sizes and positions the
    `<canvas>` React Three Fiber mounts — everything about what's drawn on it
-   lives in PlutoScene.tsx instead of here. */
+   lives in PlutoScene.tsx instead of here.
+
+   Bounded to a small box anchored to the black hole's own corner (right: 0;
+   bottom: 0, sized out from there) rather than `inset: 0` covering the full
+   viewport, which an earlier pass used — a full-viewport transparent WebGL
+   canvas still has to be cleared and composited every frame regardless of
+   how little of it has anything drawn on it, and on iPad that fill-rate
+   cost alone was still enough to drop frames even after fixing the actual
+   rendering bugs. 460px covers the widest approach distance (300px) plus
+   room for a chunk's own radius and outward tidal-sling fling; 160px
+   likewise covers the tallest a chunk's arc swings vertically. */
 .hb-pluto-canvas {
   position: fixed;
-  inset: 0;
+  right: 0;
+  bottom: 0;
+  width: calc(var(--bh-right) + var(--bh-size) + 460px);
+  height: calc(var(--bh-bottom) + var(--bh-size) + 160px);
   z-index: 4;
   pointer-events: none;
 }
@@ -2059,18 +2072,14 @@ body:has(.hb) {
 
 /* ─────────────────────────── neutron binary ─────────────────────────── */
 
-/* A tight binary pair, upper-right of the system, purely decorative — two
-   equal-size bodies mutually orbiting a shared centre (neither one orbits
-   the other), swept out along a single horizontal line rather than a full
-   circular sweep (an edge-on "facing each other, side to side" view, per an
-   explicit request to change this from an earlier top/bottom-inclusive
-   circular version). --nx (the current translateX offset, in --body-unit
-   units) and --glow (a filter: brightness() multiplier) are written every
-   frame by useNeutronBinary in Hub.tsx rather than driven by CSS keyframes:
-   the orbital period, the separation between the two stars, and the glow
-   all have to change together (closer = faster = brighter, per an explicit
-   request), which is a straightforward time-stepped loop in JS and would
-   need dozens of hand-timed keyframe stops to fake in pure CSS.
+/* The neutron binary now renders as a small WebGL scene (see
+   NeutronScene.tsx) instead of the DOM/CSS version this replaced — two
+   `<span>` discs lit with box-shadow + filter: brightness/drop-shadow,
+   both rewritten every frame. It was much cheaper than Pluto's own old DOM
+   version (only two elements), but drop-shadow filters are exactly the
+   kind of thing Safari/iPadOS tends to composite in software, and it still
+   touched the DOM every frame for the full ~15s cycle. This wrapper just
+   sizes and positions the `<canvas>` React Three Fiber mounts.
 
    Lives inside `.hb-space` (the starfield/nebula layer, already
    `pointer-events: none` and non-interactive) rather than as a
@@ -2080,76 +2089,38 @@ body:has(.hb) {
    with the two corner buttons that are actually clickable. Inset from the
    literal corner so it clears `.hb-controls`/`.hb-clocks`, which sit above
    this layer on their own z-index regardless. Width is generous (64 vs. the
-   15-wide stars) to clear the widest separation (--nx up to 22) without
-   clipping; height only needs to clear one star's own diameter, since
-   nothing here moves vertically any more. */
-.hb-neutron-binary {
+   15-wide stars) to clear the widest separation without clipping; height
+   only needs to clear one star's own diameter, since nothing here moves
+   vertically. NeutronScene.tsx reads this box's own rendered width via
+   getBoundingClientRect() to convert its abstract "units" (amp, star size)
+   into real px — see NEUTRON_CONTAINER_UNITS there. */
+.hb-neutron-canvas {
   position: absolute;
   top: clamp(92px, 13vh, 172px);
   right: clamp(54px, 9vw, 150px);
   z-index: 1;
   width: calc(64 * var(--body-unit));
   height: calc(18 * var(--body-unit));
-  /* Resting values for the instant before useNeutronBinary's first frame
-     lands, and the only values used at all under reduced motion below.
-     --mscale is the merged-body scale bump (see NEUTRON_MERGE_SCALE in
-     Hub.tsx) — 1 the rest of the time. */
-  --nx: 22;
-  --glow: 1;
-  --mscale: 1;
+  pointer-events: none;
 }
 
-/* Half the Moon's own rendered size per an explicit request (.hb-moon--lunar
-   is `--size(90) * --body-unit / 3`, i.e. 30 * --body-unit — this is half
-   that, 15). Both stars share this one rule; only their translateX sign
-   (below) differs, which is what puts them on opposite sides of the shared
-   centre instead of stacked on top of each other. */
-.hb-neutron-star {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: calc(15 * var(--body-unit));
-  height: calc(15 * var(--body-unit));
-  margin: calc(-7.5 * var(--body-unit)) 0 0 calc(-7.5 * var(--body-unit));
-  border-radius: 50%;
-  background: radial-gradient(circle at 38% 35%, #ffffff 0%, #eef4ff 45%, #bcd2ff 100%);
-  box-shadow:
-    0 0 6px 2px rgba(255, 255, 255, 0.95),
-    0 0 18px 6px rgba(200, 220, 255, 0.75),
-    0 0 40px 14px rgba(150, 190, 255, 0.4);
-  filter:
-    brightness(var(--glow))
-    drop-shadow(0 0 calc(4px + var(--glow) * 10px) rgba(200, 225, 255, 0.9));
+.hb-neutron-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
-/* Opposite signs on the same --nx — one star out to each side of the shared
-   centre, moving together as --nx changes every frame, which is what makes
-   them mutually orbit (both sides of one horizontal line) rather than one
-   sitting still while the other sweeps around it. --mscale is shared and
-   unsigned (it's a size, not a position), so it just multiplies straight
-   through — both stars swell together as they merge, reading as one body
-   growing rather than two discs individually inflating. */
-.hb-neutron-star--a {
-  transform: translateX(calc(var(--nx) * var(--body-unit))) scale(var(--mscale));
-}
-
-.hb-neutron-star--b {
-  transform: translateX(calc(var(--nx) * var(--body-unit) * -1)) scale(var(--mscale));
-}
-
-/* useNeutronBinary itself no-ops under reduced motion (see Hub.tsx), so
-   these are the only values the pair ever shows there — a mid-separation,
-   mid-brightness resting frame instead of the animated extremes, and no
-   merge (so no flash) ever happens. */
+/* NeutronScene itself doesn't mount under reduced motion (see
+   useNeutronSceneEnabled there), so this plain static glow — no WebGL, no
+   merge, no flash — is the only thing shown there instead. */
 @media (prefers-reduced-motion: reduce) {
-  .hb-neutron-binary {
-    --nx: 10;
-    --glow: 1.4;
+  .hb-neutron-canvas {
+    background: radial-gradient(circle at 38% 50%, rgba(238, 244, 255, 0.9), transparent 70%);
   }
 }
 
 @media (max-width: 640px) {
-  .hb-neutron-binary {
+  .hb-neutron-canvas {
     display: none;
   }
 }
@@ -2157,8 +2128,8 @@ body:has(.hb) {
 /* ─────────────────────────── neutron merger flash ─────────────────────────── */
 
 /* Fired once per cycle, the instant the two stars finish their 20-lap
-   inspiral and plunge together (see useNeutronBinary/fireNeutronFlash in
-   Hub.tsx) — a stand-in for a gamma-ray burst, the real signature astronomers
+   inspiral and plunge together (see fireNeutronFlash in NeutronScene.tsx)
+   — a stand-in for a gamma-ray burst, the real signature astronomers
    actually see from a neutron-star merger, per an explicit request: a burst
    of light from the merger point that washes the whole screen bright, not
    just a glow around the star itself.
@@ -2169,12 +2140,12 @@ body:has(.hb) {
    whole screen. `pointer-events: none` throughout: it's light, not a modal,
    and must never swallow a click on whatever is actually onscreen under it.
 
-   --origin approximates .hb-neutron-binary's own on-screen position (that
-   element's radius varies with --nx, so there's no single point to read
-   back from it exactly; this is close enough for a light burst) — both the
-   gradient's centre and the scale's transform-origin read the same value,
-   so the burst visibly originates from the merger rather than the screen's
-   own centre. */
+   --origin approximates .hb-neutron-canvas's own on-screen position (the
+   pair's separation varies as they orbit, so there's no single point to
+   read back from it exactly; this is close enough for a light burst) —
+   both the gradient's centre and the scale's transform-origin read the
+   same value, so the burst visibly originates from the merger rather than
+   the screen's own centre. */
 .hb-neutron-flash {
   --origin: 91% 13%;
   position: fixed;
@@ -2213,10 +2184,10 @@ body:has(.hb) {
   100% { opacity: 0; transform: scale(1.6); }
 }
 
-/* useNeutronBinary's rAF loop never runs under reduced motion (see
-   .hb-neutron-binary's own reduced-motion rule above), so .is-flashing is
-   never added in the first place — this only guards against the burst ever
-   playing if that ever changes. */
+/* NeutronScene's useFrame loop never runs under reduced motion (see
+   useNeutronSceneEnabled there), so .is-flashing is never added in the
+   first place — this only guards against the burst ever playing if that
+   ever changes. */
 @media (prefers-reduced-motion: reduce) {
   .hb-neutron-flash.is-flashing {
     animation: none;

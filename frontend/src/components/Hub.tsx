@@ -8,20 +8,21 @@ import { BASE_R, BlackHoleBody, PhotoPlanetBody, PhotoSkin, RocketCraft, Satelli
 import LanguageToggle from "./LanguageToggle";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
-
-// three/@react-three/fiber pull the Hub route's JS from ~40KB to ~230KB
-// gzipped (see PlutoScene.tsx's own doc comment for why WebGL replaced the
-// old DOM version at all) — a synchronous import would make that whole cost
-// part of the hub's own initial parse/render, working against the exact
-// "keep this smooth" goal the switch to WebGL was for. A lazy import keeps
-// it off the critical path: the rest of the hub (title, planets, star,
-// black hole) paints first, and the Pluto scene's own bundle streams in and
-// mounts a beat later — the entrance is already static images the audience
-// glances over, so there's nothing lost by the debris not appearing on
-// literally the first frame the way there would be on, say, a scroll-driven
-// hero animation.
-const PlutoScene = lazy(() => import("./PlutoScene"));
 import "./hub.css";
+
+// three/@react-three/fiber pull each of these two chunks to ~230KB gzipped
+// (see PlutoScene.tsx's own doc comment for why WebGL replaced the DOM
+// versions of both this and the neutron binary at all) — a synchronous
+// import would make that whole cost part of the hub's own initial
+// parse/render, working against the exact "keep this smooth" goal the
+// switch to WebGL was for. Lazy imports keep them off the critical path:
+// the rest of the hub (title, planets, star, black hole) paints first, and
+// each scene's own bundle streams in and mounts a beat later — the
+// entrance is already static images the audience glances over, so there's
+// nothing lost by the debris/stars not appearing on literally the first
+// frame the way there would be on, say, a scroll-driven hero animation.
+const PlutoScene = lazy(() => import("./PlutoScene"));
+const NeutronScene = lazy(() => import("./NeutronScene"));
 
 /* ============================================================================
    ORBIT — the site's entrance.
@@ -665,191 +666,6 @@ function Planet({
   );
 }
 
-/* ───────────────────────────── neutron binary ─────────────────────────────
-   Two equal-size neutron stars in the upper-right sky, mutually orbiting a
-   shared centre along a single horizontal line — an edge-on, "facing each
-   other, side to side" view, not a full circular sweep — rather than one
-   orbiting the other, per an explicit request. Driven by rAF instead of CSS
-   keyframes: the orbital period, the separation between the two stars, and
-   the glow all have to move together (closer = faster = brighter, also per
-   an explicit request), which is a small time-stepped loop here and would
-   need dozens of hand-timed keyframe stops to fake in pure CSS.
-
-   The cycle ends in an actual merger: after the last lap the two stars
-   plunge together, and the instant they touch, useNeutronBinary fires
-   .hb-neutron-flash — a screen-wide burst standing in for a gamma-ray
-   burst, the real astrophysical signature of a neutron-star merger, per an
-   explicit request. They then sit merged for a couple of seconds before
-   splitting back apart to start the next cycle. */
-
-/** How separated (amp, in --body-unit units — see .hb-neutron-binary in
- * hub.css) and how bright (glow, a filter: brightness() multiplier) the
- * pair is at a given orbital period. Keyed by the exact period values
- * NEUTRON_STAGES uses below. */
-const NEUTRON_ANCHORS: Record<string, { amp: number; glow: number }> = {
-  "5": { amp: 22, glow: 1.0 },
-  "4": { amp: 19, glow: 1.1 },
-  "3": { amp: 16, glow: 1.25 },
-  "2": { amp: 13, glow: 1.4 },
-  "1": { amp: 10, glow: 1.6 },
-  "0.5": { amp: 7, glow: 1.8 },
-  "0.2": { amp: 5, glow: 2.0 },
-};
-
-interface NeutronStage {
-  /** Orbital period in seconds — looked up in NEUTRON_ANCHORS. */
-  period: number;
-  /** How many full laps to run at that period before moving to the next
-   * stage — this is what makes 20 laps land exactly on the final 0.2s
-   * stage (2+2+2+2+2+4+6), per an explicit request. */
-  laps: number;
-}
-
-/* The inspiral: the period shortens 5s -> 4s -> 3s -> 2s -> 1s -> 0.5s ->
- * 0.2s, 20 laps total, closing in as it speeds up — the exact sequence and
- * lap count from an explicit request. useNeutronBinary below runs this
- * once per cycle and then hands off to the merge/flash/hold sequence,
- * rather than looping this array directly — there is no "drifting back
- * apart" stage any more; the pair now merges instead (see MERGE_* below). */
-const NEUTRON_STAGES: NeutronStage[] = [
-  { period: 5, laps: 2 },
-  { period: 4, laps: 2 },
-  { period: 3, laps: 2 },
-  { period: 2, laps: 2 },
-  { period: 1, laps: 2 },
-  { period: 0.5, laps: 4 },
-  { period: 0.2, laps: 6 },
-];
-
-/** Seconds to plunge from the last stage's separation down to 0 once all
- * 20 laps are done — fast enough to read as a final infall, not another
- * orbital stage. */
-const NEUTRON_MERGE_DURATION = 0.45;
-/** Brightness/scale the merged single body holds at, both eased toward
- * over the plunge and held through NEUTRON_HOLD_DURATION. */
-const NEUTRON_MERGE_GLOW = 2.6;
-const NEUTRON_MERGE_SCALE = 1.55;
-/** Seconds the two stars stay merged as one body before splitting back
- * apart to start the next cycle — per an explicit request. */
-const NEUTRON_HOLD_DURATION = 2;
-
-/** Restarts `.hb-neutron-flash`'s burst animation — remove+reflow+add
- * rather than just add, since the class may already be present (holding
- * its post-animation resting state) from a previous merge and a bare
- * add() wouldn't retrigger the CSS animation in that case. */
-function fireNeutronFlash(ref: React.RefObject<HTMLDivElement>) {
-  const flash = ref.current;
-  if (!flash) return;
-  flash.classList.remove("is-flashing");
-  void flash.offsetWidth;
-  flash.classList.add("is-flashing");
-}
-
-function useNeutronBinary(
-  ref: React.RefObject<HTMLDivElement>,
-  flashRef: React.RefObject<HTMLDivElement>
-) {
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // Static resting frame instead (see .hb-neutron-binary's reduced-motion
-    // rule in hub.css) — no rAF loop, and the flash never fires.
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-    let raf = 0;
-    let last = performance.now();
-    let mode: "orbit" | "merge" | "hold" = "orbit";
-    let stageIndex = 0;
-    let stageElapsed = 0;
-    let mergeElapsed = 0;
-    let holdElapsed = 0;
-    let ampAtMergeStart = 0;
-    let phase = 0;
-    const first = NEUTRON_ANCHORS[String(NEUTRON_STAGES[0].period)];
-    let amp = first.amp;
-    let glow = first.glow;
-    let mscale = 1;
-
-    const tick = (now: number) => {
-      // Capped so a background/throttled tab doesn't dump one huge dt on
-      // return and skip whole stages (or the entire merge) in one frame.
-      const dt = Math.min((now - last) / 1000, 0.1);
-      last = now;
-
-      if (mode === "orbit") {
-        stageElapsed += dt;
-        let stage = NEUTRON_STAGES[stageIndex];
-        let stageDuration = stage.period * stage.laps;
-        while (stageElapsed >= stageDuration) {
-          stageElapsed -= stageDuration;
-          stageIndex += 1;
-          if (stageIndex >= NEUTRON_STAGES.length) {
-            // All 20 laps done — hand off to the plunge/merge below instead
-            // of wrapping back to stage 0 directly.
-            mode = "merge";
-            mergeElapsed = 0;
-            ampAtMergeStart = amp;
-            break;
-          }
-          stage = NEUTRON_STAGES[stageIndex];
-          stageDuration = stage.period * stage.laps;
-        }
-        if (mode === "orbit") {
-          // Eased toward the new stage's separation/glow rather than
-          // snapped, so a stage boundary reads as the pair drifting
-          // closer rather than teleporting. The angular speed itself
-          // still changes instantly at the boundary — that discontinuity
-          // is the actual "speeds up" effect that was asked for.
-          const target = NEUTRON_ANCHORS[String(stage.period)];
-          const ease = 1 - Math.exp(-dt / 0.35);
-          amp += (target.amp - amp) * ease;
-          glow += (target.glow - glow) * ease;
-          mscale += (1 - mscale) * ease;
-          phase += ((2 * Math.PI) / stage.period) * dt;
-        }
-      }
-
-      if (mode === "merge") {
-        mergeElapsed += dt;
-        const t = Math.min(mergeElapsed / NEUTRON_MERGE_DURATION, 1);
-        const eased = t * t * (3 - 2 * t); // smoothstep — accelerating infall
-        amp = ampAtMergeStart * (1 - eased);
-        glow += (NEUTRON_MERGE_GLOW - glow) * (1 - Math.exp(-dt / 0.15));
-        mscale += (NEUTRON_MERGE_SCALE - mscale) * (1 - Math.exp(-dt / 0.2));
-        // Keep spinning at the fastest rate right through the final plunge.
-        phase += ((2 * Math.PI) / 0.2) * dt;
-        if (t >= 1) {
-          amp = 0;
-          mode = "hold";
-          holdElapsed = 0;
-          fireNeutronFlash(flashRef);
-        }
-      } else if (mode === "hold") {
-        holdElapsed += dt;
-        amp = 0;
-        glow += (NEUTRON_MERGE_GLOW - glow) * (1 - Math.exp(-dt / 0.3));
-        if (holdElapsed >= NEUTRON_HOLD_DURATION) {
-          // Back to stage 0 — amp/glow/mscale ease back out toward the
-          // wide/dim/normal-size resting values on their own from here,
-          // via the same easing the "orbit" branch above already does.
-          mode = "orbit";
-          stageIndex = 0;
-          stageElapsed = 0;
-        }
-      }
-
-      const nx = amp * Math.cos(phase);
-      el.style.setProperty("--nx", nx.toFixed(3));
-      el.style.setProperty("--glow", glow.toFixed(3));
-      el.style.setProperty("--mscale", mscale.toFixed(3));
-
-      raf = requestAnimationFrame(tick);
-    };
-
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [ref, flashRef]);
-}
 
 /* ───────────────────────────── page ───────────────────────────── */
 
@@ -864,16 +680,15 @@ export default function Hub() {
   const [entered, setEntered] = useState(false);
 
   const stageRef = useRef<HTMLDivElement>(null);
-  const neutronRef = useRef<HTMLDivElement>(null);
   const neutronFlashRef = useRef<HTMLDivElement>(null);
-  useNeutronBinary(neutronRef, neutronFlashRef);
 
   const blackHoleRef = useRef<HTMLButtonElement>(null);
-  // Checked here too (not just inside PlutoScene itself) so a
-  // reduced-motion visitor never even triggers the lazy import — no reason
-  // to fetch a ~225KB gzipped WebGL chunk for a scene that's about to
-  // render nothing.
-  const plutoSceneEnabled =
+  // Checked here too (not just inside PlutoScene/NeutronScene themselves)
+  // so a reduced-motion visitor never even triggers either lazy import —
+  // no reason to fetch a ~225KB gzipped WebGL chunk for a scene that's
+  // about to render nothing. Shared between both scenes since they're
+  // gated on the exact same condition.
+  const webglScenesEnabled =
     typeof window !== "undefined" && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   /* The page's entire data budget: two cached endpoints, one poll. */
@@ -1036,17 +851,20 @@ export default function Hub() {
         {/* Two equal-size neutron stars, mutually orbiting a shared centre
             along a single horizontal line (facing each other, side to
             side) rather than one orbiting the other or a full circular
-            sweep, per an explicit request. See useNeutronBinary above and
-            .hb-neutron-binary/.hb-neutron-flash in hub.css for the timing:
-            period and separation shrink together — 5s→4s→3s→2s→1s→0.5s→
-            0.2s, 20 laps total — then the pair plunges together into one
-            merged body, firing a screen-wide gamma-ray-burst-style flash
-            at the instant of merger, holds merged for a couple of
-            seconds, then splits back apart to start the next cycle. */}
-        <div className="hb-neutron-binary" ref={neutronRef} aria-hidden="true">
-          <span className="hb-neutron-star hb-neutron-star--a" />
-          <span className="hb-neutron-star hb-neutron-star--b" />
-        </div>
+            sweep, per an explicit request: period and separation shrink
+            together — 5s→4s→3s→2s→1s→0.5s→0.2s, 20 laps total — then the
+            pair plunges together into one merged body, firing a
+            screen-wide gamma-ray-burst-style flash at the instant of
+            merger, holds merged for a couple of seconds, then splits back
+            apart to start the next cycle. Rendered as a small WebGL scene
+            (see NeutronScene.tsx) rather than DOM/CSS for the same reason
+            PlutoScene.tsx replaced Pluto's own DOM version — see that
+            file's own doc comment. */}
+        {webglScenesEnabled && (
+          <Suspense fallback={null}>
+            <NeutronScene flashRef={neutronFlashRef} />
+          </Suspense>
+        )}
         <div className="hb-vignette" />
       </div>
 
@@ -1112,7 +930,7 @@ export default function Hub() {
           fixes, and a couple hundred individually-animated fragments is
           exactly the kind of workload a single GPU draw call handles that
           DOM nodes don't. */}
-      {plutoSceneEnabled && (
+      {webglScenesEnabled && (
         <Suspense fallback={null}>
           <PlutoScene blackHoleRef={blackHoleRef} />
         </Suspense>
