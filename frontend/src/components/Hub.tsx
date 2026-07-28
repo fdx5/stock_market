@@ -912,7 +912,7 @@ const PLUTO_MOTION = PLUTO_TEAR_START + PLUTO_DESTROY_DURATION; // gap hits 0 he
 const PLUTO_DESTROY_TAIL_END = PLUTO_MOTION + 1;
 const PLUTO_CYCLE = PLUTO_MOTION + PLUTO_FLASH_HOLD; // then it repeats
 
-/** One vertical "tooth" of the erosion clip-path — see plutoErosionPoints.
+/** One vertical "tooth" of the erosion clip-path — see plutoErosionClip.
  * Bands are even (yStart/yEnd just slice the disc into 12 equal strips);
  * only each tooth's own stagger is randomised, which is what keeps the
  * torn edge from eroding as one clean vertical line. */
@@ -940,23 +940,34 @@ const PLUTO_TEETH: PlutoTooth[] = (() => {
  * already having erased everything by the time the stretch matters. */
 const PLUTO_EROSION_MAX = 0.62;
 
-/** The clip-path polygon's `points`, in the 0..1 objectBoundingBox space
- * `#hb-pluto-erosion` uses (see the inline `<clipPath>` in the JSX below).
- * p1 is tear progress, 0 (intact) to 1 (fully eroded up to PLUTO_EROSION_MAX)
- * — see PLUTO_TEAR_*. Each tooth erodes from the right edge (x=1) toward the
- * left on its own delayed/eased schedule, so the boundary reads as a ragged
- * tear line sweeping across the disc rather than a straight wipe. */
-function plutoErosionPoints(p1: number): string {
-  const pts: string[] = ["0,0"];
+/** The erosion clip as a CSS `polygon()`, in percentages of the element's own
+ * box. p1 is tear progress, 0 (intact) to 1 (fully eroded up to
+ * PLUTO_EROSION_MAX) — see PLUTO_TEAR_*. Each tooth erodes from the right
+ * edge (x=100%) toward the left on its own delayed/eased schedule, so the
+ * boundary reads as a ragged tear line sweeping across the disc rather than a
+ * straight wipe.
+ *
+ * This was an SVG `<clipPath>` — a real `<polygon>` element in the document
+ * whose `points` attribute was rewritten every frame, referenced from CSS as
+ * `clip-path: url(#hb-pluto-erosion)`. The note on `.hb-pluto-body.is-tearing`
+ * in hub.css already recorded that Safari/iPadOS drops an element carrying an
+ * SVG clip-path off its accelerated path and repaints it in software whenever
+ * anything inside moves — which, with Pluto's texture spinning throughout,
+ * was every frame of the tear. That note's fix was to scope the clip to the
+ * destroy window; this is the rest of it. A CSS `polygon()` is a geometry the
+ * compositor understands directly, with no document reference to resolve and
+ * no second element to mutate. */
+function plutoErosionClip(p1: number): string {
+  const pts: string[] = ["0% 0%"];
   for (const tooth of PLUTO_TEETH) {
     const local = Math.min(1, Math.max(0, (p1 - tooth.stagger) / (1 - tooth.stagger)));
     const eased = local * local * (3 - 2 * local);
-    const x = (1 - eased * PLUTO_EROSION_MAX).toFixed(3);
-    pts.push(`${x},${tooth.yStart.toFixed(3)}`);
-    pts.push(`${x},${tooth.yEnd.toFixed(3)}`);
+    const x = ((1 - eased * PLUTO_EROSION_MAX) * 100).toFixed(2);
+    pts.push(`${x}% ${(tooth.yStart * 100).toFixed(2)}%`);
+    pts.push(`${x}% ${(tooth.yEnd * 100).toFixed(2)}%`);
   }
-  pts.push("0,1");
-  return pts.join(" ");
+  pts.push("0% 100%");
+  return `polygon(${pts.join(", ")})`;
 }
 
 /** Spaghettification — the real astrophysical term for exactly this, a body
@@ -1043,6 +1054,15 @@ const PLUTO_FRAGMENTS: PlutoFragment[] = (() => {
   return list;
 })();
 
+/* Every other piece, for the lite tier (see detectLiteScene). Taken by
+ * stride rather than by slicing the head of the list: the array is 20 chunks
+ * followed by 20 dust motes, so a slice would have thrown away one of the two
+ * phases entirely instead of thinning both. Each surviving fragment is a
+ * composited layer carrying its own glow that gets a transform and an opacity
+ * written to it on every frame it is alive, and they are all alive at once
+ * during the three seconds this whole page most needs the headroom. */
+const PLUTO_FRAGMENTS_LITE: PlutoFragment[] = PLUTO_FRAGMENTS.filter((_, i) => i % 2 === 0);
+
 interface PlutoGeometry {
   bhCenterX: number;
   bhCenterY: number;
@@ -1077,7 +1097,7 @@ function fireBlackHoleFeed(ref: React.RefObject<HTMLButtonElement>) {
 function usePlutoEvent(
   eventRef: React.RefObject<HTMLDivElement>,
   bodyRef: React.RefObject<HTMLDivElement>,
-  erosionRef: React.RefObject<SVGPolygonElement>,
+  fragments: PlutoFragment[],
   fragRefs: React.RefObject<(HTMLSpanElement | null)[]>,
   blackHoleRef: React.RefObject<HTMLButtonElement>
 ) {
@@ -1099,6 +1119,9 @@ function usePlutoEvent(
     const startedAt = performance.now();
     let fired = false;
     let wasDestroying = false;
+    // Whether Pluto's own body was being held hidden as of the previous
+    // frame — see the reset branch in tick() for what this guards.
+    let bodyHidden = false;
 
     const tick = (now: number) => {
       const elapsed = (now - startedAt) / 1000;
@@ -1147,8 +1170,6 @@ function usePlutoEvent(
         // above) rather than derived from gap, since destruction's own
         // pace no longer tracks the approach speed once it starts.
         const p1 = Math.min(1, Math.max(0, (cycleElapsed - PLUTO_TEAR_START) / PLUTO_TEAR_LEN));
-        const poly = erosionRef.current;
-        if (poly) poly.setAttribute("points", plutoErosionPoints(p1));
 
         // Spaghettification — see PLUTO_STRETCH_MAX/SQUASH_MAX's own
         // comment. Fades out over the tear phase's last 20%, so the
@@ -1162,6 +1183,10 @@ function usePlutoEvent(
           const bodyOpacity = p1 < 0.8 ? 1 : Math.max(0, 1 - (p1 - 0.8) / 0.2);
           body.style.transform = `scaleX(${stretchX.toFixed(3)}) scaleY(${squashY.toFixed(3)})`;
           body.style.opacity = bodyOpacity.toFixed(2);
+          // Written straight onto the element the clip applies to — see
+          // plutoErosionClip for why this is a CSS polygon() now rather than
+          // an SVG <clipPath> mutated by reference.
+          body.style.clipPath = plutoErosionClip(p1);
         }
 
         // gap is measured centre-to-centre (see PLUTO_START_GAP's own
@@ -1171,7 +1196,7 @@ function usePlutoEvent(
         const plutoRadius = geo.plutoSize * 0.34; // BASE_R/100 — see CelestialBody.tsx
         const frags = fragRefs.current;
 
-        PLUTO_FRAGMENTS.forEach((frag, i) => {
+        fragments.forEach((frag, i) => {
           const el = frags?.[i];
           if (!el) return;
 
@@ -1232,19 +1257,37 @@ function usePlutoEvent(
         // Just left the destroy window — reset every piece to its resting
         // state exactly once, rather than continuing to write it every
         // frame for the rest of the cycle.
-        const poly = erosionRef.current;
-        if (poly) poly.setAttribute("points", "0,0 1,0 1,1 0,1");
         const body = bodyRef.current;
         if (body) {
           body.classList.remove("is-tearing");
           body.style.transform = "";
-          body.style.opacity = "";
+          body.style.clipPath = "";
+          // NOT cleared back to its stylesheet value here, unlike the
+          // transform above — that was the bug where a whole, intact Pluto
+          // flashed back into view sitting on top of the black hole for a
+          // second at the end of every cycle. This reset runs at
+          // PLUTO_DESTROY_TAIL_END, but the cycle does not restart until
+          // PLUTO_CYCLE (a second later, through the black hole's own flash
+          // hold), and for that whole second --pluto-gap is 0 — meaning the
+          // body's box is parked directly over the hole. Restoring its
+          // opacity there un-consumed it. It stays hidden until a new cycle
+          // has actually put it back at its starting distance, which the
+          // approach branch below is what re-establishes.
+          body.style.opacity = "0";
         }
         fragRefs.current?.forEach((el) => {
           if (el) el.style.opacity = "0";
         });
         wasDestroying = false;
+      } else if (cycleElapsed < PLUTO_TEAR_START && bodyHidden) {
+        // A fresh cycle: Pluto is back out at its full starting distance and
+        // intact again, so it may be shown. Guarded on bodyHidden so this is
+        // one write per cycle rather than one per frame for the ~10 seconds
+        // of every approach.
+        const body = bodyRef.current;
+        if (body) body.style.opacity = "";
       }
+      bodyHidden = cycleElapsed >= PLUTO_TEAR_START;
 
       // One-shot per cycle: fires the instant the approach finishes (gap
       // hits 0), then re-arms itself once a fresh cycle is clearly under
@@ -1266,7 +1309,7 @@ function usePlutoEvent(
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
     };
-  }, [eventRef, bodyRef, erosionRef, fragRefs, blackHoleRef]);
+  }, [eventRef, bodyRef, fragments, fragRefs, blackHoleRef]);
 }
 
 /* ───────────────────────────── page ─────────────────────────────
@@ -1288,8 +1331,67 @@ function usePlutoEvent(
    scene live would mean rebuilding the star field for nothing. */
 function detectLiteScene(): boolean {
   if (typeof window === "undefined") return false;
+  if (HB_TIER === "lite") return true;
+  if (HB_TIER === "full") return false;
   if (window.matchMedia("(hover: none), (pointer: coarse)").matches) return true;
   return (navigator.hardwareConcurrency ?? 8) <= 4;
+}
+
+/* ── diagnostics ──────────────────────────────────────────────────────────
+   Query-string switches, inert unless the URL actually carries them, so they
+   cost a visitor nothing. They exist because this page's frame rate is a
+   device problem: it is fine on the machines it gets developed on and was
+   measured at two frames a second on an iPad, and there is no way to profile
+   that remotely — so instead of guessing at which layer is responsible,
+   whoever has the device in hand can switch layers off one at a time and read
+   the number straight off the screen.
+
+     ?hbfps            a live frames-per-second read-out in the corner
+     ?hbtier=lite      force the reduced scene on a desktop, to compare
+     ?hbtier=full      force the full scene on a tablet, to compare
+     ?hboff=a,b,c      hide whole subsystems. Any of:
+                         space    the entire sky layer (nebulae, stars, …)
+                         nebula   just the three blurred colour clouds
+                         twinkle  just the scintillating stars
+                         system   the solar system: orbits, planets, moons
+                         belt     just the asteroid belt
+                         spin     freezes every planet's rotating texture
+                         bh       the black hole
+                         pluto    the Pluto/black-hole vignette
+                         neutron  the neutron binary
+
+   Turning exactly one of these off and watching ?hbfps jump is what
+   identifies the cost; everything else is inference. */
+const HB_PARAMS = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+const HB_TIER = HB_PARAMS?.get("hbtier") ?? null;
+const HB_FPS = HB_PARAMS?.has("hbfps") ?? false;
+const HB_OFF: string[] = (HB_PARAMS?.get("hboff") ?? "").split(",").filter(Boolean);
+
+/** Frames actually delivered over the last second. Deliberately its own rAF
+ * loop writing straight to a ref — routing this through React state would
+ * re-render the whole page 60 times a second and measure itself. */
+function FpsMeter() {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    let frames = 0;
+    let since = performance.now();
+    const tick = (now: number) => {
+      frames += 1;
+      if (now - since >= 500) {
+        const fps = (frames * 1000) / (now - since);
+        if (ref.current) ref.current.textContent = `${fps.toFixed(0)} fps`;
+        frames = 0;
+        since = now;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return <div className="hb-fps" ref={ref}>— fps</div>;
 }
 
 export default function Hub() {
@@ -1314,9 +1416,9 @@ export default function Hub() {
   const blackHoleRef = useRef<HTMLButtonElement>(null);
   const plutoEventRef = useRef<HTMLDivElement>(null);
   const plutoBodyRef = useRef<HTMLDivElement>(null);
-  const plutoErosionRef = useRef<SVGPolygonElement>(null);
   const plutoFragRefs = useRef<(HTMLSpanElement | null)[]>([]);
-  usePlutoEvent(plutoEventRef, plutoBodyRef, plutoErosionRef, plutoFragRefs, blackHoleRef);
+  const plutoFragments = lite ? PLUTO_FRAGMENTS_LITE : PLUTO_FRAGMENTS;
+  usePlutoEvent(plutoEventRef, plutoBodyRef, plutoFragments, plutoFragRefs, blackHoleRef);
 
   /* The page's entire data budget: two cached endpoints, one poll. */
   useEffect(() => {
@@ -1401,10 +1503,13 @@ export default function Hub() {
   /* Every twinkler is its own composited layer (see .hb-twinkle's will-change
      in hub.css) carrying a three-stop box-shadow, and they all animate
      continuously — 84 of those is a fine load for a desktop GPU and a real
-     one for a tablet. Halved on the lite tier; the field is randomly
+     one for a tablet. Cut hard on the lite tier; the field is randomly
      distributed, so a smaller count reads as a slightly sparser sky rather
-     than as a missing region of it. */
-  const twinklers = useMemo(() => twinkleField(90210, lite ? 44 : 84), [lite]);
+     than as a missing region of it, and the three box-shadow star layers
+     underneath (~680 stars, painted once and never animated) are what
+     actually makes the sky look full — these are only the ones that
+     scintillate on top of it. */
+  const twinklers = useMemo(() => twinkleField(90210, lite ? 24 : 84), [lite]);
 
   const skies = useMemo(
     () => ({
@@ -1417,7 +1522,14 @@ export default function Hub() {
 
   // Inset a margin in from Mars's 355 and Jupiter's 440 (see PLANETS) so the
   // belt reads as strictly between the two, not touching either ring.
-  const asteroids = useMemo(() => asteroidBelt(614529, 280, 372, 424), []);
+  /* 280 rocks is 280 elements living inside `.hb-plane`, i.e. inside the
+     page's `preserve-3d` stage — where a browser cannot flatten them into one
+     cached layer the way it would for a flat 2D group, and has to carry each
+     through the 3D pipeline on its own while the belt's shared rotation runs.
+     Cut hard on the lite tier rather than dropped: at 70 the band still reads
+     as scattered debris between Mars and Jupiter, which is all it ever needs
+     to do at this scale. */
+  const asteroids = useMemo(() => asteroidBelt(614529, lite ? 70 : 280, 372, 424), [lite]);
 
   const feed = useMemo(() => {
     const bySymbol = new Map<string, number | null>();
@@ -1450,7 +1562,17 @@ export default function Hub() {
   const open = (to: string) => navigate(to);
 
   return (
-    <div className={`hb ${entered ? "is-entered" : ""} ${lite ? "is-lite" : ""}`}>
+    <div
+      className={[
+        "hb",
+        entered ? "is-entered" : "",
+        lite ? "is-lite" : "",
+        ...HB_OFF.map((name) => `hb-off-${name}`),
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {HB_FPS && <FpsMeter />}
       {/* ── deep space ── */}
       <div className="hb-space" aria-hidden="true">
         <div className="hb-milkyway" />
@@ -1547,7 +1669,12 @@ export default function Hub() {
         aria-label={en ? "Black hole: Home (dashboard)" : "블랙홀: 홈 (대시보드)"}
         title={en ? "Gargantua" : "가르강튀아"}
       >
-        <BlackHoleBody id="hub" />
+        {/* The hole's breathing bloom, deliberately a sibling of the art
+            rather than part of it — see .hb-bh-bloom in hub.css for why an
+            animation living inside that SVG was re-inking the entire
+            accretion disc on every frame. */}
+        <span className="hb-bh-bloom" aria-hidden="true" />
+        <BlackHoleBody id="hub" lite={lite} />
       </button>
 
       {/* Pluto, drifting in from the black hole's left and eventually
@@ -1555,20 +1682,13 @@ export default function Hub() {
           (approach, then tidal tearing and a final debris swirl once the
           gap hits 150px, all of it torn apart within 3 seconds, then the
           black hole's own red flare, a reset, and repeat), per an explicit
-          request. `#hb-pluto-erosion` is what actually
-          tears .hb-pluto-body apart — see plutoErosionPoints; the polygon
-          starts as a plain full-coverage rectangle and only usePlutoEvent
-          ever rewrites its points. Sits outside `.hb-stage` for the same
-          reason the black hole and Voyager do: it isn't part of the solar
-          system's own orbital geometry. */}
+          request. What actually tears .hb-pluto-body apart is a CSS
+          `clip-path: polygon()` written onto it per frame — see
+          plutoErosionClip, including why that replaced the hidden
+          `<svg><clipPath>` that used to sit right here. Sits outside
+          `.hb-stage` for the same reason the black hole and Voyager do: it
+          isn't part of the solar system's own orbital geometry. */}
       <div className="hb-pluto-event" ref={plutoEventRef} aria-hidden="true">
-        <svg width="0" height="0" style={{ position: "absolute" }}>
-          <defs>
-            <clipPath id="hb-pluto-erosion" clipPathUnits="objectBoundingBox">
-              <polygon ref={plutoErosionRef} points="0,0 1,0 1,1 0,1" />
-            </clipPath>
-          </defs>
-        </svg>
         <div className="hb-pluto-body" ref={plutoBodyRef}>
           <PhotoPlanetBody id="pluto" skin={PLUTO_SKIN} />
         </div>
@@ -1580,7 +1700,7 @@ export default function Hub() {
           fragment's flight needs plain screen coordinates instead of that
           box's own constantly-moving one. */}
       <div className="hb-pluto-fx" aria-hidden="true">
-        {PLUTO_FRAGMENTS.map((frag, i) => (
+        {plutoFragments.map((frag, i) => (
           <span
             key={i}
             className={`hb-pluto-frag hb-pluto-frag--${frag.kind}`}

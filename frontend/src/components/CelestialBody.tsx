@@ -401,14 +401,13 @@ function lerpColor(a: string, b: string, t: number): string {
   return `rgb(${r}, ${g}, ${bl})`;
 }
 
-/** Turns one of the `rgb(r, g, b)` strings lerpColor produces above into an
- * `rgba(...)` at the given alpha — used to key each line-bucket's neon glow
- * (see the drop-shadow filters in BlackHoleBody) to that bucket's own colour
- * along the disc's temperature ramp, rather than one flat glow colour for
- * the whole ring. */
-function withAlpha(rgb: string, alpha: number): string {
-  return rgb.replace("rgb(", "rgba(").replace(")", `, ${alpha})`);
-}
+/* A `withAlpha(rgb, alpha)` helper used to live here, keying each line
+   bucket's neon glow to that bucket's own colour along the disc's
+   temperature ramp. Its only callers were the per-bucket drop-shadow filters
+   in BlackHoleBody, which are gone (see the arc bundle's own comment there
+   for why). The glow is now a wider, fainter second stroke that reads its
+   colour straight off the line it sits under, so there is nothing left to
+   convert. */
 
 /** The disc's real temperature ramp — white-hot inner edge cooling through
  * orange to a dim red outer edge — as stops to interpolate between. Unlike
@@ -588,38 +587,38 @@ const ARC_BOTTOM_BUCKETS = bucketize(buildArcBundle(36, 90210, 1), 6);
  * paint order simply covers it, whole line-bundles at once, without needing
  * per-line clip math. The photon ring is painted after that again, since it
  * traces the horizon's own edge rather than overlapping its face. */
-export function BlackHoleBody({ id }: { id: string }) {
-  const farBloom = `bh-farbloom-${id}`;
-  const bloom = `bh-bloom-${id}`;
+export function BlackHoleBody({ id, lite = false }: { id: string; lite?: boolean }) {
   const under = `bh-under-${id}`;
   const horizon = `bh-horizon-${id}`;
+
+  // Half the lines on the lite tier (see detectLiteScene in Hub.tsx). Nothing
+  // inside this SVG can be composited — an SVG repaints as a unit, and this
+  // one has something animating in it on literally every frame — so its cost
+  // is simply how much ink is in it. Thinning by every other line keeps the
+  // disc's full radial span and its colour ramp (both are functions of each
+  // line's own index) rather than truncating the ring or dropping a band out
+  // of the middle of it.
+  const discBuckets = lite ? DISC_BUCKETS.map((b) => b.filter((_, i) => i % 2 === 0)) : DISC_BUCKETS;
+  const arcTop = lite ? ARC_TOP_BUCKETS.map((b) => b.filter((_, i) => i % 2 === 0)) : ARC_TOP_BUCKETS;
+  const arcBottom = lite ? ARC_BOTTOM_BUCKETS.map((b) => b.filter((_, i) => i % 2 === 0)) : ARC_BOTTOM_BUCKETS;
 
   return (
     <svg className="hb-blackhole-body" viewBox="0 0 260 260" aria-hidden="true" focusable="false">
       <defs>
-        {/* A third, very large and very faint layer — the outermost bleed.
-            Safe to draw this far past the viewBox's own 130 half-width
-            (r=225) since `.hb-blackhole-body` has overflow:visible and,
-            unlike the sun, this button carries no 3D transform of its own
-            for a composited layer to clip the ink to — see `.hb-blackhole`
-            in hub.css for why it needs no oversized wrap box either. */}
-        <radialGradient id={farBloom} cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#ffdca0" stopOpacity="0.28" />
-          <stop offset="45%" stopColor="#ffa855" stopOpacity="0.13" />
-          <stop offset="100%" stopColor="#ff8a3a" stopOpacity="0" />
-        </radialGradient>
+        {/* The ambient bloom and the outermost bleed used to be two more
+            radialGradients here, painted onto two <circle>s carrying
+            `hb-bh-breathe`. They are `.hb-bh-bloom` in hub.css now — a plain
+            DOM element behind this SVG, with the same two-stop haze as CSS
+            gradients and the same breathing animation.
 
-        {/* Ambient warm haze, well outside the disc itself — without this the
-            hole reads as a flat cutout against the starfield rather than a
-            body radiating light like the sun does. Brighter and wider than
-            the original pass, per an explicit request for more light
-            spreading out around the hole. */}
-        <radialGradient id={bloom} cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="#fff6e2" stopOpacity="0.7" />
-          <stop offset="26%" stopColor="#ffd9a0" stopOpacity="0.4" />
-          <stop offset="55%" stopColor="#ffab5c" stopOpacity="0.2" />
-          <stop offset="100%" stopColor="#ff7a2e" stopOpacity="0" />
-        </radialGradient>
+            Why they had to leave: an SVG has no internal compositing. It
+            repaints as a single unit, at full device pixel ratio, whenever
+            anything inside it changes — so those two breathing circles alone
+            were enough to force the entire disc (dozens of stroked lines) to
+            be re-inked on every frame, forever, whatever else was done to the
+            lines themselves. Outside the SVG the same breathing is a
+            transform and an opacity on one element, which is compositor work
+            and costs the disc nothing. */}
 
         {/* A softer, closer glow sitting just outside the photon ring. */}
         <radialGradient id={under} cx="50%" cy="50%" r="50%">
@@ -639,27 +638,36 @@ export function BlackHoleBody({ id }: { id: string }) {
         </radialGradient>
       </defs>
 
-      <circle cx="130" cy="130" r="225" fill={`url(#${farBloom})`} className="hb-bh-breathe" />
-      <circle cx="130" cy="130" r="165" fill={`url(#${bloom})`} className="hb-bh-breathe" />
       <circle cx="130" cy="130" r="90" fill="none" stroke={`url(#${under})`} strokeWidth="34" />
 
       {/* the disc's far side, bent up and over each pole — drawn well before
           the horizon below, so anywhere these dip toward the centre they
-          simply disappear behind it. Each bucket also gets a soft neon
-          drop-shadow keyed to its own middle line's colour (see withAlpha) —
-          a shared filter per bucket rather than one per individual line,
-          since a drop-shadow per line (dozens of them) is real per-frame
-          filter cost, while one per bucket (a handful) reads the same to
-          the eye at this size. */}
+          simply disappear behind it.
+
+          Every one of these buckets used to carry its own inline
+          `filter: drop-shadow()` for a soft neon edge — 22 of them across the
+          two arc bundles and the disc below. The note that used to sit here
+          called that cheap because it was one filter per bucket rather than
+          one per line, and per-render it is. Per-FRAME it is not, and that is
+          the number that mattered: a filter is re-run whenever anything
+          inside it moves, every bucket has an opacity shimmer on it, and the
+          disc's lines flow their dashes continuously — so all 22 gaussian
+          blurs were being recomputed on every single frame, in software,
+          inside an SVG that cannot composite its own subtrees. On a retina
+          tablet that alone is enough to put the whole page on the floor.
+
+          The glow is a second, wider, fainter stroke underneath each line
+          instead (see the disc below — the arcs are faint enough at 1.1 wide
+          that they carry their own bloom). Stroking a path twice is a
+          rounding error next to blurring a region 60 times a second. */}
       <g aria-hidden="true">
-        {ARC_TOP_BUCKETS.map((bucket, bi) => (
+        {arcTop.map((bucket, bi) => (
           <g
             key={`t${bi}`}
             className="hb-bh-shimmer"
             style={{
               animationDelay: `${-(bi * 0.6)}s`,
               animationDuration: `${5 + (bi % 4)}s`,
-              filter: `drop-shadow(0 0 3px ${withAlpha(bucket[Math.floor(bucket.length / 2)].color, 0.55)})`,
             }}
           >
             {bucket.map((line, li) => (
@@ -667,14 +675,13 @@ export function BlackHoleBody({ id }: { id: string }) {
             ))}
           </g>
         ))}
-        {ARC_BOTTOM_BUCKETS.map((bucket, bi) => (
+        {arcBottom.map((bucket, bi) => (
           <g
             key={`b${bi}`}
             className="hb-bh-shimmer"
             style={{
               animationDelay: `${-(bi * 0.6 + 0.3)}s`,
               animationDuration: `${5.4 + (bi % 4)}s`,
-              filter: `drop-shadow(0 0 3px ${withAlpha(bucket[Math.floor(bucket.length / 2)].color, 0.55)})`,
             }}
           >
             {bucket.map((line, li) => (
@@ -695,16 +702,45 @@ export function BlackHoleBody({ id }: { id: string }) {
           so the same -100 dashoffset keyframe loops seamlessly for every
           line at once. Bucketed for the shimmer, and for a soft neon
           drop-shadow keyed to that bucket's own colour along the ramp (see
-          the arc bundles above for why this is per-bucket, not per-line). */}
+          the arc bundles above for why the per-bucket drop-shadow filter that
+          used to be here is gone). */}
       <g aria-hidden="true">
-        {DISC_BUCKETS.map((bucket, bi) => (
+        {/* The disc's bloom, standing in for those filters: each line's own
+            ellipse again, undashed, stroked much wider and very faint, with
+            no animation on it at all. Undashed on purpose — a 4px blur over a
+            dashed line smears most of the way across its own gaps anyway, so
+            a continuous faint band is closer to what the filter actually drew
+            than a second dashed copy would be, and being static it paints
+            once into the same buffer the rest of this SVG repaints into
+            rather than adding anything per frame. Drawn as one group beneath
+            every bucket so it never shows through a gap in the sharp lines
+            above it. Skipped entirely on the lite tier. */}
+        {!lite && (
+          <g opacity="0.5">
+            {discBuckets.map((bucket, bi) =>
+              bucket.map((line, li) => (
+                <ellipse
+                  key={`${bi}-${li}`}
+                  cx="130"
+                  cy="130"
+                  rx={line.rx}
+                  ry={line.ry}
+                  fill="none"
+                  stroke={line.color}
+                  strokeOpacity={line.opacity * 0.42}
+                  strokeWidth="7"
+                />
+              ))
+            )}
+          </g>
+        )}
+        {discBuckets.map((bucket, bi) => (
           <g
             key={bi}
             className="hb-bh-shimmer"
             style={{
               animationDelay: `${-(bi * 0.45)}s`,
               animationDuration: `${4.2 + (bi % 5) * 0.6}s`,
-              filter: `drop-shadow(0 0 4px ${withAlpha(bucket[Math.floor(bucket.length / 2)].color, 0.6)})`,
             }}
           >
             {bucket.map((line, li) => (
@@ -721,7 +757,22 @@ export function BlackHoleBody({ id }: { id: string }) {
                 strokeWidth="2.8"
                 strokeDasharray={line.dash}
                 className="hb-bh-line-flow"
-                style={{ animationDuration: `${line.flowDur.toFixed(2)}s`, animationDelay: `${line.flowDelay.toFixed(2)}s` }}
+                /* One shared duration and no per-line delay on the lite tier,
+                   which is what lets the stepped timing function over in
+                   hub.css actually pay off. Stepping each line individually
+                   would not have helped: the SVG repaints if ANY line moves,
+                   so thirty lines stepping on thirty different clocks still
+                   lands a step on nearly every frame. In lockstep the whole
+                   disc advances a few times a second and the SVG repaints
+                   exactly that often. What's given up is the Keplerian read
+                   (inner lines fast, outer slow), which is a fair trade for
+                   the disc still moving at all on a device that was managing
+                   two frames a second with it. */
+                style={
+                  lite
+                    ? { animationDuration: "5s", animationDelay: "0s" }
+                    : { animationDuration: `${line.flowDur.toFixed(2)}s`, animationDelay: `${line.flowDelay.toFixed(2)}s` }
+                }
               />
             ))}
           </g>

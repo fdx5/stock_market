@@ -1759,9 +1759,39 @@ body:has(.hb) {
 /* The blur is already down to 34px for everyone (see .hb-nebula) — dropped
    entirely here, since the underlying gradient is smooth to begin with and
    this is the one effect on the page whose cost scales with the animated
-   `scale()` in its own keyframes. */
+   `scale()` in its own keyframes.
+
+   `mix-blend-mode` goes with it, and that matters more than the blur did. A
+   blended element cannot be composited on its own — it has to be rasterised
+   together with the backdrop it blends against, which here is `.hb-space`:
+   the same stacking context that holds the star layers, every twinkler, both
+   comets and the neutron binary. Four full-viewport blended layers over a
+   subtree that has something moving in it on every frame is the worst
+   possible arrangement for a tile-based mobile GPU. `screen` over a
+   near-black sky is close to plain compositing anyway — it can only add
+   light, and there is almost none underneath to preserve — so the nebulae
+   come through a shade softer here and nothing else changes.
+
+   The drift animation stops too. It is the only reason these three enormous
+   translucent layers were being re-rasterised at all; parked, they paint once
+   and then cost nothing but the fill. */
 .hb.is-lite .hb-nebula {
   filter: none;
+  mix-blend-mode: normal;
+  animation: none;
+}
+
+/* Same reasoning as the nebulae above — this one is 95vw x 92vh, the single
+   largest blended surface on the page. The photo's own near-black background
+   is what `screen` was there to drop out, so losing the blend means losing
+   that trick; the mask already fades the frame's edges out well before they
+   reach anything, and dimming the layer keeps the dark half of the photo from
+   reading as a grey wash over the sky. The static colour filter goes as well:
+   it is one more full-screen pass over the largest element here. */
+.hb.is-lite .hb-milkyway {
+  mix-blend-mode: normal;
+  filter: none;
+  opacity: 0.4;
 }
 
 /* A 170vmax conic-gradient is a ~20MB layer on a tablet-sized viewport and it
@@ -1774,18 +1804,31 @@ body:has(.hb) {
   display: none;
 }
 
-/* Same swing, minus the animated `filter: brightness()`. Interpolating a
-   filter re-renders the element it's on every frame — and this one sits over
-   the black hole's bloom, which is already repainting continuously underneath
-   it from the disc's own dash-flow animations. scale + opacity alone still
-   breathe; they just do it on the compositor. */
-.hb.is-lite .hb-bh-breathe {
-  animation-name: hb-bh-breathe-lite;
+/* Nothing inside an SVG composites: it repaints as one unit, at full device
+   pixel ratio, whenever anything in it changes. The black hole has 22 line
+   buckets shimmering their opacity on independent clocks and 60 disc lines
+   flowing their dashes, so "anything changed" was true on every frame and the
+   whole disc was being re-inked 60 times a second — on top of the 22 live
+   gaussian blurs that used to sit over them (now gone for every device; see
+   BlackHoleBody in CelestialBody.tsx).
+
+   Two things here. The shimmer stops outright: it is a slow brightness wobble
+   per bucket, the least legible of the disc's three motions and the one that
+   dirties all 22 groups at once. And the dash flow — the motion that actually
+   reads as material orbiting, so it stays — is stepped rather than continuous.
+   `steps()` means each line's dash only advances at discrete points instead of
+   every frame, which is what a repaint-per-frame element needs: the SVG now
+   re-inks a few times a second instead of sixty, while the page around it
+   still runs at full rate. A dash sliding along a ring is a repeating pattern
+   to begin with, so stepping it reads as flow, not as stutter. */
+.hb.is-lite .hb-bh-shimmer {
+  animation: none;
 }
 
-@keyframes hb-bh-breathe-lite {
-  0%, 100% { transform: scale(0.94); opacity: 0.5; }
-  50% { transform: scale(1.16); opacity: 1; }
+.hb.is-lite .hb-bh-line-flow {
+  /* 40 steps over the 5s duration BlackHoleBody gives every line on this
+     tier — eight repaints a second for the whole SVG instead of sixty. */
+  animation-timing-function: steps(40, end);
 }
 
 /* Two extra elements per flared star, each a gradient hairline a couple of
@@ -1804,6 +1847,49 @@ body:has(.hb) {
   filter:
     drop-shadow(0 0 6px rgba(190, 225, 255, 0.95))
     drop-shadow(0 0 20px rgba(120, 185, 255, 0.7));
+}
+
+/* ─────────────────────────── diagnostics ───────────────────────────
+
+   Inert unless the URL carries the matching switch — see the HB_OFF/HB_FPS
+   block in Hub.tsx for the full list and for why these exist at all (short
+   version: the frame rate is a device problem, and switching one layer off at
+   a time on the actual device is the only way to find which layer owns it).
+   `display: none` rather than `visibility`/`opacity`, since the point is to
+   stop the work, not just to stop seeing it. */
+.hb-off-space .hb-space { display: none; }
+.hb-off-nebula .hb-nebula { display: none; }
+.hb-off-twinkle .hb-twinklers { display: none; }
+.hb-off-system .hb-stage { display: none; }
+.hb-off-belt .hb-asteroid-belt { display: none; }
+.hb-off-bh .hb-blackhole { display: none; }
+.hb-off-neutron .hb-neutron-binary { display: none; }
+
+.hb-off-pluto .hb-pluto-event,
+.hb-off-pluto .hb-pluto-fx {
+  display: none;
+}
+
+/* The one switch that isn't a `display: none` — freezing the textures in
+   place answers "is it the spinning, or is it everything else about the
+   planets", which hiding them outright cannot. */
+.hb-off-spin .hb-photo-spin {
+  animation: none;
+}
+
+.hb-fps {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 90;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #7CFFB2;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 700;
+  pointer-events: none;
 }
 
 /* ─────────────────────────── reduced motion ─────────────────────────── */
@@ -2151,21 +2237,56 @@ body:has(.hb) {
 
 /* Ambient bloom, breathing — deliberately a wide swing (dim trough, a bright
    flare well past the gradient's own resting brightness at the peak) rather
-   than a gentle wobble, per an explicit request. `brightness()` is what
-   pushes the peak past what opacity/scale alone can do (opacity tops out at
-   a fully-opaque 1, which the gradient's own centre stops already sit near),
-   so the flare genuinely gets brighter, not just larger. Slow, uneven
-   easing (a custom cubic-bezier overshooting slightly past its own endpoints
-   rather than symmetric ease-in-out) is what keeps a wide swing like this
-   reading as breathing rather than a mechanical flash. */
-.hb-bh-breathe {
+   than a gentle wobble, per an explicit request. Slow, uneven easing (a
+   custom cubic-bezier overshooting slightly past its own endpoints rather
+   than symmetric ease-in-out) is what keeps a wide swing like this reading as
+   breathing rather than a mechanical flash.
+
+   This was two <circle>s inside BlackHoleBody's SVG (see the note left in its
+   <defs>): an SVG repaints as one unit whenever anything in it moves, so
+   breathing inside it forced the entire accretion disc to be re-inked every
+   frame — the single most expensive thing on the page, re-rendered for the
+   sake of a slow glow that touches nothing else. Out here it is one element
+   with a transform and an opacity on it, which never repaints at all.
+
+   The two SVG gradients are reproduced as the two layers of this one
+   background: the tight ambient haze first, the wide outermost bleed under
+   it. `inset` is negative by well over half the button's own size because the
+   original circles were drawn at r=165 and r=225 in a viewBox only 260
+   across, i.e. deliberately far outside the art's own bounds.
+
+   The `filter: brightness()` the old keyframes also animated is gone. It was
+   there to push the peak past what opacity alone can reach, but it was also
+   the one term that forced a re-render per frame rather than a recomposite —
+   the exact cost this move exists to remove. The gradient is authored
+   brighter to compensate, so the peak lands where it used to. */
+.hb-bh-bloom {
+  position: absolute;
+  inset: -62%;
+  z-index: -1;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      circle at 50% 50%,
+      rgba(255, 246, 226, 0.5) 0%,
+      rgba(255, 217, 160, 0.29) 18%,
+      rgba(255, 171, 92, 0.15) 38%,
+      rgba(255, 122, 46, 0) 64%
+    ),
+    radial-gradient(
+      circle at 50% 50%,
+      rgba(255, 220, 160, 0.2) 0%,
+      rgba(255, 168, 85, 0.1) 45%,
+      rgba(255, 138, 58, 0) 100%
+    );
   animation: hb-bh-breathe 6.5s cubic-bezier(0.37, 0, 0.63, 1) infinite;
-  transform-origin: 130px 130px;
+  will-change: transform, opacity;
 }
 
 @keyframes hb-bh-breathe {
-  0%, 100% { transform: scale(0.94); opacity: 0.55; filter: brightness(0.85); }
-  50% { transform: scale(1.16); opacity: 1; filter: brightness(1.55); }
+  0%, 100% { transform: scale(0.94); opacity: 0.5; }
+  50% { transform: scale(1.16); opacity: 1; }
 }
 
 /* Each of the disc's ~20 lines (CelestialBody.tsx's DISC_BUCKETS) keeps a
@@ -2213,7 +2334,7 @@ body:has(.hb) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hb-bh-breathe,
+  .hb-bh-bloom,
   .hb-bh-shimmer,
   .hb-bh-line-flow {
     animation: none;
@@ -2290,20 +2411,21 @@ body:has(.hb) {
   transform-origin: 0% 50%;
 }
 
-/* clip-path lives on its own class, added only for the ~4s destroy window
-   (see usePlutoEvent's `destroying`/`wasDestroying` handling in Hub.tsx)
-   rather than sitting on `.hb-pluto-body` permanently. Pluto's texture is
-   spinning (see PhotoPlanetBody/.hb-photo-spin) for the entire ~15s cycle,
-   not just while it's being torn apart, and Safari/iPadOS in particular
-   tends to fall off its normal hardware-accelerated compositing path for
-   an element carrying an SVG clip-path, repainting it in software on every
-   frame something inside it moves — which a continuous spin animation
-   does constantly. Keeping the clip off entirely outside the one phase
-   that actually needs it is what lets the other ~11 of every 15 seconds
-   composite the spin cheaply. */
+/* The clip itself is written inline by usePlutoEvent as a CSS
+   `clip-path: polygon()` (see plutoErosionClip in Hub.tsx) and only exists
+   for the ~4s destroy window; this class carries the compositing hint that
+   goes with it. It used to be `clip-path: url(#hb-pluto-erosion)` — a
+   reference to a hidden SVG <clipPath> — and the reason it was scoped to
+   that one window in the first place was that Safari/iPadOS falls off its
+   hardware-accelerated path for an element carrying an SVG clip-path and
+   repaints it in software on every frame anything inside it moves, which
+   Pluto's continuously spinning texture guarantees. Scoping bought back the
+   ~11 of every 15 seconds outside the tear; moving to a `polygon()` — plain
+   geometry the compositor handles itself, no document reference to resolve
+   and no second element to mutate per frame — buys back the tear as well,
+   which is the part that was actually dropping frames. */
 .hb-pluto-body.is-tearing {
-  clip-path: url(#hb-pluto-erosion);
-  will-change: transform, opacity;
+  will-change: transform, opacity, clip-path;
 }
 
 /* Debris — both the torn-off chunks and the final dust swirl — live in one
