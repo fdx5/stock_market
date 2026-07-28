@@ -1889,6 +1889,32 @@ body:has(.hb) {
   display: none;
 }
 
+/* The sun's own SVG, held completely still — and this is the expensive one.
+
+   `.hb-starbody`'s surface filter (see StarBody in CelestialBody.tsx) is
+   three `feTurbulence` fractal-noise generators, one of them at five octaves,
+   feeding a `feDisplacementMap` and a per-pixel `feDiffuseLighting`. That is
+   about as costly as an SVG filter chain gets, and it is applied to rects
+   sitting inside `.hb-body-drift` groups that translate continuously — so the
+   whole chain was being recomputed, in software, at device pixel ratio, on
+   every frame, forever. The corona and bloom pulses are in the same SVG and
+   would force the same recompute on their own even with the drift stopped,
+   since an SVG repaints as one unit.
+
+   The noise itself never changes; only its offset did. Frozen, the sun
+   rasterises once at mount and costs nothing per frame after that, and what
+   is lost is a slow shimmer across its surface and a slow swell in its
+   corona — neither of which is why anyone looks at it.
+
+   Measurement is what put this rule here: ?hboff=system read 60fps on the
+   iPad that read 4 with the stage on, and the sun is the one thing in that
+   stage doing per-frame work of this order. */
+.hb.is-lite .hb-body-drift,
+.hb.is-lite .hb-corona-pulse,
+.hb.is-lite .hb-bloom-pulse {
+  animation: none;
+}
+
 /* Three orbit rings, each rotating a conic-gradient arc for the life of the
    page — with a filter on it. A filter and an animating transform on the same
    element is the compositing question `.hb-orbiter`'s split is about, from the
@@ -2001,6 +2027,9 @@ body:has(.hb) {
    `display: none` rather than `visibility`/`opacity`, since the point is to
    stop the work, not just to stop seeing it. */
 .hb-off-space .hb-space { display: none; }
+.hb-off-star .hb-starwrap { display: none; }
+.hb-off-planets .hb-orbiter { display: none; }
+.hb-off-rings .hb-ring { display: none; }
 .hb-off-nebula .hb-nebula { display: none; }
 .hb-off-twinkle .hb-twinklers { display: none; }
 .hb-off-system .hb-stage { display: none; }

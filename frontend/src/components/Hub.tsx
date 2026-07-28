@@ -1435,6 +1435,10 @@ function useSceneTier(): SceneTier {
                          nebula   just the three blurred colour clouds
                          twinkle  just the scintillating stars
                          system   the solar system: orbits, planets, moons
+                         star     just the sun (its surface filter is the
+                                  most expensive single thing on the page)
+                         planets  just the eight orbiting planets
+                         rings    just the orbit rings
                          belt     just the asteroid belt
                          spin     freezes every planet's rotating texture
                          bh       the black hole
