@@ -1054,7 +1054,7 @@ const PLUTO_FRAGMENTS: PlutoFragment[] = (() => {
   return list;
 })();
 
-/* Every other piece, for the lite tier (see detectLiteScene). Taken by
+/* Every other piece, for the lite tier (see useSceneTier). Taken by
  * stride rather than by slicing the head of the list: the array is 20 chunks
  * followed by 20 dust motes, so a slice would have thrown away one of the two
  * phases entirely instead of thinning both. Each surviving fragment is a
@@ -1062,6 +1062,8 @@ const PLUTO_FRAGMENTS: PlutoFragment[] = (() => {
  * written to it on every frame it is alive, and they are all alive at once
  * during the three seconds this whole page most needs the headroom. */
 const PLUTO_FRAGMENTS_LITE: PlutoFragment[] = PLUTO_FRAGMENTS.filter((_, i) => i % 2 === 0);
+/** Every fourth, for the minimal tier — same stride reasoning as above. */
+const PLUTO_FRAGMENTS_MINIMAL: PlutoFragment[] = PLUTO_FRAGMENTS.filter((_, i) => i % 4 === 0);
 
 interface PlutoGeometry {
   bhCenterX: number;
@@ -1314,27 +1316,93 @@ function usePlutoEvent(
 
 /* ───────────────────────────── page ─────────────────────────────
 
-   `lite` below is this page's one device tier, separate from the width
-   breakpoints in hub.css. Those ask "how much room is there"; this asks "how
-   much GPU is there", and the two are not the same question — an iPad sits
-   comfortably above every width breakpoint on this page and so gets the full
-   desktop scene, on a fill-rate budget nothing like a desktop's. The
-   difference showed up as dropped frames rather than as anything visibly
-   broken, which is exactly why it needs its own signal.
+   How heavy a scene this page draws. Three steps, each a strict subset of the
+   one above it: `full` is the scene as designed, `lite` trims what costs the
+   most per frame, `minimal` keeps only what the page cannot be without.
 
-   Coarse pointer / no hover is the proxy: it catches tablets and phones, and
-   deliberately does not catch a desktop with a touchscreen (media queries
-   report the PRIMARY pointer, and on those machines that is still the mouse).
-   A low core count is a second, independent way in for genuinely weak
-   hardware whatever it's driving. Read once, at mount, with no listener —
-   neither of these changes under a visitor mid-session, and re-tiering the
-   scene live would mean rebuilding the star field for nothing. */
-function detectLiteScene(): boolean {
-  if (typeof window === "undefined") return false;
-  if (HB_TIER === "lite") return true;
-  if (HB_TIER === "full") return false;
-  if (window.matchMedia("(hover: none), (pointer: coarse)").matches) return true;
-  return (navigator.hardwareConcurrency ?? 8) <= 4;
+   The tier is CHOSEN BY MEASUREMENT, not by guessing at the device. An
+   earlier version of this guessed — coarse pointer, low core count — and that
+   is exactly what failed: an iPad reports `pointer: fine` and `hover: hover`
+   the moment a trackpad or a pencil is paired with it, so the tablet this
+   whole mechanism exists for was being served the full desktop scene and none
+   of the work below ever applied to it. Feature-detecting a GPU's fill rate
+   is not something a browser exposes, and every proxy for it is wrong on some
+   real device.
+
+   So: start where the old guess would have started (it is a fine first
+   guess), then watch the frames the device actually delivers and step down if
+   they do not arrive. That is self-correcting on hardware nobody tested, and
+   it needs no list of device names to keep up to date. */
+type SceneTier = "full" | "lite" | "minimal";
+
+const TIER_ORDER: SceneTier[] = ["full", "lite", "minimal"];
+
+function initialTier(): SceneTier {
+  if (HB_TIER === "full" || HB_TIER === "lite" || HB_TIER === "minimal") return HB_TIER;
+  if (typeof window === "undefined") return "full";
+  if (window.matchMedia("(hover: none), (pointer: coarse)").matches) return "lite";
+  return (navigator.hardwareConcurrency ?? 8) <= 4 ? "lite" : "full";
+}
+
+/** Frames per second under which a tier is considered not to be holding up.
+ * 45 rather than 60: a device sitting just under the display's own refresh is
+ * doing fine, and stepping the scene down over that would cost the visitor
+ * detail for nothing. */
+const TIER_DOWN_FPS = 45;
+/** …and under this, one step down is not going to be enough — go straight to
+ * the bottom rather than spending another sampling window on the way. */
+const TIER_FLOOR_FPS = 20;
+/** Length of one sampling window. Long enough to average over a hitch, short
+ * enough that a struggling device is not left struggling for long. */
+const TIER_SAMPLE_MS = 1500;
+
+function useSceneTier(): SceneTier {
+  const [tier, setTier] = useState<SceneTier>(initialTier);
+
+  useEffect(() => {
+    // An explicit ?hbtier= is a measurement instruction — the whole point of
+    // it is to hold a tier still and compare, so auto-stepping would fight it.
+    if (HB_TIER) return;
+    if (tier === "minimal") return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let raf = 0;
+    let frames = 0;
+    let since = 0;
+    // The first window is thrown away: mount, the entrance transition, image
+    // decodes and the first data fetch all land inside it, and none of them
+    // say anything about what this device sustains once the scene is running.
+    let warmup = true;
+
+    const tick = (now: number) => {
+      if (!since) since = now;
+      frames += 1;
+      if (now - since >= TIER_SAMPLE_MS) {
+        const fps = (frames * 1000) / (now - since);
+        frames = 0;
+        since = now;
+        if (warmup) {
+          warmup = false;
+        } else if (fps < TIER_FLOOR_FPS) {
+          setTier("minimal");
+          return;
+        } else if (fps < TIER_DOWN_FPS) {
+          setTier(TIER_ORDER[Math.min(TIER_ORDER.indexOf(tier) + 1, TIER_ORDER.length - 1)]);
+          return;
+        } else {
+          // Held up for a full window past warm-up. Stop measuring rather
+          // than run a rAF loop forever to keep confirming the same thing.
+          return;
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [tier]);
+
+  return tier;
 }
 
 /* ── diagnostics ──────────────────────────────────────────────────────────
@@ -1346,9 +1414,12 @@ function detectLiteScene(): boolean {
    whoever has the device in hand can switch layers off one at a time and read
    the number straight off the screen.
 
-     ?hbfps            a live frames-per-second read-out in the corner
-     ?hbtier=lite      force the reduced scene on a desktop, to compare
-     ?hbtier=full      force the full scene on a tablet, to compare
+     ?hbfps            live frames-per-second and the current tier, in the
+                       corner. The tier matters as much as the number: it is
+                       what says whether the reductions are even in effect.
+     ?hbtier=full      hold the scene at one tier instead of letting it step
+     ?hbtier=lite      down on its own — the only way to compare two tiers on
+     ?hbtier=minimal   the same device.
      ?hboff=a,b,c      hide whole subsystems. Any of:
                          space    the entire sky layer (nebulae, stars, …)
                          nebula   just the three blurred colour clouds
@@ -1363,15 +1434,15 @@ function detectLiteScene(): boolean {
    Turning exactly one of these off and watching ?hbfps jump is what
    identifies the cost; everything else is inference. */
 const HB_PARAMS = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
-const HB_TIER = HB_PARAMS?.get("hbtier") ?? null;
+const HB_TIER = (HB_PARAMS?.get("hbtier") ?? null) as SceneTier | null;
 const HB_FPS = HB_PARAMS?.has("hbfps") ?? false;
 const HB_OFF: string[] = (HB_PARAMS?.get("hboff") ?? "").split(",").filter(Boolean);
 
 /** Frames actually delivered over the last second. Deliberately its own rAF
  * loop writing straight to a ref — routing this through React state would
  * re-render the whole page 60 times a second and measure itself. */
-function FpsMeter() {
-  const ref = useRef<HTMLDivElement>(null);
+function FpsMeter({ tier }: { tier: SceneTier }) {
+  const ref = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
     let raf = 0;
@@ -1391,7 +1462,11 @@ function FpsMeter() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  return <div className="hb-fps" ref={ref}>— fps</div>;
+  return (
+    <div className="hb-fps">
+      <span ref={ref}>— fps</span> · {tier}
+    </div>
+  );
 }
 
 export default function Hub() {
@@ -1403,10 +1478,9 @@ export default function Hub() {
   const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
   const [globals, setGlobals] = useState<GlobalIndexWidget[]>([]);
   const [entered, setEntered] = useState(false);
-  // Lazy initialiser, not an effect: the tier decides how many twinklers get
-  // built, and settling it after the first paint would mean rendering one
-  // star count and then immediately throwing it away for another.
-  const [lite] = useState(detectLiteScene);
+  const tier = useSceneTier();
+  const lite = tier !== "full";
+  const minimal = tier === "minimal";
 
   const stageRef = useRef<HTMLDivElement>(null);
   const neutronRef = useRef<HTMLDivElement>(null);
@@ -1417,7 +1491,7 @@ export default function Hub() {
   const plutoEventRef = useRef<HTMLDivElement>(null);
   const plutoBodyRef = useRef<HTMLDivElement>(null);
   const plutoFragRefs = useRef<(HTMLSpanElement | null)[]>([]);
-  const plutoFragments = lite ? PLUTO_FRAGMENTS_LITE : PLUTO_FRAGMENTS;
+  const plutoFragments = minimal ? PLUTO_FRAGMENTS_MINIMAL : lite ? PLUTO_FRAGMENTS_LITE : PLUTO_FRAGMENTS;
   usePlutoEvent(plutoEventRef, plutoBodyRef, plutoFragments, plutoFragRefs, blackHoleRef);
 
   /* The page's entire data budget: two cached endpoints, one poll. */
@@ -1509,7 +1583,7 @@ export default function Hub() {
      underneath (~680 stars, painted once and never animated) are what
      actually makes the sky look full — these are only the ones that
      scintillate on top of it. */
-  const twinklers = useMemo(() => twinkleField(90210, lite ? 24 : 84), [lite]);
+  const twinklers = useMemo(() => twinkleField(90210, minimal ? 0 : lite ? 24 : 84), [lite, minimal]);
 
   const skies = useMemo(
     () => ({
@@ -1529,7 +1603,10 @@ export default function Hub() {
      Cut hard on the lite tier rather than dropped: at 70 the band still reads
      as scattered debris between Mars and Jupiter, which is all it ever needs
      to do at this scale. */
-  const asteroids = useMemo(() => asteroidBelt(614529, lite ? 70 : 280, 372, 424), [lite]);
+  const asteroids = useMemo(
+    () => asteroidBelt(614529, minimal ? 0 : lite ? 70 : 280, 372, 424),
+    [lite, minimal]
+  );
 
   const feed = useMemo(() => {
     const bySymbol = new Map<string, number | null>();
@@ -1567,12 +1644,13 @@ export default function Hub() {
         "hb",
         entered ? "is-entered" : "",
         lite ? "is-lite" : "",
+        minimal ? "is-minimal" : "",
         ...HB_OFF.map((name) => `hb-off-${name}`),
       ]
         .filter(Boolean)
         .join(" ")}
     >
-      {HB_FPS && <FpsMeter />}
+      {HB_FPS && <FpsMeter tier={tier} />}
       {/* ── deep space ── */}
       <div className="hb-space" aria-hidden="true">
         <div className="hb-milkyway" />
@@ -1674,7 +1752,7 @@ export default function Hub() {
             animation living inside that SVG was re-inking the entire
             accretion disc on every frame. */}
         <span className="hb-bh-bloom" aria-hidden="true" />
-        <BlackHoleBody id="hub" lite={lite} />
+        <BlackHoleBody id="hub" lite={lite} minimal={minimal} />
       </button>
 
       {/* Pluto, drifting in from the black hole's left and eventually

@@ -1743,9 +1743,12 @@ body:has(.hb) {
 
 /* ─────────────────────────── lite scene ───────────────────────────
 
-   `.is-lite` is set from JS at mount on coarse-pointer / low-core devices —
-   tablets above all, which is where this page's frame rate actually hurt (see
-   detectLiteScene in Hub.tsx for why a width breakpoint can't express this).
+   The middle of this page's three scene tiers, set from JS — see useSceneTier
+   in Hub.tsx, both for why a width breakpoint cannot express this and for why
+   the tier is settled by measuring delivered frames rather than by inspecting
+   the device (short version: an iPad with a trackpad paired reports itself as
+   a fine-pointer, hovering machine, so every guess this used to make about
+   tablets missed the exact device it existed for).
 
    Everything here trades a detail that is genuinely hard to notice for
    per-frame fill-rate. Nothing is removed that carries meaning, nothing moves
@@ -1847,6 +1850,79 @@ body:has(.hb) {
   filter:
     drop-shadow(0 0 6px rgba(190, 225, 255, 0.95))
     drop-shadow(0 0 20px rgba(120, 185, 255, 0.7));
+}
+
+/* ─────────────────────────── minimal scene ───────────────────────────
+
+   The bottom tier, reached only when a device has actually been measured
+   failing to hold a frame rate on `.is-lite` (see useSceneTier in Hub.tsx) —
+   never guessed at, and never reached by a device that is coping. `.is-lite`
+   is set alongside this one, so everything above still applies and this only
+   adds the cuts that go further than that tier was willing to.
+
+   The organising idea is different from `.is-lite`'s. That tier makes each
+   effect cheaper while keeping all of them. This one removes whole layers,
+   because at the frame rates that get a device here the problem is no longer
+   any single effect's cost — it is the sheer number of full-viewport
+   translucent surfaces being composited on top of each other, every one of
+   which costs a full screen of fill whatever is drawn in it. What survives is
+   what the scene reads as: a dark sky, stars, the solar system, and the two
+   corner bodies. */
+
+/* The single largest surface on the page, and a photograph — so unlike the
+   gradients it also holds a decoded bitmap the compositor has to sample. The
+   galaxy band is already gone one tier up; this is the same call. */
+.hb.is-minimal .hb-milkyway {
+  display: none;
+}
+
+/* One cloud rather than three. They overlap heavily at these sizes, so the
+   one that stays still reads as coloured depth in the sky rather than as a
+   lone circle — which is the entire job these have. */
+.hb.is-minimal .hb-nebula--b,
+.hb.is-minimal .hb-nebula--c {
+  display: none;
+}
+
+/* Belt and braces with the twinkler count already being 0 here (see
+   twinkleField's call in Hub.tsx) — this also removes the container. */
+.hb.is-minimal .hb-twinklers,
+.hb.is-minimal .hb-shooting {
+  display: none;
+}
+
+/* The disc stops entirely, which takes the black hole's SVG from repainting
+   ~8 times a second on the lite tier to not repainting at all: with the
+   shimmer already off and the bloom breathing outside the SVG (see
+   .hb-bh-bloom), nothing inside it changes any more, so it rasterises once at
+   mount and is pure composite from then on. The hole still breathes and still
+   flares red when it feeds — both of those live outside the SVG. */
+.hb.is-minimal .hb-bh-line-flow {
+  animation: none;
+}
+
+/* Opacity only. The full burst also scales a viewport-sized radial gradient
+   from 0.08 to 1.6, which is a full-screen re-rasterisation on every frame of
+   its 1.6 seconds — the most expensive single moment on the page, landing on
+   the device least able to absorb it. */
+.hb.is-minimal .hb-neutron-flash {
+  /* The base rule parks this at scale(0.1) because the burst's own keyframes
+     are what grow it. With those keyframes replaced by an opacity-only pair
+     below, nothing grows it any more — so it has to be authored at its final
+     size here instead, or the flash would fire as a small blot in the corner
+     rather than washing the screen. */
+  transform: scale(1.15);
+}
+
+.hb.is-minimal .hb-neutron-flash.is-flashing {
+  animation-name: hb-neutron-grb-flat;
+}
+
+@keyframes hb-neutron-grb-flat {
+  0% { opacity: 0; }
+  8% { opacity: 1; }
+  22% { opacity: 0.95; }
+  100% { opacity: 0; }
 }
 
 /* ─────────────────────────── diagnostics ───────────────────────────

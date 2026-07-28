@@ -587,20 +587,30 @@ const ARC_BOTTOM_BUCKETS = bucketize(buildArcBundle(36, 90210, 1), 6);
  * paint order simply covers it, whole line-bundles at once, without needing
  * per-line clip math. The photon ring is painted after that again, since it
  * traces the horizon's own edge rather than overlapping its face. */
-export function BlackHoleBody({ id, lite = false }: { id: string; lite?: boolean }) {
+export function BlackHoleBody({
+  id,
+  lite = false,
+  minimal = false,
+}: {
+  id: string;
+  lite?: boolean;
+  minimal?: boolean;
+}) {
   const under = `bh-under-${id}`;
   const horizon = `bh-horizon-${id}`;
 
-  // Half the lines on the lite tier (see detectLiteScene in Hub.tsx). Nothing
-  // inside this SVG can be composited — an SVG repaints as a unit, and this
-  // one has something animating in it on literally every frame — so its cost
-  // is simply how much ink is in it. Thinning by every other line keeps the
-  // disc's full radial span and its colour ramp (both are functions of each
-  // line's own index) rather than truncating the ring or dropping a band out
-  // of the middle of it.
-  const discBuckets = lite ? DISC_BUCKETS.map((b) => b.filter((_, i) => i % 2 === 0)) : DISC_BUCKETS;
-  const arcTop = lite ? ARC_TOP_BUCKETS.map((b) => b.filter((_, i) => i % 2 === 0)) : ARC_TOP_BUCKETS;
-  const arcBottom = lite ? ARC_BOTTOM_BUCKETS.map((b) => b.filter((_, i) => i % 2 === 0)) : ARC_BOTTOM_BUCKETS;
+  // Half the lines on the lite tier, a quarter on minimal (see useSceneTier in
+  // Hub.tsx). Nothing inside this SVG can be composited — an SVG repaints as a
+  // unit, and this one has something animating in it — so its cost is simply
+  // how much ink is in it. Thinning by stride keeps the disc's full radial
+  // span and its colour ramp (both are functions of each line's own index)
+  // rather than truncating the ring or dropping a band out of its middle.
+  const stride = minimal ? 4 : lite ? 2 : 1;
+  const thin = <T,>(buckets: T[][]) =>
+    stride === 1 ? buckets : buckets.map((b) => b.filter((_, i) => i % stride === 0));
+  const discBuckets = thin(DISC_BUCKETS);
+  const arcTop = thin(ARC_TOP_BUCKETS);
+  const arcBottom = thin(ARC_BOTTOM_BUCKETS);
 
   return (
     <svg className="hb-blackhole-body" viewBox="0 0 260 260" aria-hidden="true" focusable="false">
