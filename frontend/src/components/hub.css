@@ -63,11 +63,11 @@
   --py: 0;
 
   /* The black hole's own corner anchor and size, shared out here rather than
-     declared only on `.hb-blackhole` below — SpaceScene.tsx's WebGL scene
-     (see .hb-space-canvas further down) reads `.hb-blackhole`'s own
-     getBoundingClientRect() directly rather than these variables, but
-     `.hb-blackhole` itself still needs them named once here rather than
-     inline, so a re-tune can't drift the two apart. */
+     declared only on `.hb-blackhole` below — the Pluto event (see
+     .hb-pluto-event further down, and usePlutoEvent in Hub.tsx) has to
+     anchor its own approach distance to the exact same point, and duplicating
+     the clamp()/calc() expressions in two places would drift the moment
+     either one was tuned again. */
   --bh-right: clamp(8px, 3vw, 40px);
   --bh-bottom: clamp(6px, 2vh, 28px);
   --bh-size: max(calc(133 * var(--body-unit) * 4 / 3), calc(var(--star-min) * 4 / 3));
@@ -1927,7 +1927,7 @@ body:has(.hb) {
 }
 
 /* Fires once per Pluto-event cycle, the instant the last of it is consumed
-   (see fireBlackHoleFeed in SpaceScene.tsx) — the hole's own glow
+   (see fireBlackHoleFeed/usePlutoEvent in Hub.tsx) — the hole's own glow
    swings from its resting warm amber to a hot red for two seconds, per an
    explicit request ("블랙홀 천체가 붉은 색으로 밝게 빛을 2초간 내면서"). Toggled
    as a plain class with its own transition rather than a keyframe
@@ -2031,55 +2031,164 @@ body:has(.hb) {
   }
 }
 
-/* ─────────────────────────── space scene (WebGL) ─────────────────────────── */
+/* ─────────────────────────── pluto event ─────────────────────────── */
 
-/* Both dynamic WebGL vignettes — Pluto falling into the black hole, and the
-   neutron binary — now share one scene/canvas (see SpaceScene.tsx's own doc
-   comment for why: running them as two separate contexts is what made the
-   neutron binary stop rendering at all, and was pure duplicated render-loop
-   overhead besides). This wrapper just sizes and positions the one
-   `<canvas>` React Three Fiber mounts — everything about what's drawn on it
-   lives in SpaceScene.tsx instead of here.
+/* Mars-sized Pluto (see PLUTO_SKIN in Hub.tsx — same PhotoPlanetBody every
+   other planet uses, just parked outside `.hb-system`'s orbital geometry),
+   drifting in from the black hole's left at a literal 20px/s and eventually
+   consumed by it — a standing, endlessly-repeating vignette rather than
+   part of the solar system proper, per an explicit request. See
+   usePlutoEvent in Hub.tsx for the full timeline (approach, tidal tearing,
+   final swirl, the black hole's own red flare above, then reset).
 
-   Full viewport (`inset: 0`) rather than a bounded box some earlier passes
-   tried: a transparent canvas doesn't cost much to clear/composite just for
-   being large — the actual per-frame cost is the particle/shader work
-   happening on it, which SpaceScene.tsx's own doc comment covers (the real
-   culling bug, and the fragment counts cut down once that was fixed).
-   Coordinates throughout SpaceScene.tsx are plain viewport-absolute px as a
-   result — no local canvas-offset math needed. */
-.hb-space-canvas {
+   Positioned off `--bh-right`/`--bh-bottom`/`--bh-size` (see `.hb` root and
+   `.hb-blackhole` above) rather than duplicating those numbers, so this
+   always anchors to the black hole's own actual on-screen spot even if that
+   clamp() is ever retuned. `right`/`bottom` below are both static — set
+   once, at the STARTING (gap=300) position, and never touched again — with
+   the actual approach animated entirely through `transform: translateX()`
+   instead (see --pluto-gap below). An earlier version drove `right` itself
+   from --pluto-gap every frame, which visibly dropped frames on iPad:
+   `right` is a layout property, so every write forces the browser to
+   re-run layout for the whole page before it can even composite the next
+   frame, 60 times a second, for the entire ~10-second approach — not just
+   whenever fragments are actually on screen. `transform` is compositor-only
+   (no layout, often no paint either), which is the whole reason "animate
+   transform/opacity, not top/left/right/bottom" is the standard performance
+   rule it is; this element is the concrete case that rule is for. The
+   `(--bh-size - --pluto-size) / 2` term performs the centre-to-edge
+   translation the request's "gap measured from the hole's own centre"
+   needs — see --pluto-gap's own comment — for both axes: added to `right`
+   here for the same reason it's added to `bottom`, so Pluto's own centre,
+   not just its edge, ends up --pluto-gap px from the hole's centre.
+   Vertically centred on the black hole's own box for the same reason: the
+   two aren't the same height, and bottom-aligning them outright would
+   visibly drop Pluto's own centre below the hole's. */
+.hb-pluto-event {
+  --pluto-size: calc(68 * var(--body-unit));
+  /* The live px distance from the black hole's own centre to Pluto's
+     centre, counting down from 300 — the one thing usePlutoEvent writes
+     here every frame (see the translateX below, and the comment above on
+     why that — not `right` — is what actually reads it). */
+  --pluto-gap: 300;
+  position: fixed;
+  right: calc(var(--bh-right) + (var(--bh-size) - var(--pluto-size)) / 2 + 300px);
+  bottom: calc(var(--bh-bottom) + (var(--bh-size) - var(--pluto-size)) / 2);
+  z-index: 4;
+  width: var(--pluto-size);
+  height: var(--pluto-size);
+  pointer-events: none;
+  /* Positive as --pluto-gap counts down from its own 300px starting value
+     — moving the element rightward, toward the black hole, exactly as far
+     as `right` would have shrunk under the old layout-driven approach,
+     just composited instead of laid out. */
+  transform: translateX(calc((300 - var(--pluto-gap)) * 1px));
+  will-change: transform;
+}
+
+/* The clip-path polygon (#hb-pluto-erosion, defined inline next to this in
+   Hub.tsx) is what actually tears the disc apart — see plutoErosionPoints.
+   It reads as intact at rest (a plain 0..1 rectangle) and only usePlutoEvent
+   ever rewrites its points, once the approach passes the 150px tear
+   threshold. */
+.hb-pluto-body {
+  width: 100%;
+  height: 100%;
+  /* Left edge pinned, so usePlutoEvent's scaleX/scaleY spaghettification
+     stretch (see PLUTO_STRETCH_MAX/SQUASH_MAX in Hub.tsx) grows out to the
+     right — into the black hole — instead of symmetrically from the
+     centre, which wouldn't read as being pulled toward anything. */
+  transform-origin: 0% 50%;
+}
+
+/* clip-path lives on its own class, added only for the ~4s destroy window
+   (see usePlutoEvent's `destroying`/`wasDestroying` handling in Hub.tsx)
+   rather than sitting on `.hb-pluto-body` permanently. Pluto's texture is
+   spinning (see PhotoPlanetBody/.hb-photo-spin) for the entire ~15s cycle,
+   not just while it's being torn apart, and Safari/iPadOS in particular
+   tends to fall off its normal hardware-accelerated compositing path for
+   an element carrying an SVG clip-path, repainting it in software on every
+   frame something inside it moves — which a continuous spin animation
+   does constantly. Keeping the clip off entirely outside the one phase
+   that actually needs it is what lets the other ~11 of every 15 seconds
+   composite the spin cheaply. */
+.hb-pluto-body.is-tearing {
+  clip-path: url(#hb-pluto-erosion);
+  will-change: transform, opacity;
+}
+
+/* Debris — both the torn-off chunks and the final dust swirl — live in one
+   viewport-fixed, full-bleed layer rather than nested inside
+   `.hb-pluto-event`: each piece's own flight path is computed in real
+   screen coordinates straight from the black hole's and Pluto's own
+   getBoundingClientRect() (see usePlutoEvent), which only works cleanly
+   against a fixed (0, 0) origin — nesting them inside the constantly
+   repositioning `.hb-pluto-event` box would mean fighting that box's own
+   moving coordinate space on top of each fragment's already-independent
+   motion. */
+.hb-pluto-fx {
   position: fixed;
   inset: 0;
   z-index: 4;
   pointer-events: none;
 }
 
-/* Belt-and-suspenders alongside Hub.tsx's own JS check (which is what
-   actually stops the lazy import from firing at all on a narrow viewport,
-   per an explicit request after touch stopped responding on a phone with
-   this scene loaded) — same 640px breakpoint every other decorative
-   element on this page already hides at. */
-@media (max-width: 640px) {
-  .hb-space-canvas {
+.hb-pluto-frag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* Torn rock chunks — an irregular blob (mismatched border-radius corners,
+   same trick a hand-drawn rock silhouette uses) rather than a plain circle,
+   coloured off Pluto's own tan/umber palette so the debris visibly belongs
+   to the body it came from. */
+.hb-pluto-frag--chunk {
+  border-radius: 38% 62% 55% 45% / 45% 40% 60% 55%;
+  background: radial-gradient(circle at 35% 30%, #e2c39a 0%, #a67a4c 55%, #4a2f1c 100%);
+  box-shadow: 0 0 5px 1px rgba(255, 205, 150, 0.4);
+}
+
+/* Fine dust for the final swirl — small, round, and brighter/hotter-looking
+   than the chunks (closer to the horizon by the time these spawn), so the
+   last moments read as material actually heating up on the way in rather
+   than just smaller versions of the same rock. */
+.hb-pluto-frag--dust {
+  border-radius: 50%;
+  background: radial-gradient(circle, #fbe7c8 0%, #d69a5c 60%, transparent 100%);
+  box-shadow: 0 0 7px 2px rgba(255, 210, 150, 0.55);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-pluto-event,
+  .hb-pluto-fx {
     display: none;
   }
 }
 
-.hb-space-canvas canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
+@media (max-width: 640px) {
+  .hb-pluto-event,
+  .hb-pluto-fx {
+    display: none;
+  }
 }
 
 /* ─────────────────────────── neutron binary ─────────────────────────── */
 
-/* The neutron binary itself renders inside <SpaceScene>'s shared canvas
-   above — this box is now purely a position/size *probe*: SpaceScene.tsx
-   reads its getBoundingClientRect() every resize to know where to centre
-   the stars and how to convert their abstract "units" (amp, star size)
-   into real px (see NEUTRON_CONTAINER_UNITS there), but nothing paints
-   inside this element itself.
+/* A tight binary pair, upper-right of the system, purely decorative — two
+   equal-size bodies mutually orbiting a shared centre (neither one orbits
+   the other), swept out along a single horizontal line rather than a full
+   circular sweep (an edge-on "facing each other, side to side" view, per an
+   explicit request to change this from an earlier top/bottom-inclusive
+   circular version). --nx (the current translateX offset, in --body-unit
+   units) and --glow (a filter: brightness() multiplier) are written every
+   frame by useNeutronBinary in Hub.tsx rather than driven by CSS keyframes:
+   the orbital period, the separation between the two stars, and the glow
+   all have to change together (closer = faster = brighter, per an explicit
+   request), which is a straightforward time-stepped loop in JS and would
+   need dozens of hand-timed keyframe stops to fake in pure CSS.
 
    Lives inside `.hb-space` (the starfield/nebula layer, already
    `pointer-events: none` and non-interactive) rather than as a
@@ -2089,30 +2198,76 @@ body:has(.hb) {
    with the two corner buttons that are actually clickable. Inset from the
    literal corner so it clears `.hb-controls`/`.hb-clocks`, which sit above
    this layer on their own z-index regardless. Width is generous (64 vs. the
-   15-wide stars) to clear the widest separation without clipping; height
-   only needs to clear one star's own diameter, since nothing here moves
-   vertically. */
-.hb-neutron-canvas {
+   15-wide stars) to clear the widest separation (--nx up to 22) without
+   clipping; height only needs to clear one star's own diameter, since
+   nothing here moves vertically any more. */
+.hb-neutron-binary {
   position: absolute;
   top: clamp(92px, 13vh, 172px);
   right: clamp(54px, 9vw, 150px);
   z-index: 1;
   width: calc(64 * var(--body-unit));
   height: calc(18 * var(--body-unit));
-  pointer-events: none;
+  /* Resting values for the instant before useNeutronBinary's first frame
+     lands, and the only values used at all under reduced motion below.
+     --mscale is the merged-body scale bump (see NEUTRON_MERGE_SCALE in
+     Hub.tsx) — 1 the rest of the time. */
+  --nx: 22;
+  --glow: 1;
+  --mscale: 1;
 }
 
-/* SpaceScene itself doesn't mount under reduced motion (see
-   useSpaceSceneEnabled there), so this plain static glow — no WebGL, no
-   merge, no flash — is the only thing shown here instead. */
+/* Half the Moon's own rendered size per an explicit request (.hb-moon--lunar
+   is `--size(90) * --body-unit / 3`, i.e. 30 * --body-unit — this is half
+   that, 15). Both stars share this one rule; only their translateX sign
+   (below) differs, which is what puts them on opposite sides of the shared
+   centre instead of stacked on top of each other. */
+.hb-neutron-star {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(15 * var(--body-unit));
+  height: calc(15 * var(--body-unit));
+  margin: calc(-7.5 * var(--body-unit)) 0 0 calc(-7.5 * var(--body-unit));
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 35%, #ffffff 0%, #eef4ff 45%, #bcd2ff 100%);
+  box-shadow:
+    0 0 6px 2px rgba(255, 255, 255, 0.95),
+    0 0 18px 6px rgba(200, 220, 255, 0.75),
+    0 0 40px 14px rgba(150, 190, 255, 0.4);
+  filter:
+    brightness(var(--glow))
+    drop-shadow(0 0 calc(4px + var(--glow) * 10px) rgba(200, 225, 255, 0.9));
+}
+
+/* Opposite signs on the same --nx — one star out to each side of the shared
+   centre, moving together as --nx changes every frame, which is what makes
+   them mutually orbit (both sides of one horizontal line) rather than one
+   sitting still while the other sweeps around it. --mscale is shared and
+   unsigned (it's a size, not a position), so it just multiplies straight
+   through — both stars swell together as they merge, reading as one body
+   growing rather than two discs individually inflating. */
+.hb-neutron-star--a {
+  transform: translateX(calc(var(--nx) * var(--body-unit))) scale(var(--mscale));
+}
+
+.hb-neutron-star--b {
+  transform: translateX(calc(var(--nx) * var(--body-unit) * -1)) scale(var(--mscale));
+}
+
+/* useNeutronBinary itself no-ops under reduced motion (see Hub.tsx), so
+   these are the only values the pair ever shows there — a mid-separation,
+   mid-brightness resting frame instead of the animated extremes, and no
+   merge (so no flash) ever happens. */
 @media (prefers-reduced-motion: reduce) {
-  .hb-neutron-canvas {
-    background: radial-gradient(circle at 38% 50%, rgba(238, 244, 255, 0.9), transparent 70%);
+  .hb-neutron-binary {
+    --nx: 10;
+    --glow: 1.4;
   }
 }
 
 @media (max-width: 640px) {
-  .hb-neutron-canvas {
+  .hb-neutron-binary {
     display: none;
   }
 }
@@ -2120,8 +2275,8 @@ body:has(.hb) {
 /* ─────────────────────────── neutron merger flash ─────────────────────────── */
 
 /* Fired once per cycle, the instant the two stars finish their 20-lap
-   inspiral and plunge together (see fireNeutronFlash in SpaceScene.tsx)
-   — a stand-in for a gamma-ray burst, the real signature astronomers
+   inspiral and plunge together (see useNeutronBinary/fireNeutronFlash in
+   Hub.tsx) — a stand-in for a gamma-ray burst, the real signature astronomers
    actually see from a neutron-star merger, per an explicit request: a burst
    of light from the merger point that washes the whole screen bright, not
    just a glow around the star itself.
@@ -2132,12 +2287,12 @@ body:has(.hb) {
    whole screen. `pointer-events: none` throughout: it's light, not a modal,
    and must never swallow a click on whatever is actually onscreen under it.
 
-   --origin approximates .hb-neutron-canvas's own on-screen position (the
-   pair's separation varies as they orbit, so there's no single point to
-   read back from it exactly; this is close enough for a light burst) —
-   both the gradient's centre and the scale's transform-origin read the
-   same value, so the burst visibly originates from the merger rather than
-   the screen's own centre. */
+   --origin approximates .hb-neutron-binary's own on-screen position (that
+   element's radius varies with --nx, so there's no single point to read
+   back from it exactly; this is close enough for a light burst) — both the
+   gradient's centre and the scale's transform-origin read the same value,
+   so the burst visibly originates from the merger rather than the screen's
+   own centre. */
 .hb-neutron-flash {
   --origin: 91% 13%;
   position: fixed;
@@ -2176,10 +2331,10 @@ body:has(.hb) {
   100% { opacity: 0; transform: scale(1.6); }
 }
 
-/* NeutronScene's useFrame loop never runs under reduced motion (see
-   useNeutronSceneEnabled there), so .is-flashing is never added in the
-   first place — this only guards against the burst ever playing if that
-   ever changes. */
+/* useNeutronBinary's rAF loop never runs under reduced motion (see
+   .hb-neutron-binary's own reduced-motion rule above), so .is-flashing is
+   never added in the first place — this only guards against the burst ever
+   playing if that ever changes. */
 @media (prefers-reduced-motion: reduce) {
   .hb-neutron-flash.is-flashing {
     animation: none;
