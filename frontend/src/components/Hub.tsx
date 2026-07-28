@@ -4,7 +4,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { BASE_R, PhotoPlanetBody, PhotoSkin, RocketCraft, SatelliteCraft, StarBody, VoyagerCraft } from "./CelestialBody";
+import { BASE_R, BlackHoleBody, PhotoPlanetBody, PhotoSkin, RocketCraft, SatelliteCraft, StarBody, VoyagerCraft } from "./CelestialBody";
 import LanguageToggle from "./LanguageToggle";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
@@ -522,6 +522,71 @@ function Moonlet({ spec, en, onOpen }: { spec: MoonSpec; en: boolean; onOpen: (t
   );
 }
 
+/* ───────────────────────────── asteroid belt ─────────────────────────────
+   A real feature, stylised: hundreds of tiny rocks scattered in a band
+   strictly between Mars's and Jupiter's own orbit radii (355 and 440 design
+   units — see PLANETS above), an explicit request. PC-only (see
+   .hb-asteroid-belt in hub.css, which hides it below the same 640px
+   breakpoint everything else here treats as "mobile") — which is also why
+   each rock's position below skips the "+ --orbit-base" term .hb-ring's own
+   radius formula carries: --orbit-base is 0 at every breakpoint wider than
+   that (it only turns on for the mobile tiers this never renders at), so
+   there is nothing for that term to add here. */
+
+interface AsteroidRock {
+  /** r * cos(angle) and r * sin(angle) — plain multipliers for
+   * --orbit-unit, precomputed so each rock only needs one calc() multiply
+   * rather than carrying its own radius/angle separately. */
+  mx: number;
+  my: number;
+  size: number;
+  /** "r, g, b" — see ASTEROID_PALETTE/pickAsteroidColor. */
+  color: string;
+}
+
+/** Real asteroids read as rock, not gravel — mostly dark carbonaceous grey
+ * (C-type, the actual majority composition in the belt), a lighter tan
+ * minority (S-type), and only a rare warm metallic glint (M-type), rather
+ * than an even, confetti-like split. Same weighted-roll approach as
+ * STAR_PALETTE/pickStarColor above. */
+const ASTEROID_PALETTE: [number, number, number, number][] = [
+  [110, 103, 96, 0.55],
+  [80, 75, 71, 0.22],
+  [168, 154, 134, 0.18],
+  [190, 152, 108, 0.05],
+];
+const ASTEROID_PALETTE_TOTAL = ASTEROID_PALETTE.reduce((sum, [, , , w]) => sum + w, 0);
+
+function pickAsteroidColor(rand: () => number): string {
+  let roll = rand() * ASTEROID_PALETTE_TOTAL;
+  for (const [r, g, b, weight] of ASTEROID_PALETTE) {
+    roll -= weight;
+    if (roll <= 0) return `${r}, ${g}, ${b}`;
+  }
+  const [r, g, b] = ASTEROID_PALETTE[ASTEROID_PALETTE.length - 1];
+  return `${r}, ${g}, ${b}`;
+}
+
+/** innerR/outerR are already inset a margin in from Mars's 355 and Jupiter's
+ * 440 (see the call site), so the belt never touches either ring — the
+ * explicit "must stay strictly between them" request, with room to spare
+ * rather than landing right at the boundary. */
+function asteroidBelt(seed: number, count: number, innerR: number, outerR: number): AsteroidRock[] {
+  const rand = mulberry32(seed);
+  const rocks: AsteroidRock[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const r = innerR + rand() * (outerR - innerR);
+    const angle = rand() * Math.PI * 2;
+    rocks.push({
+      mx: r * Math.cos(angle),
+      my: r * Math.sin(angle),
+      size: 1.5 + rand() * 1.5,
+      color: pickAsteroidColor(rand),
+    });
+  }
+  return rocks;
+}
+
 /* ───────────────────────────── planet ───────────────────────────── */
 
 function Planet({
@@ -692,6 +757,10 @@ export default function Hub() {
     []
   );
 
+  // Inset a margin in from Mars's 355 and Jupiter's 440 (see PLANETS) so the
+  // belt reads as strictly between the two, not touching either ring.
+  const asteroids = useMemo(() => asteroidBelt(614529, 280, 372, 424), []);
+
   const feed = useMemo(() => {
     const bySymbol = new Map<string, number | null>();
     globals.forEach((item) => {
@@ -785,6 +854,25 @@ export default function Hub() {
         <span className="hb-voyager-tip">{en ? "GLOBAL NEWS" : "글로벌 뉴스"}</span>
       </a>
 
+      {/* A second, purely decorative way into the dashboard, parked in the
+          corner rather than on the orbital plane — same destination as the
+          star, so it carries no separate aria semantics beyond naming itself
+          as a curiosity. Fixed to the viewport for the same reason
+          `.hb-voyager` sits outside `.hb-stage`: it isn't part of the solar
+          system's 3D geometry, so it has no business inside the tilted plane
+          that geometry lives on. */}
+      <div className="hb-blackhole-wrap">
+        <button
+          type="button"
+          className="hb-blackhole"
+          onClick={() => open("/dashboard")}
+          aria-label={en ? "Black hole: Home (dashboard)" : "블랙홀: 홈 (대시보드)"}
+          title={en ? "Gargantua" : "가르강튀아"}
+        >
+          <BlackHoleBody id="hub" />
+        </button>
+      </div>
+
       <div className="hb-stage" ref={stageRef}>
         <div className="hb-parallax">
           {/* ── title ── */}
@@ -817,6 +905,34 @@ export default function Hub() {
                   <span className="hb-ring-arc" style={{ animationDuration: `${spec.duration * 1.6}s` }} />
                 </div>
               ))}
+
+              {/* The asteroid belt, between Mars and Jupiter's tracks — see
+                  the "asteroid belt" section above for why each rock's own
+                  position skips --orbit-base. Rendered as real (if tiny)
+                  elements rather than the starfield's box-shadow trick,
+                  since these need to sit in this same tilted plane as the
+                  rings above and travel with it, not sit on a flat
+                  background layer behind everything. The whole belt spins
+                  together as one rigid group — every rock is a plain round
+                  dot, so unlike the black hole's flattened disc there is no
+                  "axis" for a shared rotation to visibly distort. */}
+              <div className="hb-asteroid-belt" aria-hidden="true">
+                {asteroids.map((rock, i) => (
+                  <span
+                    key={i}
+                    className="hb-asteroid"
+                    style={
+                      {
+                        "--mx": rock.mx.toFixed(2),
+                        "--my": rock.my.toFixed(2),
+                        width: `${rock.size.toFixed(2)}px`,
+                        height: `${rock.size.toFixed(2)}px`,
+                        background: `rgb(${rock.color})`,
+                      } as React.CSSProperties
+                    }
+                  />
+                ))}
+              </div>
             </div>
 
             {/* Planets are direct .hb-system children — NOT nested inside

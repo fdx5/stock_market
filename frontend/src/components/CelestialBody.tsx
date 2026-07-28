@@ -369,6 +369,379 @@ export function StarBody({ id }: { id: string }) {
   );
 }
 
+/* ───────────────────────────── black hole ───────────────────────────── */
+
+/** Deterministic PRNG, local to this file only — same construction as
+ * Hub.tsx's own mulberry32 (used there for the starfield), kept as a
+ * separate copy rather than shared since the two call sites want unrelated
+ * output (line jitter here, star placement there) and neither is large
+ * enough to earn a shared module. */
+function mulberry32(seed: number): () => number {
+  let a = seed;
+  return () => {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function lerpColor(a: string, b: string, t: number): string {
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return `rgb(${r}, ${g}, ${bl})`;
+}
+
+/** Turns one of the `rgb(r, g, b)` strings lerpColor produces above into an
+ * `rgba(...)` at the given alpha — used to key each line-bucket's neon glow
+ * (see the drop-shadow filters in BlackHoleBody) to that bucket's own colour
+ * along the disc's temperature ramp, rather than one flat glow colour for
+ * the whole ring. */
+function withAlpha(rgb: string, alpha: number): string {
+  return rgb.replace("rgb(", "rgba(").replace(")", `, ${alpha})`);
+}
+
+/** The disc's real temperature ramp — white-hot inner edge cooling through
+ * orange to a dim red outer edge — as stops to interpolate between. Unlike
+ * an SVG gradient (which would only shade *across* a single stroke's own
+ * width), each of the disc's many individual lines below needs its own solid
+ * colour keyed to *where that line sits* radially, which is exactly what
+ * sampling this ramp by radial fraction gives it. */
+const DISC_RAMP: [number, string][] = [
+  [0, "#fffef6"],
+  [0.24, "#ffe9b8"],
+  [0.52, "#ffb15c"],
+  [0.78, "#e8672a"],
+  [1, "#7a1f0d"],
+];
+
+function discColorAt(frac: number): string {
+  const f = Math.min(1, Math.max(0, frac));
+  for (let i = 0; i < DISC_RAMP.length - 1; i += 1) {
+    const [f0, c0] = DISC_RAMP[i];
+    const [f1, c1] = DISC_RAMP[i + 1];
+    if (f <= f1 || i === DISC_RAMP.length - 2) {
+      return lerpColor(c0, c1, (f - f0) / (f1 - f0));
+    }
+  }
+  return DISC_RAMP[DISC_RAMP.length - 1][1];
+}
+
+interface DiscLine {
+  rx: number;
+  ry: number;
+  color: string;
+  opacity: number;
+  /** stroke-dasharray, in `pathLength="100"` units (see BlackHoleBody) —
+   * material along this one line's own fixed ellipse. */
+  dash: string;
+  /** Seconds for the dash pattern to complete one full lap of this line's
+   * own (fixed) ellipse — see the per-line differential note below. */
+  flowDur: number;
+  /** Negative animation-delay, so every line starts already mid-lap at its
+   * own point instead of every ring visibly launching in lockstep. */
+  flowDelay: number;
+}
+
+/** The disc as hundreds of individually thin concentric ellipses instead of
+ * one wide gradient band — a real disc has structure (bright/dim bands,
+ * turbulence) at every radius, and hundreds of thin lines read as material
+ * the way a single flat stroke never did. Deterministic PRNG so the pattern
+ * is identical on every render (see Hub.tsx's starLayer for the same
+ * reasoning) — reshuffling on mount would look like the disc's whole
+ * structure jumping to a different shape.
+ *
+ * Each line's own ellipse (rx/ry/tilt) is completely static — same as
+ * Saturn's rings elsewhere on this page (see RingHalf above), which read as
+ * rotating only because the material circling them does, never because the
+ * ring's own shape moves. What actually orbits here is each line's dash
+ * pattern, sliding along that one fixed path (see hb-bh-line-flow in
+ * hub.css) — a `transform: rotate()` on the shape itself, tried twice
+ * before this, either spun the whole tilted ellipse's axis around with it
+ * (wrong: a real disc's plane doesn't visibly precess) or, applied per
+ * line, made each individual line's own tilt swing independently (worse).
+ * Every line's flow duration also varies by radius here — inner lines fast,
+ * outer lines slow, like real Keplerian orbits — so the whole disc reads as
+ * one coherent ring with material genuinely circling it at different rates,
+ * rather than every band pulsing in the same lockstep. */
+function buildDiscLines(count: number, innerR: number, outerR: number, ryRatio: number, seed: number): DiscLine[] {
+  const rand = mulberry32(seed);
+  const lines: DiscLine[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const frac = i / (count - 1);
+    const rx = innerR + (outerR - innerR) * frac;
+    const base = 0.85 - frac * 0.72;
+    const jitter = 0.55 + rand() * 0.75;
+    const dashOn = 11 + rand() * 7;
+    const dashOff = 7 + rand() * 7;
+    const flowDur = 1.6 + frac ** 1.3 * 7.5 * (0.85 + rand() * 0.3);
+    lines.push({
+      rx,
+      ry: rx * ryRatio,
+      color: discColorAt(frac),
+      opacity: Math.min(0.95, Math.max(0.04, base * jitter)),
+      dash: `${dashOn.toFixed(1)} ${dashOff.toFixed(1)}`,
+      flowDur,
+      flowDelay: -rand() * flowDur,
+    });
+  }
+  return lines;
+}
+
+interface ArcLine {
+  d: string;
+  color: string;
+  opacity: number;
+}
+
+/** One bundle of thin lensed-arc lines (the disc's far side, bent up and
+ * over one pole). `sign` picks the pole: -1 bows the control point above
+ * the horizon, 1 below. Every line's endpoints/peak stay comfortably
+ * outside the horizon's own radius (52) — the closest any of them comes is
+ * checked by hand at the call site below — so none of this needs to rely on
+ * the horizon-on-top occlusion to look right, though that occlusion (see
+ * the paint order in BlackHoleBody) still catches it if a line ever did
+ * dip inward. */
+function buildArcBundle(count: number, seed: number, sign: 1 | -1): ArcLine[] {
+  const rand = mulberry32(seed);
+  const lines: ArcLine[] = [];
+  for (let i = 0; i < count; i += 1) {
+    const frac = i / (count - 1);
+    const spread = (rand() - 0.5) * 8;
+    const x0 = 58 + spread;
+    const x1 = 202 - spread;
+    const peak = sign === -1 ? -6 - rand() * 30 : 266 + rand() * 30;
+    const opacity = Math.min(0.7, Math.max(0.03, (0.5 - frac * 0.34) * (0.6 + rand() * 0.7)));
+    lines.push({
+      d: `M ${x0.toFixed(1)} 130 Q 130 ${peak.toFixed(1)} ${x1.toFixed(1)} 130`,
+      color: discColorAt(0.12 + frac * 0.55),
+      opacity,
+    });
+  }
+  return lines;
+}
+
+function bucketize<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+// Computed once at module load — the geometry is fixed per line (each keeps
+// its own radius forever; see BlackHoleBody's doc comment on the disc <g>'s
+// own spin), so there is nothing per-instance to recompute here even though
+// the page can mount more than one of these.
+// 1.5x the disc's original 58–124 span (both radii, so the whole ring grows
+// as one shape rather than just spreading thinner) per an explicit request.
+// Line count has moved 180 → ~20 (each stroked wider, 2.8 vs the original
+// 1.15, to compensate) → 40 → 60.
+const DISC_OUTER_R = 186;
+const DISC_RY_RATIO = 17 / 124;
+const DISC_BUCKETS = bucketize(buildDiscLines(60, 87, DISC_OUTER_R, DISC_RY_RATIO, 71827), 6);
+const ARC_TOP_BUCKETS = bucketize(buildArcBundle(36, 51013, -1), 6);
+const ARC_BOTTOM_BUCKETS = bucketize(buildArcBundle(36, 90210, 1), 6);
+
+/** Gargantua, in miniature — modelled after the actual look of Interstellar's
+ * black hole rather than a generic "ringed dot": a thin, nearly edge-on
+ * accretion disc made of hundreds of individually thin lines crosses in
+ * front of the hole, and that same disc's far side — light bent up and over
+ * each pole by the hole's own gravity — reappears as two bundles of lines
+ * bowing over the top and bottom of the silhouette. A thin bright photon
+ * ring sits right at the horizon's own edge, the last light able to orbit
+ * before falling in.
+ *
+ * Nothing here is a bitmap of the film frame — that's copyrighted footage,
+ * not something to embed — this is a fresh procedural reconstruction of the
+ * image's well-known structure instead, same as every other body on this
+ * page (see StarBody above).
+ *
+ * The disc's ~90 lines each keep a completely fixed ellipse — same idea as
+ * Saturn's rings elsewhere on this page (RingHalf, above): the ring's own
+ * shape/tilt never moves, and "it's rotating" reads entirely from the
+ * material circling that fixed path, not from the path itself turning.
+ * Concretely, each line's own dash pattern (hb-bh-line-flow in hub.css;
+ * see buildDiscLines' dash/flowDur/flowDelay) slides along its own static
+ * ellipse via `pathLength`+stroke-dashoffset, at a speed that varies by
+ * radius — fast inner lines, slow outer ones, like real Keplerian orbits —
+ * so the disc reads as one coherent ring with material genuinely orbiting
+ * it at different rates. Two earlier attempts got this wrong: rotating the
+ * whole tilted group with `transform: rotate()` spun the ring's own axis
+ * around with it (a real disc's plane doesn't visibly precess), and doing
+ * that per line instead made each individual line's own tilt swing on its
+ * own — both are "the shape moving"; this is "the material moving through
+ * a shape that never does". The lensed arcs above/below stay still apart
+ * from their bucket's own opacity shimmering (hb-bh-shimmer) — they are the
+ * far side's bent image, not a second ring with its own orbit.
+ *
+ * The horizon is opaque and is painted AFTER every disc/arc line, not
+ * before — nothing (light included) escapes from behind it, so wherever a
+ * line's path would otherwise show through the hole's silhouette, this
+ * paint order simply covers it, whole line-bundles at once, without needing
+ * per-line clip math. The photon ring is painted after that again, since it
+ * traces the horizon's own edge rather than overlapping its face. */
+export function BlackHoleBody({ id }: { id: string }) {
+  const farBloom = `bh-farbloom-${id}`;
+  const bloom = `bh-bloom-${id}`;
+  const under = `bh-under-${id}`;
+  const horizon = `bh-horizon-${id}`;
+
+  return (
+    <svg className="hb-blackhole-body" viewBox="0 0 260 260" aria-hidden="true" focusable="false">
+      <defs>
+        {/* A third, very large and very faint layer — the outermost bleed,
+            reaching almost to the edge of `.hb-blackhole-wrap`'s own extra
+            headroom (see hub.css: the wrap is sized 1.9x the visible button
+            specifically so glow this size has room to actually spread into
+            rather than clipping at the button's own edge). */}
+        <radialGradient id={farBloom} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#ffdca0" stopOpacity="0.28" />
+          <stop offset="45%" stopColor="#ffa855" stopOpacity="0.13" />
+          <stop offset="100%" stopColor="#ff8a3a" stopOpacity="0" />
+        </radialGradient>
+
+        {/* Ambient warm haze, well outside the disc itself — without this the
+            hole reads as a flat cutout against the starfield rather than a
+            body radiating light like the sun does. Brighter and wider than
+            the original pass, per an explicit request for more light
+            spreading out around the hole. */}
+        <radialGradient id={bloom} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#fff6e2" stopOpacity="0.7" />
+          <stop offset="26%" stopColor="#ffd9a0" stopOpacity="0.4" />
+          <stop offset="55%" stopColor="#ffab5c" stopOpacity="0.2" />
+          <stop offset="100%" stopColor="#ff7a2e" stopOpacity="0" />
+        </radialGradient>
+
+        {/* A softer, closer glow sitting just outside the photon ring. */}
+        <radialGradient id={under} cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#fffaf0" stopOpacity="1" />
+          <stop offset="55%" stopColor="#ffbf7a" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="#ff7a2e" stopOpacity="0" />
+        </radialGradient>
+
+        {/* The event horizon itself: not flat #000 (that read as a dead hole
+            punched in the page) but a near-black with a faint deep-indigo
+            lift toward the rim, as if a last trace of bent starlight still
+            reaches the camera from just inside the silhouette's edge. */}
+        <radialGradient id={horizon} cx="43%" cy="40%" r="62%">
+          <stop offset="0%" stopColor="#000000" />
+          <stop offset="70%" stopColor="#020208" />
+          <stop offset="100%" stopColor="#0c1024" />
+        </radialGradient>
+      </defs>
+
+      <circle cx="130" cy="130" r="225" fill={`url(#${farBloom})`} className="hb-bh-breathe" />
+      <circle cx="130" cy="130" r="165" fill={`url(#${bloom})`} className="hb-bh-breathe" />
+      <circle cx="130" cy="130" r="90" fill="none" stroke={`url(#${under})`} strokeWidth="34" />
+
+      {/* the disc's far side, bent up and over each pole — drawn well before
+          the horizon below, so anywhere these dip toward the centre they
+          simply disappear behind it. Each bucket also gets a soft neon
+          drop-shadow keyed to its own middle line's colour (see withAlpha) —
+          a shared filter per bucket rather than one per individual line,
+          since a drop-shadow per line (dozens of them) is real per-frame
+          filter cost, while one per bucket (a handful) reads the same to
+          the eye at this size. */}
+      <g aria-hidden="true">
+        {ARC_TOP_BUCKETS.map((bucket, bi) => (
+          <g
+            key={`t${bi}`}
+            className="hb-bh-shimmer"
+            style={{
+              animationDelay: `${-(bi * 0.6)}s`,
+              animationDuration: `${5 + (bi % 4)}s`,
+              filter: `drop-shadow(0 0 3px ${withAlpha(bucket[Math.floor(bucket.length / 2)].color, 0.55)})`,
+            }}
+          >
+            {bucket.map((line, li) => (
+              <path key={li} d={line.d} fill="none" stroke={line.color} strokeOpacity={line.opacity} strokeWidth="1.1" strokeLinecap="round" />
+            ))}
+          </g>
+        ))}
+        {ARC_BOTTOM_BUCKETS.map((bucket, bi) => (
+          <g
+            key={`b${bi}`}
+            className="hb-bh-shimmer"
+            style={{
+              animationDelay: `${-(bi * 0.6 + 0.3)}s`,
+              animationDuration: `${5.4 + (bi % 4)}s`,
+              filter: `drop-shadow(0 0 3px ${withAlpha(bucket[Math.floor(bucket.length / 2)].color, 0.55)})`,
+            }}
+          >
+            {bucket.map((line, li) => (
+              <path key={li} d={line.d} fill="none" stroke={line.color} strokeOpacity={line.opacity} strokeWidth="1.1" strokeLinecap="round" />
+            ))}
+          </g>
+        ))}
+      </g>
+
+      {/* the disc's near side, crossing directly across the hole — each
+          line's own ellipse (rx/ry/tilt) is completely static, Saturn-ring
+          style; only its dash pattern slides along that fixed path
+          (line.dash/flowDur/flowDelay, fast inner lines to slow outer ones;
+          see buildDiscLines), which is what reads as material orbiting a
+          ring rather than the ring itself turning. pathLength="100" lets
+          the dash values/animation below be expressed as a flat percentage
+          of one full lap regardless of each line's own real circumference,
+          so the same -100 dashoffset keyframe loops seamlessly for every
+          line at once. Bucketed for the shimmer, and for a soft neon
+          drop-shadow keyed to that bucket's own colour along the ramp (see
+          the arc bundles above for why this is per-bucket, not per-line). */}
+      <g aria-hidden="true">
+        {DISC_BUCKETS.map((bucket, bi) => (
+          <g
+            key={bi}
+            className="hb-bh-shimmer"
+            style={{
+              animationDelay: `${-(bi * 0.45)}s`,
+              animationDuration: `${4.2 + (bi % 5) * 0.6}s`,
+              filter: `drop-shadow(0 0 4px ${withAlpha(bucket[Math.floor(bucket.length / 2)].color, 0.6)})`,
+            }}
+          >
+            {bucket.map((line, li) => (
+              <ellipse
+                key={li}
+                cx="130"
+                cy="130"
+                rx={line.rx}
+                ry={line.ry}
+                pathLength={100}
+                fill="none"
+                stroke={line.color}
+                strokeOpacity={line.opacity}
+                strokeWidth="2.8"
+                strokeDasharray={line.dash}
+                className="hb-bh-line-flow"
+                style={{ animationDuration: `${line.flowDur.toFixed(2)}s`, animationDelay: `${line.flowDelay.toFixed(2)}s` }}
+              />
+            ))}
+          </g>
+        ))}
+      </g>
+
+      {/* event horizon — opaque, and painted last of the disc/arc stack, so
+          it hides every line above wherever they'd otherwise show through
+          it. Nothing behind this circle is ever visible past its edge. */}
+      <circle cx="130" cy="130" r="52" fill={`url(#${horizon})`} />
+
+      {/* photon ring — thin and true bright, tracing the horizon's own edge
+          rather than its face, so it belongs on top of the horizon rather
+          than behind it. Static; it's the horizon's own edge, not a
+          separate moving part. */}
+      <circle cx="130" cy="130" r="52" fill="none" stroke="#fff8e8" strokeWidth="1.7" opacity="0.95" />
+      <circle cx="130" cy="130" r="54" fill="none" stroke="#ffb168" strokeWidth="3.2" opacity="0.4" />
+    </svg>
+  );
+}
+
 /* ───────────────────────────── spacecraft ───────────────────────────── */
 
 /** A deep-space probe, drawn rather than photographed.

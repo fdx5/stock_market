@@ -42,7 +42,11 @@
      and body size all grow and shrink together. */
   --orbit-unit: clamp(0.2px, min((100vh - 380px) / 762, (100vw - 250px) / 1334), 1.3px);
   --body-unit: calc(var(--orbit-unit) * 1.26);
-  --star-min: calc(128 * var(--body-unit));
+  /* 128 * 0.7 — the sun is 30% smaller than its original size per an
+     explicit request; every other formula built on --star-min (the black
+     hole's own size among them) stays proportional automatically since they
+     all read this same variable rather than a separate copy of the number. */
+  --star-min: calc(89.6 * var(--body-unit));
   /* Added to every orbit radius after scaling. Planets have a 40px tap-target
      floor that does not shrink with the system, so on a phone a purely
      multiplicative scale either buried the inner ring inside the sun or ran the
@@ -615,6 +619,46 @@ body:has(.hb) {
   to { transform: rotate(360deg); }
 }
 
+/* ── asteroid belt ──
+   Hundreds of tiny rocks between Mars's and Jupiter's own rings — see
+   Hub.tsx's asteroidBelt/ASTEROID_BELT. Desktop-only (see the mobile
+   breakpoint below): at mobile's much smaller --orbit-unit the ~68-unit gap
+   between the two rings compresses to only a few px, nowhere near enough
+   room for a scattered band of rocks to read as anything but a smudge.
+   Zero-sized and positioned at .hb-plane's own origin, exactly like
+   .hb-ring above — the belt wrapper itself carries only the slow shared
+   spin; every rock's own position comes from its `--mx`/`--my` transform
+   below. */
+.hb-asteroid-belt {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  animation: hb-asteroid-spin 220s linear infinite;
+}
+
+@keyframes hb-asteroid-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* `--mx`/`--my` are r*cos(angle)/r*sin(angle) in design units (plain
+   numbers, set inline per rock) — multiplying by --orbit-unit converts that
+   to the same real px the rings themselves use, and the trailing `- 50%`
+   centres the dot on that point using its own box (whatever `size` that
+   rock's inline width/height happens to be) rather than a hardcoded offset.
+   No `+ var(--orbit-base)` term here unlike .hb-ring's radius formula —
+   --orbit-base is always 0 above the breakpoint this belt is visible at, so
+   there is nothing for it to add (see Hub.tsx's own note on this). */
+.hb-asteroid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  transform: translate(calc(var(--mx) * var(--orbit-unit) - 50%), calc(var(--my) * var(--orbit-unit) - 50%));
+  pointer-events: none;
+}
+
 /* ── rocket art ──
    RocketCraft (CelestialBody.tsx) is reused as the Mars satellite's badge (see
    .hb-moon-rocket below) — these two classes are the SVG's own sizing/glow
@@ -781,8 +825,13 @@ body:has(.hb) {
      too far above/below Earth's own centre line. */
   --eq-squash: 0.1;
   /* Pushed down per an explicit request that the whole orbit sit lower than
-     Earth's exact centre, not just hug it more tightly. */
-  --eq-offset-y: 65px;
+     Earth's exact centre, not just hug it more tightly. Scaled by --body-unit
+     (56 ≈ 65px at desktop's typical ~1.157px body-unit) rather than a flat
+     px, like every other measurement in this satellite system — a fixed
+     offset stayed put while Earth's own rendered radius shrank under
+     mobile's much smaller, fixed --body-unit, so the orbit visibly detached
+     and swung far below the now much-smaller planet. */
+  --eq-offset-y: calc(56 * var(--body-unit));
   /* A second animation, sharing this element's own duration/delay from the
      base .hb-moon-orbiter rule (a comma-separated animation-name list reuses
      a single non-list animation-delay/duration for every name in it) — see
@@ -1172,6 +1221,17 @@ body:has(.hb) {
   transform-origin: center;
 }
 
+/* Was missing entirely until this pass — hb-corona-pulse/hb-bloom-pulse above
+   had referenced a keyframe that was never defined anywhere in this file, so
+   the sun's corona/bloom silently never animated (an undefined animation-name
+   is simply a no-op, not an error). Left in place even though the photo-sun
+   experiment that surfaced it was reverted, since it's a real, independent
+   bug fix — the breathing glow is genuinely part of the original design. */
+@keyframes hb-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.05); opacity: 1; }
+}
+
 /* ── photographic planets ──
    See CelestialBody.tsx's PhotoPlanetBody. `--disc-pct`/`--glow` arrive as
    inline custom properties, one set per body, computed from that body's own
@@ -1369,8 +1429,8 @@ body:has(.hb) {
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 4;
-  width: calc(190 * var(--body-unit) * 3.8);
-  height: calc(190 * var(--body-unit) * 3.8);
+  width: calc(133 * var(--body-unit) * 3.8);
+  height: calc(133 * var(--body-unit) * 3.8);
   min-width: calc(var(--star-min) * 3.8);
   min-height: calc(var(--star-min) * 3.8);
   display: grid;
@@ -1385,8 +1445,8 @@ body:has(.hb) {
   position: relative;
   z-index: 2;
   pointer-events: auto;
-  width: calc(190 * var(--body-unit));
-  height: calc(190 * var(--body-unit));
+  width: calc(133 * var(--body-unit));
+  height: calc(133 * var(--body-unit));
   min-width: var(--star-min);
   min-height: var(--star-min);
   padding: 0;
@@ -1488,7 +1548,8 @@ body:has(.hb) {
 .hb-plane,
 .hb-starwrap,
 .hb-lockup,
-.hb-hint {
+.hb-hint,
+.hb-blackhole-wrap {
   transition:
     transform 1.4s cubic-bezier(0.16, 1, 0.3, 1),
     opacity 1.1s ease;
@@ -1514,10 +1575,16 @@ body:has(.hb) {
   opacity: 0;
 }
 
+.hb:not(.is-entered) .hb-blackhole-wrap {
+  transform: scale(0.4);
+  opacity: 0;
+}
+
 .hb.is-entered .hb-starwrap { transition-delay: 0.12s; }
 .hb.is-entered .hb-plane { transition-delay: 0.26s; }
 .hb.is-entered .hb-lockup { transition-delay: 0.42s; }
 .hb.is-entered .hb-hint { transition-delay: 0.6s; }
+.hb.is-entered .hb-blackhole-wrap { transition-delay: 0.7s; }
 
 /* ─────────────────────────── responsive ─────────────────────────── */
 
@@ -1534,7 +1601,7 @@ body:has(.hb) {
     --orbit-unit: 0.2px;
     --body-unit: 0.38px;
     --orbit-base: 40px;
-    --star-min: 80px;
+    --star-min: 56px;
     --tilt: 40deg;
   }
 
@@ -1544,6 +1611,11 @@ body:has(.hb) {
   .hb-tag-move { font-size: 11px; }
   .hb-hint p { font-size: 11px; }
   .hb-wordmark { flex-direction: column; align-items: center; gap: 4px; }
+
+  /* Desktop-only, per an explicit request — see .hb-asteroid-belt's own
+     comment above for why mobile's tiny --orbit-unit leaves no real room
+     between Mars's and Jupiter's rings for this anyway. */
+  .hb-asteroid-belt { display: none; }
 
   /* Half the desktop size (40px → 20px) — the Samsung/SK satellites. */
   .hb-moon:not(.hb-moon--rocket):not(.hb-moon--lunar) {
@@ -1577,7 +1649,7 @@ body:has(.hb) {
     --orbit-unit: 0.17px;
     --body-unit: 0.34px;
     --orbit-base: 36px;
-    --star-min: 72px;
+    --star-min: 50.4px;
   }
 }
 
@@ -1621,7 +1693,8 @@ body:has(.hb) {
   .hb-billboard,
   .hb-moon-orbiter,
   .hb-moon-face,
-  .hb-mars-rocket-face {
+  .hb-mars-rocket-face,
+  .hb-asteroid-belt {
     animation-play-state: paused;
   }
 
@@ -1656,7 +1729,8 @@ body:has(.hb) {
   .hb-plane,
   .hb-starwrap,
   .hb-lockup,
-  .hb-hint {
+  .hb-hint,
+  .hb-blackhole-wrap {
     transition: none;
   }
 
@@ -1773,6 +1847,158 @@ body:has(.hb) {
 
 @media (prefers-reduced-motion: reduce) and (max-width: 640px) {
   .hb-voyager { transform: translate(60%, 330%) scale(0.95); }
+}
+
+/* ─────────────────────────── black hole ─────────────────────────── */
+
+/* Gargantua, parked in the bottom-right corner — a second, decorative way
+   into the dashboard alongside the star. Fixed to the viewport rather than
+   living on `.hb-plane`/`.hb-system`: it isn't part of the solar system's
+   orbital geometry, just a curiosity sitting in the corner, so it sits
+   outside the 3D stage the same way `.hb-voyager` does (see Hub.tsx).
+   Sized off --body-unit/--star-min like `.hb-star` (4/3 of it, per the
+   explicit request), so the ratio between the two holds at every breakpoint
+   instead of just the one it was eyeballed at.
+
+   --bh-size is computed once with `max()` (button floor included) and reused
+   for both the button's own box AND the wrap's inset below, rather than
+   repeating the width/min-width pair `.hb-starwrap`/`.hb-star` use — those
+   two are centred with `top/left: 50%` + `translate(-50%, -50%)`, which
+   self-centres regardless of box size, but this element anchors off a
+   viewport corner with `right`/`bottom` instead. Corner-anchoring the
+   *wrap* directly (an earlier version of this) anchors its own edge, not
+   the button's — since the wrap is 1.9x wider than the button for the
+   glow's sake, that pushed the visibly-lit button noticeably up and away
+   from the corner, far enough to overlap the sun and the outer orbit rings.
+   Insetting the wrap by exactly half of that extra 1.9x padding (--bh-pad)
+   is what lands the actual button at the stated margin instead of the
+   wrap's own larger edge. */
+.hb-blackhole-wrap {
+  --bh-size: max(calc(133 * var(--body-unit) * 4 / 3), calc(var(--star-min) * 4 / 3));
+  --bh-wrap-size: calc(var(--bh-size) * 1.9);
+  --bh-pad: calc((var(--bh-wrap-size) - var(--bh-size)) / 2);
+  --bh-margin-x: clamp(8px, 3vw, 40px);
+  --bh-margin-y: clamp(6px, 2vh, 28px);
+  position: fixed;
+  right: calc(var(--bh-margin-x) - var(--bh-pad));
+  bottom: calc(var(--bh-margin-y) - var(--bh-pad));
+  z-index: 3;
+  width: var(--bh-wrap-size);
+  height: var(--bh-wrap-size);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.hb-blackhole {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+  width: var(--bh-size);
+  height: var(--bh-size);
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), filter 0.3s ease;
+  filter: drop-shadow(0 0 22px rgba(255, 195, 130, 0.45)) drop-shadow(0 0 60px rgba(255, 140, 50, 0.28));
+}
+
+.hb-blackhole:hover,
+.hb-blackhole:focus-visible {
+  transform: scale(1.09);
+  outline: none;
+  filter: drop-shadow(0 0 20px rgba(255, 205, 140, 0.55)) drop-shadow(0 0 56px rgba(255, 140, 50, 0.38));
+}
+
+/* A fixed 15deg counter-clockwise (left) tilt on the whole rendered unit —
+   bloom, arcs, disc, horizon, photon ring together — per an explicit
+   request. This is a single static presentation angle (the same idea as
+   Saturn/Uranus's own ring tiltDeg in PhotoSkin above), not an animation: it
+   rotates the whole SVG exactly once, at mount, so it never conflicts with
+   the per-line dash-flow animations inside (those move material along paths
+   that are themselves now just drawn at a different fixed angle) or
+   reintroduce "the axis visibly spinning" the way animating this same
+   property continuously would. */
+.hb-blackhole-body {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-15deg);
+}
+
+/* Ambient bloom, breathing — deliberately a wide swing (dim trough, a bright
+   flare well past the gradient's own resting brightness at the peak) rather
+   than a gentle wobble, per an explicit request. `brightness()` is what
+   pushes the peak past what opacity/scale alone can do (opacity tops out at
+   a fully-opaque 1, which the gradient's own centre stops already sit near),
+   so the flare genuinely gets brighter, not just larger. Slow, uneven
+   easing (a custom cubic-bezier overshooting slightly past its own endpoints
+   rather than symmetric ease-in-out) is what keeps a wide swing like this
+   reading as breathing rather than a mechanical flash. */
+.hb-bh-breathe {
+  animation: hb-bh-breathe 6.5s cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  transform-origin: 130px 130px;
+}
+
+@keyframes hb-bh-breathe {
+  0%, 100% { transform: scale(0.94); opacity: 0.55; filter: brightness(0.85); }
+  50% { transform: scale(1.16); opacity: 1; filter: brightness(1.55); }
+}
+
+/* Each of the disc's ~20 lines (CelestialBody.tsx's DISC_BUCKETS) keeps a
+   completely static ellipse — same as Saturn's rings elsewhere on this page
+   (see .hb-photo-ring/RingHalf): the shape/tilt never moves. What orbits is
+   each line's own dash pattern, sliding along that fixed path at its own
+   speed (inline style per line — see buildDiscLines' dash/flowDur/flowDelay,
+   fast inner lines to slow outer ones). `pathLength="100"` on each ellipse
+   (set in CelestialBody.tsx) normalises this to a flat percentage of one lap
+   regardless of that line's real circumference, so a single -100 dashoffset
+   keyframe below loops every line seamlessly no matter its radius.
+   Two earlier versions rotated the shape itself instead — the whole tilted
+   group together (which swung the ring's own axis around, wrong: a real
+   disc's plane doesn't visibly precess) and then each line individually
+   (which made every line's own tilt swing on its own, worse). Moving the
+   dash instead of the shape is what actually reads as "material orbiting a
+   fixed ring", the same read Saturn's rings already get for free from their
+   own static geometry. */
+.hb-bh-line-flow {
+  animation-name: hb-bh-line-flow;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@keyframes hb-bh-line-flow {
+  to { stroke-dashoffset: -100; }
+}
+
+/* Every line-bucket's own opacity breathes independently of its neighbours
+   — since each bucket's ellipses/paths already carry their own resting
+   strokeOpacity, this animated opacity on the wrapping <g> multiplies
+   against that (SVG/CSS opacity composites across nested elements), so the
+   visible brightness of each bucket's lines rides up and down around its
+   own resting level rather than snapping to one shared value. Many small
+   independently-phased buckets is what reads as turbulent, flowing
+   material; a single bold stroke chasing itself around the ring (an
+   earlier version of this) read as a wheel spinning, not a disc. */
+.hb-bh-shimmer {
+  animation: hb-bh-shimmer 5s ease-in-out infinite;
+}
+
+@keyframes hb-bh-shimmer {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-bh-breathe,
+  .hb-bh-shimmer,
+  .hb-bh-line-flow {
+    animation: none;
+  }
 }
 
 /* ─────────────────────────── clocks ─────────────────────────── */
