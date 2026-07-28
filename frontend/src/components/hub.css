@@ -2035,7 +2035,7 @@ body:has(.hb) {
 
 /* Mars-sized Pluto (see PLUTO_SKIN in Hub.tsx — same PhotoPlanetBody every
    other planet uses, just parked outside `.hb-system`'s orbital geometry),
-   drifting in from the black hole's left at a literal 10px/s and eventually
+   drifting in from the black hole's left at a literal 20px/s and eventually
    consumed by it — a standing, endlessly-repeating vignette rather than
    part of the solar system proper, per an explicit request. See
    usePlutoEvent in Hub.tsx for the full timeline (approach, tidal tearing,
@@ -2046,18 +2046,22 @@ body:has(.hb) {
    always anchors to the black hole's own actual on-screen spot even if that
    clamp() is ever retuned. --pluto-gap is the one thing usePlutoEvent
    writes here every frame — the live px distance from the black hole's own
-   right edge, countding down from 150 — everything else about the approach
-   (tearing, the debris field, the black hole's own flare) reads that same
-   timeline independently rather than watching this element. Vertically
-   centred on the black hole's own box (the `(--bh-size - --pluto-size) / 2`
-   term) rather than sharing its `bottom` outright, since the two aren't the
-   same height and bottom-aligning them would visibly drop Pluto's own
-   centre below the hole's. */
+   CENTRE to Pluto's centre, counting down from 300, per an explicit request
+   pinning the approach distance to the hole's centre specifically rather
+   than its edge. The `(--bh-size - --pluto-size) / 2` term is what performs
+   that centre-to-edge translation for both axes: it's added to `right`
+   here for the same reason it's already added to `bottom` below — a plain
+   `--pluto-gap` offset from the hole's own edge would put Pluto's centre
+   --bh-size/2 too close once gap reached 0, not touching the hole's centre
+   the way the request describes. Vertically centred on the black hole's
+   own box for the same reason: the two aren't the same height, and
+   bottom-aligning them outright would visibly drop Pluto's own centre
+   below the hole's. */
 .hb-pluto-event {
   --pluto-size: calc(68 * var(--body-unit));
-  --pluto-gap: 150;
+  --pluto-gap: 300;
   position: fixed;
-  right: calc(var(--bh-right) + var(--pluto-gap) * 1px);
+  right: calc(var(--bh-right) + (var(--bh-size) - var(--pluto-size)) / 2 + var(--pluto-gap) * 1px);
   bottom: calc(var(--bh-bottom) + (var(--bh-size) - var(--pluto-size)) / 2);
   z-index: 4;
   width: var(--pluto-size);
@@ -2068,7 +2072,7 @@ body:has(.hb) {
 /* The clip-path polygon (#hb-pluto-erosion, defined inline next to this in
    Hub.tsx) is what actually tears the disc apart — see plutoErosionPoints.
    It reads as intact at rest (a plain 0..1 rectangle) and only usePlutoEvent
-   ever rewrites its points, once the approach passes the 70px tear
+   ever rewrites its points, once the approach passes the 150px tear
    threshold. */
 .hb-pluto-body {
   width: 100%;
