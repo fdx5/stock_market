@@ -1,5 +1,9 @@
 const BASE = "/api/admin";
 const TOKEN_KEY = "admin_session";
+/** The neuron monitor's own session, minted by its passcode. Stored separately from the
+ * admin session because it is strictly less: it opens the monitor's two endpoints and
+ * nothing else (see the backend's admin_auth SCOPE_ constants). */
+const MONITOR_TOKEN_KEY = "monitor_session";
 
 export interface AdminSession {
   token: string;
@@ -244,20 +248,24 @@ export interface DbQueryResult {
   sql: string;
 }
 
-export function getStoredSession(): AdminSession | null {
-  const raw = localStorage.getItem(TOKEN_KEY);
+function readSession(key: string): AdminSession | null {
+  const raw = localStorage.getItem(key);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as AdminSession;
     if (!parsed.token || parsed.expires_at * 1000 <= Date.now()) {
-      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(key);
       return null;
     }
     return parsed;
   } catch {
-    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(key);
     return null;
   }
+}
+
+export function getStoredSession(): AdminSession | null {
+  return readSession(TOKEN_KEY);
 }
 
 function setStoredSession(session: AdminSession): void {
@@ -268,7 +276,25 @@ export function clearStoredSession(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+/** Whichever session may open the monitor. The admin one is preferred, so someone
+ * already logged in is never asked for the passcode on top of it. */
+export function getMonitorAccess(): AdminSession | null {
+  return getStoredSession() ?? readSession(MONITOR_TOKEN_KEY);
+}
+
+/** Drops both, because either could be the one the server just rejected — leaving the
+ * expired admin token in place would keep it winning over a fresh passcode session and
+ * lock the page out of its own unlock. */
+export function clearMonitorAccess(): void {
+  localStorage.removeItem(MONITOR_TOKEN_KEY);
+  localStorage.removeItem(TOKEN_KEY);
+}
+
 export class AdminAuthError extends Error {}
+
+/** A refusal the visitor is expected to act on — a wrong passcode, or too many tries —
+ * as opposed to AdminAuthError, which means "your session is gone, start again". */
+export class MonitorLockedError extends Error {}
 
 export async function login(username: string, password: string): Promise<void> {
   const res = await fetch(`${BASE}/login`, {
@@ -287,6 +313,24 @@ export async function login(username: string, password: string): Promise<void> {
   setStoredSession(data);
 }
 
+/** Trades the monitor passcode for a monitor-scoped session. */
+export async function unlockMonitor(passcode: string): Promise<void> {
+  const res = await fetch(`${BASE}/monitor/unlock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ passcode }),
+  });
+  if (!res.ok) {
+    const detail = await res
+      .json()
+      .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+      .catch(() => null);
+    throw new MonitorLockedError(detail ?? "패스코드가 올바르지 않습니다.");
+  }
+  const data = (await res.json()) as AdminSession;
+  localStorage.setItem(MONITOR_TOKEN_KEY, JSON.stringify(data));
+}
+
 async function authedGet<T>(path: string): Promise<T> {
   const session = getStoredSession();
   if (!session) throw new AdminAuthError("로그인이 필요합니다.");
@@ -296,6 +340,22 @@ async function authedGet<T>(path: string): Promise<T> {
   if (res.status === 401) {
     clearStoredSession();
     throw new AdminAuthError("세션이 만료되었습니다. 다시 로그인해 주세요.");
+  }
+  if (!res.ok) throw new Error(`Admin API error: ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+/** The monitor's GET, which differs from authedGet only in which session it presents
+ * and which it clears when the server says no. */
+async function monitorGet<T>(path: string): Promise<T> {
+  const session = getMonitorAccess();
+  if (!session) throw new AdminAuthError("패스코드가 필요합니다.");
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { Authorization: `Bearer ${session.token}` },
+  });
+  if (res.status === 401) {
+    clearMonitorAccess();
+    throw new AdminAuthError("세션이 만료되었습니다. 패스코드를 다시 입력해 주세요.");
   }
   if (!res.ok) throw new Error(`Admin API error: ${res.status}`);
   return res.json() as Promise<T>;
@@ -413,11 +473,11 @@ export const adminApi = {
   stocksTop: (limit = 10) => authedGet<{ items: StockSearchCount[] }>(`/stocks/top?limit=${limit}`),
   tail: (limit = 100) => authedGet<{ events: ActivityEvent[] }>(`/live/tail?limit=${limit}`),
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
-  monitorGraph: () => authedGet<MonitorGraph>("/monitor/graph"),
+  monitorGraph: () => monitorGet<MonitorGraph>("/monitor/graph"),
   // Cursor-based: the response carries the cursors to send next time, so a viewer open
   // for an hour polls the same tiny payload as one that just opened.
   monitorPulse: (apiCursor: number, activityCursor: number) =>
-    authedGet<MonitorPulse>(`/monitor/pulse?api_cursor=${apiCursor}&activity_cursor=${activityCursor}`),
+    monitorGet<MonitorPulse>(`/monitor/pulse?api_cursor=${apiCursor}&activity_cursor=${activityCursor}`),
   comments: (limit = 200) => authedGet<{ items: AdminComment[] }>(`/comments?limit=${limit}`),
   deleteComment: (source: CommentSource, id: number) => authedDelete(`/comments/${source}/${id}`),
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>

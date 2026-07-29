@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AdminAuthError,
   ActivityEvent,
   ApiPulseEvent,
   MonitorGraph,
+  MonitorLockedError,
   adminApi,
-  clearStoredSession,
+  clearMonitorAccess,
+  getMonitorAccess,
   getStoredSession,
+  unlockMonitor,
 } from "../adminApi";
 import { layoutGraph, type MonitorLayout, type PlacedNode } from "../monitor/layout";
 import { MonitorScene, type HoverInfo } from "../monitor/scene";
-import { Link, navigate } from "../router";
+import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import Logo from "./Logo";
 import "./monitor.css";
@@ -97,15 +100,26 @@ export default function MonitorPage() {
   const [sessions, setSessions] = useState(0);
   const [rate, setRate] = useState(0);
 
-  const [authed] = useState(() => !!getStoredSession());
-  useEffect(() => {
-    if (!getStoredSession()) navigate("/admin");
-  }, []);
+  // The one admin surface that does not require the admin account: it can be opened
+  // from outside with the monitor passcode alone, so a lost session drops back to the
+  // lock screen in place rather than bouncing to the admin login.
+  const [authed, setAuthed] = useState(() => !!getMonitorAccess());
+  // Whether the viewer arrived through the admin dashboard or through the passcode.
+  // The only thing it changes is the way back: a passcode viewer has no admin session,
+  // so offering them a link into the dashboard would be a door that opens onto a login
+  // screen they cannot pass.
+  const [isAdmin, setIsAdmin] = useState(() => !!getStoredSession());
 
   const onAuthError = useCallback((err: unknown) => {
     if (err instanceof AdminAuthError) {
-      clearStoredSession();
-      navigate("/admin");
+      clearMonitorAccess();
+      setAuthed(false);
+      setIsAdmin(false);
+      // Dropping the graph is what tears the WebGL scene down: its effect keys on the
+      // graph, and without this the renderer would keep drawing into a canvas that the
+      // lock screen has already unmounted.
+      setGraph(null);
+      cursors.current = { api: 0, activity: 0 };
       return true;
     }
     return false;
@@ -303,7 +317,7 @@ export default function MonitorPage() {
       .map(([group, v]) => ({ group, color: `#${v.color.toString(16).padStart(6, "0")}`, count: v.count }));
   }, [layout]);
 
-  if (!authed) return null;
+  if (!authed) return <MonitorLock onUnlocked={() => setAuthed(true)} />;
 
   return (
     <div className="app monitor-page">
@@ -322,9 +336,11 @@ export default function MonitorPage() {
           <Stat label="연결" value={layout?.edges.length ?? 0} />
           <Stat label="접속 세션" value={sessions} live />
           <Stat label="신호/틱" value={rate} live />
-          <Link to="/admin/dashboard" className="monitor-back">
-            ← 관리자
-          </Link>
+          {isAdmin && (
+            <Link to="/admin/dashboard" className="monitor-back">
+              ← 관리자
+            </Link>
+          )}
         </div>
       </header>
 
@@ -360,13 +376,21 @@ export default function MonitorPage() {
             ))}
           </div>
 
-          <div className="monitor-help">
+          {/* Two sets, one shown per input kind by CSS: a tablet has no wheel, no right
+              button and no arrow keys, so the mouse list is six lines of advice it
+              cannot follow standing between the operator and the picture. */}
+          <div className="monitor-help monitor-help--mouse">
             <span>드래그 회전</span>
             <span>휠 확대</span>
             <span>우클릭·Shift+드래그 이동</span>
             <span>←→↑↓ 회전</span>
             <span>Shift+방향키 이동</span>
             <span>+ / − 확대</span>
+          </div>
+          <div className="monitor-help monitor-help--touch">
+            <span>한 손가락 회전</span>
+            <span>두 손가락 확대·이동</span>
+            <span>탭하면 정보</span>
           </div>
 
           {selected && (
@@ -441,6 +465,74 @@ export default function MonitorPage() {
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+/** The door.
+ *
+ * The monitor is the one admin surface meant to be openable from outside, so it asks
+ * for its own passcode rather than for the admin account — a link can be handed to
+ * someone without handing over the dashboard, the DB console and the batch triggers
+ * along with it. An admin session is strictly more than this buys, so anyone already
+ * logged in never sees this screen (see adminApi's getMonitorAccess).
+ */
+function MonitorLock({ onUnlocked }: { onUnlocked: () => void }) {
+  const [passcode, setPasscode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (busy || !passcode) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await unlockMonitor(passcode);
+      onUnlocked();
+    } catch (err) {
+      // The server's own message carries the useful part — a wrong passcode reads
+      // differently from "too many tries, wait 4 minutes", and the visitor needs to
+      // know which one they are looking at.
+      setError(err instanceof MonitorLockedError ? err.message : "잠금을 해제하지 못했습니다.");
+      setPasscode("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="monitor-lock">
+      <form className="monitor-lock-card" onSubmit={handleSubmit}>
+        <div className="monitor-lock-badge">
+          <i />
+          <i />
+          <i />
+        </div>
+        <h1 className="monitor-lock-title">뉴런 모니터</h1>
+        <p className="monitor-lock-subtitle">
+          사이트 구조와 실시간 신호를 보는 화면입니다.
+          <br />
+          접속 패스코드를 입력해 주세요.
+        </p>
+        <label className="monitor-lock-field">
+          <span>패스코드</span>
+          <input
+            type="password"
+            value={passcode}
+            onChange={(e) => setPasscode(e.target.value)}
+            autoComplete="current-password"
+            autoFocus
+          />
+        </label>
+        {error && <p className="monitor-lock-error">{error}</p>}
+        <button type="submit" className="monitor-lock-submit" disabled={busy || !passcode}>
+          {busy ? "확인 중…" : "입장"}
+        </button>
+        <Link to="/" className="monitor-lock-back">
+          ← 홈으로
+        </Link>
+      </form>
     </div>
   );
 }

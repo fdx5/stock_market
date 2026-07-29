@@ -108,7 +108,11 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/admin/live/sessions",
     ],
     "page:/admin/db": ["/api/admin/db/sources", "/api/admin/db/tables", "/api/admin/db/query"],
-    "page:/admin/monitor": ["/api/admin/monitor/graph", "/api/admin/monitor/pulse"],
+    "page:/admin/monitor": [
+        "/api/admin/monitor/unlock",
+        "/api/admin/monitor/graph",
+        "/api/admin/monitor/pulse",
+    ],
 }
 
 # ───────────────────── api → store / upstream (hand-maintained) ─────────────────

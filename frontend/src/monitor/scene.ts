@@ -68,6 +68,10 @@ const HALO_ALPHA: Record<"page" | "api" | "depot", number> = { page: 0.7, api: 0
  * viewport and after any change to the layout's shell radii. */
 const CAMERA_DIRECTION = new THREE.Vector3(0.16, 0.34, 1).normalize();
 
+/** Slack left around the graph's bounding sphere when framing it. Labels sit above
+ * their nodes, so a frame that exactly touches the sphere still clips text. */
+const FRAME_MARGIN = 1.18;
+
 export interface HoverInfo {
   node: PlacedNode;
   /** Screen-space position of the node, for placing the HTML tooltip. */
@@ -199,6 +203,12 @@ export class MonitorScene {
   /** Distance at which labels start fading. Derived from the framing distance rather
    * than fixed, so zooming out to see the whole brain doesn't blank every label. */
   private labelFade = 200;
+  /** Last computed "whole graph in shot" distance, kept so a viewport change can move
+   * the camera by the same proportion instead of throwing the operator's view away. */
+  private fitDistance = 0;
+  /** What kind of device the last pointer event came from. Touch has no hover state and
+   * needs picking driven from the tap itself. */
+  private lastPointerType = "mouse";
   private running = false;
   private disposed = false;
 
@@ -211,11 +221,22 @@ export class MonitorScene {
 
     const width = container.clientWidth || 1;
     const height = container.clientHeight || 1;
-    const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+    // Bloom is a multi-pass effect over the whole framebuffer, so the pixel ratio is
+    // paid several times per frame. A tablet reports 2 on a screen with a fraction of a
+    // desktop GPU behind it; capped lower there, the scene stays smooth and the
+    // difference is invisible on a display held at arm's length.
+    const coarse = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+    const pixelRatio = Math.min(window.devicePixelRatio || 1, coarse ? 1.5 : 2);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(pixelRatio);
-    this.renderer.setSize(width, height, false);
+    // The third argument must stay false-less, i.e. the style *is* updated. With it
+    // suppressed the canvas gets a backing store of width×pixelRatio and no CSS size,
+    // so it lays out at its intrinsic pixel size: on a 2× display that is a canvas
+    // twice as wide as the box holding it, and three quarters of the scene renders
+    // outside the visible area. Invisible on a 1× desktop, and the whole of the
+    // "cut off on the tablet" bug.
+    this.renderer.setSize(width, height);
     this.renderer.setClearColor(0x04060d, 1);
     // ACES keeps the additive pile-up in the dense middle shell from clipping to flat
     // white — without it, a busy moment turns the core of the brain into a blob.
@@ -807,11 +828,26 @@ export class MonitorScene {
 
   /* ──────────────────────────────── lifecycle ──────────────────────────────── */
 
-  private onPointerMove = (event: PointerEvent): void => {
+  private trackPointer(event: PointerEvent): void {
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     this.pointerInside = true;
+    this.lastPointerType = event.pointerType || "mouse";
+  }
+
+  private onPointerMove = (event: PointerEvent): void => {
+    this.trackPointer(event);
+  };
+
+  /** A touch never hovers: it arrives as down → up → click with no move in between, so
+   * without sampling the position here every tap would reach onClick with nothing
+   * hovered and read as "tapped empty space" — nothing on a tablet could be selected.
+   * The pick is run immediately rather than waiting for the next frame, because that
+   * frame is not guaranteed to land before the click. */
+  private onPointerDown = (event: PointerEvent): void => {
+    this.trackPointer(event);
+    if (event.pointerType !== "mouse") this.updateHover();
   };
 
   private onPointerLeave = (): void => {
@@ -822,13 +858,17 @@ export class MonitorScene {
     // Click-to-select only when the pointer is genuinely over a node: OrbitControls
     // fires a click at the end of every drag, and clearing the selection because the
     // operator rotated the view would be maddening.
-    if (!this.hovered) {
+    if (this.hovered) {
+      this.selectedId = this.hovered.id;
+      this.onSelect?.(this.hovered);
+    } else {
       this.selectedId = null;
       this.onSelect?.(null);
-      return;
     }
-    this.selectedId = this.hovered.id;
-    this.onSelect?.(this.hovered);
+    // A finger that has left the glass is not resting on anything. Dropping it here
+    // rather than on pointerup keeps the hover alive long enough for the line above to
+    // read it, then lets the tooltip close and the idle rotation resume.
+    if (this.lastPointerType !== "mouse") this.pointerInside = false;
   };
 
   private onKeyDown = (event: KeyboardEvent): void => {
@@ -849,6 +889,7 @@ export class MonitorScene {
     const canvas = this.renderer.domElement;
     canvas.style.cursor = "grab";
     canvas.addEventListener("pointermove", this.onPointerMove);
+    canvas.addEventListener("pointerdown", this.onPointerDown);
     canvas.addEventListener("pointerleave", this.onPointerLeave);
     canvas.addEventListener("click", this.onClick);
     window.addEventListener("keydown", this.onKeyDown);
@@ -873,20 +914,30 @@ export class MonitorScene {
     this.frameGraph();
   }
 
-  /** Pulls the camera back to exactly contain the graph's bounding sphere, accounting
-   * for the *narrower* of the two fields of view — on a wide viewport the vertical one
-   * binds, and fitting to the horizontal would crop the top and bottom off. */
-  private frameGraph(): void {
+  /** The distance at which the graph's bounding sphere exactly fills the *narrower* of
+   * the two fields of view. The narrower one is what binds: on a wide viewport that is
+   * the vertical fov, and on a tall one (a tablet held upright) it is the horizontal —
+   * fitting to the wrong one crops the graph along the other axis. */
+  private computeFitDistance(): number {
     let radius = 1;
     for (const node of this.nodes) radius = Math.max(radius, Math.hypot(node.x, node.y, node.z));
     const vFov = (this.camera.fov * Math.PI) / 180;
     const hFov = 2 * Math.atan(Math.tan(vFov / 2) * this.camera.aspect);
     const fov = Math.min(vFov, hFov);
-    // 1.18 leaves a margin so labels sitting above their nodes stay on screen too.
-    const distance = (radius * 1.18) / Math.sin(fov / 2);
-    this.labelFade = distance * 0.95;
+    return (radius * FRAME_MARGIN) / Math.sin(fov / 2);
+  }
+
+  /** Pulls the camera back to contain the whole graph, from the rest direction. */
+  private frameGraph(): void {
+    const distance = this.computeFitDistance();
+    this.applyFit(distance);
     this.camera.position.copy(CAMERA_DIRECTION).multiplyScalar(distance);
     this.camera.lookAt(0, 0, 0);
+  }
+
+  private applyFit(distance: number): void {
+    this.fitDistance = distance;
+    this.labelFade = distance * 0.95;
     this.controls.maxDistance = distance * 3;
   }
 
@@ -895,9 +946,27 @@ export class MonitorScene {
     const height = this.container.clientHeight || 1;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height, false);
+    this.renderer.setSize(width, height);
     this.composer.setSize(width, height);
     this.bloom.setSize(width, height);
+
+    // Framing is a function of the aspect ratio, so a viewport that changes shape — a
+    // tablet rotated, the console strip appearing at a breakpoint — needs it computed
+    // again. Without this the camera keeps the distance that fitted the *old* shape and
+    // the graph is cropped for as long as the page stays open.
+    if (this.nodes.length === 0) return;
+    const fit = this.computeFitDistance();
+    // Scale the current view by the same factor rather than snapping back to the rest
+    // framing: an operator who has zoomed into one lobe keeps their zoom through a
+    // rotation, and a view that was fitted stays fitted.
+    const ratio = fit / (this.fitDistance || fit);
+    this.applyFit(fit);
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    const distance = Math.min(
+      Math.max(offset.length() * ratio, this.controls.minDistance),
+      this.controls.maxDistance
+    );
+    this.camera.position.copy(this.controls.target).add(offset.setLength(distance));
   }
 
   start(): void {
@@ -931,6 +1000,7 @@ export class MonitorScene {
     this.stop();
     const canvas = this.renderer.domElement;
     canvas.removeEventListener("pointermove", this.onPointerMove);
+    canvas.removeEventListener("pointerdown", this.onPointerDown);
     canvas.removeEventListener("pointerleave", this.onPointerLeave);
     canvas.removeEventListener("click", this.onClick);
     window.removeEventListener("keydown", this.onKeyDown);
