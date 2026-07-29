@@ -48,6 +48,60 @@ export interface StockSearchCount {
   count: number;
 }
 
+/* ───────────────────────── monitor (neuron view) ─────────────────────────
+   The site's own wiring, plus the live signal running through it. See the backend's
+   services/site_graph for which parts of the graph are derived from the live route
+   table and which are hand-curated. */
+
+/** Which layer of the diagram a node sits in: a client-side route, a backend endpoint,
+ * or a store/upstream the endpoints lean on. */
+export type MonitorNodeKind = "page" | "api" | "depot";
+
+export interface MonitorNode {
+  id: string;
+  label: string;
+  kind: MonitorNodeKind;
+  /** Cluster the node belongs to — the monitor colours and spatially groups by this. */
+  group: string;
+  /** Client-side route for a page, endpoint template for an api; absent on a depot. */
+  path?: string;
+  methods?: string[];
+}
+
+export interface MonitorEdge {
+  source: string;
+  target: string;
+  /** "call" is page → endpoint, "depend" is endpoint → store/upstream. */
+  kind: "call" | "depend";
+}
+
+export interface MonitorGraph {
+  nodes: MonitorNode[];
+  edges: MonitorEdge[];
+  /** Curated edges whose endpoint no longer exists, surfaced rather than dropped
+   * silently — the diagram says so instead of quietly lying. */
+  warnings: string[];
+}
+
+/** One completed backend request, as timed by the API pulse middleware. */
+export interface ApiPulseEvent {
+  id: number;
+  ts: number;
+  /** The matched route *template*, so every stock code reports as one endpoint. */
+  route: string;
+  method: string;
+  status: number;
+  ms: number;
+}
+
+export interface MonitorPulse {
+  api_cursor: number;
+  activity_cursor: number;
+  api: ApiPulseEvent[];
+  activity: ActivityEvent[];
+  active_sessions: number;
+}
+
 export interface ActiveSession {
   session_id: string;
   path: string;
@@ -359,6 +413,11 @@ export const adminApi = {
   stocksTop: (limit = 10) => authedGet<{ items: StockSearchCount[] }>(`/stocks/top?limit=${limit}`),
   tail: (limit = 100) => authedGet<{ events: ActivityEvent[] }>(`/live/tail?limit=${limit}`),
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
+  monitorGraph: () => authedGet<MonitorGraph>("/monitor/graph"),
+  // Cursor-based: the response carries the cursors to send next time, so a viewer open
+  // for an hour polls the same tiny payload as one that just opened.
+  monitorPulse: (apiCursor: number, activityCursor: number) =>
+    authedGet<MonitorPulse>(`/monitor/pulse?api_cursor=${apiCursor}&activity_cursor=${activityCursor}`),
   comments: (limit = 200) => authedGet<{ items: AdminComment[] }>(`/comments?limit=${limit}`),
   deleteComment: (source: CommentSource, id: number) => authedDelete(`/comments/${source}/${id}`),
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>

@@ -25,6 +25,7 @@ from app.routers import (
     global_dashboard,
     investor,
     market_map,
+    monitor,
     notify,
     prediction,
     search,
@@ -33,7 +34,14 @@ from app.routers import (
     us_stock,
     visitors,
 )
-from app.services import kakao_notify, notify_stats_store, page_view_store, prediction_batch, stock_search_store
+from app.services import (
+    api_pulse,
+    kakao_notify,
+    notify_stats_store,
+    page_view_store,
+    prediction_batch,
+    stock_search_store,
+)
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.stock_board import warm_boards
@@ -51,6 +59,41 @@ app.add_middleware(
 # fewer bytes billed against Render's free-tier bandwidth cap.
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
+# The monitor's own polling, which must not be recorded — it fires once a second per
+# open viewer, and feeding that back into the buffer it is reading would drown the real
+# traffic in the act of watching for it.
+_PULSE_EXCLUDED_PREFIX = "/api/admin/monitor"
+
+
+@app.middleware("http")
+async def _record_api_pulse(request: Request, call_next):
+    """Times every API request into services/api_pulse, the live signal behind the admin
+    monitor's neuron view.
+
+    Kept to an append onto a bounded deque so it costs the request essentially nothing,
+    and wrapped so that a failure in the recording can never affect the response — an
+    observability side-channel that can break the thing it observes is worse than no
+    side-channel. The route *template* is read from the matched route rather than the
+    raw path, so `/api/stock/005930/quote` and every other code report as one endpoint.
+    """
+    path = request.url.path
+    if not path.startswith("/api") or path.startswith(_PULSE_EXCLUDED_PREFIX):
+        return await call_next(request)
+
+    started = time.perf_counter()
+    response = await call_next(request)
+    try:
+        route = request.scope.get("route")
+        api_pulse.record(
+            route=getattr(route, "path", path),
+            method=request.method,
+            status=response.status_code,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
+    except Exception:  # noqa: BLE001 - never let monitoring break the response
+        pass
+    return response
+
 app.include_router(search.router, prefix="/api")
 app.include_router(stock.router, prefix="/api/stock")
 app.include_router(us_stock.router, prefix="/api/us-stock")
@@ -67,6 +110,7 @@ app.include_router(activity.router, prefix="/api/activity")
 app.include_router(admin.router, prefix="/api/admin")
 app.include_router(admin_comments.router, prefix="/api/admin")
 app.include_router(admin_db.router, prefix="/api/admin")
+app.include_router(monitor.router, prefix="/api/admin/monitor")
 app.include_router(notify.router, prefix="/api/notify")
 
 

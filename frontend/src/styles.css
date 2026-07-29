@@ -4868,6 +4868,202 @@ thead .weekly-foreign-amount-col {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── 잔고 현황: the header button, and the per-session table it opens ─────────
+
+   The row is the depth bar plus its one outbound link. `.orderbook-balance` is
+   `flex-basis: 100%` on its own, so it keeps taking the width it always did and the
+   button sits in the gap at the end rather than squeezing the bar. */
+.orderbook-balance-row {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+/* Outlined, not filled: this sits in a header that already has a price, a change
+   badge and a row of indicator pills competing for attention, and a filled control
+   here would outrank all of them for something that is supplementary reading. */
+.balance-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.balance-open:hover,
+.balance-open:focus-visible {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.balance-open-caret {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.balance-modal {
+  width: min(560px, 100%);
+  max-height: min(78vh, 720px);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.balance-modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.balance-modal-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.balance-modal-sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.balance-modal-close {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.balance-modal-close:hover {
+  color: var(--text-primary);
+}
+
+.balance-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.balance-tab {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.balance-tab.is-active {
+  background: var(--text-primary);
+  border-color: var(--text-primary);
+  color: var(--bg);
+}
+
+.balance-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* The table scrolls, not the modal: the header and the tab row stay put while sixty
+   sessions move under them, so the column meanings never leave the screen. */
+.balance-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+.balance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  /* Every column but the date is a figure being compared down the column — tabular
+     digits are what let the eye read a change of magnitude without parsing digits. */
+  font-variant-numeric: tabular-nums;
+}
+
+.balance-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel-bg, var(--bg));
+  padding: 7px 10px;
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.balance-table th:first-child {
+  text-align: left;
+}
+
+.balance-table td {
+  padding: 7px 10px;
+  text-align: right;
+  border-bottom: 1px solid var(--gridline);
+  white-space: nowrap;
+}
+
+.balance-date {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.balance-value {
+  font-weight: 700;
+}
+
+.balance-change {
+  font-weight: 700;
+}
+
+.balance-empty {
+  padding: 32px 0;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+
+@media (max-width: 640px) {
+  .orderbook-balance-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .balance-table {
+    font-size: 12px;
+  }
+
+  .balance-table th,
+  .balance-table td {
+    padding: 6px 7px;
+  }
+}
+
 /* ── Favourite star ──────────────────────────────────────────────────────── */
 .favorite-button {
   display: inline-flex;
@@ -9829,6 +10025,16 @@ thead .weekly-foreign-amount-col {
   object-fit: cover;
 }
 
+/* Applied on top of whichever sizing class a US logo was given — see StockLogo.tsx.
+   Overrides the `object-fit: cover` the KR icon classes set, because these assets are
+   frequently wide wordmarks that cover would crop to an unreadable stripe, and adds the
+   light plate the dark-on-transparent marks need to survive a dark theme. */
+.stock-logo--us {
+  object-fit: contain;
+  background: #fff;
+  padding: 1px;
+}
+
 .admin-toppages-stock-code {
   color: var(--text-muted);
   font-weight: 400;
@@ -13158,6 +13364,33 @@ thead .pred-matrix-stockhead {
 .kospi-map-nav-link--db:hover {
   background: color-mix(in srgb, var(--text-secondary) 18%, transparent);
   color: var(--text-primary);
+}
+
+/* Sibling of the DB console link, and the last one in the admin row — tinted with the
+   monitor's own signal cyan so the entry point looks like where it leads. Base rule is
+   the dark theme, per this stylesheet's convention (:root is dark, light overrides). */
+.kospi-map-nav-link--monitor {
+  color: #4dd2ff;
+  border-color: color-mix(in srgb, #4dd2ff 45%, transparent);
+  background: color-mix(in srgb, #4dd2ff 12%, transparent);
+  animation-delay: 2.6s;
+}
+
+.kospi-map-nav-link--monitor:hover {
+  background: color-mix(in srgb, #4dd2ff 22%, transparent);
+  color: #8ce4ff;
+}
+
+/* The same cyan fails contrast on a light surface, so light gets a darker one. */
+:root[data-theme="light"] .kospi-map-nav-link--monitor {
+  color: #1b7fa8;
+  border-color: color-mix(in srgb, #1b7fa8 45%, transparent);
+  background: color-mix(in srgb, #1b7fa8 10%, transparent);
+}
+
+:root[data-theme="light"] .kospi-map-nav-link--monitor:hover {
+  background: color-mix(in srgb, #1b7fa8 18%, transparent);
+  color: #12617f;
 }
 
 /* A console, not a document: the page itself never scrolls, so the table list and the

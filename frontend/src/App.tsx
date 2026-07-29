@@ -32,6 +32,10 @@ const PredictionGradingPage = lazy(() => import("./components/PredictionGradingP
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
+// The neuron monitor is the one route that pulls in three.js. Lazy like every other
+// page, so that ~150KB gzipped lands only when an admin actually opens it and never
+// touches a visitor's bundle.
+const MonitorPage = lazy(() => import("./components/MonitorPage"));
 
 export default function App() {
   const path = useRoute();
@@ -76,6 +80,8 @@ export default function App() {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {
     page = <AdminDashboardPage />;
+  } else if (path === "/admin/monitor") {
+    page = <MonitorPage />;
   } else if (path === "/admin/db") {
     page = <AdminDbPage />;
   } else {

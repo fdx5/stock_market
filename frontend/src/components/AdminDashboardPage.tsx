@@ -23,12 +23,13 @@ import { pageLabel } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import DbIcon from "./DbIcon";
+import MonitorIcon from "./MonitorIcon";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import PredictIcon from "./PredictIcon";
-import StockIcon from "./StockIcon";
+import StockLogo from "./StockLogo";
 import ThemeToggle from "./ThemeToggle";
 
 // Fixed categorical order (never cycled) — reuses this app's existing series
@@ -896,10 +897,14 @@ export default function AdminDashboardPage() {
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          {/* Admin-only, and only ever rendered here — the DB console has no entry point
-              outside this page, and the page itself is behind the login. */}
+          {/* Admin-only, and only ever rendered here — neither the DB console nor the
+              monitor has an entry point outside this page, and the page itself is
+              behind the login. */}
           <Link to="/admin/db" className="kospi-map-nav-link kospi-map-nav-link--db">
             <DbIcon /> DB 조회
+          </Link>
+          <Link to="/admin/monitor" className="kospi-map-nav-link kospi-map-nav-link--monitor">
+            <MonitorIcon /> 모니터링
           </Link>
         </div>
       </header>
@@ -1328,7 +1333,7 @@ export default function AdminDashboardPage() {
                     )}
                     <div className="admin-toppages-info">
                       <span className="admin-toppages-label admin-toppages-label--stock">
-                        <StockIcon code={s.code} className="admin-toppages-stock-icon" />
+                        <StockLogo code={s.code} className="admin-toppages-stock-icon" />
                         {s.name}
                         <span className="admin-toppages-stock-code">({s.code})</span>
                       </span>
@@ -1383,7 +1388,7 @@ export default function AdminDashboardPage() {
                 <span className="admin-session-stock">
                   {s.stock_code ? (
                     <>
-                      <StockIcon code={s.stock_code} className="admin-session-stock-icon" />
+                      <StockLogo code={s.stock_code} className="admin-session-stock-icon" />
                       {s.stock_name}
                       <span className="admin-session-stock-code">({s.stock_code})</span>
                     </>
@@ -1490,7 +1495,7 @@ export default function AdminDashboardPage() {
                   <span className="admin-tail-detail">
                     {e.type === "stock_view" && e.stock_code ? (
                       <>
-                        <StockIcon code={e.stock_code} className="admin-tail-stock-icon" />
+                        <StockLogo code={e.stock_code} className="admin-tail-stock-icon" />
                         {e.stock_name} ({e.stock_code})
                       </>
                     ) : e.label ? (
