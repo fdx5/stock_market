@@ -249,17 +249,18 @@
 }
 
 /* The legend and the hint strip below are read at a glance from wherever the operator
-   happens to be standing, not leaned into like the console, so they carry roughly twice
-   the type size of the rest of the chrome. */
+   happens to be standing, not leaned into like the console, so they carry noticeably
+   more type than the rest of the chrome — about a third up on it, which is legible
+   across a room without the two of them taking a corner of the stage each. */
 .monitor-legend {
   position: absolute;
   left: 14px;
   top: 14px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 20px;
-  max-width: 640px;
-  font-size: 20px;
+  gap: 5px 13px;
+  max-width: 420px;
+  font-size: 13px;
   letter-spacing: 0.03em;
   color: var(--mon-dim);
   pointer-events: none;
@@ -268,12 +269,12 @@
 .monitor-legend-item {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
 }
 
 .monitor-legend-item i {
-  width: 14px;
-  height: 14px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
 }
 
@@ -288,8 +289,8 @@
   bottom: 12px;
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
-  max-width: calc(100% - 150px);
+  gap: 8px;
+  max-width: calc(100% - 140px);
   pointer-events: none;
 }
 
@@ -309,11 +310,11 @@
 }
 
 .monitor-help span {
-  padding: 6px 16px;
+  padding: 4px 11px;
   border: 1px solid var(--mon-line);
   border-radius: 999px;
   background: rgba(6, 10, 18, 0.72);
-  font-size: 20px;
+  font-size: 13px;
   color: var(--mon-dim);
 }
 
@@ -644,15 +645,15 @@
   .monitor-legend {
     left: 10px;
     top: 10px;
-    max-width: 78%;
-    max-height: 92px;
+    max-width: 72%;
+    max-height: 62px;
     overflow: hidden;
   }
 
   .monitor-help {
     left: 10px;
     bottom: 10px;
-    max-width: calc(100% - 140px);
+    max-width: calc(100% - 130px);
   }
 
   .monitor-reset {
