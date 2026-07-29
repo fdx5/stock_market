@@ -4901,10 +4901,15 @@ thead .weekly-foreign-amount-col {
   cursor: pointer;
 }
 
+/* --series-blue with a white label, matching .market-overview-tab.active and
+   .quick-access-tab.is-active — the app's existing "this one is selected" colour.
+   It was --text-primary over var(--bg), which is not a variable this stylesheet
+   defines: the colour declaration was therefore dropped and the label kept its muted
+   grey, on a fill that in dark mode is #ffffff. A selected tab had invisible text. */
 .balance-tab.is-active {
-  background: var(--text-primary);
-  border-color: var(--text-primary);
-  color: var(--bg);
+  background: var(--series-blue);
+  border-color: var(--series-blue);
+  color: #fff;
 }
 
 .balance-note {
@@ -4937,7 +4942,11 @@ thead .weekly-foreign-amount-col {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--panel-bg, var(--bg));
+  /* Opaque, not transparent: rows scroll underneath this row. --surface-1 is what
+     .daily-price-table's sticky header uses, and neither --panel-bg nor --bg — what
+     this said before — is a variable this stylesheet defines, so the header had no
+     background at all and sixty sessions slid under its labels. */
+  background: var(--surface-1);
   padding: 7px 10px;
   text-align: right;
   font-size: 11px;
