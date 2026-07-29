@@ -94,9 +94,9 @@ export const DICTIONARY: Record<string, string> = {
   // 공매도 수급 — the side panel's last tab, right of 호가. "잔고" is rendered as
   // "Balance" rather than "Outstanding" because the column is a share count on a given
   // date, not an amount owed.
-  // The tab label is the bare "공매도" to sit alongside 일별/호가 without wrapping the
-  // tab bar; the series names below carry the detail.
-  "공매도": "Shorts",
+  // The tab label names both upstreams the panel merges, since 대차잔고 is not a 공매도
+  // figure and a reader looking for it would not think to open a tab called 공매도.
+  "공매도/대차": "Shorts & Lending",
   "공매도 거래량": "Short Volume",
   "공매도 비중": "Short % of Volume",
   "공매도 거래대금": "Short Value",

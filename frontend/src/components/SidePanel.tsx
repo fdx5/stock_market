@@ -49,7 +49,7 @@ export default function SidePanel({ code, name, news }: { code: string; name: st
           className={`market-overview-tab ${tab === "shortsell" ? "active" : ""}`}
           onClick={() => setTab("shortsell")}
         >
-          {t("공매도")}
+          {t("공매도/대차")}
         </button>
       </div>
 
