@@ -1,5 +1,5 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
-import { StockBoard, StockBoardItem, StockBoardSector, api } from "../api/client";
+import { StockBoard, StockBoardItem, StockBoardSector, api, mergeBoardRefresh } from "../api/client";
 import { wonSuffix } from "../i18n/format";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
@@ -42,7 +42,10 @@ import "./stockBoard.css";
    in words anyway.
    ───────────────────────────────────────────────────────────────────────── */
 
-const POLL_INTERVAL_MS = 30_000;
+// Matches the roster snapshot's own fastest tier (market_map's FIRST_TIER_TTL_SECONDS),
+// so the board never sits on a price the map page has already moved past. Affordable at
+// this cadence only because a refresh asks for the slim payload — see the load effect.
+const POLL_INTERVAL_MS = 10_000;
 
 /** Filter sentinel for "every 업종" — distinct from any real sector label the
  * backend can send, including "기타". */
@@ -475,6 +478,155 @@ function StockCard({ item, ctx, compact }: { item: StockBoardItem; ctx: CardCont
   );
 }
 
+/* ──────────────────────────────── skeletons ────────────────────────────────
+   Placeholders that mirror the real card's structure rather than a blank pulsing
+   box, so nothing on the page moves when the data lands — same grid, same row
+   order, same heights. Follows the convention ChartSkeleton set: fake values give
+   the sparkline a plausible silhouette instead of an empty rectangle, because a
+   flat block in a chart's slot reads as "broken" where a line reads as "coming".
+
+   Per-card variation matters as much as the shapes do — eight identical cards read
+   as a rendering artifact — so name/price widths and the fake curve cycle through
+   fixed spreads. All of it is aria-hidden; the live region announcing the load sits
+   beside it, since a screen reader needs the sentence, not the scaffolding. */
+
+const SKELETON_CARDS = 8;
+
+// Name width, price width (% of the card), and the fake sparkline's path — indexed
+// per card so the grid looks populated rather than stamped.
+const SKELETON_SHAPES = [
+  { name: 58, price: 46, curve: "M0,72 L14,54 L29,66 L43,32 L57,44 L71,22 L86,34 L100,18" },
+  { name: 82, price: 38, curve: "M0,28 L14,42 L29,34 L43,58 L57,48 L71,70 L86,62 L100,78" },
+  { name: 70, price: 52, curve: "M0,50 L14,38 L29,56 L43,44 L57,60 L71,40 L86,52 L100,36" },
+  { name: 92, price: 42, curve: "M0,20 L14,36 L29,26 L43,48 L57,38 L71,56 L86,46 L100,64" },
+];
+
+function SkeletonCard({ index, compact, market }: { index: number; compact: boolean; market: string }) {
+  const shape = SKELETON_SHAPES[index % SKELETON_SHAPES.length];
+  // A US card carries one fundamental (index weight) where a KR card carries five,
+  // so its stats block wraps to one row instead of two and the whole card is 19px
+  // shorter. Same skeleton, one modifier — otherwise the NASDAQ board shrinks on load
+  // by exactly as much as the KOSPI one used to grow.
+  const usClass = market === "nasdaq" ? " sb-card--skeleton-us" : "";
+  return (
+    <article
+      className={`sb-card sb-card--skeleton${usClass}${compact ? " sb-card--compact" : ""}`}
+      aria-hidden="true"
+    >
+      <header className="sb-card-head">
+        <span className="skeleton sb-sk-rank" />
+        <span className="skeleton sb-sk-logo" />
+        <span className="sb-identity">
+          <span className="skeleton sb-sk-line" style={{ width: `${shape.name}%` }} />
+          <span className="skeleton sb-sk-line sb-sk-line--meta" />
+        </span>
+      </header>
+
+      <div className="sb-price-row">
+        <span className="skeleton sb-sk-price" style={{ width: `${shape.price}%` }} />
+        <span className="skeleton sb-sk-change" />
+      </div>
+
+      <div className="sb-relative">
+        <span className="skeleton sb-sk-chip" />
+        <span className="skeleton sb-sk-chip sb-sk-chip--wide" />
+      </div>
+
+      {/* The one placeholder that isn't a bar: a chart's slot holding a flat block
+          reads as a failed render, where a line reads as one still arriving. */}
+      <div className="sb-sk-spark">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <path d={shape.curve} vectorEffect="non-scaling-stroke" />
+        </svg>
+      </div>
+
+      {!compact && (
+        <>
+          <div className="sb-range">
+            <div className="sb-range-head">
+              <span className="skeleton sb-sk-line sb-sk-line--tiny" />
+              <span className="skeleton sb-sk-line sb-sk-line--tiny" />
+            </div>
+            <div className="skeleton sb-sk-track" />
+            <div className="sb-sk-scale">
+              <span className="skeleton sb-sk-line sb-sk-line--tiny" />
+              <span className="skeleton sb-sk-line sb-sk-line--tiny" />
+            </div>
+          </div>
+          <div className="sb-returns">
+            {[0, 1, 2, 3].map((i) => (
+              <span key={i} className="skeleton sb-sk-return" />
+            ))}
+          </div>
+          <div className="sb-sk-stats">
+            <span className="skeleton sb-sk-line sb-sk-line--stat" />
+            {market !== "nasdaq" && <span className="skeleton sb-sk-line sb-sk-line--stat" />}
+            {market !== "nasdaq" && <span className="skeleton sb-sk-line sb-sk-line--stat" />}
+          </div>
+        </>
+      )}
+    </article>
+  );
+}
+
+/** The market-pulse box's placeholder — same footprint as the real one, so the hero
+ * doesn't reflow when the breadth numbers arrive. */
+function SkeletonPulse() {
+  return (
+    <div className="sb-pulse sb-pulse--skeleton" aria-hidden="true">
+      <div className="sb-pulse-figure">
+        <span className="skeleton sb-sk-pulse-value" />
+        <span className="skeleton sb-sk-line sb-sk-line--tiny" />
+      </div>
+      <div className="sb-pulse-breadth">
+        <span className="skeleton sb-sk-breadth" />
+        <span className="skeleton sb-sk-line sb-sk-line--meta" />
+      </div>
+    </div>
+  );
+}
+
+/** Sector filter chips. Widths vary because the real labels do — a row of equal pills
+ * would be the one part of the skeleton that never matches what replaces it. There are
+ * as many here as a real market has 업종 for the same reason the widths vary: the row
+ * is a horizontal scroller, and a short row that doesn't overflow has no scrollbar,
+ * which alone made it 15px shorter than the row it stands in for. */
+const SKELETON_CHIP_WIDTHS = [58, 104, 88, 122, 96, 76, 110, 84, 118, 92, 70, 106, 82, 114, 90, 100];
+
+function SkeletonChips() {
+  return (
+    <div className="sb-chips" aria-hidden="true">
+      {SKELETON_CHIP_WIDTHS.map((width, i) => (
+        <span key={i} className="skeleton sb-sk-filter-chip" style={{ width: `${width}px` }} />
+      ))}
+    </div>
+  );
+}
+
+/** Two sector groups' worth of cards — enough to fill the first screen, and enough
+ * to show that the page groups by 업종 at all before any data proves it. */
+function BoardSkeleton({ compact, market }: { compact: boolean; market: string }) {
+  return (
+    <div className="sb-body" aria-hidden="true">
+      {[0, 1].map((group) => (
+        <section className="sb-group" key={group}>
+          <div className="sb-sector-head sb-sector-head--skeleton">
+            <span className="skeleton sb-sector-swatch" />
+            <span className="skeleton sb-sk-line sb-sk-line--sector" />
+            <span className="skeleton sb-sk-line sb-sk-line--meta" />
+            <span className="skeleton sb-sk-sector-avg" />
+          </div>
+          <div className={`sb-grid${compact ? " sb-grid--compact" : ""}`}>
+            {Array.from({ length: SKELETON_CARDS / 2 }, (_, i) => (
+              <SkeletonCard key={i} index={group * 2 + i} compact={compact} market={market} />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 /* ───────────────────────────── sector group header ───────────────────────────── */
 
 function SectorHeader({
@@ -560,20 +712,49 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
     setQuery("");
   }, [market]);
 
+  // The board we last applied, mirrored out of state because `load` below needs the
+  // previous sparklines to fold a refresh onto and must not re-subscribe to get them.
+  const boardRef = useRef<StockBoard | null>(null);
+
   useEffect(() => {
     let cancelled = false;
-    const load = () => {
-      api
-        .stockBoard(market)
-        .then((data) => {
-          if (cancelled) return;
-          setBoard(data);
-          setError(null);
-        })
-        .catch((err: Error) => {
-          if (!cancelled) setError(err.message);
-        });
+    // Switching markets reuses this component, so the previous board's history must not
+    // survive into the new market's first refresh.
+    boardRef.current = null;
+
+    const apply = (data: StockBoard) => {
+      if (cancelled) return;
+      boardRef.current = data;
+      setBoard(data);
+      setError(null);
     };
+    const fail = (err: Error) => {
+      // A failed refresh leaves the board on screen — a page that empties itself
+      // because one 10s tick timed out is worse than one showing a price from 10s ago.
+      if (!cancelled) setError(err.message);
+    };
+    const loadFull = () => api.stockBoard(market).then(apply).catch(fail);
+
+    // Only the first load pulls the sparkline history; every tick after it asks for the
+    // slim payload and splices the new closes onto the series already in state. At 10s
+    // that is the difference between refreshing the board and re-downloading it.
+    const load = () => {
+      const prev = boardRef.current;
+      if (!prev) {
+        loadFull();
+        return;
+      }
+      api
+        .stockBoardRefresh(market)
+        .then((refresh) => {
+          if (cancelled) return;
+          const merged = mergeBoardRefresh(prev, refresh);
+          if (merged) apply(merged);
+          else loadFull(); // the roster gained a name — see mergeBoardRefresh
+        })
+        .catch(fail);
+    };
+
     load();
     const stop = startVisibilityAwareInterval(load, POLL_INTERVAL_MS);
     return () => {
@@ -655,7 +836,9 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
 
   const breadth = board?.breadth;
   const breadthTotal = breadth ? breadth.up + breadth.flat + breadth.down || 1 : 1;
-  const updatedAt = board?.generated_at?.replace("T", " ").slice(5, 16) ?? "";
+  // Down to the second, not the minute: the board refreshes every 10s and the footnote
+  // says so, and a stamp that only moves once every six ticks reads as a stalled page.
+  const updatedAt = board?.generated_at?.replace("T", " ").slice(5, 19) ?? "";
 
   return (
     <div className="app sb-page">
@@ -720,6 +903,7 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
           </nav>
         </div>
 
+        {!breadth && !error && <SkeletonPulse />}
         {breadth && (
           <div className="sb-pulse">
             <div className="sb-pulse-figure" data-dir={direction(breadth.avg_change_pct)}>
@@ -790,6 +974,7 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
       {/* Sector chips double as the filter and as a ranked view of the market: each
           carries its own cap-weighted move, so the row reads as "which 업종 is
           working today" before anything is clicked. */}
+      {sectorSummaries.length === 0 && !error && <SkeletonChips />}
       {sectorSummaries.length > 0 && (
         <div className="sb-chips" role="group" aria-label={t("업종")}>
           <button
@@ -821,10 +1006,16 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
       )}
 
       {error && <div className="error-state">{t(error)}</div>}
+      {/* The skeleton is decorative scaffolding (aria-hidden throughout); this is what
+          actually announces the load, so a screen reader gets the sentence rather than
+          a description of forty empty boxes. */}
       {!board && !error && (
-        <div className="sb-loading" role="status">
-          {t(loadingLabel)}
-        </div>
+        <>
+          <span className="sr-only" role="status">
+            {t(loadingLabel)}
+          </span>
+          <BoardSkeleton compact={compact} market={market} />
+        </>
       )}
 
       {board && (
@@ -860,7 +1051,7 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
               each is measured from. */}
           <p className="sb-provenance">
             {t(
-              "시세·시가총액은 실시간(장중 30초 갱신), 차트·52주 범위·기간수익률은 일봉 종가 기준입니다. 기간수익률은 거래일 기준(1주=5거래일, 1개월=21거래일, 3개월=63거래일)이며 연초수익률은 전년도 종가 대비입니다."
+              "시세·시가총액은 실시간(장중 10초 갱신), 차트·52주 범위·기간수익률은 일봉 종가 기준입니다. 기간수익률은 거래일 기준(1주=5거래일, 1개월=21거래일, 3개월=63거래일)이며 연초수익률은 전년도 종가 대비입니다."
             )}
           </p>
         </main>

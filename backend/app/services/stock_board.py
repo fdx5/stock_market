@@ -245,8 +245,13 @@ def _sparklines(market: str, codes: list[str]) -> dict[str, SparkSeries]:
     return cache.get_or_set(f"board_spark:{market}", TTL_SPARK_SECONDS, lambda: fetch(codes))
 
 
-def get_board(market: str, limit: int = BOARD_LIMIT, fresh: bool = False) -> dict:
-    """The full card board for one market. `market` must be one of MARKETS."""
+def get_board(market: str, limit: int = BOARD_LIMIT, fresh: bool = False, slim: bool = False) -> dict:
+    """The full card board for one market. `market` must be one of MARKETS.
+
+    `slim` drops the sparkline history — see the note on the branch below. Everything
+    else is computed identically, so a slim response is the same board, not a
+    lesser one.
+    """
     if market == "nasdaq":
         items = _nasdaq_roster(limit, fresh)
         marcap_kind = "weight"
@@ -259,7 +264,7 @@ def get_board(market: str, limit: int = BOARD_LIMIT, fresh: bool = False) -> dic
     series = _sparklines(market, [it["code"] for it in items])
     items = [_apply_spark(it, series.get(it["code"])) for it in items]
 
-    return {
+    payload = {
         "market": market,
         "label": _LABELS[market],
         "currency": currency,
@@ -271,6 +276,19 @@ def get_board(market: str, limit: int = BOARD_LIMIT, fresh: bool = False) -> dic
         "sectors": _sector_summaries(items),
         "items": items,
     }
+    if slim:
+        # 100 names × 60 closes is the large majority of this response's bytes, and
+        # within a session none of it moves except the final point — which is `close`,
+        # a field every item here already carries. So a client that already has the
+        # board asks for it without the history and splices the new close onto the
+        # series it holds (frontend `mergeBoardRefresh`). That is what makes the page's
+        # 10s refresh cost about what the map pages' own 10s tier costs, instead of
+        # re-sending a year's worth of bars six times a minute per viewer.
+        payload["items"] = [{k: v for k, v in it.items() if k != "points"} for it in items]
+        # Dropped rather than emptied: the dates belong to the points, and a client
+        # doing a slim refresh is by definition still holding both.
+        del payload["spark_dates"]
+    return payload
 
 
 def warm_boards() -> None:

@@ -983,9 +983,222 @@
   font-size: 13.5px;
 }
 
+/* ─────────────────────────────── skeletons ───────────────────────────────
+   Every block below reuses the shared `.skeleton` primitive from styles.css for
+   its fill and pulse (including that rule's prefers-reduced-motion opt-out) and
+   only states its own geometry here. The geometry is the point: each placeholder
+   occupies exactly the box its real counterpart will, so the grid does not reflow
+   when the board lands — the thing a skeleton exists to prevent, and the thing a
+   generic "loading…" line cannot do.
+
+   Deliberately dimmer than a standalone skeleton would be: eight cards' worth of
+   pulsing blocks at full strength is a lot of movement on one screen. */
+
+.sb-card--skeleton {
+  border-left-color: var(--baseline);
+  pointer-events: none;
+}
+
+.sb-card--skeleton:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: var(--border);
+}
+
+.sb-card--skeleton .skeleton,
+.sb-pulse--skeleton .skeleton,
+.sb-sector-head--skeleton .skeleton,
+.sb-chips .sb-sk-filter-chip {
+  opacity: 0.55;
+}
+
+/* Every height below is the measured height of the row it stands in for, taken off a
+   rendered KOSPI card (head 37 / price 34 / relative 21 / spark 62 / range 44 /
+   returns 39 / stats 45). Eyeballed values left the skeleton card 62px short, which
+   is 62px of reflow per card the moment the board lands — the exact thing this is
+   here to prevent. */
+
+.sb-sk-rank {
+  width: 14px;
+  height: 10px;
+}
+
+.sb-sk-logo {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  flex: none;
+}
+
+.sb-sk-line {
+  height: 10px;
+  border-radius: 4px;
+  width: 100%;
+}
+
+.sb-sk-line--meta {
+  width: 46%;
+  height: 8px;
+}
+
+.sb-sk-line--tiny {
+  width: 52px;
+  height: 8px;
+}
+
+.sb-sk-line--sector {
+  width: 84px;
+  height: 12px;
+}
+
+.sb-sk-line--stat {
+  width: 54px;
+  height: 9px;
+}
+
+.sb-sk-price {
+  height: 34px;
+  border-radius: 5px;
+}
+
+.sb-sk-change {
+  width: 62px;
+  height: 34px;
+  border-radius: 5px;
+}
+
+.sb-sk-chip {
+  width: 84px;
+  height: 21px;
+  border-radius: 6px;
+}
+
+.sb-sk-chip--wide {
+  width: 104px;
+}
+
+/* The sparkline's placeholder — a drawn line rather than a filled block, matching
+   the mark it stands in for. Neutral-colored on purpose: the real line's color
+   states the 3-month direction, and guessing a direction before the data arrives
+   would mean the card visibly changes its mind a moment later. */
+.sb-sk-spark {
+  height: 62px;
+}
+
+.sb-sk-spark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* Stroked one step brighter than the filled placeholders around it: a 2px line
+   carries far less ink than a block of the same color, so matching them on color
+   alone left the curve invisible against the dark page. */
+.sb-sk-spark path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--text-primary) 28%, transparent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+.sb-sk-track {
+  height: 6px;
+  border-radius: 999px;
+}
+
+/* The 52-week track's two end labels. Omitting this row cost the skeleton card
+   ~16px against the real one, which is exactly the kind of drift that makes the
+   grid twitch on load.
+
+   The min-height carries the row, not the bar inside it: those labels are 10.5px
+   text in a 14px line box, and a 14px-tall placeholder bar for a caption reads as
+   a heading. Same trick on .sb-range-head above it. */
+.sb-sk-scale,
+.sb-card--skeleton .sb-range-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 14px;
+}
+
+.sb-sk-return {
+  height: 39px;
+  border-radius: 7px;
+}
+
+/* Mirrors .sb-stats' own top border and padding. The min-height is that block's
+   measured height with its labels wrapped to the two rows a KR card's five
+   fundamentals actually take — three placeholder lines on one row came out 25px
+   short. */
+.sb-sk-stats {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 6px 14px;
+  min-height: 45px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* The real head is 37px tall — set by the two-line identity column beside the logo,
+   not by the 34px logo itself. */
+.sb-card--skeleton .sb-card-head {
+  min-height: 37px;
+}
+
+.sb-sk-pulse-value {
+  width: 88px;
+  height: 26px;
+  border-radius: 5px;
+}
+
+/* The pulse box's own label line sits at the caption size, not the 8px the generic
+   --tiny variant uses; matching it is the last 7px of that box's height. */
+.sb-pulse--skeleton .sb-pulse-figure .sb-sk-line {
+  height: 14px;
+  width: 104px;
+}
+
+.sb-sk-breadth {
+  height: 10px;
+  border-radius: 999px;
+  width: 100%;
+}
+
+/* A US card's single fundamental fits one row where a KR card's five wrap to two. */
+.sb-card--skeleton-us .sb-sk-stats {
+  min-height: 26px;
+}
+
+.sb-sk-filter-chip {
+  height: 32px;
+  border-radius: 999px;
+  flex: none;
+}
+
+.sb-sk-sector-avg {
+  width: 60px;
+  height: 16px;
+  border-radius: 5px;
+  margin-left: auto;
+}
+
+.sb-sector-head--skeleton {
+  /* Not sticky: a pinned placeholder would outlive the group it stands for, and the
+     real header replacing it a second later would appear to jump into place. */
+  position: static;
+}
+
+.sb-sector-head--skeleton .sb-sector-swatch {
+  border-radius: 4px;
+}
+
 /* ─────────────────────────────── misc states ─────────────────────────────── */
 
-.sb-loading,
 .sb-empty {
   padding: 48px 0;
   text-align: center;

@@ -196,6 +196,44 @@ export interface StockBoard {
   items: StockBoardItem[];
 }
 
+/* ────────────────────── the board's 10s refresh payload ──────────────────────
+   A board is mostly sparkline history — 100 names × 60 daily closes — and none of
+   that moves during a session except each series' last point, which is that item's
+   own `close`. So a page that already has the board refreshes with `slim=true`,
+   which sends everything that does change and leaves the bars out, and splices the
+   new closes onto the series it is already holding.
+
+   Worth the two extra types: at a 10s cadence the alternative is re-sending a year
+   of bars six times a minute per viewer, and this app pays for its outbound. */
+
+export type StockBoardRefreshItem = Omit<StockBoardItem, "points">;
+
+export interface StockBoardRefresh extends Omit<StockBoard, "items" | "spark_dates"> {
+  items: StockBoardRefreshItem[];
+}
+
+/** Folds a slim refresh onto the board already in hand.
+ *
+ * Returns null when the refresh names a stock we hold no history for — i.e. the
+ * roster gained a name since the last full load. The caller re-fetches the whole
+ * board instead; that costs one extra request on an event that happens about as
+ * often as the top 100 actually changes, and the alternative is a card drawn with
+ * an empty chart. */
+export function mergeBoardRefresh(prev: StockBoard, next: StockBoardRefresh): StockBoard | null {
+  const history = new Map(prev.items.map((it) => [it.code, it.points]));
+  const items: StockBoardItem[] = [];
+  for (const item of next.items) {
+    const points = history.get(item.code);
+    if (!points) return null;
+    // The backend pins a series' final point to the live close (see `_apply_spark`);
+    // do the same here so the line still ends at the number printed above it.
+    const pinned = points.length > 0 ? [...points.slice(0, -1), item.close] : points;
+    items.push({ ...item, points: pinned });
+  }
+  // The session dates belong to the points, which are the ones we kept.
+  return { ...next, spark_dates: prev.spark_dates, items };
+}
+
 export interface BoardPost {
   nid: string;
   title: string;
@@ -656,6 +694,10 @@ export const api = {
     ),
   stockBoard: (market: "kospi" | "kosdaq" | "nasdaq", fresh = false) =>
     getJSON<StockBoard>(`${BASE}/market/board?market=${market}&fresh=${fresh}`),
+  /** The same board without its sparkline history — for a page that already has one.
+   * Pair with `mergeBoardRefresh`. */
+  stockBoardRefresh: (market: "kospi" | "kosdaq" | "nasdaq") =>
+    getJSON<StockBoardRefresh>(`${BASE}/market/board?market=${market}&slim=true`),
   sectorMap: (code: string, limit = 40) =>
     getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
   usSectorMap: (code: string, limit = 40) =>

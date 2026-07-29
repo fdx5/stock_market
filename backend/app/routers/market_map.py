@@ -67,13 +67,18 @@ def stock_board(
     market: str = Query(..., pattern="^(kospi|kosdaq|nasdaq)$"),
     limit: int = Query(BOARD_LIMIT, ge=10, le=BOARD_LIMIT),
     fresh: bool = Query(False),
+    slim: bool = Query(False),
 ):
     """The 100-종목 card board — the ranked roster plus, per card, a sparkline, its
     52-week range and its trailing returns, and per 업종 a cap-weighted summary.
-    See services/stock_board for what it's assembled from."""
+    See services/stock_board for what it's assembled from.
+
+    `slim=true` omits the sparkline history (`points` and `spark_dates`) and is what
+    the page's 10s refresh asks for; everything that actually changes during a session
+    is still there."""
     if market not in MARKETS:  # pragma: no cover - the pattern above already rejects these
         raise HTTPException(status_code=404, detail=f"지원하지 않는 시장입니다: {market}")
-    return get_board(market, limit, fresh=fresh)
+    return get_board(market, limit, fresh=fresh, slim=slim)
 
 
 @router.get("/sector-map")

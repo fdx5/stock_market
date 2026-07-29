@@ -250,8 +250,8 @@ export const DICTIONARY: Record<string, string> = {
   "조건에 맞는 종목이 없습니다.": "No stocks match these filters.",
   "KOSPI MAP": "KOSPI MAP",
   "NASDAQ MAP": "NASDAQ MAP",
-  "시세·시가총액은 실시간(장중 30초 갱신), 차트·52주 범위·기간수익률은 일봉 종가 기준입니다. 기간수익률은 거래일 기준(1주=5거래일, 1개월=21거래일, 3개월=63거래일)이며 연초수익률은 전년도 종가 대비입니다.":
-    "Price and market cap are live (refreshed every 30s during the session); the chart, the 52-week range and the trailing returns are computed from daily closes. Trailing returns are measured in trading sessions (1W = 5, 1M = 21, 3M = 63); YTD is measured against last year's closing price.",
+  "시세·시가총액은 실시간(장중 10초 갱신), 차트·52주 범위·기간수익률은 일봉 종가 기준입니다. 기간수익률은 거래일 기준(1주=5거래일, 1개월=21거래일, 3개월=63거래일)이며 연초수익률은 전년도 종가 대비입니다.":
+    "Price and market cap are live (refreshed every 10s during the session); the chart, the 52-week range and the trailing returns are computed from daily closes. Trailing returns are measured in trading sessions (1W = 5, 1M = 21, 3M = 63); YTD is measured against last year's closing price.",
 
   // Dashboard (App.tsx)
   "종목을 검색해 주세요. (예: 삼성전자, 005930)": "Please search for a stock (e.g. Samsung Electronics, 005930)",
