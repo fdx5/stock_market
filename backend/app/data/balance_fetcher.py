@@ -15,9 +15,12 @@ session, which is what authorizes the JSON call that follows. Calling the JSON
 endpoint cold — which is what every "just POST the bld" recipe does — is exactly
 what earns the LOGOUT.
 
-WHY THE 잔고 SERIES ARE NOT HERE — 대차잔고, 공매도잔고, 신용융자잔고. All three were
-chased down and none is reachable for free, so the module ships the 거래 figures it
-can stand behind rather than a column of nulls:
+대차잔고 comes from SEIBro instead, merged in by session date — see `loan_fetcher`,
+which explains why KRX cannot serve it.
+
+WHY THE OTHER TWO 잔고 SERIES ARE NOT HERE — 공매도잔고 and 신용융자잔고. Neither is
+reachable for free, so the panel ships the figures it can stand behind rather than a
+column of nulls:
 
   * 공매도잔고. KRX's own 잔고 screens are the login-walled ones — MDCSTAT307/310
     answer `LOGOUT` on the JSON call. The one public 잔고 screen, MDCSTAT305
@@ -27,8 +30,6 @@ can stand behind rather than a column of nulls:
     defines SRTSELL_QTY/SRTSELL_AMT columns, but the public `_OUT` variant returns
     them as `STR_CONST_VAL1`/`STR_CONST_VAL2`, a literal "-". KRX blanks the 잔고 on
     the anonymous embed deliberately; there is no parameter that turns it back on.
-  * 대차잔고. Not published per issue by KRX at all — the srtLoader family is 공매도
-    only, and the 대차거래 screens are behind the same login.
   * 신용융자잔고. Not published per-stock for free anywhere: Naver (desktop and
     mobile API), Daum and FnGuide don't carry the field, 금융투자협회's freesis
     publishes 신용공여 for the market rather than per issue, and the per-issue figure
@@ -49,6 +50,7 @@ import re
 
 import requests
 
+from app.data import loan_fetcher
 from app.services.cache import cache
 
 # One completed session per day. There is no intraday tick of this — the figure is
@@ -84,6 +86,9 @@ SERIES_UNITS: dict[str, str] = {
     "short_volume": "주",
     "short_weight": "%",
     "short_value": "원",
+    # From SEIBro rather than KRX, so it is the one series that can be absent while the
+    # rest are present.
+    "loan": "주",
     "uptick_applied": "주",
     "uptick_exempt": "주",
 }
@@ -203,6 +208,10 @@ def _fetch(code: str, isin: str) -> list[dict]:
             rows = value
             break
 
+    # 대차잔고 rides along from SEIBro, keyed by the same session date. It is fetched
+    # and cached on its own, so a SEIBro outage costs the 대차 column and nothing else.
+    loans = loan_fetcher.get_loan_history(code, BALANCE_DAYS)
+
     parsed: list[dict] = []
     for row in rows:
         date = _to_date(row.get("TRD_DD"))
@@ -210,7 +219,9 @@ def _fetch(code: str, isin: str) -> list[dict]:
             continue
         entry: dict = {"date": date}
         for series, unit in SERIES_UNITS.items():
-            entry[series] = _to_number(row.get(_FIELDS[series]), unit)
+            field = _FIELDS.get(series)
+            entry[series] = _to_number(row.get(field), unit) if field else None
+        entry["loan"] = loans.get(date)
         parsed.append(entry)
 
     # Newest first — the order the list is read in, decided here so the frontend never

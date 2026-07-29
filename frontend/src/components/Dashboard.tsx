@@ -27,7 +27,6 @@ import MarketIcon from "./MarketIcon";
 import MarketOverviewPanel from "./MarketOverviewPanel";
 import MarketTickerBar from "./MarketTickerBar";
 import MobileStockBar from "./MobileStockBar";
-import BalanceHistoryButton from "./BalanceHistoryButton";
 import OrderBookBalance from "./OrderBookBalance";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
 import RecentNewsDigest from "./RecentNewsDigest";
@@ -483,13 +482,7 @@ export default function Dashboard() {
                       each hides itself when it has nothing to say — so the header
                       never grows taller than the information it's carrying. */}
                   <IndicatorBadges points={indicatorPoints} />
-                  {/* The depth bar and the 공매도 수급 button share a row: the button is
-                      the header's one link out to a per-session history, and putting it
-                      anywhere else would leave it hunting for a home among the badges. */}
-                  <div className="orderbook-balance-row">
-                    <OrderBookBalance code={summary.code} />
-                    <BalanceHistoryButton code={summary.code} name={summaryName} />
-                  </div>
+                  <OrderBookBalance code={summary.code} />
                   {translatedOverview.length > 0 && (
                     <div className="overview">
                       {translatedOverview.map((line, idx) => (

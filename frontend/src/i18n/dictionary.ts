@@ -91,10 +91,12 @@ export const DICTIONARY: Record<string, string> = {
   "거래량 급증": "Volume Spike",
   "20일 평균 거래량 대비": "vs. the 20-day average volume",
 
-  // 공매도 수급 — the per-session table opened from the stock header. "잔고" is
-  // rendered as "Balance" rather than "Outstanding" because the column is a share
-  // count on a given date, not an amount owed.
-  "공매도 수급": "Short Selling",
+  // 공매도 수급 — the side panel's last tab, right of 호가. "잔고" is rendered as
+  // "Balance" rather than "Outstanding" because the column is a share count on a given
+  // date, not an amount owed.
+  // The tab label is the bare "공매도" to sit alongside 일별/호가 without wrapping the
+  // tab bar; the series names below carry the detail.
+  "공매도": "Shorts",
   "공매도 거래량": "Short Volume",
   "공매도 비중": "Short % of Volume",
   "공매도 거래대금": "Short Value",
@@ -109,13 +111,14 @@ export const DICTIONARY: Record<string, string> = {
     "Shares sold short under the uptick rule, which bars quoting at or below the last price.",
   "차익거래·헤지 등으로 업틱룰이 면제된 공매도 수량(주).":
     "Shares sold short while exempt from the uptick rule, e.g. arbitrage and hedging.",
-  // Reserved 잔고 series — typed and translated, but no free source publishes them
-  // per stock, so they never reach the panel today. See backend balance_fetcher.
+  // 대차잔고 is live, sourced from SEIBro rather than KRX.
   "대차잔고": "Securities Lending",
-  "공매도잔고": "Short Interest",
-  "신용융자잔고": "Margin Loans",
   "기관이 빌려간 주식 잔고(주). 공매도의 선행지표로 읽습니다.":
     "Shares currently borrowed by institutions. Read as a leading indicator of short selling.",
+  // Reserved series — typed and translated, but no free source publishes them per
+  // stock, so they never reach the panel. See backend balance_fetcher.
+  "공매도잔고": "Short Interest",
+  "신용융자잔고": "Margin Loans",
   "공매도 미상환 잔고(주).": "Shares sold short and not yet covered.",
   "개인이 증권사에서 빌려 산 잔고(주).": "Shares bought with money borrowed from a broker.",
   // "일자" is already carried by the DailyPricePanel block below, same translation.
@@ -124,6 +127,7 @@ export const DICTIONARY: Record<string, string> = {
   "증감률": "Change %",
   "공시된 공매도 데이터가 없습니다.":
     "No short selling figures have been published for this stock.",
+  "공매도 데이터를 가져오지 못했습니다.": "Failed to load short selling data.",
 
   // Order book balance bar
   "호가 잔량": "Order Book Depth",

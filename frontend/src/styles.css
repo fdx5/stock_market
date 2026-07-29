@@ -4868,94 +4868,24 @@ thead .weekly-foreign-amount-col {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 공매도 수급: the header button, and the per-session table it opens ─────────
+/* ── 공매도 수급: the side panel's last tab, right of 호가 ─────────────────────
 
-   The row is the depth bar plus its one outbound link. `.orderbook-balance` is
-   `flex-basis: 100%` on its own, so it keeps taking the width it always did and the
-   button sits in the gap at the end rather than squeezing the bar. */
-.orderbook-balance-row {
-  flex-basis: 100%;
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-}
-
-/* Outlined, not filled: this sits in a header that already has a price, a change
-   badge and a row of indicator pills competing for attention, and a filled control
-   here would outrank all of them for something that is supplementary reading. */
-.balance-open {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 4px 9px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: none;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
-}
-
-.balance-open:hover,
-.balance-open:focus-visible {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
-}
-
-.balance-open-caret {
-  font-size: 13px;
-  line-height: 1;
-}
-
-.balance-modal {
-  width: min(560px, 100%);
-  max-height: min(78vh, 720px);
+   Sized like its sibling panels rather than to its content: the tab bar above it must
+   not move when the reader switches to this tab, so the panel takes the same height
+   the ladder and the 일별 table take and scrolls its rows inside that. */
+.shortsell-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  min-height: 0;
 }
 
-.balance-modal-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.balance-modal-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 800;
-}
-
-.balance-modal-sub {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.balance-modal-close {
-  flex: none;
-  border: 0;
-  background: none;
-  color: var(--text-muted);
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 2px;
-}
-
-.balance-modal-close:hover {
-  color: var(--text-primary);
-}
-
+/* Wraps, unlike the panel's own tab bar: there are up to six series and their names are
+   full words ("공매도 거래대금"), so a single non-wrapping row would either overflow the
+   rail or force labels too short to tell apart. */
 .balance-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -4984,10 +4914,11 @@ thead .weekly-foreign-amount-col {
   color: var(--text-muted);
 }
 
-/* The table scrolls, not the modal: the header and the tab row stay put while sixty
+/* The table scrolls, not the panel: the series tabs and the note stay put while sixty
    sessions move under them, so the column meanings never leave the screen. */
 .balance-scroll {
   flex: 1;
+  max-height: 420px;
   min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
@@ -5049,11 +4980,6 @@ thead .weekly-foreign-amount-col {
 }
 
 @media (max-width: 640px) {
-  .orderbook-balance-row {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-
   .balance-table {
     font-size: 12px;
   }

@@ -337,20 +337,21 @@ export interface OrderBook {
 
    `series` names what this stock actually has, in display order, and `units` says
    what each one counts. Both are the backend's answer rather than a constant here,
-   because what is available is a per-source question: the three 잔고 series below
-   have no free source at all (KRX blanks 잔고 on the anonymous embed and walls the
-   rest — the backend balance_fetcher header records exactly what was tried), so
-   they are typed but never sent today. The modal renders whatever it is handed and
+   because what is available is a per-source question, and not even a per-stock one:
+   the 공매도 figures come from KRX and 대차잔고 from SEIBro, so a SEIBro outage drops
+   that one series and leaves the rest. 공매도잔고 and 신용융자잔고 have no free
+   source at all (the backend balance_fetcher header records exactly what was tried),
+   so they are typed but never sent. The modal renders whatever it is handed and
    nothing for what it isn't, so wiring one later is a backend-only change. */
 
 export type BalanceSeriesKey =
   | "short_volume"
   | "short_weight"
   | "short_value"
+  | "loan"
   | "uptick_applied"
   | "uptick_exempt"
-  // Reserved: see the note above. No source, so never present in `series` today.
-  | "loan"
+  // Reserved: see the note above. No source, so never present in `series`.
   | "short_balance"
   | "credit";
 
