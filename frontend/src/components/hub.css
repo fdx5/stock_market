@@ -2776,10 +2776,17 @@ body:has(.hb) {
    other ambient scenery that layer already holds (nebulae, twinklers), not
    with the two corner buttons that are actually clickable. Inset from the
    literal corner so it clears `.hb-controls`/`.hb-clocks`, which sit above
-   this layer on their own z-index regardless. Width is generous (64 vs. the
-   15-wide stars) to clear the widest separation (--nx up to 22) without
+   this layer on their own z-index regardless. Width is generous (104 vs. the
+   15-wide stars) to clear the widest separation (--nx up to 44) without
    clipping; height only needs to clear one star's own diameter, since
-   nothing here moves vertically any more. */
+   nothing here moves vertically any more.
+
+   That width is 2 * (44 + 7.5) rounded up — the opening separation plus one
+   star's own half-width — and has to be re-derived whenever the first entry in
+   NEUTRON_ANCHORS moves. Nothing here sets `overflow`, so an undersized box
+   would not visibly clip the art; what it would actually break is the ::before
+   tap target below, which is sized off this box and would stop covering the
+   outer star. This pair is the way into the KOSDAQ map, so that matters. */
 .hb-neutron-binary {
   /* A <button> since this pair became the way into the KOSDAQ map — the
      stylesheet notes above still describe it as scenery with "no destination
@@ -2806,13 +2813,14 @@ body:has(.hb) {
   top: clamp(132px, calc(13vh + 40px), 212px);
   right: clamp(54px, 9vw, 150px);
   z-index: 1;
-  width: calc(64 * var(--body-unit));
+  width: calc(104 * var(--body-unit));
   height: calc(18 * var(--body-unit));
   /* Resting values for the instant before useNeutronBinary's first frame
      lands, and the only values used at all under reduced motion below.
      --mscale is the merged-body scale bump (see NEUTRON_MERGE_SCALE in
-     Hub.tsx) — 1 the rest of the time. */
-  --nx: 22;
+     Hub.tsx) — 1 the rest of the time. Tracks NEUTRON_ANCHORS' first entry, or
+     the pair visibly springs outward on the first animated frame. */
+  --nx: 44;
   --glow: 1;
   --mscale: 1;
   /* 0 while there are two stars, 1 once they are one body — see
@@ -3119,10 +3127,16 @@ body:has(.hb) {
 /* useNeutronBinary itself no-ops under reduced motion (see Hub.tsx), so
    these are the only values the pair ever shows there — a mid-separation,
    mid-brightness resting frame instead of the animated extremes, and no
-   merge (so no flash) ever happens. */
+   merge (so no flash) ever happens.
+
+   Scaled with the doubled opening (was 10 against a 22-unit opening, now 20
+   against 44 — the same fraction of it). This number's whole job is to be a
+   representative frame of the animation nobody here gets to see, so it has to
+   move when the animation's scale does, or "mid-separation" stops being true
+   of it. --glow stays 1.4: the glow range never changed. */
 @media (prefers-reduced-motion: reduce) {
   .hb-neutron-binary {
-    --nx: 10;
+    --nx: 20;
     --glow: 1.4;
   }
 }
@@ -3153,9 +3167,15 @@ body:has(.hb) {
    back from it exactly; this is close enough for a light burst) — both the
    gradient's centre and the scale's transform-origin read the same value,
    so the burst visibly originates from the merger rather than the screen's
-   own centre. */
+   own centre.
+
+   91% -> 90% because widening that box to hold the doubled opening separation
+   grew it leftward (it is anchored by `right`), taking its centre — which is
+   exactly where the two stars meet — about 20 --body-units with it, ~23px at a
+   1920x1080 desktop's own unit. Still an approximation, just one that follows
+   the merger it is named after. */
 .hb-neutron-flash {
-  --origin: 91% 13%;
+  --origin: 90% 13%;
   position: fixed;
   inset: 0;
   z-index: 50;

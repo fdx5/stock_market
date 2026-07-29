@@ -684,14 +684,26 @@ function Planet({
 /** How separated (amp, in --body-unit units — see .hb-neutron-binary in
  * hub.css) and how bright (glow, a filter: brightness() multiplier) the
  * pair is at a given orbital period. Keyed by the exact period values
- * NEUTRON_STAGES uses below. */
+ * NEUTRON_STAGES uses below.
+ *
+ * The pair opens at twice the separation it used to (44, was 22), per an
+ * explicit request that the two stars start about twice as far from each
+ * other. The stages in between were re-spaced along with it rather than left
+ * where they were: widening only the first anchor would have held the pair at
+ * 44 for the whole 10-second opening stage and then hauled it in to 19 in
+ * about a second at the first boundary, which the eye reads as the animation
+ * glitching, not as a wider start — the exact snap the easing in the orbit
+ * branch below exists to avoid. So the ramp is even (~6-7 units a stage) from
+ * the new opening down to the same final 5 it always ended on. Everything past
+ * that last stage — the plunge, the flash, the 30s hold — is untouched, since
+ * the merger starts from that unchanged 5. */
 const NEUTRON_ANCHORS: Record<string, { amp: number; glow: number }> = {
-  "5": { amp: 22, glow: 1.0 },
-  "4": { amp: 19, glow: 1.1 },
-  "3": { amp: 16, glow: 1.25 },
-  "2": { amp: 13, glow: 1.4 },
-  "1": { amp: 10, glow: 1.6 },
-  "0.5": { amp: 7, glow: 1.8 },
+  "5": { amp: 44, glow: 1.0 },
+  "4": { amp: 37, glow: 1.1 },
+  "3": { amp: 31, glow: 1.25 },
+  "2": { amp: 24, glow: 1.4 },
+  "1": { amp: 18, glow: 1.6 },
+  "0.5": { amp: 11, glow: 1.8 },
   "0.2": { amp: 5, glow: 2.0 },
 };
 
