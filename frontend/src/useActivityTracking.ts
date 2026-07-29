@@ -22,6 +22,9 @@ export function pageLabel(path: string): string {
   if (path === "/dashboard") return "종목 대시보드";
   if (/^\/investor\//.test(path)) return "투자자 동향";
   if (/^\/index\/(kospi|kosdaq)/i.test(path)) return "지수 차트";
+  if (path === "/kospi-100") return "코스피 100";
+  if (path === "/kosdaq-100") return "코스닥 100";
+  if (path === "/nasdaq-100") return "나스닥 100";
   if (path === "/map") return "KOSPI 맵";
   if (path === "/kosdaq-map") return "KOSDAQ 맵";
   if (path === "/sp500-map") return "S&P500 맵";
