@@ -220,6 +220,18 @@ export interface StockBoardRefresh extends Omit<StockBoard, "items" | "spark_dat
  * often as the top 100 actually changes, and the alternative is a card drawn with
  * an empty chart. */
 export function mergeBoardRefresh(prev: StockBoard, next: StockBoardRefresh): StockBoard | null {
+  // A board fetched while the backend's sparkline cache was cold carries no bars at all
+  // — that cache is per-market, so it misses all-or-nothing, and the window is real: for
+  // ~40s after a deploy the live board serves 100 empty series. Splicing prices onto
+  // nothing would leave every chart blank until the reader reloaded, so hand it back to
+  // be fetched whole, which is the only thing that carries bars. Costs nothing extra
+  // exactly when it fires: with no history to send, a full response IS a slim one.
+  //
+  // Deliberately "no item has bars", not "some item lacks them" — a name whose own
+  // series is missing is a different and ordinary thing (KOSPI usually has one), and
+  // treating that as cold would mean a full fetch every 10s forever.
+  if (!prev.items.some((it) => it.points.length > 0)) return null;
+
   const history = new Map(prev.items.map((it) => [it.code, it.points]));
   const items: StockBoardItem[] = [];
   for (const item of next.items) {

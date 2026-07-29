@@ -47,6 +47,12 @@ import "./stockBoard.css";
 // this cadence only because a refresh asks for the slim payload — see the load effect.
 const POLL_INTERVAL_MS = 10_000;
 
+// How often a refresh pulls the sparkline bars too, instead of just the prices. Matches
+// the backend's TTL_SPARK_SECONDS — see the note in the load effect for why the bars
+// need their own clock at all. At ~24KB a fetch this is 0.03KB/s next to the 0.9KB/s
+// the 10s price refresh costs.
+const FULL_RELOAD_MS = 15 * 60 * 1000;
+
 /** Filter sentinel for "every 업종" — distinct from any real sector label the
  * backend can send, including "기타". */
 const ALL_SECTORS = "__all__";
@@ -715,12 +721,15 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
   // The board we last applied, mirrored out of state because `load` below needs the
   // previous sparklines to fold a refresh onto and must not re-subscribe to get them.
   const boardRef = useRef<StockBoard | null>(null);
+  // When those sparklines were last actually fetched, rather than merged onto.
+  const lastFullRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     // Switching markets reuses this component, so the previous board's history must not
     // survive into the new market's first refresh.
     boardRef.current = null;
+    lastFullRef.current = 0;
 
     const apply = (data: StockBoard) => {
       if (cancelled) return;
@@ -733,14 +742,32 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
       // because one 10s tick timed out is worse than one showing a price from 10s ago.
       if (!cancelled) setError(err.message);
     };
-    const loadFull = () => api.stockBoard(market).then(apply).catch(fail);
+    const loadFull = () =>
+      api
+        .stockBoard(market)
+        .then((data) => {
+          if (cancelled) return;
+          lastFullRef.current = Date.now();
+          apply(data);
+        })
+        .catch(fail);
 
     // Only the first load pulls the sparkline history; every tick after it asks for the
     // slim payload and splices the new closes onto the series already in state. At 10s
     // that is the difference between refreshing the board and re-downloading it.
     const load = () => {
       const prev = boardRef.current;
-      if (!prev) {
+      // ...but a slim refresh can only ever move the last point of bars we already have,
+      // so the bars themselves have to be re-fetched on their own clock. Two things go
+      // wrong otherwise, and both were observed rather than guessed: a board first loaded
+      // while the backend's spark cache was cold (the ~40s after a deploy, when it serves
+      // every card with an empty series) would never grow its charts, and a page left
+      // open across a session boundary would keep a 60-day window that has stopped
+      // gaining days while its final point is overwritten with the new day's price —
+      // quietly losing the previous close. Matched to the backend's own TTL_SPARK_SECONDS,
+      // because a full fetch any more often than that returns the same bars.
+      const barsStale = Date.now() - lastFullRef.current >= FULL_RELOAD_MS;
+      if (!prev || barsStale) {
         loadFull();
         return;
       }
