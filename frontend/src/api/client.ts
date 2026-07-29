@@ -329,6 +329,57 @@ export interface OrderBook {
   total_bid_qty: number;
 }
 
+/* ───────────────────── 공매도 수급, by session ─────────────────────
+   One stock's published 공매도 figures, newest session first. Each arrives with its
+   own move against the previous *row* — the previous session the source actually
+   published, which over a weekend is not "yesterday" — computed on the backend so
+   the two views of it never drift apart.
+
+   `series` names what this stock actually has, in display order, and `units` says
+   what each one counts. Both are the backend's answer rather than a constant here,
+   because what is available is a per-source question: the three 잔고 series below
+   have no free source at all (KRX blanks 잔고 on the anonymous embed and walls the
+   rest — the backend balance_fetcher header records exactly what was tried), so
+   they are typed but never sent today. The modal renders whatever it is handed and
+   nothing for what it isn't, so wiring one later is a backend-only change. */
+
+export type BalanceSeriesKey =
+  | "short_volume"
+  | "short_weight"
+  | "short_value"
+  | "uptick_applied"
+  | "uptick_exempt"
+  // Reserved: see the note above. No source, so never present in `series` today.
+  | "loan"
+  | "short_balance"
+  | "credit";
+
+/** How the value column formats: "주"/"원" as grouped integers, "%" to two decimals. */
+export type BalanceUnit = "주" | "원" | "%";
+
+export interface BalanceFigure {
+  /** Null when the session published no figure — rendered as "—", never as 0. */
+  value: number | null;
+  /** Move against the previous published session, in the series' own unit — so
+   * percentage points for a "%" series. Null on the oldest row, and whenever either
+   * side of the subtraction is missing. */
+  change: number | null;
+  /** Null when `change` is; when the previous figure was 0, since a rate off a zero
+   * base is undefined rather than infinite; and always for a "%" series, where a
+   * rate of change of a rate is not a number anyone reads. */
+  change_pct: number | null;
+}
+
+export type BalanceRow = { date: string } & Partial<Record<BalanceSeriesKey, BalanceFigure>>;
+
+export interface BalanceHistory {
+  code: string;
+  series: BalanceSeriesKey[];
+  units: Partial<Record<BalanceSeriesKey, BalanceUnit>>;
+  count: number;
+  items: BalanceRow[];
+}
+
 export interface DailyPricePoint {
   date: string;
   close: number;
@@ -722,6 +773,7 @@ export const api = {
   news: (code: string) =>
     getJSON<{ code: string; name: string; items: NewsItem[] }>(`${BASE}/stock/${code}/news`),
   orderbook: (code: string) => getJSON<OrderBook>(`${BASE}/stock/${code}/orderbook`),
+  balanceHistory: (code: string) => getJSON<BalanceHistory>(`${BASE}/stock/${code}/balance`),
   dailyPrices: (code: string, offset = 0, limit = 20) =>
     getJSON<DailyPricePage>(`${BASE}/stock/${code}/daily?offset=${offset}&limit=${limit}`),
   marketMap: (limit = 500, fresh = false) =>

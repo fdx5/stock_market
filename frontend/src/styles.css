@@ -4868,7 +4868,7 @@ thead .weekly-foreign-amount-col {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 잔고 현황: the header button, and the per-session table it opens ─────────
+/* ── 공매도 수급: the header button, and the per-session table it opens ─────────
 
    The row is the depth bar plus its one outbound link. `.orderbook-balance` is
    `flex-basis: 100%` on its own, so it keeps taking the width it always did and the

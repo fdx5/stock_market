@@ -1,7 +1,14 @@
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
-from app.data import board_fetcher, company_overview_fetcher, news_fetcher, orderbook_fetcher, price_fetcher
+from app.data import (
+    balance_fetcher,
+    board_fetcher,
+    company_overview_fetcher,
+    news_fetcher,
+    orderbook_fetcher,
+    price_fetcher,
+)
 from app.data.stock_quote_fetcher import get_stock_quote
 from app.data.universe import get_stock_name
 from app.services.cache import cache
@@ -78,6 +85,61 @@ def orderbook(code: str):
     if not data:
         raise HTTPException(status_code=502, detail="호가 데이터를 가져오지 못했습니다.")
     return data
+
+
+@router.get("/{code}/balance")
+def balance(code: str):
+    """Daily 공매도 수급 for one stock, newest first, each row carrying its own move
+    against the previous session.
+
+    The deltas are computed here rather than in the browser so "전일 대비" has exactly
+    one definition: the previous *row*, i.e. the previous session the source actually
+    published — not "yesterday", which over a weekend or a holiday would be a day with
+    no figure at all.
+
+    Never 502s the way /orderbook does. An empty list is a normal answer here: the
+    upstream publishes once a session and a stock can genuinely have no 공매도 activity,
+    and the caller renders nothing at all in that case rather than an error.
+    """
+    _resolve_name(code)
+    rows = balance_fetcher.get_balance_history(code)
+
+    # Display order and units both come from the fetcher, which is the module that knows
+    # what it fetched. A key present in the rows but missing from SERIES_UNITS still
+    # ships, appended after the known ones: getting that filter backwards once already
+    # dropped a whole series that was being fetched correctly — the rows arrived, every
+    # figure came out null.
+    units = balance_fetcher.SERIES_UNITS
+    present = {key for row in rows for key, value in row.items() if key != "date" and value is not None}
+    series = [key for key in units if key in present] + sorted(present - set(units))
+    items = []
+    for index, row in enumerate(rows):
+        # rows are newest-first, so the previous session is the NEXT element.
+        previous = rows[index + 1] if index + 1 < len(rows) else None
+        entry: dict = {"date": row["date"]}
+        for key in series:
+            unit = units.get(key, "")
+            value = row.get(key)
+            prior = previous.get(key) if previous else None
+            change = round(value - prior, 2) if value is not None and prior is not None else None
+            if unit == "%":
+                # The move on a ratio is already in percentage points; a rate of change
+                # *of* that rate is a number nobody reads, so the column stays a dash.
+                change_pct = None
+            else:
+                # A percentage off a zero base is undefined, not infinite — the row
+                # shows the absolute move and a dash for the rate.
+                change_pct = round(change / prior * 100, 2) if change is not None and prior else None
+            entry[key] = {"value": value, "change": change, "change_pct": change_pct}
+        items.append(entry)
+
+    return {
+        "code": code,
+        "series": series,
+        "units": {key: units.get(key, "") for key in series},
+        "count": len(items),
+        "items": items,
+    }
 
 
 @router.get("/{code}/history")
