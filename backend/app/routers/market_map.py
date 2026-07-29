@@ -2,9 +2,12 @@ import datetime as dt
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 
 from app.data.market_ticker_fetcher import get_market_ticker
 from app.data.price_fetcher import get_history
+from app.data.us_index_fetcher import market_session as us_market_session
+from app.data.us_logo_fetcher import get_us_logo
 from app.data.weather_fetcher import get_seoul_weather
 from app.services.indicators import compute_indicators
 from app.services.market_map import SECTOR_PEER_LIMIT, get_kosdaq_map, get_kospi_map, get_sector_map
@@ -47,6 +50,11 @@ def sp500_map(limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False))
     items = get_sp500_map(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
+        # Which US session these prices came from — outside regular hours each item's
+        # close is its pre/post print. The two KR maps above have no equivalent field:
+        # NXT's after-hours trading is already folded into their prices with no separate
+        # session to name (see stock_quote_fetcher).
+        "session": us_market_session(items),
         "count": len(items),
         "items": items,
     }
@@ -57,6 +65,7 @@ def nasdaq100_map(limit: int = Query(103, ge=1, le=103), fresh: bool = Query(Fal
     items = get_nasdaq100_map(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
+        "session": us_market_session(items),
         "count": len(items),
         "items": items,
     }
@@ -100,6 +109,29 @@ def us_sector_map(
     above, vary in length (from `V` to `GOOGL`), hence the wider bounds."""
     result = get_us_sector_map(code, limit)
     return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), **result}
+
+
+@router.get("/us-logo/{ticker}")
+def us_logo(ticker: str):
+    """One US company logo, proxied from companiesmarketcap so it arrives same-origin.
+
+    Only the map pages' PNG export uses this — the tiles on screen load the same image
+    straight from that host, which costs this app nothing. The export can't: the logo
+    host sends no CORS header, and a cross-origin image taints the canvas the map is
+    redrawn into, which makes the toBlob() behind the download throw. See
+    data/us_logo_fetcher for the full story and what this does and doesn't cost.
+    """
+    logo = get_us_logo(ticker)
+    if logo is None:
+        raise HTTPException(status_code=404, detail=f"로고를 찾을 수 없습니다: {ticker}")
+    content, media_type = logo
+    return Response(
+        content=content,
+        media_type=media_type,
+        # A company's logo at a fixed URL is about as immutable as this app serves — and
+        # every byte saved here is one not spent on the next export click.
+        headers={"Cache-Control": "public, max-age=1209600, immutable"},
+    )
 
 
 @router.get("/ticker")

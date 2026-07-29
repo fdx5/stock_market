@@ -91,7 +91,28 @@ export interface MarketTickerItem {
   session: MarketSession;
 }
 
-export interface MarketMapItem {
+/** The extended-hours half of a US quote, shared by map tiles, board cards and the
+ * /global detail header so all three describe an after-hours price the same way.
+ *
+ * When `session` is "pre" or "post", `close` is that session's print and `change_pct`
+ * is measured from the *previous regular close* — i.e. it already contains the day's
+ * regular move plus the extended one, which is what a reader wants after the bell.
+ * `regular_change_pct` and `extended_change_pct` split that back into its two legs.
+ *
+ * All optional: the KR maps and boards never send them (NXT's after-hours trading is
+ * folded straight into the price, with no separate session to name). */
+export interface ExtendedHours {
+  session?: MarketSession;
+  /** The regular session's own last print. */
+  regular_close?: number | null;
+  /** The regular session's move. Null in pre-market — that session hasn't run yet,
+   * which is a different statement from 0.00%. */
+  regular_change_pct?: number | null;
+  /** The extended leg alone, versus `regular_close`. Null during regular hours. */
+  extended_change_pct?: number | null;
+}
+
+export interface MarketMapItem extends ExtendedHours {
   code: string;
   name: string;
   sector: string;
@@ -99,6 +120,15 @@ export interface MarketMapItem {
   close: number;
   change: number;
   change_pct: number;
+}
+
+export interface MarketMapResponse {
+  generated_at: string;
+  count: number;
+  items: MarketMapItem[];
+  /** Which US session the whole snapshot is quoting from — the page badges its header
+   * with it. Absent on the two KR maps. */
+  session?: MarketSession;
 }
 
 export interface SectorMap {
@@ -120,6 +150,8 @@ export interface UsSectorMap {
   index: "S&P500";
   /** null when the ticker is in neither index snapshot, which also means no `items`. */
   sector: string | null;
+  /** Which US session the cohort's prices came from. */
+  session?: MarketSession;
   /** Weight-weighted change across `items`, matching how the S&P500 map's own sector
    * zone headers compute theirs. */
   avg_change_pct: number;
@@ -139,7 +171,7 @@ export interface BoardReturns {
 }
 
 /** One card on a /kospi-100 · /kosdaq-100 · /nasdaq-100 board. */
-export interface StockBoardItem {
+export interface StockBoardItem extends ExtendedHours {
   rank: number;
   code: string;
   name: string;
@@ -185,6 +217,10 @@ export interface StockBoard {
   currency: "KRW" | "USD";
   /** What `marcap` on each item means — an absolute won figure, or an index weight. */
   marcap_kind: "krw" | "weight";
+  /** Which US session the whole board is quoting from — NASDAQ only; the KR boards
+   * always report "regular". The page header badges it once instead of every card
+   * repeating it. */
+  session: MarketSession;
   generated_at: string;
   /** The sparkline window's session dates (YYYYMMDD), sent once for the whole board
    * instead of repeated on every card. Align to an item's `points` from the END. */
@@ -409,7 +445,7 @@ export interface FightComment {
   created_at: string;
 }
 
-export interface UsStockQuote {
+export interface UsStockQuote extends ExtendedHours {
   code: string;
   name: string;
   close: number;
@@ -689,19 +725,19 @@ export const api = {
   dailyPrices: (code: string, offset = 0, limit = 20) =>
     getJSON<DailyPricePage>(`${BASE}/stock/${code}/daily?offset=${offset}&limit=${limit}`),
   marketMap: (limit = 500, fresh = false) =>
-    getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
+    getJSON<MarketMapResponse>(
       `${BASE}/market/map?limit=${limit}&fresh=${fresh}`
     ),
   kosdaqMap: (limit = 200, fresh = false) =>
-    getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
+    getJSON<MarketMapResponse>(
       `${BASE}/market/kosdaq-map?limit=${limit}&fresh=${fresh}`
     ),
   sp500Map: (limit = 503, fresh = false) =>
-    getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
+    getJSON<MarketMapResponse>(
       `${BASE}/market/sp500-map?limit=${limit}&fresh=${fresh}`
     ),
   nasdaq100Map: (limit = 103, fresh = false) =>
-    getJSON<{ generated_at: string; count: number; items: MarketMapItem[] }>(
+    getJSON<MarketMapResponse>(
       `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`
     ),
   stockBoard: (market: "kospi" | "kosdaq" | "nasdaq", fresh = false) =>

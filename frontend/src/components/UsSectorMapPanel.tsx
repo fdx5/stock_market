@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MarketMapItem, StockSearchResult, api } from "../api/client";
+import { MarketMapItem, MarketSession, StockSearchResult, api } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { pct, tileDisplayInfo } from "../mapTile";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useMediaQuery } from "../useMediaQuery";
+import SessionBadge from "./SessionBadge";
 
 const REFRESH_MS = 60_000;
 
@@ -37,6 +38,7 @@ export default function UsSectorMapPanel({
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [sector, setSector] = useState<string | null>(null);
   const [avgChangePct, setAvgChangePct] = useState(0);
+  const [session, setSession] = useState<MarketSession | undefined>(undefined);
   const [loading, setLoading] = useState(true);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,6 +60,7 @@ export default function UsSectorMapPanel({
           setItems(res.items);
           setSector(res.sector);
           setAvgChangePct(res.avg_change_pct);
+          setSession(res.session);
         })
         .catch(() => {
           // The map is context, not the point of the page — a failure leaves whatever
@@ -120,6 +123,10 @@ export default function UsSectorMapPanel({
             style={{ color: avgChangePct >= 0 ? "var(--up-color)" : "var(--down-color)" }}
           >
             S&P500 · {pct(avgChangePct)}
+            {/* Outside regular hours these tiles are priced off their pre/post prints,
+                same as every other US surface — the header has to say so, because the
+                tiles can't. */}
+            <SessionBadge session={session} compact />
           </span>
         )}
       </div>

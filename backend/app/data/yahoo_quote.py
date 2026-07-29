@@ -45,16 +45,26 @@ def _session_of(ts: int, meta: dict) -> str:
 
 
 def extract_quote(result: dict) -> dict | None:
-    """price / previous_close / session for one chart result, or None if the payload
-    can't be read.
+    """price / previous_close / regular_close / session for one chart result, or None
+    if the payload can't be read.
 
     `previous_close` is the baseline the change should be measured against, and it
-    differs by session — this is the part that's easy to get wrong. In an extended
-    session the baseline is the regular close the extended move is being quoted
-    against (`regularMarketPrice`, which by then holds that close), NOT
-    `previousClose`, which by then points a session further back. Using the latter
-    would quote a pre-market move against the wrong day and overstate or understate
-    every US change on the site.
+    differs by session — this is the part that's easy to get wrong.
+
+    - Post-market: `previousClose` is the close *before* today's regular session, so a
+      change measured from it is the day's regular move plus the after-hours move. That
+      is the site's convention: after the bell a reader wants "where this name stands
+      versus yesterday", with the after-hours leg broken out separately (which is what
+      `regular_close` is carried for).
+    - Pre-market: `regularMarketPrice` is the last regular close and `previousClose` has
+      NOT rolled forward — it still names the close before that one. Today's regular
+      session hasn't run, so the only honest baseline is the last regular close, and
+      using `previousClose` here would fold yesterday's whole session into a pre-market
+      change.
+    - Regular / 24h instruments: `previousClose`, as always.
+
+    `regular_close` is the regular session's own last print, so a caller can show the
+    extended leg on its own (price vs `regular_close`) beside the day-over-day figure.
     """
     meta = result.get("meta") or {}
     regular_price = meta.get("regularMarketPrice")
@@ -72,10 +82,17 @@ def extract_quote(result: dict) -> dict | None:
     # their newest bar is the regular-session bar, so they never take this branch.
     if latest is not None and regular_time is not None and latest[0] > int(regular_time):
         ts, price = latest
+        session = _session_of(ts, meta)
         return {
             "price": price,
-            "previous_close": regular_price,
-            "session": _session_of(ts, meta),
+            "previous_close": regular_price if session == "pre" else previous_close,
+            "regular_close": regular_price,
+            "session": session,
         }
 
-    return {"price": regular_price, "previous_close": previous_close, "session": "regular"}
+    return {
+        "price": regular_price,
+        "previous_close": previous_close,
+        "regular_close": regular_price,
+        "session": "regular",
+    }

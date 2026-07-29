@@ -4131,6 +4131,16 @@ thead .weekly-foreign-amount-col {
   border-radius: 2px;
 }
 
+/* US logos are overwhelmingly dark glyphs on transparency (Apple's is flat black), so
+   on a treemap tile — which is a saturated red or green, never a neutral surface —
+   they would read as a smudge. A white plate behind them is the same treatment the
+   NASDAQ board's cards give the identical assets. No padding, unlike there: a tile icon
+   is 11-26px, and every pixel spent on inset is one the mark loses. `object-fit:
+   contain` above still keeps a non-square logo whole inside the plate. */
+.kospi-map-tile-icon--us {
+  background: #fff;
+}
+
 .kospi-map-tile-name {
   /* font-size set inline per tile, scaled to the tile's area */
   font-weight: 700;
@@ -4691,6 +4701,68 @@ thead .weekly-foreign-amount-col {
 .session-badge.is-compact .session-badge-dot {
   width: 4px;
   height: 4px;
+}
+
+/* ── Regular / extended split ─────────────────────────────────────────────────
+   The line under an after-hours price that says what the regular session did and
+   what has happened since (see components/SessionSplit.tsx). Inline chips rather
+   than a block, so the same element drops into a map tooltip row, a table cell and
+   a detail header without a variant per surface. */
+.session-split {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  /* Declared, not inherited: several of the hosts above set a direction color on
+     the parent, and this line is context — it must not read as the headline. */
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.session-split-leg {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.session-split-price {
+  color: var(--text-secondary);
+}
+
+.session-split b {
+  font-weight: 700;
+}
+
+.session-split b[data-dir="up"] {
+  color: var(--up-color);
+}
+
+.session-split b[data-dir="down"] {
+  color: var(--down-color);
+}
+
+/* .stock-header is a wrapping flex row — the split takes a full row of its own
+   rather than trailing a 22px price line. */
+.stock-header-session {
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+
+/* Sits under the percentage inside the map table's 등락률 cell. */
+.kospi-map-table-session {
+  margin-top: 2px;
+  font-size: 10px;
+}
+
+/* Sits beside the live badge on a US map's titlebar, explaining in words what the
+   AFT badge next to it means for the tiles below. */
+.kospi-map-session-note {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* ── Technical signal badges ─────────────────────────────────────────────── */

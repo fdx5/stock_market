@@ -26,6 +26,7 @@ import datetime as dt
 from zoneinfo import ZoneInfo
 
 from app.data.sparkline_fetcher import SparkSeries, get_kr_sparklines, get_us_sparklines
+from app.data.us_index_fetcher import market_session
 from app.data.us_universe import get_korean_names_ready
 from app.services.cache import cache
 from app.services.market_map import get_kosdaq_map, get_kospi_map
@@ -213,6 +214,15 @@ def _nasdaq_roster(limit: int, fresh: bool) -> list[dict]:
             "close": it["close"],
             "change": it["change"],
             "change_pct": it["change_pct"],
+            # Outside regular US hours `close` is the pre/post print and `change_pct` is
+            # measured from the previous regular close, so it already contains the
+            # extended move — these three say which session it came from and split the
+            # move back into its regular and extended legs for the card to show both.
+            # See yahoo_bulk_quote for the baselines.
+            "session": it.get("session", "regular"),
+            "regular_close": it.get("regular_close"),
+            "regular_change_pct": it.get("regular_change_pct"),
+            "extended_change_pct": it.get("extended_change_pct"),
             # For the US board this is the constituent's index weight (%), not an
             # absolute cap — see `marcap_kind` on the response, and the same note in
             # us_market_map. It is still the right thing to weight sector averages by.
@@ -256,10 +266,17 @@ def get_board(market: str, limit: int = BOARD_LIMIT, fresh: bool = False, slim: 
         items = _nasdaq_roster(limit, fresh)
         marcap_kind = "weight"
         currency = "USD"
+        # One label for the whole board, which is what the page header badges. The
+        # per-item `session` above stays as well: it is the one that's right for the
+        # handful of names lagging a session boundary, where the majority isn't.
+        session = market_session(items)
     else:
         items = _kr_roster(market, limit, fresh)
         marcap_kind = "krw"
         currency = "KRW"
+        # The KR boards' own after-hours handling is NXT's, folded into the price by
+        # stock_quote_fetcher — there is no separate session to name here.
+        session = "regular"
 
     series = _sparklines(market, [it["code"] for it in items])
     items = [_apply_spark(it, series.get(it["code"])) for it in items]
@@ -269,6 +286,7 @@ def get_board(market: str, limit: int = BOARD_LIMIT, fresh: bool = False, slim: 
         "label": _LABELS[market],
         "currency": currency,
         "marcap_kind": marcap_kind,
+        "session": session,
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         "spark_dates": _spark_dates(series),
         "count": len(items),

@@ -51,10 +51,14 @@ export const DICTIONARY: Record<string, string> = {
   "100엔": "per 100",
   "국제유가": "Crude Oil",
 
-  // US extended-hours session badge
+  // US extended-hours session badge, and the regular/extended split that goes with it
+  // — the maps, the NASDAQ board and the /global header all quote an after-hours price
+  // against the previous regular close, then break the two legs apart underneath.
   "프리장": "Pre-market",
   "애프터장": "After-hours",
+  "정규장": "Regular",
   "미국 정규장 시간외 거래": "Traded outside US regular hours",
+  "정규장 종가 + 시간외 변동 반영": "Regular close plus extended-hours move",
 
   // Market session status
   "장중": "Open",

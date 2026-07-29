@@ -61,6 +61,13 @@
   color: var(--text-primary);
 }
 
+/* The title runs up to 40px; the badge keeps its own 11px and rides the title's
+   middle rather than its baseline, which at that size would drop it below the text. */
+.sb-title .session-badge {
+  vertical-align: middle;
+  margin-left: 10px;
+}
+
 .sb-subtitle {
   margin: 6px 0 0;
   font-size: 13px;
@@ -565,9 +572,21 @@
   object-fit: contain;
 }
 
-/* US names have no logo feed of their own here, so the ticker itself becomes the
-   mark — consistent size and position with the KR logo tile so the two boards'
-   cards stay visually interchangeable. */
+/* The US logos are overwhelmingly dark glyphs on transparency (Apple's is flat black),
+   so on a dark theme they would render as a nearly invisible smudge. A white plate
+   behind them is the same treatment the 시총대결 roster gives the identical assets —
+   see .fight-roster-logo-tile. Applied to the <img> rather than the .sb-logo tile so it
+   only appears when a logo actually loaded: a ticker that fell back to its text mark
+   keeps the neutral tile, which is what makes that text readable in dark mode.
+   `object-fit: contain` above means the plate fills the tile while the mark stays
+   whole, and the padding keeps it off the rounded corners. */
+.sb-logo-img--us {
+  background: #fff;
+  padding: 3px;
+}
+
+/* The text mark for the handful of US names the logo host doesn't carry — same size
+   and position as a logo tile, so the two boards' cards stay interchangeable. */
 .sb-logo-ticker {
   font-size: 11px;
   font-weight: 800;
@@ -668,6 +687,18 @@
 .sb-change[data-dir="down"] .sb-change-pct::before {
   content: "▼ ";
   font-size: 9px;
+}
+
+/* The regular/extended breakdown under an after-hours price. Sits between the price
+   row and 시장 대비 because it qualifies the number directly above it — see
+   components/SessionSplit.tsx. Absent entirely during regular hours and on the KR
+   boards, so the card loses no height there. */
+.sb-session-split {
+  margin-top: -2px;
+}
+
+.sb-price .session-badge {
+  vertical-align: middle;
 }
 
 .sb-relative {
@@ -981,6 +1012,10 @@
 
 .sb-card--compact .sb-name {
   font-size: 13.5px;
+}
+
+.sb-card--compact .session-split {
+  font-size: 10px;
 }
 
 /* ─────────────────────────────── skeletons ───────────────────────────────

@@ -28,6 +28,7 @@ import MarketTickerBar from "./MarketTickerBar";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
 import SearchBar from "./SearchBar";
 import SessionBadge from "./SessionBadge";
+import SessionSplit from "./SessionSplit";
 import StockQuickAccess from "./StockQuickAccess";
 import ThemeToggle from "./ThemeToggle";
 import UsSectorMapPanel from "./UsSectorMapPanel";
@@ -360,6 +361,10 @@ export default function GlobalStockPage() {
                   <SessionBadge session={quote.session} />
                   {formatUsd(quote.close)} ({formatUsdChange(quote.change)}, {quote.change_pct.toFixed(2)}%)
                 </span>
+                {/* The figure above is measured from the previous regular close, so
+                    after the bell it already carries the after-hours leg — this breaks
+                    the two apart. Renders nothing during regular hours. */}
+                <SessionSplit quote={quote} className="stock-header-session" />
                 {enrichment?.marcap_krw != null && (
                   <span
                     className={`marcap ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}

@@ -16,8 +16,11 @@ import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import MarketTickerBar from "./MarketTickerBar";
 import PredictIcon from "./PredictIcon";
+import SessionBadge from "./SessionBadge";
+import SessionSplit from "./SessionSplit";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
+import UsStockIcon from "./UsStockIcon";
 import VisitorBadge from "./VisitorBadge";
 import "./stockBoard.css";
 
@@ -401,7 +404,11 @@ function StockCard({ item, ctx, compact }: { item: StockBoardItem; ctx: CardCont
         <span className="sb-rank">{item.rank}</span>
         <span className="sb-logo">
           {isUs ? (
-            <span className="sb-logo-ticker">{item.code.slice(0, 4)}</span>
+            <UsStockIcon
+              code={item.code}
+              className="sb-logo-img sb-logo-img--us"
+              fallback={<span className="sb-logo-ticker">{item.code.slice(0, 4)}</span>}
+            />
           ) : (
             <StockIcon code={item.code} className="sb-logo-img" />
           )}
@@ -419,12 +426,21 @@ function StockCard({ item, ctx, compact }: { item: StockBoardItem; ctx: CardCont
       </header>
 
       <div className="sb-price-row">
-        <span className="sb-price">{formatPrice(item.close, board.currency, lang)}</span>
+        <span className="sb-price">
+          {formatPrice(item.close, board.currency, lang)}
+          <SessionBadge session={item.session} compact />
+        </span>
         <span className="sb-change" data-dir={dir}>
           <span className="sb-change-pct">{formatPct(item.change_pct)}</span>
           <span className="sb-change-amt">{formatChangeAmount(item.change, board.currency, lang)}</span>
         </span>
       </div>
+
+      {/* After the bell `change_pct` above is the regular move plus the after-hours
+          one — this is the only place on the card that can tell a 1% session followed
+          by a −6% earnings print apart from a plain −5% day. Nothing renders during
+          regular hours or on the two KR boards. */}
+      <SessionSplit quote={item} className="sb-session-split" />
 
       {/* The line the rest of this page can't show: how the stock did relative to the
           board it's on, and where it placed inside its own 업종 today. Both are the
@@ -903,7 +919,14 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
       <section className="sb-hero">
         <div className="sb-hero-main">
           <div className="sb-hero-titles">
-            <h1 className="sb-title">{pageTitle}</h1>
+            <h1 className="sb-title">
+              {pageTitle}
+              {/* NASDAQ only, and only outside regular US hours: every card below is
+                  then priced off its pre/post print, and the breadth bar and 시총가중
+                  평균 등락 beside it are computed from those same prices. Nothing else
+                  on the page says so. */}
+              <SessionBadge session={board?.session} />
+            </h1>
             <p className="sb-subtitle">
               {t(subtitle)}
               {updatedAt && (

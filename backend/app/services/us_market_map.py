@@ -1,4 +1,4 @@
-from app.data.us_index_fetcher import get_nasdaq100_constituents, get_sp500_constituents
+from app.data.us_index_fetcher import get_nasdaq100_constituents, get_sp500_constituents, market_session
 
 
 def get_sp500_map(limit: int = 503, fresh: bool = False) -> list[dict]:
@@ -52,6 +52,7 @@ def get_us_sector_map(code: str, limit: int = US_SECTOR_PEER_LIMIT) -> dict:
         "code": ticker,
         "index": "S&P500",
         "sector": sector,
+        "session": market_session(peers),
         "avg_change_pct": weighted_change / total_weight if total_weight > 0 else 0.0,
         "count": len(peers),
         "items": peers,

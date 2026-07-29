@@ -1,5 +1,5 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { MarketMapItem } from "../api/client";
+import { MarketMapItem, MarketMapResponse, MarketSession } from "../api/client";
 import { wonSuffix } from "../i18n/format";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
@@ -10,14 +10,18 @@ import { loadStockIconUrl } from "../stockIcon";
 import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { usCompanyLogoProxyUrl } from "../usLogo";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import MarketTickerBar from "./MarketTickerBar";
 import RankIcon from "./RankIcon";
+import SessionBadge from "./SessionBadge";
+import SessionSplit from "./SessionSplit";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
+import UsStockIcon from "./UsStockIcon";
 import VisitorBadge from "./VisitorBadge";
 
 interface SectorZone {
@@ -123,28 +127,61 @@ const BOARD_LINKS = [
 const SKELETON_SECTOR_WEIGHTS = [30, 22, 16, 12, 10, 6, 4];
 const SKELETON_TABLE_ROWS = Array.from({ length: 12 }, (_, i) => i);
 
-// Shares the same cached-icon-URL resolution as the on-screen <StockIcon> tiles (see
-// ../stockIcon.ts), so exporting the PNG never re-fetches a logo the map has already
-// loaded. crossOrigin="anonymous" is needed for the direct-URL fallback (Cache Storage
-// unavailable) to keep the export canvas untainted; it's a no-op for the common case
-// where loadStockIconUrl already resolved to a same-origin blob: URL.
+// Everything the export draws has to reach the canvas without tainting it, or the
+// toBlob() at the end throws SecurityError and the download produces nothing. Each
+// market gets there differently:
+//
+// - KR reuses the on-screen icon cache (../stockIcon.ts), so the export never re-fetches
+//   a logo the map already loaded. crossOrigin="anonymous" covers the direct-URL
+//   fallback (Cache Storage unavailable) and is a no-op for the common case, where
+//   loadStockIconUrl already resolved to a same-origin blob: URL.
+// - US can't reuse its on-screen URL at all: that host sends no CORS header, so the
+//   image would either refuse to load (with crossOrigin set) or taint the canvas
+//   (without). It goes through our own backend instead — see ../usLogo's
+//   usCompanyLogoProxyUrl, which is only ever called from here.
 const iconImageCache = new Map<string, Promise<HTMLImageElement | null>>();
-function loadIconImage(code: string): Promise<HTMLImageElement | null> {
-  let cached = iconImageCache.get(code);
+
+function loadImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise<HTMLImageElement | null>((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    // A ticker this host has no logo for resolves to null, exactly like a KR code whose
+    // icon 404s — the tile just draws its text, which is what it did before logos.
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function loadIconImage(code: string, market: "kr" | "us"): Promise<HTMLImageElement | null> {
+  // Keyed by market as well as code: the two resolve through different hosts, and a
+  // 6-digit KR code and a US ticker sharing this map would otherwise be one entry.
+  const key = `${market}:${code}`;
+  let cached = iconImageCache.get(key);
   if (!cached) {
-    cached = loadStockIconUrl(code).then(
-      (url) =>
-        new Promise<HTMLImageElement | null>((resolve) => {
-          const img = new Image();
-          img.crossOrigin = "anonymous";
-          img.onload = () => resolve(img);
-          img.onerror = () => resolve(null);
-          img.src = url;
-        })
-    );
-    iconImageCache.set(code, cached);
+    cached = market === "us" ? loadImage(usCompanyLogoProxyUrl(code)) : loadStockIconUrl(code).then(loadImage);
+    iconImageCache.set(key, cached);
   }
   return cached;
+}
+
+/** Draws `icon` into an `size`x`size` box the way CSS `object-fit: contain` would —
+ * scaled to fit, centered, aspect preserved. Canvas has no such primitive: drawImage
+ * with an explicit width and height stretches. That never showed on the KR maps because
+ * Naver's icons are square, but the US logos are frequently wide wordmarks (FOX, Intel,
+ * ASML), and stretching those into a square is both ugly and visibly different from the
+ * tile the export is supposed to be reproducing. */
+function drawContained(
+  ctx: CanvasRenderingContext2D,
+  icon: HTMLImageElement,
+  x: number,
+  y: number,
+  size: number
+): void {
+  const scale = Math.min(size / icon.width, size / icon.height) || 0;
+  const w = icon.width * scale;
+  const h = icon.height * scale;
+  ctx.drawImage(icon, x + (size - w) / 2, y + (size - h) / 2, w, h);
 }
 
 export interface MarketMapPageProps {
@@ -153,7 +190,7 @@ export interface MarketMapPageProps {
   subtitlePrefix: string;
   /** Downloaded PNG filename prefix, e.g. "kospi" -> kospi_MMDDHHmmss.png */
   filePrefix: string;
-  fetchMap: (limit: number, fresh?: boolean) => Promise<{ generated_at: string; count: number; items: MarketMapItem[] }>;
+  fetchMap: (limit: number, fresh?: boolean) => Promise<MarketMapResponse>;
   /** Rank 1..tier1Limit refreshes every 10s, tier1Limit+1..tier2Limit every 30s, the
    * rest (up to fullLimit) every 1min — matches the backend's cache TTL tiers. */
   tier1Limit: number;
@@ -195,6 +232,9 @@ export default function MarketMapPage({
 
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  // Which US session the whole snapshot came from — the KR maps never send it, so it
+  // stays undefined there and the badge below never renders.
+  const [session, setSession] = useState<MarketSession | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"map" | "table">("map");
@@ -235,6 +275,7 @@ export default function MarketMapPage({
           if (cancelled) return;
           setItems((prev) => mergeItems(prev, res.items));
           setGeneratedAt(res.generated_at);
+          setSession(res.session);
           setError(null);
         })
         .catch((err: Error) => {
@@ -256,6 +297,7 @@ export default function MarketMapPage({
           // replaces state outright — that's also what drops names that fell off the tail.
           setItems(res.items);
           setGeneratedAt(res.generated_at);
+          setSession(res.session);
         })
         .catch(() => {
           // Long-tail refresh failing quietly keeps whatever is already on screen.
@@ -397,6 +439,7 @@ export default function MarketMapPage({
   const tileLabel = (code: string, name: string) => (market === "us" ? code : nameByCode.get(code) ?? name);
 
   const liveBadgeText = lang === "en" ? "Live (rank-based refresh: 10s–1min)" : "실시간 (순위별 10초 ~ 1분단위 갱신)";
+  const isExtendedSession = session === "pre" || session === "post";
 
   // Redraws the current sector zones/tiles from scratch onto an off-screen canvas
   // instead of screenshotting the live DOM: that would need html2canvas or similar to
@@ -420,11 +463,10 @@ export default function MarketMapPage({
     await Promise.all(
       sectorZones.flatMap((zone) =>
         zone.tiles.map(async (tile) => {
-          if (market === "us") return;
           const name = tileLabel(tile.item.code, tile.item.name);
           const { showIcon } = tileDisplayInfo(tile.w, tile.h, name);
           if (!showIcon) return;
-          const img = await loadIconImage(tile.item.code);
+          const img = await loadIconImage(tile.item.code, market);
           if (img) iconByCode.set(tile.item.code, img);
         })
       )
@@ -486,13 +528,22 @@ export default function MarketMapPage({
 
         const pctText = pct(tile.item.change_pct);
         const padX = 5;
-        ctx.fillStyle = textColorForRgb(rgb, themeMode);
+        const tileTextColor = textColorForRgb(rgb, themeMode);
+        ctx.fillStyle = tileTextColor;
 
         if (showName) {
-          const icon = market === "kr" && showIcon ? iconByCode.get(tile.item.code) : undefined;
+          const icon = showIcon ? iconByCode.get(tile.item.code) : undefined;
           let textX = tile.x + padX;
           if (icon) {
-            ctx.drawImage(icon, tile.x + padX, tile.y + 2, iconSize, iconSize);
+            if (market === "us") {
+              // The white plate .kospi-map-tile-icon--us gives these logos on screen,
+              // for the same reason: they are mostly dark glyphs on transparency, and a
+              // treemap tile is a saturated red or green underneath them.
+              ctx.fillStyle = "#fff";
+              ctx.fillRect(tile.x + padX, tile.y + 2, iconSize, iconSize);
+              ctx.fillStyle = tileTextColor;
+            }
+            drawContained(ctx, icon, tile.x + padX, tile.y + 2, iconSize);
             textX += iconSize + iconGap;
           }
 
@@ -609,6 +660,14 @@ export default function MarketMapPage({
                 <span className="kospi-map-live-dot" />
                 {liveBadgeText}
               </span>
+              {/* Outside regular US hours every tile is priced off its pre/post print,
+                  and the map has no other way to say so — the tiles themselves are just
+                  colored rectangles. Sits next to the live badge because the two answer
+                  the same question: how current is what I'm looking at. */}
+              <SessionBadge session={session} />
+              {isExtendedSession && (
+                <span className="kospi-map-session-note">{t("정규장 종가 + 시간외 변동 반영")}</span>
+              )}
               {/* The three card boards, right where a reader has just been told this
                   map is live — the map answers "what is the whole market doing", the
                   boards answer "what is each name doing", so this is the point in the
@@ -729,9 +788,8 @@ export default function MarketMapPage({
                       tile.h,
                       name
                     );
-                    // No logo source exists for US tickers (StockIcon only resolves KR
-                    // codes against Naver's icon host), so never show one on US maps.
-                    const tileShowIcon = market === "kr" && showIcon;
+                    // Both markets have a logo source now — Naver's icon host for KR
+                    // codes, companiesmarketcap for US tickers (see ../usLogo).
                     return (
                       <button
                         key={tile.id}
@@ -756,13 +814,20 @@ export default function MarketMapPage({
                         {showName && (
                           <>
                             <span className="kospi-map-tile-name-row">
-                              {tileShowIcon && (
-                                <StockIcon
-                                  className="kospi-map-tile-icon"
-                                  style={{ width: iconSize, height: iconSize }}
-                                  code={tile.item.code}
-                                />
-                              )}
+                              {showIcon &&
+                                (market === "us" ? (
+                                  <UsStockIcon
+                                    className="kospi-map-tile-icon kospi-map-tile-icon--us"
+                                    style={{ width: iconSize, height: iconSize }}
+                                    code={tile.item.code}
+                                  />
+                                ) : (
+                                  <StockIcon
+                                    className="kospi-map-tile-icon"
+                                    style={{ width: iconSize, height: iconSize }}
+                                    code={tile.item.code}
+                                  />
+                                ))}
                               <span className="kospi-map-tile-name" style={{ fontSize: fontSizes.name }}>
                                 {name}
                               </span>
@@ -819,6 +884,10 @@ export default function MarketMapPage({
                           <td>{formatPrice(item.close, market, lang)}</td>
                           <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
                             {pct(item.change_pct)}
+                            {/* Same split as the map tooltip, so the table view isn't the
+                                one place that can't tell an after-hours move apart from
+                                a regular-session one. */}
+                            <SessionSplit quote={item} className="kospi-map-table-session" />
                           </td>
                         </tr>
                       ))}
@@ -836,13 +905,20 @@ export default function MarketMapPage({
           </div>
           <div className="kospi-map-tooltip-row">{t("업종")} {t(hovered.sector)}</div>
           <div className="kospi-map-tooltip-row">{t(marcapLabel)} {formatMarcapOrWeight(hovered.marcap, market, lang)}</div>
-          <div className="kospi-map-tooltip-row">{t("현재가")} {formatPrice(hovered.close, market, lang)}</div>
+          <div className="kospi-map-tooltip-row">
+            {t("현재가")} {formatPrice(hovered.close, market, lang)}
+            <SessionBadge session={hovered.session} compact />
+          </div>
           <div
             className="kospi-map-tooltip-row"
             style={{ color: hovered.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}
           >
             {t("등락")} {formatChangeAmount(hovered.change, market, lang)} ({pct(hovered.change_pct)})
           </div>
+          {/* The row above is the move versus yesterday's close, which after the bell
+              already contains the extended leg — this splits it back apart. Renders
+              nothing during regular hours. */}
+          <SessionSplit quote={hovered} className="kospi-map-tooltip-row" />
           <div className="kospi-map-tooltip-row">
             {t("맵 면적 비중")} {totalMarcap > 0 ? ((hovered.marcap / totalMarcap) * 100).toFixed(2) : "0.00"}%
           </div>
