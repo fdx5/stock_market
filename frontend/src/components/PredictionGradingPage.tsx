@@ -113,9 +113,10 @@ export default function PredictionGradingPage() {
     };
   }, [market, limit]);
 
-  // Newest session on the right, oldest on the left — the same left-to-right time
-  // axis every other chart on the site uses. The API returns dates newest-first.
-  const dates = useMemo(() => (data ? [...data.dates].reverse() : []), [data]);
+  // Newest session on the left, right next to the frozen 종목 column, so the latest
+  // grading result is visible without scrolling. The API already returns dates
+  // newest-first, so no reversal is needed.
+  const dates = useMemo(() => data?.dates ?? [], [data]);
 
   const rows = data?.rows ?? [];
 
