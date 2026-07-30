@@ -1102,7 +1102,11 @@ const PLUTO_MOTION = PLUTO_TEAR_START + PLUTO_DESTROY_DURATION; // gap hits 0 he
 // 0.9s life, so ~0.62s past it at the extreme) — so the destroy-window
 // gate below never cuts off a fragment's own fade-out mid-flight.
 const PLUTO_DESTROY_TAIL_END = PLUTO_MOTION + 1;
-const PLUTO_CYCLE = PLUTO_MOTION + PLUTO_FLASH_HOLD; // then it repeats
+// How long the Pluto half of the feeding cycle lasts. NOT the loop's own
+// period any more — the blue-star event below runs immediately after this
+// finishes and the two share one repeat (see HB_FEED_CYCLE), so this is now
+// just the boundary between the two halves.
+const PLUTO_CYCLE = PLUTO_MOTION + PLUTO_FLASH_HOLD;
 
 /** One vertical "tooth" of the erosion clip-path — see plutoErosionClip.
  * Bands are even (yStart/yEnd just slice the disc into 12 equal strips);
@@ -1319,7 +1323,13 @@ function usePlutoEvent(
 
     const tick = (now: number) => {
       const elapsed = (now - startedAt) / 1000;
-      const cycleElapsed = elapsed % PLUTO_CYCLE;
+      // Modulo the FULL feeding cycle, not just PLUTO_CYCLE: the blue-star
+      // event owns the stretch from PLUTO_CYCLE to HB_FEED_CYCLE, and for all
+      // of it every branch below lands on its own "already consumed" side —
+      // gap pinned at 0, the destroy window long past, the body held hidden —
+      // which is exactly the resting state Pluto should be in while the star
+      // is being eaten. No extra gating needed, just the longer period.
+      const cycleElapsed = elapsed % HB_FEED_CYCLE;
 
       // Two regimes: a constant-speed approach down to the 150px tear
       // threshold, then — once destruction starts — a straight-line decay
@@ -1506,6 +1516,469 @@ function usePlutoEvent(
   }, [eventRef, bodyRef, fragments, fragRefs, blackHoleRef]);
 }
 
+/* ─────────────────────────── blue star event ───────────────────────────
+   The second half of the black hole's feeding cycle, picking up the instant
+   the Pluto event above finishes: a blue star at 60% of the sun's own size,
+   parked 400px to the hole's left, spends twenty seconds spilling blue gas
+   off its hole-facing (right) limb into the horizon, then loses cohesion
+   altogether and drains in as one cloud, and the hole glows blue — steadily
+   brightening — for three seconds as it swallows the last of it. Then the
+   whole thing resets to Pluto and the pair repeats. Every one of those
+   numbers is from an explicit request.
+
+   The visual language is the one every documentary animation of a star being
+   eaten uses, which the request asked to be matched: the gas does not fall
+   straight in. It leaves the inner limb as a tidal stream, arcs off the
+   direct line, and winds a lap or two around the hole — accelerating and
+   tightening the whole way — before crossing the horizon. gasPoint below is
+   that path.
+
+   Shares the Pluto event's clock through HB_FEED_CYCLE and its real-pixel
+   geometry, and is built the same way: one rAF loop and no CSS keyframes,
+   because the star's tidal distortion, the stream, the debris cloud and the
+   hole's own glow all have to read one clock rather than drift apart on
+   independent timers. */
+
+// px, from the black hole's CENTRE to the star's centre — the same
+// centre-to-centre convention --pluto-gap uses, and the same reason (see
+// .hb-bluestar-event in hub.css for the centre-to-edge translation). Unlike
+// Pluto's, this distance never changes: the star is held at arm's length and
+// eaten where it stands, so nothing here writes a per-frame position for it.
+//
+// Handed to CSS as `--bluestar-gap` on both of the event's layers (see where
+// they are rendered below) rather than written down a second time in the
+// stylesheet. Two elements in two separate subtrees are positioned off this
+// number — the star's own box, and the stream bridge spanning it to the hole —
+// and the Pluto event above is the cautionary case: its own 300 lives in both
+// files, so retuning it means remembering to find both.
+const STAR_GAP = 400;
+
+const STAR_STREAM_LEN = 20; // seconds of right-limb streaming
+const STAR_COLLAPSE_LEN = 6; // then the whole body comes apart and drains
+const STAR_FLARE_LEN = 3; // then the hole's blue glow, brightening throughout
+/** Seconds the blue glow takes to fade once the cycle has already handed back
+ * to Pluto. Deliberately outside STAR_CYCLE: the request's three seconds are
+ * three seconds of BRIGHTENING, so the release cannot be carved out of them —
+ * see where this is used in useBlueStarEvent. */
+const STAR_HALO_TAIL = 0.8;
+const STAR_COLLAPSE_START = STAR_STREAM_LEN;
+const STAR_COLLAPSE_END = STAR_STREAM_LEN + STAR_COLLAPSE_LEN;
+const STAR_CYCLE = STAR_COLLAPSE_END + STAR_FLARE_LEN; // 29s
+
+/** The full feeding cycle both events share: Pluto's fifteen seconds, then the
+ * blue star's twenty-nine, then back to Pluto. Both loops modulo this one
+ * number so neither can drift out of phase with the other. */
+const HB_FEED_CYCLE = PLUTO_CYCLE + STAR_CYCLE; // 44s
+
+/** How far the star stretches toward the hole under tidal strain. Two
+ * regimes, deliberately far apart in scale: a barely-there 1.22x over the
+ * whole twenty-second stream (a star losing its outer envelope is distorted,
+ * not destroyed — overdoing it here leaves nothing for the collapse to do),
+ * then a hard 3.4x more once cohesion actually goes. Applied with
+ * `transform-origin: 0% 50%` (see .hb-bluestar-body in hub.css) so the
+ * stretch reaches out to the right, into the hole. */
+const STAR_STREAM_STRETCH = 0.22;
+const STAR_COLLAPSE_STRETCH = 3.4;
+
+interface StarGas {
+  /** Which phase feeds this mote: the steady right-limb stream, or the final
+   * whole-body collapse. */
+  kind: "stream" | "collapse";
+  /** Offset into its own recycling loop, 0..1. Spread evenly across the pool
+   * rather than randomised — this is the one place in this file where even
+   * spacing is what's wanted, since a gap in the cadence reads as the ribbon
+   * breaking rather than as natural variation. */
+  phase: number;
+  /** Seconds one trip from release to horizon takes. */
+  life: number;
+  /** Rendered size, px. */
+  size: number;
+  /** Degrees around the star's hole-facing hemisphere this mote peels off
+   * from (0 = the point aimed straight at the hole). Stream only — the
+   * request is specifically about gas leaving the star's RIGHT side, so this
+   * never reaches around to the far limb. */
+  angleDeg: number;
+  /** Signed perpendicular offset, px, peaking mid-flight — what bends the
+   * path off the straight line to the hole so the stream arrives tangentially
+   * and has visible width instead of being one taut wire. */
+  bow: number;
+  /** Laps around the hole completed before crossing the horizon. */
+  turns: number;
+  /** Where this mote starts out, as a multiple of the star's own radius.
+   * Means slightly different things either side of the collapse, but is a
+   * radius in both: for a stream mote, 1.0-1.3, i.e. just OUTSIDE the
+   * photosphere and inside the envelope — "행성외부의 가스", which is what the
+   * request asks for and what keeps the ribbon from appearing to be scraped
+   * off a hard surface. For a collapse mote, 0-0.95, i.e. somewhere within
+   * the body itself, which by then is coming apart from the inside. */
+  startR: number;
+  /** Its angle within the disc it starts in, radians. Collapse only —
+   * a stream mote's own release angle is `angleDeg`, which is confined to the
+   * hole-facing hemisphere in a way this is deliberately not. */
+  startTheta: number;
+}
+
+// 52 motes total (30 stream + 22 collapse), sized against the same budget the
+// Pluto fragment pool above landed on after a 212-piece version measurably
+// dropped frames. Only the 30 stream motes are ever live during the twenty
+// seconds this runs longest, which is comfortably under Pluto's 40; the two
+// pools overlap only in the six-second collapse. Each mote is deliberately
+// bigger and longer-lived than a Pluto fragment — gas, not gravel, so it wants
+// soft overlapping volume rather than a countable spray of specks.
+const STAR_GAS: StarGas[] = (() => {
+  const rand = mulberry32(20260730);
+  const list: StarGas[] = [];
+  const STREAM = 30;
+  for (let i = 0; i < STREAM; i += 1) {
+    list.push({
+      kind: "stream",
+      phase: (i / STREAM + rand() * 0.02) % 1,
+      life: 2.6 + rand() * 1.9,
+      size: 7 + rand() * 13,
+      angleDeg: -68 + rand() * 136,
+      bow: (rand() < 0.5 ? -1 : 1) * (18 + rand() * 60),
+      turns: 0.75 + rand() * 1.1,
+      startR: 1 + rand() * 0.3,
+      startTheta: 0,
+    });
+  }
+  const COLLAPSE = 22;
+  for (let i = 0; i < COLLAPSE; i += 1) {
+    list.push({
+      kind: "collapse",
+      phase: (i / COLLAPSE + rand() * 0.05) % 1,
+      life: 1.5 + rand() * 1.3,
+      size: 9 + rand() * 16,
+      angleDeg: 0,
+      bow: (rand() < 0.5 ? -1 : 1) * (10 + rand() * 44),
+      turns: 1.1 + rand() * 1.5,
+      startR: rand() * 0.95,
+      startTheta: rand() * Math.PI * 2,
+    });
+  }
+  return list;
+})();
+
+/** Thinned pools for the two reduced tiers — taken by stride, not by slicing,
+ * for the same reason PLUTO_FRAGMENTS_LITE is: the array is one phase's motes
+ * followed by the other's, so a slice would delete a whole phase. */
+const STAR_GAS_LITE: StarGas[] = STAR_GAS.filter((_, i) => i % 2 === 0);
+const STAR_GAS_MINIMAL: StarGas[] = STAR_GAS.filter((_, i) => i % 4 === 0);
+
+interface StarGeometry {
+  bhCenterX: number;
+  bhCenterY: number;
+  starCenterX: number;
+  starCenterY: number;
+  starRadius: number;
+}
+
+function measureStarGeometry(bhEl: HTMLElement, starEl: HTMLElement): StarGeometry {
+  const bh = bhEl.getBoundingClientRect();
+  const star = starEl.getBoundingClientRect();
+  return {
+    bhCenterX: bh.left + bh.width / 2,
+    bhCenterY: bh.top + bh.height / 2,
+    starCenterX: star.left + star.width / 2,
+    starCenterY: star.top + star.height / 2,
+    // The star is a stack of CSS gradients filling its whole box (see
+    // .hb-bluestar-body in hub.css), not an SVG inset inside a padded viewBox
+    // the way PhotoPlanetBody is — so this is a plain half-width, with no
+    // BASE_R/100 factor of the kind measurePlutoGeometry's caller needs.
+    starRadius: star.width / 2,
+  };
+}
+
+/** Where one gas mote sits, in screen px, at local progress t — 0 the instant
+ * it's released from (x0, y0), 1 as it crosses the horizon.
+ *
+ * Worked in POLAR coordinates about the hole, which is what makes this read
+ * like an accretion stream rather than a straight line with a curve drawn on
+ * it. The radius decays as a power of the time remaining and the angle winds
+ * up as a power of the time elapsed, both with exponents above 1: early on the
+ * mote is still mostly falling and barely turning, and by the end it is barely
+ * falling and turning very fast. That asymmetry — the visible tightening — is
+ * the whole effect, and it comes out of the exponents rather than needing a
+ * hand-authored path.
+ *
+ * `bow` then displaces the result along the local normal, on a sine that is
+ * zero at both ends, so the ribbon bulges off the direct line in the middle
+ * without missing either the star it left or the hole it falls into. */
+function gasPoint(
+  geo: StarGeometry,
+  x0: number,
+  y0: number,
+  bow: number,
+  turns: number,
+  t: number
+): { x: number; y: number } {
+  const r0 = Math.hypot(x0 - geo.bhCenterX, y0 - geo.bhCenterY);
+  const theta0 = Math.atan2(y0 - geo.bhCenterY, x0 - geo.bhCenterX);
+  const r = r0 * Math.pow(1 - t, 1.25);
+  const theta = theta0 + turns * Math.PI * 2 * Math.pow(t, 1.7);
+  const off = bow * Math.sin(Math.PI * t);
+  return {
+    x: geo.bhCenterX + r * Math.cos(theta) - off * Math.sin(theta),
+    y: geo.bhCenterY + r * Math.sin(theta) + off * Math.cos(theta),
+  };
+}
+
+function useBlueStarEvent(
+  eventRef: React.RefObject<HTMLDivElement>,
+  bodyRef: React.RefObject<HTMLDivElement>,
+  limbRef: React.RefObject<HTMLSpanElement>,
+  coronaRef: React.RefObject<HTMLSpanElement>,
+  streamRef: React.RefObject<HTMLSpanElement>,
+  haloRef: React.RefObject<HTMLSpanElement>,
+  gas: StarGas[],
+  gasRefs: React.RefObject<(HTMLSpanElement | null)[]>,
+  blackHoleRef: React.RefObject<HTMLButtonElement>
+) {
+  useEffect(() => {
+    const eventEl = eventRef.current;
+    const bhEl = blackHoleRef.current;
+    if (!eventEl || !bhEl) return;
+    // Same bail-out as usePlutoEvent: no loop at all, and hub.css hides the
+    // whole layer, so there is no resting frame to draw either.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+    let geo = measureStarGeometry(bhEl, eventEl);
+    const onResize = () => {
+      geo = measureStarGeometry(bhEl, eventEl);
+    };
+    window.addEventListener("resize", onResize);
+
+    let raf = 0;
+    const startedAt = performance.now();
+    // Whether the star's half of the cycle was running as of the previous
+    // frame. Everything this loop touches is reset exactly once on the way
+    // out rather than re-written every frame through Pluto's fifteen seconds.
+    let wasActive = false;
+    let wasFlaring = false;
+
+    const rest = () => {
+      const body = bodyRef.current;
+      if (body) {
+        body.style.opacity = "0";
+        body.style.transform = "";
+      }
+      if (limbRef.current) limbRef.current.style.opacity = "0";
+      if (coronaRef.current) coronaRef.current.style.opacity = "0";
+      if (streamRef.current) {
+        streamRef.current.style.opacity = "0";
+        streamRef.current.style.transform = "";
+      }
+      if (haloRef.current) haloRef.current.style.opacity = "0";
+      gasRefs.current?.forEach((el) => {
+        if (el) el.style.opacity = "0";
+      });
+      blackHoleRef.current?.classList.remove("is-feeding-blue");
+    };
+
+    const tick = (now: number) => {
+      const cycleElapsed = ((now - startedAt) / 1000) % HB_FEED_CYCLE;
+      // Negative for the whole Pluto half — this loop's own clock, zeroed at
+      // the moment the star's phase begins.
+      const t = cycleElapsed - PLUTO_CYCLE;
+
+      if (t < 0) {
+        if (wasActive) {
+          rest();
+          wasActive = false;
+          wasFlaring = false;
+        }
+        /* The blue glow reaches its brightest at the exact instant the cycle
+           hands back to Pluto — the flare's three seconds are the last three
+           of the star's phase — so without this it would be cut from full
+           brightness to nothing in a single frame. It gets a short tail on the
+           far side of the wrap instead. Nothing else in this layer needs one:
+           the star itself has been gone since the collapse ended, and rest()
+           above has already put the stream and every mote away.
+
+           Written here rather than as a CSS transition on the element because
+           its opacity is set every frame while the event runs — a transition
+           would sit on all of those writes too and turn the request's own
+           three-second ramp into a laggy approximation of one. */
+        if (cycleElapsed < STAR_HALO_TAIL + 0.2) {
+          const el = haloRef.current;
+          if (el) el.style.opacity = Math.max(0, 1 - cycleElapsed / STAR_HALO_TAIL).toFixed(3);
+        }
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      wasActive = true;
+
+      const streaming = t < STAR_COLLAPSE_START;
+      const collapsing = t >= STAR_COLLAPSE_START && t < STAR_COLLAPSE_END;
+      const flaring = t >= STAR_COLLAPSE_END;
+      // 0 through the stream, 0..1 across the collapse, 1 once it's over.
+      const cp = Math.min(1, Math.max(0, (t - STAR_COLLAPSE_START) / STAR_COLLAPSE_LEN));
+      // 0..1 across the closing blue flare.
+      const fp = Math.min(1, Math.max(0, (t - STAR_COLLAPSE_END) / STAR_FLARE_LEN));
+      // 0..1 across the stream, held at 1 afterwards.
+      const sp = Math.min(1, t / STAR_STREAM_LEN);
+
+      // The star arrives rather than blinking into existence: without this it
+      // popped in at full brightness the instant Pluto's flash ended, which
+      // read as a rendering glitch rather than as a body drifting into frame.
+      const arrive = Math.min(1, t / 1.2);
+
+      /* The star itself. Distorts gently for twenty seconds, then comes apart:
+         stretched hard toward the hole, flattened, and faded out — no erosion
+         clip of the kind Pluto's rock body gets, because a star coming apart
+         is gas losing its boundary, not a solid breaking along an edge, and a
+         ragged tear line would put exactly the wrong material read on it. */
+      const body = bodyRef.current;
+      if (body) {
+        const stretchX = 1 + sp * STAR_STREAM_STRETCH + cp * STAR_COLLAPSE_STRETCH;
+        const squashY = 1 - sp * 0.05 - cp * 0.72;
+        body.style.transform = `scaleX(${stretchX.toFixed(3)}) scaleY(${squashY.toFixed(3)})`;
+        body.style.opacity = flaring ? "0" : (arrive * (1 - Math.pow(cp, 1.4))).toFixed(3);
+      }
+
+      /* The hot crescent on the star's hole-facing limb — the actual "우측부분의
+         푸른색 가스" the request names, and the visual cue that says which side
+         is being stripped. Brightens across the stream, then goes with the
+         body. */
+      if (limbRef.current) {
+        limbRef.current.style.opacity = flaring
+          ? "0"
+          : Math.max(0, arrive * (0.14 + sp * 0.86 - cp * 0.9)).toFixed(3);
+      }
+
+      /* Its corona, which survives the body slightly — the envelope is the
+         last part to be pulled off, so it lingers into the collapse. */
+      if (coronaRef.current) {
+        coronaRef.current.style.opacity = flaring ? "0" : (arrive * (0.85 - cp * 0.85)).toFixed(3);
+      }
+
+      /* The tidal stream's underlay: one wide, soft ribbon from the star's
+         limb to the hole, tapering brightest at the horizon end. The motes
+         below supply the motion and the winding; this supplies the continuity
+         between them, which 30 discrete points cannot on their own. Its
+         geometry is entirely static (both ends are fixed elements), so it
+         needs no per-frame position — only how bright and how thick it is,
+         which is what the two writes here are. */
+      if (streamRef.current) {
+        const thickness = streaming
+          ? 1 + 0.14 * Math.sin(t * 1.7)
+          : collapsing
+            ? 1 + cp * 1.5
+            : 1;
+        streamRef.current.style.opacity = flaring
+          ? Math.max(0, 0.9 - fp * 3).toFixed(3)
+          : (arrive * (0.1 + sp * 0.45 + cp * 0.35)).toFixed(3);
+        // The translate has to be repeated, not just the scale — see
+        // .hb-bluestar-stream in hub.css: `transform` is one property, so
+        // writing a bare scaleY() here would drop the stylesheet's own
+        // translateY(50%) and drop the ribbon off the hole's centre line.
+        streamRef.current.style.transform = `translateY(50%) scaleY(${thickness.toFixed(3)})`;
+      }
+
+      /* The hole's own blue glow, brightening monotonically across the whole
+         event — a faint cool halo while it is merely being fed, well up by the
+         time the star is draining, and then the request's "푸른색으로 밝게 3초간
+         점점 밝아지며" as the last of it goes in. Driven per-frame from this one
+         clock rather than as a CSS transition, so the three-second ramp is
+         literally the three seconds this loop is counting and not a duration
+         written down a second time in the stylesheet. */
+      if (haloRef.current) {
+        const halo = flaring ? 0.64 + fp * 0.36 : streaming ? 0.34 * Math.min(1, t / 2) : 0.34 + cp * 0.3;
+        haloRef.current.style.opacity = halo.toFixed(3);
+      }
+
+      /* brightness/saturate/hue-rotate on the button itself, for the flare
+         only — same division of labour as the red Pluto flare (see
+         .hb-blackhole.is-feeding in hub.css): the halo above colours the space
+         around the hole, this is what swings the accretion disc and horizon
+         themselves. A class with its own transition rather than a per-frame
+         write, because a filter is per-pixel work over the whole SVG and
+         re-declaring it sixty times a second would re-run all of it. */
+      if (flaring !== wasFlaring) {
+        blackHoleRef.current?.classList.toggle("is-feeding-blue", flaring);
+        wasFlaring = flaring;
+      }
+
+      /* The gas. Every mote recycles on its own loop for as long as its phase
+         is feeding, so the stream is continuous rather than a single volley —
+         `% 1` on a ratio that just keeps climbing is the whole mechanism. */
+      const frags = gasRefs.current;
+      gas.forEach((mote, i) => {
+        const el = frags?.[i];
+        if (!el) return;
+
+        // Stream motes keep going through the collapse (the stream does not
+        // stop when the star dissolves — it is what the star is dissolving
+        // INTO) and then fade out over the flare's first third rather than
+        // being cut mid-flight; collapse motes only exist for the collapse.
+        const feeding = mote.kind === "stream" ? fp < 0.34 : collapsing;
+        if (!feeding) {
+          if (el.style.opacity !== "0") el.style.opacity = "0";
+          return;
+        }
+
+        const since = mote.kind === "stream" ? t : t - STAR_COLLAPSE_START;
+        const local = (since / mote.life + mote.phase) % 1;
+
+        let x0: number;
+        let y0: number;
+        if (mote.kind === "stream") {
+          // Released from just OUTSIDE the photosphere, out in the envelope —
+          // "행성외부의 가스", per the request, rather than material pulled off the
+          // solid-looking surface itself. 1.0x-1.3x the radius puts the release
+          // point inside the corona this star is already drawn wearing, so the
+          // stream visibly starts in the glow rather than at a hard edge.
+          const rad = (mote.angleDeg * Math.PI) / 180;
+          const releaseR = geo.starRadius * mote.startR;
+          x0 = geo.starCenterX + releaseR * Math.cos(rad);
+          y0 = geo.starCenterY + releaseR * Math.sin(rad);
+        } else {
+          // From anywhere inside a disc that is itself shrinking as the star
+          // drains, so the source visibly collapses toward a point rather than
+          // continuing to shed from a full-size body that is no longer there.
+          const r = mote.startR * geo.starRadius * (1 - cp * 0.8);
+          x0 = geo.starCenterX + r * Math.cos(mote.startTheta);
+          y0 = geo.starCenterY + r * Math.sin(mote.startTheta);
+        }
+
+        const p = gasPoint(geo, x0, y0, mote.bow, mote.turns, local);
+        // Compresses on the way in — tidally squeezed, and further away in
+        // the same breath, so the ribbon narrows toward the horizon.
+        const scale = 1 - 0.55 * local;
+        /* Faded at both ends of its own trip: in as it separates from the
+           envelope, out as it falls in. The fade-out starts at 0.55 rather
+           than nearer the end because `local` is progress along the PATH, not
+           along the screen: the radius decays as a power (see gasPoint), so by
+           local 0.55 a mote is already well inside the accretion disc, and by
+           0.78 it is nearly on the horizon. Fading from there left bright
+           motes sitting on top of the black centre of the hole, which reads as
+           debris in front of it rather than material falling into it. */
+        const edge = local < 0.08 ? local / 0.08 : local > 0.55 ? Math.max(0, 1 - (local - 0.55) / 0.33) : 1;
+        /* Then scaled by the phase's own intensity. Both kinds ramp in and out
+           rather than switching on at strength: each pool's motes are spread
+           across their own recycling loop, so at the instant a phase begins
+           they are scattered mid-flight, and appearing at full brightness
+           there looks like a frame was dropped. */
+        const intensity =
+          mote.kind === "stream"
+            ? Math.min(1, t / 1.4) * (0.72 + cp * 0.28) * Math.max(0, 1 - fp * 3)
+            : Math.min(1, cp * 6) * Math.min(1, (1 - cp) * 5) * (0.6 + Math.sin(Math.PI * cp) * 0.4);
+        el.style.transform = `translate(${(p.x - mote.size / 2).toFixed(1)}px, ${(p.y - mote.size / 2).toFixed(1)}px) scale(${scale.toFixed(2)})`;
+        el.style.opacity = (edge * intensity).toFixed(3);
+      });
+
+      raf = requestAnimationFrame(tick);
+    };
+
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+      rest();
+    };
+  }, [eventRef, bodyRef, limbRef, coronaRef, streamRef, haloRef, gas, gasRefs, blackHoleRef]);
+}
+
 /* ───────────────────────────── page ─────────────────────────────
 
    How heavy a scene this page draws. Three steps, each a strict subset of the
@@ -1625,6 +2098,7 @@ function useSceneTier(): SceneTier {
                          spin     freezes every planet's rotating texture
                          bh       the black hole
                          pluto    the Pluto/black-hole vignette
+                         bluestar the blue star the hole eats after Pluto
                          neutron  the neutron binary
 
    Turning exactly one of these off and watching ?hbfps jump is what
@@ -1690,6 +2164,30 @@ export default function Hub() {
   const plutoFragRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const plutoFragments = minimal ? PLUTO_FRAGMENTS_MINIMAL : lite ? PLUTO_FRAGMENTS_LITE : PLUTO_FRAGMENTS;
   usePlutoEvent(plutoEventRef, plutoBodyRef, plutoFragments, plutoFragRefs, blackHoleRef);
+
+  /* The blue star the hole eats immediately after Pluto — see
+     useBlueStarEvent above. Shares blackHoleRef with the Pluto event (both
+     drive the same hole's glow) and HB_FEED_CYCLE with its loop, so the two
+     hand off to each other rather than overlapping. */
+  const starEventRef = useRef<HTMLDivElement>(null);
+  const starBodyRef = useRef<HTMLDivElement>(null);
+  const starLimbRef = useRef<HTMLSpanElement>(null);
+  const starCoronaRef = useRef<HTMLSpanElement>(null);
+  const starStreamRef = useRef<HTMLSpanElement>(null);
+  const starHaloRef = useRef<HTMLSpanElement>(null);
+  const starGasRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const starGas = minimal ? STAR_GAS_MINIMAL : lite ? STAR_GAS_LITE : STAR_GAS;
+  useBlueStarEvent(
+    starEventRef,
+    starBodyRef,
+    starLimbRef,
+    starCoronaRef,
+    starStreamRef,
+    starHaloRef,
+    starGas,
+    starGasRefs,
+    blackHoleRef
+  );
 
   /* The page's entire data budget: two cached endpoints, one poll. */
   useEffect(() => {
@@ -1924,6 +2422,22 @@ export default function Hub() {
           outside the stage with no 3D transforms of its own, was never
           part of; a copied-over wrap box here only added a second layer of
           corner-anchor math to get wrong; see hub.css. */}
+      {/* The blue glow of a hole that has just swallowed a blue star. Its own
+          layer rather than a restyling of the amber corona or the red feeding
+          halo, for the same reason those two are separate from each other:
+          `background` does not interpolate between gradients, so sharing one
+          element would snap to the other colour instead of cross-fading.
+
+          OUTSIDE the button, not inside it like `.hb-bh-bloom` — the blue
+          flare's own rule puts a `hue-rotate` on `.hb-blackhole` to swing the
+          accretion disc itself blue, and `filter` applies to an element's
+          whole subtree as one group, so a halo nested in there would have had
+          that same 158° rotation applied to it and come out orange. It is
+          anchored to the hole's corner independently instead (see hub.css).
+          Its opacity is written per frame by useBlueStarEvent, which is what
+          makes the request's three-second brightening an actual ramp. */}
+      <span className="hb-bh-blueflare" ref={starHaloRef} aria-hidden="true" />
+
       <button
         type="button"
         ref={blackHoleRef}
@@ -1981,6 +2495,55 @@ export default function Hub() {
               plutoFragRefs.current[i] = el;
             }}
             style={{ width: `${frag.size}px`, height: `${frag.size}px` }}
+          />
+        ))}
+      </div>
+
+      {/* The blue star the hole turns on the moment Pluto is gone: parked 400px
+          to its left at 60% of the sun's size, stripped down its right limb for
+          twenty seconds, then pulled apart entirely — see useBlueStarEvent
+          above for the whole timeline and hub.css for the geometry. Built out
+          of layered CSS gradients rather than the StarBody SVG the sun uses:
+          that SVG's photosphere is an feTurbulence/feDiffuseLighting stack and
+          is the single most expensive thing on this page (there is a ?hboff
+          switch just for it), and a second copy of it running through a
+          twenty-second event is not something this page has the headroom for.
+          Gradients composite instead of repainting, which is the same trade the
+          black hole's own corona already makes. */}
+      <div
+        className="hb-bluestar-event"
+        ref={starEventRef}
+        aria-hidden="true"
+        style={{ "--bluestar-gap": `${STAR_GAP}px` } as React.CSSProperties}
+      >
+        <span className="hb-bluestar-corona" ref={starCoronaRef} />
+        {/* The limb crescent lives INSIDE the body, not beside it, so the
+            tidal stretch written onto the body carries it along — a sibling
+            would stay a neat circle while the star it belongs to elongated. */}
+        <div className="hb-bluestar-body" ref={starBodyRef}>
+          <span className="hb-bluestar-limb" ref={starLimbRef} />
+        </div>
+      </div>
+
+      {/* The stream and the gas that rides it, in their own full-viewport
+          layer — same reason .hb-pluto-fx is separate from .hb-pluto-event:
+          every mote's flight is computed in real screen coordinates from the
+          hole's and the star's own getBoundingClientRect(), which needs a
+          plain fixed (0, 0) origin to sit against. */}
+      <div
+        className="hb-bluestar-fx"
+        aria-hidden="true"
+        style={{ "--bluestar-gap": `${STAR_GAP}px` } as React.CSSProperties}
+      >
+        <span className="hb-bluestar-stream" ref={starStreamRef} />
+        {starGas.map((mote, i) => (
+          <span
+            key={i}
+            className={`hb-bluestar-gas hb-bluestar-gas--${mote.kind}`}
+            ref={(el) => {
+              starGasRefs.current[i] = el;
+            }}
+            style={{ width: `${mote.size}px`, height: `${mote.size}px` }}
           />
         ))}
       </div>

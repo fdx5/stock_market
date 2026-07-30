@@ -2066,6 +2066,11 @@ body:has(.hb) {
   display: none;
 }
 
+.hb-off-bluestar .hb-bluestar-event,
+.hb-off-bluestar .hb-bluestar-fx {
+  display: none;
+}
+
 /* The one switch that isn't a `display: none` — freezing the textures in
    place answers "is it the spinning, or is it everything else about the
    planets", which hiding them outright cannot. */
@@ -2480,6 +2485,77 @@ body:has(.hb) {
   opacity: 1;
 }
 
+/* The blue counterpart of the red halo above, for the blue star's own end (see
+   useBlueStarEvent in Hub.tsx). A real element rather than a third pseudo
+   because `::before` and `::after` are both already spoken for here, and
+   because this one's opacity is written every frame — the request wants the
+   glow to build steadily right through the event and then climb over its last
+   three seconds, which a transition between two fixed end states cannot
+   express.
+
+   NOT a child of `.hb-blackhole`, unlike `.hb-bh-bloom`. The flare rule below
+   puts a `hue-rotate(158deg)` on that button to swing the accretion disc
+   itself blue, and a `filter` applies to the element and its whole subtree as
+   a single group — so a halo nested inside would have had that rotation
+   applied on top of its own colour and come out orange, which is the one
+   colour this must not be. It carries its own copy of the corner anchor
+   instead: 224% of the hole's size, offset back by 62% of it on each axis,
+   which is the same geometry `inset: -62%` would have produced from inside.
+   z-index 2 sits it behind the button (3) so the light reads as coming from
+   around and behind the hole rather than washing over the disc.
+
+   Reach is wider than either warm halo (-62% against their -26%/-46%): a
+   star's worth of material is a bigger meal than Pluto, and how far the light
+   spills should say so. */
+.hb-bh-blueflare {
+  position: fixed;
+  right: calc(var(--bh-right) - var(--bh-size) * 0.62);
+  bottom: calc(var(--bh-bottom) - var(--bh-size) * 0.62);
+  z-index: 2;
+  width: calc(var(--bh-size) * 2.24);
+  height: calc(var(--bh-size) * 2.24);
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    rgba(170, 220, 255, 0.9) 0%,
+    rgba(96, 168, 255, 0.55) 24%,
+    rgba(60, 120, 250, 0.26) 44%,
+    rgba(40, 90, 230, 0.1) 62%,
+    rgba(30, 70, 210, 0) 78%
+  );
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-bh-blueflare {
+    display: none;
+  }
+}
+
+/* Hidden with the rest of the event on phones — nothing ever raises its
+   opacity there, but a 224%-of-the-hole box parked over a phone-sized viewport
+   is worth not laying out at all. */
+@media (max-width: 640px) {
+  .hb-bh-blueflare {
+    display: none;
+  }
+}
+
+/* Only for the closing three-second flare, toggled as a class by
+   useBlueStarEvent — the halo above lights the space around the hole, this is
+   what swings the accretion disc and horizon themselves blue, exactly the
+   division of labour `.hb-blackhole.is-feeding` uses for the red one. The
+   hue-rotate is what does the actual colour work: the disc is authored amber,
+   and rotating it most of the way round the wheel lands it in the same cold
+   blue-white the star it just ate was. Transitioned in over most of the flare's
+   own length rather than snapped, so the disc brightens with the halo instead
+   of jumping ahead of it. */
+.hb-blackhole.is-feeding-blue {
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), filter 2.4s ease-in;
+  filter: brightness(1.55) saturate(1.2) hue-rotate(158deg);
+}
+
 /* The 15deg counter-clockwise presentation tilt this rule used to apply has
    moved INTO the SVG, as a `<g transform="rotate(-15 130 130)">` around the
    whole art (see BlackHoleBody in CelestialBody.tsx). A CSS transform on an
@@ -2749,6 +2825,235 @@ body:has(.hb) {
 @media (max-width: 640px) {
   .hb-pluto-event,
   .hb-pluto-fx {
+    display: none;
+  }
+}
+
+/* ─────────────────────────── blue star event ───────────────────────────
+
+   The blue star the black hole eats immediately after Pluto — see
+   useBlueStarEvent in Hub.tsx for the timeline (twenty seconds of gas stripped
+   off its right limb, then the whole body coming apart into the hole, then the
+   hole's own blue flare, then back to Pluto).
+
+   Anchored off `--bh-right`/`--bh-bottom`/`--bh-size` exactly as
+   `.hb-pluto-event` above is, and for the same reason: the black hole's own
+   corner position is a clamp() that belongs in one place. The
+   `(--bh-size - --bluestar-size) / 2` term on both axes is the same
+   centre-to-edge translation Pluto's box needs — `right`/`bottom` position an
+   element's edges, while the 400px the request specifies is a distance between
+   CENTRES, so half the size difference has to be added back on each axis to
+   convert one into the other. Vertically that also lines the star's centre up
+   with the hole's, which is what lets the stream between them run level.
+
+   Nothing here is animated through layout: unlike Pluto, this star never
+   approaches, so `right`/`bottom` are set once and never touched, and the only
+   per-frame writes are the transform and opacity of the body inside it. */
+.hb-bluestar-event {
+  /* 133 * 0.6 — 60% of the sun's own diameter, per an explicit request. Written
+     against the same `--body-unit` the sun uses (see `.hb-star`) rather than a
+     px size, so the two stay in that ratio at every viewport instead of
+     drifting apart the moment the system rescales. */
+  --bluestar-size: calc(79.8 * var(--body-unit));
+  position: fixed;
+  /* --bluestar-gap is STAR_GAP, set inline from Hub.tsx — see its comment
+     there for why the number is passed in rather than repeated here. */
+  right: calc(var(--bh-right) + (var(--bh-size) - var(--bluestar-size)) / 2 + var(--bluestar-gap, 400px));
+  bottom: calc(var(--bh-bottom) + (var(--bh-size) - var(--bluestar-size)) / 2);
+  z-index: 4;
+  width: var(--bluestar-size);
+  height: var(--bluestar-size);
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+/* A hot blue main-sequence photosphere as a stack of gradients rather than the
+   sun's feTurbulence SVG — see the note in Hub.tsx where this is rendered for
+   why a second copy of that filter is not affordable here. The off-centre
+   highlight is the same trick `StarBody`'s own core gradient uses: an
+   emissive body still needs an asymmetric brightest point, or it reads as a
+   flat disc every time. */
+.hb-bluestar-body {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  /* Left edge pinned so useBlueStarEvent's scaleX stretch grows out to the
+     RIGHT, into the hole — the same reason `.hb-pluto-body` does this. A
+     centred origin would spread the star both ways and read as it swelling
+     rather than as it being pulled. */
+  transform-origin: 0% 50%;
+  background:
+    radial-gradient(
+      circle at 41% 36%,
+      #ffffff 0%,
+      #eaf6ff 11%,
+      #bfdeff 27%,
+      #7ab8f7 48%,
+      #4287e0 69%,
+      #22539f 88%,
+      #12305f 100%
+    );
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* The hot crescent on the limb facing the hole — the "우측부분의 푸른색 가스" the
+   request names, and the one cue that says which side is being stripped. An
+   ellipse centred just off the star's right edge, clipped back to the disc by
+   the border-radius, so it hugs the limb instead of sitting on it as a blob. */
+.hb-bluestar-limb {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 62% 96% at 104% 50%,
+    rgba(240, 250, 255, 0.95) 0%,
+    rgba(178, 224, 255, 0.72) 18%,
+    rgba(110, 186, 255, 0.4) 38%,
+    rgba(70, 150, 255, 0.14) 58%,
+    rgba(50, 120, 240, 0) 74%
+  );
+  opacity: 0;
+}
+
+/* The envelope, well outside the photosphere — the part the hole strips first
+   and the last part still visible once the body itself has gone. Sized past
+   its own box for the same reason the black hole's corona is: a glow has no
+   business driving layout, and this box is `place-items: center` inside a
+   parent sized to the star proper. */
+.hb-bluestar-corona {
+  position: absolute;
+  /* Centred by hand rather than left to the parent's `place-items: center`:
+     how that alignment applies to an absolutely positioned grid child is a
+     corner of the spec browsers have historically disagreed on, and this only
+     has to be right. Its `transform` is safe to own here — useBlueStarEvent
+     writes this element's opacity and nothing else. */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 260%;
+  height: 260%;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(
+    circle,
+    rgba(200, 235, 255, 0.5) 0%,
+    rgba(140, 200, 255, 0.26) 16%,
+    rgba(90, 160, 250, 0.13) 30%,
+    rgba(60, 125, 240, 0.055) 46%,
+    rgba(40, 100, 225, 0.016) 64%,
+    rgba(30, 80, 210, 0) 80%
+  );
+  opacity: 0;
+}
+
+/* Debris layer, full-bleed and fixed — see the note where this is rendered in
+   Hub.tsx, and `.hb-pluto-fx` above, which is separate from its own event box
+   for exactly the same reason. */
+.hb-bluestar-fx {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+
+/* The tidal stream itself, underneath the individual gas motes: one soft
+   ribbon spanning the 400px from the star's centre to the hole's, brightest at
+   the horizon end where the material piles up. Thirty discrete motes read as a
+   spray on their own no matter how they are timed; this is what makes them read
+   as one continuous flow instead.
+
+   Its geometry is entirely static — both ends are fixed elements that never
+   move — so it is positioned in CSS once and JS only ever writes its opacity
+   and a scaleY. `right` puts its right edge exactly on the hole's centre and
+   the width carries it back to the star's, off the same
+   --bh-right + --bh-size/2 anchor the star's own box is built on. The
+   translateY is half its own height, since `bottom` would otherwise align its
+   lower edge — not its middle — with the hole's centre. */
+.hb-bluestar-stream {
+  position: absolute;
+  right: calc(var(--bh-right) + var(--bh-size) / 2);
+  bottom: calc(var(--bh-bottom) + var(--bh-size) / 2);
+  width: var(--bluestar-gap, 400px);
+  height: 54px;
+  /* `bottom` aligns this element's lower edge with the hole's centre, so half
+     its own height has to come back to centre it on that line. Note that
+     useBlueStarEvent rewrites `transform` every frame to animate the ribbon's
+     thickness and REPEATS this translate when it does — a bare `scaleY()`
+     there would drop it and shunt the ribbon half its height off the axis. */
+  transform: translateY(50%);
+  transform-origin: 100% 50%;
+  pointer-events: none;
+  /* An ellipse anchored at the right edge: it tapers away toward the star and
+     is at full strength where it meets the hole, which is the density gradient
+     a real accretion stream has. */
+  background: radial-gradient(
+    ellipse 100% 52% at 100% 50%,
+    rgba(215, 240, 255, 0.62) 0%,
+    rgba(150, 205, 255, 0.4) 22%,
+    rgba(100, 170, 250, 0.22) 44%,
+    rgba(70, 140, 240, 0.1) 66%,
+    rgba(50, 115, 230, 0) 88%
+  );
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+.hb-bluestar-gas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  opacity: 0;
+  will-change: transform, opacity;
+}
+
+/* Gas, not gravel — the Pluto event's debris is deliberately opaque rock with a
+   hard irregular silhouette, and this has to read as the opposite. Both kinds
+   below are soft-edged radial gradients that fall all the way to transparent,
+   so overlapping motes accumulate into volume rather than stacking as
+   countable discs. No `filter: blur()`, which would be the obvious way to get
+   the same softness and would also put every one of these on a blur kernel
+   re-run every frame they move. */
+.hb-bluestar-gas--stream {
+  background: radial-gradient(
+    circle,
+    rgba(245, 252, 255, 0.9) 0%,
+    rgba(175, 220, 255, 0.6) 30%,
+    rgba(105, 175, 255, 0.28) 58%,
+    rgba(70, 140, 240, 0) 100%
+  );
+}
+
+/* The collapse's own gas runs hotter and whiter than the stream's — this is
+   material from deeper inside the star, compressed on the way in, and the
+   colour shift is what says so. */
+.hb-bluestar-gas--collapse {
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(215, 240, 255, 0.7) 26%,
+    rgba(140, 200, 255, 0.34) 54%,
+    rgba(90, 160, 250, 0) 100%
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-bluestar-event,
+  .hb-bluestar-fx {
+    display: none;
+  }
+}
+
+/* Hidden on phones for the same reason the Pluto event is: the whole vignette
+   is anchored in real pixels to a corner button, and 400px of clear space to
+   its left simply is not there. */
+@media (max-width: 640px) {
+  .hb-bluestar-event,
+  .hb-bluestar-fx {
     display: none;
   }
 }
