@@ -2548,11 +2548,27 @@ body:has(.hb) {
    division of labour `.hb-blackhole.is-feeding` uses for the red one. The
    hue-rotate is what does the actual colour work: the disc is authored amber,
    and rotating it most of the way round the wheel lands it in the same cold
-   blue-white the star it just ate was. Transitioned in over most of the flare's
-   own length rather than snapped, so the disc brightens with the halo instead
-   of jumping ahead of it. */
+   blue-white the star it just ate was.
+
+   The filter's own transition used to run the full 2.4s the request's
+   "3초간 점점 밝아지며" describes — but that ramp is what `haloRef`'s own
+   per-frame opacity write already gives the space around the hole (see
+   useBlueStarEvent), and unlike that halo (a plain span), this filter sits on
+   `.hb-blackhole` itself: the button wrapping BlackHoleBody's ~90 lines of
+   continuously dashing SVG, which already has to repaint every frame on its
+   own. A `filter` forces the browser to rasterise its WHOLE element again
+   through the new matrix on every one of those repaints for as long as the
+   value is still moving — 2.4 full seconds of it, landing on exactly the
+   three seconds the gas canvas and the collapsing star are also doing the
+   most work of the whole cycle, was the actual source of the screen-wide
+   stutter reported here, not anything in the star's own rim. Cut to the same
+   order of duration the proven-fine red flare already uses (0.35s) — short
+   enough that the wash still reads as one continuous colour shift alongside
+   the halo's slower three-second brightening, not a snap, but without paying
+   for a multi-second live-filtered repaint of the page's single most
+   expensive element. */
 .hb-blackhole.is-feeding-blue {
-  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), filter 2.4s ease-in;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), filter 0.4s ease-out;
   filter: brightness(1.55) saturate(1.2) hue-rotate(158deg);
 }
 
@@ -2972,135 +2988,132 @@ body:has(.hb) {
   opacity: 0;
 }
 
-/* The blazing rim, take two. The first pass drew one ring: a conic-gradient's
-   hard angular wedges held to a thin band by a mask. At the size this actually
-   renders at, that band is only a few dozen px wide, and the conic-gradient's
-   own colour stops sit every ~15-20deg — so the wedges and the mask's radial
-   falloff crossed each other at a scale close to the mask's own transition
-   width, which is what produced the "깍두기" (diced-cube) blockiness: a grid
-   of small hard-edged patches instead of a texture. There is no amount of
-   softening a hard mask edge that fixes that; the mask itself had to go.
-   `.hb-bluestar-halo` and `.hb-bluestar-lick` below replace it with pure
-   radial gradients (which have no angular seams to alias against) blurred
-   just enough to lose their own edges, animated on transform/opacity only —
-   the blur is static per element, computed once and then only recomposited,
-   the same trade the corona pulses elsewhere on this page make. */
+/* The blazing rim, take three. Pass one drew a single masked conic-gradient
+   ring (blocky at render size — see the git history on this block for why).
+   Pass two replaced it with eighteen filter+blend flame "licks", which fixed
+   the blockiness but read as scattered blobs bulging and shrinking, not as
+   fire, and cost enough per-element (filter forces an offscreen buffer,
+   mix-blend-mode forces backdrop sampling) that all of them animating at once
+   during the collapse — already the heaviest moment this page has — was
+   dropping frames. An explicit follow-up asked for a specific, narrower
+   target: 아지랑이, the shimmer off a hot surface — fine, close, densely
+   packed wisps with a small fast waver, not a few big licks. That is also the
+   cheaper shape to draw: each wisp below is a sliver, not a blob, so even
+   with more of them on screen there is less ink per one and nothing here
+   carries a filter or blend mode at all — see `.hb-bluestar-wisp`. */
 
-/* A big, soft ambient bloom just outside the disc, standing in for the ring's
-   old job of making the whole limb read brighter — this version has no edge
-   at all to alias. Deliberately NOT animated: a whole ring breathing in
-   brightness together is exactly the "원형으로 깜빡이는" (blinking circle)
-   look an explicit request asked to remove. All of the rim's flicker now
-   comes from the individually-timed licks below, which — being scattered
-   blobs rather than one ring — cannot read as a single shape blinking no
-   matter how they are tuned. This one stays a steady glow underneath them. */
+/* A big, soft ambient bloom just outside the disc, unchanged from pass two:
+   a steady glow behind the wisps, not animated, so it never reads as a ring
+   blinking on its own account. */
 .hb-bluestar-halo {
   position: absolute;
-  inset: -34%;
+  inset: -30%;
   border-radius: 50%;
   pointer-events: none;
   mix-blend-mode: screen;
   background: radial-gradient(
     circle,
-    rgba(130, 195, 255, 0) 52%,
-    rgba(150, 210, 255, 0.5) 66%,
-    rgba(195, 230, 255, 0.26) 78%,
+    rgba(130, 195, 255, 0) 55%,
+    rgba(150, 210, 255, 0.42) 68%,
+    rgba(195, 230, 255, 0.2) 80%,
     rgba(150, 210, 255, 0) 96%
   );
   filter: blur(7px);
 }
 
-/* Individually-placed flame licks around the circumference — see
-   buildBlueStarFlame in Hub.tsx for where each one's angle/size/timing comes
-   from. `--lick-rot` is that same placement angle (see the function's own
-   comment for the +90deg): baking it into every keyframe stop's own
-   `transform`, rather than leaving it as a separate static rotation, is what
-   lets one shared `scale()` animation still stretch each lick along ITS OWN
-   outward direction instead of every lick stretching in the same screen-space
-   axis regardless of where it sits on the rim.
-   No `mix-blend-mode` or `filter` here on purpose, unlike the halo above —
-   eighteen elements is enough that either one, mode being a backdrop-sampling
-   operation and blur forcing its own offscreen buffer, was costly enough
-   PER element that all eighteen animating at once (worst-case exactly during
-   the collapse, when the gas canvas and the body's own mask/transform writes
-   are already the heaviest this page gets) is what was dropping frames across
-   the whole tab, not just this element. Plain alpha-blended gradients read
-   almost as bright against the mostly-black backdrop this sits on, for a
-   fraction of the compositing cost. */
-.hb-bluestar-lick {
+/* One heat-haze wisp — see buildBlueStarHaze in Hub.tsx for where each one's
+   position/size/timing comes from. `--wisp-rot` is that wisp's own placement
+   angle turned into a rotation (see the function's own comment): baked into
+   every keyframe stop's `transform` rather than left as a separate static
+   rotation, so the shared waver keyframes below still move each wisp along
+   ITS OWN outward direction instead of every wisp swaying on the same
+   screen-space axis regardless of where it sits on the rim.
+   Thin on purpose — a sliver, most of its own box transparent — both because
+   that is what a heat-shimmer strand actually looks like and because it is
+   cheap: no filter, no mix-blend-mode (unlike the one halo above, which is a
+   single element and can afford both). Plain alpha-blended gradients still
+   read brightly against the mostly-black backdrop this sits on, for a
+   fraction of the compositing cost forcing an offscreen buffer per wisp
+   would have — which, with two dozen of them animating through exactly the
+   moment the gas canvas and the body's own transform/mask writes are also
+   working hardest, is what was dropping frames across the whole tab before. */
+.hb-bluestar-wisp {
   position: absolute;
-  top: var(--lick-top);
-  left: var(--lick-left);
-  width: var(--lick-size);
-  height: calc(var(--lick-size) * 1.7);
-  margin-top: calc(var(--lick-size) * -0.85);
-  margin-left: calc(var(--lick-size) * -0.5);
+  top: var(--wisp-top);
+  left: var(--wisp-left);
+  width: var(--wisp-size);
+  height: calc(var(--wisp-size) * 3.4);
+  margin-top: calc(var(--wisp-size) * -1.7);
+  margin-left: calc(var(--wisp-size) * -0.5);
   border-radius: 50%;
   pointer-events: none;
   background: radial-gradient(
-    ellipse 68% 60% at 50% 74%,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(190, 228, 255, 0.82) 30%,
-    rgba(100, 180, 255, 0.46) 60%,
-    rgba(60, 140, 240, 0) 100%
+    ellipse 46% 30% at 50% 82%,
+    rgba(235, 248, 255, 0.85) 0%,
+    rgba(170, 220, 255, 0.55) 32%,
+    rgba(100, 180, 255, 0.24) 60%,
+    rgba(70, 150, 250, 0) 100%
   );
-  transform: rotate(var(--lick-rot, 0deg));
-  animation-name: hb-lick-flicker;
+  transform: rotate(var(--wisp-rot, 0deg));
+  animation-name: hb-wisp-shimmer;
   animation-timing-function: ease-in-out;
   animation-iteration-count: infinite;
 }
 
-/* An ordinary lick licks in place: its own outward axis (see --lick-rot
-   above) stretches and relaxes unevenly, with a few degrees of wobble on top
-   so it never reads as a plain shape scaling — that unevenness plus every
-   lick running on its own independent duration/delay is what makes the rim
-   as a whole read as irregular fire instead of a pattern breathing in
-   lockstep. */
-@keyframes hb-lick-flicker {
+/* Small, fast, uneven — a shimmer, not a pulse. Amplitude stays low (a few
+   percent of the wisp's own height/width) on every axis; what sells the
+   "haze" read is that no two wisps are doing this on the same clock (see
+   each one's own randomised duration/delay in Hub.tsx), not how far any one
+   of them moves. `translateY` reads as radial travel because it is applied
+   INSIDE the rotate above (see --wisp-rot's own doc comment) — negative
+   values move the wisp further along its own outward direction, positive
+   pulls it back toward the surface. */
+@keyframes hb-wisp-shimmer {
   0% {
-    transform: rotate(calc(var(--lick-rot, 0deg) - 4deg)) scale(0.72, 0.55);
-    opacity: 0.3;
+    transform: rotate(var(--wisp-rot, 0deg)) translateY(2%) scaleY(0.8) scaleX(0.85);
+    opacity: 0.22;
   }
-  38% {
-    transform: rotate(calc(var(--lick-rot, 0deg) + 3deg)) scale(0.92, 1.2);
-    opacity: 0.95;
+  27% {
+    transform: rotate(var(--wisp-rot, 0deg)) translateY(-9%) scaleY(1.12) scaleX(1.05);
+    opacity: 0.7;
   }
-  64% {
-    transform: rotate(calc(var(--lick-rot, 0deg) - 2deg)) scale(0.8, 0.85);
-    opacity: 0.55;
+  52% {
+    transform: rotate(var(--wisp-rot, 0deg)) translateY(-3%) scaleY(0.94) scaleX(0.92);
+    opacity: 0.42;
+  }
+  79% {
+    transform: rotate(var(--wisp-rot, 0deg)) translateY(-7%) scaleY(1.05) scaleX(1);
+    opacity: 0.6;
   }
   100% {
-    transform: rotate(calc(var(--lick-rot, 0deg) - 4deg)) scale(0.72, 0.55);
-    opacity: 0.3;
+    transform: rotate(var(--wisp-rot, 0deg)) translateY(2%) scaleY(0.8) scaleX(0.85);
+    opacity: 0.22;
   }
 }
 
-/* Licks within ~55° of due-right — the hole-facing side, the same "local
+/* Wisps within ~55° of due-right — the hole-facing side, the same "local
    right = toward the hole" convention `.hb-bluestar-body.is-eaten`'s mask and
-   `.hb-bluestar-limb` both already rely on — additionally get torn loose and
-   dragged toward it instead of just flickering in place, which is the visible
-   "flame being pulled into the hole" cue the request asked for. The drag
-   itself is expressed as scaleY along the lick's OWN already-rotated axis
-   (baked in via --lick-rot, same as the flicker above) rather than a
-   translateX, so "toward the hole" stays correct however that axis is
-   oriented — a translate would have needed a second, separate direction
-   fixed up by hand instead of falling out of the same rotation for free.
-   `--lick-pull` is this lick's own stretch factor (bigger licks read as more
-   material and reach further, so they get a bigger one). */
-.hb-bluestar-lick--pull {
-  animation-name: hb-lick-pull;
+   `.hb-bluestar-limb` both already rely on — additionally get drawn out and
+   pulled toward it instead of just shimmering in place: the visible "flame
+   being pulled into the hole" cue the request asked for, expressed the same
+   thin-strand way as the rest of the rim rather than as a bigger blob.
+   `--wisp-pull` is how far this one travels, along its own already-rotated
+   axis (`translateY`, negative = outward — see the shimmer keyframes' own
+   note), before it thins out and fades. */
+.hb-bluestar-wisp--pull {
+  animation-name: hb-wisp-pull;
 }
 
-@keyframes hb-lick-pull {
+@keyframes hb-wisp-pull {
   0% {
-    transform: rotate(var(--lick-rot, 0deg)) scale(0.6, 0.5);
+    transform: rotate(var(--wisp-rot, 0deg)) translateY(0%) scaleY(0.7) scaleX(0.8);
     opacity: 0;
   }
-  18% {
-    opacity: 1;
+  16% {
+    opacity: 0.85;
   }
   100% {
-    transform: rotate(var(--lick-rot, 0deg)) scale(0.55, var(--lick-pull, 2.6));
+    transform: rotate(var(--wisp-rot, 0deg)) translateY(var(--wisp-pull, -220%)) scaleY(0.5) scaleX(0.35);
     opacity: 0;
   }
 }

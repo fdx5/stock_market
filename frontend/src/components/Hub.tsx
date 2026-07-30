@@ -1603,33 +1603,34 @@ const STAR_FALL_TURNS = 0.82;
  * committed, with the plunge still ahead of it. */
 const STAR_DRIFT = 105;
 
-/** One flame lick on the star's blazing rim — see buildBlueStarFlame below
- * and .hb-bluestar-lick/-halo in hub.css for the rendering. Positioned and
- * sized once at module load; nothing here is touched per frame, and nothing
- * it renders as carries a filter or blend mode (see the long note on
- * `.hb-bluestar-lick` in hub.css for why: those are the two properties that
- * were actually costing anything, not the element count). */
-interface FlameLick {
+/** One heat-haze wisp on the star's rim — see buildBlueStarHaze below and
+ * .hb-bluestar-wisp/-halo in hub.css for the rendering. Positioned and sized
+ * once at module load; nothing here is touched per frame, and nothing it
+ * renders as carries a filter or blend mode — see the long note on
+ * `.hb-bluestar-wisp` in hub.css for why those, not the element count, were
+ * the actual cost in the pass before this one. */
+interface HazeWisp {
   left: number; // %, box-relative
   top: number; // %, box-relative
-  size: number; // %, box-relative — this is the lick's WIDTH; height is a
+  size: number; // %, box-relative — this is the wisp's WIDTH; height is a
   // fixed multiple of it in CSS, so only one number has to be generated here.
   rot: number; // deg — see the function's own comment for where +90 comes from
   duration: number; // s
   delay: number; // s, negative — mid-cycle on mount, not launched in lockstep
-  pull: boolean; // torn toward the hole rather than just flickering in place
-  pullScale: number; // scaleY the lick reaches at the end of its pull — only meaningful if pull
+  pull: boolean; // drawn out toward the hole rather than just shimmering in place
+  pullDist: number; // % of the wisp's own box, negative (outward) — only meaningful if pull
 }
 
-/** The star's rim, as a ring of small independently-timed flame licks rather
- * than one shape. An earlier pass drew the whole rim as a single masked
- * conic-gradient ring, which read as a blocky pinwheel at actual render size
- * (see the long note on `.hb-bluestar-halo` in hub.css for exactly why) and,
- * being one shape spinning/pulsing as a unit, could never look "irregular"
- * no matter how it was tuned — every part of it was moving on the same
- * clock, which is also what made it read as one circle blinking rather than
- * fire. Many small licks, each flickering on its own duration/delay, do both
- * jobs at once: no single shape to blink, and genuinely uneven motion.
+/** The star's rim, as a field of small independently-timed heat-haze wisps —
+ * 아지랑이, the request's own word for it: the fine, dense, fast waver off a
+ * hot surface, not a few big licks. Two earlier passes both drew this as a
+ * handful of bigger shapes (first one masked conic-gradient ring, then
+ * eighteen flame "licks" — see the git history on this block and the long
+ * note on `.hb-bluestar-halo` in hub.css) and both read as a shape doing
+ * something, blinking or bulging, rather than as a texture. More, thinner,
+ * faster-moving elements is what a shimmer actually needs, and it is also
+ * the cheaper shape to render: a sliver has less ink than a blob, and none of
+ * these carry a filter or blend mode at all (again, see hub.css).
  *
  * `angle` walks the full circle in the same convention `Math.cos`/`sin` give
  * for free: 0 is due right, which is already "toward the hole" — the same
@@ -1637,49 +1638,48 @@ interface FlameLick {
  * and `.hb-bluestar-limb`'s own gradient both rely on — so no separate
  * heading has to be threaded in here, even once the body starts rotating
  * into its own infall spiral near the end of the event. `rot` is that same
- * angle turned into a CSS rotation for the lick's own shape: a lick is drawn
+ * angle turned into a CSS rotation for the wisp's own shape: a wisp is drawn
  * tall and narrow, tip at its own local top, so an unrotated one points due
  * north (270° in this file's clockwise-from-east convention) — rotating it
- * by `angle + 90` is what turns "north" into "pointing along `angle`",
- * i.e. outward from the star's centre at exactly the spot it sits on the rim.
- * Licks that land within ~55° of the hole-facing direction are marked `pull`:
- * torn loose and dragged toward it, versus the rest of the rim just licking
- * in place.
+ * by `angle + 90` is what turns "north" into "pointing along `angle`", i.e.
+ * outward from the star's centre at exactly the spot it sits on the rim.
+ * Wisps that land within ~55° of the hole-facing direction are marked `pull`:
+ * drawn out and dragged toward it, versus the rest of the rim just
+ * shimmering in place.
  *
  * Deterministic PRNG so the pattern is fixed across renders — see this
  * file's own `mulberry32` above and the same reasoning everywhere else it is
  * used on this page: reshuffling on mount would read as the whole rim's
  * structure jumping to a different shape. */
-function buildBlueStarFlame(count: number, seed: number): FlameLick[] {
+function buildBlueStarHaze(count: number, seed: number): HazeWisp[] {
   const rand = mulberry32(seed);
-  const licks: FlameLick[] = [];
+  const wisps: HazeWisp[] = [];
   const facingRad = (55 * Math.PI) / 180;
   for (let i = 0; i < count; i += 1) {
     const angle = (i / count) * Math.PI * 2 + (rand() - 0.5) * ((Math.PI * 2) / count) * 0.8;
     const angleFromRight = angle > Math.PI ? angle - Math.PI * 2 : angle;
     const pull = Math.abs(angleFromRight) < facingRad;
-    const size = 16 + rand() * 22 + (pull ? rand() * 9 : 0);
-    licks.push({
+    const size = 6 + rand() * 7 + (pull ? rand() * 2 : 0);
+    wisps.push({
       left: 50 + Math.cos(angle) * 50,
       top: 50 + Math.sin(angle) * 50,
       size,
       rot: (angle * 180) / Math.PI + 90,
-      duration: pull ? 2.1 + rand() * 1.6 : 1.6 + rand() * 2.2,
-      delay: -rand() * 4,
+      duration: pull ? 1.7 + rand() * 1.3 : 0.9 + rand() * 1.1,
+      delay: -rand() * 3,
       pull,
-      pullScale: 2.1 + rand() * 1.3,
+      pullDist: -(160 + rand() * 110),
     });
   }
-  return licks;
+  return wisps;
 }
 
-// Fourteen, not the eighteen the first pass used — with the per-lick
-// filter/blend gone (see hb-bluestar-lick in hub.css) the count was no
-// longer the main cost, but fewer still-independently-timed licks reads
-// almost as busy as more while leaving that much more frame budget free for
-// the gas canvas and the black hole's own disc, which are both working
-// hardest at exactly the moment (the collapse) this rim is on screen.
-const BLUESTAR_FLAME = buildBlueStarFlame(14, 20260731);
+// Twenty-six thin wisps, not the fourteen chunky licks the pass before this
+// used — each one is a sliver with no filter/blend on it (see hb-bluestar-wisp
+// in hub.css), so more of them is what actually reads as a dense shimmer
+// rather than a countable few shapes, for LESS total ink than fourteen much
+// bigger blobs were drawing.
+const BLUESTAR_FLAME = buildBlueStarHaze(26, 20260801);
 
 /* ── the gas, on a canvas ───────────────────────────────────────────────
    This started as ~50 absolutely-positioned <span>s, each carrying a
@@ -3029,26 +3029,26 @@ export default function Hub() {
             would stay a neat circle while the star it belongs to elongated. */}
         <div className="hb-bluestar-body" ref={starBodyRef}>
           {/* The blazing rim: one soft ambient halo plus BLUESTAR_FLAME's
-              eighteen individually-timed flame blobs (see hub.css and
-              buildBlueStarFlame above) — pure CSS, no refs of their own.
+              twenty-six individually-timed heat-haze wisps (see hub.css and
+              buildBlueStarHaze above) — pure CSS, no refs of their own.
               All of it rides the body's own per-frame opacity/transform for
-              free just by being its children, so the fire arrives, stretches
-              and gets eaten along with the star rather than needing a second
-              animation loop to keep in sync. */}
+              free just by being its children, so the shimmer arrives,
+              stretches and gets eaten along with the star rather than
+              needing a second animation loop to keep in sync. */}
           <span className="hb-bluestar-halo" />
-          {BLUESTAR_FLAME.map((lick, i) => (
+          {BLUESTAR_FLAME.map((wisp, i) => (
             <span
               key={i}
-              className={`hb-bluestar-lick${lick.pull ? " hb-bluestar-lick--pull" : ""}`}
+              className={`hb-bluestar-wisp${wisp.pull ? " hb-bluestar-wisp--pull" : ""}`}
               style={
                 {
-                  "--lick-left": `${lick.left.toFixed(2)}%`,
-                  "--lick-top": `${lick.top.toFixed(2)}%`,
-                  "--lick-size": `${lick.size.toFixed(2)}%`,
-                  "--lick-rot": `${lick.rot.toFixed(1)}deg`,
-                  "--lick-pull": lick.pullScale.toFixed(2),
-                  animationDuration: `${lick.duration.toFixed(2)}s`,
-                  animationDelay: `${lick.delay.toFixed(2)}s`,
+                  "--wisp-left": `${wisp.left.toFixed(2)}%`,
+                  "--wisp-top": `${wisp.top.toFixed(2)}%`,
+                  "--wisp-size": `${wisp.size.toFixed(2)}%`,
+                  "--wisp-rot": `${wisp.rot.toFixed(1)}deg`,
+                  "--wisp-pull": `${wisp.pullDist.toFixed(0)}%`,
+                  animationDuration: `${wisp.duration.toFixed(2)}s`,
+                  animationDelay: `${wisp.delay.toFixed(2)}s`,
                 } as React.CSSProperties
               }
             />
