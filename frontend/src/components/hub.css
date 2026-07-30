@@ -2988,7 +2988,12 @@ body:has(.hb) {
 
 /* A big, soft ambient bloom just outside the disc, standing in for the ring's
    old job of making the whole limb read brighter — this version has no edge
-   at all to alias. */
+   at all to alias. Deliberately NOT animated: a whole ring breathing in
+   brightness together is exactly the "원형으로 깜빡이는" (blinking circle)
+   look an explicit request asked to remove. All of the rim's flicker now
+   comes from the individually-timed licks below, which — being scattered
+   blobs rather than one ring — cannot read as a single shape blinking no
+   matter how they are tuned. This one stays a steady glow underneath them. */
 .hb-bluestar-halo {
   position: absolute;
   inset: -34%;
@@ -2998,78 +3003,75 @@ body:has(.hb) {
   background: radial-gradient(
     circle,
     rgba(130, 195, 255, 0) 52%,
-    rgba(150, 210, 255, 0.6) 66%,
-    rgba(195, 230, 255, 0.32) 78%,
+    rgba(150, 210, 255, 0.5) 66%,
+    rgba(195, 230, 255, 0.26) 78%,
     rgba(150, 210, 255, 0) 96%
   );
   filter: blur(7px);
-  animation: hb-flare-flicker 2.1s ease-in-out infinite;
 }
 
-/* Uneven stop spacing on purpose — an evenly-timed pulse reads as a heartbeat,
-   not a flame. Shared by the halo above and every lick below, so the whole
-   rim brightens and dims as one loose breath even though each lick's own
-   scale/opacity flicker runs on its own separate clock. */
-@keyframes hb-flare-flicker {
-  0%,
-  100% {
-    opacity: 0.7;
-  }
-  23% {
-    opacity: 1;
-  }
-  44% {
-    opacity: 0.55;
-  }
-  67% {
-    opacity: 0.92;
-  }
-  85% {
-    opacity: 0.65;
-  }
-}
-
-/* Individually-placed flame blobs around the circumference — see
+/* Individually-placed flame licks around the circumference — see
    buildBlueStarFlame in Hub.tsx for where each one's angle/size/timing comes
-   from. Positioned and sized entirely by inline custom properties; only the
-   look and the flicker keyframes live here. Each is small enough, and its
-   blur static enough, that eighteen of these cost far less than the one
-   masked conic ring they replaced. */
+   from. `--lick-rot` is that same placement angle (see the function's own
+   comment for the +90deg): baking it into every keyframe stop's own
+   `transform`, rather than leaving it as a separate static rotation, is what
+   lets one shared `scale()` animation still stretch each lick along ITS OWN
+   outward direction instead of every lick stretching in the same screen-space
+   axis regardless of where it sits on the rim.
+   No `mix-blend-mode` or `filter` here on purpose, unlike the halo above —
+   eighteen elements is enough that either one, mode being a backdrop-sampling
+   operation and blur forcing its own offscreen buffer, was costly enough
+   PER element that all eighteen animating at once (worst-case exactly during
+   the collapse, when the gas canvas and the body's own mask/transform writes
+   are already the heaviest this page gets) is what was dropping frames across
+   the whole tab, not just this element. Plain alpha-blended gradients read
+   almost as bright against the mostly-black backdrop this sits on, for a
+   fraction of the compositing cost. */
 .hb-bluestar-lick {
   position: absolute;
   top: var(--lick-top);
   left: var(--lick-left);
   width: var(--lick-size);
-  height: var(--lick-size);
-  margin-top: calc(var(--lick-size) * -0.5);
+  height: calc(var(--lick-size) * 1.7);
+  margin-top: calc(var(--lick-size) * -0.85);
   margin-left: calc(var(--lick-size) * -0.5);
   border-radius: 50%;
   pointer-events: none;
-  mix-blend-mode: screen;
   background: radial-gradient(
-    circle,
-    rgba(255, 255, 255, 0.98) 0%,
-    rgba(190, 228, 255, 0.88) 32%,
-    rgba(100, 180, 255, 0.55) 60%,
+    ellipse 68% 60% at 50% 74%,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(190, 228, 255, 0.82) 30%,
+    rgba(100, 180, 255, 0.46) 60%,
     rgba(60, 140, 240, 0) 100%
   );
-  filter: blur(1.5px);
+  transform: rotate(var(--lick-rot, 0deg));
   animation-name: hb-lick-flicker;
   animation-timing-function: ease-in-out;
   animation-iteration-count: infinite;
 }
 
-/* An ordinary lick just flickers in place — irregular size/opacity breathing,
-   no drift, since most of the rim is not being actively stripped. */
+/* An ordinary lick licks in place: its own outward axis (see --lick-rot
+   above) stretches and relaxes unevenly, with a few degrees of wobble on top
+   so it never reads as a plain shape scaling — that unevenness plus every
+   lick running on its own independent duration/delay is what makes the rim
+   as a whole read as irregular fire instead of a pattern breathing in
+   lockstep. */
 @keyframes hb-lick-flicker {
-  0%,
-  100% {
-    transform: scale(0.68);
-    opacity: 0.32;
+  0% {
+    transform: rotate(calc(var(--lick-rot, 0deg) - 4deg)) scale(0.72, 0.55);
+    opacity: 0.3;
   }
-  50% {
-    transform: scale(1.18);
-    opacity: 1;
+  38% {
+    transform: rotate(calc(var(--lick-rot, 0deg) + 3deg)) scale(0.92, 1.2);
+    opacity: 0.95;
+  }
+  64% {
+    transform: rotate(calc(var(--lick-rot, 0deg) - 2deg)) scale(0.8, 0.85);
+    opacity: 0.55;
+  }
+  100% {
+    transform: rotate(calc(var(--lick-rot, 0deg) - 4deg)) scale(0.72, 0.55);
+    opacity: 0.3;
   }
 }
 
@@ -3077,25 +3079,28 @@ body:has(.hb) {
    right = toward the hole" convention `.hb-bluestar-body.is-eaten`'s mask and
    `.hb-bluestar-limb` both already rely on — additionally get torn loose and
    dragged toward it instead of just flickering in place, which is the visible
-   "flame being pulled into the hole" cue the request asked for. `--lick-pull`
-   is this lick's own travel distance, a percentage of ITS OWN box (so bigger
-   licks travel further, which is the right direction for that difference to
-   go — bigger licks read as more material, and more material should reach
-   further before it burns off). */
+   "flame being pulled into the hole" cue the request asked for. The drag
+   itself is expressed as scaleY along the lick's OWN already-rotated axis
+   (baked in via --lick-rot, same as the flicker above) rather than a
+   translateX, so "toward the hole" stays correct however that axis is
+   oriented — a translate would have needed a second, separate direction
+   fixed up by hand instead of falling out of the same rotation for free.
+   `--lick-pull` is this lick's own stretch factor (bigger licks read as more
+   material and reach further, so they get a bigger one). */
 .hb-bluestar-lick--pull {
   animation-name: hb-lick-pull;
 }
 
 @keyframes hb-lick-pull {
   0% {
-    transform: translateX(0%) scale(0.55);
+    transform: rotate(var(--lick-rot, 0deg)) scale(0.6, 0.5);
     opacity: 0;
   }
   18% {
     opacity: 1;
   }
   100% {
-    transform: translateX(var(--lick-pull, 140%)) scale(2.3);
+    transform: rotate(var(--lick-rot, 0deg)) scale(0.55, var(--lick-pull, 2.6));
     opacity: 0;
   }
 }

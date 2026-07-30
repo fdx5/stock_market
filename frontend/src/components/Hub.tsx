@@ -1603,36 +1603,48 @@ const STAR_FALL_TURNS = 0.82;
  * committed, with the plunge still ahead of it. */
 const STAR_DRIFT = 105;
 
-/** One flame blob on the star's blazing rim — see buildBlueStarFlame below
+/** One flame lick on the star's blazing rim — see buildBlueStarFlame below
  * and .hb-bluestar-lick/-halo in hub.css for the rendering. Positioned and
- * sized once at module load; nothing here is touched per frame. */
+ * sized once at module load; nothing here is touched per frame, and nothing
+ * it renders as carries a filter or blend mode (see the long note on
+ * `.hb-bluestar-lick` in hub.css for why: those are the two properties that
+ * were actually costing anything, not the element count). */
 interface FlameLick {
   left: number; // %, box-relative
   top: number; // %, box-relative
-  size: number; // %, box-relative
+  size: number; // %, box-relative — this is the lick's WIDTH; height is a
+  // fixed multiple of it in CSS, so only one number has to be generated here.
+  rot: number; // deg — see the function's own comment for where +90 comes from
   duration: number; // s
   delay: number; // s, negative — mid-cycle on mount, not launched in lockstep
   pull: boolean; // torn toward the hole rather than just flickering in place
-  pullDist: number; // %, of the lick's OWN box — only meaningful if pull
+  pullScale: number; // scaleY the lick reaches at the end of its pull — only meaningful if pull
 }
 
-/** The star's rim, as a ring of small independently-timed flame blobs rather
+/** The star's rim, as a ring of small independently-timed flame licks rather
  * than one shape. An earlier pass drew the whole rim as a single masked
  * conic-gradient ring, which read as a blocky pinwheel at actual render size
  * (see the long note on `.hb-bluestar-halo` in hub.css for exactly why) and,
- * being one shape spinning as a unit, could never look "irregular" no matter
- * how it was tuned — every part of it was moving on the same clock. Many
- * small blobs, each flickering on its own duration/delay, is what actually
- * reads as fire rather than a rotating decal.
+ * being one shape spinning/pulsing as a unit, could never look "irregular"
+ * no matter how it was tuned — every part of it was moving on the same
+ * clock, which is also what made it read as one circle blinking rather than
+ * fire. Many small licks, each flickering on its own duration/delay, do both
+ * jobs at once: no single shape to blink, and genuinely uneven motion.
  *
  * `angle` walks the full circle in the same convention `Math.cos`/`sin` give
  * for free: 0 is due right, which is already "toward the hole" — the same
  * "local right = toward the hole" rule `.hb-bluestar-body.is-eaten`'s mask
  * and `.hb-bluestar-limb`'s own gradient both rely on — so no separate
  * heading has to be threaded in here, even once the body starts rotating
- * into its own infall spiral near the end of the event. Licks that land
- * within ~55° of that direction are marked `pull`: the hole-facing arc, torn
- * loose and dragged in, versus the rest of the rim just breathing in place.
+ * into its own infall spiral near the end of the event. `rot` is that same
+ * angle turned into a CSS rotation for the lick's own shape: a lick is drawn
+ * tall and narrow, tip at its own local top, so an unrotated one points due
+ * north (270° in this file's clockwise-from-east convention) — rotating it
+ * by `angle + 90` is what turns "north" into "pointing along `angle`",
+ * i.e. outward from the star's centre at exactly the spot it sits on the rim.
+ * Licks that land within ~55° of the hole-facing direction are marked `pull`:
+ * torn loose and dragged toward it, versus the rest of the rim just licking
+ * in place.
  *
  * Deterministic PRNG so the pattern is fixed across renders — see this
  * file's own `mulberry32` above and the same reasoning everywhere else it is
@@ -1646,21 +1658,28 @@ function buildBlueStarFlame(count: number, seed: number): FlameLick[] {
     const angle = (i / count) * Math.PI * 2 + (rand() - 0.5) * ((Math.PI * 2) / count) * 0.8;
     const angleFromRight = angle > Math.PI ? angle - Math.PI * 2 : angle;
     const pull = Math.abs(angleFromRight) < facingRad;
-    const size = 15 + rand() * 20 + (pull ? rand() * 8 : 0);
+    const size = 16 + rand() * 22 + (pull ? rand() * 9 : 0);
     licks.push({
       left: 50 + Math.cos(angle) * 50,
       top: 50 + Math.sin(angle) * 50,
       size,
-      duration: pull ? 2.1 + rand() * 1.6 : 1.5 + rand() * 2.1,
+      rot: (angle * 180) / Math.PI + 90,
+      duration: pull ? 2.1 + rand() * 1.6 : 1.6 + rand() * 2.2,
       delay: -rand() * 4,
       pull,
-      pullDist: 110 + rand() * 90,
+      pullScale: 2.1 + rand() * 1.3,
     });
   }
   return licks;
 }
 
-const BLUESTAR_FLAME = buildBlueStarFlame(18, 20260731);
+// Fourteen, not the eighteen the first pass used — with the per-lick
+// filter/blend gone (see hb-bluestar-lick in hub.css) the count was no
+// longer the main cost, but fewer still-independently-timed licks reads
+// almost as busy as more while leaving that much more frame budget free for
+// the gas canvas and the black hole's own disc, which are both working
+// hardest at exactly the moment (the collapse) this rim is on screen.
+const BLUESTAR_FLAME = buildBlueStarFlame(14, 20260731);
 
 /* ── the gas, on a canvas ───────────────────────────────────────────────
    This started as ~50 absolutely-positioned <span>s, each carrying a
@@ -3026,7 +3045,8 @@ export default function Hub() {
                   "--lick-left": `${lick.left.toFixed(2)}%`,
                   "--lick-top": `${lick.top.toFixed(2)}%`,
                   "--lick-size": `${lick.size.toFixed(2)}%`,
-                  "--lick-pull": `${lick.pullDist.toFixed(0)}%`,
+                  "--lick-rot": `${lick.rot.toFixed(1)}deg`,
+                  "--lick-pull": lick.pullScale.toFixed(2),
                   animationDuration: `${lick.duration.toFixed(2)}s`,
                   animationDelay: `${lick.delay.toFixed(2)}s`,
                 } as React.CSSProperties
