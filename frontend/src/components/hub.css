@@ -2972,140 +2972,130 @@ body:has(.hb) {
   opacity: 0;
 }
 
-/* The blazing rim the request asked for: the photosphere's own gradient reads
-   as a flat, smooth-edged disc no matter how hot its colours are, because a
-   radial-gradient has no texture *along* its own edge, only across it. This
-   ring sits just outside the disc and gives that edge actual flame petals —
-   a conic-gradient alternating bright and dim blue-white wedges, held to a
-   thin annulus by a mask so only the boundary itself catches fire rather
-   than the whole disc. `screen` blending adds this light on top of the
-   photosphere and the black hole's own glow behind it instead of covering
-   either, which is what keeps it reading as fire and not as a painted ring.
-   A child of `.hb-bluestar-body`, so it inherits that element's own
-   per-frame opacity/transform for free (arrival fade, tidal stretch, the
-   `is-eaten` mask during collapse) without needing a ref of its own — only
-   the flicker/spin below is this layer's own concern. */
-.hb-bluestar-flare {
+/* The blazing rim, take two. The first pass drew one ring: a conic-gradient's
+   hard angular wedges held to a thin band by a mask. At the size this actually
+   renders at, that band is only a few dozen px wide, and the conic-gradient's
+   own colour stops sit every ~15-20deg — so the wedges and the mask's radial
+   falloff crossed each other at a scale close to the mask's own transition
+   width, which is what produced the "깍두기" (diced-cube) blockiness: a grid
+   of small hard-edged patches instead of a texture. There is no amount of
+   softening a hard mask edge that fixes that; the mask itself had to go.
+   `.hb-bluestar-halo` and `.hb-bluestar-lick` below replace it with pure
+   radial gradients (which have no angular seams to alias against) blurred
+   just enough to lose their own edges, animated on transform/opacity only —
+   the blur is static per element, computed once and then only recomposited,
+   the same trade the corona pulses elsewhere on this page make. */
+
+/* A big, soft ambient bloom just outside the disc, standing in for the ring's
+   old job of making the whole limb read brighter — this version has no edge
+   at all to alias. */
+.hb-bluestar-halo {
   position: absolute;
-  inset: -16%;
+  inset: -34%;
   border-radius: 50%;
   pointer-events: none;
   mix-blend-mode: screen;
-  background: conic-gradient(
-    from 0deg,
-    rgba(150, 210, 255, 0.85) 0deg,
-    rgba(255, 255, 255, 0.95) 14deg,
-    rgba(90, 170, 255, 0.5) 26deg,
-    rgba(190, 225, 255, 0.9) 41deg,
-    rgba(60, 140, 240, 0.35) 58deg,
-    rgba(220, 240, 255, 0.85) 77deg,
-    rgba(120, 190, 255, 0.55) 92deg,
-    rgba(255, 255, 255, 0.9) 109deg,
-    rgba(70, 150, 245, 0.4) 128deg,
-    rgba(180, 220, 255, 0.85) 146deg,
-    rgba(100, 175, 255, 0.5) 165deg,
-    rgba(230, 245, 255, 0.9) 183deg,
-    rgba(60, 140, 240, 0.35) 201deg,
-    rgba(200, 230, 255, 0.85) 220deg,
-    rgba(110, 182, 255, 0.5) 240deg,
-    rgba(255, 255, 255, 0.9) 262deg,
-    rgba(80, 160, 250, 0.4) 284deg,
-    rgba(190, 225, 255, 0.85) 308deg,
-    rgba(100, 175, 255, 0.5) 332deg,
-    rgba(150, 210, 255, 0.85) 360deg
+  background: radial-gradient(
+    circle,
+    rgba(130, 195, 255, 0) 52%,
+    rgba(150, 210, 255, 0.6) 66%,
+    rgba(195, 230, 255, 0.32) 78%,
+    rgba(150, 210, 255, 0) 96%
   );
-  -webkit-mask-image: radial-gradient(circle, transparent 0%, transparent 62%, #000 72%, #000 85%, transparent 100%);
-  mask-image: radial-gradient(circle, transparent 0%, transparent 62%, #000 72%, #000 85%, transparent 100%);
-  /* transform (spin) and opacity (flicker) only — both compositor-only, same
-     restraint the black hole's own disc takes for the same reason: nothing
-     here forces a repaint of the layer underneath it. */
-  animation:
-    hb-flare-spin 17s linear infinite,
-    hb-flare-flicker 2.6s ease-in-out infinite;
-}
-
-@keyframes hb-flare-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  filter: blur(7px);
+  animation: hb-flare-flicker 2.1s ease-in-out infinite;
 }
 
 /* Uneven stop spacing on purpose — an evenly-timed pulse reads as a heartbeat,
-   not a flame. */
+   not a flame. Shared by the halo above and every lick below, so the whole
+   rim brightens and dims as one loose breath even though each lick's own
+   scale/opacity flicker runs on its own separate clock. */
 @keyframes hb-flare-flicker {
   0%,
   100% {
-    opacity: 0.75;
+    opacity: 0.7;
   }
-  22% {
-    opacity: 0.95;
+  23% {
+    opacity: 1;
   }
-  41% {
-    opacity: 0.6;
+  44% {
+    opacity: 0.55;
   }
-  63% {
-    opacity: 0.88;
+  67% {
+    opacity: 0.92;
   }
-  81% {
-    opacity: 0.68;
+  85% {
+    opacity: 0.65;
   }
 }
 
-/* The four tongues of fire the hole tears off the star's hole-facing limb,
-   each stretching and fading toward it on its own loop — the same "this side
-   is being eaten" cue `.hb-bluestar-limb` gives, but as licking flame instead
-   of a static crescent. `left: 68%`/`transform-origin: 0% 50%` roots every
-   tongue near the limb and lets it grow outward (positive `translateX`, i.e.
-   toward higher local-X) from there — the same "local right = toward the
-   hole" convention `.hb-bluestar-body.is-eaten`'s mask and the limb gradient
-   above both already rely on, so this needs no heading/direction of its own
-   even once the body starts rotating into its infall spiral. Four independent
-   `animation-delay`s rather than one shared clock, so the tongues rip away
-   staggered instead of in one throbbing sheet. */
-.hb-bluestar-tongue {
+/* Individually-placed flame blobs around the circumference — see
+   buildBlueStarFlame in Hub.tsx for where each one's angle/size/timing comes
+   from. Positioned and sized entirely by inline custom properties; only the
+   look and the flicker keyframes live here. Each is small enough, and its
+   blur static enough, that eighteen of these cost far less than the one
+   masked conic ring they replaced. */
+.hb-bluestar-lick {
   position: absolute;
-  left: 68%;
-  width: 48%;
-  height: 30%;
+  top: var(--lick-top);
+  left: var(--lick-left);
+  width: var(--lick-size);
+  height: var(--lick-size);
+  margin-top: calc(var(--lick-size) * -0.5);
+  margin-left: calc(var(--lick-size) * -0.5);
+  border-radius: 50%;
   pointer-events: none;
   mix-blend-mode: screen;
   background: radial-gradient(
-    ellipse 60% 100% at 18% 50%,
-    rgba(235, 248, 255, 0.95) 0%,
-    rgba(150, 205, 255, 0.72) 32%,
-    rgba(80, 160, 250, 0.34) 62%,
-    rgba(55, 125, 235, 0) 100%
+    circle,
+    rgba(255, 255, 255, 0.98) 0%,
+    rgba(190, 228, 255, 0.88) 32%,
+    rgba(100, 180, 255, 0.55) 60%,
+    rgba(60, 140, 240, 0) 100%
   );
-  transform-origin: 0% 50%;
-  animation: hb-tongue-pull 2.8s ease-in infinite;
-}
-.hb-bluestar-tongue--a {
-  top: 16%;
-  animation-delay: -0.3s;
-}
-.hb-bluestar-tongue--b {
-  top: 38%;
-  animation-delay: -1.7s;
-}
-.hb-bluestar-tongue--c {
-  top: 56%;
-  animation-delay: -0.9s;
-}
-.hb-bluestar-tongue--d {
-  top: 76%;
-  animation-delay: -2.3s;
+  filter: blur(1.5px);
+  animation-name: hb-lick-flicker;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
 }
 
-@keyframes hb-tongue-pull {
+/* An ordinary lick just flickers in place — irregular size/opacity breathing,
+   no drift, since most of the rim is not being actively stripped. */
+@keyframes hb-lick-flicker {
+  0%,
+  100% {
+    transform: scale(0.68);
+    opacity: 0.32;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+}
+
+/* Licks within ~55° of due-right — the hole-facing side, the same "local
+   right = toward the hole" convention `.hb-bluestar-body.is-eaten`'s mask and
+   `.hb-bluestar-limb` both already rely on — additionally get torn loose and
+   dragged toward it instead of just flickering in place, which is the visible
+   "flame being pulled into the hole" cue the request asked for. `--lick-pull`
+   is this lick's own travel distance, a percentage of ITS OWN box (so bigger
+   licks travel further, which is the right direction for that difference to
+   go — bigger licks read as more material, and more material should reach
+   further before it burns off). */
+.hb-bluestar-lick--pull {
+  animation-name: hb-lick-pull;
+}
+
+@keyframes hb-lick-pull {
   0% {
-    transform: translateX(0%) scaleX(0.55);
+    transform: translateX(0%) scale(0.55);
     opacity: 0;
   }
-  16% {
-    opacity: 0.9;
+  18% {
+    opacity: 1;
   }
   100% {
-    transform: translateX(42%) scaleX(2.1);
+    transform: translateX(var(--lick-pull, 140%)) scale(2.3);
     opacity: 0;
   }
 }

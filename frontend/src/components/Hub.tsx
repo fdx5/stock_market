@@ -1603,6 +1603,65 @@ const STAR_FALL_TURNS = 0.82;
  * committed, with the plunge still ahead of it. */
 const STAR_DRIFT = 105;
 
+/** One flame blob on the star's blazing rim — see buildBlueStarFlame below
+ * and .hb-bluestar-lick/-halo in hub.css for the rendering. Positioned and
+ * sized once at module load; nothing here is touched per frame. */
+interface FlameLick {
+  left: number; // %, box-relative
+  top: number; // %, box-relative
+  size: number; // %, box-relative
+  duration: number; // s
+  delay: number; // s, negative — mid-cycle on mount, not launched in lockstep
+  pull: boolean; // torn toward the hole rather than just flickering in place
+  pullDist: number; // %, of the lick's OWN box — only meaningful if pull
+}
+
+/** The star's rim, as a ring of small independently-timed flame blobs rather
+ * than one shape. An earlier pass drew the whole rim as a single masked
+ * conic-gradient ring, which read as a blocky pinwheel at actual render size
+ * (see the long note on `.hb-bluestar-halo` in hub.css for exactly why) and,
+ * being one shape spinning as a unit, could never look "irregular" no matter
+ * how it was tuned — every part of it was moving on the same clock. Many
+ * small blobs, each flickering on its own duration/delay, is what actually
+ * reads as fire rather than a rotating decal.
+ *
+ * `angle` walks the full circle in the same convention `Math.cos`/`sin` give
+ * for free: 0 is due right, which is already "toward the hole" — the same
+ * "local right = toward the hole" rule `.hb-bluestar-body.is-eaten`'s mask
+ * and `.hb-bluestar-limb`'s own gradient both rely on — so no separate
+ * heading has to be threaded in here, even once the body starts rotating
+ * into its own infall spiral near the end of the event. Licks that land
+ * within ~55° of that direction are marked `pull`: the hole-facing arc, torn
+ * loose and dragged in, versus the rest of the rim just breathing in place.
+ *
+ * Deterministic PRNG so the pattern is fixed across renders — see this
+ * file's own `mulberry32` above and the same reasoning everywhere else it is
+ * used on this page: reshuffling on mount would read as the whole rim's
+ * structure jumping to a different shape. */
+function buildBlueStarFlame(count: number, seed: number): FlameLick[] {
+  const rand = mulberry32(seed);
+  const licks: FlameLick[] = [];
+  const facingRad = (55 * Math.PI) / 180;
+  for (let i = 0; i < count; i += 1) {
+    const angle = (i / count) * Math.PI * 2 + (rand() - 0.5) * ((Math.PI * 2) / count) * 0.8;
+    const angleFromRight = angle > Math.PI ? angle - Math.PI * 2 : angle;
+    const pull = Math.abs(angleFromRight) < facingRad;
+    const size = 15 + rand() * 20 + (pull ? rand() * 8 : 0);
+    licks.push({
+      left: 50 + Math.cos(angle) * 50,
+      top: 50 + Math.sin(angle) * 50,
+      size,
+      duration: pull ? 2.1 + rand() * 1.6 : 1.5 + rand() * 2.1,
+      delay: -rand() * 4,
+      pull,
+      pullDist: 110 + rand() * 90,
+    });
+  }
+  return licks;
+}
+
+const BLUESTAR_FLAME = buildBlueStarFlame(18, 20260731);
+
 /* ── the gas, on a canvas ───────────────────────────────────────────────
    This started as ~50 absolutely-positioned <span>s, each carrying a
    radial-gradient background and taking a transform and an opacity every
@@ -2950,17 +3009,30 @@ export default function Hub() {
             tidal stretch written onto the body carries it along — a sibling
             would stay a neat circle while the star it belongs to elongated. */}
         <div className="hb-bluestar-body" ref={starBodyRef}>
-          {/* The blazing rim and its four torn-off tongues below — pure CSS
-              (see hb-flare-spin/flicker and hb-tongue-pull in hub.css), no
-              refs of their own. Both ride the body's own per-frame
-              opacity/transform for free just by being its children, so the
-              fire arrives, stretches and gets eaten along with the star
-              rather than needing a second animation loop to keep in sync. */}
-          <span className="hb-bluestar-flare" />
-          <span className="hb-bluestar-tongue hb-bluestar-tongue--a" />
-          <span className="hb-bluestar-tongue hb-bluestar-tongue--b" />
-          <span className="hb-bluestar-tongue hb-bluestar-tongue--c" />
-          <span className="hb-bluestar-tongue hb-bluestar-tongue--d" />
+          {/* The blazing rim: one soft ambient halo plus BLUESTAR_FLAME's
+              eighteen individually-timed flame blobs (see hub.css and
+              buildBlueStarFlame above) — pure CSS, no refs of their own.
+              All of it rides the body's own per-frame opacity/transform for
+              free just by being its children, so the fire arrives, stretches
+              and gets eaten along with the star rather than needing a second
+              animation loop to keep in sync. */}
+          <span className="hb-bluestar-halo" />
+          {BLUESTAR_FLAME.map((lick, i) => (
+            <span
+              key={i}
+              className={`hb-bluestar-lick${lick.pull ? " hb-bluestar-lick--pull" : ""}`}
+              style={
+                {
+                  "--lick-left": `${lick.left.toFixed(2)}%`,
+                  "--lick-top": `${lick.top.toFixed(2)}%`,
+                  "--lick-size": `${lick.size.toFixed(2)}%`,
+                  "--lick-pull": `${lick.pullDist.toFixed(0)}%`,
+                  animationDuration: `${lick.duration.toFixed(2)}s`,
+                  animationDelay: `${lick.delay.toFixed(2)}s`,
+                } as React.CSSProperties
+              }
+            />
+          ))}
           <span className="hb-bluestar-limb" ref={starLimbRef} />
         </div>
       </div>
