@@ -765,19 +765,43 @@ const NEUTRON_HOLD_DURATION = 30;
  * Both are restarted from this one call so they share an origin instant: the
  * cloud's first keyframes are authored to emerge from underneath the flash
  * while it is still washing the screen out, which only reads as one event if
- * neither can start a frame ahead of the other. */
+ * neither can start a frame ahead of the other.
+ *
+ * --origin/--ox/--oy are written here from the binary button's actual
+ * getBoundingClientRect() rather than left at hub.css's hand-picked fallback
+ * percentages: the button is positioned with a px/vw clamp() (see
+ * .hb-neutron-binary), which doesn't scale as a fixed viewport percentage,
+ * so a static "90% 13%" only lined up with the real merge point at the one
+ * viewport size it was eyeballed against and drifted toward the corner
+ * everywhere else — which read as the explosion starting up and to the
+ * right of the star instead of centred on it. Both stars and the merged
+ * remnant hang off this same button's 50%/50% centre (see its own comment),
+ * so the button's own rect centre *is* the merge point. */
 function fireMergerBurst(
+  originRef: React.RefObject<HTMLButtonElement>,
   flashRef: React.RefObject<HTMLDivElement>,
   novaRef: React.RefObject<HTMLDivElement>
 ) {
+  const origin = originRef.current;
+  let xPct = 90;
+  let yPct = 13;
+  if (origin) {
+    const rect = origin.getBoundingClientRect();
+    xPct = ((rect.left + rect.width / 2) / window.innerWidth) * 100;
+    yPct = ((rect.top + rect.height / 2) / window.innerHeight) * 100;
+  }
+
   const flash = flashRef.current;
   if (flash) {
+    flash.style.setProperty("--origin", `${xPct}% ${yPct}%`);
     flash.classList.remove("is-flashing");
     void flash.offsetWidth;
     flash.classList.add("is-flashing");
   }
   const nova = novaRef.current;
   if (nova) {
+    nova.style.setProperty("--ox", `${xPct}%`);
+    nova.style.setProperty("--oy", `${yPct}%`);
     nova.classList.remove("is-bursting");
     void nova.offsetWidth;
     nova.classList.add("is-bursting");
@@ -882,7 +906,7 @@ function useNeutronBinary(
           amp = 0;
           mode = "hold";
           holdElapsed = 0;
-          fireMergerBurst(flashRef, novaRef);
+          fireMergerBurst(ref, flashRef, novaRef);
         }
       } else if (mode === "hold") {
         holdElapsed += dt;
