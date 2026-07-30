@@ -2919,6 +2919,39 @@ body:has(.hb) {
   will-change: transform, opacity;
 }
 
+/* Eats the star from its LEADING edge as it crosses the horizon, rather than
+   letting the whole body fade out at once — see useBlueStarEvent, which drives
+   `--eat-keep` from 100% down to 0% across the collapse. Everything left of
+   that stop is still there; everything right of it has gone in. The 13% feather
+   is what keeps the boundary reading as gas coming apart instead of as a sheet
+   of paper being cut.
+
+   "to right" is in the element's OWN coordinates, which the rotate() in that
+   same transform has not been applied to yet — so this automatically erases
+   whichever edge the spiral currently has leading, with no need to feed the
+   heading in here as well.
+
+   Scoped to a class rather than left on permanently, the same way
+   `.hb-pluto-body.is-tearing` is and for the same reason: a mask takes an
+   element off the compositor's simple path, and this one is wanted for six
+   seconds out of every forty-four. The `-webkit-` copy is still required by
+   Safari, which does not implement the unprefixed property on this element
+   type. */
+.hb-bluestar-body.is-eaten {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 var(--eat-keep, 100%),
+    transparent calc(var(--eat-keep, 100%) + 13%)
+  );
+  mask-image: linear-gradient(
+    to right,
+    #000 0,
+    #000 var(--eat-keep, 100%),
+    transparent calc(var(--eat-keep, 100%) + 13%)
+  );
+}
+
 /* The hot crescent on the limb facing the hole — the "우측부분의 푸른색 가스" the
    request names, and the one cue that says which side is being stripped. An
    ellipse centred just off the star's right edge, clipped back to the disc by

@@ -1590,6 +1590,15 @@ const STAR_COLLAPSE_STRETCH = 3.4;
 const STAR_FALL_BOW = 46;
 const STAR_FALL_TURNS = 0.82;
 
+/** How far the star creeps toward the hole across the twenty seconds it spends
+ * being stripped, px. It used to hold its parked distance perfectly for all of
+ * them, which left the first two thirds of the event with a completely static
+ * body — an explicit request asked for it to be drawn in "조금씩", little by
+ * little, as its gas goes. Small on purpose: this is orbital decay, not the
+ * fall, and the fall has to still have somewhere to start from. The spiral
+ * below picks up from wherever this leaves it, so the two are continuous. */
+const STAR_DRIFT = 58;
+
 /* ── the gas, on a canvas ───────────────────────────────────────────────
    This started as ~50 absolutely-positioned <span>s, each carrying a
    radial-gradient background and taking a transform and an opacity every
@@ -1655,22 +1664,28 @@ const P_SPRITE = 10; // which of the pre-rendered blobs to blit
  * tripling the request asks for, bought where it is actually visible instead of
  * by tripling the whole field.
  *
- * Note this pool is SMALLER than the stream's despite tripling that region's
- * density, and the reason is worth writing down: ring particles start at
- * 0.14-0.76 of STAR_GAP, so ~85% of the pool is inside the disc at any moment,
- * against a low single-digit percentage of the stream's. A first pass set this
- * to 2x the stream pool on the assumption the ratio would carry over; it landed
- * at 5.6x density and 3,751 sprite blits a frame. Density here is about where
- * particles SPEND their time, not how many there are. */
+ * Note this pool is comparable to the stream's rather than a multiple of it,
+ * despite tripling that region's density, and the reason is worth writing down:
+ * ring particles start at 0.14-0.76 of STAR_GAP, so ~85% of the pool is inside
+ * the disc at any moment, against a low single-digit percentage of the
+ * stream's. A first pass set this to 2x the stream pool on the assumption the
+ * ratio would carry over; it landed at 5.6x density and 3,751 sprite blits a
+ * frame. Density here is about where particles SPEND their time, not how many
+ * there are. */
 const GAS_COUNTS: Record<SceneTier, { stream: number; collapse: number; ring: number }> = {
-  full: { stream: 1220, collapse: 580, ring: 1100 },
-  lite: { stream: 610, collapse: 290, ring: 550 },
-  minimal: { stream: 260, collapse: 120, ring: 240 },
+  full: { stream: 1220, collapse: 580, ring: 1500 },
+  lite: { stream: 610, collapse: 290, ring: 750 },
+  minimal: { stream: 260, collapse: 120, ring: 320 },
 };
 
 /** Backing-store scale — see the note above on why this is below 1 and why
- * devicePixelRatio plays no part in it. */
-const GAS_RES = 0.62;
+ * devicePixelRatio plays no part in it. Lowered from 0.62 when the ring was
+ * reworked to read as smoke: the upscale on the way to the screen is a blur the
+ * GPU performs for free, which is the cheapest softening available anywhere in
+ * this system, and it buys back fill for the much larger haze blobs at the same
+ * time. Going much below this starts to show as banding in the star's own
+ * corona where the two overlap. */
+const GAS_RES = 0.52;
 
 /** How far out from the hole's centre the canvas has to reach. A particle is
  * released at most (STAR_GAP + 1.34 star radii) out and only ever falls inward
@@ -1684,23 +1699,37 @@ const GAS_REACH = 560;
 
 const GAS_SPRITE_PX = 44;
 
-/** The blobs the particles are drawn with, pre-rendered once. Three of them
- * rather than one: canvas2d has no cheap per-blit tint, so colour variety has
- * to come from having more than one sprite to choose from. Hot white for the
- * compressed material near the horizon, mid blue for the body of the stream,
- * deep blue for its cooler edges — under additive blending these mix wherever
- * they overlap, which is most places.
+/** The blobs the particles are drawn with, pre-rendered once. Several rather
+ * than one: canvas2d has no cheap per-blit tint, so both colour and softness
+ * variety have to come from having more than one sprite to choose from.
+ *
+ * 0-2 are the stream's: hot white for the compressed material near the horizon,
+ * mid blue for the body of the stream, deep blue for its cooler edges. Under
+ * additive blending these mix wherever they overlap, which is most places.
+ *
+ * 3 is HAZE, and it is a different kind of thing — the request asks for the
+ * ring to read "거의 연기처럼", like fine smoke, and the instinct that gets that
+ * wrong is to reach for more and smaller particles. Small bright points read as
+ * sand or sparks no matter how many there are; what actually makes smoke is a
+ * continuous field with no discernible grain, which comes from LARGE, very
+ * FAINT blobs overlapping many deep. So this one has almost no core, a falloff
+ * that is nearly linear all the way out, and a peak alpha a fifth of the
+ * others'. It is cheap in exactly the way that matters too — the softness comes
+ * from the sprite, not from more draw calls.
  *
  * Built lazily inside the effect rather than at module scope: this file is
  * imported during server-side rendering too, where `document` does not exist. */
 function buildGasSprites(): HTMLCanvasElement[] {
-  const stops: [number, number, number][][] = [
-    // r, g, b at the core — alpha is applied by the gradient below.
-    [[255, 255, 255], [200, 232, 255], [120, 190, 255]],
-    [[225, 245, 255], [140, 200, 255], [70, 145, 250]],
-    [[190, 225, 255], [95, 165, 250], [40, 100, 230]],
+  // Each entry: [core rgb, mid rgb, outer rgb, core alpha, mid stop, mid alpha]
+  const ramps: [number[], number[], number[], number, number, number][] = [
+    [[255, 255, 255], [200, 232, 255], [120, 190, 255], 1, 0.18, 0.62],
+    [[225, 245, 255], [140, 200, 255], [70, 145, 250], 1, 0.18, 0.62],
+    [[190, 225, 255], [95, 165, 250], [40, 100, 230], 1, 0.18, 0.62],
+    // The haze. Low peak, and the mid stop pushed right out so there is no
+    // bright centre to resolve as a dot.
+    [[210, 234, 255], [150, 198, 250], [80, 140, 235], 0.2, 0.52, 0.12],
   ];
-  return stops.map((ramp) => {
+  return ramps.map(([core, mid, outer, coreA, midStop, midA]) => {
     const c = document.createElement("canvas");
     c.width = GAS_SPRITE_PX;
     c.height = GAS_SPRITE_PX;
@@ -1708,12 +1737,11 @@ function buildGasSprites(): HTMLCanvasElement[] {
     if (!g) return c;
     const h = GAS_SPRITE_PX / 2;
     const grad = g.createRadialGradient(h, h, 0, h, h, h);
-    // Falls off steeply and reaches zero well before the sprite's own edge, so
-    // the blobs have no visible boundary to give themselves away as sprites.
-    grad.addColorStop(0, `rgba(${ramp[0].join(",")},1)`);
-    grad.addColorStop(0.18, `rgba(${ramp[1].join(",")},0.62)`);
-    grad.addColorStop(0.45, `rgba(${ramp[2].join(",")},0.2)`);
-    grad.addColorStop(1, `rgba(${ramp[2].join(",")},0)`);
+    // Reaches zero at the sprite's own edge, so the blobs have no visible
+    // boundary to give themselves away as sprites.
+    grad.addColorStop(0, `rgba(${core.join(",")},${coreA})`);
+    grad.addColorStop(midStop, `rgba(${mid.join(",")},${midA})`);
+    grad.addColorStop(1, `rgba(${outer.join(",")},0)`);
     g.fillStyle = grad;
     g.fillRect(0, 0, GAS_SPRITE_PX, GAS_SPRITE_PX);
     return c;
@@ -1774,22 +1802,35 @@ function buildGasParticles(counts: GasPools): Float32Array {
     // Ring particles wind hardest — several laps each, which is the whole
     // reason they exist.
     buf[o + P_TURNS] = isStream ? 0.7 + rand() * 1.35 : isCollapse ? 1 + rand() * 1.7 : 1.6 + rand() * 3;
-    /* Small, and a wide spread of small (rand() squared biases hard toward the
-       low end): the density has to come from the count and the additive
-       pile-up, not from each blob being large. A few bigger ones carry the soft
-       body of the cloud. The ring's are smaller again — there are twice as many
-       of them in a much tighter space, and at stream sizes they would have
-       merged into one flat bright disc instead of resolving as a ring. */
-    buf[o + P_SIZE] = (isStream ? 5 : isCollapse ? 6 : 3.5) + rand() * rand() * (isStream ? 26 : isCollapse ? 32 : 13);
+    /* For the two star-fed pools: small, with a wide spread of small (rand()
+       squared biases hard toward the low end), so density comes from the count
+       and the additive pile-up rather than from each blob being large, with a
+       few bigger ones carrying the soft body of the cloud.
+       The ring's go the OTHER way — deliberately large. Smoke has no grain, and
+       grain is exactly what small particles give you however many you use; a
+       continuous field needs blobs wide enough to overlap many deep. Paired
+       with the haze sprite and the very low brightness below, that is what
+       turns this from a swarm of dots into shading. */
+    buf[o + P_SIZE] = (isStream ? 5 : isCollapse ? 6 : 9) + rand() * rand() * (isStream ? 26 : isCollapse ? 32 : 38);
     buf[o + P_WOBA] = rand() * (isStream ? 15 : 8);
     buf[o + P_WOBF] = 1 + rand() * 3.5;
-    /* The ring's own particles run dimmer than the two star-fed pools. They sit
-       far more densely packed than either (see GAS_COUNTS), and under additive
-       blending density IS brightness — at the stream's levels the ring would
-       have clipped to a flat white disc and thrown away the structure the extra
-       particles were added to produce. */
-    buf[o + P_BRIGHT] = (isStream || isCollapse ? 0.45 : 0.22) + rand() * (isStream || isCollapse ? 0.55 : 0.4);
-    buf[o + P_SPRITE] = Math.min(2, Math.floor(rand() * 3));
+    /* The ring's own particles run far dimmer than the two star-fed pools. They
+       sit much more densely packed than either (see GAS_COUNTS) and they are far
+       larger, and under additive blending density IS brightness — at the
+       stream's levels the ring clipped to a flat white disc and threw away the
+       structure the extra particles were added to produce. Faint enough that
+       only the pile-up is visible is the whole trick behind the smoke read.
+       These two lines are a pair: the sizes above were raised to get the haze's
+       total coverage past ~3x the disc's area, which is the point where the
+       overlap stops resolving as individual blobs, and the brightness here came
+       down by the same factor the area went up so the ring's overall luminosity
+       did not move. Raising coverage by adding PARTICLES instead would have cost
+       ~750 more sprite blits a frame for the same result. */
+    buf[o + P_BRIGHT] = (isStream || isCollapse ? 0.45 : 0.055) + rand() * (isStream || isCollapse ? 0.55 : 0.13);
+    /* Stream and collapse pick from the three coloured blobs; the ring is mostly
+       haze (sprite 3) with a scattering of the cooler coloured ones through it,
+       so it keeps some hue variation instead of going uniformly grey-blue. */
+    buf[o + P_SPRITE] = isStream || isCollapse ? Math.min(2, Math.floor(rand() * 3)) : rand() < 0.82 ? 3 : 1 + Math.floor(rand() * 2);
   }
   return buf;
 }
@@ -1939,6 +1980,7 @@ function useBlueStarEvent(
     // out rather than re-written every frame through Pluto's fifteen seconds.
     let wasActive = false;
     let wasFlaring = false;
+    let wasCollapsing = false;
 
     const rest = () => {
       // The event box carries the star's spiral travel, so it has to come back
@@ -1949,6 +1991,10 @@ function useBlueStarEvent(
       if (body) {
         body.style.opacity = "0";
         body.style.transform = "";
+        // Back to whole, so the next cycle's star does not fade in already
+        // half-eaten from the last one.
+        body.classList.remove("is-eaten");
+        body.style.removeProperty("--eat-keep");
       }
       if (limbRef.current) limbRef.current.style.opacity = "0";
       if (coronaRef.current) coronaRef.current.style.opacity = "0";
@@ -1979,6 +2025,7 @@ function useBlueStarEvent(
           rest();
           wasActive = false;
           wasFlaring = false;
+          wasCollapsing = false;
         }
         /* The blue glow reaches its brightest at the exact instant the cycle
            hands back to Pluto — the flare's three seconds are the last three
@@ -2023,16 +2070,21 @@ function useBlueStarEvent(
          request ("고리 감기는 입자의 방향으로 없어지게"). `heading` is taken by
          sampling the path a hair further along and pointing at the difference,
          which is cheaper and steadier than differentiating the curve by hand. */
-      let starNowX = geo.starCenterX;
+      // Where the fall begins: the parked spot plus whatever the drift below has
+      // already closed. Both the drift and the spiral measure from here, which
+      // is what keeps the handover between them seamless — the spiral's own
+      // starting radius is this point's, not the parked one's.
+      const fallFromX = geo.starCenterX + STAR_DRIFT;
+      let starNowX = geo.starCenterX + sp * STAR_DRIFT;
       let starNowY = geo.starCenterY;
       let heading = 0;
       if (cp > 0) {
-        gasPoint(geo, geo.starCenterX, geo.starCenterY, STAR_FALL_BOW, STAR_FALL_TURNS, 0, 0, cp);
+        gasPoint(geo, fallFromX, geo.starCenterY, STAR_FALL_BOW, STAR_FALL_TURNS, 0, 0, cp);
         starNowX = gasOut.x;
         starNowY = gasOut.y;
         gasPoint(
           geo,
-          geo.starCenterX,
+          fallFromX,
           geo.starCenterY,
           STAR_FALL_BOW,
           STAR_FALL_TURNS,
@@ -2047,10 +2099,7 @@ function useBlueStarEvent(
          body instead of being left parked behind it — it is a sibling of the
          body, not a child, so a transform on the body alone would have torn the
          two apart the moment the star started moving. */
-      eventEl.style.transform =
-        cp > 0
-          ? `translate(${(starNowX - geo.starCenterX).toFixed(1)}px, ${(starNowY - geo.starCenterY).toFixed(1)}px)`
-          : "";
+      eventEl.style.transform = `translate(${(starNowX - geo.starCenterX).toFixed(1)}px, ${(starNowY - geo.starCenterY).toFixed(1)}px)`;
 
       /* The star itself. Distorts gently for twenty seconds, then comes apart:
          stretched along its own direction of travel, flattened across it, and
@@ -2072,10 +2121,37 @@ function useBlueStarEvent(
         // should be visibly less star than set out.
         const drain = 1 - cp * 0.45;
         body.style.transform = `rotate(${heading.toFixed(2)}deg) scaleX(${(stretchX * drain).toFixed(3)}) scaleY(${(squashY * drain).toFixed(3)})`;
-        // Gone by the time it arrives, not still visible sitting on the
-        // horizon — cp^1.4 holds it bright through most of the fall and takes
-        // it out over the last of it.
-        body.style.opacity = flaring ? "0" : (arrive * (1 - Math.pow(cp, 1.4))).toFixed(3);
+
+        /* The star is eaten FROM ITS LEADING EDGE, not faded out as a whole.
+           An explicit request: it should disappear from the right first and go
+           on disappearing until the last of it is in, rather than the whole
+           body dimming uniformly and vanishing at once — which is what a plain
+           opacity ramp does, and it reads as the star turning invisible rather
+           than as it being swallowed.
+
+           A mask gradient, and it is applied in the element's own coordinates
+           BEFORE the rotate above, so "to right" tracks the direction of travel
+           for free: whichever way the spiral has turned the body, the edge being
+           erased is the one going in first. `--eat-keep` is the only thing
+           written per frame — the gradient itself is declared once in hub.css,
+           so this is one custom-property update rather than a full mask-image
+           string to re-parse. Opacity now barely moves, since the mask is doing
+           the disappearing; it only dims enough to sit down into the glare. */
+        /* Runs from 100% down past zero to -14%, not down to 0%. At 0% the
+           gradient is still `#000 0, #000 0%, transparent 13%` — a feather's
+           worth of the very left edge survives, and it was getting hard-cut the
+           instant the flare took over. Overshooting by the feather width puts
+           the transparent stop at -1%, i.e. the whole body, so the last of the
+           star is genuinely gone at the moment it arrives. */
+        const keep = (1 - Math.pow(cp, 1.15)) * 114 - 14;
+        body.style.setProperty("--eat-keep", `${keep.toFixed(2)}%`);
+        body.style.opacity = flaring ? "0" : (arrive * (1 - cp * 0.25)).toFixed(3);
+      }
+      // Only carried for the collapse — see .hb-bluestar-body.is-eaten in
+      // hub.css for why the mask is not simply left on permanently.
+      if (collapsing !== wasCollapsing) {
+        bodyRef.current?.classList.toggle("is-eaten", collapsing);
+        wasCollapsing = collapsing;
       }
 
       /* The hot crescent on the star's hole-facing limb — the actual "우측부분의
@@ -2088,10 +2164,17 @@ function useBlueStarEvent(
           : Math.max(0, arrive * (0.14 + sp * 0.86 - cp * 0.9)).toFixed(3);
       }
 
-      /* Its corona, which survives the body slightly — the envelope is the
-         last part to be pulled off, so it lingers into the collapse. */
+      /* Its corona. Faded out faster than the body is eaten (gone by cp~0.75
+         rather than tracking it to 1), because the mask above only applies to
+         the body — the corona is its sibling, not its child, and cannot share
+         it: the mask has to sit in the body's own unrotated frame to track the
+         direction of travel, which this element does not have. Left on longer it
+         would have gone on drawing a full circle of glow out past the edge the
+         star had already been eaten back from. */
       if (coronaRef.current) {
-        coronaRef.current.style.opacity = flaring ? "0" : (arrive * (0.85 - cp * 0.85)).toFixed(3);
+        coronaRef.current.style.opacity = flaring
+          ? "0"
+          : Math.max(0, arrive * (0.85 - cp * 1.15)).toFixed(3);
       }
 
       /* The tidal stream's underlay: one wide, soft ribbon from the star's
