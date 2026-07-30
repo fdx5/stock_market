@@ -2950,6 +2950,17 @@ export default function Hub() {
             tidal stretch written onto the body carries it along — a sibling
             would stay a neat circle while the star it belongs to elongated. */}
         <div className="hb-bluestar-body" ref={starBodyRef}>
+          {/* The blazing rim and its four torn-off tongues below — pure CSS
+              (see hb-flare-spin/flicker and hb-tongue-pull in hub.css), no
+              refs of their own. Both ride the body's own per-frame
+              opacity/transform for free just by being its children, so the
+              fire arrives, stretches and gets eaten along with the star
+              rather than needing a second animation loop to keep in sync. */}
+          <span className="hb-bluestar-flare" />
+          <span className="hb-bluestar-tongue hb-bluestar-tongue--a" />
+          <span className="hb-bluestar-tongue hb-bluestar-tongue--b" />
+          <span className="hb-bluestar-tongue hb-bluestar-tongue--c" />
+          <span className="hb-bluestar-tongue hb-bluestar-tongue--d" />
           <span className="hb-bluestar-limb" ref={starLimbRef} />
         </div>
       </div>
