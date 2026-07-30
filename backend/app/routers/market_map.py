@@ -4,13 +4,20 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
-from app.data.market_ticker_fetcher import get_market_ticker
+from app.data.market_ticker_fetcher import TTL_TICKER_SECONDS, get_market_ticker
 from app.data.price_fetcher import get_history
+from app.data.us_index_fetcher import TTL_CONSTITUENTS_SECONDS as US_SECTOR_TTL_SECONDS
 from app.data.us_index_fetcher import market_session as us_market_session
 from app.data.us_logo_fetcher import get_us_logo
-from app.data.weather_fetcher import get_seoul_weather
+from app.data.weather_fetcher import TTL_WEATHER_SECONDS, get_seoul_weather
 from app.services.indicators import compute_indicators
-from app.services.market_map import SECTOR_PEER_LIMIT, get_kosdaq_map, get_kospi_map, get_sector_map
+from app.services.market_map import (
+    LONG_TAIL_TTL_SECONDS,
+    SECTOR_PEER_LIMIT,
+    get_kosdaq_map,
+    get_kospi_map,
+    get_sector_map,
+)
 from app.services.stock_board import BOARD_LIMIT, MARKETS, get_board
 from app.services.us_market_map import US_SECTOR_PEER_LIMIT, get_nasdaq100_map, get_sp500_map, get_us_sector_map
 from app.utils import dataframe_to_records
@@ -91,22 +98,42 @@ def stock_board(
 
 
 @router.get("/sector-map")
-def sector_map(code: str = Query(..., min_length=6, max_length=6), limit: int = Query(SECTOR_PEER_LIMIT, ge=1, le=120)):
+def sector_map(
+    response: Response,
+    code: str = Query(..., min_length=6, max_length=6),
+    limit: int = Query(SECTOR_PEER_LIMIT, ge=1, le=120),
+):
     """Peers sharing the given stock's sector, sized and colored like the full market
-    map — the dashboard draws these into the space left beside its chart column."""
+    map — the dashboard draws these into the space left beside its chart column.
+
+    Cached by the browser for LONG_TAIL_TTL_SECONDS: it's filtered from the full KOSPI/
+    KOSDAQ map snapshot (see get_sector_map), which never refreshes faster than that
+    tier regardless of this endpoint's own poll cadence, so a shorter client cache would
+    buy nothing. Unlike /map's own `generated_at` (rendered on screen as a ticking "as
+    of" clock - see MarketMapPage/StockBoardPage), this one is never displayed, so
+    letting the browser reuse a response for a while has no visible effect at all.
+    """
+    response.headers["Cache-Control"] = f"public, max-age={LONG_TAIL_TTL_SECONDS}"
     result = get_sector_map(code, limit)
     return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), **result}
 
 
 @router.get("/us-sector-map")
 def us_sector_map(
+    response: Response,
     code: str = Query(..., min_length=1, max_length=10),
     limit: int = Query(US_SECTOR_PEER_LIMIT, ge=1, le=120),
 ):
     """S&P 500 peers sharing the given US ticker's GICS sector, sized by index weight
     and colored by change — /global draws these into the space beside its chart column,
     the way /sector-map serves the KR dashboard. Tickers, unlike the 6-digit KR codes
-    above, vary in length (from `V` to `GOOGL`), hence the wider bounds."""
+    above, vary in length (from `V` to `GOOGL`), hence the wider bounds.
+
+    See /sector-map's docstring for why this is safe to let the browser cache: its
+    `generated_at` is likewise never rendered, and the underlying S&P constituents
+    snapshot itself never refreshes faster than US_SECTOR_TTL_SECONDS.
+    """
+    response.headers["Cache-Control"] = f"public, max-age={US_SECTOR_TTL_SECONDS}"
     result = get_us_sector_map(code, limit)
     return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), **result}
 
@@ -135,13 +162,22 @@ def us_logo(ticker: str):
 
 
 @router.get("/ticker")
-def ticker():
+def ticker(response: Response):
+    """Neither field this returns is ever shown with a timestamp (see MarketTickerBar),
+    so a browser reusing a response for TTL_TICKER_SECONDS - the fastest this can
+    possibly change server-side anyway - is free: the 5s client poll (useMarketTicker)
+    already outruns that TTL, so roughly half its requests become cache hits with
+    identical bytes to what a real fetch would have returned."""
+    response.headers["Cache-Control"] = f"public, max-age={TTL_TICKER_SECONDS}"
     return {"items": get_market_ticker()}
 
 
 @router.get("/weather")
-def weather():
-    """Current Seoul weather for the dashboard header calendar."""
+def weather(response: Response):
+    """Current Seoul weather for the dashboard header calendar. No timestamp in the
+    payload or on screen, and weather itself doesn't move fast - safe to let the
+    browser reuse a response for the same TTL_WEATHER_SECONDS the server cache uses."""
+    response.headers["Cache-Control"] = f"public, max-age={TTL_WEATHER_SECONDS}"
     return get_seoul_weather()
 
 
