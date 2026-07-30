@@ -2850,17 +2850,27 @@ body:has(.hb) {
    approaches, so `right`/`bottom` are set once and never touched, and the only
    per-frame writes are the transform and opacity of the body inside it. */
 .hb-bluestar-event {
-  /* 133 * 0.6 — 60% of the sun's own diameter, per an explicit request. Written
-     against the same `--body-unit` the sun uses (see `.hb-star`) rather than a
-     px size, so the two stay in that ratio at every viewport instead of
-     drifting apart the moment the system rescales. */
-  --bluestar-size: calc(79.8 * var(--body-unit));
+  /* 133 * 0.84 — the sun's own diameter is 133 of these units (see `.hb-star`),
+     and this is 84% of it. Started at 60% per the original request, then scaled
+     by 1.4 on a follow-up; the arithmetic is left visible rather than collapsed
+     to a single number so the next change to it has something to work from.
+     Written against the same `--body-unit` the sun uses rather than a px size,
+     so the two hold that ratio at every viewport instead of drifting apart the
+     moment the system rescales. */
+  --bluestar-size: calc(111.72 * var(--body-unit));
   position: fixed;
   /* --bluestar-gap is STAR_GAP, set inline from Hub.tsx — see its comment
      there for why the number is passed in rather than repeated here. */
   right: calc(var(--bh-right) + (var(--bh-size) - var(--bluestar-size)) / 2 + var(--bluestar-gap, 400px));
   bottom: calc(var(--bh-bottom) + (var(--bh-size) - var(--bluestar-size)) / 2);
-  z-index: 4;
+  /* Above `.hb-bluestar-fx` (4), which is the one place in this file where a
+     body deliberately outranks the debris around it. The gas canvas overlaps
+     this box — it has to, since the stream starts at this star's own limb — and
+     it draws with trails that decay in place, so at equal z-index the star's
+     face ended up under a wash of leftover streaks. Nothing is lost by putting
+     the body in front: every particle travels AWAY from the star toward the
+     hole, so none of them was ever meant to pass in front of it. */
+  z-index: 5;
   width: var(--bluestar-size);
   height: var(--bluestar-size);
   display: grid;
@@ -3002,43 +3012,30 @@ body:has(.hb) {
   will-change: transform, opacity;
 }
 
-.hb-bluestar-gas {
+/* Every gas particle is drawn here — see the gas system's note in Hub.tsx. The
+   ~50 `.hb-bluestar-gas` spans this replaced are gone entirely: gas has to look
+   like a continuous medium, that needs particle counts in the thousands, and
+   thousands of composited DOM layers is not a thing any browser will do at
+   60fps. On a canvas the same effect is one element.
+
+   Anchored to the hole's own corner and sized to just the corridor the gas can
+   reach — GAS_REACH px out from the hole's centre in the two directions that
+   are on-screen, and to the viewport edge in the two that are not, so the rest
+   is clipped by the screen rather than by a box this has to compute. Sizing it
+   to the full viewport instead would have meant fading a full screen of pixels
+   every frame for a stream that only ever occupies one corner of it.
+
+   The backing store is deliberately SMALLER than this box (see GAS_RES) and
+   ignores devicePixelRatio outright, so the browser scales it up on the way to
+   the screen. For crisp art that would be a bug; for a soft additive glow the
+   upscale is free blur, and it is most of why this is affordable at all. */
+.hb-bluestar-canvas {
   position: absolute;
-  top: 0;
-  left: 0;
-  border-radius: 50%;
-  opacity: 0;
-  will-change: transform, opacity;
-}
-
-/* Gas, not gravel — the Pluto event's debris is deliberately opaque rock with a
-   hard irregular silhouette, and this has to read as the opposite. Both kinds
-   below are soft-edged radial gradients that fall all the way to transparent,
-   so overlapping motes accumulate into volume rather than stacking as
-   countable discs. No `filter: blur()`, which would be the obvious way to get
-   the same softness and would also put every one of these on a blur kernel
-   re-run every frame they move. */
-.hb-bluestar-gas--stream {
-  background: radial-gradient(
-    circle,
-    rgba(245, 252, 255, 0.9) 0%,
-    rgba(175, 220, 255, 0.6) 30%,
-    rgba(105, 175, 255, 0.28) 58%,
-    rgba(70, 140, 240, 0) 100%
-  );
-}
-
-/* The collapse's own gas runs hotter and whiter than the stream's — this is
-   material from deeper inside the star, compressed on the way in, and the
-   colour shift is what says so. */
-.hb-bluestar-gas--collapse {
-  background: radial-gradient(
-    circle,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(215, 240, 255, 0.7) 26%,
-    rgba(140, 200, 255, 0.34) 54%,
-    rgba(90, 160, 250, 0) 100%
-  );
+  right: 0;
+  bottom: 0;
+  width: calc(var(--bh-right) + var(--bh-size) / 2 + var(--gas-reach, 560px));
+  height: calc(var(--bh-bottom) + var(--bh-size) / 2 + var(--gas-reach, 560px));
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
