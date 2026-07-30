@@ -130,7 +130,13 @@ def balance(code: str):
             unit = units.get(key, "")
             value = row.get(key)
             prior = previous.get(key) if previous else None
-            change = round(value - prior, 2) if value is not None and prior is not None else None
+            # A literal 0 today (as opposed to a missing "-" reading, which the fetcher
+            # already turns into None) makes the move against a real prior figure read as
+            # a total wipeout — e.g. short volume 1,200 -> 0 shows as a "-100%" swing that
+            # implies the day's activity vanished rather than just landing at zero. Since
+            # this move is not a comparable rate of change, both columns stay blank rather
+            # than reporting a number that overstates what actually happened.
+            change = round(value - prior, 2) if value not in (None, 0) and prior is not None else None
             if unit == "%":
                 # The move on a ratio is already in percentage points; a rate of change
                 # *of* that rate is a number nobody reads, so the column stays a dash.
