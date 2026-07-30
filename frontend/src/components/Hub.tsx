@@ -1689,8 +1689,12 @@ const GAS_COUNTS: Record<SceneTier, { stream: number; collapse: number; ring: nu
  * available anywhere in this system, and it buys back fill for the much larger
  * haze blobs at the same time. Nothing on this canvas has an edge that needs
  * to survive — it is all soft glow — so the usual objection to rendering below
- * device resolution does not apply here. */
-const GAS_RES = 0.46;
+ * device resolution does not apply here.
+ *
+ * 0.4 is about as far as this should go. Past it the smallest stream particles
+ * land on under two backing-store pixels, at which point they stop being
+ * filaments and start being flicker. */
+const GAS_RES = 0.4;
 
 /** How far out from the hole's centre the canvas has to reach. A particle is
  * released at most (STAR_GAP + 1.34 star radii) out and only ever falls inward
@@ -1736,7 +1740,7 @@ function buildGasSprites(): HTMLCanvasElement[] {
     // rather than a peak. A blob with any real centre resolves as a dot the
     // moment it stops overlapping something, and that dot is the grain this is
     // trying not to have.
-    [[210, 234, 255], [150, 198, 250], [80, 140, 235], 0.15, 0.62, 0.115],
+    [[210, 234, 255], [150, 198, 250], [80, 140, 235], 0.15, 0.7, 0.125],
   ];
   return ramps.map(([core, mid, outer, coreA, midStop, midA]) => {
     const c = document.createElement("canvas");
@@ -1820,7 +1824,13 @@ function buildGasParticles(counts: GasPools): Float32Array {
        continuous field needs blobs wide enough to overlap many deep. Paired
        with the haze sprite and the very low brightness below, that is what
        turns this from a swarm of dots into shading. */
-    buf[o + P_SIZE] = (isStream ? 5 : isCollapse ? 6 : 13) + rand() * rand() * (isStream ? 26 : isCollapse ? 32 : 52);
+    /* The floor is set by GAS_RES, not by taste. A sprite drawn onto fewer than
+       ~2 backing-store pixels cannot hold still between frames — it shimmers as
+       it moves, which is the exact opposite of the fine, even medium this is
+       for. At GAS_RES 0.4, and allowing for the (1 - 0.5 * local) shrink a
+       particle has already taken by the time it fades out, that floor is ~9px.
+       A 5px floor here put the smallest stream particles on 1.1 backing pixels. */
+    buf[o + P_SIZE] = (isStream ? 9 : isCollapse ? 9 : 15) + rand() * rand() * (isStream ? 24 : isCollapse ? 30 : 58);
     buf[o + P_WOBA] = rand() * (isStream ? 15 : 8);
     buf[o + P_WOBF] = 1 + rand() * 3.5;
     /* The ring's own particles run far dimmer than the two star-fed pools. They
@@ -2282,7 +2292,7 @@ function useBlueStarEvent(
         // first frame — it is material the stream has delivered, so it should
         // visibly accumulate. It then outlives the stream slightly: gas already
         // in orbit does not stop the instant the supply does.
-        const ringGain = Math.min(1, t / 4) * 0.85 * Math.max(0, 1 - fp * 1.6);
+        const ringGain = Math.min(1, t / 4) * 0.98 * Math.max(0, 1 - fp * 1.6);
         // The collapse's source disc shrinks as the star drains, so the gas
         // converges on a point rather than continuing to pour off a full-size
         // body that is no longer there.
