@@ -1594,10 +1594,14 @@ const STAR_FALL_TURNS = 0.82;
  * being stripped, px. It used to hold its parked distance perfectly for all of
  * them, which left the first two thirds of the event with a completely static
  * body — an explicit request asked for it to be drawn in "조금씩", little by
- * little, as its gas goes. Small on purpose: this is orbital decay, not the
- * fall, and the fall has to still have somewhere to start from. The spiral
- * below picks up from wherever this leaves it, so the two are continuous. */
-const STAR_DRIFT = 58;
+ * little, as its gas goes, and a follow-up for more of it. The spiral below
+ * picks up from wherever this leaves it, so the two are continuous.
+ *
+ * The ceiling on this is the star's own leading edge reaching the accretion
+ * disc before the fall has even started. At 105 it ends the stream 295px out,
+ * putting that edge ~59px clear of the disc's rim — close enough to look
+ * committed, with the plunge still ahead of it. */
+const STAR_DRIFT = 105;
 
 /* ── the gas, on a canvas ───────────────────────────────────────────────
    This started as ~50 absolutely-positioned <span>s, each carrying a
@@ -1679,13 +1683,14 @@ const GAS_COUNTS: Record<SceneTier, { stream: number; collapse: number; ring: nu
 };
 
 /** Backing-store scale — see the note above on why this is below 1 and why
- * devicePixelRatio plays no part in it. Lowered from 0.62 when the ring was
- * reworked to read as smoke: the upscale on the way to the screen is a blur the
- * GPU performs for free, which is the cheapest softening available anywhere in
- * this system, and it buys back fill for the much larger haze blobs at the same
- * time. Going much below this starts to show as banding in the star's own
- * corona where the two overlap. */
-const GAS_RES = 0.52;
+ * devicePixelRatio plays no part in it. Walked down from 0.62 to 0.52 to 0.46
+ * as the ring was pushed to read as smoke: the upscale on the way to the screen
+ * is a blur the GPU performs for free, which is the cheapest softening
+ * available anywhere in this system, and it buys back fill for the much larger
+ * haze blobs at the same time. Nothing on this canvas has an edge that needs
+ * to survive — it is all soft glow — so the usual objection to rendering below
+ * device resolution does not apply here. */
+const GAS_RES = 0.46;
 
 /** How far out from the hole's centre the canvas has to reach. A particle is
  * released at most (STAR_GAP + 1.34 star radii) out and only ever falls inward
@@ -1725,9 +1730,13 @@ function buildGasSprites(): HTMLCanvasElement[] {
     [[255, 255, 255], [200, 232, 255], [120, 190, 255], 1, 0.18, 0.62],
     [[225, 245, 255], [140, 200, 255], [70, 145, 250], 1, 0.18, 0.62],
     [[190, 225, 255], [95, 165, 250], [40, 100, 230], 1, 0.18, 0.62],
-    // The haze. Low peak, and the mid stop pushed right out so there is no
-    // bright centre to resolve as a dot.
-    [[210, 234, 255], [150, 198, 250], [80, 140, 235], 0.2, 0.52, 0.12],
+    // The haze. Flatter than a blob has any business being: a low peak, and
+    // the mid stop pushed most of the way out at nearly the same alpha as the
+    // centre, so the profile is close to a plateau with a long soft shoulder
+    // rather than a peak. A blob with any real centre resolves as a dot the
+    // moment it stops overlapping something, and that dot is the grain this is
+    // trying not to have.
+    [[210, 234, 255], [150, 198, 250], [80, 140, 235], 0.15, 0.62, 0.115],
   ];
   return ramps.map(([core, mid, outer, coreA, midStop, midA]) => {
     const c = document.createElement("canvas");
@@ -1811,7 +1820,7 @@ function buildGasParticles(counts: GasPools): Float32Array {
        continuous field needs blobs wide enough to overlap many deep. Paired
        with the haze sprite and the very low brightness below, that is what
        turns this from a swarm of dots into shading. */
-    buf[o + P_SIZE] = (isStream ? 5 : isCollapse ? 6 : 9) + rand() * rand() * (isStream ? 26 : isCollapse ? 32 : 38);
+    buf[o + P_SIZE] = (isStream ? 5 : isCollapse ? 6 : 13) + rand() * rand() * (isStream ? 26 : isCollapse ? 32 : 52);
     buf[o + P_WOBA] = rand() * (isStream ? 15 : 8);
     buf[o + P_WOBF] = 1 + rand() * 3.5;
     /* The ring's own particles run far dimmer than the two star-fed pools. They
@@ -1820,13 +1829,19 @@ function buildGasParticles(counts: GasPools): Float32Array {
        stream's levels the ring clipped to a flat white disc and threw away the
        structure the extra particles were added to produce. Faint enough that
        only the pile-up is visible is the whole trick behind the smoke read.
-       These two lines are a pair: the sizes above were raised to get the haze's
-       total coverage past ~3x the disc's area, which is the point where the
-       overlap stops resolving as individual blobs, and the brightness here came
-       down by the same factor the area went up so the ring's overall luminosity
-       did not move. Raising coverage by adding PARTICLES instead would have cost
-       ~750 more sprite blits a frame for the same result. */
-    buf[o + P_BRIGHT] = (isStream || isCollapse ? 0.45 : 0.055) + rand() * (isStream || isCollapse ? 0.55 : 0.13);
+       Coverage — how many haze blobs deep a given pixel sits — is the knob that
+       controls BOTH of the things this pool gets asked for, which is why they
+       move together. Grain disappears as coverage rises, and since additive
+       blending sums what overlaps, per-pixel brightness rises with it. So "너무
+       희미함" and "알갱이가 보임" have the same fix, and the sizes above carry it:
+       ~3.5x the disc's area went to ~6.5x. The alpha here then only has to make
+       up the difference between the brightness that bought and the brightness
+       wanted, which is why it moves so much less than the area did.
+
+       Doing the same with PARTICLE COUNT instead would have cost ~400 more
+       sprite blits a frame for an identical result — area is free, count is
+       not. */
+    buf[o + P_BRIGHT] = (isStream || isCollapse ? 0.45 : 0.07) + rand() * (isStream || isCollapse ? 0.55 : 0.16);
     /* Stream and collapse pick from the three coloured blobs; the ring is mostly
        haze (sprite 3) with a scattering of the cooler coloured ones through it,
        so it keeps some hue variation instead of going uniformly grey-blue. */
@@ -2244,7 +2259,12 @@ function useBlueStarEvent(
            alpha sets how long the tails are; higher fades faster. */
         ctx.globalCompositeOperation = "destination-out";
         ctx.globalAlpha = 1;
-        ctx.fillStyle = "rgba(0,0,0,0.26)";
+        // Lowered from 0.26 to lengthen the tails. Two things follow, both
+        // wanted: a longer tail overlaps its own past more, which smooths the
+        // medium further, and more residue survives each frame, which lifts the
+        // whole field's brightness. Free on both counts — the fill is one rect
+        // either way.
+        ctx.fillStyle = "rgba(0,0,0,0.2)";
         ctx.fillRect(0, 0, cssW, cssH);
 
         // Additive from here on — see the gas system's note on why the pile-up
@@ -2292,8 +2312,20 @@ function useBlueStarEvent(
              Fading later than this left bright gas sitting on top of the black
              centre of the hole, which reads as debris in front of it rather
              than material falling into it. */
+          /* The ring's own particles are pulled out EARLIER than the star-fed
+             ones. They start much closer in, so a given `local` puts them at a
+             far smaller radius, and their blobs are now up to 65px across —
+             left on the star-fed schedule they were still bright a few px from
+             the centre, spreading haze across the event horizon, which has to
+             read as black or the hole stops looking like a hole. */
+          const fadeFrom = isStream || isCollapse ? 0.55 : 0.42;
+          const fadeSpan = isStream || isCollapse ? 0.33 : 0.3;
           const edge =
-            local < 0.08 ? local / 0.08 : local > 0.55 ? Math.max(0, 1 - (local - 0.55) / 0.33) : 1;
+            local < 0.08
+              ? local / 0.08
+              : local > fadeFrom
+                ? Math.max(0, 1 - (local - fadeFrom) / fadeSpan)
+                : 1;
           const alpha =
             edge * particles[i + P_BRIGHT] * (isStream ? streamGain : isCollapse ? collapseGain : ringGain);
           // Below this the blit is invisible but still costs a full sprite's
