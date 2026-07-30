@@ -71,8 +71,9 @@ def _orderbook_pressure(code: str) -> dict | None:
     Only KRX names have this: the US roster has no equivalent free depth source, and
     the engine redistributes the weight rather than scoring a fabricated zero.
     """
-    book = orderbook_fetcher.get_orderbook(code)
-    if not book:
+    try:
+        book = orderbook_fetcher.get_orderbook(code)
+    except Exception:
         return None
     bid_qty = book.get("total_bid_qty") or 0
     ask_qty = book.get("total_ask_qty") or 0

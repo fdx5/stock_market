@@ -79,12 +79,21 @@ def quote(code: str):
 
 @router.get("/{code}/orderbook")
 def orderbook(code: str):
-    """10-level bid/ask depth (호가), 20-minutes delayed per Naver's free feed."""
+    """10-level bid/ask depth (호가), 20-minutes delayed per Naver's free feed.
+
+    orderbook_fetcher raises rather than returning None on failure, so a background
+    cache refresh that hits a transient upstream error leaves the last-known-good
+    ladder in place instead of clobbering it (see cache.TTLCache). This 502 only
+    fires when there is no cached value yet to fall back on - typically the very
+    first request for a code, or a genuinely dead upstream.
+    """
     _resolve_name(code)
-    data = cache.get_or_set(f"stock_orderbook:{code}", TTL_ORDERBOOK_SECONDS, lambda: orderbook_fetcher.get_orderbook(code))
-    if not data:
-        raise HTTPException(status_code=502, detail="호가 데이터를 가져오지 못했습니다.")
-    return data
+    try:
+        return cache.get_or_set(
+            f"stock_orderbook:{code}", TTL_ORDERBOOK_SECONDS, lambda: orderbook_fetcher.get_orderbook(code)
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"호가 데이터를 가져오지 못했습니다: {exc}") from exc
 
 
 @router.get("/{code}/balance")

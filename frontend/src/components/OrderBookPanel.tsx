@@ -22,7 +22,10 @@ export default function OrderBookPanel({ code }: { code: string }) {
       api
         .orderbook(code)
         .then((res) => {
-          if (!cancelled) setBook(res);
+          if (!cancelled) {
+            setBook(res);
+            setError(null);
+          }
         })
         .catch((err: Error) => {
           if (!cancelled) setError(err.message || "호가 데이터를 가져오지 못했습니다.");

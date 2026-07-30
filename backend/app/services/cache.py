@@ -90,6 +90,11 @@ class TTLCache:
     def _background_refresh(self, key: str, ttl_seconds: float, factory: Callable[[], Any]) -> None:
         try:
             self._refresh_locked(key, ttl_seconds, factory)
+        except Exception:
+            # A factory that raises here leaves the previous _store entry untouched
+            # (see _refresh) - the stale-while-revalidate contract is "keep serving
+            # last-known-good, try again next cycle", not "surface the failure".
+            pass
         finally:
             with self._lock:
                 self._refreshing.discard(key)
