@@ -2876,6 +2876,12 @@ body:has(.hb) {
   display: grid;
   place-items: center;
   pointer-events: none;
+  /* `right`/`bottom` above are set once and never touched; the star's actual
+     travel along its infall spiral is a `transform` written here every frame by
+     useBlueStarEvent. Same reasoning as `.hb-pluto-event`, which carries a long
+     note on why animating an offset property instead re-runs layout for the
+     whole page on every frame. */
+  will-change: transform;
 }
 
 /* A hot blue main-sequence photosphere as a stack of gradients rather than the
@@ -2889,11 +2895,15 @@ body:has(.hb) {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  /* Left edge pinned so useBlueStarEvent's scaleX stretch grows out to the
-     RIGHT, into the hole — the same reason `.hb-pluto-body` does this. A
-     centred origin would spread the star both ways and read as it swelling
-     rather than as it being pulled. */
-  transform-origin: 0% 50%;
+  /* Centred, unlike `.hb-pluto-body`'s left-pinned origin. Once the star
+     started following its own spiral in (see useBlueStarEvent) the body has a
+     `rotate()` ahead of its stretch, and rotation has to happen about the
+     star's own middle — about the left edge it would have swung the whole body
+     around like a hand on a clock face. The rightward tidal bulge that origin
+     used to buy is only 1.22x, which off a centred origin spreads ~11% each way
+     instead of 22% toward the hole: a difference of a few px on a 183px disc,
+     and not worth breaking the rotation for. */
+  transform-origin: 50% 50%;
   background:
     radial-gradient(
       circle at 41% 36%,

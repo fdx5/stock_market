@@ -1580,6 +1580,16 @@ const HB_FEED_CYCLE = PLUTO_CYCLE + STAR_CYCLE; // 44s
 const STAR_STREAM_STRETCH = 0.22;
 const STAR_COLLAPSE_STRETCH = 3.4;
 
+/** The star's own infall path, once it lets go. It travels the SAME kind of
+ * curve its gas does — gasPoint, with its own bow and turns — rather than
+ * sliding straight at the hole, which is what it did before and what an
+ * explicit request called out: nothing falls radially into a black hole, and a
+ * body that does reads as being dragged on a wire next to gas that is visibly
+ * spiralling. Just under a lap, so the winding is unmistakable without the star
+ * lapping the hole and crossing back over its own stream. */
+const STAR_FALL_BOW = 46;
+const STAR_FALL_TURNS = 0.82;
+
 /* ── the gas, on a canvas ───────────────────────────────────────────────
    This started as ~50 absolutely-positioned <span>s, each carrying a
    radial-gradient background and taking a transform and an opacity every
@@ -1622,8 +1632,8 @@ const STAR_COLLAPSE_STRETCH = 3.4;
 const P_STRIDE = 11;
 const P_PHASE = 0; // 0..1 offset into its own recycling loop
 const P_SPEED = 1; // loops per second, i.e. 1 / lifetime
-const P_ANGLE = 2; // release angle, radians (stream: off the limb; collapse: within the disc)
-const P_RADIUS = 3; // release radius, as a multiple of the star's own
+const P_ANGLE = 2; // release angle, radians — see P_RADIUS for what it is measured against
+const P_RADIUS = 3; // release radius; units differ per pool, see buildGasParticles
 const P_BOW = 4; // signed perpendicular offset, px, peaking mid-flight
 const P_TURNS = 5; // laps around the hole before the horizon
 const P_SIZE = 6; // rendered sprite size, px
@@ -1632,15 +1642,30 @@ const P_WOBF = 8; // and its frequency, in cycles along the path
 const P_BRIGHT = 9; // per-particle brightness multiplier
 const P_SPRITE = 10; // which of the pre-rendered blobs to blit
 
-/** Particles per tier. The full tier's 1,800 is not a number the old
- * per-element approach could have gone anywhere near; with the trails above
- * it looks like several times that. Split 68/32 between the twenty-second
- * stream and the six-second collapse, so the collapse — which runs both pools
- * at once — is visibly the denser event without needing its own bigger pool. */
-const GAS_COUNTS: Record<SceneTier, { stream: number; collapse: number }> = {
-  full: { stream: 1220, collapse: 580 },
-  lite: { stream: 610, collapse: 290 },
-  minimal: { stream: 260, collapse: 120 },
+/** Particles per tier, in three pools.
+ *
+ * `stream` feeds off the star's limb for the full twenty seconds and `collapse`
+ * empties the body over the last six. `ring` is material already captured into
+ * the accretion ring, circling close in — added because the winding part of the
+ * spiral was the sparse part: a stream particle crosses that region quickly and
+ * only a fraction of the pool is in it at any moment, so the ring read as a few
+ * strands rather than as a ring.
+ *
+ * Sized so the winding region ends up with ~3x the particles it had — the
+ * tripling the request asks for, bought where it is actually visible instead of
+ * by tripling the whole field.
+ *
+ * Note this pool is SMALLER than the stream's despite tripling that region's
+ * density, and the reason is worth writing down: ring particles start at
+ * 0.14-0.76 of STAR_GAP, so ~85% of the pool is inside the disc at any moment,
+ * against a low single-digit percentage of the stream's. A first pass set this
+ * to 2x the stream pool on the assumption the ratio would carry over; it landed
+ * at 5.6x density and 3,751 sprite blits a frame. Density here is about where
+ * particles SPEND their time, not how many there are. */
+const GAS_COUNTS: Record<SceneTier, { stream: number; collapse: number; ring: number }> = {
+  full: { stream: 1220, collapse: 580, ring: 1100 },
+  lite: { stream: 610, collapse: 290, ring: 550 },
+  minimal: { stream: 260, collapse: 120, ring: 240 },
 };
 
 /** Backing-store scale — see the note above on why this is below 1 and why
@@ -1695,37 +1720,75 @@ function buildGasSprites(): HTMLCanvasElement[] {
   });
 }
 
-function buildGasParticles(streamCount: number, collapseCount: number): Float32Array {
+/** Pool boundaries within the packed buffer. The three pools are laid out
+ * stream-then-collapse-then-ring, and the draw loop tells which is which purely
+ * from a particle's index — cheaper than a per-particle kind field, which would
+ * be a whole float carrying under two bits. */
+interface GasPools {
+  stream: number;
+  collapse: number;
+  ring: number;
+}
+
+function buildGasParticles(counts: GasPools): Float32Array {
   const rand = mulberry32(20260730);
-  const total = streamCount + collapseCount;
+  const total = counts.stream + counts.collapse + counts.ring;
   const buf = new Float32Array(total * P_STRIDE);
   for (let i = 0; i < total; i += 1) {
-    const stream = i < streamCount;
-    const idx = stream ? i : i - streamCount;
-    const n = stream ? streamCount : collapseCount;
+    const isStream = i < counts.stream;
+    const isCollapse = !isStream && i < counts.stream + counts.collapse;
+    const idx = isStream ? i : isCollapse ? i - counts.stream : i - counts.stream - counts.collapse;
+    const n = isStream ? counts.stream : isCollapse ? counts.collapse : counts.ring;
     const o = i * P_STRIDE;
     // Evenly spread across the loop with only slight jitter. This is the one
     // place in this file where even spacing is wanted rather than avoided: a
     // gap in the cadence reads as the ribbon breaking, not as variation.
     buf[o + P_PHASE] = (idx / n + rand() * 0.02) % 1;
-    buf[o + P_SPEED] = stream ? 1 / (2.4 + rand() * 2.6) : 1 / (1.3 + rand() * 1.5);
-    // Stream particles peel off the hole-facing hemisphere only — the request
-    // is specifically about gas leaving the star's RIGHT side, so this never
-    // reaches round to the far limb. Collapse particles come from anywhere in
-    // the body, which by then is coming apart from the inside.
-    buf[o + P_ANGLE] = stream ? (-72 + rand() * 144) * (Math.PI / 180) : rand() * Math.PI * 2;
-    // Just OUTSIDE the photosphere for the stream — "행성외부의 가스" per the
-    // request, and what keeps the ribbon from looking scraped off a surface.
-    buf[o + P_RADIUS] = stream ? 1 + rand() * 0.34 : rand() * 0.95;
-    buf[o + P_BOW] = (rand() < 0.5 ? -1 : 1) * (stream ? 14 + rand() * 78 : 8 + rand() * 52);
-    buf[o + P_TURNS] = stream ? 0.7 + rand() * 1.35 : 1 + rand() * 1.7;
-    // Small, and a wide spread of small: the density has to come from the
-    // count and the additive pile-up, not from each blob being large. A few
-    // bigger ones carry the soft body of the cloud.
-    buf[o + P_SIZE] = (stream ? 5 : 6) + rand() * rand() * (stream ? 26 : 32);
-    buf[o + P_WOBA] = rand() * 15;
+    buf[o + P_SPEED] = isStream
+      ? 1 / (2.4 + rand() * 2.6)
+      : isCollapse
+        ? 1 / (1.3 + rand() * 1.5)
+        : // Ring particles have a much shorter trip: they start already close
+          // in, so the same speed would have them cross the whole ring in a
+          // blink. Slower, so they visibly circle.
+          1 / (1.9 + rand() * 2.8);
+    /* What P_ANGLE and P_RADIUS mean depends on the pool, because the three
+       are released from three different places:
+
+         stream   angle around the star's HOLE-FACING hemisphere only (the
+                  request is about gas leaving its right side, so this never
+                  reaches round to the far limb); radius as a multiple of the
+                  star's own, just above 1 so the gas comes from OUTSIDE the
+                  photosphere — "행성외부의 가스" — rather than looking scraped
+                  off a surface.
+         collapse angle anywhere in the star's disc, radius a fraction of it:
+                  by then the body is coming apart from the inside.
+         ring     angle anywhere around the HOLE, radius a fraction of
+                  STAR_GAP — i.e. already captured, already circling. */
+    buf[o + P_ANGLE] = isStream
+      ? (-72 + rand() * 144) * (Math.PI / 180)
+      : rand() * Math.PI * 2;
+    buf[o + P_RADIUS] = isStream ? 1 + rand() * 0.34 : isCollapse ? rand() * 0.95 : 0.14 + rand() * rand() * 0.62;
+    buf[o + P_BOW] =
+      (rand() < 0.5 ? -1 : 1) * (isStream ? 14 + rand() * 78 : isCollapse ? 8 + rand() * 52 : 4 + rand() * 22);
+    // Ring particles wind hardest — several laps each, which is the whole
+    // reason they exist.
+    buf[o + P_TURNS] = isStream ? 0.7 + rand() * 1.35 : isCollapse ? 1 + rand() * 1.7 : 1.6 + rand() * 3;
+    /* Small, and a wide spread of small (rand() squared biases hard toward the
+       low end): the density has to come from the count and the additive
+       pile-up, not from each blob being large. A few bigger ones carry the soft
+       body of the cloud. The ring's are smaller again — there are twice as many
+       of them in a much tighter space, and at stream sizes they would have
+       merged into one flat bright disc instead of resolving as a ring. */
+    buf[o + P_SIZE] = (isStream ? 5 : isCollapse ? 6 : 3.5) + rand() * rand() * (isStream ? 26 : isCollapse ? 32 : 13);
+    buf[o + P_WOBA] = rand() * (isStream ? 15 : 8);
     buf[o + P_WOBF] = 1 + rand() * 3.5;
-    buf[o + P_BRIGHT] = 0.45 + rand() * 0.55;
+    /* The ring's own particles run dimmer than the two star-fed pools. They sit
+       far more densely packed than either (see GAS_COUNTS), and under additive
+       blending density IS brightness — at the stream's levels the ring would
+       have clipped to a flat white disc and thrown away the structure the extra
+       particles were added to produce. */
+    buf[o + P_BRIGHT] = (isStream || isCollapse ? 0.45 : 0.22) + rand() * (isStream || isCollapse ? 0.55 : 0.4);
     buf[o + P_SPRITE] = Math.min(2, Math.floor(rand() * 3));
   }
   return buf;
@@ -1820,12 +1883,9 @@ function useBlueStarEvent(
   haloRef: React.RefObject<HTMLSpanElement>,
   canvasRef: React.RefObject<HTMLCanvasElement>,
   particles: Float32Array,
-  /** How many of the particles at the END of the buffer belong to the collapse
-   * pool. buildGasParticles packs the stream's first and the collapse's after
-   * it, so this one number is the boundary between the two — the draw loop has
-   * no other way to tell which phase a given particle belongs to, and storing a
-   * kind flag per particle would be a whole extra field for one bit. */
-  collapseN: number,
+  /** The same pool sizes the buffer was built from — the draw loop needs them
+   * to tell which of the three a given particle index belongs to. */
+  counts: GasPools,
   blackHoleRef: React.RefObject<HTMLButtonElement>
 ) {
   useEffect(() => {
@@ -1881,6 +1941,10 @@ function useBlueStarEvent(
     let wasFlaring = false;
 
     const rest = () => {
+      // The event box carries the star's spiral travel, so it has to come back
+      // to its parked position too — otherwise the next cycle's star faded in
+      // wherever the last one was swallowed.
+      eventEl.style.transform = "";
       const body = bodyRef.current;
       if (body) {
         body.style.opacity = "0";
@@ -1952,16 +2016,65 @@ function useBlueStarEvent(
       // read as a rendering glitch rather than as a body drifting into frame.
       const arrive = Math.min(1, t / 1.2);
 
+      /* Where the star is THIS frame, and which way it is heading.
+         For the twenty seconds of the stream it holds its parked position. Once
+         it lets go it rides gasPoint — the same curve its own gas takes — so it
+         spirals in rather than sliding straight at the hole, per an explicit
+         request ("고리 감기는 입자의 방향으로 없어지게"). `heading` is taken by
+         sampling the path a hair further along and pointing at the difference,
+         which is cheaper and steadier than differentiating the curve by hand. */
+      let starNowX = geo.starCenterX;
+      let starNowY = geo.starCenterY;
+      let heading = 0;
+      if (cp > 0) {
+        gasPoint(geo, geo.starCenterX, geo.starCenterY, STAR_FALL_BOW, STAR_FALL_TURNS, 0, 0, cp);
+        starNowX = gasOut.x;
+        starNowY = gasOut.y;
+        gasPoint(
+          geo,
+          geo.starCenterX,
+          geo.starCenterY,
+          STAR_FALL_BOW,
+          STAR_FALL_TURNS,
+          0,
+          0,
+          Math.min(1, cp + 0.008)
+        );
+        heading = (Math.atan2(gasOut.y - starNowY, gasOut.x - starNowX) * 180) / Math.PI;
+      }
+
+      /* The event box carries the travel, so the corona rides along with the
+         body instead of being left parked behind it — it is a sibling of the
+         body, not a child, so a transform on the body alone would have torn the
+         two apart the moment the star started moving. */
+      eventEl.style.transform =
+        cp > 0
+          ? `translate(${(starNowX - geo.starCenterX).toFixed(1)}px, ${(starNowY - geo.starCenterY).toFixed(1)}px)`
+          : "";
+
       /* The star itself. Distorts gently for twenty seconds, then comes apart:
-         stretched hard toward the hole, flattened, and faded out — no erosion
-         clip of the kind Pluto's rock body gets, because a star coming apart
-         is gas losing its boundary, not a solid breaking along an edge, and a
-         ragged tear line would put exactly the wrong material read on it. */
+         stretched along its own direction of travel, flattened across it, and
+         faded out — no erosion clip of the kind Pluto's rock body gets, because
+         a star coming apart is gas losing its boundary, not a solid breaking
+         along an edge, and a ragged tear line would put exactly the wrong
+         material read on it.
+
+         The stretch is applied AFTER a rotate into `heading`, so the
+         spaghettification lies along the spiral the star is following rather
+         than staying stubbornly horizontal while the body curves away from it.
+         During the stream `heading` is 0 and this is the plain rightward tidal
+         bulge it always was. */
       const body = bodyRef.current;
       if (body) {
         const stretchX = 1 + sp * STAR_STREAM_STRETCH + cp * STAR_COLLAPSE_STRETCH;
         const squashY = 1 - sp * 0.05 - cp * 0.72;
-        body.style.transform = `scaleX(${stretchX.toFixed(3)}) scaleY(${squashY.toFixed(3)})`;
+        // Shrinks as it is consumed: by the time it reaches the horizon there
+        // should be visibly less star than set out.
+        const drain = 1 - cp * 0.45;
+        body.style.transform = `rotate(${heading.toFixed(2)}deg) scaleX(${(stretchX * drain).toFixed(3)}) scaleY(${(squashY * drain).toFixed(3)})`;
+        // Gone by the time it arrives, not still visible sitting on the
+        // horizon — cp^1.4 holds it bright through most of the fall and takes
+        // it out over the last of it.
         body.style.opacity = flaring ? "0" : (arrive * (1 - Math.pow(cp, 1.4))).toFixed(3);
       }
 
@@ -1994,9 +2107,14 @@ function useBlueStarEvent(
           : collapsing
             ? 1 + cp * 1.5
             : 1;
+        /* Fades out across the collapse rather than brightening through it.
+           This ribbon's geometry is static — it spans the PARKED star position
+           to the hole — so once the star pulls off that line and starts
+           spiralling, it is no longer describing anything that exists, and
+           leaving it lit drew a straight bar through the middle of a curve. */
         streamRef.current.style.opacity = flaring
-          ? Math.max(0, 0.9 - fp * 3).toFixed(3)
-          : (arrive * (0.1 + sp * 0.45 + cp * 0.35)).toFixed(3);
+          ? "0"
+          : (arrive * (0.1 + sp * 0.5) * Math.max(0, 1 - cp * 1.6)).toFixed(3);
         // The translate has to be repeated, not just the scale — see
         // .hb-bluestar-stream in hub.css: `transform` is one property, so
         // writing a bare scaleY() here would drop the stylesheet's own
@@ -2050,28 +2168,37 @@ function useBlueStarEvent(
         // where the stream is densest is the point rather than an artefact.
         ctx.globalCompositeOperation = "lighter";
 
-        const streamCount = particles.length / P_STRIDE - collapseN;
-        // Both phases' intensity envelopes, hoisted out of the loop: they
-        // depend only on the clock, not on the particle.
+        const streamEnd = counts.stream;
+        const collapseEnd = counts.stream + counts.collapse;
+        // Each pool's intensity envelope, hoisted out of the loop: they depend
+        // only on the clock, not on the particle.
         const streamGain = Math.min(1, t / 1.4) * (0.72 + cp * 0.28) * Math.max(0, 1 - fp * 3);
         const collapseGain =
           Math.min(1, cp * 6) * Math.min(1, (1 - cp) * 5) * (0.6 + Math.sin(Math.PI * cp) * 0.4);
+        // The ring fills in over four seconds rather than being there from the
+        // first frame — it is material the stream has delivered, so it should
+        // visibly accumulate. It then outlives the stream slightly: gas already
+        // in orbit does not stop the instant the supply does.
+        const ringGain = Math.min(1, t / 4) * 0.85 * Math.max(0, 1 - fp * 1.6);
         // The collapse's source disc shrinks as the star drains, so the gas
-        // visibly converges on a point rather than continuing to pour off a
-        // full-size body that is no longer there.
+        // converges on a point rather than continuing to pour off a full-size
+        // body that is no longer there.
         const collapseR = geo.starRadius * (1 - cp * 0.8);
         const streamFeeding = fp < 0.34;
+        const ringFeeding = fp < 0.62;
 
         for (let i = 0; i < particles.length; i += P_STRIDE) {
-          const isStream = i / P_STRIDE < streamCount;
+          const p = i / P_STRIDE;
+          const isStream = p < streamEnd;
+          const isCollapse = !isStream && p < collapseEnd;
           // Stream particles keep going through the collapse (the stream does
           // not stop when the star dissolves — it is what the star is
           // dissolving INTO) and fade out over the flare's first third rather
           // than being cut mid-flight. Collapse particles exist only for the
-          // collapse.
-          if (isStream ? !streamFeeding : !collapsing) continue;
+          // collapse. Ring particles run the whole event.
+          if (isStream ? !streamFeeding : isCollapse ? !collapsing : !ringFeeding) continue;
 
-          const since = isStream ? t : t - STAR_COLLAPSE_START;
+          const since = isCollapse ? t - STAR_COLLAPSE_START : t;
           const local = (since * particles[i + P_SPEED] + particles[i + P_PHASE]) % 1;
 
           /* Faded at both ends of its own trip: in as it separates, out as it
@@ -2084,18 +2211,36 @@ function useBlueStarEvent(
              than material falling into it. */
           const edge =
             local < 0.08 ? local / 0.08 : local > 0.55 ? Math.max(0, 1 - (local - 0.55) / 0.33) : 1;
-          const alpha = edge * particles[i + P_BRIGHT] * (isStream ? streamGain : collapseGain);
+          const alpha =
+            edge * particles[i + P_BRIGHT] * (isStream ? streamGain : isCollapse ? collapseGain : ringGain);
           // Below this the blit is invisible but still costs a full sprite's
           // worth of fill. Most of the pool sits here at any given moment.
           if (alpha < 0.012) continue;
 
           const ang = particles[i + P_ANGLE];
           const rel = particles[i + P_RADIUS];
-          const srcR = isStream ? geo.starRadius * rel : rel * collapseR;
+          /* Where this particle was released from. The two star-fed pools use
+             the star's CURRENT centre, not its parked one, so once it starts
+             spiralling in its gas follows it round instead of continuing to
+             pour out of the empty space it left. The shift is smooth, so
+             in-flight particles bend along with the star rather than jumping.
+             Ring particles are measured from the hole itself — they are already
+             in orbit and have nothing to do with where the star has got to. */
+          let srcX: number;
+          let srcY: number;
+          if (isStream || isCollapse) {
+            const srcR = isStream ? geo.starRadius * rel : rel * collapseR;
+            srcX = starNowX + srcR * Math.cos(ang);
+            srcY = starNowY + srcR * Math.sin(ang);
+          } else {
+            const srcR = rel * STAR_GAP;
+            srcX = geo.bhCenterX + srcR * Math.cos(ang);
+            srcY = geo.bhCenterY + srcR * Math.sin(ang);
+          }
           gasPoint(
             geo,
-            geo.starCenterX + srcR * Math.cos(ang),
-            geo.starCenterY + srcR * Math.sin(ang),
+            srcX,
+            srcY,
             particles[i + P_BOW],
             particles[i + P_TURNS],
             particles[i + P_WOBA],
@@ -2127,7 +2272,7 @@ function useBlueStarEvent(
       window.removeEventListener("resize", onResize);
       rest();
     };
-  }, [eventRef, bodyRef, limbRef, coronaRef, streamRef, haloRef, canvasRef, particles, collapseN, blackHoleRef]);
+  }, [eventRef, bodyRef, limbRef, coronaRef, streamRef, haloRef, canvasRef, particles, counts, blackHoleRef]);
 }
 
 /* ───────────────────────────── page ─────────────────────────────
@@ -2332,8 +2477,8 @@ export default function Hub() {
   // re-render would be both wasteful and visibly wrong (every particle would
   // jump to a new path mid-flight).
   const starGas = useMemo(() => {
-    const n = GAS_COUNTS[tier];
-    return { buf: buildGasParticles(n.stream, n.collapse), collapseN: n.collapse };
+    const counts = GAS_COUNTS[tier];
+    return { buf: buildGasParticles(counts), counts };
   }, [tier]);
   useBlueStarEvent(
     starEventRef,
@@ -2344,7 +2489,7 @@ export default function Hub() {
     starHaloRef,
     starCanvasRef,
     starGas.buf,
-    starGas.collapseN,
+    starGas.counts,
     blackHoleRef
   );
 
