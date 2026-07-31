@@ -9820,6 +9820,16 @@ thead .weekly-foreign-amount-col {
   display: flex;
   flex-direction: column;
   min-height: 32.5vh;
+  /* Vertical-only drag handle, native rather than a hand-built one — no drag math,
+     no pointer-event plumbing, and the cursor/affordance the browser already knows
+     how to draw. `overflow: hidden` (not `auto`) is what `resize` requires to be
+     enabled at all, and is correct here regardless: nothing in this panel needs the
+     PANEL's own scrollbar, only .admin-toppages-list--scroll's, which keeps its own
+     independent of whatever height this box ends up at. Persisted across visits by
+     usePersistedPanelHeight (see AdminDashboardPage.tsx), since a native resize
+     drag has no memory of its own. */
+  resize: vertical;
+  overflow: hidden;
 }
 
 .admin-trend-layout {
@@ -10036,51 +10046,63 @@ thead .weekly-foreign-amount-col {
   min-width: 0;
 }
 
-/* Fixed-height column so its two stacked panels (sessions, comments) can split
-   it exactly 50/50 via flex — an auto-height column has no "50%" to divide. The
-   live-log column (.admin-panel--tail, this column's grid sibling) matches this
-   same height so both columns bottom out evenly on desktop. */
+/* min-height, not a fixed height — it used to be a flat 640px so its two stacked
+   panels (sessions, comments) could split it exactly 50/50 via flex (an auto-height
+   column has no "50%" to divide), and so it matched .admin-tail-col's own height
+   closely enough that both columns bottomed out evenly on desktop. Both panels are
+   individually resizable now (see .admin-left-col .admin-panel below), which a hard
+   ceiling would have fought — dragging either one taller now grows the column past
+   its 640px starting point instead of being capped there. The two columns no longer
+   bottom out evenly once either one has been resized, which is the one piece of the
+   original polish this trades away for resizing at all. */
 .admin-left-col {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  height: 640px;
+  min-height: 640px;
 }
 
 .admin-left-col .admin-panel {
   flex: 1 1 0;
-  min-height: 0;
+  min-height: 260px;
   min-width: 0;
   display: flex;
   flex-direction: column;
+  /* See .admin-panel--trend's own comment on resize/overflow — same reasoning,
+     applied to both sessions and comments via this shared selector. */
+  resize: vertical;
+  overflow: hidden;
 }
 
-/* The grid's right column: a fixed-height flex stack (matching .admin-left-col's
-   640px so both columns bottom out evenly) split 60/40 between the live log and the
-   batch-status panel below it. flex-basis 0 on both children makes the ratio an
-   exact 60:40 of the space left after the gap, rather than content-dependent.
-   The batch panel was 30 and grew a second detail line plus a warnings list per
-   region, which left it scrolling while the log above had room to spare. */
+/* The grid's right column: see .admin-left-col's own note above — min-height, not a
+   fixed one, for the same resizing reason. Split 60/40 between the live log and the
+   batch-status panel below it BEFORE either is dragged (flex-basis 0 on both makes
+   that ratio exact, rather than content-dependent); resizing either moves it off that
+   starting split same as the left column. */
 .admin-tail-col {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  height: 640px;
+  min-height: 640px;
   min-width: 0;
 }
 
 .admin-panel--tail {
   flex: 6 1 0;
-  min-height: 0;
+  min-height: 260px;
   display: flex;
   flex-direction: column;
+  resize: vertical;
+  overflow: hidden;
 }
 
 .admin-panel--batch {
   flex: 4 1 0;
-  min-height: 0;
+  min-height: 220px;
   display: flex;
   flex-direction: column;
+  resize: vertical;
+  overflow: hidden;
 }
 
 /* Splits the panel's body in two: AI 예측 배치 keeps its existing content on the
@@ -10719,8 +10741,14 @@ button.admin-comments-text--clickable:hover {
     height: auto;
   }
 
+  /* Content-sized and un-resizable below this width — a drag handle serves a
+     multi-column desktop layout where two panels are trading a shared budget of
+     screen height; stacked on a phone, each panel already gets to be as tall as
+     it needs, and a resize corner is also not a reliable touch gesture to begin
+     with. */
   .admin-left-col .admin-panel {
     flex: none;
+    resize: none;
   }
 
   /* Stacked layout: the fixed 640px 60/40 column gives way to natural per-panel
@@ -10732,6 +10760,7 @@ button.admin-comments-text--clickable:hover {
   .admin-panel--tail,
   .admin-panel--batch {
     flex: none;
+    resize: none;
   }
 
   .admin-sessions-table,
@@ -10759,6 +10788,7 @@ button.admin-comments-text--clickable:hover {
      content-based sizing per stacked section. */
   .admin-panel--trend {
     min-height: 0;
+    resize: none;
   }
 
   .admin-trend-layout {

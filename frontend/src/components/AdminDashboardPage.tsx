@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActiveSession,
   ActivityEvent,
@@ -360,9 +360,88 @@ function MedalIcon({ className }: { className?: string }) {
   );
 }
 
+const PANEL_HEIGHT_KEY_PREFIX = "admin_panel_height:";
+
+/** Restores a panel's user-dragged height (native CSS `resize: vertical` — see the
+ * matching rules in styles.css, e.g. `.admin-panel--trend`) from localStorage on
+ * mount, and saves it back whenever the panel's own box changes size. A resize drag
+ * has no memory of its own — without this every panel snapped back to its default
+ * height on the next visit, which defeats the point of dragging one in the first
+ * place. A ResizeObserver rather than some drag-specific event: `resize` has no
+ * dedicated DOM event to listen for, and this also happens to pick up an ordinary
+ * window resize pushing a panel back under its own CSS min-height, which is worth
+ * persisting too rather than leaving that panel's saved height stale until the next
+ * manual drag. */
+function usePersistedPanelHeight(key: string) {
+  const ref = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+
+    const storageKey = PANEL_HEIGHT_KEY_PREFIX + key;
+    const saved = localStorage.getItem(storageKey);
+    if (saved) el.style.height = saved;
+
+    // rAF-debounced: a live drag fires this many times a second, and a synchronous
+    // localStorage write on every one of those is wasted work the browser's own
+    // paint loop doesn't need waiting on.
+    let frame = 0;
+    const observer = new ResizeObserver((entries) => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const entry = entries[0];
+        if (!entry) return;
+        localStorage.setItem(storageKey, `${Math.round(entry.contentRect.height)}px`);
+      });
+    });
+    observer.observe(el);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [key]);
+
+  return ref;
+}
+
 export default function AdminDashboardPage() {
   useDocumentTitle("관리자 대시보드 | K-Stock Hub");
   const [authed] = useState(() => !!getStoredSession());
+  // One resize-persisted ref per resizable panel — see usePersistedPanelHeight's own
+  // comment. Keys are stable, human-readable strings rather than array indices so a
+  // later panel reorder can't silently swap two saved heights.
+  const trendPanelRef = usePersistedPanelHeight("trend");
+  const sessionsPanelRef = usePersistedPanelHeight("sessions");
+  const commentsPanelRef = usePersistedPanelHeight("comments");
+  const tailPanelRef = usePersistedPanelHeight("tail");
+  const batchPanelRef = usePersistedPanelHeight("batch");
+
+  // The trend SVG's own viewBox tracks .admin-trend-chart-wrap's actual measured
+  // size (see the `width`/`height` destructure further down) rather than a fixed
+  // ratio, so dragging .admin-panel--trend's resize handle actually grows the chart
+  // instead of just adding dead space around a fixed-aspect one. 760x247 (roughly
+  // 3:1) is the value on screen before the first measurement lands.
+  const chartWrapRef = useRef<HTMLDivElement>(null);
+  const [chartSize, setChartSize] = useState({ width: 760, height: 247 });
+  useEffect(() => {
+    const el = chartWrapRef.current;
+    if (!el) return undefined;
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) {
+        setChartSize((prev) =>
+          Math.round(width) === prev.width && Math.round(height) === prev.height
+            ? prev
+            : { width: Math.round(width), height: Math.round(height) }
+        );
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
   const [summary, setSummary] = useState<AdminSummary | null>(null);
   const [range, setRange] = useState<AdminTrendRange>("3h");
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
@@ -761,15 +840,14 @@ export default function AdminDashboardPage() {
     return { series: seriesData, categories: buckets, maxCount };
   }, [trendPoints, visitorPoints, range, trendMetric]);
 
-  // Roughly 3:1 — and on desktop this ratio is what sets the trend panel's height,
-  // not the other way round: .admin-trend-chart-wrap is flex:1 inside an auto-height
-  // column, so the SVG sizes itself from this viewBox against the 60%-wide chart
-  // column. At 1920 that column is ~1074px, giving a ~349px-tall chart where the old
-  // 2:1 canvas gave ~537px and pushed the panels below it off the first screen. The
-  // wrap's min-height only takes over below ~1200px wide, and there the fit-both-axes
-  // scaling leaves a little dead space above/below rather than at the sides.
-  const width = 760;
-  const height = 247;
+  // Measured off .admin-trend-chart-wrap itself (see chartSize/chartWrapRef below)
+  // rather than a fixed ratio, now that the panel is user-resizable
+  // (.admin-panel--trend's own `resize: vertical` — see styles.css): a constant
+  // viewBox would have left a resize drag doing nothing but stretch/letterbox a
+  // fixed-aspect chart inside a taller box instead of actually using the new room.
+  // 760x247 (roughly 3:1) is only the value on screen before the very first
+  // measurement lands.
+  const { width, height } = chartSize;
   const padding = { top: 22, right: 16, bottom: 32, left: 46 };
   const innerW = width - padding.left - padding.right;
   const innerH = height - padding.top - padding.bottom;
@@ -862,7 +940,7 @@ export default function AdminDashboardPage() {
 
     return { bands, bars, totals, peakIdx, grandTotal };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [series, hiddenSeries, categories, maxCount, chartMode]);
+  }, [series, hiddenSeries, categories, maxCount, chartMode, width, height]);
 
   if (!authed) return null;
 
@@ -1020,7 +1098,7 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      <section className="admin-panel admin-panel--trend">
+      <section className="admin-panel admin-panel--trend" ref={trendPanelRef}>
         <div className="admin-panel-head">
           <h2>{trendMetric === "visitors" ? "방문자수 추이" : "페이지별 접속 추이"}</h2>
           <div className="admin-panel-controls">
@@ -1103,7 +1181,7 @@ export default function AdminDashboardPage() {
                 )}
               </div>
             </div>
-            <div className="admin-trend-chart-wrap">
+            <div className="admin-trend-chart-wrap" ref={chartWrapRef}>
               <svg
                 viewBox={`0 0 ${width} ${height}`}
                 className={`admin-trend-svg admin-trend-svg--${chartMode}`}
@@ -1407,7 +1485,7 @@ export default function AdminDashboardPage() {
 
       <div className="admin-panels-grid">
         <div className="admin-left-col">
-        <section className="admin-panel admin-panel--sessions">
+        <section className="admin-panel admin-panel--sessions" ref={sessionsPanelRef}>
           <h2>
             <span className="admin-live-dot" /> 실시간 세션 {sessions !== null && `(${sessions.length})`}
           </h2>
@@ -1454,7 +1532,7 @@ export default function AdminDashboardPage() {
           </div>
         </section>
 
-        <section className="admin-panel admin-panel--comments">
+        <section className="admin-panel admin-panel--comments" ref={commentsPanelRef}>
           <h2>댓글 관리 {comments !== null && `(${comments.length})`}</h2>
           <div className="admin-comments-table">
             <div className="admin-comments-row admin-comments-row--head">
@@ -1522,7 +1600,7 @@ export default function AdminDashboardPage() {
             and the batch-status panel below takes the remaining 30% (see
             .admin-tail-col / .admin-panel--batch in styles.css). */}
         <div className="admin-tail-col">
-        <section className="admin-panel admin-panel--tail">
+        <section className="admin-panel admin-panel--tail" ref={tailPanelRef}>
           <h2>
             <span className="admin-live-dot" /> 실시간 로그
           </h2>
@@ -1562,7 +1640,7 @@ export default function AdminDashboardPage() {
           </div>
         </section>
 
-        <section className="admin-panel admin-panel--batch">
+        <section className="admin-panel admin-panel--batch" ref={batchPanelRef}>
           <div className="admin-batch-split">
           <div className="admin-batch-half">
           <h2>
