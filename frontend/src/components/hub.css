@@ -2493,16 +2493,15 @@ body:has(.hb) {
    three seconds, which a transition between two fixed end states cannot
    express.
 
-   NOT a child of `.hb-blackhole`, unlike `.hb-bh-bloom`. The flare rule below
-   puts a `hue-rotate(158deg)` on that button to swing the accretion disc
-   itself blue, and a `filter` applies to the element and its whole subtree as
-   a single group — so a halo nested inside would have had that rotation
-   applied on top of its own colour and come out orange, which is the one
-   colour this must not be. It carries its own copy of the corner anchor
-   instead: 224% of the hole's size, offset back by 62% of it on each axis,
-   which is the same geometry `inset: -62%` would have produced from inside.
-   z-index 2 sits it behind the button (3) so the light reads as coming from
-   around and behind the hole rather than washing over the disc.
+   NOT a child of `.hb-blackhole`, unlike `.hb-bh-bloom` or `.hb-bh-recolor`
+   (see that one below for what DOES swing the disc itself blue now, a blend
+   rather than a filter) — this one needs to spill well past the button's own
+   circular clip to light the space around it, which a child of that button
+   cannot do. It carries its own copy of the corner anchor instead: 224% of
+   the hole's size, offset back by 62% of it on each axis, which is the same
+   geometry `inset: -62%` would have produced from inside. z-index 2 sits it
+   behind the button (3) so the light reads as coming from around and behind
+   the hole rather than washing over the disc.
 
    Reach is wider than either warm halo (-62% against their -26%/-46%): a
    star's worth of material is a bigger meal than Pluto, and how far the light
@@ -2542,34 +2541,46 @@ body:has(.hb) {
   }
 }
 
-/* Only for the closing three-second flare, toggled as a class by
-   useBlueStarEvent — the halo above lights the space around the hole, this is
-   what swings the accretion disc and horizon themselves blue, exactly the
-   division of labour `.hb-blackhole.is-feeding` uses for the red one. The
-   hue-rotate is what does the actual colour work: the disc is authored amber,
-   and rotating it most of the way round the wheel lands it in the same cold
-   blue-white the star it just ate was.
-
-   The filter's own transition used to run the full 2.4s the request's
-   "3초간 점점 밝아지며" describes — but that ramp is what `haloRef`'s own
-   per-frame opacity write already gives the space around the hole (see
-   useBlueStarEvent), and unlike that halo (a plain span), this filter sits on
-   `.hb-blackhole` itself: the button wrapping BlackHoleBody's ~90 lines of
-   continuously dashing SVG, which already has to repaint every frame on its
-   own. A `filter` forces the browser to rasterise its WHOLE element again
-   through the new matrix on every one of those repaints for as long as the
-   value is still moving — 2.4 full seconds of it, landing on exactly the
-   three seconds the gas canvas and the collapsing star are also doing the
-   most work of the whole cycle, was the actual source of the screen-wide
-   stutter reported here, not anything in the star's own rim. Cut to the same
-   order of duration the proven-fine red flare already uses (0.35s) — short
-   enough that the wash still reads as one continuous colour shift alongside
-   the halo's slower three-second brightening, not a snap, but without paying
-   for a multi-second live-filtered repaint of the page's single most
-   expensive element. */
+/* `.hb-blackhole.is-feeding-blue` used to put a `hue-rotate`/`brightness`/
+   `saturate` FILTER directly on `.hb-blackhole` — the button wrapping
+   BlackHoleBody's ~90 lines of continuously dashing SVG, which already has to
+   repaint every frame on its own account. That is the exact mistake this
+   file's own `.hb-blackhole::before` comment already documents fixing once,
+   for the resting-state drop-shadow: "anything inside changed" is true on
+   literally every frame for this element, so a filter sitting on it is
+   recomputed every frame right along with it, for as long as the filter's
+   value is still moving. Shortening the transition (2.4s, then 0.4s) cut how
+   long that lasted but never removed the cost itself, and it was still
+   landing on the three seconds the gas canvas and the collapsing star are
+   also doing the most work of the whole cycle — which is what kept the
+   screen-wide stutter alive through both of those passes.
+   `.hb-bh-recolor` below removes the filter from this element entirely and
+   recolors the disc with a blend instead: `mix-blend-mode: color` is a
+   compositing-stage operation between two ALREADY-rendered layers (the SVG's
+   own output, unchanged, and this overlay's own flat gradient), not a
+   per-pixel re-render of the SVG's content — the same trade
+   `.hb-blackhole::before` already made for the resting bloom. */
 .hb-blackhole.is-feeding-blue {
-  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), filter 0.4s ease-out;
-  filter: brightness(1.55) saturate(1.2) hue-rotate(158deg);
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The disc's own recolour for the blue flare — a child of `.hb-blackhole`
+   now (the old hue-rotate filter had to keep this OUTSIDE the button, since a
+   parent filter applies to its whole subtree as one group and would have
+   rotated this element's own colour right along with the art beneath it; with
+   the filter gone that reason is gone too, and nesting it here is what lets
+   `mix-blend-mode` blend against the SVG immediately behind it in the same
+   stacking context). Opacity is written per frame by useBlueStarEvent, off
+   the exact same ramp `.hb-bh-blueflare`'s halo already uses, so the disc's
+   own colour and the light around it climb together. */
+.hb-bh-recolor {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  mix-blend-mode: color;
+  background: radial-gradient(circle, #5a95f5 0%, #3f7ae4 55%, #2f5fc4 100%);
+  opacity: 0;
 }
 
 /* The 15deg counter-clockwise presentation tilt this rule used to apply has

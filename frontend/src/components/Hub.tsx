@@ -2025,6 +2025,7 @@ function useBlueStarEvent(
   coronaRef: React.RefObject<HTMLSpanElement>,
   streamRef: React.RefObject<HTMLSpanElement>,
   haloRef: React.RefObject<HTMLSpanElement>,
+  recolorRef: React.RefObject<HTMLSpanElement>,
   canvasRef: React.RefObject<HTMLCanvasElement>,
   particles: Float32Array,
   /** The same pool sizes the buffer was built from — the draw loop needs them
@@ -2106,6 +2107,7 @@ function useBlueStarEvent(
         streamRef.current.style.transform = "";
       }
       if (haloRef.current) haloRef.current.style.opacity = "0";
+      if (recolorRef.current) recolorRef.current.style.opacity = "0";
       // A hard clear, not a fade: the trail technique below means the canvas is
       // never empty of its own accord, so without this the last frame's streaks
       // would still be sitting there through all fifteen seconds of Pluto.
@@ -2318,15 +2320,20 @@ function useBlueStarEvent(
       if (haloRef.current) {
         const halo = flaring ? 0.64 + fp * 0.36 : streaming ? 0.34 * Math.min(1, t / 2) : 0.34 + cp * 0.3;
         haloRef.current.style.opacity = halo.toFixed(3);
+        /* The disc's own recolour (.hb-bh-recolor) rides the identical ramp —
+           the halo lights the space around the hole, this swings the disc and
+           horizon themselves, and both should climb together. Used to be a
+           `filter: hue-rotate()` on `.hb-blackhole` itself instead, toggled as
+           a class with its own CSS transition; see the long note on
+           .hb-bh-recolor in hub.css for why that filter — sitting on the
+           button wrapping BlackHoleBody's ~90 lines of continuously
+           repainting SVG — was the actual source of the screen-wide stutter
+           reported during this exact moment, and why a per-frame opacity
+           write on a plain blended element replaces it for free here rather
+           than needing a second clock. */
+        if (recolorRef.current) recolorRef.current.style.opacity = halo.toFixed(3);
       }
 
-      /* brightness/saturate/hue-rotate on the button itself, for the flare
-         only — same division of labour as the red Pluto flare (see
-         .hb-blackhole.is-feeding in hub.css): the halo above colours the space
-         around the hole, this is what swings the accretion disc and horizon
-         themselves. A class with its own transition rather than a per-frame
-         write, because a filter is per-pixel work over the whole SVG and
-         re-declaring it sixty times a second would re-run all of it. */
       if (flaring !== wasFlaring) {
         blackHoleRef.current?.classList.toggle("is-feeding-blue", flaring);
         wasFlaring = flaring;
@@ -2475,7 +2482,7 @@ function useBlueStarEvent(
       window.removeEventListener("resize", onResize);
       rest();
     };
-  }, [eventRef, bodyRef, limbRef, coronaRef, streamRef, haloRef, canvasRef, particles, counts, blackHoleRef]);
+  }, [eventRef, bodyRef, limbRef, coronaRef, streamRef, haloRef, recolorRef, canvasRef, particles, counts, blackHoleRef]);
 }
 
 /* ───────────────────────────── page ─────────────────────────────
@@ -2674,6 +2681,7 @@ export default function Hub() {
   const starCoronaRef = useRef<HTMLSpanElement>(null);
   const starStreamRef = useRef<HTMLSpanElement>(null);
   const starHaloRef = useRef<HTMLSpanElement>(null);
+  const starRecolorRef = useRef<HTMLSpanElement>(null);
   const starCanvasRef = useRef<HTMLCanvasElement>(null);
   // Built once per tier and never rebuilt — the buffer is ~150KB at the full
   // tier and its contents are pure startup randomness, so re-deriving it on a
@@ -2690,6 +2698,7 @@ export default function Hub() {
     starCoronaRef,
     starStreamRef,
     starHaloRef,
+    starRecolorRef,
     starCanvasRef,
     starGas.buf,
     starGas.counts,
@@ -2935,14 +2944,16 @@ export default function Hub() {
           `background` does not interpolate between gradients, so sharing one
           element would snap to the other colour instead of cross-fading.
 
-          OUTSIDE the button, not inside it like `.hb-bh-bloom` — the blue
-          flare's own rule puts a `hue-rotate` on `.hb-blackhole` to swing the
-          accretion disc itself blue, and `filter` applies to an element's
-          whole subtree as one group, so a halo nested in there would have had
-          that same 158° rotation applied to it and come out orange. It is
-          anchored to the hole's corner independently instead (see hub.css).
-          Its opacity is written per frame by useBlueStarEvent, which is what
-          makes the request's three-second brightening an actual ramp. */}
+          OUTSIDE the button rather than inside it like `.hb-bh-bloom`, since
+          this halo needs to spill past the button's own circular clip; the
+          disc's OWN recolour is `.hb-bh-recolor` instead, a separate element
+          nested inside the button (see where that one is rendered, and its
+          long note in hub.css for why a `hue-rotate` filter used to live on
+          the button itself and no longer does). Anchored to the hole's corner
+          independently here (see hub.css). Its opacity is written per frame
+          by useBlueStarEvent off the same ramp `.hb-bh-recolor`'s is, which is
+          what makes the request's three-second brightening an actual ramp on
+          both at once. */}
       <span className="hb-bh-blueflare" ref={starHaloRef} aria-hidden="true" />
 
       <button
@@ -2959,6 +2970,16 @@ export default function Hub() {
             accretion disc on every frame. */}
         <span className="hb-bh-bloom" aria-hidden="true" />
         <BlackHoleBody id="hub" lite={lite} minimal={minimal} />
+        {/* The blue flare's own recolour of the disc — see the long note on
+            .hb-bh-recolor in hub.css for why this replaced a `hue-rotate`
+            filter that used to sit on the button itself: that filter forced a
+            full re-rasterise of this SVG on every frame it was still
+            transitioning, which is what was actually behind the screen-wide
+            stutter reported during the hole's final swallow. A blend against
+            the art immediately behind it costs a fraction of that, and can
+            safely live INSIDE the button now that there is no parent filter
+            left to double-apply to it. */}
+        <span className="hb-bh-recolor" ref={starRecolorRef} aria-hidden="true" />
         {/* Named on hover the way Voyager is. The bodies on the orbital plane
             get their destination from the planet you already recognise; the
             hole doesn't, and it is now the only route to the TOP 100 boards,
