@@ -112,6 +112,14 @@ def get_us_sector_map(code: str, limit: int = US_SECTOR_PEER_LIMIT) -> dict:
     from the Nasdaq-100 snapshot and still gets the S&P cohort back; it just won't be
     among the tiles — the same bargain get_sector_map makes for a small cap below its
     market's ranked window.
+
+    SKHY gets the same standing membership here it has on the two full maps (see
+    _skhynix_tile above): neither `ranked` nor the Nasdaq-100 snapshot will ever
+    resolve its sector on their own (it's KRX-listed, not a real constituent of
+    either), so it's recognized as Information Technology directly — both so its
+    own /global page gets a proper cohort (itself included) instead of an empty
+    one, and so every OTHER Information Technology stock's cohort gains it as a
+    peer, same as the request asked for.
     """
     ticker = code.strip().upper()
     ranked = get_sp500_constituents()
@@ -120,12 +128,18 @@ def get_us_sector_map(code: str, limit: int = US_SECTOR_PEER_LIMIT) -> dict:
     if sector is None:
         # Only paid for on a miss, which is the minority of /global entries.
         sector = _find_sector(get_nasdaq100_constituents(), ticker)
+    if sector is None and ticker == SKHYNIX_TICKER:
+        sector = "Information Technology"
 
     peers = (
         sorted((it for it in ranked if it["sector"] == sector), key=lambda it: it["marcap"], reverse=True)[:limit]
         if sector is not None
         else []
     )
+    if sector == "Information Technology":
+        extra = _skhynix_tile(_SP500_TOTAL_MARKETCAP_USD)
+        if extra:
+            peers = peers + [extra]
 
     total_weight = sum(it["marcap"] for it in peers)
     weighted_change = sum(it["change_pct"] * it["marcap"] for it in peers)
