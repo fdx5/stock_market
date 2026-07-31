@@ -157,6 +157,11 @@ def _read(row: dict) -> dict | None:
         "close": round(price, 4),
         "change": round(price - previous_close, 4),
         "change_pct": round(_pct(price, previous_close) or 0.0, 2),
+        # Absent for a name Yahoo doesn't carry fundamentals for; every existing caller
+        # already ignores unrecognized keys, so this is free to add for the one caller
+        # (the US maps' synthetic SK Hynix tile) that needs a real market cap rather
+        # than an index weight.
+        "market_cap": row.get("marketCap"),
         "session": session,
         # The regular session's own close and move, so a surface showing an extended
         # price can still say what the stock did while the exchange was open. Null

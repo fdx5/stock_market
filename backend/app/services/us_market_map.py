@@ -1,5 +1,4 @@
-from app.data.exchange_fetcher import get_usd_krw
-from app.data.stock_quote_fetcher import get_stock_quote
+from app.data import yahoo_bulk_quote
 from app.data.us_index_fetcher import get_nasdaq100_constituents, get_sp500_constituents, market_session
 from app.services.cache import cache
 
@@ -18,30 +17,33 @@ def get_nasdaq100_map(limit: int = 103, fresh: bool = False) -> list[dict]:
 # get_sp500_map/get_nasdaq100_map themselves (see the two wrappers below) rather than
 # added there directly, since get_nasdaq100_map also backs stock_board's Nasdaq board —
 # a ranked roster of real constituents, which a synthetic tile has no business joining.
-SKHYNIX_CODE = "000660"
+#
+# Reads its quote from Yahoo (SKHY, the actual US-listed ADR) rather than the KRX
+# common shares (000660) a first pass used — the request was explicit that the change
+# shown here should be the ADR's own, the same live/extended-hours source every real
+# tile on this map already reads (yahoo_bulk_quote), not a KRW price converted after
+# the fact. One name is a one-symbol call to the same batched endpoint the whole
+# roster's overlay already makes; no separate fetcher needed.
 SKHYNIX_TICKER = "SKHY"
 TTL_SKHYNIX_SECONDS = 15
 
-# Its tile is sized by an approximate index weight, since there's no real one to read for
-# a non-member — both denominators are just each index's rough aggregate market cap in
-# USD, order-of-magnitude figures that move far slower than the tile's own size needs to
-# stay believable. Neither number is ever shown; both only ever feed one division.
+# The tile's area is driven by this alone (an explicit request: "시가총액만 반영해서
+# 면적을 그려줘") — Yahoo's own marketCap field for the ADR, divided by each index's
+# rough aggregate market cap to land in the same "percent of the index" units real
+# constituents' weights are already in. There's no true index weight for a non-member,
+# so the denominator is an order-of-magnitude estimate; the numerator (what actually
+# varies day to day) is real. Neither number is ever shown, both only ever feed one
+# division.
 _SP500_TOTAL_MARKETCAP_USD = 48_000_000_000_000
 _NASDAQ100_TOTAL_MARKETCAP_USD = 26_000_000_000_000
 
 
 def _fetch_skhynix_quote() -> dict | None:
-    """SK Hynix's live KRW quote (see stock_quote_fetcher — the same NXT-aware source
-    the KOSPI map and the /fight page read), converted to USD with the live retail
-    exchange rate. `change_pct` needs no conversion: it's a same-currency ratio, so
-    multiplying both sides of it by the same FX rate leaves it unchanged — the same
-    fact battle.get_global_top20_cached leans on for its own foreign-currency tickers."""
-    quote = get_stock_quote(SKHYNIX_CODE)
-    fx = get_usd_krw()
-    if not quote or not fx or not fx.get("rate"):
+    quote = yahoo_bulk_quote.get_quotes([SKHYNIX_TICKER]).get(SKHYNIX_TICKER)
+    if not quote or not quote.get("market_cap"):
         return None
-    rate = fx["rate"]
     return {
+        **quote,
         "code": SKHYNIX_TICKER,
         # The flag marks it as the one Korean name sitting in an otherwise all-US map —
         # baked into the name string itself (rather than a separate field) so every
@@ -49,18 +51,6 @@ def _fetch_skhynix_quote() -> dict | None:
         # export's canvas redraw) shows it for free, with nothing to update per surface.
         "name": "SK Hynix \U0001f1f0\U0001f1f7",
         "sector": "Information Technology",
-        "close": quote["close"] / rate,
-        "change": quote["change"] / rate,
-        "change_pct": quote["change_pct"],
-        "marcap_usd": quote["marcap"] / rate,
-        # Naver's quote already folds NXT's pre-/after-hours trading into `close`
-        # whenever the regular KRX session isn't open (see stock_quote_fetcher), so
-        # there is no separate extended session to badge this tile with — it always
-        # reads as the current, up-to-date price, hence "regular" rather than omitted.
-        "session": "regular",
-        "regular_close": None,
-        "regular_change_pct": None,
-        "extended_change_pct": None,
     }
 
 
@@ -69,17 +59,24 @@ def _get_skhynix_quote() -> dict | None:
 
 
 def _skhynix_tile(total_marketcap_usd: float) -> dict | None:
+    # `_get_skhynix_quote` is cached and returns the SAME dict object on every hit
+    # within its TTL — mutating it (e.g. `.pop`) here would corrupt that shared cache
+    # entry for every caller after the first, which is exactly what an earlier version
+    # of this function did (a `.pop("marcap_usd")` that worked once per TTL window and
+    # KeyError'd on every call after, taking down both map endpoints with a 500). This
+    # builds a fresh dict instead and never touches the cached one.
     base = _get_skhynix_quote()
     if base is None:
         return None
-    marcap_usd = base.pop("marcap_usd")
-    return {**base, "marcap": marcap_usd / total_marketcap_usd * 100}
+    tile = {k: v for k, v in base.items() if k != "market_cap"}
+    tile["marcap"] = base["market_cap"] / total_marketcap_usd * 100
+    return tile
 
 
 def get_sp500_map_with_skhynix(limit: int = 503, fresh: bool = False) -> list[dict]:
-    """get_sp500_map, plus SK Hynix's tile — see the note above. A quote miss (network
-    hiccup, Naver/exchange-rate fetch failing) just omits the tile for that request
-    rather than failing the whole map; it reappears once the miss clears."""
+    """get_sp500_map, plus SK Hynix's tile — see the note above. A quote miss (Yahoo
+    not answering for SKHY, or a crumb handshake failure) just omits the tile for that
+    request rather than failing the whole map; it reappears once the miss clears."""
     items = get_sp500_map(limit, fresh=fresh)
     extra = _skhynix_tile(_SP500_TOTAL_MARKETCAP_USD)
     return items + [extra] if extra else items
