@@ -35,6 +35,16 @@ export interface TrendResponse {
   points: TrendPoint[];
 }
 
+export interface VisitorTrendPoint {
+  bucket: string;
+  count: number;
+}
+
+export interface VisitorTrendResponse {
+  range: AdminTrendRange;
+  points: VisitorTrendPoint[];
+}
+
 export interface ActivityEvent {
   id: number;
   created_at: string;
@@ -467,6 +477,8 @@ function sourceParam(source: string | null, separator: "?" | "&" = "?"): string 
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
   trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
+  visitorTrend: (range: AdminTrendRange) =>
+    authedGet<VisitorTrendResponse>(`/pages/visitor-trend?range=${range}`),
   // Fixed 1-week ranking, independent of the trend chart's own range toggle —
   // see admin.py's _RANKING_WINDOW.
   pagesTop: (limit = 7) => authedGet<{ items: PageCount[] }>(`/pages/top?limit=${limit}`),

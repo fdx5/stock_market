@@ -14,6 +14,7 @@ import {
   PredictionStatus,
   StockSearchCount,
   TrendPoint,
+  VisitorTrendPoint,
   adminApi,
   clearStoredSession,
   getStoredSession,
@@ -365,7 +366,14 @@ export default function AdminDashboardPage() {
   const [summary, setSummary] = useState<AdminSummary | null>(null);
   const [range, setRange] = useState<AdminTrendRange>("3h");
   const [trendPoints, setTrendPoints] = useState<TrendPoint[]>([]);
+  const [visitorPoints, setVisitorPoints] = useState<VisitorTrendPoint[]>([]);
   const [trendLoaded, setTrendLoaded] = useState(false);
+  // Which of the two the panel is currently drawing — everything else about it
+  // (range, chart mode, the summary/legend/tooltip machinery) is shared, so this is
+  // the only extra piece of state the toggle needs. Both series are fetched together
+  // below regardless of which is showing, so flipping this is instant rather than
+  // triggering a fresh loading skeleton.
+  const [trendMetric, setTrendMetric] = useState<"pages" | "visitors">("pages");
   const [pagesTop, setPagesTop] = useState<PageCount[] | null>(null);
   const [stocksTop, setStocksTop] = useState<StockSearchCount[] | null>(null);
   const [sessions, setSessions] = useState<ActiveSession[] | null>(null);
@@ -422,11 +430,15 @@ export default function AdminDashboardPage() {
     if (!authed) return undefined;
     let cancelled = false;
     const load = () => {
-      adminApi
-        .trend(range)
-        .then((r) => {
+      // Both fetched together, whichever one the toggle currently shows — the
+      // second is one COUNT(DISTINCT session_id) over the same already-indexed
+      // range, and paying for it up front is what lets the toggle just switch
+      // stored state instead of showing a loading skeleton every time it's clicked.
+      Promise.all([adminApi.trend(range), adminApi.visitorTrend(range)])
+        .then(([pages, visitors]) => {
           if (cancelled) return;
-          setTrendPoints(r.points);
+          setTrendPoints(pages.points);
+          setVisitorPoints(visitors.points);
           setTrendLoaded(true);
         })
         .catch(handleAuthError);
@@ -690,12 +702,29 @@ export default function AdminDashboardPage() {
   }
 
   const { series, categories, maxCount } = useMemo(() => {
+    const buckets = buildTimeline(range, new Date());
+
+    // The visitor view has exactly one series — distinct sessions per bucket, with
+    // no per-page breakdown to rank or bucket a "기타" tail out of — so it skips the
+    // whole topPaths/otherPaths shape below and builds straight off visitorPoints.
+    // Everything downstream (chartGeom, the legend, the tooltip) only ever reads
+    // `series` as a plain Series[], so a one-item array is nothing special to it.
+    if (trendMetric === "visitors") {
+      const valueMap = new Map<string, number>();
+      for (const p of visitorPoints) valueMap.set(p.bucket, p.count);
+      const values = buckets.map((b) => valueMap.get(b) ?? 0);
+      const total = values.reduce((sum, v) => sum + v, 0);
+      const seriesData: Series[] = [
+        { path: "__visitors__", label: "방문자수", colorVar: "--series-violet", values, total },
+      ];
+      return { series: seriesData, categories: buckets, maxCount: Math.max(1, ...values) };
+    }
+
     const totals = new Map<string, number>();
     for (const p of trendPoints) totals.set(p.path, (totals.get(p.path) ?? 0) + p.count);
     const orderedPaths = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([path]) => path);
     const topPaths = orderedPaths.slice(0, SERIES_VARS.length);
     const otherPaths = orderedPaths.slice(SERIES_VARS.length);
-    const buckets = buildTimeline(range, new Date());
 
     // O(1) per-point lookup — the 24h view backfills 1,440 one-minute buckets,
     // so an O(n) `.find()` per (path, bucket) pair would mean over a million
@@ -730,7 +759,7 @@ export default function AdminDashboardPage() {
     // otherwise stacked bars would overflow the chart's top edge.
     const maxCount = Math.max(1, ...buckets.map((_, i) => seriesData.reduce((sum, s) => sum + s.values[i], 0)));
     return { series: seriesData, categories: buckets, maxCount };
-  }, [trendPoints, range]);
+  }, [trendPoints, visitorPoints, range, trendMetric]);
 
   // Roughly 3:1 — and on desktop this ratio is what sets the trend panel's height,
   // not the other way round: .admin-trend-chart-wrap is flex:1 inside an auto-height
@@ -993,8 +1022,30 @@ export default function AdminDashboardPage() {
 
       <section className="admin-panel admin-panel--trend">
         <div className="admin-panel-head">
-          <h2>페이지별 접속 추이</h2>
+          <h2>{trendMetric === "visitors" ? "방문자수 추이" : "페이지별 접속 추이"}</h2>
           <div className="admin-panel-controls">
+            <div className="admin-trend-mode-toggle" role="group" aria-label="표시 항목">
+              <button
+                type="button"
+                className={trendMetric === "pages" ? "active" : ""}
+                onClick={() => setTrendMetric("pages")}
+                aria-pressed={trendMetric === "pages"}
+                title="페이지별 접속 추이"
+              >
+                <IconPulse className="admin-trend-mode-icon" />
+                페이지별
+              </button>
+              <button
+                type="button"
+                className={trendMetric === "visitors" ? "active" : ""}
+                onClick={() => setTrendMetric("visitors")}
+                aria-pressed={trendMetric === "visitors"}
+                title="일자별 방문자수"
+              >
+                <IconUsers className="admin-trend-mode-icon" />
+                방문자수
+              </button>
+            </div>
             <div className="admin-trend-mode-toggle" role="group" aria-label="차트 형태">
               <button
                 type="button"

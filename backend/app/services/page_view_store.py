@@ -116,6 +116,26 @@ def counts_by_bucket(since_iso: str, granularity: str) -> list[dict]:
     return [{"bucket": bucket, "path": path, "count": count} for bucket, path, count in rows]
 
 
+def unique_visitors_by_bucket(since_iso: str, granularity: str) -> list[dict]:
+    """Distinct sessions per time bucket since `since_iso` — the same table and KST
+    bucketing counts_by_bucket uses, just COUNT(DISTINCT session_id) instead of
+    COUNT(*) per (bucket, path): a page-view trend answers "how much traffic", this
+    answers "how many people", and a visitor loading three pages in one bucket should
+    only count once for the second question."""
+
+    fmt = _BUCKET_FORMAT[granularity]
+
+    def _run(conn):
+        return conn.execute(
+            f"SELECT strftime('{fmt}', created_at, '+9 hours') AS bucket, COUNT(DISTINCT session_id) "
+            "FROM page_views WHERE created_at >= ? GROUP BY bucket ORDER BY bucket",
+            (since_iso,),
+        ).fetchall()
+
+    rows = _with_connection(_run)
+    return [{"bucket": bucket, "count": count} for bucket, count in rows]
+
+
 def count_today(since_iso: str) -> int:
     def _run(conn):
         return conn.execute(

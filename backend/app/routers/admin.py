@@ -74,6 +74,17 @@ def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)
     return {"range": range, "points": points}
 
 
+@router.get("/pages/visitor-trend", dependencies=[Depends(require_admin)])
+def pages_visitor_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
+    """Same range/bucketing as /pages/trend (the admin dashboard's trend panel can
+    toggle between the two without changing any of its other query controls), one
+    distinct-session count per bucket instead of a per-page breakdown."""
+    delta, granularity = _RANGE_CONFIG[range]
+    since = datetime.now(timezone.utc) - delta
+    points = page_view_store.unique_visitors_by_bucket(since.isoformat(), granularity)
+    return {"range": range, "points": points}
+
+
 # Both ranking panels (unlike the trend chart) always aggregate over a fixed
 # 1-week window regardless of the chart's own selected range — a ranking that
 # reshuffled every time someone flipped the chart to "1시간" would be more

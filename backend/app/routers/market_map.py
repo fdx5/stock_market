@@ -19,7 +19,12 @@ from app.services.market_map import (
     get_sector_map,
 )
 from app.services.stock_board import BOARD_LIMIT, MARKETS, get_board
-from app.services.us_market_map import US_SECTOR_PEER_LIMIT, get_nasdaq100_map, get_sp500_map, get_us_sector_map
+from app.services.us_market_map import (
+    US_SECTOR_PEER_LIMIT,
+    get_nasdaq100_map_with_skhynix,
+    get_sp500_map_with_skhynix,
+    get_us_sector_map,
+)
 from app.utils import dataframe_to_records
 
 router = APIRouter()
@@ -54,7 +59,7 @@ def kosdaq_map(limit: int = Query(200, ge=1, le=200), fresh: bool = Query(False)
 
 @router.get("/sp500-map")
 def sp500_map(limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False)):
-    items = get_sp500_map(limit, fresh=fresh)
+    items = get_sp500_map_with_skhynix(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         # Which US session these prices came from — outside regular hours each item's
@@ -69,7 +74,7 @@ def sp500_map(limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False))
 
 @router.get("/nasdaq100-map")
 def nasdaq100_map(limit: int = Query(103, ge=1, le=103), fresh: bool = Query(False)):
-    items = get_nasdaq100_map(limit, fresh=fresh)
+    items = get_nasdaq100_map_with_skhynix(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         "session": us_market_session(items),
