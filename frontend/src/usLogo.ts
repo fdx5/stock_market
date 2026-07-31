@@ -50,8 +50,17 @@ function logoSymbol(ticker: string): string {
   return (TICKER_ALIASES[ticker] ?? ticker).replace(/\./g, "-");
 }
 
+// SK Hynix (SKHY) is the maps' one added, non-constituent tile (see backend
+// us_market_map.py) — it was never going to have an entry on companiesmarketcap, whose
+// coverage is built against the real S&P 500/Nasdaq-100 rosters. Reuses the same asset
+// MarketTickerBar already ships for this exact ticker (see that file's own ICONS map)
+// rather than sourcing or bundling a second copy of the same logo.
+const SELF_HOSTED_LOGOS: Record<string, string> = {
+  SKHY: "/img/ticker/skhynix.webp",
+};
+
 export function usCompanyLogoUrl(ticker: string): string {
-  return `https://companiesmarketcap.com/img/company-logos/${LOGO_SIZE}/${logoSymbol(ticker)}.webp`;
+  return SELF_HOSTED_LOGOS[ticker] ?? `https://companiesmarketcap.com/img/company-logos/${LOGO_SIZE}/${logoSymbol(ticker)}.webp`;
 }
 
 /** The same logo by way of our own backend, for the one caller that can't use the URL

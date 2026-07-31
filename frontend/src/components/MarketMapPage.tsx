@@ -436,7 +436,15 @@ export default function MarketMapPage({
   }, [items, translatedNames]);
   // On US maps the ticker (not the full company name) is the primary label shown on
   // tiles/table rows; the full English name only shows in the hover/tap tooltip.
-  const tileLabel = (code: string, name: string) => (market === "us" ? code : nameByCode.get(code) ?? name);
+  //
+  // SKHY is the one Korean name on either US map (see backend us_market_map.py) — the
+  // flag is appended to the LABEL only, not the underlying ticker every other lookup
+  // here keys off (byCode maps, onClick routing, icon resolution), so nothing else has
+  // to know this ticker is special.
+  const tileLabel = (code: string, name: string) => {
+    if (market !== "us") return nameByCode.get(code) ?? name;
+    return code === "SKHY" ? `${code} \u{1f1f0}\u{1f1f7}` : code;
+  };
 
   const liveBadgeText = lang === "en" ? "Live (rank-based refresh: 10s–1min)" : "실시간 (순위별 10초 ~ 1분단위 갱신)";
   const isExtendedSession = session === "pre" || session === "post";
