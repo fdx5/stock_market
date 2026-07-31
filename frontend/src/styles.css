@@ -4141,6 +4141,29 @@ thead .weekly-foreign-amount-col {
   background: #fff;
 }
 
+/* SKHY's one Korean flag on an otherwise all-US map — a real image rather than a flag
+   emoji, since most Windows browsers ship no colour emoji flags at all and were
+   rendering that as bare "KR" letters instead of a flag (see MarketMapPage.tsx's
+   `code === "SKHY"` checks for where this is used). Width comes along with the aspect
+   ratio for free from the source SVG; only height is set (per call site, scaled to
+   that context's own font size), same as `.kospi-map-tile-icon`. */
+.kospi-map-tile-flag {
+  flex-shrink: 0;
+  border-radius: 1.5px;
+  box-shadow: 0 0 0 1px var(--border);
+  object-fit: cover;
+}
+
+.kospi-map-table-flag,
+.kospi-map-tooltip-flag {
+  /* kr.svg's own viewBox is 36x24 (3:2) — matched exactly so the flag is scaled, not
+     stretched. */
+  width: 15px;
+  height: 10px;
+  vertical-align: middle;
+  margin-left: 5px;
+}
+
 .kospi-map-tile-name {
   /* font-size set inline per tile, scaled to the tile's area */
   font-weight: 700;

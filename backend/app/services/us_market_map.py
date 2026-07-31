@@ -45,11 +45,13 @@ def _fetch_skhynix_quote() -> dict | None:
     return {
         **quote,
         "code": SKHYNIX_TICKER,
-        # The flag marks it as the one Korean name sitting in an otherwise all-US map —
-        # baked into the name string itself (rather than a separate field) so every
-        # surface that already just prints `name` (the tile, its tooltip, the PNG
-        # export's canvas redraw) shows it for free, with nothing to update per surface.
-        "name": "SK Hynix \U0001f1f0\U0001f1f7",
+        # Plain text — the flag marking this as the one Korean name on the map is drawn
+        # as an actual /img/flag/kr.svg image on the frontend instead (see
+        # MarketMapPage.tsx's tileLabel/SKHY handling), not baked in here as an emoji.
+        # A flag emoji depends on the viewer's OS shipping colour flag glyphs at all;
+        # Windows' own fonts mostly don't, so it was rendering as bare "KR" letters
+        # there rather than a flag.
+        "name": "SK Hynix",
         "sector": "Information Technology",
     }
 

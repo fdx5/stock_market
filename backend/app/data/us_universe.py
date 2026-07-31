@@ -29,11 +29,30 @@ def get_us_universe() -> list[dict]:
     return cache.get_or_set("us_universe", TTL_UNIVERSE_SECONDS, _load_us_universe)
 
 
+# SKHY (SK Hynix's US ADR) isn't a real S&P500/Nasdaq100 constituent — see
+# services/us_market_map.py, which adds it to both maps as a standing non-member
+# tile — so it will never turn up in get_us_universe()'s scraped roster. But every
+# map tile links to /global?code=<ticker>, and that page's quote/history/daily/
+# indicators/comments endpoints (see routers/us_stock.py's _resolve_item) all
+# resolve their code through this function, so without this the click just landed
+# on a 404 "종목을 찾을 수 없습니다" page.
+#
+# Handled here specifically, as a fallback on a miss, rather than folded into
+# get_us_universe() itself: that list also feeds search-as-you-type
+# (search_us_stocks) and the Korean-name translation batch, and surfacing a
+# non-constituent there was never asked for — this only has to make the one code
+# the map can actually link to resolve. `close`/`change`/`change_pct` are a last-
+# resort snapshot (see get_us_stock_quote's `snapshot` fallback) for the rare case
+# every live quote source is down at once; in the ordinary case Yahoo answers for
+# SKHY directly and these are never read.
+_SKHY_ITEM = {"code": "SKHY", "name": "SK Hynix", "close": 0.0, "change": 0.0, "change_pct": 0.0}
+
+
 def get_us_stock_item(code: str) -> dict | None:
     for item in get_us_universe():
         if item["code"] == code:
             return item
-    return None
+    return _SKHY_ITEM if code == "SKHY" else None
 
 
 def get_us_stock_name(code: str) -> str | None:

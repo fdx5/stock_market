@@ -436,15 +436,7 @@ export default function MarketMapPage({
   }, [items, translatedNames]);
   // On US maps the ticker (not the full company name) is the primary label shown on
   // tiles/table rows; the full English name only shows in the hover/tap tooltip.
-  //
-  // SKHY is the one Korean name on either US map (see backend us_market_map.py) — the
-  // flag is appended to the LABEL only, not the underlying ticker every other lookup
-  // here keys off (byCode maps, onClick routing, icon resolution), so nothing else has
-  // to know this ticker is special.
-  const tileLabel = (code: string, name: string) => {
-    if (market !== "us") return nameByCode.get(code) ?? name;
-    return code === "SKHY" ? `${code} \u{1f1f0}\u{1f1f7}` : code;
-  };
+  const tileLabel = (code: string, name: string) => (market === "us" ? code : nameByCode.get(code) ?? name);
 
   const liveBadgeText = lang === "en" ? "Live (rank-based refresh: 10s–1min)" : "실시간 (순위별 10초 ~ 1분단위 갱신)";
   const isExtendedSession = session === "pre" || session === "post";
@@ -468,17 +460,23 @@ export default function MarketMapPage({
     // Preload every tile's logo up front (same eligibility rule as the on-screen
     // render) so the draw pass below can stay synchronous once it starts.
     const iconByCode = new Map<string, HTMLImageElement>();
-    await Promise.all(
-      sectorZones.flatMap((zone) =>
-        zone.tiles.map(async (tile) => {
-          const name = tileLabel(tile.item.code, tile.item.name);
-          const { showIcon } = tileDisplayInfo(tile.w, tile.h, name);
-          if (!showIcon) return;
-          const img = await loadIconImage(tile.item.code, market);
-          if (img) iconByCode.set(tile.item.code, img);
-        })
-      )
-    );
+    const [, skhyFlagImg] = await Promise.all([
+      Promise.all(
+        sectorZones.flatMap((zone) =>
+          zone.tiles.map(async (tile) => {
+            const name = tileLabel(tile.item.code, tile.item.name);
+            const { showIcon } = tileDisplayInfo(tile.w, tile.h, name);
+            if (!showIcon) return;
+            const img = await loadIconImage(tile.item.code, market);
+            if (img) iconByCode.set(tile.item.code, img);
+          })
+        )
+      ),
+      // Same one flag SVG regardless of how many tiles need it (just SKHY, today) —
+      // loaded once here rather than through iconByCode's per-ticker cache, since it
+      // isn't keyed by ticker/market the way a company logo is.
+      loadImage("/img/flag/kr.svg"),
+    ]);
 
     const scale = Math.min(window.devicePixelRatio || 1, 2);
     const canvas = document.createElement("canvas");
@@ -557,7 +555,21 @@ export default function MarketMapPage({
 
           ctx.font = `700 ${fontSizes.name}px ${TILE_FONT_FAMILY}`;
           ctx.textBaseline = "top";
-          ctx.fillText(truncateToWidth(ctx, name, tile.x + tile.w - padX - textX), textX, tile.y + 2);
+          const shownName = truncateToWidth(ctx, name, tile.x + tile.w - padX - textX);
+          ctx.fillText(shownName, textX, tile.y + 2);
+
+          // The same actual flag image the on-screen tile shows next to SKHY's label
+          // (see the img next to .kospi-map-tile-name in the DOM render below) rather
+          // than a flag emoji baked into the name string — most Windows browsers have
+          // no colour flag glyphs at all and would draw bare "KR" letters instead.
+          if (skhyFlagImg && tile.item.code === "SKHY") {
+            const flagH = fontSizes.name * 0.62;
+            const flagW = flagH * (skhyFlagImg.width / skhyFlagImg.height || 1.5);
+            const flagX = textX + ctx.measureText(shownName).width + 4;
+            if (flagX + flagW <= tile.x + tile.w - padX) {
+              ctx.drawImage(skhyFlagImg, flagX, tile.y + 2 + (fontSizes.name - flagH) / 2, flagW, flagH);
+            }
+          }
 
           ctx.font = `600 ${fontSizes.pct}px ${TILE_FONT_FAMILY}`;
           ctx.globalAlpha = 0.92;
@@ -839,6 +851,15 @@ export default function MarketMapPage({
                               <span className="kospi-map-tile-name" style={{ fontSize: fontSizes.name }}>
                                 {name}
                               </span>
+                              {tile.item.code === "SKHY" && (
+                                <img
+                                  className="kospi-map-tile-flag"
+                                  src="/img/flag/kr.svg"
+                                  alt=""
+                                  loading="lazy"
+                                  style={{ height: fontSizes.name * 0.62 }}
+                                />
+                              )}
                             </span>
                             <span className="kospi-map-tile-pct" style={{ fontSize: fontSizes.pct }}>
                               {pct(tile.item.change_pct)}
@@ -885,6 +906,9 @@ export default function MarketMapPage({
                           <td>{idx + 1}</td>
                           <td className="kospi-map-table-name">
                             {tileLabel(item.code, item.name)}
+                            {item.code === "SKHY" && (
+                              <img className="kospi-map-tile-flag kospi-map-table-flag" src="/img/flag/kr.svg" alt="" loading="lazy" />
+                            )}
                             {market === "kr" && <span className="top100-code">{item.code}</span>}
                           </td>
                           <td>{t(item.sector)}</td>
@@ -909,7 +933,11 @@ export default function MarketMapPage({
       {hovered && (
         <div className="kospi-map-tooltip" style={{ left: hoverPos.x + 16, top: hoverPos.y + 16 }}>
           <div className="kospi-map-tooltip-title">
-            {nameByCode.get(hovered.code) ?? hovered.name} <span className="top100-code">{hovered.code}</span>
+            {nameByCode.get(hovered.code) ?? hovered.name}
+            {hovered.code === "SKHY" && (
+              <img className="kospi-map-tile-flag kospi-map-tooltip-flag" src="/img/flag/kr.svg" alt="" loading="lazy" />
+            )}{" "}
+            <span className="top100-code">{hovered.code}</span>
           </div>
           <div className="kospi-map-tooltip-row">{t("업종")} {t(hovered.sector)}</div>
           <div className="kospi-map-tooltip-row">{t(marcapLabel)} {formatMarcapOrWeight(hovered.marcap, market, lang)}</div>
