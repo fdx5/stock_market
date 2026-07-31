@@ -362,60 +362,83 @@ function MedalIcon({ className }: { className?: string }) {
 
 const PANEL_HEIGHT_KEY_PREFIX = "admin_panel_height:";
 
-/** Restores a panel's user-dragged height (native CSS `resize: vertical` — see the
- * matching rules in styles.css, e.g. `.admin-panel--trend`) from localStorage on
- * mount, and saves it back whenever the panel's own box changes size. A resize drag
- * has no memory of its own — without this every panel snapped back to its default
- * height on the next visit, which defeats the point of dragging one in the first
- * place. A ResizeObserver rather than some drag-specific event: `resize` has no
- * dedicated DOM event to listen for, and this also happens to pick up an ordinary
- * window resize pushing a panel back under its own CSS min-height, which is worth
- * persisting too rather than leaving that panel's saved height stale until the next
- * manual drag. */
-function usePersistedPanelHeight(key: string) {
+/** A manually-dragged panel height, persisted to localStorage, driven by a small
+ * handle rendered at the panel's own bottom edge (`.admin-panel-resize-handle`) —
+ * NOT native CSS `resize`, which a first pass used and which turned out to only work
+ * on the one panel (trend) that isn't itself a flex item of a height-distributing
+ * parent. Sessions/comments/tail/batch all live inside flex columns
+ * (`.admin-left-col`/`.admin-tail-col`) sized by `flex: N 1 0` so siblings split a
+ * shared height budget — and a flex item's `flex-grow` keeps recomputing its size on
+ * every layout pass, which fights a `resize` drag (that only overrides flex-basis,
+ * not flex-grow) and made the handle visibly do nothing on those four. Dragging here
+ * sets `flex: 0 0 auto` alongside the height the moment a panel is touched, so the
+ * flex algorithm stops trying to redistribute it and the size actually sticks — the
+ * trend panel isn't parented by a flex container at all, so the same call is simply
+ * inert there, but every panel gets one consistent interaction instead of a native
+ * handle on one and something else on four others. */
+function useResizablePanel(key: string) {
   const ref = useRef<HTMLElement>(null);
+  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+
+  const applyHeight = (px: number) => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.flex = "0 0 auto";
+    el.style.height = `${Math.round(px)}px`;
+  };
 
   useEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
-
-    const storageKey = PANEL_HEIGHT_KEY_PREFIX + key;
-    const saved = localStorage.getItem(storageKey);
-    if (saved) el.style.height = saved;
-
-    // rAF-debounced: a live drag fires this many times a second, and a synchronous
-    // localStorage write on every one of those is wasted work the browser's own
-    // paint loop doesn't need waiting on.
-    let frame = 0;
-    const observer = new ResizeObserver((entries) => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const entry = entries[0];
-        if (!entry) return;
-        localStorage.setItem(storageKey, `${Math.round(entry.contentRect.height)}px`);
-      });
-    });
-    observer.observe(el);
-    return () => {
-      cancelAnimationFrame(frame);
-      observer.disconnect();
-    };
+    const saved = localStorage.getItem(PANEL_HEIGHT_KEY_PREFIX + key);
+    if (saved) applyHeight(parseFloat(saved));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  return ref;
+  const onHandlePointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
+    const el = ref.current;
+    // Left button (or an unbuttoned touch/pen contact, button === -1) only — a
+    // right/middle click landing on the handle shouldn't start a drag.
+    if (!el || (e.button !== 0 && e.button !== -1)) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    dragRef.current = { startY: e.clientY, startHeight: el.getBoundingClientRect().height };
+
+    const onMove = (ev: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      applyHeight(drag.startHeight + (ev.clientY - drag.startY));
+    };
+    const onUp = (ev: PointerEvent) => {
+      dragRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      handle.releasePointerCapture(ev.pointerId);
+      const finalEl = ref.current;
+      if (finalEl) {
+        localStorage.setItem(
+          PANEL_HEIGHT_KEY_PREFIX + key,
+          `${Math.round(finalEl.getBoundingClientRect().height)}`
+        );
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  return { ref, onHandlePointerDown };
 }
 
 export default function AdminDashboardPage() {
   useDocumentTitle("관리자 대시보드 | K-Stock Hub");
   const [authed] = useState(() => !!getStoredSession());
-  // One resize-persisted ref per resizable panel — see usePersistedPanelHeight's own
-  // comment. Keys are stable, human-readable strings rather than array indices so a
-  // later panel reorder can't silently swap two saved heights.
-  const trendPanelRef = usePersistedPanelHeight("trend");
-  const sessionsPanelRef = usePersistedPanelHeight("sessions");
-  const commentsPanelRef = usePersistedPanelHeight("comments");
-  const tailPanelRef = usePersistedPanelHeight("tail");
-  const batchPanelRef = usePersistedPanelHeight("batch");
+  // One resizable-panel controller per panel — see useResizablePanel's own comment.
+  // Keys are stable, human-readable strings rather than array indices so a later
+  // panel reorder can't silently swap two saved heights.
+  const trendPanel = useResizablePanel("trend");
+  const sessionsPanel = useResizablePanel("sessions");
+  const commentsPanel = useResizablePanel("comments");
+  const tailPanel = useResizablePanel("tail");
+  const batchPanel = useResizablePanel("batch");
 
   // The trend SVG's own viewBox tracks .admin-trend-chart-wrap's actual measured
   // size (see the `width`/`height` destructure further down) rather than a fixed
@@ -1098,7 +1121,7 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      <section className="admin-panel admin-panel--trend" ref={trendPanelRef}>
+      <section className="admin-panel admin-panel--trend" ref={trendPanel.ref}>
         <div className="admin-panel-head">
           <h2>{trendMetric === "visitors" ? "방문자수 추이" : "페이지별 접속 추이"}</h2>
           <div className="admin-panel-controls">
@@ -1481,11 +1504,16 @@ export default function AdminDashboardPage() {
           )}
         </div>
         </div>
+        <span
+          className="admin-panel-resize-handle"
+          onPointerDown={trendPanel.onHandlePointerDown}
+          aria-hidden="true"
+        />
       </section>
 
       <div className="admin-panels-grid">
         <div className="admin-left-col">
-        <section className="admin-panel admin-panel--sessions" ref={sessionsPanelRef}>
+        <section className="admin-panel admin-panel--sessions" ref={sessionsPanel.ref}>
           <h2>
             <span className="admin-live-dot" /> 실시간 세션 {sessions !== null && `(${sessions.length})`}
           </h2>
@@ -1530,9 +1558,14 @@ export default function AdminDashboardPage() {
             ))}
             {sessions?.length === 0 && <p className="admin-empty">활성 세션이 없습니다.</p>}
           </div>
+          <span
+            className="admin-panel-resize-handle"
+            onPointerDown={sessionsPanel.onHandlePointerDown}
+            aria-hidden="true"
+          />
         </section>
 
-        <section className="admin-panel admin-panel--comments" ref={commentsPanelRef}>
+        <section className="admin-panel admin-panel--comments" ref={commentsPanel.ref}>
           <h2>댓글 관리 {comments !== null && `(${comments.length})`}</h2>
           <div className="admin-comments-table">
             <div className="admin-comments-row admin-comments-row--head">
@@ -1593,6 +1626,11 @@ export default function AdminDashboardPage() {
             })}
             {comments?.length === 0 && <p className="admin-empty">등록된 댓글이 없습니다.</p>}
           </div>
+          <span
+            className="admin-panel-resize-handle"
+            onPointerDown={commentsPanel.onHandlePointerDown}
+            aria-hidden="true"
+          />
         </section>
         </div>
 
@@ -1600,7 +1638,7 @@ export default function AdminDashboardPage() {
             and the batch-status panel below takes the remaining 30% (see
             .admin-tail-col / .admin-panel--batch in styles.css). */}
         <div className="admin-tail-col">
-        <section className="admin-panel admin-panel--tail" ref={tailPanelRef}>
+        <section className="admin-panel admin-panel--tail" ref={tailPanel.ref}>
           <h2>
             <span className="admin-live-dot" /> 실시간 로그
           </h2>
@@ -1638,9 +1676,14 @@ export default function AdminDashboardPage() {
             })}
             {tail?.length === 0 && <p className="admin-empty">이벤트를 기다리는 중...</p>}
           </div>
+          <span
+            className="admin-panel-resize-handle"
+            onPointerDown={tailPanel.onHandlePointerDown}
+            aria-hidden="true"
+          />
         </section>
 
-        <section className="admin-panel admin-panel--batch" ref={batchPanelRef}>
+        <section className="admin-panel admin-panel--batch" ref={batchPanel.ref}>
           <div className="admin-batch-split">
           <div className="admin-batch-half">
           <h2>
@@ -1942,6 +1985,11 @@ export default function AdminDashboardPage() {
             </div>
           </div>
           </div>
+          <span
+            className="admin-panel-resize-handle"
+            onPointerDown={batchPanel.onHandlePointerDown}
+            aria-hidden="true"
+          />
         </section>
         </div>
       </div>

@@ -9471,6 +9471,49 @@ thead .weekly-foreign-amount-col {
   border-radius: 12px;
   background: var(--surface-1);
   border: 1px solid var(--border);
+  /* Positioning context for .admin-panel-resize-handle, which every resizable
+     panel places at its own bottom edge — see that rule and useResizablePanel in
+     AdminDashboardPage.tsx. */
+  position: relative;
+}
+
+/* The drag handle every resizable panel (trend/sessions/comments/tail/batch) places
+   as its own last child. A hand-built strip rather than native CSS `resize`: an
+   earlier pass used `resize: vertical`, which only worked on the trend panel — the
+   other four are flex items inside height-distributing columns
+   (.admin-left-col/.admin-tail-col), and a flex item's own flex-grow keeps
+   recomputing its size every layout pass, fighting a `resize` drag (which only
+   overrides flex-basis) into visibly doing nothing. useResizablePanel's pointer
+   handlers set `flex: 0 0 auto` the moment a drag starts, which is what actually
+   makes the new height stick.
+   Straddles the panel's own bottom edge (a few px overlap on each side) so the
+   whole visible border reads as grabbable, not just a hairline exactly on it. */
+.admin-panel-resize-handle {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 11px;
+  cursor: ns-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.admin-panel-resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 3px;
+  width: 34px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  transform: translateX(-50%);
+  transition: background 0.15s ease;
+}
+
+.admin-panel-resize-handle:hover::after {
+  background: var(--series-blue);
 }
 
 .admin-panel h2 {
@@ -9820,15 +9863,10 @@ thead .weekly-foreign-amount-col {
   display: flex;
   flex-direction: column;
   min-height: 32.5vh;
-  /* Vertical-only drag handle, native rather than a hand-built one — no drag math,
-     no pointer-event plumbing, and the cursor/affordance the browser already knows
-     how to draw. `overflow: hidden` (not `auto`) is what `resize` requires to be
-     enabled at all, and is correct here regardless: nothing in this panel needs the
-     PANEL's own scrollbar, only .admin-toppages-list--scroll's, which keeps its own
-     independent of whatever height this box ends up at. Persisted across visits by
-     usePersistedPanelHeight (see AdminDashboardPage.tsx), since a native resize
-     drag has no memory of its own. */
-  resize: vertical;
+  /* Resizable via .admin-panel-resize-handle (see that rule and useResizablePanel
+     in AdminDashboardPage.tsx) — hidden, not auto, since nothing in this panel
+     needs the PANEL's own scrollbar, only .admin-toppages-list--scroll's, which
+     keeps its own independent of whatever height this box ends up at. */
   overflow: hidden;
 }
 
@@ -10068,9 +10106,8 @@ thead .weekly-foreign-amount-col {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  /* See .admin-panel--trend's own comment on resize/overflow — same reasoning,
-     applied to both sessions and comments via this shared selector. */
-  resize: vertical;
+  /* Resizable via .admin-panel-resize-handle, applied to both sessions and
+     comments via this shared selector — see .admin-panel--trend's own comment. */
   overflow: hidden;
 }
 
@@ -10092,7 +10129,6 @@ thead .weekly-foreign-amount-col {
   min-height: 260px;
   display: flex;
   flex-direction: column;
-  resize: vertical;
   overflow: hidden;
 }
 
@@ -10101,7 +10137,6 @@ thead .weekly-foreign-amount-col {
   min-height: 220px;
   display: flex;
   flex-direction: column;
-  resize: vertical;
   overflow: hidden;
 }
 
@@ -10741,14 +10776,11 @@ button.admin-comments-text--clickable:hover {
     height: auto;
   }
 
-  /* Content-sized and un-resizable below this width — a drag handle serves a
-     multi-column desktop layout where two panels are trading a shared budget of
-     screen height; stacked on a phone, each panel already gets to be as tall as
-     it needs, and a resize corner is also not a reliable touch gesture to begin
-     with. */
+  /* Content-sized below this width — a drag handle serves a multi-column desktop
+     layout where two panels are trading a shared budget of screen height; stacked
+     on a phone, each panel already gets to be as tall as it needs. */
   .admin-left-col .admin-panel {
     flex: none;
-    resize: none;
   }
 
   /* Stacked layout: the fixed 640px 60/40 column gives way to natural per-panel
@@ -10760,7 +10792,13 @@ button.admin-comments-text--clickable:hover {
   .admin-panel--tail,
   .admin-panel--batch {
     flex: none;
-    resize: none;
+  }
+
+  /* The drag handle itself, hidden below this width for every resizable panel at
+     once: none of them has a shared height budget left to negotiate once stacked,
+     and a thin strip is also not a reliable touch-drag target to begin with. */
+  .admin-panel-resize-handle {
+    display: none;
   }
 
   .admin-sessions-table,
@@ -10788,7 +10826,6 @@ button.admin-comments-text--clickable:hover {
      content-based sizing per stacked section. */
   .admin-panel--trend {
     min-height: 0;
-    resize: none;
   }
 
   .admin-trend-layout {
