@@ -38,7 +38,8 @@ INDEX_CODES = {"KOSPI": "KS11", "KOSDAQ": "KQ11"}
 
 
 @router.get("/map")
-def kospi_map(limit: int = Query(500, ge=1, le=800), fresh: bool = Query(False)):
+def kospi_map(response: Response, limit: int = Query(500, ge=1, le=800), fresh: bool = Query(False)):
+    response.headers["Cache-Control"] = "no-store"
     items = get_kospi_map(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
@@ -48,7 +49,8 @@ def kospi_map(limit: int = Query(500, ge=1, le=800), fresh: bool = Query(False))
 
 
 @router.get("/kosdaq-map")
-def kosdaq_map(limit: int = Query(200, ge=1, le=200), fresh: bool = Query(False)):
+def kosdaq_map(response: Response, limit: int = Query(200, ge=1, le=200), fresh: bool = Query(False)):
+    response.headers["Cache-Control"] = "no-store"
     items = get_kosdaq_map(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
@@ -58,7 +60,8 @@ def kosdaq_map(limit: int = Query(200, ge=1, le=200), fresh: bool = Query(False)
 
 
 @router.get("/sp500-map")
-def sp500_map(limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False)):
+def sp500_map(response: Response, limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False)):
+    response.headers["Cache-Control"] = "no-store"
     items = get_sp500_map_with_skhynix(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
@@ -73,7 +76,8 @@ def sp500_map(limit: int = Query(503, ge=1, le=503), fresh: bool = Query(False))
 
 
 @router.get("/nasdaq100-map")
-def nasdaq100_map(limit: int = Query(103, ge=1, le=103), fresh: bool = Query(False)):
+def nasdaq100_map(response: Response, limit: int = Query(103, ge=1, le=103), fresh: bool = Query(False)):
+    response.headers["Cache-Control"] = "no-store"
     items = get_nasdaq100_map_with_skhynix(limit, fresh=fresh)
     return {
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),

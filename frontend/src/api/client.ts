@@ -778,19 +778,19 @@ export const api = {
   dailyPrices: (code: string, offset = 0, limit = 20) =>
     getJSON<DailyPricePage>(`${BASE}/stock/${code}/daily?offset=${offset}&limit=${limit}`),
   marketMap: (limit = 500, fresh = false) =>
-    getJSON<MarketMapResponse>(
+    getJSONFresh<MarketMapResponse>(
       `${BASE}/market/map?limit=${limit}&fresh=${fresh}`
     ),
   kosdaqMap: (limit = 200, fresh = false) =>
-    getJSON<MarketMapResponse>(
+    getJSONFresh<MarketMapResponse>(
       `${BASE}/market/kosdaq-map?limit=${limit}&fresh=${fresh}`
     ),
   sp500Map: (limit = 503, fresh = false) =>
-    getJSON<MarketMapResponse>(
+    getJSONFresh<MarketMapResponse>(
       `${BASE}/market/sp500-map?limit=${limit}&fresh=${fresh}`
     ),
   nasdaq100Map: (limit = 103, fresh = false) =>
-    getJSON<MarketMapResponse>(
+    getJSONFresh<MarketMapResponse>(
       `${BASE}/market/nasdaq100-map?limit=${limit}&fresh=${fresh}`
     ),
   stockBoard: (market: "kospi" | "kosdaq" | "nasdaq", fresh = false) =>
