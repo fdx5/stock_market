@@ -12,6 +12,21 @@ HEADERS = {
     "Referer": "https://finance.naver.com/",
 }
 
+# A shared, connection-pooled session — same fix already applied in
+# naver_price_fetcher.py/board_fetcher.py for the same symptom. This route's 15s
+# cache TTL (see stock.py's TTL_ORDERBOOK_SECONDS) means it re-hits Naver far more
+# often than this app's other single-page scrapes, and every one of those requests
+# was paying a fresh TCP/TLS handshake with no session cookie carried over — the
+# most likely cause of the occasional 502s reported against this endpoint. Reusing
+# a keep-alive connection (and letting cookies persist across calls) makes each
+# request faster and look less like a fresh anonymous bot hit to Naver.
+_session = requests.Session()
+_session.headers.update(HEADERS)
+_session.mount(
+    "https://",
+    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
+)
+
 
 def _parse_int(text: str) -> int:
     cleaned = text.replace(",", "").strip()
@@ -23,16 +38,24 @@ def get_orderbook(code: str) -> dict:
     Rows are returned in the same top-to-bottom order Naver renders them: asks
     descending toward the spread, then bids descending away from it.
 
-    Raises on any failure (network error, bad status, missing/empty table) instead of
-    swallowing it into a None return. The cache this feeds (see stock.py's /orderbook
-    route) treats a raised exception as "keep serving the last-known-good ladder,
-    retry next cycle" but treats a returned None as a real value worth caching - so
-    swallowing here used to turn one transient scrape hiccup (rate limiting, a
+    Raises on a genuine scrape failure (network error, bad status, missing table)
+    instead of swallowing it into a None return. The cache this feeds (see stock.py's
+    /orderbook route) treats a raised exception as "keep serving the last-known-good
+    ladder, retry next cycle" but treats a returned None as a real value worth caching
+    - so swallowing here used to turn one transient scrape hiccup (rate limiting, a
     momentary Naver 5xx, a captcha page in place of the table) into a 502 that stuck
     around for the full cache TTL even after the upstream had already recovered.
+
+    Does NOT raise when the table itself is present but every row's price/qty cells
+    are blank — confirmed (by inspecting the live page outside trading hours) to be
+    how Naver renders this table whenever KRX isn't actively trading, i.e. most of the
+    week (nights, weekends, holidays). That is a normal state, not an upstream
+    failure, and returns `available: False` instead so the frontend can show "휴장
+    중" rather than an error — this was the actual majority cause of the /orderbook
+    502s reported in production, not a scrape or network problem.
     """
     url = f"https://finance.naver.com/item/sise.naver?code={code}"
-    resp = requests.get(url, headers=HEADERS, timeout=4)
+    resp = _session.get(url, timeout=6)
     resp.raise_for_status()
     resp.encoding = "euc-kr"
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -66,12 +89,10 @@ def get_orderbook(code: str) -> dict:
             if qty_text and price_text:
                 bids.append({"price": _parse_int(price_text), "qty": _parse_int(qty_text)})
 
-    if not asks and not bids:
-        raise ValueError(f"호가 데이터가 비어 있습니다: {code}")
-
     return {
         "code": code,
         "delayed_minutes": 20,
+        "available": bool(asks or bids),
         "asks": asks,
         "bids": bids,
         "total_ask_qty": total_ask_qty,

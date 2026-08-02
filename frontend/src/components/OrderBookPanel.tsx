@@ -42,6 +42,9 @@ export default function OrderBookPanel({ code }: { code: string }) {
 
   if (error) return <div className="orderbook-status error-state">{t(error)}</div>;
   if (!book) return <div className="orderbook-status">{t("불러오는 중...")}</div>;
+  // KRX isn't actively trading right now (nights/weekends/holidays) — Naver has no
+  // live 호가 to show in that state, not a fetch failure, so this isn't the error path.
+  if (!book.available) return <div className="orderbook-status">{t("휴장 중에는 호가 정보가 제공되지 않습니다.")}</div>;
 
   const maxQty = Math.max(1, ...book.asks.map((l) => l.qty), ...book.bids.map((l) => l.qty));
 

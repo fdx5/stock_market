@@ -341,6 +341,7 @@ export const DICTIONARY: Record<string, string> = {
   "잔량합계": "Total Qty",
   "20분 전 시세, 실시간 갱신": "20-min delayed, live updates",
   "호가 데이터를 가져오지 못했습니다.": "Failed to load order book data.",
+  "휴장 중에는 호가 정보가 제공되지 않습니다.": "Order book data isn't available while the market is closed.",
 
   // SidePanel / DailyPricePanel
   "일별": "Daily",

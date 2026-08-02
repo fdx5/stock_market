@@ -380,6 +380,10 @@ export interface OrderBookLevel {
 export interface OrderBook {
   code: string;
   delayed_minutes: number;
+  /** False when KRX isn't actively trading (nights, weekends, holidays) — Naver
+   * serves the 호가 table with every row blank in that state rather than an error,
+   * and this app reads that the same way rather than treating it as a fetch failure. */
+  available: boolean;
   asks: OrderBookLevel[];
   bids: OrderBookLevel[];
   total_ask_qty: number;
