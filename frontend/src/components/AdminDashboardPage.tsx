@@ -1860,7 +1860,9 @@ export default function AdminDashboardPage() {
                     : !configured
                       ? "neutral"
                       : last
-                        ? last.status === "sent" || last.status === "skipped_recent"
+                        ? last.status === "sent" ||
+                          last.status === "skipped_recent" ||
+                          last.status === "skipped_quiet_hours"
                           ? "ok"
                           : "fail"
                         : "neutral";
@@ -1873,9 +1875,11 @@ export default function AdminDashboardPage() {
                           ? "성공"
                           : last.status === "skipped_recent"
                             ? "스킵"
-                            : last.status === "error"
-                              ? "실패"
-                              : "미설정"
+                            : last.status === "skipped_quiet_hours"
+                              ? "스킵(새벽)"
+                              : last.status === "error"
+                                ? "실패"
+                                : "미설정"
                         : "기록 없음";
                   const triggeredLabel =
                     last?.triggered_by === "admin"
@@ -1892,7 +1896,8 @@ export default function AdminDashboardPage() {
                         (last.status === "error" && last.error ? ` · ${last.error}` : "") +
                         (last.status === "skipped_recent" && last.last_sent_at
                           ? ` · 최근 발송 ${formatDateTime(last.last_sent_at)}`
-                          : "")
+                          : "") +
+                        (last.status === "skipped_quiet_hours" ? " · 새벽 1~5시는 발송하지 않습니다" : "")
                       : "아직 실행 이력이 없습니다.";
                   return kakaoVisitorStatus === null ? (
                     <div className="admin-batch-row">

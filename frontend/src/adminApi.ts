@@ -164,7 +164,7 @@ export type BatchRegion = "KR" | "US";
  * the three triggers (cron, in-process fallback, or this panel's own button)
  * produced it. */
 export interface KakaoVisitorRun {
-  status: "sent" | "not_configured" | "error" | "skipped_recent";
+  status: "sent" | "not_configured" | "error" | "skipped_recent" | "skipped_quiet_hours";
   message?: string;
   stats?: { online_now: number; total_visits: number; views_24h: number };
   error?: string;

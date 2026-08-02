@@ -43,6 +43,14 @@ _REFRESH_MARGIN = timedelta(minutes=10)
 # back to back instead of one.
 _MIN_INTERVAL = timedelta(minutes=50)
 
+# Quiet hours (KST): the hourly cron/in-process triggers still fire during this window,
+# they just skip the actual send — a "나에게 보내기" ping between 새벽 1시~5시 would land
+# on the admin's phone while they're asleep. Range is half-open [1, 5), i.e. 01:00 up to
+# (not including) 05:00 KST. Does not apply when force=True — the admin dashboard's
+# manual "지금 발송" button is a deliberate click and should always actually send, same
+# as it already bypasses _MIN_INTERVAL above.
+_QUIET_HOURS_KST = range(1, 5)
+
 # The admin dashboard's manual "지금 발송" button (see routers/admin.py) and its
 # polling read of "what happened last" both need the *same* record regardless of
 # which trigger (cron, in-process fallback, or that button) produced it — mirrors
@@ -355,6 +363,14 @@ def run_visitor_stats(force: bool = False, triggered_by: str = "cron") -> dict:
                 {
                     "status": "skipped_recent",
                     "last_sent_at": last["created_at"],
+                    "triggered_by": triggered_by,
+                    "finished_at": finished_at,
+                }
+            )
+        if _kst_now().hour in _QUIET_HOURS_KST:
+            return _record_last_visitor_run(
+                {
+                    "status": "skipped_quiet_hours",
                     "triggered_by": triggered_by,
                     "finished_at": finished_at,
                 }
