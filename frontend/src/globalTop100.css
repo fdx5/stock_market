@@ -1,0 +1,769 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   /global-top100 — 글로벌 시가총액 TOP 100.
+
+   A ranked LIST, not a tiled grid: each row is a single horizontal strip on
+   desktop (rank · logo · name/country · price · market cap · sparkline · quick
+   stats · expand), collapsing progressively on narrower screens down to just
+   rank/logo/name/price/expand — the dense fields (market cap, sparkline, PER/
+   rating chips) move into the tap-to-expand detail panel instead of being
+   crammed into the row or causing horizontal scroll. Mobile is the primary
+   target, not an afterthought: every row already works at 360px wide with
+   nothing cut off, before any @media rule fires.
+
+   Same theme tokens as stockBoard.css (up-color/down-color/surface-1/border/
+   text-*), so this follows the site's light/dark switch with no local
+   branching, and reads as the same product as every other board page. */
+
+.gt100-page {
+  max-width: 1160px;
+  gap: 0;
+  --gt100-header-h: 86px;
+}
+
+/* ─────────────────────────────────── hero ─────────────────────────────────── */
+
+.gt100-hero {
+  padding: 22px 0 14px;
+}
+
+.gt100-title {
+  margin: 0;
+  font-size: clamp(24px, 4vw, 34px);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--text-primary);
+}
+
+.gt100-subtitle {
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.gt100-updated {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.gt100-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-good);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-good) 22%, transparent);
+  animation: gt100-live-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes gt100-live-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ────────────────────────────────── toolbar ────────────────────────────────── */
+
+.gt100-toolbar {
+  position: sticky;
+  top: calc(var(--gt100-header-h) - 2px);
+  z-index: 30;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 0 10px;
+  background: var(--page-plane);
+}
+
+.gt100-search {
+  flex: 1 1 220px;
+  min-width: 160px;
+}
+
+.gt100-search input {
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.gt100-select select {
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gt100-search input:focus-visible,
+.gt100-select select:focus-visible {
+  outline: 2px solid var(--series-blue);
+  outline-offset: 1px;
+}
+
+/* ───────────────────────────────── row list ───────────────────────────────── */
+
+.gt100-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+.gt100-empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.gt100-row {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  border-left: 3px solid var(--baseline);
+  overflow: hidden;
+}
+
+.gt100-row[data-dir="up"] {
+  border-left-color: var(--up-color);
+}
+
+.gt100-row[data-dir="down"] {
+  border-left-color: var(--down-color);
+}
+
+.gt100-row-main {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.gt100-row.is-expanded .gt100-row-main {
+  border-bottom: 1px solid var(--border);
+}
+
+.gt100-rank {
+  flex: none;
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.gt100-rank b {
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.gt100-rankchg {
+  font-size: 9.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 4px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+.gt100-rankchg--up {
+  color: var(--up-color);
+  background: color-mix(in srgb, var(--up-color) 15%, transparent);
+}
+
+.gt100-rankchg--down {
+  color: var(--down-color);
+  background: color-mix(in srgb, var(--down-color) 15%, transparent);
+}
+
+.gt100-rankchg--flat {
+  color: var(--text-muted);
+}
+
+.gt100-logo {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.gt100-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  padding: 3px;
+}
+
+/* The shared .fight-logo-fallback (styles.css) is sized for the /fight page's much
+   larger portrait tiles — shrunk down to fit this row's 36px logo tile. */
+.gt100-logo .fight-logo-fallback {
+  font-size: 12px;
+}
+
+.gt100-identity {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gt100-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gt100-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.gt100-flag {
+  width: 14px;
+  height: 10px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex: none;
+}
+
+.gt100-country {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+}
+
+.gt100-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+  flex: none;
+}
+
+.gt100-symbol {
+  white-space: nowrap;
+}
+
+.gt100-price-cell {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  /* A fixed width (not min-width) — every row's price/change text is right-aligned
+     inside the same box, so every column after this one (market cap, sparkline,
+     chips, expand icon) lands at the same x across all 100 rows regardless of how
+     long any one row's price string is ("US$1,148.84" vs "₩262,500" vs "SAR 26.58"). */
+  width: 112px;
+}
+
+.gt100-price {
+  font-size: 14px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.gt100-change {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+
+.gt100-change[data-dir="up"] {
+  color: var(--up-color);
+}
+
+.gt100-change[data-dir="down"] {
+  color: var(--down-color);
+}
+
+.gt100-change[data-dir="up"]::before {
+  content: "▲ ";
+  font-size: 8px;
+}
+
+.gt100-change[data-dir="down"]::before {
+  content: "▼ ";
+  font-size: 8px;
+}
+
+/* Market cap, sparkline and quick-stat chips are desktop-only in the row itself
+   — hidden below and re-shown at increasing widths, see the media queries.
+   Always available in the expanded detail panel regardless of screen size. */
+.gt100-marcap-cell,
+.gt100-spark-cell,
+.gt100-chips-cell {
+  display: none;
+}
+
+.gt100-marcap-cell {
+  flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  /* Fixed width, same reasoning as .gt100-price-cell above — keeps the sparkline/
+     chips/expand-icon columns lined up regardless of this row's own number length. */
+  width: 92px;
+}
+
+.gt100-marcap-label {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.gt100-marcap {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.gt100-spark-cell {
+  flex: none;
+  width: 130px;
+  height: 40px;
+}
+
+.gt100-chips-cell {
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  /* Fixed total width, each child below pinned to its own fixed width too — same
+     column-alignment reasoning as price/market-cap: "강력매수" is nearly twice as
+     wide as "매수", and without a fixed box the rating pill (and the expand icon
+     after it) would drift left/right row to row. */
+  width: 226px;
+}
+
+.gt100-chip {
+  display: inline-flex;
+  flex: none;
+  width: 68px;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  padding: 3px 4px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gt100-chip i {
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.gt100-chip[data-dir="up"] {
+  color: var(--up-color);
+}
+
+.gt100-chip[data-dir="down"] {
+  color: var(--down-color);
+}
+
+.gt100-chip--muted {
+  color: var(--text-secondary);
+}
+
+.gt100-rating {
+  flex: none;
+  width: 66px;
+  text-align: center;
+  padding: 4px 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gt100-rating--none {
+  color: var(--text-muted);
+  background: none;
+  padding: 0;
+}
+
+.gt100-rating--strong-buy {
+  color: #fff;
+  background: color-mix(in srgb, var(--up-color) 78%, black 10%);
+}
+
+.gt100-rating--buy {
+  color: var(--up-color);
+  background: color-mix(in srgb, var(--up-color) 16%, transparent);
+}
+
+.gt100-rating--hold {
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.gt100-rating--sell {
+  color: var(--series-orange);
+  background: color-mix(in srgb, var(--series-orange) 16%, transparent);
+}
+
+.gt100-rating--strong-sell {
+  color: #fff;
+  background: color-mix(in srgb, var(--down-color) 72%, black 8%);
+}
+
+.gt100-analyst-count {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.gt100-expand-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ───────────────────────────── expanded detail panel ───────────────────────────── */
+
+.gt100-detail {
+  padding: 12px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.gt100-returns-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.gt100-return-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+.gt100-return-cell dt {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.gt100-return-cell dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.gt100-return-cell[data-dir="up"] dd {
+  color: var(--up-color);
+}
+
+.gt100-return-cell[data-dir="down"] dd {
+  color: var(--down-color);
+}
+
+.gt100-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 16px;
+  margin: 0;
+}
+
+.gt100-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.gt100-stat dt {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.gt100-stat dd {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.gt100-description {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* ─────────────────────────────── sparkline (row) ─────────────────────────────── */
+
+.gt100-spark {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  --spark-color: var(--baseline);
+}
+
+.gt100-spark[data-trend="up"] {
+  --spark-color: var(--up-color);
+}
+
+.gt100-spark[data-trend="down"] {
+  --spark-color: var(--down-color);
+}
+
+.gt100-spark--empty {
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.gt100-spark-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+  touch-action: pan-y;
+}
+
+.gt100-spark-line {
+  fill: none;
+  stroke: var(--spark-color);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.gt100-spark-area {
+  fill: var(--spark-color);
+  opacity: 0.13;
+  stroke: none;
+}
+
+.gt100-spark-base {
+  stroke: var(--text-muted);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 3;
+  opacity: 0.5;
+}
+
+.gt100-spark-crosshair {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
+.gt100-spark-dot {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--spark-color);
+  box-shadow: 0 0 0 2px var(--surface-1);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.gt100-spark-readout {
+  position: absolute;
+  top: -2px;
+  left: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.gt100-spark:hover .gt100-spark-readout,
+.gt100-spark-readout[data-active="true"] {
+  opacity: 1;
+}
+
+.gt100-spark-readout b {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.gt100-spark-readout i {
+  font-style: normal;
+  color: var(--text-muted);
+}
+
+/* ────────────────────────────────── skeleton ────────────────────────────────── */
+
+.gt100-row--skeleton {
+  height: 58px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+}
+
+.gt100-skeleton-block {
+  width: 100%;
+  height: 34px;
+  border-radius: 8px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--text-primary) 5%, var(--surface-1)) 25%,
+    color-mix(in srgb, var(--text-primary) 10%, var(--surface-1)) 37%,
+    color-mix(in srgb, var(--text-primary) 5%, var(--surface-1)) 63%
+  );
+  background-size: 400% 100%;
+  animation: gt100-shimmer 1.4s ease infinite;
+}
+
+@keyframes gt100-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+.gt100-provenance {
+  margin: 10px 0 24px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* ─────────────────────────────── progressive reveal ─────────────────────────────── */
+
+/* Base (mobile-first) layout above already shows only rank/logo/name/price/
+   expand — everything else lives in the tap-to-expand panel. These widen the
+   row back out as there's room for it, never the other way around. */
+
+@media (min-width: 560px) {
+  .gt100-marcap-cell {
+    display: flex;
+  }
+}
+
+@media (min-width: 760px) {
+  .gt100-spark-cell {
+    display: block;
+  }
+}
+
+@media (min-width: 1000px) {
+  .gt100-chips-cell {
+    display: flex;
+  }
+
+  .gt100-stats {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .gt100-page {
+    padding: 16px 12px 56px;
+    --gt100-header-h: 75px;
+  }
+
+  .gt100-toolbar {
+    position: static;
+  }
+
+  .gt100-select select {
+    width: 100%;
+  }
+
+  .gt100-country {
+    max-width: 60px;
+  }
+
+  /* Touch has no hover, so the sparkline readout would never appear — pin it on
+     permanently, showing the latest close (same treatment as stockBoard.css). */
+  .gt100-spark-readout {
+    opacity: 1;
+  }
+}
+
+@media (hover: none) {
+  .gt100-row-main:active {
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gt100-live-dot,
+  .gt100-skeleton-block {
+    animation: none;
+  }
+}

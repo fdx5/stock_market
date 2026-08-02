@@ -31,3 +31,12 @@ services:
         sync: false
       - key: KAKAO_NOTIFY_TOKEN
         sync: false
+      # Guards POST /api/global-top100/refresh, the nightly 글로벌 시가총액 TOP 100
+      # full-snapshot rebuild trigger (see app/services/global_top100.py and
+      # .github/workflows/global-top100-refresh.yml). Same shape as KAKAO_NOTIFY_TOKEN
+      # above — must also be set as a GitHub Actions secret of the same name so that
+      # workflow's curl call can authenticate. Leaving this unset just disables the
+      # HTTP trigger (503); main.py's in-process scheduler still refreshes nightly
+      # without it.
+      - key: GLOBAL_TOP100_REFRESH_TOKEN
+        sync: false

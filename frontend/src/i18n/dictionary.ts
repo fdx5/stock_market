@@ -185,6 +185,29 @@ export const DICTIONARY: Record<string, string> = {
   "회사 정보가 없습니다.": "No company information available.",
   "회사 정보를 불러오지 못했습니다.": "Failed to load company information.",
 
+  // GlobalTop100Page
+  "글로벌 시총": "Global Cap",
+  "글로벌 시가총액 TOP 100": "Global Market Cap TOP 100",
+  "전 세계 시가총액 상위 100개 기업의 순위·주가·재무지표를 20초마다 갱신합니다.":
+    "Ranking, prices, and fundamentals for the world's 100 largest companies by market cap, refreshed every 20 seconds.",
+  "종목명 · 심볼 검색": "Search by name or symbol",
+  "글로벌 시가총액 TOP 100을 불러오는 중입니다…": "Loading the global TOP 100…",
+  "순위·국가·로고는 companiesmarketcap.com, 시세는 Yahoo Finance 기준이며 20초마다 갱신됩니다. 순위 변동은 전일 대비이며, 서비스 시작 첫날은 비교 대상이 없어 전 종목 신규로 표시됩니다.":
+    "Rank, country, and logos are sourced from companiesmarketcap.com; prices from Yahoo Finance, refreshed every 20 seconds. Rank change is versus the previous day — on launch day there is no prior data yet, so every row shows as new.",
+  "당일 등락률순": "By today's change",
+  "순위 상승순": "By rank gain",
+  "PER 낮은순": "By lowest PER",
+  "이름순": "By name",
+  "1일": "1D",
+  "7일": "7D",
+  "6개월": "6M",
+  "1년": "1Y",
+  "전체기간": "All-time",
+  "희석 EPS": "Diluted EPS",
+  "순마진": "Net Margin",
+  "EPS 성장률": "EPS Growth",
+  "애널리스트 의견": "Analyst Rating",
+
   // MarketMapPage (KOSPI MAP / KOSDAQ MAP)
   "종목 MAP": "Stocks MAP",
   "맵 보기": "Map View",

@@ -18,6 +18,7 @@ import FightCheerSection from "./FightCheerSection";
 import FightCompanyModal from "./FightCompanyModal";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
+import GlobeRankIcon from "./GlobeRankIcon";
 import LanguageToggle from "./LanguageToggle";
 import PredictIcon from "./PredictIcon";
 import RankIcon from "./RankIcon";
@@ -565,6 +566,9 @@ export default function MarketCapFightPage() {
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
             <PredictIcon /> AI 예측
+          </Link>
+          <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
+            <GlobeRankIcon /> {t("글로벌 시총")}
           </Link>
           {phase === "fight" && (
             <Link to="/battle" className="kospi-map-nav-link fight-nav-link--classic">

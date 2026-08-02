@@ -23,6 +23,7 @@ from app.routers import (
     fight,
     geo,
     global_dashboard,
+    global_top100,
     investor,
     market_map,
     monitor,
@@ -36,12 +37,14 @@ from app.routers import (
 )
 from app.services import (
     api_pulse,
+    global_top100_rank_store,
     kakao_notify,
     notify_stats_store,
     page_view_store,
     prediction_batch,
     stock_search_store,
 )
+from app.services import global_top100 as global_top100_service
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.stock_board import warm_boards
@@ -112,6 +115,7 @@ app.include_router(admin_comments.router, prefix="/api/admin")
 app.include_router(admin_db.router, prefix="/api/admin")
 app.include_router(monitor.router, prefix="/api/admin/monitor")
 app.include_router(notify.router, prefix="/api/notify")
+app.include_router(global_top100.router, prefix="/api/global-top100")
 
 
 @app.on_event("startup")
@@ -217,6 +221,13 @@ def _admin_retention_loop() -> None:
             notify_stats_store.purge_older_than(notify_cutoff)
         except Exception:
             pass
+        try:
+            top100_cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=global_top100_rank_store.RETENTION_DAYS)
+            ).strftime("%Y-%m-%d")
+            global_top100_rank_store.purge_older_than(top100_cutoff)
+        except Exception:
+            pass
         time.sleep(24 * 3600)
 
 
@@ -266,6 +277,53 @@ def _start_kakao_notify_scheduler() -> None:
     # own _MIN_INTERVAL guard is what stops both triggers landing in the same hour
     # from sending the admin two messages back to back.
     threading.Thread(target=_kakao_notify_loop, daemon=True).start()
+
+
+def _seconds_until_kst_hour(target_kst_hour: int) -> float:
+    now = datetime.now(timezone.utc)
+    kst_now = now + timedelta(hours=9)
+    target_kst = kst_now.replace(hour=target_kst_hour, minute=0, second=0, microsecond=0)
+    if target_kst <= kst_now:
+        target_kst += timedelta(days=1)
+    return (target_kst - kst_now).total_seconds()
+
+
+def _global_top100_refresh_loop() -> None:
+    # Secondary trigger for the nightly 글로벌 시가총액 TOP 100 full-snapshot rebuild —
+    # same dual-trigger shape as _kakao_notify_loop: GitHub Actions cron (see
+    # .github/workflows/global-top100-refresh.yml) is primary, this thread covers the
+    # window where Render's free-tier instance is asleep when that cron fires. Runs at
+    # ~04:00 KST, off-peak for both KR and US markets. force_refresh_full() itself is
+    # idempotent (just overwrites today's rank_store row), so both triggers landing on
+    # the same day is harmless, just redundant work.
+    time.sleep(_seconds_until_kst_hour(4))
+    while True:
+        try:
+            global_top100_service.force_refresh_full()
+        except Exception:
+            # A missed night just means the page serves yesterday's snapshot (or the
+            # GitHub Actions cron covering the same job succeeds instead) until the
+            # next tick — not worth taking the process down over.
+            pass
+        time.sleep(24 * 3600)
+
+
+def _global_top100_live_warm_loop() -> None:
+    # Keeps the live price overlay's short TTL cache pre-filled so a visitor's request
+    # never pays for the ~100-symbol batch-quote round trip synchronously — see
+    # services/global_top100.get_live_overlay_cached's TTL_LIVE_SECONDS.
+    while True:
+        try:
+            global_top100_service.get_live_overlay_cached()
+        except Exception:
+            pass
+        time.sleep(20)
+
+
+@app.on_event("startup")
+def _start_global_top100_schedulers() -> None:
+    threading.Thread(target=_global_top100_refresh_loop, daemon=True).start()
+    threading.Thread(target=_global_top100_live_warm_loop, daemon=True).start()
 
 
 @app.on_event("startup")

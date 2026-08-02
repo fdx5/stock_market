@@ -1,6 +1,7 @@
 import { api } from "../api/client";
 import BattleIcon from "./BattleIcon";
 import GlobalNewsIcon from "./GlobalNewsIcon";
+import GlobeRankIcon from "./GlobeRankIcon";
 import MarketIcon from "./MarketIcon";
 import MarketMapPage from "./MarketMapPage";
 import PredictIcon from "./PredictIcon";
@@ -25,6 +26,12 @@ export default function Nasdaq100MapPage() {
         { to: "/sp500-map", label: "S&P500", icon: <MarketIcon />, className: "kospi-map-nav-link--sp500" },
         { to: "/kospi-100", label: "TOP 100", icon: <RankIcon />, className: "kospi-map-nav-link--top100" },
         { to: "/ai-prediction", label: "AI 예측", icon: <PredictIcon />, className: "kospi-map-nav-link--predict" },
+        {
+          to: "/global-top100",
+          label: "글로벌 시총",
+          icon: <GlobeRankIcon />,
+          className: "kospi-map-nav-link--globaltop100",
+        },
         { to: "/fight", label: "시총대결", icon: <BattleIcon />, className: "kospi-map-nav-link--battle" },
         { to: "/news", label: "NEWS", icon: <GlobalNewsIcon />, className: "kospi-map-nav-link--news" },
       ]}

@@ -11,6 +11,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
+import GlobeRankIcon from "./GlobeRankIcon";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
@@ -907,6 +908,9 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
             <PredictIcon /> {t("AI 예측")}
+          </Link>
+          <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
+            <GlobeRankIcon /> {t("글로벌 시총")}
           </Link>
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> {t("NEWS")}

@@ -16,24 +16,12 @@ HEADERS = {
 BASE_URL = "https://companiesmarketcap.com"
 
 
-def get_global_top20() -> list[dict]:
-    """Top 20 companies worldwide by market cap, scraped from companiesmarketcap.com's
-    homepage table. This table's own composition/values barely move between requests a
-    few seconds apart — it reads as a periodic snapshot rather than a tick-by-tick feed
-    — so callers wanting intraday movement should overlay `get_live_quotes_bulk` on top
-    of the `price`/`marcap_usd` pair returned here rather than relying on this alone."""
-    resp = requests.get(BASE_URL + "/", headers=HEADERS, timeout=4)
-    resp.raise_for_status()
-    soup = BeautifulSoup(resp.text, "html.parser")
+def _parse_rows(html: str) -> list[dict]:
+    soup = BeautifulSoup(html, "html.parser")
 
-    # Over-fetch a few extra rows: an occasional non-data row in the table body (ads,
-    # upsells) would otherwise shift a real row past a hard rows[:20] cutoff.
     rows = soup.select("table.marketcap-table tbody tr")
     items: list[dict] = []
-    for tr in rows[:30]:
-        if len(items) >= 20:
-            break
-
+    for tr in rows:
         rank_td = tr.select_one("td.rank-td")
         if not rank_td:
             continue
@@ -76,6 +64,38 @@ def get_global_top20() -> list[dict]:
             }
         )
     return items
+
+
+def get_global_top_n(n: int) -> list[dict]:
+    """Top `n` companies worldwide by market cap, scraped from companiesmarketcap.com's
+    ranked table (20 rows/page: page 1 = ranks 1-20, page 2 = 21-40, ...). This table's
+    own composition/values barely move between requests a few seconds apart — it reads
+    as a periodic snapshot rather than a tick-by-tick feed — so callers wanting
+    intraday movement should overlay `get_live_quotes_bulk` on top of the
+    `price`/`marcap_usd` pair returned here rather than relying on this alone.
+
+    Stops once `n` valid rows are collected or a page comes back with none (end of the
+    table, or a transient scrape miss) — a partial list beats raising and losing the
+    whole page for one bad row.
+    """
+    items: list[dict] = []
+    page = 1
+    while len(items) < n:
+        url = BASE_URL + "/" if page == 1 else f"{BASE_URL}/?page={page}"
+        resp = requests.get(url, headers=HEADERS, timeout=4)
+        resp.raise_for_status()
+        page_items = _parse_rows(resp.text)
+        if not page_items:
+            break
+        items.extend(page_items)
+        page += 1
+    return items[:n]
+
+
+def get_global_top20() -> list[dict]:
+    """Thin wrapper kept for the existing /fight page and its battle.py service —
+    see get_global_top_n for the general form this now delegates to."""
+    return get_global_top_n(20)
 
 
 def _fetch_live_quote(symbol: str) -> dict | None:

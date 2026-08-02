@@ -12,6 +12,7 @@ import DashboardIcon from "./DashboardIcon";
 import LoadingState from "./LoadingState";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
+import GlobeRankIcon from "./GlobeRankIcon";
 import GlobalTop20 from "./GlobalTop20";
 import LanguageToggle from "./LanguageToggle";
 import PredictIcon from "./PredictIcon";
@@ -188,6 +189,9 @@ export default function TugOfWarPage() {
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
             <PredictIcon /> AI 예측
+          </Link>
+          <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
+            <GlobeRankIcon /> {t("글로벌 시총")}
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}

@@ -17,6 +17,7 @@ import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
 import HeaderDateTime from "./HeaderDateTime";
 import GlobalNewsIcon from "./GlobalNewsIcon";
+import GlobeRankIcon from "./GlobeRankIcon";
 import IndicatorBadges from "./IndicatorBadges";
 import IndicatorPanel, { IndicatorPanelHandle } from "./IndicatorPanel";
 import LanguageToggle from "./LanguageToggle";
@@ -339,6 +340,9 @@ export default function Dashboard() {
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
             <PredictIcon /> AI 예측
+          </Link>
+          <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
+            <GlobeRankIcon /> {t("글로벌 시총")}
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}

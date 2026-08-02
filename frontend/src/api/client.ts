@@ -232,6 +232,63 @@ export interface StockBoard {
   items: StockBoardItem[];
 }
 
+/* ─────────────────────── 글로벌 시가총액 TOP 100 페이지 ─────────────────────── */
+
+export interface GlobalTop100Returns {
+  d1: number | null;
+  w1: number | null;
+  m1: number | null;
+  m3: number | null;
+  m6: number | null;
+  y1: number | null;
+  all: number | null;
+}
+
+export type AnalystRecommendation = "strong_buy" | "buy" | "hold" | "sell" | "strong_sell";
+
+export interface GlobalTop100Item {
+  rank: number;
+  /** Positive = climbed that many ranks since yesterday, negative = fell, null = no
+   * prior-day snapshot yet for this symbol (first day after launch, or a new entrant
+   * to the TOP 100 since yesterday) — render as nothing rather than a placeholder. */
+  rank_change: number | null;
+  symbol: string;
+  name: string;
+  country: string;
+  flag_url: string | null;
+  logo_url: string | null;
+  detail_path: string | null;
+  /** Null only if the live batch-quote overlay hasn't reached this symbol yet. */
+  price: number | null;
+  currency: string | null;
+  market_cap_usd: number | null;
+  change_pct: number | null;
+  returns: Partial<GlobalTop100Returns>;
+  spark_points: number[];
+  spark_dates: string[];
+  sector: string | null;
+  industry: string | null;
+  description_ko: string | null;
+  description_en: string | null;
+  trailing_eps: number | null;
+  profit_margin: number | null;
+  earnings_growth: number | null;
+  trailing_pe: number | null;
+  recommendation_key: AnalystRecommendation | null;
+  recommendation_label: string | null;
+  analyst_count: number | null;
+}
+
+export interface GlobalTop100Response {
+  items: GlobalTop100Item[];
+  /** When the slow layer (roster/fundamentals/returns) was last rebuilt — see
+   * services/global_top100.py. Null before the very first refresh has completed. */
+  updated_at: string | null;
+  /** When the live price/market-cap overlay was last refreshed — a few seconds to
+   * ~20s old under normal polling. */
+  live_updated_at: string | null;
+}
+
 /* ────────────────────── the board's 10s refresh payload ──────────────────────
    A board is mostly sparkline history — 100 names × 60 daily closes — and none of
    that moves during a session except each series' last point, which is that item's
@@ -777,6 +834,7 @@ export const api = {
   balanceHistory: (code: string) => getJSON<BalanceHistory>(`${BASE}/stock/${code}/balance`),
   dailyPrices: (code: string, offset = 0, limit = 20) =>
     getJSON<DailyPricePage>(`${BASE}/stock/${code}/daily?offset=${offset}&limit=${limit}`),
+  globalTop100: () => getJSONFresh<GlobalTop100Response>(`${BASE}/global-top100`),
   marketMap: (limit = 500, fresh = false) =>
     getJSONFresh<MarketMapResponse>(
       `${BASE}/market/map?limit=${limit}&fresh=${fresh}`

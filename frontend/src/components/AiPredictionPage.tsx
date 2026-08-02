@@ -23,6 +23,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
+import GlobeRankIcon from "./GlobeRankIcon";
 import LanguageToggle from "./LanguageToggle";
 import DashboardIcon from "./DashboardIcon";
 import Logo from "./Logo";
@@ -468,6 +469,9 @@ export default function AiPredictionPage() {
               rows), so TOP 100 closes the market-destination block instead. */}
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
+          </Link>
+          <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
+            <GlobeRankIcon /> {t("글로벌 시총")}
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}

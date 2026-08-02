@@ -1,0 +1,43 @@
+name: 글로벌 시총 TOP100 새로고침
+
+# Nightly full-snapshot rebuild for the 글로벌 시가총액 TOP 100 page — roster (rank/logo/
+# country) + fundamentals (PER/EPS/마진/성장률/애널리스트 레이팅/섹터/기업설명) +
+# 기간별 등락률/스파크라인 for all 100 constituents, plus today's rank recorded for
+# tomorrow's rank-change comparison (see backend/app/services/global_top100.py).
+#
+# Same primary/fallback split as kakao-notify.yml and ai-prediction.yml: this cron is
+# primary, and main.py's in-process thread (_global_top100_refresh_loop, ~04:00 KST)
+# covers the window where Render's free-tier instance is asleep when this fires.
+# force_refresh_full() is idempotent per day (INSERT OR REPLACE on today's rank rows),
+# so both triggers landing on the same day is harmless, just redundant work.
+#
+# Fired at 19:30 UTC (~04:30 KST) — off-peak for both KR and US markets, after the US
+# regular session has closed. This job is much heavier than the other cron workflows
+# here (~100 sequential Yahoo fundamentals calls plus a threaded returns fetch), so it
+# gets a longer timeout than kakao-notify.yml's.
+on:
+  schedule:
+    - cron: "30 19 * * *"
+  workflow_dispatch: {}
+
+env:
+  BASE_URL: https://kospi-predictor.onrender.com
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the service
+        run: curl -fsS --compressed --max-time 90 "$BASE_URL/api/health" || true
+
+      - name: Trigger global TOP100 refresh
+        env:
+          TOKEN: ${{ secrets.GLOBAL_TOP100_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TOKEN" ]; then
+            echo "::error::GLOBAL_TOP100_REFRESH_TOKEN secret is not set — the endpoint will reject this run."
+            exit 1
+          fi
+          curl -fsS --compressed --max-time 240 -X POST -H "Authorization: Bearer $TOKEN" \
+            "$BASE_URL/api/global-top100/refresh" | jq -c '.'
