@@ -182,9 +182,9 @@ const PLANETS: PlanetSpec[] = [
   },
   {
     key: "neptune",
-    to: "/battle",
-    ko: "삼성 vs 하이닉스",
-    en: "Samsung vs Hynix",
+    to: "/global-top100",
+    ko: "글로벌 시총",
+    en: "GLOBAL TOP 100",
     // The outermost ring, past Uranus's 610 — same spacing step (~85-95) the
     // radii already climb by further out in the list.
     radius: 700,
