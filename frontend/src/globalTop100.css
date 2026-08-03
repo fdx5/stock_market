@@ -15,7 +15,7 @@
    branching, and reads as the same product as every other board page. */
 
 .gt100-page {
-  max-width: 1160px;
+  max-width: 1400px;
   gap: 0;
   --gt100-header-h: 86px;
 }
@@ -160,8 +160,8 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 14px;
+  padding: 16px 18px;
   border: 0;
   background: none;
   color: inherit;
@@ -176,25 +176,25 @@
 
 .gt100-rank {
   flex: none;
-  width: 40px;
+  width: 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
 }
 
 .gt100-rank b {
-  font-size: 13px;
+  font-size: 17px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
 }
 
 .gt100-rankchg {
-  font-size: 9.5px;
+  font-size: 11.5px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: 5px;
   white-space: nowrap;
 }
@@ -215,15 +215,15 @@
 
 .gt100-logo {
   flex: none;
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
   overflow: visible;
   display: grid;
   place-items: center;
   background: #fff;
   border: 1px solid var(--border);
-  perspective: 260px;
+  perspective: 520px;
 }
 
 /* A flat image spinning on rotateY alone just squashes horizontally - no sense of
@@ -235,7 +235,7 @@
   position: relative;
   width: 100%;
   height: 100%;
-  border-radius: 8px;
+  border-radius: 14px;
   transform-style: preserve-3d;
   animation: gt100-logo-spin 6s linear infinite;
   /* Each row starts at a different point in the loop so all 100 coins don't spin
@@ -249,20 +249,20 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  padding: 3px;
+  padding: 6px;
   backface-visibility: hidden;
-  border-radius: 8px;
+  border-radius: 14px;
   background: #fff;
 }
 
 .gt100-logo-face--front {
-  transform: translateZ(3px);
+  transform: translateZ(6px);
 }
 
 .gt100-logo-face--back {
   /* Pre-mirrored so that once the coin itself has turned 180deg, the logo reads
      the right way round instead of backwards. */
-  transform: rotateY(180deg) translateZ(3px) scaleX(-1);
+  transform: rotateY(180deg) translateZ(6px) scaleX(-1);
 }
 
 /* Thin gradient rim standing in for the coin's edge - only reads as a sliver right
@@ -270,7 +270,7 @@
 .gt100-logo-rim {
   position: absolute;
   inset: 0;
-  border-radius: 8px;
+  border-radius: 14px;
   background: linear-gradient(
     90deg,
     color-mix(in srgb, var(--text-primary) 35%, transparent) 0%,
@@ -305,7 +305,7 @@
 /* The shared .fight-logo-fallback (styles.css) is sized for the /fight page's much
    larger portrait tiles — shrunk down to fit this row's 36px logo tile. */
 .gt100-logo .fight-logo-fallback {
-  font-size: 12px;
+  font-size: 22px;
 }
 
 .gt100-identity {
@@ -313,11 +313,11 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .gt100-name {
-  font-size: 14px;
+  font-size: 19px;
   font-weight: 700;
   color: var(--text-primary);
   white-space: nowrap;
@@ -328,17 +328,17 @@
 .gt100-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 8px;
+  font-size: 13px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .gt100-flag {
-  width: 14px;
-  height: 10px;
+  width: 19px;
+  height: 14px;
   object-fit: cover;
-  border-radius: 2px;
+  border-radius: 3px;
   flex: none;
 }
 
@@ -346,12 +346,12 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 90px;
+  max-width: 110px;
 }
 
 .gt100-dot {
-  width: 3px;
-  height: 3px;
+  width: 4px;
+  height: 4px;
   border-radius: 50%;
   background: currentColor;
   opacity: 0.6;
@@ -372,11 +372,11 @@
      inside the same box, so every column after this one (market cap, sparkline,
      chips, expand icon) lands at the same x across all 100 rows regardless of how
      long any one row's price string is ("US$1,148.84" vs "₩262,500" vs "SAR 26.58"). */
-  width: 112px;
+  width: 150px;
 }
 
 .gt100-price {
-  font-size: 14px;
+  font-size: 19px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
@@ -387,7 +387,7 @@
 }
 
 .gt100-change {
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
@@ -403,12 +403,12 @@
 
 .gt100-change[data-dir="up"]::before {
   content: "▲ ";
-  font-size: 8px;
+  font-size: 9px;
 }
 
 .gt100-change[data-dir="down"]::before {
   content: "▼ ";
-  font-size: 8px;
+  font-size: 9px;
 }
 
 /* Market cap, sparkline and quick-stat chips are desktop-only in the row itself
@@ -427,16 +427,16 @@
   gap: 1px;
   /* Fixed width, same reasoning as .gt100-price-cell above — keeps the sparkline/
      chips/expand-icon columns lined up regardless of this row's own number length. */
-  width: 92px;
+  width: 118px;
 }
 
 .gt100-marcap-label {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
 .gt100-marcap {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
@@ -444,32 +444,32 @@
 
 .gt100-spark-cell {
   flex: none;
-  width: 130px;
-  height: 40px;
+  width: 168px;
+  height: 52px;
 }
 
 .gt100-chips-cell {
   flex: none;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   /* Fixed total width, each child below pinned to its own fixed width too — same
      column-alignment reasoning as price/market-cap: "강력매수" is nearly twice as
      wide as "매수", and without a fixed box the rating pill (and the expand icon
      after it) would drift left/right row to row. */
-  width: 226px;
+  width: 288px;
 }
 
 .gt100-chip {
   display: inline-flex;
   flex: none;
-  width: 68px;
+  width: 86px;
   flex-direction: column;
   align-items: center;
-  gap: 0;
-  padding: 3px 4px;
-  border-radius: 8px;
+  gap: 1px;
+  padding: 4px 6px;
+  border-radius: 9px;
   background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
@@ -480,7 +480,7 @@
 
 .gt100-chip i {
   font-style: normal;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -499,11 +499,11 @@
 
 .gt100-rating {
   flex: none;
-  width: 66px;
+  width: 84px;
   text-align: center;
-  padding: 4px 6px;
+  padding: 5px 7px;
   border-radius: 999px;
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 800;
   white-space: nowrap;
   overflow: hidden;
@@ -542,21 +542,21 @@
 }
 
 .gt100-analyst-count {
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-muted);
 }
 
 .gt100-expand-icon {
   flex: none;
-  width: 24px;
-  height: 24px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   display: grid;
   place-items: center;
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 700;
   line-height: 1;
 }
@@ -803,15 +803,15 @@ img.gt100-ceo-photo {
 /* ────────────────────────────────── skeleton ────────────────────────────────── */
 
 .gt100-row--skeleton {
-  height: 58px;
+  height: 104px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 18px;
 }
 
 .gt100-skeleton-block {
   width: 100%;
-  height: 34px;
+  height: 64px;
   border-radius: 8px;
   background: linear-gradient(
     90deg,
@@ -882,13 +882,58 @@ img.gt100-ceo-photo {
   }
 
   .gt100-country {
-    max-width: 60px;
+    max-width: 75px;
   }
 
   /* Touch has no hover, so the sparkline readout would never appear — pin it on
      permanently, showing the latest close (same treatment as stockBoard.css). */
   .gt100-spark-readout {
     opacity: 1;
+  }
+
+  /* The desktop row spends its extra width on wider fixed-width cells (price,
+     market cap, sparkline, chips) alongside the bigger logo — there's no such
+     width to spend here, so everything but the logo itself steps back down
+     toward its original size. Without this the name column gets squeezed to
+     nothing at the 360px floor this page is built to support. */
+  .gt100-row-main {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .gt100-rank {
+    width: 36px;
+  }
+
+  .gt100-rank b {
+    font-size: 14px;
+  }
+
+  .gt100-name {
+    font-size: 15px;
+  }
+
+  .gt100-meta {
+    font-size: 11px;
+    gap: 6px;
+  }
+
+  .gt100-price-cell {
+    width: 98px;
+  }
+
+  .gt100-price {
+    font-size: 15px;
+  }
+
+  .gt100-change {
+    font-size: 12px;
+  }
+
+  .gt100-expand-icon {
+    width: 26px;
+    height: 26px;
+    font-size: 15px;
   }
 }
 
