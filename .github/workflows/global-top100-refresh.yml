@@ -13,8 +13,10 @@ name: 글로벌 시총 TOP100 새로고침
 #
 # Fired at 19:30 UTC (~04:30 KST) — off-peak for both KR and US markets, after the US
 # regular session has closed. This job is much heavier than the other cron workflows
-# here (~100 sequential Yahoo fundamentals calls plus a threaded returns fetch), so it
-# gets a longer timeout than kakao-notify.yml's.
+# here (~100 sequential Yahoo fundamentals calls, a threaded returns fetch, and now a
+# CEO-photo lookup per company via Wikidata — see ceo_photo_fetcher.py, ~1.2s/company
+# by design to stay under Wikidata's rate tolerance), so it gets a longer timeout than
+# kakao-notify.yml's.
 on:
   schedule:
     - cron: "30 19 * * *"
@@ -39,5 +41,5 @@ jobs:
             echo "::error::GLOBAL_TOP100_REFRESH_TOKEN secret is not set — the endpoint will reject this run."
             exit 1
           fi
-          curl -fsS --compressed --max-time 240 -X POST -H "Authorization: Bearer $TOKEN" \
+          curl -fsS --compressed --max-time 480 -X POST -H "Authorization: Bearer $TOKEN" \
             "$BASE_URL/api/global-top100/refresh" | jq -c '.'

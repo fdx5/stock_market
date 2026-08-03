@@ -483,10 +483,87 @@
 /* ───────────────────────────── expanded detail panel ───────────────────────────── */
 
 .gt100-detail {
+  position: relative;
+  overflow: hidden;
   padding: 12px 14px 16px;
+  display: flex;
+  /* Photo column on the right on desktop; wraps below the main column on a
+     narrow screen rather than squeezing either one. */
+  flex-wrap: wrap-reverse;
+  gap: 14px;
+}
+
+/* Representative product/facility photo, dimmed into a texture rather than shown at
+   full strength — the linear-gradient layered in front of it (see the inline style)
+   goes solid var(--surface-1) over the text-heavy left side and only lets the image
+   read clearly near the right edge, so it never fights the numbers/paragraph in
+   front of it. Built as a CSS gradient (not a plain overlay div) specifically so it
+   re-tints itself on every theme flip via var(--surface-1) with no JS involved. */
+.gt100-detail-banner {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center 30%;
+  filter: saturate(1.05);
+}
+
+.gt100-detail-main,
+.gt100-detail-side {
+  position: relative;
+  z-index: 1;
+}
+
+.gt100-detail-main {
+  flex: 1 1 320px;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.gt100-detail-side {
+  flex: 0 0 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.gt100-ceo-photo {
+  width: 132px;
+  height: 132px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 0 0 1px var(--border), 0 6px 16px rgba(0, 0, 0, 0.25);
+}
+
+img.gt100-ceo-photo {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.gt100-ceo-photo--fallback {
+  display: grid;
+  place-items: center;
+  background: #fff;
+}
+
+.gt100-ceo-fallback-logo {
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+}
+
+.gt100-ceo-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-align: center;
 }
 
 .gt100-returns-grid {

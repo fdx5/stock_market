@@ -14,6 +14,7 @@ import datetime as dt
 import logging
 import threading
 
+from app.data.ceo_photo_fetcher import get_ceo_photos_bulk
 from app.data.company_fundamentals_fetcher import fetch_fundamentals_bulk
 from app.data.global_marketcap_fetcher import get_global_top_n
 from app.data.global_returns_fetcher import get_global_returns
@@ -71,6 +72,8 @@ def _fetch_full_snapshot() -> list[dict]:
 
     fundamentals = fetch_fundamentals_bulk(symbols)
     returns = get_global_returns(symbols)
+    names = [it["name"] for it in roster if it.get("name")]
+    ceo_photos = get_ceo_photos_bulk(names)
 
     today = _kst_today()
     rank_store.record_snapshot(
@@ -89,6 +92,7 @@ def _fetch_full_snapshot() -> list[dict]:
         symbol = it.get("code")
         fund = fundamentals.get(symbol, {}) if symbol else {}
         ret = returns.get(symbol) if symbol else None
+        ceo = ceo_photos.get(it.get("name")) if it.get("name") else None
 
         description_en = fund.get("description_en")
         description_ko = None
@@ -114,6 +118,8 @@ def _fetch_full_snapshot() -> list[dict]:
                 "flag_url": it.get("flag_url"),
                 "logo_url": it.get("logo_url"),
                 "detail_path": it.get("detail_path"),
+                "ceo_name": ceo.get("name") if ceo else None,
+                "ceo_photo_url": ceo.get("photo_url") if ceo else None,
                 # price/currency/change_pct are filled in by the live overlay at read
                 "price": None,
                 "currency": None,

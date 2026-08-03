@@ -258,6 +258,11 @@ export interface GlobalTop100Item {
   flag_url: string | null;
   logo_url: string | null;
   detail_path: string | null;
+  /** Current CEO's name + a freely-licensed real photo, sourced from Wikidata (see
+   * backend/app/data/ceo_photo_fetcher.py) — null whenever that company or its CEO
+   * isn't findable there, which the row falls back from gracefully. */
+  ceo_name: string | null;
+  ceo_photo_url: string | null;
   /** Null only if the live batch-quote overlay hasn't reached this symbol yet. */
   price: number | null;
   currency: string | null;

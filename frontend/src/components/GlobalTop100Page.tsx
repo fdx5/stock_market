@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { GlobalTop100Item, api } from "../api/client";
 import { hiResFlagUrl } from "../data/flagCodes";
+import { productImageFor } from "../data/productImages";
 import { trillionSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -136,6 +137,16 @@ function Row({
       : "flat";
   const flagSrc = hiResFlagUrl(item.country) ?? item.flag_url;
   const description = lang === "en" ? item.description_en ?? item.description_ko : item.description_ko ?? item.description_en;
+  // A real photo (backend-fetched from Wikidata — see ceo_photo_fetcher.py) or
+  // nothing: deliberately no illustrated-portrait fallback here, so a row either
+  // shows an actual photo of the actual person or falls straight to the plain
+  // company logo, never a stand-in likeness presented next to a real name.
+  const ceo = item.ceo_name;
+  const ceoImgSrc = item.ceo_photo_url;
+  // Same /fight roster source, same rights rationale (freely-licensed Wikimedia
+  // product/facility photos, not portraits) — used here as a dimmed banner behind
+  // the expanded panel rather than the arena's split background.
+  const productImgSrc = productImageFor(item.symbol);
 
   return (
     <article className={`gt100-row${expanded ? " is-expanded" : ""}`} data-dir={dir}>
@@ -200,46 +211,68 @@ function Row({
 
       {expanded && (
         <div className="gt100-detail">
-          <div className="gt100-returns-grid">
-            {RETURN_WINDOWS.map((w) => (
-              <div className="gt100-return-cell" key={w.key} data-dir={direction(item.returns[w.key] ?? null)}>
-                <dt>{t(w.label)}</dt>
-                <dd>{formatPct(item.returns[w.key])}</dd>
+          {productImgSrc && (
+            <div
+              className="gt100-detail-banner"
+              aria-hidden="true"
+              style={{
+                backgroundImage: `linear-gradient(100deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 84%, transparent) 40%, color-mix(in srgb, var(--surface-1) 58%, transparent) 100%), url(${productImgSrc})`,
+              }}
+            />
+          )}
+          <div className="gt100-detail-main">
+            <div className="gt100-returns-grid">
+              {RETURN_WINDOWS.map((w) => (
+                <div className="gt100-return-cell" key={w.key} data-dir={direction(item.returns[w.key] ?? null)}>
+                  <dt>{t(w.label)}</dt>
+                  <dd>{formatPct(item.returns[w.key])}</dd>
+                </div>
+              ))}
+            </div>
+
+            <dl className="gt100-stats">
+              <div className="gt100-stat">
+                <dt>{t("업종")}</dt>
+                <dd>{item.sector ? t(item.sector) : "-"}</dd>
               </div>
-            ))}
+              <div className="gt100-stat">
+                <dt>{t("희석 EPS")}</dt>
+                <dd>{item.trailing_eps != null ? item.trailing_eps.toFixed(2) : "-"}</dd>
+              </div>
+              <div className="gt100-stat">
+                <dt>{t("순마진")}</dt>
+                <dd>{item.profit_margin != null ? `${(item.profit_margin * 100).toFixed(1)}%` : "-"}</dd>
+              </div>
+              <div className="gt100-stat">
+                <dt>{t("EPS 성장률")}</dt>
+                <dd>{item.earnings_growth != null ? `${(item.earnings_growth * 100).toFixed(1)}%` : "-"}</dd>
+              </div>
+              <div className="gt100-stat">
+                <dt>{t("PER")}</dt>
+                <dd>{item.trailing_pe != null ? item.trailing_pe.toFixed(2) : "-"}</dd>
+              </div>
+              <div className="gt100-stat">
+                <dt>{t("애널리스트 의견")}</dt>
+                <dd>
+                  <RatingBadge item={item} lang={lang} />
+                  {item.analyst_count != null && <span className="gt100-analyst-count"> ({item.analyst_count})</span>}
+                </dd>
+              </div>
+            </dl>
+
+            {description && <p className="gt100-description">{description}</p>}
           </div>
 
-          <dl className="gt100-stats">
-            <div className="gt100-stat">
-              <dt>{t("업종")}</dt>
-              <dd>{item.sector ? t(item.sector) : "-"}</dd>
-            </div>
-            <div className="gt100-stat">
-              <dt>{t("희석 EPS")}</dt>
-              <dd>{item.trailing_eps != null ? item.trailing_eps.toFixed(2) : "-"}</dd>
-            </div>
-            <div className="gt100-stat">
-              <dt>{t("순마진")}</dt>
-              <dd>{item.profit_margin != null ? `${(item.profit_margin * 100).toFixed(1)}%` : "-"}</dd>
-            </div>
-            <div className="gt100-stat">
-              <dt>{t("EPS 성장률")}</dt>
-              <dd>{item.earnings_growth != null ? `${(item.earnings_growth * 100).toFixed(1)}%` : "-"}</dd>
-            </div>
-            <div className="gt100-stat">
-              <dt>{t("PER")}</dt>
-              <dd>{item.trailing_pe != null ? item.trailing_pe.toFixed(2) : "-"}</dd>
-            </div>
-            <div className="gt100-stat">
-              <dt>{t("애널리스트 의견")}</dt>
-              <dd>
-                <RatingBadge item={item} lang={lang} />
-                {item.analyst_count != null && <span className="gt100-analyst-count"> ({item.analyst_count})</span>}
-              </dd>
-            </div>
-          </dl>
-
-          {description && <p className="gt100-description">{description}</p>}
+          <div className="gt100-detail-side">
+            {ceoImgSrc ? (
+              <img src={ceoImgSrc} alt={ceo ?? item.name} className="gt100-ceo-photo" />
+            ) : (
+              <div className="gt100-ceo-photo gt100-ceo-photo--fallback">
+                <CompanyLogo item={item} className="gt100-ceo-fallback-logo" />
+              </div>
+            )}
+            <span className="gt100-ceo-name">{ceo ? `CEO · ${ceo}` : item.name}</span>
+          </div>
         </div>
       )}
     </article>
