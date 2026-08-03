@@ -45,6 +45,14 @@ const HAS_PRODUCT_IMAGE = new Set([
   "PG",
   "HD",
   "MS",
+  "XOM",
+  "TCEHY",
+  "MRK",
+  "JNJ",
+  "TXN",
+  "RO.SW",
+  "RY",
+  "AZN",
 ]);
 
 export function productImageFor(code: string): string | null {
