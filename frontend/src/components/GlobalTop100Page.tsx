@@ -162,7 +162,11 @@ function Row({
           <RankChangeBadge value={item.rank_change} />
         </span>
         <span className="gt100-logo">
-          <CompanyLogo item={item} className="gt100-logo-img" />
+          <span className="gt100-logo-coin">
+            <span className="gt100-logo-rim" aria-hidden="true" />
+            <CompanyLogo item={item} className="gt100-logo-face gt100-logo-face--front" />
+            <CompanyLogo item={item} className="gt100-logo-face gt100-logo-face--back" />
+          </span>
         </span>
         <span className="gt100-identity">
           <span className="gt100-name" title={item.name}>
