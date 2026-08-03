@@ -1146,32 +1146,31 @@ export function VoyagerCraft() {
 
       {/* ── high-gain antenna, held back toward the inner system it keeps
           pointed at for every bit it sends home ── */}
-      <g transform="rotate(-20 178 90)">
-        <path d="M147 69 L164 80" stroke="#aab4c4" strokeWidth="2.6" strokeLinecap="round" />
-        {/* The high-gain dish is drawn ~1.9x the bus's own width, matching its
-            real ~2x-the-bus proportion (3.7m dish on a 1.78m bus) — the single
-            biggest fix over the first pass, where the two masses were closer
-            to even and the craft read as a body with a dish bolted on rather
-            than a dish carrying a small bus underneath it. */}
-        <ellipse cx="178" cy="90" rx="34" ry="21.5" fill="url(#vc-dish)" />
-        <ellipse cx="178" cy="90" rx="34" ry="21.5" fill="none" stroke="#f4f7fc" strokeWidth="1.9" strokeOpacity="0.9" />
-        <ellipse cx="178" cy="90" rx="22.5" ry="14.2" fill="none" stroke="#8f99a9" strokeWidth="0.65" strokeOpacity="0.6" />
-        <ellipse cx="178" cy="90" rx="11.5" ry="7.2" fill="none" stroke="#8f99a9" strokeWidth="0.65" strokeOpacity="0.55" />
+      <g transform="rotate(-20 182 90)">
+        <path d="M147 69 L165 78" stroke="#aab4c4" strokeWidth="2.6" strokeLinecap="round" />
+        {/* The high-gain dish is drawn ~2.3x the bus's own width — a bit past
+            its real ~2x-the-bus proportion (3.7m dish on a 1.78m bus), by
+            request, so the dish unmistakably reads as the dominant mass at
+            render size rather than merely edging out the bus. */}
+        <ellipse cx="182" cy="90" rx="40" ry="25" fill="url(#vc-dish)" />
+        <ellipse cx="182" cy="90" rx="40" ry="25" fill="none" stroke="#f4f7fc" strokeWidth="2" strokeOpacity="0.9" />
+        <ellipse cx="182" cy="90" rx="26.5" ry="16.7" fill="none" stroke="#8f99a9" strokeWidth="0.7" strokeOpacity="0.6" />
+        <ellipse cx="182" cy="90" rx="13.5" ry="8.5" fill="none" stroke="#8f99a9" strokeWidth="0.7" strokeOpacity="0.55" />
         <path
-          d="M178 70 V110 M148 90 H208 M161 76 L195 104 M195 76 L161 104"
+          d="M182 67 V113 M147 90 H217 M162 74 L202 106 M202 74 L162 106"
           stroke="#8f99a9"
-          strokeWidth="0.44"
+          strokeWidth="0.46"
           strokeOpacity="0.34"
         />
-        <path d="M178 90 L171 73 M178 90 L188 73" stroke="#c8d1de" strokeWidth="1" />
-        <ellipse cx="178" cy="72" rx="5.6" ry="3" fill="#e6ebf3" stroke="#798394" strokeWidth="0.65" />
+        <path d="M182 90 L174 70 M182 90 L194 70" stroke="#c8d1de" strokeWidth="1" />
+        <ellipse cx="182" cy="69" rx="6.6" ry="3.5" fill="#e6ebf3" stroke="#798394" strokeWidth="0.7" />
         {/* lit inner lip of the far wall */}
-        <path d="M150 85 A34 21.5 0 0 1 206 85" fill="none" stroke="#ffffff" strokeWidth="1.2" strokeOpacity="0.5" />
+        <path d="M149 84 A40 25 0 0 1 215 84" fill="none" stroke="#ffffff" strokeWidth="1.3" strokeOpacity="0.5" />
       </g>
 
       {/* ── one hard specular, from the star it is leaving ── */}
       <ellipse cx="130" cy="53" rx="12" ry="3.4" fill="#fffdf2" opacity="0.5" transform="rotate(-17 130 53)" />
-      <ellipse cx="198" cy="70" rx="8.5" ry="3" fill="#ffffff" opacity="0.42" transform="rotate(-28 198 70)" />
+      <ellipse cx="206" cy="67" rx="10" ry="3.4" fill="#ffffff" opacity="0.42" transform="rotate(-28 206 67)" />
     </svg>
   );
 }
