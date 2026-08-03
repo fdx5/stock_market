@@ -53,6 +53,13 @@ const HAS_PRODUCT_IMAGE = new Set([
   "RO.SW",
   "RY",
   "AZN",
+  "C",
+  "NVO",
+  "KLAC",
+  "TMO",
+  "CAT",
+  "GEV",
+  "MUFG",
 ]);
 
 export function productImageFor(code: string): string | null {
