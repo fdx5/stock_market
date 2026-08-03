@@ -534,11 +534,17 @@
   position: absolute;
   inset: 0;
   z-index: 2;
+  /* Kept deliberately light: earlier versions ran near-opaque (up to 100%) across
+     most of the panel width, which combined with the description text spanning
+     edge-to-edge left the banner effectively invisible behind the content it was
+     meant to back. Individual text groups (.gt100-return-cell, .gt100-stat,
+     .gt100-description) now carry their own translucent card backing for
+     legibility, so this layer only needs to keep a light overall tint. */
   background-image: linear-gradient(
     100deg,
-    var(--surface-1) 0%,
-    color-mix(in srgb, var(--surface-1) 80%, transparent) 42%,
-    color-mix(in srgb, var(--surface-1) 40%, transparent) 100%
+    color-mix(in srgb, var(--surface-1) 55%, transparent) 0%,
+    color-mix(in srgb, var(--surface-1) 38%, transparent) 42%,
+    color-mix(in srgb, var(--surface-1) 18%, transparent) 100%
   );
 }
 
@@ -598,6 +604,9 @@ img.gt100-ceo-photo {
   font-weight: 700;
   color: var(--text-secondary);
   text-align: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
 }
 
 .gt100-returns-grid {
@@ -613,7 +622,7 @@ img.gt100-ceo-photo {
   gap: 2px;
   padding: 7px 9px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
 }
 
 .gt100-return-cell dt {
@@ -642,6 +651,9 @@ img.gt100-ceo-photo {
   grid-template-columns: repeat(2, 1fr);
   gap: 10px 16px;
   margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
 }
 
 .gt100-stat {
@@ -669,7 +681,9 @@ img.gt100-ceo-photo {
   line-height: 1.6;
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
-  padding-top: 12px;
+  padding: 12px 12px 10px;
+  border-radius: 0 0 8px 8px;
+  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
 }
 
 /* ─────────────────────────────── sparkline (row) ─────────────────────────────── */
