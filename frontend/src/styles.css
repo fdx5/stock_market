@@ -4345,7 +4345,6 @@ thead .weekly-foreign-amount-col {
 .dram-price-head {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
 }
@@ -4359,6 +4358,24 @@ thead .weekly-foreign-amount-col {
   font-size: 12px;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.dram-price-toggle {
+  margin-left: auto;
+}
+
+/* Same collapse transition as .indicator-panel-body, sized for a 7-row table rather
+   than a pair of charts. */
+.dram-price-body {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.2s ease, opacity 0.15s ease;
+}
+
+.dram-price-body.expanded {
+  max-height: 500px;
+  opacity: 1;
 }
 
 .dram-price-table-wrap {
@@ -5206,17 +5223,9 @@ thead .weekly-foreign-amount-col {
     font-weight: 600;
   }
 
-  .mobile-stock-bar-star {
-    width: 30px;
-    height: 30px;
-    font-size: 17px;
-    flex-shrink: 0;
-  }
-
   /* Note the name: .mobile-stock-bar-close above is the closing *price*, not this.
-     Deliberately quieter than the star beside it — dismissing the bar should be
-     available, not inviting, and it sits at the screen edge where a mis-tap while
-     scrolling is most likely. */
+     Deliberately quiet — dismissing the bar should be available, not inviting, and
+     it sits at the screen edge where a mis-tap while scrolling is most likely. */
   .mobile-stock-bar-dismiss {
     display: inline-flex;
     align-items: center;

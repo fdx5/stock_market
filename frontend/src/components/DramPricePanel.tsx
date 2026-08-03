@@ -21,6 +21,10 @@ export default function DramPricePanel({ code, market }: { code: string; market:
   const [priceDate, setPriceDate] = useState<string | null>(null);
   const [items, setItems] = useState<DramPriceItem[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // Default open — this is meant to be seen the moment a 반도체/전자 종목's page
+  // loads, not discovered behind a fold — but foldable so a returning visitor who
+  // already knows the numbers can collapse it out of the way.
+  const [expanded, setExpanded] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,35 +72,48 @@ export default function DramPricePanel({ code, market }: { code: string; market:
       <div className="dram-price-head">
         <span className="dram-price-title">{t("D램 현물가격")}</span>
         {priceDate && <span className="dram-price-date">{t("기준일")} {priceDate}</span>}
+        <button
+          type="button"
+          className="indicator-panel-toggle dram-price-toggle"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
+          {expanded ? t("접기") : t("펼치기")}
+          <span className={`fold-toggle-arrow ${expanded ? "up" : ""}`} aria-hidden="true">
+            ▼
+          </span>
+        </button>
       </div>
-      <div className="dram-price-table-wrap">
-        <table className="dram-price-table">
-          <thead>
-            <tr>
-              <th>{t("품목")}</th>
-              <th>{t("가격")} (USD)</th>
-              <th>{t("일중 고가")}</th>
-              <th>{t("일중 저가")}</th>
-              <th>{t("변동률")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => {
-              const change = item.change_pct ?? 0;
-              return (
-                <tr key={item.item_name}>
-                  <td className="dram-price-item-name">{item.item_name}</td>
-                  <td>${item.price.toFixed(3)}</td>
-                  <td>{item.daily_high != null ? `$${item.daily_high.toFixed(2)}` : "—"}</td>
-                  <td>{item.daily_low != null ? `$${item.daily_low.toFixed(2)}` : "—"}</td>
-                  <td className={change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}>
-                    {pct(change)}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className={`dram-price-body ${expanded ? "expanded" : ""}`}>
+        <div className="dram-price-table-wrap">
+          <table className="dram-price-table">
+            <thead>
+              <tr>
+                <th>{t("품목")}</th>
+                <th>{t("가격")} (USD)</th>
+                <th>{t("일중 고가")}</th>
+                <th>{t("일중 저가")}</th>
+                <th>{t("변동률")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const change = item.change_pct ?? 0;
+                return (
+                  <tr key={item.item_name}>
+                    <td className="dram-price-item-name">{item.item_name}</td>
+                    <td>${item.price.toFixed(3)}</td>
+                    <td>{item.daily_high != null ? `$${item.daily_high.toFixed(2)}` : "—"}</td>
+                    <td>{item.daily_low != null ? `$${item.daily_low.toFixed(2)}` : "—"}</td>
+                    <td className={change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}>
+                      {pct(change)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

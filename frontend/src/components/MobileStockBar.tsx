@@ -3,7 +3,6 @@ import { useLanguage, useT } from "../i18n/LanguageContext";
 import { wonSuffix } from "../i18n/format";
 import { dismissMobileBar, useMobileBarDismissed } from "../mobileBarPreference";
 import { StoredStock } from "../watchlist";
-import FavoriteButton from "./FavoriteButton";
 import StockIcon from "./StockIcon";
 
 interface Props {
@@ -76,7 +75,6 @@ export default function MobileStockBar({
           </span>
         </div>
       )}
-      <FavoriteButton stock={stock} className="mobile-stock-bar-star" />
       <button
         type="button"
         className="mobile-stock-bar-dismiss"
