@@ -2163,7 +2163,7 @@ body:has(.hb) {
   left: 50%;
   top: 50%;
   width: clamp(87px, 10.5vw, 156px);
-  aspect-ratio: 230 / 150;
+  aspect-ratio: 240 / 150;
   display: block;
   opacity: 0;
   pointer-events: auto;

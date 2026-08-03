@@ -986,40 +986,33 @@ export function BlackHoleBody({
 
 /* ───────────────────────────── spacecraft ───────────────────────────── */
 
-/** A deep-space probe, drawn rather than photographed.
+/** A deep-space probe, drawn rather than photographed — and drawn as the real
+ * thing, not a generic satellite silhouette.
  *
- * There is no spacecraft bitmap in the project, and this renders at 60-100px,
- * so the constraint that matters is legibility at that size rather than
- * fidelity. The first version modelled Voyager literally — dish, magnetometer
- * boom, RTG stack — and at 80px the booms collapsed into grey hairlines and the
- * craft read as a smudge. This is a cleaner airframe built from fewer, bolder
- * masses: two large solar wings, a foil-wrapped bus, a high-gain dish and a lit
- * engine bell.
+ * There is no spacecraft bitmap in the project. An earlier version modelled
+ * Voyager literally at a ~80px render size and the fine booms collapsed into
+ * grey hairlines, so it was replaced with an invented airframe (solar wings)
+ * that isn't what Voyager actually looks like — Voyager has no solar arrays
+ * at all; past Mars there isn't enough sunlight, so it's powered by three
+ * RTGs (radioisotope thermoelectric generators) on a boom instead. Now that
+ * this renders up to 156px (see .hb-voyager's clamp in hub.css), there's
+ * room to draw the real silhouette: the 3.7m high-gain dish kept pointed
+ * back at the inner system, the ten-sided foil-wrapped bus, the canted RTG
+ * boom with its three finned, faintly glowing canisters, the long thin
+ * magnetometer boom reaching the opposite way, and the V of whip antennas
+ * underneath — the actual arrangement from the NASA reference drawings, not
+ * a satellite-shaped stand-in.
  *
- * Everything is shaded from one direction — the system it is leaving, behind and
- * below — with real three-tone metal (specular, body, shadow), panel seams, and
- * an actual cell grid on the arrays. Detail at that density is what makes a
- * vector craft read as machined hardware rather than an icon.
+ * The fine booms stay bold enough to survive the mobile floor (84px) by
+ * being few, straight and evenly stroked rather than finely detailed —
+ * the same "fewer, bolder masses" approach as the dish and bus, just
+ * applied to the spindly parts too instead of hiding them.
  */
 export function VoyagerCraft() {
   return (
-    <svg viewBox="0 0 240 130" className="hb-voyager-art" aria-hidden="true" focusable="false">
+    <svg viewBox="0 0 240 150" className="hb-voyager-art" aria-hidden="true" focusable="false">
       <defs>
-        {/* Solar cells: a real grid, not a flat blue fill. */}
-        <pattern id="vc-cells" width="6" height="5" patternUnits="userSpaceOnUse">
-          <rect width="6" height="5" fill="#12294f" />
-          <rect width="5.2" height="4.2" x="0.4" y="0.4" fill="#1d3f77" />
-          <rect width="5.2" height="1.5" x="0.4" y="0.4" fill="#2a5596" opacity="0.75" />
-        </pattern>
-        {/* Sheen raking across the arrays, so they read as glass, not paper. */}
-        <linearGradient id="vc-sheen" x1="0" y1="0" x2="1" y2="0.6">
-          <stop offset="0%" stopColor="#8fc4ff" stopOpacity="0.42" />
-          <stop offset="26%" stopColor="#ffffff" stopOpacity="0.16" />
-          <stop offset="48%" stopColor="#5f9de0" stopOpacity="0.05" />
-          <stop offset="72%" stopColor="#ffffff" stopOpacity="0.2" />
-          <stop offset="100%" stopColor="#2b5f9e" stopOpacity="0.3" />
-        </linearGradient>
-        {/* Gold multi-layer insulation. */}
+        {/* Gold multi-layer insulation — the bus's thermal blanket. */}
         <linearGradient id="vc-foil" x1="0.1" y1="0" x2="0.9" y2="1">
           <stop offset="0%" stopColor="#ffeaa9" />
           <stop offset="22%" stopColor="#e8bf58" />
@@ -1040,38 +1033,97 @@ export function VoyagerCraft() {
           <stop offset="82%" stopColor="#7d8798" />
           <stop offset="100%" stopColor="#454d5b" />
         </radialGradient>
-        <radialGradient id="vc-plume" cx="12%" cy="50%" r="88%">
-          <stop offset="0%" stopColor="#dff0ff" stopOpacity="0.95" />
-          <stop offset="30%" stopColor="#6fb4ff" stopOpacity="0.5" />
-          <stop offset="70%" stopColor="#3d7fe0" stopOpacity="0.16" />
-          <stop offset="100%" stopColor="#2a5cb8" stopOpacity="0" />
+        {/* The RTG canisters: dark, faintly warm iron rather than bright metal —
+            they're a heat source wrapped in fins, not a polished instrument. */}
+        <linearGradient id="vc-rtg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#767c88" />
+          <stop offset="45%" stopColor="#3a3f49" />
+          <stop offset="100%" stopColor="#131519" />
+        </linearGradient>
+        {/* Waste heat glow between the RTG fins — warm, unlike the cool white
+            of the dish and starlight, since this is the one part of the craft
+            that makes its own light. */}
+        <radialGradient id="vc-rtg-glow" cx="35%" cy="45%" r="75%">
+          <stop offset="0%" stopColor="#ffdca6" stopOpacity="0.95" />
+          <stop offset="45%" stopColor="#ff9a44" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="#ff6a1a" stopOpacity="0" />
+        </radialGradient>
+        {/* The golden record's jacket — brighter and more saturated than the
+            bus foil, so the one famous detail still reads as its own thing. */}
+        <radialGradient id="vc-gold" cx="35%" cy="30%" r="75%">
+          <stop offset="0%" stopColor="#fff6d0" />
+          <stop offset="45%" stopColor="#e9c765" />
+          <stop offset="100%" stopColor="#8a6416" />
+        </radialGradient>
+        {/* A faint trailing haze, not an invented rocket flame — Voyager has no
+            main engine, just the sense of motion a departing probe wants. */}
+        <radialGradient id="vc-trail" cx="15%" cy="50%" r="85%">
+          <stop offset="0%" stopColor="#bfe0ff" stopOpacity="0.5" />
+          <stop offset="55%" stopColor="#7fb2ee" stopOpacity="0.16" />
+          <stop offset="100%" stopColor="#5f9de0" stopOpacity="0" />
         </radialGradient>
       </defs>
 
-      {/* ── solar arrays ── */}
-      <g transform="skewY(-7)">
-        <rect x="16" y="56" width="76" height="33" rx="1.5" fill="url(#vc-cells)" />
-        <rect x="16" y="56" width="76" height="33" rx="1.5" fill="url(#vc-sheen)" />
-        <rect x="16" y="56" width="76" height="33" rx="1.5" fill="none" stroke="#aab6c8" strokeWidth="1.1" />
-        <path d="M41 56 V89 M66 56 V89 M16 72.5 H92" stroke="#93a1b6" strokeWidth="0.75" opacity="0.8" />
+      {/* ── motion haze, behind everything ── */}
+      <ellipse cx="46" cy="100" rx="46" ry="16" fill="url(#vc-trail)" transform="rotate(-18 46 100)" />
 
-        <rect x="148" y="38" width="76" height="33" rx="1.5" fill="url(#vc-cells)" />
-        <rect x="148" y="38" width="76" height="33" rx="1.5" fill="url(#vc-sheen)" />
-        <rect x="148" y="38" width="76" height="33" rx="1.5" fill="none" stroke="#aab6c8" strokeWidth="1.1" />
-        <path d="M173 38 V71 M198 38 V71 M148 54.5 H224" stroke="#93a1b6" strokeWidth="0.75" opacity="0.8" />
+      {/* ── magnetometer boom — long, thin, reaching away from the RTGs so its
+          sensor sits clear of their field. Bold stroke + a real end mass
+          (not just a taper) is what keeps a line this long from reading as
+          a scratch at the mobile floor size. ── */}
+      <path d="M114 56 L25 16" stroke="url(#vc-metal)" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M114 56 L25 16" stroke="#eef2f8" strokeWidth="0.5" strokeOpacity="0.55" />
+      <g stroke="#aab4c4" strokeWidth="0.9" strokeLinecap="round">
+        <path d="M25 16 L21 11 M25 16 L29 11 M25 16 L18 17 M25 16 L32 17" />
       </g>
+      <circle cx="25" cy="16" r="2.2" fill="#e6ebf3" stroke="#798394" strokeWidth="0.7" />
 
-      {/* yokes */}
-      <path d="M92 66 L112 62 M148 48 L130 53" stroke="#c3cddb" strokeWidth="3.2" strokeLinecap="round" />
-      <path d="M92 66 L112 62 M148 48 L130 53" stroke="#6e7889" strokeWidth="1" strokeLinecap="round" />
+      {/* ── RTG boom — three finned canisters canted away from the bus, each
+          a touch smaller than the last for a hint of perspective, each lit
+          from within by its own waste heat. ── */}
+      <path d="M112 80 L36 120" stroke="url(#vc-metal)" strokeWidth="2.4" strokeLinecap="round" />
+      {[
+        { cx: 92, cy: 90, w: 17, h: 8 },
+        { cx: 67, cy: 102, w: 15, h: 7.3 },
+        { cx: 43, cy: 114, w: 13, h: 6.6 },
+      ].map((rtg) => (
+        <g key={rtg.cx} transform={`rotate(-27 ${rtg.cx} ${rtg.cy})`}>
+          <ellipse cx={rtg.cx} cy={rtg.cy} rx={rtg.w * 0.62} ry={rtg.h * 0.86} fill="url(#vc-rtg-glow)" />
+          <rect
+            x={rtg.cx - rtg.w / 2}
+            y={rtg.cy - rtg.h / 2}
+            width={rtg.w}
+            height={rtg.h}
+            rx="1.6"
+            fill="url(#vc-rtg)"
+            stroke="#050607"
+            strokeWidth="0.6"
+          />
+          <path
+            d={`M${rtg.cx - rtg.w * 0.3} ${rtg.cy - rtg.h / 2} V${rtg.cy + rtg.h / 2} M${rtg.cx} ${rtg.cy - rtg.h / 2} V${rtg.cy + rtg.h / 2} M${rtg.cx + rtg.w * 0.3} ${rtg.cy - rtg.h / 2} V${rtg.cy + rtg.h / 2}`}
+            stroke="#000000"
+            strokeOpacity="0.45"
+            strokeWidth="0.5"
+          />
+        </g>
+      ))}
 
-      {/* ── engine bell and plume, at the trailing end ── */}
-      <ellipse cx="84" cy="76" rx="26" ry="8" fill="url(#vc-plume)" transform="rotate(-8 84 76)" />
-      <path d="M113 66 L104 61 L102 73 L111 77 Z" fill="url(#vc-metal)" stroke="#596373" strokeWidth="0.7" />
-
-      {/* ── bus ── */}
+      {/* ── whip antennas — the V of thin rods under the bus, one of the
+          shapes that makes the reference silhouette read as Voyager rather
+          than any other probe. ── */}
       <path
-        d="M112 46 L134 40 L152 50 L150 70 L128 78 L110 67 Z"
+        d="M128 86 L94 143 M128 86 L166 139"
+        stroke="#c3cddb"
+        strokeWidth="0.55"
+        strokeOpacity="0.6"
+        strokeLinecap="round"
+      />
+
+      {/* ── bus — foil-wrapped, faceted rather than a true decagon (the facet
+          count that survives this render size), with the science-instrument
+          bay and the golden record riding on its sun-facing side. ── */}
+      <path
+        d="M112 54 L134 48 L152 58 L150 78 L128 86 L110 75 Z"
         fill="url(#vc-foil)"
         stroke="#ffeaa9"
         strokeWidth="0.9"
@@ -1079,42 +1131,42 @@ export function VoyagerCraft() {
       />
       {/* foil seams — the crinkle that makes insulation read as insulation */}
       <path
-        d="M118 44 L124 74 M128 42 L134 76 M140 42 L142 72 M110 56 L150 50 M112 64 L149 60"
+        d="M118 52 L124 82 M128 50 L134 84 M140 50 L142 80 M110 64 L150 58 M112 72 L149 68"
         stroke="#5c4310"
         strokeWidth="0.55"
         strokeOpacity="0.5"
       />
-      <path d="M120 43.5 L126 73.5 M130 41.5 L136 75.5" stroke="#ffe9a6" strokeWidth="0.4" strokeOpacity="0.45" />
-      <rect x="126" y="52" width="15" height="12" rx="1.5" fill="#2b303a" stroke="#9aa4b4" strokeWidth="0.7" />
-      <path d="M128 55 H139 M128 58 H139 M128 61 H139" stroke="#6d7789" strokeWidth="0.6" />
+      <path d="M120 51.5 L126 81.5 M130 49.5 L136 83.5" stroke="#ffe9a6" strokeWidth="0.4" strokeOpacity="0.45" />
+      <rect x="126" y="60" width="15" height="12" rx="1.5" fill="#2b303a" stroke="#9aa4b4" strokeWidth="0.7" />
+      <path d="M128 63 H139 M128 66 H139 M128 69 H139" stroke="#6d7789" strokeWidth="0.6" />
+      {/* the golden record, on the bus's forward face */}
+      <circle cx="121" cy="71" r="5.4" fill="url(#vc-gold)" stroke="#5c4310" strokeWidth="0.5" />
+      <circle cx="121" cy="71" r="2.8" fill="none" stroke="#5c4310" strokeWidth="0.35" strokeOpacity="0.65" />
+      <circle cx="121" cy="71" r="0.9" fill="#5c4310" />
 
-      {/* ── high-gain antenna, held back toward the inner system ── */}
-      <g transform="rotate(-20 176 84)">
-        <path d="M152 62 L168 76" stroke="#aab4c4" strokeWidth="2.6" strokeLinecap="round" />
-        <ellipse cx="176" cy="84" rx="26" ry="16.5" fill="url(#vc-dish)" />
-        <ellipse cx="176" cy="84" rx="26" ry="16.5" fill="none" stroke="#f4f7fc" strokeWidth="1.7" strokeOpacity="0.9" />
-        <ellipse cx="176" cy="84" rx="17" ry="10.8" fill="none" stroke="#8f99a9" strokeWidth="0.6" strokeOpacity="0.6" />
-        <ellipse cx="176" cy="84" rx="8.5" ry="5.4" fill="none" stroke="#8f99a9" strokeWidth="0.6" strokeOpacity="0.55" />
+      {/* ── high-gain antenna, held back toward the inner system it keeps
+          pointed at for every bit it sends home ── */}
+      <g transform="rotate(-20 176 92)">
+        <path d="M152 70 L168 84" stroke="#aab4c4" strokeWidth="2.6" strokeLinecap="round" />
+        <ellipse cx="176" cy="92" rx="26" ry="16.5" fill="url(#vc-dish)" />
+        <ellipse cx="176" cy="92" rx="26" ry="16.5" fill="none" stroke="#f4f7fc" strokeWidth="1.7" strokeOpacity="0.9" />
+        <ellipse cx="176" cy="92" rx="17" ry="10.8" fill="none" stroke="#8f99a9" strokeWidth="0.6" strokeOpacity="0.6" />
+        <ellipse cx="176" cy="92" rx="8.5" ry="5.4" fill="none" stroke="#8f99a9" strokeWidth="0.6" strokeOpacity="0.55" />
         <path
-          d="M176 68 V100 M150 84 H202 M162 73 L190 95 M190 73 L162 95"
+          d="M176 76 V108 M150 92 H202 M162 81 L190 103 M190 81 L162 103"
           stroke="#8f99a9"
           strokeWidth="0.42"
           strokeOpacity="0.34"
         />
-        <path d="M176 84 L170 70 M176 84 L183 70" stroke="#c8d1de" strokeWidth="0.9" />
-        <ellipse cx="176" cy="68" rx="4.4" ry="2.4" fill="#e6ebf3" stroke="#798394" strokeWidth="0.6" />
+        <path d="M176 92 L170 78 M176 92 L183 78" stroke="#c8d1de" strokeWidth="0.9" />
+        <ellipse cx="176" cy="76" rx="4.4" ry="2.4" fill="#e6ebf3" stroke="#798394" strokeWidth="0.6" />
         {/* lit inner lip of the far wall */}
-        <path d="M153 80 A26 16.5 0 0 1 199 80" fill="none" stroke="#ffffff" strokeWidth="1.1" strokeOpacity="0.5" />
+        <path d="M153 88 A26 16.5 0 0 1 199 88" fill="none" stroke="#ffffff" strokeWidth="1.1" strokeOpacity="0.5" />
       </g>
 
-      {/* ── masts ── */}
-      <path d="M134 40 L150 15" stroke="#9aa4b4" strokeWidth="1.6" strokeLinecap="round" />
-      <circle cx="150" cy="15" r="2.6" fill="#dfe6f0" stroke="#798394" strokeWidth="0.6" />
-      <path d="M112 46 L90 27" stroke="#8d97a8" strokeWidth="1.1" strokeOpacity="0.8" />
-
       {/* ── one hard specular, from the star it is leaving ── */}
-      <ellipse cx="130" cy="45" rx="12" ry="3.4" fill="#fffdf2" opacity="0.5" transform="rotate(-17 130 45)" />
-      <ellipse cx="196" cy="66" rx="7" ry="2.6" fill="#ffffff" opacity="0.42" transform="rotate(-28 196 66)" />
+      <ellipse cx="130" cy="53" rx="12" ry="3.4" fill="#fffdf2" opacity="0.5" transform="rotate(-17 130 53)" />
+      <ellipse cx="196" cy="74" rx="7" ry="2.6" fill="#ffffff" opacity="0.42" transform="rotate(-28 196 74)" />
     </svg>
   );
 }
