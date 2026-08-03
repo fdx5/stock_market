@@ -139,7 +139,13 @@ function Row({
 
   return (
     <article className={`gt100-row${expanded ? " is-expanded" : ""}`} data-dir={dir}>
-      <button type="button" className="gt100-row-main" onClick={onToggle} aria-expanded={expanded}>
+      <button
+        type="button"
+        className="gt100-row-main"
+        onClick={onToggle}
+        aria-expanded={expanded}
+        aria-label={`${item.name} ${t("종목 상세")}`}
+      >
         <span className="gt100-rank">
           <b>{displayRank}</b>
           <RankChangeBadge value={item.rank_change} />
