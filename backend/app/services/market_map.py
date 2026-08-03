@@ -248,6 +248,17 @@ def _get_market_map(market: str, sosok: int, limit: int, fresh: bool = False) ->
     return items
 
 
+def get_sector_name(code: str) -> dict:
+    """Just the sector name for one stock — cheap compared to get_sector_map, which
+    also filters the full ranked KOSPI/KOSDAQ snapshot into a cohort. Used by the
+    dashboard purely to decide whether a sector-specific panel (e.g. the DRAM price
+    panel for 반도체/전자) applies to the selected stock, without paying for that
+    cohort build on every stock view."""
+    market = get_stock_market(code) or "KOSPI"
+    sector = _resolve_sector(code, _get_industry_map())
+    return {"code": code, "market": market, "sector": sector}
+
+
 def get_kospi_map(limit: int = 500, fresh: bool = False) -> list[dict]:
     return _get_market_map("kospi", 0, limit, fresh)
 

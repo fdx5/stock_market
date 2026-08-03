@@ -12,6 +12,7 @@ import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
+import DramPricePanel from "./DramPricePanel";
 import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
@@ -405,6 +406,8 @@ export default function Dashboard() {
             </h2>
             <span className="dash-zone-rule" aria-hidden="true" />
           </div>
+
+          <DramPricePanel code={selected.code} />
 
           <div className="layout">
           <div className="main-col">

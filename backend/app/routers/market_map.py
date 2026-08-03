@@ -1,7 +1,9 @@
 import datetime as dt
+import os
+import secrets
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import Response
 
 from app.data.market_ticker_fetcher import TTL_TICKER_SECONDS, get_market_ticker
@@ -10,6 +12,7 @@ from app.data.us_index_fetcher import TTL_CONSTITUENTS_SECONDS as US_SECTOR_TTL_
 from app.data.us_index_fetcher import market_session as us_market_session
 from app.data.us_logo_fetcher import get_us_logo
 from app.data.weather_fetcher import TTL_WEATHER_SECONDS, get_seoul_weather
+from app.services import dram_price
 from app.services.indicators import compute_indicators
 from app.services.market_map import (
     LONG_TAIL_TTL_SECONDS,
@@ -17,6 +20,7 @@ from app.services.market_map import (
     get_kosdaq_map,
     get_kospi_map,
     get_sector_map,
+    get_sector_name,
 )
 from app.services.stock_board import BOARD_LIMIT, MARKETS, get_board
 from app.services.us_market_map import (
@@ -30,6 +34,23 @@ from app.utils import dataframe_to_records
 router = APIRouter()
 
 KST = ZoneInfo("Asia/Seoul")
+
+# Shared secret for the daily DRAM-price cron trigger — same no-default-disables-the-
+# endpoint shape as PREDICTION_BATCH_TOKEN / GLOBAL_TOP100_REFRESH_TOKEN.
+DRAM_PRICE_REFRESH_TOKEN = os.environ.get("DRAM_PRICE_REFRESH_TOKEN")
+
+
+def _require_dram_refresh_token(authorization: str | None) -> None:
+    if not DRAM_PRICE_REFRESH_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="DRAM_PRICE_REFRESH_TOKEN이 설정되지 않아 새로고침 트리거가 비활성화되어 있습니다.",
+        )
+    supplied = ""
+    if authorization and authorization.startswith("Bearer "):
+        supplied = authorization[len("Bearer ") :]
+    if not supplied or not secrets.compare_digest(supplied, DRAM_PRICE_REFRESH_TOKEN):
+        raise HTTPException(status_code=401, detail="토큰이 올바르지 않습니다.")
 
 # FinanceDataReader codes for the composite indices themselves (not individual stocks) -
 # these don't live in the KOSPI/KOSDAQ stock universe, so they're mapped here rather than
@@ -127,6 +148,14 @@ def sector_map(
     return {"generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"), **result}
 
 
+@router.get("/sector")
+def sector(code: str = Query(..., min_length=6, max_length=6)):
+    """Just the sector name for one stock — see get_sector_name's docstring. The
+    dashboard's DRAM price panel calls this (not /sector-map) purely to decide whether
+    it applies to the selected stock."""
+    return get_sector_name(code)
+
+
 @router.get("/us-sector-map")
 def us_sector_map(
     response: Response,
@@ -188,6 +217,24 @@ def weather(response: Response):
     browser reuse a response for the same TTL_WEATHER_SECONDS the server cache uses."""
     response.headers["Cache-Control"] = f"public, max-age={TTL_WEATHER_SECONDS}"
     return get_seoul_weather()
+
+
+@router.get("/dram-price")
+def dram_price_latest(response: Response):
+    """The dashboard's D램 현물가격 panel (반도체/전자 종목 상세 상단) — whatever the
+    daily batch last recorded, read straight from SQLite with no upstream scrape on
+    the request path. See services/dram_price.py / dram_price_store.py."""
+    response.headers["Cache-Control"] = "no-store"
+    return dram_price.get_latest()
+
+
+@router.post("/dram-price/refresh")
+def dram_price_refresh(authorization: str | None = Header(None)):
+    """Daily batch trigger (see .github/workflows/dram-price-refresh.yml) plus
+    dram_price.start_scheduler's in-process fallback: scrapes TrendForce's current
+    spot-price table and records it under today's price_date. Idempotent per date."""
+    _require_dram_refresh_token(authorization)
+    return dram_price.run_batch(triggered_by="cron")
 
 
 @router.get("/index/{symbol}/history")

@@ -207,6 +207,47 @@ export interface KakaoPredictionStatus {
   token?: KakaoTokenInfo | null;
 }
 
+/** One outcome of the daily D램 현물가격 배치 (see backend/app/services/dram_price.py).
+ * `items` rides along on a successful run for the admin panel's own inline preview,
+ * separate from the KakaoTalk message it feeds into ~10 minutes later. */
+export interface DramPriceRunRecord {
+  status: "ok" | "skipped" | "error";
+  reason?: string | null;
+  price_date?: string | null;
+  item_count?: number;
+  items?: { item_name: string; price: number; change_pct: number | null }[];
+  elapsed_seconds?: number | null;
+  triggered_by: "cron" | "in_process" | "admin";
+  error?: string | null;
+  finished_at: string;
+}
+
+export interface DramPriceStatus {
+  running: boolean;
+  last_run: DramPriceRunRecord | null;
+  /** DB-derived — the latest stored snapshot's date/count, survives a restart even
+   * when `last_run` (this process's own memory) is empty. */
+  latest_price_date: string | null;
+  item_count: number;
+}
+
+/** One outcome of the "D램 현물가격 배치 실행결과" KakaoTalk notification, sent ~10
+ * minutes after dram_price.run_batch finishes (see kakao_notify.schedule_dram_price_result)
+ * or resent on demand via this panel's '지금 발송' button. */
+export interface KakaoDramPriceRun {
+  status: "sent" | "not_configured" | "error";
+  message?: string;
+  error?: string;
+  triggered_by: "auto_delayed" | "admin";
+  finished_at: string;
+}
+
+export interface KakaoDramPriceStatus {
+  configured: boolean;
+  last_run: KakaoDramPriceRun | null;
+  token?: KakaoTokenInfo | null;
+}
+
 export type CommentSource = "battle" | "fight";
 
 export interface AdminComment {
@@ -509,6 +550,12 @@ export const adminApi = {
   kakaoPredictionStatus: () => authedGet<KakaoPredictionStatus>("/notify/kakao/prediction/status"),
   runKakaoPredictionNotify: (region: BatchRegion) =>
     authedPost<KakaoPredictionRun>(`/notify/kakao/prediction/run?region=${region}`),
+
+  dramPriceStatus: () => authedGet<DramPriceStatus>("/dram-price/status"),
+  runDramPriceBatch: () => authedPost<{ status: string }>("/dram-price/run"),
+
+  kakaoDramPriceStatus: () => authedGet<KakaoDramPriceStatus>("/notify/kakao/dram-price/status"),
+  runKakaoDramPriceNotify: () => authedPost<KakaoDramPriceRun>("/notify/kakao/dram-price/run"),
 
   dbSources: () => authedGet<{ sources: DbSource[] }>("/db/sources"),
   dbTables: (source: string | null) =>

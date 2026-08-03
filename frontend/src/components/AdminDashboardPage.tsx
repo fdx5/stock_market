@@ -8,6 +8,8 @@ import {
   AdminTrendRange,
   BatchRegion,
   CommentSource,
+  DramPriceStatus,
+  KakaoDramPriceStatus,
   KakaoPredictionStatus,
   KakaoVisitorStatus,
   PageCount,
@@ -500,6 +502,12 @@ export default function AdminDashboardPage() {
   const [kakaoPredictionStatus, setKakaoPredictionStatus] = useState<KakaoPredictionStatus | null>(null);
   const [kakaoPredictionRunning, setKakaoPredictionRunning] = useState<BatchRegion | null>(null);
   const [kakaoPredictionError, setKakaoPredictionError] = useState<string | null>(null);
+  const [dramStatus, setDramStatus] = useState<DramPriceStatus | null>(null);
+  const [runningDram, setRunningDram] = useState(false);
+  const [dramRunError, setDramRunError] = useState<string | null>(null);
+  const [kakaoDramStatus, setKakaoDramStatus] = useState<KakaoDramPriceStatus | null>(null);
+  const [kakaoDramRunning, setKakaoDramRunning] = useState(false);
+  const [kakaoDramError, setKakaoDramError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!getStoredSession()) navigate("/admin");
@@ -700,6 +708,45 @@ export default function AdminDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
 
+  useEffect(() => {
+    if (!authed) return undefined;
+    let cancelled = false;
+    const load = () => {
+      adminApi
+        .dramPriceStatus()
+        .then((s) => !cancelled && setDramStatus(s))
+        .catch(handleAuthError);
+    };
+    load();
+    // Same 5s cadence as the prediction poll — a manual re-run is watched here too.
+    const id = setInterval(load, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
+  useEffect(() => {
+    if (!authed) return undefined;
+    let cancelled = false;
+    const load = () => {
+      adminApi
+        .kakaoDramPriceStatus()
+        .then((s) => !cancelled && setKakaoDramStatus(s))
+        .catch(handleAuthError);
+    };
+    load();
+    // Same 5s cadence as the other Kakao polls — also watches the automatic
+    // 10-minutes-after-batch send land without a page refresh.
+    const id = setInterval(load, 5_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
+
   function handleRunKakaoVisitorNotify() {
     if (kakaoVisitorRunning) return;
     setKakaoVisitorRunning(true);
@@ -757,6 +804,39 @@ export default function AdminDashboardPage() {
         setRunError(err instanceof Error ? err.message : "배치 실행에 실패했습니다.");
       })
       .finally(() => setRunningRegion(null));
+  }
+
+  function handleRunDramBatch() {
+    if (runningDram) return;
+    setRunningDram(true);
+    setDramRunError(null);
+    adminApi
+      .runDramPriceBatch()
+      .then(() => {
+        // The run is now in-flight server-side; the 5s poll above will pick up the
+        // 'running' state and then the result. Refresh once immediately so the panel
+        // reflects 실행 중 without waiting for the next tick.
+        return adminApi.dramPriceStatus().then((s) => setDramStatus(s));
+      })
+      .catch((err) => {
+        handleAuthError(err);
+        setDramRunError(err instanceof Error ? err.message : "배치 실행에 실패했습니다.");
+      })
+      .finally(() => setRunningDram(false));
+  }
+
+  function handleRunKakaoDramNotify() {
+    if (kakaoDramRunning) return;
+    setKakaoDramRunning(true);
+    setKakaoDramError(null);
+    adminApi
+      .runKakaoDramPriceNotify()
+      .then((r) => setKakaoDramStatus((prev) => (prev ? { ...prev, last_run: r } : { configured: true, last_run: r })))
+      .catch((err) => {
+        handleAuthError(err);
+        setKakaoDramError(err instanceof Error ? err.message : "카카오 알림 발송에 실패했습니다.");
+      })
+      .finally(() => setKakaoDramRunning(false));
   }
 
   function handleDeleteComment(c: AdminComment) {
@@ -1827,6 +1907,66 @@ export default function AdminDashboardPage() {
             )}
             {runError && <p className="admin-batch-error">{runError}</p>}
           </div>
+
+          <h2>
+            <span className="admin-live-dot" /> D램 현물가격 배치
+          </h2>
+          <div className="admin-batch-body">
+            {dramStatus === null ? (
+              <div className="admin-batch-row">
+                <span className="admin-skeleton admin-skeleton--row" />
+              </div>
+            ) : (
+              (() => {
+                const last = dramStatus.last_run;
+                const isRunning = dramStatus.running || runningDram;
+                const ok = last ? last.status === "ok" || last.status === "skipped" : dramStatus.item_count > 0;
+                const statusLabel = isRunning
+                  ? "실행 중"
+                  : last
+                    ? last.status === "ok"
+                      ? "성공"
+                      : last.status === "skipped"
+                        ? "스킵"
+                        : "실패"
+                    : dramStatus.item_count > 0
+                      ? "성공"
+                      : "기록 없음";
+                const finishedAt = last?.finished_at;
+                const priceDate = last?.price_date ?? dramStatus.latest_price_date;
+                const itemCount = last?.item_count ?? dramStatus.item_count;
+                return (
+                  <div className="admin-batch-item">
+                    <div className="admin-batch-row">
+                      <span
+                        className={`admin-batch-status admin-batch-status--${
+                          isRunning ? "running" : ok ? "ok" : "fail"
+                        }`}
+                      >
+                        {statusLabel}
+                      </span>
+                      <span className="admin-batch-name">DRAM 현물가격 (TrendForce)</span>
+                      <span className="admin-batch-meta">
+                        {priceDate ? `기준일 ${priceDate} · ${itemCount}개 항목 · ` : ""}
+                        {last?.triggered_by === "admin" ? "수동 · " : ""}
+                        {finishedAt ? `최근 ${formatDateTime(finishedAt)}` : "실행 이력 없음"}
+                        {last?.error ? ` · ${last.error}` : ""}
+                      </span>
+                      <button
+                        type="button"
+                        className="admin-batch-run-btn"
+                        disabled={isRunning}
+                        onClick={handleRunDramBatch}
+                      >
+                        {isRunning ? "실행 중..." : "수동 재실행"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()
+            )}
+            {dramRunError && <p className="admin-batch-error">{dramRunError}</p>}
+          </div>
           </div>
 
           <div className="admin-batch-half admin-notify-half">
@@ -1994,6 +2134,70 @@ export default function AdminDashboardPage() {
                   })
                 )}
                 {kakaoPredictionError && <p className="admin-batch-error">{kakaoPredictionError}</p>}
+              </div>
+            </div>
+
+            <div className="admin-notify-section">
+              <h3 className="admin-notify-section-title">D램 현물가격 배치 실행결과</h3>
+              <div className="admin-notify-body">
+                {kakaoDramStatus === null ? (
+                  <div className="admin-batch-row">
+                    <span className="admin-skeleton admin-skeleton--row" />
+                  </div>
+                ) : (
+                  (() => {
+                    const configured = kakaoDramStatus?.configured ?? false;
+                    const last = kakaoDramStatus?.last_run ?? null;
+                    const isSending = kakaoDramRunning;
+                    const tone = isSending
+                      ? "running"
+                      : !configured
+                        ? "neutral"
+                        : last
+                          ? last.status === "sent"
+                            ? "ok"
+                            : "fail"
+                          : "neutral";
+                    const statusLabel = isSending
+                      ? "발송 중"
+                      : !configured
+                        ? "미설정"
+                        : last
+                          ? last.status === "sent"
+                            ? "성공"
+                            : last.status === "error"
+                              ? "실패"
+                              : "미설정"
+                          : "기록 없음";
+                    const triggeredLabel =
+                      last?.triggered_by === "admin" ? "수동" : last?.triggered_by === "auto_delayed" ? "자동(10분 지연)" : null;
+                    const metaText = !configured
+                      ? "REST API 키 · 토큰 설정이 필요합니다."
+                      : last
+                        ? `${triggeredLabel ? `${triggeredLabel} · ` : ""}${formatDateTime(last.finished_at)}` +
+                          (last.status === "error" && last.error ? ` · ${last.error}` : "")
+                        : "아직 실행 이력이 없습니다.";
+                    return (
+                      <div className="admin-batch-item">
+                        <div className="admin-batch-row">
+                          <span className={`admin-batch-status admin-batch-status--${tone}`}>{statusLabel}</span>
+                          <span className="admin-batch-name">DRAM 현물가격</span>
+                          <span className="admin-batch-meta">{metaText}</span>
+                          <button
+                            type="button"
+                            className="admin-batch-run-btn"
+                            disabled={kakaoDramRunning}
+                            onClick={handleRunKakaoDramNotify}
+                          >
+                            {isSending ? "발송 중..." : "지금 발송"}
+                          </button>
+                        </div>
+                        {last?.message && <pre className="admin-notify-message">{last.message}</pre>}
+                      </div>
+                    );
+                  })()
+                )}
+                {kakaoDramError && <p className="admin-batch-error">{kakaoDramError}</p>}
               </div>
             </div>
           </div>

@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.services import (
     activity_log,
+    dram_price,
     kakao_notify,
     page_view_store,
     prediction_batch,
@@ -203,6 +204,50 @@ def prediction_run(background: BackgroundTasks, region: str = Query(..., pattern
         raise HTTPException(status_code=409, detail=f"{region} 배치가 이미 실행 중입니다.")
     background.add_task(prediction_batch.run_batch, region, True, "admin")
     return {"region": region, "status": "accepted"}
+
+
+@router.get("/dram-price/status", dependencies=[Depends(require_admin)])
+def dram_price_status():
+    """DRAM 현물가격 배치 health for the admin panel: in-flight state, this process's
+    last outcome, and the DB-derived latest stored date/item count (restart-proof)."""
+    return dram_price.get_status()
+
+
+@router.post("/dram-price/run", dependencies=[Depends(require_admin)])
+def dram_price_run(background: BackgroundTasks):
+    """Admin-triggered manual re-run. Authenticated by the admin session, NOT the
+    DRAM_PRICE_REFRESH_TOKEN cron secret — so the dashboard can trigger a batch without
+    that secret ever reaching the browser. Runs in the background (a scrape+DB write
+    takes a couple seconds, not minutes, but the shape mirrors /prediction/run so the
+    panel's polling logic is identical); refuses if a run is already in flight."""
+    if dram_price.is_running():
+        raise HTTPException(status_code=409, detail="DRAM 현물가격 배치가 이미 실행 중입니다.")
+    background.add_task(dram_price.run_batch, "admin")
+    return {"status": "accepted"}
+
+
+@router.get("/notify/kakao/dram-price/status", dependencies=[Depends(require_admin)])
+def kakao_notify_dram_price_status():
+    """'D램 현물가격 배치 실행결과' card: last-send outcome, regardless of which
+    trigger (the ~10분 지연 auto-send after a batch run, or this panel's own button)
+    produced it. `token` is the same expiry view the other Kakao cards use."""
+    return {
+        "configured": kakao_notify.is_configured(),
+        "last_run": kakao_notify.get_last_dram_run(),
+        "token": kakao_notify.describe_token(),
+    }
+
+
+@router.post("/notify/kakao/dram-price/run", dependencies=[Depends(require_admin)])
+def kakao_notify_dram_price_run():
+    """Manual send from the '지금 발송' button in the same card. Resends the last
+    recorded batch outcome rather than re-running the batch."""
+    summary = dram_price.get_status()["last_run"]
+    if summary is None:
+        raise HTTPException(
+            status_code=404, detail="DRAM 현물가격 배치 실행 이력이 없습니다. 배치를 먼저 실행해 주세요."
+        )
+    return kakao_notify.send_dram_result(summary, triggered_by="admin")
 
 
 @router.delete("/prediction", dependencies=[Depends(require_admin)])

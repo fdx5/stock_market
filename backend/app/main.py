@@ -37,6 +37,7 @@ from app.routers import (
 )
 from app.services import (
     api_pulse,
+    dram_price,
     global_top100_rank_store,
     kakao_notify,
     notify_stats_store,
@@ -346,6 +347,16 @@ def _start_prediction_scheduler() -> None:
     # call the same run_batch, which is idempotent per (수집일자, market), so whichever
     # fires first does the work and the other one no-ops.
     threading.Thread(target=prediction_batch.start_scheduler, daemon=True).start()
+
+
+@app.on_event("startup")
+def _start_dram_price_scheduler() -> None:
+    # Secondary trigger for the daily D램 현물가격 batch. GitHub Actions cron (see
+    # .github/workflows/dram-price-refresh.yml) is primary; this thread (see
+    # dram_price.start_scheduler, ~20:00 KST) covers the window where Render's
+    # free-tier instance is asleep when that cron fires. Both paths call the same
+    # idempotent run_batch, so whichever fires first does the work.
+    dram_price.start_scheduler()
 
 
 @app.get("/api/health")

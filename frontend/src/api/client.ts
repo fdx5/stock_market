@@ -159,6 +159,32 @@ export interface UsSectorMap {
   items: MarketMapItem[];
 }
 
+/** Just a stock's sector name — the cheap counterpart to SectorMap, which also
+ * builds/filters the full ranked cohort. Used purely to decide whether a
+ * sector-specific panel (e.g. the DRAM price panel for 반도체/전자) applies. */
+export interface SectorName {
+  code: string;
+  market: "KOSPI" | "KOSDAQ";
+  sector: string;
+}
+
+/** One item's current print off TrendForce's DRAM spot-price table — `price` is the
+ * table's own "Session Average", `change_pct` its signed day-over-day move. */
+export interface DramPriceItem {
+  item_name: string;
+  price: number;
+  daily_high: number | null;
+  daily_low: number | null;
+  change_pct: number | null;
+}
+
+/** The dashboard's DRAM price panel's data — whatever the daily batch last stored.
+ * `price_date` is null before the very first batch run has ever completed. */
+export interface DramPriceResponse {
+  price_date: string | null;
+  items: DramPriceItem[];
+}
+
 /** Trailing returns off the same daily series the sparkline is drawn from. Any of
  * them is null when the window doesn't reach that far back — a stock listed three
  * weeks ago has no 3-month return, and `ytd` is null until the series crosses a New
@@ -868,6 +894,8 @@ export const api = {
     getJSON<StockBoardRefresh>(`${BASE}/market/board?market=${market}&slim=true`),
   sectorMap: (code: string, limit = 40) =>
     getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
+  sector: (code: string) => getJSON<SectorName>(`${BASE}/market/sector?code=${code}`),
+  dramPrice: () => getJSON<DramPriceResponse>(`${BASE}/market/dram-price`),
   usSectorMap: (code: string, limit = 40) =>
     getJSON<UsSectorMap & { generated_at: string }>(
       `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`

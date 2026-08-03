@@ -1,0 +1,42 @@
+name: D램 현물가격 배치
+
+# Daily DRAM spot-price scrape (TrendForce dram_spot page) — item/price/daily-range/
+# change% for the stock-detail dashboard's DRAM price panel (반도체/전자 종목만 노출, see
+# frontend/src/components/DramPricePanel.tsx). Idempotent per price_date (INSERT OR
+# REPLACE — see backend/app/services/dram_price_store.py), so a same-day re-run just
+# overwrites that day's rows.
+#
+# Same primary/fallback split as global-top100-refresh.yml and kakao-notify.yml: this
+# cron is primary, and dram_price.py's in-process scheduler (started from main.py,
+# ~20:00 KST) covers the window where Render's free-tier instance is asleep when this
+# fires.
+#
+# Fired at 11:00 UTC (~20:00 KST) — TrendForce's own "Last Update" for the DRAM spot
+# table lands ~18:10 GMT+8 (~19:10 KST), so this leaves an hour of buffer for that
+# day's print to have actually landed before the scrape.
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch: {}
+
+env:
+  BASE_URL: https://kospi-predictor.onrender.com
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake the service
+        run: curl -fsS --compressed --max-time 90 "$BASE_URL/api/health" || true
+
+      - name: Trigger DRAM price refresh
+        env:
+          TOKEN: ${{ secrets.DRAM_PRICE_REFRESH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$TOKEN" ]; then
+            echo "::error::DRAM_PRICE_REFRESH_TOKEN secret is not set — the endpoint will reject this run."
+            exit 1
+          fi
+          curl -fsS --compressed --max-time 60 -X POST -H "Authorization: Bearer $TOKEN" \
+            "$BASE_URL/api/market/dram-price/refresh" | jq -c '.'

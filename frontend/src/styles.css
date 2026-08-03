@@ -4334,6 +4334,69 @@ thead .weekly-foreign-amount-col {
   color: var(--text-secondary);
 }
 
+/* ── DRAM 현물가격 패널 (반도체/전자 종목 상세 상단) ───────────────────────────── */
+/* 종목 상세 zone의 head와 layout(차트/사이드 컬럼) 사이에 끼워, 업종 컨텍스트가
+   본문보다 먼저 읽히도록 한다 — 추이 그래프는 날짜별 데이터가 쌓인 뒤 추가할
+   예정이라 지금은 최신 스냅샷 표만 그린다. */
+.dram-price-panel {
+  margin-bottom: 20px;
+}
+
+.dram-price-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.dram-price-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.dram-price-date {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.dram-price-table-wrap {
+  overflow-x: auto;
+}
+
+.dram-price-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.dram-price-table th {
+  text-align: right;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dram-price-table td {
+  text-align: right;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--gridline);
+  font-variant-numeric: tabular-nums;
+}
+
+.dram-price-table th:first-child,
+.dram-price-table td.dram-price-item-name {
+  text-align: left;
+  font-variant-numeric: normal;
+}
+
+.dram-price-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 /* ── Quick access strip (popular / favourites / recents) ──────────────────── */
 .quick-access {
   display: flex;

@@ -546,3 +546,93 @@ def schedule_prediction_result(region: str, summary: dict) -> None:
     volatility already accepted for prediction_batch's own in-memory _last_runs.
     """
     threading.Thread(target=_delayed_prediction_send, args=(region, summary), daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# D램 현물가격 배치 실행결과 notification
+# ---------------------------------------------------------------------------
+#
+# Same shape as the AI 예측 배치 실행결과 section above, sized down for a single daily
+# batch (see dram_price.run_batch, the only caller) instead of two per-region runs.
+
+_DRAM_NOTIFY_DELAY_SECONDS = 10 * 60
+
+_last_dram_run_lock = threading.Lock()
+_last_dram_run: dict | None = None
+
+
+def _record_last_dram_run(result: dict) -> dict:
+    global _last_dram_run
+    with _last_dram_run_lock:
+        _last_dram_run = result
+    return result
+
+
+def get_last_dram_run() -> dict | None:
+    with _last_dram_run_lock:
+        return _last_dram_run
+
+
+def build_dram_message(summary: dict) -> str:
+    status = summary.get("status")
+    when = _format_kst(summary.get("finished_at"))
+    lines = [f"💾 D램 현물가격 배치 실행결과 ({when} 완료)"]
+
+    if status == "error":
+        lines.append(f"실패 — {summary.get('error') or '알 수 없는 오류'}")
+        return "\n".join(lines)
+
+    if status == "skipped":
+        reason = "다른 실행이 진행 중이라 건너뜀" if summary.get("reason") == "already_running" else summary.get("reason")
+        lines.append(f"스킵 — {reason or '알 수 없음'}")
+        return "\n".join(lines)
+
+    lines.append(f"성공 — {summary.get('item_count', 0)}개 항목 (기준일 {summary.get('price_date')})")
+    elapsed = summary.get("elapsed_seconds")
+    if elapsed is not None:
+        lines.append(f"{elapsed}초 소요")
+    for item in summary.get("items") or []:
+        change = item.get("change_pct")
+        sign = "+" if (change or 0) > 0 else ""
+        lines.append(f"· {item['item_name']}: ${item['price']} ({sign}{change}%)")
+
+    return "\n".join(lines)
+
+
+def send_dram_result(summary: dict, triggered_by: str) -> dict:
+    """Builds and sends the "D램 현물가격 배치 실행결과" message for one batch run
+    summary (the same shape dram_price._record keeps), recording the outcome under
+    get_last_dram_run() regardless of how it turns out."""
+    message = build_dram_message(summary)
+    base = {
+        "message": message,
+        "triggered_by": triggered_by,
+        "finished_at": summary.get("finished_at") or _iso(datetime.now(timezone.utc)),
+    }
+
+    if not KAKAO_REST_API_KEY or kakao_token_store.get() is None:
+        return _record_last_dram_run({**base, "status": "not_configured"})
+
+    try:
+        send_message(message)
+    except Exception as exc:
+        return _record_last_dram_run({**base, "status": "error", "error": str(exc)})
+
+    return _record_last_dram_run({**base, "status": "sent"})
+
+
+def _delayed_dram_send(summary: dict) -> None:
+    time.sleep(_DRAM_NOTIFY_DELAY_SECONDS)
+    try:
+        send_dram_result(summary, triggered_by="auto_delayed")
+    except Exception:
+        # Mirrors the tolerance in _delayed_prediction_send — no retry queue for this
+        # one-off notification.
+        pass
+
+
+def schedule_dram_price_result(summary: dict) -> None:
+    """Fires 10 minutes after dram_price.run_batch finishes — same reasoning as
+    schedule_prediction_result: long enough for the admin dashboard's own view of the
+    run to have settled before the KakaoTalk copy goes out."""
+    threading.Thread(target=_delayed_dram_send, args=(summary,), daemon=True).start()
