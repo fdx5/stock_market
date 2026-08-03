@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { GlobalTop100Item, api } from "../api/client";
 import { hiResFlagUrl } from "../data/flagCodes";
-import { productImageFor } from "../data/productImages";
 import { trillionSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -143,10 +142,6 @@ function Row({
   // company logo, never a stand-in likeness presented next to a real name.
   const ceo = item.ceo_name;
   const ceoImgSrc = item.ceo_photo_url;
-  // Same /fight roster source, same rights rationale (freely-licensed Wikimedia
-  // product/facility photos, not portraits) — used here as a dimmed banner behind
-  // the expanded panel rather than the arena's split background.
-  const productImgSrc = productImageFor(item.symbol);
 
   return (
     <article className={`gt100-row${expanded ? " is-expanded" : ""}`} data-dir={dir}>
@@ -215,28 +210,6 @@ function Row({
 
       {expanded && (
         <div className="gt100-detail">
-          {productImgSrc && (
-            <>
-              {/* These source photos range from tall product shots (ratio ~0.46) to
-                  wide facility shots (~1.78) — force-fitting any of them to this
-                  wide, short panel with a plain `cover` background cropped the
-                  portrait ones down to an unrecognizable sliver. Blurred instead of
-                  shown crisp: the panel is dense enough (returns grid, stat pills,
-                  description, the CEO photo column) that there's no region left
-                  empty enough to show a second, sharp copy without it colliding with
-                  either the text or the CEO photo — tried anchoring a `contain`
-                  layer at the right edge next to the CEO photo and it just ended up
-                  hidden behind that photo's own opaque tile. A blurred `cover` fill
-                  has no hard crop line regardless of the source ratio, so it reads
-                  as an intentional tinted backdrop instead of a bad crop. */}
-              <div
-                className="gt100-detail-bg-blur"
-                aria-hidden="true"
-                style={{ backgroundImage: `url(${productImgSrc})` }}
-              />
-              <div className="gt100-detail-bg-scrim" aria-hidden="true" />
-            </>
-          )}
           <div className="gt100-detail-main">
             <div className="gt100-returns-grid">
               {RETURN_WINDOWS.map((w) => (

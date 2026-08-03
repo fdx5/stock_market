@@ -574,56 +574,6 @@
   gap: 14px;
 }
 
-/* Representative product/facility photo, shown blurred rather than a plain `cover`
-   crop: source photos here range from tall product shots (ratio ~0.46) to wide
-   facility shots (~1.78), and a hard `cover` crop on this wide, short panel was
-   cutting the portrait ones down to a near-unrecognizable vertical sliver. A crisp
-   second copy was tried anchored at the right edge, next to the CEO photo column,
-   but the panel is dense enough (returns grid, stat pills, description, that photo)
-   that it just ended up hidden behind the photo's own opaque tile — no region here
-   stays empty enough to show a sharp image without colliding with something.
-   Blurred, `cover` has no hard crop line regardless of the source ratio, so it reads
-   as an intentional tinted backdrop instead of a bad crop.
-   .gt100-detail-bg-scrim is the actual legibility layer, a plain var(--surface-1)
-   gradient (not baked into the image layer) so it re-tints itself on every theme
-   flip with no JS involved, solid over the text-heavy left side and fading out
-   toward the right. */
-.gt100-detail-bg-blur {
-  position: absolute;
-  /* Overscanned past the panel and clipped by .gt100-detail's own overflow:hidden -
-     blur() softens an element's own edges outward, and without this the un-blurred
-     original edge would show through as a faint hard-edged ring. */
-  inset: -24px;
-  z-index: 0;
-  background-size: cover;
-  background-position: center;
-  filter: blur(26px) saturate(1.2) brightness(0.82);
-}
-
-.gt100-detail-bg-scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  /* Kept deliberately light: earlier versions ran near-opaque (up to 100%) across
-     most of the panel width, which combined with the description text spanning
-     edge-to-edge left the banner effectively invisible behind the content it was
-     meant to back. Individual text groups (.gt100-return-cell, .gt100-stat,
-     .gt100-description) now carry their own translucent card backing for
-     legibility, so this layer only needs to keep a light overall tint. */
-  background-image: linear-gradient(
-    100deg,
-    color-mix(in srgb, var(--surface-1) 55%, transparent) 0%,
-    color-mix(in srgb, var(--surface-1) 38%, transparent) 42%,
-    color-mix(in srgb, var(--surface-1) 18%, transparent) 100%
-  );
-}
-
-.gt100-detail-main,
-.gt100-detail-side {
-  position: relative;
-  z-index: 3;
-}
-
 .gt100-detail-main {
   flex: 1 1 320px;
   min-width: 0;
@@ -674,9 +624,6 @@ img.gt100-ceo-photo {
   font-weight: 700;
   color: var(--text-secondary);
   text-align: center;
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
 }
 
 .gt100-returns-grid {
@@ -692,7 +639,7 @@ img.gt100-ceo-photo {
   gap: 2px;
   padding: 7px 9px;
   border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 
 .gt100-return-cell dt {
@@ -721,9 +668,6 @@ img.gt100-ceo-photo {
   grid-template-columns: repeat(2, 1fr);
   gap: 10px 16px;
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
 }
 
 .gt100-stat {
@@ -751,9 +695,7 @@ img.gt100-ceo-photo {
   line-height: 1.6;
   color: var(--text-secondary);
   border-top: 1px solid var(--border);
-  padding: 12px 12px 10px;
-  border-radius: 0 0 8px 8px;
-  background: color-mix(in srgb, var(--surface-1) 62%, transparent);
+  padding-top: 12px;
 }
 
 /* ─────────────────────────────── sparkline (row) ─────────────────────────────── */
