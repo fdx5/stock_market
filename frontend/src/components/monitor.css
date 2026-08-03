@@ -55,6 +55,19 @@
   gap: 16px;
 }
 
+/* A second, compact row under the header proper — same nav pills every other page
+   uses, just tightened up so a page whose whole point is the full-viewport canvas
+   below doesn't lose much of it to navigation chrome. */
+.monitor-nav-row {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 18px;
+  border-bottom: 1px solid var(--mon-line);
+  background: rgba(6, 9, 16, 0.9);
+}
+
 .monitor-headline {
   display: flex;
   flex-direction: column;

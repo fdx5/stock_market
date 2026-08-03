@@ -504,25 +504,48 @@
   gap: 14px;
 }
 
-/* Representative product/facility photo, dimmed into a texture rather than shown at
-   full strength — the linear-gradient layered in front of it (see the inline style)
-   goes solid var(--surface-1) over the text-heavy left side and only lets the image
-   read clearly near the right edge, so it never fights the numbers/paragraph in
-   front of it. Built as a CSS gradient (not a plain overlay div) specifically so it
-   re-tints itself on every theme flip via var(--surface-1) with no JS involved. */
-.gt100-detail-banner {
+/* Representative product/facility photo, shown blurred rather than a plain `cover`
+   crop: source photos here range from tall product shots (ratio ~0.46) to wide
+   facility shots (~1.78), and a hard `cover` crop on this wide, short panel was
+   cutting the portrait ones down to a near-unrecognizable vertical sliver. A crisp
+   second copy was tried anchored at the right edge, next to the CEO photo column,
+   but the panel is dense enough (returns grid, stat pills, description, that photo)
+   that it just ended up hidden behind the photo's own opaque tile — no region here
+   stays empty enough to show a sharp image without colliding with something.
+   Blurred, `cover` has no hard crop line regardless of the source ratio, so it reads
+   as an intentional tinted backdrop instead of a bad crop.
+   .gt100-detail-bg-scrim is the actual legibility layer, a plain var(--surface-1)
+   gradient (not baked into the image layer) so it re-tints itself on every theme
+   flip with no JS involved, solid over the text-heavy left side and fading out
+   toward the right. */
+.gt100-detail-bg-blur {
   position: absolute;
-  inset: 0;
+  /* Overscanned past the panel and clipped by .gt100-detail's own overflow:hidden -
+     blur() softens an element's own edges outward, and without this the un-blurred
+     original edge would show through as a faint hard-edged ring. */
+  inset: -24px;
   z-index: 0;
   background-size: cover;
-  background-position: center 30%;
-  filter: saturate(1.05);
+  background-position: center;
+  filter: blur(26px) saturate(1.2) brightness(0.82);
+}
+
+.gt100-detail-bg-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background-image: linear-gradient(
+    100deg,
+    var(--surface-1) 0%,
+    color-mix(in srgb, var(--surface-1) 80%, transparent) 42%,
+    color-mix(in srgb, var(--surface-1) 40%, transparent) 100%
+  );
 }
 
 .gt100-detail-main,
 .gt100-detail-side {
   position: relative;
-  z-index: 1;
+  z-index: 3;
 }
 
 .gt100-detail-main {

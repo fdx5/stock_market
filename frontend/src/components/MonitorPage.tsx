@@ -15,7 +15,14 @@ import { layoutGraph, type MonitorLayout, type PlacedNode } from "../monitor/lay
 import { MonitorScene, type HoverInfo } from "../monitor/scene";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import BattleIcon from "./BattleIcon";
+import DashboardIcon from "./DashboardIcon";
+import GlobalNewsIcon from "./GlobalNewsIcon";
+import GlobeRankIcon from "./GlobeRankIcon";
 import Logo from "./Logo";
+import MarketIcon from "./MarketIcon";
+import PredictIcon from "./PredictIcon";
+import RankIcon from "./RankIcon";
 import "./monitor.css";
 
 /** How often the live signal is fetched. Fast enough that a click feels like it lights
@@ -343,6 +350,39 @@ export default function MonitorPage() {
           )}
         </div>
       </header>
+
+      <div className="app-nav-row monitor-nav-row">
+        <Link to="/dashboard" className="kospi-map-nav-link kospi-map-nav-link--home">
+          <DashboardIcon /> 홈
+        </Link>
+        <Link to="/map" className="kospi-map-nav-link">
+          <MarketIcon /> KOSPI
+        </Link>
+        <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+          <MarketIcon /> KOSDAQ
+        </Link>
+        <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
+          <MarketIcon /> S&P500
+        </Link>
+        <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
+          <MarketIcon /> NASDAQ100
+        </Link>
+        <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
+          <RankIcon /> TOP 100
+        </Link>
+        <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
+          <PredictIcon /> AI 예측
+        </Link>
+        <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
+          <GlobeRankIcon /> 글로벌 시총
+        </Link>
+        <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
+          <BattleIcon /> 시총대결
+        </Link>
+        <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
+          <GlobalNewsIcon /> NEWS
+        </Link>
+      </div>
 
       {error && <div className="error-state">{error}</div>}
 

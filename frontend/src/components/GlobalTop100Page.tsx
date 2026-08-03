@@ -212,13 +212,26 @@ function Row({
       {expanded && (
         <div className="gt100-detail">
           {productImgSrc && (
-            <div
-              className="gt100-detail-banner"
-              aria-hidden="true"
-              style={{
-                backgroundImage: `linear-gradient(100deg, var(--surface-1) 0%, color-mix(in srgb, var(--surface-1) 84%, transparent) 40%, color-mix(in srgb, var(--surface-1) 58%, transparent) 100%), url(${productImgSrc})`,
-              }}
-            />
+            <>
+              {/* These source photos range from tall product shots (ratio ~0.46) to
+                  wide facility shots (~1.78) — force-fitting any of them to this
+                  wide, short panel with a plain `cover` background cropped the
+                  portrait ones down to an unrecognizable sliver. Blurred instead of
+                  shown crisp: the panel is dense enough (returns grid, stat pills,
+                  description, the CEO photo column) that there's no region left
+                  empty enough to show a second, sharp copy without it colliding with
+                  either the text or the CEO photo — tried anchoring a `contain`
+                  layer at the right edge next to the CEO photo and it just ended up
+                  hidden behind that photo's own opaque tile. A blurred `cover` fill
+                  has no hard crop line regardless of the source ratio, so it reads
+                  as an intentional tinted backdrop instead of a bad crop. */}
+              <div
+                className="gt100-detail-bg-blur"
+                aria-hidden="true"
+                style={{ backgroundImage: `url(${productImgSrc})` }}
+              />
+              <div className="gt100-detail-bg-scrim" aria-hidden="true" />
+            </>
           )}
           <div className="gt100-detail-main">
             <div className="gt100-returns-grid">
@@ -369,6 +382,15 @@ export default function GlobalTop100Page() {
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>
+          <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
+            <MarketIcon /> KOSDAQ
+          </Link>
+          <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
+            <MarketIcon /> S&P500
+          </Link>
+          <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
+            <MarketIcon /> NASDAQ100
+          </Link>
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>
@@ -391,7 +413,7 @@ export default function GlobalTop100Page() {
       <section className="gt100-hero">
         <h1 className="gt100-title">{t("글로벌 시가총액 TOP 100")}</h1>
         <p className="gt100-subtitle">
-          {t("전 세계 시가총액 상위 100개 기업의 순위·주가·재무지표를 20초마다 갱신합니다.")}
+          {t("전 세계 시가총액 상위 100개 기업의 순위·주가·재무지표를 제공합니다.")}
           {updatedLabel && (
             <span className="gt100-updated">
               <span className="gt100-live-dot" aria-hidden="true" />

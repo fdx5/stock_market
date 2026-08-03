@@ -3,6 +3,7 @@ import { Link } from "../router";
 import BattleIcon from "./BattleIcon";
 import DashboardIcon from "./DashboardIcon";
 import GlobalNewsIcon from "./GlobalNewsIcon";
+import GlobeRankIcon from "./GlobeRankIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import PredictIcon from "./PredictIcon";
@@ -42,6 +43,9 @@ export default function Footer() {
           </Link>
           <Link to="/ai-prediction" className="app-footer-market-link app-footer-market-link--predict">
             <PredictIcon /> {t("AI 예측")}
+          </Link>
+          <Link to="/global-top100" className="app-footer-market-link app-footer-market-link--globaltop100">
+            <GlobeRankIcon /> {t("글로벌 시총")}
           </Link>
           <Link to="/fight" className="app-footer-market-link app-footer-market-link--battle">
             <BattleIcon /> {t("시총대결")}

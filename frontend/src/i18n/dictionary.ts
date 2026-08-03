@@ -188,8 +188,8 @@ export const DICTIONARY: Record<string, string> = {
   // GlobalTop100Page
   "글로벌 시총": "Global Cap",
   "글로벌 시가총액 TOP 100": "Global Market Cap TOP 100",
-  "전 세계 시가총액 상위 100개 기업의 순위·주가·재무지표를 20초마다 갱신합니다.":
-    "Ranking, prices, and fundamentals for the world's 100 largest companies by market cap, refreshed every 20 seconds.",
+  "전 세계 시가총액 상위 100개 기업의 순위·주가·재무지표를 제공합니다.":
+    "Ranking, prices, and fundamentals for the world's 100 largest companies by market cap.",
   "종목명 · 심볼 검색": "Search by name or symbol",
   "글로벌 시가총액 TOP 100을 불러오는 중입니다…": "Loading the global TOP 100…",
   "서버가 데이터를 처음 준비하는 중입니다. 최대 몇 분 정도 걸릴 수 있어요.":
