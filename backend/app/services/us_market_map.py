@@ -98,6 +98,22 @@ def _find_sector(items: list[dict], ticker: str) -> str | None:
     return next((it["sector"] for it in items if it["code"] == ticker), None)
 
 
+def get_us_sector_name(code: str) -> dict:
+    """Just the GICS sector name for one US ticker — cheap compared to
+    get_us_sector_map, which also sorts/filters the full cohort. Used by /global
+    purely to decide whether a sector-specific panel (e.g. the DRAM price panel for
+    Information Technology) applies to the selected ticker, without paying for that
+    cohort build on every stock view. Reads the same cached constituent snapshots
+    get_us_sector_map does, so it costs no extra upstream request either."""
+    ticker = code.strip().upper()
+    sector = _find_sector(get_sp500_constituents(), ticker)
+    if sector is None:
+        sector = _find_sector(get_nasdaq100_constituents(), ticker)
+    if sector is None and ticker == SKHYNIX_TICKER:
+        sector = "Information Technology"
+    return {"code": ticker, "sector": sector}
+
+
 def get_us_sector_map(code: str, limit: int = US_SECTOR_PEER_LIMIT) -> dict:
     """The S&P 500 sector cohort around one US ticker — what /global draws beside its
     chart column, mirroring what market_map.get_sector_map does for the KR dashboard.

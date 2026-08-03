@@ -10,6 +10,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import DailyPricePanel from "./DailyPricePanel";
+import DramPricePanel from "./DramPricePanel";
 import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalBoardPanel from "./GlobalBoardPanel";
@@ -325,6 +326,8 @@ export default function GlobalStockPage() {
         </span>
       )}
       {error && <div className="error-state">{t(error)}</div>}
+
+      {!error && code && <DramPricePanel code={code} market="US" />}
 
       {!error && (
         <div className="layout">

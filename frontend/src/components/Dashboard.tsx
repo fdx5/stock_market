@@ -407,7 +407,7 @@ export default function Dashboard() {
             <span className="dash-zone-rule" aria-hidden="true" />
           </div>
 
-          <DramPricePanel code={selected.code} />
+          <DramPricePanel code={selected.code} market="KR" />
 
           <div className="layout">
           <div className="main-col">

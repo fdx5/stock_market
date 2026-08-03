@@ -28,6 +28,7 @@ from app.services.us_market_map import (
     get_nasdaq100_map_with_skhynix,
     get_sp500_map_with_skhynix,
     get_us_sector_map,
+    get_us_sector_name,
 )
 from app.utils import dataframe_to_records
 
@@ -154,6 +155,14 @@ def sector(code: str = Query(..., min_length=6, max_length=6)):
     dashboard's DRAM price panel calls this (not /sector-map) purely to decide whether
     it applies to the selected stock."""
     return get_sector_name(code)
+
+
+@router.get("/us-sector")
+def us_sector(code: str = Query(..., min_length=1, max_length=10)):
+    """Just the GICS sector name for one US ticker — see get_us_sector_name's
+    docstring. /global's DRAM price panel calls this (not /us-sector-map) purely to
+    decide whether it applies to the selected ticker."""
+    return get_us_sector_name(code)
 
 
 @router.get("/us-sector-map")

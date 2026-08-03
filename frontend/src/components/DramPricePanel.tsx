@@ -3,14 +3,19 @@ import { DramPriceItem, api } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { pct } from "../mapTile";
 
-// 반도체/전자 종목의 상세 페이지에서만 의미가 있는 패널이라, 매번 종목이 바뀔 때만
-// 다시 확인하면 충분하다 — 배치는 하루 한 번만 갱신되므로 폴링은 두지 않는다.
-const SEMICONDUCTOR_SECTOR = "반도체/전자";
+// 반도체/전자(KR) · Information Technology(US) 종목의 상세 페이지에서만 의미가 있는
+// 패널이라, 매번 종목이 바뀔 때만 다시 확인하면 충분하다 — 배치는 하루 한 번만
+// 갱신되므로 폴링은 두지 않는다.
+const TARGET_SECTOR: Record<"KR" | "US", string> = {
+  KR: "반도체/전자",
+  US: "Information Technology",
+};
 
-/** D램 현물가격 패널: 선택된 종목의 업종이 반도체/전자일 때만, 일일 배치가 마지막으로
- * 적재한 TrendForce 현물가 스냅샷을 항목별 표로 보여준다. 추이 그래프는 날짜별 데이터가
- * 충분히 쌓인 뒤 추가할 예정이라 지금은 최신 스냅샷 리스트만 그린다. */
-export default function DramPricePanel({ code }: { code: string }) {
+/** D램 현물가격 패널: 선택된 종목의 업종이 대상 업종(KR: 반도체/전자, US: Information
+ * Technology)일 때만, 일일 배치가 마지막으로 적재한 TrendForce 현물가 스냅샷을
+ * 항목별 표로 보여준다. 추이 그래프는 날짜별 데이터가 충분히 쌓인 뒤 추가할 예정이라
+ * 지금은 최신 스냅샷 리스트만 그린다. */
+export default function DramPricePanel({ code, market }: { code: string; market: "KR" | "US" }) {
   const t = useT();
   const [sector, setSector] = useState<string | null>(null);
   const [priceDate, setPriceDate] = useState<string | null>(null);
@@ -22,12 +27,13 @@ export default function DramPricePanel({ code }: { code: string }) {
     setSector(null);
     setLoaded(false);
 
-    api
-      .sector(code)
+    const sectorLookup = market === "US" ? api.usSector(code) : api.sector(code);
+
+    sectorLookup
       .then((res) => {
         if (cancelled) return;
         setSector(res.sector);
-        if (res.sector !== SEMICONDUCTOR_SECTOR) {
+        if (res.sector !== TARGET_SECTOR[market]) {
           setLoaded(true);
           return;
         }
@@ -53,9 +59,9 @@ export default function DramPricePanel({ code }: { code: string }) {
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, market]);
 
-  if (!loaded || sector !== SEMICONDUCTOR_SECTOR || items.length === 0) return null;
+  if (!loaded || sector !== TARGET_SECTOR[market] || items.length === 0) return null;
 
   return (
     <div className="card dram-price-panel">

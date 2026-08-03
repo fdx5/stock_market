@@ -168,6 +168,14 @@ export interface SectorName {
   sector: string;
 }
 
+/** Just a US ticker's GICS sector name — the cheap counterpart to UsSectorMap, which
+ * also builds/sorts the full S&P 500 cohort. `sector` is null when the ticker isn't
+ * found in either cached constituent snapshot. */
+export interface UsSectorName {
+  code: string;
+  sector: string | null;
+}
+
 /** One item's current print off TrendForce's DRAM spot-price table — `price` is the
  * table's own "Session Average", `change_pct` its signed day-over-day move. */
 export interface DramPriceItem {
@@ -895,6 +903,7 @@ export const api = {
   sectorMap: (code: string, limit = 40) =>
     getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
   sector: (code: string) => getJSON<SectorName>(`${BASE}/market/sector?code=${code}`),
+  usSector: (code: string) => getJSON<UsSectorName>(`${BASE}/market/us-sector?code=${encodeURIComponent(code)}`),
   dramPrice: () => getJSON<DramPriceResponse>(`${BASE}/market/dram-price`),
   usSectorMap: (code: string, limit = 40) =>
     getJSON<UsSectorMap & { generated_at: string }>(
