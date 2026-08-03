@@ -135,20 +135,30 @@ def get_ceo_photos_bulk(company_names: list[str]) -> dict[str, dict]:
 
 
 def get_ceo_photo(company_name: str) -> dict | None:
-    """{"name": ..., "photo_url": ...} for `company_name`'s current CEO, or None if
-    any step of the chain (company not found on Wikidata, no P169 claim, no P18 image
-    for that person) comes up empty. Every step is independent-failure-tolerant by
-    returning None rather than raising - a company or CEO missing structured data on
-    Wikidata is routine, not an error worth logging past debug level."""
+    """{"name": ..., "photo_url": ...|None} for `company_name`'s current CEO, or None
+    if the chain comes up completely empty (company not found on Wikidata, or no
+    officeholder claim at all). `photo_url` alone is commonly missing - plenty of
+    sitting CEOs have a P169 claim but no P18 image on Wikidata yet - and that's not
+    a reason to throw away a name we did successfully resolve; the frontend already
+    falls back to the plain company logo when photo_url is None. Every step is
+    independent-failure-tolerant by returning None rather than raising - a company or
+    CEO missing structured data on Wikidata is routine, not an error worth logging
+    past debug level."""
     try:
         company_qid = _find_company_qid(company_name)
         if not company_qid:
             return None
         ceo_qid = _current_claim_id(_get_claims(company_qid, "P169"))
         if not ceo_qid:
+            # P169 (chief executive officer) is the precise property, but plenty of
+            # companies' Wikidata items only ever got P1037 (director/manager) filled
+            # in - confirmed against Oracle, where P1037 correctly points to Safra
+            # Catz (its actual CEO) while P169 has no claim at all.
+            ceo_qid = _current_claim_id(_get_claims(company_qid, "P1037"))
+        if not ceo_qid:
             return None
         name, photo_url = _get_label_and_image(ceo_qid)
-        if not photo_url:
+        if not name:
             return None
         return {"name": name, "photo_url": photo_url}
     except Exception:  # noqa: BLE001 - one company's failure must not sink the batch

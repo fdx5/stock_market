@@ -15,6 +15,16 @@ HEADERS = {
 
 BASE_URL = "https://companiesmarketcap.com"
 
+# companiesmarketcap.com's own name text is wrong for a handful of tickers (verified
+# by checking their detail page directly) - "McDonald" instead of "McDonald's" being
+# the one this app has actually hit. Left uncorrected, it's not just a cosmetic typo:
+# every downstream name-keyed lookup (Wikidata entity search for the CEO, in
+# particular) resolves against the wrong thing - "McDonald" alone matches Wikidata's
+# entry for the surname, not the company.
+_NAME_CORRECTIONS = {
+    "MCD": "McDonald's",
+}
+
 
 def _parse_rows(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "html.parser")
@@ -50,11 +60,15 @@ def _parse_rows(html: str) -> list[dict]:
             except (ValueError, KeyError):
                 change_pct = None
 
+        code = code_el.get_text(strip=True) if code_el else ""
+        name = name_el.get_text(strip=True) if name_el else ""
+        name = _NAME_CORRECTIONS.get(code, name)
+
         items.append(
             {
                 "rank": rank,
-                "name": name_el.get_text(strip=True) if name_el else "",
-                "code": code_el.get_text(strip=True) if code_el else "",
+                "name": name,
+                "code": code,
                 "logo_url": BASE_URL + logo_el["src"] if logo_el and logo_el.get("src") else None,
                 "marcap_usd": marcap_usd,
                 "change_pct": change_pct,
