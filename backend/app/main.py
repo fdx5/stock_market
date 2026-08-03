@@ -292,10 +292,21 @@ def _global_top100_refresh_loop() -> None:
     # Secondary trigger for the nightly 글로벌 시가총액 TOP 100 full-snapshot rebuild —
     # same dual-trigger shape as _kakao_notify_loop: GitHub Actions cron (see
     # .github/workflows/global-top100-refresh.yml) is primary, this thread covers the
-    # window where Render's free-tier instance is asleep when that cron fires. Runs at
-    # ~04:00 KST, off-peak for both KR and US markets. force_refresh_full() itself is
-    # idempotent (just overwrites today's rank_store row), so both triggers landing on
-    # the same day is harmless, just redundant work.
+    # window where Render's free-tier instance is asleep when that cron fires. Steady-
+    # state cadence is ~04:00 KST, off-peak for both KR and US markets.
+    #
+    # Unlike _kakao_notify_loop, this one fires once immediately on startup before
+    # settling into that schedule — every deploy/restart empties the in-memory cache
+    # the full snapshot lives in, and that rebuild now takes minutes (100 Yahoo calls
+    # plus a per-company Wikidata CEO-photo lookup), so starting it the moment the
+    # process comes up minimizes the window where get_top100() has nothing to serve
+    # yet. force_refresh_full() itself is idempotent (just overwrites today's
+    # rank_store row), so an immediate run plus the cron/nightly tick landing close
+    # together is harmless, just redundant work.
+    try:
+        global_top100_service.force_refresh_full()
+    except Exception:
+        pass
     time.sleep(_seconds_until_kst_hour(4))
     while True:
         try:

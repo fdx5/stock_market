@@ -192,6 +192,8 @@ export const DICTIONARY: Record<string, string> = {
     "Ranking, prices, and fundamentals for the world's 100 largest companies by market cap, refreshed every 20 seconds.",
   "종목명 · 심볼 검색": "Search by name or symbol",
   "글로벌 시가총액 TOP 100을 불러오는 중입니다…": "Loading the global TOP 100…",
+  "서버가 데이터를 처음 준비하는 중입니다. 최대 몇 분 정도 걸릴 수 있어요.":
+    "The server is preparing this data for the first time — this can take a few minutes.",
   "순위·국가·로고는 companiesmarketcap.com, 시세는 Yahoo Finance 기준이며 20초마다 갱신됩니다. 순위 변동은 전일 대비이며, 서비스 시작 첫날은 비교 대상이 없어 전 종목 신규로 표시됩니다.":
     "Rank, country, and logos are sourced from companiesmarketcap.com; prices from Yahoo Finance, refreshed every 20 seconds. Rank change is versus the previous day — on launch day there is no prior data yet, so every row shows as new.",
   "당일 등락률순": "By today's change",

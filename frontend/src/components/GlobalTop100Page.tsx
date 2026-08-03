@@ -343,6 +343,12 @@ export default function GlobalTop100Page() {
   }, [items, query, sortKey]);
 
   const updatedLabel = updatedAt ? updatedAt.replace("T", " ").slice(0, 16) : "";
+  // The backend answers instantly even when it has nothing cached yet (a fresh
+  // deploy's first minutes, before the ~100-company background build finishes) —
+  // an empty items array with no updated_at, rather than making this request hang
+  // for however long that build takes. Treated as still-loading, not as "0 results",
+  // and the existing 20s poll picks up real data the moment the build completes.
+  const stillWarming = items !== null && items.length === 0 && updatedAt === null;
 
   return (
     <div className="app gt100-page">
@@ -419,11 +425,14 @@ export default function GlobalTop100Page() {
 
       {error && <div className="error-state">{t(error)}</div>}
 
-      {!items && !error && (
+      {(!items || stillWarming) && !error && (
         <>
           <span className="sr-only" role="status">
-            {t("글로벌 시가총액 TOP 100을 불러오는 중입니다…")}
+            {stillWarming
+              ? t("서버가 데이터를 처음 준비하는 중입니다. 최대 몇 분 정도 걸릴 수 있어요.")
+              : t("글로벌 시가총액 TOP 100을 불러오는 중입니다…")}
           </span>
+          {stillWarming && <p className="gt100-warming-note">{t("서버가 데이터를 처음 준비하는 중입니다. 최대 몇 분 정도 걸릴 수 있어요.")}</p>}
           <div className="gt100-list">
             {Array.from({ length: 12 }).map((_, i) => (
               <RowSkeleton key={i} />
@@ -432,7 +441,7 @@ export default function GlobalTop100Page() {
         </>
       )}
 
-      {items && (
+      {items && !stillWarming && (
         <main className="gt100-list">
           {visible.length === 0 && <p className="gt100-empty">{t("조건에 맞는 종목이 없습니다.")}</p>}
           {visible.map((item, index) => (

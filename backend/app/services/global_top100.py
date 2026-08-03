@@ -46,6 +46,16 @@ _state_lock = threading.Lock()
 _full_fetched_at: str | None = None
 _live_fetched_at: str | None = None
 
+# Tracks whether the full snapshot has ever completed once since this process started
+# — distinct from whether it's *currently* cached, which cache.get_or_set already
+# tracks internally. The only thing this flags is "would reading the snapshot right
+# now block on a synchronous cold fetch", which is only true before the very first
+# successful build in this process's lifetime (see get_top100()'s docstring for why
+# that specific window needed its own handling).
+_warm_lock = threading.Lock()
+_ever_warmed = False
+_warming_in_background = False
+
 
 def _now_iso() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
@@ -142,13 +152,38 @@ def _fetch_full_snapshot() -> list[dict]:
             }
         )
 
+    global _ever_warmed
     with _state_lock:
         _full_fetched_at = _now_iso()
+    _ever_warmed = True
     return items
 
 
 def get_full_snapshot_cached() -> list[dict]:
     return cache.get_or_set(FULL_SNAPSHOT_KEY, TTL_FULL_SECONDS, _fetch_full_snapshot)
+
+
+def _warm_in_background() -> None:
+    global _warming_in_background
+    try:
+        get_full_snapshot_cached()
+    finally:
+        with _warm_lock:
+            _warming_in_background = False
+
+
+def ensure_warm_started() -> None:
+    """Kicks off the (multi-minute) full-snapshot build on a daemon thread if nothing
+    is warming it already, and returns immediately either way. Called both by
+    main.py's startup/nightly loop and by get_top100() itself on a cold read, so the
+    build starts on whichever happens first after a deploy rather than waiting on
+    either one exclusively."""
+    global _warming_in_background
+    with _warm_lock:
+        if _warming_in_background:
+            return
+        _warming_in_background = True
+    threading.Thread(target=_warm_in_background, daemon=True).start()
 
 
 def force_refresh_full() -> dict:
@@ -180,7 +215,25 @@ def get_top100() -> dict:
     change_pct overlaid from the live cache wherever a quote came back for that
     symbol. A symbol the live overlay couldn't reach just keeps its snapshot-time
     change_pct (from the companiesmarketcap scrape) and a null price rather than
-    disappearing from the list."""
+    disappearing from the list.
+
+    Deliberately does NOT call get_full_snapshot_cached() before the first snapshot
+    has ever completed in this process: that function's cache.get_or_set blocks
+    synchronously on a genuinely cold key, and the full build now costs minutes (100
+    sequential Yahoo fundamentals calls, a threaded returns fetch, and a CEO-photo
+    lookup per company via Wikidata — see ceo_photo_fetcher.py) — long enough to hang
+    the request past any reasonable timeout. Every deploy/restart empties this
+    process's in-memory cache, so this cold window isn't rare, and the frontend
+    already polls every 20s — returning an empty, still-loading response instantly
+    and letting the next poll pick up real data once the background build finishes is
+    strictly better than one request hanging for minutes. Once _ever_warmed flips
+    true it stays true for the rest of the process's life, so this branch only ever
+    matters in the minutes right after a (re)start.
+    """
+    if not _ever_warmed:
+        ensure_warm_started()
+        return {"items": [], "updated_at": None, "live_updated_at": None}
+
     snapshot = get_full_snapshot_cached()
     live = get_live_overlay_cached()
 
