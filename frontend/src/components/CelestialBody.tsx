@@ -1071,8 +1071,8 @@ export function VoyagerCraft() {
           sensor sits clear of their field. Bold stroke + a real end mass
           (not just a taper) is what keeps a line this long from reading as
           a scratch at the mobile floor size. ── */}
-      <path d="M114 56 L25 16" stroke="url(#vc-metal)" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M114 56 L25 16" stroke="#eef2f8" strokeWidth="0.5" strokeOpacity="0.55" />
+      <path d="M118 58 L25 16" stroke="url(#vc-metal)" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M118 58 L25 16" stroke="#eef2f8" strokeWidth="0.5" strokeOpacity="0.55" />
       <g stroke="#aab4c4" strokeWidth="0.9" strokeLinecap="round">
         <path d="M25 16 L21 11 M25 16 L29 11 M25 16 L18 17 M25 16 L32 17" />
       </g>
@@ -1081,7 +1081,7 @@ export function VoyagerCraft() {
       {/* ── RTG boom — three finned canisters canted away from the bus, each
           a touch smaller than the last for a hint of perspective, each lit
           from within by its own waste heat. ── */}
-      <path d="M112 80 L36 120" stroke="url(#vc-metal)" strokeWidth="2.4" strokeLinecap="round" />
+      <path d="M116 77 L36 120" stroke="url(#vc-metal)" strokeWidth="2.4" strokeLinecap="round" />
       {[
         { cx: 92, cy: 90, w: 17, h: 8 },
         { cx: 67, cy: 102, w: 15, h: 7.3 },
@@ -1112,10 +1112,10 @@ export function VoyagerCraft() {
           shapes that makes the reference silhouette read as Voyager rather
           than any other probe. ── */}
       <path
-        d="M128 86 L94 143 M128 86 L166 139"
+        d="M129 82 L94 143 M129 82 L166 139"
         stroke="#c3cddb"
-        strokeWidth="0.55"
-        strokeOpacity="0.6"
+        strokeWidth="0.7"
+        strokeOpacity="0.7"
         strokeLinecap="round"
       />
 
@@ -1123,7 +1123,7 @@ export function VoyagerCraft() {
           count that survives this render size), with the science-instrument
           bay and the golden record riding on its sun-facing side. ── */}
       <path
-        d="M112 54 L134 48 L152 58 L150 78 L128 86 L110 75 Z"
+        d="M116 57 L133 52 L147 60 L146 75 L129 82 L115 73 Z"
         fill="url(#vc-foil)"
         stroke="#ffeaa9"
         strokeWidth="0.9"
@@ -1131,42 +1131,47 @@ export function VoyagerCraft() {
       />
       {/* foil seams — the crinkle that makes insulation read as insulation */}
       <path
-        d="M118 52 L124 82 M128 50 L134 84 M140 50 L142 80 M110 64 L150 58 M112 72 L149 68"
+        d="M121 55 L126 79 M129 54 L133 80 M138 54 L140 77 M115 65 L146 60 M116 71 L145 68"
         stroke="#5c4310"
-        strokeWidth="0.55"
+        strokeWidth="0.5"
         strokeOpacity="0.5"
       />
-      <path d="M120 51.5 L126 81.5 M130 49.5 L136 83.5" stroke="#ffe9a6" strokeWidth="0.4" strokeOpacity="0.45" />
-      <rect x="126" y="60" width="15" height="12" rx="1.5" fill="#2b303a" stroke="#9aa4b4" strokeWidth="0.7" />
-      <path d="M128 63 H139 M128 66 H139 M128 69 H139" stroke="#6d7789" strokeWidth="0.6" />
+      <path d="M122 55 L127 78 M130 53 L135 80" stroke="#ffe9a6" strokeWidth="0.35" strokeOpacity="0.45" />
+      <rect x="127" y="61" width="12" height="10" rx="1.2" fill="#2b303a" stroke="#9aa4b4" strokeWidth="0.6" />
+      <path d="M129 64 H137 M129 66 H137 M129 68 H137" stroke="#6d7789" strokeWidth="0.5" />
       {/* the golden record, on the bus's forward face */}
-      <circle cx="121" cy="71" r="5.4" fill="url(#vc-gold)" stroke="#5c4310" strokeWidth="0.5" />
-      <circle cx="121" cy="71" r="2.8" fill="none" stroke="#5c4310" strokeWidth="0.35" strokeOpacity="0.65" />
-      <circle cx="121" cy="71" r="0.9" fill="#5c4310" />
+      <circle cx="123" cy="70" r="4.2" fill="url(#vc-gold)" stroke="#5c4310" strokeWidth="0.45" />
+      <circle cx="123" cy="70" r="2.2" fill="none" stroke="#5c4310" strokeWidth="0.3" strokeOpacity="0.65" />
+      <circle cx="123" cy="70" r="0.7" fill="#5c4310" />
 
       {/* ── high-gain antenna, held back toward the inner system it keeps
           pointed at for every bit it sends home ── */}
-      <g transform="rotate(-20 176 92)">
-        <path d="M152 70 L168 84" stroke="#aab4c4" strokeWidth="2.6" strokeLinecap="round" />
-        <ellipse cx="176" cy="92" rx="26" ry="16.5" fill="url(#vc-dish)" />
-        <ellipse cx="176" cy="92" rx="26" ry="16.5" fill="none" stroke="#f4f7fc" strokeWidth="1.7" strokeOpacity="0.9" />
-        <ellipse cx="176" cy="92" rx="17" ry="10.8" fill="none" stroke="#8f99a9" strokeWidth="0.6" strokeOpacity="0.6" />
-        <ellipse cx="176" cy="92" rx="8.5" ry="5.4" fill="none" stroke="#8f99a9" strokeWidth="0.6" strokeOpacity="0.55" />
+      <g transform="rotate(-20 178 90)">
+        <path d="M147 69 L164 80" stroke="#aab4c4" strokeWidth="2.6" strokeLinecap="round" />
+        {/* The high-gain dish is drawn ~1.9x the bus's own width, matching its
+            real ~2x-the-bus proportion (3.7m dish on a 1.78m bus) — the single
+            biggest fix over the first pass, where the two masses were closer
+            to even and the craft read as a body with a dish bolted on rather
+            than a dish carrying a small bus underneath it. */}
+        <ellipse cx="178" cy="90" rx="34" ry="21.5" fill="url(#vc-dish)" />
+        <ellipse cx="178" cy="90" rx="34" ry="21.5" fill="none" stroke="#f4f7fc" strokeWidth="1.9" strokeOpacity="0.9" />
+        <ellipse cx="178" cy="90" rx="22.5" ry="14.2" fill="none" stroke="#8f99a9" strokeWidth="0.65" strokeOpacity="0.6" />
+        <ellipse cx="178" cy="90" rx="11.5" ry="7.2" fill="none" stroke="#8f99a9" strokeWidth="0.65" strokeOpacity="0.55" />
         <path
-          d="M176 76 V108 M150 92 H202 M162 81 L190 103 M190 81 L162 103"
+          d="M178 70 V110 M148 90 H208 M161 76 L195 104 M195 76 L161 104"
           stroke="#8f99a9"
-          strokeWidth="0.42"
+          strokeWidth="0.44"
           strokeOpacity="0.34"
         />
-        <path d="M176 92 L170 78 M176 92 L183 78" stroke="#c8d1de" strokeWidth="0.9" />
-        <ellipse cx="176" cy="76" rx="4.4" ry="2.4" fill="#e6ebf3" stroke="#798394" strokeWidth="0.6" />
+        <path d="M178 90 L171 73 M178 90 L188 73" stroke="#c8d1de" strokeWidth="1" />
+        <ellipse cx="178" cy="72" rx="5.6" ry="3" fill="#e6ebf3" stroke="#798394" strokeWidth="0.65" />
         {/* lit inner lip of the far wall */}
-        <path d="M153 88 A26 16.5 0 0 1 199 88" fill="none" stroke="#ffffff" strokeWidth="1.1" strokeOpacity="0.5" />
+        <path d="M150 85 A34 21.5 0 0 1 206 85" fill="none" stroke="#ffffff" strokeWidth="1.2" strokeOpacity="0.5" />
       </g>
 
       {/* ── one hard specular, from the star it is leaving ── */}
       <ellipse cx="130" cy="53" rx="12" ry="3.4" fill="#fffdf2" opacity="0.5" transform="rotate(-17 130 53)" />
-      <ellipse cx="196" cy="74" rx="7" ry="2.6" fill="#ffffff" opacity="0.42" transform="rotate(-28 196 74)" />
+      <ellipse cx="198" cy="70" rx="8.5" ry="3" fill="#ffffff" opacity="0.42" transform="rotate(-28 198 70)" />
     </svg>
   );
 }
