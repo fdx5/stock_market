@@ -4,7 +4,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import { BASE_R, BlackHoleBody, PhotoPlanetBody, PhotoSkin, RocketCraft, SatelliteCraft, StarBody, SupernovaGas, VoyagerCraft } from "./CelestialBody";
+import { BASE_R, BlackHoleBody, PhotoPlanetBody, PhotoSkin, SatelliteCraft, StarBody, StarshipCraft, SupernovaGas, VoyagerCraft } from "./CelestialBody";
 import LanguageToggle from "./LanguageToggle";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
@@ -364,19 +364,27 @@ function toneOf(value: number | null | undefined): "up" | "down" | "flat" {
      StockIcon component, same Naver-backed source every other logo in this
      app uses), clicking through to that company's actual stock page (see
      App.tsx: any "open a stock" route now targets /dashboard?code=).
-   - "rocket": Mars's satellite. There's no stock page to link to (SpaceX
-     isn't listed on any exchange this app tracks), and — unlike the Samsung/
-     SK logos above, which identify real tickers this app actually covers —
-     stamping SpaceX's actual trademarked wordmark on a decorative orbiter
-     isn't the same kind of use. This reuses CelestialBody's RocketCraft (the
-     same generic vector built for the earlier, now-removed Earth→Mars
-     flourish) as a stand-in, and links to /global?code=SPCX (GlobalStockPage,
-     which reads ?code= itself) per an explicit request for that destination.
+   - "rocket": Mars's satellite — SpaceX's Starship, via CelestialBody's
+     StarshipCraft (a real cropped/keyed launch photo now, not a drawn
+     stand-in — an explicit request; see StarshipCraft's own comment for the
+     source/license). There's no stock page to link to (SpaceX isn't listed
+     on any exchange this app tracks), so it links to /global?code=SPCX
+     (GlobalStockPage, which reads ?code= itself) per an explicit request for
+     that destination instead.
    - "lunar": Earth's other satellite — the actual Moon, orbiting further out
      than the two stock badges. No text/tooltip by design (an explicit
      request: unlike the other two kinds, nothing is written on or over it),
      just an aria-label for screen readers; clicking it opens the same /map
-     KOSPI destination Earth itself does. */
+     KOSPI destination Earth itself does.
+   - "galilean": real-textured moons of a planet other than Earth/Mars — used
+     for both Jupiter's four largest (Io, Europa, Ganymede, Callisto) and
+     Saturn's three (Mimas, Enceladus, Titan), real closest-to-farthest order
+     within each set, each on its own ring so a set's own moons never cross
+     (see gapUnits on JUPITER_MOONS/SATURN_MOONS). Desktop-only (see
+     .hb-ring-moons in hub.css) and, like "lunar", flattened into an
+     equatorial ellipse rather than a full circle — the real moons in both
+     sets do orbit in their planet's own equatorial plane, so sharing that
+     ellipse read is the accurate choice here, not just a borrowed style. */
 
 interface MoonSpec {
   key: string;
@@ -400,9 +408,24 @@ interface MoonSpec {
    * cycle length for the rocket. */
   durationSeconds: number;
   phase: number;
-  kind: "stock" | "rocket" | "lunar";
+  kind: "stock" | "rocket" | "lunar" | "galilean";
   /** Stock code for StockIcon — only set when kind is "stock". */
   code?: string;
+  /** Galilean moons only: each gets its own real texture/spin rather than
+   * sharing one skin the way "lunar" shares MOON_SKIN. */
+  skin?: PhotoSkin;
+  /** Galilean moons only: the moon's own rendered diameter, in flat
+   * --body-unit multiples — unlike "lunar" (a fraction of EARTH's --size),
+   * this has to hold a fixed ratio to the real Moon's own rendered size
+   * regardless of Jupiter's much bigger --size, so it's pinned to the same
+   * unit hb-moon--lunar's width divides out of Earth's own size (90 / 3 =
+   * 30 — see MOON_UNIT) rather than derived from Jupiter's at all. */
+  sizeUnits?: number;
+  /** Galilean moons only: how far past Jupiter's own edge this ring sits, in
+   * the same flat --body-unit multiples as sizeUnits (not the stock/rocket
+   * moons' px offsetPx) — increasing per moon by more than the neighbouring
+   * pair's combined half-sizes, so the four rings clear each other. */
+  gapUnits?: number;
 }
 
 // Real texture (same Solar System Scope CC BY 4.0 source/pipeline as the
@@ -438,6 +461,139 @@ const MARS_MOONS: MoonSpec[] = [
   { key: "spacex", to: "/global?code=SPCX", ko: "SpaceX", en: "SpaceX", offsetPx: 14, durationSeconds: 9, phase: 0.25, kind: "rocket" },
 ];
 
+// One real Moon diameter, in the same --body-unit multiples hb-moon--lunar's
+// own width divides out of Earth's --size (90 / 3) — see sizeUnits' comment
+// on MoonSpec. JUPITER_MOONS' own sizeUnits are this times each moon's
+// requested ratio to the Moon (1/2, 1, 1.5, 3/5), not to Jupiter or to each
+// other directly.
+const MOON_UNIT = 30;
+
+// Real photographic textures, not the solarsystemscope.com CC BY 4.0 pack
+// the seven hub planets and the Moon use (it doesn't cover any moon past
+// Earth's own) — these four are NASA/Galileo-mission mosaics via the USGS
+// Astrogeology Science Center (public domain US government work), locally
+// cropped-in on their few small no-coverage gaps near each pole and
+// downsampled to match this project's other textures, same as every other
+// body on this page. spinSeconds increase outward (Io fastest, Callisto
+// slowest) — a small, free nod to the real Galilean moons' own orbital
+// periods actually working the same way, same idea as Venus/Uranus's
+// reverseSpin elsewhere in PLANETS.
+const IO_SKIN: PhotoSkin = { texture: "/img/planets/io.webp", spinSeconds: 5, glow: "#d9a85f" };
+const EUROPA_SKIN: PhotoSkin = { texture: "/img/planets/europa.webp", spinSeconds: 7, glow: "#d8cfba" };
+const GANYMEDE_SKIN: PhotoSkin = { texture: "/img/planets/ganymede.webp", spinSeconds: 9, glow: "#9c9483" };
+const CALLISTO_SKIN: PhotoSkin = { texture: "/img/planets/callisto.webp", spinSeconds: 11, glow: "#5f5c56" };
+
+// Real closest-to-farthest order (also this array's own order, though that
+// only affects initial DOM paint order — each ring's actual near/far pass
+// over Jupiter comes from hb-moon-depth's z-index swap, same as the Moon's).
+// gapUnits climbs by just over each pair's combined half-sizes (see
+// MoonSpec's comment) — worked out from sizeUnits below: 1.5 (matching the
+// Moon's own tight hug of Earth), then +(7.5+15+1), +(15+22.5+1),
+// +(22.5+9+1), leaving a consistent ~1-unit clear margin between every ring
+// — as tight as they can sit without two rings ever grazing each other.
+const JUPITER_MOONS: MoonSpec[] = [
+  { key: "io", to: "/sp500-map", ko: "이오", en: "Io", offsetPx: 0, durationSeconds: 14, phase: 0, kind: "galilean", skin: IO_SKIN, sizeUnits: MOON_UNIT * 0.5, gapUnits: 1.5 },
+  { key: "europa", to: "/sp500-map", ko: "유로파", en: "Europa", offsetPx: 0, durationSeconds: 24, phase: 0.35, kind: "galilean", skin: EUROPA_SKIN, sizeUnits: MOON_UNIT * 1, gapUnits: 25 },
+  { key: "ganymede", to: "/sp500-map", ko: "가니메데", en: "Ganymede", offsetPx: 0, durationSeconds: 40, phase: 0.6, kind: "galilean", skin: GANYMEDE_SKIN, sizeUnits: MOON_UNIT * 1.5, gapUnits: 63.5 },
+  { key: "callisto", to: "/sp500-map", ko: "칼리스토", en: "Callisto", offsetPx: 0, durationSeconds: 58, phase: 0.85, kind: "galilean", skin: CALLISTO_SKIN, sizeUnits: MOON_UNIT * 0.6, gapUnits: 96 },
+];
+
+// Saturn's three — real NASA/JPL (Mimas) and USGS Astrogeology Cassini-
+// mission mosaics (Enceladus, Titan), same public-domain pipeline as
+// JUPITER_MOONS' four above. Titan's real photographed colour actually is
+// this hazy orange-tan (its thick nitrogen/methane atmosphere scatters like
+// this to a camera, the same way Jupiter's own banding is real and not a
+// stylistic tint) rather than a neutral grey the way Mimas/Enceladus's icy
+// surfaces are.
+const MIMAS_SKIN: PhotoSkin = { texture: "/img/planets/mimas.webp", spinSeconds: 6, glow: "#d8d2c4" };
+const ENCELADUS_SKIN: PhotoSkin = { texture: "/img/planets/enceladus.webp", spinSeconds: 8, glow: "#eaf4ff" };
+const TITAN_SKIN: PhotoSkin = { texture: "/img/planets/titan.webp", spinSeconds: 13, glow: "#e8a35c" };
+
+// Real closest-to-farthest order — Mimas, Enceladus, then Titan much further
+// out (Titan is Saturn's largest moon by far, hence sizeUnits MOON_UNIT * 2
+// against the other two's MOON_UNIT * 0.5 each — an explicit request).
+// gapUnits follows the exact same "1.5 base, then clear each pair's combined
+// half-sizes plus ~1 unit" recipe JUPITER_MOONS' own comment above works
+// through, so these three sit just as tightly against Saturn without any of
+// them ever grazing each other.
+const SATURN_MOONS: MoonSpec[] = [
+  { key: "mimas", to: "/ai-prediction", ko: "미마스", en: "Mimas", offsetPx: 0, durationSeconds: 16, phase: 0.1, kind: "galilean", skin: MIMAS_SKIN, sizeUnits: MOON_UNIT * 0.5, gapUnits: 1.5 },
+  { key: "enceladus", to: "/ai-prediction", ko: "엔셀라두스", en: "Enceladus", offsetPx: 0, durationSeconds: 22, phase: 0.5, kind: "galilean", skin: ENCELADUS_SKIN, sizeUnits: MOON_UNIT * 0.5, gapUnits: 17.5 },
+  { key: "titan", to: "/ai-prediction", ko: "타이탄", en: "Titan", offsetPx: 0, durationSeconds: 50, phase: 0.8, kind: "galilean", skin: TITAN_SKIN, sizeUnits: MOON_UNIT * 2, gapUnits: 56 },
+];
+
+// Io's own real feature, not decoration for its own sake: it's the most
+// volcanically active body in the solar system, driven by exactly the
+// tidal flexing its tight orbit around Jupiter (and its Laplace resonance
+// with Europa/Ganymede) produces — real plumes (Pele, Loki, Tvashtar...)
+// throw material hundreds of km above the surface, easily high enough to
+// reach space. One fixed vent (an explicit request — three read as too busy
+// at Io's own tiny render size) firing its own long ejecta streak (angle +
+// full-length --flen, grown via scaleX — see .hb-io-flare/hb-io-eruption in
+// hub.css). Long enough to visibly scatter out toward Jupiter's own edge,
+// not just a puff at Io's own tiny surface — an explicit request. Flat px,
+// not --body-unit-scaled — Io's own render box is already only ~12-40px
+// depending on viewport scale, so scaling this the way the moon's own size
+// does would shrink it to nothing at the small end.
+const IO_VENTS = [
+  { top: "58%", left: "72%", angle: -35, len: 32, dur: 3.1, delay: -1.4 },
+] as const;
+
+function IoVolcanoes() {
+  return (
+    <span className="hb-io-volcanoes" aria-hidden="true">
+      {IO_VENTS.map((v, i) => (
+        <span
+          key={i}
+          className="hb-io-flare"
+          style={{
+            top: v.top,
+            left: v.left,
+            "--fang": `${v.angle}deg`,
+            "--flen": `${v.len}px`,
+            animationDuration: `${v.dur}s`,
+            animationDelay: `${v.delay}s`,
+          } as React.CSSProperties}
+        />
+      ))}
+    </span>
+  );
+}
+
+// Enceladus's own real feature: Cassini flew straight through its south-
+// polar plume and confirmed it's real liquid water venting from the
+// subsurface ocean beneath the ice — the single most famous "erupting moon"
+// in the solar system, and unlike Europa's own candidate detections, not
+// speculative. Same growing-streak rig as Io's volcano above rather than
+// discrete droplets (an explicit request — a single icy-white plume reads as
+// vapour/smoke the way Io's does as fire), just one vent at the south pole,
+// where the real "tiger stripe" fractures are (visible in enceladus.webp
+// itself), aimed outward from it.
+const ENCELADUS_VENTS = [
+  { top: "88%", left: "50%", angle: 95, len: 30, dur: 3.4, delay: 0 },
+] as const;
+
+function EnceladusFountain() {
+  return (
+    <span className="hb-enceladus-fountain" aria-hidden="true">
+      {ENCELADUS_VENTS.map((v, i) => (
+        <span
+          key={i}
+          className="hb-enceladus-flare"
+          style={{
+            top: v.top,
+            left: v.left,
+            "--fang": `${v.angle}deg`,
+            "--flen": `${v.len}px`,
+            animationDuration: `${v.dur}s`,
+            animationDelay: `${v.delay}s`,
+          } as React.CSSProperties}
+        />
+      ))}
+    </span>
+  );
+}
+
 function Moonlet({ spec, en, onOpen }: { spec: MoonSpec; en: boolean; onOpen: (to: string) => void }) {
   const label = en ? spec.en : spec.ko;
   const delay = `${-spec.durationSeconds * spec.phase}s`;
@@ -464,7 +620,7 @@ function Moonlet({ spec, en, onOpen }: { spec: MoonSpec; en: boolean; onOpen: (t
               aria-label={`${en ? "Satellite" : "위성"}: ${label}`}
               title={label}
             >
-              <RocketCraft />
+              <StarshipCraft />
             </button>
           </div>
         </div>
@@ -498,6 +654,63 @@ function Moonlet({ spec, en, onOpen }: { spec: MoonSpec; en: boolean; onOpen: (t
                 aria-label={`${en ? "Satellite" : "위성"}: ${label}`}
               >
                 <PhotoPlanetBody id="moon" skin={MOON_SKIN} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Jupiter's and Saturn's real-textured moons (JUPITER_MOONS/SATURN_MOONS).
+  // Same equatorial-ellipse rig as the Moon above, just parametrised: --rgap/
+  // --rsize (spec.gapUnits/sizeUnits) stand in for hb-earth-moon-arm's
+  // hardcoded "1.5" and hb-moon--lunar's hardcoded "/3", since each of these
+  // needs its own ring radius and its own size ratio to the real Moon rather
+  // than a single fixed one. --eq-squash is opened up a little past the
+  // Moon's own 0.1 (flatter still would read as a single line at several
+  // different radii).
+  //
+  // --eq-offset-y is NOT 0 despite wanting the ellipse dead-centred on the
+  // host planet (no Earth-style downward push) — .hb-billboard has no
+  // explicit height, so the planet button's own centring margin (top: -half
+  // its own size) collapses through it, and an absolutely positioned
+  // sibling's `top: 0` (.hb-ring-moons) ends up pinned to the planet's
+  // rendered TOP EDGE, not its centre. This pushes the whole ring system up
+  // by exactly half the host planet's own height — invisible for the small
+  // stock-badge circles, but exactly why Jupiter's moons first read as
+  // orbiting a point above Jupiter instead of Jupiter itself, before this
+  // fix. Adding that same half-height back here cancels it out for whichever
+  // planet this is nested inside; --size below is that host's own, the same
+  // host planet size hb-ring-moon-arm's translateX already reads out
+  // horizontally.
+  if (spec.kind === "galilean") {
+    const jStyle = {
+      ...style,
+      "--rgap": String(spec.gapUnits),
+      "--rsize": String(spec.sizeUnits),
+      "--eq-squash": 0.16,
+      "--eq-offset-y": "calc(var(--size) * var(--body-unit) / 2)",
+    } as React.CSSProperties;
+    // Io's own tooltip names the eruption, not just the moon — an explicit
+    // request, and reasonable given IoVolcanoes right below is rendering
+    // that same eruption. Every other moon here just gets its own name.
+    const hoverLabel = spec.key === "io" ? `${label}-화산분출중` : label;
+    return (
+      <div className="hb-moon-orbiter hb-moon-orbiter--equatorial" style={jStyle}>
+        <div className="hb-moon-depth">
+          <div className="hb-ring-moon-arm">
+            <div className="hb-moon-face hb-moon-face--equatorial">
+              <button
+                type="button"
+                className="hb-moon hb-moon--realmoon"
+                onClick={() => onOpen(spec.to)}
+                aria-label={`${en ? "Moon" : "위성"}: ${hoverLabel}`}
+                title={hoverLabel}
+              >
+                <PhotoPlanetBody id={spec.key} skin={spec.skin!} />
+                {spec.key === "io" && <IoVolcanoes />}
+                {spec.key === "enceladus" && <EnceladusFountain />}
               </button>
             </div>
           </div>
@@ -651,6 +864,16 @@ function Planet({
             {(spec.key === "earth" || spec.key === "mars") && (
               <div className="hb-moons">
                 {(spec.key === "earth" ? EARTH_MOONS : MARS_MOONS).map((moon) => (
+                  <Moonlet key={moon.key} spec={moon} en={en} onOpen={onOpen} />
+                ))}
+              </div>
+            )}
+            {(spec.key === "jupiter" || spec.key === "saturn") && (
+              // Desktop-only (see .hb-ring-moons in hub.css) — an explicit
+              // request, unlike Earth's/Mars's moons above which still show
+              // (shrunk) on mobile.
+              <div className="hb-ring-moons">
+                {(spec.key === "jupiter" ? JUPITER_MOONS : SATURN_MOONS).map((moon) => (
                   <Moonlet key={moon.key} spec={moon} en={en} onOpen={onOpen} />
                 ))}
               </div>

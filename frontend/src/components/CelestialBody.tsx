@@ -1239,75 +1239,55 @@ export function SatelliteCraft() {
 
 /* ───────────────────────────── rocket ───────────────────────────── */
 
-/** A generic two-stage rocket for the Earth→Mars run (see Hub.tsx's
- * `.hb-rocket-*` orbiter). Deliberately not a reproduction of any real launch
- * provider's actual wordmark/logo — a decorative flourish on a public page
- * isn't the kind of "identify this company" use the site's stock logos are
- * (those label the actual companies being tracked); this is drawn in the same
- * hand-built vector language as VoyagerCraft above instead, with its own
- * paint scheme so the two read as distinct craft. */
-export function RocketCraft() {
+/** Mars's satellite badge: SpaceX's actual Starship, via a real photo rather
+ * than a generic drawn rocket (an earlier version drew one instead, in the
+ * same hand-built vector language as VoyagerCraft, specifically to avoid
+ * reproducing SpaceX's own real vehicle — superseded by an explicit request
+ * for the real thing). /img/craft/starship.webp is a crop of a real
+ * CC BY-SA 4.0 launch-pad photo (Jenny Hautmann for Supercluster, via
+ * Wikimedia Commons — the full stack on its launch mount at Starbase, four
+ * days before its first test flight), with its sky background keyed out to
+ * transparent (a per-row colour-distance matte against that same photo's own
+ * sky gradient) so it drops onto this page's night sky cleanly instead of
+ * carrying a rectangular blue card with it. The photo's own real proportions
+ * are much taller/thinner than RocketCraft's stylised body (~1:5, not
+ * ~1:2.3) — kept as-is rather than stretched to the old box, since that
+ * slenderness is itself part of what reads as "the actual vehicle" here.
+ *
+ * The flame is still the same procedural gradient ellipses RocketCraft used
+ * above (a real photo of the engines lit wouldn't crop cleanly at this size,
+ * and the badge's own liftoff/hover cycle needs a flame regardless of which
+ * body it's attached to) — just pulled out on their own, since the photo
+ * replaces everything above them. */
+export function StarshipCraft() {
   return (
-    <svg viewBox="0 0 60 140" className="hb-rocket-art" aria-hidden="true" focusable="false">
-      <defs>
-        <linearGradient id="rk-body" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#7d8494" />
-          <stop offset="22%" stopColor="#eef1f7" />
-          <stop offset="48%" stopColor="#ffffff" />
-          <stop offset="62%" stopColor="#dfe4ee" />
-          <stop offset="82%" stopColor="#aab1c1" />
-          <stop offset="100%" stopColor="#6d7583" />
-        </linearGradient>
-        <linearGradient id="rk-fin" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#ea5a46" />
-          <stop offset="100%" stopColor="#8f2519" />
-        </linearGradient>
-        <linearGradient id="rk-nozzle" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#4b5262" />
-          <stop offset="55%" stopColor="#282d38" />
-          <stop offset="100%" stopColor="#111318" />
-        </linearGradient>
-        <radialGradient id="rk-flame-outer" cx="50%" cy="0%" r="85%">
-          <stop offset="0%" stopColor="#fff6d0" stopOpacity="0.9" />
-          <stop offset="35%" stopColor="#ffb454" stopOpacity="0.8" />
-          <stop offset="70%" stopColor="#ff6a3d" stopOpacity="0.4" />
-          <stop offset="100%" stopColor="#ff6a3d" stopOpacity="0" />
-        </radialGradient>
-        <radialGradient id="rk-flame-core" cx="50%" cy="0%" r="80%">
-          <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
-          <stop offset="50%" stopColor="#ffe49a" stopOpacity="0.85" />
-          <stop offset="100%" stopColor="#ffb454" stopOpacity="0" />
-        </radialGradient>
-      </defs>
-
-      {/* engine flame, trailing behind (below) the craft — a wider soft outer
-          plume plus a brighter, faster-flickering inner core for some depth */}
-      <ellipse cx="30" cy="120" rx="11" ry="28" fill="url(#rk-flame-outer)" className="hb-rocket-flame" />
-      <ellipse cx="30" cy="116" rx="5.5" ry="17" fill="url(#rk-flame-core)" className="hb-rocket-flame hb-rocket-flame--core" />
-
-      {/* engine nozzle, grounding the flame into the hull */}
-      <path d="M18 90 L42 90 L37 100 L23 100 Z" fill="url(#rk-nozzle)" stroke="#05060a" strokeWidth="0.6" />
-
-      {/* fins */}
-      <path d="M13 88 L2 120 L16 106 Z" fill="url(#rk-fin)" stroke="#6e1a11" strokeWidth="0.6" />
-      <path d="M47 88 L58 120 L44 106 Z" fill="url(#rk-fin)" stroke="#6e1a11" strokeWidth="0.6" />
-
-      {/* body */}
-      <path
-        d="M30 4 C 40 22 44 52 44 90 L16 90 C 16 52 20 22 30 4 Z"
-        fill="url(#rk-body)"
-        stroke="#5b6270"
-        strokeWidth="1"
-      />
-      {/* gloss highlight down the sunlit side */}
-      <path d="M23 14 C 20 34 18.5 58 18.5 84 L22 84 C 22 58 23.5 34 27 14 Z" fill="#ffffff" opacity="0.35" />
-      {/* nose cap */}
-      <path d="M30 4 C 34 12 37 20 38.5 30 L21.5 30 C 23 20 26 12 30 4 Z" fill="#d3392b" stroke="#8a2018" strokeWidth="0.7" />
-      {/* body stripe + window */}
-      <rect x="16" y="58" width="28" height="6" fill="#d3392b" opacity="0.9" />
-      <circle cx="30" cy="46" r="6.5" fill="#274058" stroke="#eef2f8" strokeWidth="1.6" />
-      <circle cx="28" cy="44" r="2" fill="#8fc4ff" opacity="0.8" />
-    </svg>
+    <div className="hb-starship-craft">
+      <img src="/img/craft/starship.webp" alt="" draggable={false} className="hb-starship-img" />
+      {/* Below the photo, not layered under it — starship.webp's own aspect
+          ratio already matches this badge box almost exactly, so the photo
+          covers the box edge to edge with no letterboxed gap at the bottom
+          for a same-box flame to show through. Positioned to start at the
+          box's own bottom edge and extend past it instead, the same way the
+          real exhaust trails out past the engines rather than sitting
+          inside the airframe. */}
+      <svg viewBox="0 0 60 40" className="hb-starship-flame-art" aria-hidden="true" focusable="false">
+        <defs>
+          <radialGradient id="ss-flame-outer" cx="50%" cy="0%" r="85%">
+            <stop offset="0%" stopColor="#fff6d0" stopOpacity="0.9" />
+            <stop offset="35%" stopColor="#ffb454" stopOpacity="0.8" />
+            <stop offset="70%" stopColor="#ff6a3d" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#ff6a3d" stopOpacity="0" />
+          </radialGradient>
+          <radialGradient id="ss-flame-core" cx="50%" cy="0%" r="80%">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.95" />
+            <stop offset="50%" stopColor="#ffe49a" stopOpacity="0.85" />
+            <stop offset="100%" stopColor="#ffb454" stopOpacity="0" />
+          </radialGradient>
+        </defs>
+        <ellipse cx="30" cy="4" rx="11" ry="22" fill="url(#ss-flame-outer)" className="hb-rocket-flame" />
+        <ellipse cx="30" cy="2" rx="5.5" ry="14" fill="url(#ss-flame-core)" className="hb-rocket-flame hb-rocket-flame--core" />
+      </svg>
+    </div>
   );
 }
 

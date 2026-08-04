@@ -687,17 +687,13 @@ body:has(.hb) {
   pointer-events: none;
 }
 
-/* ── rocket art ──
-   RocketCraft (CelestialBody.tsx) is reused as the Mars satellite's badge (see
-   .hb-moon-rocket below) — these two classes are the SVG's own sizing/glow
-   and its engine-flame flicker, used wherever the craft is rendered. */
-.hb-rocket-art {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-  filter: drop-shadow(0 0 5px rgba(255, 150, 90, 0.55));
-}
-
+/* ── rocket flame art ──
+   StarshipCraft's (CelestialBody.tsx) own engine-flame flicker — the sizing/
+   glow half of this pairing used to live here too as .hb-rocket-art, back
+   when a drawn RocketCraft SVG carried the flame as part of its own body;
+   StarshipCraft's flame is a separate small SVG now (see
+   .hb-starship-flame-art below) with its own sizing, but still reuses these
+   two flicker classes and keyframe unmodified. */
 .hb-rocket-flame {
   animation: hb-rocket-flicker 0.4s ease-in-out infinite alternate;
 }
@@ -712,6 +708,44 @@ body:has(.hb) {
 @keyframes hb-rocket-flicker {
   from { opacity: 0.75; transform: scaleY(0.92); }
   to { opacity: 1; transform: scaleY(1.08); }
+}
+
+/* ── Starship photo art ──
+   StarshipCraft (CelestialBody.tsx), Mars's satellite badge — a real photo
+   (starship.webp) with its own procedural flame stacked underneath, rather
+   than one all-SVG craft like RocketCraft above. */
+.hb-starship-craft {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.hb-starship-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: bottom center;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+}
+
+/* Starts at the badge's own bottom edge (top: 100%, not bottom: 0 — the
+   photo above already fills the box edge to edge at its own real aspect
+   ratio, so a same-box flame would render right underneath it, invisible)
+   and trails down past it instead, same as the real exhaust doing so past
+   the engines. Sized wider than the box (180%) so the plume isn't squeezed
+   down to the rocket's own slim real width. */
+.hb-starship-flame-art {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 180%;
+  height: auto;
+  transform: translateX(-50%);
+  overflow: visible;
+  filter: drop-shadow(0 0 5px rgba(255, 150, 90, 0.55));
 }
 
 /* ── orbiting bodies ── */
@@ -826,6 +860,20 @@ body:has(.hb) {
    boundaries fine), which is what lets `.hb-moon-arm` clear Earth's own
    rendered radius at any viewport scale. */
 .hb-moons {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
+/* Jupiter's and Saturn's own tightly-orbiting real-textured moon systems —
+   split from .hb-moons above only so they can be hidden on mobile on their
+   own (see the 640px query below) without touching Earth's/Mars's, which
+   still show (shrunk) at that breakpoint. Shared by both hosts (see
+   JUPITER_MOONS/SATURN_MOONS in Hub.tsx) — nothing here is Jupiter-specific,
+   var(--size) already resolves to whichever planet this sits inside. */
+.hb-ring-moons {
   position: absolute;
   top: 0;
   left: 0;
@@ -981,6 +1029,20 @@ body:has(.hb) {
   transform: translateX(calc((var(--size) * var(--body-unit) / 2) + (1.5 * var(--body-unit))));
 }
 
+/* ── Jupiter's and Saturn's real-textured moons ──
+   Same idea as .hb-earth-moon-arm above, generalised: each host's moons need
+   their own ring radius rather than one hardcoded "1.5", so --rgap (set
+   inline per moon — see gapUnits on JUPITER_MOONS/SATURN_MOONS in Hub.tsx)
+   takes that constant's place. var(--size) here is still the HOST planet's
+   own, same as it is for every other arm on this page — this same class
+   works unmodified whichever of the two it's nested inside. */
+.hb-ring-moon-arm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translateX(calc((var(--size) * var(--body-unit) / 2) + (var(--rgap) * var(--body-unit))));
+}
+
 /* ── Mars's rocket ──
    Unlike the stock-badge moons above, the rocket doesn't sweep around Mars —
    it stays parked over the north pole and cycles between resting there and
@@ -1044,10 +1106,11 @@ body:has(.hb) {
 }
 
 /* Shared shell for both satellite kinds — sizing/position/interaction only.
-   Neither kind paints a background here any more: SatelliteCraft and
-   RocketCraft (CelestialBody.tsx) are full-bleed SVGs that supply their own
-   silhouette, so a circular badge behind them would just show as a mismatched
-   edge. Sized at 40px — the logos read as barely-legible dots below that. */
+   Neither kind paints a background here any more: SatelliteCraft is a
+   full-bleed SVG and StarshipCraft (CelestialBody.tsx) is a transparent-
+   background photo, both already supplying their own silhouette, so a
+   circular badge behind either would just show as a mismatched edge. Sized
+   at 40px — the logos read as barely-legible dots below that. */
 .hb-moon {
   position: relative;
   display: block;
@@ -1102,17 +1165,17 @@ body:has(.hb) {
   box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85), 0 0 0 2.5px rgba(0, 0, 0, 0.35);
 }
 
-/* Mars's satellite: RocketCraft's own art already reads as a small craft at
-   its own aspect ratio, so this just gives the SVG room at that shape instead
-   of the square stock-satellite box. Anchored by its BOTTOM edge (margin-top
-   is the full box height, not half) rather than centred like the stock
-   satellites above — the rocket's landed position needs to place its engine
-   on the surface, not its geometric middle, so `.hb-mars-rocket-arm` below
+/* Mars's satellite: sized to starship.webp's own real aspect ratio (~1:5,
+   much slimmer than RocketCraft's old stylised ~1:2.3 body) rather than the
+   square stock-satellite box. Anchored by its BOTTOM edge (margin-top is the
+   full box height, not half) rather than centred like the stock satellites
+   above — the rocket's landed position needs to place its engine on the
+   surface, not its geometric middle, so `.hb-mars-rocket-arm` below
    positions this box's bottom edge directly instead of a centre point. */
 .hb-moon--rocket {
-  width: 24px;
-  height: 55px;
-  margin: -55px 0 0 -12px;
+  width: 12px;
+  height: 62px;
+  margin: -62px 0 0 -6px;
 }
 
 /* Earth's Moon: sized to a third of Earth's own rendered diameter (an
@@ -1150,6 +1213,123 @@ body:has(.hb) {
 .hb-moon--lunar:hover .hb-photobody,
 .hb-moon--lunar:focus-visible .hb-photobody {
   filter: drop-shadow(2px 4px 3px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.65)) drop-shadow(0 0 9px rgba(200, 210, 230, 0.55));
+}
+
+/* Jupiter's and Saturn's real-textured moons: same construction as
+   .hb-moon--lunar above (a real PhotoPlanetBody texture, so it needs the
+   same shadow/glow re-scope), just sized off --rsize (each moon's own
+   --body-unit-multiple diameter — see MoonSpec.sizeUnits) rather than a
+   fixed fraction of the host planet's own --size, since every one of these
+   holds its ratio to the real Moon, not to whichever planet it orbits. */
+.hb-moon--realmoon {
+  width: calc(var(--rsize) * var(--body-unit));
+  height: calc(var(--rsize) * var(--body-unit));
+  margin: calc(var(--rsize) * var(--body-unit) / -2) 0 0 calc(var(--rsize) * var(--body-unit) / -2);
+  min-width: 10px;
+  min-height: 10px;
+  border-radius: 50%;
+}
+
+.hb-moon--realmoon .hb-photo-disc {
+  box-shadow:
+    2px 4px 3px rgba(0, 0, 0, 0.55),
+    0 0 5px rgba(224, 177, 119, 0.4);
+}
+
+.hb-moon--realmoon .hb-photobody {
+  transition: filter 0.25s ease;
+}
+
+.hb-moon--realmoon:hover .hb-photobody,
+.hb-moon--realmoon:focus-visible .hb-photobody {
+  filter: drop-shadow(2px 4px 3px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.65)) drop-shadow(0 0 9px rgba(224, 177, 119, 0.55));
+}
+
+/* Io's volcanic plumes (see IO_VENTS/IoVolcanoes in Hub.tsx) — real tidal
+   heating from Jupiter, not invented decoration. Sits over PhotoPlanetBody
+   as a plain sibling overlay, inheriting .hb-moon's own counter-rotation so
+   the three vents stay planted on the same spots on the disc rather than
+   spinning independently of the surface they're erupting from. */
+.hb-io-volcanoes {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* A streak, not a dot: full length is --flen (set per vent in Hub.tsx),
+   grown via scaleX from the vent point outward — transform-origin pins the
+   growth to the LEFT edge (the vent itself) rather than the streak's own
+   centre, so it reads as shooting out from that fixed spot rather than
+   expanding from its middle. Faded to transparent at its own far end via
+   the gradient (not just via the whole element's opacity) so the tip always
+   reads as dispersing ash even mid-burst, not a hard-edged bar. */
+.hb-io-flare {
+  position: absolute;
+  width: var(--flen);
+  height: 2.2px;
+  left: 0;
+  top: 0;
+  margin-top: -1.1px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #fff8df 0%, #ffcf7a 18%, #ff8a3d 48%, #ff5722 72%, transparent 100%);
+  box-shadow: 0 0 4px 1px rgba(255, 130, 45, 0.6);
+  opacity: 0;
+  transform-origin: 0% 50%;
+  animation-name: hb-io-eruption;
+  animation-timing-function: ease-out;
+  animation-iteration-count: infinite;
+}
+
+/* Grows out along --fang (the vent's fixed ejection angle) from a sliver to
+   its full --flen, then keeps drifting a little further while thinning
+   (scaleY down) and fading — real plumes disperse into ash well past their
+   own fountain height rather than snapping off cleanly, so the streak
+   overshoots and dissolves instead of just shrinking back to nothing. */
+@keyframes hb-io-eruption {
+  0% { transform: rotate(var(--fang)) scaleX(0.06) scaleY(1.3); opacity: 0; }
+  15% { opacity: 1; }
+  55% { transform: rotate(var(--fang)) scaleX(1) scaleY(1); opacity: 0.92; }
+  100% { transform: rotate(var(--fang)) scaleX(1.35) scaleY(0.35); opacity: 0; }
+}
+
+/* Enceladus's south-polar water plume (see ENCELADUS_VENTS/EnceladusFountain
+   in Hub.tsx) — real, Cassini-confirmed liquid water, not invented
+   decoration. Same growing-streak construction as .hb-io-flare (an explicit
+   request — reads as vapour/smoke the way that one reads as fire), just an
+   icy white-to-blue gradient in place of the fire ramp, and a softer blur so
+   the plume itself looks diffuse rather than a hard-edged jet. */
+.hb-enceladus-fountain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hb-enceladus-flare {
+  position: absolute;
+  width: var(--flen);
+  height: 3.4px;
+  left: 0;
+  top: 0;
+  margin-top: -1.7px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #ffffff 0%, #e6f6ff 30%, #a9d8f5 62%, #6fb8e6 82%, transparent 100%);
+  box-shadow: 0 0 4px 1px rgba(180, 220, 255, 0.55);
+  filter: blur(0.4px);
+  opacity: 0;
+  transform-origin: 0% 50%;
+  animation-name: hb-enceladus-jet;
+  animation-timing-function: ease-out;
+  animation-iteration-count: infinite;
+}
+
+/* Same shape as hb-io-eruption — grows from a sliver to its full --flen along
+   --fang, then keeps drifting on a little further while thinning and fading,
+   as the vapour disperses into space past its own fountain height. */
+@keyframes hb-enceladus-jet {
+  0% { transform: rotate(var(--fang)) scaleX(0.06) scaleY(1.6); opacity: 0; }
+  15% { opacity: 1; }
+  55% { transform: rotate(var(--fang)) scaleX(1) scaleY(1); opacity: 0.85; }
+  100% { transform: rotate(var(--fang)) scaleX(1.4) scaleY(0.3); opacity: 0; }
 }
 
 .hb-planet {
@@ -1727,6 +1907,10 @@ body:has(.hb) {
      between Mars's and Jupiter's rings for this anyway. */
   .hb-asteroid-belt { display: none; }
 
+  /* Jupiter's and Saturn's real-textured moons: desktop-only per an explicit
+     request, unlike Earth's/Mars's moons just below which still show, shrunk. */
+  .hb-ring-moons { display: none; }
+
   /* Half the desktop size (40px → 20px) — the Samsung/SK satellites. */
   .hb-moon:not(.hb-moon--rocket):not(.hb-moon--lunar) {
     width: 20px;
@@ -1739,11 +1923,11 @@ body:has(.hb) {
     height: 9px;
   }
 
-  /* Half the desktop size (24x55 → 12x27.5) — the Mars/SpaceX satellite. */
+  /* Half the desktop size (12x62 → 6x31) — the Mars/SpaceX satellite. */
   .hb-moon--rocket {
-    width: 12px;
-    height: 27.5px;
-    margin: -27.5px 0 0 -6px;
+    width: 6px;
+    height: 31px;
+    margin: -31px 0 0 -3px;
   }
 
   /* Cancels the desktop-only extra sink (see .hb-mars-rocket-arm) — at this
@@ -2124,7 +2308,9 @@ body:has(.hb) {
   .hb-photo-spin,
   .hb-corona-pulse,
   .hb-bloom-pulse,
-  .hb-wordmark-main {
+  .hb-wordmark-main,
+  .hb-io-flare,
+  .hb-enceladus-flare {
     animation: none;
   }
 
