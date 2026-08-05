@@ -93,6 +93,9 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
       localization: { dateFormat: "MM.dd" },
       height: 380,
       autoSize: true,
+      // Let a vertical touch drag fall through to page scroll instead of being
+      // captured as a chart gesture; horizontal drag still pans the time axis.
+      handleScroll: { vertTouchDrag: false },
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {

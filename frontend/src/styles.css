@@ -1494,6 +1494,7 @@ a.app-brand:hover .app-logo-wide {
   gap: 2px;
   max-height: 720px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .news-item {
@@ -3690,6 +3691,7 @@ thead .weekly-foreign-amount-col {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -5030,6 +5032,7 @@ thead .weekly-foreign-amount-col {
   min-height: 0;
   overflow-y: auto;
   overflow-x: auto;
+  overscroll-behavior: contain;
 }
 
 .balance-table {
@@ -6394,6 +6397,7 @@ thead .weekly-foreign-amount-col {
   gap: 10px;
   max-height: 420px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding-top: 4px;
 }
 
