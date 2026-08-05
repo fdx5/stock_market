@@ -693,6 +693,14 @@ a.app-brand:hover .app-logo-wide {
     scrollbar-width: none;
   }
 
+  /* Without this, flexbox shrinks every pill to cram the row onto one line before
+     ever consulting overflow-x — the row never actually scrolled, it just crushed
+     the pills' width and clipped their text. flex-shrink: 0 forces overflow (and
+     therefore the scrollbar) to kick in instead. */
+  .kospi-map-nav-link {
+    flex-shrink: 0;
+  }
+
   .app-nav-row::-webkit-scrollbar {
     display: none;
   }
