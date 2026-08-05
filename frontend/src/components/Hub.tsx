@@ -3465,8 +3465,10 @@ export default function Hub() {
               {status.label}
             </span>
             <h1 className="hb-wordmark">
-              <span className="hb-wordmark-main">K-STOCK</span>
-              <span className="hb-wordmark-sub">HUB</span>
+              <Link to="/dashboard" className="hb-wordmark-link">
+                <span className="hb-wordmark-main">K-STOCK</span>
+                <span className="hb-wordmark-sub">HUB</span>
+              </Link>
             </h1>
             <p className="hb-tagline">
               {en ? "Every market signal, in one place." : "증시의 모든 정보가 여기서 만납니다"}
@@ -3560,8 +3562,8 @@ export default function Hub() {
                 onClick={() => open("/dashboard")}
                 aria-label={en ? "Star: Home (dashboard)" : "항성: 홈 (대시보드)"}
               >
-                <span className="hb-star-face">
-                  <span className="hb-star-dest">HUB</span>
+                <span className="hb-tag hb-star-tag">
+                  <span className="hb-tag-name">HUB</span>
                 </span>
               </button>
             </div>

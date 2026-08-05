@@ -525,6 +525,14 @@ body:has(.hb) {
   font-weight: 800;
 }
 
+/* No box of its own — the two spans it wraps keep laying out as direct flex
+   children of .hb-wordmark, exactly as before this became a link. */
+.hb-wordmark-link {
+  display: contents;
+  text-decoration: none;
+  cursor: pointer;
+}
+
 .hb-wordmark-main {
   font-size: clamp(38px, 7.2vw, 92px);
   letter-spacing: clamp(2px, 0.6vw, 10px);
@@ -1757,36 +1765,9 @@ body:has(.hb) {
   outline: none;
 }
 
-/* The glows are decoration only — the button underneath has to stay clickable
-   across its whole face. */
-.hb-star-face {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  /* The photosphere behind this is near-white at its centre, so the label is
-     dark-on-light — an outline or a glow here would be unreadable. */
-  color: #5c1f04;
-  text-shadow: 0 1px 0 rgba(255, 240, 200, 0.6);
-  pointer-events: none;
-}
-
-.hb-star-enter {
-  font-family: var(--mono);
-  font-size: clamp(9px, 1vw, 11px);
-  letter-spacing: 0.34em;
-  font-weight: 700;
-  opacity: 0.72;
-  text-indent: 0.34em;
-}
-
-.hb-star-dest {
-  font-size: clamp(15px, 1.7vw, 21px);
-  font-weight: 800;
-  letter-spacing: 0.02em;
-}
+/* The star's own label now reuses the planets' .hb-tag (see Planet above) so
+   it sits below the sun the same way every other body's name sits below it,
+   rather than printed on the photosphere itself. */
 
 /* ─────────────────────────── hint ─────────────────────────── */
 
