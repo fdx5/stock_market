@@ -680,6 +680,24 @@ a.app-brand:hover .app-logo-wide {
   margin-left: auto;
 }
 
+/* A foldable's unfolded inner screen (roughly 641-900px, either orientation) is
+   wider than a phone but still too narrow for ~10 nav pills on one line, and it
+   sits above the 640px breakpoint where the phone layout below switches the row
+   to horizontal scroll. Give it the same single-line scroll treatment here so the
+   row doesn't wrap to a second line in that band. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .app-nav-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .app-nav-row::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 .app-subtitle {
   font-size: 13px;
   color: var(--text-secondary);
@@ -2670,6 +2688,19 @@ a.app-brand:hover .app-logo-wide {
   width: 62px;
   height: 30px;
   flex: none;
+}
+
+/* .macro-rates stays a two-column grid at every width, so a foldable's unfolded
+   inner screen (roughly 641-900px) lands in a band where each column is still
+   phone-narrow but wider than the 640px breakpoint that hides the spark below.
+   The nowrap label text then overflows its shrunk flex box and paints over the
+   chart next to it. Regular phones dodge this because the spark is already gone
+   by the time columns get that narrow — extend the same hide up through the fold
+   band instead of trying to fit icon + text + chart into a column with no room. */
+@media (min-width: 641px) and (max-width: 900px) {
+  .macro-rate-spark {
+    display: none;
+  }
 }
 
 .investor-table-wrap {
