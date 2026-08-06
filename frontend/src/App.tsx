@@ -8,10 +8,22 @@ import { useRoute } from "./router";
 // InvestorTrend use) instead of every route's code landing in one bundle regardless
 // of which page a visitor lands on first.
 const Dashboard = lazy(() => import("./components/Dashboard"));
-// The entrance. "/" is now a gateway rather than a dashboard — the stock desk it
-// used to be lives at /dashboard and is reached from the star at the centre of
-// this page. Anything that means "open a stock" now targets /dashboard?code=.
-const Hub = lazy(() => import("./components/Hub"));
+/* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
+   used to be lives at /dashboard and is reached from the star at the centre of
+   the page. Anything that means "open a stock" targets /dashboard?code=.
+
+   Two entrances have been built against that same site map. This is the second
+   one: the solar system rendered in WebGL rather than in CSS 3D transforms.
+   The first one — components/Hub.tsx, with hub.css and CelestialBody.tsx —
+   is deliberately still in the tree but is no longer routed anywhere, so it
+   ships in no chunk and is reachable from no URL. It is kept, not deleted, so
+   the CSS-3D version stays available to read and to bring back; putting it
+   back online is one `else if` here. Note that it is still type-checked, since
+   tsconfig includes all of src/.
+
+   Lazy like every other route and, unlike the CSS one, genuinely worth it:
+   this chunk pulls in three.js and its post-processing stack. */
+const HubType2 = lazy(() => import("./components/HubType2"));
 const InvestorTrendPage = lazy(() => import("./components/InvestorTrendPage"));
 const IndexChartPage = lazy(() => import("./components/IndexChartPage"));
 // The three sibling card boards — top 100 by size, grouped by 업종. All three render
@@ -89,8 +101,10 @@ export default function App() {
     page = <AdminDbPage />;
   } else {
     // "/" and anything unrecognised land on the entrance rather than dropping
-    // straight into the stock desk.
-    page = <Hub />;
+    // straight into the stock desk. "/type2" lands here too — it was this
+    // page's address while it was being built alongside the old entrance, and
+    // is kept working so that any link made in the meantime still resolves.
+    page = <HubType2 />;
   }
 
   // The fallback stays silent for its first 2.5s (see LoadingState): a cached route

@@ -1,0 +1,414 @@
+/* ============================================================================
+   ORBIT II — the world's contents.
+   ----------------------------------------------------------------------------
+   Type 2 of the entrance. The original (/) draws the same solar system out of
+   CSS 3D transforms; this one hands it to WebGL, so everything here is in
+   *scene units* rather than design pixels and the numbers do not carry over.
+
+   One unit ≈ one sun radius / 8. The layout is not to scale (nothing legible
+   ever is — Neptune is 30 AU out and Jupiter is 11 Earths wide), but every
+   relative ordering the real system has is kept: radii strictly increase
+   outward, Jupiter is the largest planet, Saturn's rings are the widest
+   feature, Venus and Uranus spin backwards, and each moon set sits in its
+   host's equatorial plane in real closest-to-farthest order.
+
+   Destinations are deliberately identical to the type-1 hub's, body for body,
+   so the two entrances are two *renderings* of one site map rather than two
+   different site maps. See Hub.tsx's PLANETS/MOONS for the original.
+   ========================================================================= */
+
+/** Which live index prints on a body, if any. */
+export type FeedKey = "KOSPI" | "KOSDAQ" | "SPX" | "NDX";
+
+export interface RingSpec {
+  /** Inner/outer radius as a multiple of the host's own radius. */
+  inner: number;
+  outer: number;
+  /** Radians the ring plane is tipped off the host's equator. */
+  tilt: number;
+  color: [number, number, number];
+  /** Saturn's rings are a broad banded sheet; Uranus's are a set of thin,
+   * dark, widely separated hoops. One shader, two very different looks. */
+  style: "saturn" | "uranus";
+  opacity: number;
+}
+
+export interface MoonSpec {
+  key: string;
+  ko: string;
+  en: string;
+  /** Where clicking it goes. Moons mostly echo their host, except Earth's two
+   * corporate satellites, which open their own stock pages. */
+  to: string;
+  texture: string;
+  /** Orbit radius in scene units, measured from the host's centre. */
+  radius: number;
+  /** Body radius in scene units. */
+  size: number;
+  /** Seconds for one revolution. */
+  period: number;
+  /** Where on the ring it starts, 0..1. */
+  phase: number;
+  /** Seconds for one rotation about its own axis. */
+  spin: number;
+  /** Rim/atmosphere tint, also the colour its HUD label glows. */
+  glow: string;
+  /** Earth's Samsung/SK hynix satellites are logo billboards, not textured
+   * spheres — there is no photograph of a company. */
+  logo?: string;
+  /** Mars's Starship: a sprite that climbs and lands rather than an orbiter. */
+  craft?: "starship";
+  /** Io's plumes and Enceladus's geysers — real features of exactly these two
+   * bodies, and the only two moons that get their own particle emitter. */
+  vent?: "io" | "enceladus";
+}
+
+export interface PlanetSpec {
+  key: string;
+  ko: string;
+  en: string;
+  to: string;
+  texture: string;
+  /** Orbit radius in scene units. */
+  radius: number;
+  /** Body radius in scene units. */
+  size: number;
+  /** Seconds for one revolution around the star. */
+  period: number;
+  phase: number;
+  /** Seconds for one rotation. Negative = retrograde (Venus, Uranus). */
+  spin: number;
+  /** Rim colour — the atmospheric scattering halo on the lit limb, and the
+   * body's HUD accent. */
+  glow: string;
+  /** How much atmosphere the rim shader gives it. Airless rocks (Mercury)
+   * get almost none; the ice giants get a lot. */
+  atmosphere: number;
+  /** Radians the orbit is tipped off the ecliptic, so the rings don't all
+   * collapse into one line when the camera drops near the plane. */
+  inclination: number;
+  /** Per-body exposure trim, 1 = untouched. The textures are real albedo maps
+   * and their mean brightness varies by more than a factor of two, so a single
+   * global gain cannot light them all: at a level that reads well for Saturn's
+   * pale, near-flat gas, Mercury's rock and Neptune's deep blue render as
+   * near-black dots — accurate, and useless on a page where "click the planet
+   * you recognise" IS the navigation. Saturn and Uranus are pulled slightly
+   * *down* so that the shared gain, raised for the other six, leaves the two
+   * ringed bodies looking exactly as they did. */
+  brightness: number;
+  feed?: FeedKey;
+  ring?: RingSpec;
+  moons?: MoonSpec[];
+}
+
+const TEX = "/img/planets";
+
+/* ─────────────────────────── moons ─────────────────────────── */
+
+const EARTH_MOONS: MoonSpec[] = [
+  {
+    key: "moon",
+    ko: "달",
+    en: "Moon",
+    to: "/map",
+    texture: `${TEX}/moon.webp`,
+    radius: 3.6,
+    size: 0.55,
+    period: 24,
+    phase: 0,
+    spin: 24, // tidally locked, like the real one
+    glow: "#cfc9be",
+  },
+  {
+    key: "samsung",
+    ko: "삼성전자",
+    en: "Samsung",
+    to: "/dashboard?code=005930",
+    texture: "",
+    radius: 5.2,
+    size: 0.42,
+    period: 9,
+    phase: 0.15,
+    spin: 9,
+    glow: "#5fa8ff",
+    logo: "005930",
+  },
+  {
+    key: "skhynix",
+    ko: "SK하이닉스",
+    en: "SK hynix",
+    to: "/dashboard?code=000660",
+    texture: "",
+    radius: 6.6,
+    size: 0.42,
+    period: 13,
+    phase: 0.62,
+    spin: 13,
+    glow: "#ffb45c",
+    logo: "000660",
+  },
+];
+
+const MARS_MOONS: MoonSpec[] = [
+  {
+    key: "starship",
+    ko: "SpaceX",
+    en: "SpaceX",
+    // SpaceX is on no exchange this app tracks; GlobalStockPage reads ?code=
+    // itself, and a relative path keeps local dev pointed at local dev.
+    to: "/global?code=SPCX",
+    texture: "",
+    radius: 3.1,
+    size: 0.5,
+    period: 11,
+    phase: 0.3,
+    spin: 11,
+    glow: "#ffd9a8",
+    craft: "starship",
+  },
+];
+
+/* Real closest-to-farthest order. Sizes hold the real ratios to each other
+   (Ganymede largest, Europa smallest of the four) rather than to Jupiter,
+   which at true scale would make all four invisible. */
+const JUPITER_MOONS: MoonSpec[] = [
+  { key: "io", ko: "이오", en: "Io", to: "/sp500-map", texture: `${TEX}/io.webp`, radius: 7.2, size: 0.62, period: 16, phase: 0, spin: 16, glow: "#d9a85f", vent: "io" },
+  { key: "europa", ko: "유로파", en: "Europa", to: "/sp500-map", texture: `${TEX}/europa.webp`, radius: 9.0, size: 0.54, period: 26, phase: 0.35, spin: 26, glow: "#d8cfba" },
+  { key: "ganymede", ko: "가니메데", en: "Ganymede", to: "/sp500-map", texture: `${TEX}/ganymede.webp`, radius: 11.4, size: 0.92, period: 42, phase: 0.6, spin: 42, glow: "#9c9483" },
+  { key: "callisto", ko: "칼리스토", en: "Callisto", to: "/sp500-map", texture: `${TEX}/callisto.webp`, radius: 14.2, size: 0.85, period: 62, phase: 0.85, spin: 62, glow: "#5f5c56" },
+];
+
+const SATURN_MOONS: MoonSpec[] = [
+  { key: "mimas", ko: "미마스", en: "Mimas", to: "/ai-prediction", texture: `${TEX}/mimas.webp`, radius: 8.6, size: 0.34, period: 18, phase: 0.1, spin: 18, glow: "#d8d2c4" },
+  { key: "enceladus", ko: "엔셀라두스", en: "Enceladus", to: "/ai-prediction", texture: `${TEX}/enceladus.webp`, radius: 10.4, size: 0.4, period: 26, phase: 0.5, spin: 26, glow: "#eaf4ff", vent: "enceladus" },
+  { key: "titan", ko: "타이탄", en: "Titan", to: "/ai-prediction", texture: `${TEX}/titan.webp`, radius: 13.8, size: 0.96, period: 52, phase: 0.8, spin: 52, glow: "#e8a35c" },
+];
+
+/* ─────────────────────────── planets ─────────────────────────── */
+
+export const PLANETS: PlanetSpec[] = [
+  {
+    key: "mercury",
+    ko: "글로벌 뉴스",
+    en: "GLOBAL NEWS",
+    to: "/news",
+    texture: `${TEX}/mercury.webp`,
+    radius: 26,
+    size: 1.05,
+    period: 34,
+    phase: 0.06,
+    spin: 9,
+    glow: "#c9beae",
+    atmosphere: 0.12, // effectively none — Mercury has no air to scatter
+    inclination: 0.06,
+    // Dark, airless rock — the darkest surface of the eight.
+    brightness: 1.5,
+  },
+  {
+    key: "venus",
+    ko: "코스닥",
+    en: "KOSDAQ",
+    to: "/kosdaq-map",
+    texture: `${TEX}/venus.webp`,
+    radius: 37,
+    size: 1.85,
+    period: 40,
+    phase: 0.56,
+    spin: -13, // retrograde, as the real Venus is
+    glow: "#f5e2ab",
+    atmosphere: 1.0, // the thickest atmosphere of any rocky planet
+    inclination: -0.04,
+    // Bright cloud deck already; needs the least help.
+    brightness: 1.25,
+    feed: "KOSDAQ",
+  },
+  {
+    key: "earth",
+    ko: "코스피",
+    en: "KOSPI",
+    to: "/map",
+    texture: `${TEX}/earth.webp`,
+    radius: 50,
+    size: 1.95,
+    period: 50,
+    phase: 0.2,
+    spin: 11,
+    glow: "#5fa8ff",
+    atmosphere: 0.85,
+    inclination: 0,
+    // Oceans cover most of the disc and drink the light.
+    brightness: 1.45,
+    feed: "KOSPI",
+    moons: EARTH_MOONS,
+  },
+  {
+    key: "mars",
+    ko: "나스닥 100",
+    en: "NASDAQ 100",
+    to: "/nasdaq100-map",
+    texture: `${TEX}/mars.webp`,
+    radius: 65,
+    size: 1.4,
+    period: 58,
+    phase: 0.68,
+    spin: 10,
+    glow: "#ff8f5c",
+    atmosphere: 0.3,
+    inclination: 0.05,
+    // Dust is redder and darker than it photographs.
+    brightness: 1.4,
+    feed: "NDX",
+    moons: MARS_MOONS,
+  },
+  {
+    key: "jupiter",
+    ko: "S&P 500",
+    en: "S&P 500",
+    to: "/sp500-map",
+    texture: `${TEX}/jupiter.webp`,
+    radius: 96,
+    size: 4.6,
+    period: 74,
+    phase: 0.78,
+    spin: 16,
+    glow: "#e0b177",
+    atmosphere: 0.55,
+    inclination: -0.03,
+    // Banded but reasonably bright to begin with.
+    brightness: 1.25,
+    feed: "SPX",
+    moons: JUPITER_MOONS,
+  },
+  {
+    key: "saturn",
+    ko: "AI 예측",
+    en: "AI FORECAST",
+    to: "/ai-prediction",
+    texture: `${TEX}/saturn.webp`,
+    radius: 132,
+    size: 3.9,
+    period: 66,
+    phase: 0.42,
+    spin: 18,
+    glow: "#e8cf9a",
+    atmosphere: 0.5,
+    inclination: 0.09,
+    // Pale gas plus the brightest rings on the page. Held where it was.
+    brightness: 0.8,
+    ring: { inner: 1.28, outer: 2.35, tilt: 0.47, color: [0.93, 0.85, 0.7], style: "saturn", opacity: 1 },
+    moons: SATURN_MOONS,
+  },
+  {
+    key: "uranus",
+    ko: "시총 대결",
+    en: "CAP BATTLE",
+    to: "/fight",
+    texture: `${TEX}/uranus.webp`,
+    radius: 164,
+    size: 2.5,
+    period: 84,
+    phase: 0.14,
+    spin: -14, // retrograde: its axis is tipped ~98°
+    glow: "#8fe9e0",
+    atmosphere: 0.95,
+    inclination: -0.07,
+    // Flat pale cyan, and ringed. Held where it was.
+    brightness: 0.8,
+    // Which is also why its rings stand almost vertical against Saturn's.
+    ring: { inner: 1.5, outer: 2.0, tilt: 1.5, color: [0.55, 0.72, 0.78], style: "uranus", opacity: 0.75 },
+  },
+  {
+    key: "neptune",
+    ko: "글로벌 시총",
+    en: "GLOBAL TOP 100",
+    to: "/global-top100",
+    texture: `${TEX}/neptune.webp`,
+    radius: 194,
+    size: 2.4,
+    period: 104,
+    phase: 0.32,
+    spin: 15,
+    glow: "#4d6dff",
+    atmosphere: 1.0,
+    inclination: 0.04,
+    // Deep blue, and the darkest body here after Mercury.
+    brightness: 1.7,
+  },
+];
+
+/* ─────────────────────── the things off the plane ───────────────────────
+   Three bodies that are not part of the orbital system and are positioned in
+   the sky instead: the two TOP 100 boards and the probe. They keep the type-1
+   hub's own pairing — the hole opens KOSPI's board, the neutron binary opens
+   KOSDAQ's — so that neither market's board is reachable only through the
+   other's. */
+
+export interface LandmarkSpec {
+  key: string;
+  ko: string;
+  en: string;
+  to: string;
+  /** Fixed world position. Well outside Neptune's orbit, and off the ecliptic
+   * so a camera sitting in the plane still sees them clear of the rings. */
+  position: [number, number, number];
+}
+
+export const BLACK_HOLE: LandmarkSpec = {
+  key: "blackhole",
+  ko: "코스피 TOP 100",
+  en: "KOSPI TOP 100",
+  to: "/kospi-100",
+  position: [-215, 46, -150],
+};
+
+export const NEUTRON_BINARY: LandmarkSpec = {
+  key: "neutron",
+  ko: "코스닥 TOP 100",
+  en: "KOSDAQ TOP 100",
+  to: "/kosdaq-100",
+  position: [235, 62, -120],
+};
+
+export const VOYAGER: LandmarkSpec = {
+  key: "voyager",
+  ko: "글로벌 뉴스",
+  en: "GLOBAL NEWS",
+  to: "/news",
+  // Not actually fixed — the probe coasts outward on its own track and this is
+  // only where it starts. See the scene's voyager rig.
+  position: [0, 18, 0],
+};
+
+export const STAR: LandmarkSpec = {
+  key: "sun",
+  ko: "대시보드",
+  en: "DASHBOARD",
+  to: "/dashboard",
+  position: [0, 0, 0],
+};
+
+/** Every clickable destination, in the order the HUD dock lists them. Built
+ * from the same specs the 3D scene reads, so the dock can never drift out of
+ * sync with what is actually in the sky. */
+export interface Destination {
+  key: string;
+  ko: string;
+  en: string;
+  to: string;
+  feed?: FeedKey;
+  accent: string;
+}
+
+export const DESTINATIONS: Destination[] = [
+  { key: "sun", ko: "대시보드", en: "DASHBOARD", to: "/dashboard", accent: "#ffce6a" },
+  ...PLANETS.map((p) => ({ key: p.key, ko: p.ko, en: p.en, to: p.to, feed: p.feed, accent: p.glow })),
+  { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, to: BLACK_HOLE.to, accent: "#ff9a4d" },
+  { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, to: NEUTRON_BINARY.to, accent: "#9fd0ff" },
+];
+
+/** Pluto: not a destination. It drifts in from the black hole's left, is torn
+ * apart by it, and the cycle repeats — the type-1 hub's signature event, kept.
+ * (It is also, by the IAU's 2006 reckoning, no longer a planet, which is the
+ * joke.) */
+export const PLUTO_TEXTURE = `${TEX}/pluto.webp`;
+export const SUN_TEXTURE = `${TEX}/sun.webp`;

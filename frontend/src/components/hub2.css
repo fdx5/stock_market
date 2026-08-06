@@ -1,0 +1,1025 @@
+/* ============================================================================
+   ORBIT II — the HUD.
+   ----------------------------------------------------------------------------
+   Everything on this page that is text or a control. The scene inside
+   `.h2-stage` is WebGL and is styled by nothing here except its own size.
+
+   Two rules the whole file follows:
+
+   1. The HUD never competes with the sky. It is thin, cold, monospaced-ish
+      and sits in the corners; the only saturated colour in it comes from
+      `--accent`, which each destination supplies for itself.
+   2. Layout is corner-anchored, not flowed. There is no document to scroll —
+      the page is exactly one viewport — so every block is positioned against
+      an edge and the responsive work is about which edges stay occupied as
+      the viewport shrinks, not about reflowing a column.
+   ========================================================================= */
+
+.h2 {
+  --hud: rgba(224, 236, 255, 0.92);
+  --hud-dim: rgba(170, 190, 220, 0.62);
+  --hud-faint: rgba(140, 165, 200, 0.34);
+  --panel: rgba(8, 14, 30, 0.42);
+  --panel-line: rgba(130, 170, 230, 0.16);
+  --up: #2fe08a;
+  --down: #ff5f6d;
+  --edge: clamp(14px, 2.4vw, 34px);
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #02040a;
+  color: var(--hud);
+  font-family: "Inter", "Pretendard", system-ui, -apple-system, sans-serif;
+  /* The scene handles its own gestures; letting the page rubber-band on top
+     of a drag is what makes a WebGL canvas feel broken on iOS. */
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
+/* Every HUD block fades in only once the first frame is actually on screen,
+   so the chrome never sits over a black rectangle waiting for the scene. */
+.h2-lockup,
+.h2-chrome,
+.h2-readout,
+.h2-camera,
+.h2-dock,
+.h2-hint,
+.h2-tier {
+  opacity: 0;
+  transition: opacity 0.9s ease 0.15s, transform 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.15s;
+  pointer-events: none;
+}
+
+.h2.is-ready .h2-lockup,
+.h2.is-ready .h2-chrome,
+.h2.is-ready .h2-readout,
+.h2.is-ready .h2-camera,
+.h2.is-ready .h2-dock,
+.h2.is-ready .h2-hint,
+.h2.is-ready .h2-tier {
+  opacity: 1;
+  transform: none;
+}
+
+/* Controls take pointer events back; the blocks that are only text never do,
+   so a drag started over the tagline still rotates the camera. */
+.h2.is-ready .h2-chrome,
+.h2.is-ready .h2-camera,
+.h2.is-ready .h2-dock,
+.h2.is-ready .h2-wordmark-link {
+  pointer-events: auto;
+}
+
+/* ─────────────────────────── the scene ─────────────────────────── */
+
+.h2-stage {
+  position: absolute;
+  inset: 0;
+}
+
+.h2-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+
+.h2-canvas:active {
+  cursor: grabbing;
+}
+
+/* ── the floating body labels. Created and positioned by scene.ts; this file
+      only says what they look like. `will-change: transform` because every one
+      of them is written on every frame. ── */
+.h2-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.h2-tag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  color: var(--hud);
+  background: rgba(6, 11, 24, 0.5);
+  border: 1px solid rgba(150, 185, 240, 0.14);
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  opacity: 0;
+  will-change: transform, opacity;
+  /* Offset away from the body so the tag sits beside it rather than over it.
+     --offset is written per frame by the scene from the body's apparent
+     radius; the fallback covers the first frame. Composited with the
+     translate3d the scene writes to `transform`. */
+  translate: var(--offset, 14px) -50%;
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.h2-tag.is-on {
+  /* Opacity itself is written per frame by the scene (it fades labels with
+     distance), so there is nothing to transition here — this class only marks
+     that the label is in play at all. */
+  display: flex;
+}
+
+.h2-tag:not(.is-on) {
+  display: none;
+}
+
+.h2-tag.is-hot {
+  background: rgba(10, 18, 38, 0.82);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 6px 26px -8px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.h2-tag-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 9px var(--accent);
+  flex: none;
+}
+
+.h2-tag-name {
+  font-weight: 600;
+}
+
+.h2-tag-val {
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  opacity: 0.85;
+}
+
+.h2-tag-val:empty {
+  display: none;
+}
+
+.h2-tag[data-tone="up"] .h2-tag-val {
+  color: var(--up);
+}
+
+.h2-tag[data-tone="down"] .h2-tag-val {
+  color: var(--down);
+}
+
+.h2-tag.is-secondary {
+  font-size: 10.5px;
+  padding: 3px 9px 3px 7px;
+}
+
+/* ─────────────────────────── the boot curtain ─────────────────────────── */
+
+.h2-boot {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 26px;
+  background: radial-gradient(circle at 50% 46%, #0a1024 0%, #02040a 62%);
+  transition: opacity 1.1s ease 0.25s, visibility 0s linear 1.4s;
+}
+
+.h2.is-ready .h2-boot {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.h2-boot-mark {
+  position: relative;
+  width: 74px;
+  height: 74px;
+  display: grid;
+  place-items: center;
+}
+
+.h2-boot-core {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #ffd27a;
+  box-shadow: 0 0 24px 5px rgba(255, 178, 84, 0.75);
+  animation: h2-breathe 2.4s ease-in-out infinite;
+}
+
+.h2-boot-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(150, 185, 240, 0.2);
+  border-top-color: rgba(180, 214, 255, 0.9);
+  animation: h2-spin 1.5s linear infinite;
+}
+
+@keyframes h2-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@keyframes h2-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+
+.h2-boot-text {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.42em;
+  text-indent: 0.42em;
+  color: var(--hud-dim);
+}
+
+/* ─────────────────────────── identity ─────────────────────────── */
+
+.h2-lockup {
+  position: absolute;
+  top: var(--edge);
+  left: var(--edge);
+  z-index: 6;
+  transform: translateY(-10px);
+}
+
+.h2-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px 4px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--hud-dim);
+}
+
+.h2-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.h2-status.is-open {
+  color: var(--up);
+}
+
+.h2-status.is-open .h2-status-dot {
+  box-shadow: 0 0 10px currentColor;
+  animation: h2-pulse 1.9s ease-in-out infinite;
+}
+
+.h2-status.is-pre {
+  color: #ffc46b;
+}
+
+.h2-status.is-closed {
+  color: rgba(160, 180, 210, 0.7);
+}
+
+@keyframes h2-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.h2-wordmark {
+  margin: 12px 0 0;
+  font-size: clamp(30px, 5.4vw, 62px);
+  line-height: 0.94;
+  letter-spacing: -0.03em;
+  font-weight: 800;
+}
+
+.h2-wordmark-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.32em;
+  color: inherit;
+  text-decoration: none;
+}
+
+.h2-wordmark-main {
+  background: linear-gradient(96deg, #ffffff 0%, #cfe0ff 46%, #8fb6ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  text-shadow: 0 0 42px rgba(120, 165, 255, 0.28);
+}
+
+.h2-wordmark-sub {
+  font-size: 0.34em;
+  letter-spacing: 0.4em;
+  font-weight: 600;
+  color: var(--hud-faint);
+  transform: translateY(-0.35em);
+}
+
+.h2-wordmark-link:hover .h2-wordmark-sub {
+  color: var(--hud-dim);
+}
+
+.h2-tagline {
+  margin: 10px 0 0;
+  font-size: clamp(11px, 1.3vw, 13.5px);
+  letter-spacing: 0.03em;
+  color: var(--hud-dim);
+  /* ch is sized off the Latin "0" and badly understates Korean glyphs, which
+     is how a one-line tagline ended up breaking with a single syllable on the
+     second row. */
+  max-width: min(38ch, 42vw);
+}
+
+/* ─────────────────────────── chrome, top right ─────────────────────────── */
+
+.h2-chrome {
+  position: absolute;
+  top: var(--edge);
+  right: var(--edge);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+  transform: translateY(-10px);
+}
+
+.h2-clocks {
+  display: flex;
+  gap: 8px;
+}
+
+.h2-clock {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.h2-clock-code {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  color: var(--hud-faint);
+}
+
+.h2-clock-time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--hud-dim);
+}
+
+.h2-toggles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The two shared site controls carry their own styles from styles.css; these
+   only reseat them against a dark, glassy background rather than the app's
+   normal surface. */
+.h2-toggles .lang-toggle,
+.h2-toggles .theme-toggle {
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: 8px;
+}
+
+/* ─────────────────────────── the index readout ─────────────────────────── */
+
+.h2-readout {
+  position: absolute;
+  left: var(--edge);
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 5;
+  display: grid;
+  gap: 1px;
+  padding: 10px;
+  min-width: 168px;
+  border-radius: 12px;
+  /* Denser and more defined than the rest of the chrome. This is the one panel
+     on the page carrying numbers a visitor is meant to *read* rather than
+     glance at, and the shared --panel translucency left it sitting almost
+     invisibly on the starfield. */
+  background: rgba(6, 12, 26, 0.66);
+  border: 1px solid rgba(140, 180, 235, 0.24);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transform: translateX(-12px);
+}
+
+.h2.is-ready .h2-readout {
+  transform: none;
+}
+
+.h2-readout-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 6px 6px;
+  border-radius: 7px;
+  position: relative;
+}
+
+/* A hairline that reads as a tick on a gauge rather than as a table rule. */
+.h2-readout-row + .h2-readout-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 6px;
+  right: 6px;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(140, 175, 230, 0.16), transparent);
+}
+
+/* Not --hud-faint. That token is 0.34 alpha, which is right for a decorative
+   caption and far too dark for a label naming a live number — against the
+   black sky these ticker names were barely legible. */
+.h2-readout-name {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: rgba(200, 218, 245, 0.84);
+}
+
+.h2-readout-val {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.h2-readout-row.is-up .h2-readout-val {
+  color: var(--up);
+  text-shadow: 0 0 16px color-mix(in srgb, var(--up) 45%, transparent);
+}
+
+.h2-readout-row.is-down .h2-readout-val {
+  color: var(--down);
+  text-shadow: 0 0 16px color-mix(in srgb, var(--down) 45%, transparent);
+}
+
+/* Flat, or not yet loaded. Still has to be readable — this is the state the
+   panel sits in for the first second of every visit. */
+.h2-readout-row.is-flat .h2-readout-val {
+  color: rgba(214, 228, 250, 0.9);
+}
+
+/* ─────────────────────────── the focus card ─────────────────────────── */
+
+.h2-focus {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--edge) + 6px);
+  translate: -50% 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(8, 14, 30, 0.62);
+  border: 1px solid var(--panel-line);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.28s ease, transform 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.h2-focus.is-on {
+  opacity: 1;
+  transform: none;
+}
+
+.h2-focus-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 14px var(--accent);
+}
+
+.h2-focus-name {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+}
+
+.h2-focus-val {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.h2-focus-val.is-up {
+  color: var(--up);
+}
+
+.h2-focus-val.is-down {
+  color: var(--down);
+}
+
+/* ─────────────────────────── camera controls ─────────────────────────── */
+
+.h2-camera {
+  position: absolute;
+  right: var(--edge);
+  top: 50%;
+  translate: 0 -50%;
+  z-index: 6;
+  display: grid;
+  gap: 8px;
+  justify-items: stretch;
+  transform: translateX(12px);
+}
+
+.h2.is-ready .h2-camera {
+  transform: none;
+}
+
+.h2-cam-btn {
+  appearance: none;
+  display: block;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-align: center;
+  text-decoration: none;
+  color: var(--hud-dim);
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+}
+
+.h2-cam-btn:hover {
+  color: var(--hud);
+  border-color: rgba(150, 190, 255, 0.34);
+  background: rgba(14, 24, 48, 0.6);
+}
+
+.h2-cam-btn:active {
+  transform: scale(0.97);
+}
+
+.h2-cam-btn.is-on {
+  color: #9fd0ff;
+  border-color: rgba(120, 180, 255, 0.5);
+  box-shadow: 0 0 0 1px rgba(120, 180, 255, 0.14), 0 8px 28px -12px rgba(120, 180, 255, 0.8);
+}
+
+/* ─────────────────────────── the dock ─────────────────────────── */
+
+.h2-dock {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--edge) + 26px);
+  z-index: 8;
+  transform: translateY(14px);
+}
+
+.h2-dock-rail {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0 var(--edge);
+  list-style: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  /* One row at every width — the list is eleven destinations long and wrapping
+     it would eat a third of a phone screen. Snap so a flick lands on a button
+     rather than between two. */
+  scroll-snap-type: x proximity;
+  justify-content: center;
+  /* A viewport too narrow to centre in has to be able to scroll to both ends,
+     which `justify-content: center` alone breaks in a flex scroller. */
+  justify-content: safe center;
+  -webkit-overflow-scrolling: touch;
+}
+
+.h2-dock-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.h2-dock-rail > li {
+  flex: none;
+  scroll-snap-align: center;
+}
+
+.h2-dock-btn {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: var(--hud-dim);
+  background: rgba(8, 14, 30, 0.52);
+  border: 1px solid var(--panel-line);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease, transform 0.18s ease,
+    box-shadow 0.2s ease;
+}
+
+/* The accent dot is the only place a destination's own colour appears in the
+   HUD, which is what ties a button to the body it flies to. */
+.h2-dock-btn::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+  flex: none;
+}
+
+.h2-dock-btn:hover,
+.h2-dock-btn:focus-visible {
+  color: var(--hud);
+  background: rgba(14, 24, 48, 0.72);
+  border-color: color-mix(in srgb, var(--accent) 46%, transparent);
+  box-shadow: 0 10px 30px -14px color-mix(in srgb, var(--accent) 85%, transparent);
+  transform: translateY(-2px);
+  outline: none;
+}
+
+.h2-dock-btn:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.h2-dock-btn:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.h2-dock-val {
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+.h2-dock-btn.is-up .h2-dock-val {
+  color: var(--up);
+}
+
+.h2-dock-btn.is-down .h2-dock-val {
+  color: var(--down);
+}
+
+/* ─────────────────────────── footnotes ─────────────────────────── */
+
+.h2-hint {
+  position: absolute;
+  left: 50%;
+  translate: -50% 0;
+  bottom: calc(var(--edge) - 4px);
+  z-index: 5;
+  margin: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  color: var(--hud-faint);
+  text-align: center;
+  padding: 0 var(--edge);
+}
+
+.h2-tier {
+  position: absolute;
+  left: var(--edge);
+  bottom: calc(var(--edge) - 6px);
+  z-index: 5;
+  margin: 0;
+  font-size: 9px;
+  letter-spacing: 0.2em;
+  color: rgba(140, 165, 200, 0.28);
+}
+
+/* ─────────────────────────── the fallback ─────────────────────────── */
+
+.h2.is-fallback {
+  display: grid;
+  place-content: center;
+  background: radial-gradient(circle at 50% 30%, #0b1226 0%, #02040a 68%);
+  padding: var(--edge);
+}
+
+.h2-fallback {
+  max-width: 620px;
+  text-align: center;
+}
+
+.h2-fallback .h2-wordmark {
+  margin: 0;
+}
+
+.h2-fallback-note {
+  margin: 16px 0 28px;
+  color: var(--hud-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.h2-fallback-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.h2-fallback-list a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 15px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--hud-dim);
+  background: rgba(8, 14, 30, 0.6);
+  border: 1px solid var(--panel-line);
+}
+
+.h2-fallback-list a::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.h2-fallback-list a:hover {
+  color: var(--hud);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* ═══════════════════════════ responsive ═══════════════════════════
+   Three bands, and the question at each is which edges can stay occupied.
+
+   Tablet/portrait: the side rails are the first thing to go — a readout
+   pinned to the left edge of a 820px-wide viewport sits on top of Venus.
+   Both fold into the top row.
+
+   Phone: the wordmark shrinks, the dock becomes the primary navigation and
+   grows a comfortable tap height, and the camera controls move to a single
+   row above it so nothing overlaps the sky's middle third, which is where the
+   bodies you are meant to be tapping actually are.
+
+   Short landscape (a phone turned sideways) is its own case: vertical space,
+   not horizontal, is what has run out. */
+
+@media (max-width: 1080px) {
+  .h2-readout {
+    top: auto;
+    bottom: calc(var(--edge) + 92px);
+    translate: none;
+    /* Three tickers, one row — the panel is full-width down here, and a
+       two-column grid would leave the last one orphaned on a line of its own. */
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    min-width: 0;
+    left: var(--edge);
+    right: var(--edge);
+  }
+
+  .h2-readout-row + .h2-readout-row::before {
+    display: none;
+  }
+
+  .h2-camera {
+    top: calc(var(--edge) + 108px);
+    translate: none;
+    grid-auto-flow: column;
+    justify-items: end;
+    gap: 6px;
+  }
+
+  .h2-cam-btn {
+    width: auto;
+    padding: 8px 11px;
+    font-size: 9px;
+  }
+
+  /* Below this width the sentence wraps and runs underneath the dock. There is
+     nowhere left to put it, and it is the least load-bearing thing on screen. */
+  .h2-hint {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .h2 {
+    --edge: 12px;
+  }
+
+  .h2-lockup {
+    max-width: 62vw;
+  }
+
+  .h2-tagline {
+    display: none;
+  }
+
+  .h2-chrome {
+    gap: 8px;
+  }
+
+  .h2-clocks {
+    /* Two clocks and two toggles will not share a row on a 360px screen; the
+       clocks are the less useful half of that pair on a phone. */
+    display: none;
+  }
+
+  .h2-camera {
+    top: auto;
+    bottom: calc(var(--edge) + 148px);
+    left: var(--edge);
+    right: var(--edge);
+    justify-items: stretch;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+  }
+
+  .h2-readout {
+    bottom: calc(var(--edge) + 88px);
+    padding: 7px;
+    gap: 0;
+  }
+
+  .h2-readout-name {
+    font-size: 9px;
+  }
+
+  .h2-readout-val {
+    font-size: 12px;
+  }
+
+  .h2-dock {
+    bottom: calc(var(--edge) + 22px);
+  }
+
+  .h2-dock-rail {
+    gap: 6px;
+    /* Left-aligned rather than centred once the rail always overflows: a
+       centred overflowing scroller starts the visitor in the middle of the
+       list with no sign that anything precedes it. */
+    justify-content: flex-start;
+  }
+
+  .h2-dock-btn {
+    /* 44px tall — a real tap target, not a desktop pill shrunk down. */
+    padding: 13px 15px;
+    font-size: 12px;
+  }
+
+  .h2-focus {
+    top: auto;
+    bottom: calc(var(--edge) + 196px);
+    font-size: 12px;
+  }
+
+  /* No room for it: at this width the sentence wraps to three lines and runs
+     underneath the dock. The dock is self-explanatory and the bodies are
+     obviously tappable, so the instruction is the thing to drop. */
+  .h2-hint,
+  .h2-tier {
+    display: none;
+  }
+
+  /* Secondary labels (moons, the probe) are hover-only, and a touch screen has
+     no hover — they would only ever appear for the instant of a tap. */
+  .h2-tag.is-secondary {
+    display: none !important;
+  }
+
+  .h2-tag {
+    font-size: 10.5px;
+    padding: 3px 8px 3px 6px;
+    gap: 5px;
+  }
+}
+
+/* A phone in landscape: ~360px of height for everything. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .h2 {
+    --edge: 10px;
+  }
+
+  .h2-wordmark {
+    font-size: 26px;
+  }
+
+  .h2-tagline,
+  .h2-hint,
+  .h2-readout {
+    display: none;
+  }
+
+  .h2-camera {
+    top: var(--edge);
+    bottom: auto;
+    left: auto;
+    right: calc(var(--edge) + 118px);
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+  }
+
+  .h2-dock {
+    bottom: var(--edge);
+  }
+
+  .h2-dock-btn {
+    padding: 9px 13px;
+  }
+
+  .h2-focus {
+    top: auto;
+    bottom: calc(var(--edge) + 56px);
+  }
+}
+
+/* ═══════════════════════════ preferences ═══════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  /* The scene slows its own animation and skips the intro flight (see
+     scene.ts); this is the HUD's half of the same setting. */
+  .h2-boot-ring,
+  .h2-boot-core,
+  .h2-status.is-open .h2-status-dot {
+    animation: none;
+  }
+
+  .h2-lockup,
+  .h2-chrome,
+  .h2-readout,
+  .h2-camera,
+  .h2-dock,
+  .h2-hint,
+  .h2-tier {
+    transition: opacity 0.2s ease;
+    transform: none;
+  }
+}
+
+/* This page is a night sky in either theme — a light-mode entrance would mean
+   a white HUD over a black scene, which is neither theme. The site's toggle
+   still works; it just takes effect on the page you land on next. */
+:root[data-theme="light"] .h2 {
+  color-scheme: dark;
+}

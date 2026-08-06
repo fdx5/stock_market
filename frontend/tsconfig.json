@@ -3,6 +3,10 @@
     "target": "ES2020",
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    // Vite's ambient types — `import.meta.env` (and the asset-import module
+    // declarations) are otherwise unknown to tsc, which only ever sees the
+    // source and not Vite's own transform.
+    "types": ["vite/client"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
