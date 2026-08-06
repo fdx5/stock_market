@@ -98,6 +98,10 @@ export default function HubType2() {
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const [hovered, setHovered] = useState<BodyInfo | null>(null);
+  /* The body the camera has taken as its pivot. Two things depend on it: the
+     prompt telling the visitor a second tap will open it, and the "release"
+     control that hands the camera back to the whole system. */
+  const [focused, setFocused] = useState<BodyInfo | null>(null);
   const [tier, setTier] = useState<Tier>("ultra");
   const [tour, setTour] = useState(false);
   const [kospi, setKospi] = useState<IndexQuote | null>(null);
@@ -185,6 +189,7 @@ export default function HubType2() {
       scene = new HubScene(mount, {
         onHover: (body) => setHovered(body),
         onSelect: handleSelect,
+        onFocus: (body) => setFocused(body),
         onReady: () => setReady(true),
         onTier: (next) => setTier(next),
       }, tier);
@@ -334,18 +339,39 @@ export default function HubType2() {
         })}
       </aside>
 
-      {/* ── the hovered body's name, following nothing: parked in a fixed spot
-             so it never fights the label the scene already draws on the body
-             itself, and so it does not jitter on touch ── */}
-      <div className={`h2-focus${hovered ? " is-on" : ""}`} aria-live="polite">
-        {hovered && (
-          <>
-            <span className="h2-focus-dot" style={{ ["--accent" as string]: hovered.accent }} aria-hidden="true" />
-            <span className="h2-focus-name">{en ? hovered.en : hovered.ko}</span>
-            {hovered.feed && <span className={`h2-focus-val is-${toneOf(feed[hovered.feed])}`}>{pct(feed[hovered.feed])}</span>}
-          </>
-        )}
-      </div>
+      {/* ── the body under the pointer, or the one the camera is holding:
+             parked in a fixed spot so it never fights the label the scene
+             already draws on the body itself, and so it does not jitter on
+             touch. The focused body wins, because that is the one whose next
+             tap does something irreversible. ──
+
+             This is also the only place the two-step rule is spelled out. A
+             visitor who taps Jupiter and finds the camera has flown to it
+             rather than opened it needs to be told, once, what the second tap
+             will do — otherwise the page just looks like it ignored them. */}
+      {(() => {
+        const shown = focused ?? hovered;
+        if (!shown) return <div className="h2-focus" aria-live="polite" />;
+        const isFocused = focused?.key === shown.key;
+        return (
+          <div
+            className={`h2-focus is-on${isFocused ? " is-locked" : ""}`}
+            /* On the card, not just the dot: the locked state tints its own
+               border and glow with it too. */
+            style={{ ["--accent" as string]: shown.accent }}
+            aria-live="polite"
+          >
+            <span className="h2-focus-dot" aria-hidden="true" />
+            <span className="h2-focus-name">{en ? shown.en : shown.ko}</span>
+            {shown.feed && <span className={`h2-focus-val is-${toneOf(feed[shown.feed])}`}>{pct(feed[shown.feed])}</span>}
+            {isFocused && (
+              <span className="h2-focus-hint">
+                {en ? "Tap again to open" : "한 번 더 누르면 이동"}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── camera controls ── */}
       <div className="h2-camera">
@@ -357,7 +383,9 @@ export default function HubType2() {
             sceneRef.current?.resetCamera();
           }}
         >
-          {en ? "RESET VIEW" : "시점 초기화"}
+          {/* Doubles as "let go of the body the camera is holding" — which is
+              why it names that when there is one. */}
+          {focused ? (en ? "RELEASE" : "포커스 해제") : en ? "RESET VIEW" : "시점 초기화"}
         </button>
         <button
           type="button"
@@ -396,8 +424,8 @@ export default function HubType2() {
 
       <p className="h2-hint">
         {en
-          ? "Drag to look around · pinch or scroll to zoom · tap a body to travel"
-          : "드래그로 시점 이동 · 두 손가락/휠로 확대 · 천체를 누르면 해당 화면으로 이동"}
+          ? "Drag to look around · pinch or scroll to zoom · tap a body to focus it, tap again to open"
+          : "드래그로 시점 이동 · 두 손가락/휠로 확대 · 천체를 누르면 초점 이동, 한 번 더 누르면 해당 화면으로"}
       </p>
 
       {tier !== "ultra" && (

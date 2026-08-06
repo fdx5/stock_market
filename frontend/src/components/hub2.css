@@ -559,6 +559,32 @@
   color: var(--down);
 }
 
+/* Held by the camera: brighter, and tinted with the body's own accent so the
+   card reads as belonging to the thing that is now the centre of the view. */
+.h2-focus.is-locked {
+  background: rgba(10, 18, 38, 0.82);
+  border-color: color-mix(in srgb, var(--accent, #9fd0ff) 42%, transparent);
+  box-shadow: 0 8px 34px -14px color-mix(in srgb, var(--accent, #9fd0ff) 80%, transparent);
+}
+
+.h2-focus-hint {
+  padding-left: 10px;
+  margin-left: 2px;
+  border-left: 1px solid rgba(150, 185, 240, 0.22);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+  color: var(--hud-dim);
+}
+
+@media (max-width: 760px) {
+  /* The card is centred above the dock here and the hint would push it wider
+     than the viewport. The instruction still lives in the boot hint and, more
+     to the point, the first tap teaches it. */
+  .h2-focus-hint {
+    display: none;
+  }
+}
+
 /* ─────────────────────────── camera controls ─────────────────────────── */
 
 .h2-camera {

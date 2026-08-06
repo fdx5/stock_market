@@ -140,9 +140,14 @@ export interface BodyInfo {
 export interface SceneCallbacks {
   /** Pointer entered/left a body. `null` on leave. */
   onHover(body: BodyInfo | null): void;
-  /** A body was chosen. Fires at the *end* of the fly-to, which is what makes
-   * the transition read as arriving somewhere rather than as a delay. */
+  /** A body was chosen — open its destination. From the sky this is the
+   * *second* tap on an already-focused body; from the dock it fires at the end
+   * of the fly-to, which is what makes that transition read as arriving
+   * somewhere rather than as a delay. */
   onSelect(body: BodyInfo): void;
+  /** The camera has taken a body as its pivot, or let go of one. The shell
+   * uses it to say that a second tap will open it. */
+  onFocus(body: BodyInfo | null): void;
   /** The moment the first frame is on screen — the shell fades its overlay. */
   onReady(): void;
   onTier(tier: Tier): void;
@@ -464,8 +469,13 @@ export class HubScene {
     toTarget: THREE.Vector3;
     t: number;
     duration: number;
-    /** Fired on arrival. The intro flight has none. */
+    /** Fired on arrival. Only the dock's "go here" flights carry one — a tap
+     * in the sky focuses without navigating, and the intro has none. */
     body: BodyInfo | null;
+    /** The body being flown to, when it is one. Planets keep orbiting during
+     * the flight, so the destination is re-aimed at it every frame; without
+     * this the camera arrives where the body *was* a second ago. */
+    follow: THREE.Object3D | null;
   } | null = null;
   private warp = 0;
   /** Set the first time the visitor moves the camera themselves. After that a
@@ -479,7 +489,13 @@ export class HubScene {
   private tourTimer = 0;
 
   private hovered: BodyInfo | null = null;
+  /** The body the camera is currently centred on, if any. Two things hang off
+   * it: the orbit controls pivot around this body rather than the sun (so
+   * zooming goes toward what you are looking at), and a second tap on it opens
+   * its destination instead of re-framing it. */
   private selectedKey: string | null = null;
+  /** The scene object `controls.target` tracks. Null means the sun. */
+  private followAnchor: THREE.Object3D | null = null;
   private feedValues: FeedMap = { KOSPI: null, KOSDAQ: null, SPX: null, NDX: null };
   private lang: "ko" | "en" = "ko";
   private pulse = 0;
@@ -1411,14 +1427,31 @@ export class HubScene {
 
       label.anchor.getWorldPosition(this.tmpV);
       this.tmpV.project(this.camera);
-      /* Kept inside the frame. A body near the edge otherwise pushes its own
-         name off it — and the two landmarks most likely to sit there are the
-         black hole and the neutron binary, i.e. the only routes to the two
-         TOP 100 boards. The label is anchored to the right of its body (see
-         .h2-tag's translate in hub2.css), so the right margin has to allow for
-         its own width; 150px covers the longest of them. */
-      const x = Math.min(Math.max(this.tmpV.x * halfW + halfW, 12), rect.width - 150);
-      const y = Math.min(Math.max(-this.tmpV.y * halfH + halfH, 14), rect.height - 14);
+      const rawX = this.tmpV.x * halfW + halfW;
+      const rawY = -this.tmpV.y * halfH + halfH;
+
+      /* A body genuinely outside the frame gets no label at all. Clamping is
+         only meant to rescue a body sitting *on* the edge whose caption would
+         hang off it — the black hole and the neutron binary, being the only
+         routes to the two TOP 100 boards, are the ones that matters for.
+         Applied unconditionally it does the opposite: fly the camera down to
+         Saturn and every other body in the system, most of them now far behind
+         the viewport, stacks its name in a row along the top border. */
+      const slackX = rect.width * 0.06;
+      const slackY = rect.height * 0.06;
+      if (rawX < -slackX || rawX > rect.width + slackX || rawY < -slackY || rawY > rect.height + slackY) {
+        if (label.visible) {
+          label.el.classList.remove("is-on");
+          label.visible = false;
+        }
+        continue;
+      }
+
+      // The label is anchored to the right of its body (see .h2-tag's
+      // translate in hub2.css), so the right margin has to allow for its own
+      // width; 150px covers the longest of them.
+      const x = Math.min(Math.max(rawX, 12), rect.width - 150);
+      const y = Math.min(Math.max(rawY, 14), rect.height - 14);
 
       /* Stand the label off by the body's own apparent radius, so it sits
          beside what it names instead of on top of it. A fixed offset works
@@ -1509,7 +1542,7 @@ export class HubScene {
 
     this.setPointerFromEvent(event);
     const hit = this.pick();
-    if (hit) this.select(hit.info);
+    if (hit) this.tapBody(hit.info);
   };
 
   private pick(): Pickable | null {
@@ -1548,6 +1581,7 @@ export class HubScene {
       t: 0,
       duration: 3.4,
       body: null,
+      follow: null,
     });
   }
 
@@ -1566,20 +1600,47 @@ export class HubScene {
     return target.clone().add(dir.multiplyScalar(distance));
   }
 
-  /** Fly to a body and, on arrival, tell the shell to navigate. A second call
-   * while one is in flight retargets rather than queueing. */
-  select(info: BodyInfo) {
-    const pickable = this.pickables.find((p) => p.info.key === info.key);
-    if (!pickable) {
+  /** What a tap on a body in the sky does.
+   *
+   * Two steps, deliberately. A single tap used to fly to the body and then
+   * navigate, which meant a visitor could never actually *look* at anything —
+   * pointing at Jupiter to see it left the page. So the first tap frames the
+   * body and hands the camera to it: from then on dragging orbits that body
+   * and the wheel/pinch zooms toward it rather than toward the sun. Only a
+   * second tap on the same body opens its destination.
+   *
+   * The rule is uniform across every clickable thing in the scene — the star,
+   * the eight planets, the moons, the black hole, the neutron binary and the
+   * probe — so there is never a body whose first tap does something else. */
+  tapBody(info: BodyInfo) {
+    if (this.selectedKey === info.key) {
       this.callbacks.onSelect(info);
       return;
     }
-    this.selectedKey = info.key;
-    const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
+    this.focusOn(info);
+  }
 
+  /** Frames a body and makes it the camera's pivot. Does not navigate. */
+  focusOn(info: BodyInfo, duration = 1.05) {
+    const pickable = this.pickables.find((p) => p.info.key === info.key);
+    if (!pickable) return false;
+
+    this.selectedKey = info.key;
+    this.followAnchor = pickable.anchor;
+    this.callbacks.onFocus(info);
+
+    /* Let the camera get properly close. The shared floor of 14 units is set
+       for the whole-system view and would hold you at arm's length from
+       Mercury, which is one unit across. */
+    this.controls.minDistance = Math.max(info.size * 1.7, 2.2);
+
+    const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
     if (this.reducedMotion) {
-      this.callbacks.onSelect(info);
-      return;
+      // No tween, but still re-seat the camera so the body is centred and the
+      // pivot is where the follow logic expects it.
+      this.camera.position.copy(this.framePosition(target, info.size));
+      this.controls.target.copy(target);
+      return true;
     }
 
     this.beginFlight({
@@ -1589,29 +1650,56 @@ export class HubScene {
       toTarget: target,
       t: 0,
       // Short enough to feel like a response to the tap rather than a cutscene.
-      duration: 1.05,
-      body: info,
+      duration,
+      body: null,
+      follow: pickable.anchor,
     });
-  }
-
-  /** Called by the HUD dock, which knows destinations by key rather than by
-   * the body object the raycaster hands back. Returns false when no body in
-   * the sky carries that key, so the caller can navigate directly instead of
-   * waiting for a fly-to that will never arrive. */
-  selectByKey(key: string): boolean {
-    const pickable = this.pickables.find((p) => p.info.key === key);
-    if (!pickable) return false;
-    this.select(pickable.info);
     return true;
   }
 
+  /** The HUD dock's "go here": fly, then open. The dock is the page's explicit
+   * navigation — a list of destinations, reachable by keyboard — so it stays
+   * one press. Exploring is what the sky is for. Returns false when no body
+   * carries that key, so the caller can navigate directly instead of waiting
+   * for a fly-to that will never arrive. */
+  selectByKey(key: string): boolean {
+    const pickable = this.pickables.find((p) => p.info.key === key);
+    if (!pickable) return false;
+    const info = pickable.info;
+
+    if (this.reducedMotion) {
+      this.callbacks.onSelect(info);
+      return true;
+    }
+
+    this.selectedKey = info.key;
+    const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
+    this.beginFlight({
+      fromPos: this.camera.position.clone(),
+      toPos: this.framePosition(target, info.size),
+      fromTarget: this.controls.target.clone(),
+      toTarget: target,
+      t: 0,
+      duration: 1.05,
+      body: info,
+      follow: pickable.anchor,
+    });
+    return true;
+  }
+
+  /** Dock hover: highlight only. Never moves the camera. */
   focusByKey(key: string | null) {
+    if (this.selectedKey && this.followAnchor) return; // a real focus outranks a hover
     this.selectedKey = key;
   }
 
+  /** Back to the whole system, and hand the pivot back to the sun. */
   resetCamera() {
     this.selectedKey = null;
+    this.followAnchor = null;
     this.userMoved = false;
+    this.controls.minDistance = 14;
+    this.callbacks.onFocus(null);
     this.beginFlight({
       fromPos: this.camera.position.clone(),
       toPos: this.restPosition(),
@@ -1620,6 +1708,7 @@ export class HubScene {
       t: 0,
       duration: 1.5,
       body: null,
+      follow: null,
     });
   }
 
@@ -1638,17 +1727,10 @@ export class HubScene {
     this.tourIndex = (this.tourIndex + 1) % order.length;
     const pickable = this.pickables.find((p) => p.info.key === order[this.tourIndex]);
     if (!pickable) return;
-    const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
-    this.selectedKey = pickable.info.key;
-    this.beginFlight({
-      fromPos: this.camera.position.clone(),
-      toPos: this.framePosition(target, pickable.info.size * 1.6),
-      fromTarget: this.controls.target.clone(),
-      toTarget: target,
-      t: 0,
-      duration: 2.6,
-      body: null, // a tour looks, it does not navigate
-    });
+    // A tour looks, it does not navigate — which is exactly what focusing a
+    // body does, so it goes through the same path. Slower, and framed a little
+    // wider, because nobody asked to be taken there.
+    this.focusOn(pickable.info, 2.6);
   }
 
   /** Starts a camera move and takes the controls away for its duration.
@@ -1666,12 +1748,42 @@ export class HubScene {
     this.controls.autoRotate = false;
   }
 
+  /** Rides the focused body. Called after the orbital update so the body's
+   * position is this frame's, and before controls.update() so the pivot is
+   * already right when the controls re-derive the camera from it.
+   *
+   * The camera is translated by the same delta as the target, which is what
+   * makes this a follow rather than a snap: the visitor's own orbit angle and
+   * zoom distance are preserved while the body carries the whole rig along its
+   * orbit. */
+  private updateFollow() {
+    if (!this.followAnchor || this.flight) return;
+    this.followAnchor.getWorldPosition(this.tmpV);
+    this.tmpV2.copy(this.tmpV).sub(this.controls.target);
+    if (this.tmpV2.lengthSq() < 1e-10) return;
+    this.controls.target.copy(this.tmpV);
+    this.camera.position.add(this.tmpV2);
+  }
+
   private updateFlight(dt: number) {
     if (!this.flight) {
       this.warp *= Math.exp(-dt * 5);
       return;
     }
     const f = this.flight;
+
+    /* Re-aim at the body as it moves. Planets do not wait for the camera:
+       over a one-second flight Mercury travels a visible fraction of its
+       orbit, and a destination captured at take-off lands the camera beside
+       an empty patch of sky. Shifting `toPos` by the same delta keeps the
+       framing that framePosition() worked out. */
+    if (f.follow) {
+      f.follow.getWorldPosition(this.tmpV);
+      this.tmpV2.copy(this.tmpV).sub(f.toTarget);
+      f.toTarget.copy(this.tmpV);
+      f.toPos.add(this.tmpV2);
+    }
+
     f.t += dt / f.duration;
     const done = f.t >= 1;
     const t = clamp01(f.t);
@@ -1738,6 +1850,18 @@ export class HubScene {
       if (this.idleFor > 22 && !this.reducedMotion) this.controls.autoRotate = true;
     }
     this.advanceTour(dt);
+
+    /* Order matters here, and it is the whole reason the orbital update sits
+       above the controls rather than below them:
+
+         1. move the bodies, so the focused one's position is this frame's;
+         2. carry the camera rig with it (updateFollow);
+         3. only then let OrbitControls re-derive the camera from the pivot.
+
+       Run the controls first and the pivot they read is one frame stale, which
+       on a body moving at Mercury's rate is a visible shimmy. */
+    this.updatePlanets(dt, time, speed);
+    this.updateFollow();
     this.controls.update();
 
     this.sunMaterial.uniforms.uTime.value = time * speed;
@@ -1750,7 +1874,6 @@ export class HubScene {
     this.starMaterial.uniforms.uTime.value = time;
     if (this.nebulaMaterial) this.nebulaMaterial.uniforms.uTime.value = time;
 
-    this.updatePlanets(dt, time, speed);
     if (this.beltGroup) this.beltGroup.rotation.y += dt * 0.012 * speed;
     this.updateBlackHole(dt, time, speed);
     this.updateNeutron(dt, time, speed);
