@@ -607,13 +607,20 @@ void main() {
   // Relativistic boost goes as roughly the fourth power of the Doppler factor.
   beam = pow(clamp(beam, 0.05, 2.0), 3.2);
 
-  float brightness = density * beam * (1.25 + uFeed * 1.4);
+  /* The feed terms below are all held well down from where they started.
+     Every one of them multiplies the beaming factor, which on the approaching
+     limb is already several times unity — so a generous response to uFeed does
+     not brighten the disc evenly, it takes the one lobe that was brightest and
+     drives it past white. That lobe is what read as the hole shining, and from
+     the resting camera it points across the frame toward the sun. All of these
+     are zero at uFeed = 0, so the disc between meals is exactly as it was. */
+  float brightness = density * beam * (1.25 + uFeed * 0.55);
   color *= brightness;
 
   // The photon ring: light that orbited the hole before escaping, piling up
   // just outside the horizon. Always white, always the brightest thing here.
   float photon = exp(-pow((t - 0.012) * 130.0, 2.0));
-  color += vec3(1.0, 0.97, 0.9) * photon * (2.4 + uFeed * 2.0);
+  color += vec3(1.0, 0.97, 0.9) * photon * (2.4 + uFeed * 0.7);
 
   if (uGlowMix > 0.001) {
     /* Same shape, different light: the tint is modulated by exactly the terms
@@ -625,7 +632,7 @@ void main() {
        glow drove every channel past white and the hole vanished inside a flat
        featureless blob. A recolour that saturates to white is not a recolour;
        the whole point is that the colour survives. */
-    vec3 tinted = uGlowTint * (0.25 + brightness * 0.85 + photon * 1.5);
+    vec3 tinted = uGlowTint * (0.25 + brightness * 0.35 + photon * 0.7);
     color = mix(color, tinted, uGlowMix);
   }
 
@@ -698,14 +705,25 @@ void main() {
   float flick = 0.86 + 0.14 * sin(uTime * 41.0 + s * 7.0);
   float limb = mix(pow(clamp(vRim, 0.0, 1.0), 1.5) * 2.1, 1.0, uSpine);
 
-  float body = front * fall * knot * flick * limb * uEnergy;
+  /* The beam emerges from the throat rather than existing at it. The cone's
+     first slice is both its whitest (see the colour mix below) and its
+     narrowest, so without this ramp it is a small white disc pinned to the
+     horizon — through the bloom, a lamp where the hole should be. The gas
+     particles that climb the beam are faded in over the same stretch, so the
+     two agree about where the beam starts. */
+  float emerge = smoothstep(0.0, 0.06, s);
+
+  float body = front * fall * knot * flick * limb * uEnergy * emerge;
   body += shock * uEnergy * (0.5 + uSpine * 0.9);
 
   // Hot and white at the base, cooling out along its length.
   vec3 color = mix(uHot, uCool, smoothstep(0.02, 0.55, s));
-  // The root, where the beam leaves the hole: white, and brighter than
-  // anything else the scene draws.
-  color += uHot * exp(-s * 30.0) * uEnergy * (1.2 + uSpine * 1.6);
+  /* No white core at the root. There used to be one — an exp(-s * 30) lift
+     that made the first few percent of the beam brighter than anything else
+     in the scene — and through the bloom it stopped reading as a beam leaving
+     a hole and started reading as a second sun sitting where the hole is. The
+     whole subject here is an object that does not shine; the light belongs to
+     the disc and to the gas climbing the beam, and both draw themselves. */
 
   gl_FragColor = vec4(color * body, clamp(body, 0.0, 1.0));
 }

@@ -177,17 +177,24 @@ const MARS_MOONS: MoonSpec[] = [
 /* Real closest-to-farthest order. Sizes hold the real ratios to each other
    (Ganymede largest, Europa smallest of the four) rather than to Jupiter,
    which at true scale would make all four invisible. */
+/* Orbit radii carry the same factor their host's `size` does — Jupiter's ×2,
+   Saturn's ×1.5. Scaling both together is the whole point: every relationship
+   that was tuned here survives it. Io still clears the cloud tops by the same
+   proportion, Mimas still sits at the same place in the rings (whose inner and
+   outer edges are multiples of `size`, so they scale for free), and the four
+   Galileans keep their spacing. Scaling the planet alone would have put its
+   inner moons inside it. */
 const JUPITER_MOONS: MoonSpec[] = [
-  { key: "io", ko: "이오", en: "Io", to: "/sp500-map", texture: `${TEX}/io.webp`, radius: 7.2, size: 0.62, period: 16, phase: 0, spin: 16, glow: "#d9a85f", vent: "io" },
-  { key: "europa", ko: "유로파", en: "Europa", to: "/sp500-map", texture: `${TEX}/europa.webp`, radius: 9.0, size: 0.54, period: 26, phase: 0.35, spin: 26, glow: "#d8cfba" },
-  { key: "ganymede", ko: "가니메데", en: "Ganymede", to: "/sp500-map", texture: `${TEX}/ganymede.webp`, radius: 11.4, size: 0.92, period: 42, phase: 0.6, spin: 42, glow: "#9c9483" },
-  { key: "callisto", ko: "칼리스토", en: "Callisto", to: "/sp500-map", texture: `${TEX}/callisto.webp`, radius: 14.2, size: 0.85, period: 62, phase: 0.85, spin: 62, glow: "#5f5c56" },
+  { key: "io", ko: "이오", en: "Io", to: "/sp500-map", texture: `${TEX}/io.webp`, radius: 14.4, size: 0.62, period: 16, phase: 0, spin: 16, glow: "#d9a85f", vent: "io" },
+  { key: "europa", ko: "유로파", en: "Europa", to: "/sp500-map", texture: `${TEX}/europa.webp`, radius: 18.0, size: 0.54, period: 26, phase: 0.35, spin: 26, glow: "#d8cfba" },
+  { key: "ganymede", ko: "가니메데", en: "Ganymede", to: "/sp500-map", texture: `${TEX}/ganymede.webp`, radius: 22.8, size: 0.92, period: 42, phase: 0.6, spin: 42, glow: "#9c9483" },
+  { key: "callisto", ko: "칼리스토", en: "Callisto", to: "/sp500-map", texture: `${TEX}/callisto.webp`, radius: 28.4, size: 0.85, period: 62, phase: 0.85, spin: 62, glow: "#5f5c56" },
 ];
 
 const SATURN_MOONS: MoonSpec[] = [
-  { key: "mimas", ko: "미마스", en: "Mimas", to: "/ai-prediction", texture: `${TEX}/mimas.webp`, radius: 8.6, size: 0.34, period: 18, phase: 0.1, spin: 18, glow: "#d8d2c4" },
-  { key: "enceladus", ko: "엔셀라두스", en: "Enceladus", to: "/ai-prediction", texture: `${TEX}/enceladus.webp`, radius: 10.4, size: 0.4, period: 26, phase: 0.5, spin: 26, glow: "#eaf4ff", vent: "enceladus" },
-  { key: "titan", ko: "타이탄", en: "Titan", to: "/ai-prediction", texture: `${TEX}/titan.webp`, radius: 13.8, size: 0.96, period: 52, phase: 0.8, spin: 52, glow: "#e8a35c" },
+  { key: "mimas", ko: "미마스", en: "Mimas", to: "/ai-prediction", texture: `${TEX}/mimas.webp`, radius: 12.9, size: 0.34, period: 18, phase: 0.1, spin: 18, glow: "#d8d2c4" },
+  { key: "enceladus", ko: "엔셀라두스", en: "Enceladus", to: "/ai-prediction", texture: `${TEX}/enceladus.webp`, radius: 15.6, size: 0.4, period: 26, phase: 0.5, spin: 26, glow: "#eaf4ff", vent: "enceladus" },
+  { key: "titan", ko: "타이탄", en: "Titan", to: "/ai-prediction", texture: `${TEX}/titan.webp`, radius: 20.7, size: 0.96, period: 52, phase: 0.8, spin: 52, glow: "#e8a35c" },
 ];
 
 /* ─────────────────────────── planets ─────────────────────────── */
@@ -282,8 +289,14 @@ export const PLANETS: PlanetSpec[] = [
     bodyEn: "Jupiter",
     to: "/sp500-map",
     texture: `${TEX}/jupiter.webp`,
-    radius: 96,
-    size: 4.6,
+    /* Moved out from 96 to clear the asteroid belt, which runs 72–88.
+       At the doubled size below the disc alone reached in to 86.8 and grazed
+       the band; at 118 it reaches in to 108.8, and Callisto — the outermost
+       moon, orbiting at 28.4 — comes no closer than 89.6. So the whole Jovian
+       system now sits outside the belt, not just the planet. */
+    radius: 118,
+    // Twice what it was.
+    size: 9.2,
     period: 74,
     phase: 0.78,
     spin: 16,
@@ -303,8 +316,17 @@ export const PLANETS: PlanetSpec[] = [
     bodyEn: "Saturn",
     to: "/ai-prediction",
     texture: `${TEX}/saturn.webp`,
-    radius: 132,
-    size: 3.9,
+    /* Out from 132 to keep its distance from Jupiter's new orbit. The ring
+       sheet reaches 2.35 × size, so the disc here ends at 157.75 and Titan
+       swings out to 164.7 — which is why Uranus had to move too rather than
+       this one being squeezed back in: at its old 164 its own rings started at
+       159, barely a unit outside Saturn's, and Titan crossed its track
+       outright. Pulling Saturn inward instead would only have pushed the same
+       collision onto Jupiter. */
+    radius: 144,
+    // Half again what it was. The ring's inner and outer are multiples of this,
+    // so the sheet grows with the planet and keeps its proportions.
+    size: 5.85,
     period: 66,
     phase: 0.42,
     spin: 18,
@@ -324,7 +346,10 @@ export const PLANETS: PlanetSpec[] = [
     bodyEn: "Uranus",
     to: "/fight",
     texture: `${TEX}/uranus.webp`,
-    radius: 164,
+    /* Out from 164 to clear Saturn. Its own rings reach in to 173 from here,
+       which is 15 units clear of Saturn's ringed disc and 8 clear of Titan at
+       the top of its swing — a gap the eye can actually read as a gap. */
+    radius: 178,
     size: 2.5,
     period: 84,
     phase: 0.14,
@@ -345,7 +370,11 @@ export const PLANETS: PlanetSpec[] = [
     bodyEn: "Neptune",
     to: "/global-top100",
     texture: `${TEX}/neptune.webp`,
-    radius: 194,
+    /* Follows Uranus out, from 194, so the outermost pair keep their spacing
+       rather than Neptune being left sitting on Uranus's rings. This is the
+       edge of the system, and the resting camera sits ~283 units out with room
+       to spare — the outermost track still frames comfortably. */
+    radius: 206,
     size: 2.4,
     period: 104,
     phase: 0.32,

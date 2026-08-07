@@ -346,7 +346,15 @@ interface LabelRig {
 
 /* ────────────────────────────── the scene ────────────────────────────── */
 
-const SUN_RADIUS = 8;
+/* Half again what it was. Everything that frames the star is written as a
+ * multiple of this — the corona's reach, its hit sphere, the camera's floor
+ * below — so they all follow. The one thing that does not follow for free is
+ * the inner system: the corona now reaches 41 units, past Mercury at 26 and
+ * Venus at 37, so both of those spend their orbits inside its outer haze. */
+const SUN_RADIUS = 12;
+/** Pluto's own radius. Named because the tidal stretch has to work out how
+ * long the filament it is drawing has actually become in world units. */
+const PLUTO_RADIUS = 2.4;
 
 /** The axis the galaxy's plane is perpendicular to, in scene coordinates.
  *
@@ -928,9 +936,17 @@ export class HubScene {
       uniforms: {
         uTime: { value: 0 },
         uPulse: { value: 0 },
-        uCool: { value: new THREE.Color(0x7a1c02) },
-        uWarm: { value: new THREE.Color(0xff8a1e) },
-        uHot: { value: new THREE.Color(0xfff0c0) },
+        /* Warmer and lifted. The old ramp ran from a near-black oxblood to a
+           pale cream, which is closer to what a G-type photosphere really
+           looks like but reads on screen as a dim ember with a white middle.
+           Every stop moves toward orange and up in value: the cool lanes are
+           now a lit red rather than a dark one, and the hot granules keep
+           enough yellow to still be the brightest thing on the surface without
+           going white — a white core is what stops a star reading as orange
+           however orange the rest of it is. */
+        uCool: { value: new THREE.Color(0xcc4a0d) },
+        uWarm: { value: new THREE.Color(0xffa23a) },
+        uHot: { value: new THREE.Color(0xffe3ab) },
       },
     });
     const sun = new THREE.Mesh(geo, this.sunMaterial);
@@ -948,8 +964,10 @@ export class HubScene {
       uniforms: {
         uTime: { value: 0 },
         uPulse: { value: 0 },
-        uColor: { value: new THREE.Color(0xffb254) },
-        uIntensity: { value: 0.55 },
+        // The corona follows the photosphere: further toward orange, and up,
+        // or a warm star sits inside a paler halo than itself.
+        uColor: { value: new THREE.Color(0xff9b38) },
+        uIntensity: { value: 0.68 },
         // Where the photosphere's edge falls in the disc's own 0..1 radius.
         uUnit: { value: SUN_RADIUS / CORONA_REACH },
       },
@@ -1283,8 +1301,10 @@ export class HubScene {
     const scale = new THREE.Vector3();
     const color = new THREE.Color();
 
-    // Between Mars (65) and Jupiter (96), inset from both so the band reads as
-    // strictly between the two tracks rather than grazing either.
+    // Between Mars (65) and Jupiter (118), inset from both so the band reads as
+    // strictly between the two tracks rather than grazing either. Jupiter used
+    // to sit at 96 and was moved out to clear this band once it doubled in
+    // size; the band itself has not moved.
     const inner = 72;
     const outer = 88;
 
@@ -1367,7 +1387,7 @@ export class HubScene {
     /* Pluto, drifting in and eventually eaten — the type-1 hub's signature
        event, kept. It is on no route: the joke is that it is not a planet, so
        it is not a destination either. */
-    const plutoGeo = new THREE.SphereGeometry(2.4, 40, 24);
+    const plutoGeo = new THREE.SphereGeometry(PLUTO_RADIUS, 40, 24);
     this.plutoMaterial = this.planetMaterial(this.texture(PLUTO_TEXTURE), "#d8c6b4", 0.15, 0.42, 1.4);
     this.pluto = new THREE.Mesh(plutoGeo, this.plutoMaterial);
     this.scene.add(this.pluto);
@@ -1459,19 +1479,39 @@ export class HubScene {
        Three arms rather than a uniform ring. A cylinder of randomly placed
        particles reads as noise no matter how it turns — the eye needs
        structure to see rotation at all, and a small number of banded arms is
-       the least structure that gives it one. */
-    this.jetParticleCount = this.tier === "low" ? 150 : this.tier === "high" ? 340 : 540;
+       the least structure that gives it one.
+
+       And the gas leaves in puffs, not as an even stream. Spreading the launch
+       phases uniformly gives a sheath of constant density, which the eye reads
+       as a lit tube — a shape, not material. Quantising them into a handful of
+       clots, each with its own climb rate so it holds together on the way out,
+       is what turns the beam into something that is visibly being *thrown*:
+       discrete masses of smoke, wound into spiral bands by the same rotation,
+       climbing one after another. That is where the hurricane in this comes
+       from. The jitter is small on purpose — widen it much past a twentieth of
+       the beam and the clots overlap back into the sheath they replaced. */
+    this.jetParticleCount = this.tier === "low" ? 240 : this.tier === "high" ? 520 : 820;
     this.jetParticleStart = this.glow.allocate(this.jetParticleCount);
-    this.jetParticles = new Float32Array(this.jetParticleCount * 6);
+    this.jetParticles = new Float32Array(this.jetParticleCount * 7);
     const rand = mulberry32(51877);
     const arms = 3;
+    const puffs = 7;
+    // One rate per clot rather than per grain, so a clot arrives as a clot.
+    const puffRate: number[] = [];
+    for (let k = 0; k < puffs; k++) puffRate.push(0.84 + rand() * 0.3);
     for (let i = 0; i < this.jetParticleCount; i++) {
-      this.jetParticles[i * 6] = rand(); // where along the beam it starts
-      this.jetParticles[i * 6 + 1] = ((i % arms) / arms) * Math.PI * 2 + (rand() - 0.5) * 0.85;
-      this.jetParticles[i * 6 + 2] = 0.5 + rand() * 0.95; // how far off the axis
-      this.jetParticles[i * 6 + 3] = 0.72 + rand() * 0.66; // how fast it climbs
-      this.jetParticles[i * 6 + 4] = rand(); // size and brightness roll
-      this.jetParticles[i * 6 + 5] = i % 2 === 0 ? 1 : -1; // which pole it left by
+      const p = i * 7;
+      const puff = i % puffs;
+      // Where along the beam it starts — banded, not scattered.
+      this.jetParticles[p] = (puff / puffs + (rand() - 0.5) * 0.055 + 1) % 1;
+      // Tighter around the arm than before: crisp bands, not a smeared ring.
+      this.jetParticles[p + 1] = ((i % arms) / arms) * Math.PI * 2 + (rand() - 0.5) * 0.4;
+      // How far off the axis. Biased outward, so each clot has a wall.
+      this.jetParticles[p + 2] = 0.42 + Math.pow(rand(), 0.7) * 1.06;
+      this.jetParticles[p + 3] = puffRate[puff]; // how fast it climbs
+      this.jetParticles[p + 4] = rand(); // size and brightness roll
+      this.jetParticles[p + 5] = i % 2 === 0 ? 1 : -1; // which pole it left by
+      this.jetParticles[p + 6] = puff / puffs; // the clot's own phase
     }
   }
 
@@ -1567,14 +1607,24 @@ export class HubScene {
     const shellGeo = new THREE.SphereGeometry(1, 64, 40);
     this.disposables.push(shellGeo);
 
-    // Real Crab colours, each pair "diffuse gas" then "lit filament".
-    const LAYERS: { a: number; b: number; scale: number; warp: number; detail: number; seed: number }[] = [
+    /* Real Crab colours, each pair "diffuse gas" then "lit filament".
+     *
+     * `extra` marks the layers added to widen the palette. Six shells is two
+     * more full-sphere additive passes than four, and on the cheap tier that
+     * is exactly the kind of cost that shows up as a dropped frame rate for
+     * twenty seconds of every fifty-two — so `low` keeps the original four and
+     * everything else gets the full spread. */
+    const LAYERS: { a: number; b: number; scale: number; warp: number; detail: number; seed: number; extra?: boolean }[] = [
       // Synchrotron continuum — the blue-white haze from the pulsar's own wind,
       // which in the real object sits INSIDE the filaments.
       { a: 0x3a6bd8, b: 0xcfe4ff, scale: 0.62, warp: 0.1, detail: 2.4, seed: 3.1 },
+      // Ionised helium, the violet that only very hot ejecta shows.
+      { a: 0x3a1a7a, b: 0xb98cff, scale: 0.72, warp: 0.13, detail: 2.8, seed: 63.5, extra: true },
       // Doubly-ionised oxygen: the teal-green that makes a remnant read as
       // something other than fire.
       { a: 0x0d6b62, b: 0x6fffd8, scale: 0.82, warp: 0.16, detail: 3.2, seed: 11.7 },
+      // Iron, and dust lit from inside — the gold band between green and red.
+      { a: 0x7a4a08, b: 0xffd489, scale: 0.92, warp: 0.18, detail: 3.5, seed: 84.2, extra: true },
       // Hydrogen-alpha and nitrogen: the orange-red body of the web.
       { a: 0x8c1f10, b: 0xff9c56, scale: 1.0, warp: 0.2, detail: 3.9, seed: 27.4 },
       // Singly-ionised sulphur on the outermost, coolest, thinnest skin.
@@ -1582,6 +1632,7 @@ export class HubScene {
     ];
 
     for (const layer of LAYERS) {
+      if (layer.extra && this.tier === "low") continue;
       const material = new THREE.ShaderMaterial({
         vertexShader: REMNANT_VERT,
         fragmentShader: REMNANT_FRAG,
@@ -1614,7 +1665,7 @@ export class HubScene {
        nested surfaces cannot show. Each carries one of the same emission
        colours, flies at its own speed and decelerates, so the cloud keeps
        spreading and thinning long after the shells have faded. */
-    this.knotCount = this.tier === "low" ? 90 : this.tier === "high" ? 220 : 360;
+    this.knotCount = this.tier === "low" ? 130 : this.tier === "high" ? 320 : 540;
     this.knotStart = this.glow.allocate(this.knotCount);
     // Per knot: three direction components, speed, size and a colour roll.
     this.knots = new Float32Array(this.knotCount * 6);
@@ -2256,20 +2307,26 @@ export class HubScene {
   /** How close the controls may get to the pivot, recomputed every frame.
    *
    * A single floor cannot serve both jobs. Out at the whole-system view it
-   * stops the camera from being flown into the middle of the sun, and 14 units
-   * is about right for that. But the pivot is no longer pinned to the sun:
-   * point at Mercury and zoom and the same 14 units holds you at arm's length
-   * from a body one unit across. So the floor relaxes as the pivot travels
-   * away from the star, continuously rather than in a step — a jump in
-   * minDistance is a jump in the camera, because the controls clamp the radius
-   * on the next update(). */
+   * stops the camera from being flown into the middle of the sun, and a few
+   * units of clearance above the photosphere is about right for that. But the
+   * pivot is no longer pinned to the sun: point at Mercury and zoom and the
+   * same floor holds you at arm's length from a body one unit across. So the
+   * floor relaxes as the pivot travels away from the star, continuously rather
+   * than in a step — a jump in minDistance is a jump in the camera, because
+   * the controls clamp the radius on the next update().
+   *
+   * Both constants are written off SUN_RADIUS rather than left as the literals
+   * they used to be (14 and 12, which were that radius plus six and one and a
+   * half times it). A star that grows and a floor that does not is a camera
+   * that can be flown inside the photosphere. */
   private updateZoomFloor() {
     if (this.followAnchor) {
       this.controls.minDistance = this.focusFloor;
       return;
     }
+    const floor = SUN_RADIUS + 6;
     const fromStar = this.controls.target.length();
-    this.controls.minDistance = THREE.MathUtils.clamp(14 - (fromStar - 12) * 0.5, 2.5, 14);
+    this.controls.minDistance = THREE.MathUtils.clamp(floor - (fromStar - SUN_RADIUS * 1.5) * 0.5, 2.5, floor);
   }
 
   private updateFlight(dt: number) {
@@ -2591,19 +2648,44 @@ export class HubScene {
       const p = cycle / HubScene.T_PLUTO_END;
       const distance = 120 * Math.pow(1 - p, 1.55) + 5;
       const angle = p * Math.PI * 5.4;
-      const offset = new THREE.Vector3(Math.cos(angle) * distance, Math.sin(angle * 0.6) * distance * 0.22, Math.sin(angle) * distance);
-      this.pluto.position.copy(holePos).add(offset);
+      const dir = new THREE.Vector3(Math.cos(angle), Math.sin(angle * 0.6) * 0.22, Math.sin(angle)).normalize();
 
-      // Tidal stretch, along the line to the hole. Squashed on the other two
-      // axes to conserve something like volume, which is what makes it read as
-      // being pulled rather than merely scaled.
       const tear = clamp01((cycle - HubScene.PLUTO_APPROACH) / HubScene.PLUTO_TEAR);
-      const stretch = 1 + tear * tear * 7;
+      /* Spaghettification, and it is not something that happens at the end.
+         The difference between the hole's pull on the near face and on the far
+         one goes as 1/r³, so the body is already being drawn out long before
+         it arrives — which is why this runs off the distance it has left and
+         not off the tear clock. By the time the tear finishes it is a filament
+         many tens of times its own diameter, not a ball that abruptly bursts.
+         Squashed on the other two axes to conserve something like volume,
+         which is what makes it read as being pulled rather than scaled. */
+      const drawn = Math.pow(clamp01((125 - distance) / 118), 2.6);
+      /* Tuned against the resting camera, not in the abstract. The hole sits
+         near the top-left corner of the frame, so a filament here runs across
+         the screen and out of it — at the first numbers this reached about
+         240 units and left the viewport entirely, which is not a longer effect
+         than one that stays in frame, it is a shorter one with its end cut
+         off. These land the thread at roughly a third of the screen's width. */
+      const stretch = 1 + drawn * 22 + tear * tear * 36;
+      const halfLen = PLUTO_RADIUS * stretch;
+      /* Where the filament sits. Once it is longer than the distance it still
+         has to fall, a body scaled about its own centre would poke out the far
+         side of the hole — so past that point the leading tip is pinned just
+         outside the horizon and it is the tail that runs outward instead. The
+         orbit's direction is untouched; only how far down it the centre sits. */
+      const centre = Math.max(distance, halfLen + 5.5);
+      this.pluto.position.copy(holePos).addScaledVector(dir, centre);
+
       this.pluto.lookAt(holePos);
-      this.pluto.scale.set(1 / Math.sqrt(stretch), 1 / Math.sqrt(stretch), stretch);
-      const shrink = 1 - clamp01((tear - 0.55) / 0.45);
-      this.pluto.scale.multiplyScalar(shrink);
-      this.pluto.visible = shrink > 0.02;
+      // The last of it thins to nothing rather than shrinking: a filament that
+      // got shorter as it died would read as retreating, not as being eaten.
+      /* Volume would say the transverse axes go as stretch^-0.5. They go as
+         ^-0.4 instead: at these lengths the honest exponent leaves a filament
+         a couple of hundred units long and under a pixel wide, which is not a
+         subtler effect, it is an invisible one. */
+      const thin = (1 - clamp01((tear - 0.55) / 0.45)) / Math.pow(stretch, 0.4);
+      this.pluto.scale.set(thin, thin, stretch);
+      this.pluto.visible = thin * stretch > 0.02;
 
       this.updatePlutoDebris(holePos, tear, time, speed);
       this.feed += ((tear > 0.25 ? tear : 0) - this.feed) * Math.min(1, dt * 2.4);
@@ -2617,9 +2699,14 @@ export class HubScene {
 
     this.updateBlueStar(cycle, holePos, dt, time, speed);
     const jet = this.updateJets(cycle, holePos, time, speed);
-    // The beam is fed by the same material the disc is: while one is burning,
-    // the disc under it is brighter than the afterglow alone would make it.
-    this.discMaterial.uniforms.uFeed.value = this.feed + glowBright + jet * 0.6;
+    /* The beam is fed by the same material the disc is: while one is burning,
+       the disc under it is brighter than the afterglow alone would make it.
+       Held to a third rather than the old 0.6, though — uFeed drives both the
+       disc's own brightness and the photon ring's, and at full jet power the
+       two together lifted the whole hole past the bloom threshold and turned
+       it into a lamp. The disc should warm when it is feeding. It should not
+       out-shine the sun. */
+    this.discMaterial.uniforms.uFeed.value = this.feed + glowBright + jet * 0.3;
   }
 
   /** The jet, on the two moments in the cycle that earn one: when the rock is
@@ -2690,7 +2777,7 @@ export class HubScene {
     return energy;
   }
 
-  /** The gas climbing the beam, as a rotating funnel.
+  /** The gas climbing the beam, as a rotating funnel of discrete clots.
    *
    * A jet is not a straight pipe of material. The gas arrives with the disc's
    * angular momentum still in it and has nowhere to put it, so it leaves on a
@@ -2726,12 +2813,13 @@ export class HubScene {
 
     for (let i = 0; i < this.jetParticleCount; i++) {
       const slot = this.jetParticleStart + i;
-      const p = i * 6;
+      const p = i * 7;
       const arm = this.jetParticles[p + 1];
       const offJit = this.jetParticles[p + 2];
       const rate = this.jetParticles[p + 3];
       const roll = this.jetParticles[p + 4];
       const pole = this.jetParticles[p + 5];
+      const puff = this.jetParticles[p + 6];
 
       /* Streaming, not a single puff: each grain climbs the beam, falls off
          the end and starts again at the throat. Seven seconds of one wave of
@@ -2750,12 +2838,19 @@ export class HubScene {
       const along = Math.pow(climb, 1.35) * length * pole;
       // The funnel: tight at the throat, opening steadily with height.
       const flare = 0.18 + Math.pow(climb, 1.2) * 1.5;
-      const radius = width * flare * offJit;
+      /* The billow. A clot of gas is not a flat ring — it swells and pinches
+         as it goes, and because every grain in one clot shares its phase, the
+         whole mass breathes together. Without this the clots are still clots,
+         but they are rigid ones, and rigid smoke is not smoke. */
+      const billow = 1 + 0.44 * Math.sin(climb * 9.0 + puff * Math.PI * 2 + spin * 1.1);
+      const radius = width * flare * offJit * billow;
       /* The wind. Negative, because that is the direction the disc under it
          is turning (see the Doppler term in DISC_FRAG); divided by the flare,
          so a grain at the throat whips round several times while one out near
-         the head barely turns at all. */
-      const turn = arm - (spin * 1.6 + climb * 6.0) / flare;
+         the head barely turns at all. Wound harder than it used to be: at the
+         old rate the spiral was legible but genteel, and the point of this is
+         that the gas is being flung, not stirred. */
+      const turn = arm - (spin * 2.5 + climb * 8.5) / flare;
       const cos = Math.cos(turn);
       const sin = Math.sin(turn);
 
@@ -2765,17 +2860,29 @@ export class HubScene {
 
       // White at the throat, cooling into the beam's own colour as it climbs.
       const hot = 1 - clamp01(climb * 2.2);
+      /* Nothing at the very throat. The grains ride a cone whose width goes to
+         nothing at the origin, so every one of them near climb = 0 lands in
+         the same few pixels — and a few hundred additive grains stacked in one
+         place, through the bloom, is a white ball sitting exactly where the
+         hole is. That ball was the rest of what read as the hole shining;
+         deleting the shader's root core only took half of it. Fading them in
+         over the first few percent of the climb is what lets the beam leave
+         the hole instead of the hole lighting up. */
+      const emerge = clamp01(climb / 0.09);
       // Fades out before the head rather than at it, so the beam ends in gas
       // rather than in a row of dots.
-      const fade = (1 - climb * climb) * energy * (0.34 + roll * 0.52);
+      const fade = (1 - climb * climb) * energy * (0.46 + roll * 0.66) * emerge * emerge;
 
       this.glow.set(
         slot,
         holePos.x + axis.x * along + ox * radius,
         holePos.y + axis.y * along + oy * radius,
         holePos.z + axis.z * along + oz * radius,
-        // Expanding as it goes: the gas is under no pressure out there.
-        1.0 + roll * 1.7 + climb * 2.6,
+        // Expanding as it goes: the gas is under no pressure out there. The
+        // exponent is under one so most of the growth happens early, while the
+        // clot is still tight enough for its grains to overlap into one mass —
+        // which is what makes it read as a body of smoke and not as a swarm.
+        1.7 + roll * 2.4 + Math.pow(climb, 0.8) * 5.0,
         tintR + (1 - tintR) * hot,
         tintG + (1 - tintG) * hot,
         tintB + (1 - tintB) * hot,
@@ -2813,25 +2920,45 @@ export class HubScene {
        star, so it should be visible as one long before it arrives. */
     const distance = 240 * Math.pow(1 - p, 1.4) + 11;
     const angle = Math.PI + p * Math.PI * 3.1;
-    const pos = holePos
-      .clone()
-      .add(new THREE.Vector3(Math.cos(angle) * distance, Math.sin(angle * 0.5) * distance * 0.28, Math.sin(angle) * distance));
+    const dir = new THREE.Vector3(Math.cos(angle), Math.sin(angle * 0.5) * 0.28, Math.sin(angle)).normalize();
+
+    /* The same spaghettification Pluto gets, and further along it: a star is
+       far larger than the rock, so the tide across it is larger too, and it
+       spends most of its approach visibly being drawn out. See the comment on
+       Pluto's for why this runs off distance rather than off the tear clock,
+       and why the centre slides back once the filament outgrows its fall. */
+    /* Smaller multipliers than Pluto's for a longer thread: this body is a
+       star, and its radius is over three times the rock's, so every unit of
+       stretch buys three times the length. */
+    const drawn = Math.pow(clamp01((250 - distance) / 236), 2.4);
+    /* Divided by the same factor the star's radius grew by, because halfLen
+       below is that radius times this: these numbers were tuned against the
+       length the filament actually reaches on screen, and a bigger star at the
+       old multipliers would have run it back out of the frame. */
+    const stretch = 1 + drawn * 6.7 + tear * tear * 10.7;
+    const halfLen = SUN_RADIUS * stretch;
+    const centre = Math.max(distance, halfLen + 8.5);
+    const pos = holePos.clone().addScaledVector(dir, centre);
 
     this.blueStar.position.copy(pos);
     this.blueStar.lookAt(holePos);
-    const stretch = 1 + tear * tear * 9;
-    const squash = 1 / Math.sqrt(stretch);
-    // lookAt points -Z at the hole, so Z is the axis along the pull.
-    this.blueStar.scale.set(squash, squash, stretch);
     const left = 1 - clamp01((tear - 0.5) / 0.5);
-    this.blueStar.scale.multiplyScalar(left);
-    this.blueStar.visible = left > 0.02;
+    // lookAt points -Z at the hole, so Z is the axis along the pull. Only the
+    // two transverse axes carry the fade — the filament thins out, it does not
+    // reel back in.
+    const thin = left / Math.pow(stretch, 0.4); // see Pluto's, on the exponent
+    this.blueStar.scale.set(thin, thin, stretch);
+    this.blueStar.visible = thin * stretch > 0.02;
 
+    /* The halo belongs to a star, and by the end of this there is no star —
+       there is a thread. So it goes out with the stretch as well as with the
+       fade, or a round corona sits over a filament for the whole tear. */
+    const round = left / Math.pow(stretch, 0.5);
     this.blueStarHalo.position.copy(pos);
     this.blueStarHalo.quaternion.copy(this.camera.quaternion);
-    this.blueStarHalo.scale.setScalar(SUN_RADIUS * 3.4 * left);
-    this.blueStarHalo.visible = left > 0.05;
-    this.blueStarHaloMaterial.uniforms.uIntensity.value = 0.75 * left;
+    this.blueStarHalo.scale.setScalar(SUN_RADIUS * 3.4 * round);
+    this.blueStarHalo.visible = round > 0.05;
+    this.blueStarHaloMaterial.uniforms.uIntensity.value = 0.75 * round;
 
     // The hole brightens as the meal gets close, well before the tearing.
     const heat = Math.max(tear, Math.pow(p, 3) * 0.7);
@@ -2928,8 +3055,12 @@ export class HubScene {
   private static readonly TOUR_FLIGHT = 2.4;
 
   private static readonly NS_INSPIRAL = 22;
-  private static readonly NS_MERGED = 20;
-  private static readonly NS_CYCLE = 42;
+  /** How long the remnant is on show. Half again what it was: every fade below
+   * is a function of `since / NS_MERGED`, so stretching this one number slows
+   * the whole expansion and every colour transition with it rather than simply
+   * holding a finished cloud on screen for longer. */
+  private static readonly NS_MERGED = 30;
+  private static readonly NS_CYCLE = 52;
 
   private updateNeutron(dt: number, time: number, speed: number) {
     const t = (time * speed) % HubScene.NS_CYCLE;
@@ -2973,9 +3104,9 @@ export class HubScene {
       // What the two of them become: one bright remnant, held while its ejecta
       // cloud expands across the sky behind it.
       const settle = clamp01(since / 1.2);
-      this.glow.set(merged, center.x, center.y, center.z, 12 + (1 - settle) * 16, 0.85, 0.93, 1.0, 1);
+      this.glow.set(merged, center.x, center.y, center.z, 15 + (1 - settle) * 24, 0.88, 0.94, 1.0, 1);
 
-      this.flash = since < 0.5 ? (1 - since / 0.5) * 0.85 : this.flash * Math.exp(-dt * 4);
+      this.flash = since < 0.7 ? (1 - since / 0.7) * 1.0 : this.flash * Math.exp(-dt * 4);
 
       const grow = since / HubScene.NS_MERGED;
       if (grow < 1) {
@@ -2984,20 +3115,24 @@ export class HubScene {
            at its own rate, so the cloud pulls apart into distinct fronts
            instead of inflating as one surface.
 
-           The ceiling is deliberately modest. An earlier pass ran this out to
-           320 units, which is genuinely sky-wide and looked it on a desktop —
-           and on a phone, whose horizontal field is a fraction of that, it
-           became a translucent wall across two thirds of the screen for twenty
-           seconds of every forty-two. */
+           The ceiling is still bounded. An earlier pass ran this out to 320
+           units, which is genuinely sky-wide and looked it on a desktop — and
+           on a phone, whose horizontal field is a fraction of that, it became
+           a translucent wall across two thirds of the screen. 112 is a step up
+           from the 88 that replaced it, enough that the cloud now reaches past
+           the pair's own neighbourhood, and still well short of the wall. */
         const front = Math.pow(grow, 0.55);
         for (const layer of this.remnant) {
           layer.mesh.visible = true;
-          layer.mesh.scale.setScalar(6 + front * 88 * layer.scale);
+          layer.mesh.scale.setScalar(6 + front * 112 * layer.scale);
           /* The outer, cooler layers arrive late and linger; the synchrotron
              core is brightest at the start and fades first, which is the order
-             the real thing cools in. */
-          const lead = clamp01((grow - (layer.scale - 0.62) * 0.22) / 0.14);
-          layer.material.uniforms.uIntensity.value = lead * Math.pow(1 - grow, 1.6) * 0.85;
+             the real thing cools in. Staggered harder than before: six layers
+             need more room between their entrances than four did, or the extra
+             two arrive on top of their neighbours and the palette muddies back
+             into one colour. */
+          const lead = clamp01((grow - (layer.scale - 0.62) * 0.3) / 0.13);
+          layer.material.uniforms.uIntensity.value = lead * Math.pow(1 - grow, 1.6) * 1.2;
         }
 
         /* The knots, thrown clear and scattering through open space. They
@@ -3011,8 +3146,11 @@ export class HubScene {
           const sizeK = this.knots[i * 6 + 4];
           const roll = this.knots[i * 6 + 5];
 
-          // Ballistic with drag: quick out, then coasting and thinning.
-          const reach = (1 - Math.exp(-since * 0.42)) * speedK * 150;
+          // Ballistic with drag: quick out, then coasting and thinning. The
+          // drag constant is unchanged, so the knots still outrun the shells
+          // and still settle inside the same window — they simply settle
+          // further out.
+          const reach = (1 - Math.exp(-since * 0.42)) * speedK * 205;
           const x = center.x + dx * reach;
           const y = center.y + dy * reach;
           const z = center.z + dz * reach;
@@ -3020,22 +3158,43 @@ export class HubScene {
           /* Colour by emission line, the same palette the shells use — one
              clump is oxygen, the next hydrogen, the next sulphur, which is why
              a real remnant is many colours at once rather than one fading
-             gradient. Cooling shifts each toward its own red end. */
+             gradient. Cooling shifts each toward its own red end.
+
+             Seven species rather than four. The point of a palette this wide
+             is that no two adjacent knots are reliably the same colour, so the
+             cloud reads as a mix of materials rather than as one substance
+             with noise on it — and the violet and the gold are what stop the
+             whole thing sitting in the green-to-red half of the wheel. */
           const cool = clamp01(since / HubScene.NS_MERGED);
           let r: number;
           let g: number;
           let b: number;
-          if (roll < 0.3) {
+          if (roll < 0.2) {
             // [O III] teal-green
             r = 0.24 + cool * 0.3;
             g = 1.0 - cool * 0.2;
             b = 0.82 - cool * 0.3;
-          } else if (roll < 0.72) {
+          } else if (roll < 0.34) {
+            // [Ne III] cold cyan, thrown with the fastest material
+            r = 0.32 + cool * 0.28;
+            g = 0.9 - cool * 0.12;
+            b = 1.0;
+          } else if (roll < 0.5) {
+            // He II violet
+            r = 0.68 + cool * 0.22;
+            g = 0.42 - cool * 0.14;
+            b = 1.0 - cool * 0.18;
+          } else if (roll < 0.68) {
             // Hα / [N II] orange-red
             r = 1.0;
             g = 0.56 - cool * 0.22;
             b = 0.3 - cool * 0.16;
-          } else if (roll < 0.9) {
+          } else if (roll < 0.8) {
+            // [Fe II] and lit dust: gold
+            r = 1.0;
+            g = 0.82 - cool * 0.24;
+            b = 0.38 - cool * 0.2;
+          } else if (roll < 0.92) {
             // [S II] deep red
             r = 1.0;
             g = 0.26 + cool * 0.1;
@@ -3048,7 +3207,7 @@ export class HubScene {
           }
 
           const fade = Math.pow(1 - grow, 1.35) * clamp01(since * 2.2);
-          this.glow.set(this.knotStart + i, x, y, z, sizeK * (1 + grow * 1.6), r, g, b, fade * 0.5);
+          this.glow.set(this.knotStart + i, x, y, z, sizeK * (1 + grow * 2.1), r, g, b, fade * 0.72);
         }
       } else {
         for (const layer of this.remnant) layer.mesh.visible = false;
