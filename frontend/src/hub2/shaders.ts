@@ -4,8 +4,8 @@
    Every surface on this page that isn't a photograph is computed per pixel
    here. The rule the whole file follows: light is *earned*, never painted on.
    A planet's rim glows because the shader knows where the sun is; the black
-   hole's disc is brighter on one side because that side is rotating toward
-   the camera; the sky bends near the hole because the final pass actually
+   hole's photon ring is bright because that is where light piled up before it
+   escaped; the sky bends near the hole because the final pass actually
    resamples the frame through a deflection field. Nothing is a decal.
 
    Shared preamble first, then one section per material.
@@ -139,11 +139,18 @@ void main() {
 
   // Three timescales, because a single one reads as a texture sliding over a
   // ball rather than as a surface that is itself churning.
-  float granule = fbm(p * 7.0 + vec3(0.0, uTime * 0.055, 0.0), 5, 2.15, 0.55);
+  /* The granulation runs finer than the supergranulation it rides on, and
+     carries more of the result than it used to. At the old 7.0 and an even
+     split the cells were the same size as the slow pattern underneath, so the
+     two blurred into one lumpy wash; a real photosphere is a dense fine mottle
+     over broad slow patches, and the eye reads the mottle first. This is also
+     what the zoom is for — at the resting camera the star is small, and the
+     detail is there for anyone who flies in. */
+  float granule = fbm(p * 9.5 + vec3(0.0, uTime * 0.055, 0.0), 5, 2.15, 0.55);
   float super   = fbm(p * 2.3 - vec3(uTime * 0.021, 0.0, uTime * 0.017), 3, 2.0, 0.6);
   float flicker = snoise(p * 15.0 + vec3(uTime * 0.24)) * 0.5 + 0.5;
 
-  float heat = granule * 0.55 + super * 0.45;
+  float heat = granule * 0.64 + super * 0.36;
   heat = heat * 0.5 + 0.5;
   heat = pow(clamp(heat, 0.0, 1.0), 1.25 - uPulse * 0.35);
   heat += flicker * (0.05 + uPulse * 0.06);
@@ -160,9 +167,15 @@ void main() {
   // Faculae: the bright network riding the edges of the cooling lanes, which
   // is where the surface actually looks white rather than orange.
   float lane = smoothstep(0.72, 0.95, heat);
-  color += vec3(1.0, 0.93, 0.78) * lane * (0.55 + uPulse * 0.5) * limb;
+  color += vec3(1.0, 0.97, 0.72) * lane * (0.55 + uPulse * 0.5) * limb;
 
-  gl_FragColor = vec4(color * (1.35 + uPulse * 0.5), 1.0);
+  /* Down from 1.35. The gain multiplies a colour that is already near the top
+     of the range, so past a point it only pushes channels into clipping —
+     which desaturates, and on a yellow star that means the middle of the disc
+     goes white and the colour set above is thrown away. Bloom adds the
+     brightness back without taking the hue with it, so where the star needs to
+     read brighter the ramp is lifted rather than this. */
+  gl_FragColor = vec4(color * (1.3 + uPulse * 0.5), 1.0);
 }
 `;
 
@@ -521,26 +534,29 @@ void main() {
 `;
 
 /* ────────────────────── the black hole's disc ──────────────────────
-   Gas spiralling in, heated by friction. Three things make it read as a real
+   Gas spiralling in, heated by friction. Two things make it read as a real
    accretion disc rather than an orange donut:
 
    - a temperature gradient. The inner edge is orbiting at a large fraction of
      c and is genuinely hotter — it goes white-blue, not brighter orange.
-   - Doppler beaming. The side rotating toward the camera is boosted; the side
-     rotating away is dimmed. This is the asymmetry everyone recognises from
-     the 2019 EHT image and from Interstellar's Gargantua, and it is one dot
-     product.
    - shear. The turbulence is sampled in a coordinate frame that rotates
      faster at small radii, so the filaments wind up into spiral arms on their
-     own instead of being drawn as spirals. */
+     own instead of being drawn as spirals.
+
+   There was a third: Doppler beaming, which boosted the limb rotating toward
+   the camera and dimmed the one rotating away — the lopsided disc of the 2019
+   EHT image and of Interstellar's Gargantua. It is gone at the owner's
+   request. It is worth knowing what went with it, because the term was doing
+   more than it looked: the boost ran from about 0.09 to 3.9 around the ring,
+   a forty-fold swing, and that swing was most of what stopped the disc reading
+   as a flat ring of gas rather than as something orbiting. What is left is
+   even brightness all the way round, lifted to the average the beaming used to
+   produce so the disc as a whole is no dimmer than it was. */
 export const DISC_VERT = /* glsl */ `
 varying vec3 vPosL;
-varying vec3 vPosW;
 void main() {
   vPosL = position;
-  vec4 world = modelMatrix * vec4(position, 1.0);
-  vPosW = world.xyz;
-  gl_Position = projectionMatrix * viewMatrix * world;
+  gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(position, 1.0);
 }
 `;
 
@@ -548,9 +564,6 @@ export const DISC_FRAG = /* glsl */ `
 uniform float uTime;
 uniform float uInner;
 uniform float uOuter;
-/** Unit vector, in world space, of the disc material's motion at the point
- * nearest the camera — everything the beaming term needs. */
-uniform vec3 uSpinAxis;
 /** Rises while the hole is feeding (Pluto, then the blue star). */
 uniform float uFeed;
 /** The afterglow. For a few seconds after each meal the disc burns the colour
@@ -558,12 +571,11 @@ uniform float uFeed;
  * Real accretion discs do change colour as infalling material changes their
  * composition and temperature; the specific hues here are a reading aid, not a
  * spectrum. uGlowMix crossfades it against the disc's own thermal ramp so the
- * structure — the filaments, the beaming, the photon ring — survives the
- * recolour instead of being flooded flat. */
+ * structure — the filaments, the photon ring — survives the recolour instead
+ * of being flooded flat. */
 uniform vec3 uGlowTint;
 uniform float uGlowMix;
 varying vec3 vPosL;
-varying vec3 vPosW;
 
 ${NOISE}
 
@@ -597,24 +609,18 @@ void main() {
   color = mix(color, hot, smoothstep(0.42, 0.78, temp));
   color = mix(color, xhot, smoothstep(0.82, 1.0, temp));
 
-  // Doppler beaming. The material's velocity here is tangential; compare it
-  // with the direction to the camera.
-  vec3 radial = normalize(vec3(vPosL.x, 0.0, vPosL.z));
-  vec3 vel = normalize(cross(uSpinAxis, radial));
-  vec3 toCam = normalize(cameraPosition - vPosW);
-  float beta = 0.62 * (1.0 - t * 0.55); // faster further in
-  float beam = 1.0 + beta * dot(vel, toCam);
-  // Relativistic boost goes as roughly the fourth power of the Doppler factor.
-  beam = pow(clamp(beam, 0.05, 2.0), 3.2);
+  /* Even all the way round — see the section comment on the beaming that used
+     to sit here. Both constants are the old ones times 1.35, the mean of the
+     beaming factor weighted by where the disc actually has density, so total
+     output is unchanged and only its distribution is.
 
-  /* The feed terms below are all held well down from where they started.
-     Every one of them multiplies the beaming factor, which on the approaching
-     limb is already several times unity — so a generous response to uFeed does
-     not brighten the disc evenly, it takes the one lobe that was brightest and
-     drives it past white. That lobe is what read as the hole shining, and from
-     the resting camera it points across the frame toward the sun. All of these
-     are zero at uFeed = 0, so the disc between meals is exactly as it was. */
-  float brightness = density * beam * (1.25 + uFeed * 0.55);
+     The uFeed response no longer needs the restraint it was written with. It
+     was held down because it multiplied the beaming factor, which on the
+     approaching limb was already several times unity, so any generous value
+     took the one lobe that was brightest and drove it past white — which is
+     what used to read as the hole shining. With nothing to compound against,
+     feeding now lifts the whole ring together. Still zero at uFeed = 0. */
+  float brightness = density * (1.69 + uFeed * 0.74);
   color *= brightness;
 
   // The photon ring: light that orbited the hole before escaping, piling up
@@ -1146,9 +1152,12 @@ export const LENSING_SHADER = {
    anamorphic-ish vignette, and a gentle S-curve so the highlights roll off
    instead of clipping to flat white where the bloom piles up.
 
-   uFlash is the neutron merger's gamma-ray burst — a whole-frame white lift
-   that has to sit after the bloom, not before, or the bloom pass smears it
-   into a wash and it stops reading as an instant. */
+   uFlash is a whole-frame lift that has to sit after the bloom, not before, or
+   the bloom pass smears it into a wash and it stops reading as an instant. Two
+   things drive it: the neutron merger's gamma-ray burst, and the last moment
+   of a dive into a body. uFlashTint is what separates them — the burst is the
+   white it always was, a dive takes the colour of whatever it is falling
+   into. */
 export const GRADE_SHADER = {
   uniforms: {
     tDiffuse: { value: null as unknown },
@@ -1157,10 +1166,16 @@ export const GRADE_SHADER = {
     uGrain: { value: 0.035 },
     uVignette: { value: 1.0 },
     uFlash: { value: 0 },
+    uFlashTint: { value: [1.0, 0.98, 0.94] },
     uResolution: { value: [1, 1] },
     /** Rises during a camera fly-to: a touch of radial blur in the direction
-     * of travel, which is what makes a dolly read as speed. */
+     * of travel, which is what makes a dolly read as speed. A dive drives it
+     * several times higher, and unlike a fly-to it accelerates all the way in
+     * rather than peaking in the middle. */
     uWarp: { value: 0 },
+    /** Where the streaks converge, in screen UV. Frame centre for a fly-to;
+     * the body itself for a dive, which is not the same point until the very
+     * end of one. */
     uCenter: { value: [0.5, 0.5] },
   },
   vertexShader: /* glsl */ `
@@ -1177,6 +1192,7 @@ export const GRADE_SHADER = {
     uniform float uGrain;
     uniform float uVignette;
     uniform float uFlash;
+    uniform vec3 uFlashTint;
     uniform float uWarp;
     uniform vec2 uCenter;
     uniform vec2 uResolution;
@@ -1231,7 +1247,7 @@ export const GRADE_SHADER = {
       float vig = 1.0 - smoothstep(0.34, 0.92, length(v));
       color *= mix(1.0, 0.42 + 0.58 * vig, uVignette);
 
-      color += vec3(1.0, 0.98, 0.94) * uFlash;
+      color += uFlashTint * uFlash;
 
       // Grain last, so it sits on the image rather than being graded by it.
       float g = hash(uv * uResolution + fract(uTime) * 137.0) - 0.5;

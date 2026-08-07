@@ -147,6 +147,12 @@ export interface BodyInfo {
   size: number;
   /** Whether the HUD keeps a label on it at all times, or only on hover. */
   primary: boolean;
+  /** Whether the second tap dives into the body before opening its page, or
+   * opens it straight away. True for the star, the eight planets, the black
+   * hole and the neutron binary — the things big enough to fall into. The
+   * moons and the probe are too small for the move to read as anything but a
+   * lurch, so they keep the plain open. */
+  dive: boolean;
 }
 
 export interface SceneCallbacks {
@@ -182,7 +188,15 @@ function mulberry32(seed: number): () => number {
 
 const easeInOutCubic = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+/** Accelerating, with no settle at the end — the shape of a fall. Used by the
+ * dive alone; every other camera move in here eases *out*, because every other
+ * one is arriving somewhere it means to stop. */
+const easeInCubic = (t: number) => t * t * t;
 const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t);
+const smoothstep = (a: number, b: number, t: number) => {
+  const x = clamp01((t - a) / (b - a));
+  return x * x * (3 - 2 * x);
+};
 
 /** Real starlight is a temperature, not a colour choice: blue-white hottest,
  * down through white and yellow to orange and red. Weighted so the field still
@@ -540,8 +554,25 @@ export class HubScene {
      * the flight, so the destination is re-aimed at it every frame; without
      * this the camera arrives where the body *was* a second ago. */
     follow: THREE.Object3D | null;
+    /** Set only by diveInto(). A dive is a flight — same tween, same re-aiming
+     * at a body that is still moving — that ends against the body's surface
+     * instead of at arm's length from it, accelerates the whole way instead of
+     * settling, and opens the destination when it lands. Optional because it
+     * is the one flight in five that is one. */
+    dive?: BodyInfo | null;
   } | null = null;
   private warp = 0;
+  /** Set the moment a dive is committed and never cleared. A dive ends with
+   * the page changing, so from here on nothing else may take the camera:
+   * another tap, the tour's next stop or the dock would each restart or
+   * hijack a fall that is already on its way to a different document. */
+  private diving = false;
+  /** The dive's own white-out, kept apart from `flash` because that one is
+   * rewritten every frame by the neutron merger and would erase this. */
+  private diveFlash = 0;
+  private diveTint = new THREE.Color(1, 0.98, 0.94);
+  /** Where the streaks converge, in screen UV — see GRADE_SHADER's uCenter. */
+  private diveCenter: [number, number] = [0.5, 0.5];
   /** Set the first time the visitor moves the camera themselves. After that a
    * resize keeps their view instead of re-framing it out from under them —
    * which matters on a phone, where the address bar collapsing on scroll fires
@@ -581,6 +612,7 @@ export class HubScene {
   private resizeObserver: ResizeObserver;
   private tmpV = new THREE.Vector3();
   private tmpV2 = new THREE.Vector3();
+  private tmpV3 = new THREE.Vector3();
 
   constructor(container: HTMLElement, callbacks: SceneCallbacks, tier?: Tier) {
     this.container = container;
@@ -936,17 +968,26 @@ export class HubScene {
       uniforms: {
         uTime: { value: 0 },
         uPulse: { value: 0 },
-        /* Warmer and lifted. The old ramp ran from a near-black oxblood to a
-           pale cream, which is closer to what a G-type photosphere really
-           looks like but reads on screen as a dim ember with a white middle.
-           Every stop moves toward orange and up in value: the cool lanes are
-           now a lit red rather than a dark one, and the hot granules keep
-           enough yellow to still be the brightest thing on the surface without
-           going white — a white core is what stops a star reading as orange
-           however orange the rest of it is. */
-        uCool: { value: new THREE.Color(0xcc4a0d) },
-        uWarm: { value: new THREE.Color(0xffa23a) },
-        uHot: { value: new THREE.Color(0xffe3ab) },
+        /* Gold, not orange. An earlier pass pushed every stop toward orange to
+           get the star off a dim-ember reading, and overshot: uWarm carried the
+           whole midtone and it sat at a flat orange, so the disc read as a
+           coal. These are matched to a white-light photograph of the real
+           photosphere instead — deep amber only in the cooling lanes, gold
+           across the body, and a yellow (not cream) top end. The cream was the
+           other half of the problem: a desaturated peak washes the middle of
+           the disc out and takes the colour with it, which is why uHot keeps
+           its yellow all the way up. */
+        /* Yellower and brighter again, and bought the right way: red is already
+           at the top of its range across the whole ramp, so the extra comes out
+           of green. That moves toward yellow and up in value in one move.
+           Raising the gain instead would only clip red, and clipping is what
+           turns a yellow star white. There is a limit — pushed one more step
+           the lanes stop being amber and the granulation disappears into a flat
+           lemon disc, which is the same washed-out failure the cream uHot used
+           to cause. This sits just short of it. */
+        uCool: { value: new THREE.Color(0xcc7a0e) },
+        uWarm: { value: new THREE.Color(0xffcb40) },
+        uHot: { value: new THREE.Color(0xfff2a0) },
       },
     });
     const sun = new THREE.Mesh(geo, this.sunMaterial);
@@ -964,9 +1005,10 @@ export class HubScene {
       uniforms: {
         uTime: { value: 0 },
         uPulse: { value: 0 },
-        // The corona follows the photosphere: further toward orange, and up,
-        // or a warm star sits inside a paler halo than itself.
-        uColor: { value: new THREE.Color(0xff9b38) },
+        // The corona follows the photosphere, so it moves to gold with it — an
+        // orange halo around a yellow star reads as a ring rather than as the
+        // star's own light continuing outward.
+        uColor: { value: new THREE.Color(0xffc44a) },
         uIntensity: { value: 0.68 },
         // Where the photosphere's edge falls in the disc's own 0..1 radius.
         uUnit: { value: SUN_RADIUS / CORONA_REACH },
@@ -993,7 +1035,7 @@ export class HubScene {
     // The star is a destination too — the dashboard.
     const hit = this.hitSphere(SUN_RADIUS * 1.9);
     sun.add(hit);
-    const info: BodyInfo = { key: "sun", ko: STAR.ko, en: STAR.en, bodyKo: STAR.bodyKo, bodyEn: STAR.bodyEn, to: STAR.to, accent: "#ffce6a", size: SUN_RADIUS, primary: true };
+    const info: BodyInfo = { key: "sun", ko: STAR.ko, en: STAR.en, bodyKo: STAR.bodyKo, bodyEn: STAR.bodyEn, to: STAR.to, accent: "#ffce6a", size: SUN_RADIUS, primary: true, dive: true };
     this.pickables.push({ object: hit, info, anchor: sun });
     this.addLabel(info, sun);
   }
@@ -1093,7 +1135,7 @@ export class HubScene {
       axis.add(mesh);
       this.disposables.push(geo, material);
 
-      const info: BodyInfo = { key: spec.key, ko: spec.ko, en: spec.en, bodyKo: spec.bodyKo, bodyEn: spec.bodyEn, to: spec.to, feed: spec.feed, accent: spec.glow, size: spec.size, primary: true };
+      const info: BodyInfo = { key: spec.key, ko: spec.ko, en: spec.en, bodyKo: spec.bodyKo, bodyEn: spec.bodyEn, to: spec.to, feed: spec.feed, accent: spec.glow, size: spec.size, primary: true, dive: true };
       const hit = this.hitSphere(Math.max(spec.size * 2.6, 4.2));
       body.add(hit);
       this.pickables.push({ object: hit, info, anchor: body });
@@ -1204,7 +1246,7 @@ export class HubScene {
     }
     holder.add(mesh);
 
-    const info: BodyInfo = { key: `${host.key}:${spec.key}`, ko: spec.ko, en: spec.en, bodyKo: spec.ko, bodyEn: spec.en, to: spec.to, accent: spec.glow, size: spec.size, primary: false };
+    const info: BodyInfo = { key: `${host.key}:${spec.key}`, ko: spec.ko, en: spec.en, bodyKo: spec.ko, bodyEn: spec.en, to: spec.to, accent: spec.glow, size: spec.size, primary: false, dive: false };
     const hit = this.hitSphere(Math.max(spec.size * 3.0, 1.6));
     holder.add(hit);
     this.pickables.push({ object: hit, info, anchor: holder });
@@ -1360,7 +1402,6 @@ export class HubScene {
         uTime: { value: 0 },
         uInner: { value: HORIZON * 1.35 },
         uOuter: { value: HORIZON * 5.2 },
-        uSpinAxis: { value: new THREE.Vector3(0, 1, 0) },
         uFeed: { value: 0 },
         uGlowTint: { value: new THREE.Color(0x39ff9e) },
         uGlowMix: { value: 0 },
@@ -1378,7 +1419,7 @@ export class HubScene {
     this.holeGroup.add(disc);
     this.disposables.push(discGeo, this.discMaterial);
 
-    const info: BodyInfo = { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, bodyKo: BLACK_HOLE.bodyKo, bodyEn: BLACK_HOLE.bodyEn, to: BLACK_HOLE.to, accent: "#ff9a4d", size: HORIZON * 2.2, primary: true };
+    const info: BodyInfo = { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, bodyKo: BLACK_HOLE.bodyKo, bodyEn: BLACK_HOLE.bodyEn, to: BLACK_HOLE.to, accent: "#ff9a4d", size: HORIZON * 2.2, primary: true, dive: true };
     const hit = this.hitSphere(HORIZON * 3.4);
     this.holeGroup.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.holeGroup });
@@ -1684,7 +1725,7 @@ export class HubScene {
       this.knots[i * 6 + 5] = krand();
     }
 
-    const info: BodyInfo = { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, bodyKo: NEUTRON_BINARY.bodyKo, bodyEn: NEUTRON_BINARY.bodyEn, to: NEUTRON_BINARY.to, accent: "#9fd0ff", size: 5, primary: true };
+    const info: BodyInfo = { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, bodyKo: NEUTRON_BINARY.bodyKo, bodyEn: NEUTRON_BINARY.bodyEn, to: NEUTRON_BINARY.to, accent: "#9fd0ff", size: 5, primary: true, dive: true };
     const hit = this.hitSphere(12);
     this.neutronGroup.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.neutronGroup });
@@ -1733,7 +1774,7 @@ export class HubScene {
 
     this.scene.add(this.voyager);
 
-    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 2.5, primary: false };
+    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 2.5, primary: false, dive: false };
     const hit = this.hitSphere(5);
     this.voyager.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.voyager });
@@ -2057,6 +2098,7 @@ export class HubScene {
     const moved = Math.hypot(event.clientX - down.x, event.clientY - down.y);
     if (moved > 9 || performance.now() - down.t > 700) return;
 
+    if (this.diving) return;
     this.setPointerFromEvent(event);
     const hit = this.pick();
     if (hit) this.tapBody(hit.info);
@@ -2130,15 +2172,88 @@ export class HubScene {
    * the eight planets, the moons, the black hole, the neutron binary and the
    * probe — so there is never a body whose first tap does something else. */
   tapBody(info: BodyInfo) {
+    if (this.diving) return;
     if (this.selectedKey === info.key) {
+      // The second tap. On anything big enough to fall into, the page opens at
+      // the end of the fall rather than out from under it.
+      if (info.dive && this.diveInto(info)) return;
       this.callbacks.onSelect(info);
       return;
     }
     this.focusOn(info);
   }
 
+  /** The second tap on a body big enough to fall into: drop the camera onto it
+   * and open its destination on impact.
+   *
+   * The move is a flight like any other — it reuses the tween and, critically,
+   * the per-frame re-aiming, because a planet keeps orbiting while you fall at
+   * it and a dive fixed at take-off lands beside it. What differs is the shape
+   * and the end point:
+   *
+   * - it eases *in*. Every other camera move here settles; this one is still
+   *   speeding up when it ends, which is the whole difference between falling
+   *   into something and pulling up next to it.
+   * - it stops just clear of the surface rather than at framing distance, so
+   *   the body fills the frame completely by the end.
+   * - the radial streak accelerates with it and converges on the body rather
+   *   than on the middle of the screen, which is not the same point until the
+   *   last moment.
+   * - the last third whites out in the body's own colour, and the page changes
+   *   underneath that rather than cutting from a live frame.
+   *
+   * Returns false when there is nothing to dive at, so the caller can fall
+   * back to opening the destination outright. */
+  diveInto(info: BodyInfo): boolean {
+    const pickable = this.pickables.find((p) => p.info.key === info.key);
+    if (!pickable) return false;
+
+    // A dive is entirely motion. Under reduced motion there is nothing left of
+    // it worth keeping, so the tap does what it did before this existed.
+    if (this.reducedMotion) {
+      this.callbacks.onSelect(info);
+      return true;
+    }
+
+    const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
+    const dir = this.camera.position.clone().sub(target);
+    if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
+    dir.normalize();
+
+    /* Stop *outside* the surface, by more than the camera's near plane. Going
+       to the centre would be the obvious reading of "dive in" and it is wrong
+       twice: the spheres are front-faced, so a camera inside one sees straight
+       through the body it was diving into, and anything nearer than near (0.4)
+       is clipped away regardless. At size + 0.55 the body subtends well over a
+       hundred degrees — it is the entire frame — and it is still being drawn. */
+    const stop = info.size + 0.55;
+
+    this.diving = true;
+    this.diveTint.set(info.accent);
+    this.labelLayer.style.transition = "opacity 0.5s ease-in";
+    this.labelLayer.style.opacity = "0";
+
+    this.beginFlight({
+      fromPos: this.camera.position.clone(),
+      toPos: target.clone().add(dir.multiplyScalar(stop)),
+      fromTarget: this.controls.target.clone(),
+      toTarget: target,
+      t: 0,
+      // Long enough to read as a fall, short enough that it is never in the
+      // way of someone who just wants the page.
+      duration: 1.15,
+      // `body` is the dock's on-arrival callback and would fire onSelect a
+      // second time; the dive runs its own.
+      body: null,
+      follow: pickable.anchor,
+      dive: info,
+    });
+    return true;
+  }
+
   /** Frames a body and makes it the camera's pivot. Does not navigate. */
   focusOn(info: BodyInfo, duration = 1.05) {
+    if (this.diving) return false;
     const pickable = this.pickables.find((p) => p.info.key === info.key);
     if (!pickable) return false;
 
@@ -2181,6 +2296,9 @@ export class HubScene {
    * carries that key, so the caller can navigate directly instead of waiting
    * for a fly-to that will never arrive. */
   selectByKey(key: string): boolean {
+    // Not false: false tells the shell to navigate outright, and a dive is
+    // already on its way to a destination of its own.
+    if (this.diving) return true;
     const pickable = this.pickables.find((p) => p.info.key === key);
     if (!pickable) return false;
     const info = pickable.info;
@@ -2207,12 +2325,14 @@ export class HubScene {
 
   /** Dock hover: highlight only. Never moves the camera. */
   focusByKey(key: string | null) {
+    if (this.diving) return;
     if (this.selectedKey && this.followAnchor) return; // a real focus outranks a hover
     this.selectedKey = key;
   }
 
   /** Back to the whole system, and hand the pivot back to the sun. */
   resetCamera() {
+    if (this.diving) return;
     this.selectedKey = null;
     this.followAnchor = null;
     this.userMoved = false;
@@ -2248,7 +2368,7 @@ export class HubScene {
    * never actually had a tempo. Counting through the flight means each stop
    * gets the same ten seconds no matter where it is. */
   private advanceTour(dt: number) {
-    if (!this.tourEnabled) return;
+    if (!this.tourEnabled || this.diving) return;
     this.tourTimer -= dt;
     if (this.tourTimer > 0) return;
     this.tourTimer = HubScene.TOUR_INTERVAL;
@@ -2275,6 +2395,14 @@ export class HubScene {
    * corkscrew. `autoRotate = false` is the same problem from the other side:
    * an idle scene that has started drifting would keep drifting *through* a
    * fly-to and never actually arrive at the body it was aimed at. */
+  /** A world point in screen UV, 0..1 with y up — the space GRADE_SHADER's
+   * uCenter works in. Uses its own scratch vector: the caller runs inside
+   * updateFlight, which is already holding tmpV and tmpV2. */
+  private project(p: THREE.Vector3): [number, number] {
+    this.tmpV3.copy(p).project(this.camera);
+    return [this.tmpV3.x * 0.5 + 0.5, this.tmpV3.y * 0.5 + 0.5];
+  }
+
   private beginFlight(flight: NonNullable<HubScene["flight"]>) {
     this.flight = flight;
     this.controls.enabled = false;
@@ -2320,6 +2448,15 @@ export class HubScene {
    * half times it). A star that grows and a floor that does not is a camera
    * that can be flown inside the photosphere. */
   private updateZoomFloor() {
+    /* A dive is the one camera move that is meant to cross this floor — the
+       floor exists precisely to stop the camera reaching a body's surface, and
+       OrbitControls.update() re-clamps the radius every frame whether or not
+       the controls are enabled, so leaving it in place would haul the camera
+       back out from under the tween. */
+    if (this.flight?.dive) {
+      this.controls.minDistance = 0.01;
+      return;
+    }
     if (this.followAnchor) {
       this.controls.minDistance = this.focusFloor;
       return;
@@ -2351,15 +2488,41 @@ export class HubScene {
     f.t += dt / f.duration;
     const done = f.t >= 1;
     const t = clamp01(f.t);
+    const dive = f.dive ?? null;
     // The intro eases out only (it is already moving when you arrive); a
-    // fly-to eases in and out, so it settles rather than stopping dead.
-    const e = f.body || f.duration > 2 ? easeInOutCubic(t) : easeOutCubic(t);
+    // fly-to eases in and out, so it settles rather than stopping dead; a dive
+    // eases in and never settles, because it does not arrive — it lands.
+    const e = dive ? easeInCubic(t) : f.body || f.duration > 2 ? easeInOutCubic(t) : easeOutCubic(t);
 
     this.camera.position.lerpVectors(f.fromPos, f.toPos, e);
     this.controls.target.lerpVectors(f.fromTarget, f.toTarget, e);
 
-    // Speed, as the frame sees it: peaks mid-flight and is gone on arrival.
-    this.warp = Math.sin(t * Math.PI) * (f.body ? 0.85 : 0.35);
+    if (dive) {
+      /* Everything the fall looks like. The streak climbs with the fall rather
+         than peaking in the middle of it, and it converges on the body: early
+         on the body is still off to one side, and streaks pulling toward the
+         middle of the screen while the camera pulls toward something else read
+         as two different moves happening at once. */
+      this.warp = Math.pow(t, 1.7) * 2.7;
+      this.diveCenter = this.project(f.toTarget);
+      // The last third. Held past 1 deliberately — the frame is fully blown out
+      // before the route changes, so the page swap happens behind the light
+      // instead of cutting from a live frame to a new document.
+      this.diveFlash = smoothstep(0.55, 1.0, t) * 1.7;
+    } else {
+      // Speed, as the frame sees it: peaks mid-flight and is gone on arrival.
+      this.warp = Math.sin(t * Math.PI) * (f.body ? 0.85 : 0.35);
+    }
+
+    if (done && dive) {
+      /* Nothing is reset and the controls stay off. This scene has seconds to
+         live: onSelect navigates, the shell unmounts and dispose() takes the
+         context with it. Handing the camera back and fading the light out would
+         only ever be seen as a flinch on the way out the door. */
+      this.flight = null;
+      this.callbacks.onSelect(dive);
+      return;
+    }
 
     if (done) {
       this.flight = null;
@@ -2611,11 +2774,6 @@ export class HubScene {
   private updateBlackHole(dt: number, time: number, speed: number) {
     this.discMaterial.uniforms.uTime.value = time * speed;
     this.holeGroup.getWorldPosition(this.tmpV);
-
-    // The disc's spin axis, in world space — everything the Doppler beaming
-    // term needs to know about which way the gas is moving.
-    const axis = new THREE.Vector3(0, 1, 0).applyQuaternion(this.holeGroup.getWorldQuaternion(new THREE.Quaternion()));
-    this.discMaterial.uniforms.uSpinAxis.value.copy(axis);
 
     const cycle = (time * speed) % HubScene.BH_CYCLE;
     const holePos = this.tmpV.clone();
@@ -3282,10 +3440,15 @@ export class HubScene {
   private updatePasses(time: number) {
     const grade = this.gradePass.uniforms;
     grade.uTime.value = time;
-    grade.uFlash.value = this.flash * 0.55;
+    /* Two sources, one uniform: the merger's burst and a dive's white-out. They
+       cannot overlap in practice — a dive is the last second of the page — but
+       the tint has to pick one, and the dive is the one the visitor asked for. */
+    grade.uFlash.value = this.flash * 0.55 + this.diveFlash;
+    grade.uFlashTint.value =
+      this.diveFlash > 0.001 ? [this.diveTint.r, this.diveTint.g, this.diveTint.b] : [1.0, 0.98, 0.94];
     grade.uWarp.value = this.warp;
     grade.uAberration.value = 1 + this.warp * 1.4;
-    grade.uCenter.value = [0.5, 0.5];
+    grade.uCenter.value = this.diveFlash > 0.001 || this.flight?.dive ? this.diveCenter : [0.5, 0.5];
 
     if (!this.lensPass) return;
     const lens = this.lensPass.uniforms;
