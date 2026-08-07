@@ -45,7 +45,8 @@ export interface MoonSpec {
   radius: number;
   /** Body radius in scene units. */
   size: number;
-  /** Seconds for one revolution. */
+  /** Seconds for one revolution. Negative = retrograde, i.e. against the way
+   * its host spins — which among these is Triton alone, as in life. */
   period: number;
   /** Where on the ring it starts, 0..1. */
   phase: number;
@@ -180,10 +181,12 @@ const MARS_MOONS: MoonSpec[] = [
 /* Orbit radii carry the same factor their host's `size` does — Jupiter's ×2,
    Saturn's ×1.5. Scaling both together is the whole point: every relationship
    that was tuned here survives it. Io still clears the cloud tops by the same
-   proportion, Mimas still sits at the same place in the rings (whose inner and
-   outer edges are multiples of `size`, so they scale for free), and the four
-   Galileans keep their spacing. Scaling the planet alone would have put its
-   inner moons inside it. */
+   proportion, the ring sheets keep their proportions for free (their inner and
+   outer edges are multiples of `size`), and the four Galileans keep their
+   spacing. Scaling the planet alone would have put its inner moons inside it.
+   The one relationship the scaling did *not* fix is Saturn's innermost moon,
+   which was inside the ring sheet before and stayed there after — see
+   SATURN_MOONS. */
 const JUPITER_MOONS: MoonSpec[] = [
   { key: "io", ko: "이오", en: "Io", to: "/sp500-map", texture: `${TEX}/io.webp`, radius: 14.4, size: 0.62, period: 16, phase: 0, spin: 16, glow: "#d9a85f", vent: "io" },
   { key: "europa", ko: "유로파", en: "Europa", to: "/sp500-map", texture: `${TEX}/europa.webp`, radius: 18.0, size: 0.54, period: 26, phase: 0.35, spin: 26, glow: "#d8cfba" },
@@ -191,10 +194,44 @@ const JUPITER_MOONS: MoonSpec[] = [
   { key: "callisto", ko: "칼리스토", en: "Callisto", to: "/sp500-map", texture: `${TEX}/callisto.webp`, radius: 28.4, size: 0.85, period: 62, phase: 0.85, spin: 62, glow: "#5f5c56" },
 ];
 
+/* The ring sheet ends at 2.35 × 5.85 = 13.75, and the moons orbit in the same
+   plane the sheet lies in, so anything closer than that rides through the
+   rings rather than around them. Mimas at 12.9 and Enceladus at 15.6 put the
+   inner one squarely inside the disc; both are moved out to clear it, which is
+   also where the real ones are — Mimas orbits at ~3.1 Saturn radii and the A
+   ring's outer edge is at ~2.3, so it is outside the main rings by a margin
+   the eye can see, not grazing them. Titan is left at 20.7: it is the outer
+   constraint on the whole Saturnian system (any further and it reaches into
+   Uranus's rings), so the two inner moons close the gap to it instead. That
+   leaves 1.46 units between Mimas and Enceladus and 2.14 between Enceladus and
+   Titan, once each pair's own radii are taken out. */
 const SATURN_MOONS: MoonSpec[] = [
-  { key: "mimas", ko: "미마스", en: "Mimas", to: "/ai-prediction", texture: `${TEX}/mimas.webp`, radius: 12.9, size: 0.34, period: 18, phase: 0.1, spin: 18, glow: "#d8d2c4" },
-  { key: "enceladus", ko: "엔셀라두스", en: "Enceladus", to: "/ai-prediction", texture: `${TEX}/enceladus.webp`, radius: 15.6, size: 0.4, period: 26, phase: 0.5, spin: 26, glow: "#eaf4ff", vent: "enceladus" },
+  { key: "mimas", ko: "미마스", en: "Mimas", to: "/ai-prediction", texture: `${TEX}/mimas.webp`, radius: 15, size: 0.34, period: 18, phase: 0.1, spin: 18, glow: "#d8d2c4" },
+  { key: "enceladus", ko: "엔셀라두스", en: "Enceladus", to: "/ai-prediction", texture: `${TEX}/enceladus.webp`, radius: 17.2, size: 0.4, period: 26, phase: 0.5, spin: 26, glow: "#eaf4ff", vent: "enceladus" },
   { key: "titan", ko: "타이탄", en: "Titan", to: "/ai-prediction", texture: `${TEX}/titan.webp`, radius: 20.7, size: 0.96, period: 52, phase: 0.8, spin: 52, glow: "#e8a35c" },
+];
+
+/* The two outer moons, one each, both at half the Moon's size — an explicit
+   request, so they do not follow the "hold the real ratios within the set"
+   rule the Jovian and Saturnian sets do. Each is the largest moon of its host,
+   and each orbit radius is set the way the others are: outside anything its
+   host carries, and short enough that the moon never reaches the neighbouring
+   planet's track. Titania at 10 clears Uranus's rings (which end at 2 × 3.75 =
+   7.5) and still stops 3.3 units short of Titan at the top of its own swing;
+   Triton at 9.5 leaves 8.5 units between Neptune's system and Titania's. */
+const URANUS_MOONS: MoonSpec[] = [
+  // Uranus's equatorial plane is tipped ~98°, so this orbit stands almost
+  // vertical — scene.ts hangs the moons off the same axis as the rings, which
+  // is exactly where the real Titania goes.
+  { key: "titania", ko: "티타니아", en: "Titania", to: "/fight", texture: `${TEX}/titania.webp`, radius: 10, size: 0.275, period: 30, phase: 0.2, spin: 30, glow: "#c9c2b8" },
+];
+
+const NEPTUNE_MOONS: MoonSpec[] = [
+  // Negative period *and* negative spin: Triton is the one large moon in the
+  // solar system that orbits backwards, and it is tidally locked, so its day
+  // runs backwards with its year. It is almost certainly a captured Kuiper
+  // belt object, which is why it is the odd one out here.
+  { key: "triton", ko: "트리톤", en: "Triton", to: "/global-top100", texture: `${TEX}/triton.webp`, radius: 9.5, size: 0.275, period: -26, phase: 0.55, spin: -26, glow: "#d8d2b8" },
 ];
 
 /* ─────────────────────────── planets ─────────────────────────── */
@@ -346,11 +383,14 @@ export const PLANETS: PlanetSpec[] = [
     bodyEn: "Uranus",
     to: "/fight",
     texture: `${TEX}/uranus.webp`,
-    /* Out from 164 to clear Saturn. Its own rings reach in to 173 from here,
-       which is 15 units clear of Saturn's ringed disc and 8 clear of Titan at
-       the top of its swing — a gap the eye can actually read as a gap. */
+    /* Out from 164 to clear Saturn. Its own rings reach in to 170.5 from here,
+       which is 12.75 units clear of Saturn's ringed disc and 5.8 clear of
+       Titan at the top of its swing — a gap the eye can actually read as a
+       gap, even after the size below grew the ring sheet inward with it. */
     radius: 178,
-    size: 2.5,
+    // Half again what it was. The ring's inner and outer are multiples of this,
+    // so the hoops grow with the planet and keep their proportions.
+    size: 3.75,
     period: 84,
     phase: 0.14,
     spin: -14, // retrograde: its axis is tipped ~98°
@@ -361,6 +401,7 @@ export const PLANETS: PlanetSpec[] = [
     brightness: 0.8,
     // Which is also why its rings stand almost vertical against Saturn's.
     ring: { inner: 1.5, outer: 2.0, tilt: 1.5, color: [0.55, 0.72, 0.78], style: "uranus", opacity: 0.75 },
+    moons: URANUS_MOONS,
   },
   {
     key: "neptune",
@@ -375,7 +416,9 @@ export const PLANETS: PlanetSpec[] = [
        edge of the system, and the resting camera sits ~283 units out with room
        to spare — the outermost track still frames comfortably. */
     radius: 206,
-    size: 2.4,
+    // Half again what it was, matching Uranus's own step so the outermost pair
+    // keep the size ordering they had. Ringless, so nothing else moves with it.
+    size: 3.6,
     period: 104,
     phase: 0.32,
     spin: 15,
@@ -384,6 +427,7 @@ export const PLANETS: PlanetSpec[] = [
     inclination: 0.04,
     // Deep blue, and the darkest body here after Mercury.
     brightness: 1.7,
+    moons: NEPTUNE_MOONS,
   },
 ];
 
