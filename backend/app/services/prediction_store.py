@@ -15,9 +15,7 @@ import threading
 import time
 from pathlib import Path
 
-import libsql
-
-from app.services import libsql_gate
+from app.services import libsql_gate, turso
 from dotenv import load_dotenv
 
 from app.data.prediction_universe import MARKET_KOSDAQ, MARKET_KOSPI, MARKET_NASDAQ
@@ -186,9 +184,9 @@ def _write_values(row: dict) -> tuple:
 
 def _connect():
     if TURSO_DATABASE_URL:
-        return libsql.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
+        return turso.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
     LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return libsql.connect(database=str(LOCAL_DB_PATH))
+    return turso.connect(database=str(LOCAL_DB_PATH))
 
 
 def _migrate(conn) -> None:
@@ -232,9 +230,9 @@ _RECONNECT_DELAY_SECONDS = 1.0
 def _with_connection(fn):
     """One lazily-created process-wide connection serialized behind `_lock`, reconnecting
     on a fresh connection (up to `_RECONNECT_ATTEMPTS` times) if the existing one turns
-    out to be dead — concurrent open/close cycles race in the libsql client and Turso
-    closes idle streams server-side, either of which this recovers from rather than
-    failing the caller over a connection issue that a fresh connect() resolves."""
+    out to be dead — an idle keep-alive socket can be dropped by the far end at any
+    time, which this recovers from rather than failing the caller over a connection
+    issue that a fresh connect() resolves."""
     global _conn
     with _gate.hold():
         if _conn is None:

@@ -2,9 +2,7 @@ import os
 import threading
 from pathlib import Path
 
-import libsql
-
-from app.services import libsql_gate
+from app.services import libsql_gate, turso
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -36,9 +34,9 @@ CREATE TABLE IF NOT EXISTS fight_comments (
 
 def _connect():
     if TURSO_DATABASE_URL:
-        return libsql.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
+        return turso.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
     LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    return libsql.connect(database=str(LOCAL_DB_PATH))
+    return turso.connect(database=str(LOCAL_DB_PATH))
 
 
 def _ensure_is_visible_column(conn):
@@ -60,10 +58,9 @@ def _new_ready_connection():
 
 
 def _with_connection(fn):
-    """Same reuse-one-connection-with-retry-once approach as comment_store.py: opening
-    a fresh remote Hrana connection per call let concurrent request threads race each
-    other in the libsql client's stream handling (`stream not found`), so this keeps a
-    single lazily-created, process-wide connection behind `_lock` instead."""
+    """Same reuse-one-connection-with-retry-once approach as comment_store.py: a fresh
+    remote connection per call would pay a TLS handshake to Turso every time, so this
+    keeps a single lazily-created, process-wide connection behind its gate instead."""
     global _conn
     with _gate.hold():
         if _conn is None:

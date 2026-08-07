@@ -7,7 +7,10 @@ requests==2.32.3
 beautifulsoup4==4.12.3
 lxml==5.2.2
 pydantic==2.9.2
-libsql==0.1.11
+# No libsql client here on purpose. Every 0.1.x reaches Turso through the streaming
+# cursor endpoint, and Turso's AWS edge answers that with 502 "upstream forward
+# failed" while serving /v2/pipeline normally. services/turso.py speaks that endpoint
+# over `requests` instead; local fallback databases go through stdlib sqlite3.
 python-dotenv==1.2.2
 readability-lxml==0.8.4.1
 # The prediction batch's 60% qualitative block calls Claude when ANTHROPIC_API_KEY is

@@ -2,9 +2,10 @@
 
 Everything here is deliberately one-way: the console exists to *look at* what the app
 has stored, so the only statements it will run are a single SELECT (or a WITH ... SELECT).
-That guard lives in `assert_read_only` and is not decoration — libsql's `execute` happily
-runs "SELECT 1; DROP TABLE x" as two statements, so nothing below the API layer would
-otherwise stop a stray semicolon from mutating production data.
+That guard lives in `assert_read_only` and is not decoration. The transport does reject
+"SELECT 1; DROP TABLE x" on its own — both Hrana and sqlite3 refuse more than one
+statement per execute — but a single destructive statement is still just a statement to
+them, so this is the only layer that distinguishes looking from mutating.
 
 Connections mirror the stores (page_view_store, comment_store, ...): one Turso database
 when TURSO_DATABASE_URL is set, otherwise the local .db files those stores fall back to.
@@ -19,9 +20,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-import libsql
-
-from app.services import libsql_gate
+from app.services import libsql_gate, turso
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -88,8 +87,8 @@ def _source_or_raise(source_id: str | None) -> dict:
 
 def _open(source: dict):
     if source["kind"] == "turso":
-        return libsql.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
-    return libsql.connect(database=str(LOCAL_STORE_DIR / f"{source['id']}.db"))
+        return turso.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN)
+    return turso.connect(database=str(LOCAL_STORE_DIR / f"{source['id']}.db"))
 
 
 def _with_connection(source: dict, fn):
@@ -105,7 +104,7 @@ def _with_connection(source: dict, fn):
             return fn(conn)
         except QueryError:
             # The query itself was bad — the connection is fine, and retrying would
-            # just raise the same thing again on a needlessly reopened stream.
+            # just raise the same thing again on a needlessly reopened connection.
             raise
         except Exception:
             try:
