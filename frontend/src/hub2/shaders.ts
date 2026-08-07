@@ -341,9 +341,9 @@ uniform float uAtmoStrength;
 /** Selection/hover lift, 0..1 — brightens the body and widens its rim so the
  * thing under the cursor is unmistakable without an outline pass. */
 uniform float uFocus;
-/** Live index move, -1..1. Tints the terminator: green-cyan into the shadow
- * on an up day, red on a down day. Subtle by design — this is a wash over the
- * night side, not a recolour of the planet. */
+/** Live index move, -1..1. Tints the terminator: red into the shadow on an up
+ * day, blue on a down day. Subtle by design — this is a wash over the night
+ * side, not a recolour of the planet. */
 uniform float uTrend;
 uniform float uAmbient;
 /** Per-body trim on top of the shared gain above. These textures are real
@@ -405,8 +405,10 @@ void main() {
   float term = exp(-pow(ndl * 4.2, 2.0));
   color += uAtmoColor * term * uAtmoStrength * 0.34;
 
-  // Market wash, into the shadow only.
-  vec3 trendTint = uTrend >= 0.0 ? vec3(0.24, 1.0, 0.62) : vec3(1.0, 0.34, 0.42);
+  // Market wash, into the shadow only. Red up, blue down, same as the HUD's
+  // --up / --down: the planet and the number printed next to it must not
+  // disagree about which way the market went.
+  vec3 trendTint = uTrend >= 0.0 ? vec3(1.0, 0.34, 0.42) : vec3(0.31, 0.61, 1.0);
   color += trendTint * abs(uTrend) * (1.0 - day) * 0.16;
 
   // A hint of lift when this is the body the camera is holding — enough to
@@ -632,6 +634,83 @@ void main() {
 }
 `;
 
+/* ─────────────────────────── the relativistic jet ───────────────────────────
+   What comes back out. A hole that has just swallowed something does not only
+   glow: a fraction of the infalling matter is flung out along the spin axis —
+   perpendicular to the disc, in both directions at once — as a narrow beam
+   that outruns everything else in the scene.
+
+   Drawn as an open cone whose UV runs 0 at the horizon to 1 at the head, so
+   everything below is a function of distance along the beam:
+
+   - `uHead` is where the front of it has got to. It races out over the first
+     fraction of a second, which is what makes the beam *fire* rather than
+     simply appear at full length.
+   - The knots are internal shocks — real jets are beaded, not smooth, and the
+     beads travel outward, which is the only motion in the beam that the eye
+     can actually follow at this length.
+   - The limb term is why a hollow cone reads as a solid beam: a tube of gas
+     is brightest where the line of sight grazes its wall and runs through the
+     most of it, so the silhouette edges carry more light than the middle.
+     The spine mesh sets uSpine = 1 to opt out of it and stay a bright core. */
+export const JET_VERT = /* glsl */ `
+varying vec2 vUv;
+varying float vRim;
+void main() {
+  vUv = uv;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  // normalMatrix is the inverse transpose, so the cone's very non-uniform
+  // scale (long and thin) does not tilt the normals it reports.
+  vec3 n = normalize(normalMatrix * normal);
+  vRim = 1.0 - abs(dot(n, normalize(-mv.xyz)));
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+export const JET_FRAG = /* glsl */ `
+uniform float uTime;
+uniform float uHead;
+uniform float uEnergy;
+uniform float uSpine;
+uniform vec3 uHot;
+uniform vec3 uCool;
+varying vec2 vUv;
+varying float vRim;
+
+void main() {
+  float s = vUv.y;
+
+  // Nothing exists ahead of the head, and the head itself is the brightest
+  // part of the beam: that is where it is ploughing into the sky.
+  float front = 1.0 - smoothstep(uHead - 0.05, uHead, s);
+  // Squared by multiplication, not pow(): behind the head the base is negative
+  // and pow() of a negative base is undefined in GLSL — which is most of the
+  // beam, so this is not a corner case.
+  float behind = (s - uHead) * 26.0;
+  float shock = exp(-behind * behind) * step(s, uHead);
+
+  // Thins with distance, but never to nothing before the head — a jet that
+  // faded out on its own would never look like it reached anywhere.
+  float fall = pow(1.0 - s * 0.86, 1.15);
+
+  // Internal shocks, travelling out along the beam.
+  float knot = 0.66 + 0.34 * sin(s * 30.0 - uTime * 14.0);
+  float flick = 0.86 + 0.14 * sin(uTime * 41.0 + s * 7.0);
+  float limb = mix(pow(clamp(vRim, 0.0, 1.0), 1.5) * 2.1, 1.0, uSpine);
+
+  float body = front * fall * knot * flick * limb * uEnergy;
+  body += shock * uEnergy * (0.5 + uSpine * 0.9);
+
+  // Hot and white at the base, cooling out along its length.
+  vec3 color = mix(uHot, uCool, smoothstep(0.02, 0.55, s));
+  // The root, where the beam leaves the hole: white, and brighter than
+  // anything else the scene draws.
+  color += uHot * exp(-s * 30.0) * uEnergy * (1.2 + uSpine * 1.6);
+
+  gl_FragColor = vec4(color * body, clamp(body, 0.0, 1.0));
+}
+`;
+
 /* ────────────────────── deep-sky background ──────────────────────
    The nebula the whole system sits inside, painted on the inside of a very
    large sphere. Three gas phases at three scales with a dust lane cut through
@@ -652,6 +731,10 @@ uniform vec3 uColorA;
 uniform vec3 uColorB;
 uniform vec3 uColorC;
 uniform float uIntensity;
+/** The axis the galactic plane is perpendicular to. Shared with the sky
+ *  photograph's own orientation, so the painted glow and the photographed
+ *  band are the same band. */
+uniform vec3 uGalacticPole;
 varying vec3 vDir;
 
 ${NOISE}
@@ -683,17 +766,87 @@ void main() {
   float lane = smoothstep(0.42, 0.72, dust);
   color *= mix(0.25, 1.0, lane);
 
-  // The galactic plane: a broad, slightly tilted band of unresolved stars.
-  // Kept as its own term rather than folded into the emission above, so that
-  // it is gated by the dust lanes (which really do cut across it) but NOT by
-  // the cloud threshold — the band is visible where there is no nebula at all.
-  vec3 poleN = normalize(vec3(0.36, 0.86, -0.35));
-  float band = 1.0 - abs(dot(d, poleN));
-  float milky = pow(clamp(band, 0.0, 1.0), 26.0);
+  /* The galactic plane, as diffuse light around the photograph that now draws
+     the band itself (see MILKYWAY_FRAG). Kept as its own term rather than
+     folded into the emission above, so that it is gated by the dust lanes
+     (which really do cut across it) but NOT by the cloud threshold — the glow
+     is there where there is no nebula at all.
+
+     Two widths, and the wide one carries most of it. A single high power was
+     a hard bright stripe a few degrees thick, which is what a galaxy looks
+     like in a long exposure and not at all what one looks like overhead: the
+     real thing is a broad wash of unresolved stars that fades over tens of
+     degrees, with only its core concentrated. The halo term is that wash. */
+  float band = clamp(1.0 - abs(dot(d, normalize(uGalacticPole))), 0.0, 1.0);
+  float halo = pow(band, 3.0);
+  float core = pow(band, 12.0);
+  float milky = halo * 0.55 + core * 0.6;
   float mottle = fbm(d * 9.0, 3, 2.2, 0.5) * 0.5 + 0.5;
   vec3 milkyLight = vec3(0.5, 0.55, 0.74) * milky * (0.28 + mottle * 0.55) * mix(0.22, 1.0, lane);
 
   gl_FragColor = vec4((color * cloud + milkyLight) * uIntensity, 1.0);
+}
+`;
+
+/* ─────────────────────── the Milky Way, photographed ───────────────────────
+   A 360° panorama of the real sky (ESO/S. Brunier, CC BY 4.0) mapped onto the
+   inside of a sphere, so the band of the galaxy is a photograph rather than a
+   procedural stripe.
+
+   Sampled through the sphere's own UVs rather than from the view direction.
+   Equirectangular sampling by atan(z, x) has a seam down the back of the sky:
+   the wrap from u=1 to u=0 makes the texture derivative enormous for one
+   column of pixels, the GPU picks the smallest mip there, and the result is a
+   visible bright line. SphereGeometry duplicates its seam vertices with u=0
+   and u=1, so interpolating the attribute is continuous everywhere and the
+   line never appears.
+
+   Two things are done to the photograph on the way in. It is stretched off
+   its own equator (uWiden), because the panorama's band is only a few degrees
+   thick and a sky whose galaxy is a thin bright stripe reads as a decal on
+   black. And a heavily smeared copy of it is added back (uHaze), which puts
+   the band's light into the sky around it the way a real galaxy's unresolved
+   stars do. */
+export const MILKYWAY_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const MILKYWAY_FRAG = /* glsl */ `
+uniform sampler2D uMap;
+uniform float uIntensity;
+/** > 1 pulls the panorama away from its equator, widening the band. */
+uniform float uWiden;
+uniform float uHaze;
+uniform vec3 uTint;
+varying vec2 vUv;
+
+vec3 tap(float widen, float dv) {
+  float v = clamp(0.5 + (vUv.y - 0.5) / widen + dv, 0.0, 1.0);
+  return texture2D(uMap, vec2(vUv.x, v)).rgb;
+}
+
+void main() {
+  vec3 sharp = tap(uWiden, 0.0);
+
+  // Five taps across a much wider copy: a cheap vertical blur that turns the
+  // core into a glow spread over a good fraction of the sky.
+  vec3 haze = vec3(0.0);
+  for (int i = -2; i <= 2; i++) {
+    haze += tap(uWiden * 2.7, float(i) * 0.035);
+  }
+  haze *= 0.2;
+
+  /* Pulled toward the scene's own cool palette, for the same reason the
+     Horsehead is: the panorama's core is a warm orange that reads as a
+     sunrise if it is left alone next to this page's blues. */
+  vec3 color = sharp + haze * uHaze;
+  color = mix(color, color * uTint, 0.6);
+
+  gl_FragColor = vec4(color * uIntensity, 1.0);
 }
 `;
 

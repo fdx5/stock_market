@@ -23,7 +23,11 @@ import {
   GLOW_FRAG,
   GLOW_VERT,
   GRADE_SHADER,
+  JET_FRAG,
+  JET_VERT,
   LENSING_SHADER,
+  MILKYWAY_FRAG,
+  MILKYWAY_VERT,
   NEBULA_FRAG,
   NEBULA_VERT,
   PLANET_FRAG,
@@ -344,6 +348,15 @@ interface LabelRig {
 
 const SUN_RADIUS = 8;
 
+/** The axis the galaxy's plane is perpendicular to, in scene coordinates.
+ *
+ * Tilted off the ecliptic, because the real one is: the solar system's plane
+ * and the galaxy's are nothing like parallel, and a band that ran along the
+ * orbits would read as a ring belonging to this system. One constant, shared
+ * by the photographed band and the glow painted around it — they have to be
+ * the same band or the sky has two galaxies in it. */
+const GALACTIC_POLE = new THREE.Vector3(0.36, 0.86, -0.35).normalize();
+
 /** Where the camera rests, and how wide it sees, for a given viewport shape.
  *
  * One fixed position cannot serve all three. The system is a flat, wide disc:
@@ -440,6 +453,23 @@ export class HubScene {
   private holeGroup!: THREE.Object3D;
   private discMaterial!: THREE.ShaderMaterial;
   private feed = 0;
+  /* the jet, fired along the spin axis whenever something is swallowed */
+  private jetGroup!: THREE.Object3D;
+  private jetMaterials: THREE.ShaderMaterial[] = [];
+  /** Every cone in the jet, with the fraction of the beam's width it carries.
+   * Four of them: a sheath and a bright spine, in each of two directions. */
+  private jetCones: { mesh: THREE.Mesh; width: number }[] = [];
+  /** Six floats per grain of gas in the beam: where along it the grain starts,
+   * which arm of the helix it belongs to, how far off the axis it rides, how
+   * fast it climbs, a size roll, and which pole it left by. */
+  private jetParticles: Float32Array = new Float32Array(0);
+  private jetParticleStart = 0;
+  private jetParticleCount = 0;
+  /** The beam's frame in world space, rebuilt each frame from the hole's own
+   * axes so the swirl turns with the disc rather than with the world. */
+  private jetAxis = new THREE.Vector3();
+  private jetSideA = new THREE.Vector3();
+  private jetSideB = new THREE.Vector3();
 
   /* Pluto, on its way in */
   private pluto!: THREE.Mesh;
@@ -520,8 +550,16 @@ export class HubScene {
    * zooming goes toward what you are looking at), and a second tap on it opens
    * its destination instead of re-framing it. */
   private selectedKey: string | null = null;
-  /** The scene object `controls.target` tracks. Null means the sun. */
+  /** The scene object `controls.target` rides along with. Null means the sun. */
   private followAnchor: THREE.Object3D | null = null;
+  /** Where that anchor was last frame — the follow moves the rig by the
+   * difference rather than snapping the pivot onto the body, so whatever the
+   * visitor has panned or zoomed to since is not undone every frame. */
+  private followPrev = new THREE.Vector3();
+  /** How close the controls may get while a body is held. Kept apart from
+   * controls.minDistance because the free-flying floor is recomputed every
+   * frame (see updateZoomFloor) and would otherwise overwrite it. */
+  private focusFloor = 14;
   private feedValues: FeedMap = { KOSPI: null, KOSDAQ: null, SPX: null, NDX: null };
   private lang: "ko" | "en" = "ko";
   private pulse = 0;
@@ -574,9 +612,31 @@ export class HubScene {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.055;
-    // Panning is off deliberately: this is an entrance, and a visitor who pans
-    // the system off-screen has no obvious way back to it.
-    this.controls.enablePan = false;
+
+    /* Free exploration, on a leash.
+     *
+     * Panning used to be off, and the wheel zoomed at the sun and nowhere
+     * else, which meant the only way to get a close look at anything was to
+     * tap it and accept the camera's framing. Anything the scene does not
+     * treat as a body — the belt, the far side of Saturn's rings, the stretch
+     * of sky the black hole's jet crosses — could not be approached at all.
+     *
+     * So: the pivot moves (pan), and the wheel and the pinch aim at whatever
+     * is under the pointer rather than at the pivot (zoomToCursor). Together
+     * those are enough to put the camera anywhere, which is the point.
+     *
+     * The leash is maxTargetRadius. A visitor who pans the system off-screen
+     * has no obvious way back to it, and that was the real reason panning was
+     * off; a hard ceiling on how far the pivot can travel from the sun means
+     * the system is always behind you rather than gone. It is set beyond the
+     * furthest thing the camera is ever flown to, which is the probe out past
+     * 800 units — a leash that clamps a fly-to would drag the camera off its
+     * own destination every frame. */
+    this.controls.enablePan = true;
+    this.controls.screenSpacePanning = true;
+    this.controls.panSpeed = 0.8;
+    this.controls.zoomToCursor = true;
+    this.controls.maxTargetRadius = 1000;
     this.controls.minDistance = 14;
     this.controls.maxDistance = 900;
     // Stop just short of both poles, so the scene never flips through the
@@ -587,6 +647,13 @@ export class HubScene {
     this.controls.zoomSpeed = 0.85;
     this.controls.autoRotateSpeed = 0.24;
     this.controls.target.set(0, 0, 0);
+    /* Right-drag and middle-drag pan; two fingers pinch *and* pan, which is
+       the whole gesture set a phone has. The one thing missing is the mouse
+       gesture most people already know for this — shift and drag — and that
+       is not a mode OrbitControls has, so bindEvents() swaps what the left
+       button does while the key is held. */
+    this.controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 
     // The camera keeps its default (layer 0 only), so anything on PICK_LAYER
     // is never drawn; the raycaster is pointed at PICK_LAYER alone, so it only
@@ -647,6 +714,8 @@ export class HubScene {
 
   /** The nebula shell and the starfield inside it. */
   private buildBackdrop() {
+    this.buildMilkyWay();
+
     if (this.config.nebula) {
       const geo = new THREE.SphereGeometry(2600, 48, 32);
       this.nebulaMaterial = new THREE.ShaderMaterial({
@@ -658,10 +727,24 @@ export class HubScene {
           uColorB: { value: new THREE.Color(0x3a1f6e) },
           uColorC: { value: new THREE.Color(0x8a3c7a) },
           uIntensity: { value: 0.5 },
+          uGalacticPole: { value: GALACTIC_POLE.clone() },
         },
         side: THREE.BackSide,
         depthWrite: false,
         depthTest: false,
+        /* Additive, so the photograph behind it survives. This shell used to
+           write a solid colour over every pixel of the sky — which was fine
+           when there was nothing behind it but the clear colour, and would now
+           paint out the Milky Way completely. Adding is also the truer model:
+           gas in front of a star field does not replace it, it glows in front
+           of it.
+
+           Left out of the transparent queue on purpose (`transparent` stays
+           false; three applies the blend mode either way). The transparent
+           queue is drawn after the opaque one, so a "transparent" backdrop
+           with depthTest off would add itself over the planets and the sun
+           rather than behind them. */
+        blending: THREE.AdditiveBlending,
       });
       const nebula = new THREE.Mesh(geo, this.nebulaMaterial);
       nebula.renderOrder = -20;
@@ -726,6 +809,65 @@ export class HubScene {
     stars.renderOrder = -10;
     this.scene.add(stars);
     this.disposables.push(this.starGeometry, this.starMaterial);
+  }
+
+  /** The Milky Way, as a real 360° photograph of the whole sky.
+   *
+   * Credit: ESO/S. Brunier (eso0932a), CC BY 4.0 — a 6000×3000 equirectangular
+   * panorama, republished here at 4096 and, for the low tier, 2048. Same
+   * licence and the same visible-credit requirement as the Horsehead, which is
+   * why both are named in the HUD.
+   *
+   * This replaces a band that was drawn procedurally, and the reason is width
+   * rather than fidelity. `pow(band, 26)` is a stripe a few degrees thick: it
+   * is what the galaxy looks like in a wide-field photograph reduced to one
+   * number, and it read as a seam across the sky rather than as a galaxy. The
+   * photograph brings the real thing — the bulge, the dust lanes through it,
+   * the Magellanic Clouds off to one side — and the shader widens it further
+   * (see MILKYWAY_FRAG) so it covers the sky the way it does from a dark site.
+   *
+   * The sphere sits outside the starfield shell (1900–2400) but inside the far
+   * plane, and is drawn before everything: it is the background the rest of
+   * the sky is layered onto. */
+  private buildMilkyWay() {
+    /* The panorama is the single largest asset this page loads, so the low
+       tier — which is the phone tier — gets a quarter of the pixels. At the
+       size the band is drawn, that difference is most visible in the bulge and
+       barely anywhere else. */
+    const texture = this.texture(this.tier === "low" ? "/img/sky/milkyway-2k.webp" : "/img/sky/milkyway-4k.webp");
+
+    // Enough segments that the UV-to-longitude mapping stays smooth across a
+    // sphere this large; the shader reads the geometry's own UVs.
+    const geo = new THREE.SphereGeometry(2900, 96, 64);
+    const material = new THREE.ShaderMaterial({
+      vertexShader: MILKYWAY_VERT,
+      fragmentShader: MILKYWAY_FRAG,
+      uniforms: {
+        uMap: { value: texture },
+        // Low enough to sit behind a starfield rather than compete with it.
+        uIntensity: { value: 0.62 },
+        uWiden: { value: 1.5 },
+        uHaze: { value: 0.85 },
+        uTint: { value: new THREE.Color(0.78, 0.86, 1.05) },
+      },
+      side: THREE.BackSide,
+      depthWrite: false,
+      depthTest: false,
+    });
+
+    const mesh = new THREE.Mesh(geo, material);
+    /* Tip the image's own pole onto the galactic pole the painted glow uses,
+       then spin it about that axis to bring the bulge round to where there is
+       sky to show it in — from the resting camera the core sits off to one
+       side rather than directly behind the sun, which would have put the
+       brightest part of the sky behind the brightest object in it. */
+    mesh.quaternion
+      .setFromUnitVectors(new THREE.Vector3(0, 1, 0), GALACTIC_POLE)
+      .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 2.35));
+    mesh.renderOrder = -24;
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+    this.disposables.push(geo, material);
   }
 
   /** The Horsehead, as a real photograph hung in one corner of the sky.
@@ -1231,6 +1373,8 @@ export class HubScene {
     this.scene.add(this.pluto);
     this.disposables.push(plutoGeo, this.plutoMaterial);
 
+    this.buildJets();
+
     this.debrisCount = this.config.debris;
     this.activeDebris = this.debrisCount;
     this.buildBlueStar();
@@ -1245,6 +1389,89 @@ export class HubScene {
       this.plutoDebris[i * 5 + 2] = (rand() - 0.5) * 2;
       this.plutoDebris[i * 5 + 3] = (rand() - 0.5) * 2;
       this.plutoDebris[i * 5 + 4] = rand();
+    }
+  }
+
+  /** The pair of beams the hole fires when it swallows something.
+   *
+   * Both go out along the spin axis — perpendicular to the accretion disc, in
+   * opposite directions at once, which is what a relativistic jet is. They are
+   * children of holeGroup, so they inherit its tilt for free and stay square
+   * to the disc no matter how the hole is turned: local +Y is the disc's own
+   * normal, because the disc geometry is a ring rotated onto the XZ plane.
+   *
+   * Each beam is two nested cones. The sheath is wide and hollow and gets its
+   * brightness from the limb term in the shader, which is what gives a beam
+   * edges; the spine is a thin bright core down the middle of it. Four meshes,
+   * two materials, one geometry — the cone is built one unit long so the
+   * frame can scale it to whatever length the event calls for. */
+  private buildJets() {
+    // Open-ended: the cone is a wall of gas, and a cap across the head would
+    // read as a lid on it. Narrow at the horizon, opening slightly on the way
+    // out — jets are collimated, but not perfectly.
+    const geo = new THREE.CylinderGeometry(1, 0.14, 1, 30, 1, true);
+    geo.translate(0, 0.5, 0); // base at the origin, head at +1
+    this.disposables.push(geo);
+
+    this.jetGroup = new THREE.Object3D();
+    this.jetGroup.visible = false;
+    this.holeGroup.add(this.jetGroup);
+
+    for (const spine of [0, 1]) {
+      const material = new THREE.ShaderMaterial({
+        vertexShader: JET_VERT,
+        fragmentShader: JET_FRAG,
+        uniforms: {
+          uTime: { value: 0 },
+          uHead: { value: 0 },
+          uEnergy: { value: 0 },
+          uSpine: { value: spine },
+          uHot: { value: new THREE.Color(1.0, 0.98, 0.94) },
+          uCool: { value: new THREE.Color(0.36, 0.6, 1.0) },
+        },
+        transparent: true,
+        depthWrite: false,
+        // Depth *tested*, though: the horizon is opaque and writes depth, so
+        // the beam going away from the camera is correctly cut off behind it.
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      this.jetMaterials.push(material);
+      this.disposables.push(material);
+
+      for (const sign of [1, -1]) {
+        const mesh = new THREE.Mesh(geo, material);
+        // The second beam is the first one turned over — same geometry, so the
+        // head is at the far end of it either way.
+        if (sign < 0) mesh.rotation.x = Math.PI;
+        mesh.renderOrder = 5;
+        mesh.frustumCulled = false;
+        this.jetGroup.add(mesh);
+        this.jetCones.push({ mesh, width: spine ? 0.28 : 1 });
+      }
+    }
+
+    /* The gas the beam is actually made of. The cones alone are a shape: they
+       have a length and a colour and they flicker, but nothing in them is
+       visibly *moving material*, and at seven seconds there is far too long to
+       look at that. These are the grains, and they climb the beam on a helix.
+
+       Three arms rather than a uniform ring. A cylinder of randomly placed
+       particles reads as noise no matter how it turns — the eye needs
+       structure to see rotation at all, and a small number of banded arms is
+       the least structure that gives it one. */
+    this.jetParticleCount = this.tier === "low" ? 150 : this.tier === "high" ? 340 : 540;
+    this.jetParticleStart = this.glow.allocate(this.jetParticleCount);
+    this.jetParticles = new Float32Array(this.jetParticleCount * 6);
+    const rand = mulberry32(51877);
+    const arms = 3;
+    for (let i = 0; i < this.jetParticleCount; i++) {
+      this.jetParticles[i * 6] = rand(); // where along the beam it starts
+      this.jetParticles[i * 6 + 1] = ((i % arms) / arms) * Math.PI * 2 + (rand() - 0.5) * 0.85;
+      this.jetParticles[i * 6 + 2] = 0.5 + rand() * 0.95; // how far off the axis
+      this.jetParticles[i * 6 + 3] = 0.72 + rand() * 0.66; // how fast it climbs
+      this.jetParticles[i * 6 + 4] = rand(); // size and brightness roll
+      this.jetParticles[i * 6 + 5] = i % 2 === 0 ? 1 : -1; // which pole it left by
     }
   }
 
@@ -1724,7 +1951,16 @@ export class HubScene {
     el.addEventListener("pointerup", this.onPointerUp);
     this.controls.addEventListener("start", this.onUserInput);
     window.addEventListener("wheel", this.onUserInput, { passive: true });
+    window.addEventListener("keydown", this.onModifier);
+    window.addEventListener("keyup", this.onModifier);
   }
+
+  /** Shift held: the left button pans instead of orbiting. Read off the event
+   * rather than tracked, so a Shift released while the window was not focused
+   * cannot leave the button stuck in the wrong mode. */
+  private onModifier = (event: KeyboardEvent) => {
+    this.controls.mouseButtons.LEFT = event.shiftKey ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+  };
 
   private onUserInput = () => {
     this.idleFor = 0;
@@ -1756,8 +1992,10 @@ export class HubScene {
   };
 
   private onPointerDown = (event: PointerEvent) => {
-    this.pointerDownAt = { x: event.clientX, y: event.clientY, t: performance.now() };
     this.onUserInput();
+    // Only the primary button chooses. The other two are pan and dolly now, and
+    // a right-drag that happens to end where it started is not a tap.
+    this.pointerDownAt = event.button === 0 ? { x: event.clientX, y: event.clientY, t: performance.now() } : null;
   };
 
   private onPointerUp = (event: PointerEvent) => {
@@ -1857,12 +2095,13 @@ export class HubScene {
     this.followAnchor = pickable.anchor;
     this.callbacks.onFocus(info);
 
-    /* Let the camera get properly close. The shared floor of 14 units is set
-       for the whole-system view and would hold you at arm's length from
-       Mercury, which is one unit across. */
-    this.controls.minDistance = Math.max(info.size * 1.7, 2.2);
+    /* Close enough to fill the frame, but not inside the body itself. This is
+       the floor for as long as the camera holds it; updateZoomFloor() reads it
+       rather than replacing it. */
+    this.focusFloor = Math.max(info.size * 1.7, 2.2);
 
     const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
+    this.followPrev.copy(target);
     if (this.reducedMotion) {
       // No tween, but still re-seat the camera so the body is centred and the
       // pivot is where the follow logic expects it.
@@ -1926,7 +2165,7 @@ export class HubScene {
     this.selectedKey = null;
     this.followAnchor = null;
     this.userMoved = false;
-    this.controls.minDistance = 14;
+    this.focusFloor = 14;
     this.callbacks.onFocus(null);
     this.beginFlight({
       fromPos: this.camera.position.clone(),
@@ -1995,17 +2234,42 @@ export class HubScene {
    * position is this frame's, and before controls.update() so the pivot is
    * already right when the controls re-derive the camera from it.
    *
-   * The camera is translated by the same delta as the target, which is what
-   * makes this a follow rather than a snap: the visitor's own orbit angle and
-   * zoom distance are preserved while the body carries the whole rig along its
-   * orbit. */
+   * The whole rig — pivot and camera together — is translated by however far
+   * the body moved since last frame. That is what makes this a follow rather
+   * than a snap: the visitor's own orbit angle and zoom distance are preserved
+   * while the body carries them along its orbit.
+   *
+   * Measuring the body against its own last position rather than against the
+   * pivot matters now that the pivot can be moved. The older version wrote the
+   * body's position straight into the target, so a pan away from Jupiter was
+   * undone on the very next frame and the camera appeared welded to it. */
   private updateFollow() {
     if (!this.followAnchor || this.flight) return;
     this.followAnchor.getWorldPosition(this.tmpV);
-    this.tmpV2.copy(this.tmpV).sub(this.controls.target);
+    this.tmpV2.copy(this.tmpV).sub(this.followPrev);
+    this.followPrev.copy(this.tmpV);
     if (this.tmpV2.lengthSq() < 1e-10) return;
-    this.controls.target.copy(this.tmpV);
+    this.controls.target.add(this.tmpV2);
     this.camera.position.add(this.tmpV2);
+  }
+
+  /** How close the controls may get to the pivot, recomputed every frame.
+   *
+   * A single floor cannot serve both jobs. Out at the whole-system view it
+   * stops the camera from being flown into the middle of the sun, and 14 units
+   * is about right for that. But the pivot is no longer pinned to the sun:
+   * point at Mercury and zoom and the same 14 units holds you at arm's length
+   * from a body one unit across. So the floor relaxes as the pivot travels
+   * away from the star, continuously rather than in a step — a jump in
+   * minDistance is a jump in the camera, because the controls clamp the radius
+   * on the next update(). */
+  private updateZoomFloor() {
+    if (this.followAnchor) {
+      this.controls.minDistance = this.focusFloor;
+      return;
+    }
+    const fromStar = this.controls.target.length();
+    this.controls.minDistance = THREE.MathUtils.clamp(14 - (fromStar - 12) * 0.5, 2.5, 14);
   }
 
   private updateFlight(dt: number) {
@@ -2044,6 +2308,10 @@ export class HubScene {
       this.flight = null;
       this.warp = 0;
       this.controls.enabled = true;
+      // The body has moved for the whole trip while the follow sat idle, so
+      // re-prime it here or the first followed frame would translate the rig
+      // by everything that happened during the flight in one go.
+      if (f.follow) this.followPrev.copy(f.toTarget);
       // Arriving counts as activity: the scene should not start drifting the
       // instant a fly-to settles.
       this.idleFor = 0;
@@ -2108,6 +2376,7 @@ export class HubScene {
        on a body moving at Mercury's rate is a visible shimmy. */
     this.updatePlanets(dt, time, speed);
     this.updateFollow();
+    this.updateZoomFloor();
     this.controls.update();
 
     this.sunMaterial.uniforms.uTime.value = time * speed;
@@ -2256,21 +2525,31 @@ export class HubScene {
   private static readonly PLUTO_APPROACH = 15;
   private static readonly PLUTO_TEAR = 4;
   /** Green: the rock is gone. */
-  private static readonly GREEN_GLOW = 5;
+  private static readonly GREEN_GLOW = 7;
   private static readonly STAR_APPROACH = 11;
   private static readonly STAR_TEAR = 4;
   /** Blue-white, and much brighter: a whole star has just gone in. */
-  private static readonly BLUE_GLOW = 5;
+  private static readonly BLUE_GLOW = 7;
 
   /* Cumulative marks on the cycle, which is what the frame actually tests
      against. The last four seconds are the hole at rest, with nothing falling
      in and the disc back to its own colour — the pause is what keeps the two
      meals from reading as one continuous feeding frenzy. */
   private static readonly T_PLUTO_END = 15 + 4; // 19
-  private static readonly T_GREEN_END = 19 + 5; // 24
-  private static readonly T_STAR_END = 24 + 11 + 4; // 39
-  private static readonly T_BLUE_END = 39 + 5; // 44
-  private static readonly BH_CYCLE = 44 + 4; // 48, the last 4 being the rest
+  private static readonly T_GREEN_END = 19 + 7; // 26
+  private static readonly T_STAR_END = 26 + 11 + 4; // 41
+  private static readonly T_BLUE_END = 41 + 7; // 48
+  private static readonly BH_CYCLE = 48 + 4; // 52, the last 4 being the rest
+
+  /** How long a jet burns. Seven seconds, and the afterglows above were
+   * stretched from five to match: the beam and the disc's own colour are one
+   * event, and a beam still blowing after the glow it belongs to had faded
+   * would read as two. Long enough that a visitor who is looking at something
+   * else when it starts still gets to turn round and watch it. */
+  private static readonly JET_LIFE = 7;
+  /** How much of that the head spends travelling. Nearly all of the drama is
+   * here: the beam has to *fire*, not appear. */
+  private static readonly JET_LAUNCH = 0.5;
 
   private updateBlackHole(dt: number, time: number, speed: number) {
     this.discMaterial.uniforms.uTime.value = time * speed;
@@ -2284,9 +2563,9 @@ export class HubScene {
     const cycle = (time * speed) % HubScene.BH_CYCLE;
     const holePos = this.tmpV.clone();
 
-    /* The afterglow. Green for the five seconds after Pluto, blue-white and
-       far brighter for the five after the star. Eased rather than switched, so
-       the disc bleeds into and out of the colour instead of flicking. */
+    /* The afterglow. Green for the seven seconds after Pluto, blue-white and
+       far brighter for the seven after the star. Eased rather than switched,
+       so the disc bleeds into and out of the colour instead of flicking. */
     let glowMix = 0;
     let glowBright = 0;
     if (cycle >= HubScene.T_PLUTO_END && cycle < HubScene.T_GREEN_END) {
@@ -2337,7 +2616,172 @@ export class HubScene {
     }
 
     this.updateBlueStar(cycle, holePos, dt, time, speed);
-    this.discMaterial.uniforms.uFeed.value = this.feed + glowBright;
+    const jet = this.updateJets(cycle, holePos, time, speed);
+    // The beam is fed by the same material the disc is: while one is burning,
+    // the disc under it is brighter than the afterglow alone would make it.
+    this.discMaterial.uniforms.uFeed.value = this.feed + glowBright + jet * 0.6;
+  }
+
+  /** The jet, on the two moments in the cycle that earn one: when the rock is
+   * gone, and when the star is gone. Returns its current energy so the disc
+   * can burn with it.
+   *
+   * Driven off the cycle clock rather than fired by an event, like everything
+   * else the hole does. A flag set at the moment of ingestion would be missed
+   * by a tab that was in the background for the second it mattered, and would
+   * then have to be caught up or dropped; a function of `cycle` is simply
+   * correct at whatever time the scene is asked about. */
+  private updateJets(cycle: number, holePos: THREE.Vector3, time: number, speed: number): number {
+    let since = -1;
+    // A whole star gives a beam roughly twice the reach of a rock's.
+    let power = 0;
+    if (cycle >= HubScene.T_PLUTO_END && cycle < HubScene.T_PLUTO_END + HubScene.JET_LIFE) {
+      since = cycle - HubScene.T_PLUTO_END;
+      power = 0.5;
+    } else if (cycle >= HubScene.T_STAR_END && cycle < HubScene.T_STAR_END + HubScene.JET_LIFE) {
+      since = cycle - HubScene.T_STAR_END;
+      power = 1;
+    }
+
+    if (since < 0) {
+      this.jetGroup.visible = false;
+      for (let i = 0; i < this.jetParticleCount; i++) this.glow.hide(this.jetParticleStart + i);
+      return 0;
+    }
+
+    const life = since / HubScene.JET_LIFE;
+    /* Up almost instantly, then held, then let down. The hole does not ease
+       into this — but at seven seconds it cannot decay from the first frame
+       either, or the back half is a beam that is already over. So: full
+       brightness until half way, then a smooth fade over the rest.
+
+       The head races out over the first half-second, decelerating, because the
+       eye reads a constant-speed front as a growing rectangle rather than as
+       something launched. */
+    const head = Math.pow(clamp01(since / HubScene.JET_LAUNCH), 0.55);
+    const held = clamp01((life - 0.5) / 0.5);
+    const energy = Math.min(1, since * 24) * (1 - held * held * (3 - 2 * held));
+
+    // Very long, deliberately: this should cross the sky, not the hole.
+    const length = 620 + power * 820;
+    const width = 8 + power * 10;
+
+    // Green for the rock, matching the afterglow it fires into; blue-white for
+    // the star, which is the colour the star itself was.
+    const tintR = power < 1 ? 0.24 : 0.36;
+    const tintG = power < 1 ? 1.0 : 0.6;
+    const tintB = power < 1 ? 0.62 : 1.0;
+
+    for (const material of this.jetMaterials) {
+      material.uniforms.uTime.value = time * speed;
+      material.uniforms.uHead.value = head;
+      material.uniforms.uEnergy.value = energy;
+      material.uniforms.uCool.value.setRGB(tintR, tintG, tintB);
+    }
+
+    for (const cone of this.jetCones) {
+      // Y is the length of the cone, X and Z its width — the beam gets longer
+      // and thinner as it goes, rather than simply bigger.
+      cone.mesh.scale.set(width * cone.width, length, width * cone.width);
+    }
+    this.jetGroup.visible = energy > 0.01;
+
+    this.updateJetParticles(holePos, since, head, energy, length, width, time, speed, tintR, tintG, tintB);
+    return energy;
+  }
+
+  /** The gas climbing the beam, as a rotating funnel.
+   *
+   * A jet is not a straight pipe of material. The gas arrives with the disc's
+   * angular momentum still in it and has nowhere to put it, so it leaves on a
+   * helix — wound tight at the throat where the coil is narrow, unwinding as
+   * the beam opens out, which is the same reason a hurricane's eyewall turns
+   * faster than its outer bands and the reason a skater's spin speeds up when
+   * their arms come in. Both of those are one line here: the angular rate is
+   * divided by how wide the coil has become.
+   *
+   * Everything is placed in the hole's own frame — its local Y is the beam,
+   * its local X and Z are the plane the gas is turning in — so the funnel
+   * stays square to the disc, and turns the same way the disc does. */
+  private updateJetParticles(
+    holePos: THREE.Vector3,
+    since: number,
+    head: number,
+    energy: number,
+    length: number,
+    width: number,
+    time: number,
+    speed: number,
+    tintR: number,
+    tintG: number,
+    tintB: number,
+  ) {
+    // The hole carries no scale, so its world matrix's columns are the frame.
+    const e = this.holeGroup.matrixWorld.elements;
+    const side1 = this.jetSideA.set(e[0], e[1], e[2]).normalize();
+    const axis = this.jetAxis.set(e[4], e[5], e[6]).normalize();
+    const side2 = this.jetSideB.set(e[8], e[9], e[10]).normalize();
+
+    const spin = time * speed;
+
+    for (let i = 0; i < this.jetParticleCount; i++) {
+      const slot = this.jetParticleStart + i;
+      const p = i * 6;
+      const arm = this.jetParticles[p + 1];
+      const offJit = this.jetParticles[p + 2];
+      const rate = this.jetParticles[p + 3];
+      const roll = this.jetParticles[p + 4];
+      const pole = this.jetParticles[p + 5];
+
+      /* Streaming, not a single puff: each grain climbs the beam, falls off
+         the end and starts again at the throat. Seven seconds of one wave of
+         particles drifting outward would be seven seconds of a thinning
+         cloud; a loop is a beam that keeps being fed. */
+      const climb = (this.jetParticles[p] + since * 0.34 * rate) % 1;
+      // Nothing exists ahead of the head — the front of the beam is still on
+      // its way out during the launch.
+      if (climb > head) {
+        this.glow.hide(slot);
+        continue;
+      }
+
+      // Accelerating away from the hole, so the throat stays dense and the
+      // gas strings out as it climbs.
+      const along = Math.pow(climb, 1.35) * length * pole;
+      // The funnel: tight at the throat, opening steadily with height.
+      const flare = 0.18 + Math.pow(climb, 1.2) * 1.5;
+      const radius = width * flare * offJit;
+      /* The wind. Negative, because that is the direction the disc under it
+         is turning (see the Doppler term in DISC_FRAG); divided by the flare,
+         so a grain at the throat whips round several times while one out near
+         the head barely turns at all. */
+      const turn = arm - (spin * 1.6 + climb * 6.0) / flare;
+      const cos = Math.cos(turn);
+      const sin = Math.sin(turn);
+
+      const ox = side1.x * cos + side2.x * sin;
+      const oy = side1.y * cos + side2.y * sin;
+      const oz = side1.z * cos + side2.z * sin;
+
+      // White at the throat, cooling into the beam's own colour as it climbs.
+      const hot = 1 - clamp01(climb * 2.2);
+      // Fades out before the head rather than at it, so the beam ends in gas
+      // rather than in a row of dots.
+      const fade = (1 - climb * climb) * energy * (0.34 + roll * 0.52);
+
+      this.glow.set(
+        slot,
+        holePos.x + axis.x * along + ox * radius,
+        holePos.y + axis.y * along + oy * radius,
+        holePos.z + axis.z * along + oz * radius,
+        // Expanding as it goes: the gas is under no pressure out there.
+        1.0 + roll * 1.7 + climb * 2.6,
+        tintR + (1 - tintR) * hot,
+        tintG + (1 - tintG) * hot,
+        tintB + (1 - tintB) * hot,
+        fade,
+      );
+    }
   }
 
   /** The star's turn: a slow approach, then tidal disruption into a ribbon of
@@ -2832,6 +3276,8 @@ export class HubScene {
     el.removeEventListener("pointerleave", this.onPointerLeave);
     el.removeEventListener("pointerdown", this.onPointerDown);
     el.removeEventListener("pointerup", this.onPointerUp);
+    window.removeEventListener("keydown", this.onModifier);
+    window.removeEventListener("keyup", this.onModifier);
     this.controls.removeEventListener("start", this.onUserInput);
     window.removeEventListener("wheel", this.onUserInput);
 

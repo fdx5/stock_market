@@ -424,17 +424,25 @@ export default function HubType2() {
         </ul>
       </nav>
 
+      {/* The pointer half of this is new and not guessable: the wheel zooms at
+          whatever is under the cursor, and the view can be moved off the sun
+          entirely. Said plainly, because a visitor who does not know it is
+          there is left with the old behaviour by default. */}
       <p className="h2-hint">
         {en
-          ? "Drag to look around · pinch or scroll to zoom · tap a body to focus it, tap again to open"
-          : "드래그로 시점 이동 · 두 손가락/휠로 확대 · 천체를 누르면 초점 이동, 한 번 더 누르면 해당 화면으로"}
+          ? "Drag to look around · scroll or pinch to zoom in on whatever you point at · right-drag, shift-drag or two fingers to move the view · tap a body to focus it, tap again to open"
+          : "드래그로 시점 이동 · 휠/두 손가락으로 가리킨 곳을 확대 · 우클릭 드래그·Shift+드래그·두 손가락으로 보고 싶은 영역으로 이동 · 천체를 누르면 초점 이동, 한 번 더 누르면 해당 화면으로"}
       </p>
 
       {/* ESO licenses its images CC BY 4.0 and requires the credit line to be
           shown *visibly* — not merely in a source comment — so this is here
           rather than only in scene.ts. Deliberately quiet, but real text. */}
       <p className="h2-credit">
-        {en ? "Horsehead Nebula: " : "말머리 성운: "}
+        {en ? "Milky Way panorama: " : "은하수 파노라마: "}
+        <a href="https://www.eso.org/public/images/eso0932a/" target="_blank" rel="noreferrer noopener">
+          ESO/S. Brunier
+        </a>
+        {en ? " · Horsehead Nebula: " : " · 말머리 성운: "}
         <a href="https://www.eso.org/public/images/eso0202a/" target="_blank" rel="noreferrer noopener">
           ESO
         </a>

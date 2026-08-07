@@ -21,8 +21,14 @@
   --hud-faint: rgba(140, 165, 200, 0.34);
   --panel: rgba(8, 14, 30, 0.42);
   --panel-line: rgba(130, 170, 230, 0.16);
-  --up: #2fe08a;
-  --down: #ff5f6d;
+  /* Red up, blue down — the Korean convention, and the one every other screen
+     on this site follows. The Western green/red pairing that used to be here
+     read as inverted to the audience this page opens for: a red KOSPI number
+     means the index is *up*. Both are picked to survive the cold blue sky
+     behind them, which is why the down colour is a bright cyan-blue rather
+     than a navy that would sink into the backdrop. */
+  --up: #ff5f6d;
+  --down: #4f9bff;
   --edge: clamp(14px, 2.4vw, 34px);
 
   position: fixed;
