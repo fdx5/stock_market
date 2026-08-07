@@ -11,7 +11,7 @@ session's crumb invalidated mid-batch.
 import logging
 import time
 
-from app.data import yahoo_session
+from app.data import korea_fundamentals_fetcher, yahoo_session
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,28 @@ def _parse(result: dict) -> dict:
     }
 
 
+def _fill_korea_gaps(symbol: str, fields: dict) -> dict:
+    """Yahoo returns everything else for a KRX listing but leaves EPS and PER blank —
+    `trailingEps` arrives as an empty `{}` and `trailingPE` is simply absent, while
+    sector, profit margin and the analyst rating in the same response are populated.
+    Naver has both, so the two holes get filled from there.
+
+    Only ever fills holes: if Yahoo starts answering for these symbols, its numbers
+    win and this makes no call at all. EPS comes back in KRW, which is the same
+    convention every other non-USD listing on the page already follows (Yahoo reports
+    SoftBank's in JPY and Hermès's in EUR)."""
+    code = korea_fundamentals_fetcher.krx_code(symbol)
+    if not code:
+        return fields
+    wanted = [key for key in ("trailing_eps", "trailing_pe", "forward_pe") if fields.get(key) is None]
+    if not wanted:
+        return fields
+    for key, value in korea_fundamentals_fetcher.fetch_korea_fundamentals(code).items():
+        if key in wanted:
+            fields[key] = value
+    return fields
+
+
 def fetch_fundamentals(symbol: str) -> dict:
     """One symbol's fundamentals, or all-None fields if the call fails or Yahoo has no
     data for it (thinly-covered exchanges like China's STAR board routinely answer
@@ -91,12 +113,13 @@ def fetch_fundamentals(symbol: str) -> dict:
             resp = session.get(url, params={"modules": MODULES, "crumb": crumb}, timeout=8)
         resp.raise_for_status()
         result = ((resp.json().get("quoteSummary") or {}).get("result")) or []
-        if not result:
-            return dict(_EMPTY_FIELDS)
-        return _parse(result[0])
+        fields = _parse(result[0]) if result else dict(_EMPTY_FIELDS)
     except Exception:
         logger.warning("company_fundamentals_fetcher: failed for %s", symbol, exc_info=True)
-        return dict(_EMPTY_FIELDS)
+        fields = dict(_EMPTY_FIELDS)
+    # Outside the try: a Yahoo failure is exactly when the fallback is most useful,
+    # and this one keeps its own exceptions to itself.
+    return _fill_korea_gaps(symbol, fields)
 
 
 def fetch_fundamentals_bulk(symbols: list[str]) -> dict[str, dict]:
