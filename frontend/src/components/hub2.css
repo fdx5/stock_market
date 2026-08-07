@@ -414,17 +414,31 @@
   -webkit-backdrop-filter: blur(8px);
 }
 
+/* The one place the HUD's own colour rule (see the header: saturated colour
+   comes from --accent only) is deliberately set aside. These two labels name
+   the market a clock belongs to, and at 9px under 0.16em of tracking the old
+   --hud-faint — 0.34 alpha of a cold blue — was legible only if you already
+   knew what it said. Amber rather than a brighter blue because the whole HUD
+   is blue: lifting the alpha would have made it a louder version of the same
+   thing, where a warm hue separates the label from the number beside it and
+   from the sky behind both. */
 .h2-clock-code {
   font-size: 9px;
+  font-weight: 700;
   letter-spacing: 0.16em;
-  color: var(--hud-faint);
+  color: #ffcf6a;
 }
 
 .h2-clock-time {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.04em;
-  color: var(--hud-dim);
+  /* Was --hud-dim at 0.62 alpha, which sank into whatever sky happened to be
+     behind the panel — and the panel is only 0.42-opaque, so "behind it" is a
+     real variable here, not a constant. Full-strength --hud, with the weight
+     up a step, is what makes a running clock readable at a glance. */
+  color: var(--hud);
+  font-weight: 600;
 }
 
 .h2-toggles {
