@@ -362,6 +362,8 @@ export default function HubType2() {
             aria-live="polite"
           >
             <span className="h2-focus-dot" aria-hidden="true" />
+            {/* What it is, then where it goes. */}
+            <span className="h2-focus-body">{en ? shown.bodyEn : shown.bodyKo}</span>
             <span className="h2-focus-name">{en ? shown.en : shown.ko}</span>
             {shown.feed && <span className={`h2-focus-val is-${toneOf(feed[shown.feed])}`}>{pct(feed[shown.feed])}</span>}
             {isFocused && (
@@ -426,6 +428,17 @@ export default function HubType2() {
         {en
           ? "Drag to look around · pinch or scroll to zoom · tap a body to focus it, tap again to open"
           : "드래그로 시점 이동 · 두 손가락/휠로 확대 · 천체를 누르면 초점 이동, 한 번 더 누르면 해당 화면으로"}
+      </p>
+
+      {/* ESO licenses its images CC BY 4.0 and requires the credit line to be
+          shown *visibly* — not merely in a source comment — so this is here
+          rather than only in scene.ts. Deliberately quiet, but real text. */}
+      <p className="h2-credit">
+        {en ? "Horsehead Nebula: " : "말머리 성운: "}
+        <a href="https://www.eso.org/public/images/eso0202a/" target="_blank" rel="noreferrer noopener">
+          ESO
+        </a>
+        {" · CC BY 4.0"}
       </p>
 
       {tier !== "ultra" && (

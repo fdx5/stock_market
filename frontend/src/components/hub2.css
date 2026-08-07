@@ -45,7 +45,8 @@
 .h2-camera,
 .h2-dock,
 .h2-hint,
-.h2-tier {
+.h2-tier,
+.h2-credit {
   opacity: 0;
   transition: opacity 0.9s ease 0.15s, transform 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.15s;
   pointer-events: none;
@@ -57,7 +58,8 @@
 .h2.is-ready .h2-camera,
 .h2.is-ready .h2-dock,
 .h2.is-ready .h2-hint,
-.h2.is-ready .h2-tier {
+.h2.is-ready .h2-tier,
+.h2.is-ready .h2-credit {
   opacity: 1;
   transform: none;
 }
@@ -165,6 +167,22 @@
 }
 
 .h2-tag-val:empty {
+  display: none;
+}
+
+/* What the body is, as opposed to where it goes. Set behind a divider and in
+   the accent colour so the two readings never blur into one phrase: "코스피"
+   is the destination, "지구" is the object. */
+.h2-tag-body {
+  padding-left: 8px;
+  border-left: 1px solid rgba(150, 185, 240, 0.24);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--accent) 78%, #ffffff);
+}
+
+.h2-tag-body:empty {
   display: none;
 }
 
@@ -540,10 +558,21 @@
   box-shadow: 0 0 14px var(--accent);
 }
 
+/* The object's own name, ahead of the destination and in its accent colour —
+   "지구", then "코스피". */
+.h2-focus-body {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--accent, #9fd0ff) 80%, #ffffff);
+}
+
 .h2-focus-name {
   font-size: 13px;
   font-weight: 650;
   letter-spacing: 0.08em;
+  padding-left: 10px;
+  border-left: 1px solid rgba(150, 185, 240, 0.22);
 }
 
 .h2-focus-val {
@@ -773,6 +802,31 @@
   color: rgba(140, 165, 200, 0.28);
 }
 
+/* The image credit ESO's licence requires to be visible. Quiet, but never
+   hidden and never display:none at any breakpoint — an attribution that
+   disappears on a phone is not an attribution. */
+.h2-credit {
+  position: absolute;
+  right: var(--edge);
+  bottom: calc(var(--edge) - 6px);
+  z-index: 5;
+  margin: 0;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: rgba(140, 165, 200, 0.34);
+  pointer-events: auto;
+}
+
+.h2-credit a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.h2-credit a:hover {
+  color: var(--hud-dim);
+}
+
 /* ─────────────────────────── the fallback ─────────────────────────── */
 
 .h2.is-fallback {
@@ -928,12 +982,24 @@
     gap: 0;
   }
 
+  /* Name over value, not name beside value. Three tickers sharing a phone's
+     width leaves each about 110px, and "NASDAQ 100" plus its number does not
+     fit on one line there — it wrapped, and took the row's height with it. */
+  .h2-readout-row {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 2px;
+    padding: 5px 4px;
+  }
+
   .h2-readout-name {
     font-size: 9px;
+    white-space: nowrap;
   }
 
   .h2-readout-val {
-    font-size: 12px;
+    font-size: 12.5px;
   }
 
   .h2-dock {

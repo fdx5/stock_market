@@ -166,51 +166,86 @@ void main() {
 }
 `;
 
-/* The corona: an additive shell just outside the photosphere, transparent
-   face-on and bright at the limb, with slow streamers combed radially
-   outward. Back-face culled off and depth-write off so it reads as light in
-   front of and behind the star at once. */
-export const CORONA_VERT = /* glsl */ `
+/* ───────────────────── the supernova remnant ─────────────────────
+   What the neutron merger throws off, modelled on the Crab.
+
+   The thing that makes a remnant recognisable is NOT that it is a glowing
+   ball. It is two features, and both are here:
+
+   1. A lacy filament net. Ridged noise raised to a power gives thin bright
+      ridges with dark voids between them — the Rayleigh-Taylor fingers that
+      real ejecta tears itself into as it ploughs into the interstellar
+      medium. A smooth shell reads as a smoke bubble; this reads as gas.
+   2. Colour by species, not by temperature alone. Different elements emit at
+      different wavelengths, so a real remnant is genuinely multi-coloured in
+      the same breath: blue-white synchrotron continuum in the interior,
+      teal-green from doubly-ionised oxygen, and the red-orange of hydrogen
+      and singly-ionised sulphur through the outer filaments. Each shell below
+      carries one pair of those and blends between them along the filaments.
+
+   The silhouette is displaced in the vertex stage too, because a real
+   remnant is lumpy and a perfect sphere gives the whole thing away at the
+   edge. The displacement has no time term: the cloud should expand, not
+   boil. */
+export const REMNANT_VERT = /* glsl */ `
+uniform float uWarp;
+uniform float uSeed;
+varying vec3 vDir;
 varying vec3 vNormal;
 varying vec3 vView;
-varying vec3 vPos;
+
+${NOISE}
+
 void main() {
-  vPos = position;
-  vNormal = normalize(normalMatrix * normal);
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  vec3 dir = normalize(position);
+  float bump = fbm(dir * 1.9 + vec3(uSeed), 4, 2.1, 0.55);
+  vec3 p = position * (1.0 + uWarp * bump);
+
+  vDir = dir;
+  vNormal = normalize(normalMatrix * dir);
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
   vView = normalize(-mv.xyz);
   gl_Position = projectionMatrix * mv;
 }
 `;
 
-export const CORONA_FRAG = /* glsl */ `
-uniform float uTime;
-uniform float uPulse;
-uniform vec3 uColor;
+export const REMNANT_FRAG = /* glsl */ `
+uniform vec3 uColorA;
+uniform vec3 uColorB;
 uniform float uIntensity;
-/** How fast the glow falls away from the limb. The sun's corona wants a
- * fairly soft edge (~3); an expanding blast shell wants a hard one (~9), or
- * the sphere fills in and reads as a planet rather than as a hollow shell of
- * gas — which is what it actually is. */
-uniform float uSharp;
+uniform float uSeed;
+uniform float uDetail;
+uniform int uOctaves;
+varying vec3 vDir;
 varying vec3 vNormal;
 varying vec3 vView;
-varying vec3 vPos;
 
 ${NOISE}
 
 void main() {
+  vec3 d = normalize(vDir);
+
+  // The filament net. Ridged noise cubed: thin bright ridges, wide dark voids.
+  float net = ridged(d * uDetail + vec3(uSeed), uOctaves);
+  net = pow(clamp(net, 0.0, 1.0), 3.0);
+
+  /* A slower, larger variation so the shell is patchy overall rather than
+     uniformly webbed — real remnants are brighter on one side. Named "mottle"
+     rather than the obvious "patch", which is a reserved word in GLSL. */
+  float mottle = fbm(d * 1.7 + vec3(uSeed * 0.5), 3, 2.0, 0.6) * 0.5 + 0.5;
+
+  // Hollow. Brightest where the line of sight grazes the shell wall, which is
+  // what makes a thin expanding surface look thin.
   float rim = 1.0 - abs(dot(normalize(vNormal), normalize(vView)));
-  // Sharp falloff: a soft one fills the whole disc with haze and drowns
-  // whatever is underneath it.
-  float halo = pow(clamp(rim, 0.0, 1.0), uSharp);
+  float shell = pow(clamp(rim, 0.0, 1.0), 1.7);
 
-  vec3 p = normalize(vPos);
-  float streamer = ridged(p * 3.4 + vec3(0.0, uTime * 0.03, 0.0), 4);
-  streamer = smoothstep(0.35, 0.95, streamer);
+  float density = shell * (0.14 + net * 2.3) * mottle;
 
-  float a = halo * (0.5 + streamer * 0.75) * uIntensity * (0.85 + uPulse * 0.6);
-  gl_FragColor = vec4(uColor * (1.0 + streamer * 0.6), clamp(a, 0.0, 1.0));
+  // Two species, mixed along the filaments: the cooler one fills the diffuse
+  // gas, the hotter one lights the ridges.
+  vec3 color = mix(uColorA, uColorB, clamp(net * 2.2, 0.0, 1.0));
+
+  gl_FragColor = vec4(color * (0.65 + net * 1.7), clamp(density * uIntensity, 0.0, 1.0));
 }
 `;
 
@@ -335,26 +370,35 @@ void main() {
   vec3 albedo = texel.rgb;
 
   float ndl = dot(N, L);
-  // Wrapped diffuse — the scatter past the terminator.
-  float day = smoothstep(-0.22, 0.35, ndl);
+  // Wrapped diffuse — the scatter past the terminator. Wide, so the day/night
+  // line is a gradient rather than an edge.
+  float day = smoothstep(-0.32, 0.42, ndl);
   float lambert = max(ndl, 0.0);
 
-  /* Diffuse gain. Deliberately well above 1: these textures are photographic
-     albedo maps, most of them of genuinely dark rock and ice, and at unity
-     they render as the near-black objects they physically are — which is
-     accurate, unreadable, and not what a page whose whole navigation is "click
-     the planet you recognise" can afford. Saturn escaped it only because its
-     rings are a separate, much brighter surface, which is why it was the one
-     body that looked lit before this was raised. */
-  vec3 lit = albedo * (uAmbient + lambert * 1.7) * day;
-  // The night side is not black: starlight, and in the real world city light.
-  vec3 night = albedo * 0.075;
+  /* The lit/unlit balance, and it is deliberately NOT a photographic one.
+     Real sunlight against real starlight is a contrast ratio in the thousands;
+     rendered honestly, a planet here is a blown-out crescent stuck to an
+     invisible ball. So the direct term is kept low and the ambient floor high,
+     which compresses the range into something an eye can read across the whole
+     body at once. The texture's own detail carries the form; the lighting only
+     has to say where the sun is.
+
+     Note the ambient applies to the lit side too, so raising it lifts the
+     shadowed limb far more than the sunward face — which is exactly the knob
+     wanted here. */
+  vec3 lit = albedo * (uAmbient + lambert * 0.85) * day;
+  // The night side is not black: starlight, ring-shine, and in the real world
+  // city light. Lifted well past physical plausibility for the same reason.
+  vec3 night = albedo * 0.26;
   vec3 color = mix(night, lit, day);
 
-  // Atmospheric limb scattering, lit side only.
+  /* Atmospheric limb scattering, lit side only. The focus boost is small on
+     purpose: focusing a body also flies the camera right up to it, so the rim
+     is already many times larger on screen: multiplying its brightness as well
+     turned a close-up planet into a ring of glare with a texture inside it. */
   float rim = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 3.0);
   float lit_rim = rim * smoothstep(-0.35, 0.2, ndl);
-  color += uAtmoColor * lit_rim * uAtmoStrength * (1.1 + uFocus * 1.6);
+  color += uAtmoColor * lit_rim * uAtmoStrength * (0.95 + uFocus * 0.45);
 
   // A thin forward-scattered halo right at the terminator, where a real
   // atmosphere is brightest.
@@ -365,7 +409,9 @@ void main() {
   vec3 trendTint = uTrend >= 0.0 ? vec3(0.24, 1.0, 0.62) : vec3(1.0, 0.34, 0.42);
   color += trendTint * abs(uTrend) * (1.0 - day) * 0.16;
 
-  color *= 1.0 + uFocus * 0.45;
+  // A hint of lift when this is the body the camera is holding — enough to
+  // read as "this one", not enough to be a second light source.
+  color *= 1.0 + uFocus * 0.18;
   // Applied to the whole body, rim included, so a brightened planet's
   // atmosphere brightens with it rather than being left behind as a dark halo.
   color *= uExposure;
@@ -505,6 +551,15 @@ uniform float uOuter;
 uniform vec3 uSpinAxis;
 /** Rises while the hole is feeding (Pluto, then the blue star). */
 uniform float uFeed;
+/** The afterglow. For a few seconds after each meal the disc burns the colour
+ * of what it just swallowed — green after the rock, blue-white after the star.
+ * Real accretion discs do change colour as infalling material changes their
+ * composition and temperature; the specific hues here are a reading aid, not a
+ * spectrum. uGlowMix crossfades it against the disc's own thermal ramp so the
+ * structure — the filaments, the beaming, the photon ring — survives the
+ * recolour instead of being flooded flat. */
+uniform vec3 uGlowTint;
+uniform float uGlowMix;
 varying vec3 vPosL;
 varying vec3 vPosW;
 
@@ -557,6 +612,20 @@ void main() {
   // just outside the horizon. Always white, always the brightest thing here.
   float photon = exp(-pow((t - 0.012) * 130.0, 2.0));
   color += vec3(1.0, 0.97, 0.9) * photon * (2.4 + uFeed * 2.0);
+
+  if (uGlowMix > 0.001) {
+    /* Same shape, different light: the tint is modulated by exactly the terms
+       that drew the disc, so nothing is painted over.
+
+       The multipliers are held down deliberately. The disc's own brightness
+       already carries uFeed, which is itself raised during an afterglow, so a
+       generous factor here compounds with it — at the first attempt the blue
+       glow drove every channel past white and the hole vanished inside a flat
+       featureless blob. A recolour that saturates to white is not a recolour;
+       the whole point is that the colour survives. */
+    vec3 tinted = uGlowTint * (0.25 + brightness * 0.85 + photon * 1.5);
+    color = mix(color, tinted, uGlowMix);
+  }
 
   float alpha = clamp(density * 1.7 + photon * 1.4, 0.0, 1.0);
   gl_FragColor = vec4(color, alpha);
@@ -625,6 +694,52 @@ void main() {
   vec3 milkyLight = vec3(0.5, 0.55, 0.74) * milky * (0.28 + mottle * 0.55) * mix(0.22, 1.0, lane);
 
   gl_FragColor = vec4((color * cloud + milkyLight) * uIntensity, 1.0);
+}
+`;
+
+/* ───────────────────── a real deep-sky photograph ─────────────────────
+   The Horsehead, hung in one direction of the sky as a quad.
+
+   Additive blending is not a convenience here, it is the correct physics.
+   The Horsehead is a *dark absorption* nebula: a column of cold dust seen in
+   silhouette against the glowing hydrogen of IC 434 behind it. Added to the
+   sky, the photograph's bright pink field contributes light and its dark
+   dust column contributes nothing — which is exactly what a silhouette is.
+   The horse appears as a hole in the glow, the same way it does in the sky.
+
+   The quad's own edges are feathered to nothing so no rectangle is ever
+   visible; without that the emission field, which runs to all four borders of
+   the frame, would end in a hard line across empty space. */
+export const SKYPHOTO_VERT = /* glsl */ `
+varying vec2 vUv;
+void main() {
+  vUv = uv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const SKYPHOTO_FRAG = /* glsl */ `
+uniform sampler2D uMap;
+uniform float uIntensity;
+uniform vec3 uTint;
+varying vec2 vUv;
+
+void main() {
+  vec3 c = texture2D(uMap, vUv).rgb;
+
+  // Feather all four edges, then round the corners off with a radial falloff,
+  // so the frame dissolves into the starfield instead of ending.
+  vec2 e = smoothstep(vec2(0.0), vec2(0.34), vUv) * smoothstep(vec2(0.0), vec2(0.34), 1.0 - vUv);
+  float mask = e.x * e.y;
+  float r = length(vUv - 0.5) * 1.4142;
+  mask *= 1.0 - smoothstep(0.5, 1.0, r);
+
+  /* Pulled toward the scene's own cool palette. Left raw, the photograph's
+     magenta is far more saturated than anything else in this sky and reads as
+     a pasted-in picture rather than as something a long way away. */
+  vec3 tinted = mix(c, c * uTint, 0.55);
+
+  gl_FragColor = vec4(tinted * uIntensity, mask);
 }
 `;
 

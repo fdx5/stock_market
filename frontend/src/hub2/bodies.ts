@@ -65,8 +65,14 @@ export interface MoonSpec {
 
 export interface PlanetSpec {
   key: string;
+  /** The destination this body opens — what the HUD labels it. */
   ko: string;
   en: string;
+  /** What the body actually *is*. Shown on hover, because "코스피" tells you
+   * where the click goes and "지구" tells you what you are pointing at, and a
+   * page built on "click the planet you recognise" owes the visitor both. */
+  bodyKo: string;
+  bodyEn: string;
   to: string;
   texture: string;
   /** Orbit radius in scene units. */
@@ -191,6 +197,8 @@ export const PLANETS: PlanetSpec[] = [
     key: "mercury",
     ko: "글로벌 뉴스",
     en: "GLOBAL NEWS",
+    bodyKo: "수성",
+    bodyEn: "Mercury",
     to: "/news",
     texture: `${TEX}/mercury.webp`,
     radius: 26,
@@ -208,6 +216,8 @@ export const PLANETS: PlanetSpec[] = [
     key: "venus",
     ko: "코스닥",
     en: "KOSDAQ",
+    bodyKo: "금성",
+    bodyEn: "Venus",
     to: "/kosdaq-map",
     texture: `${TEX}/venus.webp`,
     radius: 37,
@@ -226,6 +236,8 @@ export const PLANETS: PlanetSpec[] = [
     key: "earth",
     ko: "코스피",
     en: "KOSPI",
+    bodyKo: "지구",
+    bodyEn: "Earth",
     to: "/map",
     texture: `${TEX}/earth.webp`,
     radius: 50,
@@ -245,6 +257,8 @@ export const PLANETS: PlanetSpec[] = [
     key: "mars",
     ko: "나스닥 100",
     en: "NASDAQ 100",
+    bodyKo: "화성",
+    bodyEn: "Mars",
     to: "/nasdaq100-map",
     texture: `${TEX}/mars.webp`,
     radius: 65,
@@ -264,6 +278,8 @@ export const PLANETS: PlanetSpec[] = [
     key: "jupiter",
     ko: "S&P 500",
     en: "S&P 500",
+    bodyKo: "목성",
+    bodyEn: "Jupiter",
     to: "/sp500-map",
     texture: `${TEX}/jupiter.webp`,
     radius: 96,
@@ -283,6 +299,8 @@ export const PLANETS: PlanetSpec[] = [
     key: "saturn",
     ko: "AI 예측",
     en: "AI FORECAST",
+    bodyKo: "토성",
+    bodyEn: "Saturn",
     to: "/ai-prediction",
     texture: `${TEX}/saturn.webp`,
     radius: 132,
@@ -302,6 +320,8 @@ export const PLANETS: PlanetSpec[] = [
     key: "uranus",
     ko: "시총 대결",
     en: "CAP BATTLE",
+    bodyKo: "천왕성",
+    bodyEn: "Uranus",
     to: "/fight",
     texture: `${TEX}/uranus.webp`,
     radius: 164,
@@ -321,6 +341,8 @@ export const PLANETS: PlanetSpec[] = [
     key: "neptune",
     ko: "글로벌 시총",
     en: "GLOBAL TOP 100",
+    bodyKo: "해왕성",
+    bodyEn: "Neptune",
     to: "/global-top100",
     texture: `${TEX}/neptune.webp`,
     radius: 194,
@@ -347,6 +369,9 @@ export interface LandmarkSpec {
   key: string;
   ko: string;
   en: string;
+  /** What it is, as opposed to where it goes — see PlanetSpec.bodyKo. */
+  bodyKo: string;
+  bodyEn: string;
   to: string;
   /** Fixed world position. Well outside Neptune's orbit, and off the ecliptic
    * so a camera sitting in the plane still sees them clear of the rings. */
@@ -357,6 +382,8 @@ export const BLACK_HOLE: LandmarkSpec = {
   key: "blackhole",
   ko: "코스피 TOP 100",
   en: "KOSPI TOP 100",
+  bodyKo: "블랙홀",
+  bodyEn: "Black hole",
   to: "/kospi-100",
   position: [-215, 46, -150],
 };
@@ -365,14 +392,24 @@ export const NEUTRON_BINARY: LandmarkSpec = {
   key: "neutron",
   ko: "코스닥 TOP 100",
   en: "KOSDAQ TOP 100",
+  bodyKo: "중성자별",
+  bodyEn: "Neutron star",
   to: "/kosdaq-100",
-  position: [235, 62, -120],
+  /* Pushed further back and inboard from an earlier (235, 62, -120). This is
+     the one landmark that periodically grows: the merger throws a remnant a
+     hundred units across, and from the resting camera the old position put its
+     centre so near the right edge that half the explosion happened off-screen.
+     Still well outside Neptune's 194 — it has to read as deep sky, not as part
+     of the system. */
+  position: [170, 35, -230],
 };
 
 export const VOYAGER: LandmarkSpec = {
   key: "voyager",
   ko: "글로벌 뉴스",
   en: "GLOBAL NEWS",
+  bodyKo: "보이저 1호",
+  bodyEn: "Voyager 1",
   to: "/news",
   // Not actually fixed — the probe coasts outward on its own track and this is
   // only where it starts. See the scene's voyager rig.
@@ -383,6 +420,8 @@ export const STAR: LandmarkSpec = {
   key: "sun",
   ko: "대시보드",
   en: "DASHBOARD",
+  bodyKo: "태양",
+  bodyEn: "Sun",
   to: "/dashboard",
   position: [0, 0, 0],
 };
@@ -404,6 +443,20 @@ export const DESTINATIONS: Destination[] = [
   ...PLANETS.map((p) => ({ key: p.key, ko: p.ko, en: p.en, to: p.to, feed: p.feed, accent: p.glow })),
   { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, to: BLACK_HOLE.to, accent: "#ff9a4d" },
   { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, to: NEUTRON_BINARY.to, accent: "#9fd0ff" },
+];
+
+/** What the auto tour visits, in order: the eight planets from the inside out,
+ * then the two landmarks out in deep sky.
+ *
+ * Not the star. The tour exists to show you the bodies you would otherwise
+ * have to go looking for — the sun is already at the centre of the resting
+ * view, dead ahead, and flying to it means flying to where the camera was
+ * pointing all along. Everything here is somewhere you cannot see properly
+ * from the front door. */
+export const TOUR_ORDER: string[] = [
+  ...PLANETS.map((p) => p.key),
+  BLACK_HOLE.key,
+  NEUTRON_BINARY.key,
 ];
 
 /** Pluto: not a destination. It drifts in from the black hole's left, is torn

@@ -7,17 +7,17 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { loadStockIconUrl } from "../stockIcon";
 import {
   BLACK_HOLE,
-  DESTINATIONS,
   type FeedKey,
   NEUTRON_BINARY,
   PLANETS,
   PLUTO_TEXTURE,
+  STAR,
+  TOUR_ORDER,
+  VOYAGER,
   type PlanetSpec,
   type MoonSpec,
 } from "./bodies";
 import {
-  CORONA_FRAG,
-  CORONA_VERT,
   DISC_FRAG,
   DISC_VERT,
   GLOW_FRAG,
@@ -28,8 +28,12 @@ import {
   NEBULA_VERT,
   PLANET_FRAG,
   PLANET_VERT,
+  REMNANT_FRAG,
+  REMNANT_VERT,
   RING_FRAG,
   RING_VERT,
+  SKYPHOTO_FRAG,
+  SKYPHOTO_VERT,
   STAR_FRAG,
   STAR_VERT,
   SUNGLOW_FRAG,
@@ -126,8 +130,12 @@ function initialTier(): Tier {
 
 export interface BodyInfo {
   key: string;
+  /** The destination — what the permanent label reads. */
   ko: string;
   en: string;
+  /** The body's own name, shown when the pointer is on it. */
+  bodyKo: string;
+  bodyEn: string;
   to: string;
   feed?: FeedKey;
   accent: string;
@@ -325,8 +333,10 @@ interface LabelRig {
   el: HTMLDivElement;
   valueEl: HTMLSpanElement;
   nameEl: HTMLSpanElement;
+  bodyEl: HTMLSpanElement;
   lastText: string;
   lastValue: string;
+  lastBody: string;
   visible: boolean;
 }
 
@@ -439,6 +449,17 @@ export class HubScene {
   /** How many debris slots were reserved in the glow pool. Fixed for the
    * scene's lifetime: the pool hands out ranges once and never compacts. */
   private debrisCount = 0;
+
+  /* the blue star the hole eats after Pluto */
+  private blueStar!: THREE.Mesh;
+  private blueStarMaterial!: THREE.ShaderMaterial;
+  private blueStarHalo!: THREE.Mesh;
+  private blueStarHaloMaterial!: THREE.ShaderMaterial;
+  /** Four floats per stream particle: position along the ribbon, two spreads,
+   * and a size/phase roll. */
+  private stream: Float32Array = new Float32Array(0);
+  private streamStart = 0;
+  private streamCount = 0;
   /** How many of them are currently drawn. A demotion lowers this; every slot
    * past it is explicitly hidden rather than left holding its last frame,
    * which is what a demotion that only shrank the loop bound would do. */
@@ -449,8 +470,13 @@ export class HubScene {
   private neutronSlots = { a: 0, b: 0, merged: 0 };
   /** The pair's orbital phase, integrated frame by frame — see updateNeutron. */
   private neutronAngle = 0;
-  private shell!: THREE.Mesh;
-  private shellMaterial!: THREE.ShaderMaterial;
+  /** The layered gas shells of the remnant, innermost first. */
+  private remnant: { mesh: THREE.Mesh; material: THREE.ShaderMaterial; scale: number }[] = [];
+  /** Clumps of ejecta flying clear of the shells. Six floats each: direction
+   * xyz, speed, size, colour roll. */
+  private knots: Float32Array = new Float32Array(0);
+  private knotStart = 0;
+  private knotCount = 0;
   private flash = 0;
 
   /* the probe */
@@ -644,6 +670,8 @@ export class HubScene {
       this.disposables.push(geo, this.nebulaMaterial);
     }
 
+    this.buildSkyPhoto();
+
     const count = this.config.stars;
     const rand = mulberry32(20260807);
     const pos = new Float32Array(count * 3);
@@ -698,6 +726,56 @@ export class HubScene {
     stars.renderOrder = -10;
     this.scene.add(stars);
     this.disposables.push(this.starGeometry, this.starMaterial);
+  }
+
+  /** The Horsehead, as a real photograph hung in one corner of the sky.
+   *
+   * Credit: ESO (eso0202a), CC BY 4.0 — https://www.eso.org/public/images/eso0202a/
+   * ESO requires that credit be shown *visibly*, which is why it also appears
+   * in the HUD rather than only here. Same footing as the planet textures,
+   * which are CC BY 4.0 from Solar System Scope and public-domain NASA/USGS.
+   *
+   * Placed low and to one side: the black hole already owns the upper left and
+   * the neutron remnant the upper right, and the lower sky is where this page
+   * has room. Far enough out (2450) to sit outside every orbit and behind the
+   * whole starfield. */
+  private buildSkyPhoto() {
+    const texture = new THREE.TextureLoader().load("/img/sky/horsehead.jpg");
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    this.textures.push(texture);
+
+    const width = 1100;
+    const geo = new THREE.PlaneGeometry(width, width * (1054 / 1024));
+    const material = new THREE.ShaderMaterial({
+      vertexShader: SKYPHOTO_VERT,
+      fragmentShader: SKYPHOTO_FRAG,
+      uniforms: {
+        uMap: { value: texture },
+        // Low: this is meant to read as something very far away, not as the
+        // subject. It shares the sky with a star and a black hole.
+        uIntensity: { value: 0.6 },
+        uTint: { value: new THREE.Color(0.72, 0.82, 1.0) },
+      },
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const mesh = new THREE.Mesh(geo, material);
+    // Far enough left and down to own the empty lower sky, but pulled inboard
+    // of an earlier aim that put the horse's head half outside the frame and
+    // the rest of it behind the index readout.
+    const dir = new THREE.Vector3(-0.3, -0.4, -0.87).normalize();
+    mesh.position.copy(dir).multiplyScalar(2450);
+    mesh.lookAt(0, 0, 0);
+    // Between the procedural nebula (-20) and the starfield (-10), so the
+    // stars come out in front of it as they should.
+    mesh.renderOrder = -16;
+    mesh.frustumCulled = false;
+    this.scene.add(mesh);
+    this.disposables.push(geo, material);
   }
 
   private buildStar() {
@@ -755,7 +833,7 @@ export class HubScene {
     // The star is a destination too — the dashboard.
     const hit = this.hitSphere(SUN_RADIUS * 1.9);
     sun.add(hit);
-    const info: BodyInfo = { key: "sun", ko: "대시보드", en: "DASHBOARD", to: "/dashboard", accent: "#ffce6a", size: SUN_RADIUS, primary: true };
+    const info: BodyInfo = { key: "sun", ko: STAR.ko, en: STAR.en, bodyKo: STAR.bodyKo, bodyEn: STAR.bodyEn, to: STAR.to, accent: "#ffce6a", size: SUN_RADIUS, primary: true };
     this.pickables.push({ object: hit, info, anchor: sun });
     this.addLabel(info, sun);
   }
@@ -850,12 +928,12 @@ export class HubScene {
       body.add(axis);
 
       const geo = new THREE.SphereGeometry(spec.size, this.config.segments, this.config.segments / 2);
-      const material = this.planetMaterial(this.texture(spec.texture), spec.glow, spec.atmosphere, 0.16, spec.brightness);
+      const material = this.planetMaterial(this.texture(spec.texture), spec.glow, spec.atmosphere, 0.28, spec.brightness);
       const mesh = new THREE.Mesh(geo, material);
       axis.add(mesh);
       this.disposables.push(geo, material);
 
-      const info: BodyInfo = { key: spec.key, ko: spec.ko, en: spec.en, to: spec.to, feed: spec.feed, accent: spec.glow, size: spec.size, primary: true };
+      const info: BodyInfo = { key: spec.key, ko: spec.ko, en: spec.en, bodyKo: spec.bodyKo, bodyEn: spec.bodyEn, to: spec.to, feed: spec.feed, accent: spec.glow, size: spec.size, primary: true };
       const hit = this.hitSphere(Math.max(spec.size * 2.6, 4.2));
       body.add(hit);
       this.pickables.push({ object: hit, info, anchor: body });
@@ -960,13 +1038,13 @@ export class HubScene {
       const geo = new THREE.SphereGeometry(spec.size, Math.max(24, this.config.segments / 2), Math.max(12, this.config.segments / 4));
       // Moons run a little hot too: the same dark rock and ice as the inner
       // planets, at a fraction of the on-screen size.
-      material = this.planetMaterial(this.texture(spec.texture), spec.glow, 0.18, 0.2, 1.3);
+      material = this.planetMaterial(this.texture(spec.texture), spec.glow, 0.18, 0.32, 1.3);
       mesh = new THREE.Mesh(geo, material);
       this.disposables.push(geo, material);
     }
     holder.add(mesh);
 
-    const info: BodyInfo = { key: `${host.key}:${spec.key}`, ko: spec.ko, en: spec.en, to: spec.to, accent: spec.glow, size: spec.size, primary: false };
+    const info: BodyInfo = { key: `${host.key}:${spec.key}`, ko: spec.ko, en: spec.en, bodyKo: spec.ko, bodyEn: spec.en, to: spec.to, accent: spec.glow, size: spec.size, primary: false };
     const hit = this.hitSphere(Math.max(spec.size * 3.0, 1.6));
     holder.add(hit);
     this.pickables.push({ object: hit, info, anchor: holder });
@@ -1122,6 +1200,8 @@ export class HubScene {
         uOuter: { value: HORIZON * 5.2 },
         uSpinAxis: { value: new THREE.Vector3(0, 1, 0) },
         uFeed: { value: 0 },
+        uGlowTint: { value: new THREE.Color(0x39ff9e) },
+        uGlowMix: { value: 0 },
       },
       transparent: true,
       depthWrite: false,
@@ -1136,7 +1216,7 @@ export class HubScene {
     this.holeGroup.add(disc);
     this.disposables.push(discGeo, this.discMaterial);
 
-    const info: BodyInfo = { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, to: BLACK_HOLE.to, accent: "#ff9a4d", size: HORIZON * 2.2, primary: true };
+    const info: BodyInfo = { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, bodyKo: BLACK_HOLE.bodyKo, bodyEn: BLACK_HOLE.bodyEn, to: BLACK_HOLE.to, accent: "#ff9a4d", size: HORIZON * 2.2, primary: true };
     const hit = this.hitSphere(HORIZON * 3.4);
     this.holeGroup.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.holeGroup });
@@ -1146,13 +1226,15 @@ export class HubScene {
        event, kept. It is on no route: the joke is that it is not a planet, so
        it is not a destination either. */
     const plutoGeo = new THREE.SphereGeometry(2.4, 40, 24);
-    this.plutoMaterial = this.planetMaterial(this.texture(PLUTO_TEXTURE), "#d8c6b4", 0.15, 0.32, 1.4);
+    this.plutoMaterial = this.planetMaterial(this.texture(PLUTO_TEXTURE), "#d8c6b4", 0.15, 0.42, 1.4);
     this.pluto = new THREE.Mesh(plutoGeo, this.plutoMaterial);
     this.scene.add(this.pluto);
     this.disposables.push(plutoGeo, this.plutoMaterial);
 
     this.debrisCount = this.config.debris;
     this.activeDebris = this.debrisCount;
+    this.buildBlueStar();
+
     this.plutoDebrisStart = this.glow.allocate(this.debrisCount);
     // Per particle: release time, three axes of spread, and a phase.
     this.plutoDebris = new Float32Array(this.debrisCount * 5);
@@ -1166,6 +1248,72 @@ export class HubScene {
     }
   }
 
+  /** The hole's second course: a blue star the size of this system's own,
+   * torn apart and swallowed after Pluto.
+   *
+   * Same photosphere shader as the sun, run on a hot-star colour ramp — this
+   * is a real O/B-type surface, not a blue ball, and at the size of the sun it
+   * is close enough to the camera during the approach that the difference
+   * shows. Hidden outright for most of the cycle, which is what makes the one
+   * genuinely expensive shader on the page affordable twice. */
+  private buildBlueStar() {
+    const geo = new THREE.SphereGeometry(SUN_RADIUS, this.config.segments, this.config.segments / 2);
+    this.blueStarMaterial = new THREE.ShaderMaterial({
+      vertexShader: SUN_VERT,
+      fragmentShader: SUN_FRAG,
+      uniforms: {
+        uTime: { value: 0 },
+        // Hot stars are not just brighter, they are bluer all the way down:
+        // even the cool lanes of the granulation sit above white.
+        uPulse: { value: 0.55 },
+        uCool: { value: new THREE.Color(0x1d4bd6) },
+        uWarm: { value: new THREE.Color(0x6fb4ff) },
+        uHot: { value: new THREE.Color(0xecf6ff) },
+      },
+    });
+    this.blueStar = new THREE.Mesh(geo, this.blueStarMaterial);
+    this.blueStar.visible = false;
+    this.scene.add(this.blueStar);
+    this.disposables.push(geo, this.blueStarMaterial);
+
+    // Its halo, on the same billboard trick the sun's corona uses.
+    const haloGeo = new THREE.PlaneGeometry(2, 2, 1, 1);
+    this.blueStarHaloMaterial = new THREE.ShaderMaterial({
+      vertexShader: SUNGLOW_VERT,
+      fragmentShader: SUNGLOW_FRAG,
+      uniforms: {
+        uTime: { value: 0 },
+        uPulse: { value: 0.7 },
+        uColor: { value: new THREE.Color(0x6fb0ff) },
+        uIntensity: { value: 0.75 },
+        uUnit: { value: 1 / 3.4 },
+      },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    this.blueStarHalo = new THREE.Mesh(haloGeo, this.blueStarHaloMaterial);
+    this.blueStarHalo.scale.setScalar(SUN_RADIUS * 3.4);
+    this.blueStarHalo.visible = false;
+    this.blueStarHalo.renderOrder = 3;
+    this.scene.add(this.blueStarHalo);
+    this.disposables.push(haloGeo, this.blueStarHaloMaterial);
+
+    /* The accretion stream. A tidally disrupted star does not fall in as a
+       lump: it is drawn out into a long ribbon of gas that winds most of the
+       way round the hole before it arrives. These are that ribbon. */
+    this.streamCount = this.tier === "low" ? 160 : this.tier === "high" ? 380 : 620;
+    this.streamStart = this.glow.allocate(this.streamCount);
+    this.stream = new Float32Array(this.streamCount * 4);
+    const rand = mulberry32(515151);
+    for (let i = 0; i < this.streamCount; i++) {
+      this.stream[i * 4] = rand(); // where along the ribbon it sits
+      this.stream[i * 4 + 1] = rand(); // lateral spread
+      this.stream[i * 4 + 2] = rand(); // vertical spread
+      this.stream[i * 4 + 3] = rand(); // size / phase roll
+    }
+  }
+
   private buildNeutronBinary() {
     this.neutronGroup = new THREE.Object3D();
     this.neutronGroup.position.set(...NEUTRON_BINARY.position);
@@ -1175,35 +1323,90 @@ export class HubScene {
     this.neutronSlots.b = this.glow.allocate(1);
     this.neutronSlots.merged = this.glow.allocate(1);
 
-    /* The ejecta shell: a hollow, expanding sphere of gas. Additive and
-       back-face-first so the remnant stays visible inside its own explosion,
-       and screen-blended in effect — every layer can only add light to the sky
-       behind it, never box it out, which is what keeps a full-screen effect
-       from reading as a pasted-on rectangle. */
-    const shellGeo = new THREE.SphereGeometry(1, 48, 32);
-    this.shellMaterial = new THREE.ShaderMaterial({
-      vertexShader: CORONA_VERT,
-      fragmentShader: CORONA_FRAG,
-      uniforms: {
-        uTime: { value: 0 },
-        uPulse: { value: 0 },
-        uColor: { value: new THREE.Color(0x9fc8ff) },
-        uIntensity: { value: 0 },
-        // Hard-edged: this is a hollow shell of gas, and at the corona's own
-        // softness it filled in and read as a large grey planet.
-        uSharp: { value: 9 },
-      },
-      transparent: true,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      blending: THREE.AdditiveBlending,
-    });
-    this.shell = new THREE.Mesh(shellGeo, this.shellMaterial);
-    this.shell.visible = false;
-    this.neutronGroup.add(this.shell);
-    this.disposables.push(shellGeo, this.shellMaterial);
+    /* The remnant: four nested shells of gas, not one.
+     *
+     * A single shell can only ever be one colour at one radius, which is a
+     * smoke bubble. Real ejecta is layered — the fastest, hottest material is
+     * already far out while denser stuff is still climbing behind it, and each
+     * layer is lit by a different element. Four of them, each with its own
+     * seed, expansion rate, lumpiness and species pair, is what turns this into
+     * a cloud you can look into.
+     *
+     * All additive with depth-write off, so they can only ever ADD light to
+     * the sky behind them, never box it out — which is what keeps a large
+     * effect from reading as a pasted-on rectangle, and is also why the merged
+     * remnant stays visible in the middle of its own explosion.
+     */
+    const shellGeo = new THREE.SphereGeometry(1, 64, 40);
+    this.disposables.push(shellGeo);
 
-    const info: BodyInfo = { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, to: NEUTRON_BINARY.to, accent: "#9fd0ff", size: 5, primary: true };
+    // Real Crab colours, each pair "diffuse gas" then "lit filament".
+    const LAYERS: { a: number; b: number; scale: number; warp: number; detail: number; seed: number }[] = [
+      // Synchrotron continuum — the blue-white haze from the pulsar's own wind,
+      // which in the real object sits INSIDE the filaments.
+      { a: 0x3a6bd8, b: 0xcfe4ff, scale: 0.62, warp: 0.1, detail: 2.4, seed: 3.1 },
+      // Doubly-ionised oxygen: the teal-green that makes a remnant read as
+      // something other than fire.
+      { a: 0x0d6b62, b: 0x6fffd8, scale: 0.82, warp: 0.16, detail: 3.2, seed: 11.7 },
+      // Hydrogen-alpha and nitrogen: the orange-red body of the web.
+      { a: 0x8c1f10, b: 0xff9c56, scale: 1.0, warp: 0.2, detail: 3.9, seed: 27.4 },
+      // Singly-ionised sulphur on the outermost, coolest, thinnest skin.
+      { a: 0x5e0f2a, b: 0xff5570, scale: 1.18, warp: 0.26, detail: 4.6, seed: 41.9 },
+    ];
+
+    for (const layer of LAYERS) {
+      const material = new THREE.ShaderMaterial({
+        vertexShader: REMNANT_VERT,
+        fragmentShader: REMNANT_FRAG,
+        uniforms: {
+          uColorA: { value: new THREE.Color(layer.a) },
+          uColorB: { value: new THREE.Color(layer.b) },
+          uIntensity: { value: 0 },
+          uSeed: { value: layer.seed },
+          uDetail: { value: layer.detail },
+          // The filament net is the expensive part; the cheap tier gets a
+          // coarser one rather than none.
+          uOctaves: { value: this.tier === "low" ? 3 : 5 },
+          uWarp: { value: layer.warp },
+        },
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      const mesh = new THREE.Mesh(shellGeo, material);
+      mesh.visible = false;
+      mesh.renderOrder = 5;
+      this.neutronGroup.add(mesh);
+      this.remnant.push({ mesh, material, scale: layer.scale });
+      this.disposables.push(material);
+    }
+
+    /* The knots: discrete clumps of gas thrown clear of the shells and
+       scattered through open space, which is the half of an explosion a set of
+       nested surfaces cannot show. Each carries one of the same emission
+       colours, flies at its own speed and decelerates, so the cloud keeps
+       spreading and thinning long after the shells have faded. */
+    this.knotCount = this.tier === "low" ? 90 : this.tier === "high" ? 220 : 360;
+    this.knotStart = this.glow.allocate(this.knotCount);
+    // Per knot: three direction components, speed, size and a colour roll.
+    this.knots = new Float32Array(this.knotCount * 6);
+    const krand = mulberry32(90210);
+    for (let i = 0; i < this.knotCount; i++) {
+      // Isotropic directions, then clumped by raising the speed spread — real
+      // ejecta is neither uniform nor a neat sphere.
+      const u = krand() * 2 - 1;
+      const theta = krand() * Math.PI * 2;
+      const s = Math.sqrt(1 - u * u);
+      this.knots[i * 6] = Math.cos(theta) * s;
+      this.knots[i * 6 + 1] = u;
+      this.knots[i * 6 + 2] = Math.sin(theta) * s;
+      this.knots[i * 6 + 3] = 0.35 + Math.pow(krand(), 1.7) * 1.0;
+      this.knots[i * 6 + 4] = 0.6 + krand() * 2.2;
+      this.knots[i * 6 + 5] = krand();
+    }
+
+    const info: BodyInfo = { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, bodyKo: NEUTRON_BINARY.bodyKo, bodyEn: NEUTRON_BINARY.bodyEn, to: NEUTRON_BINARY.to, accent: "#9fd0ff", size: 5, primary: true };
     const hit = this.hitSphere(12);
     this.neutronGroup.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.neutronGroup });
@@ -1252,7 +1455,7 @@ export class HubScene {
 
     this.scene.add(this.voyager);
 
-    const info: BodyInfo = { key: "voyager", ko: "글로벌 뉴스", en: "GLOBAL NEWS", to: "/news", accent: "#cfe4ff", size: 2.5, primary: false };
+    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 2.5, primary: false };
     const hit = this.hitSphere(5);
     this.voyager.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.voyager });
@@ -1335,10 +1538,27 @@ export class HubScene {
     name.className = "h2-tag-name";
     const value = document.createElement("span");
     value.className = "h2-tag-val";
+    /* The body's own name — 수성, 지구, 블랙홀. Empty except while the pointer
+       is on it (or the camera is holding it), so the resting sky stays a map
+       of destinations and only the thing you are actually pointing at also
+       tells you what it is. */
+    const body = document.createElement("span");
+    body.className = "h2-tag-body";
 
-    el.append(dot, name, value);
+    el.append(dot, name, value, body);
     this.labelLayer.appendChild(el);
-    this.labels.push({ info, anchor, el, nameEl: name, valueEl: value, lastText: "", lastValue: "", visible: false });
+    this.labels.push({
+      info,
+      anchor,
+      el,
+      nameEl: name,
+      valueEl: value,
+      bodyEl: body,
+      lastText: "",
+      lastValue: "",
+      lastBody: "",
+      visible: false,
+    });
   }
 
   /** Which labels earn a place this frame, and how far away each one is.
@@ -1474,6 +1694,14 @@ export class HubScene {
         label.valueEl.textContent = valueText;
         label.el.dataset.tone = raw === null || raw === undefined ? "flat" : raw > 0 ? "up" : raw < 0 ? "down" : "flat";
         label.lastValue = valueText;
+      }
+
+      // Only the body under the pointer (or held by the camera) says what it
+      // is; on every other label it stays empty and collapses to nothing.
+      const bodyText = hovered || selected ? (this.lang === "en" ? info.bodyEn : info.bodyKo) : "";
+      if (bodyText !== label.lastBody) {
+        label.bodyEl.textContent = bodyText;
+        label.lastBody = bodyText;
       }
 
       label.el.classList.toggle("is-hot", hovered || selected);
@@ -1714,23 +1942,38 @@ export class HubScene {
 
   setTour(on: boolean) {
     this.tourEnabled = on;
-    this.tourTimer = on ? 0 : 0;
-    if (!on) this.controls.autoRotate = false;
+    // Fire on the very next frame, and start at the first stop rather than the
+    // second — the index is advanced before it is used.
+    this.tourTimer = 0;
+    if (on) this.tourIndex = -1;
+    else this.controls.autoRotate = false;
   }
 
+  /** One stop every TOUR_INTERVAL seconds, flight included.
+   *
+   * The clock deliberately keeps running while the camera is in transit. An
+   * earlier version paused it during the flight, which made the real period
+   * "dwell plus however long the trip happened to take" — a number that
+   * changed with the distance between one body and the next, so the tour
+   * never actually had a tempo. Counting through the flight means each stop
+   * gets the same ten seconds no matter where it is. */
   private advanceTour(dt: number) {
-    if (!this.tourEnabled || this.flight) return;
+    if (!this.tourEnabled) return;
     this.tourTimer -= dt;
     if (this.tourTimer > 0) return;
-    this.tourTimer = 7.5;
-    const order = DESTINATIONS.map((d) => d.key);
-    this.tourIndex = (this.tourIndex + 1) % order.length;
-    const pickable = this.pickables.find((p) => p.info.key === order[this.tourIndex]);
+    this.tourTimer = HubScene.TOUR_INTERVAL;
+
+    this.tourIndex = (this.tourIndex + 1) % TOUR_ORDER.length;
+    const pickable = this.pickables.find((p) => p.info.key === TOUR_ORDER[this.tourIndex]);
+    // A body the current quality tier dropped (moons at the low tier) simply
+    // is not there to visit; skip to the next tick rather than stalling.
     if (!pickable) return;
-    // A tour looks, it does not navigate — which is exactly what focusing a
-    // body does, so it goes through the same path. Slower, and framed a little
-    // wider, because nobody asked to be taken there.
-    this.focusOn(pickable.info, 2.6);
+
+    /* A tour looks, it does not navigate — which is exactly what focusing a
+       body does, so it goes through the same path and inherits the follow
+       behaviour: the camera rides each planet along its orbit for the whole
+       time it is parked there. */
+    this.focusOn(pickable.info, HubScene.TOUR_FLIGHT);
   }
 
   /** Starts a camera move and takes the controls away for its duration.
@@ -1828,7 +2071,10 @@ export class HubScene {
   setLang(lang: "ko" | "en") {
     this.lang = lang;
     // Force every label to re-read its text on the next frame.
-    for (const label of this.labels) label.lastText = "";
+    for (const label of this.labels) {
+      label.lastText = "";
+      label.lastBody = "";
+    }
   }
 
   /* ══════════════════════════ the frame ══════════════════════════ */
@@ -2002,12 +2248,29 @@ export class HubScene {
 
   /* ─────────────────── the hole, and what it is eating ─────────────────── */
 
-  /** Approach, tear, swallow, flare, repeat. The numbers are the type-1 hub's
-   * own cycle, re-timed for a camera that can be anywhere. */
-  private static readonly PLUTO_APPROACH = 17;
-  private static readonly PLUTO_TEAR = 4.5;
-  private static readonly PLUTO_REST = 9;
-  private static readonly PLUTO_CYCLE = 17 + 4.5 + 9;
+  /* The hole's meal, in order: Pluto in, green afterglow, then a blue star the
+     size of this system's own drawn in and torn apart, then a blue afterglow,
+     then a pause before it starts again. The two afterglows are five seconds
+     each, which is long enough to notice from anywhere in the scene and short
+     enough that the disc spends most of its life its own colour. */
+  private static readonly PLUTO_APPROACH = 15;
+  private static readonly PLUTO_TEAR = 4;
+  /** Green: the rock is gone. */
+  private static readonly GREEN_GLOW = 5;
+  private static readonly STAR_APPROACH = 11;
+  private static readonly STAR_TEAR = 4;
+  /** Blue-white, and much brighter: a whole star has just gone in. */
+  private static readonly BLUE_GLOW = 5;
+
+  /* Cumulative marks on the cycle, which is what the frame actually tests
+     against. The last four seconds are the hole at rest, with nothing falling
+     in and the disc back to its own colour — the pause is what keeps the two
+     meals from reading as one continuous feeding frenzy. */
+  private static readonly T_PLUTO_END = 15 + 4; // 19
+  private static readonly T_GREEN_END = 19 + 5; // 24
+  private static readonly T_STAR_END = 24 + 11 + 4; // 39
+  private static readonly T_BLUE_END = 39 + 5; // 44
+  private static readonly BH_CYCLE = 44 + 4; // 48, the last 4 being the rest
 
   private updateBlackHole(dt: number, time: number, speed: number) {
     this.discMaterial.uniforms.uTime.value = time * speed;
@@ -2018,14 +2281,35 @@ export class HubScene {
     const axis = new THREE.Vector3(0, 1, 0).applyQuaternion(this.holeGroup.getWorldQuaternion(new THREE.Quaternion()));
     this.discMaterial.uniforms.uSpinAxis.value.copy(axis);
 
-    const cycle = (time * speed) % HubScene.PLUTO_CYCLE;
+    const cycle = (time * speed) % HubScene.BH_CYCLE;
     const holePos = this.tmpV.clone();
 
-    if (cycle < HubScene.PLUTO_APPROACH + HubScene.PLUTO_TEAR) {
+    /* The afterglow. Green for the five seconds after Pluto, blue-white and
+       far brighter for the five after the star. Eased rather than switched, so
+       the disc bleeds into and out of the colour instead of flicking. */
+    let glowMix = 0;
+    let glowBright = 0;
+    if (cycle >= HubScene.T_PLUTO_END && cycle < HubScene.T_GREEN_END) {
+      const g = (cycle - HubScene.T_PLUTO_END) / HubScene.GREEN_GLOW;
+      // Up fast, hold, then fade — the fade is the longer half.
+      glowMix = Math.min(1, g * 6) * (1 - Math.pow(g, 2.4));
+      this.discMaterial.uniforms.uGlowTint.value.setRGB(0.16, 1.0, 0.5);
+      glowBright = glowMix * 0.22;
+    } else if (cycle >= HubScene.T_STAR_END && cycle < HubScene.T_BLUE_END) {
+      const g = (cycle - HubScene.T_STAR_END) / HubScene.BLUE_GLOW;
+      glowMix = Math.min(1, g * 8) * (1 - Math.pow(g, 2.6));
+      this.discMaterial.uniforms.uGlowTint.value.setRGB(0.4, 0.72, 1.0);
+      // A whole star went in, so this one burns harder than the green — but
+      // only about twice as hard, not enough to clip to white.
+      glowBright = glowMix * 0.5;
+    }
+    this.discMaterial.uniforms.uGlowMix.value = glowMix;
+
+    if (cycle < HubScene.T_PLUTO_END) {
       this.pluto.visible = true;
       // A decaying spiral rather than a straight fall: anything falling into a
       // hole with angular momentum to shed goes round several times first.
-      const p = cycle / (HubScene.PLUTO_APPROACH + HubScene.PLUTO_TEAR);
+      const p = cycle / HubScene.T_PLUTO_END;
       const distance = 120 * Math.pow(1 - p, 1.55) + 5;
       const angle = p * Math.PI * 5.4;
       const offset = new THREE.Vector3(Math.cos(angle) * distance, Math.sin(angle * 0.6) * distance * 0.22, Math.sin(angle) * distance);
@@ -2047,13 +2331,106 @@ export class HubScene {
     } else {
       this.pluto.visible = false;
       for (let i = 0; i < this.debrisCount; i++) this.glow.hide(this.plutoDebrisStart + i);
-      // The afterglow: the hole stays lit for a while after a meal.
-      const rest = (cycle - HubScene.PLUTO_APPROACH - HubScene.PLUTO_TEAR) / HubScene.PLUTO_REST;
-      const target = Math.max(0, 1 - rest * 1.6);
-      this.feed += (target - this.feed) * Math.min(1, dt * 1.6);
+      // Between meals the hole cools back down; the afterglow above carries
+      // the colour, this carries the heat.
+      this.feed += (glowBright - this.feed) * Math.min(1, dt * 1.8);
     }
 
-    this.discMaterial.uniforms.uFeed.value = this.feed;
+    this.updateBlueStar(cycle, holePos, dt, time, speed);
+    this.discMaterial.uniforms.uFeed.value = this.feed + glowBright;
+  }
+
+  /** The star's turn: a slow approach, then tidal disruption into a ribbon of
+   * gas that winds into the disc.
+   *
+   * The stretch is the whole point. A star falling into a black hole is not
+   * swallowed whole — the difference in pull between its near and far sides
+   * exceeds what its own gravity can hold together, and it is drawn out into a
+   * stream. So the body elongates along the line to the hole while being
+   * squeezed on the other two axes, and the ribbon below is what comes off it. */
+  private updateBlueStar(cycle: number, holePos: THREE.Vector3, dt: number, time: number, speed: number) {
+    const active = cycle >= HubScene.T_GREEN_END && cycle < HubScene.T_STAR_END;
+    if (!active) {
+      this.blueStar.visible = false;
+      this.blueStarHalo.visible = false;
+      for (let i = 0; i < this.streamCount; i++) this.glow.hide(this.streamStart + i);
+      return;
+    }
+
+    const since = cycle - HubScene.T_GREEN_END;
+    const total = HubScene.STAR_APPROACH + HubScene.STAR_TEAR;
+    const p = since / total;
+    const tear = clamp01((since - HubScene.STAR_APPROACH) / HubScene.STAR_TEAR);
+
+    this.blueStarMaterial.uniforms.uTime.value = time * speed;
+    this.blueStarHaloMaterial.uniforms.uTime.value = time * speed;
+
+    /* Comes in from the far side to Pluto's, and much further out — it is a
+       star, so it should be visible as one long before it arrives. */
+    const distance = 240 * Math.pow(1 - p, 1.4) + 11;
+    const angle = Math.PI + p * Math.PI * 3.1;
+    const pos = holePos
+      .clone()
+      .add(new THREE.Vector3(Math.cos(angle) * distance, Math.sin(angle * 0.5) * distance * 0.28, Math.sin(angle) * distance));
+
+    this.blueStar.position.copy(pos);
+    this.blueStar.lookAt(holePos);
+    const stretch = 1 + tear * tear * 9;
+    const squash = 1 / Math.sqrt(stretch);
+    // lookAt points -Z at the hole, so Z is the axis along the pull.
+    this.blueStar.scale.set(squash, squash, stretch);
+    const left = 1 - clamp01((tear - 0.5) / 0.5);
+    this.blueStar.scale.multiplyScalar(left);
+    this.blueStar.visible = left > 0.02;
+
+    this.blueStarHalo.position.copy(pos);
+    this.blueStarHalo.quaternion.copy(this.camera.quaternion);
+    this.blueStarHalo.scale.setScalar(SUN_RADIUS * 3.4 * left);
+    this.blueStarHalo.visible = left > 0.05;
+    this.blueStarHaloMaterial.uniforms.uIntensity.value = 0.75 * left;
+
+    // The hole brightens as the meal gets close, well before the tearing.
+    const heat = Math.max(tear, Math.pow(p, 3) * 0.7);
+    this.feed += (heat - this.feed) * Math.min(1, dt * 2.2);
+
+    /* The ribbon. Each particle sits somewhere along a path that runs from the
+       star, winds most of the way around the hole, and ends at the disc — so
+       the stream reads as material already in orbit rather than as a straight
+       line of falling dots. */
+    const toStar = pos.clone().sub(holePos);
+    const starAngle = Math.atan2(toStar.z, toStar.x);
+    const starDist = toStar.length();
+
+    for (let i = 0; i < this.streamCount; i++) {
+      const slot = this.streamStart + i;
+      const along = this.stream[i * 4];
+      const spreadA = this.stream[i * 4 + 1] - 0.5;
+      const spreadB = this.stream[i * 4 + 2] - 0.5;
+      const roll = this.stream[i * 4 + 3];
+
+      // Nothing until the star is genuinely being pulled apart.
+      const born = clamp01((tear - along * 0.55) / 0.45);
+      if (born <= 0.01) {
+        this.glow.hide(slot);
+        continue;
+      }
+
+      // Wind from the star's own angle round to the disc, tightening as it goes.
+      const t = clamp01(along * 0.85 + born * 0.35);
+      const r = starDist * Math.pow(1 - t, 1.5) + 9;
+      const a = starAngle + t * Math.PI * 2.2 + roll * 0.35;
+      const wob = (1 - t) * 6;
+
+      const x = holePos.x + Math.cos(a) * r + spreadA * wob;
+      const y = holePos.y + (toStar.y / Math.max(starDist, 0.001)) * r * 0.6 + spreadB * wob;
+      const z = holePos.z + Math.sin(a) * r + spreadB * wob;
+
+      // Blue-white at the star, whitening as it compresses and heats inward.
+      const hot = Math.pow(t, 1.3);
+      const size = 1.1 + roll * 1.6 + hot * 1.4;
+      const alpha = born * (1 - Math.pow(t, 6)) * 0.55;
+      this.glow.set(slot, x, y, z, size, 0.55 + hot * 0.45, 0.76 + hot * 0.22, 1.0, alpha);
+    }
   }
 
   private updatePlutoDebris(holePos: THREE.Vector3, tear: number, time: number, speed: number) {
@@ -2101,6 +2478,11 @@ export class HubScene {
 
   /* ─────────────────── the neutron binary ─────────────────── */
 
+  /** Seconds each auto-tour stop gets, travel included. */
+  private static readonly TOUR_INTERVAL = 10;
+  /** How much of that is spent flying there, leaving the rest to look. */
+  private static readonly TOUR_FLIGHT = 2.4;
+
   private static readonly NS_INSPIRAL = 22;
   private static readonly NS_MERGED = 20;
   private static readonly NS_CYCLE = 42;
@@ -2135,7 +2517,8 @@ export class HubScene {
       this.glow.set(b, center.x - dx, center.y, center.z - dz, size, 0.72 * bright, 0.86 * bright, 1.0 * bright, 1);
       this.glow.hide(merged);
 
-      this.shell.visible = false;
+      for (const layer of this.remnant) layer.mesh.visible = false;
+      for (let i = 0; i < this.knotCount; i++) this.glow.hide(this.knotStart + i);
       // The burst fires in the last instant before contact, not on a timer.
       this.flash = p > 0.995 ? 1 : this.flash * Math.exp(-dt * 6);
     } else {
@@ -2152,24 +2535,80 @@ export class HubScene {
 
       const grow = since / HubScene.NS_MERGED;
       if (grow < 1) {
-        this.shell.visible = true;
-        /* Fast at first, then coasting — a real remnant decelerates against
-           whatever it is ploughing into.
+        /* The shells. Fast at first, then coasting — a real remnant
+           decelerates against whatever it is ploughing into. Each layer runs
+           at its own rate, so the cloud pulls apart into distinct fronts
+           instead of inflating as one surface.
 
            The ceiling is deliberately modest. An earlier pass ran this out to
            320 units, which is genuinely sky-wide and looked it on a desktop —
            and on a phone, whose horizontal field is a fraction of that, it
            became a translucent wall across two thirds of the screen for twenty
-           seconds of every forty-two. At 120 it still dwarfs the remnant that
-           threw it and still reads as an explosion, at every viewport. */
-        const radius = 6 + Math.pow(grow, 0.55) * 114;
-        this.shell.scale.setScalar(radius);
-        this.shellMaterial.uniforms.uTime.value = time;
-        this.shellMaterial.uniforms.uIntensity.value = Math.pow(1 - grow, 1.9) * 0.4;
-        // Cooling: blue-white shock at first, red-orange as it thins out.
-        this.shellMaterial.uniforms.uColor.value.setRGB(0.6 + grow * 0.4, 0.78 - grow * 0.34, 1.0 - grow * 0.62);
+           seconds of every forty-two. */
+        const front = Math.pow(grow, 0.55);
+        for (const layer of this.remnant) {
+          layer.mesh.visible = true;
+          layer.mesh.scale.setScalar(6 + front * 88 * layer.scale);
+          /* The outer, cooler layers arrive late and linger; the synchrotron
+             core is brightest at the start and fades first, which is the order
+             the real thing cools in. */
+          const lead = clamp01((grow - (layer.scale - 0.62) * 0.22) / 0.14);
+          layer.material.uniforms.uIntensity.value = lead * Math.pow(1 - grow, 1.6) * 0.85;
+        }
+
+        /* The knots, thrown clear and scattering through open space. They
+           outrun the shells and keep going, which is what stops the explosion
+           reading as a bubble with a hard edge. */
+        for (let i = 0; i < this.knotCount; i++) {
+          const dx = this.knots[i * 6];
+          const dy = this.knots[i * 6 + 1];
+          const dz = this.knots[i * 6 + 2];
+          const speedK = this.knots[i * 6 + 3];
+          const sizeK = this.knots[i * 6 + 4];
+          const roll = this.knots[i * 6 + 5];
+
+          // Ballistic with drag: quick out, then coasting and thinning.
+          const reach = (1 - Math.exp(-since * 0.42)) * speedK * 150;
+          const x = center.x + dx * reach;
+          const y = center.y + dy * reach;
+          const z = center.z + dz * reach;
+
+          /* Colour by emission line, the same palette the shells use — one
+             clump is oxygen, the next hydrogen, the next sulphur, which is why
+             a real remnant is many colours at once rather than one fading
+             gradient. Cooling shifts each toward its own red end. */
+          const cool = clamp01(since / HubScene.NS_MERGED);
+          let r: number;
+          let g: number;
+          let b: number;
+          if (roll < 0.3) {
+            // [O III] teal-green
+            r = 0.24 + cool * 0.3;
+            g = 1.0 - cool * 0.2;
+            b = 0.82 - cool * 0.3;
+          } else if (roll < 0.72) {
+            // Hα / [N II] orange-red
+            r = 1.0;
+            g = 0.56 - cool * 0.22;
+            b = 0.3 - cool * 0.16;
+          } else if (roll < 0.9) {
+            // [S II] deep red
+            r = 1.0;
+            g = 0.26 + cool * 0.1;
+            b = 0.36 + cool * 0.12;
+          } else {
+            // Synchrotron blue-white, the fastest and first to fade
+            r = 0.7 + cool * 0.25;
+            g = 0.82;
+            b = 1.0;
+          }
+
+          const fade = Math.pow(1 - grow, 1.35) * clamp01(since * 2.2);
+          this.glow.set(this.knotStart + i, x, y, z, sizeK * (1 + grow * 1.6), r, g, b, fade * 0.5);
+        }
       } else {
-        this.shell.visible = false;
+        for (const layer of this.remnant) layer.mesh.visible = false;
+        for (let i = 0; i < this.knotCount; i++) this.glow.hide(this.knotStart + i);
       }
     }
   }
