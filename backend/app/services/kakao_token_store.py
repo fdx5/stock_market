@@ -3,6 +3,8 @@ import threading
 from pathlib import Path
 
 import libsql
+
+from app.services import libsql_gate
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,7 +18,9 @@ TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 # KAKAO_REFRESH_TOKEN at deploy time.
 LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "kakao_tokens.db"
 
-_lock = threading.Lock()
+# Bounded + breakered, so a sick Turso cannot drain the worker threadpool and
+# take the whole site down with it. See services/libsql_gate.py.
+_gate = libsql_gate.Gate("kakao_token_store")
 _conn = None
 
 # Single row (id fixed at 1): this app only ever sends "나에게 보내기" notifications to
@@ -52,7 +56,7 @@ def _with_connection(fn):
     """Same retry-once-on-a-fresh-connection shape as visitor_store.py — see that
     module's docstring for why a single process-wide connection is reused here."""
     global _conn
-    with _lock:
+    with _gate.hold():
         if _conn is None:
             _conn = _new_ready_connection()
         try:

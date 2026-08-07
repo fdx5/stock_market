@@ -16,6 +16,8 @@ import time
 from pathlib import Path
 
 import libsql
+
+from app.services import libsql_gate
 from dotenv import load_dotenv
 
 from app.data.prediction_universe import MARKET_KOSDAQ, MARKET_KOSPI, MARKET_NASDAQ
@@ -29,7 +31,9 @@ TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
 LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "predictions.db"
 
-_lock = threading.Lock()
+# Bounded + breakered, so a sick Turso cannot drain the worker threadpool and
+# take the whole site down with it. See services/libsql_gate.py.
+_gate = libsql_gate.Gate("prediction_store")
 _conn = None
 
 # The columns the spec asks for are collect_date/predict_date/stock_code/stock_name/
@@ -232,7 +236,7 @@ def _with_connection(fn):
     closes idle streams server-side, either of which this recovers from rather than
     failing the caller over a connection issue that a fresh connect() resolves."""
     global _conn
-    with _lock:
+    with _gate.hold():
         if _conn is None:
             _conn = _new_ready_connection()
         try:

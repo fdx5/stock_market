@@ -3,6 +3,8 @@ import threading
 from pathlib import Path
 
 import libsql
+
+from app.services import libsql_gate
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,7 +17,9 @@ TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 # backend restarts instead of resetting like the in-memory "currently online" count.
 LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "visitors.db"
 
-_lock = threading.Lock()
+# Bounded + breakered, so a sick Turso cannot drain the worker threadpool and
+# take the whole site down with it. See services/libsql_gate.py.
+_gate = libsql_gate.Gate("visitor_store")
 _conn = None
 
 _SCHEMA = """
@@ -50,7 +54,7 @@ def _with_connection(fn):
     (e.g. Turso closed an idle stream server-side), drop it and retry once on a
     fresh one instead of failing the request."""
     global _conn
-    with _lock:
+    with _gate.hold():
         if _conn is None:
             _conn = _new_ready_connection()
         try:

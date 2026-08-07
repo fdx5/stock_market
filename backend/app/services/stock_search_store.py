@@ -3,6 +3,8 @@ import threading
 from pathlib import Path
 
 import libsql
+
+from app.services import libsql_gate
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -14,7 +16,9 @@ TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 # configured, mirroring page_view_store.py / visitor_store.py.
 LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "stock_searches.db"
 
-_lock = threading.Lock()
+# Bounded + breakered, so a sick Turso cannot drain the worker threadpool and
+# take the whole site down with it. See services/libsql_gate.py.
+_gate = libsql_gate.Gate("stock_search_store")
 _conn = None
 
 _SCHEMA = """
@@ -54,7 +58,7 @@ def _with_connection(fn):
     comment_store.py — see comment_store.py's docstring for why a single
     process-wide connection (rather than one per call) is used here."""
     global _conn
-    with _lock:
+    with _gate.hold():
         if _conn is None:
             _conn = _new_ready_connection()
         try:

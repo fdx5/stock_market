@@ -20,6 +20,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import libsql
+
+from app.services import libsql_gate
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -41,7 +43,9 @@ MAX_ROW_LIMIT = 2000
 # runaway BLOB/JSON column would otherwise dominate the response.
 MAX_CELL_CHARS = 100_000
 
-_lock = threading.Lock()
+# Bounded + breakered, so a sick Turso cannot drain the worker threadpool and
+# take the whole site down with it. See services/libsql_gate.py.
+_gate = libsql_gate.Gate("db_browser")
 _connections: dict[str, object] = {}
 
 
@@ -93,7 +97,7 @@ def _with_connection(source: dict, fn):
     (see comment_store._with_connection for why the connection is reused rather than
     reopened per call)."""
     source_id = source["id"]
-    with _lock:
+    with _gate.hold():
         conn = _connections.get(source_id)
         if conn is None:
             conn = _connections[source_id] = _open(source)

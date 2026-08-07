@@ -360,12 +360,25 @@ def _start_dram_price_scheduler() -> None:
 
 
 @app.get("/api/health")
-def health():
-    # RENDER_GIT_COMMIT is set automatically by Render at runtime for a git-connected
-    # service — surfacing it here is the one reliable way to answer "is my latest push
-    # actually live yet" from outside the dashboard, instead of guessing from how many
-    # minutes have passed since the push (a multi-stage Docker build here easily takes
-    # longer than that).
+async def health():
+    """Is this process alive? Nothing more.
+
+    `async def` on purpose, and it matters more than it looks. A sync path
+    operation runs in FastAPI's worker threadpool, which is the same bounded
+    pool that serves static files and every other sync endpoint — so when
+    enough requests are stuck on a slow dependency, the health check queues
+    behind them and times out even though the process is perfectly alive.
+    Render reads that as a dead service and restarts it, the restart re-runs
+    the startup warmers against the same struggling dependency, and a few
+    minutes of upstream trouble becomes a restart loop that 502s the whole
+    site. Answering from the event loop instead means this endpoint reports on
+    the process, not on the busiest thing the process happens to be doing.
+
+    It must therefore stay free of blocking work — no database, no disk, no
+    outbound calls. RENDER_GIT_COMMIT is set by Render at runtime for a
+    git-connected service; surfacing it is the one reliable way to answer "is
+    my latest push actually live yet" from outside the dashboard.
+    """
     return {"status": "ok", "commit": os.environ.get("RENDER_GIT_COMMIT")}
 
 

@@ -3,6 +3,8 @@ import threading
 from pathlib import Path
 
 import libsql
+
+from app.services import libsql_gate
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,7 +15,9 @@ TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 # Same Turso-with-local-fallback shape as visitor_store.py / page_view_store.py.
 LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "notify_stats.db"
 
-_lock = threading.Lock()
+# Bounded + breakered, so a sick Turso cannot drain the worker threadpool and
+# take the whole site down with it. See services/libsql_gate.py.
+_gate = libsql_gate.Gate("notify_stats_store")
 _conn = None
 
 _SCHEMA = """
@@ -52,7 +56,7 @@ def _new_ready_connection():
 def _with_connection(fn):
     """Same retry-once-on-a-fresh-connection shape as visitor_store.py."""
     global _conn
-    with _lock:
+    with _gate.hold():
         if _conn is None:
             _conn = _new_ready_connection()
         try:
