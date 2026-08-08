@@ -567,7 +567,7 @@ uniform float uOuter;
 /** Rises while the hole is feeding (Pluto, then the blue star). */
 uniform float uFeed;
 /** The afterglow. For a few seconds after each meal the disc burns the colour
- * of what it just swallowed — green after the rock, blue-white after the star.
+ * of what it just swallowed — gold after the rock, blue-white after the star.
  * Real accretion discs do change colour as infalling material changes their
  * composition and temperature; the specific hues here are a reading aid, not a
  * spectrum. uGlowMix crossfades it against the disc's own thermal ramp so the
@@ -653,8 +653,8 @@ void main() {
    perpendicular to the disc, in both directions at once — as a narrow beam
    that outruns everything else in the scene.
 
-   Drawn as an open cone whose UV runs 0 at the horizon to 1 at the head, so
-   everything below is a function of distance along the beam:
+   Drawn as one narrow open cone whose UV runs 0 at the horizon to 1 at the
+   head, so everything below is a function of distance along the beam:
 
    - `uHead` is where the front of it has got to. It races out over the first
      fraction of a second, which is what makes the beam *fire* rather than
@@ -662,21 +662,20 @@ void main() {
    - The knots are internal shocks — real jets are beaded, not smooth, and the
      beads travel outward, which is the only motion in the beam that the eye
      can actually follow at this length.
-   - The limb term is why a hollow cone reads as a solid beam: a tube of gas
-     is brightest where the line of sight grazes its wall and runs through the
-     most of it, so the silhouette edges carry more light than the middle.
-     The spine mesh sets uSpine = 1 to opt out of it and stay a bright core. */
+
+   There used to be a limb term here, and a wide hollow sheath cone for it to
+   act on: a tube of gas is brightest where the line of sight grazes its wall,
+   so lighting the silhouette is how a hollow cone is made to read as a solid
+   beam. Both are gone. The width of the jet is carried by the ropes of smoke
+   that twist around it now (see updateJetParticles), and those are real
+   travelling grains rather than a lit surface — so what is left for the cone
+   to be is the single filament of light down the middle, which needs no limb
+   because it is not hollow to the eye at this thickness. */
 export const JET_VERT = /* glsl */ `
 varying vec2 vUv;
-varying float vRim;
 void main() {
   vUv = uv;
-  vec4 mv = modelViewMatrix * vec4(position, 1.0);
-  // normalMatrix is the inverse transpose, so the cone's very non-uniform
-  // scale (long and thin) does not tilt the normals it reports.
-  vec3 n = normalize(normalMatrix * normal);
-  vRim = 1.0 - abs(dot(n, normalize(-mv.xyz)));
-  gl_Position = projectionMatrix * mv;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `;
 
@@ -684,11 +683,9 @@ export const JET_FRAG = /* glsl */ `
 uniform float uTime;
 uniform float uHead;
 uniform float uEnergy;
-uniform float uSpine;
 uniform vec3 uHot;
 uniform vec3 uCool;
 varying vec2 vUv;
-varying float vRim;
 
 void main() {
   float s = vUv.y;
@@ -709,7 +706,6 @@ void main() {
   // Internal shocks, travelling out along the beam.
   float knot = 0.66 + 0.34 * sin(s * 30.0 - uTime * 14.0);
   float flick = 0.86 + 0.14 * sin(uTime * 41.0 + s * 7.0);
-  float limb = mix(pow(clamp(vRim, 0.0, 1.0), 1.5) * 2.1, 1.0, uSpine);
 
   /* The beam emerges from the throat rather than existing at it. The cone's
      first slice is both its whitest (see the colour mix below) and its
@@ -719,8 +715,8 @@ void main() {
      two agree about where the beam starts. */
   float emerge = smoothstep(0.0, 0.06, s);
 
-  float body = front * fall * knot * flick * limb * uEnergy * emerge;
-  body += shock * uEnergy * (0.5 + uSpine * 0.9);
+  float body = front * fall * knot * flick * uEnergy * emerge;
+  body += shock * uEnergy * 1.4;
 
   // Hot and white at the base, cooling out along its length.
   vec3 color = mix(uHot, uCool, smoothstep(0.02, 0.55, s));
@@ -976,19 +972,32 @@ void main() {
 
 /* ──────────────────────── generic glow sprite ────────────────────────
    Used for the neutron stars, the comet heads, Io's plumes, Enceladus's
-   geysers and the supernova knots. One material, per-instance colour and
-   size — cheaper than a texture and it never pixelates when a body is
-   metres from the camera. */
+   geysers, the supernova knots and the jet's smoke. One material,
+   per-instance colour and size — cheaper than a texture and it never
+   pixelates when a body is metres from the camera.
+
+   Two profiles, chosen per instance by aSoft, because the pool is asked for
+   two different things. At 0 it is a bead: a hot centre inside a small halo,
+   which is what a neutron star or a comet head is — a bright point with light
+   around it. At 1 it is a puff of cloud: no centre at all, and an edge that
+   falls to nothing across the whole sprite. That second profile is the only
+   way a few hundred of these add up to smoke. A bead has a visible middle and
+   a visible rim, so a crowd of them stays a crowd of them however many there
+   are; a profile that is flat on top and zero at the edge has neither, and
+   overlapping ones merge into one body with no seam to see. */
 export const GLOW_VERT = /* glsl */ `
 attribute float aSize;
 attribute vec3 aColor;
 attribute float aAlpha;
+attribute float aSoft;
 uniform float uPixelRatio;
 varying vec3 vColor;
 varying float vAlpha;
+varying float vSoft;
 void main() {
   vColor = aColor;
   vAlpha = aAlpha;
+  vSoft = aSoft;
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
   /* Scaled by distance so a plume keeps its physical size rather than its
@@ -1003,13 +1012,35 @@ void main() {
 export const GLOW_FRAG = /* glsl */ `
 varying vec3 vColor;
 varying float vAlpha;
+varying float vSoft;
 void main() {
   vec2 uv = gl_PointCoord - 0.5;
   float d = length(uv);
   if (d > 0.5) discard;
+
+  // The bead.
   float core = exp(-d * d * 30.0);
   float halo = exp(-d * 6.0) * 0.4;
-  gl_FragColor = vec4(vColor * (0.6 + core), (core + halo) * vAlpha);
+
+  /* The puff. Smoothstep rather than a power: it is flat at the centre and
+     flat again where it meets zero, so a sprite has no bright middle to give
+     itself away and no rim where it stops. The exp() falloffs above never
+     quite reach zero, and at this size that residue is a visible disc edge
+     exactly at the discard. */
+  float t = 1.0 - d * 2.0;
+  /* The 0.72 is what the puff peaks at against the bead's core+halo, which
+     peaks near 1.4. Some of that gap is the point — a puff should not be a
+     bead — but the first pass set it at 0.5, and between that and the lower
+     per-instance alpha the smoke came out nearly three times fainter than the
+     grains it replaced and simply was not visible against the sky. */
+  float puff = t * t * (3.0 - 2.0 * t) * 0.72;
+
+  /* Flat colour for the puff, too. The bead brightens toward its centre,
+     which is a hot body seen through its own glow; smoke has no such centre,
+     and lighting one makes each sprite legible again as a sprite. */
+  vec3 rgb = vColor * mix(0.6 + core, 0.95, vSoft);
+  float alpha = mix(core + halo, puff, vSoft) * vAlpha;
+  gl_FragColor = vec4(rgb, alpha);
 }
 `;
 
@@ -1167,6 +1198,34 @@ export const GRADE_SHADER = {
     uVignette: { value: 1.0 },
     uFlash: { value: 0 },
     uFlashTint: { value: [1.0, 0.98, 0.94] },
+    /** Fade to black. 0 is the image, 1 is nothing at all. Driven by the auto
+     * tour's ending, which falls into the hole and takes the picture with it.
+     * Separate from uFlash rather than a negative one of it: a flash is added
+     * light and this is the absence of it, and the two have to be able to
+     * happen at once — the last thing the fall does is blow out and then go
+     * dark. */
+    uFade: { value: 0 },
+    /** The fall into the hole, 0 to 1. Three things at once, because being
+     * swallowed is not one effect: the picture is wound round the middle, the
+     * frame closes to a point, and what is left of the colour goes cold. All
+     * of it keyed to the centre, which during the fall is where the hole is —
+     * the camera is looking straight down it. Separate from uFade, which is
+     * the flat blackout that follows: this is the going, that is the gone. */
+    uCollapse: { value: 0 },
+    /** Lost signal, 0 to 1. What the far side of the fall looks like on the
+     * way to the plate: a dead channel, coming up out of the black. */
+    uStatic: { value: 0 },
+    /** The plate held on the far side of the fall: one still image, shown for
+     * five seconds between the static and the return. */
+    tPlate: { value: null as unknown },
+    /** How much of it is on screen, 0 to 1. */
+    uPlate: { value: 0 },
+    /** Seconds since the stone hit the water. Drives the rings; see the plate
+     * block in the fragment shader. */
+    uRipple: { value: 0 },
+    /** The plate's aspect, so it can be covered into the frame rather than
+     * stretched to it. */
+    uPlateAspect: { value: 1 },
     uResolution: { value: [1, 1] },
     /** Rises during a camera fly-to: a touch of radial blur in the direction
      * of travel, which is what makes a dolly read as speed. A dive drives it
@@ -1193,6 +1252,13 @@ export const GRADE_SHADER = {
     uniform float uVignette;
     uniform float uFlash;
     uniform vec3 uFlashTint;
+    uniform float uFade;
+    uniform float uCollapse;
+    uniform float uStatic;
+    uniform sampler2D tPlate;
+    uniform float uPlate;
+    uniform float uRipple;
+    uniform float uPlateAspect;
     uniform float uWarp;
     uniform vec2 uCenter;
     uniform vec2 uResolution;
@@ -1204,7 +1270,33 @@ export const GRADE_SHADER = {
 
     void main() {
       vec2 uv = vUv;
-      vec2 fromCenter = uv - 0.5;
+      // Screen-space, and deliberately not the swirled coordinate below: the
+      // aberration and the vignette are properties of the lens, and the lens
+      // is not the thing falling in.
+      vec2 fromCenter = vUv - 0.5;
+      float aspect = uResolution.x / max(uResolution.y, 1.0);
+
+      /* The swirl. The image is rotated about the middle by an angle that
+         grows towards it — the far corners barely move and everything near
+         the centre is wound round several times, which is what makes it read
+         as being drawn *in* rather than merely spun. The +0.16 is what stops
+         the very middle going to infinity and tearing.
+
+         It is applied to the sampling coordinate only, and before everything
+         else, so the whole rendered frame is what gets wound — bloom, stars,
+         the disc and all. Doing it to the disc alone would be a spinning disc
+         in a still frame. */
+      if (uCollapse > 0.001) {
+        vec2 p = fromCenter * vec2(aspect, 1.0);
+        float d = length(p);
+        float a = uCollapse * 1.4 / (d + 0.16);
+        float c = cos(a), s = sin(a);
+        vec2 q = vec2(p.x * c - p.y * s, p.x * s + p.y * c);
+        // Pulled inward as well as round, so it is a drain and not a turntable.
+        q *= 1.0 - uCollapse * 0.3;
+        uv = vec2(q.x / aspect, q.y) + 0.5;
+      }
+
       float r2 = dot(fromCenter, fromCenter);
 
       /* Lateral chromatic aberration: zero in the middle, growing with r².
@@ -1241,6 +1333,25 @@ export const GRADE_SHADER = {
       // Everything below is deliberately in linear HDR for the same reason:
       // vignetting is a lens falloff and belongs before the film curve.
 
+      /* The aperture, closing. Everything outside a shrinking circle centred
+         on the hole goes to nothing, so the picture is not dimmed evenly but
+         eaten from the edges inward — the last thing on screen is the thing
+         being fallen into, alone in the middle of the dark.
+
+         And the colour goes before the light does. What survives is pushed
+         toward a cold blue-white, which is both the cheap version of the real
+         effect and the honest one: everything arriving from behind is redder
+         and everything ahead is bluer, and past a point there is no longer
+         enough of anything left to be a colour. */
+      if (uCollapse > 0.001) {
+        vec2 p = fromCenter * vec2(aspect, 1.0);
+        float d = length(p) / 0.72;
+        float aperture = mix(2.1, 0.02, uCollapse * uCollapse);
+        color *= 1.0 - smoothstep(aperture * 0.34, aperture, d);
+        float grey = dot(color, vec3(0.299, 0.587, 0.114));
+        color = mix(color, vec3(grey) * vec3(0.42, 0.6, 1.2), uCollapse * 0.82);
+      }
+
       // Vignette, elliptical rather than round so wide viewports don't get a
       // dark bar down each side.
       vec2 v = fromCenter * vec2(1.0, 1.12);
@@ -1252,6 +1363,101 @@ export const GRADE_SHADER = {
       // Grain last, so it sits on the image rather than being graded by it.
       float g = hash(uv * uResolution + fract(uTime) * 137.0) - 0.5;
       color += g * uGrain;
+
+      /* The fade, after everything including the grain — a fade that leaves
+         the grain behind ends on a screen of static rather than on black, and
+         the whole point of this one is that there is nothing left. */
+      color *= 1.0 - uFade;
+
+      /* Snow. An analogue set tuned to a channel that is not broadcasting —
+         which is what the far side of the hole gets, because the alternative
+         is a black screen, and a black screen is indistinguishable from the
+         page having stopped.
+         Four things, because plain white noise reads as a computer's idea of
+         noise rather than as a television's:
+           - two grains at two scales, the coarse one on a slower clock, since
+             a real set's snow has structure in it as well as sparkle;
+           - horizontal tear bands on their own fast clock, which is the part
+             that actually says "no signal" — the noise on a CRT arrives a
+             line at a time, so it correlates along rows and not down columns;
+           - scanlines, at the screen's own pixel pitch;
+           - and one soft bar rolling up the frame, the vertical hold giving
+             way. Nothing on the set is doing that; it is the set failing to
+             find something that is not there. */
+      if (uStatic > 0.001) {
+        vec2 px = vUv * uResolution;
+        float fine = hash(px + fract(uTime * 1.7) * 917.0);
+        float coarse = hash(floor(px / 3.0) + fract(uTime * 0.6) * 331.0);
+        float snow = mix(fine, coarse, 0.35);
+
+        float line = hash(vec2(floor(px.y), floor(uTime * 26.0) * 1.7));
+        snow = mix(snow, line, 0.28);
+
+        // Contrast climbs with the signal loss: it starts as a grey haze and
+        // ends as hard black-and-white grain.
+        snow = clamp(0.5 + (snow - 0.5) * (0.9 + uStatic * 1.7), 0.0, 1.0);
+        /* Scanlines on a period of about seven device pixels rather than one.
+           At one they land at the pixel pitch, which on a 2× display is half a
+           CSS pixel and comes back as moiré instead of as lines. */
+        snow *= 0.78 + 0.22 * sin(px.y * 0.9);
+
+        float roll = smoothstep(0.09, 0.0, abs(fract(vUv.y + uTime * 0.31) - 0.5));
+        // Lifted for the same reason the plate is: this pass goes through the
+        // renderer's film curve, and grey that is not lifted arrives as dark
+        // grey. Snow on a dead channel is bright.
+        vec3 signal = vec3(snow * 1.75 + roll * 0.22);
+        color = mix(color, signal, uStatic);
+      }
+
+      /* And the plate, over the top of all of it, because it is not part of
+         the scene — it is what is on the other side of the fall.
+         The rings are a stone dropped in the middle of it. A ripple is a
+         displacement, not a brightness: the surface is disturbed and what you
+         see is the image *through* the disturbed surface, so the sample point
+         is pushed along the radius by a travelling sine and the picture warps
+         with it rather than having rings painted on it.
+           - sin(d * 44 - uRipple * 7) is the wave train, moving outward.
+           - It is windowed by exp(-x*x) around a front that expands at a
+             fixed speed, so there is a ring of active water with calm inside
+             and ahead of it, instead of the whole surface shaking at once.
+           - The amplitude decays with time and with radius, because a real
+             one loses to both. */
+      if (uPlate > 0.001) {
+        vec2 p = fromCenter * vec2(aspect, 1.0);
+        float d = length(p);
+        float front = uRipple * 0.34;
+        float band = (d - front) * 3.4;
+        float envelope = exp(-band * band) * exp(-uRipple * 0.62) / (1.0 + d * 2.6);
+        float wave = sin(d * 44.0 - uRipple * 7.0);
+        vec2 dir = d > 0.0001 ? p / d : vec2(0.0);
+        vec2 pushed = p + dir * wave * envelope * 0.055;
+
+        /* Cover, not stretch: the wider of the two axes is cropped so the
+           image keeps its proportions at any viewport shape. */
+        vec2 plateUv = pushed;
+        if (aspect > uPlateAspect) plateUv.y *= aspect / uPlateAspect;
+        else plateUv.x *= uPlateAspect / aspect;
+        plateUv = vec2(plateUv.x / aspect, plateUv.y) + 0.5;
+
+        /* Lifted hard, and the reason is two lines up the file: this is the
+           pass that renders to the screen, so it is the one three applies ACES
+           tone mapping to. Everything else here is scene light that was
+           authored expecting that curve. The plate is not — it is a finished
+           photograph, already graded, and putting a finished image through a
+           film curve is how it arrives on screen looking like it was shot
+           through a stop of neutral density. The gain is roughly what ACES
+           takes back out of the midtones; the gamma below it opens the
+           shadows, which on an image that is mostly black is most of it. */
+        vec3 plate = pow(texture2D(tPlate, plateUv).rgb, vec3(0.82)) * 2.7;
+        /* A lift on the crest and a dip in the trough — the specular of water,
+           which is what stops the displacement alone reading as a wobble. Held
+           low: this pass renders straight to the screen through the renderer's
+           tone curve, so a coefficient big enough to be obvious on paper
+           arrives as a white ring with no detail in it. */
+        plate *= 1.0 + wave * envelope * 0.38;
+        gl_FragColor = vec4(mix(color, plate, uPlate), 1.0);
+        return;
+      }
 
       gl_FragColor = vec4(color, 1.0);
     }

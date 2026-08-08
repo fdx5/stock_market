@@ -525,11 +525,27 @@ export const DESTINATIONS: Destination[] = [
  * have to go looking for — the sun is already at the centre of the resting
  * view, dead ahead, and flying to it means flying to where the camera was
  * pointing all along. Everything here is somewhere you cannot see properly
- * from the front door. */
+ * from the front door.
+ *
+ * The hole goes last, after the neutron pair. It is the only stop that does
+ * not simply end when its ten seconds are up — the tour falls into it, and the
+ * screen goes with it (see HubScene.updateFinale). That has to be the finish;
+ * put it in the middle and the tour comes back from a blackout to carry on
+ * looking at a planet, which is an ending followed by more. */
 export const TOUR_ORDER: string[] = [
-  ...PLANETS.map((p) => p.key),
-  BLACK_HOLE.key,
+  /* Named rather than taken from PLANETS, because it is no longer all of them:
+     the tour opens at Earth. Mercury and Venus are close in and small, and two
+     stops on grey rock before the tour has said anything is where a visitor
+     decides it is a screensaver. Starting at the one body everybody can place
+     buys the other six their attention. */
+  "earth",
+  "mars",
+  "jupiter",
+  "saturn",
+  "uranus",
+  "neptune",
   NEUTRON_BINARY.key,
+  BLACK_HOLE.key,
 ];
 
 /** Pluto: not a destination. It drifts in from the black hole's left, is torn

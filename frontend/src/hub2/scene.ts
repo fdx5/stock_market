@@ -169,6 +169,18 @@ export interface SceneCallbacks {
   /** The moment the first frame is on screen — the shell fades its overlay. */
   onReady(): void;
   onTier(tier: Tier): void;
+  /** The probe's grand tour started or stopped from inside the scene: by a tap
+   * on the craft itself, or by the tour reaching Neptune and ending. Without
+   * it the HUD button would go on claiming the tour is running after it has
+   * finished, since the shell has no other way to hear about either. */
+  onVoyagerTour(on: boolean): void;
+  /** The scene has taken the whole frame — it is blacked out, or holding the
+   * plate at the end of the tour. The shell answers by getting its HUD out of
+   * the way: every caption, button and readout on this page is DOM sitting on
+   * top of the canvas, so none of them go dark when the render does, and a
+   * photograph held for five seconds behind a grid of floating labels is not
+   * held at all. */
+  onCurtain(on: boolean): void;
 }
 
 export type FeedMap = Record<FeedKey, number | null>;
@@ -232,6 +244,11 @@ class GlowPool {
   readonly size: Float32Array;
   readonly color: Float32Array;
   readonly alpha: Float32Array;
+  /** Which of the two sprite profiles each slot draws: 0 a bead with a hot
+   * centre, 1 a soft edgeless puff. See GLOW_FRAG. Written once by whoever
+   * wants the puff and never touched again — it is a property of the effect,
+   * not of the frame, so `set` leaves it alone unless it is asked to. */
+  readonly soft: Float32Array;
   private geometry: THREE.BufferGeometry;
   private material: THREE.ShaderMaterial;
   private cursor = 0;
@@ -241,12 +258,14 @@ class GlowPool {
     this.size = new Float32Array(capacity);
     this.color = new Float32Array(capacity * 3);
     this.alpha = new Float32Array(capacity);
+    this.soft = new Float32Array(capacity);
 
     this.geometry = new THREE.BufferGeometry();
     this.geometry.setAttribute("position", new THREE.BufferAttribute(this.position, 3));
     this.geometry.setAttribute("aSize", new THREE.BufferAttribute(this.size, 1));
     this.geometry.setAttribute("aColor", new THREE.BufferAttribute(this.color, 3));
     this.geometry.setAttribute("aAlpha", new THREE.BufferAttribute(this.alpha, 1));
+    this.geometry.setAttribute("aSoft", new THREE.BufferAttribute(this.soft, 1));
     // The pool is scattered all over the scene and its contents move every
     // frame; a bounding sphere computed once would cull half of it at random.
     this.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
@@ -273,6 +292,12 @@ class GlowPool {
     return start;
   }
 
+  /** Switches a whole allocated range to the soft profile. Called at build
+   * time; the attribute is uploaded on the first flush like everything else. */
+  setSoft(start: number, count: number, value: number) {
+    this.soft.fill(value, start, start + count);
+  }
+
   set(i: number, x: number, y: number, z: number, size: number, r: number, g: number, b: number, a: number) {
     this.position[i * 3] = x;
     this.position[i * 3 + 1] = y;
@@ -297,6 +322,7 @@ class GlowPool {
     (this.geometry.attributes.aSize as THREE.BufferAttribute).needsUpdate = true;
     (this.geometry.attributes.aColor as THREE.BufferAttribute).needsUpdate = true;
     (this.geometry.attributes.aAlpha as THREE.BufferAttribute).needsUpdate = true;
+    (this.geometry.attributes.aSoft as THREE.BufferAttribute).needsUpdate = true;
   }
 
   dispose() {
@@ -343,6 +369,15 @@ interface Pickable {
   /** What the label and the fly-to actually aim at — the body itself, which
    * for a moon is not the same object as its hit sphere's parent. */
   anchor: THREE.Object3D;
+}
+
+/** Where the auto tour parks for one stop, in the body's own outward frame.
+ * `azimuth` turns the camera round the body within the ecliptic, `elevation`
+ * lifts it out of that plane, and `zoom` scales the framing distance. */
+interface TourView {
+  azimuth: number;
+  elevation: number;
+  zoom: number;
 }
 
 interface LabelRig {
@@ -479,11 +514,13 @@ export class HubScene {
   private jetGroup!: THREE.Object3D;
   private jetMaterials: THREE.ShaderMaterial[] = [];
   /** Every cone in the jet, with the fraction of the beam's width it carries.
-   * Four of them: a sheath and a bright spine, in each of two directions. */
+   * Two of them now: the one strand of light, in each of two directions. */
   private jetCones: { mesh: THREE.Mesh; width: number }[] = [];
-  /** Six floats per grain of gas in the beam: where along it the grain starts,
-   * which arm of the helix it belongs to, how far off the axis it rides, how
-   * fast it climbs, a size roll, and which pole it left by. */
+  /** Nine floats per grain of smoke in the beam: where along it the grain
+   * starts, which rope of the braid it belongs to, where it sits around that
+   * rope's own axis and how far out from it, a little slack along the rope,
+   * how fast it climbs, a size roll, which pole it left by, and the phase of
+   * the clot it travels with. */
   private jetParticles: Float32Array = new Float32Array(0);
   private jetParticleStart = 0;
   private jetParticleCount = 0;
@@ -533,6 +570,65 @@ export class HubScene {
 
   /* the probe */
   private voyager!: THREE.Object3D;
+  /** Everything the craft is painted with, so the whole rig can be faded out
+   * together as it leaves the system. */
+  private voyagerMaterials: THREE.Material[] = [];
+  /** Earth's orbit, and the outermost planet's — read off the specs at build
+   * time so the probe's route follows the system if the system is retuned. */
+  private voyagerLaunchRadius = 50;
+  private voyagerEdge = 206;
+  /** The grand tour: on, the probe flies the planets in order and the camera
+   * rides with it. Off, it coasts out on its own in the background. */
+  private voyagerTour = false;
+  /** How far along the route the probe has travelled, in world units. The
+   * grand tour is paced by speed rather than by a fraction of a fixed
+   * duration — see the speed law in flyGrandTour. */
+  private voyagerTourT = 0;
+  /** The route, rebuilt every frame from where the planets actually are, and
+   * the spline through it. Catmull-Rom rather than straight legs: a probe that
+   * turned a corner at each planet would be a probe under power, and the whole
+   * point of a swing-by is that the planet does the turning. */
+  private voyagerRoute: THREE.Vector3[] = [];
+  private voyagerCurve: THREE.CatmullRomCurve3 | null = null;
+  /** Where the route's planets actually are, and how far out each one reaches
+   * (its rings included). The route points are offset to stand clear of them,
+   * so they are no longer the planets' own positions — and framing a fly-by
+   * needs the planet, not the point the probe passes through. */
+  private voyagerCenters: THREE.Vector3[] = [];
+  private voyagerReach: number[] = [];
+  /** One extra control point per leg, placed to bow the route around the sun
+   * instead of through it. See flyGrandTour. */
+  private voyagerGuards: THREE.Vector3[] = [];
+  /** The stop the probe is currently circling, or -1. See flyGrandTour. */
+  private voyagerLoiter = -1;
+  /** How far round that circle it has got, in radians. */
+  private voyagerLoiterAngle = 0;
+  /** Which stops it has already circled this run, so a body is not orbited
+   * again on the way past it a second time. */
+  private voyagerLoitered: boolean[] = [];
+  /** The frame the circle is drawn in: where it started, and the two axes of
+   * its plane. Captured on entry so the last turn ends exactly where the first
+   * began and the probe can rejoin the path without a step. */
+  private loiterCenter = new THREE.Vector3();
+  private loiterAxisA = new THREE.Vector3();
+  private loiterAxisB = new THREE.Vector3();
+  private loiterRadius = 0;
+  /** How far in this particular orbit is allowed to dip — the configured
+   * fraction, or less if that would take the craft inside the body's rings. */
+  private loiterDip = 0;
+  /** Turns this particular orbit makes. */
+  private loiterTurns = 2;
+  /** Where the circle's centre sits relative to the planet, so it can be
+   * carried along as the planet moves without the circle drifting. */
+  private loiterOffset = new THREE.Vector3();
+  /** Last frame's position, which is the only way to know which way it is
+   * pointing — the path is a spline through moving points and has no closed
+   * form to differentiate. */
+  private voyagerPrev = new THREE.Vector3();
+  private voyagerChase = new THREE.Vector3();
+  /** The direction of travel, smoothed. One frame's movement is too short and
+   * too noisy to point a camera with on its own. */
+  private voyagerHeading = new THREE.Vector3(0, 0, 1);
 
   /* comets */
   private cometStart = 0;
@@ -582,6 +678,38 @@ export class HubScene {
   private tourIndex = 0;
   private tourEnabled = false;
   private tourTimer = 0;
+  /** Where round the last stop the tour parked. Advanced by the golden angle
+   * each time, so consecutive stops are always most of a turn apart and the
+   * sequence never settles into a pattern. See tourView(). */
+  private tourAzimuth = 0;
+  /** Seconds into the tour's ending, or -1 when it is not running. The ending
+   * is the fall into the hole; see updateFinale. */
+  private finaleT = -1;
+  /** How black the screen is, 0 to 1. Driven by the finale and by nothing
+   * else. */
+  private fade = 0;
+  /** How far into the hole the *picture* is, 0 to 1 — the swirl, the closing
+   * aperture and the cold shift. See uCollapse in GRADE_SHADER. */
+  private collapse = 0;
+  /** How much of the plate is on screen, and how long since the stone hit it. */
+  private plate = 0;
+  private ripple = 0;
+  /** How badly the signal has gone, 0 to 1 — the snow between the fall and the
+   * plate. See uStatic in GRADE_SHADER. */
+  private tvStatic = 0;
+  /** Whether the shell has been told to stand its HUD down. Edge-triggered —
+   * the callback crosses into React, and firing it every frame for four
+   * seconds would be four seconds of re-renders. */
+  private curtain = false;
+  /** The angle the fall has wound up to. Integrated rather than computed from
+   * the phase, because the rate is what accelerates and a rate that changes
+   * cannot be integrated by multiplying it by elapsed time. */
+  private finaleAngle = 0;
+  private finaleFrom = new THREE.Vector3();
+  /** The tour's own noise, seeded, so the angles are varied but a given run of
+   * the tour is the same every time — a camera that is different on every page
+   * load is not reproducible when one of its shots turns out to be a bad one. */
+  private tourRand = mulberry32(90210);
 
   private hovered: BodyInfo | null = null;
   /** The body the camera is currently centred on, if any. Two things hang off
@@ -718,6 +846,26 @@ export class HubScene {
 
     this.composer = this.buildComposer(width, height);
     this.gradePass = this.composer.passes[this.composer.passes.length - 1] as ShaderPass;
+
+    /* The plate the tour's ending lands on. Loaded here rather than lazily at
+       the moment it is wanted: it is shown two frames after a blackout, and a
+       texture that is still being fetched then would show as the flat black it
+       was initialised with — which on that cut is indistinguishable from the
+       effect having failed. It is one small JPEG against a page that already
+       ships a nebula.
+
+       The aspect goes in on load, so the shader can cover the frame with it
+       instead of stretching it. Until then it is 1, and the plate is not on
+       screen at 1 anyway. */
+    const plate = new THREE.TextureLoader().load("/img/blackhole.jpg", (tex) => {
+      const image = tex.image as { width: number; height: number } | undefined;
+      if (image && image.height) {
+        this.gradePass.uniforms.uPlateAspect.value = image.width / image.height;
+      }
+    });
+    plate.colorSpace = THREE.SRGBColorSpace;
+    this.gradePass.uniforms.tPlate.value = plate;
+    this.disposables.push(plate);
 
     this.bindEvents();
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -1461,16 +1609,21 @@ export class HubScene {
    * to the disc no matter how the hole is turned: local +Y is the disc's own
    * normal, because the disc geometry is a ring rotated onto the XZ plane.
    *
-   * Each beam is two nested cones. The sheath is wide and hollow and gets its
-   * brightness from the limb term in the shader, which is what gives a beam
-   * edges; the spine is a thin bright core down the middle of it. Four meshes,
-   * two materials, one geometry — the cone is built one unit long so the
-   * frame can scale it to whatever length the event calls for. */
+   * Each beam is a single strand of light. There used to be a second, much
+   * wider cone around it — a hollow sheath, lit at its silhouette, which is the
+   * standard way to make a tube of gas read as a beam. It has been taken out:
+   * two nested cones is a beam drawn as *geometry*, and at this length it read
+   * as a lit funnel with some sparks in it. What the light does now is one
+   * thin filament, and everything wide around it is smoke, made of grains that
+   * actually travel (see below). Two meshes, one material, one geometry — the
+   * cone is built one unit long so the frame can scale it to whatever length
+   * the event calls for. */
   private buildJets() {
-    // Open-ended: the cone is a wall of gas, and a cap across the head would
-    // read as a lid on it. Narrow at the horizon, opening slightly on the way
-    // out — jets are collimated, but not perfectly.
-    const geo = new THREE.CylinderGeometry(1, 0.14, 1, 30, 1, true);
+    /* Open-ended: a cap across the head would read as a lid on it. Narrow at
+       the horizon and barely opening on the way out — a collimated filament,
+       not a funnel. The opening the eye wants from a jet is now carried by the
+       smoke ropes winding around this, so the light itself can stay a thread. */
+    const geo = new THREE.CylinderGeometry(0.55, 0.1, 1, 24, 1, true);
     geo.translate(0, 0.5, 0); // base at the origin, head at +1
     this.disposables.push(geo);
 
@@ -1478,81 +1631,122 @@ export class HubScene {
     this.jetGroup.visible = false;
     this.holeGroup.add(this.jetGroup);
 
-    for (const spine of [0, 1]) {
-      const material = new THREE.ShaderMaterial({
-        vertexShader: JET_VERT,
-        fragmentShader: JET_FRAG,
-        uniforms: {
-          uTime: { value: 0 },
-          uHead: { value: 0 },
-          uEnergy: { value: 0 },
-          uSpine: { value: spine },
-          uHot: { value: new THREE.Color(1.0, 0.98, 0.94) },
-          uCool: { value: new THREE.Color(0.36, 0.6, 1.0) },
-        },
-        transparent: true,
-        depthWrite: false,
-        // Depth *tested*, though: the horizon is opaque and writes depth, so
-        // the beam going away from the camera is correctly cut off behind it.
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-      });
-      this.jetMaterials.push(material);
-      this.disposables.push(material);
+    const material = new THREE.ShaderMaterial({
+      vertexShader: JET_VERT,
+      fragmentShader: JET_FRAG,
+      uniforms: {
+        uTime: { value: 0 },
+        uHead: { value: 0 },
+        uEnergy: { value: 0 },
+        uHot: { value: new THREE.Color(1.0, 0.98, 0.94) },
+        uCool: { value: new THREE.Color(0.36, 0.6, 1.0) },
+      },
+      transparent: true,
+      depthWrite: false,
+      // Depth *tested*, though: the horizon is opaque and writes depth, so
+      // the beam going away from the camera is correctly cut off behind it.
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    this.jetMaterials.push(material);
+    this.disposables.push(material);
 
-      for (const sign of [1, -1]) {
-        const mesh = new THREE.Mesh(geo, material);
-        // The second beam is the first one turned over — same geometry, so the
-        // head is at the far end of it either way.
-        if (sign < 0) mesh.rotation.x = Math.PI;
-        mesh.renderOrder = 5;
-        mesh.frustumCulled = false;
-        this.jetGroup.add(mesh);
-        this.jetCones.push({ mesh, width: spine ? 0.28 : 1 });
-      }
+    for (const sign of [1, -1]) {
+      const mesh = new THREE.Mesh(geo, material);
+      // The second beam is the first one turned over — same geometry, so the
+      // head is at the far end of it either way.
+      if (sign < 0) mesh.rotation.x = Math.PI;
+      mesh.renderOrder = 5;
+      mesh.frustumCulled = false;
+      this.jetGroup.add(mesh);
+      this.jetCones.push({ mesh, width: 0.3 });
     }
 
-    /* The gas the beam is actually made of. The cones alone are a shape: they
-       have a length and a colour and they flicker, but nothing in them is
+    /* The smoke the beam is wrapped in. The strand of light alone is a shape:
+       it has a length and a colour and it flickers, but nothing in it is
        visibly *moving material*, and at seven seconds there is far too long to
-       look at that. These are the grains, and they climb the beam on a helix.
+       look at that. These are the grains, and they do not fill the beam evenly
+       — they are gathered into a few ropes that twist around the light on their
+       way out.
 
-       Three arms rather than a uniform ring. A cylinder of randomly placed
-       particles reads as noise no matter how it turns — the eye needs
-       structure to see rotation at all, and a small number of banded arms is
-       the least structure that gives it one.
+       A rope, not an arm. The old arrangement scattered every grain across the
+       full width of the beam, banded only by which of three spiral arms it
+       belonged to, and the result was a sheath: a lit tube with structure in
+       it. Giving each grain a place *around its own rope's axis* as well as a
+       place around the beam's is what makes the bands close up into cords with
+       a near and a far side, and cords are what can be seen to braid. Three of
+       them per pole, because three is the smallest number that reads as a
+       plait rather than as a pair crossing, and because the fewer the ropes the
+       more grains each one gets to be solid with.
+
+       And the cords are drawn tight. A rope a quarter as thick holds its grains
+       in a sixteenth of the cross-section, so the same smoke that read as a
+       spiralling spray now reads as one twisted bar of it — which is the point:
+       these are meant to leave in a solid mass, wound around the light the way
+       the strands of a screw thread are wound around its shaft, not to drift
+       out beside it. The count goes up with the tightening, because a cord this
+       narrow shows every gap in itself.
+
+       And they are drawn as cloud, not as grains. The pool's default sprite is
+       a bead — a hot point inside a small halo — which is right for a comet
+       head and wrong for this: no number of beads is smoke, because each one
+       keeps a centre and a rim for the eye to find. These slots ask for the
+       soft profile instead (see GLOW_FRAG), and they are made several times
+       the width of the cord that carries them, so what is actually seen is not
+       the sprites but the single thick body of smoke they overlap into. The
+       cord's own radius stops being the visible thickness at that point and
+       becomes what it should be: the line the smoke is threaded on.
 
        And the gas leaves in puffs, not as an even stream. Spreading the launch
-       phases uniformly gives a sheath of constant density, which the eye reads
-       as a lit tube — a shape, not material. Quantising them into a handful of
-       clots, each with its own climb rate so it holds together on the way out,
-       is what turns the beam into something that is visibly being *thrown*:
-       discrete masses of smoke, wound into spiral bands by the same rotation,
-       climbing one after another. That is where the hurricane in this comes
-       from. The jitter is small on purpose — widen it much past a twentieth of
-       the beam and the clots overlap back into the sheath they replaced. */
-    this.jetParticleCount = this.tier === "low" ? 240 : this.tier === "high" ? 520 : 820;
+       phases uniformly gives smoke of constant density, which the eye reads as
+       a lit tube again — a shape, not material. Quantising them into a handful
+       of clots, each with its own climb rate so it holds together on the way
+       out, is what turns the beam into something that is visibly being
+       *thrown*: discrete masses of smoke, wound around the light by the same
+       rotation, climbing one after another. */
+    /* Held back from what the look alone would want. These are big soft
+       additive sprites several deep, so the cost of them is fill rate and
+       nothing else, and fill rate is the one budget this scene has already
+       spent on the bloom. The counts below are roughly three times the fill
+       the beam used before the smoke was gathered into cords — enough for the
+       ropes to be continuous, and short of where a seven-second effect starts
+       costing the forty other seconds of the cycle their frame rate. */
+    this.jetParticleCount = this.tier === "low" ? 480 : this.tier === "high" ? 950 : 1500;
     this.jetParticleStart = this.glow.allocate(this.jetParticleCount);
-    this.jetParticles = new Float32Array(this.jetParticleCount * 7);
+    this.glow.setSoft(this.jetParticleStart, this.jetParticleCount, 1);
+    this.jetParticles = new Float32Array(this.jetParticleCount * 9);
     const rand = mulberry32(51877);
-    const arms = 3;
+    const ropes = 3;
     const puffs = 7;
     // One rate per clot rather than per grain, so a clot arrives as a clot.
     const puffRate: number[] = [];
     for (let k = 0; k < puffs; k++) puffRate.push(0.84 + rand() * 0.3);
     for (let i = 0; i < this.jetParticleCount; i++) {
-      const p = i * 7;
+      const p = i * 9;
       const puff = i % puffs;
+      /* Which rope, and which pole. The rope index is taken off i/2 rather
+         than off i, because the pole alternates on i: index both on the same
+         counter and every even-numbered rope leaves by the north pole and every
+         odd one by the south, which halves the braid at both ends. */
+      const rope = Math.floor(i / 2) % ropes;
       // Where along the beam it starts — banded, not scattered.
       this.jetParticles[p] = (puff / puffs + (rand() - 0.5) * 0.055 + 1) % 1;
-      // Tighter around the arm than before: crisp bands, not a smeared ring.
-      this.jetParticles[p + 1] = ((i % arms) / arms) * Math.PI * 2 + (rand() - 0.5) * 0.4;
-      // How far off the axis. Biased outward, so each clot has a wall.
-      this.jetParticles[p + 2] = 0.42 + Math.pow(rand(), 0.7) * 1.06;
-      this.jetParticles[p + 3] = puffRate[puff]; // how fast it climbs
-      this.jetParticles[p + 4] = rand(); // size and brightness roll
-      this.jetParticles[p + 5] = i % 2 === 0 ? 1 : -1; // which pole it left by
-      this.jetParticles[p + 6] = puff / puffs; // the clot's own phase
+      // Which rope of the braid, with only enough jitter to soften its edge.
+      this.jetParticles[p + 1] = (rope / ropes) * Math.PI * 2 + (rand() - 0.5) * 0.14;
+      // Where it sits around that rope's own axis, and how far out from it.
+      this.jetParticles[p + 2] = rand() * Math.PI * 2;
+      /* Crowded onto the centre-line. An exponent of a half would spread the
+         grains at even density across the cord's disc; above that they pile up
+         along its axis and thin towards its edge, which is a cord with a solid
+         middle rather than a hollow tube of one — the difference between smoke
+         being thrown out in a mass and smoke being blown through a pipe. */
+      this.jetParticles[p + 3] = Math.pow(rand(), 0.95);
+      // A little slack along the rope, so it has a body and not a cross-section.
+      this.jetParticles[p + 4] = rand() - 0.5;
+      this.jetParticles[p + 5] = puffRate[puff]; // how fast it climbs
+      this.jetParticles[p + 6] = rand(); // size and brightness roll
+      this.jetParticles[p + 7] = i % 2 === 0 ? 1 : -1; // which pole it left by
+      this.jetParticles[p + 8] = puff / puffs; // the clot's own phase
     }
   }
 
@@ -1732,53 +1926,206 @@ export class HubScene {
     this.addLabel(info, this.neutronGroup);
   }
 
+  /** The probe, built part by part rather than suggested.
+   *
+   * The old rig was four primitives — a dish, a drum, a stick and a canister —
+   * which is enough to say "spacecraft" at the distance it used to keep and
+   * nothing at all once it comes anywhere near the camera. Voyager is a very
+   * recognisable object, and all of what makes it recognisable is the bits
+   * sticking out of it: the subreflector held at the dish's focus on three
+   * struts, the three RTGs strung along one boom, the scan platform on the
+   * other, and the two enormous whip antennas at a shallow V. Those are what
+   * turn a bowl on a stick into a craft with a front, a back and a purpose,
+   * and none of them cost anything worth counting — this is one object, at a
+   * few hundred triangles, in a scene that draws a nebula.
+   *
+   * Local +Y is the dish's boresight. updateVoyager turns the whole rig so
+   * that axis points home, which is where the real one's dish points. */
   private buildVoyager() {
     this.voyager = new THREE.Object3D();
-    // Deliberately dim. With decay 0 the sun lights this as hard at 800 units
-    // out as it does the asteroid belt at 80, and a bright metal probe out in
-    // the dark reads as a bug rather than as a spacecraft.
-    const metal = new THREE.MeshStandardMaterial({ color: 0x6c7280, metalness: 0.7, roughness: 0.5 });
-    const gold = new THREE.MeshStandardMaterial({ color: 0x8a6a30, metalness: 0.9, roughness: 0.35 });
-    this.disposables.push(metal, gold);
+    /* Bright, and lit from inside as well as out.
+     *
+     * These were deliberately dim, on the reasoning that a hard-lit metal
+     * probe out in the dark reads as a bug rather than as a spacecraft. That
+     * was written when the craft lived out past Neptune as a speck; now it is
+     * the subject of its own tour with the camera sixteen units behind it, and
+     * dim grey on black is simply unreadable — you cannot see the shape of a
+     * thing you built the shape for.
+     *
+     * The emissive is the more important half of it. The sun is a single point
+     * light with decay 0, so every surface facing away from it goes to pure
+     * black, and on a craft that is mostly booms and struts that is most of
+     * the craft from most angles. A low emissive floor means the unlit side is
+     * dark rather than absent, which is what keeps the silhouette whole while
+     * the probe turns.
+     *
+     * All of them transparent, because the craft fades out rather than
+     * vanishing when it leaves the system — see updateVoyager. A material that
+     * is only ever at opacity 1 pays nothing for the flag but the sort order,
+     * and this is one small object. */
+    const metal = new THREE.MeshStandardMaterial({
+      color: 0xc2ccdc,
+      metalness: 0.55,
+      roughness: 0.42,
+      emissive: 0x2c3444,
+      transparent: true,
+    });
+    const gold = new THREE.MeshStandardMaterial({
+      color: 0xe8b85c,
+      metalness: 0.8,
+      roughness: 0.3,
+      emissive: 0x4a3512,
+      transparent: true,
+    });
+    // The instrument housings: the darkest thing on the craft, but no longer
+    // black — they are what the RTGs and the scan platform read as, and a
+    // black cylinder between two bright ones is a gap in the boom.
+    const dark = new THREE.MeshStandardMaterial({
+      color: 0x76808f,
+      metalness: 0.4,
+      roughness: 0.7,
+      emissive: 0x1c2029,
+      transparent: true,
+    });
+    // The dish is a white thermal surface on the real craft, not bare metal.
+    const white = new THREE.MeshStandardMaterial({
+      color: 0xf2f5fa,
+      metalness: 0.15,
+      roughness: 0.55,
+      emissive: 0x3a4354,
+      side: THREE.DoubleSide, // it is a bowl; from behind a single-sided one is a hole
+      transparent: true,
+    });
+    this.voyagerMaterials = [metal, gold, dark, white];
+    this.disposables.push(metal, gold, dark, white);
 
-    // The high-gain antenna, which is most of what the real craft looks like.
-    // Double-sided: it is a dish, and from behind a single-sided one is a hole.
-    const dishGeo = new THREE.SphereGeometry(1.5, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.42);
-    const dishMat = metal.clone();
-    dishMat.side = THREE.DoubleSide;
-    this.disposables.push(dishMat);
-    const dish = new THREE.Mesh(dishGeo, dishMat);
-    dish.rotation.x = Math.PI;
-    this.voyager.add(dish);
-    this.disposables.push(dishGeo);
+    /* Every part goes on an inner node scaled to a third, rather than the
+       numbers below being divided by three. Two reasons. The dimensions here
+       are the real craft's proportions — a 3.7 m dish, a 13 m magnetometer
+       boom — and they should stay legible as those; and the hit sphere hangs
+       off the outer node, so shrinking the craft does not shrink the target
+       you have to hit to tap it. A probe you can barely see is fine. A probe
+       you can barely click is not. */
+    const craft = new THREE.Object3D();
+    craft.scale.setScalar(1 / 3);
+    this.voyager.add(craft);
 
-    const busGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.5, 16);
-    const bus = new THREE.Mesh(busGeo, gold);
-    bus.position.y = -0.75;
-    this.voyager.add(bus);
-    this.disposables.push(busGeo);
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, place: (m: THREE.Mesh) => void) => {
+      const mesh = new THREE.Mesh(geo, mat);
+      place(mesh);
+      craft.add(mesh);
+      this.disposables.push(geo);
+      return mesh;
+    };
 
-    const boomGeo = new THREE.CylinderGeometry(0.05, 0.05, 4.4, 6);
-    const boom = new THREE.Mesh(boomGeo, metal);
-    boom.rotation.z = Math.PI / 2;
-    boom.position.set(-2.1, -0.9, 0);
-    this.voyager.add(boom);
-    this.disposables.push(boomGeo);
+    /* ── the high-gain antenna: 3.7 m of dish, and most of the silhouette ── */
+    add(new THREE.SphereGeometry(1.5, 30, 14, 0, Math.PI * 2, 0, Math.PI * 0.42), white, (m) => {
+      m.rotation.x = Math.PI;
+    });
+    // Its rim. A bowl with no edge reads as a shaded blob from the back.
+    add(new THREE.TorusGeometry(1.49, 0.045, 6, 36), metal, (m) => {
+      m.rotation.x = Math.PI / 2;
+      m.position.y = 0.62;
+    });
+    /* The subreflector, held out at the focus on three struts. This is the
+       detail that most says "dish antenna" rather than "dish": the eye reads
+       the gap between the little mirror and the big one as depth. */
+    add(new THREE.CylinderGeometry(0.2, 0.22, 0.1, 12), metal, (m) => {
+      m.position.y = 1.5;
+    });
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2;
+      add(new THREE.CylinderGeometry(0.028, 0.028, 1.6, 4), metal, (m) => {
+        m.position.set(Math.cos(a) * 0.6, 0.92, Math.sin(a) * 0.6);
+        // Leaned inward so the three meet at the subreflector.
+        m.lookAt(0, 1.5, 0);
+        m.rotateX(Math.PI / 2);
+      });
+    }
 
-    const rtgGeo = new THREE.CylinderGeometry(0.24, 0.24, 1.5, 8);
-    const rtg = new THREE.Mesh(rtgGeo, metal);
-    rtg.rotation.z = Math.PI / 2;
-    rtg.position.set(-4.3, -0.9, 0);
-    this.voyager.add(rtg);
-    this.disposables.push(rtgGeo);
+    /* ── the bus: ten-sided, wrapped in gold thermal blanket ── */
+    add(new THREE.CylinderGeometry(0.62, 0.62, 0.44, 10), gold, (m) => {
+      m.position.y = -0.62;
+    });
+    // The propellant tank the bus is built around, showing below it.
+    add(new THREE.SphereGeometry(0.38, 14, 10), metal, (m) => {
+      m.position.y = -1.0;
+    });
+    /* The Golden Record, on the side of the bus where they bolted it. Small,
+       and it will never be legible — but it is the one part of this craft
+       anybody outside a control room can name. */
+    add(new THREE.CylinderGeometry(0.26, 0.26, 0.035, 20), gold, (m) => {
+      m.position.set(0, -0.62, 0.63);
+      m.rotation.x = Math.PI / 2;
+    });
+
+    /* ── the RTG boom, out to one side: three generators in a row ── */
+    add(new THREE.CylinderGeometry(0.045, 0.045, 3.4, 6), metal, (m) => {
+      m.rotation.z = Math.PI / 2;
+      m.position.set(-1.7, -0.72, 0);
+    });
+    for (let i = 0; i < 3; i++) {
+      add(new THREE.CylinderGeometry(0.19, 0.19, 0.85, 10), dark, (m) => {
+        m.rotation.z = Math.PI / 2;
+        m.position.set(-2.5 - i * 0.95, -0.72, 0);
+      });
+      // Each generator's cooling fins, as a slightly wider collar.
+      add(new THREE.CylinderGeometry(0.27, 0.27, 0.1, 10), metal, (m) => {
+        m.rotation.z = Math.PI / 2;
+        m.position.set(-2.5 - i * 0.95, -0.72, 0);
+      });
+    }
+
+    /* ── the science boom, out the other side, ending in the scan platform ── */
+    add(new THREE.CylinderGeometry(0.045, 0.045, 2.6, 6), metal, (m) => {
+      m.rotation.z = Math.PI / 2;
+      m.position.set(1.3, -0.72, 0);
+    });
+    add(new THREE.BoxGeometry(0.5, 0.42, 0.46), dark, (m) => {
+      m.position.set(2.75, -0.72, 0);
+    });
+    // The two camera barrels on it, which is what the platform was steered for.
+    for (const dz of [-0.14, 0.14]) {
+      add(new THREE.CylinderGeometry(0.09, 0.09, 0.62, 8), metal, (m) => {
+        m.rotation.z = Math.PI / 2;
+        m.position.set(3.28, -0.72, dz);
+      });
+    }
+
+    /* ── the magnetometer boom: 13 m of it on the real craft, and the reason
+          the thing is as wide as it is. Thin enough to disappear at distance,
+          which is correct — it is a wire. ── */
+    add(new THREE.CylinderGeometry(0.022, 0.022, 7.5, 4), metal, (m) => {
+      m.position.set(0, -0.9, 3.6);
+      m.rotation.x = Math.PI / 2;
+    });
+
+    /* ── and the two whip antennas, at the shallow V they actually sit at ── */
+    for (const sx of [-1, 1]) {
+      add(new THREE.CylinderGeometry(0.025, 0.025, 6.4, 4), metal, (m) => {
+        m.position.set(sx * 2.1, -2.0, -1.4);
+        m.rotation.z = (sx * Math.PI) / 3.4;
+        m.rotation.x = -0.42;
+      });
+    }
 
     this.scene.add(this.voyager);
 
-    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 2.5, primary: false, dive: false };
-    const hit = this.hitSphere(5);
+    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 0.9, primary: false, dive: false };
+    // Held at 3 rather than following the craft down to a third of 5. The
+    // target is what a finger has to land on, and that has not got smaller.
+    const hit = this.hitSphere(3);
     this.voyager.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.voyager });
     this.addLabel(info, this.voyager);
+
+    /* Where it launches from and where it stops being drawn, both read off the
+       system rather than typed in: the innermost figure is Earth's own orbit,
+       and the outer one is the edge of the system plus a margin. Hard-coding
+       either would mean a planet's radius could be retuned in bodies.ts and
+       leave the probe launching from empty space. */
+    this.voyagerLaunchRadius = this.planets.find((p) => p.spec.key === "earth")?.spec.radius ?? 50;
+    this.voyagerEdge = this.planets.reduce((max, p) => Math.max(max, p.spec.radius), 0);
   }
 
   private buildComets() {
@@ -2107,7 +2454,10 @@ export class HubScene {
   private pick(): Pickable | null {
     if (this.pointer.x < -1 || this.pointer.x > 1) return null;
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const objects = this.pickables.map((p) => p.object);
+    /* Hidden bodies are not targets. The raycaster does not consult `visible`
+       itself, so the probe's hit sphere would go on catching taps for the half
+       of its cycle it spends out beyond the system and unrendered. */
+    const objects = this.pickables.filter((p) => p.anchor.visible).map((p) => p.object);
     const hits = this.raycaster.intersectObjects(objects, false);
     if (hits.length === 0) return null;
     const first = hits[0].object;
@@ -2146,13 +2496,36 @@ export class HubScene {
 
   /** Chooses a camera position for a body: outside the system looking in, and
    * a little above the plane, blended with wherever the camera already is so
-   * a fly-to across the system doesn't whip through 180°. */
-  private framePosition(target: THREE.Vector3, size: number): THREE.Vector3 {
+   * a fly-to across the system doesn't whip through 180°.
+   *
+   * `view` overrides all of that with an explicit angle round the body. Only
+   * the tour passes one — a tap wants the predictable framing, because the
+   * visitor chose the body and is owed the shot they expected. */
+  private framePosition(target: THREE.Vector3, size: number, view?: TourView): THREE.Vector3 {
     const distance = Math.max(size * 6.5, 16);
     const outward = target.clone().setY(0);
     if (outward.lengthSq() < 0.01) outward.set(0, 0, 1);
     outward.normalize();
     const tangent = new THREE.Vector3(-outward.z, 0, outward.x);
+
+    if (view) {
+      /* A point on a sphere around the body, in the body's own outward frame
+         rather than the world's: azimuth 0 is the far side looking back in at
+         the sun, half a turn is the sun-side looking out, and everything
+         between is a profile. Anchoring to `outward` rather than to world Z is
+         what makes the same azimuth mean the same lighting on Mercury as on
+         Neptune — otherwise "the lit side" would be a different number for
+         every body and the tour's variety would just be luck. */
+      const cosE = Math.cos(view.elevation);
+      const dir = outward
+        .clone()
+        .multiplyScalar(Math.cos(view.azimuth) * cosE)
+        .add(tangent.multiplyScalar(Math.sin(view.azimuth) * cosE))
+        .add(new THREE.Vector3(0, Math.sin(view.elevation), 0))
+        .normalize();
+      return target.clone().add(dir.multiplyScalar(distance * view.zoom));
+    }
+
     const preferred = outward.multiplyScalar(0.78).add(tangent.multiplyScalar(0.3)).add(new THREE.Vector3(0, 0.42, 0)).normalize();
     const current = this.camera.position.clone().sub(target);
     const dir = current.lengthSq() > 0.01 ? current.normalize().multiplyScalar(0.35).add(preferred.multiplyScalar(0.65)).normalize() : preferred;
@@ -2169,10 +2542,24 @@ export class HubScene {
    * second tap on the same body opens its destination.
    *
    * The rule is uniform across every clickable thing in the scene — the star,
-   * the eight planets, the moons, the black hole, the neutron binary and the
-   * probe — so there is never a body whose first tap does something else. */
+   * the eight planets, the moons, the black hole and the neutron binary — with
+   * one exception, below.
+   *
+   * The probe is the exception, and it is one because framing it does not work
+   * the way framing a planet does. A planet parked in the middle of the screen
+   * is the thing you came to look at; a spacecraft parked in the middle of the
+   * screen is a model of a spacecraft. What it is *for* is the journey, so its
+   * first tap starts the journey, and the second — available from the button
+   * in the HUD, since the craft is under the camera's nose during it — stops
+   * it. It has no destination to open on a second tap anyway: `dive` is false
+   * and the news page it links to is reached from the dock. */
   tapBody(info: BodyInfo) {
     if (this.diving) return;
+    this.cancelFinale();
+    if (info.key === "voyager") {
+      this.setVoyagerTour(!this.voyagerTour);
+      return;
+    }
     if (this.selectedKey === info.key) {
       // The second tap. On anything big enough to fall into, the page opens at
       // the end of the fall rather than out from under it.
@@ -2251,11 +2638,16 @@ export class HubScene {
     return true;
   }
 
-  /** Frames a body and makes it the camera's pivot. Does not navigate. */
-  focusOn(info: BodyInfo, duration = 1.05) {
+  /** Frames a body and makes it the camera's pivot. Does not navigate.
+   *
+   * `view` is the tour's; see framePosition(). */
+  focusOn(info: BodyInfo, duration = 1.05, view?: TourView) {
     if (this.diving) return false;
     const pickable = this.pickables.find((p) => p.info.key === info.key);
     if (!pickable) return false;
+    // Focusing anything takes the camera off the probe, and out of the hole.
+    this.voyagerTour = false;
+    this.cancelFinale();
 
     this.selectedKey = info.key;
     this.followAnchor = pickable.anchor;
@@ -2271,14 +2663,14 @@ export class HubScene {
     if (this.reducedMotion) {
       // No tween, but still re-seat the camera so the body is centred and the
       // pivot is where the follow logic expects it.
-      this.camera.position.copy(this.framePosition(target, info.size));
+      this.camera.position.copy(this.framePosition(target, info.size, view));
       this.controls.target.copy(target);
       return true;
     }
 
     this.beginFlight({
       fromPos: this.camera.position.clone(),
-      toPos: this.framePosition(target, info.size),
+      toPos: this.framePosition(target, info.size, view),
       fromTarget: this.controls.target.clone(),
       toTarget: target,
       t: 0,
@@ -2302,6 +2694,8 @@ export class HubScene {
     const pickable = this.pickables.find((p) => p.info.key === key);
     if (!pickable) return false;
     const info = pickable.info;
+    this.voyagerTour = false;
+    this.cancelFinale();
 
     if (this.reducedMotion) {
       this.callbacks.onSelect(info);
@@ -2333,6 +2727,9 @@ export class HubScene {
   /** Back to the whole system, and hand the pivot back to the sun. */
   resetCamera() {
     if (this.diving) return;
+    // Assigned rather than routed through setVoyagerTour, which calls this.
+    this.voyagerTour = false;
+    this.cancelFinale();
     this.selectedKey = null;
     this.followAnchor = null;
     this.userMoved = false;
@@ -2351,6 +2748,11 @@ export class HubScene {
   }
 
   setTour(on: boolean) {
+    // Two things that both drive the camera; the one just asked for wins.
+    if (on) this.voyagerTour = false;
+    // Switching the tour off in the middle of its ending has to give the
+    // picture back, or the screen stays black with nothing left to clear it.
+    if (!on) this.cancelFinale();
     this.tourEnabled = on;
     // Fire on the very next frame, and start at the first stop rather than the
     // second — the index is advanced before it is used.
@@ -2369,6 +2771,8 @@ export class HubScene {
    * gets the same ten seconds no matter where it is. */
   private advanceTour(dt: number) {
     if (!this.tourEnabled || this.diving) return;
+    // The ending runs on its own clock and is not a stop with a timer.
+    if (this.finaleT >= 0) return;
     this.tourTimer -= dt;
     if (this.tourTimer > 0) return;
     this.tourTimer = HubScene.TOUR_INTERVAL;
@@ -2379,11 +2783,297 @@ export class HubScene {
     // is not there to visit; skip to the next tick rather than stalling.
     if (!pickable) return;
 
+    /* The hole is the last stop and it is not a stop. Rather than framing it
+       for ten seconds and moving on, the tour goes in — see updateFinale.
+       Except under reduced motion, where an accelerating spiral that ends by
+       blacking the screen out is precisely the thing the setting is asking not
+       to be shown; there it stays an ordinary stop. */
+    if (pickable.info.key === "blackhole" && !this.reducedMotion) {
+      this.beginFinale();
+      return;
+    }
+
     /* A tour looks, it does not navigate — which is exactly what focusing a
        body does, so it goes through the same path and inherits the follow
        behaviour: the camera rides each planet along its orbit for the whole
        time it is parked there. */
-    this.focusOn(pickable.info, HubScene.TOUR_FLIGHT);
+    this.focusOn(pickable.info, HubScene.TOUR_FLIGHT, this.tourView());
+  }
+
+  /* ─────────────────────── the tour's ending ───────────────────────
+     Several turns around the accretion disc, then in.
+
+     The reference the visitor will have is the fall at the end of Interstellar,
+     and what that scene actually does — the part worth copying — is refuse to
+     cut. It is one continuous move: a wide orbit that closes, a horizon that
+     stops being a shape in the frame and becomes the frame, and then nothing.
+     So this is not a sequence of shots either. One camera, one path, and the
+     three phases below run into each other rather than beginning.
+
+     Phase one, the orbit: three turns around the disc while the radius closes
+     and the camera sinks toward the disc's own plane. Sinking is what does the
+     work — from above, an accretion disc is a bright ring; edge-on it is the
+     lensed double image the whole scene was built for, and arriving at that
+     angle by descending into it is worth more than starting there.
+
+     Phase two, the fall: the radius collapses on an accelerating curve and the
+     angular rate climbs as it does, which is an inspiral and also simply what
+     happens when something falls in — the closer it gets the faster it goes
+     round. The streak pass rises with it, and the picture starts going out
+     before the camera arrives.
+
+     Phase three, black. Held, because a blackout that ends the instant it is
+     complete was a transition; one that sits there for a second was an event.
+     Then the camera is put back at the resting view and the picture returns. */
+
+  /** Seconds of orbiting before the fall. */
+  private static readonly FINALE_ORBIT = 17;
+  /** Seconds of falling. */
+  private static readonly FINALE_FALL = 7.5;
+  /** Seconds of dead channel between the fall and the plate. Long enough for
+   * the snow to build from nothing to unwatchable, short enough that it is
+   * clearly a thing happening rather than a thing that has broken. */
+  private static readonly FINALE_BLACK = 2.2;
+  /** Seconds the plate is held on the far side of it. */
+  private static readonly FINALE_PLATE = 5;
+  /** Seconds to bring the picture back. */
+  private static readonly FINALE_RETURN = 2.4;
+  private static readonly FINALE_FALL_END = HubScene.FINALE_ORBIT + HubScene.FINALE_FALL;
+  private static readonly FINALE_BLACK_END = HubScene.FINALE_FALL_END + HubScene.FINALE_BLACK;
+  private static readonly FINALE_PLATE_END = HubScene.FINALE_BLACK_END + HubScene.FINALE_PLATE;
+  private static readonly FINALE_END = HubScene.FINALE_PLATE_END + HubScene.FINALE_RETURN;
+
+  private beginFinale() {
+    this.finaleT = 0;
+    this.finaleAngle = 0;
+    this.selectedKey = "blackhole";
+    this.followAnchor = null;
+    // It drives the camera itself, frame by frame, so nothing else may be.
+    this.flight = null;
+    this.controls.enabled = false;
+    this.controls.autoRotate = false;
+    this.finaleFrom.copy(this.camera.position);
+    this.callbacks.onFocus(null);
+  }
+
+  /** Stops the ending wherever it is and gives the picture and the controls
+   * back. Anything that takes the camera calls this. */
+  private cancelFinale() {
+    if (this.finaleT < 0) return;
+    this.finaleT = -1;
+    this.fade = 0;
+    this.warp = 0;
+    this.collapse = 0;
+    this.plate = 0;
+    this.tvStatic = 0;
+    this.setCurtain(false);
+    this.controls.enabled = true;
+  }
+
+  /** Tells the shell to hide or restore its HUD, once per change. */
+  private setCurtain(on: boolean) {
+    if (on === this.curtain) return;
+    this.curtain = on;
+    this.callbacks.onCurtain(on);
+  }
+
+  /** One frame of it. Runs on the camera directly rather than through a
+   * flight, because a flight is a move between two fixed points and this is a
+   * path — there is no `toPos` for "three times around and then in". */
+  private updateFinale(dt: number) {
+    if (this.finaleT < 0) return;
+    this.finaleT += dt;
+    const t = this.finaleT;
+
+    /* The HUD goes as soon as the picture starts going, not when the plate
+       appears. By the time the fall is half dark the labels are the brightest
+       things on screen, and an ending that dims everything except its own
+       chrome reads as the page having crashed behind the chrome. */
+    this.setCurtain(t > HubScene.FINALE_ORBIT + HubScene.FINALE_FALL * 0.35);
+
+    this.holeGroup.getWorldPosition(this.tmpV);
+    const hole = this.tmpV;
+    /* The hole's own frame, off its world matrix — the same three columns the
+       jet uses. The orbit has to be in the disc's plane rather than the
+       world's, or "sinking toward the disc" would only be true for a hole that
+       happened to be sitting level. */
+    const e = this.holeGroup.matrixWorld.elements;
+    const side1 = this.jetSideA.set(e[0], e[1], e[2]).normalize();
+    const axis = this.jetAxis.set(e[4], e[5], e[6]).normalize();
+    const side2 = this.jetSideB.set(e[8], e[9], e[10]).normalize();
+
+    let radius: number;
+    let height: number;
+    let rate: number;
+
+    if (t < HubScene.FINALE_ORBIT) {
+      const s = t / HubScene.FINALE_ORBIT;
+      // Closing, but only to about half — the fall is what covers the rest.
+      radius = 96 - 50 * s * s;
+      // Down out of the overhead view and into the disc's plane.
+      height = 34 * Math.pow(1 - s, 1.7) + 3;
+      // Three turns, easing in so the first one is a drift and the last is not.
+      rate = ((Math.PI * 2 * 3) / HubScene.FINALE_ORBIT) * (0.45 + s * 1.1);
+      this.warp = 0;
+      this.fade = 0;
+      // A hint of it in the last few seconds of the orbit, so the fall does not
+      // begin at the same instant the picture starts coming apart.
+      this.collapse = clamp01((s - 0.72) / 0.28) * 0.14;
+    } else if (t < HubScene.FINALE_ORBIT + HubScene.FINALE_FALL) {
+      const s = (t - HubScene.FINALE_ORBIT) / HubScene.FINALE_FALL;
+      /* In. The exponent is what makes it a fall rather than a dolly: most of
+         the distance goes in the last third, so the horizon is a shape in the
+         frame for a long time and then very suddenly is not. */
+      radius = 46 * Math.pow(1 - s, 2.6) + 0.5;
+      height = 3 * (1 - s);
+      // Faster the closer it gets, which is both the physics and the drama.
+      rate = 2.1 + 15 * s * s;
+      this.warp = Math.pow(s, 1.9) * 4.2;
+      /* The picture is wound in and shut down well before the camera arrives.
+         The curve is steep on purpose: the first half of the fall is still a
+         recognisable sky being pulled about, and the second half is not a sky
+         any more. */
+      this.collapse = 0.14 + Math.pow(s, 1.5) * 0.86;
+      /* And the flat black comes last, over the final third — under a
+         collapse this strong there is very little left to take by then, which
+         is the point. It finishes the job rather than doing it. */
+      this.fade = clamp01((s - 0.66) / 0.34);
+    } else if (t < HubScene.FINALE_BLACK_END) {
+      /* The dead channel. The scene itself is gone — fade is full — and what
+         fills the frame is snow, coming up out of the black and getting worse.
+         Squared, so the first half is a faint grey haze you are not sure you
+         are seeing and the second half is the set giving up entirely. */
+      const s = (t - HubScene.FINALE_FALL_END) / HubScene.FINALE_BLACK;
+      this.warp = 0;
+      this.fade = 1;
+      // Nothing left to wind. Cleared here rather than held, so the swirl is
+      // not still running under the static for the whole hold.
+      this.collapse = 0;
+      this.tvStatic = s * s;
+      this.plate = 0;
+      /* The camera goes home now, during the black — which is the only reason
+         it can be a cut. There is no flight back from inside a black hole that
+         would not be a rewind of the fall. */
+      this.camera.position.copy(this.restPosition());
+      this.controls.target.set(0, 0, 0);
+      this.selectedKey = null;
+      this.focusFloor = 14;
+      this.finaleTail();
+      return;
+    } else if (t < HubScene.FINALE_PLATE_END) {
+      /* The far side. One still image, three seconds, with a ring spreading
+         out from where the stone went in — which is the middle, which is where
+         the hole was, which is where the camera has just been.
+
+         It arrives fast and leaves slowly. A plate that faded up over a second
+         would be a dissolve, and a dissolve from black is a scene beginning; a
+         plate that is simply *there* two frames after the dark is something
+         happening to the viewer. It goes out slowly for the opposite reason —
+         the picture underneath has to have somewhere to come back from. */
+      const s = (t - HubScene.FINALE_BLACK_END) / HubScene.FINALE_PLATE;
+      this.warp = 0;
+      this.collapse = 0;
+      this.fade = 1;
+      // The signal does not recover, it is replaced. Cut, not crossfade.
+      this.tvStatic = 0;
+      this.ripple = t - HubScene.FINALE_BLACK_END;
+      /* Full on the first frame — the picture arrives, it does not resolve.
+         Two seconds of worsening snow and then the image simply *is* there is
+         the whole shape of this; a fade-in would make it the end of the static
+         rather than the answer to it. Only the way out is a fade, over the
+         last fifth, because the scene underneath needs somewhere to come back
+         from. */
+      this.plate = 1 - clamp01((s - 0.8) / 0.2);
+      this.camera.position.copy(this.restPosition());
+      this.controls.target.set(0, 0, 0);
+      this.finaleTail();
+      return;
+    } else {
+      // Back up, on the resting view.
+      const s = (t - HubScene.FINALE_PLATE_END) / HubScene.FINALE_RETURN;
+      this.warp = 0;
+      this.plate = 0;
+      this.tvStatic = 0;
+      this.fade = 1 - s * s * (3 - 2 * s);
+      this.camera.position.copy(this.restPosition());
+      this.controls.target.set(0, 0, 0);
+      this.finaleTail();
+      return;
+    }
+
+    this.finaleAngle += rate * dt;
+    const cos = Math.cos(this.finaleAngle);
+    const sin = Math.sin(this.finaleAngle);
+    const want = this.tmpV2
+      .copy(hole)
+      .addScaledVector(side1, cos * radius)
+      .addScaledVector(side2, sin * radius)
+      .addScaledVector(axis, height);
+
+    /* Eased in from wherever the tour left the camera, over the first couple
+       of seconds. The alternative is a cut, and the one thing this ending must
+       not do is cut. */
+    const blend = clamp01(this.finaleT / 2.2);
+    this.camera.position.lerpVectors(this.finaleFrom, want, blend * blend * (3 - 2 * blend));
+    this.controls.target.copy(hole);
+    this.focusFloor = 0.35;
+    this.finaleTail();
+  }
+
+  /** The end of every branch above: stop when the clock runs out. */
+  private finaleTail() {
+    if (this.finaleT < HubScene.FINALE_END) return;
+    this.finaleT = -1;
+    this.fade = 0;
+    this.warp = 0;
+    this.collapse = 0;
+    this.plate = 0;
+    this.tvStatic = 0;
+    this.setCurtain(false);
+    this.controls.enabled = true;
+    // Straight on to the first stop, rather than sitting at rest for a full
+    // interval after an ending that just handed the system back.
+    this.tourIndex = -1;
+    this.tourTimer = 1.6;
+  }
+
+  /** A different angle on every stop.
+   *
+   * The tour used to hand focusOn() no view at all, which meant every stop got
+   * framePosition()'s one preferred direction: outside the system, a little
+   * above the plane, looking in. Correct for a tap — but eleven stops of it in
+   * a row is eleven photographs taken from the same place, and the thing the
+   * tour is for is showing that these are bodies in a space rather than icons
+   * on a page. Saturn seen edge-on to its rings and then from above them is
+   * two different objects; the black hole's disc is a line from one angle and
+   * a bowl from another.
+   *
+   * Not uniform random, though. Independent draws put two stops in nearly the
+   * same pose often enough to notice, and the one thing a varied tour must
+   * never do is look like it repeated itself. The azimuth advances by the
+   * golden angle instead — successive stops land 137.5° apart, and the
+   * sequence takes a very long time to come back near anywhere it has been —
+   * with a small random push on top so the regularity is not itself legible.
+   * Elevation and distance are drawn freely, since neither has a "same again"
+   * failure the way the azimuth does. */
+  private tourView(): TourView {
+    const GOLDEN = Math.PI * (3 - Math.sqrt(5)); // 2.3999… rad, 137.5°
+    this.tourAzimuth = (this.tourAzimuth + GOLDEN + (this.tourRand() - 0.5) * 0.5) % (Math.PI * 2);
+
+    /* Biased above the plane but not confined to it. The squared roll spends
+       most of its stops in the upper half — where the light is and where an
+       orbit reads as an ellipse rather than as a line — while still going
+       under the plane now and then, which is the shot that makes a ring system
+       or an accretion disc look like an object with a top and a bottom. Kept
+       well clear of straight overhead: at the pole the camera's up vector is
+       undefined and the view rolls on the way in. */
+    const roll = this.tourRand();
+    const elevation = -0.34 + roll * roll * 1.28;
+
+    // Near enough to fill the frame, far enough to see what it is orbiting.
+    const zoom = 0.82 + this.tourRand() * 0.72;
+
+    return { azimuth: this.tourAzimuth, elevation, zoom };
   }
 
   /** Starts a camera move and takes the controls away for its duration.
@@ -2455,6 +3145,21 @@ export class HubScene {
        back out from under the tween. */
     if (this.flight?.dive) {
       this.controls.minDistance = 0.01;
+      return;
+    }
+    /* The tour's ending crosses it for the same reason, and would be hauled
+       back out by the same clamp — it holds no followAnchor, so without this
+       it lands in the general branch below, which at the hole's distance from
+       the star settles on a floor of 2.5 units and simply refuses to let the
+       camera reach the horizon. The fall would stop dead a few units short and
+       hang there while the screen faded. */
+    if (this.finaleT >= 0) {
+      this.controls.minDistance = 0.01;
+      return;
+    }
+    // The probe's tour drives the camera itself and holds no anchor either.
+    if (this.voyagerTour) {
+      this.controls.minDistance = this.focusFloor;
       return;
     }
     if (this.followAnchor) {
@@ -2595,6 +3300,14 @@ export class HubScene {
        Run the controls first and the pivot they read is one frame stale, which
        on a body moving at Mercury's rate is a visible shimmy. */
     this.updatePlanets(dt, time, speed);
+    /* Above the controls with the planets, and for the same reason twice over:
+       the grand tour's route is drawn through this frame's planet positions,
+       and during it the probe *is* the camera's pivot. Run below, the chase
+       would be aiming at where the probe was last frame. */
+    this.updateVoyager(time, speed, dt);
+    // After the bodies and before the controls, like the follow below it: the
+    // ending orbits the hole and has to use this frame's position for it.
+    this.updateFinale(dt);
     this.updateFollow();
     this.updateZoomFloor();
     this.controls.update();
@@ -2612,7 +3325,6 @@ export class HubScene {
     if (this.beltGroup) this.beltGroup.rotation.y += dt * 0.012 * speed;
     this.updateBlackHole(dt, time, speed);
     this.updateNeutron(dt, time, speed);
-    this.updateVoyager(time, speed);
     this.updateComets(time, speed);
     this.glow.flush();
 
@@ -2737,15 +3449,15 @@ export class HubScene {
 
   /* ─────────────────── the hole, and what it is eating ─────────────────── */
 
-  /* The hole's meal, in order: Pluto in, green afterglow, then a blue star the
+  /* The hole's meal, in order: Pluto in, gold afterglow, then a blue star the
      size of this system's own drawn in and torn apart, then a blue afterglow,
      then a pause before it starts again. The two afterglows are five seconds
      each, which is long enough to notice from anywhere in the scene and short
      enough that the disc spends most of its life its own colour. */
   private static readonly PLUTO_APPROACH = 15;
   private static readonly PLUTO_TEAR = 4;
-  /** Green: the rock is gone. */
-  private static readonly GREEN_GLOW = 7;
+  /** Gold: the rock is gone. */
+  private static readonly GOLD_GLOW = 7;
   private static readonly STAR_APPROACH = 11;
   private static readonly STAR_TEAR = 4;
   /** Blue-white, and much brighter: a whole star has just gone in. */
@@ -2756,7 +3468,7 @@ export class HubScene {
      in and the disc back to its own colour — the pause is what keeps the two
      meals from reading as one continuous feeding frenzy. */
   private static readonly T_PLUTO_END = 15 + 4; // 19
-  private static readonly T_GREEN_END = 19 + 7; // 26
+  private static readonly T_GOLD_END = 19 + 7; // 26
   private static readonly T_STAR_END = 26 + 11 + 4; // 41
   private static readonly T_BLUE_END = 41 + 7; // 48
   private static readonly BH_CYCLE = 48 + 4; // 52, the last 4 being the rest
@@ -2778,22 +3490,28 @@ export class HubScene {
     const cycle = (time * speed) % HubScene.BH_CYCLE;
     const holePos = this.tmpV.clone();
 
-    /* The afterglow. Green for the seven seconds after Pluto, blue-white and
+    /* The afterglow. Gold for the seven seconds after Pluto, blue-white and
        far brighter for the seven after the star. Eased rather than switched,
        so the disc bleeds into and out of the colour instead of flicking. */
     let glowMix = 0;
     let glowBright = 0;
-    if (cycle >= HubScene.T_PLUTO_END && cycle < HubScene.T_GREEN_END) {
-      const g = (cycle - HubScene.T_PLUTO_END) / HubScene.GREEN_GLOW;
+    if (cycle >= HubScene.T_PLUTO_END && cycle < HubScene.T_GOLD_END) {
+      const g = (cycle - HubScene.T_PLUTO_END) / HubScene.GOLD_GLOW;
       // Up fast, hold, then fade — the fade is the longer half.
       glowMix = Math.min(1, g * 6) * (1 - Math.pow(g, 2.4));
-      this.discMaterial.uniforms.uGlowTint.value.setRGB(0.16, 1.0, 0.5);
+      /* Gold. Kept off the red end and well off white: the green this replaced
+         could be any value it liked because nothing else in the scene was
+         green, but gold has the sun a few hundred units away to be told apart
+         from, and a disc that goes pale gold reads as the disc being lit by it
+         rather than as the disc burning. The green channel carries it: at
+         three-quarters this is gold, and a little under that it is orange. */
+      this.discMaterial.uniforms.uGlowTint.value.setRGB(1.0, 0.74, 0.22);
       glowBright = glowMix * 0.22;
     } else if (cycle >= HubScene.T_STAR_END && cycle < HubScene.T_BLUE_END) {
       const g = (cycle - HubScene.T_STAR_END) / HubScene.BLUE_GLOW;
       glowMix = Math.min(1, g * 8) * (1 - Math.pow(g, 2.6));
       this.discMaterial.uniforms.uGlowTint.value.setRGB(0.4, 0.72, 1.0);
-      // A whole star went in, so this one burns harder than the green — but
+      // A whole star went in, so this one burns harder than the gold — but
       // only about twice as hard, not enough to clip to white.
       glowBright = glowMix * 0.5;
     }
@@ -2911,16 +3629,26 @@ export class HubScene {
     const length = 620 + power * 820;
     const width = 8 + power * 10;
 
-    // Green for the rock, matching the afterglow it fires into; blue-white for
+    // Gold for the rock, matching the afterglow it fires into; blue-white for
     // the star, which is the colour the star itself was.
-    const tintR = power < 1 ? 0.24 : 0.36;
-    const tintG = power < 1 ? 1.0 : 0.6;
-    const tintB = power < 1 ? 0.62 : 1.0;
+    const tintR = power < 1 ? 1.0 : 0.36;
+    const tintG = power < 1 ? 0.72 : 0.6;
+    const tintB = power < 1 ? 0.24 : 1.0;
+
+    /* The root of the filament warms with it. uHot is where the beam starts
+       before it cools into the tint along its length, and left at the neutral
+       white it uses for the star, the first third of a gold beam is white and
+       the gold only arrives once the beam is already going away from you —
+       which reads as a white beam with a coloured end rather than as a gold
+       one. Still nearly white, though: this is the hottest part of it. */
+    const hotG = power < 1 ? 0.95 : 0.98;
+    const hotB = power < 1 ? 0.82 : 0.94;
 
     for (const material of this.jetMaterials) {
       material.uniforms.uTime.value = time * speed;
       material.uniforms.uHead.value = head;
       material.uniforms.uEnergy.value = energy;
+      material.uniforms.uHot.value.setRGB(1.0, hotG, hotB);
       material.uniforms.uCool.value.setRGB(tintR, tintG, tintB);
     }
 
@@ -2935,7 +3663,7 @@ export class HubScene {
     return energy;
   }
 
-  /** The gas climbing the beam, as a rotating funnel of discrete clots.
+  /** The smoke climbing the beam, as a few ropes twisted around the light.
    *
    * A jet is not a straight pipe of material. The gas arrives with the disc's
    * angular momentum still in it and has nowhere to put it, so it leaves on a
@@ -2944,6 +3672,15 @@ export class HubScene {
    * faster than its outer bands and the reason a skater's spin speeds up when
    * their arms come in. Both of those are one line here: the angular rate is
    * divided by how wide the coil has become.
+   *
+   * Each grain is placed twice. Once around the beam's axis, which is the
+   * helix its rope's centre-line follows and the thing that makes the smoke
+   * twist; and once around that centre-line, which is what gives the rope a
+   * thickness and a hollow, so it reads as a cord of smoke with a near and a
+   * far side rather than as a spray that happens to be spiralling. The second
+   * placement is done in the beam's own radial/tangential plane and rotated
+   * into place with the first — a plain 2D rotation, and no dividing by a coil
+   * radius that goes to nothing at the throat.
    *
    * Everything is placed in the hole's own frame — its local Y is the beam,
    * its local X and Z are the plane the gas is turning in — so the funnel
@@ -2971,13 +3708,15 @@ export class HubScene {
 
     for (let i = 0; i < this.jetParticleCount; i++) {
       const slot = this.jetParticleStart + i;
-      const p = i * 7;
-      const arm = this.jetParticles[p + 1];
-      const offJit = this.jetParticles[p + 2];
-      const rate = this.jetParticles[p + 3];
-      const roll = this.jetParticles[p + 4];
-      const pole = this.jetParticles[p + 5];
-      const puff = this.jetParticles[p + 6];
+      const p = i * 9;
+      const rope = this.jetParticles[p + 1];
+      const ropeAngle = this.jetParticles[p + 2];
+      const ropeOff = this.jetParticles[p + 3];
+      const slack = this.jetParticles[p + 4];
+      const rate = this.jetParticles[p + 5];
+      const roll = this.jetParticles[p + 6];
+      const pole = this.jetParticles[p + 7];
+      const puff = this.jetParticles[p + 8];
 
       /* Streaming, not a single puff: each grain climbs the beam, falls off
          the end and starts again at the throat. Seven seconds of one wave of
@@ -2991,9 +3730,6 @@ export class HubScene {
         continue;
       }
 
-      // Accelerating away from the hole, so the throat stays dense and the
-      // gas strings out as it climbs.
-      const along = Math.pow(climb, 1.35) * length * pole;
       // The funnel: tight at the throat, opening steadily with height.
       const flare = 0.18 + Math.pow(climb, 1.2) * 1.5;
       /* The billow. A clot of gas is not a flat ring — it swells and pinches
@@ -3001,23 +3737,64 @@ export class HubScene {
          whole mass breathes together. Without this the clots are still clots,
          but they are rigid ones, and rigid smoke is not smoke. */
       const billow = 1 + 0.44 * Math.sin(climb * 9.0 + puff * Math.PI * 2 + spin * 1.1);
-      const radius = width * flare * offJit * billow;
+      /* Where the rope's centre-line runs, and how thick the rope is there.
+         Both drawn in hard against the light: the coil rides close enough to
+         the filament that the three cords and the thread they wrap read as one
+         object, and the cord itself is a quarter of the width it was, so its
+         grains are packed rather than strewn. It still keeps clear of the
+         filament all the way out — a rope that passed through the light would
+         put its grains on top of the one thing in the beam that is supposed to
+         be brightest, and the braid would wash out into the glare rather than
+         turn in front of it. */
+      const coil = width * (0.22 + flare * 0.42) * billow;
+      const thick = width * (0.04 + flare * 0.105) * billow;
       /* The wind. Negative, because that is the direction the disc under it
          is turning (see the Doppler term in DISC_FRAG); divided by the flare,
          so a grain at the throat whips round several times while one out near
          the head barely turns at all. Wound harder than it used to be: at the
          old rate the spiral was legible but genteel, and the point of this is
-         that the gas is being flung, not stirred. */
-      const turn = arm - (spin * 2.5 + climb * 8.5) / flare;
+         that the gas is being flung, not stirred. Wound harder again now that
+         the cords are tight: the number of turns the braid makes over the
+         beam's length is what makes it a screw thread rather than three lines
+         leaning, and a thin cord can take far more of them before the turns
+         run into each other than a fat one could. */
+      const turn = rope - (spin * 2.5 + climb * 17.0) / flare;
+      /* And the rope turns about its own axis as well as about the beam's, so
+         a grain works its way from the near side of the cord to the far side
+         on the way up. That is the difference between a cord being carried
+         round and a cord being twisted. */
+      const twist = ropeAngle + climb * 7.0 + spin * 1.8;
+      // The grain's place in the rope's cross-section, before it is swung
+      // round the beam: out from the centre-line, and along the way round.
+      const outward = coil + Math.cos(twist) * thick * ropeOff;
+      const sideways = Math.sin(twist) * thick * ropeOff;
+
       const cos = Math.cos(turn);
       const sin = Math.sin(turn);
+      // The 2D rotation that puts the cross-section where the coil has got to.
+      const px = outward * cos - sideways * sin;
+      const pz = outward * sin + sideways * cos;
 
-      const ox = side1.x * cos + side2.x * sin;
-      const oy = side1.y * cos + side2.y * sin;
-      const oz = side1.z * cos + side2.z * sin;
+      /* Accelerating away from the hole, so the throat stays dense and the gas
+         strings out as it climbs; plus the grain's slack along the rope. The
+         slack is no longer measured against the cord's thickness — that would
+         have shrunk with it to a quarter, and a cord that is thin in every
+         direction at once is a string of beads. Kept at roughly the old figure,
+         it now smears each grain *along* the rope instead of across it, which
+         is what closes the gaps the tightening opened. */
+      const along =
+        Math.pow(climb, 1.35) * length * pole + slack * width * (0.13 + flare * 0.34) * pole;
 
-      // White at the throat, cooling into the beam's own colour as it climbs.
-      const hot = 1 - clamp01(climb * 2.2);
+      const ox = side1.x * px + side2.x * pz;
+      const oy = side1.y * px + side2.y * pz;
+      const oz = side1.z * px + side2.z * pz;
+
+      /* White at the throat, cooling into the beam's own colour as it climbs —
+         but less white than it was. This is smoke around a light now, not the
+         light itself: keep lifting it all the way to white and the ropes
+         out-shine the filament they are supposed to be winding around, and the
+         two read as one bright funnel again. */
+      const hot = (1 - clamp01(climb * 2.2)) * 0.7;
       /* Nothing at the very throat. The grains ride a cone whose width goes to
          nothing at the origin, so every one of them near climb = 0 lands in
          the same few pixels — and a few hundred additive grains stacked in one
@@ -3029,18 +3806,37 @@ export class HubScene {
       const emerge = clamp01(climb / 0.09);
       // Fades out before the head rather than at it, so the beam ends in gas
       // rather than in a row of dots.
-      const fade = (1 - climb * climb) * energy * (0.46 + roll * 0.66) * emerge * emerge;
+      /* Dimmer per puff, brighter per cord. The tightening put sixteen times
+         the areal density into the cords and the puffs overlap several deep on
+         top of that, all of it additive: at anything like the old per-grain
+         alpha the ropes stop being smoke and become three solid white bars,
+         and through the bloom the whole jet goes back to being a lamp. What is
+         wanted from all this crowding is opacity, not glare, so each puff gives
+         up most of what it had and the stacking puts it back.
+
+         Cut too far the first time, though. Two things were reduced at once —
+         this figure and the puff profile's own peak — and the product of the
+         two was smoke that read as haze. Roughly doubled here; between the two
+         changes the ropes now sit a little brighter than the loose grains that
+         preceded them, which is what a body of smoke should do against a sky
+         it is supposed to be the foreground of. */
+      const fade = (1 - climb * climb) * energy * (0.16 + roll * 0.22) * emerge * emerge;
 
       this.glow.set(
         slot,
-        holePos.x + axis.x * along + ox * radius,
-        holePos.y + axis.y * along + oy * radius,
-        holePos.z + axis.z * along + oz * radius,
-        // Expanding as it goes: the gas is under no pressure out there. The
-        // exponent is under one so most of the growth happens early, while the
-        // clot is still tight enough for its grains to overlap into one mass —
-        // which is what makes it read as a body of smoke and not as a swarm.
-        1.7 + roll * 2.4 + Math.pow(climb, 0.8) * 5.0,
+        holePos.x + axis.x * along + ox,
+        holePos.y + axis.y * along + oy,
+        holePos.z + axis.z * along + oz,
+        /* Expanding as it goes: the gas is under no pressure out there. The
+           exponent is under one so most of the growth happens early, while the
+           rope is still tight enough for its puffs to overlap into one mass —
+           which is what makes it read as a body of smoke and not as a swarm.
+           Far larger than the cord it rides, and deliberately so: each puff is
+           several times the width of the centre-line's own radius, so what the
+           eye is given is one thick continuous rope of smoke rather than the
+           sprites it is built out of. The cord is the thread; this is the wool
+           on it. */
+        4.2 + roll * 3.2 + Math.pow(climb, 0.8) * 8.5,
         tintR + (1 - tintR) * hot,
         tintG + (1 - tintG) * hot,
         tintB + (1 - tintB) * hot,
@@ -3058,7 +3854,7 @@ export class HubScene {
    * stream. So the body elongates along the line to the hole while being
    * squeezed on the other two axes, and the ribbon below is what comes off it. */
   private updateBlueStar(cycle: number, holePos: THREE.Vector3, dt: number, time: number, speed: number) {
-    const active = cycle >= HubScene.T_GREEN_END && cycle < HubScene.T_STAR_END;
+    const active = cycle >= HubScene.T_GOLD_END && cycle < HubScene.T_STAR_END;
     if (!active) {
       this.blueStar.visible = false;
       this.blueStarHalo.visible = false;
@@ -3066,7 +3862,7 @@ export class HubScene {
       return;
     }
 
-    const since = cycle - HubScene.T_GREEN_END;
+    const since = cycle - HubScene.T_GOLD_END;
     const total = HubScene.STAR_APPROACH + HubScene.STAR_TEAR;
     const p = since / total;
     const tear = clamp01((since - HubScene.STAR_APPROACH) / HubScene.STAR_TEAR);
@@ -3374,15 +4170,576 @@ export class HubScene {
     }
   }
 
-  private updateVoyager(time: number, speed: number) {
-    // Out past Neptune and still going, then round again — the real one is at
-    // about 165 AU and rising, which no fixed frame can hold.
-    const cycle = 150;
-    const p = ((time * speed) % cycle) / cycle;
-    const distance = 210 + p * 620;
-    const angle = 2.35 + p * 0.22;
-    this.voyager.position.set(Math.cos(angle) * distance, 55 + p * 130, Math.sin(angle) * distance);
-    // The dish stays pointed home, as it does.
+  /** The planets the grand tour calls at, inward to outward. Not Voyager 1's
+   * real itinerary — that one skipped the ice giants to go and look at Titan,
+   * and Voyager 2's is the one that took all four. This is the route as it is
+   * remembered rather than as it was flown, which is what the tour is for. */
+  private static readonly VOYAGER_ROUTE = [
+    "earth",
+    "mars",
+    "jupiter",
+    "saturn",
+    "uranus",
+    "neptune",
+    /* And on past the planets. These two are not on any itinerary anybody ever
+       flew — they are the far end of this particular sky, and the route ends
+       where the tour it belongs to ends: at the hole, which the probe does not
+       come back out of. See the hand-off at the bottom of flyGrandTour. */
+    "neutron",
+    "blackhole",
+  ];
+  /** World units per second the probe makes when it is passing something, and
+   * when it is not.
+   *
+   * The tour used to be paced by dividing a fixed duration between the legs,
+   * which gets one of the two things wrong whichever way it is arranged.
+   * Equal time per leg makes the pass speed depend on how long the leg was:
+   * the same fly-by is sedate arriving from Mars and a blur arriving from
+   * Neptune. Equal distance per second — constant speed — makes every pass
+   * identical but spends the tour's length in proportion to the emptiness
+   * between the planets, which out past Saturn is nearly all of it.
+   *
+   * So neither. Speed is a function of how far the probe is from the nearest
+   * body: slow where there is something to look at, quick where there is not.
+   * The pass is then the same everywhere by construction, and the gaps cost
+   * only what they are worth. */
+  private static readonly VOYAGER_PASS_SPEED = 7.5;
+  private static readonly VOYAGER_CRUISE_SPEED = 62;
+  /** The distances the speed ramps between: full pass speed inside the first,
+   * full cruise beyond the second. */
+  private static readonly VOYAGER_PASS_RANGE = 34;
+  private static readonly VOYAGER_CRUISE_RANGE = 128;
+  /** How much the cruise speed grows with distance from the star.
+   *
+   * A flat cruise speed makes the outer legs drag, and not because the number
+   * is wrong — because the system is not to scale with itself. Earth to Mars
+   * is twenty-five units; Neptune to the neutron pair and on to the hole is
+   * the better part of eight hundred. At one speed for both, the leg that has
+   * the least to look at takes the longest to cross, which is exactly the
+   * wrong way round. Scaling with radius makes the outer legs cost roughly
+   * what the inner ones do in time rather than in distance. */
+  private static readonly VOYAGER_CRUISE_GROWTH = 200;
+
+  /** Stops the probe goes into orbit around rather than merely passing.
+   *
+   * Saturn earns it and the others do not. A fly-by shows you a planet from
+   * one side, moving, for as long as the pass lasts — which for a ball is
+   * enough, because the far side of a ball looks like the near side. Saturn is
+   * not a ball: it is a disc system seen at an angle, and the angle is the
+   * whole subject. One pass gives you one angle of it and then the tour has
+   * gone. Two turns give you the rings edge-on, open, and edge-on again.
+   *
+   * The neutron pair gets one rather than two, and for a different reason: it
+   * is not there to be studied from several angles, it is there to be seen at
+   * all. It is also the one stop with a clock of its own — the pair spiral in
+   * and merge on a fifty-second cycle — and a probe parked beside it for long
+   * enough reads as a probe *waiting* for that to happen, which is a promise
+   * the tour has no way to keep. One turn and away. */
+  private static readonly VOYAGER_ORBIT_AT = new Map([
+    ["saturn", 2],
+    ["neutron", 1],
+  ]);
+  /** How long one turn takes. */
+  private static readonly VOYAGER_ORBIT_PERIOD = 7;
+  /** How far in the orbit dips at its closest, as a fraction of the radius it
+   * was entered at. See the swoop in flyGrandTour's loiter branch. */
+  private static readonly VOYAGER_ORBIT_DIP = 0.55;
+  /** And how close it is ever allowed to get, in multiples of the body's own
+   * reach — which for Saturn is the outer edge of the ring sheet, so this is
+   * the number that keeps the craft from flying through the rings. */
+  private static readonly VOYAGER_ORBIT_FLOOR = 1.45;
+  /** How long the ambient coast takes, launch to gone. */
+  private static readonly VOYAGER_COAST = 150;
+
+  /** Starts or stops the grand tour. Starting it always restarts from Earth:
+   * the tour is a thing you watch from the beginning, and resuming it from
+   * wherever the ambient coast happened to be would open on empty sky. */
+  setVoyagerTour(on: boolean) {
+    /* No-op when it is already in that state. The shell mirrors this flag in
+       React state and pushes it back down through an effect, so without this
+       the mount would fire a stop — and a stop calls resetCamera(), which
+       would cut the opening flight short on every load. */
+    if (on === this.voyagerTour) return;
+    this.voyagerTour = on;
+    this.voyagerTourT = 0;
+    if (on) {
+      // It takes the camera, so nothing else may be holding it.
+      this.cancelFinale();
+      this.tourEnabled = false;
+      this.selectedKey = "voyager";
+      this.followAnchor = null;
+      this.flight = null;
+      this.controls.autoRotate = false;
+      this.idleFor = 0;
+      this.voyagerChase.set(0, 0, 0);
+      this.voyagerHeading.set(0, 0, 0);
+      this.voyagerLoiter = -1;
+      this.voyagerLoiterAngle = 0;
+      this.voyagerLoitered = HubScene.VOYAGER_ROUTE.map(() => false);
+    } else {
+      this.selectedKey = null;
+      this.resetCamera();
+    }
+    this.callbacks.onVoyagerTour(on);
+  }
+
+  /** Where the probe is, and — during the grand tour — where the camera is.
+   *
+   * Two quite different journeys share this. The ambient one is a function of
+   * the clock: the probe launches from wherever Earth was when it left, coasts
+   * outward, and stops being drawn once it is well clear of the outermost
+   * orbit. That last part is the point of it — the old rig started outside
+   * Neptune and ran out to 830 units, which is past the resting camera by a
+   * factor of three, so the probe was almost never on screen at all. A craft
+   * that leaves from somewhere you were looking and disappears into the dark
+   * is a craft you see leave.
+   *
+   * The grand tour is the other one: the planets in order, the camera behind
+   * the probe, and a swing-by at each. Its progress is integrated rather than
+   * taken from the clock, because unlike everything else the hole and the sky
+   * do, this one is started by a person and has to begin when they start it. */
+  private updateVoyager(time: number, speed: number, dt: number) {
+    if (this.voyagerTour) {
+      this.flyGrandTour(dt);
+      return;
+    }
+
+    const p = ((time * speed) % HubScene.VOYAGER_COAST) / HubScene.VOYAGER_COAST;
+
+    /* Where Earth was when this run launched. Taken by rotating Earth's
+       *current* position backwards through the angle it has swept since —
+       which is exact, needs no stored launch state, and does not depend on
+       knowing which way round the orbit's phase is measured. A launch angle
+       captured in a variable at the moment of wrap would be missed by a tab
+       that was in the background for that frame. */
+    const earth = this.planets.find((pl) => pl.spec.key === "earth");
+    let launch = 2.35;
+    if (earth) {
+      earth.body.getWorldPosition(this.tmpV);
+      const swept = ((p * HubScene.VOYAGER_COAST) / earth.spec.period) * Math.PI * 2;
+      launch = Math.atan2(this.tmpV.z, this.tmpV.x) - swept;
+    }
+
+    /* Out of the system over the first two-thirds of the cycle, and gone for
+       the rest of it. The gap is deliberate: a probe that reappears at Earth
+       the instant it vanishes past Neptune is on a loop, and a loop is not a
+       departure. */
+    const gone = this.voyagerEdge * 1.3;
+    const span = (gone - this.voyagerLaunchRadius) / 0.68;
+    const distance = this.voyagerLaunchRadius + p * span;
+
+    if (distance >= gone) {
+      this.voyager.visible = false;
+      return;
+    }
+    this.voyager.visible = true;
+
+    /* Fading over the last stretch rather than blinking out at the line. The
+       craft is small and the sky behind it is busy, so a hard cut reads as a
+       dropped frame rather than as distance. */
+    const fadeFrom = this.voyagerEdge * 1.06;
+    const opacity = 1 - clamp01((distance - fadeFrom) / (gone - fadeFrom));
+    for (const m of this.voyagerMaterials) m.opacity = opacity;
+
+    // A gentle curve, and a climb out of the ecliptic — which the real one did
+    // too, though only after Saturn threw it there.
+    const angle = launch + p * 0.55;
+    const climb = (distance - this.voyagerLaunchRadius) * 0.34;
+    this.voyager.position.set(Math.cos(angle) * distance, climb, Math.sin(angle) * distance);
+    this.aimVoyager();
+  }
+
+  /** One frame of the grand tour: the probe along the route, and the camera
+   * behind it.
+   *
+   * The route is rebuilt from live planet positions every frame rather than
+   * sampled once at the start. Over seventy seconds the inner planets move a
+   * long way round, and a path baked at launch would have the probe swinging
+   * past where Mars used to be. */
+  private flyGrandTour(dt: number) {
+    if (!this.voyagerCurve) {
+      /* One point per stop and no more. There used to be two extra on the end
+         carrying the probe out into the dark past Neptune; the route does not
+         end at Neptune any more, and a leg into empty sky after the hole would
+         be a leg after the ending. */
+      this.voyagerRoute = HubScene.VOYAGER_ROUTE.map(() => new THREE.Vector3());
+      this.voyagerCenters = HubScene.VOYAGER_ROUTE.map(() => new THREE.Vector3());
+      this.voyagerReach = HubScene.VOYAGER_ROUTE.map(() => 0);
+      /* One guard point between every pair of stops, and the curve is run
+         through stop, guard, stop, guard… rather than through the stops alone.
+         See the loop that places them: they are what keeps the route from
+         cutting the corner between two planets, and the corner between two
+         planets is the sun.
+         Always present rather than inserted only where a leg needs one: the
+         parameter u is spread over however many control points there are, so a
+         guard appearing partway through the flight would shift every position
+         after it and the probe would jump. A guard on a leg that does not need
+         one sits at that leg's own midpoint and does nothing. */
+      this.voyagerGuards = HubScene.VOYAGER_ROUTE.slice(1).map(() => new THREE.Vector3());
+      const woven: THREE.Vector3[] = [];
+      for (let i = 0; i < this.voyagerRoute.length; i++) {
+        woven.push(this.voyagerRoute[i]);
+        if (i < this.voyagerGuards.length) woven.push(this.voyagerGuards[i]);
+      }
+      this.voyagerCurve = new THREE.CatmullRomCurve3(woven, false, "catmullrom", 0.4);
+    }
+
+    /* How far from the camera a sphere of radius R has to be to fit inside the
+       frame: R / tan(fov/2), vertically. Read off the live camera because the
+       fov is chosen from the viewport's shape — a phone held upright runs at
+       58° and a wide desktop at 46°, and a clearance tuned for one of those
+       puts the planet through the edge of the frame on the other. */
+    const fit = 1 / Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
+
+    for (let i = 0; i < HubScene.VOYAGER_ROUTE.length; i++) {
+      const key = HubScene.VOYAGER_ROUTE[i];
+      const point = this.voyagerRoute[i];
+      /* Planets first, because only they carry a ring spec — and Saturn's is
+         more than twice its own radius, so a stop measured by the body alone
+         would put the probe inside the rings. Everything else on the route is
+         a landmark, and its BodyInfo.size is the figure the rest of the scene
+         already frames it by. */
+      const planet = this.planets.find((p) => p.spec.key === key);
+      const pickable = planet ? null : this.pickables.find((p) => p.info.key === key);
+      if (!planet && !pickable) {
+        // A body this tier dropped: leave the stop where it was and skip it.
+        this.voyagerReach[i] = 0;
+        continue;
+      }
+      if (planet) planet.body.getWorldPosition(point);
+      else pickable!.anchor.getWorldPosition(point);
+      this.voyagerCenters[i].copy(point);
+
+      /* Past the planet, not through it.
+       *
+       * The offset used to be a flat 4.5% of the planet's *orbital* radius,
+       * which is a number about the system and not about the planet: at
+       * Jupiter it came to six units of clearance around a body nine units
+       * across, so the probe flew through it, and at Saturn it passed inside
+       * the rings. What the clearance has to be measured against is the
+       * planet's own extent — its radius, or the outer edge of its ring sheet
+       * where it has one, which at Saturn is more than twice the planet.
+       *
+       * And it has to be at least far enough away to see the thing. `fit` is
+       * the distance at which the body exactly fills the frame's height; a
+       * quarter more than that leaves it framed with air around it, which is
+       * what "the whole planet on screen" means. The floor of eight keeps the
+       * small inner planets from being flown through at arm's length. */
+      const reach = planet
+        ? planet.spec.size * (planet.spec.ring ? planet.spec.ring.outer : 1)
+        : pickable!.info.size;
+      const clear = Math.max(reach * 2.6, reach * fit * 1.25, 8);
+      this.voyagerReach[i] = reach;
+
+      /* Which way to stand off. Sideways, mostly — the route runs outward from
+         the sun, so an outward offset is *along* the flight path and would put
+         the probe on a collision course with the planet it is offset from
+         rather than beside it. The tangent is across that path. Sides
+         alternate so the probe weaves through the system instead of passing
+         every planet on the same hand, and the vertical share grows along the
+         route, which is the climb out of the ecliptic. */
+      const radial = this.tmpV3.set(point.x, 0, point.z);
+      if (radial.lengthSq() < 1e-6) radial.set(0, 0, 1);
+      radial.normalize();
+      const side = i % 2 === 0 ? 1 : -1;
+      const up = 0.34 + i * 0.07;
+      const flat = Math.sqrt(Math.max(0, 1 - up * up));
+      point.x += -radial.z * side * flat * clear;
+      point.z += radial.x * side * flat * clear;
+      point.y += up * clear;
+    }
+
+    /* Round the sun, not through it.
+     *
+     * The stops are wherever the planets happen to be, and two consecutive
+     * planets are regularly on opposite sides of the star — Earth at one
+     * o'clock and Mars at seven. The shortest path between those two points
+     * goes straight through the middle, and the middle is the sun. It is not a
+     * rare case either: over a tour this long the inner planets sweep most of
+     * the way round, so the leg out of Earth passes through the star for a
+     * good fraction of all the times anybody starts one.
+     *
+     * The fix is a point on each leg placed on the *angular* bisector rather
+     * than on the chord — half way round rather than half way across — at a
+     * radius no smaller than the two ends'. That bows every leg outward around
+     * the star, by a lot when the two stops are opposed and by nothing at all
+     * when they are already close together in angle. The keep-out floor covers
+     * the remaining case: two stops close in angle but both near the sun, where
+     * the bisector is short enough to graze it anyway. */
+    for (let i = 0; i < this.voyagerGuards.length; i++) {
+      const a = this.voyagerRoute[i];
+      const b = this.voyagerRoute[i + 1];
+      const guard = this.voyagerGuards[i];
+
+      const angleA = Math.atan2(a.z, a.x);
+      const angleB = Math.atan2(b.z, b.x);
+      /* Unwrapped to the short way round, so the bow goes the way the leg is
+         already going. Left wrapped, a leg crossing the ±π seam would put its
+         guard point on the far side of the system and the probe would fly all
+         the way round the sun to reach a planet next door. */
+      let sweep = (angleB - angleA) % (Math.PI * 2);
+      if (sweep > Math.PI) sweep -= Math.PI * 2;
+      if (sweep < -Math.PI) sweep += Math.PI * 2;
+      const mid = angleA + sweep * 0.5;
+
+      const radiusA = Math.hypot(a.x, a.z);
+      const radiusB = Math.hypot(b.x, b.z);
+      /* Outside both ends rather than between them. Half way between two radii
+         is still inside the outer orbit, and on a leg that has to bow a long
+         way round it is the bow itself that has to clear the star. */
+      const radius = Math.max((radiusA + radiusB) * 0.5, SUN_RADIUS * 3.4);
+      // Lifted over the midpoint of the two, so the bow rises as the route does
+      // rather than dropping back to the ecliptic between every pair.
+      guard.set(Math.cos(mid) * radius, (a.y + b.y) * 0.5 + 3, Math.sin(mid) * radius);
+    }
+
+    this.voyager.visible = true;
+    for (const m of this.voyagerMaterials) m.opacity = 1;
+
+    /* How close the probe is to the nearest thing worth slowing down for,
+       measured from where it got to last frame. Both the speed law below and
+       the framing further down are functions of it. */
+    let nearest = -1;
+    let nearDist = Infinity;
+    /* And the same again over only the bodies it has not already been round.
+       The speed law reads this one, the framing reads the other.
+
+       That difference is the whole of "leave when you are done". Both numbers
+       are the same everywhere on the route except in the seconds after an
+       orbit finishes, where the unfiltered distance is still small — the probe
+       is right next to the thing it has just circled — and would hold the
+       throttle at pass speed for the whole hundred-odd units it takes to get
+       clear. Which is a probe hanging about beside a body it has already
+       shown you. Filtered, it accelerates the moment the last turn closes. */
+    let departDist = Infinity;
+    for (let i = 0; i < this.voyagerReach.length; i++) {
+      if (this.voyagerReach[i] <= 0) continue;
+      const d = this.voyagerCenters[i].distanceTo(this.voyager.position);
+      if (d < nearDist) {
+        nearDist = d;
+        nearest = i;
+      }
+      if (!this.voyagerLoitered[i] && d < departDist) departDist = d;
+    }
+
+    /* Arriving somewhere worth going round. The trigger is proximity rather
+       than a position along the path, because the path is rebuilt every frame
+       from moving planets and the arc length of "level with Saturn" is not a
+       fixed number. Each stop fires once per run — `voyagerLoitered` — or the
+       probe would re-enter orbit on the frame it left and never get out. */
+    if (
+      this.voyagerLoiter < 0 &&
+      nearest >= 0 &&
+      !this.voyagerLoitered[nearest] &&
+      HubScene.VOYAGER_ORBIT_AT.has(HubScene.VOYAGER_ROUTE[nearest]) &&
+
+      nearDist < Math.max(this.voyagerReach[nearest] * 4.2, 46)
+    ) {
+      this.beginLoiter(nearest);
+    }
+
+    // Left at zero while circling, which also keeps the arrival check at the
+    // bottom from firing on a path position that is not being advanced.
+    let u = 0;
+    if (this.voyagerLoiter >= 0) {
+      /* Circling. The path is left exactly where it was — `voyagerTourT` does
+         not advance — and the probe is driven round a circle whose first point
+         is the point it stopped at. Three full turns bring it back to that
+         point to within floating error, so rejoining is not a transition: it
+         is the same position, and the next frame simply resumes moving from
+         it. That is the whole reason the frame is captured on entry rather
+         than recomputed from the planet each frame — a circle around a planet
+         that is itself moving does not close. */
+      this.voyagerLoiterAngle += ((Math.PI * 2) / HubScene.VOYAGER_ORBIT_PERIOD) * dt;
+      const sweep = Math.PI * 2 * this.loiterTurns;
+      const done = this.voyagerLoiterAngle >= sweep;
+
+      /* And it comes in while it is round there. Orbiting at the radius the
+         route passes at is orbiting at the distance chosen for *seeing the
+         whole thing at once*, which is a long way out — going round twice at
+         arm's length shows the same view twice. So the radius dips through the
+         middle of the manoeuvre and returns to exactly what it was by the end.
+         The sine is what makes it return: it is zero at both ends of the
+         sweep, so the last frame of the orbit is the first frame's position
+         and the path can be rejoined with no step at all. */
+      const through = clamp01(this.voyagerLoiterAngle / sweep);
+      const radius = this.loiterRadius * (1 - this.loiterDip * Math.sin(Math.PI * through));
+
+      const a = Math.cos(this.voyagerLoiterAngle);
+      const b = Math.sin(this.voyagerLoiterAngle);
+      this.voyagerPrev.copy(this.voyager.position);
+      this.voyager.position
+        .copy(this.loiterCenter)
+        .addScaledVector(this.loiterAxisA, a * radius)
+        .addScaledVector(this.loiterAxisB, b * radius);
+      /* The planet moves along its own orbit while this is going on, and the
+         circle was pinned to where it was. Carried along with it, so three
+         turns around Saturn are three turns around Saturn rather than three
+         turns around a point Saturn has since left. */
+      this.loiterCenter.copy(this.voyagerCenters[this.voyagerLoiter]).add(this.loiterOffset);
+      if (done) {
+        this.voyagerLoitered[this.voyagerLoiter] = true;
+        this.voyagerLoiter = -1;
+      }
+      this.aimVoyager();
+    } else {
+      /* The speed law. Distance travelled is integrated rather than derived
+         from a clock, so the pace is stated as a speed and the tour takes
+         however long that comes to — which is the right way round when what
+         matters is how fast the probe is going past things, not how long the
+         whole trip is. */
+      const open = clamp01(
+        (departDist - HubScene.VOYAGER_PASS_RANGE) /
+          (HubScene.VOYAGER_CRUISE_RANGE - HubScene.VOYAGER_PASS_RANGE)
+      );
+      // Smoothed at both ends, so leaving a planet is an acceleration and
+      // arriving at the next is a deceleration rather than two step changes.
+      const throttle = open * open * (3 - 2 * open);
+      // Faster the further out it is; see VOYAGER_CRUISE_GROWTH.
+      const fromStar = Math.hypot(this.voyager.position.x, this.voyager.position.z);
+      const cruise = HubScene.VOYAGER_CRUISE_SPEED * (1 + fromStar / HubScene.VOYAGER_CRUISE_GROWTH);
+      const speed = HubScene.VOYAGER_PASS_SPEED + (cruise - HubScene.VOYAGER_PASS_SPEED) * throttle;
+      this.voyagerTourT += speed * dt;
+
+      this.voyagerCurve.updateArcLengths();
+      u = clamp01(this.voyagerTourT / Math.max(this.voyagerCurve.getLength(), 1));
+      /* getPointAt, not getPoint: the progress above is a real distance, so
+         the parameter it is turned into has to be the arc-length one. Feeding
+         it to the raw spline parameter would put the speed law back at the
+         mercy of how the control points happen to be spaced. */
+      this.voyagerPrev.copy(this.voyager.position);
+      this.voyagerCurve.getPointAt(u, this.voyager.position);
+      this.aimVoyager();
+    }
+
+    /* The chase. Behind the probe along its own heading and a little above it,
+       which shows the craft and where it is going in one frame — a true view
+       from the cockpit would be a view of the back of a dish.
+
+       The heading is smoothed as well as the position. It is derived from one
+       frame's worth of movement, and at this speed that is a very small vector
+       whose direction jitters; feeding that straight into the camera offset
+       put a shiver on everything. Both easings are exponential in dt rather
+       than a fixed fraction per frame, so the smoothing lasts the same wall
+       time at 30fps as at 144 — a per-frame lerp is four times faster on a
+       fast machine, which is the wrong way round. */
+    const step = this.tmpV.copy(this.voyager.position).sub(this.voyagerPrev);
+    if (step.lengthSq() > 1e-10) {
+      this.voyagerHeading.lerp(step.normalize(), 1 - Math.exp(-dt * 2.2));
+      if (this.voyagerHeading.lengthSq() > 1e-8) this.voyagerHeading.normalize();
+    }
+    if (this.voyagerHeading.lengthSq() < 1e-8) this.voyagerHeading.set(0, 0, 1);
+
+    /* How much of a fly-by this is: `close` runs 0 out in the gaps and 1 at
+       the moment of the pass. The nearest body was found above, for the speed
+       law — one search serves both, and both want it measured against the same
+       position. */
+    const reach = nearest >= 0 ? this.voyagerReach[nearest] : 0;
+    // The window scales with the planet: Jupiter is worth framing from much
+    // further out than Mars, and a fixed distance would mean the same.
+    const window = Math.max(reach * 9, 40);
+    const close = nearest >= 0 ? 1 - clamp01(nearDist / window) : 0;
+    const ease = close * close * (3 - 2 * close);
+
+    /* Back off during a pass, by an amount the planet's own size sets. Chasing
+       at a fixed sixteen units framed the craft beautifully and cut the planet
+       in half, which is the complaint this answers: what the tour is showing
+       at that moment is the planet, and the craft is the thing in front of it.
+       Scaled to the craft otherwise, which is a third of the size it was. */
+    const back = 6.4 + ease * (reach * fit * 0.85 + 6);
+    const want = this.tmpV2.copy(this.voyager.position).addScaledVector(this.voyagerHeading, -back);
+    want.y += 2.6 + ease * reach * 0.5;
+    if (this.voyagerChase.lengthSq() < 1e-6) this.voyagerChase.copy(want);
+    else this.voyagerChase.lerp(want, 1 - Math.exp(-dt * 1.9));
+
+    /* And look between the two rather than at the probe. Distance alone does
+       not put a planet in the frame — it puts it *somewhere*, and off the side
+       of a shot centred on something else is somewhere. Halfway is enough:
+       the craft stays comfortably in frame and the planet comes off the edge
+       and into the picture. */
+    const aim = this.tmpV3.copy(this.voyager.position);
+    if (nearest >= 0) aim.lerp(this.voyagerCenters[nearest], ease * 0.5);
+
+    this.camera.position.copy(this.voyagerChase);
+    this.controls.target.copy(aim);
+    this.focusFloor = 1.2;
+
+    /* Arrived at the hole, which is where this route ends and the other thing
+       begins. Handing the camera back to the resting view here would end the
+       tour by cutting away from a black hole the probe has just spent three
+       minutes flying to; instead the ending takes over from exactly where the
+       chase left the camera, and the tour finishes the way the auto tour
+       finishes — round the disc, in, and out.
+
+       Unwound by hand rather than through setVoyagerTour(false), which calls
+       resetCamera() and would throw the camera back across the system on the
+       very frame the fall is starting. */
+    if (u >= 1) {
+      this.voyagerTour = false;
+      this.voyagerTourT = 0;
+      this.callbacks.onVoyagerTour(false);
+      this.beginFinale();
+    }
+  }
+
+  /** Puts the probe into orbit around one of its stops.
+   *
+   * The circle is built from where the probe already is rather than from a
+   * chosen radius and phase: its centre is the planet, its first point is the
+   * probe, and its plane contains the direction the probe was travelling in.
+   * All three together mean the orbit is entered tangentially — the craft does
+   * not turn to get into it — and that a whole number of turns ends where it
+   * started, which is what lets the path be rejoined without a seam. */
+  private beginLoiter(stop: number) {
+    this.voyagerLoiter = stop;
+    this.voyagerLoiterAngle = 0;
+    this.loiterTurns = HubScene.VOYAGER_ORBIT_AT.get(HubScene.VOYAGER_ROUTE[stop]) ?? 1;
+
+    const center = this.voyagerCenters[stop];
+    /* Lifted a little out of the planet's own plane so three turns are not
+       three passes through the ring sheet edge-on — the point of circling
+       Saturn is to see the rings open and close, which needs the orbit to be
+       inclined to them. */
+    this.loiterOffset.set(0, this.voyagerReach[stop] * 0.22, 0);
+    this.loiterCenter.copy(center).add(this.loiterOffset);
+
+    this.loiterAxisA.copy(this.voyager.position).sub(this.loiterCenter);
+    this.loiterRadius = this.loiterAxisA.length();
+    if (this.loiterRadius < 1e-3) {
+      // Degenerate: the probe is on top of the body. Should not happen with the
+      // stand-off the route is built with, but a zero radius would produce a
+      // NaN basis and put the craft at the origin.
+      this.voyagerLoiter = -1;
+      this.voyagerLoitered[stop] = true;
+      return;
+    }
+    this.loiterAxisA.divideScalar(this.loiterRadius);
+
+    /* How far in it may come. The configured dip, unless that would put the
+       closest point inside the body's own reach — at Saturn that reach is the
+       outer edge of the rings, and a swoop that ignored it would take the
+       craft through the ring sheet rather than under it. */
+    const floor = this.voyagerReach[stop] * HubScene.VOYAGER_ORBIT_FLOOR;
+    this.loiterDip = Math.min(
+      HubScene.VOYAGER_ORBIT_DIP,
+      Math.max(0, 1 - floor / this.loiterRadius)
+    );
+
+    /* The second axis: the component of the heading perpendicular to the
+       first, so the circle carries on the way the probe was already going. */
+    this.loiterAxisB
+      .copy(this.voyagerHeading)
+      .addScaledVector(this.loiterAxisA, -this.voyagerHeading.dot(this.loiterAxisA));
+    if (this.loiterAxisB.lengthSq() < 1e-6) {
+      // Heading straight at the planet: any perpendicular will do.
+      this.loiterAxisB.set(0, 1, 0).cross(this.loiterAxisA);
+      if (this.loiterAxisB.lengthSq() < 1e-6) this.loiterAxisB.set(1, 0, 0).cross(this.loiterAxisA);
+    }
+    this.loiterAxisB.normalize();
+  }
+
+  /** The dish stays pointed home, as it does. */
+  private aimVoyager() {
     this.voyager.lookAt(0, 0, 0);
     this.voyager.rotateX(Math.PI / 2);
   }
@@ -3447,6 +4804,11 @@ export class HubScene {
     grade.uFlashTint.value =
       this.diveFlash > 0.001 ? [this.diveTint.r, this.diveTint.g, this.diveTint.b] : [1.0, 0.98, 0.94];
     grade.uWarp.value = this.warp;
+    grade.uFade.value = this.fade;
+    grade.uCollapse.value = this.collapse;
+    grade.uStatic.value = this.tvStatic;
+    grade.uPlate.value = this.plate;
+    grade.uRipple.value = this.ripple;
     grade.uAberration.value = 1 + this.warp * 1.4;
     grade.uCenter.value = this.diveFlash > 0.001 || this.flight?.dive ? this.diveCenter : [0.5, 0.5];
 

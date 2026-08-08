@@ -104,6 +104,16 @@ export default function HubType2() {
   const [focused, setFocused] = useState<BodyInfo | null>(null);
   const [tier, setTier] = useState<Tier>("ultra");
   const [tour, setTour] = useState(false);
+  /* The probe's grand tour. Separate from `tour` and mutually exclusive with
+     it — both drive the camera, so turning one on has to turn the other off,
+     and the scene enforces that too for the case where the tour is started by
+     tapping the craft in the sky rather than by pressing this. */
+  const [probeTour, setProbeTour] = useState(false);
+  /* The scene has taken the whole frame — blacked out, or holding the plate at
+     the end of the tour. Everything in this component except the canvas is DOM
+     on top of it, so none of it goes dark when the render does; it has to be
+     told to stand down. */
+  const [curtain, setCurtain] = useState(false);
   const [kospi, setKospi] = useState<IndexQuote | null>(null);
   const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
   const [globals, setGlobals] = useState<GlobalIndexWidget[]>([]);
@@ -192,6 +202,11 @@ export default function HubType2() {
         onFocus: (body) => setFocused(body),
         onReady: () => setReady(true),
         onTier: (next) => setTier(next),
+        /* The scene starts and stops this one itself — a tap on the craft, or
+           the tour running out at Neptune — so the button has to follow it
+           rather than the other way round. */
+        onVoyagerTour: (on) => setProbeTour(on),
+        onCurtain: (on) => setCurtain(on),
       }, tier);
       if (tier) setTier(tier);
     } catch (error) {
@@ -225,6 +240,10 @@ export default function HubType2() {
   useEffect(() => {
     sceneRef.current?.setTour(tour);
   }, [tour]);
+
+  useEffect(() => {
+    sceneRef.current?.setVoyagerTour(probeTour);
+  }, [probeTour]);
 
   const dock = useMemo(
     () =>
@@ -274,7 +293,7 @@ export default function HubType2() {
   }
 
   return (
-    <div className={`h2${ready ? " is-ready" : ""}`}>
+    <div className={`h2${ready ? " is-ready" : ""}${curtain ? " is-curtained" : ""}`}>
       {/* The scene owns this element's contents entirely — the canvas and the
           floating body labels. React must never touch what is inside it. */}
       <div className="h2-stage" ref={mountRef} />
@@ -365,7 +384,11 @@ export default function HubType2() {
             {/* What it is, then where it goes. */}
             <span className="h2-focus-body">{en ? shown.bodyEn : shown.bodyKo}</span>
             <span className="h2-focus-name">{en ? shown.en : shown.ko}</span>
-            {shown.feed && <span className={`h2-focus-val is-${toneOf(feed[shown.feed])}`}>{pct(feed[shown.feed])}</span>}
+            {/* Same rule as the dock: a body whose quote does not exist shows
+                no quote, rather than a dash where one would be. */}
+            {shown.feed && feed[shown.feed] !== null && feed[shown.feed] !== undefined && (
+              <span className={`h2-focus-val is-${toneOf(feed[shown.feed])}`}>{pct(feed[shown.feed])}</span>
+            )}
             {isFocused && (
               <span className="h2-focus-hint">
                 {en ? "Tap again to open" : "한 번 더 누르면 이동"}
@@ -382,6 +405,7 @@ export default function HubType2() {
           className="h2-cam-btn"
           onClick={() => {
             setTour(false);
+            setProbeTour(false);
             sceneRef.current?.resetCamera();
           }}
         >
@@ -393,9 +417,31 @@ export default function HubType2() {
           type="button"
           className={`h2-cam-btn${tour ? " is-on" : ""}`}
           aria-pressed={tour}
-          onClick={() => setTour((on) => !on)}
+          onClick={() => {
+            setProbeTour(false);
+            setTour((on) => !on);
+          }}
         >
-          {en ? "AUTO TOUR" : "자동 투어"}
+          {en ? "AUTO TOUR" : "자동 여행"}
+        </button>
+        {/* The probe's own tour: Earth out to Neptune, a swing-by at each
+            planet, camera riding behind the craft. Tapping Voyager in the sky
+            does the same thing — this is here because the craft is a small
+            object on a long orbit and is not always somewhere you can find it
+            to tap. */}
+        <button
+          type="button"
+          className={`h2-cam-btn h2-cam-btn--probe${probeTour ? " is-on" : ""}`}
+          aria-pressed={probeTour}
+          onClick={() => {
+            setTour(false);
+            setProbeTour((on) => !on);
+          }}
+        >
+          {/* The label is its own element because the colour cycle is a
+              gradient clipped to the glyphs, and the button already has a
+              background of its own to keep. */}
+          <span className="h2-cam-cycle">{en ? "VOYAGER TOUR" : "보이저호 여행"}</span>
         </button>
       </div>
 
@@ -417,7 +463,19 @@ export default function HubType2() {
                 onPointerLeave={() => sceneRef.current?.focusByKey(null)}
               >
                 <span className="h2-dock-name">{en ? d.en : d.ko}</span>
-                {d.feed && <span className="h2-dock-val">{pct(d.value)}</span>}
+                {/* On the value, not on whether the destination claims a feed.
+                    Jupiter claims SPX and the backend's /global/indices widget
+                    has never carried the S&P 500 — it serves the Dow, the
+                    Nasdaq composite, two leveraged ETFs and the overseas
+                    majors — so that button could only ever print a dash, and a
+                    permanently empty number reads as a broken feed rather than
+                    as an absent one. The left-hand readout already drops the
+                    row for this reason; this is the same call. A feed that is
+                    merely late still prints, because `value` is null only
+                    until the poll lands. */}
+                {d.value !== null && d.value !== undefined && (
+                  <span className="h2-dock-val">{pct(d.value)}</span>
+                )}
               </button>
             </li>
           ))}

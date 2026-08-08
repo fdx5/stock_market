@@ -86,6 +86,35 @@
   inset: 0;
 }
 
+/* ── the curtain. The tour's ending blacks the render out and then holds a
+      photograph for five seconds, and every other thing on this page is DOM
+      floating above the canvas: the labels, the readout, the dock, the
+      wordmark, the credit line. None of them dim when the picture does, so
+      without this the plate is shown behind a lit grid of chrome — which is
+      the one thing a full-frame image cannot survive.
+
+      Everything except the stage, by exclusion rather than by listing the
+      parts. A list is a thing to forget to add to, and what belongs on top of
+      a held image is nothing at all.
+
+      Everything except the stage, by exclusion rather than by listing the
+      parts. A list is a thing to forget to add to, and what belongs on top of
+      a held image is nothing at all. The label layer needs naming anyway: it
+      is built by scene.ts *inside* the stage, so the exclusion above would
+      spare it.
+
+      The transition is declared only here, on the state being entered, so this
+      rule never touches the entrance animation those blocks already carry.
+      Going in, that gives the fade below; coming out, the element reverts to
+      its own rule and fades back on its own 0.9s — which is what should
+      happen, since the scene behind it is fading up over about that long. ── */
+.h2.is-curtained > *:not(.h2-stage),
+.h2.is-curtained .h2-labels {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s ease;
+}
+
 .h2-canvas {
   display: block;
   width: 100%;
@@ -659,13 +688,19 @@
   padding: 9px 14px;
   border-radius: 9px;
   font: inherit;
-  font-size: 10px;
+  font-size: 10.5px;
   letter-spacing: 0.16em;
   text-align: center;
   text-decoration: none;
-  color: var(--hud-dim);
-  background: var(--panel);
-  border: 1px solid var(--panel-line);
+  /* Full-strength, and on a panel dense enough to be a background. These are
+     two of the three controls on the page, and they were --hud-dim (0.62
+     alpha) on --panel (0.42 opaque) — which is dim text over whatever the sky
+     happens to be doing behind it, and the sky here is a moving starfield with
+     a sun in it. Same fix the clocks needed, for the same reason. */
+  font-weight: 600;
+  color: var(--hud);
+  background: rgba(8, 14, 30, 0.7);
+  border: 1px solid rgba(130, 170, 230, 0.3);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   cursor: pointer;
@@ -673,9 +708,9 @@
 }
 
 .h2-cam-btn:hover {
-  color: var(--hud);
-  border-color: rgba(150, 190, 255, 0.34);
-  background: rgba(14, 24, 48, 0.6);
+  color: #ffffff;
+  border-color: rgba(150, 190, 255, 0.55);
+  background: rgba(18, 30, 58, 0.82);
 }
 
 .h2-cam-btn:active {
@@ -686,6 +721,76 @@
   color: #9fd0ff;
   border-color: rgba(120, 180, 255, 0.5);
   box-shadow: 0 0 0 1px rgba(120, 180, 255, 0.14), 0 8px 28px -12px rgba(120, 180, 255, 0.8);
+}
+
+/* ── the probe's button, which has to advertise itself ──
+      It launches a three-minute set piece and nothing else on the page hints
+      that it exists, so unlike its two neighbours it is not content to sit
+      there being legible. The colour runs through the label continuously and
+      the border breathes: both are motion, which is the only thing that
+      reliably recruits attention on a screen already full of moving stars, and
+      neither changes the button's size or position, which is what separates an
+      invitation from a thing that jumps away from the pointer. ── */
+.h2-cam-cycle {
+  background-image: linear-gradient(
+    90deg,
+    #ff7a7a,
+    #ffd166,
+    #8dff9e,
+    #5fd8ff,
+    #b39dff,
+    #ff8fd0,
+    #ff7a7a
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  /* Both, and in this order: the standard property is what modern engines
+     read, and the WebKit one is what actually wins where it is supported. */
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: h2-cam-cycle 5s linear infinite;
+}
+
+@keyframes h2-cam-cycle {
+  to {
+    /* A full multiple of the background size, so the loop has no seam — the
+       gradient repeats its first colour at its last stop for the same reason. */
+    background-position: -300% 0;
+  }
+}
+
+.h2-cam-btn--probe {
+  animation: h2-cam-beacon 3.2s ease-in-out infinite;
+}
+
+@keyframes h2-cam-beacon {
+  0%,
+  100% {
+    border-color: rgba(130, 170, 230, 0.3);
+    box-shadow: 0 0 0 0 rgba(140, 190, 255, 0);
+  }
+  50% {
+    border-color: rgba(180, 200, 255, 0.72);
+    box-shadow: 0 0 18px -4px rgba(150, 195, 255, 0.55);
+  }
+}
+
+/* Running while it is on would be the control still asking to be pressed after
+   it has been. On, it is simply on. */
+.h2-cam-btn--probe.is-on {
+  animation: none;
+  border-color: rgba(150, 195, 255, 0.62);
+}
+
+/* Both of these are decoration that moves, which is the exact thing this
+   setting is asking not to see. The gradient stays — it is a colour, and a
+   static slice of it is a perfectly good one — it just stops travelling. */
+@media (prefers-reduced-motion: reduce) {
+  .h2-cam-cycle,
+  .h2-cam-btn--probe {
+    animation: none;
+  }
 }
 
 /* ─────────────────────────── the dock ─────────────────────────── */
@@ -736,13 +841,17 @@
   padding: 9px 14px;
   border-radius: 999px;
   font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: 12px;
+  /* This row is the page's actual navigation — on a phone it is the only way
+     in — and it was set in the same dim grey as the decorative footnotes. It
+     gets the treatment the readout gets: full colour, real weight, and a panel
+     opaque enough that the text is not competing with a starfield. */
+  font-weight: 650;
   letter-spacing: 0.04em;
   white-space: nowrap;
-  color: var(--hud-dim);
-  background: rgba(8, 14, 30, 0.52);
-  border: 1px solid var(--panel-line);
+  color: var(--hud);
+  background: rgba(8, 14, 30, 0.7);
+  border: 1px solid rgba(130, 170, 230, 0.28);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   cursor: pointer;
@@ -764,9 +873,9 @@
 
 .h2-dock-btn:hover,
 .h2-dock-btn:focus-visible {
-  color: var(--hud);
-  background: rgba(14, 24, 48, 0.72);
-  border-color: color-mix(in srgb, var(--accent) 46%, transparent);
+  color: #ffffff;
+  background: rgba(18, 30, 58, 0.85);
+  border-color: color-mix(in srgb, var(--accent) 62%, transparent);
   box-shadow: 0 10px 30px -14px color-mix(in srgb, var(--accent) 85%, transparent);
   transform: translateY(-2px);
   outline: none;
@@ -781,10 +890,9 @@
 }
 
 .h2-dock-val {
-  font-size: 10.5px;
+  font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  opacity: 0.9;
 }
 
 .h2-dock-btn.is-up .h2-dock-val {
@@ -952,8 +1060,13 @@
 
   .h2-cam-btn {
     width: auto;
-    padding: 8px 11px;
+    /* Three of them in one row now, and the third is the longest name of the
+       three. Tightened so the row still fits a small phone without the last
+       button being pushed off the right edge, and the letter-spacing — which
+       is decoration — goes first. */
+    padding: 8px 8px;
     font-size: 9px;
+    letter-spacing: 0.08em;
   }
 
   /* Below this width the sentence wraps and runs underneath the dock. There is
