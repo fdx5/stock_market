@@ -676,10 +676,26 @@ export class HubScene {
   /** The grand tour: on, the probe flies the planets in order and the camera
    * rides with it. Off, it coasts out on its own in the background. */
   private voyagerTour = false;
-  /** How far along the route the probe has travelled, in world units. The
-   * grand tour is paced by speed rather than by a fraction of a fixed
-   * duration — see the speed law in flyGrandTour. */
-  private voyagerTourT = 0;
+  /** How far along the route the probe has got, 0..1 on the curve's arc-length
+   * parameter. The grand tour is paced by speed rather than by a fraction of a
+   * fixed duration — see the speed law in flyGrandTour.
+   *
+   * Advanced by an increment each frame rather than stored as a distance and
+   * divided by the route's length. The two are the same only if the length is
+   * constant, and it is not: the route is rebuilt every frame from planets
+   * that keep moving, and the legs *behind* the probe change length by
+   * hundreds of units over a tour — the Earth–Mars leg alone swings between a
+   * short hop and a half-circle round the star as the two planets separate.
+   * Held as a distance, every one of those changes rescaled the whole route
+   * under the probe: the ratio fell, and the probe slid backwards along a path
+   * it had already flown. It cost up to a tenth of the route at a time and it
+   * is why a tour would sometimes crawl for three minutes without arriving.
+   *
+   * Held as the parameter itself, a change behind the probe cannot move it,
+   * because getPointAt is arc-length parameterised: adding ds/L advances
+   * exactly ds of arc whatever L happens to be this frame. And it only ever
+   * increases, so the tour always reaches its end. */
+  private voyagerTourU = 0;
   /** The route, rebuilt every frame from where the planets actually are, and
    * the spline through it. Catmull-Rom rather than straight legs: a probe that
    * turned a corner at each planet would be a probe under power, and the whole
@@ -702,6 +718,19 @@ export class HubScene {
   /** Which stops it has already circled this run, so a body is not orbited
    * again on the way past it a second time. */
   private voyagerLoitered: boolean[] = [];
+  /** Which stops are behind it, and which one it is on its way to.
+   *
+   * The speed law brakes for stops it has not reached yet and for no others.
+   * Without this it braked for every stop it had not *circled*, which is six
+   * of the eight — so the probe went on creeping along after a fly-by until
+   * the next planet's window took over, and in the outer system, where the
+   * tracks are closer together than the braking distance, the two windows
+   * overlap and the tour never got out of the pass at all. */
+  private voyagerPassed: boolean[] = [];
+  private voyagerStop = 0;
+  /** Last frame's distance to that stop, which is how "receding from it" is
+   * told from "still on the way in". */
+  private voyagerStopDist = Infinity;
   /** The frame the circle is drawn in: where it started, and the two axes of
    * its plane. Captured on entry so the last turn ends exactly where the first
    * began and the probe can rejoin the path without a step. */
@@ -4636,11 +4665,28 @@ export class HubScene {
    * The pass is then the same everywhere by construction, and the gaps cost
    * only what they are worth. */
   private static readonly VOYAGER_PASS_SPEED = 7.5;
-  private static readonly VOYAGER_CRUISE_SPEED = 62;
-  /** The distances the speed ramps between: full pass speed inside the first,
-   * full cruise beyond the second. */
-  private static readonly VOYAGER_PASS_RANGE = 34;
-  private static readonly VOYAGER_CRUISE_RANGE = 128;
+  private static readonly VOYAGER_CRUISE_SPEED = 66;
+  /** The distances the speed ramps between, as multiples of the stop's own
+   * reach: full pass speed inside the first, full cruise beyond the second.
+   *
+   * Measured against the body rather than in flat world units, and this is the
+   * change that decides how long the whole tour takes. A flat window has to be
+   * wide enough for Jupiter, and a window wide enough for Jupiter is 128 units
+   * — which around here is not a distance, it is a district. Neptune's track
+   * is 206 units out and the whole system is 260; eight stops each braking
+   * everything within 128 units of them leaves no stretch of the route
+   * travelling at cruise at all, and the tour spent about three quarters of
+   * its length crawling through sky that has nothing in it. Read off the body,
+   * Mars slows the probe within 62 units and Saturn within 151, which is what
+   * the difference between the two of them is actually worth.
+   *
+   * The floors are what stops the small inner planets going past in a blur —
+   * a body two units across still needs to be approached from far enough out
+   * to be seen coming. */
+  private static readonly VOYAGER_PASS_RANGE = 2.6;
+  private static readonly VOYAGER_PASS_RANGE_MIN = 12;
+  private static readonly VOYAGER_CRUISE_RANGE = 11;
+  private static readonly VOYAGER_CRUISE_RANGE_MIN = 62;
   /** How much the cruise speed grows with distance from the star.
    *
    * A flat cruise speed makes the outer legs drag, and not because the number
@@ -4650,7 +4696,11 @@ export class HubScene {
    * the least to look at takes the longest to cross, which is exactly the
    * wrong way round. Scaling with radius makes the outer legs cost roughly
    * what the inner ones do in time rather than in distance. */
-  private static readonly VOYAGER_CRUISE_GROWTH = 200;
+  private static readonly VOYAGER_CRUISE_GROWTH = 180;
+  /** How close a leg's straight line may come to the star before the route is
+   * bowed around it. Comfortably outside the corona, which reaches 3.4 × the
+   * star's own radius. See the guard points in flyGrandTour. */
+  private static readonly VOYAGER_SUN_KEEPOUT = 62;
 
   /** Stops the probe goes into orbit around rather than merely passing.
    *
@@ -4693,7 +4743,7 @@ export class HubScene {
        would cut the opening flight short on every load. */
     if (on === this.voyagerTour) return;
     this.voyagerTour = on;
-    this.voyagerTourT = 0;
+    this.voyagerTourU = 0;
     if (on) {
       // It takes the camera, so nothing else may be holding it.
       this.cancelFinale();
@@ -4708,6 +4758,9 @@ export class HubScene {
       this.voyagerLoiter = -1;
       this.voyagerLoiterAngle = 0;
       this.voyagerLoitered = HubScene.VOYAGER_ROUTE.map(() => false);
+      this.voyagerPassed = HubScene.VOYAGER_ROUTE.map(() => false);
+      this.voyagerStop = 0;
+      this.voyagerStopDist = Infinity;
     } else {
       this.selectedKey = null;
       this.resetCamera();
@@ -4897,7 +4950,17 @@ export class HubScene {
      * the star, by a lot when the two stops are opposed and by nothing at all
      * when they are already close together in angle. The keep-out floor covers
      * the remaining case: two stops close in angle but both near the sun, where
-     * the bisector is short enough to graze it anyway. */
+     * the bisector is short enough to graze it anyway.
+     *
+     * And it is faded in by how much the leg actually needs it, rather than
+     * applied to all of them. The bow is a detour, and a leg that was never
+     * going anywhere near the star pays for it anyway: the two outermost legs
+     * — Neptune out to the neutron pair and on to the hole — pass a clear two
+     * hundred units from the sun, and the bisector construction was swinging
+     * them out around a star they were never in danger of touching. So the
+     * guard sits at the leg's own midpoint when the straight line already
+     * clears the keep-out, at the bisector when the line runs through the
+     * star, and between the two in between. */
     for (let i = 0; i < this.voyagerGuards.length; i++) {
       const a = this.voyagerRoute[i];
       const b = this.voyagerRoute[i + 1];
@@ -4922,7 +4985,24 @@ export class HubScene {
       const radius = Math.max((radiusA + radiusB) * 0.5, SUN_RADIUS * 3.4);
       // Lifted over the midpoint of the two, so the bow rises as the route does
       // rather than dropping back to the ecliptic between every pair.
-      guard.set(Math.cos(mid) * radius, (a.y + b.y) * 0.5 + 3, Math.sin(mid) * radius);
+      const lift = (a.y + b.y) * 0.5 + 3;
+      guard.set(Math.cos(mid) * radius, lift, Math.sin(mid) * radius);
+
+      /* How close the plain chord comes to the star, in the plane — the foot of
+         the perpendicular from the origin, clamped to the segment so a leg that
+         points away from the star is measured from its own near end rather than
+         from a point behind it. */
+      const legX = b.x - a.x;
+      const legZ = b.z - a.z;
+      const legSq = legX * legX + legZ * legZ;
+      const foot = legSq > 1e-9 ? clamp01(-(a.x * legX + a.z * legZ) / legSq) : 0;
+      const graze = Math.hypot(a.x + legX * foot, a.z + legZ * foot);
+      const need = clamp01((HubScene.VOYAGER_SUN_KEEPOUT - graze) / HubScene.VOYAGER_SUN_KEEPOUT);
+      // Smoothed, because this is recomputed every frame off moving planets and
+      // a guard point that slid linearly in and out would put a kink in the
+      // route each time a leg crossed the threshold.
+      this.tmpV3.set((a.x + b.x) * 0.5, lift, (a.z + b.z) * 0.5);
+      guard.lerp(this.tmpV3, 1 - need * need * (3 - 2 * need));
     }
 
     this.voyager.visible = true;
@@ -4933,17 +5013,22 @@ export class HubScene {
        the framing further down are functions of it. */
     let nearest = -1;
     let nearDist = Infinity;
-    /* And the same again over only the bodies it has not already been round.
-       The speed law reads this one, the framing reads the other.
+    /* And, over the stops it has not reached yet, how hard the nearest of them
+       is braking: 0 out in the gaps, 1 at the stand-off distance. The speed law
+       reads this one, the framing reads the other.
 
-       That difference is the whole of "leave when you are done". Both numbers
-       are the same everywhere on the route except in the seconds after an
-       orbit finishes, where the unfiltered distance is still small — the probe
-       is right next to the thing it has just circled — and would hold the
-       throttle at pass speed for the whole hundred-odd units it takes to get
-       clear. Which is a probe hanging about beside a body it has already
-       shown you. Filtered, it accelerates the moment the last turn closes. */
-    let departDist = Infinity;
+       That difference is the whole of "leave when you are done". A stop that is
+       behind the probe does not slow it down — otherwise the tour crawls away
+       from every fly-by for as long as it takes to get out of the window it
+       came in through, which is a probe hanging about beside something it has
+       already shown you. Past it, the throttle opens at once.
+
+       The ramp is per-stop rather than taken from one distance, because the
+       ranges are now the bodies' own — see VOYAGER_PASS_RANGE. Two stops whose
+       windows overlap each brake by their own measure and the deeper of the
+       two wins, which is the one the probe is closer to *relative to its
+       size*, not simply the closer one. */
+    let brake = 0;
     for (let i = 0; i < this.voyagerReach.length; i++) {
       if (this.voyagerReach[i] <= 0) continue;
       const d = this.voyagerCenters[i].distanceTo(this.voyager.position);
@@ -4951,7 +5036,46 @@ export class HubScene {
         nearDist = d;
         nearest = i;
       }
-      if (!this.voyagerLoitered[i] && d < departDist) departDist = d;
+      if (this.voyagerPassed[i]) continue;
+      const near = Math.max(
+        this.voyagerReach[i] * HubScene.VOYAGER_PASS_RANGE,
+        HubScene.VOYAGER_PASS_RANGE_MIN
+      );
+      const far = Math.max(
+        this.voyagerReach[i] * HubScene.VOYAGER_CRUISE_RANGE,
+        HubScene.VOYAGER_CRUISE_RANGE_MIN
+      );
+      brake = Math.max(brake, 1 - clamp01((d - near) / (far - near)));
+    }
+
+    /* Which stop is still ahead. It drops behind — and stops braking — once the
+       probe has been inside its window and has started to recede from it again,
+       which is the earliest moment at which "we have seen this one" is true of
+       a path that is rebuilt every frame and has no fixed arc length to test
+       against. A stop this tier dropped has no reach and is skipped outright,
+       or the cursor would stick on it and brake for a body that is not there. */
+    if (this.voyagerStop < HubScene.VOYAGER_ROUTE.length) {
+      const i = this.voyagerStop;
+      const key = HubScene.VOYAGER_ROUTE[i];
+      // Not before it has been round the ones it is meant to go round.
+      const owed = HubScene.VOYAGER_ORBIT_AT.has(key) && !this.voyagerLoitered[i];
+      if (this.voyagerReach[i] <= 0) {
+        this.voyagerPassed[i] = true;
+        this.voyagerStop++;
+      } else if (!owed && this.voyagerLoiter < 0) {
+        const d = this.voyagerCenters[i].distanceTo(this.voyager.position);
+        const window = Math.max(
+          this.voyagerReach[i] * HubScene.VOYAGER_CRUISE_RANGE,
+          HubScene.VOYAGER_CRUISE_RANGE_MIN
+        );
+        if (d < window && d > this.voyagerStopDist) {
+          this.voyagerPassed[i] = true;
+          this.voyagerStop++;
+          this.voyagerStopDist = Infinity;
+        } else {
+          this.voyagerStopDist = d;
+        }
+      }
     }
 
     /* Arriving somewhere worth going round. The trigger is proximity rather
@@ -4974,7 +5098,7 @@ export class HubScene {
     // bottom from firing on a path position that is not being advanced.
     let u = 0;
     if (this.voyagerLoiter >= 0) {
-      /* Circling. The path is left exactly where it was — `voyagerTourT` does
+      /* Circling. The path is left exactly where it was — `voyagerTourU` does
          not advance — and the probe is driven round a circle whose first point
          is the point it stopped at. Three full turns bring it back to that
          point to within floating error, so rejoining is not a transition: it
@@ -5020,10 +5144,7 @@ export class HubScene {
          however long that comes to — which is the right way round when what
          matters is how fast the probe is going past things, not how long the
          whole trip is. */
-      const open = clamp01(
-        (departDist - HubScene.VOYAGER_PASS_RANGE) /
-          (HubScene.VOYAGER_CRUISE_RANGE - HubScene.VOYAGER_PASS_RANGE)
-      );
+      const open = 1 - brake;
       // Smoothed at both ends, so leaving a planet is an acceleration and
       // arriving at the next is a deceleration rather than two step changes.
       const throttle = open * open * (3 - 2 * open);
@@ -5031,14 +5152,19 @@ export class HubScene {
       const fromStar = Math.hypot(this.voyager.position.x, this.voyager.position.z);
       const cruise = HubScene.VOYAGER_CRUISE_SPEED * (1 + fromStar / HubScene.VOYAGER_CRUISE_GROWTH);
       const speed = HubScene.VOYAGER_PASS_SPEED + (cruise - HubScene.VOYAGER_PASS_SPEED) * throttle;
-      this.voyagerTourT += speed * dt;
 
       this.voyagerCurve.updateArcLengths();
-      u = clamp01(this.voyagerTourT / Math.max(this.voyagerCurve.getLength(), 1));
-      /* getPointAt, not getPoint: the progress above is a real distance, so
-         the parameter it is turned into has to be the arc-length one. Feeding
-         it to the raw spline parameter would put the speed law back at the
-         mercy of how the control points happen to be spaced. */
+      /* One frame's worth of arc, as a share of the whole route. getPointAt,
+         not getPoint: the step above is a real distance, so the parameter it is
+         added to has to be the arc-length one. Feeding it to the raw spline
+         parameter would put the speed law back at the mercy of how the control
+         points happen to be spaced — and would also break the one property this
+         being an increment buys, which is that the route changing shape behind
+         the probe cannot move the probe. See voyagerTourU. */
+      this.voyagerTourU = clamp01(
+        this.voyagerTourU + (speed * dt) / Math.max(this.voyagerCurve.getLength(), 1)
+      );
+      u = this.voyagerTourU;
       this.voyagerPrev.copy(this.voyager.position);
       this.voyagerCurve.getPointAt(u, this.voyager.position);
       this.aimVoyager();
@@ -5108,7 +5234,7 @@ export class HubScene {
        very frame the fall is starting. */
     if (u >= 1) {
       this.voyagerTour = false;
-      this.voyagerTourT = 0;
+      this.voyagerTourU = 0;
       this.callbacks.onVoyagerTour(false);
       this.beginFinale();
     }
