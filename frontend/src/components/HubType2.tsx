@@ -7,6 +7,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { useYouTubeBgm } from "../useYouTubeBgm";
 import LanguageToggle from "./LanguageToggle";
 import ThemeToggle from "./ThemeToggle";
 import "./hub2.css";
@@ -109,6 +110,9 @@ export default function HubType2() {
      and the scene enforces that too for the case where the tour is started by
      tapping the craft in the sky rather than by pressing this. */
   const [probeTour, setProbeTour] = useState(false);
+  /* Background music, and nothing to do with the scene: it is off by default,
+     it fetches nothing until pressed, and the camera does not care about it. */
+  const bgm = useYouTubeBgm();
   /* The scene has taken the whole frame — blacked out, or holding the plate at
      the end of the tour. Everything in this component except the canvas is DOM
      on top of it, so none of it goes dark when the render does; it has to be
@@ -334,6 +338,31 @@ export default function HubType2() {
           <LanguageToggle />
           <ThemeToggle />
         </div>
+        {/* What is playing, as a board that runs. Only while it is playing —
+            silence needs no caption.
+
+            The title is written twice. That is what makes the run seamless:
+            the strip is translated by exactly half its own width, so the
+            moment the first copy leaves, the second is sitting where it
+            started and the loop has nowhere visible to join. One copy would
+            have to snap back. The second is aria-hidden — it is the same
+            words, and a screen reader should hear them once. */}
+        {bgm.playing && (
+          <div className="h2-np" role="status" aria-live="polite">
+            {/* The lamp is the whole of the "playing" indicator now — the
+                words that used to sit beside it are gone. It carries the
+                label for anyone who cannot see it blink. */}
+            <span className="h2-np-led" role="img" aria-label={en ? "Now playing" : "재생중"} />
+            <span className="h2-np-window">
+              <span className="h2-np-run">
+                <span className="h2-np-text">{bgm.title}</span>
+                <span className="h2-np-text" aria-hidden="true">
+                  {bgm.title}
+                </span>
+              </span>
+            </span>
+          </div>
+        )}
       </div>
 
       {/* ── left rail: the four live indices, as numbers rather than as glow ──
@@ -443,7 +472,32 @@ export default function HubType2() {
               background of its own to keep. */}
           <span className="h2-cam-cycle">{en ? "VOYAGER TOUR" : "보이저호 여행"}</span>
         </button>
+        {/* Background music. Off until asked for — nothing is fetched and no
+            sound is made until this is pressed, which is both what was wanted
+            and the only thing a browser would allow anyway.
+
+            `warm` on the way down rather than on the click: the first press
+            has to fetch YouTube's player API before it can start anything, and
+            a pointer that is already on the button is a second or so of head
+            start on that. By the time the click lands the player usually
+            exists, and starting it is then immediate. */}
+        <button
+          type="button"
+          className={`h2-cam-btn${bgm.playing ? " is-on" : ""}`}
+          aria-pressed={bgm.playing}
+          onPointerDown={bgm.warm}
+          onFocus={bgm.warm}
+          onClick={bgm.toggle}
+          title={bgm.failed ? (en ? "Music could not be loaded" : "음원을 불러오지 못했습니다") : undefined}
+        >
+          {bgm.playing ? "BGM OFF" : "BGM ON"}
+        </button>
       </div>
+
+      {/* Where the music actually plays. React owns this element and nothing
+          else; the player builds itself into a child of it. See useYouTubeBgm
+          for why it is off-screen rather than absent. */}
+      <div className="h2-bgm" ref={bgm.hostRef} aria-hidden="true" />
 
       {/* ── the dock: every destination as a real button, live move included.
              This is the page's actual navigation. On a phone it is the primary

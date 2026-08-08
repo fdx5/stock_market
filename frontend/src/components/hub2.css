@@ -793,6 +793,146 @@
   }
 }
 
+/* ─────────────────────── now playing: the board ───────────────────────
+
+   Sits under the language and theme toggles and runs the track's name across
+   itself, the way a departures board does. Present only while something is
+   actually playing, so the corner is otherwise exactly as it was.
+
+   The run is one continuous translate rather than a there-and-back: the strip
+   holds the title twice and moves by half its own width, which puts the second
+   copy exactly where the first began at the instant the loop restarts. There
+   is no seam to see and nothing ever changes direction — the text just keeps
+   going, which is the whole difference between a board and a bouncing label. */
+.h2-np {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 165px;
+  /* Matched to .lang-toggle button's own 4px 9px, so the board sits under the
+     toggles as the same size of thing rather than as a wider slab. */
+  padding: 4px 9px;
+  border-radius: 8px;
+  background: var(--panel);
+  border: 1px solid var(--panel-line);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+/* The lamp. A board that is live has one, and it is the only part of this
+   that says "now" rather than "what". */
+.h2-np-led {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6fe3a0;
+  box-shadow: 0 0 8px 1px rgba(111, 227, 160, 0.75);
+  animation: h2-np-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes h2-np-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.32;
+  }
+}
+
+/* The slot the strip runs through. Everything outside it is clipped, which is
+   what makes the two copies read as one endless line. */
+.h2-np-window {
+  position: relative;
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Fades the text out at both ends instead of cutting it against the panel
+     edge — a hard cut reads as clipped text, a fade reads as text passing
+     through. */
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10px, #000 calc(100% - 10px), transparent);
+}
+
+.h2-np-run {
+  display: inline-flex;
+  animation: h2-np-run 11s linear infinite;
+  will-change: transform;
+}
+
+.h2-np-text {
+  /* The gap belongs to the text, not to the flex row: it has to travel WITH
+     each copy, or the space between the end of one pass and the start of the
+     next is not the same as the space inside the strip and the loop shows. */
+  padding-right: 2.6em;
+  color: var(--hud);
+  font-weight: 600;
+  /* A track's name is not a label. It was being uppercased and tracked out
+     like the buttons around it, which at this size is what made nine and a
+     half pixels read as bigger than the eleven next to it — set in its own
+     case with ordinary spacing it is both smaller and easier to read. */
+  letter-spacing: 0.03em;
+}
+
+@keyframes h2-np-run {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* Text that will not hold still is the thing this setting is asking not to
+   see. The board stays, the lamp stops blinking, and the title sits where it
+   can be read — truncated with an ellipsis if it does not fit, which is the
+   honest static answer to a name too long for the space. */
+@media (prefers-reduced-motion: reduce) {
+  .h2-np-led {
+    animation: none;
+  }
+  .h2-np-run {
+    animation: none;
+    max-width: 100%;
+  }
+  .h2-np-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .h2-np-text[aria-hidden="true"] {
+    display: none;
+  }
+}
+
+/* ─────────────────────────── background music ───────────────────────────
+
+   Where the BGM button's player lives. There is no way to play a YouTube
+   video without a YouTube player, so there is one on the page — it is simply
+   somewhere nobody looks.
+
+   Pushed off the side rather than hidden. `display: none`, `visibility:
+   hidden` and a zero-sized box are all grounds for a browser to stop giving
+   a media element the resources to play, and some of them do; a box that is
+   laid out at a real size and merely happens to be elsewhere is not. It also
+   keeps its real 200x200, which is the size YouTube asks embedded players to
+   be, so the only term this is bending is the one about being visible.
+
+   aria-hidden and no pointer events: it is not a control, and the control it
+   belongs to is the button above. */
+.h2-bgm {
+  position: fixed;
+  left: -320px;
+  bottom: 0;
+  width: 200px;
+  height: 200px;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+
 /* ─────────────────────────── the dock ─────────────────────────── */
 
 .h2-dock {

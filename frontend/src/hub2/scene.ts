@@ -3794,13 +3794,17 @@ export class HubScene {
          Squashed on the other two axes to conserve something like volume,
          which is what makes it read as being pulled rather than scaled. */
       const drawn = Math.pow(clamp01((125 - distance) / 118), 2.6);
-      /* Tuned against the resting camera, not in the abstract. The hole sits
-         near the top-left corner of the frame, so a filament here runs across
-         the screen and out of it — at the first numbers this reached about
-         240 units and left the viewport entirely, which is not a longer effect
-         than one that stays in frame, it is a shorter one with its end cut
-         off. These land the thread at roughly a third of the screen's width. */
-      const stretch = 1 + drawn * 22 + tear * tear * 36;
+      /* Scaled against the hole rather than against the screen.
+         PLUTO_RADIUS * 14 is a half-length of 33.6, so the finished thread is
+         about 67 units end to end — which is the disc's own outer diameter.
+         The filament reaches across the thing eating it and stops there.
+
+         It was more than four times that, and the trouble with a filament that
+         long is not that it leaves the frame: it is that it stops being
+         readable as something falling INTO the hole. At 283 units the hole was
+         a small bright knot at the middle of a line that owned the screen, and
+         the eye had nothing to tell it which of the two was the subject. */
+      const stretch = 1 + drawn * 5.0 + tear * tear * 8.0;
       const halfLen = PLUTO_RADIUS * stretch;
       /* Where the filament sits. Once it is longer than the distance it still
          has to fall, a body scaled about its own centre would poke out the far
@@ -4145,11 +4149,16 @@ export class HubScene {
        star, and its radius is over three times the rock's, so every unit of
        stretch buys three times the length. */
     const drawn = Math.pow(clamp01((250 - distance) / 236), 2.4);
-    /* Divided by the same factor the star's radius grew by, because halfLen
-       below is that radius times this: these numbers were tuned against the
-       length the filament actually reaches on screen, and a bigger star at the
-       old multipliers would have run it back out of the frame. */
-    const stretch = 1 + drawn * 6.7 + tear * tear * 10.7;
+    /* Held to the same finish as Pluto's, and for the same reason: SUN_RADIUS
+       * 2.82 is a half-length of 33.8, so this thread also ends at the disc's
+       outer edge rather than running out past the knots and off the frame.
+
+       The multipliers look small next to the rock's because the body they act
+       on is not. This star's radius is 12 against Pluto's 2.4 — five times the
+       diameter to begin with — so the same finished length is far less
+       stretch. What comes out is a fat spindle rather than a thread, which is
+       the honest shape for a body that large this close in. */
+    const stretch = 1 + drawn * 0.68 + tear * tear * 1.14;
     const halfLen = SUN_RADIUS * stretch;
     const centre = Math.max(distance, halfLen + 8.5);
     // Scratch, not a clone: this is one vector a frame for fifteen seconds of
