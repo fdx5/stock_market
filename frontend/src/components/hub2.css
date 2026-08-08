@@ -877,6 +877,15 @@
   letter-spacing: 0.03em;
 }
 
+/* The credit, set back from the name it introduces. Dimmer and tracked out,
+   which is what the rest of this corner does with a label — so it reads as
+   one, and the title stays the thing the eye lands on. */
+.h2-np-kind {
+  color: var(--hud-dim);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
 @keyframes h2-np-run {
   from {
     transform: translateX(0);

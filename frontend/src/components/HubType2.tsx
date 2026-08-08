@@ -353,11 +353,18 @@ export default function HubType2() {
                 words that used to sit beside it are gone. It carries the
                 label for anyone who cannot see it blink. */}
             <span className="h2-np-led" role="img" aria-label={en ? "Now playing" : "재생중"} />
+            {/* The credit travels with the title rather than sitting still in
+                front of it. The board is 165px wide; a fixed prefix would take
+                a third of that from the part that is actually the name, and on
+                a running board a label that stays put while the thing it
+                labels slides past it reads as two separate objects. */}
             <span className="h2-np-window">
               <span className="h2-np-run">
-                <span className="h2-np-text">{bgm.title}</span>
+                <span className="h2-np-text">
+                  <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span> {bgm.title}
+                </span>
                 <span className="h2-np-text" aria-hidden="true">
-                  {bgm.title}
+                  <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span> {bgm.title}
                 </span>
               </span>
             </span>
