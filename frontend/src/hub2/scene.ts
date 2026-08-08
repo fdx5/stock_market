@@ -18,6 +18,8 @@ import {
   type MoonSpec,
 } from "./bodies";
 import {
+  BEAM_FRAG,
+  BEAM_VERT,
   DISC_FRAG,
   DISC_VERT,
   GLOW_FRAG,
@@ -252,6 +254,8 @@ class GlowPool {
   private geometry: THREE.BufferGeometry;
   private material: THREE.ShaderMaterial;
   private cursor = 0;
+  /** Whether aSoft has been touched since it was last sent. See flush(). */
+  private softDirty = false;
 
   constructor(capacity: number, pixelRatio: number) {
     this.position = new Float32Array(capacity * 3);
@@ -293,9 +297,11 @@ class GlowPool {
   }
 
   /** Switches a whole allocated range to the soft profile. Called at build
-   * time; the attribute is uploaded on the first flush like everything else. */
+   * time; see flush() for why that is the only time this attribute is ever
+   * sent to the GPU. */
   setSoft(start: number, count: number, value: number) {
     this.soft.fill(value, start, start + count);
+    this.softDirty = true;
   }
 
   set(i: number, x: number, y: number, z: number, size: number, r: number, g: number, b: number, a: number) {
@@ -317,12 +323,44 @@ class GlowPool {
     this.material.uniforms.uPixelRatio.value = ratio;
   }
 
+  /** Sends the frame's writes to the GPU.
+   *
+   * Two things here are about cost rather than correctness, and on a phone they
+   * are worth more than they look.
+   *
+   * The pool is sized for the heaviest tier it might ever be asked to run, and
+   * on the cheap tier barely a fifth of it is ever allocated — but a plain
+   * `needsUpdate` re-sends the WHOLE array, allocated or not. Bounding every
+   * upload at the cursor means the low tier stops paying for four thousand
+   * slots that no effect owns. That is the tier that was dropping frames.
+   *
+   * And aSoft is not per-frame data at all: it is written once at build time
+   * and never again, so it is uploaded when it changes and at no other time.
+   * Marked every frame it was a fifth of the traffic for a buffer whose
+   * contents were identical from the second frame onward. */
   flush() {
-    this.geometry.attributes.position.needsUpdate = true;
-    (this.geometry.attributes.aSize as THREE.BufferAttribute).needsUpdate = true;
-    (this.geometry.attributes.aColor as THREE.BufferAttribute).needsUpdate = true;
-    (this.geometry.attributes.aAlpha as THREE.BufferAttribute).needsUpdate = true;
-    (this.geometry.attributes.aSoft as THREE.BufferAttribute).needsUpdate = true;
+    const n = this.cursor;
+    if (n === 0) return;
+    const position = this.geometry.attributes.position as THREE.BufferAttribute;
+    const size = this.geometry.attributes.aSize as THREE.BufferAttribute;
+    const color = this.geometry.attributes.aColor as THREE.BufferAttribute;
+    const alpha = this.geometry.attributes.aAlpha as THREE.BufferAttribute;
+
+    position.addUpdateRange(0, n * 3);
+    position.needsUpdate = true;
+    size.addUpdateRange(0, n);
+    size.needsUpdate = true;
+    color.addUpdateRange(0, n * 3);
+    color.needsUpdate = true;
+    alpha.addUpdateRange(0, n);
+    alpha.needsUpdate = true;
+
+    if (this.softDirty) {
+      const soft = this.geometry.attributes.aSoft as THREE.BufferAttribute;
+      soft.addUpdateRange(0, n);
+      soft.needsUpdate = true;
+      this.softDirty = false;
+    }
   }
 
   dispose() {
@@ -343,6 +381,10 @@ interface MoonRig {
   /** Range in the glow pool for a vent, if this moon has one. */
   ventStart?: number;
   ventCount?: number;
+  /** Whether that range has already been switched off. See clearGlow. */
+  ventIdle?: boolean;
+  /** Starship's engine plume, looked up once on first use. */
+  plume?: THREE.Mesh | null;
 }
 
 interface PlanetRig {
@@ -390,6 +432,16 @@ interface LabelRig {
   lastText: string;
   lastValue: string;
   lastBody: string;
+  /** The last values written to the element's own style, so a frame that would
+   * write the same thing writes nothing. See updateLabels. */
+  lastOffset: string;
+  lastTransform: string;
+  lastOpacity: string;
+  /** This frame's measurement, written by labelCandidates and read by the pass
+   * below it. Kept on the rig rather than in a Map the frame throws away. */
+  shown: boolean;
+  distance: number;
+  fade: number;
   visible: boolean;
 }
 
@@ -413,6 +465,19 @@ const PLUTO_RADIUS = 2.4;
  * by the photographed band and the glow painted around it — they have to be
  * the same band or the sky has two galaxies in it. */
 const GALACTIC_POLE = new THREE.Vector3(0.36, 0.86, -0.35).normalize();
+
+/** The sun's position, and the centre of the system. Never written to. */
+const ORIGIN = new THREE.Vector3(0, 0, 0);
+
+/** Where the two venting moons fire from, as unit xyz. Constants, so they are
+ * normalised here rather than in the frame — see updateVent. */
+const IO_VENT = unit(0.62, 0.38, 0.68);
+const ENCELADUS_VENT = unit(0.12, -0.98, 0.1);
+
+function unit(x: number, y: number, z: number): [number, number, number] {
+  const len = Math.hypot(x, y, z);
+  return [x / len, y / len, z / len];
+}
 
 /** Where the camera rests, and how wide it sees, for a given viewport shape.
  *
@@ -489,6 +554,9 @@ export class HubScene {
   private pickables: Pickable[] = [];
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2(-10, -10);
+  /** Scratch for pick(): the visible hit spheres, and what the ray found. */
+  private pickList: THREE.Object3D[] = [];
+  private pickHits: THREE.Intersection[] = [];
   private pointerInside = false;
 
   private planets: PlanetRig[] = [];
@@ -559,6 +627,26 @@ export class HubScene {
   private neutronSlots = { a: 0, b: 0, merged: 0 };
   /** The pair's orbital phase, integrated frame by frame — see updateNeutron. */
   private neutronAngle = 0;
+  /** Where each spin axis is pointing — one phase per body, star a, star b and
+   * the remnant they become. Separate rather than shared, and started apart,
+   * because a binary whose two axes swing in lockstep reads as one mechanism
+   * with two arms rather than as two stars. Integrated frame by frame for the
+   * same reason neutronAngle is: the rate changes at the merger. See pulsars.
+   */
+  private pulsarPhases = [0, 2.1, 0.7];
+  /** A slow clock, quite separate from the spin, that the lean of each axis
+   * nods against — see PULSAR_AXES. Kept apart from the phases above because
+   * those wrap at a full turn, and anything read through a non-integer
+   * multiple of a wrapping angle jumps every time it wraps. */
+  private pulsarNod = 0;
+  /** One shaft per body — the two stars and the remnant — each a cylinder run
+   * clean through it so that north and south are two ends of one object rather
+   * than two beams that have to be kept agreeing with each other. */
+  private beams: { mesh: THREE.Mesh; material: THREE.ShaderMaterial }[] = [];
+  /** Scratch for the spin axis, rebuilt per body per frame. */
+  private beamAxis = new THREE.Vector3();
+  /** What a cylinder is built along, and so what the axis is rotated FROM. */
+  private static readonly UP = new THREE.Vector3(0, 1, 0);
   /** The layered gas shells of the remnant, innermost first. */
   private remnant: { mesh: THREE.Mesh; material: THREE.ShaderMaterial; scale: number }[] = [];
   /** Clumps of ejecta flying clear of the shells. Six floats each: direction
@@ -567,6 +655,14 @@ export class HubScene {
   private knotStart = 0;
   private knotCount = 0;
   private flash = 0;
+
+  /* Whether each of the big intermittent glow ranges is currently switched off.
+   * Between them these cover about three thousand slots that spend most of the
+   * cycle dark — see clearGlow for what the flags save. */
+  private jetIdle = false;
+  private debrisIdle = false;
+  private streamIdle = false;
+  private knotsIdle = false;
 
   /* the probe */
   private voyager!: THREE.Object3D;
@@ -738,9 +834,31 @@ export class HubScene {
   private ready = false;
 
   private resizeObserver: ResizeObserver;
+  /* The viewport, in CSS pixels, as of the last resize.
+   *
+   * This used to be read with getBoundingClientRect() inside the frame — once
+   * for the labels and again for the lensing pass. Both are cheap calls in
+   * isolation and neither is cheap here: the label pass writes transform,
+   * opacity and a custom property onto a dozen absolutely-positioned elements
+   * every frame, so a rect read afterwards forces the browser to flush all of
+   * that styling and lay the overlay out again before it can answer. Twice a
+   * frame, synchronously, on the main thread. On a phone that alone can be a
+   * bigger cost than everything three.js does.
+   *
+   * The size cannot change without the ResizeObserver firing, so it is read
+   * there instead and the frame just uses the number. */
+  private viewW = 1;
+  private viewH = 1;
   private tmpV = new THREE.Vector3();
   private tmpV2 = new THREE.Vector3();
   private tmpV3 = new THREE.Vector3();
+  /** The approach direction the hole's two meals fall in along. Each of them
+   * built and normalised its own vector every frame; neither outlives the
+   * statement that reads it. */
+  private tmpDir = new THREE.Vector3();
+  /** The neutron binary's world position, which was being fetched into a fresh
+   * vector on every frame of the fifty-two-second cycle. */
+  private neutronCentre = new THREE.Vector3();
 
   constructor(container: HTMLElement, callbacks: SceneCallbacks, tier?: Tier) {
     this.container = container;
@@ -752,6 +870,8 @@ export class HubScene {
 
     const width = Math.max(container.clientWidth, 1);
     const height = Math.max(container.clientHeight, 1);
+    this.viewW = width;
+    this.viewH = height;
 
     this.renderer = new THREE.WebGLRenderer({
       antialias: false, // MSAA happens on the composer's target instead
@@ -843,6 +963,20 @@ export class HubScene {
     this.buildNeutronBinary();
     this.buildVoyager();
     this.buildComets();
+
+    /* The probe is about forty separate primitives — dish, subreflector, three
+       struts, three RTGs, two whip antennas, the scan platform — and not one of
+       them ever moves relative to the others. Only the rig they hang off does.
+       Left on the default, three re-composes every one of those local matrices
+       from its position, quaternion and scale on every frame, to arrive at the
+       same matrix it had last frame. Composed once here instead; the world
+       matrices still follow the rig, because that propagation is a multiply by
+       the parent and has nothing to do with this flag. */
+    this.voyager.traverse((child) => {
+      if (child === this.voyager) return;
+      child.updateMatrix();
+      child.matrixAutoUpdate = false;
+    });
 
     this.composer = this.buildComposer(width, height);
     this.gradePass = this.composer.passes[this.composer.passes.length - 1] as ShaderPass;
@@ -1919,6 +2053,48 @@ export class HubScene {
       this.knots[i * 6 + 5] = krand();
     }
 
+    /* The beams: one shaft through each of the two stars and one through the
+       remnant they become, each a cylinder capped at neither end and lit as a
+       single ray. See BEAM_FRAG for why it is a surface rather than a crowd of
+       sprites — a shaft of light has to arrive at ONE width, and a hundred
+       sprites laid along an axis will always read as something scattering off
+       it however tightly they are packed.
+
+       Twenty-four sides, which is more than the silhouette needs and about
+       what the limb term does. That term is computed per vertex and
+       interpolated across the wall, so the count is really how finely the
+       shaft's brightness is sampled across its own width — too few and the
+       ray comes out banded lengthwise. It is two cylinders on screen at once
+       and nothing else, so the triangles are free.
+
+       Unit geometry, sized per body by the mesh scale — the remnant's shaft is
+       longer and thicker than either star's. */
+    const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 24, 1, true);
+    this.disposables.push(beamGeo);
+    for (let i = 0; i < 3; i++) {
+      const material = new THREE.ShaderMaterial({
+        vertexShader: BEAM_VERT,
+        fragmentShader: BEAM_FRAG,
+        uniforms: {
+          uColor: { value: new THREE.Color(0x4d99ff) },
+          uGain: { value: 0 },
+        },
+        transparent: true,
+        depthWrite: false,
+        // Both walls, so the near one and the far one sum down the centreline.
+        // That sum is what fills the shaft — see the limb note in BEAM_FRAG.
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending,
+      });
+      const mesh = new THREE.Mesh(beamGeo, material);
+      mesh.visible = false;
+      mesh.frustumCulled = false;
+      mesh.renderOrder = 6;
+      this.scene.add(mesh);
+      this.beams.push({ mesh, material });
+      this.disposables.push(material);
+    }
+
     const info: BodyInfo = { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, bodyKo: NEUTRON_BINARY.bodyKo, bodyEn: NEUTRON_BINARY.bodyEn, to: NEUTRON_BINARY.to, accent: "#9fd0ff", size: 5, primary: true, dive: true };
     const hit = this.hitSphere(12);
     this.neutronGroup.add(hit);
@@ -2223,6 +2399,12 @@ export class HubScene {
       lastText: "",
       lastValue: "",
       lastBody: "",
+      lastOffset: "",
+      lastTransform: "",
+      lastOpacity: "",
+      shown: false,
+      distance: 0,
+      fade: 0,
       visible: false,
     });
   }
@@ -2236,19 +2418,26 @@ export class HubScene {
    * distance. Hovered and selected bodies bypass the budget entirely: the one
    * thing a visitor has actually pointed at must never be the label that got
    * cut. */
-  private labelCandidates(
-    camDir: THREE.Vector3,
-    budget: number
-  ): Map<LabelRig, { distance: number; fade: number }> {
-    const kept = new Map<LabelRig, { distance: number; fade: number }>();
-    const ranked: { label: LabelRig; distance: number; fade: number }[] = [];
+  /* Both lists are reused across frames rather than rebuilt. This runs sixty
+     times a second over a fixed set of labels, and the old version allocated a
+     Map, an array and one object per surviving label every time — for a result
+     that is thrown away before the next frame starts. The measurements now
+     live on the rigs themselves (`shown`, `distance`, `fade`), which is where
+     the second pass reads them anyway. */
+  private labelRanked: LabelRig[] = [];
+
+  private labelCandidates(camDir: THREE.Vector3, budget: number) {
+    const ranked = this.labelRanked;
+    ranked.length = 0;
     // Relative to how far the camera itself is sitting, so the fade behaves the
     // same when parked outside Neptune and when flown up against Mercury.
     const orbit = this.camera.position.distanceTo(this.controls.target);
     const reach = orbit + 480;
+    let kept = 0;
 
     for (const label of this.labels) {
       const { info } = label;
+      label.shown = false;
       const pinned = this.hovered?.key === info.key || this.selectedKey === info.key;
       if (!info.primary && !pinned) continue;
 
@@ -2261,16 +2450,22 @@ export class HubScene {
       const fade = 1 - clamp01((distance - reach) / reach);
       if (fade <= 0.02) continue;
 
-      if (pinned) kept.set(label, { distance, fade });
-      else ranked.push({ label, distance, fade });
+      label.distance = distance;
+      label.fade = fade;
+      if (pinned) {
+        label.shown = true;
+        kept++;
+      } else {
+        ranked.push(label);
+      }
     }
 
     ranked.sort((a, b) => a.distance - b.distance);
-    for (const entry of ranked) {
-      if (kept.size >= budget) break;
-      kept.set(entry.label, { distance: entry.distance, fade: entry.fade });
+    for (const label of ranked) {
+      if (kept >= budget) break;
+      label.shown = true;
+      kept++;
     }
-    return kept;
   }
 
   /** Projects every label to screen and writes its transform directly. Runs
@@ -2281,12 +2476,14 @@ export class HubScene {
    * and that cannot be decided until all of their distances are known. The
    * first pass measures; the second writes. */
   private updateLabels() {
-    const rect = this.container.getBoundingClientRect();
-    const halfW = rect.width / 2;
-    const halfH = rect.height / 2;
+    // Read off the last resize rather than measured here — see viewW.
+    const width = this.viewW;
+    const height = this.viewH;
+    const halfW = width / 2;
+    const halfH = height / 2;
     const camDir = this.camera.getWorldDirection(this.tmpV2);
     const halfFov = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
-    const narrow = rect.width < 760;
+    const narrow = width < 760;
 
     /* A phone cannot hold eleven captions over a solar system without them
        becoming a pile of overlapping pills, and a distance threshold is the
@@ -2295,19 +2492,18 @@ export class HubScene {
        *how many* is stable at every zoom, and nothing is lost: the dock below
        carries the full list, with the same names and the same numbers. */
     const budget = narrow ? 5 : Infinity;
-    const shown = this.labelCandidates(camDir, budget);
+    this.labelCandidates(camDir, budget);
 
     for (const label of this.labels) {
       const { info } = label;
-      const measured = shown.get(label);
-      if (!measured) {
+      if (!label.shown) {
         if (label.visible) {
           label.el.classList.remove("is-on");
           label.visible = false;
         }
         continue;
       }
-      const { distance, fade } = measured;
+      const { distance, fade } = label;
       const hovered = this.hovered?.key === info.key;
       const selected = this.selectedKey === info.key;
 
@@ -2323,9 +2519,9 @@ export class HubScene {
          Applied unconditionally it does the opposite: fly the camera down to
          Saturn and every other body in the system, most of them now far behind
          the viewport, stacks its name in a row along the top border. */
-      const slackX = rect.width * 0.06;
-      const slackY = rect.height * 0.06;
-      if (rawX < -slackX || rawX > rect.width + slackX || rawY < -slackY || rawY > rect.height + slackY) {
+      const slackX = width * 0.06;
+      const slackY = height * 0.06;
+      if (rawX < -slackX || rawX > width + slackX || rawY < -slackY || rawY > height + slackY) {
         if (label.visible) {
           label.el.classList.remove("is-on");
           label.visible = false;
@@ -2336,17 +2532,37 @@ export class HubScene {
       // The label is anchored to the right of its body (see .h2-tag's
       // translate in hub2.css), so the right margin has to allow for its own
       // width; 150px covers the longest of them.
-      const x = Math.min(Math.max(rawX, 12), rect.width - 150);
-      const y = Math.min(Math.max(rawY, 14), rect.height - 14);
+      const x = Math.min(Math.max(rawX, 12), width - 150);
+      const y = Math.min(Math.max(rawY, 14), height - 14);
 
       /* Stand the label off by the body's own apparent radius, so it sits
          beside what it names instead of on top of it. A fixed offset works
          for Mercury and buries the black hole's accretion disc under its own
          caption. */
-      const apparent = (info.size / distance / halfFov) * halfH;
-      label.el.style.setProperty("--offset", `${Math.min(Math.max(apparent + 12, 14), 130).toFixed(0)}px`);
-      label.el.style.transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
-      label.el.style.opacity = (hovered || selected ? 1 : fade * 0.92).toFixed(2);
+      /* Written only when the value actually changes.
+       *
+       * Every style write on these elements dirties the overlay's layout, and
+       * there are a dozen of them being written three properties each. The
+       * transform genuinely does change most frames — the bodies are moving —
+       * but the stand-off and the opacity are quantised to a whole pixel and
+       * two decimals, and at rest they hold the same value for seconds at a
+       * time. Comparing first is much cheaper than writing, and it is the
+       * writes that were making the browser re-lay-out the overlay. */
+      const apparent = Math.min(Math.max((info.size / distance / halfFov) * halfH + 12, 14), 130).toFixed(0);
+      if (apparent !== label.lastOffset) {
+        label.el.style.setProperty("--offset", `${apparent}px`);
+        label.lastOffset = apparent;
+      }
+      const transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
+      if (transform !== label.lastTransform) {
+        label.el.style.transform = transform;
+        label.lastTransform = transform;
+      }
+      const opacity = (hovered || selected ? 1 : fade * 0.92).toFixed(2);
+      if (opacity !== label.lastOpacity) {
+        label.el.style.opacity = opacity;
+        label.lastOpacity = opacity;
+      }
 
       const text = this.lang === "en" ? info.en : info.ko;
       if (text !== label.lastText) {
@@ -2456,9 +2672,15 @@ export class HubScene {
     this.raycaster.setFromCamera(this.pointer, this.camera);
     /* Hidden bodies are not targets. The raycaster does not consult `visible`
        itself, so the probe's hit sphere would go on catching taps for the half
-       of its cycle it spends out beyond the system and unrendered. */
-    const objects = this.pickables.filter((p) => p.anchor.visible).map((p) => p.object);
-    const hits = this.raycaster.intersectObjects(objects, false);
+       of its cycle it spends out beyond the system and unrendered.
+
+       Filtered into arrays this call owns and reuses. The pair of throwaway
+       arrays this used to build were forty entries each, sixty times a second,
+       for a list whose membership changes about twice a minute. */
+    this.pickList.length = 0;
+    for (const p of this.pickables) if (p.anchor.visible) this.pickList.push(p.object);
+    this.pickHits.length = 0;
+    const hits = this.raycaster.intersectObjects(this.pickList, false, this.pickHits);
     if (hits.length === 0) return null;
     const first = hits[0].object;
     return this.pickables.find((p) => p.object === first) ?? null;
@@ -3342,7 +3564,9 @@ export class HubScene {
   };
 
   private updatePlanets(dt: number, time: number, speed: number) {
-    const sun = new THREE.Vector3(0, 0, 0);
+    // The sun is the origin and never moves; this used to be rebuilt every
+    // frame to be copied into eight materials that already held the value.
+    const sun = ORIGIN;
     for (const planet of this.planets) {
       const spec = planet.spec;
       planet.angle += (dt / spec.period) * Math.PI * 2 * speed;
@@ -3370,7 +3594,7 @@ export class HubScene {
         // plume left mid-eruption would simply hang there without its moon.
         if (!moon.pivot.visible) {
           if (moon.ventStart !== undefined && moon.ventCount) {
-            for (let i = 0; i < moon.ventCount; i++) this.glow.hide(moon.ventStart + i);
+            moon.ventIdle = this.clearGlow(moon.ventStart, moon.ventCount, moon.ventIdle ?? false);
           }
           continue;
         }
@@ -3383,7 +3607,14 @@ export class HubScene {
         if (moon.spec.craft === "starship") {
           // Kept pointing along its own track, and the plume breathing.
           moon.mesh.rotation.y = -moon.pivot.rotation.y;
-          const plume = moon.mesh.getObjectByName("plume") as THREE.Mesh | undefined;
+          /* Found once and kept. getObjectByName walks the subtree, and this
+             was walking it every frame to reach the same mesh. `undefined`
+             means not looked up yet and `null` means looked up and not there,
+             which is the distinction that stops a miss being retried forever. */
+          if (moon.plume === undefined) {
+            moon.plume = (moon.mesh.getObjectByName("plume") as THREE.Mesh | undefined) ?? null;
+          }
+          const plume = moon.plume;
           if (plume) {
             const flicker = 0.42 + Math.abs(Math.sin(time * 9.3)) * 0.3;
             (plume.material as THREE.MeshBasicMaterial).opacity = flicker;
@@ -3392,6 +3623,7 @@ export class HubScene {
         }
         if (moon.ventStart !== undefined && moon.ventCount) {
           this.updateVent(moon, time, speed);
+          moon.ventIdle = false;
         }
       }
 
@@ -3406,6 +3638,21 @@ export class HubScene {
    * vent on the surface, arc under a weak pull back toward the moon, and fade
    * — the real ones are ballistic, not a jet, because neither body has enough
    * atmosphere to hold a column up. */
+  /** Switches a whole glow range off, and does nothing at all if the caller
+   * says it is already off.
+   *
+   * Every range this is used on spends most of its cycle dark — the jet burns
+   * for seven seconds in fifty-two, Pluto's debris for four, the supernova
+   * knots for thirty in fifty-two — and the old code re-wrote the same few
+   * thousand zeroes on every frame in between. That is a loop with no output:
+   * the alpha was already zero, and now the upload is bounded too, so those
+   * slots cost nothing on either side. Returns the caller's new idle flag.
+   */
+  private clearGlow(start: number, count: number, idle: boolean): boolean {
+    if (!idle) for (let i = 0; i < count; i++) this.glow.hide(start + i);
+    return true;
+  }
+
   private updateVent(moon: MoonRig, time: number, speed: number) {
     const start = moon.ventStart!;
     const count = moon.ventCount!;
@@ -3413,36 +3660,47 @@ export class HubScene {
     const io = moon.spec.vent === "io";
     // The vent's own place on the surface. Io's Pele-analogue sits near the
     // equator; Enceladus's tiger stripes are at its south pole, so its plume
-    // fires straight "down".
-    const ventDir = io ? new THREE.Vector3(0.62, 0.38, 0.68).normalize() : new THREE.Vector3(0.12, -0.98, 0.1).normalize();
+    // fires straight "down". Normalised once at module scope: it is a
+    // constant, and it was being rebuilt and re-normalised twice a frame.
+    const vent = io ? IO_VENT : ENCELADUS_VENT;
 
     moon.holder.getWorldPosition(this.tmpV);
-    const origin = this.tmpV;
+    const ox = this.tmpV.x;
+    const oy = this.tmpV.y;
+    const oz = this.tmpV.z;
     const reach = io ? radius * 7.5 : radius * 9;
     const spread = io ? 0.42 : 0.24;
 
+    /* Plain numbers rather than Vector3s. Every particle used to cost four
+       allocations — two clones, a literal and another clone — which across
+       both moons was some fourteen thousand short-lived vectors a second, for
+       arithmetic that fits in six locals. Nothing about the result changes;
+       this is the same expression with the objects taken out from under it. */
     for (let i = 0; i < count; i++) {
       const seed = (i * 0.6180339887) % 1;
-      const life = ((time * speed * (io ? 0.42 : 0.3) + seed) % 1);
+      const life = (time * speed * (io ? 0.42 : 0.3) + seed) % 1;
       // Ballistic: up fast, then falling back.
       const height = Math.sin(life * Math.PI) * reach;
       const drift = life * reach * 0.55;
 
       const a = seed * Math.PI * 2;
       const wobble = spread * life;
-      const dir = ventDir
-        .clone()
-        .add(new THREE.Vector3(Math.cos(a) * wobble, Math.sin(a * 1.7) * wobble * 0.6, Math.sin(a) * wobble))
-        .normalize();
+      let dx = vent[0] + Math.cos(a) * wobble;
+      let dy = vent[1] + Math.sin(a * 1.7) * wobble * 0.6;
+      let dz = vent[2] + Math.sin(a) * wobble;
+      const len = Math.hypot(dx, dy, dz) || 1;
+      dx /= len;
+      dy /= len;
+      dz /= len;
 
-      const p = origin.clone().add(dir.clone().multiplyScalar(radius + height * 0.6 + drift * 0.3));
+      const out = radius + height * 0.6 + drift * 0.3;
       const fade = Math.sin(life * Math.PI);
       const size = (io ? 0.55 : 0.45) * (0.5 + fade * 0.9);
       if (io) {
         // Sulphur: yellow at the vent, cooling to red as it falls.
-        this.glow.set(start + i, p.x, p.y, p.z, size, 1.0, 0.72 - life * 0.32, 0.28, fade * 0.5);
+        this.glow.set(start + i, ox + dx * out, oy + dy * out, oz + dz * out, size, 1.0, 0.72 - life * 0.32, 0.28, fade * 0.5);
       } else {
-        this.glow.set(start + i, p.x, p.y, p.z, size, 0.82, 0.92, 1.0, fade * 0.42);
+        this.glow.set(start + i, ox + dx * out, oy + dy * out, oz + dz * out, size, 0.82, 0.92, 1.0, fade * 0.42);
       }
     }
   }
@@ -3524,7 +3782,7 @@ export class HubScene {
       const p = cycle / HubScene.T_PLUTO_END;
       const distance = 120 * Math.pow(1 - p, 1.55) + 5;
       const angle = p * Math.PI * 5.4;
-      const dir = new THREE.Vector3(Math.cos(angle), Math.sin(angle * 0.6) * 0.22, Math.sin(angle)).normalize();
+      const dir = this.tmpDir.set(Math.cos(angle), Math.sin(angle * 0.6) * 0.22, Math.sin(angle)).normalize();
 
       const tear = clamp01((cycle - HubScene.PLUTO_APPROACH) / HubScene.PLUTO_TEAR);
       /* Spaghettification, and it is not something that happens at the end.
@@ -3567,7 +3825,7 @@ export class HubScene {
       this.feed += ((tear > 0.25 ? tear : 0) - this.feed) * Math.min(1, dt * 2.4);
     } else {
       this.pluto.visible = false;
-      for (let i = 0; i < this.debrisCount; i++) this.glow.hide(this.plutoDebrisStart + i);
+      this.debrisIdle = this.clearGlow(this.plutoDebrisStart, this.debrisCount, this.debrisIdle);
       // Between meals the hole cools back down; the afterglow above carries
       // the colour, this carries the heat.
       this.feed += (glowBright - this.feed) * Math.min(1, dt * 1.8);
@@ -3608,9 +3866,10 @@ export class HubScene {
 
     if (since < 0) {
       this.jetGroup.visible = false;
-      for (let i = 0; i < this.jetParticleCount; i++) this.glow.hide(this.jetParticleStart + i);
+      this.jetIdle = this.clearGlow(this.jetParticleStart, this.jetParticleCount, this.jetIdle);
       return 0;
     }
+    this.jetIdle = false;
 
     const life = since / HubScene.JET_LIFE;
     /* Up almost instantly, then held, then let down. The hole does not ease
@@ -3858,9 +4117,10 @@ export class HubScene {
     if (!active) {
       this.blueStar.visible = false;
       this.blueStarHalo.visible = false;
-      for (let i = 0; i < this.streamCount; i++) this.glow.hide(this.streamStart + i);
+      this.streamIdle = this.clearGlow(this.streamStart, this.streamCount, this.streamIdle);
       return;
     }
+    this.streamIdle = false;
 
     const since = cycle - HubScene.T_GOLD_END;
     const total = HubScene.STAR_APPROACH + HubScene.STAR_TEAR;
@@ -3874,7 +4134,7 @@ export class HubScene {
        star, so it should be visible as one long before it arrives. */
     const distance = 240 * Math.pow(1 - p, 1.4) + 11;
     const angle = Math.PI + p * Math.PI * 3.1;
-    const dir = new THREE.Vector3(Math.cos(angle), Math.sin(angle * 0.5) * 0.28, Math.sin(angle)).normalize();
+    const dir = this.tmpDir.set(Math.cos(angle), Math.sin(angle * 0.5) * 0.28, Math.sin(angle)).normalize();
 
     /* The same spaghettification Pluto gets, and further along it: a star is
        far larger than the rock, so the tide across it is larger too, and it
@@ -3892,7 +4152,9 @@ export class HubScene {
     const stretch = 1 + drawn * 6.7 + tear * tear * 10.7;
     const halfLen = SUN_RADIUS * stretch;
     const centre = Math.max(distance, halfLen + 8.5);
-    const pos = holePos.clone().addScaledVector(dir, centre);
+    // Scratch, not a clone: this is one vector a frame for fifteen seconds of
+    // every fifty-two, and it does not outlive the function.
+    const pos = this.tmpV2.copy(holePos).addScaledVector(dir, centre);
 
     this.blueStar.position.copy(pos);
     this.blueStar.lookAt(holePos);
@@ -3922,7 +4184,7 @@ export class HubScene {
        star, winds most of the way around the hole, and ends at the disc — so
        the stream reads as material already in orbit rather than as a straight
        line of falling dots. */
-    const toStar = pos.clone().sub(holePos);
+    const toStar = this.tmpV3.copy(pos).sub(holePos);
     const starAngle = Math.atan2(toStar.z, toStar.x);
     const starDist = toStar.length();
 
@@ -3959,8 +4221,9 @@ export class HubScene {
   }
 
   private updatePlutoDebris(holePos: THREE.Vector3, tear: number, time: number, speed: number) {
+    this.debrisIdle = false;
     const plutoPos = this.pluto.position;
-    const toHole = holePos.clone().sub(plutoPos);
+    const toHole = this.tmpV3.copy(holePos).sub(plutoPos);
     const fall = toHole.length();
 
     for (let i = 0; i < this.debrisCount; i++) {
@@ -4016,10 +4279,74 @@ export class HubScene {
   private static readonly NS_MERGED = 30;
   private static readonly NS_CYCLE = 52;
 
+  /* ── the beams ──
+     A neutron star's radiation leaves along the spin axis, out of both poles
+     at once, and the axis itself is leaning and swinging like a top's. So: one
+     shaft of light run clean through each body — one ray north, one south —
+     lit steadily and never doing anything but pointing.
+
+     There is no motion in the beam. It does not fire, it does not pulse, and
+     nothing climbs it; the only thing that changes from frame to frame is
+     which way it points, because the star it belongs to is turning. That is
+     the whole effect, and everything that used to compete with it has been
+     taken out.
+
+     What is left exists to keep the shaft reading as a RAY. It is one width
+     from the star to its tip — nothing about it opens with distance. It is
+     drawn at one axis position, not smeared across the arc the axis swept this
+     frame. And it is a surface rather than a crowd of particles, because
+     particles scatter and a ray does not. */
+
+  /** What each body's axis does, in order: star a, star b, the remnant.
+   *
+   * `tilt` is the lean off vertical, and it is the number that decides how
+   * much of a sweep the turn is: an axis that leans by nothing sweeps nothing.
+   * The pair's are shallow, so their rays stay near upright and the turn is a
+   * narrow wobble; the remnant's is steep, which is most of why the merger
+   * reads as a change of body.
+   *
+   * `rate` is that body's share of the spin, and `nod`/`off` are a slow drift
+   * in the lean itself. Both exist for the same reason: two stars with one
+   * tilt, one rate and one phase are one object drawn twice. Deliberately not
+   * a random number generator — these are fixed, chosen to have no common
+   * factor, so the two axes never come back into step and the scene still
+   * looks identical on every load. */
+  private static readonly PULSAR_AXES = [
+    { tilt: 0.33, rate: 1.0, nod: 0.12, off: 0 },
+    { tilt: 0.54, rate: 0.71, nod: 0.17, off: 2.4 },
+    { tilt: 0.86, rate: 1.0, nod: 0.07, off: 1.1 },
+  ];
+  /** Radians a second the nod above runs at. Slow enough that it reads as the
+   * axis wandering rather than as a second, faster rotation. */
+  private static readonly PULSAR_NOD_RATE = 0.55;
+  /** Turns per second of the axis, before the merger and after it. */
+  private static readonly PULSAR_SPIN_PRE = 5;
+  private static readonly PULSAR_SPIN_POST = 60;
+  /** Half the shaft's length in world units — it runs this far out of EACH
+   * pole — against a pair whose orbit is eleven across and stars about five
+   * wide. */
+  private static readonly PULSAR_REACH = 30;
+  /** The shaft's radius in world units. Narrow, and constant along its whole
+   * length: this is the number that decides whether it reads as a ray or as a
+   * cone, and there is nothing anywhere that scales it by distance. */
+  private static readonly PULSAR_GIRTH = 0.5;
+
   private updateNeutron(dt: number, time: number, speed: number) {
     const t = (time * speed) % HubScene.NS_CYCLE;
-    const center = this.neutronGroup.getWorldPosition(new THREE.Vector3());
+    const center = this.neutronGroup.getWorldPosition(this.neutronCentre);
     const { a, b, merged } = this.neutronSlots;
+
+    const merging = t >= HubScene.NS_INSPIRAL;
+    /* The axis phase, integrated rather than read off the clock. The rate
+       changes at the merger — five turns a second becomes sixty — and
+       `time * rate` with a rate that changes is a phase that jumps at the
+       moment it changes, which here would be a visible snap of the axis
+       exactly on the frame the eye is already watching. */
+    const spin = merging ? HubScene.PULSAR_SPIN_POST : HubScene.PULSAR_SPIN_PRE;
+    for (let i = 0; i < this.pulsarPhases.length; i++) {
+      this.pulsarPhases[i] = (this.pulsarPhases[i] + spin * HubScene.PULSAR_AXES[i].rate * Math.PI * 2 * dt * speed) % (Math.PI * 2);
+    }
+    this.pulsarNod = (this.pulsarNod + HubScene.PULSAR_NOD_RATE * dt * speed) % (Math.PI * 2);
 
     if (t < HubScene.NS_INSPIRAL) {
       const p = t / HubScene.NS_INSPIRAL;
@@ -4046,8 +4373,22 @@ export class HubScene {
       this.glow.set(b, center.x - dx, center.y, center.z - dz, size, 0.72 * bright, 0.86 * bright, 1.0 * bright, 1);
       this.glow.hide(merged);
 
+      /* A shaft through each star, each on its own axis — different leans,
+         different rates, drifting independently, so the two never point the
+         same way twice. See PULSAR_AXES. Both brighten as the orbit tightens,
+         along with the stars themselves.
+
+         A deep blue rather than the stars' own blue-white. The shaft is a
+         narrow thing crossing a sky that already has a bright pair at the
+         middle of it, and a pale tint at this width simply washes into them;
+         saturating it is what gives the ray an edge to be seen against. */
+      const beamGain = 0.5 + p * 0.6;
+      this.pulsars(0, center.x + dx, center.y, center.z + dz, beamGain, 0.3, 0.6, 1.0);
+      this.pulsars(1, center.x - dx, center.y, center.z - dz, beamGain, 0.3, 0.6, 1.0);
+      this.pulsars(2, center.x, center.y, center.z, 0, 0, 0, 0);
+
       for (const layer of this.remnant) layer.mesh.visible = false;
-      for (let i = 0; i < this.knotCount; i++) this.glow.hide(this.knotStart + i);
+      this.knotsIdle = this.clearGlow(this.knotStart, this.knotCount, this.knotsIdle);
       // The burst fires in the last instant before contact, not on a timer.
       this.flash = p > 0.995 ? 1 : this.flash * Math.exp(-dt * 6);
     } else {
@@ -4058,7 +4399,34 @@ export class HubScene {
       // What the two of them become: one bright remnant, held while its ejecta
       // cloud expands across the sky behind it.
       const settle = clamp01(since / 1.2);
-      this.glow.set(merged, center.x, center.y, center.z, 15 + (1 - settle) * 24, 0.88, 0.94, 1.0, 1);
+      /* And a different colour from the two that made it. The pair are
+         blue-white — the hottest thing in the scene — and the remnant leaves
+         that end of the spectrum for a soft vanilla, so the merger reads as a
+         change of body and not merely as a change of size. Held just off
+         white: any further into the yellow and it stops looking incandescent.
+
+         Eased in over the same 1.2s the size settles across, so the instant of
+         contact is still the blue-white the eye was tracking and the colour
+         arrives with the remnant rather than as a cut. */
+      const vanR = 0.88 + settle * 0.12;
+      const vanG = 0.94 - settle * 0.045;
+      const vanB = 1.0 - settle * 0.33;
+      this.glow.set(merged, center.x, center.y, center.z, 15 + (1 - settle) * 24, vanR, vanG, vanB, 1);
+
+      /* The remnant's own shaft — one ray north and one south, the same ray
+         the pair had, and every way it differs is a way of saying this is a
+         bigger body: longer, thicker, leaning further over, swinging twelve
+         times faster, and about twice as bright as either star's was. Fades
+         out over the last fifth of the remnant's life along with everything
+         else in the cloud.
+
+         Deep amber, the saturated end of the body's own vanilla, for the same
+         reason the pair's shafts are deep blue: it has to hold its own against
+         the remnant it comes out of. */
+      const beamGain = clamp01(since / 0.8) * (1 - clamp01((since / HubScene.NS_MERGED - 0.8) / 0.2));
+      this.pulsars(2, center.x, center.y, center.z, beamGain * 3.1, 1.0, 0.78, 0.34);
+      this.pulsars(0, center.x, center.y, center.z, 0, 0, 0, 0);
+      this.pulsars(1, center.x, center.y, center.z, 0, 0, 0, 0);
 
       this.flash = since < 0.7 ? (1 - since / 0.7) * 1.0 : this.flash * Math.exp(-dt * 4);
 
@@ -4163,11 +4531,66 @@ export class HubScene {
           const fade = Math.pow(1 - grow, 1.35) * clamp01(since * 2.2);
           this.glow.set(this.knotStart + i, x, y, z, sizeK * (1 + grow * 2.1), r, g, b, fade * 0.72);
         }
+        this.knotsIdle = false;
       } else {
         for (const layer of this.remnant) layer.mesh.visible = false;
-        for (let i = 0; i < this.knotCount; i++) this.glow.hide(this.knotStart + i);
+        this.knotsIdle = this.clearGlow(this.knotStart, this.knotCount, this.knotsIdle);
       }
     }
+  }
+
+  /** One body's beam: a single shaft of light run through it pole to pole,
+   * along a spin axis that leans well off vertical and swings round like a
+   * knocked top's.
+   *
+   * `which` picks the shaft — 0 and 1 are the two stars, 2 the remnant — and
+   * `gain` at zero puts it away, which is how the inspiral hides the remnant's
+   * and the merger hides the pair's.
+   *
+   * North and south are the two halves of one cylinder rather than two beams,
+   * so they cannot drift out of agreement: BEAM_FRAG folds the shaft's UV
+   * about its middle and lights both ends identically. All this has to do is
+   * put the cylinder where the body is and point it down the axis — which,
+   * since the shaft never changes, is the entire animation.
+   */
+  private pulsars(which: number, x: number, y: number, z: number, gain: number, tintR: number, tintG: number, tintB: number) {
+    const { mesh, material } = this.beams[which];
+    if (gain <= 0.001) {
+      mesh.visible = false;
+      return;
+    }
+
+    /* The remnant's shaft is far longer and somewhat thicker than either
+       star's, because it is a far bigger thing: its own sprite is fifteen
+       units across, and a shaft scaled for the pair would start inside it and
+       leave looking like a thread.
+
+       3.8 puts each half at 114 units. That sits right on the ejecta shells'
+       own reach of 112 — the ray clears the cloud coming out of the same point
+       and stops there, rather than carrying on past the knots at 205 the way
+       171 did. The width is deliberately not scaled with it: a ray that got
+       thicker as it got longer would be back to reading as a cone. */
+    const remnant = which === 2;
+    const reach = remnant ? HubScene.PULSAR_REACH * 3.8 : HubScene.PULSAR_REACH;
+    const girth = remnant ? HubScene.PULSAR_GIRTH * 2.1 : HubScene.PULSAR_GIRTH;
+
+    // This body's own lean, own drift in that lean, and own phase — see
+    // PULSAR_AXES for why none of the three is shared with its neighbour.
+    const spec = HubScene.PULSAR_AXES[which];
+    const tilt = spec.tilt + spec.nod * Math.sin(this.pulsarNod + spec.off);
+    const sinT = Math.sin(tilt);
+    const phase = this.pulsarPhases[which];
+    this.beamAxis.set(sinT * Math.cos(phase), Math.cos(tilt), sinT * Math.sin(phase));
+
+    mesh.visible = true;
+    mesh.position.set(x, y, z);
+    // The cylinder is built along +Y and centred on its own middle, which is
+    // exactly the star — so pointing +Y down the axis aims both ends at once.
+    mesh.quaternion.setFromUnitVectors(HubScene.UP, this.beamAxis);
+    mesh.scale.set(girth, reach * 2, girth);
+
+    material.uniforms.uGain.value = gain;
+    (material.uniforms.uColor.value as THREE.Color).setRGB(tintR, tintG, tintB);
   }
 
   /** The planets the grand tour calls at, inward to outward. Not Voyager 1's
@@ -4801,8 +5224,21 @@ export class HubScene {
        cannot overlap in practice — a dive is the last second of the page — but
        the tint has to pick one, and the dive is the one the visitor asked for. */
     grade.uFlash.value = this.flash * 0.55 + this.diveFlash;
-    grade.uFlashTint.value =
-      this.diveFlash > 0.001 ? [this.diveTint.r, this.diveTint.g, this.diveTint.b] : [1.0, 0.98, 0.94];
+    /* Written into the array the uniform already holds rather than handed a
+       new one. Two literals a frame is nothing on its own; it is one of about
+       a dozen such sites, and together they were the reason this scene made
+       garbage at a steady rate with nothing happening in it. A collection
+       pause is a dropped frame, and on a phone it is several. */
+    const tint = grade.uFlashTint.value as number[];
+    if (this.diveFlash > 0.001) {
+      tint[0] = this.diveTint.r;
+      tint[1] = this.diveTint.g;
+      tint[2] = this.diveTint.b;
+    } else {
+      tint[0] = 1.0;
+      tint[1] = 0.98;
+      tint[2] = 0.94;
+    }
     grade.uWarp.value = this.warp;
     grade.uFade.value = this.fade;
     grade.uCollapse.value = this.collapse;
@@ -4810,13 +5246,15 @@ export class HubScene {
     grade.uPlate.value = this.plate;
     grade.uRipple.value = this.ripple;
     grade.uAberration.value = 1 + this.warp * 1.4;
-    grade.uCenter.value = this.diveFlash > 0.001 || this.flight?.dive ? this.diveCenter : [0.5, 0.5];
+    const centred = this.diveFlash > 0.001 || this.flight?.dive;
+    const gc = grade.uCenter.value as number[];
+    gc[0] = centred ? this.diveCenter[0] : 0.5;
+    gc[1] = centred ? this.diveCenter[1] : 0.5;
 
     if (!this.lensPass) return;
     const lens = this.lensPass.uniforms;
-    const rect = this.container.getBoundingClientRect();
-    const aspect = Math.max(rect.width, 1) / Math.max(rect.height, 1);
-    lens.uAspect.value = aspect;
+    // Off the last resize, not measured here — see viewW.
+    lens.uAspect.value = Math.max(this.viewW, 1) / Math.max(this.viewH, 1);
     lens.uTime.value = time;
     lens.uFeed.value = this.feed;
 
@@ -4824,7 +5262,7 @@ export class HubScene {
     // projection rather than being tuned by hand, so the effect stays locked
     // to the body at any camera distance.
     this.holeGroup.getWorldPosition(this.tmpV);
-    const toHole = this.tmpV.clone().sub(this.camera.position);
+    const toHole = this.tmpV3.copy(this.tmpV).sub(this.camera.position);
     const forward = this.camera.getWorldDirection(this.tmpV2);
     const depth = toHole.dot(forward);
     if (depth <= 1) {
@@ -4843,7 +5281,9 @@ export class HubScene {
        seven sides being the `atan(d.y, d.x) * 7.0` ripple in the shader). */
     const u = this.tmpV.x * 0.5 + 0.5;
     const v = this.tmpV.y * 0.5 + 0.5;
-    lens.uCenter.value = [u, v];
+    const lc = lens.uCenter.value as number[];
+    lc[0] = u;
+    lc[1] = v;
 
     // A sphere of radius R at distance d spans R / (d·tan(fov/2)) of the
     // half-height, i.e. half that in 0..1 UV over the full height — which is
@@ -4932,6 +5372,8 @@ export class HubScene {
   resize() {
     const width = Math.max(this.container.clientWidth, 1);
     const height = Math.max(this.container.clientHeight, 1);
+    this.viewW = width;
+    this.viewH = height;
     const view = viewFor(width / height, height);
     this.camera.aspect = width / height;
     this.camera.fov = view.fov;

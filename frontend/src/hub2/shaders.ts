@@ -731,6 +731,75 @@ void main() {
 }
 `;
 
+/* ─────────────────────────── the pulsar beam ───────────────────────────
+   The neutron stars' own beams, and the merged remnant's. Same subject as the
+   jet above and a deliberately different treatment, because it is a different
+   thing to look at: the jet is gas being flung out and is made of travelling
+   grains, and this is a SHAFT OF LIGHT — a single filled ray leaving the poles,
+   which has to arrive straight, at one width, with nothing scattering off it.
+
+   So: a closed cylinder run through the star, both poles at once, drawn as one
+   piece rather than as a crowd of sprites. Its UV.y runs 0 at one tip to 1 at
+   the other, and the whole shader is a function of `d`, the distance from the
+   star toward either tip, which is what makes the two halves mirror without
+   being two objects.
+
+   NOTHING here travels. There was a pulse climbing the shaft and it is gone:
+   the motion in this object is the axis turning, and a bright thing running
+   out along the beam competes with that — it draws the eye down the ray and
+   away from the sweep, which is the only thing there is to watch. What is left
+   is a steady ray, dim enough to be a lit line rather than a lamp, that simply
+   points wherever the axis is pointing.
+
+   The one term that is not about distance is the limb. A cylinder is a
+   surface, and additive blending sums the near wall and the far one, so left
+   alone it draws as a hollow tube with two hot edges and a dark middle:
+   exactly the "spreading" read that a solid ray must not have. Weighting by
+   how square-on the wall faces the camera inverts that. Down the middle of the
+   shaft the wall faces the camera and gets everything; at the silhouette it is
+   edge-on and falls away. What comes out is a ray that is brightest along its
+   axis and soft at its two sides — filled, not hollow, and the same shape from
+   every angle. */
+export const BEAM_VERT = /* glsl */ `
+varying vec2 vUv;
+varying float vFace;
+void main() {
+  vUv = uv;
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  /* How square-on this bit of wall is to the camera: 1 down the centreline of
+     the shaft, 0 at its silhouette. See the limb note above. */
+  vFace = abs(dot(normalize(normalMatrix * normal), normalize(-mv.xyz)));
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+export const BEAM_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform float uGain;
+varying vec2 vUv;
+varying float vFace;
+
+void main() {
+  // Distance from the star toward either tip. The star sits at uv.y 0.5.
+  float d = abs(vUv.y - 0.5) * 2.0;
+
+  /* The ray, and the whole of it: lit end to end, all the time, at one
+     brightness that only falls off toward the tips so that it finishes by
+     running out rather than by being cut. No head, no travelling anything —
+     a lamp pointed along the axis. */
+  float shaft = pow(1.0 - d * 0.88, 1.6) * 0.19;
+
+  /* Filled, not hollow. The floor is what keeps the sides of the ray from
+     going to nothing — a shaft with hard edges reads as a drawn line, and one
+     with none reads as a smear; this is the narrow band between them. */
+  float fill = pow(vFace, 1.7) * 0.82 + 0.18;
+
+  float body = shaft * fill * uGain;
+  if (body <= 0.0) discard;
+  gl_FragColor = vec4(uColor, clamp(body, 0.0, 1.0));
+}
+`;
+
 /* ────────────────────── deep-sky background ──────────────────────
    The nebula the whole system sits inside, painted on the inside of a very
    large sphere. Three gas phases at three scales with a dust lane cut through
