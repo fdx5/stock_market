@@ -2083,7 +2083,11 @@ export class HubScene {
     /* The accretion stream. A tidally disrupted star does not fall in as a
        lump: it is drawn out into a long ribbon of gas that winds most of the
        way round the hole before it arrives. These are that ribbon. */
-    this.streamCount = this.tier === "low" ? 160 : this.tier === "high" ? 380 : 620;
+    /* Trebled. This ribbon is supposed to read as a star being drained, and six
+       hundred grains across a fifty-unit gap is a thread. The glow pool holds
+       6,200 slots against roughly 3,800 already claimed, so the room is there —
+       and the cheap tier still gets the smallest share of it. */
+    this.streamCount = this.tier === "low" ? 520 : this.tier === "high" ? 1150 : 1800;
     this.streamStart = this.glow.allocate(this.streamCount);
     this.stream = new Float32Array(this.streamCount * 4);
     const rand = mulberry32(515151);
@@ -4575,11 +4579,18 @@ export class HubScene {
        something launched. */
     const head = Math.pow(clamp01(since / HubScene.JET_LAUNCH), 0.55);
     const held = clamp01((life - 0.5) / 0.5);
-    const energy = Math.min(1, since * 24) * (1 - held * held * (3 - 2 * held));
+    let energy = Math.min(1, since * 24) * (1 - held * held * (3 - 2 * held));
+    // Half again as bright for the star. It clamps in the shader, so the
+    // headroom shows as a beam that stays at full white for longer rather than
+    // as one that blows out.
+    energy *= 0.85 + power * 0.65;
 
     // Very long, deliberately: this should cross the sky, not the hole.
-    const length = 620 + power * 820;
-    const width = 8 + power * 10;
+    /* The star's jet is the payoff for a thirty-second meal, so it is not
+       merely the rock's beam again with a different tint. `power` is 0.5 for
+       the rock and 1 for the star, and everything below leans on that gap. */
+    const length = 620 + power * 1180;
+    const width = 8 + power * 22;
 
     // Gold for the rock, matching the afterglow it fires into; blue-white for
     // the star, which is the colour the star itself was.
