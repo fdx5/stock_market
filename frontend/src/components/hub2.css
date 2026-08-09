@@ -864,6 +864,20 @@
   animation: h2-np-eq var(--dur) ease-in-out var(--delay) infinite alternate;
 }
 
+/* Driven by the track's own envelope rather than by keyframes.
+   The animation has to go: a running animation overrides an inline transform,
+   so with both in play the bars would keep dancing to the CSS and ignore every
+   value written to them.
+   The transition is what covers the gap between envelope frames. There are
+   twenty a second and the screen draws sixty, so without it the bars step; with
+   it the compositor fills in, and the interpolation costs the main thread
+   nothing. Slightly under the 50ms frame interval so a bar has always arrived
+   before the next value replaces it. */
+.h2-np-eq.is-live .h2-np-eq-bar {
+  animation: none;
+  transition: transform 45ms linear;
+}
+
 @keyframes h2-np-eq {
   from {
     transform: scaleY(0.14);

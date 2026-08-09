@@ -68,6 +68,8 @@ interface YtPlayer {
   /** Swaps the track and starts it. Used for every play after the first —
    * building a second player to change songs would mean a second iframe. */
   loadVideoById(videoId: string): void;
+  /** Where in the track it is, in seconds. The equaliser's whole clock. */
+  getCurrentTime?: () => number;
   setVolume(volume: number): void;
   getVideoData?: () => { title?: string } | undefined;
   destroy(): void;
@@ -145,6 +147,13 @@ function cleanTitle(raw: string): string {
 export interface Bgm {
   /** The track's name, for the marquee. */
   title: string;
+  /** Which video is loaded, so the equaliser knows whose envelope to read.
+   * Null before anything has been chosen. */
+  trackId: string | null;
+  /** Where the player is in the track, in seconds, or null if there is no
+   * player yet or it will not answer. Stable across renders — the equaliser
+   * holds it in an effect dependency. */
+  getTime: () => number | null;
   /** What the button should say it is doing. Tracks what the visitor asked
    * for, not what the player has got round to — a button that waits for a
    * network round trip before it changes reads as broken. */
@@ -169,6 +178,11 @@ export function useYouTubeBgm(): Bgm {
      actually loaded — so the board is right immediately AND stays right if a
      video is retitled on YouTube. */
   const [title, setTitle] = useState(TRACKS[0].name);
+  /* Which video is loaded, as state rather than only as the ref below: the
+     equaliser is a React effect keyed on it, so it has to re-render to notice
+     a track change. The ref stays because the draw logic reads it outside
+     render, where state would be a frame behind. */
+  const [trackId, setTrackId] = useState<string | null>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YtPlayer | null>(null);
   /** Which track is on, and so which one the next draw must avoid. Null until
@@ -238,6 +252,7 @@ export function useYouTubeBgm(): Bgm {
       // Shown straight away so the board changes with the press rather than a
       // network round trip later; onStateChange corrects it if it differs.
       setTitle(track.name);
+      setTrackId(track.id);
       player.loadVideoById(track.id);
     },
     []
@@ -336,9 +351,19 @@ export function useYouTubeBgm(): Bgm {
       const track = pickTrack(trackRef.current?.id ?? null);
       trackRef.current = track;
       setTitle(track.name);
+      setTrackId(track.id);
       build();
     }
   }, [build, playRandom]);
 
-  return { title, playing, failed, hostRef, toggle, warm: build };
+  /* Stable across renders, so the equaliser's effect is not torn down and
+     rebuilt on every state change this component makes. It reads the player
+     through a ref, so a function created once still finds the current one. */
+  const getTime = useCallback((): number | null => {
+    if (!readyRef.current) return null;
+    const seconds = playerRef.current?.getCurrentTime?.();
+    return typeof seconds === "number" && Number.isFinite(seconds) ? seconds : null;
+  }, []);
+
+  return { title, trackId, playing, failed, hostRef, toggle, warm: build, getTime };
 }

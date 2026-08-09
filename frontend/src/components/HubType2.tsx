@@ -7,6 +7,7 @@ import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { reportHubEvent } from "../useActivityTracking";
+import { useBgmEqualizer } from "../useBgmEqualizer";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useHubDwell } from "../useHubDwell";
 import { useYouTubeBgm } from "../useYouTubeBgm";
@@ -146,6 +147,12 @@ export default function HubType2() {
   /* Background music, and nothing to do with the scene: it is off by default,
      it fetches nothing until pressed, and the camera does not care about it. */
   const bgm = useYouTubeBgm();
+  /* The equaliser, driven off the track's own pre-computed envelope and the
+     player's clock — see useBgmEqualizer for why the analysis is not live. If
+     a track has no envelope file the bars keep their decorative animation and
+     nothing else changes. */
+  const eqRef = useRef<HTMLDivElement>(null);
+  useBgmEqualizer(eqRef, bgm.trackId, bgm.playing, bgm.getTime);
   /* The clock on the visit. Runs only while the page is actually in front of
      the visitor and flushes as it goes — see useHubDwell for why "time on
      page" measured the obvious way is wrong. */
@@ -443,7 +450,7 @@ export default function HubType2() {
                 same thing the lamp says, said in a way you can see from the
                 corner of your eye. The lamp and the marquee carry the actual
                 information; this carries none, so it announces none. */}
-            <div className="h2-np-eq" aria-hidden="true">
+            <div className="h2-np-eq" ref={eqRef} aria-hidden="true">
               {EQ_BARS.map((bar, i) => (
                 <span
                   key={i}
