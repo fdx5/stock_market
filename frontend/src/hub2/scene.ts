@@ -2064,8 +2064,10 @@ export class HubScene {
         uColor: { value: new THREE.Color(0x6fb0ff) },
         uIntensity: { value: 0.75 },
         uUnit: { value: 1 / 3.4 },
-        // The star's own halo keeps the original spread.
-        uFalloff: { value: 4.6 },
+        /* Tightened along with the sun's, and by the same reasoning: 8.5
+           against the old 4.6 brings the halo in without touching the plane it
+           is drawn on, which is the change that made the sun's disappear. */
+        uFalloff: { value: 8.5 },
       },
       transparent: true,
       depthWrite: false,
@@ -4392,8 +4394,14 @@ export class HubScene {
   private static readonly PLUTO_TEAR = 4;
   /** Gold: the rock is gone. */
   private static readonly GOLD_GLOW = 7;
-  private static readonly STAR_APPROACH = 11;
-  private static readonly STAR_TEAR = 4;
+  private static readonly STAR_APPROACH = 9;
+  /* The star holds at the tidal radius and is stripped rather than swallowed.
+     Gas leaves the face turned toward the hole and streams in while the body
+     itself stays whole — which is how this actually happens: a star that
+     wanders close is eaten over time, not in one bite. Only when enough of it
+     is gone does the tide win and the rest goes in. */
+  private static readonly STAR_STRIP = 15;
+  private static readonly STAR_TEAR = 5;
   /** Blue-white, and much brighter: a whole star has just gone in. */
   private static readonly BLUE_GLOW = 7;
 
@@ -4403,9 +4411,9 @@ export class HubScene {
      meals from reading as one continuous feeding frenzy. */
   private static readonly T_PLUTO_END = 15 + 4; // 19
   private static readonly T_GOLD_END = 19 + 7; // 26
-  private static readonly T_STAR_END = 26 + 11 + 4; // 41
-  private static readonly T_BLUE_END = 41 + 7; // 48
-  private static readonly BH_CYCLE = 48 + 4; // 52, the last 4 being the rest
+  private static readonly T_STAR_END = 26 + 9 + 15 + 5; // 55
+  private static readonly T_BLUE_END = 55 + 7; // 62
+  private static readonly BH_CYCLE = 62 + 4; // 66, the last 4 being the rest
 
   /** How long a jet burns. Seven seconds, and the afterglows above were
    * stretched from five to match: the beam and the disc's own colour are one
@@ -4808,17 +4816,38 @@ export class HubScene {
     this.streamIdle = false;
 
     const since = cycle - HubScene.T_GOLD_END;
-    const total = HubScene.STAR_APPROACH + HubScene.STAR_TEAR;
-    const p = since / total;
-    const tear = clamp01((since - HubScene.STAR_APPROACH) / HubScene.STAR_TEAR);
+
+    /* Three acts now, not two.
+     *
+     *   approach  the star falls in from the far side
+     *   strip     it holds at the tidal radius while gas is pulled off the
+     *             face turned toward the hole — fifteen seconds of being
+     *             eaten without being swallowed
+     *   tear      the tide finally wins and the rest of it goes in
+     *
+     * `p` drives the approach only, so it stops at 1 when the star arrives and
+     * the body then holds its distance instead of continuing to fall. That is
+     * the whole difference: it used to be one continuous plunge. */
+    const approach = clamp01(since / HubScene.STAR_APPROACH);
+    const strip = clamp01((since - HubScene.STAR_APPROACH) / HubScene.STAR_STRIP);
+    const tear = clamp01(
+      (since - HubScene.STAR_APPROACH - HubScene.STAR_STRIP) / HubScene.STAR_TEAR
+    );
+    const p = approach;
 
     this.blueStarMaterial.uniforms.uTime.value = time * speed;
     this.blueStarHaloMaterial.uniforms.uTime.value = time * speed;
 
     /* Comes in from the far side to Pluto's, and much further out — it is a
        star, so it should be visible as one long before it arrives. */
-    const distance = 240 * Math.pow(1 - p, 1.4) + 11;
-    const angle = Math.PI + p * Math.PI * 3.1;
+    /* Falls to the tidal radius, then stays there. Only the tear closes the
+       last of the gap, which is what makes the ending an event rather than the
+       end of a slide. */
+    const held = 240 * Math.pow(1 - p, 1.4) + 34;
+    const distance = held - tear * tear * 23;
+    // Still circling while it is stripped, so the stream sweeps rather than
+    // hanging in one place.
+    const angle = Math.PI + p * Math.PI * 2.2 + strip * Math.PI * 0.55;
     const dir = this.tmpDir.set(Math.cos(angle), Math.sin(angle * 0.5) * 0.28, Math.sin(angle)).normalize();
 
     /* The same spaghettification Pluto gets, and further along it: a star is
@@ -4829,7 +4858,11 @@ export class HubScene {
     /* Smaller multipliers than Pluto's for a longer thread: this body is a
        star, and its radius is over three times the rock's, so every unit of
        stretch buys three times the length. */
-    const drawn = Math.pow(clamp01((250 - distance) / 236), 2.4);
+    /* Almost none of this until the tide takes it. Through the strip the star
+       is losing gas, not being pulled out of shape — a body visibly stretching
+       for fifteen seconds and not falling reads as stuck. */
+    const drawn =
+      Math.pow(clamp01((250 - distance) / 236), 2.4) * 0.35 * (0.25 + 0.75 * tear);
     /* Held to the same finish as Pluto's, and for the same reason: SUN_RADIUS
        * 2.82 is a half-length of 33.8, so this thread also ends at the disc's
        outer edge rather than running out past the knots and off the frame.
@@ -4848,7 +4881,10 @@ export class HubScene {
 
     this.blueStar.position.copy(pos);
     this.blueStar.lookAt(holePos);
-    const left = 1 - clamp01((tear - 0.5) / 0.5);
+    /* Thinned a little by the stripping before the tear takes the rest. A
+       star that gives up fifteen seconds of gas and is exactly the size it
+       started reads as nothing having happened to it. */
+    const left = (1 - clamp01((tear - 0.5) / 0.5)) * (1 - strip * 0.16);
     // lookAt points -Z at the hole, so Z is the axis along the pull. Only the
     // two transverse axes carry the fade — the filament thins out, it does not
     // reel back in.
@@ -4886,7 +4922,12 @@ export class HubScene {
       const roll = this.stream[i * 4 + 3];
 
       // Nothing until the star is genuinely being pulled apart.
-      const born = clamp01((tear - along * 0.55) / 0.45);
+      /* Driven by the strip as well as the tear. Gated on `tear` alone, the
+         ribbon stayed empty for the whole fifteen seconds the star is meant to
+         be losing gas — the stripping would have been a star sitting still.
+         The strip fills most of the ribbon; the tear fills the rest. */
+      const flow = Math.max(strip * 0.86, tear);
+      const born = clamp01((flow - along * 0.55) / 0.45);
       if (born <= 0.01) {
         this.glow.hide(slot);
         continue;
