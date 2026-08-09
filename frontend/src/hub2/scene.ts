@@ -3935,36 +3935,35 @@ export class HubScene {
        space    10    out the far side, near the hole, closing on it
        disc      8    down onto the disc and round it, skimming
        inside    4.5  past the horizon: flashes, and light with no source
-       static    5    the dead channel, which is the auto tour's own
+       static    7    the dead channel, which is the auto tour's own
        plate     5    the far side, held, with the stone dropped in it
        return    2.4  the picture comes back
 
-     Seventy seconds, and twenty-five of them are the arrival. That is
+     Seventy-two seconds, and twenty-five of them are the arrival. That is
      deliberate and it is the change this ending most needed: the wormhole is
      two units across and the first cut at this gave it three seconds, which
      is long enough to identify a thing and not long enough to look at one.
      The interior turns, drifts and shears on its own clock, and none of that
      is visible from a camera that is only ever closing on it. */
-  private static readonly WF_APPROACH = 11;
-  private static readonly WF_RIM = 9;
-  private static readonly WF_ENTER = 5;
+  /* The arrival's three movements have no constants of their own: it is one
+     continuous curve over WF_T_DIVE seconds and the movements are names for
+     stretches of it, not phases with boundaries. See the note where it is
+     driven for what writing them as three separate phases cost. */
   private static readonly WF_TUNNEL = 10;
   private static readonly WF_SPACE = 10;
   private static readonly WF_DISC = 8;
   private static readonly WF_INSIDE = 4.5;
-  private static readonly WF_STATIC = 5;
+  private static readonly WF_STATIC = 7;
   private static readonly WF_PLATE = 5;
   private static readonly WF_RETURN = 2.4;
-  private static readonly WF_T_APPROACH = 11;
-  private static readonly WF_T_RIM = 20;
   private static readonly WF_T_DIVE = 25;
   private static readonly WF_T_TUNNEL = 35;
   private static readonly WF_T_SPACE = 45;
   private static readonly WF_T_DISC = 53;
   private static readonly WF_T_INSIDE = 57.5;
-  private static readonly WF_T_STATIC = 62.5;
-  private static readonly WF_T_PLATE = 67.5;
-  private static readonly WF_END = 69.9;
+  private static readonly WF_T_STATIC = 64.5;
+  private static readonly WF_T_PLATE = 69.5;
+  private static readonly WF_END = 71.9;
 
   private updateWormholeFinale(dt: number) {
     const t = this.finaleT;
@@ -3995,55 +3994,47 @@ export class HubScene {
          rides Saturn, and Saturn covers a good fraction of its orbit in
          twenty-five seconds — pinned to where it was, this would be an arc
          around a point it had long since left. */
-      const wh = this.wormholeWorld;
+      /* Fresh, not last frame's. updateWormhole runs after this in the frame,
+         so the cached world position is one frame behind — and the wormhole
+         is riding Saturn at about fourteen units a second, so a frame of lag
+         is a real offset that changes with the frame rate. */
+      const wh = this.wormhole.getWorldPosition(this.tmpV);
       const ax = this.jetSideA.set(1, 0, 0);
       const up = this.jetAxis.set(0, 1, 0);
       const az = this.jetSideB.set(0, 0, 1);
       this.focusFloor = 0.2;
       this.diveTint.setRGB(0.82, 0.92, 1.0);
 
-      let radius: number;
-      let lift: number;
-      let aim = 0;
+      /* One curve for the whole arrival rather than three movements with
+         their own numbers.
+         Written as three, it lurched twice: the approach ended at radius 7
+         and the rim began at 6.4, the lift stepped from 1.2 to 1.5, and the
+         angular rate nearly doubled at the same instant — three
+         discontinuities inside two frames, which is exactly what "it shakes"
+         looks like. The rim also rose and fell on a cosine, so the sphere
+         swung up and down the frame while the aim point rotated under it.
+         Everything below is continuous in t, and the only thing that
+         accelerates is the dive. */
+      const s = t / HubScene.WF_T_DIVE;
+      // Closing over the first four fifths, then dropping through.
+      const glide = smoothstep(0, 0.8, s);
+      const plunge = clamp01((s - 0.86) / 0.14);
+      const ring = 20 - 15.4 * glide;
+      const radius = ring * (1 - plunge) + 0.2 * plunge;
+      const lift = (5.2 - 4.6 * glide) * (1 - plunge * 0.9);
+      this.finaleAngle += (0.26 + 0.52 * glide + plunge * 3.2) * dt;
 
-      if (t < HubScene.WF_T_APPROACH) {
-        /* Closing, slowly, and turning while it closes. A straight run at it
-           shows one face of a sphere for eleven seconds; an arc shows the
-           inside of it turning against a background that is itself moving,
-           which is the only thing here there is actually to watch. */
-        const s = t / HubScene.WF_APPROACH;
-        const ease = s * s * (3 - 2 * s);
-        this.finaleAngle += 0.30 * dt;
-        radius = 20 - 13 * ease;
-        lift = 5 * (1 - ease) + 1.2;
-      } else if (t < HubScene.WF_T_RIM) {
-        /* Riding the edge. Close enough that the sphere is half the frame and
-           the star field inside it resolves — this is the only place in the
-           whole sequence where the thing can be looked at properly, so it
-           gets nine seconds and no effects at all. */
-        const s = (t - HubScene.WF_T_APPROACH) / HubScene.WF_RIM;
-        this.finaleAngle += (0.55 + s * 0.5) * dt;
-        radius = 6.4 - 2.0 * s;
-        // Rising and falling across the rim rather than orbiting level, so
-        // the edge sweeps through the frame instead of sitting across it.
-        lift = Math.cos(s * Math.PI * 1.6) * 1.5 * (1 - s * 0.5);
-        aim = 1.9;
-      } else {
-        /* And in. The radius holds outside the sphere for most of it — the
-           surface is at 2.17 and a camera inside a front-faced sphere sees
-           straight through it, so a curve that crossed early would delete the
-           wormhole a second and a half before the passage begins. It crosses
-           at about four fifths, by which time the whiteout is already up. */
-        const s = (t - HubScene.WF_T_RIM) / HubScene.WF_ENTER;
-        this.finaleAngle += (1.05 + s * 3.4) * dt;
-        const plunge = clamp01((s - 0.62) / 0.38);
-        radius = (4.4 - 1.5 * s) * (1 - plunge) + 0.2 * plunge;
-        lift = 0.5 * (1 - s);
-        this.warp = Math.pow(s, 1.8) * 5.5;
-        this.collapse = Math.pow(s, 2.2) * 0.5;
-        // The whiteout that covers the join. Cold, because what it goes into is.
-        this.diveFlash = smoothstep(0.7, 1.0, s) * 2.2;
-      }
+      /* Looking along the edge through the middle of it, and back at the
+         centre for the dive. Eased in and out rather than switched, and it
+         turns at the same rate the camera does — so in the frame it is a
+         fixed offset and the sphere sits still off to one side rather than
+         drifting across. */
+      const aim = 2.0 * smoothstep(0.3, 0.46, s) * (1 - smoothstep(0.72, 0.86, s));
+
+      this.warp = Math.pow(plunge, 1.6) * 5.5;
+      this.collapse = Math.pow(plunge, 2.0) * 0.5;
+      // The whiteout that covers the join. Cold, because what it goes into is.
+      this.diveFlash = smoothstep(0.55, 1.0, plunge) * 2.2;
 
       const cos = Math.cos(this.finaleAngle);
       const sin = Math.sin(this.finaleAngle);
@@ -4152,30 +4143,50 @@ export class HubScene {
       const axis = this.jetAxis.set(e[4], e[5], e[6]).normalize();
       const side2 = this.jetSideB.set(e[8], e[9], e[10]).normalize();
 
-      // Faster the closer it gets, which is the physics and the drama both.
-      this.finaleAngle += (1.5 + 7.0 * s * s) * dt;
-      /* Held off the horizon. The first pass took this to 4.5 units by the
-         end, and the horizon is 6.5 — so the last third of the movement was
-         the camera inside the black sphere looking at the inside of it, which
-         renders as a black frame. It has to stay out where the disc is: the
-         sheet runs from 8.8 to 33.8, and skimming means being over that,
-         close to its plane, not through the middle of it. */
-      const ring = 58 * Math.pow(1 - s, 1.1) + 26;
-      /* And then in, over the last fifth. The eight seconds are for the disc
-         and the disc has to stay on screen for them, so the ring holds out at
-         26 — comfortably outside the 6.5 horizon, inside the sheet's 33.8 —
-         and only the tail of the movement drops through it. At 4.5 units, the
-         first attempt's finish, the camera was inside the horizon looking at
-         the inside of a black sphere for the last third of the shot. */
-      const plunge = clamp01((s - 0.8) / 0.2);
-      const radius = ring * (1 - plunge) + 6.2 * plunge;
-      const height = (9 * (1 - s) + 3.2) * (1 - plunge * 0.85);
+      /* Over the disc rather than around it.
+       *
+       * This was an orbit that looked at the middle the whole way, which
+       * shows the disc as a ring you are circling — a thing seen from
+       * outside. What it should be is the Endurance's dive: a craft down on
+       * the sheet, running over it the way a boat runs over water, with the
+       * hole ahead and getting nearer. Three things make that difference and
+       * none of them is the path's radius.
+       *
+       * Low. The sheet is flat and at height zero, so at four units and
+       * closing the disc fills the bottom of the frame and streams underneath
+       * instead of sitting across the middle of it.
+       *
+       * Weaving. The radius carries a slow in-and-out on top of the closing,
+       * so the craft wanders over the sheet rather than tracking one circle
+       * of it — which is the whole of "exploring" as a camera move.
+       *
+       * And looking AHEAD, not at the centre. That is the one that matters:
+       * aimed at the middle, everything streams outward from the far side of
+       * the frame and the shot reads as an orbit however low it is. Aimed
+       * along the track and down, the surface runs at you and past you. */
+      this.finaleAngle += (0.75 + 1.6 * s) * dt;
+      const plunge = clamp01((s - 0.78) / 0.22);
+      const ring = 30 - 12 * s + Math.sin(s * Math.PI * 2.2) * 6.5 * (1 - s * 0.5);
+      const radius = ring * (1 - plunge) + 5.0 * plunge;
+      const height = (4.2 - 2.8 * s) * (1 - plunge * 0.92);
+      const cosA = Math.cos(this.finaleAngle);
+      const sinA = Math.sin(this.finaleAngle);
       this.camera.position
         .copy(this.holeWorld)
-        .addScaledVector(side1, Math.cos(this.finaleAngle) * radius)
-        .addScaledVector(side2, Math.sin(this.finaleAngle) * radius)
+        .addScaledVector(side1, cosA * radius)
+        .addScaledVector(side2, sinA * radius)
         .addScaledVector(axis, height);
-      this.controls.target.copy(this.holeWorld);
+
+      /* The look-ahead point: along the track and inward, on the sheet
+         itself. It closes on the middle as the plunge takes over, so the last
+         second of the movement is the camera turning to face what it has been
+         running across — which is the turn the whole eight seconds is for. */
+      const look = this.finaleAngle + 0.85 * (1 - plunge);
+      const lookR = ring * 0.55 * (1 - plunge);
+      this.controls.target
+        .copy(this.holeWorld)
+        .addScaledVector(side1, Math.cos(look) * lookR)
+        .addScaledVector(side2, Math.sin(look) * lookR);
       this.warp = Math.pow(s, 2.2) * 2.2 + plunge * 3.0;
       /* Held well under the fall's until the plunge, because this movement
          has to stay legible to the end of the ring: the aperture is what eats
@@ -6006,15 +6017,15 @@ export class HubScene {
    * enough, because the far side of a ball looks like the near side. Saturn is
    * not a ball: it is a disc system seen at an angle, and the angle is the
    * whole subject. One pass gives you one angle of it and then the tour has
-   * gone. Two turns give you the rings edge-on, open, and edge-on again.
+   * gone; one turn gives you the rings edge-on, open, and edge-on again.
    *
-   * The neutron pair gets one rather than two, and for a different reason: it
-   * is not there to be studied from several angles, it is there to be seen at
-   * all. It is also the one stop with a clock of its own — the pair spiral in
-   * and merge on a fifty-second cycle — and a probe parked beside it for long
-   * enough reads as a probe *waiting* for that to happen, which is a promise
-   * the tour has no way to keep. One turn and away. */
-  private static readonly VOYAGER_ORBIT_AT = new Map([["saturn", 2]]);
+   * One rather than the two it had. The second turn shows the same three
+   * views the first one did, and it costs seven seconds immediately before
+   * the twenty-five the arrival at the wormhole now takes — which is the
+   * stretch of the tour that can least afford to be preceded by a repeat.
+   *
+   * The neutron pair used to take one too, before it came off the route. */
+  private static readonly VOYAGER_ORBIT_AT = new Map([["saturn", 1]]);
   /** How long one turn takes. */
   private static readonly VOYAGER_ORBIT_PERIOD = 7;
   /** How far in the orbit dips at its closest, as a fraction of the radius it

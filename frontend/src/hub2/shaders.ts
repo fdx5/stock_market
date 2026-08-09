@@ -602,7 +602,29 @@ void main() {
   float turb = fbm(q + vec3(0.0, 0.0, uTime * 0.12), 4, 2.2, 0.55) * 0.5 + 0.5;
   float fil = ridged(q * 1.9 - vec3(0.0, 0.0, uTime * 0.2), 3);
 
+  /* A second sheet, going round at its own rate.
+   *
+   * One field carried by one shear is one sheet of material: it moves, but
+   * every part of it moves with its neighbours, and what the eye reads is a
+   * texture being dragged round. A real disc is many annuli each orbiting at
+   * its own rate and continuously lapping the one outside it, so what should
+   * be visible is streams sliding over streams. A second sample of the same
+   * field at a slower shear and a coarser scale gives that for three more
+   * octaves, and it is what turns the surface into something a craft can be
+   * seen to fly over rather than a lit ring it is circling. */
+  float swirl2 = ang + uTime * omega * 15.0 + 2.1;
+  vec3 q2 = vec3(cos(swirl2) * r, sin(swirl2) * r, t * 3.0 + 11.0) * 0.63;
+  float turb2 = fbm(q2, 3, 2.3, 0.55) * 0.5 + 0.5;
+
   float density = mix(turb, fil, 0.45);
+  density = mix(density, density * (0.55 + turb2 * 0.95), 0.65);
+
+  /* And the fine lanes, which cost nothing at all. A travelling sine in
+     radius whose phase advances with the local orbital rate: the bands are
+     concentric, and every one of them slides past the one outside it because
+     omega falls off as r^-3/2. That is the many-layers reading in one line,
+     and it is also exactly the differential rotation the shear above is. */
+  density *= 0.84 + 0.16 * sin(r * 4.0 - uTime * omega * 34.0);
   // Thin at both edges: sharp at the ISCO, feathered at the outer rim.
   density *= smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.55, 1.0, t));
 
@@ -1856,15 +1878,41 @@ export const GRADE_SHADER = {
        else in here, and coloured half white and half off the stellar
        sequence, which is what the wormhole's own sky does and for the same
        reason: a field of one colour is a field that has been tinted. */
-    vec3 passageStars(float u, float z, float period, float gain, float t) {
+    vec3 passageStars(float u, float z, float period, float gain, float dens, float t) {
       vec2 g = floor(vec2(u, z));
       vec2 f = fract(vec2(u, z));
       vec2 cell = vec2(mod(g.x, period), g.y);
+      /* Whether this cell holds a star at all, tested against the local
+         density rather than the star being dimmed by it. Same reasoning as
+         the wormhole's own sky: dimming a field to thin it leaves the even
+         spacing showing through underneath, and even spacing is what says
+         "generated". */
+      if (hash(cell + 19.1) > dens) return vec3(0.0);
+
       vec2 o = vec2(hash(cell), hash(cell + 17.3));
-      float d = length(f - (0.2 + o * 0.6));
-      float core = smoothstep(0.17, 0.0, d);
+      vec2 rel = f - (0.14 + o * 0.72);
+      float d = length(rel);
+      /* Small. These were points a sixth of a cell across, which at this
+         density is a field of pebbles — a star should be the smallest thing
+         the frame can draw and get its presence from being bright, not from
+         being wide. */
+      float core = smoothstep(0.10, 0.0, d);
       core *= core * core;
+
       float mag = 0.28 + hash(cell + 41.7) * 0.72;
+
+      /* And the brightest of them get spikes. A bright star in any real
+         image is a cross, because whatever photographed it had vanes across
+         its aperture — it is why the eye reads a four-pointed star as bright
+         and a disc as near. */
+      float spike = smoothstep(0.70, 0.97, mag);
+      if (spike > 0.0) {
+        vec2 bar = abs(rel);
+        float across = smoothstep(0.011, 0.0, bar.y) * smoothstep(0.26, 0.0, bar.x);
+        float down = smoothstep(0.011, 0.0, bar.x) * smoothstep(0.26, 0.0, bar.y);
+        core += (across + down) * spike * 0.42;
+      }
+
       float hue = hash(cell + 71.1);
       vec3 tint = vec3(1.0);
       if (hue > 0.5) {
@@ -1875,19 +1923,51 @@ export const GRADE_SHADER = {
     }
 
     /* And a galaxy every few lengths of it, at a random angle round the tube.
-       Analytic — a bulge over a disc — because what noise this pass can
-       afford is already spent on the gas. */
+       Three shapes rather than one, drawn on a roll of the same band index —
+       a spiral, one seen edge-on with the dust lane down it, and a plain
+       elliptical. Every galaxy being the same bulge-over-disc is the thing
+       that made the first pass at this read as a repeating sprite.
+
+       All analytic. A logarithmic spiral is one whose arm angle goes as
+       log r, so a pair of arms costs an atan and a log and no texture at all,
+       and what noise this pass can afford is already spent on the gas. */
     vec3 passageGalaxy(float u, float z, float band, float scale) {
       float k = floor(z / band);
       float du = u - hash(vec2(k, 3.1));
       du -= floor(du + 0.5);
+      float roll = hash(vec2(k, 9.7));
+      float kind = hash(vec2(k, 5.3));
+
       vec2 d = vec2(du * 4.0, (z / band - k - 0.5) * 1.7) / scale;
+      // Turned to its own position angle, so they are not all lying the same way.
+      float c = cos(roll * 6.2831853), s = sin(roll * 6.2831853);
+      d = mat2(c, -s, s, c) * d;
+
+      if (kind < 0.34) {
+        // Edge-on: stretched hard on one axis, with the lane on the mid-plane.
+        d.y /= 0.16;
+        float rr = length(d);
+        if (rr > 1.2) return vec3(0.0);
+        float lane = 1.0 - 0.85 * exp(-d.y * d.y * 180.0);
+        return vec3(1.0, 0.90, 0.74)
+          * (exp(-rr * 2.2) * 0.85 + exp(-rr * 6.5) * 1.5) * lane * smoothstep(1.2, 0.2, rr);
+      }
+      if (kind < 0.67) {
+        // Elliptical: a smooth quarter-power profile and nothing else.
+        d.y /= 0.74;
+        float rr = length(d);
+        if (rr > 1.15) return vec3(0.0);
+        return vec3(1.0, 0.87, 0.68)
+          * exp(-3.2 * (pow(rr + 0.03, 0.25) - 0.42)) * smoothstep(1.15, 0.15, rr);
+      }
+      // Spiral, seen off face-on.
+      d.y /= 0.42;
       float rr = length(d);
-      if (rr > 1.0) return vec3(0.0);
-      float disc = exp(-rr * 3.0);
-      float bulge = exp(-rr * 9.0);
-      return (vec3(1.0, 0.88, 0.66) * bulge * 1.3 + vec3(0.6, 0.75, 1.0) * disc * 0.55)
-        * smoothstep(1.0, 0.2, rr);
+      if (rr > 1.3) return vec3(0.0);
+      float arms = pow(cos((atan(d.y, d.x) - log(rr + 0.11) * 3.3) * 2.0) * 0.5 + 0.5, 2.4);
+      return (vec3(1.0, 0.92, 0.72) * exp(-rr * 8.0) * 1.6
+            + vec3(0.62, 0.76, 1.0) * exp(-rr * 2.4) * (0.16 + arms * 1.2))
+        * smoothstep(1.3, 0.25, rr);
     }
 
     /* The passage through the wormhole, drawn rather than built.
@@ -1934,20 +2014,60 @@ export const GRADE_SHADER = {
 
       vec3 col = vec3(0.0);
 
-      // The sky it runs through, at three depths.
-      col += passageStars(u * 16.0, z * 1.0, 16.0, 1.7, t) * near;
-      col += passageStars(u * 30.0, z * 1.9 + 31.0, 30.0, 1.15, t) * near;
-      col += passageStars(u * 52.0, z * 3.2 + 77.0, 52.0, 0.75, t) * near;
-
-      // Gas, in bands along it, in three colours that are not each other.
+      /* Gas first, because the low-frequency one of the three does two jobs.
+         It is a nebula, and it is also where the stars are allowed to be —
+         one field read by all three sheets, so the empty lanes line up
+         through the depth the way dust in front of a star field does. Reusing
+         it costs nothing; a fourth turn of noise for the clustering alone
+         would be the most expensive thing in this pass. */
       float n1 = fbmWrap(vec2(u * 3.0, z * 0.20), 3.0);
       float n2 = fbmWrap(vec2(u * 5.0, z * 0.29 + 53.0), 5.0);
       float n3 = fbmWrap(vec2(u * 4.0, z * 0.24 + 91.0), 4.0);
-      col += vec3(0.20, 0.52, 0.92) * pow(n1, 3.0) * 1.6 * near;
-      col += vec3(0.80, 0.24, 0.50) * pow(n2, 3.4) * 1.35 * near;
-      col += vec3(0.95, 0.62, 0.22) * pow(n3, 3.8) * 1.05 * near;
+      float dens = 0.16 + 0.84 * smoothstep(0.30, 0.72, n1);
 
+      /* Four depths of star, and the last of them is not meant to be resolved.
+         What separates a photograph of a star field from a scatter of dots is
+         that the dots sit on a haze of everything too far to be a dot — so
+         the finest sheet is a hundred and ten cells round and dim, and its
+         job is to be almost, but not quite, texture. */
+      col += passageStars(u * 22.0, z * 1.3, 22.0, 2.6, dens, t) * near;
+      col += passageStars(u * 40.0, z * 2.4 + 31.0, 40.0, 1.8, dens * 0.85, t) * near;
+      col += passageStars(u * 68.0, z * 4.1 + 77.0, 68.0, 1.2, dens * 0.7, t) * near;
+      col += passageStars(u * 110.0, z * 6.6 + 151.0, 110.0, 0.6, dens * 0.5, t) * near;
+
+      /* Filaments, out of the three fields already sampled and so for nothing.
+         Folding a smooth field about its own midline — 1 − |2n − 1| — turns
+         blobs into ridges, and ridges are what makes a photograph of gas read
+         as gas rather than as fog. */
+      float f1 = 1.0 - abs(n1 * 2.0 - 1.0);
+      float f2 = 1.0 - abs(n2 * 2.0 - 1.0);
+      float f3 = 1.0 - abs(n3 * 2.0 - 1.0);
+      // One turn of fine structure over all of it, at four hashes.
+      float grain = vnoiseWrap(vec2(u * 26.0, z * 1.5), 26.0);
+      /* And dust. Real nebulae are cut through by lanes of it, and those
+         lanes are most of what the eye uses to tell a photograph from a fog
+         machine — gas with no dark in it is a gradient. */
+      float dust = smoothstep(0.28, 0.66, n2);
+
+      /* The exponents on the folded terms are high, and that is the whole
+         trick. A fold peaks at 1 exactly where the field sits at its midline,
+         and the midline is where an fbm spends most of its time — so at the
+         gentle powers the base terms use, the "filaments" covered the frame
+         and the passage came out as a wash of pink with the stars drowning in
+         it. Raised to sixteen, only the crest of the fold survives and what
+         is left is the thin bright thread through the middle of a lane of
+         gas, which is what the fold was for. */
+      vec3 gas = vec3(0.20, 0.52, 0.92) * (pow(n1, 3.4) * 0.85 + pow(f1, 16.0) * 1.3)
+               + vec3(0.80, 0.24, 0.50) * (pow(n2, 3.8) * 0.7 + pow(f2, 18.0) * 1.1)
+               + vec3(0.95, 0.62, 0.22) * (pow(n3, 4.2) * 0.55 + pow(f3, 20.0) * 0.85);
+      // Held under the stars. In a photograph of a region like this the gas is
+      // what the stars are seen against, not the other way round.
+      col += gas * (0.42 + grain * 0.72) * dust * near;
+
+      // Two streams of galaxies rather than one, on bands that do not divide
+      // into each other, so they never arrive in step.
       col += passageGalaxy(u, z, 5.0, 0.55) * 0.95 * near;
+      col += passageGalaxy(u + 0.37, z + 2.6, 3.4, 0.40) * 0.8 * near;
 
       /* The tube itself. Faint on purpose — it is meant to be seen through.
          Enough to say there is something carrying you and no more. */
@@ -1967,36 +2087,57 @@ export const GRADE_SHADER = {
       return col;
     }
 
+    /* One winding of light.
+     *
+     * Log-polar, because a straight drift in that space is a logarithmic
+     * spiral in the frame, and that is the shape everything near a hole is
+     * wound into. arms is how many times it goes round per turn of the frame,
+     * pitch how tightly it winds and which way, rate how fast it drains
+     * inward.
+     *
+     * Wrapped at arms × scaleA, which is why every caller passes integers for
+     * both: at the seam the angle jumps by exactly that much, and a period
+     * that does not divide it draws the join as a straight line. */
+    float winding(float a, float r, float t, float arms, float pitch, float rate, float scaleA, float scaleR) {
+      float ang = (a / 6.2831853 * arms + log(r) * pitch) * scaleA;
+      float along = log(r) * scaleR - t * rate;
+      return pow(fbmWrap(vec2(ang, along), arms * scaleA), 2.6);
+    }
+
     /* Past the horizon.
      *
      * Nothing is rendered here because nothing gets out, and four seconds of
      * black screen is indistinguishable from the page having stopped. So what
-     * fills it is light with no source: a swirl wound round the middle on a
-     * log-polar field — a straight drift in that space is a logarithmic spiral
-     * in the frame, which is the shape everything near a hole is wound into —
-     * with flashes going off through it on three rates that never fall into a
-     * rhythm together. */
+     * fills it is light with no source. */
     vec3 inside(vec2 uv, float t, float aspect) {
       vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
       float r = max(length(p), 0.002);
       float a = atan(p.y, p.x);
-      /* Wrapped, for the same reason the passage is — this is polar too, so it
-         has the same seam at ±pi. Five turns of the field per turn of the
-         frame, times the 3.0 scale, is a jump of exactly fifteen across the
-         seam, so fifteen is the period the noise has to repeat on. */
-      float ang = (a / 6.2831853 * 5.0 + log(r) * 1.7) * 3.0;
-      float along = (log(r) * 2.4 - t * 0.55) * 2.2;
-      float streak = pow(fbmWrap(vec2(ang, along), 15.0), 2.6);
+
+      /* Three windings, not one, at three arm counts and three pitches — and
+         the middle one turns the other way. One spiral is a whirlpool, which
+         is a thing with a bottom and a direction; three crossing each other
+         at different rates is a place where the geometry itself has come
+         apart, which is the reading this wants. */
+      float lum = winding(a, r, t, 5.0, 1.7, 0.55, 3.0, 2.4)
+                + winding(a, r, t, 3.0, -2.6, -0.34, 4.0, 1.8) * 0.78
+                + winding(a, r, t, 8.0, 1.05, 0.90, 2.0, 3.2) * 0.58;
+
       float core = smoothstep(0.58, 0.0, r);
+      lum *= 0.42 + core * 3.4;
 
-      vec3 col = mix(vec3(0.18, 0.28, 0.92), vec3(1.0, 0.86, 0.58), core);
-      col *= streak * (0.45 + core * 3.4);
+      /* And the flashes, on three rates that never come back into step, so
+         they never fall into a rhythm. */
+      lum += (pow(max(sin(t * 5.3), 0.0), 22.0)
+            + pow(max(sin(t * 3.1 + 1.7), 0.0), 30.0) * 0.8
+            + pow(max(sin(t * 7.9 + 0.4), 0.0), 40.0) * 0.6) * (0.3 + core * 0.95);
 
-      float f = pow(max(sin(t * 5.3), 0.0), 22.0)
-              + pow(max(sin(t * 3.1 + 1.7), 0.0), 30.0) * 0.8
-              + pow(max(sin(t * 7.9 + 0.4), 0.0), 40.0) * 0.6;
-      col += vec3(1.0, 0.95, 0.88) * f * (0.3 + core * 0.95);
-      return col;
+      /* White, on black, and nothing else. It was graded blue at the rim and
+         gold in the middle, and colour is the one thing that has no business
+         being here: past the horizon there is no source and no material, so
+         a tint is a claim about something that is not there. Light and the
+         absence of it is the whole palette. */
+      return vec3(lum);
     }
 
     void main() {
