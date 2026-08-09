@@ -1150,6 +1150,174 @@ void main() {
 }
 `;
 
+/* ──────────────────────────── the wormhole ────────────────────────────
+   A sphere, not a disc — which is the one thing about Interstellar's that
+   most pictures of a wormhole get wrong. A tunnel drawn as a funnel is a
+   diagram of a wormhole seen from a dimension we do not have; the real
+   thing, seen from here, is a ball with another sky inside it.
+
+   The whole of that look comes out of one mapping. A sphere's surface
+   projects onto its own silhouette as sin(theta), so undoing it — tan(asin r)
+   — is what a fisheye lens does: the entire far sky is squeezed into the
+   ball, crowded harder and harder toward the edge, with infinity landing
+   exactly on the silhouette. That divergence is why this reads as a lens
+   with something behind it rather than as a painted marble, and it is also
+   the reason for the bright rim: where the mapping diverges, every image of
+   the far sky piles up on top of every other one, which is a thin bright
+   line — the same pile-up the black hole's photon ring is, arrived at the
+   same way.
+
+   The stars are three sheets of cell noise in that expanded plane, sheared
+   by a rotation that runs faster near the middle than at the mouth. That
+   shear is the whole of "flowing": rotate the field rigidly and it reads as
+   a texture on a ball being turned, which is the marble again. */
+export const WORMHOLE_VERT = /* glsl */ `
+varying vec3 vNormal;
+void main() {
+  vNormal = normalize(normalMatrix * normal);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const WORMHOLE_FRAG = /* glsl */ `
+uniform float uTime;
+/** 0 seen from across the system, 1 up against it. Only the finest sheet of
+ * stars rides on this: at a distance the ball is a few pixels across and a
+ * field that fine is not detail, it is noise crawling. */
+uniform float uNear;
+/** Where the silhouette actually falls, as a length of the view-space
+ * normal's xy — see the note in main(). */
+uniform float uEdge;
+uniform vec3 uRim;
+uniform vec3 uHaze;
+varying vec3 vNormal;
+
+${NOISE}
+
+vec2 hash22(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973));
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.xx + q.yz) * q.zy);
+}
+
+float hash12(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
+}
+
+/* One sheet of stars: a cell grid with a point somewhere inside each cell.
+   The jitter is kept off the walls so a star is never clipped in half by the
+   cell it belongs to, which is the one artefact this construction has.
+
+   The sheet turns as a whole — rot is a plain angle, the same for every
+   fragment in it. That is not a simplification, it is the fix for the version
+   before it, which turned the field by an angle computed from the fragment's
+   own radius so that the middle swept faster than the mouth. Sheared per
+   fragment, a star is not a point being carried round: the inner edge of it
+   moves further than the outer edge and it is drawn as an arc. And the arc
+   grows, because the shear is the radial derivative of t * f(r) and t only
+   ever increases — a minute in, the stars were commas; ten minutes in they
+   would have been rings. It is the winding problem that does for the
+   density-wave-less model of spiral arms, arrived at by accident.
+
+   Differential rotation survives it: the three sheets are three depths into
+   the far sky and turn at three rates, which is the same shear sampled at
+   three places instead of continuously, and no sheet shears against itself. */
+vec3 sheet(vec2 p, float scale, float rot, float t, vec3 tint, float gain) {
+  float c = cos(rot), s = sin(rot);
+  vec2 q = mat2(c, -s, s, c) * p * scale;
+  vec2 g = floor(q);
+  vec2 o = hash22(g);
+  /* Jitter across most of the cell, and a star small enough that the whole of
+     it still fits. Both halves of that matter. Kept near the middle — the
+     first try allowed 0.32 to 0.68 of a cell — the points sit on a lattice and
+     the eye finds it instantly: what should be a star field reads as beads on
+     a net. Widening the jitter without shrinking the star only trades the
+     lattice for stars clipped square by the cell wall they overrun, because
+     one cell is all this looks at. 0.18 of jitter each way against a radius of
+     0.17 is the pair that fixes both at one tap. */
+  float d = length(fract(q) - (0.18 + o * 0.64));
+  float core = smoothstep(0.17, 0.0, d);
+  // Cubed: a point with a halo around it rather than a soft blob.
+  core *= core * core;
+  float flicker = 0.74 + 0.26 * sin(t * 2.3 + o.x * 63.0 + o.y * 21.0);
+  float mag = 0.32 + hash12(g + 7.3) * 0.68;
+  return tint * (core * flicker * mag * gain);
+}
+
+void main() {
+  /* In view space a sphere's normal.xy IS its position on the apparent disc.
+     No projection, no screen-space anything — the one number this whole
+     shader needs falls out of the interpolated normal.
+
+     What it is NOT is normalised to 1 at the edge. That is true looking at a
+     sphere from infinitely far away; from a real camera at distance dd the
+     silhouette is where the normal is square to the line of sight, which
+     works out at |n.xy| = sqrt(1 - (R/dd)^2), and the whole back of that
+     figure is hidden. It is 0.99 across the room and 0.63 with the camera up
+     against it — so a rim line drawn at a fixed 0.98 sits on the sphere at
+     arm's length and a long way off the edge of it up close, which is exactly
+     where this effect is supposed to be at its best. uEdge is that figure,
+     and dividing by it puts the silhouette back at 1 from any distance. */
+  vec2 d = vNormal.xy;
+  float r = min(length(d) / uEdge, 0.9999);
+  float lens = r / sqrt(max(1.0 - r * r, 1e-5));
+
+  vec2 p = (r > 1e-5 ? d / r : vec2(0.0)) * lens;
+
+  /* Three sheets, each turning at its own rate and drifting its own way,
+     which is what gives the inside a depth: near stars slide across far ones,
+     and the whole field shears between the layers rather than within them.
+     The drift matters as much as the turn — a rotation alone is a plate
+     spinning, and what is wanted is material going somewhere. It is a
+     straight translation in the FAR sky, so the lens does the rest: a star
+     moving at a constant rate out there slows and crowds as it nears the rim,
+     which is the flow reading the mapping gives for free. */
+  vec3 sky = vec3(0.0);
+  sky += sheet(p + vec2(0.012, 0.055) * uTime, 10.0, uTime * 0.13, uTime, vec3(0.74, 0.84, 1.0), 5.0);
+  sky += sheet(p + vec2(-0.042, 0.018) * uTime, 21.0, uTime * -0.085, uTime + 11.0, vec3(1.0, 0.94, 0.86), 3.4);
+  sky += sheet(p + vec2(0.021, -0.031) * uTime, 43.0, uTime * 0.055, uTime + 23.0, vec3(0.88, 0.8, 1.0), 2.6 * uNear);
+
+  /* The far side is not black paper with dots on it. A few turns of haze —
+     the galaxy those stars belong to, too far off to resolve. Faint on
+     purpose: it is the thing the stars are seen against, not a thing in its
+     own right. */
+  float haze = fbm(vec3(p * 0.85, uTime * 0.04), 3, 2.2, 0.5) * 0.5 + 0.5;
+  sky += uHaze * pow(haze, 2.2) * 1.15;
+
+  /* Where the mapping runs away, hand over to the ring. A star field sampled
+     out there is one pixel per hundred cells, which is not a dense field, it
+     is aliasing — and it is also not what would be seen: past the pile-up
+     the images stop being separable. */
+  vec3 color = sky * smoothstep(0.995, 0.90, r);
+
+  /* The pile-up itself: a broad brightening into the rim, and the thin line
+     on the silhouette where the divergence actually is.
+
+     Both are a fraction of what they were first tried at. There is a bloom
+     pass downstream, and a ring is the shape it treats worst — every pixel of
+     it has bright neighbours the whole way round, so it blooms into itself
+     and comes back as a solid disc of glare with a blue halo standing several
+     radii off the body. At these levels the line is still the brightest thing
+     on the sphere and the bloom only softens it. */
+  float shoulder = pow(smoothstep(0.66, 1.0, r), 4.0);
+  float edge = exp(-pow((r - 0.972) * 46.0, 2.0));
+  /* Brighter the further off it is, which is not a cheat and is the opposite
+     of one. The line is a fixed fraction of the body's width, so past a
+     certain distance it is thinner than a pixel — and a pixel that is one
+     part ring to five parts sky is sampled as one fifth of a ring. The light
+     does not go anywhere in reality; an unresolved source puts all of its
+     flux into the pixel it lands in, which is why a star a million times
+     smaller than a pixel is still the brightest thing in the frame. Giving it
+     back what the sampling takes is what keeps the wormhole a ring at the
+     range you first see it from instead of a grey smudge. */
+  color += uRim * (shoulder * 0.3 + edge * 1.0) * (1.0 + (1.0 - uNear) * 1.1);
+
+  gl_FragColor = vec4(color, 1.0);
+}
+`;
+
 /* ═══════════════════════ post-processing ═══════════════════════ */
 
 /* ───────────────── gravitational lensing ─────────────────
@@ -1165,8 +1333,15 @@ void main() {
    - a small wavelength split, because the deflection is achromatic but the
      sampling isn't, and the fringe sells the distortion.
 
-   Guarded on uStrength so it costs one texture fetch when the hole is
-   offscreen or the quality tier has it switched off. */
+   Two masses bend this frame, not one: the hole, and the wormhole off
+   Saturn. They share the three texture fetches rather than costing three
+   each — a deflection field is a displacement, and displacements add, so the
+   two are summed before anything is sampled. What cannot be summed is what
+   each one does to the light it is *not* displacing: the shadow and the
+   photon ring belong to the hole alone and are applied after.
+
+   Guarded on both strengths so it costs one texture fetch when neither is on
+   screen or the quality tier has it switched off. */
 export const LENSING_SHADER = {
   uniforms: {
     tDiffuse: { value: null as unknown },
@@ -1175,6 +1350,13 @@ export const LENSING_SHADER = {
     /** Apparent radius of the horizon, in UV units of the shorter axis. */
     uRadius: { value: 0.06 },
     uStrength: { value: 1.0 },
+    /** The wormhole, in the same units. Its deflection is an annulus rather
+     * than a well: the sphere itself is drawn in the scene and is not black,
+     * so bending the pixels it occupies would smear the far sky that is the
+     * whole point of it. What is bent is the ring of real sky just outside. */
+    uCenter2: { value: [0.5, 0.5] },
+    uRadius2: { value: 0.0 },
+    uStrength2: { value: 0.0 },
     uAspect: { value: 1.0 },
     uTime: { value: 0 },
     /** Rises while the hole is feeding — the ring brightens with it. */
@@ -1192,13 +1374,18 @@ export const LENSING_SHADER = {
     uniform vec2 uCenter;
     uniform float uRadius;
     uniform float uStrength;
+    uniform vec2 uCenter2;
+    uniform float uRadius2;
+    uniform float uStrength2;
     uniform float uAspect;
     uniform float uTime;
     uniform float uFeed;
     varying vec2 vUv;
 
     void main() {
-      if (uStrength <= 0.001 || uRadius <= 0.0001) {
+      bool hole = uStrength > 0.001 && uRadius > 0.0001;
+      bool worm = uStrength2 > 0.001 && uRadius2 > 0.0001;
+      if (!hole && !worm) {
         gl_FragColor = texture2D(tDiffuse, vUv);
         return;
       }
@@ -1219,6 +1406,27 @@ export const LENSING_SHADER = {
 
       vec2 dir = r > 0.00001 ? d / r : vec2(0.0);
       vec2 offset = dir * bend;
+
+      /* And the wormhole's, added to it. Same 1/r law, windowed into a ring:
+         nothing inside its own silhouette, up over the first half-radius
+         outside it, gone by seven. What that draws is the band of real sky
+         immediately around the sphere being dragged into a circle — which is
+         the part of a lens the eye actually reads, and the part the sphere's
+         own shader cannot draw, because it is made of the scene behind it. */
+      vec2 d2 = vUv - uCenter2;
+      d2.x *= uAspect;
+      float r2 = length(d2);
+      float rn2 = r2 / max(uRadius2, 0.0001);
+      float bend2 = uStrength2 * uRadius2 * 0.95 / (rn2 * rn2 * 0.5 + rn2 * 0.8 + 0.4);
+      /* Held off the rim itself. Started at the silhouette, the strongest part
+         of the deflection landed on the brightest line in the frame and pulled
+         it outward — which does not read as sky being bent, it reads as the
+         sphere having spikes. Clear of the body by a third of its radius
+         before anything moves, and the thing being dragged round is then the
+         real sky, which is what a lens is for. */
+      bend2 *= smoothstep(1.12, 1.8, rn2) * smoothstep(7.5, 1.8, rn2);
+      offset += (r2 > 0.00001 ? d2 / r2 : vec2(0.0)) * bend2;
+
       offset.x /= uAspect;
 
       // Achromatic in truth, split here by a hair so the ring fringes.
@@ -1244,8 +1452,13 @@ export const LENSING_SHADER = {
       float ring = exp(-pow((rn - 1.52 * ripple) * 13.0, 2.0));
       color += vec3(1.0, 0.93, 0.82) * ring * (0.42 + uFeed * 0.9) * uStrength;
 
-      // The shadow. Nothing comes back out from inside, so nothing does here.
-      float shadow = smoothstep(1.06, 0.92, rn);
+      /* The shadow. Nothing comes back out from inside, so nothing does here.
+         Gated on the hole being on screen at all, which it did not used to
+         need: the early return above was the gate, and reaching this line
+         meant uStrength was already non-zero. Now the wormhole can be the
+         reason this shader is running, and without the gate an off-screen
+         hole would still stamp a black disc wherever uCenter was left. */
+      float shadow = hole ? smoothstep(1.06, 0.92, rn) : 0.0;
       color *= 1.0 - shadow;
 
       gl_FragColor = vec4(color, 1.0);

@@ -14,6 +14,7 @@ import {
   STAR,
   TOUR_ORDER,
   VOYAGER,
+  WORMHOLE,
   type PlanetSpec,
   type MoonSpec,
 } from "./bodies";
@@ -48,6 +49,8 @@ import {
   SUN_VERT,
   TRAIL_FRAG,
   TRAIL_VERT,
+  WORMHOLE_FRAG,
+  WORMHOLE_VERT,
 } from "./shaders";
 
 /* ============================================================================
@@ -211,6 +214,18 @@ const smoothstep = (a: number, b: number, t: number) => {
   const x = clamp01((t - a) / (b - a));
   return x * x * (3 - 2 * x);
 };
+
+/** cos of the half-angle a sphere of radius R subtends at distance d — which
+ * is the same thing as how much of the sphere's own radius its silhouette is
+ * worth from there, and the correction between an orthographic view of a ball
+ * and a real one.
+ *
+ * Two things need it, for the same reason and in different spaces: the
+ * wormhole's shader, which has to know where its own edge is, and the lensing
+ * pass, which has to know where to start bending sky around it. Floored so a
+ * camera at or inside the surface still returns something to divide by. */
+const silhouette = (radius: number, distance: number) =>
+  Math.sqrt(Math.max(1 - (radius / Math.max(distance, 1e-4)) ** 2, 1e-3));
 
 /** Real starlight is a temperature, not a colour choice: blue-white hottest,
  * down through white and yellow to orange and red. Weighted so the field still
@@ -462,6 +477,17 @@ const SUN_RADIUS = 12;
 /** Pluto's own radius. Named because the tidal stretch has to work out how
  * long the filament it is drawing has actually become in world units. */
 const PLUTO_RADIUS = 2.4;
+/** The event horizon. Everything the hole is made of is a multiple of this —
+ * the disc, the hit sphere, the debris, the apparent radius the lensing pass
+ * is driven by — and so, at half of it, is the wormhole. Hoisted out of
+ * buildBlackHole when the wormhole needed to be exactly half: it was a local
+ * there and a bare 6.5 in the lensing update, which is two places to change a
+ * number that three things now depend on. */
+const HOLE_HORIZON = 6.5;
+/** Half the hole's, as asked. Small enough that the ball is a detail of
+ * Saturn's part of the sky rather than a rival to the planet, and large enough
+ * that the lens inside it resolves once you are up against it. */
+const WORMHOLE_RADIUS = HOLE_HORIZON / 2;
 
 /** The axis the galaxy's plane is perpendicular to, in scene coordinates.
  *
@@ -615,6 +641,10 @@ export class HubScene {
   /** How many debris slots were reserved in the glow pool. Fixed for the
    * scene's lifetime: the pool hands out ranges once and never compacts. */
   private debrisCount = 0;
+
+  /* the wormhole off Saturn */
+  private wormhole!: THREE.Mesh;
+  private wormholeMaterial!: THREE.ShaderMaterial;
 
   /* the blue star the hole eats after Pluto */
   private blueStar!: THREE.Mesh;
@@ -1024,6 +1054,7 @@ export class HubScene {
     this.buildPlanets();
     this.buildAsteroidBelt();
     this.buildBlackHole();
+    this.buildWormhole();
     this.buildNeutronBinary();
     this.earthRig = this.planets.find((p) => p.spec.key === "earth");
     if (this.earthRig) this.buildHubble(this.earthRig);
@@ -1805,7 +1836,7 @@ export class HubScene {
     this.holeGroup.position.set(...BLACK_HOLE.position);
     this.scene.add(this.holeGroup);
 
-    const HORIZON = 6.5;
+    const HORIZON = HOLE_HORIZON;
 
     // The horizon itself. Pure black, and it *writes depth*: it is what hides
     // the far half of the disc behind it. The lensing pass then draws the
@@ -2104,6 +2135,68 @@ export class HubScene {
       this.stream[i * 4 + 2] = rand(); // vertical spread
       this.stream[i * 4 + 3] = rand(); // size / phase roll
     }
+  }
+
+  /** The wormhole off Saturn.
+   *
+   * A sphere and one shader, and that is the whole of it in the scene graph —
+   * everything that makes it read as a hole through to somewhere else is in
+   * WORMHOLE_FRAG, which is where the note on the mapping lives. What is here
+   * is the two things the shader cannot know: how close the camera has got,
+   * and that this is a body the telescope can be pointed at.
+   *
+   * Opaque, and it writes depth. It is tempting to make a thing you can see
+   * through additive, but there is nothing of this sky to see through it to —
+   * what is inside is a different sky, and letting Saturn's stars come through
+   * from behind would turn the far side into a transparency laid over the near
+   * one. The only part of this sky it touches is the ring of it just outside
+   * the silhouette, which the lensing pass bends and this mesh never draws. */
+  private buildWormhole() {
+    /* Fewer bands than a planet gets. This is a sphere with no features of its
+       own — every pixel of it is computed from the interpolated normal — so
+       segments buy nothing but a rounder silhouette, and the silhouette is
+       where the shader puts its brightest line anyway. */
+    const segments = Math.max(48, Math.round(this.config.segments * 0.75));
+    const geo = new THREE.SphereGeometry(WORMHOLE_RADIUS, segments, segments / 2);
+    this.wormholeMaterial = new THREE.ShaderMaterial({
+      vertexShader: WORMHOLE_VERT,
+      fragmentShader: WORMHOLE_FRAG,
+      uniforms: {
+        uTime: { value: 0 },
+        uNear: { value: 0 },
+        uEdge: { value: 1 },
+        // Cold blue-white, and a hair off the rim's colour: the ring is the
+        // piled-up image of the same stars, so it cannot be a different sky.
+        uRim: { value: new THREE.Color(0xcfe0ff) },
+        uHaze: { value: new THREE.Color(0x2c3f7a) },
+      },
+    });
+    this.wormhole = new THREE.Mesh(geo, this.wormholeMaterial);
+    this.wormhole.position.set(...WORMHOLE.position);
+    this.scene.add(this.wormhole);
+    this.disposables.push(geo, this.wormholeMaterial);
+
+    /* Pickable, and deliberately not a destination — `to` is empty, the way
+       the telescope's is. It has to be in `pickables` at all because that is
+       the list observe() looks a target up in, so a wormhole the telescope
+       cannot find is a wormhole missing from the deep-sky menu. */
+    const info: BodyInfo = {
+      key: "wormhole",
+      ko: WORMHOLE.ko,
+      en: WORMHOLE.en,
+      bodyKo: WORMHOLE.bodyKo,
+      bodyEn: WORMHOLE.bodyEn,
+      to: WORMHOLE.to,
+      accent: "#9ec7ff",
+      size: WORMHOLE_RADIUS,
+      primary: false,
+      // Nothing to fall into: a dive ends by opening a page, and this has none.
+      dive: false,
+    };
+    const hit = this.hitSphere(WORMHOLE_RADIUS * 1.8);
+    this.wormhole.add(hit);
+    this.pickables.push({ object: hit, info, anchor: this.wormhole });
+    this.addLabel(info, this.wormhole);
   }
 
   private buildNeutronBinary() {
@@ -3189,6 +3282,13 @@ export class HubScene {
       return;
     }
     if (this.selectedKey === info.key) {
+      /* Not everything in the sky is a door. The telescope opens a panel and
+         the wormhole opens nothing at all, and both carry an empty `to` — so
+         the second tap here handed navigate() an empty path, which resolves
+         against the current URL and reloads the hub out from under the
+         visitor. On a body with nowhere to go, the first tap framing it is
+         the whole of the interaction. */
+      if (!info.to) return;
       // The second tap. On anything big enough to fall into, the page opens at
       // the end of the fall rather than out from under it.
       if (info.dive && this.diveInto(info)) return;
@@ -4205,6 +4305,7 @@ export class HubScene {
     this.updateHubble(dt, time, speed);
     if (this.beltGroup) this.beltGroup.rotation.y += dt * 0.012 * speed;
     this.updateBlackHole(dt, time, speed);
+    this.updateWormhole(time, speed);
     this.updateNeutron(dt, time, speed);
     this.updateComets(time, speed);
     this.glow.flush();
@@ -5016,6 +5117,27 @@ export class HubScene {
       const alpha = born * (1 - Math.pow(t, 6)) * 0.82;
       this.glow.set(slot, x, y, z, size, 0.55 + hot * 0.45, 0.76 + hot * 0.22, 1.0, alpha);
     }
+  }
+
+  /** Two uniforms a frame.
+   *
+   * `uNear` is the only one that needs explaining. The finest of the three
+   * sheets of stars rides on it, and the reason is sampling rather than
+   * taste: from across the system the ball is a handful of pixels wide, and a
+   * field fine enough to be worth looking at from arm's length is, at that
+   * size, several cells to the pixel — which does not read as more stars, it
+   * reads as the inside of the wormhole boiling. Fading that sheet in over the
+   * last eighty units is a cross-fade rather than a change of scale, so the
+   * stars that are already there stay exactly where they are and more simply
+   * arrive between them, which is also what getting closer to a sky does. */
+  private updateWormhole(time: number, speed: number) {
+    this.wormholeMaterial.uniforms.uTime.value = time * speed;
+    const distance = this.camera.position.distanceTo(this.wormhole.position);
+    this.wormholeMaterial.uniforms.uNear.value = clamp01(1 - (distance - WORMHOLE_RADIUS * 4) / 80);
+    // Where the silhouette falls at this distance — see the note in the
+    // shader. Floored so a camera that ends up inside the sphere divides by
+    // something rather than by zero.
+    this.wormholeMaterial.uniforms.uEdge.value = silhouette(WORMHOLE_RADIUS, distance);
   }
 
   private updatePlutoDebris(holePos: THREE.Vector3, tear: number, time: number, speed: number) {
@@ -6224,20 +6346,59 @@ export class HubScene {
     lens.uTime.value = time;
     lens.uFeed.value = this.feed;
 
-    // Where the hole is on screen, and how big. Both come straight out of the
-    // projection rather than being tuned by hand, so the effect stays locked
-    // to the body at any camera distance.
-    this.holeGroup.getWorldPosition(this.tmpV);
-    const toHole = this.tmpV3.copy(this.tmpV).sub(this.camera.position);
+    /* Two masses bend this frame, and they are aimed the same way — see
+       aimLens. The hole's world position is this frame's, already worked out
+       by updateBlackHole; the wormhole's is a constant, so its own position
+       IS its world position. */
+    this.aimLens(this.holeWorld, HOLE_HORIZON, lens.uCenter.value as number[], lens.uRadius, lens.uStrength);
+    this.aimLens(
+      this.wormhole.position,
+      WORMHOLE_RADIUS,
+      lens.uCenter2.value as number[],
+      lens.uRadius2,
+      lens.uStrength2,
+      true,
+    );
+  }
+
+  /** Where a body sits on screen and how big it looks, in the units the
+   * lensing pass works in.
+   *
+   * Both come straight out of the projection rather than being tuned by hand,
+   * so the effect stays locked to the body at any camera distance. Written
+   * into the uniforms rather than returned, because the two callers want them
+   * in different uniforms and a returned object would be one allocation per
+   * body per frame for a result that is read once and thrown away.
+   *
+   * `world` must not be one of tmpV/tmpV2/tmpV3 — all three are scratch here.
+   *
+   * `exact` is about how close the camera is allowed to get. The plain figure
+   * below is the small-angle one: it treats the silhouette as the sphere's own
+   * radius, which is right to within a percent from any normal viewing
+   * distance and wrong by half with the camera up against the body. The
+   * wormhole is a body you are meant to go and put your face against, and its
+   * deflection is an annulus keyed to where its edge is, so it takes the exact
+   * silhouette. The hole does not, and deliberately: it grows without bound as
+   * the camera reaches the horizon, and the tour's ending flies right into it
+   * — the finale is tuned against the figure the hole has always used. */
+  private aimLens(
+    world: THREE.Vector3,
+    bodyRadius: number,
+    center: number[],
+    radius: THREE.IUniform,
+    strength: THREE.IUniform,
+    exact = false,
+  ) {
+    const toBody = this.tmpV3.copy(world).sub(this.camera.position);
     const forward = this.camera.getWorldDirection(this.tmpV2);
-    const depth = toHole.dot(forward);
-    if (depth <= 1) {
-      lens.uStrength.value = 0;
+    // Behind the camera, where `project` would put it back on screen mirrored.
+    if (toBody.dot(forward) <= 1) {
+      strength.value = 0;
       return;
     }
 
-    const distance = toHole.length();
-    this.tmpV.project(this.camera);
+    const distance = toBody.length();
+    this.tmpV.copy(world).project(this.camera);
     /* Texture space, NOT DOM space. A full-screen quad's `uv` has v = 0 at the
        BOTTOM of the frame, so NDC maps straight through with no flip — unlike
        the label projection above, which is writing CSS pixels and does have to
@@ -6247,21 +6408,20 @@ export class HubScene {
        seven sides being the `atan(d.y, d.x) * 7.0` ripple in the shader). */
     const u = this.tmpV.x * 0.5 + 0.5;
     const v = this.tmpV.y * 0.5 + 0.5;
-    const lc = lens.uCenter.value as number[];
-    lc[0] = u;
-    lc[1] = v;
+    center[0] = u;
+    center[1] = v;
 
     // A sphere of radius R at distance d spans R / (d·tan(fov/2)) of the
     // half-height, i.e. half that in 0..1 UV over the full height — which is
     // the space the shader's aspect correction puts everything in.
     const halfFov = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
-    const radius = (6.5 / (distance * halfFov)) * 0.5;
-    lens.uRadius.value = radius;
+    const apparent = (bodyRadius / (distance * halfFov)) * 0.5;
+    radius.value = exact ? apparent / silhouette(bodyRadius, distance) : apparent;
 
-    // Fades out once the hole leaves the frame — there is nothing to bend
+    // Fades out once the body leaves the frame — there is nothing to bend
     // light around off-screen, and the resample would only cost fill rate.
     const offscreen = Math.max(Math.abs(u - 0.5), Math.abs(v - 0.5));
-    lens.uStrength.value = clamp01(1 - (offscreen - 0.55) / 0.55);
+    strength.value = clamp01(1 - (offscreen - 0.55) / 0.55);
   }
 
   private sampleFps() {

@@ -521,6 +521,30 @@ export const NEUTRON_BINARY: LandmarkSpec = {
   position: [170, 35, -230],
 };
 
+/** The wormhole, parked off Saturn's track — where Interstellar's is, and for
+ * the reason that film puts it there: far enough out to be a journey, near
+ * enough to a body everybody can name that its distance means something.
+ *
+ * Not a destination. It is the one thing in this sky that is not a place on
+ * this site, and the point of it is that it goes somewhere the site does not.
+ *
+ * The position is Saturn's orbital radius, lifted well off the ecliptic. Level
+ * with the plane it would be run through: Saturn's own track wanders ±13 units
+ * either side of it, its ring sheet reaches 13.7 from the planet and Titan
+ * swings 20.7 out on a tilted orbit, so the Saturnian system sweeps everything
+ * within about 22 units of the plane at that radius twice a minute. At 38 up
+ * nothing of Saturn's ever comes within 15 units of it, and it still reads as
+ * sitting in Saturn's part of the sky rather than in deep space. */
+export const WORMHOLE: LandmarkSpec = {
+  key: "wormhole",
+  ko: "웜홀",
+  en: "Wormhole",
+  bodyKo: "웜홀",
+  bodyEn: "Wormhole",
+  to: "",
+  position: [-105, 38, -107],
+};
+
 export const VOYAGER: LandmarkSpec = {
   key: "voyager",
   ko: "글로벌 뉴스",
