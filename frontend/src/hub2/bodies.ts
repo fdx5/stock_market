@@ -54,6 +54,13 @@ export interface MoonSpec {
   spin: number;
   /** Rim/atmosphere tint, also the colour its HUD label glows. */
   glow: string;
+  /** Relative radii on the three axes, for a body that is not round.
+   *
+   * Most moons are: they are heavy enough that their own gravity pulls them
+   * into a sphere. The small ones are not — below a certain mass a body keeps
+   * whatever shape it was left in, and drawing one as a ball says something
+   * about it that is not true. Omitted means round. */
+  shape?: [number, number, number];
   /** Earth's Samsung/SK hynix satellites are logo billboards, not textured
    * spheres — there is no photograph of a company. */
   logo?: string;
@@ -179,6 +186,11 @@ const MARS_MOONS: MoonSpec[] = [
     phase: 0.62,
     spin: 6, // tidally locked
     glow: "#9a8d80",
+    /* 27 × 22 × 18 km, normalised to the long axis — the real proportions of
+       the real body. Phobos is far too small for its own gravity to have
+       rounded it, and the observation panel says so; drawing it as a ball made
+       the picture contradict the caption beside it. */
+    shape: [1, 0.67, 0.81],
   },
   {
     key: "starship",

@@ -1598,6 +1598,10 @@ export class HubScene {
       // planets, at a fraction of the on-screen size.
       material = this.planetMaterial(this.texture(spec.texture), spec.glow, 0.18, 0.32, 1.3);
       mesh = new THREE.Mesh(geo, material);
+      /* A body too small to have been rounded keeps its own proportions. The
+         sphere is scaled rather than replaced so everything downstream — the
+         texture's mapping, the hit sphere, the lighting — is untouched. */
+      if (spec.shape) mesh.scale.set(...spec.shape);
       this.disposables.push(geo, material);
     }
     holder.add(mesh);
