@@ -37,6 +37,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const TRACKS = [
   { id: "8PqN8kexaT0", name: "Breath of the Galaxy" },
   { id: "7dn32JVyB6s", name: "Map in Grey" },
+  { id: "FbQ3gMEeobg", name: "A Path of Gentle Piano" },
 ];
 
 /** Which track to play next, never the one just heard.
@@ -47,9 +48,10 @@ const TRACKS = [
  * behaviour stays "random, but never twice running" instead of quietly
  * becoming "cycle in order".
  *
- * At two tracks this IS strict alternation — that is what excluding the last
- * one leaves — so the first listen of a visit is the only genuinely random
- * draw. `excludeId` is null then, which is what keeps it free.
+ * At two tracks this was strict alternation, because excluding one of two
+ * leaves no choice. With three it is what it says: a real draw from the two
+ * that are not playing. `excludeId` is null on the first listen of a visit,
+ * which is the one time every track is in the hat.
  *
  * The pool guard matters for the one-track case: filtering the only track out
  * would leave nothing to pick and this would return undefined. */

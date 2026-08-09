@@ -71,6 +71,11 @@ LEVELS = 36
 # How far below the peak counts as silence. See the normalisation in analyse()
 # for why this is bounded rather than taken from the track's own minimum.
 RANGE_DB = 55.0
+# The span the bands are laid across, and the display tilt applied over it.
+# See the note in analyse() for why the tilt exists.
+LOW_HZ = 40.0
+HIGH_HZ = 14000.0
+TILT_DB_PER_OCTAVE = 3.5
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 OUT_DIR = REPO_ROOT / "frontend" / "public" / "bgm"
@@ -176,7 +181,7 @@ def band_edges(rate: int) -> list[tuple[int, int]]:
     everything below 700 Hz — nearly all the energy in most music — and the top
     half of the bars would be air. Every bar should have a chance to move."""
     nyquist = rate / 2
-    low, high = 40.0, min(14000.0, nyquist * 0.95)
+    low, high = LOW_HZ, min(HIGH_HZ, nyquist * 0.95)
     edges = np.geomspace(low, high, BANDS + 1)
     bins = np.floor(edges / nyquist * (WINDOW // 2)).astype(int)
     out = []
@@ -220,6 +225,22 @@ def analyse(samples: np.ndarray, rate: int) -> tuple[str, float]:
     # loudest moments, because most of a track sits within a few percent of the
     # peak in linear terms and thirty decibels of it in perceptual ones.
     levels = 20.0 * np.log10(levels + 1e-9)
+
+    # A tilt across the bands, the way a real analyser has one.
+    #
+    # Music loses energy as frequency rises — roughly a few decibels an octave,
+    # for every instrument and every genre. Measured flat, the top bands are
+    # always near the floor whatever is playing, and after normalisation they
+    # sit at zero and never move: on a solo piano piece the top three bars were
+    # dead for the whole track, which reads as three broken bars rather than as
+    # a quiet treble.
+    #
+    # So each band is lifted in proportion to how far up the spectrum it sits.
+    # This is a display curve, not a correction — it does not make the treble
+    # louder than it was, it stops the bars being a chart of a fact everybody
+    # already knows.
+    octaves = np.log2(np.geomspace(1.0, HIGH_HZ / LOW_HZ, BANDS))
+    levels = levels + (octaves * TILT_DB_PER_OCTAVE).astype(np.float32)
 
     # Normalised against the track's own range rather than an absolute scale,
     # so a quietly mastered song still fills the bars.
