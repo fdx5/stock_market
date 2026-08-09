@@ -1378,7 +1378,7 @@ export class HubScene {
     this.scene.add(new THREE.AmbientLight(0x2a3450, 0.9));
 
     // The star is a destination too — the dashboard.
-    const hit = this.hitSphere(SUN_RADIUS * 1.9);
+    const hit = this.hitSphere(SUN_RADIUS * 1.12);
     sun.add(hit);
     const info: BodyInfo = { key: "sun", ko: STAR.ko, en: STAR.en, bodyKo: STAR.bodyKo, bodyEn: STAR.bodyEn, to: STAR.to, accent: "#ffce6a", size: SUN_RADIUS, primary: true, dive: true };
     this.pickables.push({ object: hit, info, anchor: sun });
@@ -1400,6 +1400,21 @@ export class HubScene {
    * that is the same shape every time, and forty materials for a surface that
    * is never drawn at all. Scaling one unit sphere is identical to the
    * raycaster, which works from the world matrix. */
+  /* ── how big a body is to point at ──
+   *
+   * These were generous — two and a half to three and a half times a body's
+   * drawn radius, which is seven to eleven times its area on screen. The
+   * effect is that the sky is mostly targets: a tap meant for empty space, or
+   * for the body behind, lands on whatever large invisible sphere happens to
+   * be in front, and since a second tap opens a page that turns into
+   * navigation nobody asked for.
+   *
+   * They are now close to the body itself, with a small margin so the rim is
+   * still grabbable and a floor so that something tiny is not impossible to
+   * hit on a touch screen. The floor is what keeps this from being a trade
+   * against small moons — it is the multiplier that has come down, not the
+   * minimum size of a target.
+   */
   private hitSphere(radius: number): THREE.Mesh {
     if (!this.hitGeometry) {
       this.hitGeometry = new THREE.SphereGeometry(1, 12, 8);
@@ -1494,7 +1509,7 @@ export class HubScene {
       this.disposables.push(geo, material);
 
       const info: BodyInfo = { key: spec.key, ko: spec.ko, en: spec.en, bodyKo: spec.bodyKo, bodyEn: spec.bodyEn, to: spec.to, feed: spec.feed, accent: spec.glow, size: spec.size, primary: true, dive: true };
-      const hit = this.hitSphere(Math.max(spec.size * 2.6, 4.2));
+      const hit = this.hitSphere(Math.max(spec.size * 1.3, 2.4));
       body.add(hit);
       this.pickables.push({ object: hit, info, anchor: body });
       this.addLabel(info, body);
@@ -1629,7 +1644,7 @@ export class HubScene {
     holder.add(mesh);
 
     const info: BodyInfo = { key: `${host.key}:${spec.key}`, ko: spec.ko, en: spec.en, bodyKo: spec.ko, bodyEn: spec.en, to: spec.to, accent: spec.glow, size: spec.size, primary: false, dive: false };
-    const hit = this.hitSphere(Math.max(spec.size * 3.0, 1.6));
+    const hit = this.hitSphere(Math.max(spec.size * 1.7, 1.1));
     holder.add(hit);
     this.pickables.push({ object: hit, info, anchor: holder });
     this.addLabel(info, holder);
@@ -1803,7 +1818,7 @@ export class HubScene {
     this.disposables.push(discGeo, this.discMaterial);
 
     const info: BodyInfo = { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, bodyKo: BLACK_HOLE.bodyKo, bodyEn: BLACK_HOLE.bodyEn, to: BLACK_HOLE.to, accent: "#ff9a4d", size: HORIZON * 2.2, primary: true, dive: true };
-    const hit = this.hitSphere(HORIZON * 3.4);
+    const hit = this.hitSphere(HORIZON * 2.4);
     this.holeGroup.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.holeGroup });
     this.addLabel(info, this.holeGroup);
@@ -2197,7 +2212,7 @@ export class HubScene {
     }
 
     const info: BodyInfo = { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, bodyKo: NEUTRON_BINARY.bodyKo, bodyEn: NEUTRON_BINARY.bodyEn, to: NEUTRON_BINARY.to, accent: "#9fd0ff", size: 5, primary: true, dive: true };
-    const hit = this.hitSphere(12);
+    const hit = this.hitSphere(7.5);
     this.neutronGroup.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.neutronGroup });
     this.addLabel(info, this.neutronGroup);
@@ -2358,7 +2373,7 @@ export class HubScene {
       // so a dive to a page it does not have would be a dead end.
       dive: false,
     };
-    const hit = this.hitSphere(S * 2.4);
+    const hit = this.hitSphere(S * 1.6);
     rig.add(hit);
     this.pickables.push({ object: hit, info, anchor: rig });
     this.addLabel(info, rig);
@@ -2550,7 +2565,7 @@ export class HubScene {
     const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 0.9, primary: false, dive: false };
     // Held at 3 rather than following the craft down to a third of 5. The
     // target is what a finger has to land on, and that has not got smaller.
-    const hit = this.hitSphere(3);
+    const hit = this.hitSphere(2.2);
     this.voyager.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.voyager });
     this.addLabel(info, this.voyager);
