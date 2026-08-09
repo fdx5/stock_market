@@ -990,6 +990,13 @@
   .h2-np-text[aria-hidden="true"] {
     display: none;
   }
+  /* The credit is dropped after the board's first lap, and here there are no
+     laps — the strip does not run, so the event that retires it never fires
+     and it would sit there for the whole track. On 165px of static, truncated
+     text the name of the song is what the space is for. */
+  .h2-np-kind {
+    display: none;
+  }
 }
 
 /* ─────────────────────────── background music ───────────────────────────

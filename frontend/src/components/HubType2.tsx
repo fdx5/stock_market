@@ -153,6 +153,14 @@ export default function HubType2() {
      nothing else changes. */
   const eqRef = useRef<HTMLDivElement>(null);
   useBgmEqualizer(eqRef, bgm.trackId, bgm.playing, bgm.getTime);
+  /* Whether the board is still on its first lap and so still naming who wrote
+     the thing. Reset per play AND per track: each song gets its own credit
+     once, which is what "once each time it plays" means when a track can
+     change without the music stopping. */
+  const [showCredit, setShowCredit] = useState(true);
+  useEffect(() => {
+    setShowCredit(true);
+  }, [bgm.trackId, bgm.playing]);
   /* The clock on the visit. Runs only while the page is actually in front of
      the visitor and flushes as it goes — see useHubDwell for why "time on
      page" measured the obvious way is wrong. */
@@ -431,13 +439,27 @@ export default function HubType2() {
                   take a third of that from the part that is actually the name,
                   and on a running board a label that stays put while the thing
                   it labels slides past it reads as two separate objects. */}
+              {/* The credit rides the first lap and then gets out of the way.
+                  Dropped on `animationiteration` rather than on a timer: that
+                  event fires exactly at the loop's seam, which is the one
+                  instant the strip's width can change without anything moving
+                  — the transform is back at its start and the two copies are
+                  identical, so there is nothing to see. A timer set to the
+                  animation's length would be right only until someone edited
+                  the duration in the stylesheet. */}
               <span className="h2-np-window">
-                <span className="h2-np-run">
+                <span className="h2-np-run" onAnimationIteration={() => setShowCredit(false)}>
                   <span className="h2-np-text">
-                    <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span> {bgm.title}
+                    {showCredit && (
+                      <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span>
+                    )}
+                    {bgm.title}
                   </span>
                   <span className="h2-np-text" aria-hidden="true">
-                    <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span> {bgm.title}
+                    {showCredit && (
+                      <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span>
+                    )}
+                    {bgm.title}
                   </span>
                 </span>
               </span>
