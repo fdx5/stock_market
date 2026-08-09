@@ -158,6 +158,29 @@ const EARTH_MOONS: MoonSpec[] = [
 
 const MARS_MOONS: MoonSpec[] = [
   {
+    key: "phobos",
+    ko: "포보스",
+    en: "Phobos",
+    // No page of its own; it echoes its host, like the outer moons do.
+    to: "/map",
+    texture: `${TEX}/phobos.webp`,
+    /* Close in, because the real one is: Phobos orbits nearer its planet than
+       any other moon in the solar system, low enough that it crosses the
+       Martian sky twice a day and rises in the west. */
+    radius: 2.4,
+    /* A third of the Moon's, per an explicit request, and nothing like the
+       truth — the real Phobos is about 11 km across against the Moon's 1,737,
+       so a hundred and fifty times smaller. At that ratio it would be a body
+       you could not see, let alone point a telescope at. The real figures are
+       in the observation panel, which is the place for them. */
+    size: 0.18,
+    // Faster than Mars turns, as the real one is: it laps its own planet.
+    period: 6,
+    phase: 0.62,
+    spin: 6, // tidally locked
+    glow: "#9a8d80",
+  },
+  {
     key: "starship",
     ko: "SpaceX",
     en: "SpaceX",
