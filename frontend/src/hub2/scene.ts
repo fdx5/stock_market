@@ -561,6 +561,9 @@ export class HubScene {
   private pickList: THREE.Object3D[] = [];
   private pickHits: THREE.Intersection[] = [];
   private pointerInside = false;
+  /** Set by a pointer move, cleared by the frame that acts on it. */
+  private pointerMoved = false;
+  private hoverClock = 0;
 
   private planets: PlanetRig[] = [];
   private sunMaterial!: THREE.ShaderMaterial;
@@ -675,6 +678,12 @@ export class HubScene {
   /** What it is currently pointed at, so the tube swings round to face the
    * body being observed rather than staring off in a fixed direction. */
   private hubbleAim = new THREE.Vector3(0, 0, 1);
+  /** Earth's rig, kept because the telescope needs its rotation rate on every
+   * frame and was searching the planet list for it sixty times a second. */
+  private hubbleHost?: PlanetRig;
+  /* One geometry and one material behind every hit sphere. See hitSphere. */
+  private hitGeometry?: THREE.SphereGeometry;
+  private hitMaterial?: THREE.MeshBasicMaterial;
   private tmpQuat = new THREE.Quaternion();
   private tmpQuat2 = new THREE.Quaternion();
   /** The rig's own nose, and so what a look-direction is rotated FROM. */
@@ -1381,12 +1390,25 @@ export class HubScene {
    * mesh alone would make Mercury a two-pixel target.
    *
    * Invisible by *layer*, not by material — see PICK_LAYER. */
+  /** An invisible sphere the raycaster can hit, sized to the body it stands in
+   * for.
+   *
+   * One geometry and one material between all of them, scaled per body. There
+   * are now some forty of these — every planet, every moon, the landmarks, the
+   * probe, the telescope — and each used to bring its own SphereGeometry and
+   * its own material: forty vertex buffers uploaded to the GPU for a shape
+   * that is the same shape every time, and forty materials for a surface that
+   * is never drawn at all. Scaling one unit sphere is identical to the
+   * raycaster, which works from the world matrix. */
   private hitSphere(radius: number): THREE.Mesh {
-    const geo = new THREE.SphereGeometry(radius, 12, 8);
-    const mat = new THREE.MeshBasicMaterial();
-    const mesh = new THREE.Mesh(geo, mat);
+    if (!this.hitGeometry) {
+      this.hitGeometry = new THREE.SphereGeometry(1, 12, 8);
+      this.hitMaterial = new THREE.MeshBasicMaterial();
+      this.disposables.push(this.hitGeometry, this.hitMaterial);
+    }
+    const mesh = new THREE.Mesh(this.hitGeometry, this.hitMaterial!);
+    mesh.scale.setScalar(radius);
     mesh.layers.set(PICK_LAYER);
-    this.disposables.push(geo, mat);
     return mesh;
   }
 
@@ -2208,6 +2230,7 @@ export class HubScene {
    * body. A silver cylinder alone is a thermos.
    */
   private buildHubble(earth: PlanetRig) {
+    this.hubbleHost = earth;
     /* Parented to Earth's own body, so it rides the orbit for free — the
        telescope needs no orbital mechanics of its own, only a rotation. */
     this.hubblePivot = new THREE.Object3D();
@@ -2340,6 +2363,18 @@ export class HubScene {
     this.pickables.push({ object: hit, info, anchor: rig });
     this.addLabel(info, rig);
     this.hubbleInfo = info;
+
+    /* The telescope is a dozen and a half parts and not one of them moves
+       relative to the others — only the rig they hang off is aimed. Left on
+       the default, three recomposes every one of those local matrices from its
+       position, quaternion and scale on every frame to arrive at the matrix it
+       already had. Composed once here instead; the world matrices still follow
+       the rig, which is a multiply by the parent and unaffected by this. */
+    rig.traverse((child) => {
+      if (child === rig) return;
+      child.updateMatrix();
+      child.matrixAutoUpdate = false;
+    });
   }
 
   private buildVoyager() {
@@ -2857,6 +2892,9 @@ export class HubScene {
   private onPointerMove = (event: PointerEvent) => {
     this.setPointerFromEvent(event);
     this.pointerInside = true;
+    // The next frame casts immediately: a move is the interaction, and hover
+    // that waits for a timer reads as lag. See HOVER_IDLE_INTERVAL.
+    this.pointerMoved = true;
     this.idleFor = 0;
     this.controls.autoRotate = false;
   };
@@ -4028,7 +4066,7 @@ export class HubScene {
     this.updateComets(time, speed);
     this.glow.flush();
 
-    this.updateHover();
+    this.updateHover(dt);
     this.updateLabels();
     this.updatePasses(time);
 
@@ -4140,7 +4178,9 @@ export class HubScene {
    */
   private updateHubble(dt: number, time: number, speed: number) {
     if (!this.hubblePivot || !this.hubble) return;
-    const earth = this.planets.find((p) => p.spec.key === "earth");
+    // Looked up once. This ran a linear search of the planet list on every
+    // frame to read one number that never changes.
+    const earth = this.hubbleHost;
     if (!earth) return;
     this.hubblePivot.rotation.y = (time / earth.spec.spin) * Math.PI * 2 * speed;
 
@@ -5819,8 +5859,27 @@ export class HubScene {
 
   /* ─────────────────── hover, passes, sizing ─────────────────── */
 
-  private updateHover() {
+  /** Seconds between raycasts when the pointer is sitting still.
+   *
+   * A move is answered on the frame it happens — that is the interaction and
+   * it must not lag. What does not need answering sixty times a second is a
+   * stationary pointer: the only thing that can change under it is a body
+   * drifting along its orbit, which at this scale takes seconds to cross a
+   * cursor. Twelve casts a second covers that and drops roughly four fifths of
+   * the raycasting work on a desktop, where the pointer is over the canvas the
+   * whole time and mostly not moving. */
+  private static readonly HOVER_IDLE_INTERVAL = 1 / 12;
+
+  private updateHover(dt: number) {
     if (!this.pointerInside || this.flight) return;
+    if (this.pointerMoved) {
+      this.pointerMoved = false;
+      this.hoverClock = 0;
+    } else {
+      this.hoverClock += dt;
+      if (this.hoverClock < HubScene.HOVER_IDLE_INTERVAL) return;
+      this.hoverClock = 0;
+    }
     const hit = this.pick();
     const info = hit?.info ?? null;
     if (info?.key === this.hovered?.key) return;
