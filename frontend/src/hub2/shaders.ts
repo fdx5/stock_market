@@ -1189,7 +1189,12 @@ uniform float uNear;
  * normal's xy — see the note in main(). */
 uniform float uEdge;
 uniform vec3 uRim;
-uniform vec3 uHaze;
+/** Three nebulae, because one haze is a wash and a wash is what made the
+ * first version of this dull: an even field of even stars over an even fog
+ * has nothing in it for the eye to go to. */
+uniform vec3 uNebA;
+uniform vec3 uNebB;
+uniform vec3 uNebC;
 varying vec3 vNormal;
 
 ${NOISE}
@@ -1224,7 +1229,7 @@ float hash12(vec2 p) {
    Differential rotation survives it: the three sheets are three depths into
    the far sky and turn at three rates, which is the same shear sampled at
    three places instead of continuously, and no sheet shears against itself. */
-vec3 sheet(vec2 p, float scale, float rot, float t, vec3 tint, float gain) {
+vec3 sheet(vec2 p, float scale, float rot, float t, vec3 tint, float gain, float dens) {
   float c = cos(rot), s = sin(rot);
   vec2 q = mat2(c, -s, s, c) * p * scale;
   vec2 g = floor(q);
@@ -1237,13 +1242,162 @@ vec3 sheet(vec2 p, float scale, float rot, float t, vec3 tint, float gain) {
      lattice for stars clipped square by the cell wall they overrun, because
      one cell is all this looks at. 0.18 of jitter each way against a radius of
      0.17 is the pair that fixes both at one tap. */
-  float d = length(fract(q) - (0.18 + o * 0.64));
+  vec2 rel = fract(q) - (0.18 + o * 0.64);
+  float d = length(rel);
   float core = smoothstep(0.17, 0.0, d);
   // Cubed: a point with a halo around it rather than a soft blob.
   core *= core * core;
+
+  /* And the bright ones get spikes.
+   *
+   * Every star being a round dot is the other half of what made this field
+   * look printed. A real bright star in any real image is a cross, because
+   * the thing that photographed it had vanes holding its secondary mirror and
+   * the light bends round them — which is why the eye reads a four-pointed
+   * star as "bright" and a disc as "near". So the spikes are earned by
+   * magnitude rather than sprinkled: below the threshold nothing changes, and
+   * the few above it get two thin bars, one across and one down, tapering out
+   * and never wider than the core they belong to.
+   *
+   * The bar is |rel| on one axis against a much tighter falloff on the other,
+   * which is a line; multiplying the two gives the cross without a second
+   * distance calculation. */
+  float bright = hash12(g + 3.9);
+  float spike = smoothstep(0.62, 0.95, bright);
+  if (spike > 0.0) {
+    vec2 bar = abs(rel);
+    float across = smoothstep(0.019, 0.0, bar.y) * smoothstep(0.40, 0.0, bar.x);
+    float down = smoothstep(0.019, 0.0, bar.x) * smoothstep(0.40, 0.0, bar.y);
+    core += (across + down) * spike * 0.38;
+  }
+
   float flicker = 0.74 + 0.26 * sin(t * 2.3 + o.x * 63.0 + o.y * 21.0);
   float mag = 0.32 + hash12(g + 7.3) * 0.68;
-  return tint * (core * flicker * mag * gain);
+
+  /* Colour. Half of them stay the sheet's own white and the rest are drawn
+     off a real stellar sequence — B blue-white, A white, G yellow, K orange,
+     M red — because a sky of one colour is a sky that has been tinted rather
+     than a sky made of stars, and because the colour of a star is its
+     temperature and temperatures vary. The roll decides both which half a
+     star is in and, if coloured, which end of the sequence it sits at, so a
+     cell's colour is as fixed as its position. */
+  float hue = hash12(g + 51.3);
+  if (hue > 0.5) {
+    float k = (hue - 0.5) * 2.0;
+    vec3 hot = mix(vec3(0.62, 0.74, 1.0), vec3(1.0, 0.98, 0.92), clamp(k * 2.4, 0.0, 1.0));
+    vec3 cool = mix(vec3(1.0, 0.86, 0.56), vec3(1.0, 0.56, 0.38), clamp(k * 2.4 - 1.4, 0.0, 1.0));
+    tint *= mix(hot, cool, smoothstep(0.34, 0.72, k));
+  }
+  /* Whether this cell has a star in it at all.
+     Dimming a field to thin it only makes a dim field — every cell still
+     holds its star and the eye still reads the even spacing underneath. What
+     actually thins a real sky is that fewer places are occupied, so the cell
+     draws a roll of its own and keeps its star only if the roll comes in
+     under the local density. The clusters and the empty lanes both fall out
+     of that one test. */
+  float keep = step(hash12(g + 19.1), dens);
+  return tint * (core * flicker * mag * gain * keep);
+}
+
+/* One nebula: a lump of lit gas somewhere in the far sky.
+ *
+ * The reach term is a circle and the noise is not, and it is the product that
+ * is drawn — so the circle never shows as an edge, it only decides how far out
+ * the gas is allowed to reach. Three of these at three sizes in three colours
+ * is what gives the inside somewhere to look; before them this was an even
+ * field of even stars over an even fog, which has no subject anywhere in it.
+ *
+ * The early out is worth having. Most fragments are outside any given nebula,
+ * and the three octaves below are the most expensive thing in this shader. */
+vec3 nebula(vec2 p, vec2 at, float size, float seed, vec3 tint, float t) {
+  vec2 q = (p - at) / size;
+  float reach = 1.0 - smoothstep(0.30, 1.0, dot(q, q));
+  if (reach <= 0.002) return vec3(0.0);
+  float n = fbm(vec3(q * 1.5 + seed, t * 0.03 + seed), 3, 2.3, 0.55) * 0.5 + 0.5;
+  return tint * pow(n * reach, 2.1);
+}
+
+/* Puts a point into a flat object's own frame: turned to its position angle,
+   then stretched across the minor axis, which is what seeing a round disc from
+   off to one side does to it. tilt is the axis ratio — 1 face-on, 0.2 nearly
+   edge-on. Stretching rather than squashing because this runs backwards: it is
+   asking where a screen point falls on the disc, so the short axis has to be
+   opened out before the radius is measured. */
+vec2 intoDisc(vec2 p, vec2 at, float size, float roll, float tilt) {
+  vec2 q = p - at;
+  float c = cos(roll), s = sin(roll);
+  q = mat2(c, -s, s, c) * q;
+  q.y /= max(tilt, 0.06);
+  return q / size;
+}
+
+/* A spiral galaxy seen at an angle — an Andromeda.
+ *
+ * All analytic and no noise at all, which is the whole reason it is affordable
+ * next to everything else in here. A spiral galaxy is three things the eye
+ * checks for and nothing else: a bulge that falls off much faster than the
+ * disc, a disc that falls off exponentially, and arms. The arms are the only
+ * interesting term — a logarithmic spiral is one whose pitch angle is
+ * constant, which means the arm's angle goes as log(r), so testing cos of
+ * (angle − log r × pitch) against two arms puts a pair of them in the disc
+ * with no geometry and no texture. Real ones are logarithmic to a good
+ * approximation, which is why this reads rather than merely swirls. */
+vec3 galaxySpiral(vec2 p, vec2 at, float size, float roll, float tilt, vec3 bulgeTint, vec3 armTint) {
+  vec2 q = intoDisc(p, at, size, roll, tilt);
+  float r = length(q);
+  if (r > 1.35) return vec3(0.0);
+  float arms = cos((atan(q.y, q.x) - log(r + 0.11) * 3.3) * 2.0) * 0.5 + 0.5;
+  arms = pow(arms, 2.4);
+  float disc = exp(-r * 2.5);
+  float bulge = exp(-r * 8.5);
+  float cut = smoothstep(1.35, 0.25, r);
+  return (bulgeTint * bulge * 1.7 + armTint * disc * (0.16 + arms * 1.25)) * cut;
+}
+
+/* And an irregular one — a Magellanic Cloud. No arms and no bulge to speak
+   of: a bar off to one side and a lumpy body around it, which is what a small
+   galaxy that has been pulled about by a large neighbour looks like. The one
+   noise call in here is what makes it irregular; everything analytic would
+   only give another smooth ellipse, and a smooth ellipse is the one thing this
+   object is not. */
+/* The same disc seen from its own plane, which is the one orientation where a
+   spiral stops being a spiral: a line, with a bulge swelling out of the middle
+   of it and a dark lane running the length. The lane is the whole thing — it
+   is the galaxy's own dust seen against its own light, and without it this is
+   a bright streak and nothing more. It sits on the mid-plane, which in the
+   stretched frame is simply q.y = 0, so it costs one exponential. */
+vec3 galaxyEdgeOn(vec2 p, vec2 at, float size, float roll, vec3 tint) {
+  vec2 q = intoDisc(p, at, size, roll, 0.13);
+  float r = length(q);
+  if (r > 1.3) return vec3(0.0);
+  float disc = exp(-r * 2.2);
+  float bulge = exp(-r * 6.5);
+  float lane = 1.0 - 0.88 * exp(-q.y * q.y * 220.0);
+  return tint * (disc * 0.85 + bulge * 1.55) * lane * smoothstep(1.3, 0.2, r);
+}
+
+/* An elliptical. No arms, no dust, no disc — old red stars in a smooth
+   ellipsoid, and the least spectacular thing in the sky, which is exactly why
+   one belongs here: four galaxies that are all showpieces read as a poster
+   rather than as a view. The profile is de Vaucouleurs' quarter power, which
+   falls much faster than an exponential near the middle and much slower far
+   out, and is what gives one a bright core and no edge you can point to. */
+vec3 galaxyElliptical(vec2 p, vec2 at, float size, float roll, vec3 tint) {
+  vec2 q = intoDisc(p, at, size, roll, 0.74);
+  float r = length(q);
+  if (r > 1.2) return vec3(0.0);
+  float body = exp(-3.2 * (pow(r + 0.03, 0.25) - 0.42));
+  return tint * body * smoothstep(1.2, 0.15, r) * 1.05;
+}
+
+vec3 galaxyIrregular(vec2 p, vec2 at, float size, float roll, vec3 tint, float t) {
+  vec2 q = intoDisc(p, at, size, roll, 0.68);
+  float r = length(q);
+  if (r > 1.25) return vec3(0.0);
+  float bar = exp(-abs(q.y) * 6.5) * exp(-abs(q.x) * 2.0);
+  float lumps = fbm(vec3(q * 2.2 + 91.0, t * 0.02), 3, 2.3, 0.55) * 0.5 + 0.5;
+  float body = (bar * 0.85 + lumps * 0.85) * smoothstep(1.25, 0.1, r);
+  return tint * pow(body, 1.9) * 1.5;
 }
 
 void main() {
@@ -1274,17 +1428,72 @@ void main() {
      straight translation in the FAR sky, so the lens does the rest: a star
      moving at a constant rate out there slows and crowds as it nears the rim,
      which is the flow reading the mapping gives for free. */
-  vec3 sky = vec3(0.0);
-  sky += sheet(p + vec2(0.012, 0.055) * uTime, 10.0, uTime * 0.13, uTime, vec3(0.74, 0.84, 1.0), 5.0);
-  sky += sheet(p + vec2(-0.042, 0.018) * uTime, 21.0, uTime * -0.085, uTime + 11.0, vec3(1.0, 0.94, 0.86), 3.4);
-  sky += sheet(p + vec2(0.021, -0.031) * uTime, 43.0, uTime * 0.055, uTime + 23.0, vec3(0.88, 0.8, 1.0), 2.6 * uNear);
+  /* Where the stars crowd and where they do not. One low-frequency field,
+     read by all three sheets, so the empty lanes line up through the depth —
+     which is what a dust lane in front of a star field actually does, and is
+     also the difference between a sky with structure in it and a sky with an
+     even sprinkle over the whole of it. */
+  float clump = fbm(vec3(p * 1.15 + 4.7, uTime * 0.015), 3, 2.4, 0.5) * 0.5 + 0.5;
+  float dens = 0.10 + 0.90 * smoothstep(0.30, 0.74, clump);
 
-  /* The far side is not black paper with dots on it. A few turns of haze —
-     the galaxy those stars belong to, too far off to resolve. Faint on
-     purpose: it is the thing the stars are seen against, not a thing in its
-     own right. */
-  float haze = fbm(vec3(p * 0.85, uTime * 0.04), 3, 2.2, 0.5) * 0.5 + 0.5;
-  sky += uHaze * pow(haze, 2.2) * 1.15;
+  /* Three sheets, each turning at its own rate and drifting its own way,
+     which is what gives the inside a depth: near stars slide across far ones,
+     and the whole field shears between the layers rather than within them.
+     The drift matters as much as the turn — a rotation alone is a plate
+     spinning, and what is wanted is material going somewhere. It is a
+     straight translation in the FAR sky, so the lens does the rest: a star
+     moving at a constant rate out there slows and crowds as it nears the rim,
+     which is the flow reading the mapping gives for free. */
+  vec3 sky = vec3(0.0);
+  sky += sheet(p + vec2(0.012, 0.055) * uTime, 10.0, uTime * 0.013, uTime, vec3(0.74, 0.84, 1.0), 5.0, dens);
+  sky += sheet(p + vec2(-0.042, 0.018) * uTime, 21.0, uTime * -0.0085, uTime + 11.0, vec3(1.0, 0.94, 0.86), 3.4, dens * 0.85);
+  sky += sheet(p + vec2(0.021, -0.031) * uTime, 43.0, uTime * 0.0055, uTime + 23.0, vec3(0.88, 0.8, 1.0), 2.6 * uNear, dens * 0.7);
+
+  /* And the gas they belong to. Three of them, at three sizes, carried round
+     on the same slow turn as the sheets so they are part of that sky rather
+     than a pattern painted on the glass.
+
+     And each drifts, at about the rate the stars do. A straight-line drift is
+     the honest way to move something in this plane — it is exactly what the
+     sheets do — but a sheet is a periodic field and these are three objects:
+     sent in a straight line they leave, and the far side is a sky with no gas
+     in it for the rest of the session. So each runs its own slow loop, on its
+     own two rates, so they are three things drifting rather than one layer
+     sliding. The lens does the rest: gas crossing the far sky at a constant
+     rate slows and squeezes as it nears the rim, the same as the stars. */
+  float nrot = uTime * 0.013;
+  float nc = cos(nrot), ns = sin(nrot);
+  vec2 np = mat2(nc, -ns, ns, nc) * p;
+  vec2 driftA = vec2(sin(uTime * 0.118), cos(uTime * 0.091)) * 0.72;
+  vec2 driftB = vec2(cos(uTime * 0.101 + 1.9), sin(uTime * 0.137 + 0.7)) * 0.64;
+  vec2 driftC = vec2(sin(uTime * 0.086 + 3.1), cos(uTime * 0.126 + 2.2)) * 0.80;
+  sky += nebula(np, vec2(-0.62, 0.30) + driftA, 0.95, 0.0, uNebA, uTime) * 1.15;
+  sky += nebula(np, vec2(0.70, -0.45) + driftB, 0.72, 13.7, uNebB, uTime) * 1.0;
+  sky += nebula(np, vec2(0.10, 0.98) + driftC, 0.58, 41.2, uNebC, uTime) * 0.9;
+
+  /* Four galaxies out past the gas, drifting on their own loops like it does,
+     and deliberately four DIFFERENT ones — a sky where every galaxy is the
+     same showpiece spiral is a wallpaper. So: a warm-cored spiral seen well
+     off face-on, which is an Andromeda and the one everybody has seen a
+     photograph of; a small irregular, which is a Magellanic Cloud; the same
+     disc as the first but seen from its own plane, dust lane and all; and a
+     plain elliptical, which is what most of the big ones actually are.
+
+     All of them small and far out in the field on purpose. They are what tells
+     you the inside of this is a sky with a depth to it rather than a bowl with
+     a pattern in it, and a galaxy big enough to be the subject would be a
+     galaxy you had flown to rather than one you can see from here. */
+  vec2 driftG = vec2(cos(uTime * 0.073 + 0.4), sin(uTime * 0.058 + 2.7)) * 0.55;
+  vec2 driftH = vec2(sin(uTime * 0.095 + 1.3), cos(uTime * 0.067 + 0.2)) * 0.62;
+  vec2 driftI = vec2(cos(uTime * 0.084 + 2.4), sin(uTime * 0.109 + 1.1)) * 0.58;
+  vec2 driftJ = vec2(sin(uTime * 0.062 + 0.9), cos(uTime * 0.088 + 3.4)) * 0.66;
+  sky += galaxySpiral(
+    np, vec2(1.16, 0.60) + driftG, 0.46, 0.92, 0.36,
+    vec3(1.0, 0.92, 0.72), vec3(0.62, 0.76, 1.0)
+  ) * 0.85;
+  sky += galaxyIrregular(np, vec2(-1.02, -0.80) + driftH, 0.34, -0.5, vec3(0.78, 0.84, 1.0), uTime) * 0.8;
+  sky += galaxyEdgeOn(np, vec2(-1.28, 0.72) + driftI, 0.52, 2.25, vec3(1.0, 0.90, 0.74)) * 0.9;
+  sky += galaxyElliptical(np, vec2(0.88, -1.14) + driftJ, 0.30, 0.6, vec3(1.0, 0.86, 0.64)) * 0.85;
 
   /* Where the mapping runs away, hand over to the ring. A star field sampled
      out there is one pixel per hundred cells, which is not a dense field, it

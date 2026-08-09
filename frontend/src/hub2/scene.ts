@@ -484,10 +484,13 @@ const PLUTO_RADIUS = 2.4;
  * there and a bare 6.5 in the lensing update, which is two places to change a
  * number that three things now depend on. */
 const HOLE_HORIZON = 6.5;
-/** Half the hole's, as asked. Small enough that the ball is a detail of
- * Saturn's part of the sky rather than a rival to the planet, and large enough
- * that the lens inside it resolves once you are up against it. */
-const WORMHOLE_RADIUS = HOLE_HORIZON / 2;
+/** A third of the hole's. It began at a half, and two thirds of that is where
+ * it settled: against Saturn — 5.85 with a ring sheet out to 13.75 — a sphere
+ * of 3.25 was reading as the second largest thing in that part of the sky.
+ * Small enough now that the ball is a detail of Saturn's neighbourhood rather
+ * than a rival to the planet, and still large enough that the lens inside it
+ * resolves once you are up against it. */
+const WORMHOLE_RADIUS = HOLE_HORIZON / 3;
 
 /** The axis the galaxy's plane is perpendicular to, in scene coordinates.
  *
@@ -645,6 +648,11 @@ export class HubScene {
   /* the wormhole off Saturn */
   private wormhole!: THREE.Mesh;
   private wormholeMaterial!: THREE.ShaderMaterial;
+  /** Its world position this frame. Its own `position` is an offset inside
+   * Saturn's frame now, so it is no longer the answer to "where is it". Kept
+   * as a field for the same reason holeWorld is: two things a frame want it,
+   * and one of them is aimLens, which uses all three scratch vectors. */
+  private wormholeWorld = new THREE.Vector3();
 
   /* the blue star the hole eats after Pluto */
   private blueStar!: THREE.Mesh;
@@ -2168,12 +2176,24 @@ export class HubScene {
         // Cold blue-white, and a hair off the rim's colour: the ring is the
         // piled-up image of the same stars, so it cannot be a different sky.
         uRim: { value: new THREE.Color(0xcfe0ff) },
-        uHaze: { value: new THREE.Color(0x2c3f7a) },
+        // Three genuinely different colours rather than three tints of one.
+        // A teal, a rose and an amber sit far enough apart on the wheel that
+        // the eye reads three objects and not one cloud lit unevenly.
+        uNebA: { value: new THREE.Color(0x2f9d86) },
+        uNebB: { value: new THREE.Color(0xb2447e) },
+        uNebC: { value: new THREE.Color(0xc0863a) },
       },
     });
     this.wormhole = new THREE.Mesh(geo, this.wormholeMaterial);
     this.wormhole.position.set(...WORMHOLE.position);
-    this.scene.add(this.wormhole);
+    /* Hung off Saturn's equatorial frame, not off the scene — so it goes round
+       the sun with Saturn instead of standing still while Saturn leaves. That
+       frame rather than the planet itself because `axis` carries the rings and
+       the moons and does NOT carry the spin: parented to the body the wormhole
+       would whip round Saturn once every eighteen seconds. See WORMHOLE for
+       what the offset in it means. */
+    const saturn = this.planets.find((p) => p.spec.key === "saturn");
+    (saturn ? saturn.axis : this.scene).add(this.wormhole);
     this.disposables.push(geo, this.wormholeMaterial);
 
     /* Pickable, and deliberately not a destination — `to` is empty, the way
@@ -3074,9 +3094,23 @@ export class HubScene {
         label.lastValue = valueText;
       }
 
-      // Only the body under the pointer (or held by the camera) says what it
-      // is; on every other label it stays empty and collapses to nothing.
-      const bodyText = hovered || selected ? (this.lang === "en" ? info.bodyEn : info.bodyKo) : "";
+      /* Only the body under the pointer (or held by the camera) says what it
+         is; on every other label it stays empty and collapses to nothing.
+
+         The second slot exists to say what a thing IS beside where it GOES —
+         토성 next to AI 예측. On a body with no destination there is nowhere to
+         go, so both slots carry the body's own name and the label read
+         "웜홀 | 웜홀". The useful second thing to say about those is the name
+         in English, which is also the one an unfamiliar object most wants
+         beside it; and when that is the first slot as well — the same label in
+         English — there is nothing left worth saying and the slot goes empty.
+         Written as a collision rule rather than a list of which bodies have no
+         route, so it covers the telescope and anything added later without
+         either of them being named here. */
+      let ownName = this.lang === "en" ? info.bodyEn : info.bodyKo;
+      if (ownName === text) ownName = info.bodyEn;
+      if (ownName === text) ownName = "";
+      const bodyText = hovered || selected ? ownName : "";
       if (bodyText !== label.lastBody) {
         label.bodyEl.textContent = bodyText;
         label.lastBody = bodyText;
@@ -5132,7 +5166,8 @@ export class HubScene {
    * arrive between them, which is also what getting closer to a sky does. */
   private updateWormhole(time: number, speed: number) {
     this.wormholeMaterial.uniforms.uTime.value = time * speed;
-    const distance = this.camera.position.distanceTo(this.wormhole.position);
+    this.wormhole.getWorldPosition(this.wormholeWorld);
+    const distance = this.camera.position.distanceTo(this.wormholeWorld);
     this.wormholeMaterial.uniforms.uNear.value = clamp01(1 - (distance - WORMHOLE_RADIUS * 4) / 80);
     // Where the silhouette falls at this distance — see the note in the
     // shader. Floored so a camera that ends up inside the sphere divides by
@@ -6347,12 +6382,11 @@ export class HubScene {
     lens.uFeed.value = this.feed;
 
     /* Two masses bend this frame, and they are aimed the same way — see
-       aimLens. The hole's world position is this frame's, already worked out
-       by updateBlackHole; the wormhole's is a constant, so its own position
-       IS its world position. */
+       aimLens. Both world positions are this frame's, worked out by
+       updateBlackHole and updateWormhole, which both run before this. */
     this.aimLens(this.holeWorld, HOLE_HORIZON, lens.uCenter.value as number[], lens.uRadius, lens.uStrength);
     this.aimLens(
-      this.wormhole.position,
+      this.wormholeWorld,
       WORMHOLE_RADIUS,
       lens.uCenter2.value as number[],
       lens.uRadius2,

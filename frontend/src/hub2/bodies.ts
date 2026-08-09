@@ -521,20 +521,32 @@ export const NEUTRON_BINARY: LandmarkSpec = {
   position: [170, 35, -230],
 };
 
-/** The wormhole, parked off Saturn's track — where Interstellar's is, and for
- * the reason that film puts it there: far enough out to be a journey, near
- * enough to a body everybody can name that its distance means something.
+/** The wormhole, hanging just off the outer edge of Saturn's rings — where
+ * Interstellar's is, and for the reason that film puts it there: far enough
+ * out to be a journey, near enough to a body everybody can name that its
+ * distance means something.
  *
  * Not a destination. It is the one thing in this sky that is not a place on
  * this site, and the point of it is that it goes somewhere the site does not.
  *
- * The position is Saturn's orbital radius, lifted well off the ecliptic. Level
- * with the plane it would be run through: Saturn's own track wanders ±13 units
- * either side of it, its ring sheet reaches 13.7 from the planet and Titan
- * swings 20.7 out on a tilted orbit, so the Saturnian system sweeps everything
- * within about 22 units of the plane at that radius twice a minute. At 38 up
- * nothing of Saturn's ever comes within 15 units of it, and it still reads as
- * sitting in Saturn's part of the sky rather than in deep space. */
+ * `position` is NOT a world position, unlike every other landmark here. It is
+ * an offset in Saturn's own equatorial frame — the frame the ring sheet lies
+ * in — because the wormhole travels with Saturn. It has to: Saturn goes round
+ * the sun in sixty-six seconds, so a fixed point "near the rings" is near them
+ * for about four of those and on the far side of the system for the rest.
+ *
+ * 27 out and 17 up — twice the stand-off it was first given, which put it
+ * directly over the rim of the rings and read as part of the ring system
+ * rather than as a thing that had arrived beside it. The ring sheet ends at
+ * 2.35 × 5.85 = 13.75, so it now sits about a ring-width clear of the edge.
+ *
+ * The clearances that matter, all of them in this frame: the ring sheet is
+ * 21.6 away, Titan — the outermost moon, at 20.7 — is 18.1 at its closest
+ * approach, and Mimas and Enceladus are further still. Outward it reaches
+ * 16.4 units past Saturn in the orbital plane and 27.4 above it, so at
+ * Saturn's own 144 the far edge of it is 160 from the sun, comfortably inside
+ * the 172.4 where Uranus's rings begin. That last one is the constraint that
+ * stops this going any further out: the two planets do line up. */
 export const WORMHOLE: LandmarkSpec = {
   key: "wormhole",
   ko: "웜홀",
@@ -542,7 +554,7 @@ export const WORMHOLE: LandmarkSpec = {
   bodyKo: "웜홀",
   bodyEn: "Wormhole",
   to: "",
-  position: [-105, 38, -107],
+  position: [27, 17, 0],
 };
 
 export const VOYAGER: LandmarkSpec = {
