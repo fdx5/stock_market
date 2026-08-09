@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.services import (
     activity_log,
     dram_price,
+    hub_event_store,
     kakao_notify,
     page_view_store,
     prediction_batch,
@@ -109,6 +110,72 @@ def stocks_top(limit: int = Query(10, ge=1, le=500)):
     since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
     items = stock_search_store.top_searches(since, limit)
     return {"items": items}
+
+
+# ── the entrance page's own behaviour ──
+#
+# Kept apart from the page and stock endpoints above on purpose. Those answer
+# "where did people go" and "what did they look up"; these answer "what did
+# people DO once they were on the front page", which is a different question
+# with different units — objects touched rather than paths visited, and seconds
+# stayed rather than arrivals counted. Mixing them would make both harder to
+# read and would put dwell seconds into counts that mean views.
+
+
+@router.get("/hub/summary", dependencies=[Depends(require_admin)])
+def hub_summary(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
+    """The tiles: how many sessions, how long they stayed, how much they touched.
+
+    `avg_seconds` and `median_seconds` are both returned because they disagree
+    here and the disagreement matters — a few visitors leave the orbit running
+    and pull the mean well above a typical stay."""
+    delta, _ = _RANGE_CONFIG[range]
+    since = (datetime.now(timezone.utc) - delta).isoformat()
+    totals = hub_event_store.action_totals(since)
+    dwell = hub_event_store.dwell_stats(since)
+    sessions = hub_event_store.session_count(since)
+    clicks = totals.get("object_click", 0)
+    return {
+        "range": range,
+        "sessions": sessions,
+        "totals": totals,
+        "dwell": dwell,
+        # Touches per session. The single number that says whether the page is
+        # something people use or something they look at once and leave.
+        "clicks_per_session": (clicks / sessions) if sessions else 0.0,
+        # Of the sessions that reached the page, how many turned the music on.
+        "bgm_sessions": totals.get("bgm", 0),
+    }
+
+
+@router.get("/hub/trend", dependencies=[Depends(require_admin)])
+def hub_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
+    """Entrance-page events per action per bucket — the same ranges and the same
+    KST bucketing the page trend uses, so one set of range buttons drives both."""
+    delta, granularity = _RANGE_CONFIG[range]
+    since = datetime.now(timezone.utc) - delta
+    return {"range": range, "points": hub_event_store.counts_by_bucket(since.isoformat(), granularity)}
+
+
+@router.get("/hub/objects/top", dependencies=[Depends(require_admin)])
+def hub_objects_top(
+    limit: int = Query(200, ge=1, le=500),
+    action: str | None = Query(None, pattern="^(object_click|control|bgm|focus|exit)$"),
+):
+    """The 메인 반응 순위. Fixed 7-day window like the other two rankings, so
+    flipping the chart's range never reshuffles a ranking underneath it.
+
+    `action` narrows it to one kind of interaction; left off, every object the
+    page can report is ranked together."""
+    since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
+    return {"items": hub_event_store.top_objects(since, limit, action)}
+
+
+@router.get("/hub/session/{session_id}", dependencies=[Depends(require_admin)])
+def hub_session(session_id: str, limit: int = Query(200, ge=1, le=500)):
+    """One visitor's trail through the page, oldest first — what the live log's
+    session row expands into."""
+    return {"session_id": session_id, "events": hub_event_store.session_detail(session_id, limit)}
 
 
 @router.get("/live/tail", dependencies=[Depends(require_admin)])

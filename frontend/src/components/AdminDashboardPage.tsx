@@ -9,6 +9,11 @@ import {
   BatchRegion,
   CommentSource,
   DramPriceStatus,
+  HubAction,
+  HubObjectCount,
+  HubSessionEvent,
+  HubSummary,
+  HubTrendPoint,
   KakaoDramPriceStatus,
   KakaoPredictionStatus,
   KakaoVisitorStatus,
@@ -58,6 +63,50 @@ const TYPE_META: Record<string, { label: string; colorVar: string }> = {
   click: { label: "클릭", colorVar: "--series-violet" },
   stock_view: { label: "종목조회", colorVar: "--series-aqua" },
 };
+
+/* What each kind of main-page interaction is called on screen. The keys are
+   activity.py's _VALID_HUB_ACTIONS — anything added there and not here falls
+   back to the raw key, which reads as obviously missing rather than quietly
+   mislabelled. */
+const HUB_ACTION_LABEL: Record<HubAction, string> = {
+  object_click: "천체 클릭",
+  control: "조작",
+  bgm: "BGM",
+  focus: "주목",
+  dwell: "체류",
+  exit: "이동",
+};
+
+/** Bar colour per action, so a kind of interaction keeps the same colour
+ * wherever it appears — the chart's series and this ranking's bars. */
+const HUB_ACTION_COLOR: Record<HubAction, string> = {
+  object_click: "--series-violet",
+  control: "--series-blue",
+  bgm: "--series-aqua",
+  focus: "--series-amber",
+  dwell: "--text-muted",
+  exit: "--series-green",
+};
+
+const HUB_RANK_FILTERS: { key: HubAction | "all"; label: string }[] = [
+  { key: "all", label: "전체" },
+  { key: "object_click", label: "천체" },
+  { key: "control", label: "조작" },
+  { key: "focus", label: "주목" },
+  { key: "bgm", label: "BGM" },
+  { key: "exit", label: "이동" },
+];
+
+/** Seconds as something a person reads at a glance. Under a minute stays in
+ * seconds — "0분 42초" is worse than "42초" — and past an hour the seconds stop
+ * carrying information. */
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total}초`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes}분 ${total % 60}초`;
+  return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
+}
 
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
@@ -479,7 +528,21 @@ export default function AdminDashboardPage() {
   // the only extra piece of state the toggle needs. Both series are fetched together
   // below regardless of which is showing, so flipping this is instant rather than
   // triggering a fresh loading skeleton.
-  const [trendMetric, setTrendMetric] = useState<"pages" | "visitors">("pages");
+  const [trendMetric, setTrendMetric] = useState<"pages" | "visitors" | "hub">("pages");
+  /* Main-page behaviour. Three separate pieces of state because they answer on
+     three different schedules: the summary and the series follow the chart's
+     range, the ranking holds a fixed week, and the session trail is fetched
+     only when a row in the log is opened. */
+  const [hubPoints, setHubPoints] = useState<HubTrendPoint[]>([]);
+  const [hubSummary, setHubSummary] = useState<HubSummary | null>(null);
+  const [hubObjects, setHubObjects] = useState<HubObjectCount[] | null>(null);
+  const [hubRankAction, setHubRankAction] = useState<HubAction | "all">("all");
+  /* Which slice of the live log is on show. The entrance page produces far more
+     events per visitor than any other page does — a tab that separates them is
+     what keeps one person exploring the orbit from burying everything else. */
+  const [tailScope, setTailScope] = useState<"all" | "hub">("all");
+  const [openTrail, setOpenTrail] = useState<string | null>(null);
+  const [trail, setTrail] = useState<HubSessionEvent[] | null>(null);
   const [pagesTop, setPagesTop] = useState<PageCount[] | null>(null);
   const [stocksTop, setStocksTop] = useState<StockSearchCount[] | null>(null);
   const [sessions, setSessions] = useState<ActiveSession[] | null>(null);
@@ -546,11 +609,22 @@ export default function AdminDashboardPage() {
       // second is one COUNT(DISTINCT session_id) over the same already-indexed
       // range, and paying for it up front is what lets the toggle just switch
       // stored state instead of showing a loading skeleton every time it's clicked.
-      Promise.all([adminApi.trend(range), adminApi.visitorTrend(range)])
-        .then(([pages, visitors]) => {
+      // The main-page series and its summary ride along with the other two for
+      // the same reason they ride together: all three read one already-indexed
+      // window, and paying for them up front is what lets the metric toggle
+      // switch stored state instead of showing a skeleton on every click.
+      Promise.all([
+        adminApi.trend(range),
+        adminApi.visitorTrend(range),
+        adminApi.hubTrend(range),
+        adminApi.hubSummary(range),
+      ])
+        .then(([pages, visitors, hub, hubStats]) => {
           if (cancelled) return;
           setTrendPoints(pages.points);
           setVisitorPoints(visitors.points);
+          setHubPoints(hub.points);
+          setHubSummary(hubStats);
           setTrendLoaded(true);
         })
         .catch(handleAuthError);
@@ -572,11 +646,12 @@ export default function AdminDashboardPage() {
       // rather than pre-truncated to what fits: every route the app has for
       // pages, and enough stocks that the 10-search floor applied below is
       // what actually ends the list rather than this number.
-      Promise.all([adminApi.pagesTop(200), adminApi.stocksTop(500)])
-        .then(([pages, stocks]) => {
+      Promise.all([adminApi.pagesTop(200), adminApi.stocksTop(500), adminApi.hubObjectsTop(300)])
+        .then(([pages, stocks, hub]) => {
           if (cancelled) return;
           setPagesTop(pages.items);
           setStocksTop(stocks.items);
+          setHubObjects(hub.items);
         })
         .catch(handleAuthError);
     };
@@ -904,6 +979,38 @@ export default function AdminDashboardPage() {
       return { series: seriesData, categories: buckets, maxCount: Math.max(1, ...values) };
     }
 
+    /* The main-page view: one series per kind of interaction, over the same
+       timeline the other two use. It maps onto the identical Series shape —
+       `path` carries the action name instead of a route — so the chart, the
+       legend, the tooltip and both chart modes need to know nothing about it.
+
+       Dwell rows are left out on purpose. Their unit is seconds, not events,
+       and a series measuring time plotted against series counting taps would
+       share an axis with nothing to say. The dwell figures have their own
+       tiles above, where a number in seconds can be labelled as one. */
+    if (trendMetric === "hub") {
+      const valueMap = new Map<string, number>();
+      const totals = new Map<HubAction, number>();
+      for (const p of hubPoints) {
+        if (p.action === "dwell") continue;
+        valueMap.set(`${p.action}${p.bucket}`, p.count);
+        totals.set(p.action, (totals.get(p.action) ?? 0) + p.count);
+      }
+      const ordered = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([action]) => action);
+      const seriesData: Series[] = ordered.map((action, i) => ({
+        path: action,
+        label: HUB_ACTION_LABEL[action] ?? action,
+        colorVar: SERIES_VARS[i % SERIES_VARS.length],
+        values: buckets.map((b) => valueMap.get(`${action}${b}`) ?? 0),
+        total: totals.get(action) ?? 0,
+      }));
+      const maxCount = Math.max(
+        1,
+        ...buckets.map((_, i) => seriesData.reduce((sum, s) => sum + s.values[i], 0))
+      );
+      return { series: seriesData, categories: buckets, maxCount };
+    }
+
     const totals = new Map<string, number>();
     for (const p of trendPoints) totals.set(p.path, (totals.get(p.path) ?? 0) + p.count);
     const orderedPaths = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([path]) => path);
@@ -943,7 +1050,7 @@ export default function AdminDashboardPage() {
     // otherwise stacked bars would overflow the chart's top edge.
     const maxCount = Math.max(1, ...buckets.map((_, i) => seriesData.reduce((sum, s) => sum + s.values[i], 0)));
     return { series: seriesData, categories: buckets, maxCount };
-  }, [trendPoints, visitorPoints, range, trendMetric]);
+  }, [trendPoints, visitorPoints, hubPoints, range, trendMetric]);
 
   // Measured off .admin-trend-chart-wrap itself (see chartSize/chartWrapRef below)
   // rather than a fixed ratio, now that the panel is user-resizable
@@ -1075,6 +1182,50 @@ export default function AdminDashboardPage() {
      which is noise in a ranking rather than a tail of it. */
   const rankedStocks = (stocksTop ?? []).filter((s) => s.count >= STOCK_RANK_MIN_COUNT);
   const topStockCount = rankedStocks[0]?.count ?? 0;
+
+  /* Re-sorted by SESSIONS, not by the raw count the server ordered on.
+     The server orders by count because that is what its LIMIT has to cut on —
+     it cannot know which rows survive this filter. What makes a ranking of
+     objects mean something, though, is how many different people reached for
+     one: forty taps from one visitor exploring is not the same result as forty
+     visitors each tapping once, and only the second is a signal about the page.
+     Dwell rows are excluded — they have no object, and they are already the
+     tiles above. */
+  /* Opening a session's trail. Fetched on demand rather than carried on every
+     tail poll: it is one query per curiosity, and the tail refreshes on a timer
+     for everyone whether or not anybody is reading a trail. Clicking the open
+     row closes it, which is also how you stop the fetch mattering. */
+  const toggleTrail = (sessionId: string) => {
+    if (openTrail === sessionId) {
+      setOpenTrail(null);
+      setTrail(null);
+      return;
+    }
+    setOpenTrail(sessionId);
+    setTrail(null);
+    adminApi
+      .hubSession(sessionId)
+      .then((res) => {
+        // A second row opened while this was in flight owns the panel now.
+        setOpenTrail((current) => {
+          if (current === sessionId) setTrail(res.events);
+          return current;
+        });
+      })
+      .catch(handleAuthError);
+  };
+
+  /* Filtered client side rather than by a second request. The tail is one
+     bounded list the panel already holds, the tab is a view of it, and asking
+     the server again would make switching tabs a round trip for data that is
+     sitting in memory. */
+  const shownTail = (tail ?? []).filter((e) => tailScope === "all" || e.type === "hub");
+  const hubTailCount = (tail ?? []).filter((e) => e.type === "hub").length;
+
+  const rankedHub = (hubObjects ?? [])
+    .filter((h) => h.action !== "dwell" && (hubRankAction === "all" || h.action === hubRankAction))
+    .sort((a, b) => b.sessions - a.sessions || b.count - a.count);
+  const topHubSessions = rankedHub[0]?.sessions ?? 0;
 
   return (
     <div className="admin-dash-page">
@@ -1209,9 +1360,100 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {/* ── the entrance page, on its own row ──
+          A second row rather than four more tiles in the first. These follow
+          the chart's range while the row above is fixed (now / all time / 24h),
+          and mixing two different time bases into one strip of tiles is how a
+          dashboard gets misread. The heading says which range is in force. */}
+      <div className="admin-stats-row admin-stats-row--hub">
+        <div className="admin-stats-rowlabel">
+          메인 페이지 행동
+          <span className="admin-stats-rowlabel-hint">
+            {RANGE_OPTIONS.find((o) => o.value === range)?.label ?? range} 기준
+          </span>
+        </div>
+        <div className="admin-stat-tile admin-stat-tile--aqua">
+          <span className="admin-stat-icon">
+            <IconUsers />
+          </span>
+          <div className="admin-stat-body">
+            <span className="admin-stat-label">메인 세션</span>
+            {hubSummary ? (
+              <span className="admin-stat-value">{hubSummary.sessions.toLocaleString()}</span>
+            ) : (
+              <span className="admin-skeleton admin-skeleton--value" />
+            )}
+          </div>
+        </div>
+        <div className="admin-stat-tile admin-stat-tile--good">
+          <span className="admin-stat-icon">
+            <IconPulse />
+          </span>
+          <div className="admin-stat-body">
+            {/* Median, not mean, as the headline. A handful of visitors leave
+                the orbit running and drag the average somewhere no real visit
+                ever was; the mean is kept underneath where the gap between the
+                two is itself readable. */}
+            <span className="admin-stat-label">평균 체류 (중앙값)</span>
+            {hubSummary ? (
+              <span className="admin-stat-value admin-stat-value--sm">
+                {formatDuration(hubSummary.dwell.median_seconds)}
+                <span className="admin-stat-sub">평균 {formatDuration(hubSummary.dwell.avg_seconds)}</span>
+              </span>
+            ) : (
+              <span className="admin-skeleton admin-skeleton--value" />
+            )}
+          </div>
+        </div>
+        <div className="admin-stat-tile admin-stat-tile--violet">
+          <span className="admin-stat-icon">
+            <IconTrophy />
+          </span>
+          <div className="admin-stat-body">
+            <span className="admin-stat-label">세션당 클릭</span>
+            {hubSummary ? (
+              <span className="admin-stat-value admin-stat-value--sm">
+                {hubSummary.clicks_per_session.toFixed(1)}
+                <span className="admin-stat-sub">
+                  천체 {(hubSummary.totals.object_click ?? 0).toLocaleString()}회
+                </span>
+              </span>
+            ) : (
+              <span className="admin-skeleton admin-skeleton--value" />
+            )}
+          </div>
+        </div>
+        <div className="admin-stat-tile admin-stat-tile--blue">
+          <span className="admin-stat-icon">
+            <IconEye />
+          </span>
+          <div className="admin-stat-body">
+            <span className="admin-stat-label">BGM 재생</span>
+            {hubSummary ? (
+              <span className="admin-stat-value admin-stat-value--sm">
+                {hubSummary.bgm_sessions.toLocaleString()}
+                <span className="admin-stat-sub">
+                  {hubSummary.sessions > 0
+                    ? `세션의 ${((hubSummary.bgm_sessions / hubSummary.sessions) * 100).toFixed(0)}%`
+                    : "-"}
+                </span>
+              </span>
+            ) : (
+              <span className="admin-skeleton admin-skeleton--value" />
+            )}
+          </div>
+        </div>
+      </div>
+
       <section className="admin-panel admin-panel--trend" ref={trendPanel.ref}>
         <div className="admin-panel-head">
-          <h2>{trendMetric === "visitors" ? "방문자수 추이" : "페이지별 접속 추이"}</h2>
+          <h2>
+            {trendMetric === "visitors"
+              ? "방문자수 추이"
+              : trendMetric === "hub"
+                ? "메인 행동 추이"
+                : "페이지별 접속 추이"}
+          </h2>
           <div className="admin-panel-controls">
             <div className="admin-trend-mode-toggle" role="group" aria-label="표시 항목">
               <button
@@ -1233,6 +1475,19 @@ export default function AdminDashboardPage() {
               >
                 <IconUsers className="admin-trend-mode-icon" />
                 방문자수
+              </button>
+              {/* The third question this chart can answer, and the one the
+                  other two cannot: not where people went or how many there
+                  were, but what they did on the front page. */}
+              <button
+                type="button"
+                className={trendMetric === "hub" ? "active" : ""}
+                onClick={() => setTrendMetric("hub")}
+                aria-pressed={trendMetric === "hub"}
+                title="메인 페이지에서 일어난 행동을 시간대별로"
+              >
+                <IconTrophy className="admin-trend-mode-icon" />
+                메인 행동
               </button>
             </div>
             <div className="admin-trend-mode-toggle" role="group" aria-label="차트 형태">
@@ -1591,6 +1846,92 @@ export default function AdminDashboardPage() {
             </div>
           )}
         </div>
+
+        {/* ── 메인 반응 순위 ──
+            The third ranking, and the only one whose rows are objects rather
+            than destinations. A page ranking says where people ended up; this
+            says what they reached for on the way, including the things that got
+            reached for and never opened.
+
+            Two figures per row on purpose. `count` is how often it happened and
+            `sessions` is how many different people did it — and a planet that
+            one visitor tapped forty times is a very different result from one
+            that forty visitors tapped once. The bar is drawn on sessions for
+            exactly that reason; the raw count sits beside it. */}
+        <div className="admin-trend-tophub">
+          <h3 className="admin-trend-toppages-title">
+            메인 반응 순위 (7일 누적)
+            <span className="admin-toppages-hint">순위는 세션 수 기준 · 스크롤하면 전체</span>
+          </h3>
+          <div className="admin-hub-rank-filter" role="group" aria-label="반응 종류">
+            {HUB_RANK_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className={hubRankAction === f.key ? "active" : ""}
+                onClick={() => setHubRankAction(f.key)}
+                aria-pressed={hubRankAction === f.key}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {hubObjects === null ? (
+            <div className="admin-toppages-list">
+              {[0, 1, 2, 3, 4].map((i) => (
+                <div key={i} className="admin-toppages-row">
+                  <span className="admin-skeleton admin-skeleton--row" />
+                </div>
+              ))}
+            </div>
+          ) : rankedHub.length === 0 ? (
+            <p className="admin-empty">아직 메인 페이지 반응 기록이 없습니다.</p>
+          ) : (
+            <div className="admin-toppages-list admin-toppages-list--scroll">
+              {rankedHub.map((h, i) => {
+                const rank = i + 1;
+                const medal = RANK_MEDAL[rank];
+                const pct = topHubSessions > 0 ? (h.sessions / topHubSessions) * 100 : 0;
+                return (
+                  <div
+                    key={`${h.action}:${h.object_key}`}
+                    className={`admin-toppages-row${rank <= 3 ? " admin-toppages-row--top" : ""}`}
+                  >
+                    {medal ? (
+                      <span
+                        className="admin-toppages-rank admin-toppages-rank--medal"
+                        style={{ color: medal.fill, filter: `drop-shadow(0 0 4px ${medal.glow})` }}
+                      >
+                        <MedalIcon />
+                      </span>
+                    ) : (
+                      <span className="admin-toppages-rank">{rank}</span>
+                    )}
+                    <div className="admin-toppages-info">
+                      <span className="admin-toppages-label">
+                        {h.label}
+                        <span className="admin-hub-rank-kind">{HUB_ACTION_LABEL[h.action] ?? h.action}</span>
+                      </span>
+                      <div className="admin-toppages-bar-track">
+                        <div
+                          className="admin-toppages-bar-fill"
+                          style={{
+                            width: `${Math.max(pct, 3)}%`,
+                            background: `var(${HUB_ACTION_COLOR[h.action] ?? "--series-violet"})`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <span className="admin-toppages-count">
+                      {h.sessions.toLocaleString()}
+                      <span className="admin-hub-rank-total">/{h.count.toLocaleString()}</span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
         </div>
         <span
           className="admin-panel-resize-handle"
@@ -1729,6 +2070,29 @@ export default function AdminDashboardPage() {
         <section className="admin-panel admin-panel--tail" ref={tailPanel.ref}>
           <h2>
             <span className="admin-live-dot" /> 실시간 로그
+            {/* The tab. The entrance page emits several events per visitor
+                where every other page emits one, so left in the same stream it
+                would bury the rest — and separated, it becomes the only place
+                you can watch one person move through the orbit in order. */}
+            <span className="admin-tail-tabs" role="group" aria-label="로그 범위">
+              <button
+                type="button"
+                className={tailScope === "all" ? "active" : ""}
+                onClick={() => setTailScope("all")}
+                aria-pressed={tailScope === "all"}
+              >
+                전체
+              </button>
+              <button
+                type="button"
+                className={tailScope === "hub" ? "active" : ""}
+                onClick={() => setTailScope("hub")}
+                aria-pressed={tailScope === "hub"}
+              >
+                메인 행동
+                {hubTailCount > 0 && <span className="admin-tail-tabcount">{hubTailCount}</span>}
+              </button>
+            </span>
           </h2>
           <div className="admin-tail-list">
             {tail === null &&
@@ -1737,15 +2101,33 @@ export default function AdminDashboardPage() {
                   <span className="admin-skeleton admin-skeleton--row" />
                 </div>
               ))}
-            {tail?.map((e) => {
+            {shownTail.map((e) => {
               const meta = TYPE_META[e.type] ?? { label: e.type, colorVar: "--text-muted" };
+              const hub = e.type === "hub";
+              const badgeColor = hub ? HUB_ACTION_COLOR[e.action ?? "control"] : meta.colorVar;
+              const badgeLabel = hub ? (e.action ? HUB_ACTION_LABEL[e.action] : "메인") : meta.label;
+              const open = openTrail === e.session_id;
               return (
-                <div key={e.id} className="admin-tail-row">
+                <div key={e.id} className={`admin-tail-row${hub ? " admin-tail-row--hub" : ""}`}>
                   <span className="admin-tail-time">{formatClock(e.created_at)}</span>
-                  <span className="admin-tail-session">{shortSession(e.session_id)}</span>
-                  <span className="admin-tail-badge" style={{ color: `var(${meta.colorVar})`, borderColor: `var(${meta.colorVar})` }}>
+                  {/* On a main-page row the session id becomes a control: it
+                      opens that visitor's whole trail through the page, which
+                      is the question a single line of log always raises. */}
+                  {hub ? (
+                    <button
+                      type="button"
+                      className={`admin-tail-session admin-tail-session--btn${open ? " is-open" : ""}`}
+                      onClick={() => toggleTrail(e.session_id)}
+                      title="이 세션의 메인 페이지 행동 전체 보기"
+                    >
+                      {shortSession(e.session_id)}
+                    </button>
+                  ) : (
+                    <span className="admin-tail-session">{shortSession(e.session_id)}</span>
+                  )}
+                  <span className="admin-tail-badge" style={{ color: `var(${badgeColor})`, borderColor: `var(${badgeColor})` }}>
                     <TypeIcon type={e.type} className="admin-tail-badge-icon" />
-                    {meta.label}
+                    {badgeLabel}
                   </span>
                   <span className="admin-tail-detail">
                     {e.type === "stock_view" && e.stock_code ? (
@@ -1753,16 +2135,57 @@ export default function AdminDashboardPage() {
                         <StockLogo code={e.stock_code} className="admin-tail-stock-icon" />
                         {e.stock_name} ({e.stock_code})
                       </>
+                    ) : hub ? (
+                      // A dwell row's number is its whole content; everything
+                      // else on that page is named by its label.
+                      e.action === "dwell" ? (
+                        <>
+                          체류 <strong>{formatDuration(e.value ?? 0)}</strong>
+                        </>
+                      ) : (
+                        <>
+                          {e.label ?? e.object_key ?? "메인"}
+                          {e.object_key && <span className="admin-tail-key">{e.object_key}</span>}
+                        </>
+                      )
                     ) : e.label ? (
                       `${pageLabel(e.path)} · ${e.label}`
                     ) : (
                       pageLabel(e.path)
                     )}
                   </span>
+                  {open && (
+                    <div className="admin-tail-trail">
+                      {trail === null ? (
+                        <span className="admin-skeleton admin-skeleton--row" />
+                      ) : trail.length === 0 ? (
+                        <span className="admin-tail-trail-empty">기록된 행동이 없습니다.</span>
+                      ) : (
+                        trail.map((t, i) => (
+                          <div key={`${t.created_at}${i}`} className="admin-tail-trail-row">
+                            <span className="admin-tail-trail-time">{formatClock(t.created_at)}</span>
+                            <span
+                              className="admin-tail-trail-kind"
+                              style={{ color: `var(${HUB_ACTION_COLOR[t.action] ?? "--text-muted"})` }}
+                            >
+                              {HUB_ACTION_LABEL[t.action] ?? t.action}
+                            </span>
+                            <span className="admin-tail-trail-label">
+                              {t.action === "dwell" ? formatDuration(t.value ?? 0) : t.label ?? t.object_key ?? "-"}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}
-            {tail?.length === 0 && <p className="admin-empty">이벤트를 기다리는 중...</p>}
+            {tail !== null && shownTail.length === 0 && (
+              <p className="admin-empty">
+                {tailScope === "hub" ? "메인 페이지 행동을 기다리는 중..." : "이벤트를 기다리는 중..."}
+              </p>
+            )}
           </div>
           <span
             className="admin-panel-resize-handle"

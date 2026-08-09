@@ -57,6 +57,34 @@ function sendEvent(body: Record<string, unknown>) {
   });
 }
 
+/* ─────────────────────── the entrance page's own trail ───────────────────────
+   The generic click handler below cannot describe the front page. It reads a
+   label off whatever DOM element was clicked, and most of that page is a WebGL
+   canvas — the planets are not elements, so tapping Jupiter reports nothing at
+   all, and the controls that ARE elements come back as whatever text they
+   happened to be showing. What follows is reported deliberately by the page
+   itself, with stable keys, so a ranking can group by object across a rename
+   and a session's trail reads as a sequence of decisions rather than of clicks.
+
+   Kept as its own event type rather than more `click` rows: those feed the
+   page-view counts, and a tap on a planet is not a page view. */
+export type HubAction = "object_click" | "control" | "bgm" | "focus" | "dwell" | "exit";
+
+export function reportHubEvent(
+  action: HubAction,
+  options: { key?: string; label?: string; value?: number } = {}
+): void {
+  if (isAdminPath(window.location.pathname)) return;
+  sendEvent({
+    type: "hub",
+    path: window.location.pathname,
+    action,
+    object_key: options.key,
+    label: options.label,
+    value: options.value,
+  });
+}
+
 export function reportStockView(code: string, name: string): void {
   if (isAdminPath(window.location.pathname)) return;
   sendEvent({

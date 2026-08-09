@@ -9985,9 +9985,15 @@ thead .weekly-foreign-amount-col {
   overflow: hidden;
 }
 
+/* Four columns now, not three: the chart plus three rankings. The chart gives
+   up one unit rather than the rankings splitting two between them — at 6/2/2/2
+   each list is 2/12 of the row and a body's name wraps in it, and a ranking
+   whose labels wrap is not readable at a glance, which is the only thing a
+   ranking is for. 5/2.33 each keeps every list at the width the first two
+   already proved works. */
 .admin-trend-layout {
   display: grid;
-  grid-template-columns: 6fr 2fr 2fr;
+  grid-template-columns: 5fr 2fr 2fr 2fr;
   grid-template-rows: minmax(0, 1fr);
   gap: 20px;
   align-items: stretch;
@@ -10003,10 +10009,14 @@ thead .weekly-foreign-amount-col {
 }
 
 .admin-trend-toppages,
-.admin-trend-topstocks {
+.admin-trend-topstocks,
+.admin-trend-tophub {
   min-width: 0;
   padding-left: 20px;
   border-left: 1px solid var(--gridline);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .admin-trend-toppages-title {
@@ -10804,6 +10814,151 @@ button.admin-comments-text--clickable:hover {
   overscroll-behavior: contain;
 }
 
+/* ─────────────────── main-page behaviour: the additions ───────────────────
+
+   Everything below belongs to the entrance page's own analytics — the second
+   tile row, the third ranking column, the log's tab and the session trail it
+   expands into. Grouped here rather than scattered among the panels they sit
+   in, because they are one feature and they are the thing most likely to be
+   removed or reshaped as a unit. */
+
+/* The second tile row. Set apart from the first with a label rather than a
+   heading, because the two rows are read as one block and what distinguishes
+   them is not importance but TIME BASE: the row above is now / all time / 24h,
+   this one follows the chart's range. Saying so is the whole job of the
+   label. */
+.admin-stats-row--hub {
+  grid-template-columns: auto repeat(4, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.admin-stats-rowlabel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 3px;
+  padding-right: 16px;
+  border-right: 1px solid var(--gridline);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.admin-stats-rowlabel-hint {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* The second figure inside a tile — the mean under the median, the raw count
+   under the per-session rate. Deliberately small and quiet: it is context for
+   the number above it, not a number in its own right. */
+.admin-stat-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+  letter-spacing: 0;
+}
+
+/* The ranking's own filter. Same shape as the chart's range buttons so it is
+   recognisably the same kind of control, at the smaller size a column this
+   narrow can afford. */
+.admin-hub-rank-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.admin-hub-rank-filter button {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-hub-rank-filter button:hover {
+  color: var(--text-secondary);
+}
+
+.admin-hub-rank-filter button.active {
+  background: var(--series-violet);
+  border-color: var(--series-violet);
+  color: #fff;
+}
+
+/* Which kind of interaction a ranking row is. Needed because the unfiltered
+   list mixes them, and "목성" as a click and "목성" as a look are different
+   rows that would otherwise be identical on screen. */
+.admin-hub-rank-kind {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+/* The raw count, behind the session count the row is ranked on. Dimmer, because
+   the bigger number is the less meaningful one here and reading it as the
+   headline is exactly the mistake this ranking is built to avoid. */
+.admin-hub-rank-total {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 10.5px;
+}
+
+/* The log's tab. Sits inside the panel heading, pushed to the far end. */
+.admin-tail-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.admin-tail-tabs button {
+  padding: 3px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-tail-tabs button.active {
+  background: var(--series-violet);
+  border-color: var(--series-violet);
+  color: #fff;
+}
+
+.admin-tail-tabcount {
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  font-size: 9.5px;
+}
+
+.admin-tail-tabs button.active .admin-tail-tabcount {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.admin-panel--tail h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .admin-tail-row {
   display: grid;
   grid-template-columns: 66px 66px 68px max-content;
@@ -10826,6 +10981,95 @@ button.admin-comments-text--clickable:hover {
 
 .admin-tail-row:hover {
   background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+/* A main-page row, tinted down its leading edge. The badge already carries the
+   colour, but in a mixed stream a badge is something you have to read; a rail
+   is something you can scan past. */
+.admin-tail-row--hub {
+  box-shadow: inset 2px 0 0 var(--series-violet);
+  padding-left: 6px;
+}
+
+/* The session id as a control. Looks like the plain span it replaces until
+   it is hovered — a log is read far more often than it is clicked, and a row
+   of buttons reads as a toolbar. */
+.admin-tail-session--btn {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline dotted color-mix(in srgb, var(--text-muted) 60%, transparent);
+  text-underline-offset: 3px;
+}
+
+.admin-tail-session--btn:hover,
+.admin-tail-session--btn.is-open {
+  color: var(--series-violet);
+  text-decoration-color: var(--series-violet);
+}
+
+/* The stable key behind a label, for when two things are called the same on
+   screen and only the key says which is which. */
+.admin-tail-key {
+  margin-left: 6px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* One session's whole trail, opened under the row that named it. Spans every
+   column — it is not a fifth field, it is a panel that happens to live inside
+   a row. */
+.admin-tail-trail {
+  grid-column: 1 / -1;
+  margin: 6px 0 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--gridline);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  /* Long trails scroll rather than pushing the rest of the log off screen. */
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.admin-tail-trail-row {
+  display: grid;
+  grid-template-columns: 62px 56px minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  font-size: 11px;
+}
+
+.admin-tail-trail-time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.admin-tail-trail-kind {
+  font-weight: 700;
+  font-size: 10px;
+}
+
+.admin-tail-trail-label {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-tail-trail-empty {
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 .admin-tail-time {
@@ -10879,6 +11123,23 @@ button.admin-comments-text--clickable:hover {
 @media (max-width: 900px) {
   .admin-stats-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* The row label stops being a column and becomes a heading across the top:
+     at two tiles per row a side label would take a third of the width to say
+     four words. */
+  .admin-stats-row--hub {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-stats-rowlabel {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 8px;
+    padding: 0 0 4px;
+    border-right: none;
+    border-bottom: 1px solid var(--gridline);
   }
 
   .admin-panels-grid {
@@ -10965,7 +11226,8 @@ button.admin-comments-text--clickable:hover {
   }
 
   .admin-trend-toppages,
-  .admin-trend-topstocks {
+  .admin-trend-topstocks,
+  .admin-trend-tophub {
     padding-left: 0;
     padding-top: 16px;
     border-left: none;
@@ -10982,7 +11244,8 @@ button.admin-comments-text--clickable:hover {
     flex-direction: column;
   }
 
-  .admin-stats-row {
+  .admin-stats-row,
+  .admin-stats-row--hub {
     grid-template-columns: 1fr;
   }
 

@@ -45,21 +45,79 @@ export interface VisitorTrendResponse {
   points: VisitorTrendPoint[];
 }
 
+/** What the entrance page reports about itself. Kept in step with
+ * activity.py's _VALID_HUB_ACTIONS — that list is the authority and this is a
+ * copy of it, so a new action has to be added in both places. */
+export type HubAction = "object_click" | "control" | "bgm" | "focus" | "dwell" | "exit";
+
 export interface ActivityEvent {
   id: number;
   created_at: string;
   session_id: string;
-  type: "page_view" | "click" | "stock_view";
+  type: "page_view" | "click" | "stock_view" | "hub";
   path: string;
   label: string | null;
   stock_code: string | null;
   stock_name: string | null;
+  /* Set on `hub` events only, null on everything else — the tail is one
+     uniform shape so the log can render any row without branching first. */
+  action: HubAction | null;
+  object_key: string | null;
+  /** Seconds, on a `dwell` row. Nothing on any other. */
+  value: number | null;
 }
 
 export interface StockSearchCount {
   code: string;
   name: string;
   count: number;
+}
+
+/* ───────────────────── main-page behaviour ─────────────────────
+   Separate from the page and stock statistics above because it measures
+   something else: not where people went, but what they touched once they had
+   arrived, and how long they stayed to do it. */
+
+export interface HubDwellStats {
+  sessions: number;
+  avg_seconds: number;
+  /** Carried beside the mean because the two disagree here, and that is the
+   * point — a few visitors leave the orbit running for an hour. */
+  median_seconds: number;
+  total_seconds: number;
+}
+
+export interface HubSummary {
+  range: AdminTrendRange;
+  sessions: number;
+  totals: Partial<Record<HubAction, number>>;
+  dwell: HubDwellStats;
+  clicks_per_session: number;
+  bgm_sessions: number;
+}
+
+export interface HubTrendPoint {
+  bucket: string;
+  action: HubAction;
+  count: number;
+}
+
+export interface HubObjectCount {
+  object_key: string;
+  label: string;
+  action: HubAction;
+  count: number;
+  /** Distinct sessions, so one visitor hammering a planet cannot own the
+   * ranking on their own. */
+  sessions: number;
+}
+
+export interface HubSessionEvent {
+  action: HubAction;
+  object_key: string | null;
+  label: string | null;
+  value: number | null;
+  created_at: string;
 }
 
 /* ───────────────────────── monitor (neuron view) ─────────────────────────
@@ -123,6 +181,11 @@ export interface ActiveSession {
   stock_name: string | null;
   first_seen: number;
   last_seen: number;
+  /** How much of the entrance page this session has touched, and for how long,
+   * accumulated in activity_log rather than queried per poll. Both are 0 for a
+   * visitor who never went near the front page. */
+  hub_actions: number;
+  hub_seconds: number;
 }
 
 /** One region's last-run outcome, as remembered by the web process (volatile — see
@@ -526,6 +589,20 @@ export const adminApi = {
   stocksTop: (limit = 10) => authedGet<{ items: StockSearchCount[] }>(`/stocks/top?limit=${limit}`),
   tail: (limit = 100) => authedGet<{ events: ActivityEvent[] }>(`/live/tail?limit=${limit}`),
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
+  /* Main-page behaviour. The summary and trend follow the chart's own range;
+     the ranking does not — it holds the same fixed week the other two rankings
+     use, so flipping the chart never reshuffles a list underneath it. */
+  hubSummary: (range: AdminTrendRange) => authedGet<HubSummary>(`/hub/summary?range=${range}`),
+  hubTrend: (range: AdminTrendRange) =>
+    authedGet<{ range: AdminTrendRange; points: HubTrendPoint[] }>(`/hub/trend?range=${range}`),
+  hubObjectsTop: (limit = 200, action?: HubAction) =>
+    authedGet<{ items: HubObjectCount[] }>(
+      `/hub/objects/top?limit=${limit}${action ? `&action=${action}` : ""}`
+    ),
+  hubSession: (sessionId: string, limit = 200) =>
+    authedGet<{ session_id: string; events: HubSessionEvent[] }>(
+      `/hub/session/${encodeURIComponent(sessionId)}?limit=${limit}`
+    ),
   monitorGraph: () => monitorGet<MonitorGraph>("/monitor/graph"),
   // Cursor-based: the response carries the cursors to send next time, so a viewer open
   // for an hour polls the same tiny payload as one that just opened.

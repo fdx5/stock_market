@@ -6,7 +6,9 @@ import { HubScene } from "../hub2/scene";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
+import { reportHubEvent } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { useHubDwell } from "../useHubDwell";
 import { useYouTubeBgm } from "../useYouTubeBgm";
 import LanguageToggle from "./LanguageToggle";
 import ThemeToggle from "./ThemeToggle";
@@ -113,6 +115,10 @@ export default function HubType2() {
   /* Background music, and nothing to do with the scene: it is off by default,
      it fetches nothing until pressed, and the camera does not care about it. */
   const bgm = useYouTubeBgm();
+  /* The clock on the visit. Runs only while the page is actually in front of
+     the visitor and flushes as it goes — see useHubDwell for why "time on
+     page" measured the obvious way is wrong. */
+  useHubDwell(true);
   /* The scene has taken the whole frame — blacked out, or holding the plate at
      the end of the tour. Everything in this component except the canvas is DOM
      on top of it, so none of it goes dark when the render does; it has to be
@@ -182,7 +188,15 @@ export default function HubType2() {
   /* ── the scene. Built once, on mount, and torn down completely on unmount:
         a WebGL context that outlives its component is a leak the browser will
         eventually punish by refusing to give out another one. ── */
+  /* Every departure from the sky, reported before it happens.
+   *
+   * This is the one place a body's own key is still in hand — after navigate()
+   * the page is somewhere else and all that is left is a path, which several
+   * bodies share. The generic click tracker cannot see any of this: the sky is
+   * a canvas, and a planet is not an element for it to read a label off. */
   const handleSelect = useCallback((body: BodyInfo) => {
+    reportHubEvent("object_click", { key: `body:${body.key}`, label: body.bodyKo || body.ko });
+    reportHubEvent("exit", { key: `to:${body.to}`, label: body.ko });
     navigate(body.to);
   }, []);
 
@@ -203,7 +217,16 @@ export default function HubType2() {
       scene = new HubScene(mount, {
         onHover: (body) => setHovered(body),
         onSelect: handleSelect,
-        onFocus: (body) => setFocused(body),
+        /* The first of the two taps that open a body — and on the dock, a
+           hover. Reported because "looked at, did not go" is the half of the
+           picture a click ranking cannot show on its own: a body with a lot of
+           focus and few opens is one that draws the eye and then disappoints.
+           null is the camera letting go, which is not an object and not an
+           event. */
+        onFocus: (body) => {
+          setFocused(body);
+          if (body) reportHubEvent("focus", { key: `body:${body.key}`, label: body.bodyKo || body.ko });
+        },
         onReady: () => setReady(true),
         onTier: (next) => setTier(next),
         /* The scene starts and stops this one itself — a tap on the craft, or
@@ -264,7 +287,18 @@ export default function HubType2() {
      lists something the sky does not (it is data-driven and the sky is not),
      in which case there is nothing to fly to and the route opens directly. */
   const openDestination = (key: string, to: string) => {
-    if (!sceneRef.current?.selectByKey(key)) navigate(to);
+    /* Reported here rather than left to handleSelect. When the sky has the
+       body, selectByKey flies to it and handleSelect reports the arrival — so
+       this would double-count. What is recorded instead is that the DOCK was
+       the route in, which is the thing the sky's own path cannot tell you: two
+       ways to reach the same destination, and this is how you learn which one
+       people actually use. */
+    const dest = DESTINATIONS.find((d) => d.key === key);
+    reportHubEvent("control", { key: `dock:${key}`, label: `독 · ${dest ? dest.ko : key}` });
+    if (!sceneRef.current?.selectByKey(key)) {
+      reportHubEvent("exit", { key: `to:${to}`, label: dest ? dest.ko : key });
+      navigate(to);
+    }
   };
 
   if (failed) {
@@ -440,6 +474,10 @@ export default function HubType2() {
           type="button"
           className="h2-cam-btn"
           onClick={() => {
+            reportHubEvent("control", {
+              key: focused ? "ctrl:release" : "ctrl:reset",
+              label: focused ? "포커스 해제" : "시점 초기화",
+            });
             setTour(false);
             setProbeTour(false);
             sceneRef.current?.resetCamera();
@@ -454,6 +492,10 @@ export default function HubType2() {
           className={`h2-cam-btn${tour ? " is-on" : ""}`}
           aria-pressed={tour}
           onClick={() => {
+            // The state it is moving TO, not the one it is leaving — a ranking
+            // of "자동 여행 ON" against "자동 여행 OFF" says how many people
+            // started it versus how many sat through it.
+            reportHubEvent("control", { key: `ctrl:tour:${tour ? "off" : "on"}`, label: `자동 여행 ${tour ? "OFF" : "ON"}` });
             setProbeTour(false);
             setTour((on) => !on);
           }}
@@ -470,6 +512,10 @@ export default function HubType2() {
           className={`h2-cam-btn h2-cam-btn--probe${probeTour ? " is-on" : ""}`}
           aria-pressed={probeTour}
           onClick={() => {
+            reportHubEvent("control", {
+              key: `ctrl:voyager:${probeTour ? "off" : "on"}`,
+              label: `보이저호 여행 ${probeTour ? "OFF" : "ON"}`,
+            });
             setTour(false);
             setProbeTour((on) => !on);
           }}
@@ -494,7 +540,10 @@ export default function HubType2() {
           aria-pressed={bgm.playing}
           onPointerDown={bgm.warm}
           onFocus={bgm.warm}
-          onClick={bgm.toggle}
+          onClick={() => {
+            reportHubEvent("bgm", { key: `bgm:${bgm.playing ? "off" : "on"}`, label: `BGM ${bgm.playing ? "OFF" : "ON"}` });
+            bgm.toggle();
+          }}
           title={bgm.failed ? (en ? "Music could not be loaded" : "음원을 불러오지 못했습니다") : undefined}
         >
           {bgm.playing ? "BGM OFF" : "BGM ON"}

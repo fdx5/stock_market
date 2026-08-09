@@ -39,6 +39,7 @@ from app.services import (
     api_pulse,
     dram_price,
     global_top100_rank_store,
+    hub_event_store,
     kakao_notify,
     notify_stats_store,
     page_view_store,
@@ -213,6 +214,13 @@ def _admin_retention_loop() -> None:
                 datetime.now(timezone.utc) - timedelta(days=stock_search_store.RETENTION_DAYS)
             ).isoformat()
             stock_search_store.purge_older_than(search_cutoff)
+        except Exception:
+            pass
+        try:
+            hub_cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=hub_event_store.RETENTION_DAYS)
+            ).isoformat()
+            hub_event_store.purge_older_than(hub_cutoff)
         except Exception:
             pass
         try:

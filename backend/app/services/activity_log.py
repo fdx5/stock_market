@@ -4,7 +4,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 
-from app.services import page_view_store, stock_search_store
+from app.services import hub_event_store, page_view_store, stock_search_store
 
 # Bounds memory the same way visitor_tracker.py's session dict does: a fixed-size
 # ring buffer for the live tail (oldest events just fall off) rather than growing
@@ -39,11 +39,15 @@ def record_event(
     label: str | None = None,
     stock_code: str | None = None,
     stock_name: str | None = None,
+    action: str | None = None,
+    object_key: str | None = None,
+    value: float | None = None,
 ) -> None:
     now = time.time()
     created_at = _now_iso()
     path = path[:MAX_PATH_LEN]
     label = label[:MAX_LABEL_LEN] if label else None
+    object_key = object_key[:MAX_LABEL_LEN] if object_key else None
 
     event = {
         "id": next(_id_counter),
@@ -54,6 +58,11 @@ def record_event(
         "label": label,
         "stock_code": stock_code,
         "stock_name": stock_name,
+        # Only ever set on hub events. Carried on every event so the live tail
+        # stays one uniform shape for the client to render.
+        "action": action,
+        "object_key": object_key,
+        "value": value,
     }
 
     with _lock:
@@ -64,11 +73,26 @@ def record_event(
         if stock_code:
             state["stock_code"] = stock_code
             state["stock_name"] = stock_name
+        # What the live panel shows beside a session on the entrance page: how
+        # much of it they have actually touched, and how long they have been
+        # there. Accumulated here rather than queried per poll — the live panel
+        # refreshes on a timer and this is a dictionary lookup, not a table scan.
+        if event_type == "hub":
+            if action == "dwell" and value:
+                state["hub_seconds"] = state.get("hub_seconds", 0.0) + float(value)
+            elif action:
+                state["hub_actions"] = state.get("hub_actions", 0) + 1
 
     if event_type in ("page_view", "click"):
         threading.Thread(
             target=page_view_store.record_page_view,
             args=(session_id, path, created_at),
+            daemon=True,
+        ).start()
+    elif event_type == "hub" and action:
+        threading.Thread(
+            target=hub_event_store.record,
+            args=(session_id, action, created_at, object_key, label, value),
             daemon=True,
         ).start()
     elif event_type == "stock_view" and stock_code and stock_name:
@@ -105,6 +129,8 @@ def active_sessions(ttl: float = ACTIVE_TTL_SECONDS) -> list[dict]:
                 "stock_name": state.get("stock_name"),
                 "first_seen": state["first_seen"],
                 "last_seen": state["last_seen"],
+                "hub_actions": state.get("hub_actions", 0),
+                "hub_seconds": state.get("hub_seconds", 0.0),
             }
             for sid, state in _sessions.items()
         ]

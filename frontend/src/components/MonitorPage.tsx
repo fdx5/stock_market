@@ -40,7 +40,7 @@ const CONSOLE_MAX = 300;
 const PAGE_FANOUT = 4;
 const PAGE_HOPS = 1;
 
-type LogKind = "page_view" | "click" | "stock_view" | "api" | "system";
+type LogKind = "page_view" | "click" | "stock_view" | "hub" | "api" | "system";
 
 interface LogLine {
   key: string;
@@ -57,6 +57,7 @@ const KIND_LABEL: Record<LogKind, string> = {
   page_view: "PAGE",
   click: "CLICK",
   stock_view: "STOCK",
+  hub: "MAIN",
   api: "API",
   system: "SYS",
 };
@@ -66,6 +67,7 @@ const FILTERS: { key: LogKind; label: string }[] = [
   { key: "page_view", label: "페이지" },
   { key: "click", label: "클릭" },
   { key: "stock_view", label: "종목" },
+  { key: "hub", label: "메인" },
 ];
 
 function clockOf(ms: number): string {
@@ -590,7 +592,13 @@ function activityLine(event: ActivityEvent): LogLine {
   const detail =
     event.type === "stock_view"
       ? `${event.stock_name ?? ""} ${event.stock_code ?? ""}`.trim()
-      : event.label ?? routeOf(event.path);
+      : event.type === "hub"
+        ? // A dwell row's number IS its content; everything else on the
+          // entrance page is named by its label.
+          event.action === "dwell"
+          ? `체류 ${Math.round(event.value ?? 0)}초`
+          : event.label ?? event.object_key ?? "메인"
+        : event.label ?? routeOf(event.path);
   return {
     key: `a${event.id}`,
     kind: event.type,
