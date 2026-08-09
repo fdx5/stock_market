@@ -431,7 +431,16 @@ export default function HubType2() {
   }
 
   return (
-    <div className={`h2${ready ? " is-ready" : ""}${curtain ? " is-curtained" : ""}`}>
+    /* `is-observing` puts the page into telescope mode. Everything the HUD
+       normally carries — the index rail, the destination dock, the hints — is
+       navigation for a page you are not on right now: while the telescope is
+       up, the screen belongs to the body being observed and to the two panels
+       that serve it. See .h2.is-observing in hub2.css. */
+    <div
+      className={`h2${ready ? " is-ready" : ""}${curtain ? " is-curtained" : ""}${
+        hubbleOn ? " is-observing" : ""
+      }`}
+    >
       {/* The scene owns this element's contents entirely — the canvas and the
           floating body labels. React must never touch what is inside it. */}
       <div className="h2-stage" ref={mountRef} />

@@ -815,6 +815,26 @@
    they sit side by side down the right; on a narrow one they become sheets
    along the bottom, where they cover sky rather than the body in the middle. */
 
+/* ── telescope mode clears the HUD ──
+   The dock, the index rail and the hints are navigation for pages you are not
+   on. While the telescope is up they are three more layers stacked over the
+   one thing the mode exists to show, and on a phone they overlap the panels
+   outright. Faded rather than removed: leaving the page means these come
+   straight back, and an element that was never there cannot come back
+   smoothly.
+
+   pointer-events off matters as much as the opacity — an invisible dock that
+   still catches taps is worse than a visible one. */
+.h2.is-observing .h2-dock,
+.h2.is-observing .h2-readout,
+.h2.is-observing .h2-hint,
+.h2.is-observing .h2-credit,
+.h2.is-observing .h2-tier {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+
 .h2-obs {
   position: absolute;
   right: var(--edge);
@@ -1198,6 +1218,64 @@
   .h2-spec.is-open .h2-spec-chev {
     rotate: 225deg;
     translate: 0 2px;
+  }
+
+  /* ── telling the panels apart from the sky ──
+     These float over a starfield: a thin line on a translucent panel is a
+     border you cannot find against black, and the two of them stacked read as
+     one indistinct block. On a phone they get an edge that does not depend on
+     what is behind them — a brighter rim, a real shadow to lift them off the
+     scene, and a heavier blur so the sky stops competing with the text. */
+  .h2-obs-list,
+  .h2-obs-toggle,
+  .h2-obs-close,
+  .h2-spec {
+    border-color: rgba(180, 200, 235, 0.34);
+    background: color-mix(in srgb, #060a14 78%, transparent);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.85);
+  }
+
+  /* The card is the one in front, so it says so. */
+  .h2-spec {
+    border-color: rgba(255, 212, 137, 0.42);
+    box-shadow: 0 12px 34px -12px rgba(0, 0, 0, 0.9);
+  }
+
+  /* A grab bar across the top of the card, the shape a sheet is expected to
+     have. It is also the widest hint that the heading below it can be
+     pulled open. */
+  .h2-spec-head::before {
+    content: "";
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    translate: -50% 0;
+    width: 34px;
+    height: 3px;
+    border-radius: 2px;
+    background: rgba(200, 214, 240, 0.34);
+  }
+
+  .h2-spec-head {
+    position: relative;
+    padding-top: 12px;
+  }
+
+  /* Room for the fingers. A 34px control is under every touch-target
+     guideline there is, and these two sit at the edge of the screen. */
+  .h2-obs-close,
+  .h2-spec-close {
+    width: 42px;
+  }
+
+  .h2-obs-toggle {
+    padding: 12px 14px;
+  }
+
+  .h2-obs-item {
+    padding: 9px 10px;
   }
 
   /* With the list open there is not room for both. The list is what was just
