@@ -1986,7 +1986,14 @@ export class HubScene {
        the beam used before the smoke was gathered into cords — enough for the
        ropes to be continuous, and short of where a seven-second effect starts
        costing the forty other seconds of the cycle their frame rate. */
-    this.jetParticleCount = this.tier === "low" ? 480 : this.tier === "high" ? 950 : 1500;
+    /* Sized for the star's beam, not the rock's. The star's is longer and more
+       than twice as wide — call it eight times the volume — and pouring the
+       same grain count into it made a thinner beam out of a bigger one, which
+       is the opposite of what a whole star going in should buy. So the pool
+       here is the star's, and the rock draws a fraction of it (see
+       updateJetParticles) so its own beam is left as it was.
+       Ultra takes the hole's allocation to 6,091 of the pool's 6,200. */
+    this.jetParticleCount = this.tier === "low" ? 700 : this.tier === "high" ? 1500 : 2600;
     this.jetParticleStart = this.glow.allocate(this.jetParticleCount);
     this.glow.setSoft(this.jetParticleStart, this.jetParticleCount, 1);
     this.jetParticles = new Float32Array(this.jetParticleCount * 9);
@@ -4622,7 +4629,7 @@ export class HubScene {
     }
     this.jetGroup.visible = energy > 0.01;
 
-    this.updateJetParticles(holePos, since, head, energy, length, width, time, speed, tintR, tintG, tintB);
+    this.updateJetParticles(holePos, since, head, energy, length, width, power, time, speed, tintR, tintG, tintB);
     return energy;
   }
 
@@ -4655,6 +4662,7 @@ export class HubScene {
     energy: number,
     length: number,
     width: number,
+    power: number,
     time: number,
     speed: number,
     tintR: number,
@@ -4669,7 +4677,24 @@ export class HubScene {
 
     const spin = time * speed;
 
-    for (let i = 0; i < this.jetParticleCount; i++) {
+    /* How much of the pool this beam actually throws. The star gets all of it;
+       the rock gets the share that leaves its beam the density it already had.
+       Rounded to a multiple of 42 because the seeding above cycles the seven
+       clots on `i` and the three ropes and two poles on `i / 2` — any other
+       prefix takes an uneven number of some clot or rope and lands a heavier
+       cord on one pole than the other. */
+    const grains =
+      power < 1 ? Math.round((this.jetParticleCount * 0.58) / 42) * 42 : this.jetParticleCount;
+    for (let i = grains; i < this.jetParticleCount; i++) this.glow.hide(this.jetParticleStart + i);
+
+    /* And each puff covers its share of a wider beam. The size below is in
+       world units and knows nothing about `width`, so on the star's beam — 30
+       units across against the rock's 13 — the same sprite covers a fifth of
+       the area. Without this the extra grains only restore what the widening
+       took, and the two beams end up equally thick again. */
+    const puffScale = 0.72 + power * 0.56;
+
+    for (let i = 0; i < grains; i++) {
       const slot = this.jetParticleStart + i;
       const p = i * 9;
       const rope = this.jetParticles[p + 1];
@@ -4799,7 +4824,7 @@ export class HubScene {
            eye is given is one thick continuous rope of smoke rather than the
            sprites it is built out of. The cord is the thread; this is the wool
            on it. */
-        4.2 + roll * 3.2 + Math.pow(climb, 0.8) * 8.5,
+        (4.2 + roll * 3.2 + Math.pow(climb, 0.8) * 8.5) * puffScale,
         tintR + (1 - tintR) * hot,
         tintG + (1 - tintG) * hot,
         tintB + (1 - tintB) * hot,
@@ -4937,7 +4962,16 @@ export class HubScene {
          ribbon stayed empty for the whole fifteen seconds the star is meant to
          be losing gas — the stripping would have been a star sitting still.
          The strip fills most of the ribbon; the tear fills the rest. */
-      const flow = Math.max(strip * 0.86, tear);
+      /* And it drains at the end rather than being switched off. The ribbon
+         used to sit at full brightness right up to T_STAR_END and then be
+         cleared in one frame — eighteen hundred grains spanning fifty units,
+         gone between two frames, at the exact moment the jet fires. The jet
+         hides some of it, but a pop that large is still a pop. Over the last
+         quarter of the tear the stream empties into the disc instead, which is
+         also what should be happening: the star is gone by then, so there is
+         nothing left feeding the far end of it. */
+      const drain = 1 - clamp01((tear - 0.75) / 0.25);
+      const flow = Math.max(strip * 0.86, tear) * drain;
       if (flow <= 0.01) {
         this.glow.hide(slot);
         continue;
