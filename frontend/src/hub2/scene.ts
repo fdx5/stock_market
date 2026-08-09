@@ -645,6 +645,9 @@ export class HubScene {
    * those wrap at a full turn, and anything read through a non-integer
    * multiple of a wrapping angle jumps every time it wraps. */
   private pulsarNod = 0;
+  /* The remnant's cone, tipped on two slow clocks. See pulsars(). */
+  private pulsarDriftA = 0;
+  private pulsarDriftB = 0;
   /** One shaft per body — the two stars and the remnant — each a cylinder run
    * clean through it so that north and south are two ends of one object rather
    * than two beams that have to be kept agreeing with each other. */
@@ -4983,10 +4986,18 @@ export class HubScene {
    * factor, so the two axes never come back into step and the scene still
    * looks identical on every load. */
   private static readonly PULSAR_AXES = [
-    { tilt: 0.33, rate: 1.0, nod: 0.12, off: 0 },
-    { tilt: 0.54, rate: 0.71, nod: 0.17, off: 2.4 },
-    { tilt: 0.86, rate: 1.0, nod: 0.07, off: 1.1 },
+    // The pair are tops: a fixed lean precessing about a fixed axis, which is
+    // what a spinning body does and what a cone is for.
+    { tilt: 0.33, rate: 1.0, nod: 0.12, off: 0, wander: false },
+    { tilt: 0.54, rate: 0.71, nod: 0.17, off: 2.4, wander: false },
+    // The remnant is not settled, so its cone is not either. See pulsars().
+    { tilt: 0.86, rate: 1.0, nod: 0.07, off: 1.1, wander: true },
   ];
+  /** Radians a second the remnant's cone is tipped at, on two axes. Both slow,
+   * and deliberately sharing no factor with each other or with the spin — that
+   * is what stops the whole thing coming back round to where it started. */
+  private static readonly PULSAR_DRIFT_A = 0.37;
+  private static readonly PULSAR_DRIFT_B = 0.23;
   /** Radians a second the nod above runs at. Slow enough that it reads as the
    * axis wandering rather than as a second, faster rotation. */
   private static readonly PULSAR_NOD_RATE = 0.55;
@@ -5025,6 +5036,8 @@ export class HubScene {
       this.pulsarPhases[i] = (this.pulsarPhases[i] + spin * HubScene.PULSAR_AXES[i].rate * Math.PI * 2 * dt * speed) % (Math.PI * 2);
     }
     this.pulsarNod = (this.pulsarNod + HubScene.PULSAR_NOD_RATE * dt * speed) % (Math.PI * 2);
+    this.pulsarDriftA = (this.pulsarDriftA + HubScene.PULSAR_DRIFT_A * dt * speed) % (Math.PI * 2);
+    this.pulsarDriftB = (this.pulsarDriftB + HubScene.PULSAR_DRIFT_B * dt * speed) % (Math.PI * 2);
 
     if (t < HubScene.NS_INSPIRAL) {
       const p = t / HubScene.NS_INSPIRAL;
@@ -5258,7 +5271,42 @@ export class HubScene {
     const tilt = spec.tilt + spec.nod * Math.sin(this.pulsarNod + spec.off);
     const sinT = Math.sin(tilt);
     const phase = this.pulsarPhases[which];
-    this.beamAxis.set(sinT * Math.cos(phase), Math.cos(tilt), sinT * Math.sin(phase));
+    let ax = sinT * Math.cos(phase);
+    let ay = Math.cos(tilt);
+    let az = sinT * Math.sin(phase);
+
+    /* For the remnant, tip the cone itself as well as turning inside it.
+     *
+     * What the expression above draws is a cone and only a cone: the lean is
+     * all but fixed and the phase runs round it, so the y component never
+     * leaves cos(tilt) and the beam always leans the same amount, always
+     * upward. That is right for a top, which is what the two stars are — and
+     * wrong for the remnant, which is supposed to be a body whose axis will
+     * not settle. Sweeping one cone forever is why it looked like a handful of
+     * positions rather than a direction that keeps changing.
+     *
+     * So the cone's own axis is turned too, on two slow clocks whose rates
+     * share no factor with each other or with the spin. Three angles winding
+     * at incommensurate rates never repeat, and between them they reach the
+     * whole sphere rather than one ring of it. */
+    if (spec.wander) {
+      const a = this.pulsarDriftA;
+      const b = this.pulsarDriftB;
+      // About X, then about Z. Written out rather than composed through a
+      // quaternion: it is six trig calls a frame and no allocation.
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const y1 = ay * ca - az * sa;
+      const z1 = ay * sa + az * ca;
+      const cb = Math.cos(b);
+      const sb = Math.sin(b);
+      const x2 = ax * cb - y1 * sb;
+      const y2 = ax * sb + y1 * cb;
+      ax = x2;
+      ay = y2;
+      az = z1;
+    }
+    this.beamAxis.set(ax, ay, az);
 
     mesh.visible = true;
     mesh.position.set(x, y, z);
