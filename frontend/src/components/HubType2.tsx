@@ -773,7 +773,18 @@ export default function HubType2() {
                           title={missing ? "현재 화질 단계에서는 표시되지 않는 천체입니다" : undefined}
                           onClick={() => observeTarget(o)}
                         >
-                          <span className="h2-obs-item-name">{en ? o.en : o.ko}</span>
+                          {/* The wormhole's name runs the same colour cycle
+                              the Interstellar button does. It is the one entry
+                              on this list that is not a place in this system —
+                              everything else here is a rock, a ball of gas or
+                              a corpse, and it is a door — so it gets the one
+                              treatment the page reserves for the thing that
+                              goes somewhere else. */}
+                          <span
+                            className={`h2-obs-item-name${o.key === "wormhole" ? " h2-cam-cycle" : ""}`}
+                          >
+                            {en ? o.en : o.ko}
+                          </span>
                           {hostOf(o) && (
                             <span className="h2-obs-item-host">
                               {en ? hostOf(o)!.en : hostOf(o)!.ko}

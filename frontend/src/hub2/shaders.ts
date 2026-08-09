@@ -1943,7 +1943,7 @@ export const GRADE_SHADER = {
       float c = cos(roll * 6.2831853), s = sin(roll * 6.2831853);
       d = mat2(c, -s, s, c) * d;
 
-      if (kind < 0.34) {
+      if (kind < 0.22) {
         // Edge-on: stretched hard on one axis, with the lane on the mid-plane.
         d.y /= 0.16;
         float rr = length(d);
@@ -1952,7 +1952,7 @@ export const GRADE_SHADER = {
         return vec3(1.0, 0.90, 0.74)
           * (exp(-rr * 2.2) * 0.85 + exp(-rr * 6.5) * 1.5) * lane * smoothstep(1.2, 0.2, rr);
       }
-      if (kind < 0.67) {
+      if (kind < 0.42) {
         // Elliptical: a smooth quarter-power profile and nothing else.
         d.y /= 0.74;
         float rr = length(d);
@@ -1960,13 +1960,53 @@ export const GRADE_SHADER = {
         return vec3(1.0, 0.87, 0.68)
           * exp(-3.2 * (pow(rr + 0.03, 0.25) - 0.42)) * smoothstep(1.15, 0.15, rr);
       }
-      // Spiral, seen off face-on.
+      if (kind < 0.60) {
+        /* Irregular. No bulge and no arms — a bar off to one side and a lumpy
+           body round it, which is what a small galaxy that has been pulled
+           about by a large neighbour looks like. The lumps come out of the
+           cell hash rather than out of noise: three fixed knots at hashed
+           offsets is enough to break the ellipse, and an ellipse is the one
+           thing this shape must not be. */
+        d.y /= 0.66;
+        float rr = length(d);
+        if (rr > 1.2) return vec3(0.0);
+        float body = exp(-abs(d.y) * 4.2) * exp(-abs(d.x) * 1.7);
+        for (int i = 0; i < 3; i++) {
+          vec2 knot = (vec2(hash(vec2(k, 21.0 + float(i))), hash(vec2(k, 37.0 + float(i)))) - 0.5) * 1.2;
+          body += exp(-length(d - knot) * 7.0) * 0.55;
+        }
+        return vec3(0.80, 0.86, 1.0) * body * 0.9 * smoothstep(1.2, 0.15, rr);
+      }
+      if (kind < 0.78) {
+        /* Barred spiral. The bar is the point: two thirds of disc galaxies
+           have one, and the arms spring from its ends rather than from the
+           middle — which is why a barred one reads as a different object and
+           not as a spiral drawn badly. */
+        d.y /= 0.52;
+        float rr = length(d);
+        if (rr > 1.3) return vec3(0.0);
+        float bar = exp(-abs(d.y) * 9.0) * exp(-pow(abs(d.x) * 2.1, 3.0));
+        float arms = pow(cos((atan(d.y, d.x) - log(rr + 0.14) * 2.2) * 2.0) * 0.5 + 0.5, 3.0);
+        return (vec3(1.0, 0.90, 0.70) * (exp(-rr * 9.0) * 1.3 + bar * 1.1)
+              + vec3(0.66, 0.78, 1.0) * exp(-rr * 2.6) * arms * 1.15
+              * smoothstep(0.24, 0.5, rr))
+          * smoothstep(1.3, 0.25, rr);
+      }
+      /* Grand-design spiral, seen off face-on — with a dust lane along the
+         inside of each arm and knots of star formation strung down them,
+         because those two are what a photograph of one actually shows and an
+         arm without them is a smooth ramp. */
       d.y /= 0.42;
       float rr = length(d);
       if (rr > 1.3) return vec3(0.0);
-      float arms = pow(cos((atan(d.y, d.x) - log(rr + 0.11) * 3.3) * 2.0) * 0.5 + 0.5, 2.4);
+      float phase = atan(d.y, d.x) - log(rr + 0.11) * 3.3;
+      float arms = pow(cos(phase * 2.0) * 0.5 + 0.5, 2.4);
+      float lanes = 1.0 - 0.45 * pow(cos(phase * 2.0 - 0.7) * 0.5 + 0.5, 6.0);
+      float knots = pow(cos(phase * 2.0) * 0.5 + 0.5, 9.0)
+        * (0.5 + 0.5 * sin(rr * 26.0 + roll * 40.0));
       return (vec3(1.0, 0.92, 0.72) * exp(-rr * 8.0) * 1.6
-            + vec3(0.62, 0.76, 1.0) * exp(-rr * 2.4) * (0.16 + arms * 1.2))
+            + vec3(0.62, 0.76, 1.0) * exp(-rr * 2.4) * (0.16 + arms * 1.2) * lanes
+            + vec3(0.85, 0.92, 1.0) * exp(-rr * 2.0) * knots * 0.9)
         * smoothstep(1.3, 0.25, rr);
     }
 
@@ -1996,13 +2036,44 @@ export const GRADE_SHADER = {
      * because what it has to read as is material going past — a field with
      * equal detail both ways is a wall, and a wall does not move. */
     vec3 passage(vec2 uv, float t, vec2 lean, float aspect, float mouth) {
-      vec2 q = uv - 0.5 - lean;
-      q.x *= aspect;
+      vec2 q0 = uv - 0.5 - lean;
+      q0.x *= aspect;
       /* Floored well off zero. Depth goes as 1/r, so at the very middle the
          far end is infinitely away and everything there is infinitely
          compressed — which samples as a knot of rings sitting exactly where
-         the eye is going. */
-      float r = max(length(q), 0.016);
+         the eye is going.
+         Softened rather than clamped. A max() holds the whole disc inside the
+         floor at one value, and the ring where it takes over is a circle
+         across which the depth's slope jumps — which draws a small hard-edged
+         disc beside the exit. Adding the floor under the square root bends
+         the same curve without ever introducing a corner in it. */
+      float r0 = sqrt(dot(q0, q0) + 0.000256);
+
+      /* The axis is not straight.
+       *
+       * A cylinder about one fixed line is a drainpipe, and a drainpipe is
+       * what the first version of this was: every ring of it concentric with
+       * every other, all of them centred on the same point, and the only
+       * motion the eye could find was inward. A wormhole in the film this is
+       * taken from does not do that — the throat wanders, and what you are
+       * riding is a bend.
+       *
+       * So the centre is a function of depth. A first pass gives the depth of
+       * each pixel on the straight tube; that depth says where the axis has
+       * wandered to; and the coordinates are taken again about the wandered
+       * centre. Because the depth is large in the middle of the frame and
+       * small at its edges, the near rings and the far rings end up centred
+       * on different points — which is the whole of what a curved tunnel
+       * looks like from inside one. Two low frequencies rather than one, so
+       * it never comes back to straight and never repeats. */
+      float zStraight = 0.34 / r0 + t * 1.35;
+      vec2 bend = vec2(
+        sin(zStraight * 0.146 + 1.1) * 0.62 + sin(zStraight * 0.083 + t * 0.21) * 0.38,
+        cos(zStraight * 0.121 + 0.4) * 0.58 + cos(zStraight * 0.069 + t * 0.17) * 0.42
+      ) * 0.105;
+
+      vec2 q = q0 - bend;
+      float r = sqrt(dot(q, q) + 0.000256);
       float a = atan(q.y, q.x);
       float z = 0.34 / r + t * 1.35;
       float u = a / 6.2831853 + t * 0.035;
