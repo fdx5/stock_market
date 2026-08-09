@@ -1734,6 +1734,18 @@ export const GRADE_SHADER = {
      * the body itself for a dive, which is not the same point until the very
      * end of one. */
     uCenter: { value: [0.5, 0.5] },
+    /** Inside the wormhole, 0 to 1 — how much of the frame the passage owns.
+     * See passage() for why this is a screen effect and not a tube. */
+    uTunnel: { value: 0 },
+    /** Where the axis of the passage sits relative to the middle of the frame.
+     * This is the camera moving across the passage rather than straight down
+     * the middle of it, and it is the whole difference between flying through
+     * something and falling down a drain. */
+    uLean: { value: [0, 0] },
+    /** How far open the far end is, 0 to 1. */
+    uMouth: { value: 0 },
+    /** Past the horizon, 0 to 1. See inside(). */
+    uInside: { value: 0 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -1760,10 +1772,162 @@ export const GRADE_SHADER = {
     uniform float uWarp;
     uniform vec2 uCenter;
     uniform vec2 uResolution;
+    uniform float uTunnel;
+    uniform vec2 uLean;
+    uniform float uMouth;
+    uniform float uInside;
     varying vec2 vUv;
 
     float hash(vec2 p) {
       return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+    }
+
+    /* Value noise on the same hash. Cheap on purpose: the two effects below
+       are the only things that want it, they run for about fifteen seconds of
+       a session, and pulling the simplex preamble in here for them would put
+       forty lines of gradient noise in the pass that every frame of every
+       other second has to run through. */
+    float vnoise(vec2 p) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      return mix(
+        mix(hash(i), hash(i + vec2(1.0, 0.0)), f.x),
+        mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), f.x),
+        f.y
+      );
+    }
+
+    float fbm2(vec2 p) {
+      float s = 0.0;
+      float w = 0.5;
+      float m = 0.0;
+      for (int i = 0; i < 4; i++) {
+        s += vnoise(p) * w;
+        m += w;
+        p *= 2.03;
+        w *= 0.5;
+      }
+      return s / m;
+    }
+
+    /* The same thing, wrapped in x.
+     *
+     * The passage's angular coordinate comes out of atan and so runs from -pi
+     * to pi with a seam where it flips. Noise that does not wrap across that
+     * seam draws it: the first version of the tunnel had a hard horizontal
+     * line running out from the middle of the frame, which is the join in the
+     * tunnel wall, and no amount of detail hides a straight edge.
+     *
+     * Wrapping the integer lattice is all it takes, provided every octave
+     * wraps in the same place — so the period doubles with the frequency, and
+     * the frequency has to be exactly 2 rather than the 2.03 above that exists
+     * to stop octaves stacking. The y offset does that job here instead. */
+    float vnoiseWrap(vec2 p, float period) {
+      vec2 i = floor(p);
+      vec2 f = fract(p);
+      f = f * f * (3.0 - 2.0 * f);
+      float x0 = mod(i.x, period);
+      float x1 = mod(i.x + 1.0, period);
+      return mix(
+        mix(hash(vec2(x0, i.y)), hash(vec2(x1, i.y)), f.x),
+        mix(hash(vec2(x0, i.y + 1.0)), hash(vec2(x1, i.y + 1.0)), f.x),
+        f.y
+      );
+    }
+
+    float fbmWrap(vec2 p, float period) {
+      float s = 0.0;
+      float w = 0.5;
+      float m = 0.0;
+      for (int i = 0; i < 4; i++) {
+        s += vnoiseWrap(p, period) * w;
+        m += w;
+        p *= 2.0;
+        p.y += 31.7;
+        period *= 2.0;
+        w *= 0.5;
+      }
+      return s / m;
+    }
+
+    /* The passage through the wormhole, drawn rather than built.
+     *
+     * There is no tube anywhere in the scene, and there should not be. A
+     * tunnel seen from inside, down its own axis, is one of the very few
+     * things that is *exactly* a screen-space effect: the wall's distance
+     * along the axis goes as 1/r from the middle of the frame, and its angle
+     * round the axis is the pixel's own angle. Two numbers per pixel give a
+     * position on an infinite cylinder and everything else is texture on it.
+     *
+     * Built as geometry it would be a tube sitting somewhere in the world with
+     * two open ends, and Saturn visible through one of them.
+     *
+     * The filaments are stretched far harder along the passage than around it,
+     * because what this has to read as is material streaming past — a texture
+     * with equal detail both ways is a rock face, and a rock face does not
+     * move. */
+    vec3 passage(vec2 uv, float t, vec2 lean, float aspect, float mouth) {
+      vec2 q = uv - 0.5 - lean;
+      q.x *= aspect;
+      /* Floored well off zero. Depth goes as 1/r, so at the very middle the
+         wall is infinitely far away and its texture is infinitely fine —
+         which samples as a knot of concentric rings sitting exactly where the
+         eye is going. The floor turns that into a small flat disc, and the
+         mouth below covers what is left of it. */
+      float r = max(length(q), 0.014);
+      float a = atan(q.y, q.x);
+      float z = 0.34 / r + t * 1.35;
+      float u = a / 6.2831853 + t * 0.035;
+
+      float coarse = fbmWrap(vec2(u * 6.0, z * 0.55), 6.0);
+      float fine = fbmWrap(vec2(u * 15.0, z * 1.7 + t * 0.5), 15.0);
+      float glow = clamp(pow(coarse, 1.5) * 0.85 + pow(fine, 2.4) * 0.75, 0.0, 1.0);
+
+      vec3 col = mix(vec3(0.10, 0.19, 0.52), vec3(0.72, 0.88, 1.0), glow);
+      // The hot threads through it.
+      col += vec3(1.0, 0.74, 0.44) * pow(fine, 6.0) * 1.2;
+      /* Brighter ahead. It is the only cue in the frame for which way "along"
+         is — with an evenly lit tube the eye cannot tell travel from spin.
+         The floor is what keeps the corners from going to black: the walls
+         behind you are further away, not absent, and a tunnel that fades out
+         at the edges of the frame reads as a hole in a dark room. */
+      col *= 0.58 + 0.95 * smoothstep(0.62, 0.02, r);
+      // And the far end, opening.
+      col += vec3(0.86, 0.94, 1.0) * smoothstep(0.04 + mouth * 0.95, 0.0, r) * (0.5 + mouth * 5.5);
+      return col;
+    }
+
+    /* Past the horizon.
+     *
+     * Nothing is rendered here because nothing gets out, and four seconds of
+     * black screen is indistinguishable from the page having stopped. So what
+     * fills it is light with no source: a swirl wound round the middle on a
+     * log-polar field — a straight drift in that space is a logarithmic spiral
+     * in the frame, which is the shape everything near a hole is wound into —
+     * with flashes going off through it on three rates that never fall into a
+     * rhythm together. */
+    vec3 inside(vec2 uv, float t, float aspect) {
+      vec2 p = (uv - 0.5) * vec2(aspect, 1.0);
+      float r = max(length(p), 0.002);
+      float a = atan(p.y, p.x);
+      /* Wrapped, for the same reason the passage is — this is polar too, so it
+         has the same seam at ±pi. Five turns of the field per turn of the
+         frame, times the 3.0 scale, is a jump of exactly fifteen across the
+         seam, so fifteen is the period the noise has to repeat on. */
+      float ang = (a / 6.2831853 * 5.0 + log(r) * 1.7) * 3.0;
+      float along = (log(r) * 2.4 - t * 0.55) * 2.2;
+      float streak = pow(fbmWrap(vec2(ang, along), 15.0), 2.6);
+      float core = smoothstep(0.58, 0.0, r);
+
+      vec3 col = mix(vec3(0.18, 0.28, 0.92), vec3(1.0, 0.86, 0.58), core);
+      col *= streak * (0.45 + core * 3.4);
+
+      float f = pow(max(sin(t * 5.3), 0.0), 22.0)
+              + pow(max(sin(t * 3.1 + 1.7), 0.0), 30.0) * 0.8
+              + pow(max(sin(t * 7.9 + 0.4), 0.0), 40.0) * 0.6;
+      col += vec3(1.0, 0.95, 0.88) * f * (0.3 + core * 0.95);
+      return col;
     }
 
     void main() {
@@ -1848,6 +2012,18 @@ export const GRADE_SHADER = {
         color *= 1.0 - smoothstep(aperture * 0.34, aperture, d);
         float grey = dot(color, vec3(0.299, 0.587, 0.114));
         color = mix(color, vec3(grey) * vec3(0.42, 0.6, 1.2), uCollapse * 0.82);
+      }
+
+      /* The two places the frame stops being the scene and becomes somewhere
+         else. Composited here rather than at the very end so that everything
+         below — the vignette, the flash, the grain, the fade — still applies
+         to them: they are what the camera is looking at, not an overlay on
+         top of a camera looking at something else. */
+      if (uTunnel > 0.001) {
+        color = mix(color, passage(vUv, uTime, uLean, aspect, uMouth), uTunnel);
+      }
+      if (uInside > 0.001) {
+        color = mix(color, inside(vUv, uTime, aspect), uInside);
       }
 
       // Vignette, elliptical rather than round so wide viewports don't get a

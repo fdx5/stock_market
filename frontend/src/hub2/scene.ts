@@ -431,6 +431,9 @@ interface Pickable {
   anchor: THREE.Object3D;
 }
 
+/** Which of the two endings is running. See beginFinale. */
+type FinaleMode = "hole" | "wormhole";
+
 /** Where the auto tour parks for one stop, in the body's own outward frame.
  * `azimuth` turns the camera round the body within the ecliptic, `elevation`
  * lifts it out of that plane, and `zoom` scales the framing distance. */
@@ -901,6 +904,16 @@ export class HubScene {
    * cannot be integrated by multiplying it by elapsed time. */
   private finaleAngle = 0;
   private finaleFrom = new THREE.Vector3();
+  /** Which ending is running. The auto tour falls into the hole; the probe's
+   * grand tour goes through the wormhole and comes out at it. */
+  private finaleMode: FinaleMode = "hole";
+  /** Inside the passage, 0 to 1, and where its axis sits relative to the
+   * middle of the frame — which is the camera moving across it. */
+  private tunnel = 0;
+  private tunnelLean: [number, number] = [0, 0];
+  private tunnelMouth = 0;
+  /** Past the horizon, 0 to 1. */
+  private insideHole = 0;
   /** The tour's own noise, seeded, so the angles are varied but a given run of
    * the tour is the same every time — a camera that is different on every page
    * load is not reproducible when one of its shots turns out to be a bad one. */
@@ -3857,10 +3870,11 @@ export class HubScene {
   private static readonly FINALE_PLATE_END = HubScene.FINALE_BLACK_END + HubScene.FINALE_PLATE;
   private static readonly FINALE_END = HubScene.FINALE_PLATE_END + HubScene.FINALE_RETURN;
 
-  private beginFinale() {
+  private beginFinale(mode: FinaleMode = "hole") {
     this.finaleT = 0;
     this.finaleAngle = 0;
-    this.selectedKey = "blackhole";
+    this.finaleMode = mode;
+    this.selectedKey = mode === "hole" ? "blackhole" : "wormhole";
     this.followAnchor = null;
     // It drives the camera itself, frame by frame, so nothing else may be.
     this.flight = null;
@@ -3875,13 +3889,24 @@ export class HubScene {
   private cancelFinale() {
     if (this.finaleT < 0) return;
     this.finaleT = -1;
+    this.clearFinaleEffects();
+    this.setCurtain(false);
+    this.controls.enabled = true;
+  }
+
+  /** Every full-frame effect either ending can leave running. One list rather
+   * than two, because the two endings do not use the same subset and the way
+   * to get that wrong is to write the subset out twice. */
+  private clearFinaleEffects() {
     this.fade = 0;
     this.warp = 0;
     this.collapse = 0;
     this.plate = 0;
     this.tvStatic = 0;
-    this.setCurtain(false);
-    this.controls.enabled = true;
+    this.tunnel = 0;
+    this.tunnelMouth = 0;
+    this.insideHole = 0;
+    this.diveFlash = 0;
   }
 
   /** Tells the shell to hide or restore its HUD, once per change. */
@@ -3894,9 +3919,237 @@ export class HubScene {
   /** One frame of it. Runs on the camera directly rather than through a
    * flight, because a flight is a move between two fixed points and this is a
    * path — there is no `toPos` for "three times around and then in". */
+  /* ─────────────── the probe's ending: through, and out the far side ───────
+     The auto tour's ending above is one continuous move into the hole. This
+     one is a journey, and the difference is the point: the probe does not fall
+     into anything at Saturn, it goes through something and comes out
+     somewhere else. Eight movements, and the joins between them are all doing
+     the same job — never cut on a live frame. Every hand-off is covered by a
+     whiteout, a mouth swallowing the lens, or a blackout that was already
+     happening.
+
+       dive     3.0  the last three seconds are the wormhole taking the camera
+       tunnel  10    inside it, first person, riding across the passage
+       space   10    out the far side, near the hole, closing on it
+       disc     8    down onto the disc and round it, skimming
+       inside   4.5  past the horizon: flashes, and light with no source
+       static   5    the dead channel, which is the auto tour's own
+       plate    5    the far side, held, with the stone dropped in it
+       return   2.4  the picture comes back
+
+     Forty-eight seconds, which is long — but it is the payoff for a three
+     minute flight, and the one thing it must not do is arrive and stop. */
+  private static readonly WF_DIVE = 3;
+  private static readonly WF_TUNNEL = 10;
+  private static readonly WF_SPACE = 10;
+  private static readonly WF_DISC = 8;
+  private static readonly WF_INSIDE = 4.5;
+  private static readonly WF_STATIC = 5;
+  private static readonly WF_PLATE = 5;
+  private static readonly WF_RETURN = 2.4;
+  private static readonly WF_T_DIVE = 3;
+  private static readonly WF_T_TUNNEL = 13;
+  private static readonly WF_T_SPACE = 23;
+  private static readonly WF_T_DISC = 31;
+  private static readonly WF_T_INSIDE = 35.5;
+  private static readonly WF_T_STATIC = 40.5;
+  private static readonly WF_T_PLATE = 45.5;
+  private static readonly WF_END = 47.9;
+
+  private updateWormholeFinale(dt: number) {
+    const t = this.finaleT;
+    // The HUD goes at the moment the picture starts being taken away, which
+    // here is the dive rather than a third of the way through a fall.
+    this.setCurtain(t > HubScene.WF_DIVE * 0.4);
+
+    /* Everything off by default and switched on by the branch that wants it.
+       Eight movements each setting six effects is where a state machine grows
+       the bug that one phase leaves something on for the next one. */
+    this.warp = 0;
+    this.collapse = 0;
+    this.fade = 0;
+    this.tunnel = 0;
+    this.insideHole = 0;
+    this.tvStatic = 0;
+    this.plate = 0;
+
+    if (t < HubScene.WF_T_DIVE) {
+      /* Taken. The camera accelerates all the way in — cubed, so most of the
+         distance goes in the last half second and the sphere stops being an
+         object in the frame and becomes the frame. Aimed at the live world
+         position, because the wormhole is riding Saturn and Saturn moves a
+         long way in three seconds. */
+      const s = t / HubScene.WF_DIVE;
+      const k = s * s * s;
+      this.camera.position.lerpVectors(this.finaleFrom, this.wormholeWorld, k);
+      this.controls.target.copy(this.wormholeWorld);
+      this.warp = Math.pow(s, 1.8) * 5.5;
+      this.collapse = Math.pow(s, 2.2) * 0.5;
+      // And the whiteout that covers the join. Cold, because what it is
+      // going into is.
+      this.diveTint.setRGB(0.82, 0.92, 1.0);
+      this.diveFlash = smoothstep(0.72, 1.0, s) * 2.2;
+      this.focusFloor = 0.2;
+    } else if (t < HubScene.WF_T_TUNNEL) {
+      /* Inside. The frame belongs entirely to the passage — see passage() in
+         GRADE_SHADER for why there is no tube in the scene — so the camera is
+         only parked somewhere harmless and the ride is done with uLean.
+
+         Two rates on each axis rather than one, so the path through the
+         passage never repeats and never settles into a circle. That is what
+         the eye is actually reading: a single sine is a pendulum, and a
+         pendulum reads as the camera being swung rather than flown. */
+      const s = (t - HubScene.WF_T_DIVE) / HubScene.WF_TUNNEL;
+      this.camera.position.copy(this.wormholeWorld);
+      this.controls.target.copy(this.wormholeWorld).addScaledVector(HubScene.UP, 1);
+      // Up over the first third of a second, out of the flash it arrives in.
+      this.tunnel = clamp01((t - HubScene.WF_T_DIVE) / 0.33);
+      this.diveFlash = Math.max(0, 2.2 - (t - HubScene.WF_T_DIVE) * 7);
+      const w = t * 1.0;
+      this.tunnelLean[0] = (Math.sin(w * 0.83) * 0.62 + Math.sin(w * 1.41 + 2.1) * 0.38) * 0.14;
+      this.tunnelLean[1] = (Math.cos(w * 0.67 + 0.8) * 0.6 + Math.sin(w * 1.13 + 1.2) * 0.4) * 0.12;
+      /* The far end opens over the last two seconds and takes the frame with
+         it, which is the cut to the other side — the whiteout is the mouth,
+         not a dissolve laid over one. */
+      this.tunnelMouth = clamp01((s - 0.8) / 0.2);
+      this.warp = this.tunnelMouth * 2.4;
+    } else if (t < HubScene.WF_T_SPACE) {
+      /* Out. First person, in open sky, with the hole ahead and closing.
+         No craft in the frame from here on: the probe went in and this is
+         what it is seeing, which is the only reading under which coming out
+         somewhere else makes sense. */
+      const s = (t - HubScene.WF_T_TUNNEL) / HubScene.WF_SPACE;
+      const ease = s * s * (3 - 2 * s);
+      const e = this.holeGroup.matrixWorld.elements;
+      const side1 = this.jetSideA.set(e[0], e[1], e[2]).normalize();
+      const axis = this.jetAxis.set(e[4], e[5], e[6]).normalize();
+
+      /* Standing between the star and the hole, looking outward.
+       *
+       * Which side matters, and it took a frame of this to see why. Placed on
+       * the hole's own frame at an arbitrary angle, the camera ended up
+       * looking back across the system — and Saturn, its rings and the
+       * wormhole itself sat in the bottom of the shot. The whole reading of
+       * this movement is that the probe has come out somewhere else; it
+       * cannot have, with the place it left in the corner of the frame.
+       *
+       * Square to the star-to-hole line, and slightly inside it. Two tries
+       * got this wrong in opposite ways and both were instructive. Sunward
+       * along that line overshoots: the hole is only 266 units from the star,
+       * so a 290-unit stand-off puts the camera past the star and inside the
+       * system, with Saturn's rings filling the bottom of the frame. Outward
+       * along it is worse — the star and all eight orbits then sit directly
+       * behind the subject, and the shot becomes a group portrait of the place
+       * the probe is supposed to have left.
+       *
+       * Perpendicular puts the system off the side of the view instead: 51°
+       * off the axis at the start of the movement, and behind the camera
+       * altogether by the end of it. The small sunward component is what does
+       * the second half of that, and it is small enough that the camera still
+       * sits outside Neptune's orbit the whole way in. */
+      const out = this.tmpV3.copy(this.holeWorld).normalize();
+      const perp = this.jetSideB.copy(axis).cross(out).normalize();
+      const radius = 330 - 235 * ease;
+      this.camera.position
+        .copy(this.holeWorld)
+        .addScaledVector(perp, radius * 0.8)
+        .addScaledVector(out, -radius * 0.6)
+        .addScaledVector(axis, 26 - 18 * ease);
+      /* Not locked dead centre on it. A first-person shot with its subject
+         pinned to the middle of the frame for ten seconds is a tripod, and
+         the one thing this is not is mounted. */
+      this.controls.target
+        .copy(this.holeWorld)
+        .addScaledVector(side1, Math.sin(t * 0.41) * 7)
+        .addScaledVector(axis, Math.cos(t * 0.33) * 5);
+      this.tunnel = 0;
+      this.warp = Math.pow(s, 3) * 0.5;
+      this.focusFloor = 0.35;
+    } else if (t < HubScene.WF_T_DISC) {
+      /* Down onto the disc and round it. The height goes almost to nothing,
+         so the camera is skimming the sheet rather than looking down on it —
+         which is the only way the disc reads as the moving, rippling thing it
+         is drawn as. Anything above a few units and it is a bright ring again. */
+      const s = (t - HubScene.WF_T_SPACE) / HubScene.WF_DISC;
+      const e = this.holeGroup.matrixWorld.elements;
+      const side1 = this.jetSideA.set(e[0], e[1], e[2]).normalize();
+      const axis = this.jetAxis.set(e[4], e[5], e[6]).normalize();
+      const side2 = this.jetSideB.set(e[8], e[9], e[10]).normalize();
+
+      // Faster the closer it gets, which is the physics and the drama both.
+      this.finaleAngle += (1.5 + 7.0 * s * s) * dt;
+      /* Held off the horizon. The first pass took this to 4.5 units by the
+         end, and the horizon is 6.5 — so the last third of the movement was
+         the camera inside the black sphere looking at the inside of it, which
+         renders as a black frame. It has to stay out where the disc is: the
+         sheet runs from 8.8 to 33.8, and skimming means being over that,
+         close to its plane, not through the middle of it. */
+      const ring = 58 * Math.pow(1 - s, 1.1) + 26;
+      /* And then in, over the last fifth. The eight seconds are for the disc
+         and the disc has to stay on screen for them, so the ring holds out at
+         26 — comfortably outside the 6.5 horizon, inside the sheet's 33.8 —
+         and only the tail of the movement drops through it. At 4.5 units, the
+         first attempt's finish, the camera was inside the horizon looking at
+         the inside of a black sphere for the last third of the shot. */
+      const plunge = clamp01((s - 0.8) / 0.2);
+      const radius = ring * (1 - plunge) + 6.2 * plunge;
+      const height = (9 * (1 - s) + 3.2) * (1 - plunge * 0.85);
+      this.camera.position
+        .copy(this.holeWorld)
+        .addScaledVector(side1, Math.cos(this.finaleAngle) * radius)
+        .addScaledVector(side2, Math.sin(this.finaleAngle) * radius)
+        .addScaledVector(axis, height);
+      this.controls.target.copy(this.holeWorld);
+      this.warp = Math.pow(s, 2.2) * 2.2 + plunge * 3.0;
+      /* Held well under the fall's until the plunge, because this movement
+         has to stay legible to the end of the ring: the aperture is what eats
+         the disc, and the disc is what these eight seconds are for. */
+      this.collapse = Math.pow(s, 2.0) * 0.3 + plunge * plunge * 0.55;
+      this.focusFloor = 0.2;
+    } else if (t < HubScene.WF_T_INSIDE) {
+      /* Past it. The scene is gone — the camera is at the centre of a thing
+         nothing comes out of — and what fills the frame is inside(). The
+         collapse is let go on the way in: it is the winding of a picture, and
+         by now there is no picture to wind. */
+      const s = (t - HubScene.WF_T_DISC) / HubScene.WF_INSIDE;
+      this.camera.position.copy(this.holeWorld);
+      this.controls.target.copy(this.holeWorld).addScaledVector(HubScene.UP, 1);
+      this.collapse = 0.72 * (1 - clamp01(s * 3));
+      this.insideHole = clamp01(s * 5) * (1 - clamp01((s - 0.82) / 0.18));
+      // And out into the dark the static comes up from.
+      this.fade = clamp01((s - 0.84) / 0.16);
+    } else if (t < HubScene.WF_T_STATIC) {
+      const s = (t - HubScene.WF_T_INSIDE) / HubScene.WF_STATIC;
+      this.fade = 1;
+      this.tvStatic = s * s;
+      this.camera.position.copy(this.restPosition());
+      this.controls.target.set(0, 0, 0);
+      this.selectedKey = null;
+      this.focusFloor = 14;
+    } else if (t < HubScene.WF_T_PLATE) {
+      const s = (t - HubScene.WF_T_STATIC) / HubScene.WF_PLATE;
+      this.fade = 1;
+      this.ripple = t - HubScene.WF_T_STATIC;
+      this.plate = 1 - clamp01((s - 0.8) / 0.2);
+      this.camera.position.copy(this.restPosition());
+      this.controls.target.set(0, 0, 0);
+    } else {
+      const s = (t - HubScene.WF_T_PLATE) / HubScene.WF_RETURN;
+      this.fade = 1 - s * s * (3 - 2 * s);
+      this.camera.position.copy(this.restPosition());
+      this.controls.target.set(0, 0, 0);
+    }
+
+    this.finaleTail(HubScene.WF_END);
+  }
+
   private updateFinale(dt: number) {
     if (this.finaleT < 0) return;
     this.finaleT += dt;
+    if (this.finaleMode === "wormhole") {
+      this.updateWormholeFinale(dt);
+      return;
+    }
     const t = this.finaleT;
 
     /* The HUD goes as soon as the picture starts going, not when the plate
@@ -4035,14 +4288,10 @@ export class HubScene {
   }
 
   /** The end of every branch above: stop when the clock runs out. */
-  private finaleTail() {
-    if (this.finaleT < HubScene.FINALE_END) return;
+  private finaleTail(end = HubScene.FINALE_END) {
+    if (this.finaleT < end) return;
     this.finaleT = -1;
-    this.fade = 0;
-    this.warp = 0;
-    this.collapse = 0;
-    this.plate = 0;
-    this.tvStatic = 0;
+    this.clearFinaleEffects();
     this.setCurtain(false);
     this.controls.enabled = true;
     // Straight on to the first stop, rather than sitting at rest for a full
@@ -5609,14 +5858,17 @@ export class HubScene {
     "mars",
     "jupiter",
     "saturn",
-    "uranus",
-    "neptune",
-    /* And on past the planets. These two are not on any itinerary anybody ever
-       flew — they are the far end of this particular sky, and the route ends
-       where the tour it belongs to ends: at the hole, which the probe does not
-       come back out of. See the hand-off at the bottom of flyGrandTour. */
-    "neutron",
-    "blackhole",
+    /* And in. The route used to carry on out past Uranus and Neptune to the
+       neutron pair and the hole; it ends at Saturn now because what is parked
+       beside Saturn is a way out of the system that does not involve crossing
+       the rest of it. The probe goes round Saturn twice, and then into the
+       wormhole — see the hand-off at the bottom of flyGrandTour, and the
+       ending it hands to.
+
+       Uranus, Neptune and the neutron pair are still in the sky, still
+       clickable and still on the auto tour. They are simply not on this
+       itinerary any more. */
+    "wormhole",
   ];
   /** World units per second the probe makes when it is passing something, and
    * when it is not.
@@ -5686,10 +5938,7 @@ export class HubScene {
    * and merge on a fifty-second cycle — and a probe parked beside it for long
    * enough reads as a probe *waiting* for that to happen, which is a promise
    * the tour has no way to keep. One turn and away. */
-  private static readonly VOYAGER_ORBIT_AT = new Map([
-    ["saturn", 2],
-    ["neutron", 1],
-  ]);
+  private static readonly VOYAGER_ORBIT_AT = new Map([["saturn", 2]]);
   /** How long one turn takes. */
   private static readonly VOYAGER_ORBIT_PERIOD = 7;
   /** How far in the orbit dips at its closest, as a fraction of the radius it
@@ -6191,21 +6440,25 @@ export class HubScene {
     this.controls.target.copy(aim);
     this.focusFloor = 1.2;
 
-    /* Arrived at the hole, which is where this route ends and the other thing
-       begins. Handing the camera back to the resting view here would end the
-       tour by cutting away from a black hole the probe has just spent three
+    /* Arrived at the wormhole, which is where this route ends and the other
+       thing begins. Handing the camera back to the resting view here would end
+       the tour by cutting away from the one object the probe has spent three
        minutes flying to; instead the ending takes over from exactly where the
-       chase left the camera, and the tour finishes the way the auto tour
-       finishes — round the disc, in, and out.
+       chase left the camera, and goes through it.
 
        Unwound by hand rather than through setVoyagerTour(false), which calls
        resetCamera() and would throw the camera back across the system on the
-       very frame the fall is starting. */
+       very frame the dive is starting. */
     if (u >= 1) {
       this.voyagerTour = false;
       this.voyagerTourU = 0;
       this.callbacks.onVoyagerTour(false);
-      this.beginFinale();
+      /* Except under reduced motion, where forty-eight seconds of accelerating
+         camera and full-frame effects is precisely the thing the setting is
+         asking not to be shown. There the tour simply ends where it arrived,
+         the way the auto tour's ending is skipped for the same reason. */
+      if (this.reducedMotion) this.resetCamera();
+      else this.beginFinale("wormhole");
     }
   }
 
@@ -6365,6 +6618,13 @@ export class HubScene {
     grade.uWarp.value = this.warp;
     grade.uFade.value = this.fade;
     grade.uCollapse.value = this.collapse;
+    grade.uTunnel.value = this.tunnel;
+    grade.uMouth.value = this.tunnelMouth;
+    grade.uInside.value = this.insideHole;
+    // Into the array the uniform already holds, like uFlashTint above.
+    const lean = grade.uLean.value as number[];
+    lean[0] = this.tunnelLean[0];
+    lean[1] = this.tunnelLean[1];
     grade.uStatic.value = this.tvStatic;
     grade.uPlate.value = this.plate;
     grade.uRipple.value = this.ripple;
