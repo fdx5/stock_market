@@ -452,9 +452,12 @@ interface LabelRig {
 
 /* Half again what it was. Everything that frames the star is written as a
  * multiple of this — the corona's reach, its hit sphere, the camera's floor
- * below — so they all follow. The one thing that does not follow for free is
- * the inner system: the corona now reaches 41 units, past Mercury at 26 and
- * Venus at 37, so both of those spend their orbits inside its outer haze. */
+ * below — so they all follow.
+ *
+ * The inner system used to be the exception: at its old reach the corona ran
+ * to 41 units, past Mercury at 26 and Venus at 37, and both spent their whole
+ * orbits inside the star's outer haze. The corona is a third of that now, so
+ * they do not. */
 const SUN_RADIUS = 12;
 /** Pluto's own radius. Named because the tidal stretch has to work out how
  * long the filament it is drawing has actually become in world units. */
@@ -1349,7 +1352,13 @@ export class HubScene {
     /* A camera-facing disc rather than a shell — see SUNGLOW_FRAG. Built two
        units across so the shader gets position.xy in -1..1 for free, then
        scaled to the reach the glow should actually have. */
-    const CORONA_REACH = SUN_RADIUS * 3.4;
+    /* A third of what it was. The glow reached 41 units, which put Mercury at
+       26 and Venus at 37 permanently inside the star's own haze — the halo was
+       a feature of the inner system rather than of the star. At 1.13 radii it
+       is a rim on the photosphere, and the planets orbit in clear space.
+       `uUnit` below is derived from this, so the shader's falloff follows it
+       without a second number to keep in step. */
+    const CORONA_REACH = SUN_RADIUS * 1.13;
     const coronaGeo = new THREE.PlaneGeometry(2, 2, 1, 1);
     this.coronaMaterial = new THREE.ShaderMaterial({
       vertexShader: SUNGLOW_VERT,
