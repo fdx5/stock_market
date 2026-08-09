@@ -678,9 +678,10 @@ export class HubScene {
   /** What it is currently pointed at, so the tube swings round to face the
    * body being observed rather than staring off in a fixed direction. */
   private hubbleAim = new THREE.Vector3(0, 0, 1);
-  /** Earth's rig, kept because the telescope needs its rotation rate on every
-   * frame and was searching the planet list for it sixty times a second. */
-  private hubbleHost?: PlanetRig;
+  /** Earth's rig. Two per-frame updates need it — the telescope reads its
+   * rotation rate, the probe its orbital period — and both were searching the
+   * planet list for it sixty times a second. */
+  private earthRig?: PlanetRig;
   /* One geometry and one material behind every hit sphere. See hitSphere. */
   private hitGeometry?: THREE.SphereGeometry;
   private hitMaterial?: THREE.MeshBasicMaterial;
@@ -910,6 +911,9 @@ export class HubScene {
    * built and normalised its own vector every frame; neither outlives the
    * statement that reads it. */
   private tmpDir = new THREE.Vector3();
+  /** The hole's world position, held across the whole black-hole update — see
+   * updateBlackHole for why it cannot share tmpV. */
+  private holeWorld = new THREE.Vector3();
   /** The neutron binary's world position, which was being fetched into a fresh
    * vector on every frame of the fifty-two-second cycle. */
   private neutronCentre = new THREE.Vector3();
@@ -1015,8 +1019,8 @@ export class HubScene {
     this.buildAsteroidBelt();
     this.buildBlackHole();
     this.buildNeutronBinary();
-    const earthRig = this.planets.find((p) => p.spec.key === "earth");
-    if (earthRig) this.buildHubble(earthRig);
+    this.earthRig = this.planets.find((p) => p.spec.key === "earth");
+    if (this.earthRig) this.buildHubble(this.earthRig);
     this.buildVoyager();
     this.buildComets();
 
@@ -2338,7 +2342,6 @@ export class HubScene {
   }
 
   private buildHubble(earth: PlanetRig) {
-    this.hubbleHost = earth;
     /* Parented to Earth's own body, so it rides the orbit for free — the
        telescope needs no orbital mechanics of its own, only a rotation. */
     this.hubblePivot = new THREE.Object3D();
@@ -4288,7 +4291,7 @@ export class HubScene {
     if (!this.hubblePivot || !this.hubble) return;
     // Looked up once. This ran a linear search of the planet list on every
     // frame to read one number that never changes.
-    const earth = this.hubbleHost;
+    const earth = this.earthRig;
     if (!earth) return;
     this.hubblePivot.rotation.y = (time / earth.spec.spin) * Math.PI * 2 * speed;
 
@@ -4400,7 +4403,12 @@ export class HubScene {
     this.holeGroup.getWorldPosition(this.tmpV);
 
     const cycle = (time * speed) % HubScene.BH_CYCLE;
-    const holePos = this.tmpV.clone();
+    /* Its own vector rather than a clone of the scratch one. The clone was
+       there for a real reason — this value has to survive updateJets,
+       updateBlueStar and updatePlutoDebris, every one of which writes tmpV —
+       but the answer to "this must outlive the shared scratch" is a scratch of
+       its own, not a fresh vector sixty times a second. */
+    const holePos = this.holeWorld.copy(this.tmpV);
 
     /* The afterglow. Gold for the seven seconds after Pluto, blue-white and
        far brighter for the seven after the star. Eased rather than switched,
@@ -4984,7 +4992,14 @@ export class HubScene {
   private static readonly PULSAR_NOD_RATE = 0.55;
   /** Turns per second of the axis, before the merger and after it. */
   private static readonly PULSAR_SPIN_PRE = 5;
-  private static readonly PULSAR_SPIN_POST = 60;
+  /* The same rate as before the merger.
+   *
+   * It was sixty, and sixty on a sixty-hertz screen is the one rate that
+   * cannot be drawn: each frame samples a whole turn later, so the axis either
+   * appears frozen or crawls at whatever the frame timing happens to drift by.
+   * The remnant looked broken rather than fast. Five turns a second is a rate
+   * the eye can actually follow, which is the point of drawing it at all. */
+  private static readonly PULSAR_SPIN_POST = 5;
   /** Half the shaft's length in world units — it runs this far out of EACH
    * pole — against a pair whose orbit is eleven across and stars about five
    * wide. */
@@ -5422,7 +5437,7 @@ export class HubScene {
        knowing which way round the orbit's phase is measured. A launch angle
        captured in a variable at the moment of wrap would be missed by a tab
        that was in the background for that frame. */
-    const earth = this.planets.find((pl) => pl.spec.key === "earth");
+    const earth = this.earthRig;
     let launch = 2.35;
     if (earth) {
       earth.body.getWorldPosition(this.tmpV);
