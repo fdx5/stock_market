@@ -39,14 +39,23 @@ const TRACKS = [
   { id: "7dn32JVyB6s", name: "Map in Grey" },
 ];
 
-/** Which track to play next.
+/** Which track to play next, never the one just heard.
  *
- * Straight random, including the possibility of the same track twice running.
- * With two of them, excluding the one just heard would not be random at all —
- * it would be strict alternation, and a visitor who turned the music off and
- * on again would be able to predict what came next. */
-function pickTrack(): (typeof TRACKS)[number] {
-  return TRACKS[Math.floor(Math.random() * TRACKS.length)];
+ * Written as "draw from everything except `excludeId`" rather than as a swap,
+ * because with two tracks those are the same thing and with three they are
+ * not: a third track added to the list above needs no change here, and the
+ * behaviour stays "random, but never twice running" instead of quietly
+ * becoming "cycle in order".
+ *
+ * At two tracks this IS strict alternation — that is what excluding the last
+ * one leaves — so the first listen of a visit is the only genuinely random
+ * draw. `excludeId` is null then, which is what keeps it free.
+ *
+ * The pool guard matters for the one-track case: filtering the only track out
+ * would leave nothing to pick and this would return undefined. */
+function pickTrack(excludeId: string | null): (typeof TRACKS)[number] {
+  const pool = excludeId && TRACKS.length > 1 ? TRACKS.filter((t) => t.id !== excludeId) : TRACKS;
+  return pool[Math.floor(Math.random() * pool.length)];
 }
 
 const API_SRC = "https://www.youtube.com/iframe_api";
@@ -162,9 +171,11 @@ export function useYouTubeBgm(): Bgm {
   const [title, setTitle] = useState(TRACKS[0].name);
   const hostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YtPlayer | null>(null);
-  /** Which track is on. Only for knowing whose name to show while the player
-   * catches up; the player itself is the authority once it answers. */
-  const trackRef = useRef(TRACKS[0]);
+  /** Which track is on, and so which one the next draw must avoid. Null until
+   * something has actually been chosen — that null is what makes the first
+   * listen of a visit a free draw rather than forcing it onto whichever track
+   * a default would have named. */
+  const trackRef = useRef<(typeof TRACKS)[number] | null>(null);
   /* What the visitor last asked for. A ref rather than the state above
      because the player may finish building after several more presses, and
      what it should do when it arrives is whatever was asked for LAST — not
@@ -219,7 +230,10 @@ export function useYouTubeBgm(): Bgm {
    * what makes the choice happen per press rather than once per page. */
   const playRandom = useCallback(
     (player: YtPlayer) => {
-      const track = pickTrack();
+      // Excluding whatever is on now, which on the "track finished" path is the
+      // one that just ended — so listening straight through moves you on to the
+      // next song rather than replaying the one you were already hearing.
+      const track = pickTrack(trackRef.current?.id ?? null);
       trackRef.current = track;
       // Shown straight away so the board changes with the press rather than a
       // network round trip later; onStateChange corrects it if it differs.
@@ -244,9 +258,12 @@ export function useYouTubeBgm(): Bgm {
         hostRef.current.appendChild(target);
 
         playerRef.current = new YT.Player(target, {
-          // Whichever came up when the button was pressed. The player is built
-          // on the first press, so this is already the chosen track.
-          videoId: trackRef.current.id,
+          /* Whichever came up when the button was pressed. The fallback is for
+             the warm path only: a pointer resting on the button starts the
+             build before any press has chosen anything, and the player has to
+             be constructed pointed at something. It is loaded paused in that
+             case, and the first real press replaces it. */
+          videoId: (trackRef.current ?? TRACKS[0]).id,
           playerVars: {
             autoplay: 1,
             controls: 0,
@@ -316,7 +333,7 @@ export function useYouTubeBgm(): Bgm {
     // already pointed at the chosen track rather than loading one and
     // immediately replacing it.
     if (want) {
-      const track = pickTrack();
+      const track = pickTrack(trackRef.current?.id ?? null);
       trackRef.current = track;
       setTitle(track.name);
       build();
