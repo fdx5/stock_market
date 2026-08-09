@@ -804,10 +804,11 @@
    copy exactly where the first began at the instant the loop restarts. There
    is no seam to see and nothing ever changes direction — the text just keeps
    going, which is the whole difference between a board and a bouncing label. */
+/* The board is two rows now: the marquee, and the equaliser under it. */
 .h2-np {
   display: flex;
-  align-items: center;
-  gap: 7px;
+  flex-direction: column;
+  gap: 5px;
   max-width: 165px;
   /* Matched to .lang-toggle button's own 4px 9px, so the board sits under the
      toggles as the same size of thing rather than as a wider slab. */
@@ -819,6 +820,67 @@
   -webkit-backdrop-filter: blur(8px);
   font-size: 9px;
   white-space: nowrap;
+}
+
+.h2-np-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+/* ── the equaliser ──
+   Decorative, and it has to cost nothing: this page is a WebGL scene that was
+   just tuned to hold sixty frames, and fourteen elements animating on the main
+   thread would be a poor way to spend that.
+
+   So the bars are a fixed height and the animation is scaleY. Animating the
+   height instead would relayout the row on every frame of every bar; a
+   transform is composited and never touches layout at all. */
+.h2-np-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 13px;
+  padding-left: 13px;
+}
+
+.h2-np-eq-bar {
+  width: 3px;
+  height: 100%;
+  border-radius: 1.5px;
+  /* Hot at the top, deep at the base — a bar lit from its own peak. The hue is
+     the bar's place in the spectrum; only the lightness moves. */
+  background: linear-gradient(
+    to top,
+    hsl(var(--hue) 85% 38%),
+    hsl(var(--hue) 95% 62%)
+  );
+  box-shadow: 0 0 5px -1px hsl(var(--hue) 95% 60% / 0.55);
+  transform-origin: bottom;
+  /* `alternate` rather than a keyframe that returns to its start: it halves
+     the animation and, more to the point, makes the fall take exactly as long
+     as the rise, which is what stops the row looking like it is being pumped. */
+  animation: h2-np-eq var(--dur) ease-in-out var(--delay) infinite alternate;
+}
+
+@keyframes h2-np-eq {
+  from {
+    transform: scaleY(0.14);
+  }
+  to {
+    transform: scaleY(var(--peak));
+  }
+}
+
+/* Still an equaliser, just one frozen mid-beat. Each bar keeps its own peak,
+   so the row reads as a spectrum rather than as a flat rule — which is what a
+   static version of this should be, and is more informative than hiding it. */
+@media (prefers-reduced-motion: reduce) {
+  .h2-np-eq-bar {
+    animation: none;
+    transform: scaleY(var(--peak));
+  }
 }
 
 /* The lamp. A board that is live has one, and it is the only part of this

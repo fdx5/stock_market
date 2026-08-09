@@ -40,6 +40,37 @@ import "./hub2.css";
 
 const INDEX_POLL_MS = 30_000;
 
+/* The equaliser's bars, fixed at module scope rather than rolled per render.
+ *
+ * They have to be the same numbers on every render or the bars would jump to
+ * new speeds and heights each time anything else on the page changed state —
+ * and this component re-renders on hover, on focus, on every index poll. A
+ * "random" equaliser that reshuffles when a planet is hovered does not read as
+ * music, it reads as a bug.
+ *
+ * Nothing here is random at runtime: the hues walk the spectrum in order, and
+ * the periods are deliberately incommensurate. That last part is what does the
+ * work — 0.62s against 0.83s against 1.07s means neighbouring bars drift out of
+ * step and stay out of step, so a row of identical animations never settles
+ * into a wave marching across it. Negative delays start them mid-cycle, so the
+ * board arrives already moving instead of rising together from flat. */
+const EQ_BARS = [
+  { hue: 352, dur: 0.72, delay: -0.31, peak: 0.9 },
+  { hue: 18, dur: 0.94, delay: -0.62, peak: 0.55 },
+  { hue: 40, dur: 0.63, delay: -0.11, peak: 1 },
+  { hue: 58, dur: 1.07, delay: -0.85, peak: 0.68 },
+  { hue: 86, dur: 0.81, delay: -0.44, peak: 0.86 },
+  { hue: 132, dur: 0.68, delay: -0.19, peak: 0.5 },
+  { hue: 166, dur: 0.99, delay: -0.73, peak: 0.95 },
+  { hue: 192, dur: 0.76, delay: -0.05, peak: 0.62 },
+  { hue: 214, dur: 1.13, delay: -0.52, peak: 0.82 },
+  { hue: 244, dur: 0.66, delay: -0.28, peak: 0.58 },
+  { hue: 272, dur: 0.89, delay: -0.67, peak: 1 },
+  { hue: 300, dur: 0.74, delay: -0.14, peak: 0.72 },
+  { hue: 322, dur: 1.02, delay: -0.4, peak: 0.88 },
+  { hue: 338, dur: 0.7, delay: -0.79, peak: 0.54 },
+];
+
 const EMPTY_FEED: FeedMap = { KOSPI: null, KOSDAQ: null, SPX: null, NDX: null };
 
 /* ───────────────────────────── clocks ───────────────────────────── */
@@ -386,22 +417,46 @@ export default function HubType2() {
             {/* The lamp is the whole of the "playing" indicator now — the
                 words that used to sit beside it are gone. It carries the
                 label for anyone who cannot see it blink. */}
-            <span className="h2-np-led" role="img" aria-label={en ? "Now playing" : "재생중"} />
-            {/* The credit travels with the title rather than sitting still in
-                front of it. The board is 165px wide; a fixed prefix would take
-                a third of that from the part that is actually the name, and on
-                a running board a label that stays put while the thing it
-                labels slides past it reads as two separate objects. */}
-            <span className="h2-np-window">
-              <span className="h2-np-run">
-                <span className="h2-np-text">
-                  <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span> {bgm.title}
-                </span>
-                <span className="h2-np-text" aria-hidden="true">
-                  <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span> {bgm.title}
+            <div className="h2-np-main">
+              <span className="h2-np-led" role="img" aria-label={en ? "Now playing" : "재생중"} />
+              {/* The credit travels with the title rather than sitting still in
+                  front of it. The board is 165px wide; a fixed prefix would
+                  take a third of that from the part that is actually the name,
+                  and on a running board a label that stays put while the thing
+                  it labels slides past it reads as two separate objects. */}
+              <span className="h2-np-window">
+                <span className="h2-np-run">
+                  <span className="h2-np-text">
+                    <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span> {bgm.title}
+                  </span>
+                  <span className="h2-np-text" aria-hidden="true">
+                    <span className="h2-np-kind">{en ? "ORIGINAL" : "자작곡"}:</span> {bgm.title}
+                  </span>
                 </span>
               </span>
-            </span>
+            </div>
+            {/* The equaliser.
+                aria-hidden, and honestly so: it is not reading the audio and
+                cannot. The sound comes out of a cross-origin YouTube iframe and
+                the Web Audio API cannot tap one, so there is no spectrum to
+                draw. What this is, is a sign that something is playing — the
+                same thing the lamp says, said in a way you can see from the
+                corner of your eye. The lamp and the marquee carry the actual
+                information; this carries none, so it announces none. */}
+            <div className="h2-np-eq" aria-hidden="true">
+              {EQ_BARS.map((bar, i) => (
+                <span
+                  key={i}
+                  className="h2-np-eq-bar"
+                  style={{
+                    ["--hue" as string]: bar.hue,
+                    ["--dur" as string]: `${bar.dur}s`,
+                    ["--delay" as string]: `${bar.delay}s`,
+                    ["--peak" as string]: bar.peak,
+                  }}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
