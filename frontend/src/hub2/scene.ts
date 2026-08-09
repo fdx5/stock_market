@@ -4843,8 +4843,8 @@ export class HubScene {
     /* Falls to the tidal radius, then stays there. Only the tear closes the
        last of the gap, which is what makes the ending an event rather than the
        end of a slide. */
-    const held = 240 * Math.pow(1 - p, 1.4) + 34;
-    const distance = held - tear * tear * 23;
+    const held = 240 * Math.pow(1 - p, 1.4) + 56;
+    const distance = held - tear * tear * 45;
     // Still circling while it is stripped, so the stream sweeps rather than
     // hanging in one place.
     const angle = Math.PI + p * Math.PI * 2.2 + strip * Math.PI * 0.55;
@@ -4927,17 +4927,39 @@ export class HubScene {
          be losing gas — the stripping would have been a star sitting still.
          The strip fills most of the ribbon; the tear fills the rest. */
       const flow = Math.max(strip * 0.86, tear);
-      const born = clamp01((flow - along * 0.55) / 0.45);
+      if (flow <= 0.01) {
+        this.glow.hide(slot);
+        continue;
+      }
+
+      /* The particles TRAVEL now, and that is the whole difference.
+         They used to sit at a fixed fraction of the path and merely fade in,
+         which is a ribbon drawn between two objects rather than material
+         leaving one for the other — it read as decoration hanging in the gap.
+         Each one now marches from the star to the disc and wraps, at its own
+         rate, so the stream is something moving rather than something placed.
+
+         And it starts at 0. The old expression added a third of the path from
+         `born` before anything was drawn, so the youngest particle already sat
+         a third of the way in and nothing ever touched the star: the stream
+         began in empty space, which is why it looked detached from it. */
+      const rate = 0.17 + roll * 0.13;
+      const t = (along + time * speed * rate) % 1;
+      // Fades in as it leaves the star and out as it reaches the disc, so
+      // neither end of the ribbon has a hard edge.
+      const born = flow * clamp01(t / 0.06) * clamp01((1 - t) / 0.18);
       if (born <= 0.01) {
         this.glow.hide(slot);
         continue;
       }
 
       // Wind from the star's own angle round to the disc, tightening as it goes.
-      const t = clamp01(along * 0.85 + born * 0.35);
-      const r = starDist * Math.pow(1 - t, 1.5) + 9;
+      const r = starDist * Math.pow(1 - t, 1.35) + 9;
       const a = starAngle + t * Math.PI * 2.2 + roll * 0.35;
-      const wob = (1 - t) * 6;
+      /* Wider where it leaves the star and narrowing as it is wound in, which
+         is what makes it read as a torrent being drawn into a funnel rather
+         than a wire between two points. */
+      const wob = (1 - t) * 11 + Math.sin(t * 9 + roll * 6) * 2.2;
 
       const x = holePos.x + Math.cos(a) * r + spreadA * wob;
       const y = holePos.y + (toStar.y / Math.max(starDist, 0.001)) * r * 0.6 + spreadB * wob;
@@ -4945,8 +4967,8 @@ export class HubScene {
 
       // Blue-white at the star, whitening as it compresses and heats inward.
       const hot = Math.pow(t, 1.3);
-      const size = 1.1 + roll * 1.6 + hot * 1.4;
-      const alpha = born * (1 - Math.pow(t, 6)) * 0.55;
+      const size = 1.6 + roll * 2.4 + hot * 2.2;
+      const alpha = born * (1 - Math.pow(t, 6)) * 0.82;
       this.glow.set(slot, x, y, z, size, 0.55 + hot * 0.45, 0.76 + hot * 0.22, 1.0, alpha);
     }
   }
