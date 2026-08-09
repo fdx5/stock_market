@@ -82,8 +82,12 @@ const YT_ENDED = 0;
 const YT_PLAYING = 1;
 
 interface YtPlayerOptions {
-  videoId: string;
-  playerVars: Record<string, number | string>;
+  /* Both optional, and in practice both unused: the player adopts an iframe we
+     built ourselves (see build), and for an adopted frame the video and every
+     player option come from its URL. They stay on the type because they are
+     what you would pass if the API were asked to create the frame instead. */
+  videoId?: string;
+  playerVars?: Record<string, number | string>;
   events: {
     onReady: (event: { target: YtPlayer }) => void;
     onStateChange: (event: { target: YtPlayer; data: number }) => void;
@@ -202,6 +206,14 @@ export function useYouTubeBgm(): Bgm {
      are attached when the iframe signals ready, and calling one before then
      throws rather than queueing. */
   const readyRef = useRef(false);
+  /* Watches a play request to see whether it actually produced sound.
+   *
+   * A refused play is silent in both senses: the player does not raise
+   * onError, it simply does not start. That is what an iPad looked like — the
+   * button said BGM OFF, meaning it believed it was playing, over nothing at
+   * all. If PLAYING has not arrived by the time this fires, the request was
+   * refused and the button should say so. */
+  const watchdogRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     /* Cleared on EVERY mount, not just the first.
@@ -216,9 +228,33 @@ export function useYouTubeBgm(): Bgm {
     return () => {
       goneRef.current = true;
       readyRef.current = false;
+      window.clearTimeout(watchdogRef.current);
       playerRef.current?.destroy();
       playerRef.current = null;
     };
+  }, []);
+
+  /* Build the player on the visitor's FIRST touch of the page, wherever it
+     lands, rather than waiting for the BGM button.
+     iOS only grants playback to a call still inside a tap's own stack. On the
+     first press the old code had a script to fetch and a frame to load before
+     it could ask, so the ask arrived long after the tap was over and was
+     refused — silently, which is why the button looked on and nothing played.
+     Warmed here, the player is ready and the press can play synchronously.
+     Nothing is fetched for a visitor who never interacts, and nothing makes a
+     sound: the frame loads paused and waits. */
+  useEffect(() => {
+    const warmUp = () => build();
+    // `once`, and passive: this must not delay or interfere with the gesture
+    // it is riding on — the scene is reading these same events to orbit.
+    const options = { once: true, passive: true } as const;
+    window.addEventListener("pointerdown", warmUp, options);
+    window.addEventListener("keydown", warmUp, options);
+    return () => {
+      window.removeEventListener("pointerdown", warmUp);
+      window.removeEventListener("keydown", warmUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* Says why, rather than only that. This went wrong once already in a way
@@ -226,10 +262,23 @@ export function useYouTubeBgm(): Bgm {
      and was not — so the reason belongs somewhere it can be read. */
   const fail = useCallback((reason: unknown) => {
     console.warn("[bgm] could not play", reason);
+    window.clearTimeout(watchdogRef.current);
     wantRef.current = false;
     setPlaying(false);
     setFailed(true);
   }, []);
+
+  /** Called on every play request. See watchdogRef for why this exists at all.
+   * Three and a half seconds is past any reasonable buffer on a phone and well
+   * short of the visitor deciding the button is broken. */
+  const armWatchdog = useCallback(() => {
+    window.clearTimeout(watchdogRef.current);
+    watchdogRef.current = window.setTimeout(() => {
+      if (wantRef.current && !goneRef.current) {
+        fail("the player never started — the browser most likely refused it");
+      }
+    }, 3500);
+  }, [fail]);
 
   /** Asks the player what it is playing and puts that on the board. The player
    * is the authority: a video retitled on YouTube shows its new name here with
@@ -254,8 +303,9 @@ export function useYouTubeBgm(): Bgm {
       setTitle(track.name);
       setTrackId(track.id);
       player.loadVideoById(track.id);
+      armWatchdog();
     },
-    []
+    [armWatchdog]
   );
 
   const build = useCallback(() => {
@@ -267,29 +317,48 @@ export function useYouTubeBgm(): Bgm {
       .then((YT) => {
         // Unmounted, or beaten to it, while the script was in flight.
         if (goneRef.current || playerRef.current || !hostRef.current) return;
-        // The API REPLACES the element it is given with its iframe, so it gets
-        // a node of its own rather than the host React is rendering.
-        const target = document.createElement("div");
-        hostRef.current.appendChild(target);
+        /* The iframe is built here rather than left to the API.
+         *
+         * A cross-origin frame does not inherit the page's user activation
+         * unless it is granted it, and without that grant iOS refuses every
+         * play we ask for however the request was triggered — which is exactly
+         * how this failed on iPad: a button that turned itself on over
+         * silence. The grant is the `allow` attribute, and Permissions Policy
+         * is read when the frame navigates, so it has to be on the element
+         * BEFORE it loads. Setting it on an iframe the API already created is
+         * too late to mean anything.
+         *
+         * So: our iframe, our attributes, and the API adopts it. Passing an
+         * existing frame is a documented entry point — it needs enablejsapi=1
+         * in the URL, and the player options that would have been playerVars
+         * become query parameters, which is the only real difference.
+         *
+         * `origin` is required by the API for an adopted frame; without it the
+         * player and the page cannot talk and onReady never arrives. */
+        const track = trackRef.current ?? TRACKS[0];
+        const params = new URLSearchParams({
+          enablejsapi: "1",
+          controls: "0",
+          disablekb: "1",
+          // Or iOS takes the video full-screen the moment it starts.
+          playsinline: "1",
+          rel: "0",
+          /* No autoplay. It is refused on the platforms that matter here and
+             granted on the ones that do not, so all it ever achieved was a
+             blip of sound on desktop before the pause that follows. Every play
+             is now asked for explicitly, from inside a real gesture. */
+          origin: window.location.origin,
+        });
+        const frame = document.createElement("iframe");
+        frame.src = `https://www.youtube.com/embed/${track.id}?${params.toString()}`;
+        frame.allow = "autoplay; encrypted-media";
+        frame.title = "background music";
+        frame.width = "200";
+        frame.height = "200";
+        frame.style.border = "0";
+        hostRef.current.appendChild(frame);
 
-        playerRef.current = new YT.Player(target, {
-          /* Whichever came up when the button was pressed. The fallback is for
-             the warm path only: a pointer resting on the button starts the
-             build before any press has chosen anything, and the player has to
-             be constructed pointed at something. It is loaded paused in that
-             case, and the first real press replaces it. */
-          videoId: (trackRef.current ?? TRACKS[0]).id,
-          playerVars: {
-            autoplay: 1,
-            controls: 0,
-            disablekb: 1,
-            /* No `loop`/`playlist`. Looping one video is what a single-track
-               player does; with two, the end of a track is a chance to draw
-               again — see onStateChange. */
-            // Or iOS takes the video full-screen the moment it starts.
-            playsinline: 1,
-            rel: 0,
-          },
+        playerRef.current = new YT.Player(frame, {
           events: {
             onReady: (event) => {
               readyRef.current = true;
@@ -297,11 +366,23 @@ export function useYouTubeBgm(): Bgm {
               readTitle(event.target);
               // Whatever the visitor asked for most recently, including the
               // case where they changed their mind while this was loading.
-              if (wantRef.current && !goneRef.current) event.target.playVideo();
-              else event.target.pauseVideo();
+              /* A play from here is NOT inside the visitor's gesture — the
+                 script fetch and the frame load happened in between — so iOS
+                 may well refuse it. It is still worth asking: on everything
+                 else it works, and the warm-up means this path is rare. The
+                 watchdog is what turns a refusal into a button that admits it
+                 rather than one that sits on over silence. */
+              if (wantRef.current && !goneRef.current) {
+                event.target.playVideo();
+                armWatchdog();
+              } else {
+                event.target.pauseVideo();
+              }
             },
             onStateChange: (event) => {
               if (event.data === YT_PLAYING) {
+                // Sound is actually coming out; the watchdog can stand down.
+                window.clearTimeout(watchdogRef.current);
                 /* The board catches up here, not at the moment of choosing.
                    getVideoData only answers for the track actually loaded, so
                    this is the first instant the name is known to be right —
@@ -323,7 +404,7 @@ export function useYouTubeBgm(): Bgm {
       .finally(() => {
         buildingRef.current = false;
       });
-  }, [fail, playRandom, readTitle]);
+  }, [armWatchdog, fail, playRandom, readTitle]);
 
   const toggle = useCallback(() => {
     const want = !wantRef.current;
@@ -337,11 +418,17 @@ export function useYouTubeBgm(): Bgm {
          warmed it a moment ago. Its methods do not exist yet, and calling one
          would throw; its onReady reads wantRef and will do this itself. */
       if (!readyRef.current) return;
-      // Every switch-on draws again, so the second listen is as likely to be
-      // the other track as the same one. Resuming what was paused would make
-      // the choice a once-per-page thing.
-      if (want) playRandom(player);
-      else player.pauseVideo();
+      /* Called straight from the click handler, on purpose. iOS grants
+         playback to a call that is still inside the tap's own stack and to
+         nothing else — no timeout, no promise callback, no matter how soon
+         after. This is the path that has to work on an iPad, which is why the
+         player is warmed up long before the button is reached. */
+      if (want) {
+        playRandom(player);
+      } else {
+        window.clearTimeout(watchdogRef.current);
+        player.pauseVideo();
+      }
       return;
     }
     // First press: pick before the player is built, so it is constructed
