@@ -1072,7 +1072,14 @@ export class HubScene {
   private texture(url: string): THREE.Texture {
     const tex = new THREE.TextureLoader().load(url);
     tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+    /* 16 where the hardware offers it, not 8.
+     *
+     * This is what a texture looks like at a grazing angle, which on a sphere
+     * is the entire limb — the part of a body you spend the most pixels on
+     * when it fills the frame. Doubling the cap costs a few samples on the
+     * fragments that are already the most foreshortened and nothing anywhere
+     * else, and it is free on any GPU that reports less. */
+    tex.anisotropy = Math.min(16, this.renderer.capabilities.getMaxAnisotropy());
     // Equirectangular maps wrap in longitude and clamp in latitude; letting
     // latitude wrap smears the north pole across the south one.
     tex.wrapS = THREE.RepeatWrapping;
@@ -1574,7 +1581,19 @@ export class HubScene {
     } else if (spec.craft === "starship") {
       mesh = this.buildStarship(spec.size);
     } else {
-      const geo = new THREE.SphereGeometry(spec.size, Math.max(24, this.config.segments / 2), Math.max(12, this.config.segments / 4));
+      /* Full planet detail, not half.
+       *
+       * Moons were tessellated at half a planet's segments because they were
+       * small things in the distance, where nobody could count the facets. The
+       * observation panel changed what they are: Europa now fills the frame,
+       * and at 48×24 its outline is a visible polygon and the terminator steps
+       * down its limb in stairs. The texture cannot be sharper than its source,
+       * but the silhouette can stop being a lie. */
+      const geo = new THREE.SphereGeometry(
+        spec.size,
+        Math.max(48, this.config.segments),
+        Math.max(24, this.config.segments / 2)
+      );
       // Moons run a little hot too: the same dark rock and ice as the inner
       // planets, at a fraction of the on-screen size.
       material = this.planetMaterial(this.texture(spec.texture), spec.glow, 0.18, 0.32, 1.3);
