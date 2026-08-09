@@ -1851,6 +1851,45 @@ export const GRADE_SHADER = {
       return s / m;
     }
 
+    /* Stars on the passage's own surface — round it and along it — so they
+       stream past as it goes. Wrapped in the angular axis like everything
+       else in here, and coloured half white and half off the stellar
+       sequence, which is what the wormhole's own sky does and for the same
+       reason: a field of one colour is a field that has been tinted. */
+    vec3 passageStars(float u, float z, float period, float gain, float t) {
+      vec2 g = floor(vec2(u, z));
+      vec2 f = fract(vec2(u, z));
+      vec2 cell = vec2(mod(g.x, period), g.y);
+      vec2 o = vec2(hash(cell), hash(cell + 17.3));
+      float d = length(f - (0.2 + o * 0.6));
+      float core = smoothstep(0.17, 0.0, d);
+      core *= core * core;
+      float mag = 0.28 + hash(cell + 41.7) * 0.72;
+      float hue = hash(cell + 71.1);
+      vec3 tint = vec3(1.0);
+      if (hue > 0.5) {
+        tint = mix(vec3(0.60, 0.75, 1.0), vec3(1.0, 0.68, 0.42), (hue - 0.5) * 2.0);
+      }
+      float tw = 0.75 + 0.25 * sin(t * 2.1 + o.x * 51.0);
+      return tint * (core * mag * tw * gain);
+    }
+
+    /* And a galaxy every few lengths of it, at a random angle round the tube.
+       Analytic — a bulge over a disc — because what noise this pass can
+       afford is already spent on the gas. */
+    vec3 passageGalaxy(float u, float z, float band, float scale) {
+      float k = floor(z / band);
+      float du = u - hash(vec2(k, 3.1));
+      du -= floor(du + 0.5);
+      vec2 d = vec2(du * 4.0, (z / band - k - 0.5) * 1.7) / scale;
+      float rr = length(d);
+      if (rr > 1.0) return vec3(0.0);
+      float disc = exp(-rr * 3.0);
+      float bulge = exp(-rr * 9.0);
+      return (vec3(1.0, 0.88, 0.66) * bulge * 1.3 + vec3(0.6, 0.75, 1.0) * disc * 0.55)
+        * smoothstep(1.0, 0.2, rr);
+    }
+
     /* The passage through the wormhole, drawn rather than built.
      *
      * There is no tube anywhere in the scene, and there should not be. A
@@ -1863,38 +1902,68 @@ export const GRADE_SHADER = {
      * Built as geometry it would be a tube sitting somewhere in the world with
      * two open ends, and Saturn visible through one of them.
      *
-     * The filaments are stretched far harder along the passage than around it,
-     * because what this has to read as is material streaming past — a texture
-     * with equal detail both ways is a rock face, and a rock face does not
-     * move. */
+     * And it is dark, and mostly not there. The first version was a lit blue
+     * tube, which is a pipe: the walls were the subject and there was nothing
+     * beyond them, so the whole of it read as being inside something small.
+     * What it should read as is being carried through open sky at a speed
+     * nothing else gets near — so the tube itself is two faint turns of
+     * filament, and what fills the frame is what is out past it: three sheets
+     * of stars streaming by, gas in three colours, and a galaxy every few
+     * lengths. The cylinder is a coordinate system for a sky here rather than
+     * a surface with a texture on it.
+     *
+     * Everything is stretched far harder along the passage than around it,
+     * because what it has to read as is material going past — a field with
+     * equal detail both ways is a wall, and a wall does not move. */
     vec3 passage(vec2 uv, float t, vec2 lean, float aspect, float mouth) {
       vec2 q = uv - 0.5 - lean;
       q.x *= aspect;
       /* Floored well off zero. Depth goes as 1/r, so at the very middle the
-         wall is infinitely far away and its texture is infinitely fine —
-         which samples as a knot of concentric rings sitting exactly where the
-         eye is going. The floor turns that into a small flat disc, and the
-         mouth below covers what is left of it. */
-      float r = max(length(q), 0.014);
+         far end is infinitely away and everything there is infinitely
+         compressed — which samples as a knot of rings sitting exactly where
+         the eye is going. */
+      float r = max(length(q), 0.016);
       float a = atan(q.y, q.x);
       float z = 0.34 / r + t * 1.35;
       float u = a / 6.2831853 + t * 0.035;
 
-      float coarse = fbmWrap(vec2(u * 6.0, z * 0.55), 6.0);
-      float fine = fbmWrap(vec2(u * 15.0, z * 1.7 + t * 0.5), 15.0);
-      float glow = clamp(pow(coarse, 1.5) * 0.85 + pow(fine, 2.4) * 0.75, 0.0, 1.0);
+      /* And nothing at all in the last of it. Past the floor above the
+         compression is still severe enough to alias, and the exit is what
+         belongs in the middle of the frame anyway. */
+      float near = smoothstep(0.03, 0.11, r);
 
-      vec3 col = mix(vec3(0.10, 0.19, 0.52), vec3(0.72, 0.88, 1.0), glow);
-      // The hot threads through it.
-      col += vec3(1.0, 0.74, 0.44) * pow(fine, 6.0) * 1.2;
-      /* Brighter ahead. It is the only cue in the frame for which way "along"
-         is — with an evenly lit tube the eye cannot tell travel from spin.
-         The floor is what keeps the corners from going to black: the walls
-         behind you are further away, not absent, and a tunnel that fades out
-         at the edges of the frame reads as a hole in a dark room. */
-      col *= 0.58 + 0.95 * smoothstep(0.62, 0.02, r);
-      // And the far end, opening.
-      col += vec3(0.86, 0.94, 1.0) * smoothstep(0.04 + mouth * 0.95, 0.0, r) * (0.5 + mouth * 5.5);
+      vec3 col = vec3(0.0);
+
+      // The sky it runs through, at three depths.
+      col += passageStars(u * 16.0, z * 1.0, 16.0, 1.7, t) * near;
+      col += passageStars(u * 30.0, z * 1.9 + 31.0, 30.0, 1.15, t) * near;
+      col += passageStars(u * 52.0, z * 3.2 + 77.0, 52.0, 0.75, t) * near;
+
+      // Gas, in bands along it, in three colours that are not each other.
+      float n1 = fbmWrap(vec2(u * 3.0, z * 0.20), 3.0);
+      float n2 = fbmWrap(vec2(u * 5.0, z * 0.29 + 53.0), 5.0);
+      float n3 = fbmWrap(vec2(u * 4.0, z * 0.24 + 91.0), 4.0);
+      col += vec3(0.20, 0.52, 0.92) * pow(n1, 3.0) * 1.6 * near;
+      col += vec3(0.80, 0.24, 0.50) * pow(n2, 3.4) * 1.35 * near;
+      col += vec3(0.95, 0.62, 0.22) * pow(n3, 3.8) * 1.05 * near;
+
+      col += passageGalaxy(u, z, 5.0, 0.55) * 0.95 * near;
+
+      /* The tube itself. Faint on purpose — it is meant to be seen through.
+         Enough to say there is something carrying you and no more. */
+      float wall = fbmWrap(vec2(u * 9.0, z * 0.55), 9.0);
+      col += vec3(0.30, 0.55, 1.0) * pow(wall, 5.0) * 0.6 * near;
+
+      /* And the far end. With the walls this dark it is the only thing in the
+         frame telling you which way "along" is.
+
+         It has to reach past where the near-fade gives out, and by a margin. Cut off
+         at 0.05 against a field that stops at 0.11, it left a ring of nothing
+         around itself — so the middle of the passage, which is the one place
+         the eye is going, was a dark hole with a small glow at the bottom of
+         it. The exit is what belongs there; it should own the whole of what
+         the compression takes. */
+      col += vec3(0.72, 0.86, 1.0) * smoothstep(0.14 + mouth * 0.86, 0.0, r) * (0.9 + mouth * 6.0);
       return col;
     }
 

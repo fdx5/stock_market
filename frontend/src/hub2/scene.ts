@@ -3928,18 +3928,26 @@ export class HubScene {
      whiteout, a mouth swallowing the lens, or a blackout that was already
      happening.
 
-       dive     3.0  the last three seconds are the wormhole taking the camera
-       tunnel  10    inside it, first person, riding across the passage
-       space   10    out the far side, near the hole, closing on it
-       disc     8    down onto the disc and round it, skimming
-       inside   4.5  past the horizon: flashes, and light with no source
-       static   5    the dead channel, which is the auto tour's own
-       plate    5    the far side, held, with the stone dropped in it
-       return   2.4  the picture comes back
+       approach 11    a slow arc in, watching it turn
+       rim       9    riding its edge, close enough to see the sky inside move
+       enter     5    round and in
+       tunnel   10    inside it, first person, riding across the passage
+       space    10    out the far side, near the hole, closing on it
+       disc      8    down onto the disc and round it, skimming
+       inside    4.5  past the horizon: flashes, and light with no source
+       static    5    the dead channel, which is the auto tour's own
+       plate     5    the far side, held, with the stone dropped in it
+       return    2.4  the picture comes back
 
-     Forty-eight seconds, which is long — but it is the payoff for a three
-     minute flight, and the one thing it must not do is arrive and stop. */
-  private static readonly WF_DIVE = 3;
+     Seventy seconds, and twenty-five of them are the arrival. That is
+     deliberate and it is the change this ending most needed: the wormhole is
+     two units across and the first cut at this gave it three seconds, which
+     is long enough to identify a thing and not long enough to look at one.
+     The interior turns, drifts and shears on its own clock, and none of that
+     is visible from a camera that is only ever closing on it. */
+  private static readonly WF_APPROACH = 11;
+  private static readonly WF_RIM = 9;
+  private static readonly WF_ENTER = 5;
   private static readonly WF_TUNNEL = 10;
   private static readonly WF_SPACE = 10;
   private static readonly WF_DISC = 8;
@@ -3947,20 +3955,24 @@ export class HubScene {
   private static readonly WF_STATIC = 5;
   private static readonly WF_PLATE = 5;
   private static readonly WF_RETURN = 2.4;
-  private static readonly WF_T_DIVE = 3;
-  private static readonly WF_T_TUNNEL = 13;
-  private static readonly WF_T_SPACE = 23;
-  private static readonly WF_T_DISC = 31;
-  private static readonly WF_T_INSIDE = 35.5;
-  private static readonly WF_T_STATIC = 40.5;
-  private static readonly WF_T_PLATE = 45.5;
-  private static readonly WF_END = 47.9;
+  private static readonly WF_T_APPROACH = 11;
+  private static readonly WF_T_RIM = 20;
+  private static readonly WF_T_DIVE = 25;
+  private static readonly WF_T_TUNNEL = 35;
+  private static readonly WF_T_SPACE = 45;
+  private static readonly WF_T_DISC = 53;
+  private static readonly WF_T_INSIDE = 57.5;
+  private static readonly WF_T_STATIC = 62.5;
+  private static readonly WF_T_PLATE = 67.5;
+  private static readonly WF_END = 69.9;
 
   private updateWormholeFinale(dt: number) {
     const t = this.finaleT;
-    // The HUD goes at the moment the picture starts being taken away, which
-    // here is the dive rather than a third of the way through a fall.
-    this.setCurtain(t > HubScene.WF_DIVE * 0.4);
+    /* The HUD goes early here, and earlier than the picture starts breaking
+       up. The arrival is twenty-five seconds of looking at one object, and a
+       ring of destination labels floating over it for all of them is the sky
+       still trying to be a menu while the tour is trying to be a film. */
+    this.setCurtain(t > 1.5);
 
     /* Everything off by default and switched on by the branch that wants it.
        Eight movements each setting six effects is where a state machine grows
@@ -3974,22 +3986,86 @@ export class HubScene {
     this.plate = 0;
 
     if (t < HubScene.WF_T_DIVE) {
-      /* Taken. The camera accelerates all the way in — cubed, so most of the
-         distance goes in the last half second and the sphere stops being an
-         object in the frame and becomes the frame. Aimed at the live world
-         position, because the wormhole is riding Saturn and Saturn moves a
-         long way in three seconds. */
-      const s = t / HubScene.WF_DIVE;
-      const k = s * s * s;
-      this.camera.position.lerpVectors(this.finaleFrom, this.wormholeWorld, k);
-      this.controls.target.copy(this.wormholeWorld);
-      this.warp = Math.pow(s, 1.8) * 5.5;
-      this.collapse = Math.pow(s, 2.2) * 0.5;
-      // And the whiteout that covers the join. Cold, because what it is
-      // going into is.
-      this.diveTint.setRGB(0.82, 0.92, 1.0);
-      this.diveFlash = smoothstep(0.72, 1.0, s) * 2.2;
+      /* The arrival, in three movements, all of them on one circle around the
+         wormhole so that they run into each other rather than beginning.
+         `finaleAngle` carries across all three and only its rate changes.
+
+         The circle is built on the world axes and centred on the live world
+         position rather than on a frame captured at the start. The wormhole
+         rides Saturn, and Saturn covers a good fraction of its orbit in
+         twenty-five seconds — pinned to where it was, this would be an arc
+         around a point it had long since left. */
+      const wh = this.wormholeWorld;
+      const ax = this.jetSideA.set(1, 0, 0);
+      const up = this.jetAxis.set(0, 1, 0);
+      const az = this.jetSideB.set(0, 0, 1);
       this.focusFloor = 0.2;
+      this.diveTint.setRGB(0.82, 0.92, 1.0);
+
+      let radius: number;
+      let lift: number;
+      let aim = 0;
+
+      if (t < HubScene.WF_T_APPROACH) {
+        /* Closing, slowly, and turning while it closes. A straight run at it
+           shows one face of a sphere for eleven seconds; an arc shows the
+           inside of it turning against a background that is itself moving,
+           which is the only thing here there is actually to watch. */
+        const s = t / HubScene.WF_APPROACH;
+        const ease = s * s * (3 - 2 * s);
+        this.finaleAngle += 0.30 * dt;
+        radius = 20 - 13 * ease;
+        lift = 5 * (1 - ease) + 1.2;
+      } else if (t < HubScene.WF_T_RIM) {
+        /* Riding the edge. Close enough that the sphere is half the frame and
+           the star field inside it resolves — this is the only place in the
+           whole sequence where the thing can be looked at properly, so it
+           gets nine seconds and no effects at all. */
+        const s = (t - HubScene.WF_T_APPROACH) / HubScene.WF_RIM;
+        this.finaleAngle += (0.55 + s * 0.5) * dt;
+        radius = 6.4 - 2.0 * s;
+        // Rising and falling across the rim rather than orbiting level, so
+        // the edge sweeps through the frame instead of sitting across it.
+        lift = Math.cos(s * Math.PI * 1.6) * 1.5 * (1 - s * 0.5);
+        aim = 1.9;
+      } else {
+        /* And in. The radius holds outside the sphere for most of it — the
+           surface is at 2.17 and a camera inside a front-faced sphere sees
+           straight through it, so a curve that crossed early would delete the
+           wormhole a second and a half before the passage begins. It crosses
+           at about four fifths, by which time the whiteout is already up. */
+        const s = (t - HubScene.WF_T_RIM) / HubScene.WF_ENTER;
+        this.finaleAngle += (1.05 + s * 3.4) * dt;
+        const plunge = clamp01((s - 0.62) / 0.38);
+        radius = (4.4 - 1.5 * s) * (1 - plunge) + 0.2 * plunge;
+        lift = 0.5 * (1 - s);
+        this.warp = Math.pow(s, 1.8) * 5.5;
+        this.collapse = Math.pow(s, 2.2) * 0.5;
+        // The whiteout that covers the join. Cold, because what it goes into is.
+        this.diveFlash = smoothstep(0.7, 1.0, s) * 2.2;
+      }
+
+      const cos = Math.cos(this.finaleAngle);
+      const sin = Math.sin(this.finaleAngle);
+      const want = this.tmpV2
+        .copy(wh)
+        .addScaledVector(ax, cos * radius)
+        .addScaledVector(az, sin * radius)
+        .addScaledVector(up, lift);
+      /* Eased in from wherever the chase left the camera over the first two
+         seconds, for the same reason the other ending does it: the one thing
+         this must not do is cut. */
+      const blend = clamp01(t / 2.0);
+      this.camera.position.lerpVectors(this.finaleFrom, want, blend * blend * (3 - 2 * blend));
+      /* Looking along the rim rather than at the middle of it, while it is
+         riding one. Offset across the direction of travel, the sphere sits to
+         one side and its edge sweeps the frame — dead centre, the brightest
+         thing the wormhole has is a circle being stared at rather than an
+         edge being ridden. */
+      this.controls.target
+        .copy(wh)
+        .addScaledVector(ax, -sin * aim)
+        .addScaledVector(az, cos * aim);
     } else if (t < HubScene.WF_T_TUNNEL) {
       /* Inside. The frame belongs entirely to the passage — see passage() in
          GRADE_SHADER for why there is no tube in the scene — so the camera is
