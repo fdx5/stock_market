@@ -378,6 +378,9 @@ interface MoonRig {
   holder: THREE.Object3D;
   mesh: THREE.Object3D;
   material?: THREE.ShaderMaterial;
+  /** Its hit sphere, kept so a moon dropped from `pickables` by a demotion can
+   * be registered again. See ensureMoons. */
+  hit: THREE.Mesh;
   /** Range in the glow pool for a vent, if this moon has one. */
   ventStart?: number;
   ventCount?: number;
@@ -663,6 +666,19 @@ export class HubScene {
   private debrisIdle = false;
   private streamIdle = false;
   private knotsIdle = false;
+
+  /* the telescope. Its pivot turns with Earth so it keeps station over the
+     same face; the rig itself is what the camera flies to and aims. */
+  private hubblePivot?: THREE.Object3D;
+  private hubble?: THREE.Object3D;
+  private hubbleInfo?: BodyInfo;
+  /** What it is currently pointed at, so the tube swings round to face the
+   * body being observed rather than staring off in a fixed direction. */
+  private hubbleAim = new THREE.Vector3(0, 0, 1);
+  private tmpQuat = new THREE.Quaternion();
+  private tmpQuat2 = new THREE.Quaternion();
+  /** The rig's own nose, and so what a look-direction is rotated FROM. */
+  private static readonly FORWARD = new THREE.Vector3(0, 0, 1);
 
   /* the probe */
   private voyager!: THREE.Object3D;
@@ -990,6 +1006,8 @@ export class HubScene {
     this.buildAsteroidBelt();
     this.buildBlackHole();
     this.buildNeutronBinary();
+    const earthRig = this.planets.find((p) => p.spec.key === "earth");
+    if (earthRig) this.buildHubble(earthRig);
     this.buildVoyager();
     this.buildComets();
 
@@ -1486,8 +1504,16 @@ export class HubScene {
         this.disposables.push(ringGeo, ringMaterial);
       }
 
+      /* Built on every tier now, `config.moons` notwithstanding.
+         They were treated as detail to be dropped on a slow device, and that
+         was defensible while they were scenery. They are not scenery: they are
+         thirteen of the bodies the observation panel exists to look at, and a
+         telescope whose list works on a desktop and not on a phone is worse
+         than no telescope. The frame-rate budget gives elsewhere — pixel
+         ratio, bloom, star count, debris — none of which is a named object
+         somebody came to find. */
       const moons: MoonRig[] = [];
-      if (this.config.moons && spec.moons) {
+      if (spec.moons) {
         for (const moon of spec.moons) moons.push(this.buildMoon(moon, axis, spec));
       }
 
@@ -1563,7 +1589,8 @@ export class HubScene {
     this.pickables.push({ object: hit, info, anchor: holder });
     this.addLabel(info, holder);
 
-    const rig: MoonRig = { spec, info, pivot, holder, mesh, material };
+    // `hit` is kept on the rig so ensureMoons can re-register it — see there.
+    const rig: MoonRig = { spec, info, pivot, holder, mesh, material, hit };
 
     /* Io's plumes and Enceladus's geysers — real features of exactly these two
        bodies, not decoration. Io is the most volcanically active object in the
@@ -2146,6 +2173,152 @@ export class HubScene {
    *
    * Local +Y is the dish's boresight. updateVoyager turns the whole rig so
    * that axis points home, which is where the real one's dish points. */
+  /** The Hubble Space Telescope, in orbit around Earth and carried round with
+   * it — geostationary in the sense the request asked for: it keeps station
+   * over the same face as Earth turns, rather than racing round on its real
+   * 95-minute orbit, which at this scale would be a blur.
+   *
+   * Built part by part rather than suggested, like the probe. Hubble is a
+   * recognisable object and what makes it recognisable is not the tube: it is
+   * the two solar wings, the open aperture door tilted back off the front, the
+   * pair of dish antennas on booms, and the band of gold insulation round the
+   * body. A silver cylinder alone is a thermos.
+   */
+  private buildHubble(earth: PlanetRig) {
+    /* Parented to Earth's own body, so it rides the orbit for free — the
+       telescope needs no orbital mechanics of its own, only a rotation. */
+    this.hubblePivot = new THREE.Object3D();
+    this.hubblePivot.rotation.z = 0.34;
+    earth.body.add(this.hubblePivot);
+
+    const rig = new THREE.Object3D();
+    rig.position.x = earth.spec.size * 2.35;
+    this.hubblePivot.add(rig);
+    this.hubble = rig;
+
+    /* Sized against Earth rather than against reality. To scale the real
+       telescope beside this Earth would be a fraction of a pixel — the whole
+       point of putting it here is that it can be looked at, so it is drawn at
+       the size of a thing you can see and its true dimensions live in the
+       observation panel instead. */
+    const S = earth.spec.size * 0.15;
+
+    /* Barely metallic, and lit from inside.
+     *
+     * A high `metalness` was the reason none of this could be seen. A metal in
+     * this lighting model has almost no diffuse response — nearly all of what
+     * it shows is REFLECTED, and there is no environment map in this scene for
+     * it to reflect. So the shell reflected nothing, diffused nothing, and came
+     * out very close to black against a black sky.
+     *
+     * Metalness is therefore low enough for the sun's light to actually land on
+     * these surfaces, and each carries an `emissive` floor so the telescope is
+     * legible on its own night side too. The floor is what stops half the model
+     * disappearing whenever Earth's rotation carries it out of the sun. */
+    const shell = new THREE.MeshStandardMaterial({
+      color: 0xeef1f6,
+      metalness: 0.22,
+      roughness: 0.46,
+      emissive: 0x6d7891,
+      emissiveIntensity: 0.55,
+    });
+    const foil = new THREE.MeshStandardMaterial({
+      color: 0xffc75e,
+      metalness: 0.34,
+      roughness: 0.3,
+      emissive: 0x8a5c12,
+      emissiveIntensity: 0.75,
+    });
+    const dark = new THREE.MeshStandardMaterial({
+      color: 0x555f70,
+      metalness: 0.2,
+      roughness: 0.7,
+      emissive: 0x232a36,
+      emissiveIntensity: 0.6,
+    });
+    const panel = new THREE.MeshStandardMaterial({
+      color: 0x3f6bb8,
+      metalness: 0.18,
+      roughness: 0.4,
+      emissive: 0x16305e,
+      emissiveIntensity: 0.7,
+      side: THREE.DoubleSide,
+    });
+    this.disposables.push(shell, foil, dark, panel);
+
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, y, z);
+      rig.add(mesh);
+      this.disposables.push(geo);
+      return mesh;
+    };
+
+    // The tube. Lying along Z so "the front" is a direction the whole rig can
+    // be pointed, which is what the aiming below turns.
+    const body = add(new THREE.CylinderGeometry(S * 0.5, S * 0.5, S * 2.5, 28, 1), shell, 0, 0, 0);
+    body.rotation.x = Math.PI / 2;
+
+    // The gold insulation blanket, a band round the aft half.
+    const wrap = add(new THREE.CylinderGeometry(S * 0.52, S * 0.52, S * 0.85, 28, 1, true), foil, 0, 0, -S * 0.62);
+    wrap.rotation.x = Math.PI / 2;
+
+    // The aperture end, and its door standing open off the rim — the detail
+    // that says which end is the front from any angle.
+    const lip = add(new THREE.CylinderGeometry(S * 0.54, S * 0.5, S * 0.16, 28, 1), dark, 0, 0, S * 1.3);
+    lip.rotation.x = Math.PI / 2;
+    const door = add(new THREE.CircleGeometry(S * 0.5, 28), shell, 0, S * 0.46, S * 1.5);
+    door.rotation.x = -1.15;
+    (door.material as THREE.Material).side = THREE.DoubleSide;
+
+    // The aft bulkhead.
+    const tail = add(new THREE.CylinderGeometry(S * 0.5, S * 0.44, S * 0.14, 28, 1), dark, 0, 0, -S * 1.3);
+    tail.rotation.x = Math.PI / 2;
+
+    /* The two wings. These are most of the silhouette: a metre of tube either
+       side of them is what the eye reads as "telescope" rather than "canister
+       with panels". Each is a mast out to a flat array. */
+    for (const side of [1, -1]) {
+      const mast = add(new THREE.CylinderGeometry(S * 0.05, S * 0.05, S * 0.55, 8, 1), shell, side * S * 0.75, 0, 0);
+      mast.rotation.z = Math.PI / 2;
+      const wing = add(new THREE.BoxGeometry(S * 1.75, S * 0.035, S * 1.15), panel, side * S * 1.9, 0, 0);
+      wing.rotation.z = side * 0.05;
+      // The array's own frame, so the panel is not one flat rectangle.
+      const spine = add(new THREE.BoxGeometry(S * 1.8, S * 0.07, S * 0.07), shell, side * S * 1.9, 0, 0);
+      spine.rotation.z = side * 0.05;
+    }
+
+    /* The two high-gain antennas, on booms above and below, facing back the
+       way Hubble talks to the relay satellites. */
+    for (const side of [1, -1]) {
+      const boom = add(new THREE.CylinderGeometry(S * 0.045, S * 0.045, S * 0.6, 8, 1), shell, 0, side * S * 0.72, -S * 0.3);
+      const dish = add(new THREE.SphereGeometry(S * 0.3, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2.4), shell, 0, side * S * 1.02, -S * 0.3);
+      dish.rotation.x = side > 0 ? Math.PI : 0;
+      (dish.material as THREE.Material).side = THREE.DoubleSide;
+      void boom;
+    }
+
+    const info: BodyInfo = {
+      key: "hubble",
+      ko: "허블 우주망원경",
+      en: "Hubble Space Telescope",
+      bodyKo: "허블 우주망원경",
+      bodyEn: "Hubble Space Telescope",
+      to: "",
+      accent: "#ffd489",
+      size: S * 2.2,
+      primary: false,
+      // Not a destination: it opens the observation panel rather than a route,
+      // so a dive to a page it does not have would be a dead end.
+      dive: false,
+    };
+    const hit = this.hitSphere(S * 2.4);
+    rig.add(hit);
+    this.pickables.push({ object: hit, info, anchor: rig });
+    this.addLabel(info, rig);
+    this.hubbleInfo = info;
+  }
+
   private buildVoyager() {
     this.voyager = new THREE.Object3D();
     /* Bright, and lit from inside as well as out.
@@ -2968,6 +3141,187 @@ export class HubScene {
     return true;
   }
 
+  /** Flies to the telescope and holds it. Its own method rather than a
+   * selectByKey call, because selecting a body navigates and this one has
+   * nowhere to go — the observation panel is where it leads. */
+  focusHubble(): boolean {
+    if (this.diving || !this.hubble || !this.hubbleInfo) return false;
+    /* Everything the telescope can point at has to exist before the list is
+       drawn. On the cheap tier the moons were never built and a demotion drops
+       the ones that were, so without this half the observation menu is buttons
+       with nothing behind them. Paid once, here, by someone who has opened the
+       tool for looking at them. */
+    this.ensureMoons();
+    this.voyagerTour = false;
+    this.tourEnabled = false;
+    this.cancelFinale();
+    this.selectedKey = "hubble";
+    /* Held, not just flown to. Without this the camera arrives and then stands
+       still while the telescope carries on round with Earth, and the thing it
+       was aimed at drifts out of frame within a second or two — which is what
+       "loses focus" was. updateFollow moves the whole rig by however far the
+       anchor moved each frame, so the visitor's own angle and zoom survive. */
+    this.followAnchor = this.hubble;
+    const target = this.hubble.getWorldPosition(new THREE.Vector3());
+    this.callbacks.onFocus(this.hubbleInfo);
+    this.beginFlight({
+      fromPos: this.camera.position.clone(),
+      toPos: this.framePosition(target, this.hubbleInfo.size),
+      fromTarget: this.controls.target.clone(),
+      toTarget: target,
+      t: 0,
+      duration: 1.25,
+      body: this.hubbleInfo,
+      follow: this.hubble,
+    });
+    return true;
+  }
+
+  /** Points the telescope at a body and takes the camera in to look at it.
+   *
+   * `frame` is how far back to sit, in multiples of the body's drawn radius,
+   * and it comes from the observation table rather than from one constant.
+   * "Fills the view" is not a single number: Saturn has rings to fit in, the
+   * black hole has a disc five times its horizon, and the neutron star sits at
+   * the centre of an ejecta cloud twenty times its own reach. Framed alike,
+   * two of those would be off the edge and one would be a dot.
+   *
+   * The camera is left free afterwards — this sets a viewpoint, it does not
+   * hold one, so the visitor can zoom in and out from wherever it lands.
+   */
+  observe(key: string, frame: number): boolean {
+    if (this.diving) return false;
+    const pickable = this.pickables.find((p) => p.info.key === key);
+    if (!pickable) return false;
+    this.voyagerTour = false;
+    this.tourEnabled = false;
+    this.cancelFinale();
+
+    const info = pickable.info;
+    this.selectedKey = info.key;
+    // Ride it, like the telescope above — a planet observed from a standstill
+    // walks out of frame along its own orbit.
+    this.followAnchor = pickable.anchor;
+    const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
+    // Aimed before the camera moves, so the telescope has begun to swing by
+    // the time the flight arrives.
+    this.hubbleAim.copy(target);
+    this.callbacks.onFocus(info);
+
+    /* Straight out from the body toward where the camera already is, lifted a
+       little. Face-on rather than edge-on: the request is to see the whole of
+       a thing, and a body's own outward direction is the one view where
+       nothing about it is foreshortened. */
+    const away = target.clone().sub(this.camera.position);
+    const dir = away.lengthSq() > 1e-4 ? away.normalize().negate() : new THREE.Vector3(0, 0, 1);
+    dir.y += 0.18;
+    dir.normalize();
+    /* No absolute floor worth the name.
+     *
+     * This carried `Math.max(…, 12)`, borrowed from framePosition, where a
+     * floor makes sense because it frames destinations you are about to fly
+     * into. Here it defeated the whole point on anything small: a moon is
+     * between a third and one scene unit across, so its framing distance works
+     * out at two or three units and was then raised to twelve. The camera did
+     * move — it just stopped far enough away that the moon was a dot, which
+     * from the outside looks exactly like nothing having happened.
+     *
+     * The remaining floor is only there to keep the camera outside the body
+     * itself. */
+    const distance = Math.max(info.size * frame, info.size * 2.2, 1.4);
+
+    // The zoom floor has to come down with it, or a body framed at close range
+    // cannot then be zoomed into at all.
+    // Scaled to the body for the same reason: a fixed floor of 2 would sit
+    // outside a small moon's whole framing distance and stop the visitor
+    // zooming in on it at all.
+    this.focusFloor = Math.max(info.size * 1.3, 0.8);
+    /* Deliberately no `body` on this flight.
+     *
+     * updateFlight calls onSelect with it on arrival, and onSelect navigates —
+     * so a flight carrying a body is a flight that ends on another page. That
+     * is right for tapping a planet in the sky, and wrong here: choosing
+     * Mercury from the observation list was flying to it and then leaving for
+     * Mercury's page a second later, before it could be looked at at all.
+     * Observing is looking; going somewhere is a second, separate press. */
+    this.beginFlight({
+      fromPos: this.camera.position.clone(),
+      toPos: target.clone().add(dir.multiplyScalar(distance)),
+      fromTarget: this.controls.target.clone(),
+      toTarget: target,
+      t: 0,
+      duration: 1.35,
+      // Explicitly null, not omitted: this is the field that decides whether
+      // arriving also means leaving. See the note above.
+      body: null,
+      follow: pickable.anchor,
+    });
+    return true;
+  }
+
+
+  /** Builds any moons this session has not got, and shows the ones it has.
+   *
+   * Moons are skipped on the cheap tier and hidden by a demotion, which is the
+   * right default: they are thirteen extra bodies and their textures, and the
+   * entrance page has to hold its frame rate on a phone. But it makes the
+   * observation list a lie — half its entries had nothing behind them, and
+   * choosing one did nothing.
+   *
+   * So the cost is moved rather than removed. Nobody pays it for arriving at
+   * the page; it is paid once, by someone who has opened a tool whose entire
+   * purpose is to look at these things. `moonsPinned` then stops a later
+   * demotion taking them away again mid-session — having asked for them, a
+   * visitor should not watch them vanish.
+   */
+  ensureMoons() {
+    for (const planet of this.planets) {
+      if (!planet.spec.moons) continue;
+      if (planet.moons.length === 0) {
+        for (const moon of planet.spec.moons) {
+          planet.moons.push(this.buildMoon(moon, planet.axis, planet.spec));
+        }
+      }
+      for (const moon of planet.moons) {
+        moon.pivot.visible = true;
+        /* Belt and braces. Nothing strips a moon from the picker any more, but
+           a body the picker has never heard of cannot be observed however
+           visible it is, and this is the one call that promises it can. */
+        if (!this.pickables.some((p) => p.info.key === moon.info.key)) {
+          this.pickables.push({ object: moon.hit, info: moon.info, anchor: moon.holder });
+        }
+      }
+    }
+  }
+
+  /** Which bodies are actually in the scene right now, for the observation
+   * list to tell the truth with.
+   *
+   * Not every body always exists. Moons are built only on the two upper
+   * quality tiers, and a demotion hides the ones that were built — so on a
+   * phone the ten moons on that menu are ten buttons with nothing behind
+   * them. Rather than let them fail silently, the menu asks. */
+  renderedKeys(): Set<string> {
+    const keys = new Set<string>();
+    for (const p of this.pickables) {
+      /* Up the whole chain, not just the object's own flag. A demotion hides a
+         moon by switching off its PIVOT, and the anchor hanging under it keeps
+         `visible === true` the entire time — an object is drawn only if it and
+         every ancestor is visible, so that is what has to be asked. */
+      let node: THREE.Object3D | null = p.anchor;
+      let shown = true;
+      while (node) {
+        if (!node.visible) {
+          shown = false;
+          break;
+        }
+        node = node.parent;
+      }
+      if (shown) keys.add(p.info.key);
+    }
+    return keys;
+  }
+
   /** Dock hover: highlight only. Never moves the camera. */
   focusByKey(key: string | null) {
     if (this.diving) return;
@@ -3573,6 +3927,7 @@ export class HubScene {
     this.starMaterial.uniforms.uTime.value = time;
     if (this.nebulaMaterial) this.nebulaMaterial.uniforms.uTime.value = time;
 
+    this.updateHubble(dt, time, speed);
     if (this.beltGroup) this.beltGroup.rotation.y += dt * 0.012 * speed;
     this.updateBlackHole(dt, time, speed);
     this.updateNeutron(dt, time, speed);
@@ -3680,6 +4035,34 @@ export class HubScene {
   private clearGlow(start: number, count: number, idle: boolean): boolean {
     if (!idle) for (let i = 0; i < count; i++) this.glow.hide(start + i);
     return true;
+  }
+
+  /** Keeps the telescope on station and pointed at whatever it is watching.
+   *
+   * The pivot turns at Earth's own rotation rate, so it holds its place over
+   * the same face — the geostationary reading of the request. Its real orbit
+   * is ninety-five minutes, which at this scale is a streak rather than a
+   * spacecraft.
+   */
+  private updateHubble(dt: number, time: number, speed: number) {
+    if (!this.hubblePivot || !this.hubble) return;
+    const earth = this.planets.find((p) => p.spec.key === "earth");
+    if (!earth) return;
+    this.hubblePivot.rotation.y = (time / earth.spec.spin) * Math.PI * 2 * speed;
+
+    /* Aimed, and eased rather than snapped. The tube swings round to whatever
+       is being observed over about a second, which reads as a telescope being
+       slewed; set outright it would flick between targets like a cursor. */
+    this.hubble.getWorldPosition(this.tmpV);
+    const look = this.tmpV2.copy(this.hubbleAim).sub(this.tmpV);
+    if (look.lengthSq() > 1e-6) {
+      look.normalize();
+      // In the rig's own parent frame, since that frame is turning under it.
+      this.hubble.parent?.getWorldQuaternion(this.tmpQuat);
+      this.tmpV3.copy(look).applyQuaternion(this.tmpQuat.invert());
+      const want = this.tmpQuat2.setFromUnitVectors(HubScene.FORWARD, this.tmpV3);
+      this.hubble.quaternion.slerp(want, Math.min(1, dt * 2.4));
+    }
   }
 
   private updateVent(moon: MoonRig, time: number, speed: number) {
@@ -5475,29 +5858,22 @@ export class HubScene {
     if (this.lensPass) this.lensPass.enabled = next.lensing;
     this.gradePass.uniforms.uGrain.value = next.grain;
 
-    if (!next.moons) {
-      const hidden = new Set<string>();
-      for (const planet of this.planets) {
-        for (const moon of planet.moons) {
-          moon.pivot.visible = false;
-          hidden.add(moon.info.key);
-        }
-      }
-      // A hidden body must also stop being hit-testable. The raycaster does
-      // not consult `visible`, and the hit spheres are separate meshes from
-      // the art anyway — leaving them in would mean hovering empty space and
-      // getting Ganymede's label back.
-      this.pickables = this.pickables.filter((p) => !hidden.has(p.info.key));
-      this.labels = this.labels.filter((label) => {
-        if (!hidden.has(label.info.key)) return true;
-        label.el.remove();
-        return false;
-      });
-      if (this.hovered && hidden.has(this.hovered.key)) {
-        this.hovered = null;
-        this.callbacks.onHover(null);
-      }
-    }
+    // Not if the telescope has claimed them. A demotion here does not merely
+    // hide the moons, it drops their hit spheres out of `pickables` — so an
+    // observation list built afterwards would find nothing to fly to even
+    // though the bodies are still in the scene.
+    /* A demotion no longer takes the moons.
+     *
+     * It used to hide them AND drop their hit spheres out of `pickables` and
+     * their captions out of `labels`, destroying the caption elements on the
+     * way — which is unrecoverable without rebuilding, and is why choosing a
+     * moon from the observation list did nothing on a device that had ever
+     * dropped a tier. Ganymede and Titan and Europa are destinations somebody
+     * came to find, not detail.
+     *
+     * The tier still gives, and gives plenty: pixel ratio, bloom, lensing, the
+     * star count, the asteroid count, Pluto's debris, film grain. None of
+     * those is a named body that stops answering when it goes. */
 
     this.callbacks.onTier(tier);
   }

@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GlobalIndexWidget, IndexQuote, api } from "../api/client";
 import { DESTINATIONS, type FeedKey } from "../hub2/bodies";
+import {
+  OBSERVABLES,
+  OBSERVABLE_GROUPS,
+  hostOf,
+  observableOf,
+  type ObservableSpec,
+} from "../hub2/observatory";
 import type { BodyInfo, FeedMap, Tier } from "../hub2/scene";
 import { HubScene } from "../hub2/scene";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -158,6 +165,45 @@ export default function HubType2() {
      once, which is what "once each time it plays" means when a track can
      change without the music stopping. */
   const [showCredit, setShowCredit] = useState(true);
+  /* The telescope's own mode: whether the camera is with it, which target is
+     in the eyepiece, and whether the list is open. Kept here rather than in the
+     scene because all three are chrome — the scene is told where to look and
+     otherwise knows nothing about panels. */
+  const [hubbleOn, setHubbleOn] = useState(false);
+  const [observing, setObserving] = useState<string | null>(null);
+  const [menuOpen, setMenuOpen] = useState(true);
+  /** The chosen body is not in the scene at this quality tier, so there was
+   * nowhere to fly. The card still shows; it just says so. */
+  const [observeFailed, setObserveFailed] = useState(false);
+  const observed = observing ? observableOf(observing) : undefined;
+  /* Which targets actually exist right now. Recomputed when the telescope is
+     opened and whenever the tier changes, because a demotion is exactly the
+     event that takes the moons away mid-session. */
+  const rendered = useMemo(
+    () => (hubbleOn ? sceneRef.current?.renderedKeys() ?? null : null),
+    [hubbleOn, tier]
+  );
+
+  /* Aims the telescope, and only ever that.
+     This control never navigates, however many times it is pressed. Leaving
+     for a body's page is what tapping the body ITSELF in the sky does; a
+     target on an observation list is a thing to point at. Pressing the one
+     already selected simply re-frames it. */
+  const observeTarget = (target: ObservableSpec) => {
+    reportHubEvent("object_click", { key: `observe:${target.key}`, label: `관측 · ${target.ko}` });
+    /* The card goes up whether or not the camera can go anywhere.
+       It used to be gated on the flight succeeding, so on a device where the
+       body is not rendered — moons are built only on the upper quality tiers —
+       choosing one did nothing at all, silently. The description is data; it
+       does not depend on the renderer having drawn the thing. */
+    const flew = sceneRef.current?.observe(target.key, target.frame) ?? false;
+    setObserving(target.key);
+    setObserveFailed(!flew);
+    /* Closed on a phone, left open on a desktop. On a narrow screen the list
+       is a sheet over the picture, so leaving it up would mean choosing a
+       target and then not being able to see it. */
+    if (window.innerWidth < 760) setMenuOpen(false);
+  };
   useEffect(() => {
     setShowCredit(true);
   }, [bgm.trackId, bgm.playing]);
@@ -609,6 +655,26 @@ export default function HubType2() {
               background of its own to keep. */}
           <span className="h2-cam-cycle">{en ? "VOYAGER TOUR" : "보이저호 여행"}</span>
         </button>
+        {/* The telescope. Not a destination — it opens the observation panel
+            rather than a route — so it is a mode this page enters rather than
+            a place it leaves for. */}
+        <button
+          type="button"
+          className={`h2-cam-btn h2-cam-btn--hubble${hubbleOn ? " is-on" : ""}`}
+          aria-pressed={hubbleOn}
+          onClick={() => {
+            reportHubEvent("control", { key: "ctrl:hubble", label: "허블 우주망원경" });
+            setTour(false);
+            setProbeTour(false);
+            if (sceneRef.current?.focusHubble()) {
+              setHubbleOn(true);
+              setObserving(null);
+              setMenuOpen(true);
+            }
+          }}
+        >
+          {en ? "HUBBLE TELESCOPE" : "허블 우주망원경"}
+        </button>
         {/* Background music. Off until asked for — nothing is fetched and no
             sound is made until this is pressed, which is both what was wanted
             and the only thing a browser would allow anyway.
@@ -633,6 +699,144 @@ export default function HubType2() {
           {bgm.playing ? "BGM OFF" : "BGM ON"}
         </button>
       </div>
+
+      {/* ── the observatory ──
+          Only while the telescope is in use. Two pieces: the target list, and
+          what is known about whatever is currently in the eyepiece.
+
+          Both are drawers on the right rather than fixed panels, and both
+          become bottom sheets on a narrow screen (see .h2-obs in hub2.css).
+          A permanent right-hand column would take a third of a phone's width
+          from the thing it is there to help you look at. */}
+      {hubbleOn && (
+        <div className={`h2-obs${menuOpen ? " is-open" : ""}`}>
+          <div className="h2-obs-bar">
+            <button
+              type="button"
+              className="h2-obs-toggle"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <span className="h2-obs-toggle-icon" aria-hidden="true" />
+              {en ? "OBSERVE" : "관측하기"}
+            </button>
+            <button
+              type="button"
+              className="h2-obs-close"
+              aria-label={en ? "Leave the telescope" : "관측 종료"}
+              onClick={() => {
+                setHubbleOn(false);
+                setObserving(null);
+                sceneRef.current?.resetCamera();
+              }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {menuOpen && (
+            <div className="h2-obs-list" role="group" aria-label={en ? "Targets" : "관측 대상"}>
+              {OBSERVABLE_GROUPS.map((group) => {
+                const items = OBSERVABLES.filter((o) => o.group === group.key);
+                if (items.length === 0) return null;
+                return (
+                  <div key={group.key} className="h2-obs-group">
+                    <h3 className="h2-obs-group-title">{en ? group.en : group.ko}</h3>
+                    <div className="h2-obs-grid">
+                      {items.map((o) => {
+                        // `rendered` null means the scene has not been asked
+                        // yet; only a real answer is allowed to dim anything.
+                        const missing = rendered !== null && !rendered.has(o.key);
+                        return (
+                        <button
+                          key={o.key}
+                          type="button"
+                          className={`h2-obs-item${observing === o.key ? " is-on" : ""}${missing ? " is-missing" : ""}`}
+                          aria-pressed={observing === o.key}
+                          title={missing ? "현재 화질 단계에서는 표시되지 않는 천체입니다" : undefined}
+                          onClick={() => observeTarget(o)}
+                        >
+                          <span className="h2-obs-item-name">{en ? o.en : o.ko}</span>
+                          {hostOf(o) && (
+                            <span className="h2-obs-item-host">
+                              {en ? hostOf(o)!.en : hostOf(o)!.ko}
+                            </span>
+                          )}
+                        </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* What is in the eyepiece. Scrolls inside itself rather than growing —
+          seven hundred characters is a real paragraph and the panel must not
+          become taller than the screen it is overlaid on. */}
+      {hubbleOn && observed && (
+        <aside className="h2-spec" aria-live="polite">
+          <header className="h2-spec-head">
+            <div>
+              {/* The heading is the name in the language being read; the line
+                  under it is the OTHER language, plus the host if this is a
+                  moon. It used to repeat the same word twice — 수성 over
+                  수성 — which is a line of nothing where the second name and
+                  its parent planet fit comfortably. */}
+              <h2 className="h2-spec-name">{en ? observed.en : observed.ko}</h2>
+              <p className="h2-spec-sub">
+                {en ? observed.ko : observed.en}
+                {hostOf(observed) && ` · ${en ? hostOf(observed)!.en : hostOf(observed)!.ko}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="h2-spec-close"
+              aria-label={en ? "Close" : "닫기"}
+              onClick={() => setObserving(null)}
+            >
+              ✕
+            </button>
+          </header>
+          <dl className="h2-spec-grid">
+            <div>
+              <dt>{en ? "Radius" : "반지름"}</dt>
+              <dd>{observed.radiusKm}</dd>
+            </div>
+            <div>
+              <dt>{en ? "Mass" : "질량"}</dt>
+              <dd>{observed.mass}</dd>
+            </div>
+            <div>
+              <dt>{en ? "Density" : "밀도"}</dt>
+              <dd>{observed.density}</dd>
+            </div>
+            <div>
+              <dt>{en ? "Temperature" : "표면 온도"}</dt>
+              <dd>{observed.temperature}</dd>
+            </div>
+          </dl>
+          {/* Said plainly rather than left as a camera that did not move.
+              Moons exist only on the upper quality tiers, so on a phone this
+              is the difference between "nothing happened" and "the telescope
+              cannot point at this here". */}
+          {observeFailed && (
+            <p className="h2-spec-note">
+              {en
+                ? "Not rendered at the current quality level — the description is still below."
+                : "현재 화질 단계에서는 이 천체가 표시되지 않아 관측 위치로 이동하지 못했습니다."}
+            </p>
+          )}
+          <div className="h2-spec-body">
+            {observed.description.split("\n\n").map((para, i) => (
+              <p key={i}>{para}</p>
+            ))}
+          </div>
+        </aside>
+      )}
 
       {/* Where the music actually plays. React owns this element and nothing
           else; the player builds itself into a child of it. See useYouTubeBgm

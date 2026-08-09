@@ -804,6 +804,344 @@
    copy exactly where the first began at the instant the loop restarts. There
    is no seam to see and nothing ever changes direction — the text just keeps
    going, which is the whole difference between a board and a bouncing label. */
+/* ═══════════════════════ the observatory ═══════════════════════
+
+   Two overlays that exist only while the telescope is in use: the target list
+   on the right, and what is known about whatever is in the eyepiece.
+
+   Both are drawers, not columns. A permanent right-hand panel would take a
+   third of a phone's width away from the thing it is there to help you look
+   at — and looking at it is the entire point of the mode. On a wide screen
+   they sit side by side down the right; on a narrow one they become sheets
+   along the bottom, where they cover sky rather than the body in the middle. */
+
+.h2-obs {
+  position: absolute;
+  right: var(--edge);
+  top: 96px;
+  bottom: 96px;
+  z-index: 8;
+  width: 232px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.h2-obs > * {
+  pointer-events: auto;
+}
+
+.h2-obs-bar {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.h2-obs-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--panel-line);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--hud);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  cursor: pointer;
+}
+
+.h2-obs-toggle:hover {
+  border-color: rgba(255, 212, 137, 0.6);
+}
+
+/* The layer glyph: three stacked plates, which is what the control does — it
+   lifts a sheet over the picture. */
+.h2-obs-toggle-icon {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  background:
+    linear-gradient(currentColor, currentColor) 0 0 / 100% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 5px / 100% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 10px / 100% 2px no-repeat;
+  opacity: 0.75;
+}
+
+.h2-obs-close,
+.h2-spec-close {
+  flex: none;
+  width: 34px;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid var(--panel-line);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--hud-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.h2-obs-close:hover,
+.h2-spec-close:hover {
+  color: var(--hud);
+}
+
+/* The list scrolls inside itself. Twenty-two targets in four groups is taller
+   than a phone, and a page that scrolls behind a 3D scene is not a page. */
+.h2-obs-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-line);
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.h2-obs-group + .h2-obs-group {
+  margin-top: 14px;
+}
+
+.h2-obs-group-title {
+  margin: 0 0 7px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+}
+
+/* Two to a row. One column wastes the width and makes the list twice as long
+   to scroll; three squeezes the longer moon names onto two lines. */
+.h2-obs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.h2-obs-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--hud) 6%, transparent);
+  color: var(--hud);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+  /* A body's name must not wrap: a two-line button in a grid drags every other
+     button in its row taller with it. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.h2-obs-item:hover {
+  background: color-mix(in srgb, var(--hud) 12%, transparent);
+}
+
+.h2-obs-item.is-on {
+  border-color: rgba(255, 212, 137, 0.7);
+  background: color-mix(in srgb, #ffd489 18%, transparent);
+}
+
+/* Not in the scene at this quality level. Dimmed rather than removed: the
+   description still opens, and a target that vanishes from the list on a
+   phone reads as a missing feature rather than a rendering limit. */
+.h2-obs-item.is-missing .h2-obs-item-name {
+  opacity: 0.45;
+}
+
+.h2-obs-item.is-missing .h2-obs-item-host {
+  opacity: 0.35;
+}
+
+.h2-obs-item-name {
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Which planet a moon belongs to. Ten moons is a list where the names alone do
+   not tell you where you are going. */
+.h2-obs-item-host {
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--hud-dim);
+}
+
+
+/* ── the spec card ── */
+
+.h2-spec {
+  position: absolute;
+  right: calc(var(--edge) + 244px);
+  top: 96px;
+  z-index: 8;
+  width: 320px;
+  max-height: calc(100% - 192px);
+  display: flex;
+  flex-direction: column;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-line);
+  background: var(--panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.h2-spec-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: none;
+}
+
+.h2-spec-head > div {
+  flex: 1;
+  min-width: 0;
+}
+
+.h2-spec-name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--hud);
+  letter-spacing: 0.02em;
+}
+
+.h2-spec-sub {
+  margin: 2px 0 0;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+}
+
+/* The four figures, two by two. A single column would push the paragraph — the
+   part worth reading — below the fold on every screen. */
+.h2-spec-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  margin: 12px 0;
+  padding: 11px 0;
+  border-top: 1px solid var(--panel-line);
+  border-bottom: 1px solid var(--panel-line);
+  flex: none;
+}
+
+.h2-spec-grid dt {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--hud-dim);
+}
+
+.h2-spec-grid dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--hud);
+  /* Figures in scientific notation must be allowed to break rather than widen
+     the card past its own column. */
+  overflow-wrap: anywhere;
+}
+
+.h2-spec-note {
+  flex: none;
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 212, 137, 0.32);
+  background: color-mix(in srgb, #ffd489 10%, transparent);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--hud);
+}
+
+/* The paragraph scrolls; the heading and the figures stay put. Seven hundred
+   characters is a real read, and a card that grew to hold it would be taller
+   than the screen it is floating over. */
+.h2-spec-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  font-size: 12px;
+  line-height: 1.72;
+  color: var(--hud);
+}
+
+.h2-spec-body p {
+  margin: 0 0 0.85em;
+}
+
+.h2-spec-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* ── narrow screens ──
+   Both become sheets across the bottom. The body being observed is in the
+   middle of the frame, so the bottom is the one edge that can be covered
+   without covering the subject. */
+@media (max-width: 760px) {
+  .h2-obs {
+    right: 0;
+    left: 0;
+    top: auto;
+    bottom: 0;
+    width: auto;
+    padding: 0 10px 10px;
+    /* Only as tall as it needs to be when closed, so the picture keeps the
+       screen until the list is actually asked for. */
+    max-height: 62%;
+  }
+
+  .h2-obs-list {
+    max-height: 46vh;
+  }
+
+  .h2-obs-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .h2-spec {
+    right: 10px;
+    left: 10px;
+    top: auto;
+    /* Above the target sheet, not under it. */
+    bottom: 66px;
+    width: auto;
+    max-height: 44vh;
+  }
+
+  /* With the list open there is not room for both. The list is what was just
+     asked for, so it wins; the card comes back when the list closes. */
+  .h2-obs.is-open ~ .h2-spec {
+    display: none;
+  }
+}
+
 /* The board is two rows now: the marquee, and the equaliser under it. */
 .h2-np {
   display: flex;
