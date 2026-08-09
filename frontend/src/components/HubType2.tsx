@@ -175,6 +175,9 @@ export default function HubType2() {
   /** The chosen body is not in the scene at this quality tier, so there was
    * nowhere to fly. The card still shows; it just says so. */
   const [observeFailed, setObserveFailed] = useState(false);
+  /** Whether the detail card is unfolded. Only means anything on a phone,
+   * where the card is a sheet over the body rather than a panel beside it. */
+  const [specOpen, setSpecOpen] = useState(true);
   const observed = observing ? observableOf(observing) : undefined;
   /* Which targets actually exist right now. Recomputed when the telescope is
      opened and whenever the tier changes, because a demotion is exactly the
@@ -199,6 +202,11 @@ export default function HubType2() {
     const flew = sceneRef.current?.observe(target.key, target.frame) ?? false;
     setObserving(target.key);
     setObserveFailed(!flew);
+    /* Folded on a phone, open on a desktop. Choosing a target is a request to
+       LOOK at it, and on a narrow screen an open card is a sheet across the
+       lower half of the frame — the half the body was just centred in. The
+       name stays on screen and one tap brings the rest back. */
+    if (window.innerWidth < 760) setSpecOpen(false);
     /* Closed on a phone, left open on a desktop. On a narrow screen the list
        is a sheet over the picture, so leaving it up would mean choosing a
        target and then not being able to see it. */
@@ -778,9 +786,20 @@ export default function HubType2() {
           seven hundred characters is a real paragraph and the panel must not
           become taller than the screen it is overlaid on. */}
       {hubbleOn && observed && (
-        <aside className="h2-spec" aria-live="polite">
+        <aside className={`h2-spec${specOpen ? " is-open" : ""}`} aria-live="polite">
           <header className="h2-spec-head">
-            <div>
+            {/* The heading is the handle on a phone. Tapping it folds the card
+                down to this one row, which is the difference between seeing
+                the body and reading about it — and after choosing a target,
+                seeing it is what was asked for. On a wide screen the card sits
+                beside the body rather than over it, so it never folds and this
+                is an ordinary heading. */}
+            <button
+              type="button"
+              className="h2-spec-grip"
+              aria-expanded={specOpen}
+              onClick={() => setSpecOpen((open) => !open)}
+            >
               {/* The heading is the name in the language being read; the line
                   under it is the OTHER language, plus the host if this is a
                   moon. It used to repeat the same word twice — 수성 over
@@ -791,7 +810,9 @@ export default function HubType2() {
                 {en ? observed.ko : observed.en}
                 {hostOf(observed) && ` · ${en ? hostOf(observed)!.en : hostOf(observed)!.ko}`}
               </p>
-            </div>
+              {/* Only ever seen on a phone, where the card folds. */}
+              <span className="h2-spec-chev" aria-hidden="true" />
+            </button>
             <button
               type="button"
               className="h2-spec-close"

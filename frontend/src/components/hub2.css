@@ -1016,9 +1016,28 @@
   flex: none;
 }
 
-.h2-spec-head > div {
+/* The heading doubles as the fold control on a phone. Styled as a heading
+   everywhere — a card whose title looks like a button reads as a toolbar. */
+.h2-spec-grip {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  /* Not a control on a wide screen, so it should not claim to be one. */
+  cursor: default;
+}
+
+/* The chevron only exists where the fold does. */
+.h2-spec-chev {
+  display: none;
 }
 
 .h2-spec-name {
@@ -1132,7 +1151,53 @@
     /* Above the target sheet, not under it. */
     bottom: 66px;
     width: auto;
-    max-height: 44vh;
+    /* Only as tall as what it is showing. Folded, that is one row; a fixed
+       height would leave the card covering the body with nothing in it. */
+    max-height: 46vh;
+    height: auto;
+  }
+
+  /* ── the fold ──
+     Choosing a target is a request to look at the thing, and the body is
+     framed in the middle of the screen — which is exactly where an open sheet
+     across the lower half lands. Folded, the card is its own title bar: you
+     can see what you picked and see the thing you picked. */
+  .h2-spec:not(.is-open) .h2-spec-grid,
+  .h2-spec:not(.is-open) .h2-spec-note,
+  .h2-spec:not(.is-open) .h2-spec-body {
+    display: none;
+  }
+
+  .h2-spec-grip {
+    /* A real control here, unlike on a wide screen. */
+    cursor: pointer;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  /* Folded, the two names sit on one line instead of stacking, so the bar is
+     as short as it can be. */
+  .h2-spec:not(.is-open) .h2-spec-sub {
+    margin: 0;
+  }
+
+  .h2-spec-chev {
+    display: block;
+    margin-left: auto;
+    width: 9px;
+    height: 9px;
+    border-right: 2px solid var(--hud-dim);
+    border-bottom: 2px solid var(--hud-dim);
+    rotate: 45deg;
+    translate: 0 -2px;
+    transition: rotate 0.18s ease;
+  }
+
+  .h2-spec.is-open .h2-spec-chev {
+    rotate: 225deg;
+    translate: 0 2px;
   }
 
   /* With the list open there is not room for both. The list is what was just
