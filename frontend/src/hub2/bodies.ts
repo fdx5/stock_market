@@ -61,6 +61,11 @@ export interface MoonSpec {
    * whatever shape it was left in, and drawing one as a ball says something
    * about it that is not true. Omitted means round. */
   shape?: [number, number, number];
+  /** How far from smooth. A body too small to be round is not merely a
+   * squashed ball — it is lumpy, and the large craters bite into its outline.
+   * This is the depth of that displacement as a fraction of the radius; see
+   * irregularGeometry in scene.ts for what it does with it. */
+  irregular?: number;
   /** Earth's Samsung/SK hynix satellites are logo billboards, not textured
    * spheres — there is no photograph of a company. */
   logo?: string;
@@ -191,6 +196,10 @@ const MARS_MOONS: MoonSpec[] = [
        rounded it, and the observation panel says so; drawing it as a ball made
        the picture contradict the caption beside it. */
     shape: [1, 0.67, 0.81],
+    /* And not a smooth one. The ellipsoid was closer than a ball and still
+       wrong: Phobos is lumpy, and Stickney — nine kilometres across a body
+       twenty-seven long — takes a visible bite out of its outline. */
+    irregular: 0.34,
   },
   {
     key: "starship",

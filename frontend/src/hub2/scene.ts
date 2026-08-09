@@ -1626,18 +1626,22 @@ export class HubScene {
        * and at 48×24 its outline is a visible polygon and the terminator steps
        * down its limb in stairs. The texture cannot be sharper than its source,
        * but the silhouette can stop being a lie. */
-      const geo = new THREE.SphereGeometry(
-        spec.size,
-        Math.max(48, this.config.segments),
-        Math.max(24, this.config.segments / 2)
-      );
+      const segments = Math.max(48, this.config.segments);
+      /* Beaten out of shape if it is one of the small ones, a plain sphere
+         otherwise. The displacement needs more to work with than the
+         silhouette does, so an irregular body is tessellated finer — smooth
+         lumps across too few segments come out as facets. */
+      const geo = spec.irregular
+        ? this.irregularGeometry(spec.size, Math.max(96, segments), spec.irregular)
+        : new THREE.SphereGeometry(spec.size, segments, Math.max(24, segments / 2));
       // Moons run a little hot too: the same dark rock and ice as the inner
       // planets, at a fraction of the on-screen size.
       material = this.planetMaterial(this.texture(spec.texture), spec.glow, 0.18, 0.32, 1.3);
       mesh = new THREE.Mesh(geo, material);
-      /* A body too small to have been rounded keeps its own proportions. The
-         sphere is scaled rather than replaced so everything downstream — the
-         texture's mapping, the hit sphere, the lighting — is untouched. */
+      /* A body too small to have been rounded keeps its own proportions. Its
+         overall dimensions are a scale on the mesh; the lumps and craters are
+         in the geometry above. Kept separate because the proportions are a
+         measured fact about the body and the surface is a rendering of it. */
       if (spec.shape) mesh.scale.set(...spec.shape);
       this.disposables.push(geo, material);
     }
@@ -2244,6 +2248,95 @@ export class HubScene {
    * pair of dish antennas on booms, and the band of gold insulation round the
    * body. A silver cylinder alone is a thermos.
    */
+  /** Beats a sphere into the shape of a body too small to be round.
+   *
+   * A tri-axial ellipsoid was the first attempt and it is still an ellipsoid:
+   * smooth, symmetrical, and nothing like Phobos, which is lumpy, angular, and
+   * carries one crater nearly half its own width. Three things are done to the
+   * vertices here, in the order they matter:
+   *
+   *   - Lumps. A handful of broad bulges and hollows in fixed directions, each
+   *     falling off with the angle from its own axis. This is what stops the
+   *     silhouette being an oval — a real one wanders.
+   *   - Stickney. One deep, wide depression, with a raised rim where the
+   *     ejecta piled up. It is the single feature that makes Phobos
+   *     recognisable and the reason its outline has a bite taken out of it.
+   *   - Grain. Small high-frequency displacement so the surface is not
+   *     polished between the large features.
+   *
+   * The UVs are untouched, so the surface map still lands where it should.
+   * Deterministic — the same seed every load, because a body that is a
+   * different shape on each visit is not a body.
+   */
+  private irregularGeometry(size: number, segments: number, amount: number): THREE.BufferGeometry {
+    const geo = new THREE.SphereGeometry(size, segments, Math.max(16, segments / 2));
+    const pos = geo.attributes.position as THREE.BufferAttribute;
+    const rand = mulberry32(20250809);
+
+    // Broad bulges. Directions and weights drawn once, then fixed.
+    const lumps: { x: number; y: number; z: number; w: number; k: number }[] = [];
+    for (let i = 0; i < 9; i++) {
+      const u = rand() * 2 - 1;
+      const t = rand() * Math.PI * 2;
+      const s = Math.sqrt(1 - u * u);
+      lumps.push({
+        x: Math.cos(t) * s,
+        y: u,
+        z: Math.sin(t) * s,
+        // Both signs: a body this size has hollows as well as shoulders.
+        w: (rand() * 2 - 1) * 0.5,
+        k: 1.4 + rand() * 2.6,
+      });
+    }
+
+    /* Stickney, on the leading face. Its real diameter is about nine
+       kilometres against a body twenty-seven long, so it takes a third of the
+       width — which is why the outline has a notch rather than a dimple. */
+    const cx = 0.82;
+    const cy = 0.24;
+    const cz = 0.52;
+    const clen = Math.hypot(cx, cy, cz);
+
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const len = v.length() || 1;
+      const nx = v.x / len;
+      const ny = v.y / len;
+      const nz = v.z / len;
+
+      let d = 0;
+      for (const l of lumps) {
+        const dot = nx * l.x + ny * l.y + nz * l.z;
+        if (dot > 0) d += l.w * Math.pow(dot, l.k);
+      }
+
+      // The crater: a bowl inside its radius, a rim just outside it.
+      const cd = (nx * cx + ny * cy + nz * cz) / clen;
+      const angle = Math.acos(Math.min(1, Math.max(-1, cd)));
+      const RIM = 0.62;
+      if (angle < RIM) {
+        const t = angle / RIM;
+        d -= (1 - t * t) * 0.5;
+      } else if (angle < RIM + 0.22) {
+        const t = (angle - RIM) / 0.22;
+        d += Math.sin(t * Math.PI) * 0.12;
+      }
+
+      // Grain, so the faces between features are not polished.
+      d += (Math.sin(nx * 17.3 + ny * 11.7) * Math.cos(nz * 14.1 - nx * 9.3)) * 0.055;
+
+      const scale = 1 + d * amount;
+      pos.setXYZ(i, nx * size * scale, ny * size * scale, nz * size * scale);
+    }
+
+    pos.needsUpdate = true;
+    // The lighting is now wrong everywhere until these are rebuilt: the shader
+    // reads normals, and every one of them still points at the sphere it was.
+    geo.computeVertexNormals();
+    return geo;
+  }
+
   private buildHubble(earth: PlanetRig) {
     this.hubbleHost = earth;
     /* Parented to Earth's own body, so it rides the orbit for free — the
