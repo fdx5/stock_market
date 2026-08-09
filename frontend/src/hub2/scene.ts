@@ -3217,6 +3217,9 @@ export class HubScene {
     this.cancelFinale();
 
     const info = pickable.info;
+    // Asked for the moment the target is chosen, so it has the whole flight to
+    // arrive rather than starting to download once the camera has stopped.
+    this.loadHighRes(info.key);
     this.selectedKey = info.key;
     // Ride it, like the telescope above — a planet observed from a standstill
     // walks out of frame along its own orbit.
@@ -3278,6 +3281,74 @@ export class HubScene {
     return true;
   }
 
+
+  /* ── high-resolution maps, fetched only when something is looked at ──
+
+     Every body ships a 900x450 map, which is right for a planet a few pixels
+     wide in a wide shot and visibly soft the moment the observation panel
+     fills the screen with one. The obvious fix — ship bigger maps — makes
+     everyone pay several megabytes on arrival for detail almost nobody scrolls
+     in far enough to see, and bandwidth is the constraint this project has
+     been most careful about.
+
+     So the big map is a second file that is fetched the first time a body is
+     actually observed, and swapped into the material it belongs to when it
+     lands. Nobody who never opens the telescope downloads a byte of it; nobody
+     who observes Europa downloads Titan's.
+
+     A miss is not an error. If a body has no high-resolution file the fetch
+     fails, the base map stays, and the only consequence is that it looks the
+     way it looked before. */
+
+  /** Bodies whose big map is already loaded or in flight, so a visitor
+   * flicking between two targets does not queue the same download twice. */
+  private hiResAsked = new Set<string>();
+
+  /** Swaps in the detailed map for a body, if there is one.
+   *
+   * `key` is the pickable key, which for a moon is `host:moon`; the file is
+   * named after the texture the body already uses, so the two cannot drift
+   * apart the way a second hand-written list would. */
+  private loadHighRes(key: string) {
+    if (this.hiResAsked.has(key)) return;
+
+    let material: THREE.ShaderMaterial | undefined;
+    let base: string | undefined;
+    const [hostKey, moonKey] = key.split(":");
+    if (moonKey) {
+      const host = this.planets.find((p) => p.spec.key === hostKey);
+      const moon = host?.moons.find((m) => m.spec.key === moonKey);
+      material = moon?.material;
+      base = moon?.spec.texture;
+    } else {
+      const planet = this.planets.find((p) => p.spec.key === key);
+      material = planet?.material;
+      base = planet?.spec.texture;
+    }
+    // Bodies drawn by their own shaders rather than a surface map — the star,
+    // the hole, the neutron pair — have nothing to swap.
+    if (!material || !base) return;
+
+    this.hiResAsked.add(key);
+    const file = base.replace("/img/planets/", "/img/planets/hi/");
+    new THREE.TextureLoader().load(
+      file,
+      (tex) => {
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = Math.min(16, this.renderer.capabilities.getMaxAnisotropy());
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        this.textures.push(tex);
+        material.uniforms.uMap.value = tex;
+      },
+      undefined,
+      () => {
+        /* No such file, or it would not decode. The base map is already on
+           screen and stays there — this is a body that simply has no detailed
+           version yet, which is a normal state and not a failure to report. */
+      }
+    );
+  }
 
   /** Builds any moons this session has not got, and shows the ones it has.
    *
