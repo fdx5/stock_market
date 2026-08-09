@@ -1352,13 +1352,12 @@ export class HubScene {
     /* A camera-facing disc rather than a shell — see SUNGLOW_FRAG. Built two
        units across so the shader gets position.xy in -1..1 for free, then
        scaled to the reach the glow should actually have. */
-    /* A third of what it was. The glow reached 41 units, which put Mercury at
-       26 and Venus at 37 permanently inside the star's own haze — the halo was
-       a feature of the inner system rather than of the star. At 1.13 radii it
-       is a rim on the photosphere, and the planets orbit in clear space.
-       `uUnit` below is derived from this, so the shader's falloff follows it
-       without a second number to keep in step. */
-    const CORONA_REACH = SUN_RADIUS * 1.13;
+    /* The plane has to stay wide enough for the glow to have somewhere to
+       live — it is drawn in the band between the photosphere and this edge, so
+       a plane close to the star leaves no band and the corona vanishes. That
+       is what happened at 1.13. The flame is shortened with uFalloff instead,
+       which is the knob that actually controls its reach. */
+    const CORONA_REACH = SUN_RADIUS * 2.0;
     const coronaGeo = new THREE.PlaneGeometry(2, 2, 1, 1);
     this.coronaMaterial = new THREE.ShaderMaterial({
       vertexShader: SUNGLOW_VERT,
@@ -1373,6 +1372,12 @@ export class HubScene {
         uIntensity: { value: 0.68 },
         // Where the photosphere's edge falls in the disc's own 0..1 radius.
         uUnit: { value: SUN_RADIUS / CORONA_REACH },
+        /* Tightened from the 4.6 the blue star still uses. The flame used to
+           reach 2.44 sun radii; this brings it to 1.48, so the part
+           that extends past the surface is a third of what it was. Measured
+           against the shader's own falloff rather than guessed — shrinking the
+           plane, which was the first attempt, only made it disappear. */
+        uFalloff: { value: 5.7 },
       },
       transparent: true,
       depthWrite: false,
@@ -2059,6 +2064,8 @@ export class HubScene {
         uColor: { value: new THREE.Color(0x6fb0ff) },
         uIntensity: { value: 0.75 },
         uUnit: { value: 1 / 3.4 },
+        // The star's own halo keeps the original spread.
+        uFalloff: { value: 4.6 },
       },
       transparent: true,
       depthWrite: false,

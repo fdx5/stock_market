@@ -289,6 +289,13 @@ uniform float uPulse;
 uniform vec3 uColor;
 uniform float uIntensity;
 uniform float uUnit;
+/** How sharply the glow dies past the photosphere. Higher is tighter.
+ *
+ * This is the knob that sets how far the flame reaches, and it is the only one
+ * that can: the glow lives in the band between uUnit and the plane's edge, so
+ * shrinking the plane to shorten the flame instead squeezes the band to
+ * nothing and the corona disappears altogether. */
+uniform float uFalloff;
 varying vec2 vDisc;
 
 ${NOISE}
@@ -301,7 +308,7 @@ void main() {
   // shape a real corona actually has. Tight: a broad falloff turns the star
   // into a bonfire and swallows Mercury's and Venus's orbits whole.
   float d = max(r - uUnit, 0.0) / max(1.0 - uUnit, 0.0001);
-  float glow = exp(-pow(d * 4.6, 1.15));
+  float glow = exp(-pow(d * uFalloff, 1.15));
 
   /* Streamers combed radially outward, turning slowly. Sampled on the ray's
      angle plus its radius so they stretch rather than swirl. Kept coarse (3
