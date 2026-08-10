@@ -1905,15 +1905,20 @@ export class HubScene {
        structure (see uSlab in DISC_FRAG), give it a top and a bottom: the
        layers add and occlude over each other as the camera crosses, which is
        what a body of gas does and what a plane cannot. */
-    const SLAB = 2.2;
-    /* The flare, and the same expression the shader uses to undo it. A real
-       disc's scale height grows with radius: thin at the ISCO where the gas
-       is fastest, swelling outward where it is slower, with a small puff at
-       the inner edge where the flow piles up before going over. At 2.2 the
-       outer rim is four and a half units thick against eighty-four across, which is
-       about a thin disc's real proportions and — unlike a plate — is a shape
-       from the side as well as from above. */
-    const flare = (tt: number) => 0.12 + 0.88 * Math.pow(tt, 0.8) + 0.18 * Math.exp(-tt * 14);
+    const SLAB = 2.6;
+    /* The section, and the same expression the shader uses to undo it — the
+       two have to match to the digit or a fragment cannot tell which sheet it
+       is on.
+
+       Thickest at both ends of the radius and thinnest between them. Inward
+       the gas can no longer radiate away what compression does to it and the
+       flow puffs into a torus, which is what gives the middle its volume;
+       outward the scale height grows with radius the way a thin disc's does,
+       so it flares again toward the rim; and there is a waist at about two
+       fifths. At 2.6 the bulge is 3.2 units of half-thickness at the ISCO
+       against a rim of 1.9 — a body rather than a blade, which is what a disc
+       that tapered to nothing exactly where it is brightest looked like. */
+    const flare = (tt: number) => 0.18 + 0.55 * Math.pow(tt, 1.15) + 1.05 * Math.exp(-tt * 4.5);
     this.discMaterial = new THREE.ShaderMaterial({
       vertexShader: DISC_VERT,
       fragmentShader: DISC_FRAG,

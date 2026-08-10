@@ -619,16 +619,20 @@ void main() {
      body of gas: the layers occlude and add over each other as the camera
      crosses, and the eye gets a top and a bottom to the thing it is flying
      over. */
-  /* The flare. A real disc is not a plate: its scale height grows with
-     radius, so it is a lens — thin at the ISCO where the gas is fastest and
-     hottest, swelling outward where it is slower and cooler, with a small
-     puff right at the inner edge where the flow piles up before it goes over.
-     Seen at any angle at all this is what stops it being a line, and a line
-     is what a plate is from the side.
+  /* The section. A real disc is not a plate, and it is not a wedge either —
+     it is thickest at both ends of its own radius and thinnest in between.
 
-     The same expression is baked into the geometry, so this division gives
-     back exactly which of the three sheets a fragment belongs to. */
-  float prof = 0.12 + 0.88 * pow(t, 0.8) + 0.18 * exp(-t * 14.0);
+     Inward, the gas is no longer able to radiate away what compression is
+     doing to it, so the inner flow puffs up into a torus: this is the part
+     that was missing, and it is the part the eye most wants, because a disc
+     that tapers to a knife edge exactly where the light is brightest reads as
+     a cut-out rather than as a body. Outward, the scale height grows with
+     radius the way a thin disc's does, so it flares again toward the rim.
+     Between them is a waist at about two fifths.
+
+     The same expression is baked into the geometry vertex for vertex, so this
+     division gives back exactly which of the five sheets a fragment is on. */
+  float prof = 0.18 + 0.55 * pow(t, 1.15) + 1.05 * exp(-t * 4.5);
   float slab = vPosL.y / max(uSlab * prof, 0.0001);
 
   /* The offset that makes each sheet its own. Without it the three are the
