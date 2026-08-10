@@ -6370,9 +6370,16 @@ export class HubScene {
    *
    * The neutron pair used to take one too, before it came off the route. */
   private static readonly VOYAGER_ORBIT_AT = new Map([["saturn", 1]]);
-  /** How long one turn takes. Doubled with the speeds above: a loiter that
-   * kept its old period would be the one part of the tour that got faster. */
-  private static readonly VOYAGER_ORBIT_PERIOD = 14;
+  /** How long one turn takes.
+   *
+   * Nine, down from the fourteen it got when the speeds were halved and this
+   * was doubled to match. The turn exists to show the rings edge-on, open and
+   * edge-on again — three views — and fourteen seconds is longer than three
+   * views take: past about nine it stops being a manoeuvre and becomes a wait
+   * for one to finish. The swoop that dips through the middle of it is
+   * parameterised by how far round it has got rather than by seconds, so it
+   * keeps its shape at any period. */
+  private static readonly VOYAGER_ORBIT_PERIOD = 9;
   /** How far in the orbit dips at its closest, as a fraction of the radius it
    * was entered at. See the swoop in flyGrandTour's loiter branch. */
   private static readonly VOYAGER_ORBIT_DIP = 0.55;
