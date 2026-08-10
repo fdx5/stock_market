@@ -4127,9 +4127,10 @@ export class HubScene {
      whiteout, a mouth swallowing the lens, or a blackout that was already
      happening.
 
-       approach 11    a slow arc in, watching it turn
-       rim       9    riding its edge, close enough to see the sky inside move
-       enter     5    round and in
+       hold      4    it is a bright ring a long way off, and stays one
+       close    13    closing hard: the beat that says how big it is
+       hug      10    skimming its glass, where the sky inside can be seen moving
+       enter     3    round and in
        tunnel   10    inside it, first person, riding across the passage
        space    10    out the far side, near the hole, closing on it
        disc      8    down onto the disc and round it, skimming
@@ -4138,7 +4139,7 @@ export class HubScene {
        plate     5    the far side, held, with the stone dropped in it
        return    2.4  the picture comes back
 
-     Seventy-two seconds, and twenty-five of them are the arrival. That is
+     Seventy-seven seconds, and thirty of them are the arrival. That is
      deliberate and it is the change this ending most needed: the wormhole is
      two units across and the first cut at this gave it three seconds, which
      is long enough to identify a thing and not long enough to look at one.
@@ -4155,14 +4156,14 @@ export class HubScene {
   private static readonly WF_STATIC = 7;
   private static readonly WF_PLATE = 5;
   private static readonly WF_RETURN = 2.4;
-  private static readonly WF_T_DIVE = 25;
-  private static readonly WF_T_TUNNEL = 35;
-  private static readonly WF_T_SPACE = 45;
-  private static readonly WF_T_DISC = 53;
-  private static readonly WF_T_INSIDE = 57.5;
-  private static readonly WF_T_STATIC = 64.5;
-  private static readonly WF_T_PLATE = 69.5;
-  private static readonly WF_END = 71.9;
+  private static readonly WF_T_DIVE = 30;
+  private static readonly WF_T_TUNNEL = 40;
+  private static readonly WF_T_SPACE = 50;
+  private static readonly WF_T_DISC = 58;
+  private static readonly WF_T_INSIDE = 62.5;
+  private static readonly WF_T_STATIC = 69.5;
+  private static readonly WF_T_PLATE = 74.5;
+  private static readonly WF_END = 76.9;
 
   private updateWormholeFinale(dt: number) {
     const t = this.finaleT;
@@ -4215,20 +4216,43 @@ export class HubScene {
          Everything below is continuous in t, and the only thing that
          accelerates is the dive. */
       const s = t / HubScene.WF_T_DIVE;
-      // Closing over the first four fifths, then dropping through.
-      const glide = smoothstep(0, 0.8, s);
-      const plunge = clamp01((s - 0.86) / 0.14);
-      const ring = 20 - 15.4 * glide;
-      const radius = ring * (1 - plunge) + 0.2 * plunge;
-      const lift = (5.2 - 4.6 * glide) * (1 - plunge * 0.9);
-      this.finaleAngle += (0.26 + 0.52 * glide + plunge * 3.2) * dt;
+      /* Three beats out of one curve, and the shape of the curve is the whole
+         drama:
 
-      /* Looking along the edge through the middle of it, and back at the
-         centre for the dive. Eased in and out rather than switched, and it
-         turns at the same rate the camera does — so in the frame it is a
-         fixed offset and the sphere sits still off to one side rather than
-         drifting across. */
-      const aim = 2.0 * smoothstep(0.3, 0.46, s) * (1 - smoothstep(0.72, 0.86, s));
+           hold    the first eighth barely closes at all. The wormhole is a
+                   small bright ring a long way off and the camera has time to
+                   let it be one — an arrival that starts arriving on frame one
+                   never establishes anything to arrive at.
+           close   the middle closes hard, and this is the beat that says how
+                   big it is. The sphere goes from something in the frame to
+                   something the frame cannot hold, and scale is a rate of
+                   change rather than a size: it reads as huge because it grew,
+                   not because it is wide.
+           hug     the last quarter before the dive holds at 2.9 against a
+                   surface at 2.17 — seven tenths of a unit off the glass. At
+                   that range the star sheets inside separate and drift past
+                   each other, which is the only place in the sequence where
+                   the surface can be seen to move at all. */
+      const close = smoothstep(0.12, 0.72, s);
+      const hug = smoothstep(0.66, 0.88, s);
+      const plunge = clamp01((s - 0.9) / 0.1);
+      const ring = 22 - 18.6 * close - 0.5 * hug;
+      const radius = ring * (1 - plunge) + 0.2 * plunge;
+      const lift = (6.0 - 5.5 * close) * (1 - plunge * 0.9);
+      /* Slow while it is far, quickest while it is skimming. The sphere fills
+         the frame by then, so angular rate is what the surface streaming past
+         is made of — at the far end the same rate would only spin the sky. */
+      this.finaleAngle += (0.2 + 0.34 * close + 0.5 * hug + plunge * 3.4) * dt;
+
+      /* Looking along the edge rather than at the middle of it, and back at
+         the centre for the dive. Scaled by the radius rather than fixed: the
+         point of the offset is to put the sphere off to one side of the frame
+         by a constant fraction of its own apparent size, and a constant offset
+         does that at one distance only — at 22 units it was a wobble and at 3
+         it pointed the camera off the sphere entirely. It turns at the rate
+         the camera does, so in the frame it is a fixed offset and the sphere
+         sits still off to one side rather than drifting across. */
+      const aim = radius * 0.46 * smoothstep(0.36, 0.56, s) * (1 - smoothstep(0.82, 0.92, s));
 
       this.warp = Math.pow(plunge, 1.6) * 5.5;
       this.collapse = Math.pow(plunge, 2.0) * 0.5;
@@ -6171,8 +6195,13 @@ export class HubScene {
    * body: slow where there is something to look at, quick where there is not.
    * The pass is then the same everywhere by construction, and the gaps cost
    * only what they are worth. */
-  private static readonly VOYAGER_PASS_SPEED = 7.5;
-  private static readonly VOYAGER_CRUISE_SPEED = 66;
+  /* Both halved. The tour is an exploration and it was being flown as a
+     delivery — the whole of it, the passes as much as the gaps. Halving both
+     rather than only the passes keeps the relationship between them, which is
+     the thing this pair exists to state: how fast the ship goes past something
+     against how fast it crosses the nothing in between. */
+  private static readonly VOYAGER_PASS_SPEED = 3.75;
+  private static readonly VOYAGER_CRUISE_SPEED = 33;
   /** The distances the speed ramps between, as multiples of the stop's own
    * reach: full pass speed inside the first, full cruise beyond the second.
    *
@@ -6225,8 +6254,9 @@ export class HubScene {
    *
    * The neutron pair used to take one too, before it came off the route. */
   private static readonly VOYAGER_ORBIT_AT = new Map([["saturn", 1]]);
-  /** How long one turn takes. */
-  private static readonly VOYAGER_ORBIT_PERIOD = 7;
+  /** How long one turn takes. Doubled with the speeds above: a loiter that
+   * kept its old period would be the one part of the tour that got faster. */
+  private static readonly VOYAGER_ORBIT_PERIOD = 14;
   /** How far in the orbit dips at its closest, as a fraction of the radius it
    * was entered at. See the swoop in flyGrandTour's loiter branch. */
   private static readonly VOYAGER_ORBIT_DIP = 0.55;
@@ -6234,14 +6264,15 @@ export class HubScene {
    * reach — which for Saturn is the outer edge of the ring sheet, so this is
    * the number that keeps the craft from flying through the rings. */
   private static readonly VOYAGER_ORBIT_FLOOR = 1.45;
-  /** How long the ambient coast takes, launch to gone. */
-  private static readonly VOYAGER_COAST = 150;
-  /** How fast the ring turns, in radians a second. A full revolution every
-   * second — far faster than the film's 5.6 rpm, and deliberately: at the
-   * size this ship is drawn on screen, a wheel that takes ten seconds to come
-   * round is a wheel nobody sees turn. The ring is the only moving part on the
-   * only crewed ship in the sky and it has to read as moving at a glance. */
-  private static readonly ENDURANCE_SPIN = Math.PI * 2;
+  /** How long the ambient coast takes, launch to gone. Doubled, so the ship
+   * drifting across the resting sky moves at the same pace it tours at. */
+  private static readonly VOYAGER_COAST = 300;
+  /** How fast the ring turns, in radians a second. One revolution every three
+   * seconds — still far quicker than the film's 5.6 rpm, because at the size
+   * this ship is drawn a wheel that takes ten seconds to come round is a wheel
+   * nobody sees turn, but slow enough to read as a ship under way rather than
+   * as a fairground ride. */
+  private static readonly ENDURANCE_SPIN = (Math.PI * 2) / 3;
 
   /** Starts or stops the grand tour. Starting it always restarts from Earth:
    * the tour is a thing you watch from the beginning, and resuming it from
