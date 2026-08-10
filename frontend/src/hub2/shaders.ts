@@ -2539,12 +2539,21 @@ export const GRADE_SHADER = {
         vec2 dir = d > 0.0001 ? p / d : vec2(0.0);
         vec2 pushed = p + dir * wave * envelope * 0.055;
 
-        /* Cover, not stretch: the wider of the two axes is cropped so the
-           image keeps its proportions at any viewport shape. */
-        vec2 plateUv = pushed;
-        if (aspect > uPlateAspect) plateUv.y *= aspect / uPlateAspect;
-        else plateUv.x *= uPlateAspect / aspect;
-        plateUv = vec2(plateUv.x / aspect, plateUv.y) + 0.5;
+        /* Cover, not stretch: crop the axis the viewport has too much of, so
+           the image keeps its proportions at any viewport shape.
+           This was inverted, and it was only ever right by accident — when the
+           viewport and the photograph happened to share an aspect, both
+           branches came to a no-op. Anywhere else it scaled the wrong axis and
+           scaled it the wrong way: a phone held upright is 0.46 against the
+           plate's 1.78, which took the horizontal span to ±1.9 of a texture
+           that ends at ±0.5, so five sixths of what was on screen was the edge
+           pixel smeared sideways.
+           A cover fit never scales either axis PAST the image — it takes the
+           smaller of the two ratios on each, which is what min does here — and
+           the result is always a crop. */
+        vec2 frac = vec2(pushed.x / aspect, pushed.y);
+        vec2 cover = vec2(min(1.0, aspect / uPlateAspect), min(1.0, uPlateAspect / aspect));
+        vec2 plateUv = frac * cover + 0.5;
 
         /* Lifted hard, and the reason is two lines up the file: this is the
            pass that renders to the screen, so it is the one three applies ACES
