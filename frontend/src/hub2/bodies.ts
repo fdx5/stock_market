@@ -557,15 +557,26 @@ export const WORMHOLE: LandmarkSpec = {
   position: [27, 17, 0],
 };
 
+/** The Endurance — Interstellar's ship, not Voyager 1.
+ *
+ * It replaced the probe when the grand tour stopped being a survey of the
+ * outer system and became a run at the wormhole: a craft that coasts outward
+ * on momentum it spent thirty years accumulating is the wrong vehicle for a
+ * route that ends by flying into something.
+ *
+ * The export keeps its old name, and so does the key. The key is what the
+ * scene, the label layer and every analytics row already call this object,
+ * and renaming it would break the continuity of the second of those for a
+ * string nobody sees. */
 export const VOYAGER: LandmarkSpec = {
   key: "voyager",
   ko: "글로벌 뉴스",
   en: "GLOBAL NEWS",
-  bodyKo: "보이저 1호",
-  bodyEn: "Voyager 1",
+  bodyKo: "인듀어런스호",
+  bodyEn: "Endurance",
   to: "/news",
-  // Not actually fixed — the probe coasts outward on its own track and this is
-  // only where it starts. See the scene's voyager rig.
+  // Not actually fixed — the ship coasts outward on its own track and this is
+  // only where it starts. See the scene's rig.
   position: [0, 18, 0],
 };
 

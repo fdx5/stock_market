@@ -742,6 +742,13 @@ export class HubScene {
   /** Everything the craft is painted with, so the whole rig can be faded out
    * together as it leaves the system. */
   private voyagerMaterials: THREE.Material[] = [];
+  /** The Endurance's ring — the only part of the ship that moves relative to
+   * the rest of it. Everything is bolted to this and turns with it. */
+  private enduranceRing!: THREE.Object3D;
+  /** Where it is heading, smoothed. The ring's axis is pointed down this, so
+   * the ship flies through its own middle the way the film's does. */
+  private voyagerNose = new THREE.Vector3(0, 0, 1);
+  private voyagerAimAt = new THREE.Vector3();
   /** Earth's orbit, and the outermost planet's — read off the specs at build
    * time so the probe's route follows the system if the system is retuned. */
   private voyagerLaunchRadius = 50;
@@ -2682,9 +2689,9 @@ export class HubScene {
       emissive: 0x4a3512,
       transparent: true,
     });
-    // The instrument housings: the darkest thing on the craft, but no longer
-    // black — they are what the RTGs and the scan platform read as, and a
-    // black cylinder between two bright ones is a gap in the boom.
+    // The seams, the tunnels between modules and the shadowed housings. Not
+    // black: a dark segment between two bright ones reads as a gap in the
+    // ring, and the one thing this ring must never look is broken.
     const dark = new THREE.MeshStandardMaterial({
       color: 0x76808f,
       metalness: 0.4,
@@ -2692,134 +2699,260 @@ export class HubScene {
       emissive: 0x1c2029,
       transparent: true,
     });
-    // The dish is a white thermal surface on the real craft, not bare metal.
-    const white = new THREE.MeshStandardMaterial({
+    /* The hull. White thermal blanket over most of the ship, which is what
+       the film's is and also what makes twelve modules legible as twelve
+       against a black sky — a grey ring at this size is one object. */
+    const hull = new THREE.MeshStandardMaterial({
       color: 0xf2f5fa,
       metalness: 0.15,
       roughness: 0.55,
       emissive: 0x3a4354,
-      side: THREE.DoubleSide, // it is a bowl; from behind a single-sided one is a hole
       transparent: true,
     });
-    this.voyagerMaterials = [metal, gold, dark, white];
-    this.disposables.push(metal, gold, dark, white);
+    /* Windows and the running lights, and the only thing on the ship that is
+       its own light source. A crewed vessel with no lit windows is a hull. */
+    const glass = new THREE.MeshStandardMaterial({
+      color: 0x9fd4ff,
+      metalness: 0.1,
+      roughness: 0.25,
+      emissive: 0x5fa8e8,
+      emissiveIntensity: 1.6,
+      transparent: true,
+    });
+    // Engine bells. Dark, and rough, because they are the one part that has
+    // been fired.
+    const nozzle = new THREE.MeshStandardMaterial({
+      color: 0x4a5160,
+      metalness: 0.7,
+      roughness: 0.55,
+      emissive: 0x15181f,
+      transparent: true,
+    });
+    // Kept under its old name so the panel banding reads against the hull.
+    const panel = new THREE.MeshStandardMaterial({
+      color: 0xa8b3c4,
+      metalness: 0.5,
+      roughness: 0.5,
+      emissive: 0x272e3a,
+      transparent: true,
+    });
+    this.voyagerMaterials = [metal, gold, dark, hull, glass, nozzle, panel];
+    this.disposables.push(metal, gold, dark, hull, glass, nozzle, panel);
 
-    /* Every part goes on an inner node scaled to a third, rather than the
-       numbers below being divided by three. Two reasons. The dimensions here
-       are the real craft's proportions — a 3.7 m dish, a 13 m magnetometer
-       boom — and they should stay legible as those; and the hit sphere hangs
-       off the outer node, so shrinking the craft does not shrink the target
-       you have to hit to tap it. A probe you can barely see is fine. A probe
-       you can barely click is not. */
+    /* Every part goes on an inner node, rather than the numbers below being
+       scaled. The hit sphere hangs off the OUTER node, so resizing the ship
+       does not resize the target a finger has to land on — a ship you can
+       barely see is a choice; a ship you can barely tap is a fault. */
+    /* Scale 1, and that is already the half-again that was asked for.
+       The ring below is built at an outer radius of about 1.9, so it is 3.8
+       units across — against the probe's 2.5, which was drawn at three times
+       these numbers and then divided by three. Setting this to 1.5 as well
+       took the ship to 5.7 across, which is not half again, it is well over
+       twice, and at the distance the chase camera sits it filled the frame
+       edge to edge. */
     const craft = new THREE.Object3D();
-    craft.scale.setScalar(1 / 3);
+    craft.scale.setScalar(1);
     this.voyager.add(craft);
 
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, place: (m: THREE.Mesh) => void) => {
+    /* And the ring is its own node inside that, because the ring is the only
+       part of this ship that moves. Everything hangs off it and turns with
+       it; the outer node carries the heading and stays still. */
+    this.enduranceRing = new THREE.Object3D();
+    craft.add(this.enduranceRing);
+
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, parent: THREE.Object3D, place: (m: THREE.Mesh) => void) => {
       const mesh = new THREE.Mesh(geo, mat);
       place(mesh);
-      craft.add(mesh);
+      parent.add(mesh);
       this.disposables.push(geo);
       return mesh;
     };
 
-    /* ── the high-gain antenna: 3.7 m of dish, and most of the silhouette ── */
-    add(new THREE.SphereGeometry(1.5, 30, 14, 0, Math.PI * 2, 0, Math.PI * 0.42), white, (m) => {
-      m.rotation.x = Math.PI;
-    });
-    // Its rim. A bowl with no edge reads as a shaded blob from the back.
-    add(new THREE.TorusGeometry(1.49, 0.045, 6, 36), metal, (m) => {
-      m.rotation.x = Math.PI / 2;
-      m.position.y = 0.62;
-    });
-    /* The subreflector, held out at the focus on three struts. This is the
-       detail that most says "dish antenna" rather than "dish": the eye reads
-       the gap between the little mirror and the big one as depth. */
-    add(new THREE.CylinderGeometry(0.2, 0.22, 0.1, 12), metal, (m) => {
-      m.position.y = 1.5;
-    });
-    for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * Math.PI * 2;
-      add(new THREE.CylinderGeometry(0.028, 0.028, 1.6, 4), metal, (m) => {
-        m.position.set(Math.cos(a) * 0.6, 0.92, Math.sin(a) * 0.6);
-        // Leaned inward so the three meet at the subreflector.
-        m.lookAt(0, 1.5, 0);
-        m.rotateX(Math.PI / 2);
+    /* ─────────────────────────── the ring ───────────────────────────
+       Twelve modules and nothing else. No hub, no spokes, no central shaft —
+       which is the thing most drawings of this ship get wrong. The modules
+       are joined end to end and the ring IS the vessel; the gravity comes
+       from spinning the whole of it, which is why there is nothing in the
+       middle for it to spin around.
+
+       Built in the XY plane with the ring's axis along Z, because the craft
+       is then aimed by pointing that axis down its own heading — see
+       aimVoyager. A ring travelling along its own axis is what the film's
+       is doing whenever it is going anywhere, and it is also the one
+       orientation in which twelve modules read as twelve rather than as a
+       bar with lumps on it. */
+    const MODULES = 12;
+    const RING_R = 1.42;
+    const MOD_R = 0.15;
+    const MOD_L = 0.43;
+    /* The chord between neighbours at this radius is 0.735 and a module is
+       0.73 end to end, so they touch and the ring closes.
+       Slimmer and longer than the first pass, which used 0.185 against 0.36 —
+       a capsule that nearly as wide as it is long is a pill, and twelve pills
+       is a bead necklace. The film's modules are slabs. */
+    const CHORD = 2 * RING_R * Math.sin(Math.PI / MODULES);
+
+    for (let i = 0; i < MODULES; i++) {
+      const a = (i / MODULES) * Math.PI * 2;
+      /* One node per module, turned so its local +X points out of the ring
+         and its local +Y runs along the ring. Every part below is then
+         placed in the module's own terms — "on the outer face", "toward the
+         next one" — rather than in trigonometry. */
+      const mod = new THREE.Object3D();
+      mod.position.set(Math.cos(a) * RING_R, Math.sin(a) * RING_R, 0);
+      mod.rotation.z = a;
+      this.enduranceRing.add(mod);
+
+      // The body. A capsule, whose axis is Y by default and so already lies
+      // along the ring.
+      // Twelve sides rather than eighteen: a faceted hull catches the light
+      // in flats, and flats are what say "built" rather than "inflated".
+      add(new THREE.CapsuleGeometry(MOD_R, MOD_L, 4, 12), hull, mod, () => {});
+
+      // The belt of panelling round its waist, and the two frames that read
+      // as the seams where a module was bolted together.
+      add(new THREE.CylinderGeometry(MOD_R * 1.06, MOD_R * 1.06, 0.07, 18), panel, mod, () => {});
+      for (const y of [-MOD_L * 0.42, MOD_L * 0.42]) {
+        add(new THREE.CylinderGeometry(MOD_R * 1.03, MOD_R * 1.03, 0.028, 18), dark, mod, (m) => {
+          m.position.y = y;
+        });
+      }
+
+      // The window strip, on the outer face where a crew would want it.
+      add(new THREE.BoxGeometry(0.03, MOD_L * 0.72, 0.075), glass, mod, (m) => {
+        m.position.x = MOD_R * 0.99;
       });
+
+      /* The docking collar on the inner face. It is what the Rangers mate
+         to in the film, and on a ring with nothing in the middle it is also
+         the only thing that says which way is in. */
+      add(new THREE.CylinderGeometry(0.062, 0.075, 0.07, 14), panel, mod, (m) => {
+        m.position.x = -MOD_R - 0.02;
+        m.rotation.z = Math.PI / 2;
+      });
+
+      // The short tunnel to the next module along.
+      add(new THREE.CylinderGeometry(0.085, 0.085, CHORD - MOD_L - MOD_R * 2 + 0.1, 12), dark, mod, (m) => {
+        m.position.y = CHORD * 0.5;
+      });
+
+      /* Attitude thrusters, on the trailing face. Four of the twelve carry
+         them, which is what the real design does — a ring does not need a
+         thruster on every segment to turn. */
+      if (i % 3 === 2) {
+        for (const sy of [-1, 1]) {
+          add(new THREE.CylinderGeometry(0.038, 0.055, 0.09, 10), nozzle, mod, (m) => {
+            m.position.set(0, sy * MOD_L * 0.3, -MOD_R - 0.03);
+            m.rotation.x = Math.PI / 2;
+          });
+        }
+      }
+
+      /* ── the Rangers: four of them, docked nose-in on the outer face ──
+         Spaceplanes, and they have to read as spaceplanes at a glance —
+         which means a nose, a delta and two engines, in that order of
+         importance. Anything more is detail nobody will see on a craft this
+         size and anything less is a box. */
+      if (i % 3 === 0) {
+        const ranger = new THREE.Object3D();
+        ranger.position.set(MOD_R + 0.10, 0, 0);
+        /* Scaled down hard. At full size a Ranger stuck a third of the ring's
+           own radius out into space and the ship read as a cog. In the film
+           they are barely a tenth of the ring across — docked, they are
+           detail on its rim, not spokes off it. */
+        ranger.scale.setScalar(0.62);
+        mod.add(ranger);
+        add(new THREE.BoxGeometry(0.30, 0.075, 0.115), hull, ranger, () => {});
+        add(new THREE.ConeGeometry(0.055, 0.15, 10), hull, ranger, (m) => {
+          m.position.x = 0.22;
+          m.rotation.z = -Math.PI / 2;
+        });
+        // The delta, swept back from the nose.
+        for (const sz of [-1, 1]) {
+          add(new THREE.BoxGeometry(0.19, 0.018, 0.11), hull, ranger, (m) => {
+            m.position.set(-0.03, 0, sz * 0.10);
+            m.rotation.y = sz * 0.34;
+          });
+        }
+        // A tail fin, which is what stops it reading as a paper dart.
+        add(new THREE.BoxGeometry(0.10, 0.085, 0.016), hull, ranger, (m) => {
+          m.position.set(-0.12, 0.06, 0);
+        });
+        for (const sz of [-1, 1]) {
+          add(new THREE.CylinderGeometry(0.028, 0.033, 0.075, 8), nozzle, ranger, (m) => {
+            m.position.set(-0.18, 0, sz * 0.045);
+            m.rotation.z = Math.PI / 2;
+          });
+        }
+        // The cockpit glass, so there is somewhere for a pilot to be.
+        add(new THREE.BoxGeometry(0.075, 0.03, 0.07), glass, ranger, (m) => {
+          m.position.set(0.10, 0.04, 0);
+        });
+      }
+
+      /* ── the Landers: four more, and deliberately not spaceplanes ──
+         Squat, legged and carrying the cargo the Rangers do not. The film's
+         are the ugly half of the fleet and they should look it. */
+      if (i % 3 === 1) {
+        const lander = new THREE.Object3D();
+        lander.position.set(MOD_R + 0.10, 0, 0);
+        lander.scale.setScalar(0.72);
+        mod.add(lander);
+        add(new THREE.BoxGeometry(0.23, 0.15, 0.19), hull, lander, () => {});
+        add(new THREE.BoxGeometry(0.12, 0.055, 0.155), dark, lander, (m) => {
+          m.position.set(-0.04, 0.10, 0);
+        });
+        add(new THREE.CylinderGeometry(0.055, 0.07, 0.06, 12), nozzle, lander, (m) => {
+          m.position.x = -0.14;
+          m.rotation.z = Math.PI / 2;
+        });
+        for (const sy of [-1, 1]) {
+          for (const sz of [-1, 1]) {
+            add(new THREE.CylinderGeometry(0.012, 0.012, 0.13, 5), metal, lander, (m) => {
+              m.position.set(0.08, sy * 0.085, sz * 0.085);
+              m.rotation.z = sy * 0.4;
+              m.rotation.x = -sz * 0.4;
+            });
+          }
+        }
+        add(new THREE.BoxGeometry(0.055, 0.022, 0.05), glass, lander, (m) => {
+          m.position.set(0.10, 0.05, 0);
+        });
+      }
+
+      /* ── and the radiators, on the four that carry neither ──
+         Every crewed ship has to throw its waste heat somewhere, and flat
+         panels edge-on to the sun are how. They also break the ring's
+         outline, which twelve identical capsules badly need. */
+      if (i % 3 === 2) {
+        for (const sz of [-1, 1]) {
+          add(new THREE.BoxGeometry(0.22, 0.010, 0.15), gold, mod, (m) => {
+            m.position.set(MOD_R + 0.12, 0, sz * 0.10);
+            m.rotation.y = sz * 0.28;
+          });
+        }
+      }
     }
 
-    /* ── the bus: ten-sided, wrapped in gold thermal blanket ── */
-    add(new THREE.CylinderGeometry(0.62, 0.62, 0.44, 10), gold, (m) => {
-      m.position.y = -0.62;
-    });
-    // The propellant tank the bus is built around, showing below it.
-    add(new THREE.SphereGeometry(0.38, 14, 10), metal, (m) => {
-      m.position.y = -1.0;
-    });
-    /* The Golden Record, on the side of the bus where they bolted it. Small,
-       and it will never be legible — but it is the one part of this craft
-       anybody outside a control room can name. */
-    add(new THREE.CylinderGeometry(0.26, 0.26, 0.035, 20), gold, (m) => {
-      m.position.set(0, -0.62, 0.63);
-      m.rotation.x = Math.PI / 2;
-    });
-
-    /* ── the RTG boom, out to one side: three generators in a row ── */
-    add(new THREE.CylinderGeometry(0.045, 0.045, 3.4, 6), metal, (m) => {
-      m.rotation.z = Math.PI / 2;
-      m.position.set(-1.7, -0.72, 0);
-    });
-    for (let i = 0; i < 3; i++) {
-      add(new THREE.CylinderGeometry(0.19, 0.19, 0.85, 10), dark, (m) => {
-        m.rotation.z = Math.PI / 2;
-        m.position.set(-2.5 - i * 0.95, -0.72, 0);
-      });
-      // Each generator's cooling fins, as a slightly wider collar.
-      add(new THREE.CylinderGeometry(0.27, 0.27, 0.1, 10), metal, (m) => {
-        m.rotation.z = Math.PI / 2;
-        m.position.set(-2.5 - i * 0.95, -0.72, 0);
-      });
-    }
-
-    /* ── the science boom, out the other side, ending in the scan platform ── */
-    add(new THREE.CylinderGeometry(0.045, 0.045, 2.6, 6), metal, (m) => {
-      m.rotation.z = Math.PI / 2;
-      m.position.set(1.3, -0.72, 0);
-    });
-    add(new THREE.BoxGeometry(0.5, 0.42, 0.46), dark, (m) => {
-      m.position.set(2.75, -0.72, 0);
-    });
-    // The two camera barrels on it, which is what the platform was steered for.
-    for (const dz of [-0.14, 0.14]) {
-      add(new THREE.CylinderGeometry(0.09, 0.09, 0.62, 8), metal, (m) => {
-        m.rotation.z = Math.PI / 2;
-        m.position.set(3.28, -0.72, dz);
-      });
-    }
-
-    /* ── the magnetometer boom: 13 m of it on the real craft, and the reason
-          the thing is as wide as it is. Thin enough to disappear at distance,
-          which is correct — it is a wire. ── */
-    add(new THREE.CylinderGeometry(0.022, 0.022, 7.5, 4), metal, (m) => {
-      m.position.set(0, -0.9, 3.6);
-      m.rotation.x = Math.PI / 2;
-    });
-
-    /* ── and the two whip antennas, at the shallow V they actually sit at ── */
-    for (const sx of [-1, 1]) {
-      add(new THREE.CylinderGeometry(0.025, 0.025, 6.4, 4), metal, (m) => {
-        m.position.set(sx * 2.1, -2.0, -1.4);
-        m.rotation.z = (sx * Math.PI) / 3.4;
-        m.rotation.x = -0.42;
+    /* A navigation light on each quarter of the ring, so the shape is still
+       legible when the ship is small and the sun is behind it. */
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 12;
+      add(new THREE.SphereGeometry(0.038, 8, 6), glass, this.enduranceRing, (m) => {
+        m.position.set(Math.cos(a) * (RING_R + MOD_R), Math.sin(a) * (RING_R + MOD_R), 0.11);
       });
     }
 
     this.scene.add(this.voyager);
 
-    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 0.9, primary: false, dive: false };
-    // Held at 3 rather than following the craft down to a third of 5. The
-    // target is what a finger has to land on, and that has not got smaller.
-    const hit = this.hitSphere(2.2);
+    /* 1.35 against the probe's 0.9 — half again, as asked. This is the figure
+       the chase camera stands off by and the telescope frames on, so it is
+       the ship's size for every purpose except being tapped. */
+    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 1.35, primary: false, dive: false };
+    // The target a finger has to land on, which grew with the ship but not by
+    // as much: at 1.5× the ring is 4.3 units across and a hit sphere that
+    // matched it would swallow taps meant for whatever it is flying past.
+    const hit = this.hitSphere(2.9);
     this.voyager.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.voyager });
     this.addLabel(info, this.voyager);
@@ -6089,6 +6222,15 @@ export class HubScene {
    * taken from the clock, because unlike everything else the hole and the sky
    * do, this one is started by a person and has to begin when they start it. */
   private updateVoyager(time: number, speed: number, dt: number) {
+    /* The ring turns whatever else the ship is doing, and it is the one part
+       of this scene that must never stop: the whole reason the Endurance is
+       a ring is that spinning it is where the crew's gravity comes from, and
+       a stationary one is a diagram of the ship rather than the ship. Ahead
+       of the branch so it runs on the tour and on the ambient coast alike.
+       Roughly a turn every eight seconds at normal speed, which is slow
+       enough to read as deliberate and fast enough to be unmistakable. */
+    this.enduranceRing.rotation.z += dt * speed * 0.78;
+
     if (this.voyagerTour) {
       this.flyGrandTour(dt);
       return;
@@ -6135,8 +6277,12 @@ export class HubScene {
     // too, though only after Saturn threw it there.
     const angle = launch + p * 0.55;
     const climb = (distance - this.voyagerLaunchRadius) * 0.34;
+    // Kept, because aimVoyager reads the heading off one frame of movement and
+    // the ambient coast used not to record one — the ship pointed wherever it
+    // had last been left, which on the coast is straight out of the tour.
+    this.voyagerPrev.copy(this.voyager.position);
     this.voyager.position.set(Math.cos(angle) * distance, climb, Math.sin(angle) * distance);
-    this.aimVoyager();
+    this.aimVoyager(dt);
   }
 
   /** One frame of the grand tour: the probe along the route, and the camera
@@ -6442,7 +6588,7 @@ export class HubScene {
         this.voyagerLoitered[this.voyagerLoiter] = true;
         this.voyagerLoiter = -1;
       }
-      this.aimVoyager();
+      this.aimVoyager(dt);
     } else {
       /* The speed law. Distance travelled is integrated rather than derived
          from a clock, so the pace is stated as a speed and the tour takes
@@ -6472,7 +6618,7 @@ export class HubScene {
       u = this.voyagerTourU;
       this.voyagerPrev.copy(this.voyager.position);
       this.voyagerCurve.getPointAt(u, this.voyager.position);
-      this.aimVoyager();
+      this.aimVoyager(dt);
     }
 
     /* The chase. Behind the probe along its own heading and a little above it,
@@ -6508,10 +6654,16 @@ export class HubScene {
        at a fixed sixteen units framed the craft beautifully and cut the planet
        in half, which is the complaint this answers: what the tour is showing
        at that moment is the planet, and the craft is the thing in front of it.
-       Scaled to the craft otherwise, which is a third of the size it was. */
-    const back = 6.4 + ease * (reach * fit * 0.85 + 6);
+       Scaled to the craft otherwise.
+
+       The out-of-pass figure went from 6.4 to 9.4 with the ship. The probe was
+       2.5 units end to end and the Endurance's ring is 3.8 across, so at the
+       old stand-off it subtended half the frame's height and its far side ran
+       off the edge — the ring is the one shape here that has to be seen whole
+       or it is not a ring. */
+    const back = 9.4 + ease * (reach * fit * 0.85 + 6);
     const want = this.tmpV2.copy(this.voyager.position).addScaledVector(this.voyagerHeading, -back);
-    want.y += 2.6 + ease * reach * 0.5;
+    want.y += 3.2 + ease * reach * 0.5;
     if (this.voyagerChase.lengthSq() < 1e-6) this.voyagerChase.copy(want);
     else this.voyagerChase.lerp(want, 1 - Math.exp(-dt * 1.9));
 
@@ -6605,10 +6757,32 @@ export class HubScene {
     this.loiterAxisB.normalize();
   }
 
-  /** The dish stays pointed home, as it does. */
-  private aimVoyager() {
-    this.voyager.lookAt(0, 0, 0);
-    this.voyager.rotateX(Math.PI / 2);
+  /** Nose-on to where it is going.
+   *
+   * The probe this replaced kept its dish pointed at Earth, which is what
+   * that craft actually did and was the right rule for it. A ring is
+   * different: its axis is its direction of travel, and a ring seen from any
+   * other angle is an ellipse with things on it. So the axis — local +Z,
+   * which is what the model is built about — is laid along the heading.
+   *
+   * Smoothed, and exponentially in dt rather than by a fixed fraction per
+   * frame, so the turn takes the same wall time at 30fps as at 144. The
+   * heading is derived from one frame of movement and at these speeds that is
+   * a very small vector whose direction jitters; fed in raw it puts a shiver
+   * on the whole ship. */
+  private aimVoyager(dt = 0.016) {
+    const step = this.tmpV.copy(this.voyager.position).sub(this.voyagerPrev);
+    if (step.lengthSq() > 1e-10) {
+      this.voyagerNose.lerp(step.normalize(), 1 - Math.exp(-dt * 3.2));
+      if (this.voyagerNose.lengthSq() > 1e-8) this.voyagerNose.normalize();
+    }
+    if (this.voyagerNose.lengthSq() < 1e-8) this.voyagerNose.set(0, 0, 1);
+    /* lookAt puts local -Z on the target, and the ring is built about +Z, so
+       it is aimed at a point BEHIND the ship. Pointing it forward instead
+       flies the ring backwards through itself, which on a shape this
+       symmetrical is invisible until the Rangers are seen trailing. */
+    this.voyagerAimAt.copy(this.voyager.position).addScaledVector(this.voyagerNose, -1);
+    this.voyager.lookAt(this.voyagerAimAt);
   }
 
   private updateComets(time: number, speed: number) {

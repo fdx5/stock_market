@@ -661,7 +661,7 @@ export default function HubType2() {
           onClick={() => {
             reportHubEvent("control", {
               key: `ctrl:voyager:${probeTour ? "off" : "on"}`,
-              label: `보이저호 여행 ${probeTour ? "OFF" : "ON"}`,
+              label: `인터스텔라 ${probeTour ? "OFF" : "ON"}`,
             });
             setTour(false);
             setProbeTour((on) => !on);
@@ -670,7 +670,7 @@ export default function HubType2() {
           {/* The label is its own element because the colour cycle is a
               gradient clipped to the glyphs, and the button already has a
               background of its own to keep. */}
-          <span className="h2-cam-cycle">{en ? "VOYAGER TOUR" : "보이저호 여행"}</span>
+          <span className="h2-cam-cycle">{en ? "INTERSTELLAR" : "인터스텔라"}</span>
         </button>
         {/* The telescope. Not a destination — it opens the observation panel
             rather than a route — so it is a mode this page enters rather than
