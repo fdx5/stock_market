@@ -10438,6 +10438,49 @@ thead .weekly-foreign-amount-col {
   color: var(--text-muted);
 }
 
+/* Only rendered while mail is unconfigured, and carrying the one thing the panel
+   couldn't say before: which variable is missing and what to do about it. */
+.admin-mail-diag {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--status-warning) 40%, transparent);
+  background: color-mix(in srgb, var(--status-warning) 8%, transparent);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.admin-mail-diag p {
+  margin: 0 0 8px;
+}
+
+.admin-mail-diag code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.admin-mail-diag-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.admin-mail-diag-vars span {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-muted);
+}
+
+.admin-mail-diag-vars span.is-set {
+  color: var(--status-good);
+}
+
 /* Already masked server-side (f***5@naver.com) — monospaced so the asterisks line
    up and the mask reads as deliberate rather than as a rendering fault. */
 .admin-mail-addr {

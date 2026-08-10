@@ -2660,6 +2660,38 @@ export default function AdminDashboardPage() {
               ))}
           </h2>
           <div className="admin-batch-body">
+            {/* Why it is unconfigured, not just that it is. The three causes — never
+                set, set under another name, set after this process started — look
+                identical from the outside and need completely different fixes. */}
+            {mailStatus && !mailStatus.configured && (
+              <div className="admin-mail-diag">
+                {mailStatus.diagnosis.needs_restart ? (
+                  <p>
+                    키는 등록되어 있으나 <b>서버가 재시작되지 않았습니다.</b> Render에서 Manual
+                    Deploy → Restart service 를 실행하세요.
+                  </p>
+                ) : mailStatus.diagnosis.unrecognized_names.length > 0 ? (
+                  <p>
+                    <code>{mailStatus.diagnosis.unrecognized_names.join(", ")}</code> 이(가)
+                    설정되어 있습니다. 이 앱이 읽는 이름은{" "}
+                    <code>PREDICTION_MAIL_RESEND_KEY</code> 입니다 — 이름을 바꿔 다시 등록하세요.
+                  </p>
+                ) : (
+                  <p>
+                    서버가 <code>PREDICTION_MAIL_RESEND_KEY</code> 를 보지 못하고 있습니다.
+                    Render 대시보드 → 해당 서비스 → Environment 에 이 이름으로 등록되어 있는지,
+                    저장 후 재배포가 끝났는지 확인하세요.
+                  </p>
+                )}
+                <span className="admin-mail-diag-vars">
+                  {Object.entries(mailStatus.diagnosis.present).map(([k, v]) => (
+                    <span key={k} className={v ? "is-set" : ""}>
+                      {k.replace("PREDICTION_MAIL_", "")}: {v ? "설정됨" : "없음"}
+                    </span>
+                  ))}
+                </span>
+              </div>
+            )}
             {mailStatus === null ? (
               <div className="admin-batch-row">
                 <span className="admin-skeleton admin-skeleton--row" />

@@ -275,6 +275,10 @@ def mail_status():
         # Which transport is live — "resend" or "smtp". The two fail in different ways
         # and this is the only screen that can say which one is in play.
         "backend": prediction_mail.backend_name(),
+        # Presence-only view of the mail settings this process can see. Returned
+        # always, not just on failure, so the panel can explain "발송 설정 필요"
+        # instead of only stating it. Never carries a value.
+        "diagnosis": prediction_mail.config_diagnosis(),
         "accounts": accounts,
         "today": mail_subscription_store.seoul_today(),
     }

@@ -233,6 +233,13 @@ export interface MailStatus {
   configured: boolean;
   /** "resend" | "smtp" | null — which transport the server will actually use. */
   backend: string | null;
+  /** Presence-only view of the mail environment variables the server can see, so an
+   * unconfigured panel can say which one is missing rather than only that one is. */
+  diagnosis: {
+    present: Record<string, boolean>;
+    unrecognized_names: string[];
+    needs_restart: boolean;
+  };
   accounts: MailAccount[];
   today: string;
 }

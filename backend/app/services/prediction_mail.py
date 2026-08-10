@@ -115,6 +115,45 @@ def is_configured() -> bool:
     return backend_name() is not None
 
 
+def config_diagnosis() -> dict:
+    """Which mail settings this process can actually see — presence only, never values.
+
+    "발송 설정 필요" on the panel is the same message whether a key was never set, was
+    set on the wrong service, or was spelled differently, and those need completely
+    different fixes. Reading the environment back is the only thing that separates
+    them: the deploy log says what was configured, this says what arrived.
+
+    `os.environ` is re-read here rather than reported from the module constants above.
+    Those are bound once at import, so a variable added to a running process would
+    show as missing forever — which is itself worth being able to see, hence
+    `needs_restart`.
+    """
+    live = {
+        name: bool(os.environ.get(name))
+        for name in (
+            "PREDICTION_MAIL_RESEND_KEY",
+            "PREDICTION_MAIL_USER",
+            "PREDICTION_MAIL_PASSWORD",
+            "PREDICTION_MAIL_FROM",
+        )
+    }
+    # Names people reach for when the real one doesn't work — reported so a typo or a
+    # provider's own documented name shows up as "set, but not under the name this
+    # app reads" instead of as nothing at all.
+    near_misses = [
+        name
+        for name in ("RESEND_API_KEY", "RESEND_KEY", "MAIL_RESEND_KEY", "PREDICTION_MAIL_RESEND_API_KEY")
+        if os.environ.get(name)
+    ]
+    return {
+        "present": live,
+        "unrecognized_names": near_misses,
+        # True when the value landed after this process started, so a restart is the
+        # fix rather than more configuration.
+        "needs_restart": bool(live["PREDICTION_MAIL_RESEND_KEY"]) and not RESEND_API_KEY,
+    }
+
+
 def mask_address(addr: str | None) -> str:
     """`someone@example.com` -> `s*****e@example.com`.
 
