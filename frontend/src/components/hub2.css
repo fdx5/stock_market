@@ -793,6 +793,69 @@
   }
 }
 
+/* The Interstellar button's own lettering: gold, and lit.
+ *
+ * It is the one control on this page that starts a film rather than opening a
+ * page, so it gets the one treatment nothing else has. The colour is a raked
+ * gradient rather than a flat gold — flat gold on a dark ground reads as
+ * mustard, and what makes metal look like metal is that the highlight travels
+ * across it.
+ *
+ * The glow is a drop-shadow filter and not a text-shadow, and it has to be:
+ * the glyphs here are transparent with a gradient clipped to them, so there is
+ * no text colour for a text-shadow to be cast from — it would draw nothing. A
+ * filter works on the painted result, gradient and all. Two of them, a tight
+ * one for the edge and a wide one for the halo, because a single radius reads
+ * as a blur rather than as light. */
+.h2-cam-gold {
+  background-image: linear-gradient(
+    100deg,
+    #a9761f 0%,
+    #ffd97a 22%,
+    #fff6d0 38%,
+    #ffd97a 54%,
+    #c9902c 74%,
+    #ffe9a8 100%
+  );
+  background-size: 240% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  /* The sweep and the breath run at rates that do not divide into each other,
+     so the two never land together and the lettering never looks like it is
+     on a loop. */
+  animation:
+    h2-cam-gold-sweep 7s linear infinite,
+    h2-cam-gold-glow 2.6s ease-in-out infinite;
+}
+
+@keyframes h2-cam-gold-sweep {
+  to {
+    /* A whole multiple of the background size, so the loop has no seam. */
+    background-position: -240% 0;
+  }
+}
+
+@keyframes h2-cam-gold-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 3px rgba(255, 198, 92, 0.5)) drop-shadow(0 0 9px rgba(255, 156, 28, 0.24));
+  }
+  50% {
+    filter: drop-shadow(0 0 6px rgba(255, 214, 122, 0.8)) drop-shadow(0 0 18px rgba(255, 156, 28, 0.44));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .h2-cam-gold {
+    animation: none;
+    /* Still gold and still lit — only the movement goes. */
+    filter: drop-shadow(0 0 4px rgba(255, 198, 92, 0.55)) drop-shadow(0 0 12px rgba(255, 156, 28, 0.3));
+  }
+}
+
+
 /* ─────────────────────── now playing: the board ───────────────────────
 
    Sits under the language and theme toggles and runs the track's name across
