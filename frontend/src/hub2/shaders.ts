@@ -590,6 +590,10 @@ uniform float uGlowMix;
  * a metre away. It reaches zero a little before the branch stops running, so
  * the layers fade out rather than switching off. */
 uniform float uDetail;
+/** Half the slab's thickness. The disc is drawn as three sheets stacked
+ * across its own normal rather than one, and each knows which it is from its
+ * own local y — so this is what turns that into a signed −1..1. */
+uniform float uSlab;
 varying vec3 vPosL;
 
 ${NOISE}
@@ -606,7 +610,18 @@ void main() {
   float omega = 1.0 / pow(max(r, 0.001), 1.5);
   float swirl = ang + uTime * omega * 26.0;
 
-  vec3 q = vec3(cos(swirl) * r, sin(swirl) * r, t * 3.0) * 0.42;
+  /* Which sheet of the slab this is, −1 at the bottom to +1 at the top.
+     A disc with no thickness is a sheet of paper, and edge-on — which is
+     where the ending spends twenty-five seconds — a sheet of paper is a line.
+     Three of them across the normal, each carrying its own structure, is a
+     body of gas: the layers occlude and add over each other as the camera
+     crosses, and the eye gets a top and a bottom to the thing it is flying
+     over. */
+  float slab = vPosL.y / max(uSlab, 0.0001);
+
+  /* The offset that makes each sheet its own. Without it the three are the
+     same field drawn three times and the slab is one sheet made brighter. */
+  vec3 q = vec3(cos(swirl) * r, sin(swirl) * r, t * 3.0 + slab * 1.7) * 0.42;
 
   /* Domain warp — the one thing here that makes this a fluid rather than a
    * texture on a turntable.
@@ -689,11 +704,16 @@ void main() {
      at the outside is new, and so is the separation between the gold and the
      white above it. */
   float temp = pow(1.0 - t, 2.1);
-  vec3 ember = vec3(0.46, 0.07, 0.02);
-  vec3 cold = vec3(0.86, 0.20, 0.03);
-  vec3 warm = vec3(1.0, 0.55, 0.13);
-  vec3 hot  = vec3(1.0, 0.86, 0.46);
-  vec3 xhot = vec3(0.82, 0.93, 1.0);
+  /* Deeper than they were. The ramp had drifted pale — every stop carried
+     enough green and blue to sit near white once the brightness was on it,
+     and a disc that goes white early has one colour and a lot of exposure
+     rather than a temperature gradient. Pulling the off-channels down leaves
+     the same sequence with the saturation put back. */
+  vec3 ember = vec3(0.34, 0.035, 0.012);
+  vec3 cold = vec3(0.80, 0.13, 0.02);
+  vec3 warm = vec3(1.0, 0.44, 0.07);
+  vec3 hot  = vec3(1.0, 0.80, 0.34);
+  vec3 xhot = vec3(0.78, 0.91, 1.0);
   vec3 color = mix(ember, cold, smoothstep(0.0, 0.16, temp));
   color = mix(color, warm, smoothstep(0.10, 0.45, temp));
   color = mix(color, hot, smoothstep(0.42, 0.78, temp));
@@ -740,7 +760,9 @@ void main() {
     color = mix(color, tinted, uGlowMix);
   }
 
-  float alpha = clamp(density * 1.7 + photon * 1.4, 0.0, 1.0);
+  /* And the slab's own falloff: the outer sheets are thinner than the middle
+     one, so the body has an edge that fades rather than three hard planes. */
+  float alpha = clamp(density * 1.7 + photon * 1.4, 0.0, 1.0) * (1.0 - 0.4 * abs(slab));
   gl_FragColor = vec4(color, alpha);
 }
 `;

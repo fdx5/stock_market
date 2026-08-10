@@ -618,6 +618,9 @@ export class HubScene {
   /* black hole */
   private holeGroup!: THREE.Object3D;
   private discMaterial!: THREE.ShaderMaterial;
+  /** The two outer sheets of the disc's slab, hidden when it is far enough
+   * away that its thickness is below a pixel. */
+  private discSkins: THREE.Mesh[] = [];
   private feed = 0;
   /* the jet, fired along the spin axis whenever something is swallowed */
   private jetGroup!: THREE.Object3D;
@@ -1888,36 +1891,59 @@ export class HubScene {
     this.holeGroup.add(horizon);
     this.disposables.push(horizonGeo, horizonMat);
 
-    /* Out from 5.2 horizon radii to 6.6 — 43 units rather than 34. The
-       ending now flies across this sheet at a metre or two above it for
-       twenty seconds, and what that shot needs more than anything is somewhere
-       to look: a disc whose far edge is close enough to see is a pond. */
-    const discGeo = new THREE.RingGeometry(HORIZON * 1.35, HORIZON * 6.6, 260, 30);
-    discGeo.rotateX(-Math.PI / 2);
+    /* Out from 5.2 horizon radii to 8.6 — 56 units rather than 34. The ending
+       flies across this sheet at a metre or two above it for twenty-five
+       seconds, and what that shot needs more than anything is somewhere to
+       look: a disc whose far edge is close enough to see is a pond. */
+    const DISC_IN = HORIZON * 1.35;
+    const DISC_OUT = HORIZON * 8.6;
+    /* And it has a thickness. A ring has none, and edge-on — which is where
+       the ending spends its longest movement — a thing with no thickness is a
+       line. Three sheets stacked across the normal, each carrying its own
+       structure (see uSlab in DISC_FRAG), give it a top and a bottom: the
+       layers add and occlude over each other as the camera crosses, which is
+       what a body of gas does and what a plane cannot. */
+    const SLAB = 0.45;
     this.discMaterial = new THREE.ShaderMaterial({
       vertexShader: DISC_VERT,
       fragmentShader: DISC_FRAG,
       uniforms: {
         uTime: { value: 0 },
-        uInner: { value: HORIZON * 1.35 },
-        uOuter: { value: HORIZON * 6.6 },
+        uInner: { value: DISC_IN },
+        uOuter: { value: DISC_OUT },
         uFeed: { value: 0 },
         uGlowTint: { value: new THREE.Color(0x39ff9e) },
         uGlowMix: { value: 0 },
         uDetail: { value: 0 },
+        uSlab: { value: SLAB },
       },
       transparent: true,
       depthWrite: false,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
     });
-    const disc = new THREE.Mesh(discGeo, this.discMaterial);
-    disc.renderOrder = 4;
+    const disc = new THREE.Object3D();
+    for (const dy of [-SLAB, 0, SLAB]) {
+      const geo = new THREE.RingGeometry(DISC_IN, DISC_OUT, 260, 30);
+      geo.rotateX(-Math.PI / 2);
+      // Baked into the geometry rather than set on the mesh, because the
+      // shader reads which sheet it is off the local position — a mesh offset
+      // would leave all three thinking they were the middle one.
+      geo.translate(0, dy, 0);
+      const sheet = new THREE.Mesh(geo, this.discMaterial);
+      sheet.renderOrder = 4;
+      disc.add(sheet);
+      this.disposables.push(geo);
+      /* The two outer sheets are the thickness, and thickness is only worth
+         anything close up: they follow uDetail off, so the resting view pays
+         for one disc rather than three. */
+      if (dy !== 0) this.discSkins.push(sheet);
+    }
     // Tipped well off edge-on so the disc reads as a disc from the default
     // camera rather than as a bright line.
     this.holeGroup.rotation.set(0.44, 0.6, 0.18);
     this.holeGroup.add(disc);
-    this.disposables.push(discGeo, this.discMaterial);
+    this.disposables.push(this.discMaterial);
 
     const info: BodyInfo = { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, bodyKo: BLACK_HOLE.bodyKo, bodyEn: BLACK_HOLE.bodyEn, to: BLACK_HOLE.to, accent: "#ff9a4d", size: HORIZON * 2.2, primary: true, dive: true };
     const hit = this.hitSphere(HORIZON * 2.4);
@@ -4150,14 +4176,14 @@ export class HubScene {
        enter     3    round and in
        tunnel   10    inside it, first person, riding across the passage
        space    12    out the far side, closing until the hole is half the frame
-       disc     20    down onto the sheet and across it, at a metre above
+       disc     25    down onto the sheet and across it, at a metre above
        inside    4.5  past the horizon: flashes, and light with no source
        static    7    the dead channel, which is the auto tour's own
        plate     5    the far side, held, with the stone dropped in it
        return    2.4  the picture comes back
 
-     Ninety-one seconds. Thirty of them are the arrival and twenty are the
-     crossing, which is the shot the whole ending exists to get to. That is
+     Ninety-six seconds. Thirty of them are the arrival and twenty-five are
+     the crossing, which is the shot the whole ending exists to get to. That is
      deliberate and it is the change this ending most needed: the wormhole is
      two units across and the first cut at this gave it three seconds, which
      is long enough to identify a thing and not long enough to look at one.
@@ -4169,7 +4195,7 @@ export class HubScene {
      driven for what writing them as three separate phases cost. */
   private static readonly WF_TUNNEL = 10;
   private static readonly WF_SPACE = 12;
-  private static readonly WF_DISC = 20;
+  private static readonly WF_DISC = 25;
   private static readonly WF_INSIDE = 4.5;
   private static readonly WF_STATIC = 7;
   private static readonly WF_PLATE = 5;
@@ -4177,11 +4203,11 @@ export class HubScene {
   private static readonly WF_T_DIVE = 30;
   private static readonly WF_T_TUNNEL = 40;
   private static readonly WF_T_SPACE = 52;
-  private static readonly WF_T_DISC = 72;
-  private static readonly WF_T_INSIDE = 76.5;
-  private static readonly WF_T_STATIC = 83.5;
-  private static readonly WF_T_PLATE = 88.5;
-  private static readonly WF_END = 90.9;
+  private static readonly WF_T_DISC = 77;
+  private static readonly WF_T_INSIDE = 81.5;
+  private static readonly WF_T_STATIC = 88.5;
+  private static readonly WF_T_PLATE = 93.5;
+  private static readonly WF_END = 95.9;
 
   private updateWormholeFinale(dt: number) {
     const t = this.finaleT;
@@ -4427,12 +4453,15 @@ export class HubScene {
       const run = smoothstep(0.26, 0.92, s);
       // 46 out to 13, with a slow weave over the top of the closing so the
       // craft wanders across the sheet rather than tracking one circle of it.
-      const ring = 46 - 33 * run + Math.sin(s * Math.PI * 3.1) * 7.0 * (1 - s * 0.55);
+      const ring = 60 - 46 * run + Math.sin(s * Math.PI * 3.1) * 8.5 * (1 - s * 0.55);
       const radius = ring * (1 - plunge) + 5.0 * plunge;
       /* Down from fourteen to a metre and a half. The first third is the only
          part of this shot with any altitude in it and it is what establishes
          the scale — from down on the deck a plane and a wall look the same. */
-      const height = (14.0 - 12.4 * descend - 0.4 * run) * (1 - plunge * 0.92);
+      /* Down from eighteen to two. Two rather than one and a half, because
+         the sheet has a thickness now and the camera has to fly over the slab
+         rather than through it. */
+      const height = (18.0 - 15.6 * descend - 0.4 * run) * (1 - plunge * 0.92);
       const cosA = Math.cos(this.finaleAngle);
       const sinA = Math.sin(this.finaleAngle);
       const want = this.tmpV2
@@ -5307,7 +5336,11 @@ export class HubScene {
      * telescope frames it at 157, so everything that is actually looking at
      * this thing gets all of it. */
     const near = this.camera.position.distanceTo(holePos);
-    this.discMaterial.uniforms.uDetail.value = clamp01((240 - near) / 60);
+    const detail = clamp01((240 - near) / 60);
+    this.discMaterial.uniforms.uDetail.value = detail;
+    // And the slab's outer sheets with it: three discs when it is worth three,
+    // one when the thickness would be under a pixel anyway.
+    for (const skin of this.discSkins) skin.visible = detail > 0.01;
   }
 
   /** The jet, on the two moments in the cycle that earn one: when the rock is
