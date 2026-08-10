@@ -632,7 +632,7 @@ void main() {
 
      The same expression is baked into the geometry vertex for vertex, so this
      division gives back exactly which of the five sheets a fragment is on. */
-  float prof = 0.18 + 0.55 * pow(t, 1.15) + 1.05 * exp(-t * 4.5);
+  float prof = 0.18 + 0.50 * pow(t, 1.2) + 1.60 * exp(-t * 3.6);
   float slab = vPosL.y / max(uSlab * prof, 0.0001);
 
   /* The offset that makes each sheet its own. Without it the three are the
@@ -726,13 +726,18 @@ void main() {
      whole plane reads as one flat surface at one temperature. The deep red
      at the outside is new, and so is the separation between the gold and the
      white above it. */
-  float temp = pow(1.0 - t, 2.1);
+  /* Slower than it was — the old 2.1 put the white-hot band inside the first
+     ninth of the radius, so the disc was orange almost everywhere and the hot
+     core was a rim rather than a region. At 1.5 the heat reaches out far
+     enough that the middle of this thing is white and the gradient down to
+     the dark red at the rim is something you can see happening. */
+  float temp = pow(1.0 - t, 1.5);
   /* Deeper than they were. The ramp had drifted pale — every stop carried
      enough green and blue to sit near white once the brightness was on it,
      and a disc that goes white early has one colour and a lot of exposure
      rather than a temperature gradient. Pulling the off-channels down leaves
      the same sequence with the saturation put back. */
-  vec3 ember = vec3(0.34, 0.035, 0.012);
+  vec3 ember = vec3(0.26, 0.022, 0.007);
   vec3 cold = vec3(0.80, 0.13, 0.02);
   vec3 warm = vec3(1.0, 0.44, 0.07);
   vec3 hot  = vec3(1.0, 0.80, 0.34);
@@ -740,7 +745,7 @@ void main() {
   vec3 color = mix(ember, cold, smoothstep(0.0, 0.16, temp));
   color = mix(color, warm, smoothstep(0.10, 0.45, temp));
   color = mix(color, hot, smoothstep(0.42, 0.78, temp));
-  color = mix(color, xhot, smoothstep(0.82, 1.0, temp));
+  color = mix(color, xhot, smoothstep(0.68, 0.95, temp));
 
   /* Even all the way round — see the section comment on the beaming that used
      to sit here. Both constants are the old ones times 1.35, the mean of the
@@ -761,12 +766,36 @@ void main() {
      the crests, which is what separates one stream from the next; the gain
      comes down with it because deepening the lanes is not an excuse to make
      the whole thing brighter. */
-  float brightness = pow(density, 1.35) * (1.62 + uFeed * 0.7);
-  color *= brightness;
+  /* The slab's own falloff, which is a Gaussian and not a ramp.
+     A column of gas is densest on the mid-plane and thins away from it on a
+     curve with no edge to it — which is what stops five evenly spaced sheets
+     being five countable sheets. A polynomial ramp gave every one of them a
+     definite brightness and a definite edge, so the eye found five; on a
+     Gaussian the outer pair are a quarter of the middle and read as the haze
+     around a body rather than as layers of one.
 
-  // The photon ring: light that orbited the hole before escaping, piling up
-  // just outside the horizon. Always white, always the brightest thing here.
-  float photon = exp(-pow((t - 0.012) * 130.0, 2.0));
+     It multiplies the colour as well as the alpha, because these are additive
+     surfaces: fading only the alpha leaves every sheet contributing the same
+     light and the stack is as bright as ever, which is most of why the middle
+     came out as five white discs. */
+  float vert = exp(-slab * slab * 1.6);
+  /* And the bulge is lit as well as swollen. A thicker column of gas is a
+     brighter one — there is more of it in the line of sight — and without the
+     lift the puffed middle came out the same value as the thin waist beyond
+     it, which reads as a flat disc with a bump drawn on it rather than as
+     something that is actually deeper there. */
+  float swell = 1.0 + 1.15 * pow(1.0 - t, 3.0);
+  float brightness = pow(density, 1.35) * (1.62 + uFeed * 0.7) * swell;
+  color *= brightness * vert;
+
+  /* The photon ring: light that orbited the hole before escaping, piling up
+     just outside the horizon. Always white, always the brightest thing here —
+     and drawn on the middle sheet ALONE.
+     It is a lensing feature, one ring of light at one radius, not a property
+     of the gas: drawn on all five sheets it came out as five white rings
+     stacked up the bulge, which is the single thing that made the slab look
+     like a stack of plates rather than a body. */
+  float photon = exp(-pow((t - 0.012) * 130.0, 2.0)) * step(abs(slab), 0.25);
   color += vec3(1.0, 0.97, 0.9) * photon * (2.4 + uFeed * 0.7);
 
   if (uGlowMix > 0.001) {
@@ -785,11 +814,7 @@ void main() {
 
   /* And the slab's own falloff: the outer sheets are thinner than the middle
      one, so the body has an edge that fades rather than three hard planes. */
-  /* And the slab's own falloff, quadratic rather than linear: the sheets are
-     evenly spaced but a column of gas is not evenly dense, and a linear ramp
-     leaves the outer pair bright enough to be counted. Squared, the body has
-     a middle and an edge. */
-  float alpha = clamp(density * 1.7 + photon * 1.4, 0.0, 1.0) * (1.0 - 0.62 * slab * slab);
+  float alpha = clamp(density * 1.7 + photon * 1.4, 0.0, 1.0) * vert;
   gl_FragColor = vec4(color, alpha);
 }
 `;

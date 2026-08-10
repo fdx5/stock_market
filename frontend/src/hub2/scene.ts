@@ -1915,10 +1915,10 @@ export class HubScene {
        flow puffs into a torus, which is what gives the middle its volume;
        outward the scale height grows with radius the way a thin disc's does,
        so it flares again toward the rim; and there is a waist at about two
-       fifths. At 2.6 the bulge is 3.2 units of half-thickness at the ISCO
-       against a rim of 1.9 — a body rather than a blade, which is what a disc
+       fifths. At 2.6 the bulge is 4.6 units of half-thickness at the ISCO
+       against a waist of 1.7 and a rim of 1.9 — a body rather than a blade, which is what a disc
        that tapered to nothing exactly where it is brightest looked like. */
-    const flare = (tt: number) => 0.18 + 0.55 * Math.pow(tt, 1.15) + 1.05 * Math.exp(-tt * 4.5);
+    const flare = (tt: number) => 0.18 + 0.5 * Math.pow(tt, 1.2) + 1.6 * Math.exp(-tt * 3.6);
     this.discMaterial = new THREE.ShaderMaterial({
       vertexShader: DISC_VERT,
       fragmentShader: DISC_FRAG,
