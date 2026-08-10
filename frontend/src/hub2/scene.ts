@@ -6325,6 +6325,20 @@ export class HubScene {
   private static readonly VOYAGER_PASS_RANGE_MIN = 12;
   private static readonly VOYAGER_CRUISE_RANGE = 11;
   private static readonly VOYAGER_CRUISE_RANGE_MIN = 62;
+  /** And a ceiling on it, which the floor above always needed a partner for.
+   *
+   * The window is read off the body, and Saturn's body — for this purpose —
+   * is the outer edge of its ring sheet at 13.75. Eleven times that is 151
+   * units of braking, and Jupiter's own track is inside it: the probe spent
+   * the whole of the Jupiter-to-Saturn leg decelerating for something it
+   * could not yet see, and that one leg came to twenty-seven seconds against
+   * eleven and twelve for the two before it.
+   *
+   * Seventy-eight is five and a half times Saturn's own ring sheet, which is
+   * as much warning as anything here needs. Measured over the route: the
+   * Jupiter leg goes from 26.6 seconds to 19.4 and the whole flight from 54
+   * to 45.7, with nothing else about the pacing touched. */
+  private static readonly VOYAGER_CRUISE_RANGE_MAX = 78;
   /** How much the cruise speed grows with distance from the star.
    *
    * A flat cruise speed makes the outer legs drag, and not because the number
@@ -6697,9 +6711,9 @@ export class HubScene {
         this.voyagerReach[i] * HubScene.VOYAGER_PASS_RANGE,
         HubScene.VOYAGER_PASS_RANGE_MIN
       );
-      const far = Math.max(
-        this.voyagerReach[i] * HubScene.VOYAGER_CRUISE_RANGE,
-        HubScene.VOYAGER_CRUISE_RANGE_MIN
+      const far = Math.min(
+        Math.max(this.voyagerReach[i] * HubScene.VOYAGER_CRUISE_RANGE, HubScene.VOYAGER_CRUISE_RANGE_MIN),
+        HubScene.VOYAGER_CRUISE_RANGE_MAX
       );
       brake = Math.max(brake, 1 - clamp01((d - near) / (far - near)));
     }
@@ -6720,9 +6734,9 @@ export class HubScene {
         this.voyagerStop++;
       } else if (!owed && this.voyagerLoiter < 0) {
         const d = this.voyagerCenters[i].distanceTo(this.voyager.position);
-        const window = Math.max(
-          this.voyagerReach[i] * HubScene.VOYAGER_CRUISE_RANGE,
-          HubScene.VOYAGER_CRUISE_RANGE_MIN
+        const window = Math.min(
+          Math.max(this.voyagerReach[i] * HubScene.VOYAGER_CRUISE_RANGE, HubScene.VOYAGER_CRUISE_RANGE_MIN),
+          HubScene.VOYAGER_CRUISE_RANGE_MAX
         );
         if (d < window && d > this.voyagerStopDist) {
           this.voyagerPassed[i] = true;
