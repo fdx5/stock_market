@@ -8,7 +8,7 @@ import {
   observableOf,
   type ObservableSpec,
 } from "../hub2/observatory";
-import type { BodyInfo, FeedMap, Tier } from "../hub2/scene";
+import type { BodyInfo, FeedMap, SceneStats, Tier } from "../hub2/scene";
 import { HubScene } from "../hub2/scene";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -18,6 +18,7 @@ import { useBgmEqualizer } from "../useBgmEqualizer";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useHubDwell } from "../useHubDwell";
 import { useYouTubeBgm } from "../useYouTubeBgm";
+import FrameMeter, { type FrameMeterHandle } from "./FrameMeter";
 import LanguageToggle from "./LanguageToggle";
 import ThemeToggle from "./ThemeToggle";
 import "./hub2.css";
@@ -81,6 +82,28 @@ const EQ_BARS = [
 
 const EMPTY_FEED: FeedMap = { KOSPI: null, KOSDAQ: null, SPX: null, NDX: null };
 
+/* `?fps` puts the frame meter on screen — bare, or with any of the usual ways
+ * of writing yes. `?fps=0`, `?fps=off` and `?fps=false` are how you leave a
+ * link with the parameter already in it switched off without editing the URL
+ * back down.
+ *
+ * Read once, at module scope, for the same reason ?tier is read inside the
+ * mount effect and never again: this is a debugging switch, and a switch that
+ * could change halfway through a session would mean the scene has to be able
+ * to start and stop measuring itself. It cannot, deliberately — see `metering`
+ * in scene.ts. Reload to change it.
+ *
+ * It pairs with ?tier: `?fps=1&tier=ultra` holds the expensive tier still and
+ * shows what it costs, which is the only honest way to measure it on a machine
+ * that would otherwise demote itself two seconds in. */
+const FPS_METER = (() => {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("fps")) return false;
+  const value = (params.get("fps") ?? "").trim().toLowerCase();
+  return value !== "0" && value !== "off" && value !== "false" && value !== "no";
+})();
+
 /* ───────────────────────────── clocks ───────────────────────────── */
 
 function useTick(): Date {
@@ -136,6 +159,11 @@ export default function HubType2() {
      in state because the scene's callbacks fire outside React's world and must
      not close over a stale render. */
   const feedRef = useRef<FeedMap>(EMPTY_FEED);
+  /* The frame meter, when it is up. Written to imperatively for the same
+     reason the scene is: a setState twice a second would re-render this
+     component — dock, rail, clocks and all — and the meter would end up
+     reporting the cost of itself. */
+  const meterRef = useRef<FrameMeterHandle | null>(null);
 
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -334,6 +362,9 @@ export default function HubType2() {
            rather than the other way round. */
         onVoyagerTour: (on) => setProbeTour(on),
         onCurtain: (on) => setCurtain(on),
+        /* Absent unless `?fps` asked for it, and its absence is what tells the
+           scene not to measure at all. See SceneCallbacks.onStats. */
+        onStats: FPS_METER ? (stats: SceneStats) => meterRef.current?.push(stats) : undefined,
       }, tier);
       if (tier) setTier(tier);
     } catch (error) {
@@ -661,7 +692,7 @@ export default function HubType2() {
           onClick={() => {
             reportHubEvent("control", {
               key: `ctrl:voyager:${probeTour ? "off" : "on"}`,
-              label: `인터스텔라 재현 ${probeTour ? "OFF" : "ON"}`,
+              label: `인터스텔라 ${probeTour ? "OFF" : "ON"}`,
             });
             setTour(false);
             setProbeTour((on) => !on);
@@ -670,7 +701,7 @@ export default function HubType2() {
           {/* The label is its own element because the colour cycle is a
               gradient clipped to the glyphs, and the button already has a
               background of its own to keep. */}
-          <span className="h2-cam-gold">{en ? "INTERSTELLAR RECREATED" : "인터스텔라 재현"}</span>
+          <span className="h2-cam-gold">{en ? "INTERSTELLAR" : "인터스텔라"}</span>
         </button>
         {/* The telescope. Not a destination — it opens the observation panel
             rather than a route — so it is a mode this page enters rather than
@@ -951,6 +982,14 @@ export default function HubType2() {
           {en ? `QUALITY · ${tier.toUpperCase()}` : `품질 · ${tier.toUpperCase()}`}
         </p>
       )}
+
+      {/* The frame meter. Outside the ready gate on purpose — the first two
+          seconds, while the world is being built and the textures are landing,
+          are the worst frames the page will ever serve and the ones most worth
+          seeing. It is left out of the curtain and observing rules too: when
+          the scene blacks out for the tour's ending, the render is still
+          running and the interesting question is what it costs. */}
+      {FPS_METER && <FrameMeter ref={meterRef} />}
 
       {/* Text routes to everything, outside the canvas. The bodies are
           clickable and the dock is focusable, but a crawler — and a reader on

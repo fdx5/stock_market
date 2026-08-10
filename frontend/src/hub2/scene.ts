@@ -140,6 +140,14 @@ const TIER_ORDER: Tier[] = ["ultra", "high", "low"];
 const TIER_DOWN_FPS = 44;
 const TIER_SAMPLE_MS = 1600;
 
+/** How often the frame meter reports, and how many frames of history it hands
+ * over for the graph. 400ms is fast enough that the number tracks what the
+ * scene is doing while you drag it, slow enough that the digits are readable
+ * rather than a blur; 128 frames is about two seconds at 60Hz, which is the
+ * span a hitch has to survive in to be worth finding. */
+const STATS_REPORT_MS = 400;
+const STATS_HISTORY = 128;
+
 /** A first guess, refined by measurement within a couple of seconds. Phones
  * and tablets start one tier down not because they are necessarily slow but
  * because starting high and dropping is a visible stutter on the way in,
@@ -206,6 +214,46 @@ export interface SceneCallbacks {
    * photograph held for five seconds behind a grid of floating labels is not
    * held at all. */
   onCurtain(on: boolean): void;
+  /** A performance sample, roughly twice a second. Optional, and the whole
+   * meter hangs off whether it was passed: without it the scene keeps no frame
+   * history, times nothing and allocates nothing — see sampleFps. It exists for
+   * `?fps`, which is a debugging switch, not a feature of the page. */
+  onStats?(stats: SceneStats): void;
+}
+
+/** One window's worth of measurement. Everything here is either a number the
+ * frame already had or one three.js was keeping anyway; nothing is computed
+ * for the meter that the scene did not already know.
+ *
+ * The pair to read together is `ms` against `cpu`. `ms` is wall time between
+ * frames — what the visitor sees. `cpu` is how much of it this thread spent
+ * building the frame. When they are close the main thread is the bottleneck and
+ * the fix is in JS: fewer draw calls, fewer per-frame allocations, less work in
+ * the update passes. When `cpu` is far below `ms` the thread is waiting on the
+ * GPU and the fix is in pixels: pixel ratio, bloom, the full-screen passes. */
+export interface SceneStats {
+  /** Frames per second across the window. */
+  fps: number;
+  /** Mean wall time per frame, ms. 16.7 is a 60Hz frame. */
+  ms: number;
+  /** The longest single frame in the window — the hitch a mean hides. */
+  worst: number;
+  /** Mean JS time inside the frame callback, ms: updates plus the render
+   * submission, but not the GPU work that submission queues. */
+  cpu: number;
+  /** Draw calls and triangles in the last frame of the window. */
+  calls: number;
+  triangles: number;
+  /** What is resident on the GPU. Flat while the scene is idle; a number that
+   * climbs frame after frame is something being rebuilt that should not be. */
+  geometries: number;
+  textures: number;
+  programs: number;
+  tier: Tier;
+  /** The pixel ratio actually in use, which the tier caps. */
+  dpr: number;
+  /** Wall time of the most recent frames, oldest first, for the graph. */
+  history: number[];
 }
 
 export type FeedMap = Record<FeedKey, number | null>;
@@ -979,6 +1027,36 @@ export class HubScene {
   private running = true;
   private ready = false;
 
+  /* ── the meter, which is off unless somebody asked for it ──
+   *
+   * `metering` is set once, from whether a stats callback was handed in. It
+   * gates every line below it: the timestamps, the ring buffer, the sums. The
+   * tier sampler above has to count frames whatever happens — that is how the
+   * scene knows to demote itself — but nothing here runs on a normal visit.
+   *
+   * The alternative was to measure always and only report when asked. That
+   * would put two performance.now() calls and a handful of stores in the frame
+   * of every visitor in order to serve a query parameter, which is exactly the
+   * kind of cost this file spends its comments avoiding. */
+  private metering = false;
+  /** Start of the current meter window, and its frame count. Kept apart from
+   * fpsFrames/fpsSince because the two windows are different lengths — the tier
+   * sampler wants 1.6s of evidence before it changes the picture, the meter
+   * wants to move often enough to read as live. */
+  private statsSince = 0;
+  private statsFrames = 0;
+  /** Wall time of the previous frame's start, for the interval. */
+  private statsPrev = 0;
+  private statsSum = 0;
+  private statsWorst = 0;
+  /** Time spent inside the frame callback, summed over the window. */
+  private statsCpu = 0;
+  /** The last STATS_HISTORY frame intervals, oldest first once it has filled.
+   * A plain array used as a ring: allocated once, written in place, never
+   * pushed to. */
+  private statsHistory: number[] = [];
+  private statsHistoryAt = 0;
+
   private resizeObserver: ResizeObserver;
   /* The viewport, in CSS pixels, as of the last resize.
    *
@@ -1176,7 +1254,18 @@ export class HubScene {
     }
     this.startIntro();
     this.timer.connect(document);
-    this.fpsSince = performance.now();
+    const start = performance.now();
+    this.fpsSince = start;
+    this.metering = typeof callbacks.onStats === "function";
+    if (this.metering) {
+      this.statsSince = start;
+      this.statsPrev = start;
+      // Allocated whole, once. A ring that grows by pushing would hand the
+      // garbage collector a new array every couple of seconds — inside the
+      // thing measuring frame times, which is the one place a collection pause
+      // would land in the numbers it is reporting.
+      this.statsHistory = new Array<number>(STATS_HISTORY).fill(0);
+    }
     this.frame = requestAnimationFrame(this.tick);
   }
 
@@ -5083,6 +5172,13 @@ export class HubScene {
     if (!this.running) return;
     this.frame = requestAnimationFrame(this.tick);
 
+    /* The top of the frame, read before any work has been done in it. The gap
+       back to the previous top is the interval the visitor actually sees; the
+       gap forward to the bottom is what this thread spent building it. Both
+       come from this one number, and it is not read at all unless the meter is
+       on. */
+    const top = this.metering ? performance.now() : 0;
+
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), 0.05);
     const time = this.timer.getElapsed();
@@ -5147,7 +5243,7 @@ export class HubScene {
       this.ready = true;
       this.callbacks.onReady();
     }
-    this.sampleFps();
+    this.sampleFps(top);
   };
 
   private updatePlanets(dt: number, time: number, speed: number) {
@@ -7375,10 +7471,17 @@ export class HubScene {
     strength.value = clamp01(1 - (offscreen - 0.55) / 0.55);
   }
 
-  private sampleFps() {
-    if (this.pinned) return;
-    this.fpsFrames++;
+  private sampleFps(top: number) {
+    /* One clock read serves both windows. A pinned tier still meters — pinning
+       switches off the demotion, not the measurement, and `?tier=ultra&fps=1`
+       is precisely the combination worth being able to ask for: hold the
+       expensive tier still and watch what it costs. */
+    if (this.pinned && !this.metering) return;
     const now = performance.now();
+    if (this.metering) this.sampleStats(top, now);
+    if (this.pinned) return;
+
+    this.fpsFrames++;
     const elapsed = now - this.fpsSince;
     if (elapsed < TIER_SAMPLE_MS) return;
 
@@ -7392,6 +7495,57 @@ export class HubScene {
     if (fps < TIER_DOWN_FPS && index < TIER_ORDER.length - 1) {
       this.demote(TIER_ORDER[index + 1]);
     }
+  }
+
+  /** Folds one frame into the meter's window and reports when the window is
+   * up. Everything in here is arithmetic on numbers already in hand: no clock
+   * read of its own, no allocation per frame, and the one array it does build
+   * is built twice a second, not sixty times. */
+  private sampleStats(top: number, now: number) {
+    const frame = top - this.statsPrev;
+    this.statsPrev = top;
+    this.statsFrames++;
+    this.statsSum += frame;
+    if (frame > this.statsWorst) this.statsWorst = frame;
+    this.statsCpu += now - top;
+    this.statsHistory[this.statsHistoryAt] = frame;
+    this.statsHistoryAt = (this.statsHistoryAt + 1) % STATS_HISTORY;
+
+    const elapsed = now - this.statsSince;
+    if (elapsed < STATS_REPORT_MS) return;
+
+    /* Unrolled from the ring into reading order — the write cursor round to
+       itself — so the graph runs left to right in time no matter where in the
+       buffer the window happened to end. */
+    const history = new Array<number>(STATS_HISTORY);
+    for (let i = 0; i < STATS_HISTORY; i++) {
+      history[i] = this.statsHistory[(this.statsHistoryAt + i) % STATS_HISTORY];
+    }
+
+    const info = this.renderer.info;
+    this.callbacks.onStats?.({
+      fps: (this.statsFrames * 1000) / elapsed,
+      ms: this.statsSum / this.statsFrames,
+      worst: this.statsWorst,
+      cpu: this.statsCpu / this.statsFrames,
+      // The last frame's counts, not the window's: these are what the renderer
+      // reset at the top of it, and a sum across a window would only be the
+      // same number multiplied by a frame count.
+      calls: info.render.calls,
+      triangles: info.render.triangles,
+      geometries: info.memory.geometries,
+      textures: info.memory.textures,
+      programs: info.programs?.length ?? 0,
+      tier: this.tier,
+      dpr: this.renderer.getPixelRatio(),
+      history,
+    });
+
+    this.statsSince = now;
+    this.statsFrames = 0;
+    this.statsSum = 0;
+    this.statsWorst = 0;
+    this.statsCpu = 0;
   }
 
   /** Steps down a tier in place. Only the things that can be changed without

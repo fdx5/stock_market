@@ -108,7 +108,13 @@
       Going in, that gives the fade below; coming out, the element reverts to
       its own rule and fades back on its own 0.9s — which is what should
       happen, since the scene behind it is fading up over about that long. ── */
-.h2.is-curtained > *:not(.h2-stage),
+/* The frame meter is the one exception, and only because it is not part of the
+   page: it appears behind ?fps, it is measuring a render that keeps running
+   through the black-out, and those frames — a full-screen plate, the lensing
+   at its widest — are among the most expensive the scene ever serves. Hiding
+   the instrument exactly when the picture is most expensive to draw would be
+   the wrong half of the measurement to lose. */
+.h2.is-curtained > *:not(.h2-stage):not(.h2-fps),
 .h2.is-curtained .h2-labels {
   opacity: 0;
   pointer-events: none;
@@ -1729,6 +1735,145 @@
 
 .h2-credit a:hover {
   color: var(--hud-dim);
+}
+
+/* ─────────────────────────── the frame meter ───────────────────────────
+
+   Only ever on screen behind `?fps`. It breaks rule 1 at the top of this file
+   on purpose — it is saturated, it is centred, and it sits over the sky rather
+   than in a corner — because it is an instrument rather than chrome, and an
+   instrument that is hard to read while the thing it measures moves is worse
+   than no instrument. It is also the only block here that does not wait for
+   `is-ready`: the frames it exists to show are the ones before that.
+
+   Top centre is the one edge of this HUD nothing else claims: the lockup has
+   the top left, the clocks and toggles the top right, the readout and the
+   camera stack the two flanks, and the dock the whole bottom.  */
+
+.h2-fps {
+  position: absolute;
+  top: var(--edge);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 30;
+  width: 208px;
+  padding: 8px 10px 7px;
+  border-radius: 10px;
+  border: 1px solid rgba(130, 170, 230, 0.22);
+  /* Darker and flatter than --panel. Everything in here is a number read at a
+     glance against a starfield that is moving underneath it, and the HUD's
+     usual translucency put stars through the digits. */
+  background: rgba(4, 8, 18, 0.82);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.45);
+  /* Tabular figures, or the readout jogs sideways twice a second as digits of
+     different widths swap in — which reads as the panel itself stuttering. */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  /* Never in the way of the scene it is measuring: this panel sits over the
+     canvas, and a drag started on it has to reach the camera. */
+  pointer-events: none;
+  user-select: none;
+}
+
+.h2-fps-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.h2-fps-num {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  /* Set by the tone, which the panel only rewrites when the band changes. */
+  color: var(--fps-tone, #39d98a);
+}
+
+.h2-fps-unit {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--hud-faint);
+}
+
+.h2-fps-ms {
+  margin-left: auto;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--hud-dim);
+}
+
+.h2-fps[data-tone="good"] {
+  --fps-tone: #39d98a;
+}
+
+.h2-fps[data-tone="fair"] {
+  --fps-tone: #f5c451;
+}
+
+.h2-fps[data-tone="bad"] {
+  --fps-tone: #ff5d5d;
+}
+
+/* The graph's own box, so the bars have a floor to stand on and the two
+   deadline rules drawn inside it have something to read against. */
+.h2-fps-graph {
+  display: block;
+  width: 184px;
+  height: 38px;
+  margin: 6px 0 5px;
+  border-radius: 4px;
+  background: rgba(120, 160, 220, 0.07);
+}
+
+.h2-fps-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px 10px;
+  margin: 0;
+}
+
+.h2-fps-grid > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.h2-fps-wide {
+  grid-column: 1 / -1;
+}
+
+.h2-fps-grid dt {
+  font-size: 8.5px;
+  letter-spacing: 0.14em;
+  color: var(--hud-faint);
+}
+
+.h2-fps-grid dd {
+  margin: 0;
+  font-size: 10.5px;
+  color: var(--hud-dim);
+}
+
+.h2-fps-tier {
+  margin: 4px 0 0;
+  padding-top: 4px;
+  border-top: 1px solid rgba(130, 170, 230, 0.12);
+  font-size: 8.5px;
+  letter-spacing: 0.18em;
+  color: rgba(140, 165, 200, 0.5);
+}
+
+/* Under the top row rather than in it — at this width the lockup and the
+   clocks already own the whole edge, and the meter would land on top of one
+   of them. */
+@media (max-width: 760px) {
+  .h2-fps {
+    top: calc(var(--edge) + 76px);
+  }
 }
 
 /* ─────────────────────────── the fallback ─────────────────────────── */
