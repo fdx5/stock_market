@@ -415,6 +415,31 @@ function MedalIcon({ className }: { className?: string }) {
 
 const PANEL_HEIGHT_KEY_PREFIX = "admin_panel_height:";
 
+/* The width at which the dashboard stops being a multi-column desktop layout and
+   becomes one stacked column (see the @media (max-width: 900px) block in
+   styles.css). Kept here as well because two behaviours below are not styling and
+   cannot live in a media query: a saved panel height is an inline style, which no
+   stylesheet rule can outrank, and the per-list drag handle only exists in the
+   stacked layout. */
+const STACKED_LAYOUT_QUERY = "(max-width: 900px)";
+
+/** Tracks the stacked (phone/tablet) layout so JS-driven sizing can follow the same
+ * breakpoint the stylesheet does, and can follow it live — a rotation from portrait
+ * to landscape crosses this line without a reload. */
+function useStackedLayout() {
+  const [stacked, setStacked] = useState(
+    () => typeof window !== "undefined" && window.matchMedia(STACKED_LAYOUT_QUERY).matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(STACKED_LAYOUT_QUERY);
+    const onChange = (e: MediaQueryListEvent) => setStacked(e.matches);
+    setStacked(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  return stacked;
+}
+
 /** A manually-dragged panel height, persisted to localStorage, driven by a small
  * handle rendered at the panel's own bottom edge (`.admin-panel-resize-handle`) —
  * NOT native CSS `resize`, which a first pass used and which turned out to only work
@@ -429,7 +454,7 @@ const PANEL_HEIGHT_KEY_PREFIX = "admin_panel_height:";
  * trend panel isn't parented by a flex container at all, so the same call is simply
  * inert there, but every panel gets one consistent interaction instead of a native
  * handle on one and something else on four others. */
-function useResizablePanel(key: string) {
+function useResizablePanel(key: string, enabled: boolean) {
   const ref = useRef<HTMLElement>(null);
   const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
 
@@ -440,11 +465,26 @@ function useResizablePanel(key: string) {
     el.style.height = `${Math.round(px)}px`;
   };
 
+  /* Re-run on every breakpoint change, not just on mount. A height saved by
+     dragging on a desktop is an inline style, and an inline style outranks the
+     stacked-layout media query that otherwise lets each panel size to its own
+     content — so on a phone that same 300-odd pixels became a hard clip on a panel
+     that now stacks four sections vertically instead of laying them out in four
+     columns, hiding everything past the first one. Below the breakpoint the saved
+     height is dropped rather than applied; it stays in storage and comes back the
+     next time the layout is wide enough for it to mean anything. */
   useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (!enabled) {
+      el.style.flex = "";
+      el.style.height = "";
+      return;
+    }
     const saved = localStorage.getItem(PANEL_HEIGHT_KEY_PREFIX + key);
     if (saved) applyHeight(parseFloat(saved));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, enabled]);
 
   const onHandlePointerDown = (e: React.PointerEvent<HTMLSpanElement>) => {
     const el = ref.current;
@@ -481,17 +521,143 @@ function useResizablePanel(key: string) {
   return { ref, onHandlePointerDown };
 }
 
+const LIST_HEIGHT_KEY_PREFIX = "admin_list_height:";
+/* Four rows is the floor — below that a ranking stops being a ranking and becomes a
+   podium with a scrollbar. The ceiling is generous on purpose: someone who wants the
+   whole list open on a phone should be able to just open it. */
+const LIST_MIN_HEIGHT = 120;
+const LIST_MAX_HEIGHT = 1400;
+
+const clampListHeight = (px: number) => Math.min(LIST_MAX_HEIGHT, Math.max(LIST_MIN_HEIGHT, px));
+
+/** A per-ranking height, dragged and persisted like useResizablePanel but applied to
+ * the scrolling list itself rather than to a panel.
+ *
+ * Stacked on a phone the three rankings are stacked too, so the useful unit of
+ * height is no longer "the panel" — the panel just grows — but "how much of THIS
+ * list do I want to see before the next one starts". Whoever is reading 종목검색
+ * 순위 wants that one long and the other two short, and only they know which.
+ *
+ * Height lives in React state (rather than being written straight to the node the
+ * way the panel hook does it) because the list unmounts and remounts as the data
+ * moves between its loading / empty / loaded states, and a value on the node would
+ * go with it. */
+function useResizableList(key: string, enabled: boolean) {
+  const ref = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startY: number; startHeight: number } | null>(null);
+  const [height, setHeight] = useState<number | null>(null);
+
+  /* Mirrors useResizablePanel's rule in the other direction: a height dragged on a
+     phone is meaningless in the four-column desktop layout, where all three lists
+     share one row, so it is dropped there and read back from storage on the way
+     back down. */
+  useEffect(() => {
+    if (!enabled) {
+      setHeight(null);
+      return;
+    }
+    const saved = localStorage.getItem(LIST_HEIGHT_KEY_PREFIX + key);
+    if (!saved) return;
+    const px = parseFloat(saved);
+    if (Number.isFinite(px)) setHeight(clampListHeight(px));
+  }, [key, enabled]);
+
+  const persist = (px: number | null) => {
+    if (px === null) localStorage.removeItem(LIST_HEIGHT_KEY_PREFIX + key);
+    else localStorage.setItem(LIST_HEIGHT_KEY_PREFIX + key, `${Math.round(px)}`);
+  };
+
+  const onHandlePointerDown = (e: React.PointerEvent<HTMLElement>) => {
+    const el = ref.current;
+    if (!el || (e.button !== 0 && e.button !== -1)) return;
+    e.preventDefault();
+    const handle = e.currentTarget;
+    handle.setPointerCapture(e.pointerId);
+    const startHeight = el.getBoundingClientRect().height;
+    dragRef.current = { startY: e.clientY, startHeight };
+    let latest = startHeight;
+
+    const onMove = (ev: PointerEvent) => {
+      const drag = dragRef.current;
+      if (!drag) return;
+      latest = clampListHeight(drag.startHeight + (ev.clientY - drag.startY));
+      setHeight(latest);
+    };
+    const onUp = (ev: PointerEvent) => {
+      dragRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      handle.releasePointerCapture(ev.pointerId);
+      persist(latest);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  /* Back to the stylesheet's own height. The drag is the fine control; this is the
+     way out of a height you dragged too far, without having to drag it back. */
+  const reset = () => {
+    setHeight(null);
+    persist(null);
+  };
+
+  return { ref, height, onHandlePointerDown, reset, resized: height !== null };
+}
+
+/** The stacked-layout grab bar for one ranking list. Wide and full-width rather than
+ * the hairline strip the desktop panels use — this one is only ever dragged with a
+ * thumb, and a 4px target under a thumb is a target you miss. */
+function ListResizeHandle({
+  list,
+  label,
+}: {
+  list: ReturnType<typeof useResizableList>;
+  label: string;
+}) {
+  return (
+    <div className="admin-list-resize">
+      <span
+        className="admin-list-resize-grip"
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label={`${label} 높이 조절`}
+        title="위아래로 끌어서 높이 조절"
+        onPointerDown={list.onHandlePointerDown}
+      >
+        <span className="admin-list-resize-bar" />
+        높이 조절
+      </span>
+      {list.resized && (
+        <button type="button" className="admin-list-resize-reset" onClick={list.reset}>
+          기본값
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboardPage() {
   useDocumentTitle("관리자 대시보드 | K-Stock Hub");
   const [authed] = useState(() => !!getStoredSession());
+  /* Which of the two height systems is live. They are mutually exclusive on
+     purpose: wide, the five panels negotiate a shared budget of screen height and
+     the drag handles sit on the panels; stacked, every panel is as tall as it needs
+     to be and the only thing worth sizing is each individual ranking list. */
+  const stacked = useStackedLayout();
+
   // One resizable-panel controller per panel — see useResizablePanel's own comment.
   // Keys are stable, human-readable strings rather than array indices so a later
   // panel reorder can't silently swap two saved heights.
-  const trendPanel = useResizablePanel("trend");
-  const sessionsPanel = useResizablePanel("sessions");
-  const commentsPanel = useResizablePanel("comments");
-  const tailPanel = useResizablePanel("tail");
-  const batchPanel = useResizablePanel("batch");
+  const trendPanel = useResizablePanel("trend", !stacked);
+  const sessionsPanel = useResizablePanel("sessions", !stacked);
+  const commentsPanel = useResizablePanel("comments", !stacked);
+  const tailPanel = useResizablePanel("tail", !stacked);
+  const batchPanel = useResizablePanel("batch", !stacked);
+
+  // ...and one per ranking list, live only in the stacked layout.
+  const pagesList = useResizableList("pages", stacked);
+  const stocksList = useResizableList("stocks", stacked);
+  const hubList = useResizableList("hub", stacked);
 
   // The trend SVG's own viewBox tracks .admin-trend-chart-wrap's actual measured
   // size (see the `width`/`height` destructure further down) rather than a fixed
@@ -1755,7 +1921,12 @@ export default function AdminDashboardPage() {
           ) : rankedPages.length === 0 ? (
             <p className="admin-empty">아직 수집된 데이터가 없습니다.</p>
           ) : (
-            <div className="admin-toppages-list admin-toppages-list--scroll">
+            <>
+            <div
+              className="admin-toppages-list admin-toppages-list--scroll"
+              ref={pagesList.ref}
+              style={pagesList.height !== null ? { maxHeight: pagesList.height } : undefined}
+            >
               {rankedPages.map((p, i) => {
                 const rank = i + 1;
                 const medal = RANK_MEDAL[rank];
@@ -1786,6 +1957,8 @@ export default function AdminDashboardPage() {
                 );
               })}
             </div>
+            {stacked && <ListResizeHandle list={pagesList} label="페이지 순위" />}
+            </>
           )}
         </div>
 
@@ -1809,7 +1982,12 @@ export default function AdminDashboardPage() {
                 : `${STOCK_RANK_MIN_COUNT}회 이상 검색된 종목이 아직 없습니다.`}
             </p>
           ) : (
-            <div className="admin-toppages-list admin-toppages-list--scroll">
+            <>
+            <div
+              className="admin-toppages-list admin-toppages-list--scroll"
+              ref={stocksList.ref}
+              style={stocksList.height !== null ? { maxHeight: stocksList.height } : undefined}
+            >
               {rankedStocks.map((s, i) => {
                 const rank = i + 1;
                 const medal = RANK_MEDAL[rank];
@@ -1844,6 +2022,8 @@ export default function AdminDashboardPage() {
                 );
               })}
             </div>
+            {stacked && <ListResizeHandle list={stocksList} label="종목검색 순위" />}
+            </>
           )}
         </div>
 
@@ -1887,7 +2067,12 @@ export default function AdminDashboardPage() {
           ) : rankedHub.length === 0 ? (
             <p className="admin-empty">아직 메인 페이지 반응 기록이 없습니다.</p>
           ) : (
-            <div className="admin-toppages-list admin-toppages-list--scroll">
+            <>
+            <div
+              className="admin-toppages-list admin-toppages-list--scroll"
+              ref={hubList.ref}
+              style={hubList.height !== null ? { maxHeight: hubList.height } : undefined}
+            >
               {rankedHub.map((h, i) => {
                 const rank = i + 1;
                 const medal = RANK_MEDAL[rank];
@@ -1930,6 +2115,8 @@ export default function AdminDashboardPage() {
                 );
               })}
             </div>
+            {stacked && <ListResizeHandle list={hubList} label="메인 반응 순위" />}
+            </>
           )}
         </div>
         </div>

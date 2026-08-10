@@ -11199,9 +11199,21 @@ button.admin-comments-text--clickable:hover {
 
   /* Below this width the columns stack, so the 50vh height-share machinery
      (built for the 3-column desktop layout) is reset back to natural,
-     content-based sizing per stacked section. */
+     content-based sizing per stacked section.
+
+     `overflow` has to come back too, and it is the more important half. Wide, the
+     panel is a fixed-height box whose four sections sit side by side, so clipping at
+     its edge is invisible; stacked, those same four sections run *down* the page and
+     a panel that clips is a panel showing you the chart, a sliver of 페이지 순위, and
+     nothing else — 종목검색 순위 and 메인 반응 순위 never reach the screen at all.
+     What made the box fixed-height in the first place was a height saved from a
+     desktop drag, applied inline where no rule here could reach it; useResizablePanel
+     now drops that below this breakpoint (see its comment), and this makes the
+     stacked panel un-clippable regardless. */
   .admin-panel--trend {
     min-height: 0;
+    height: auto;
+    overflow: visible;
   }
 
   .admin-trend-layout {
@@ -11232,6 +11244,73 @@ button.admin-comments-text--clickable:hover {
     padding-top: 16px;
     border-left: none;
     border-top: 1px solid var(--gridline);
+  }
+
+  /* Three rankings stacked one after another, so the desktop ten-row height is no
+     longer a neutral choice — it decides how far you scroll to reach the next
+     ranking. Roughly six rows here, and .admin-list-resize hands the rest of the
+     decision to whoever is reading (see useResizableList in AdminDashboardPage.tsx);
+     an inline max-height from a drag overrides this. */
+  .admin-toppages-list--scroll {
+    max-height: 214px;
+  }
+
+  /* Only exists in this stacked layout — see the JSX, which renders it behind the
+     same breakpoint. */
+  .admin-list-resize {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+  }
+
+  /* The grab target: full width and 28px tall, because it is dragged with a thumb.
+     `touch-action: none` is what keeps the drag from being stolen by the page's own
+     vertical scroll the moment the finger moves. */
+  .admin-list-resize-grip {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 28px;
+    border-radius: 8px;
+    background: var(--page-plane);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: ns-resize;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .admin-list-resize-grip:active {
+    border-color: var(--series-blue);
+    color: var(--series-blue);
+  }
+
+  .admin-list-resize-bar {
+    width: 26px;
+    height: 3px;
+    border-radius: 2px;
+    background: currentColor;
+    opacity: 0.55;
+  }
+
+  .admin-list-resize-reset {
+    flex: none;
+    padding: 0 10px;
+    height: 28px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
   }
 }
 
