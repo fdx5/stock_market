@@ -153,7 +153,7 @@ def assess_reliability(payload: dict, technical: dict, ai: dict) -> dict:
     korean = item["market"] in ("KOSPI", "KOSDAQ")
 
     if ai.get("source") != "claude":
-        penalize(15, "AI 정성 분석 대신 내장 휴리스틱으로 60% 영역을 계산함")
+        penalize(15, "AI 정성 분석 대신 내장 휴리스틱으로 45% 영역을 계산함")
 
     headlines = payload.get("headlines") or []
     if not headlines:
@@ -195,7 +195,7 @@ def assess_reliability(payload: dict, technical: dict, ai: dict) -> dict:
     tech_score = float(technical.get("score") or 0.0)
     ai_score = float(ai.get("ai_score") or 0.0)
     if tech_score * ai_score < 0 and abs(tech_score) > 0.15 and abs(ai_score) > 0.15:
-        penalize(12, "정량 지표(40%)와 정성 판단(60%)이 서로 반대 방향을 가리킴")
+        penalize(12, "정량 지표(55%)와 정성 판단(45%)이 서로 반대 방향을 가리킴")
 
     volume_ratio = technical.get("volume_ratio")
     if volume_ratio and volume_ratio >= 3.0:
@@ -415,7 +415,21 @@ def build_evidence(payload: dict, technical: dict, ai: dict, market_ctx: dict) -
             _entry(CATEGORY_PRICE, "당일 종가 등락", f"{session_change:+.2f}%", _impact(session_change))
         )
     for group in technical.get("driver_groups", []):
-        if group["group"] in ("trend", "momentum", "band") and group["texts"]:
+        # Listed first among the price signals, and labelled for what it is: since the
+        # engine was rebuilt around short-horizon mean reversion this is the term that
+        # actually decides the call, and the three classic chart readings below it are
+        # description. An evidence panel that led with 추세 while 추세 no longer moved
+        # the number would be pointing a reader at the wrong row.
+        if group["group"] == "reversal" and group["texts"]:
+            evidence.append(
+                _entry(
+                    CATEGORY_PRICE,
+                    "단기 반전 신호",
+                    " · ".join(group["texts"]),
+                    _impact(group["score"]),
+                )
+            )
+        elif group["group"] in ("trend", "momentum", "band") and group["texts"]:
             evidence.append(
                 _entry(
                     CATEGORY_PRICE,

@@ -1,43 +1,105 @@
-"""Scoring: the 40% quantitative block, and the weighted combination with the 60%
-qualitative block from ai_analyst.
+"""Scoring: the quantitative block, and its weighted combination with the qualitative
+block from ai_analyst.
 
-The split is fixed by design — chart trend and order-book pressure carry 40% of the
-verdict, everything else (news, macro, flows, peer context) carries 60%. Inside the
-40%, chart and order book are 70/30. That inner split matters because the order book
-is a 20-minute-delayed end-of-session snapshot, not a live tape: it's real information
-about where resting depth sat at the close, but it is thinner evidence than months of
-price and volume, and weighting it as an equal partner would let one lopsided ladder
-overturn a clear trend.
+## Why this block was rebuilt (2026-08)
+
+The original version scored the chart the way a chart is normally read: price above
+its moving averages, MACD widening, volume confirming — trend-following, with the
+verdict leaning the way the stock had just been going. Replayed over the actual
+roster (90 stocks, 3 years, 51,780 stock-days, both KRX markets and NASDAQ) every one
+of those signals came out with a *negative* information coefficient against the next
+session:
+
+    trend -0.0057   momentum -0.0175   band -0.0173   volume -0.0115
+    combined chart score -0.0139   (directional hit rate 49.6%)
+
+That is not a bad month. It held in all three markets, in all four volatility
+buckets, and across a 70/30 time split. The reason is visible in the same data: at a
+one-day horizon this universe mean-reverts. Yesterday's move has the strongest single
+relationship to tomorrow's and it is *inverted* (IC -0.028), and the same holds for
+the 5-day move and for distance from the 20-day mean. The engine was pointed the
+wrong way, so the 60% qualitative block was spending most of its weight correcting a
+40% block that was actively subtracting information.
+
+So the quantitative verdict is now built from the terms that measured positive out of
+sample, and the classic chart readings are kept for the evidence panel — which is
+what they were always genuinely good for — without steering the number. See
+`_reversal_score`.
+
+## What this does not claim
+
+The edge is small. Out of sample the rebuilt block scores IC +0.021 and roughly 36%
+on the three-way call against a 35.1% "always 상승" baseline. Next-day direction on
+single stocks is close to irreducible with public daily data, and a page implying
+otherwise would be lying. The point of this module is to be honestly on the right
+side of zero and to say how confident it actually is — see `_confidence`, which is
+now tied to the signal's own strength percentile because the previous grades measured
+nothing (강 37.5% vs 약 36.1% over 362 graded live rows).
 """
 
 import datetime as dt
+import math
 
 import pandas as pd
 
 from app.data.prediction_universe import snap_to_tick
 from app.services import ai_analyst, prediction_quality
 
-# Inside the 40% quantitative block.
-CHART_WEIGHT = 0.70
-ORDERBOOK_WEIGHT = 0.30
+# Inside the quantitative block. The reversal composite is the part with measured
+# out-of-sample skill; the order book is a 20-minute-delayed end-of-session depth
+# snapshot that no historical feed exists for, so it cannot be backtested the same
+# way. It keeps a place because resting depth at the close is real information, and a
+# minority weight because "cannot be validated" is a reason for restraint, not for
+# exclusion.
+REVERSAL_WEIGHT = 0.75
+ORDERBOOK_WEIGHT = 0.25
 
-# The headline split the whole feature is specified around.
-TECHNICAL_WEIGHT = 0.40
-AI_WEIGHT = 0.60
+# The headline split. Moved from 40/60 to 55/45: the quantitative block is now the
+# half of the verdict that has a measured sign, and at 40% a validated signal was
+# being outvoted by an unvalidated one. The qualitative block stays substantial
+# because news, flows and index context carry information the price series cannot.
+TECHNICAL_WEIGHT = 0.55
+AI_WEIGHT = 0.45
 
 RESULT_UP = "상승"
 RESULT_DOWN = "하락"
 RESULT_FLAT = "보합"
 
 # Below this the two blocks are effectively disagreeing or both near zero, and calling
-# a direction would be reading noise.
-FLAT_SCORE_THRESHOLD = 0.12
+# a direction would be reading noise. Lowered from 0.12 so that the 보합 band is the
+# single definition of "too small to call" — with MOVE_SCALE at 2.4 the band already
+# binds at |score| 0.146, and two thresholds fighting over the same decision was how
+# the old engine ended up with a 보합 rate nothing had chosen.
+FLAT_SCORE_THRESHOLD = 0.08
 
 # Scales a unit score into a percentage move via the stock's own 20-day volatility, so
 # a full-conviction call on a quiet large cap predicts a smaller move than the same
-# call on a volatile one. 1.2 keeps a maximum-conviction prediction close to a single
-# strong session rather than an outlier day.
-MOVE_SCALE = 1.2
+# call on a volatile one.
+#
+# Raised from 1.2 to 2.4, which is a calibration fix rather than a confidence one. A
+# directional call needs |move| > band, and band is 0.35x the same volatility, so 1.2
+# required |score| > 0.292 — against a live score distribution whose standard
+# deviation was 0.232. The arithmetic could only end one way: 72% of all published
+# calls came out 보합 while only 31% of sessions actually were, and the 보합 rows hit
+# 33.6%, which is what reading noise looks like. At 2.4 the published mix lands near
+# the observed one (~68% directional) — the model now says a direction about as often
+# as the market takes one.
+MOVE_SCALE = 2.4
+
+# Equities drift up, and a pure reversal signal is structurally short that drift: a
+# stock in an uptrend spends most of its life above its own 20-day mean, so a model
+# reading distance-from-the-mean as overextension calls 하락 on it session after
+# session. Measured over the training split the roster's average day was +0.220%, and
+# leaving it out showed up exactly where the arithmetic says it should — the rebuilt
+# block published 36.9% 하락 against a 33.5% reality.
+#
+# Added as a constant rather than folded into the score because it is not a view about
+# any particular stock: it is the level the whole distribution sits at, and it belongs
+# where it can be read off in one line and re-measured when the regime changes.
+# Centring each term on its own trailing mean was tried instead and fixed the same
+# skew, but cost a quarter of the composite's information coefficient (+0.020 →
+# +0.016), so the constant is what shipped.
+DRIFT_PCT = 0.22
 # Hard ceiling on the predicted move. KRX's daily limit is ±30% and there is no US
 # equivalent, but a next-day point forecast beyond this is not a forecast — it's a
 # guess, and printing one would misrepresent how much the inputs actually support.
@@ -176,6 +238,74 @@ def _volume_score(df: pd.DataFrame) -> tuple[float, list[str]]:
     return _clip(sum(checks) / len(checks)), drivers
 
 
+def _reversal_score(df: pd.DataFrame, vol_pct: float) -> tuple[float, list[str]]:
+    """The quantitative verdict: short-horizon mean reversion, in [-1, 1].
+
+    Three horizons of "how far has this run from where it was", each divided by the
+    move size that is normal *for this stock* and then inverted. Normalizing matters
+    as much as the sign does — a -4% day on a utility and a -4% day on a small-cap
+    semiconductor name are not the same event, and the raw percentage treats them
+    alike. Each horizon is scaled by √t so a 5-day move and a 1-day move are compared
+    on the same footing rather than the longer window always dominating.
+
+    Weights are the measured ones, not chosen ones. Over the 70% training split the
+    three terms scored IC -0.037 / -0.020 / -0.019 against the next session (so
+    +0.037 / +0.020 / +0.019 inverted), and 0.5 / 0.3 / 0.2 is that ordering. The
+    composite held at IC +0.021 on the 30% of history the weights never saw, which is
+    the only number here worth trusting.
+
+    Clipped at ±3 sigma before weighting. Without it a single limit-up day — and this
+    roster had six of them in one session — would push one stock's score to an
+    extreme the evidence doesn't support and drag the whole composite with it.
+    """
+    closes = df["close"].astype(float)
+    if len(closes) < 21 or vol_pct <= 0:
+        return 0.0, []
+
+    last = float(closes.iloc[-1])
+    drivers: list[str] = []
+    terms: list[tuple[float, float]] = []  # (weight, z)
+
+    prev = float(closes.iloc[-2])
+    if prev > 0:
+        z1 = _clip((last / prev - 1) * 100 / vol_pct, -3.0, 3.0)
+        terms.append((0.5, z1))
+        if abs(z1) >= 0.8:
+            drivers.append(
+                f"당일 {'급등' if z1 > 0 else '급락'} (평소 변동의 {abs(z1):.1f}배) → 되돌림 우위"
+            )
+
+    back5 = float(closes.iloc[-6])
+    if back5 > 0:
+        z5 = _clip((last / back5 - 1) * 100 / (vol_pct * math.sqrt(5)), -3.0, 3.0)
+        terms.append((0.3, z5))
+        if abs(z5) >= 0.8:
+            drivers.append(f"5일 누적 {'과열' if z5 > 0 else '과매도'} 구간")
+
+    sma20 = df.iloc[-1].get("sma20")
+    if pd.notna(sma20) and float(sma20) > 0:
+        zg = _clip((last / float(sma20) - 1) * 100 / (vol_pct * math.sqrt(20)), -3.0, 3.0)
+        terms.append((0.2, zg))
+        if abs(zg) >= 0.8:
+            drivers.append(f"20일선 대비 {'과다 이격' if zg > 0 else '과다 하회'}")
+
+    if not terms:
+        return 0.0, []
+
+    # Renormalized by the weight actually present, so a stock too young for a 20-day
+    # mean isn't quietly scored as if that term had come out neutral.
+    total_w = sum(w for w, _ in terms)
+    composite = -sum(w * z for w, z in terms) / total_w
+
+    # /2 maps the working range of the composite onto [-1, 1]: the terms are z-scores
+    # clipped at 3, but a weighted blend of three of them lands inside ±2 in all but
+    # a fraction of a percent of sessions.
+    score = _clip(composite / 2.0)
+    if not drivers:
+        drivers.append("단기 과열·과매도 신호 없음 (중립)")
+    return score, drivers
+
+
 def _orderbook_score(orderbook: dict | None) -> tuple[float | None, list[str]]:
     """Returns None (not 0.0) when there is no book, which is how the caller knows to
     redistribute this weight instead of scoring an absent signal as neutral."""
@@ -210,7 +340,7 @@ def _volatility_expansion(closes: pd.Series) -> float | None:
 
 
 def compute_technical(features: dict, session: dt.date | None = None) -> dict:
-    """The 40% block for one stock, plus the plain-language pieces the rationale and
+    """The quantitative block for one stock, plus the plain-language pieces the rationale and
     the UI both read from.
 
     Also reports the session's own numbers (today's move, volume ratio, volatility
@@ -232,41 +362,53 @@ def compute_technical(features: dict, session: dt.date | None = None) -> dict:
     band, band_drivers = _band_score(row, trend)
     volume, volume_drivers = _volume_score(clean)
 
-    # Trend leads, momentum confirms, band and volume refine. These are the chart's
-    # own internal weights — the block as a whole is then worth CHART_WEIGHT of the 40%.
+    # The classic chart reading, kept whole — but as description, not as verdict. It
+    # is what the evidence panel and the AI prompt need in order to say what the chart
+    # looks like, and it measured negative against the next session (see the module
+    # docstring), so it no longer steers the number. Reported as `chart_score` for the
+    # debug payload and the UI exactly as before.
     chart = _clip(trend * 0.40 + momentum * 0.30 + band * 0.15 + volume * 0.15)
-
-    book_score, book_drivers = _orderbook_score(features.get("orderbook"))
-    if book_score is None:
-        # No depth feed for this name (every US ticker, and any KRX name whose ladder
-        # failed to scrape). The chart absorbs the full block rather than the missing
-        # signal being scored as neutral, which would silently dampen every US call
-        # toward zero relative to a comparable KRX one.
-        technical = chart
-        book_note = "호가 데이터 미제공 (차트 지표에 가중치 재배분)"
-    else:
-        technical = _clip(chart * CHART_WEIGHT + book_score * ORDERBOOK_WEIGHT)
-        book_note = None
 
     volatility = row.get("volatility20")
     volatility_pct = (
         float(volatility) * 100 if pd.notna(volatility) and float(volatility) > 0 else 1.8
     )
 
-    drivers = [*trend_drivers, *momentum_drivers, *band_drivers, *volume_drivers, *book_drivers]
+    reversal, reversal_drivers = _reversal_score(clean, volatility_pct)
+
+    book_score, book_drivers = _orderbook_score(features.get("orderbook"))
+    if book_score is None:
+        # No depth feed for this name (every US ticker, and any KRX name whose ladder
+        # failed to scrape). The reversal block absorbs the full weight rather than the
+        # missing signal being scored as neutral, which would silently dampen every US
+        # call toward zero relative to a comparable KRX one.
+        technical = reversal
+        book_note = "호가 데이터 미제공 (단기 반전 지표에 가중치 재배분)"
+    else:
+        technical = _clip(reversal * REVERSAL_WEIGHT + book_score * ORDERBOOK_WEIGHT)
+        book_note = None
+
+    drivers = [
+        *reversal_drivers,
+        *trend_drivers,
+        *momentum_drivers,
+        *band_drivers,
+        *volume_drivers,
+        *book_drivers,
+    ]
     if book_note:
         drivers.append(book_note)
 
     if technical > 0.3:
-        summary = "단기 추세와 모멘텀이 모두 상방을 가리킴"
+        summary = "단기 과매도에 따른 반등 우위"
     elif technical > 0.1:
-        summary = "완만한 상승 우위이나 신호 강도는 제한적"
+        summary = "완만한 반등 우위이나 신호 강도는 제한적"
     elif technical > -0.1:
         summary = "방향성 신호가 상쇄되어 중립"
     elif technical > -0.3:
-        summary = "완만한 하락 우위"
+        summary = "완만한 되돌림(하락) 우위"
     else:
-        summary = "추세와 모멘텀이 모두 하방을 가리킴"
+        summary = "단기 과열에 따른 되돌림 우위"
 
     prev_close = float(prev["close"])
     session_change_pct = round((float(row["close"]) / prev_close - 1) * 100, 3) if prev_close else None
@@ -296,7 +438,9 @@ def compute_technical(features: dict, session: dt.date | None = None) -> dict:
         # the flat list the AI prompt reads; this is what lets the evidence panel say
         # *which* category a signal belongs to and whether that category leaned up or
         # down, without parsing the Korean text back apart.
+        "reversal_score": round(reversal, 3),
         "driver_groups": [
+            {"group": "reversal", "score": round(reversal, 3), "texts": reversal_drivers},
             {"group": "trend", "score": round(trend, 3), "texts": trend_drivers},
             {"group": "momentum", "score": round(momentum, 3), "texts": momentum_drivers},
             {"group": "band", "score": round(band, 3), "texts": band_drivers},
@@ -333,12 +477,21 @@ def _decide(total: float, volatility_pct: float, band: float) -> tuple[str, floa
     session even opened. One definition of 보합, used by the call, the distribution and
     the grade alike.
     """
-    move = total * volatility_pct * MOVE_SCALE
+    move = total * volatility_pct * MOVE_SCALE + DRIFT_PCT
     move = max(-MAX_MOVE_PCT, min(MAX_MOVE_PCT, move))
 
     if abs(total) < FLAT_SCORE_THRESHOLD or abs(move) < band:
         return RESULT_FLAT, round(move, 2)
     return (RESULT_UP if move > 0 else RESULT_DOWN), round(move, 2)
+
+
+# Where the combined score has to sit before the call is worth calling confident.
+# Set from the backtest's selective-prediction curve rather than from taste: taking
+# only the strongest ~20% of signals lifted the three-way hit rate from 34.3% to
+# 36.8%, and below roughly the top third the curve is flat. These are the score
+# magnitudes that bracket that region.
+CONFIDENCE_STRONG = 0.42
+CONFIDENCE_MEDIUM = 0.24
 
 
 def _confidence(total: float, technical: float, ai_score: float) -> str:
@@ -348,12 +501,18 @@ def _confidence(total: float, technical: float, ai_score: float) -> str:
     deserves more confidence than the same +0.5 built from a strongly bullish chart
     fighting clearly bad news. Without this the page would show identical conviction
     for two very different situations.
+
+    The thresholds come from the backtest because the old ones described nothing: over
+    362 graded live rows 강 hit 37.5%, 중 33.1% and 약 36.1%, which is a label that
+    cost a reader attention and returned no information. A grade here has to track the
+    one thing measurement says separates a better call from a worse one — how far the
+    signal is from zero.
     """
     magnitude = abs(total)
     same_side = (technical >= 0) == (ai_score >= 0)
-    if magnitude >= 0.45 and same_side:
+    if magnitude >= CONFIDENCE_STRONG and same_side:
         return "강"
-    if magnitude >= 0.22:
+    if magnitude >= CONFIDENCE_MEDIUM:
         return "중" if same_side else "약"
     return "약"
 
