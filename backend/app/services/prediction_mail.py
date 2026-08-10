@@ -372,9 +372,17 @@ def send_watchlist(
     predict_date: str | None = None,
     to_addr: str | None = None,
     dry_run: bool = False,
+    manual: bool = False,
 ) -> dict:
     """One mail per code. Returns a per-stock report rather than raising on the first
-    failure — a dead ticker on the list must not cost the other four their mail."""
+    failure — a dead ticker on the list must not cost the other four their mail.
+
+    `manual=False` is the scheduled batch and sends each stock at most once per Seoul
+    calendar day; a stock already mailed today is reported as skipped rather than sent
+    again. `manual=True` is an operator pressing the button in the admin panel and
+    always sends — that is the whole point of the button, and someone who asks twice
+    on purpose is not making the mistake the daily cap exists to prevent.
+    """
     if not dry_run and not is_configured():
         raise MailNotConfigured(
             "PREDICTION_MAIL_USER / PREDICTION_MAIL_PASSWORD / PREDICTION_MAIL_TO "
@@ -391,6 +399,13 @@ def send_watchlist(
         row = _pick_row(code, predict_date)
         if row is None:
             skipped.append({"code": code, "reason": "예측 이력 없음"})
+            continue
+
+        # The daily cap, checked per stock rather than per run: a batch that retries
+        # after a partial failure has to be able to finish the stocks it missed
+        # without re-mailing the ones it already delivered.
+        if not manual and not dry_run and mail_subscription_store.already_sent(to_addr, code):
+            skipped.append({"code": code, "name": row["name"], "reason": "오늘 이미 발송됨"})
             continue
 
         history = prediction_store.list_by_code(code, limit=30)
@@ -413,10 +428,16 @@ def send_watchlist(
         try:
             _send_one(to_addr, subject, html_body, text_body)
             sent.append({"code": code, "name": row["name"], "predict_date": row["predict_date"], "subject": subject})
+            mail_subscription_store.record_send(
+                to_addr, code, row["name"], row["predict_date"], subject, "sent", manual
+            )
             logger.info("prediction_mail: sent %s -> %s", code, mask_address(to_addr))
         except Exception as exc:  # noqa: BLE001 - report and continue down the list
             logger.warning("prediction_mail: send failed for %s (%s)", code, exc)
             failed.append({"code": code, "error": str(exc)})
+            mail_subscription_store.record_send(
+                to_addr, code, row["name"], row["predict_date"], subject, "failed", manual, str(exc)
+            )
 
     return {
         # Masked, always. This dict is printed by the CLI, returned over HTTP and
@@ -433,7 +454,12 @@ def send_watchlist(
     }
 
 
-def send_subscriptions(predict_date: str | None = None, dry_run: bool = False) -> dict:
+def send_subscriptions(
+    predict_date: str | None = None,
+    dry_run: bool = False,
+    manual: bool = False,
+    only_email: str | None = None,
+) -> dict:
     """The batch entry point: every active subscription in the table gets its own
     stocks, and nothing else.
 
@@ -443,6 +469,16 @@ def send_subscriptions(predict_date: str | None = None, dry_run: bool = False) -
     point of a per-subscriber batch is that subscribers are independent.
     """
     targets = mail_subscription_store.resolve_targets(active_only=True)
+    if only_email:
+        # The admin panel identifies an account by its masked address, because that is
+        # all it was ever given. Matching on the mask keeps the clear address inside
+        # this process instead of making the client hold one so it can send it back.
+        wanted = only_email.strip().lower()
+        targets = {
+            addr: codes
+            for addr, codes in targets.items()
+            if addr == wanted or mail_subscription_store.mask(addr) == only_email
+        }
     if not targets:
         return {
             "subscriptions": 0,
@@ -456,7 +492,11 @@ def send_subscriptions(predict_date: str | None = None, dry_run: bool = False) -
         try:
             results.append(
                 send_watchlist(
-                    codes=tuple(codes), predict_date=predict_date, to_addr=addr, dry_run=dry_run
+                    codes=tuple(codes),
+                    predict_date=predict_date,
+                    to_addr=addr,
+                    dry_run=dry_run,
+                    manual=manual,
                 )
             )
         except Exception as exc:  # noqa: BLE001 - one bad subscriber must not stop the rest

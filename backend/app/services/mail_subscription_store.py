@@ -62,9 +62,37 @@ CREATE TABLE IF NOT EXISTS mail_subscriptions (
 )
 """
 
+# Every send attempt, successful or not. Two jobs: it is the 발송이력 the admin panel
+# reads, and it is what enforces the once-a-day rule — `already_sent` is a query
+# against this table rather than a flag kept somewhere else that could disagree with
+# what actually went out.
+#
+# `sent_date` is stored beside `sent_at` rather than derived from it at query time.
+# The rule is "one mail per stock per calendar day in Seoul", and deriving that from a
+# UTC timestamp in SQL means every reader has to remember to shift the timezone — one
+# that forgets silently applies the rule against the wrong day boundary.
+_LOG_SCHEMA = """
+CREATE TABLE IF NOT EXISTS mail_send_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    stock_code TEXT NOT NULL,
+    stock_name TEXT,
+    predict_date TEXT,
+    subject TEXT,
+    status TEXT NOT NULL,
+    manual INTEGER NOT NULL DEFAULT 0,
+    error TEXT,
+    sent_date TEXT NOT NULL,
+    sent_at TEXT NOT NULL
+)
+"""
+
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_mail_subs_email ON mail_subscriptions (email)",
     "CREATE INDEX IF NOT EXISTS idx_mail_subs_active ON mail_subscriptions (active)",
+    "CREATE INDEX IF NOT EXISTS idx_mail_log_sent_at ON mail_send_log (sent_at DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_mail_log_dedupe "
+    "ON mail_send_log (email, stock_code, sent_date, status)",
 )
 
 _SELECT = "id, email, stock_code, stock_name, active, created_at, updated_at"
@@ -113,10 +141,21 @@ def _connect():
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
+    conn.execute(_LOG_SCHEMA)
     for statement in _INDEXES:
         conn.execute(statement)
     conn.commit()
     return conn
+
+
+def seoul_today() -> str:
+    """The calendar day the once-a-day rule is measured in, as YYYY-MM-DD.
+
+    Seoul rather than UTC because that is the day the reader is living in: a mail sent
+    at 08:00 KST and another at 23:00 KST are the same day to them, but straddle the
+    UTC boundary and would count as two.
+    """
+    return (dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=9)).strftime("%Y-%m-%d")
 
 
 def _with_connection(fn):
@@ -299,3 +338,115 @@ def count() -> int:
         return conn.execute("SELECT COUNT(*) FROM mail_subscriptions").fetchone()[0]
 
     return int(_with_connection(_run))
+
+
+# ---------------------------------------------------------------------------
+# send log
+# ---------------------------------------------------------------------------
+
+def record_send(
+    email: str,
+    stock_code: str,
+    stock_name: str | None,
+    predict_date: str | None,
+    subject: str | None,
+    status: str,
+    manual: bool,
+    error: str | None = None,
+) -> None:
+    """Appends one attempt. Failures are logged too — an operator looking at 발송이력
+    to work out why nothing arrived needs to see the attempt that failed, not an empty
+    list that looks identical to "never tried"."""
+    now = dt.datetime.now(dt.timezone.utc)
+
+    def _run(conn):
+        conn.execute(
+            "INSERT INTO mail_send_log "
+            "(email, stock_code, stock_name, predict_date, subject, status, manual, error, "
+            " sent_date, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                email,
+                stock_code,
+                stock_name,
+                predict_date,
+                subject,
+                status,
+                1 if manual else 0,
+                error,
+                seoul_today(),
+                now.isoformat(timespec="seconds"),
+            ),
+        )
+        conn.commit()
+
+    _with_connection(_run)
+
+
+def already_sent(email: str, stock_code: str, day: str | None = None) -> bool:
+    """Has this address already had this stock today?
+
+    Only `sent` counts. A failed attempt must not consume the day's one slot, or a
+    transient SMTP error would silently cost the reader that stock until tomorrow.
+    """
+    target_day = day or seoul_today()
+
+    def _run(conn):
+        return conn.execute(
+            "SELECT 1 FROM mail_send_log "
+            "WHERE email = ? AND stock_code = ? AND sent_date = ? AND status = 'sent' LIMIT 1",
+            (email, stock_code, target_day),
+        ).fetchone()
+
+    return _with_connection(_run) is not None
+
+
+def recent_sends(limit: int = 60, email: str | None = None) -> list[dict]:
+    """Newest first, addresses masked — this feeds the admin panel directly."""
+    def _run(conn):
+        if email:
+            return conn.execute(
+                "SELECT email, stock_code, stock_name, predict_date, subject, status, manual, "
+                "error, sent_date, sent_at FROM mail_send_log WHERE email = ? "
+                "ORDER BY id DESC LIMIT ?",
+                (normalize_email(email), limit),
+            ).fetchall()
+        return conn.execute(
+            "SELECT email, stock_code, stock_name, predict_date, subject, status, manual, "
+            "error, sent_date, sent_at FROM mail_send_log ORDER BY id DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+
+    return [
+        {
+            "email": mask(r[0]),
+            "stock_code": r[1],
+            "stock_name": r[2],
+            "predict_date": r[3],
+            "subject": r[4],
+            "status": r[5],
+            "manual": bool(r[6]),
+            "error": r[7],
+            "sent_date": r[8],
+            "sent_at": r[9],
+        }
+        for r in _with_connection(_run)
+    ]
+
+
+def today_summary() -> dict[str, dict]:
+    """Per address: how many of its stocks have gone out today, and when the last one
+    did. Keyed by the *masked* address, which is also how the panel keys its rows —
+    the clear address never reaches the client."""
+    day = seoul_today()
+
+    def _run(conn):
+        return conn.execute(
+            "SELECT email, COUNT(*), MAX(sent_at) FROM mail_send_log "
+            "WHERE sent_date = ? AND status = 'sent' GROUP BY email",
+            (day,),
+        ).fetchall()
+
+    return {
+        mask(r[0]): {"sent_today": int(r[1]), "last_sent_at": r[2]}
+        for r in _with_connection(_run)
+    }

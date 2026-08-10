@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActiveSession,
   ActivityEvent,
@@ -16,6 +16,8 @@ import {
   HubTrendPoint,
   KakaoDramPriceStatus,
   KakaoPredictionStatus,
+  MailSend,
+  MailStatus,
   KakaoVisitorStatus,
   PageCount,
   PredictionStatus,
@@ -725,6 +727,13 @@ export default function AdminDashboardPage() {
   const [prediction, setPrediction] = useState<PredictionStatus | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
   const [runningRegion, setRunningRegion] = useState<BatchRegion | null>(null);
+  const [mailStatus, setMailStatus] = useState<MailStatus | null>(null);
+  const [mailHistory, setMailHistory] = useState<MailSend[] | null>(null);
+  // Keyed by the masked address so two accounts can't share one spinner; "*" is the
+  // 전체 발송 button.
+  const [mailSending, setMailSending] = useState<string | null>(null);
+  const [mailError, setMailError] = useState<string | null>(null);
+  const [mailResult, setMailResult] = useState<string | null>(null);
   const [kakaoVisitorStatus, setKakaoVisitorStatus] = useState<KakaoVisitorStatus | null>(null);
   const [kakaoVisitorRunning, setKakaoVisitorRunning] = useState(false);
   const [kakaoVisitorError, setKakaoVisitorError] = useState<string | null>(null);
@@ -1022,6 +1031,51 @@ export default function AdminDashboardPage() {
         setKakaoPredictionError(err instanceof Error ? err.message : "카카오 알림 발송에 실패했습니다.");
       })
       .finally(() => setKakaoPredictionRunning(null));
+  }
+
+  const loadMail = useCallback(() => {
+    adminApi
+      .mailStatus()
+      .then(setMailStatus)
+      .catch(handleAuthError);
+    adminApi
+      .mailHistory(40)
+      .then((r) => setMailHistory(r.items))
+      .catch(handleAuthError);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    loadMail();
+  }, [loadMail]);
+
+  /** 수기 발송. `email` is the masked handle from the status call, or undefined for
+   * every account at once. Manual sends deliberately ignore the once-a-day cap the
+   * scheduled batch observes — that is what makes this button worth having. */
+  function handleSendMail(email?: string, label?: string) {
+    if (mailSending) return;
+    const who = label ?? "구독 중인 모든 계정";
+    if (!window.confirm(`${who}에 예측 메일을 지금 발송하시겠습니까?\n하루 1회 제한과 무관하게 즉시 발송됩니다.`)) {
+      return;
+    }
+    setMailSending(email ?? "*");
+    setMailError(null);
+    setMailResult(null);
+    adminApi
+      .runMailSend(email)
+      .then((report) => {
+        const sent = report.results.reduce((n, r) => n + r.sent.length, 0);
+        const failed = report.results.reduce((n, r) => n + (r.failed?.length ?? 0), 0);
+        setMailResult(
+          report.note ?? `${sent}건 발송 완료${failed ? ` · ${failed}건 실패` : ""}`
+        );
+        loadMail();
+      })
+      .catch((err) => {
+        handleAuthError(err);
+        setMailError(err instanceof Error ? err.message : "메일 발송에 실패했습니다.");
+      })
+      .finally(() => setMailSending(null));
   }
 
   function handleRunBatch(region: BatchRegion) {
@@ -2576,6 +2630,111 @@ export default function AdminDashboardPage() {
               })()
             )}
             {dramRunError && <p className="admin-batch-error">{dramRunError}</p>}
+          </div>
+
+          {/* ── 예측 메일 발송 ──
+              Same shape as the batch rows above deliberately: status pill, what it is,
+              when it last happened, and one button that does the thing. The scheduled
+              send caps each stock at one mail a day; this button is the documented way
+              past that, so the confirm dialog says so rather than leaving an operator
+              to discover it by pressing twice. */}
+          <h2 className="admin-mail-heading">
+            <span className="admin-live-dot" /> 예측 메일 발송
+            {mailStatus && !mailStatus.configured && (
+              <span className="admin-mail-unconfigured">SMTP 미설정</span>
+            )}
+          </h2>
+          <div className="admin-batch-body">
+            {mailStatus === null ? (
+              <div className="admin-batch-row">
+                <span className="admin-skeleton admin-skeleton--row" />
+              </div>
+            ) : mailStatus.accounts.length === 0 ? (
+              <p className="admin-empty">구독 중인 계정이 없습니다.</p>
+            ) : (
+              <>
+                {mailStatus.accounts.map((acct) => {
+                  const busy = mailSending === acct.email;
+                  const codes = acct.stocks.filter((s) => s.active);
+                  return (
+                    <div key={acct.email} className="admin-batch-item">
+                      <div className="admin-batch-row">
+                        <span
+                          className={`admin-batch-status admin-batch-status--${
+                            busy ? "running" : acct.sent_today > 0 ? "ok" : "idle"
+                          }`}
+                        >
+                          {busy ? "발송 중" : acct.sent_today > 0 ? `오늘 ${acct.sent_today}건` : "미발송"}
+                        </span>
+                        <span className="admin-batch-name admin-mail-addr">{acct.email}</span>
+                        <span className="admin-batch-meta">
+                          {codes.length}종목 ·{" "}
+                          {acct.last_sent_at
+                            ? `최근 ${formatDateTime(acct.last_sent_at)}`
+                            : "발송 이력 없음"}
+                        </span>
+                        <button
+                          type="button"
+                          className="admin-batch-run-btn"
+                          disabled={mailSending !== null || !mailStatus.configured}
+                          onClick={() => handleSendMail(acct.email, acct.email)}
+                        >
+                          {busy ? "발송 중..." : "수기 발송"}
+                        </button>
+                      </div>
+                      <div className="admin-batch-detail">
+                        {codes.map((s) => (
+                          <span key={s.code} className="admin-mail-code">
+                            {s.name ?? s.code}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {mailStatus.accounts.length > 1 && (
+                  <div className="admin-batch-row admin-mail-allrow">
+                    <span className="admin-batch-meta">구독 중인 전체 계정에 한 번에 발송</span>
+                    <button
+                      type="button"
+                      className="admin-batch-run-btn"
+                      disabled={mailSending !== null || !mailStatus.configured}
+                      onClick={() => handleSendMail(undefined, "구독 중인 모든 계정")}
+                    >
+                      {mailSending === "*" ? "발송 중..." : "전체 수기 발송"}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+            {mailResult && <p className="admin-mail-result">{mailResult}</p>}
+            {mailError && <p className="admin-batch-error">{mailError}</p>}
+
+            <h3 className="admin-notify-section-title">발송 이력</h3>
+            {mailHistory === null ? (
+              <span className="admin-skeleton admin-skeleton--row" />
+            ) : mailHistory.length === 0 ? (
+              <p className="admin-empty">발송 이력이 없습니다.</p>
+            ) : (
+              <div className="admin-mail-log">
+                {mailHistory.map((h, i) => (
+                  <div key={i} className="admin-mail-log-row">
+                    <span
+                      className={`admin-mail-log-status admin-mail-log-status--${
+                        h.status === "sent" ? "ok" : "fail"
+                      }`}
+                    >
+                      {h.status === "sent" ? "성공" : "실패"}
+                    </span>
+                    <span className="admin-mail-log-stock">{h.stock_name ?? h.stock_code}</span>
+                    <span className="admin-mail-log-addr">{h.email}</span>
+                    <span className="admin-mail-log-kind">{h.manual ? "수기" : "자동"}</span>
+                    <span className="admin-mail-log-time">{formatDateTime(h.sent_at)}</span>
+                    {h.error && <span className="admin-mail-log-error">{h.error}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           </div>
 

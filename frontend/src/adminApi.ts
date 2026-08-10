@@ -213,6 +213,48 @@ export interface PredictionMarketStat {
   updated_at: string;
 }
 
+/** One subscribed account. `email` is masked server-side and is also the handle the
+ * send button passes back — see adminApi.runMailSend. */
+export interface MailAccount {
+  email: string;
+  active: boolean;
+  stocks: { code: string; name: string | null; active: boolean }[];
+  sent_today: number;
+  last_sent_at: string | null;
+}
+
+export interface MailStatus {
+  configured: boolean;
+  accounts: MailAccount[];
+  today: string;
+}
+
+export interface MailSend {
+  email: string;
+  stock_code: string;
+  stock_name: string | null;
+  predict_date: string | null;
+  subject: string | null;
+  status: string;
+  manual: boolean;
+  error: string | null;
+  sent_date: string;
+  sent_at: string;
+}
+
+export interface MailSendReport {
+  subscriptions: number;
+  dry_run?: boolean;
+  note?: string;
+  results: {
+    to: string;
+    error?: string;
+    sent: { code: string; name: string; predict_date: string; subject: string }[];
+    skipped?: { code: string; name?: string; reason: string }[];
+    failed: { code: string; error: string }[];
+  }[];
+}
+
 export interface PredictionStatus {
   running: string[];
   last_runs: Record<string, PredictionRunRecord>;
@@ -633,6 +675,18 @@ export const adminApi = {
 
   kakaoDramPriceStatus: () => authedGet<KakaoDramPriceStatus>("/notify/kakao/dram-price/status"),
   runKakaoDramPriceNotify: () => authedPost<KakaoDramPriceRun>("/notify/kakao/dram-price/run"),
+
+  mailStatus: () => authedGet<MailStatus>("/mail/status"),
+  mailHistory: (limit = 60) => authedGet<{ items: MailSend[] }>(`/mail/history?limit=${limit}`),
+  /** The 수기 발송 button. `email` is the *masked* address the status call handed
+   * back — the server resolves it to a real mailbox, so the clear address never has
+   * to exist in the browser. Omitting it sends to every subscribed account. */
+  runMailSend: (email?: string, date?: string) =>
+    authedPost<MailSendReport>(
+      `/mail/send${email ? `?email=${encodeURIComponent(email)}` : ""}${
+        date ? `${email ? "&" : "?"}date=${date}` : ""
+      }`
+    ),
 
   dbSources: () => authedGet<{ sources: DbSource[] }>("/db/sources"),
   dbTables: (source: string | null) =>

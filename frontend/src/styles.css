@@ -10236,6 +10236,18 @@ thead .weekly-foreign-amount-col {
   overflow: hidden;
 }
 
+/* 댓글 관리 gets a third of the column rather than half. The two panels split it
+   evenly when they were both new, and the split has not survived contact with how
+   they are actually used: 실시간 세션 is read on every visit and 댓글 관리 rarely,
+   so an even split spent the same screen height on both and left the live panel
+   scrolling at eight rows while the one below it showed empty space. 1:2 in the
+   live panel's favour, still draggable either way for the times the comments do
+   need the room. */
+.admin-left-col .admin-panel--comments {
+  flex: 0.5 1 0;
+  min-height: 190px;
+}
+
 /* The grid's right column: see .admin-left-col's own note above — min-height, not a
    fixed one, for the same resizing reason. Split 60/40 between the live log and the
    batch-status panel below it BEFORE either is dragged (flex-basis 0 on both makes
@@ -10380,6 +10392,139 @@ thead .weekly-foreign-amount-col {
 .admin-batch-status--running {
   color: var(--status-warning);
   animation: admin-batch-blink 1.2s ease-in-out infinite;
+}
+
+/* Not yet mailed today. Same idea as --neutral: nothing has gone wrong, so it must
+   not borrow the failure colour just because the count is zero. */
+.admin-batch-status--idle {
+  color: var(--text-muted);
+}
+
+/* ── 예측 메일 발송 ─────────────────────────────────────────────────────────
+   Shares .admin-batch-row/.admin-batch-status with the batch cards above on
+   purpose: it is the same interaction (a thing that runs on a schedule, plus one
+   button to run it now), and giving it its own visual language would imply a
+   difference that isn't there. Only the pieces the batch cards don't have get
+   rules of their own. */
+.admin-mail-heading {
+  margin: 18px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gridline);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.admin-mail-unconfigured {
+  margin-left: auto;
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  color: var(--status-warning);
+}
+
+/* Already masked server-side (f***5@naver.com) — monospaced so the asterisks line
+   up and the mask reads as deliberate rather than as a rendering fault. */
+.admin-mail-addr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+}
+
+.admin-mail-code {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-secondary);
+}
+
+.admin-mail-allrow {
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.admin-mail-result {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--status-good);
+}
+
+.admin-mail-log {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.admin-mail-log-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1.3fr) minmax(0, 1.5fr) 34px auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.admin-mail-log-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+
+.admin-mail-log-status {
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.admin-mail-log-status--ok {
+  color: var(--status-good);
+}
+
+.admin-mail-log-status--fail {
+  color: var(--status-critical);
+}
+
+.admin-mail-log-stock {
+  color: var(--text-primary);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-mail-log-addr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-mail-log-kind {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.admin-mail-log-time {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.admin-mail-log-error {
+  grid-column: 1 / -1;
+  font-size: 10.5px;
+  color: var(--status-critical);
 }
 
 /* Neither a success nor a failure — "설정 전" or "실행 이력 없음" — so it gets

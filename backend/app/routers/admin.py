@@ -8,8 +8,10 @@ from app.services import (
     dram_price,
     hub_event_store,
     kakao_notify,
+    mail_subscription_store,
     page_view_store,
     prediction_batch,
+    prediction_mail,
     prediction_store,
     stock_search_store,
     visitor_store,
@@ -253,6 +255,56 @@ def kakao_notify_prediction_run(region: str = Query(..., pattern=r"^(KR|US)$")):
             detail=f"{region} 배치 실행 이력이 없습니다. 배치를 먼저 실행해 주세요.",
         )
     return kakao_notify.send_prediction_result(region, summary, triggered_by="admin")
+
+
+@router.get("/mail/status", dependencies=[Depends(require_admin)])
+def mail_status():
+    """'예측 메일 발송' card: one row per subscribed account, plus today's send count.
+
+    Addresses arrive masked and stay masked — the panel keys its rows on the mask and
+    sends it back to trigger a send, so the clear address never reaches the browser at
+    all. See mail_subscription_store.mask.
+    """
+    summary = mail_subscription_store.today_summary()
+    accounts = [
+        {**target, **summary.get(target["email"], {"sent_today": 0, "last_sent_at": None})}
+        for target in mail_subscription_store.list_targets()
+    ]
+    return {
+        "configured": prediction_mail.is_configured(),
+        "accounts": accounts,
+        "today": mail_subscription_store.seoul_today(),
+    }
+
+
+@router.get("/mail/history", dependencies=[Depends(require_admin)])
+def mail_history(limit: int = Query(60, ge=1, le=300)):
+    """발송이력, newest first. Failed attempts are included on purpose — an empty list
+    and a list of failures mean very different things to whoever is debugging why a
+    mail never arrived."""
+    return {"items": mail_subscription_store.recent_sends(limit=limit)}
+
+
+@router.post("/mail/send", dependencies=[Depends(require_admin)])
+def mail_send(
+    email: str | None = Query(None, description="마스킹된 주소. 생략 시 전체 계정"),
+    date: str | None = Query(None, pattern=r"^\d{8}$"),
+):
+    """The 수기 발송 button.
+
+    Manual by definition, so it bypasses the once-a-day cap the scheduled batch
+    observes — an operator pressing this a second time means it. Runs inline rather
+    than in the background: a handful of mails is a few seconds, and the panel's whole
+    value is showing what actually happened rather than 'accepted'.
+    """
+    if not prediction_mail.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="메일 발송이 설정되지 않았습니다. PREDICTION_MAIL_USER / PREDICTION_MAIL_PASSWORD 를 등록해 주세요.",
+        )
+    return prediction_mail.send_subscriptions(
+        predict_date=date, manual=True, only_email=email
+    )
 
 
 @router.post("/prediction/run", dependencies=[Depends(require_admin)])

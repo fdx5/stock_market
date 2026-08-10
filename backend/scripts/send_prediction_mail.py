@@ -56,6 +56,23 @@ def _dump(obj) -> None:
     print(json.dumps(obj, ensure_ascii=False, indent=2))
 
 
+def _resolve_names(codes: list[str]) -> dict[str, str]:
+    """Stock names off the most recent prediction for each code, so the admin panel
+    shows 삼성전자 rather than 005930. Best-effort: a code with no prediction history
+    yet simply keeps a null name and displays as its code."""
+    from app.services import prediction_store
+
+    out: dict[str, str] = {}
+    for code in codes:
+        try:
+            rows = prediction_store.list_by_code(code, limit=1)
+            if rows:
+                out[code] = rows[0]["name"]
+        except Exception:  # noqa: BLE001 - a name is a nicety, never a reason to fail
+            pass
+    return out
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="종목별 예측 결과 메일")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -85,7 +102,8 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
     if args.cmd == "subscribe":
-        _dump(subs.subscribe(args.email, _codes(args.codes)))
+        codes = _codes(args.codes)
+        _dump(subs.subscribe(args.email, codes, names=_resolve_names(codes)))
         return 0
 
     if args.cmd == "unsubscribe":
