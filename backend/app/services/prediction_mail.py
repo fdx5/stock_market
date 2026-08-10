@@ -57,6 +57,13 @@ RESEND_ENDPOINT = "https://api.resend.com/emails"
 # case here (the reader is mailing themselves), so the whole domain-verification step
 # is skippable until a second recipient appears.
 RESEND_DEFAULT_FROM = "onboarding@resend.dev"
+# The API sender, resolved separately from the SMTP one and deliberately NOT falling
+# back to SMTP_USER. SMTP_USER is the mailbox you authenticate to an SMTP server as,
+# which means nothing to an API that authenticates by key — and handing Resend a
+# naver.com or gmail.com address it has no proof you own is a guaranteed rejection.
+# Someone who really wants a custom sender sets PREDICTION_MAIL_FROM and verifies that
+# domain with Resend first; everyone else gets the shared sender, which just works.
+RESEND_FROM = os.environ.get("PREDICTION_MAIL_FROM") or RESEND_DEFAULT_FROM
 
 SMTP_HOST = os.environ.get("PREDICTION_MAIL_SMTP_HOST", "smtp.naver.com")
 SMTP_PORT = int(os.environ.get("PREDICTION_MAIL_SMTP_PORT", "587"))
@@ -376,7 +383,7 @@ def _send_via_resend(to_addr: str, subject: str, html_body: str, text_body: str)
             "Content-Type": "application/json",
         },
         json={
-            "from": f"{MAIL_FROM_NAME} <{MAIL_FROM or RESEND_DEFAULT_FROM}>",
+            "from": f"{MAIL_FROM_NAME} <{RESEND_FROM}>",
             "to": [to_addr],
             "subject": subject,
             "html": html_body,
@@ -391,7 +398,30 @@ def _send_via_resend(to_addr: str, subject: str, html_body: str, text_body: str)
             detail = payload.get("message") or payload.get("error") or resp.text
         except ValueError:
             detail = resp.text
-        raise RuntimeError(f"Resend {resp.status_code}: {detail}"[:400])
+        raise RuntimeError(f"Resend {resp.status_code}: {detail}{_resend_hint(detail)}"[:500])
+
+
+def _resend_hint(detail: str) -> str:
+    """Turns Resend's two first-run rejections into the action that fixes them.
+
+    Both are configuration rather than code, both are worded from Resend's side of
+    the problem, and both otherwise reach an operator as an English sentence in a log
+    row with no indication of what to do about it.
+    """
+    lowered = (detail or "").lower()
+    if "testing emails" in lowered or "own email" in lowered:
+        return (
+            " — 도메인 인증 전에는 Resend 가입에 사용한 주소로만 발송됩니다. "
+            "구독 주소를 가입 주소와 맞추거나, Resend에서 발신 도메인을 인증하세요."
+        )
+    if "domain" in lowered and "verif" in lowered:
+        return (
+            " — 발신 도메인이 인증되지 않았습니다. PREDICTION_MAIL_FROM 을 비우면 "
+            "인증 없이 쓸 수 있는 공용 발신자로 나갑니다."
+        )
+    if "api key" in lowered or "unauthorized" in lowered:
+        return " — API 키가 올바르지 않습니다. PREDICTION_MAIL_RESEND_KEY 를 확인하세요."
+    return ""
 
 
 def _send_via_smtp(to_addr: str, subject: str, html_body: str, text_body: str) -> None:

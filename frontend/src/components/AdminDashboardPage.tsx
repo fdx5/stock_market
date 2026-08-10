@@ -1065,10 +1065,20 @@ export default function AdminDashboardPage() {
       .runMailSend(account)
       .then((report) => {
         const sent = report.results.reduce((n, r) => n + r.sent.length, 0);
-        const failed = report.results.reduce((n, r) => n + (r.failed?.length ?? 0), 0);
+        const failures = report.results.flatMap((r) => r.failed ?? []);
+        const skipped = report.results.flatMap((r) => r.skipped ?? []);
         setMailResult(
-          report.note ?? `${sent}건 발송 완료${failed ? ` · ${failed}건 실패` : ""}`
+          report.note ?? `${sent}건 발송 완료${skipped.length ? ` · ${skipped.length}건 건너뜀` : ""}`
         );
+        // The first failure's own message, not just a count. The two things that go
+        // wrong on a first run (unverified sender, recipient outside the provider's
+        // test allowance) are both configuration, and both are only actionable if the
+        // operator can read what the provider actually said.
+        if (failures.length) {
+          setMailError(
+            `${failures.length}건 실패 — ${failures[0].code}: ${failures[0].error}`
+          );
+        }
         loadMail();
       })
       .catch((err) => {
