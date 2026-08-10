@@ -1093,19 +1093,28 @@ export class HubScene {
     this.buildVoyager();
     this.buildComets();
 
-    /* The probe is about forty separate primitives — dish, subreflector, three
-       struts, three RTGs, two whip antennas, the scan platform — and not one of
-       them ever moves relative to the others. Only the rig they hang off does.
-       Left on the default, three re-composes every one of those local matrices
-       from its position, quaternion and scale on every frame, to arrive at the
-       same matrix it had last frame. Composed once here instead; the world
-       matrices still follow the rig, because that propagation is a multiply by
-       the parent and has nothing to do with this flag. */
+    /* The ship is about a hundred and fifty separate primitives — twelve
+       modules with their panels, windows, caps, tunnels and engines, plus the
+       hub, a Ranger and a Lander — and almost none of them ever moves relative
+       to its neighbours. Left on the default, three re-composes every one of
+       those local matrices from its position, quaternion and scale on every
+       frame, to arrive at the same matrix it had last frame. Composed once
+       here instead; the world matrices still follow the rig, because that
+       propagation is a multiply by the parent and has nothing to do with this
+       flag. */
     this.voyager.traverse((child) => {
       if (child === this.voyager) return;
       child.updateMatrix();
       child.matrixAutoUpdate = false;
     });
+    /* Except the ring, which is the one thing on this ship that DOES move.
+       This optimisation was written for the probe, where nothing did — and it
+       silently froze the Endurance: the rotation was being written to
+       `rotation.z` every frame and never composed into a matrix, so the ring
+       stood still and the only symptom was the absence of the thing it was
+       supposed to be doing. Its children stay frozen, correctly: they do not
+       move relative to the ring, only with it. */
+    this.enduranceRing.matrixAutoUpdate = true;
 
     this.composer = this.buildComposer(width, height);
     this.gradePass = this.composer.passes[this.composer.passes.length - 1] as ShaderPass;
@@ -6227,11 +6236,12 @@ export class HubScene {
   private static readonly VOYAGER_ORBIT_FLOOR = 1.45;
   /** How long the ambient coast takes, launch to gone. */
   private static readonly VOYAGER_COAST = 150;
-  /** How fast the ring turns, in radians a second. One revolution every two
-   * seconds — fast for a wheel sixty-four metres across, and right for this:
-   * the ring is the only moving part on the only crewed ship in the sky, and
-   * a rotation you have to wait to notice is one nobody notices. */
-  private static readonly ENDURANCE_SPIN = Math.PI;
+  /** How fast the ring turns, in radians a second. A full revolution every
+   * second — far faster than the film's 5.6 rpm, and deliberately: at the
+   * size this ship is drawn on screen, a wheel that takes ten seconds to come
+   * round is a wheel nobody sees turn. The ring is the only moving part on the
+   * only crewed ship in the sky and it has to read as moving at a glance. */
+  private static readonly ENDURANCE_SPIN = Math.PI * 2;
 
   /** Starts or stops the grand tour. Starting it always restarts from Earth:
    * the tour is a thing you watch from the beginning, and resuming it from
