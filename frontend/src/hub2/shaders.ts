@@ -590,9 +590,11 @@ uniform float uGlowMix;
  * a metre away. It reaches zero a little before the branch stops running, so
  * the layers fade out rather than switching off. */
 uniform float uDetail;
-/** Half the slab's thickness. The disc is drawn as three sheets stacked
- * across its own normal rather than one, and each knows which it is from its
- * own local y — so this is what turns that into a signed −1..1. */
+/** The slab's half-thickness at its outer edge. The disc is drawn as three
+ * sheets stacked across its own normal rather than one, and each sheet is
+ * bent to the flare profile below rather than sitting at a constant height —
+ * so this, times the profile at this radius, is what turns a sheet's own
+ * local y back into a signed −1..1. */
 uniform float uSlab;
 varying vec3 vPosL;
 
@@ -617,7 +619,17 @@ void main() {
      body of gas: the layers occlude and add over each other as the camera
      crosses, and the eye gets a top and a bottom to the thing it is flying
      over. */
-  float slab = vPosL.y / max(uSlab, 0.0001);
+  /* The flare. A real disc is not a plate: its scale height grows with
+     radius, so it is a lens — thin at the ISCO where the gas is fastest and
+     hottest, swelling outward where it is slower and cooler, with a small
+     puff right at the inner edge where the flow piles up before it goes over.
+     Seen at any angle at all this is what stops it being a line, and a line
+     is what a plate is from the side.
+
+     The same expression is baked into the geometry, so this division gives
+     back exactly which of the three sheets a fragment belongs to. */
+  float prof = 0.12 + 0.88 * pow(t, 0.8) + 0.18 * exp(-t * 14.0);
+  float slab = vPosL.y / max(uSlab * prof, 0.0001);
 
   /* The offset that makes each sheet its own. Without it the three are the
      same field drawn three times and the slab is one sheet made brighter. */
@@ -636,12 +648,19 @@ void main() {
    *
    * Two octaves and two samples, which is the cheapest domain warp there is,
    * and it buys more than the third turbulence sheet below does. */
+  /* The outermost pair of sheets skip the expensive half of this. They are
+     the thinnest and dimmest part of the slab and they are seen through the
+     three in front of them, so the structure they carry is structure nobody
+     can resolve — and skipping it there is what makes five sheets affordable
+     when three were already the budget. The test is on a value that is
+     constant across each sheet, so it costs nothing at the branch. */
+  float rich = uDetail * step(abs(slab), 0.8);
   vec3 warp = vec3(0.0);
-  if (uDetail > 0.01) {
+  if (rich > 0.01) {
     vec3 wq = vec3(cos(swirl) * r, sin(swirl) * r, t * 2.0) * 0.17;
     float wx = fbm(wq + vec3(0.0, 0.0, uTime * 0.05), 2, 2.3, 0.5);
     float wy = fbm(wq + vec3(5.2, 1.3, uTime * 0.05 + 3.7), 2, 2.3, 0.5);
-    warp = vec3(wx, wy, 0.0) * 0.62 * uDetail;
+    warp = vec3(wx, wy, 0.0) * 0.62 * rich;
   }
 
   float turb = fbm(q + warp + vec3(0.0, 0.0, uTime * 0.12), 4, 2.2, 0.55) * 0.5 + 0.5;
@@ -671,11 +690,11 @@ void main() {
    * fine detail rather than the body: two octaves, sampled tight. */
   float density = mix(turb, fil, 0.45);
   density = mix(density, density * (0.55 + turb2 * 0.95), 0.65);
-  if (uDetail > 0.01) {
+  if (rich > 0.01) {
     float swirl3 = ang + uTime * omega * 8.5 - 1.3;
     vec3 q3 = vec3(cos(swirl3) * r, sin(swirl3) * r, t * 3.0 + 27.0) * 1.15;
     float turb3 = fbm(q3, 2, 2.4, 0.5) * 0.5 + 0.5;
-    density = mix(density, density * (0.62 + turb3 * 0.82), 0.5 * uDetail);
+    density = mix(density, density * (0.62 + turb3 * 0.82), 0.5 * rich);
   }
 
   /* And the lanes, which cost nothing at all. A travelling sine in radius
@@ -762,7 +781,11 @@ void main() {
 
   /* And the slab's own falloff: the outer sheets are thinner than the middle
      one, so the body has an edge that fades rather than three hard planes. */
-  float alpha = clamp(density * 1.7 + photon * 1.4, 0.0, 1.0) * (1.0 - 0.4 * abs(slab));
+  /* And the slab's own falloff, quadratic rather than linear: the sheets are
+     evenly spaced but a column of gas is not evenly dense, and a linear ramp
+     leaves the outer pair bright enough to be counted. Squared, the body has
+     a middle and an edge. */
+  float alpha = clamp(density * 1.7 + photon * 1.4, 0.0, 1.0) * (1.0 - 0.62 * slab * slab);
   gl_FragColor = vec4(color, alpha);
 }
 `;

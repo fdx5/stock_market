@@ -1896,14 +1896,24 @@ export class HubScene {
        seconds, and what that shot needs more than anything is somewhere to
        look: a disc whose far edge is close enough to see is a pond. */
     const DISC_IN = HORIZON * 1.35;
-    const DISC_OUT = HORIZON * 8.6;
+    // In from 8.6 horizon radii to 6.4 — 42 units. The sheet had grown wide
+    // enough that its own thickness was a rounding error against it.
+    const DISC_OUT = HORIZON * 6.4;
     /* And it has a thickness. A ring has none, and edge-on — which is where
        the ending spends its longest movement — a thing with no thickness is a
        line. Three sheets stacked across the normal, each carrying its own
        structure (see uSlab in DISC_FRAG), give it a top and a bottom: the
        layers add and occlude over each other as the camera crosses, which is
        what a body of gas does and what a plane cannot. */
-    const SLAB = 0.45;
+    const SLAB = 2.2;
+    /* The flare, and the same expression the shader uses to undo it. A real
+       disc's scale height grows with radius: thin at the ISCO where the gas
+       is fastest, swelling outward where it is slower, with a small puff at
+       the inner edge where the flow piles up before going over. At 2.2 the
+       outer rim is four and a half units thick against eighty-four across, which is
+       about a thin disc's real proportions and — unlike a plate — is a shape
+       from the side as well as from above. */
+    const flare = (tt: number) => 0.12 + 0.88 * Math.pow(tt, 0.8) + 0.18 * Math.exp(-tt * 14);
     this.discMaterial = new THREE.ShaderMaterial({
       vertexShader: DISC_VERT,
       fragmentShader: DISC_FRAG,
@@ -1923,21 +1933,33 @@ export class HubScene {
       blending: THREE.AdditiveBlending,
     });
     const disc = new THREE.Object3D();
-    for (const dy of [-SLAB, 0, SLAB]) {
-      const geo = new THREE.RingGeometry(DISC_IN, DISC_OUT, 260, 30);
+    for (const k of [-1, -0.5, 0, 0.5, 1]) {
+      const geo = new THREE.RingGeometry(DISC_IN, DISC_OUT, 260, 34);
       geo.rotateX(-Math.PI / 2);
-      // Baked into the geometry rather than set on the mesh, because the
-      // shader reads which sheet it is off the local position — a mesh offset
-      // would leave all three thinking they were the middle one.
-      geo.translate(0, dy, 0);
+      /* Bent per vertex rather than translated as a whole, which is what makes
+         it a lens instead of three parallel plates. Baked into the geometry
+         rather than done on the mesh for the same reason as before: the shader
+         reads which sheet it is off the local position, and a mesh offset would
+         leave all five thinking they were the middle one.
+
+         Five sheets rather than three. At three they are 2.6 apart out at the
+         rim, which is far enough to resolve — the slab came out as three
+         separate planes with dark between them rather than as one body. */
+      const pos = geo.attributes.position as THREE.BufferAttribute;
+      for (let v = 0; v < pos.count; v++) {
+        const rr = Math.hypot(pos.getX(v), pos.getZ(v));
+        pos.setY(v, k * SLAB * flare(clamp01((rr - DISC_IN) / (DISC_OUT - DISC_IN))));
+      }
+      pos.needsUpdate = true;
+      geo.computeBoundingSphere();
       const sheet = new THREE.Mesh(geo, this.discMaterial);
       sheet.renderOrder = 4;
       disc.add(sheet);
       this.disposables.push(geo);
-      /* The two outer sheets are the thickness, and thickness is only worth
+      /* The four outer sheets are the thickness, and thickness is only worth
          anything close up: they follow uDetail off, so the resting view pays
-         for one disc rather than three. */
-      if (dy !== 0) this.discSkins.push(sheet);
+         for one disc rather than five. */
+      if (k !== 0) this.discSkins.push(sheet);
     }
     // Tipped well off edge-on so the disc reads as a disc from the default
     // camera rather than as a bright line.
@@ -4453,7 +4475,7 @@ export class HubScene {
       const run = smoothstep(0.26, 0.92, s);
       // 46 out to 13, with a slow weave over the top of the closing so the
       // craft wanders across the sheet rather than tracking one circle of it.
-      const ring = 60 - 46 * run + Math.sin(s * Math.PI * 3.1) * 8.5 * (1 - s * 0.55);
+      const ring = 46 - 33 * run + Math.sin(s * Math.PI * 3.1) * 7.0 * (1 - s * 0.55);
       const radius = ring * (1 - plunge) + 5.0 * plunge;
       /* Down from fourteen to a metre and a half. The first third is the only
          part of this shot with any altitude in it and it is what establishes
@@ -4461,7 +4483,10 @@ export class HubScene {
       /* Down from eighteen to two. Two rather than one and a half, because
          the sheet has a thickness now and the camera has to fly over the slab
          rather than through it. */
-      const height = (18.0 - 15.6 * descend - 0.4 * run) * (1 - plunge * 0.92);
+      /* Down from fifteen to five. Five rather than two, because the sheet is
+         no longer a plate: its outer rim is five units of gas thick, and a
+         camera at two would be inside it rather than over it. */
+      const height = (15.0 - 10.0 * descend) * (1 - plunge * 0.92);
       const cosA = Math.cos(this.finaleAngle);
       const sinA = Math.sin(this.finaleAngle);
       const want = this.tmpV2
