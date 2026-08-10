@@ -18,24 +18,11 @@ Nothing here raises. Every caller overlays these quotes onto a roster it already
 a failed batch must cost those names their live print — never the page.
 """
 
-import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import requests
-
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    ),
-}
+from app.data import yahoo_session
 
 QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
-CRUMB_URL = "https://query1.finance.yahoo.com/v1/test/getcrumb"
-# Answers 404, but sets the consent cookie the crumb is issued against — the status is
-# deliberately not checked.
-COOKIE_URL = "https://fc.yahoo.com"
 
 # 200 covers the S&P 500 in three requests and keeps the comma-joined query string well
 # inside any URL length limit. Yahoo accepts more, but an oversized batch that gets
@@ -43,51 +30,13 @@ COOKIE_URL = "https://fc.yahoo.com"
 CHUNK_SIZE = 200
 TIMEOUT_SECONDS = 8
 
-# After a failed crumb handshake, don't attempt another for this long. Without it a
-# blocked upstream would make every chunk of every refresh pay two connection timeouts
-# in series, under the lock — turning a degraded feed into a stalled one.
-AUTH_RETRY_COOLDOWN_SECONDS = 60
-
-_auth_lock = threading.Lock()
-_auth: tuple[requests.Session, str] | None = None
-_auth_blocked_until = 0.0
-
-
-def _new_auth() -> tuple[requests.Session, str]:
-    session = requests.Session()
-    session.headers.update(HEADERS)
-    try:
-        session.get(COOKIE_URL, timeout=TIMEOUT_SECONDS)
-    except requests.RequestException:
-        # The cookie call failing outright is survivable often enough to be worth
-        # trying the crumb anyway; the crumb call below is the one that must succeed.
-        pass
-    resp = session.get(CRUMB_URL, timeout=TIMEOUT_SECONDS)
-    resp.raise_for_status()
-    crumb = resp.text.strip()
-    # A crumb is a short opaque token. Anything containing markup is an error/consent
-    # page served with a 200, which would otherwise be sent as a crumb on every request.
-    if not crumb or "<" in crumb or len(crumb) > 64:
-        raise ValueError(f"unexpected crumb response: {crumb[:40]!r}")
-    return session, crumb
-
-
-def _get_auth(refresh: bool = False) -> tuple[requests.Session, str]:
-    """The shared cookie+crumb pair, acquired at most once per cooldown across all
-    threads — concurrent chunks of the same refresh must not each run their own
-    handshake."""
-    global _auth, _auth_blocked_until
-    with _auth_lock:
-        if not refresh and _auth is not None:
-            return _auth
-        if time.time() < _auth_blocked_until:
-            raise RuntimeError("yahoo crumb handshake is cooling down after a failure")
-        try:
-            _auth = _new_auth()
-        except Exception:
-            _auth_blocked_until = time.time() + AUTH_RETRY_COOLDOWN_SECONDS
-            raise
-        return _auth
+# The cookie+crumb pair is yahoo_session's, not this module's.
+#
+# This file used to keep its own. Two pools meant two handshakes against
+# getcrumb for every refresh, neither of them aware that the other was already
+# being throttled — which is half of why a single 429 from that endpoint used to
+# spread. yahoo_session holds the one pool, the one in-flight handshake and the
+# one backoff; see its docstring.
 
 
 def _yahoo_symbol(symbol: str) -> str:
@@ -175,14 +124,16 @@ def _read(row: dict) -> dict | None:
 
 
 def _fetch_chunk(symbols: list[str], retry: bool = True) -> dict[str, dict]:
-    session, crumb = _get_auth()
+    session, crumb = yahoo_session.get_crumb()
     resp = session.get(
         QUOTE_URL, params={"symbols": ",".join(symbols), "crumb": crumb}, timeout=TIMEOUT_SECONDS
     )
     if resp.status_code in (401, 403) and retry:
         # A crumb expires with its cookie. One re-acquisition, then give up: a genuinely
         # blocked upstream must not turn into a retry loop per chunk per refresh.
-        _get_auth(refresh=True)
+        # get_crumb decides whether that re-acquisition actually happens — four chunks
+        # failing together are four reports of one dead crumb, not four dead crumbs.
+        yahoo_session.get_crumb(force_refresh=True)
         return _fetch_chunk(symbols, retry=False)
     resp.raise_for_status()
 
