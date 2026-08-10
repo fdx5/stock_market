@@ -616,15 +616,34 @@ void main() {
   vec3 q2 = vec3(cos(swirl2) * r, sin(swirl2) * r, t * 3.0 + 11.0) * 0.63;
   float turb2 = fbm(q2, 3, 2.3, 0.55) * 0.5 + 0.5;
 
+  /* And a third, finer and slower still, wound the other way round.
+   *
+   * Two sheets read as two sheets. What a real disc looks like from close up
+   * — which is where the ending now flies — is depth: material at every rate
+   * between the fastest and the slowest, so that wherever the eye rests
+   * something is sliding over something else. Three is where that starts to
+   * be true, and the third is the cheapest of them because it carries the
+   * fine detail rather than the body: two octaves, sampled tight. */
+  float swirl3 = ang + uTime * omega * 8.5 - 1.3;
+  vec3 q3 = vec3(cos(swirl3) * r, sin(swirl3) * r, t * 3.0 + 27.0) * 1.15;
+  float turb3 = fbm(q3, 2, 2.4, 0.5) * 0.5 + 0.5;
+
   float density = mix(turb, fil, 0.45);
   density = mix(density, density * (0.55 + turb2 * 0.95), 0.65);
+  density = mix(density, density * (0.62 + turb3 * 0.82), 0.5);
 
-  /* And the fine lanes, which cost nothing at all. A travelling sine in
-     radius whose phase advances with the local orbital rate: the bands are
+  /* And the lanes, which cost nothing at all. A travelling sine in radius
+     whose phase advances with the local orbital rate: the bands are
      concentric, and every one of them slides past the one outside it because
      omega falls off as r^-3/2. That is the many-layers reading in one line,
-     and it is also exactly the differential rotation the shear above is. */
-  density *= 0.84 + 0.16 * sin(r * 4.0 - uTime * omega * 34.0);
+     and it is also exactly the differential rotation the shear above is.
+
+     Two sets of them now, at frequencies that do not divide into each other,
+     so the pattern never lines up into corduroy — one broad and one fine, and
+     the fine one runs at a different multiple of omega so the two drift
+     through each other instead of travelling together. */
+  density *= 0.86 + 0.14 * sin(r * 4.0 - uTime * omega * 34.0);
+  density *= 0.90 + 0.10 * sin(r * 10.3 - uTime * omega * 51.0 + 2.2);
   // Thin at both edges: sharp at the ISCO, feathered at the outer rim.
   density *= smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.55, 1.0, t));
 
@@ -649,7 +668,15 @@ void main() {
      took the one lobe that was brightest and drove it past white — which is
      what used to read as the hole shining. With nothing to compound against,
      feeding now lifts the whole ring together. Still zero at uFeed = 0. */
-  float brightness = density * (1.69 + uFeed * 0.74);
+  /* Raised to a power rather than taken straight. Flown over at close range
+     the disc came out a sheet of white with the structure only readable at
+     the far edges — density sits mostly in its middle range, so a linear
+     brightness gives every layer nearly the same value and the bloom then
+     welds them together. The exponent pushes the troughs down without moving
+     the crests, which is what separates one stream from the next; the gain
+     comes down with it because deepening the lanes is not an excuse to make
+     the whole thing brighter. */
+  float brightness = pow(density, 1.35) * (1.62 + uFeed * 0.7);
   color *= brightness;
 
   // The photon ring: light that orbited the hole before escaping, piling up
@@ -2101,10 +2128,10 @@ export const GRADE_SHADER = {
          that the dots sit on a haze of everything too far to be a dot — so
          the finest sheet is a hundred and ten cells round and dim, and its
          job is to be almost, but not quite, texture. */
-      col += passageStars(u * 22.0, z * 1.3, 22.0, 2.6, dens, t) * near;
-      col += passageStars(u * 40.0, z * 2.4 + 31.0, 40.0, 1.8, dens * 0.85, t) * near;
-      col += passageStars(u * 68.0, z * 4.1 + 77.0, 68.0, 1.2, dens * 0.7, t) * near;
-      col += passageStars(u * 110.0, z * 6.6 + 151.0, 110.0, 0.6, dens * 0.5, t) * near;
+      col += passageStars(u * 22.0, z * 1.3, 22.0, 3.4, dens, t) * near;
+      col += passageStars(u * 40.0, z * 2.4 + 31.0, 40.0, 2.4, dens * 0.85, t) * near;
+      col += passageStars(u * 68.0, z * 4.1 + 77.0, 68.0, 1.6, dens * 0.7, t) * near;
+      col += passageStars(u * 110.0, z * 6.6 + 151.0, 110.0, 0.8, dens * 0.5, t) * near;
 
       /* Filaments, out of the three fields already sampled and so for nothing.
          Folding a smooth field about its own midline — 1 − |2n − 1| — turns
@@ -2120,30 +2147,39 @@ export const GRADE_SHADER = {
          machine — gas with no dark in it is a gradient. */
       float dust = smoothstep(0.28, 0.66, n2);
 
-      /* The exponents on the folded terms are high, and that is the whole
-         trick. A fold peaks at 1 exactly where the field sits at its midline,
-         and the midline is where an fbm spends most of its time — so at the
-         gentle powers the base terms use, the "filaments" covered the frame
-         and the passage came out as a wash of pink with the stars drowning in
-         it. Raised to sixteen, only the crest of the fold survives and what
-         is left is the thin bright thread through the middle of a lane of
-         gas, which is what the fold was for. */
-      vec3 gas = vec3(0.20, 0.52, 0.92) * (pow(n1, 3.4) * 0.85 + pow(f1, 16.0) * 1.3)
-               + vec3(0.80, 0.24, 0.50) * (pow(n2, 3.8) * 0.7 + pow(f2, 18.0) * 1.1)
-               + vec3(0.95, 0.62, 0.22) * (pow(n3, 4.2) * 0.55 + pow(f3, 20.0) * 0.85);
-      // Held under the stars. In a photograph of a region like this the gas is
-      // what the stars are seen against, not the other way round.
-      col += gas * (0.42 + grain * 0.72) * dust * near;
+      /* Two things are going on in each colour and they do very different
+         jobs. The base term is the broad body of the cloud and the folded one
+         is the filament through it — and the exponent on the fold is the whole
+         trick, because a fold peaks exactly where the field sits at its
+         midline, which is where an fbm spends most of its time. At gentle
+         powers the "filaments" cover the frame; at sixteen only the crest
+         survives.
+
+         The base terms are now a fifth of what they were. Space is black, and
+         the passage was lit like a nebula photograph with the exposure left
+         open: every part of the frame carried some cloud, so there was no
+         black for anything to be bright against and the stars sat in soup.
+         Raising the exponents and cutting the gains leaves the broad body as
+         a stain in the deepest folds only — the filaments and the objects do
+         the work, and everything between them is the colour of space. */
+      vec3 gas = vec3(0.20, 0.52, 0.92) * (pow(n1, 6.0) * 0.55 + pow(f1, 16.0) * 1.15)
+               + vec3(0.80, 0.24, 0.50) * (pow(n2, 6.5) * 0.45 + pow(f2, 18.0) * 1.0)
+               + vec3(0.95, 0.62, 0.22) * (pow(n3, 7.0) * 0.35 + pow(f3, 20.0) * 0.75);
+      // Held well under the stars. In a photograph of a region like this the
+      // gas is what the stars are seen against, not the other way round.
+      col += gas * (0.28 + grain * 0.5) * dust * near;
 
       // Two streams of galaxies rather than one, on bands that do not divide
       // into each other, so they never arrive in step.
-      col += passageGalaxy(u, z, 5.0, 0.55) * 0.95 * near;
-      col += passageGalaxy(u + 0.37, z + 2.6, 3.4, 0.40) * 0.8 * near;
+      col += passageGalaxy(u, z, 5.0, 0.55) * 1.25 * near;
+      col += passageGalaxy(u + 0.37, z + 2.6, 3.4, 0.40) * 1.05 * near;
 
-      /* The tube itself. Faint on purpose — it is meant to be seen through.
-         Enough to say there is something carrying you and no more. */
+      /* The tube itself, and barely there at all. It is meant to be seen
+         THROUGH: a wall you can read the shape of is a pipe, and the whole
+         point of this passage is that what surrounds you is sky. Enough of a
+         suggestion that something is carrying you, and no more. */
       float wall = fbmWrap(vec2(u * 9.0, z * 0.55), 9.0);
-      col += vec3(0.30, 0.55, 1.0) * pow(wall, 5.0) * 0.6 * near;
+      col += vec3(0.30, 0.55, 1.0) * pow(wall, 9.0) * 0.35 * near;
 
       /* And the far end. With the walls this dark it is the only thing in the
          frame telling you which way "along" is.

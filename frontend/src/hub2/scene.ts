@@ -4389,9 +4389,16 @@ export class HubScene {
        * along the track and down, the surface runs at you and past you. */
       this.finaleAngle += (0.75 + 1.6 * s) * dt;
       const plunge = clamp01((s - 0.78) / 0.22);
-      const ring = 30 - 12 * s + Math.sin(s * Math.PI * 2.2) * 6.5 * (1 - s * 0.5);
+      /* Closer than it was, and lower. The sheet runs from 8.8 to 33.8 and the
+         run used to hold out at 26 — which is over the disc but a long way
+         over it, and from there the layers below are a texture rather than a
+         surface. Down to 17 and a metre and a half off it, the shear between
+         one stream and the next is something the eye can follow, which is the
+         entire reason for flying this at all. Still well outside the 6.5
+         horizon: the last fifth is what goes through that. */
+      const ring = 26 - 9 * s + Math.sin(s * Math.PI * 2.2) * 5.5 * (1 - s * 0.5);
       const radius = ring * (1 - plunge) + 5.0 * plunge;
-      const height = (4.2 - 2.8 * s) * (1 - plunge * 0.92);
+      const height = (3.0 - 1.9 * s) * (1 - plunge * 0.92);
       const cosA = Math.cos(this.finaleAngle);
       const sinA = Math.sin(this.finaleAngle);
       this.camera.position
