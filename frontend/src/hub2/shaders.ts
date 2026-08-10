@@ -128,6 +128,9 @@ uniform float uPulse;
 uniform vec3 uCool;
 uniform vec3 uWarm;
 uniform vec3 uHot;
+/** Granulation octaves. The star is one sphere and the shader is the whole
+ *  cost of it, so the low tier drops two octaves rather than the surface. */
+uniform int uDetail;
 varying vec3 vPos;
 varying vec3 vNormal;
 varying vec3 vView;
@@ -136,6 +139,18 @@ ${NOISE}
 
 void main() {
   vec3 p = normalize(vPos);
+
+  /* Domain warp. Plain fbm advected along an axis reads as a texture sliding
+     over a ball: every feature travels the same way at the same speed. Warping
+     the sample point by a second, slower noise field first makes the pattern
+     shear and fold against itself instead, which is what a convecting surface
+     actually does — cells stretch, split and are dragged sideways by the flow
+     they sit in. Cheap: three snoise calls for the whole effect. */
+  vec3 flow = vec3(
+    snoise(p * 1.6 + vec3(0.0, uTime * 0.019, 0.0)),
+    snoise(p * 1.6 + vec3(4.3, uTime * 0.017, 1.1)),
+    snoise(p * 1.6 + vec3(9.1, uTime * 0.021, 5.7))
+  ) * 0.15;
 
   // Three timescales, because a single one reads as a texture sliding over a
   // ball rather than as a surface that is itself churning.
@@ -146,36 +161,87 @@ void main() {
      over broad slow patches, and the eye reads the mottle first. This is also
      what the zoom is for — at the resting camera the star is small, and the
      detail is there for anyone who flies in. */
-  float granule = fbm(p * 9.5 + vec3(0.0, uTime * 0.055, 0.0), 5, 2.15, 0.55);
-  float super   = fbm(p * 2.3 - vec3(uTime * 0.021, 0.0, uTime * 0.017), 3, 2.0, 0.6);
+  float granule = fbm(p * 9.5 + flow * 1.4 + vec3(0.0, uTime * 0.055, 0.0), uDetail, 2.15, 0.55);
+  float super   = fbm(p * 2.3 + flow - vec3(uTime * 0.021, 0.0, uTime * 0.017), 3, 2.0, 0.6);
   float flicker = snoise(p * 15.0 + vec3(uTime * 0.24)) * 0.5 + 0.5;
 
-  float heat = granule * 0.64 + super * 0.36;
+  float heat = granule * 0.6 + super * 0.4;
   heat = heat * 0.5 + 0.5;
+
+  /* The intergranular lanes, and the one piece of structure fbm alone cannot
+     give. Granulation is not a blur of light and dark patches — it is a mosaic
+     of broad bright cells separated by a *connected net* of thin dark lanes,
+     and that net is the thing the eye recognises as a boiling surface. Ridged
+     noise is exactly a connected net of thin lines; cubed it gets thinner
+     still, and subtracting it darkens the lines rather than lighting them. */
+  float lanes = ridged(p * 12.5 + flow * 2.0 + vec3(0.0, uTime * 0.058, 0.0), uDetail - 2);
+  heat -= pow(clamp(lanes, 0.0, 1.0), 3.0) * 0.2;
+
   heat = pow(clamp(heat, 0.0, 1.0), 1.25 - uPulse * 0.35);
-  heat += flicker * (0.05 + uPulse * 0.06);
+  heat += flicker * (0.045 + uPulse * 0.055);
 
-  vec3 color = mix(uCool, uWarm, smoothstep(0.15, 0.62, heat));
-  color = mix(color, uHot, smoothstep(0.6, 0.95, heat));
+  /* Wider crossfades than the old 0.15..0.62 / 0.6..0.95. The stops are the
+     same three colours; spreading the ramps means the disc moves through them
+     gradually instead of banding into an amber zone, a gold zone and a lemon
+     core with visible seams between. */
+  vec3 color = mix(uCool, uWarm, smoothstep(0.08, 0.66, heat));
+  color = mix(color, uHot, smoothstep(0.56, 1.02, heat));
 
-  // Limb darkening. mu is the cosine of the viewing angle; the classic
-  // two-term Eddington approximation is close enough and costs nothing.
+  /* Limb darkening, per channel. mu is the cosine of the viewing angle, and
+     the classic two-term Eddington approximation is close enough — but running
+     one coefficient for all three channels only dims the edge, and a real limb
+     does something more interesting than dim: it *reddens*. Near the edge you
+     look through more atmosphere at a shallower angle, and that atmosphere
+     scatters blue harder than red, so blue falls away fastest and red survives
+     longest. Three coefficients instead of one, all normalised to 1.0 at the
+     centre, and the disc grades from a lemon core out to a deep amber rim on
+     its own — the softest colour on the star, and it comes from the physics
+     rather than from a painted gradient. */
   float mu = clamp(dot(normalize(vNormal), normalize(vView)), 0.0, 1.0);
-  float limb = 0.32 + 0.68 * mu * (0.55 + 0.45 * mu);
+  vec3 limb = vec3(
+    0.42 + 0.58 * mu * (0.62 + 0.38 * mu),
+    0.32 + 0.68 * mu * (0.57 + 0.43 * mu),
+    0.22 + 0.78 * mu * (0.52 + 0.48 * mu)
+  );
   color *= limb;
 
-  // Faculae: the bright network riding the edges of the cooling lanes, which
-  // is where the surface actually looks white rather than orange.
-  float lane = smoothstep(0.72, 0.95, heat);
-  color += vec3(1.0, 0.97, 0.72) * lane * (0.55 + uPulse * 0.5) * limb;
+  /* Faculae: the bright network riding the edges of the cooling lanes, which
+     is where the surface actually looks white rather than orange.
 
-  /* Down from 1.35. The gain multiplies a colour that is already near the top
-     of the range, so past a point it only pushes channels into clipping —
-     which desaturates, and on a yellow star that means the middle of the disc
-     goes white and the colour set above is thrown away. Bloom adds the
-     brightness back without taking the hue with it, so where the star needs to
-     read brighter the ramp is lifted rather than this. */
-  gl_FragColor = vec4(color * (1.3 + uPulse * 0.5), 1.0);
+     Two corrections to where they show. They are patchy — they cluster into
+     active regions rather than dusting the whole star evenly — and their
+     contrast is highest *near the limb*, where the hot walls of the magnetic
+     flux tubes are turned toward the viewer and the surrounding photosphere is
+     darkened. The old weighting multiplied them by limb, which put them
+     brightest dead centre: exactly backwards. */
+  float network = smoothstep(0.70, 0.97, heat);
+  float active = fbm(p * 3.1 + vec3(7.0, uTime * 0.012, 0.0), 2, 2.0, 0.6) * 0.5 + 0.5;
+  float facula = network * mix(0.4, 1.0, active) * mix(0.55, 1.3, 1.0 - mu);
+  color += vec3(1.0, 0.95, 0.76) * facula * (0.42 + uPulse * 0.42);
+
+  /* A thin chromospheric fringe in the last few degrees before the silhouette.
+     Narrow on purpose — it is not a rim light, it is the layer the corona
+     leaves from, and without it the photosphere ends at a hard edge and the
+     corona begins as a separate object floating around it. */
+  float fringe = smoothstep(0.2, 0.0, mu);
+  color += uWarm * fringe * fringe * 0.16;
+
+  color *= 1.42 + uPulse * 0.5;
+
+  /* A shoulder on the highlights that does not take the colour with it. The
+     gain above puts the hot cells over 1.0, and everything over 1.0 is heading
+     for the renderer's ACES curve, which desaturates as it compresses — that
+     is what turns the middle of a yellow star white. So the compression is
+     done here first, on luminance alone, and the chroma ratio is restored
+     afterwards: the bright cells give up brightness and keep their hue, and
+     the bloom puts the brightness back without the hue coming along. Untouched
+     below 1.0, so the lanes and the limb are exactly as authored. */
+  float lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+  float over = max(lum - 1.0, 0.0);
+  float rolled = lum - over + over / (1.0 + over * 0.55);
+  color *= rolled / max(lum, 0.0001);
+
+  gl_FragColor = vec4(color, 1.0);
 }
 `;
 
@@ -287,6 +353,8 @@ export const SUNGLOW_FRAG = /* glsl */ `
 uniform float uTime;
 uniform float uPulse;
 uniform vec3 uColor;
+/** What the corona fades *to* on its way out. See the mix below. */
+uniform vec3 uOuterColor;
 uniform float uIntensity;
 uniform float uUnit;
 /** How sharply the glow dies past the photosphere. Higher is tighter.
@@ -304,27 +372,58 @@ void main() {
   float r = length(vDisc);
   if (r > 1.0) discard;
 
-  // Brightest just off the limb, then a short exponential tail outward — the
-  // shape a real corona actually has. Tight: a broad falloff turns the star
-  // into a bonfire and swallows Mercury's and Venus's orbits whole.
-  float d = max(r - uUnit, 0.0) / max(1.0 - uUnit, 0.0001);
-  float glow = exp(-pow(d * uFalloff, 1.15));
+  /* The ray's direction, not its angle. atan() jumps by 2π across the -x axis,
+     and noise sampled on a value that jumps leaves a seam running out of the
+     star along that axis — which the streamers below would draw as a hard
+     line. A unit vector has no seam to leave. */
+  vec2 dir = vDisc / max(r, 0.0001);
 
-  /* Streamers combed radially outward, turning slowly. Sampled on the ray's
-     angle plus its radius so they stretch rather than swirl. Kept coarse (3
-     octaves, low frequency) and contributing under half the brightness: at
-     four octaves and a 0.8 weight this stopped reading as a corona and became
-     a bright web of lava filaments across the inner system. */
-  float ang = atan(vDisc.y, vDisc.x);
-  vec3 p = vec3(cos(ang), sin(ang), d * 1.1) * 1.7;
-  float streamer = ridged(p + vec3(0.0, 0.0, uTime * 0.045), 3);
-  streamer = smoothstep(0.44, 0.95, streamer);
+  float d0 = max(r - uUnit, 0.0) / max(1.0 - uUnit, 0.0001);
 
-  float a = glow * (0.72 + streamer * 0.45) * uIntensity * (0.85 + uPulse * 0.7);
+  /* Streamers are a shape, not a stain — this is the change that stops the
+     corona reading as a disc with bright streaks painted on it. A helmet
+     streamer is not a brighter patch of an otherwise round corona; it is a
+     place where the corona itself *reaches further out*, drawn along an open
+     magnetic field line. So the modulation goes into the falloff distance, and
+     the silhouette stops being a circle. Two scales, matching the two things a
+     real corona has: a few broad lobes, and the finer polar plumes riding on
+     them. */
+  float lobes = fbm(vec3(dir * 1.35, uTime * 0.012), 3, 2.0, 0.55) * 0.5 + 0.5;
+  float plume = ridged(vec3(dir * 5.2, uTime * 0.02), 3);
+  float reach = 1.0 + (lobes - 0.5) * 0.62 + (plume - 0.5) * 0.2;
+  float d = d0 / max(reach, 0.4);
+
+  /* Three components rather than one exponential. A single falloff has one
+     shape and reads as an airbrushed ring at any width you give it; the real
+     profile is a bright, very tight layer sitting on the limb, the corona
+     proper falling away above it, and a faint halo carrying much further out
+     than either. Summing them gives a curve with a knee in it, and the knee is
+     what makes the glow look like it is made of gas at different densities
+     instead of one soft edge. */
+  float band  = exp(-pow(d * uFalloff * 2.6, 1.4));
+  float inner = exp(-pow(d * uFalloff, 1.15));
+  float outer = exp(-d * uFalloff * 0.34);
+
+  float a = (band * 0.42 + inner * 0.72 + outer * 0.16)
+          * (0.82 + plume * 0.3)
+          * uIntensity * (0.85 + uPulse * 0.7);
   // Nothing at the quad's own edge, so the geometry never shows.
-  a *= smoothstep(1.0, 0.7, r);
+  a *= smoothstep(1.0, 0.72, r);
 
-  gl_FragColor = vec4(uColor * (1.0 + streamer * 0.35), clamp(a, 0.0, 1.0));
+  /* Cools outward. The corona is hot enough that its light is essentially
+     white — the gold near the limb is the photosphere's own light still
+     dominating, and it stops dominating within a radius or so. Holding one
+     colour all the way out is what makes a glow look like a decal; letting it
+     wash pale is most of why this one doesn't. */
+  vec3 col = mix(uColor, uOuterColor, smoothstep(0.04, 0.8, d));
+
+  /* A dither well under one 8-bit step. Everything above is smooth to the
+     limit of float precision, and a smooth gradient this wide is exactly what
+     banding shows up on — additively, over a black sky, at the display's
+     quantisation. Breaking the steps up costs one hash. */
+  float dither = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+
+  gl_FragColor = vec4(col, clamp(a + dither * 0.0035, 0.0, 1.0));
 }
 `;
 
@@ -635,9 +734,25 @@ void main() {
   float prof = 0.18 + 0.50 * pow(t, 1.2) + 1.60 * exp(-t * 3.6);
   float slab = vPosL.y / max(uSlab * prof, 0.0001);
 
-  /* The offset that makes each sheet its own. Without it the three are the
-     same field drawn three times and the slab is one sheet made brighter. */
-  vec3 q = vec3(cos(swirl) * r, sin(swirl) * r, t * 3.0 + slab * 1.7) * 0.42;
+  /* Where the field is sampled, and the shape of the sample is most of what
+     this surface looks like.
+     
+     It used to be read on a circle of the fragment's OWN radius, which at the
+     rim is 17.6 units of noise across — a hundred and ten features around the
+     circumference against barely one from the ISCO to the edge. That is
+     anisotropy, but pointing the wrong way: fine in azimuth and coarse in
+     radius gives short radial hash, and short radial hash on a rotating disc
+     is speckle. Gas that has been sheared by differential rotation for a
+     million orbits is the opposite — long, smooth and drawn out ALONG the
+     flow.
+
+     So the circle has a radius of its own, small and only slowly growing with
+     t, and the radial axis carries the detail instead. About a dozen broad
+     features round the disc and seven across it, which the shear already in
+     the swirl angle then draws into arcs. The slab offset rides on the radial axis so each
+     sheet still gets its own structure. */
+  float qr = mix(1.6, 3.4, t);
+  vec3 q = vec3(cos(swirl) * qr, sin(swirl) * qr, t * 7.0 + slab * 1.7);
 
   /* Domain warp — the one thing here that makes this a fluid rather than a
    * texture on a turntable.
@@ -661,14 +776,18 @@ void main() {
   float rich = uDetail * step(abs(slab), 0.8);
   vec3 warp = vec3(0.0);
   if (rich > 0.01) {
-    vec3 wq = vec3(cos(swirl) * r, sin(swirl) * r, t * 2.0) * 0.17;
+    vec3 wq = vec3(cos(swirl) * 0.9, sin(swirl) * 0.9, t * 2.6);
     float wx = fbm(wq + vec3(0.0, 0.0, uTime * 0.05), 2, 2.3, 0.5);
     float wy = fbm(wq + vec3(5.2, 1.3, uTime * 0.05 + 3.7), 2, 2.3, 0.5);
     warp = vec3(wx, wy, 0.0) * 0.62 * rich;
   }
 
-  float turb = fbm(q + warp + vec3(0.0, 0.0, uTime * 0.12), 4, 2.2, 0.55) * 0.5 + 0.5;
-  float fil = ridged((q + warp * 0.7) * 1.9 - vec3(0.0, 0.0, uTime * 0.2), 3);
+  /* A fifth octave when there is anything to see it — the extra one is what
+     keeps a surface this close to the camera from going soft, and out at the
+     resting view it is below a pixel. */
+  int oct = rich > 0.01 ? 5 : 4;
+  float turb = fbm(q + warp + vec3(0.0, 0.0, uTime * 0.12), oct, 2.2, 0.55) * 0.5 + 0.5;
+  float fil = ridged((q + warp * 0.7) * 1.5 - vec3(0.0, 0.0, uTime * 0.2), 3);
 
   /* A second sheet, going round at its own rate.
    *
@@ -681,7 +800,7 @@ void main() {
    * octaves, and it is what turns the surface into something a craft can be
    * seen to fly over rather than a lit ring it is circling. */
   float swirl2 = ang + uTime * omega * 15.0 + 2.1;
-  vec3 q2 = vec3(cos(swirl2) * r, sin(swirl2) * r, t * 3.0 + 11.0) * 0.63;
+  vec3 q2 = vec3(cos(swirl2) * qr * 0.72, sin(swirl2) * qr * 0.72, t * 5.0 + 11.0);
   float turb2 = fbm(q2, 3, 2.3, 0.55) * 0.5 + 0.5;
 
   /* And a third, finer and slower still, wound the other way round.
@@ -692,11 +811,14 @@ void main() {
    * something is sliding over something else. Three is where that starts to
    * be true, and the third is the cheapest of them because it carries the
    * fine detail rather than the body: two octaves, sampled tight. */
-  float density = mix(turb, fil, 0.45);
+  /* Less of the ridge than there was. Ridged noise is |n| folded, which puts
+     a crease at every zero crossing — excellent for filaments and, at nearly
+     half the mix, the other half of why this read as grain. */
+  float density = mix(turb, fil, 0.3);
   density = mix(density, density * (0.55 + turb2 * 0.95), 0.65);
   if (rich > 0.01) {
     float swirl3 = ang + uTime * omega * 8.5 - 1.3;
-    vec3 q3 = vec3(cos(swirl3) * r, sin(swirl3) * r, t * 3.0 + 27.0) * 1.15;
+    vec3 q3 = vec3(cos(swirl3) * qr * 1.45, sin(swirl3) * qr * 1.45, t * 11.0 + 27.0);
     float turb3 = fbm(q3, 2, 2.4, 0.5) * 0.5 + 0.5;
     density = mix(density, density * (0.62 + turb3 * 0.82), 0.5 * rich);
   }
