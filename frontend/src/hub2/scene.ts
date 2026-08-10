@@ -2756,15 +2756,13 @@ export class HubScene {
        scaled. The hit sphere hangs off the OUTER node, so resizing the ship
        does not resize the target a finger has to land on — a ship you can
        barely see is a choice; a ship you can barely tap is a fault. */
-    /* Scale 1, and that is already the half-again that was asked for.
-       The ring below is built at an outer radius of about 1.9, so it is 3.8
-       units across — against the probe's 2.5, which was drawn at three times
-       these numbers and then divided by three. Setting this to 1.5 as well
-       took the ship to 5.7 across, which is not half again, it is well over
-       twice, and at the distance the chase camera sits it filled the frame
-       edge to edge. */
+    /* Three quarters. The ring below is built at an outer radius of 1.9, so
+       it comes out 2.85 units across against the 3.8 it was — and the chase
+       distance is deliberately NOT scaled with it, because pulling the camera
+       in by the same fraction would leave the ship exactly the size it was
+       and the change would be one nobody could see. */
     const craft = new THREE.Object3D();
-    craft.scale.setScalar(1);
+    craft.scale.setScalar(0.75);
     this.voyager.add(craft);
 
     /* And the ring is its own node inside that, because the ring is the only
@@ -2800,15 +2798,21 @@ export class HubScene {
        aimVoyager. */
     const MODULES = 12;
     const R_OUT = 1.9;
-    const R_IN = 1.01;
+    // Out from 1.01, which shortens the modules from 0.89 to 0.72 and opens
+    // the hole in the middle at the same time.
+    const R_IN = 1.18;
     const MID = (R_OUT + R_IN) * 0.5;
     const RADIAL = R_OUT - R_IN;
-    /* Set by the inner end, not the outer one. The arc between module centres
-       at R_IN is 0.529, so anything wider than that overlaps its neighbours
-       where they are closest — and the wedge gap it leaves at R_OUT is the
-       reference's own silhouette rather than a compromise. */
-    const TANG = 0.5;
-    const THICK = 0.6;
+    /* Set by the inner end, not the outer one: the arc between module centres
+       at R_IN is 0.618, and anything wider than that overlaps its neighbours
+       where they are closest.
+       Down from 0.5 against the old 0.529 — which left a gap of three
+       hundredths at the inner end, so the ring read as a solid band with
+       grooves in it rather than as twelve things joined by tunnels. At 0.40
+       against 0.618 the gap is 0.22 and the tunnels between them are visible
+       as tunnels, which is what they are for. */
+    const TANG = 0.4;
+    const THICK = 0.5;
 
     for (let i = 0; i < MODULES; i++) {
       const a = (i / MODULES) * Math.PI * 2;
@@ -2854,23 +2858,6 @@ export class HubScene {
         });
       }
 
-      /* The tunnel to the next module round, and the node it meets it at.
-         Both live at the inner edge, which is where the reference puts them
-         and is the only place on a ring of radial slabs where neighbours are
-         close enough to reach each other. */
-      const link = new THREE.Object3D();
-      link.rotation.z = Math.PI / MODULES;
-      mod.add(link);
-      add(new THREE.SphereGeometry(0.105, 12, 8), panel, link, (m) => {
-        m.position.set(-MID + R_IN + 0.02, 0, 0);
-        // Into the gap between this module and the next.
-        m.position.y = 0;
-        m.position.x = R_IN + 0.04 - MID;
-      });
-      add(new THREE.CylinderGeometry(0.065, 0.065, 0.28, 10), dark, link, (m) => {
-        m.position.x = R_IN + 0.04 - MID;
-      });
-
       if (i % 3 === 0) {
         /* The drive modules: four of them, three plasma engines each, which
            is what the ship's own documentation says and what the reference
@@ -2899,6 +2886,30 @@ export class HubScene {
           m.position.set(0.04, 0, -THICK * 0.5 - 0.012);
         });
       }
+    }
+
+    /* The tunnels between modules, and the nodes they meet at.
+     *
+     * Hung off the RING and not off a module, which is the whole of what was
+     * wrong with them before: they were parented to a module and rotated by
+     * half a segment, and a rotation in that frame turns about the module's
+     * own centre rather than about the ring's — so instead of sitting in the
+     * gap they sat buried inside the module that carried them, and the ring
+     * looked like twelve slabs that were not joined to anything.
+     *
+     * They live at the inner edge because that is where the reference puts
+     * them and, on a ring of radial slabs, the only place where neighbours
+     * are close enough to reach each other at all. */
+    for (let i = 0; i < MODULES; i++) {
+      const a = ((i + 0.5) / MODULES) * Math.PI * 2;
+      const node = new THREE.Object3D();
+      node.position.set(Math.cos(a) * (R_IN + 0.07), Math.sin(a) * (R_IN + 0.07), 0);
+      node.rotation.z = a;
+      this.enduranceRing.add(node);
+      add(new THREE.SphereGeometry(0.1, 12, 8), panel, node, () => {});
+      // Along the ring, and long enough to reach into both neighbours: the arc
+      // between module centres here is 0.618 and a module is 0.40 wide.
+      add(new THREE.CylinderGeometry(0.062, 0.062, 0.34, 10), dark, node, () => {});
     }
 
     /* ────────────────────── the docking hub ──────────────────────
@@ -3011,14 +3022,15 @@ export class HubScene {
 
     this.scene.add(this.voyager);
 
-    /* 1.35 against the probe's 0.9 — half again, as asked. This is the figure
-       the chase camera stands off by and the telescope frames on, so it is
-       the ship's size for every purpose except being tapped. */
-    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 1.35, primary: false, dive: false };
-    // The target a finger has to land on, which grew with the ship but not by
-    // as much: at 1.5× the ring is 4.3 units across and a hit sphere that
-    // matched it would swallow taps meant for whatever it is flying past.
-    const hit = this.hitSphere(2.9);
+    /* Follows the ship down to three quarters. This is the figure the chase
+       camera stands off by and the telescope frames on, so it is the ship's
+       size for every purpose except being tapped. */
+    const info: BodyInfo = { key: "voyager", ko: VOYAGER.ko, en: VOYAGER.en, bodyKo: VOYAGER.bodyKo, bodyEn: VOYAGER.bodyEn, to: VOYAGER.to, accent: "#cfe4ff", size: 1.0, primary: false, dive: false };
+    // The target a finger has to land on. Held above the ship's own radius of
+    // 1.43: a hit sphere that merely matched a shrinking ship would make it
+    // harder to tap every time it was made smaller, and the finger has not
+    // changed size.
+    const hit = this.hitSphere(2.4);
     this.voyager.add(hit);
     this.pickables.push({ object: hit, info, anchor: this.voyager });
     this.addLabel(info, this.voyager);
