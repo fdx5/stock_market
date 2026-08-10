@@ -175,7 +175,7 @@ void main() {
      noise is exactly a connected net of thin lines; cubed it gets thinner
      still, and subtracting it darkens the lines rather than lighting them. */
   float lanes = ridged(p * 12.5 + flow * 2.0 + vec3(0.0, uTime * 0.058, 0.0), uDetail - 2);
-  heat -= pow(clamp(lanes, 0.0, 1.0), 3.0) * 0.2;
+  heat -= pow(clamp(lanes, 0.0, 1.0), 3.0) * 0.16;
 
   heat = pow(clamp(heat, 0.0, 1.0), 1.25 - uPulse * 0.35);
   heat += flicker * (0.045 + uPulse * 0.055);
@@ -184,8 +184,8 @@ void main() {
      same three colours; spreading the ramps means the disc moves through them
      gradually instead of banding into an amber zone, a gold zone and a lemon
      core with visible seams between. */
-  vec3 color = mix(uCool, uWarm, smoothstep(0.08, 0.66, heat));
-  color = mix(color, uHot, smoothstep(0.52, 0.94, heat));
+  vec3 color = mix(uCool, uWarm, smoothstep(0.06, 0.63, heat));
+  color = mix(color, uHot, smoothstep(0.54, 0.95, heat));
 
   /* Limb darkening, per channel. mu is the cosine of the viewing angle, and
      the classic two-term Eddington approximation is close enough — but running
@@ -229,7 +229,7 @@ void main() {
   float fringe = smoothstep(0.2, 0.0, mu);
   color += uWarm * fringe * fringe * 0.16;
 
-  color *= 1.5 + uPulse * 0.5;
+  color *= 1.38 + uPulse * 0.5;
 
   /* A shoulder on the highlights that does not take the colour with it. The
      gain above puts the hot cells over 1.0, and everything over 1.0 is heading

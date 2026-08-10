@@ -4,6 +4,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { loadStockIconUrl } from "../stockIcon";
 import {
   BLACK_HOLE,
@@ -114,6 +115,24 @@ const TIERS: Record<Tier, TierConfig> = {
 };
 
 const TIER_ORDER: Tier[] = ["ultra", "high", "low"];
+
+/* Why the bloom runs at the full frame, and must: a note about a change that
+ * looks free, is not, and would otherwise be made twice.
+ *
+ * The bloom is the most expensive pass on the page: five mip levels, each
+ * blurred twice, the first of them at half the frame, which on a 2× display is
+ * a 2800×1800 frame. Building the chain at half size quarters that fill, and
+ * the reasoning for doing it is obvious — the pass ends in a blur wide enough
+ * that no detail could survive it anyway.
+ *
+ * But the blur kernel is measured in TEXELS, not in pixels. Halve the
+ * resolution it runs at and every tap reaches twice as far across the screen,
+ * so the star's glow doubles in width and the whole frame comes up under a
+ * grey veil: the background stops being black, and on a page that is mostly
+ * black background that is the most visible change that could be made to it.
+ * The cost is not in the resolution, it is in the reach, and three's
+ * UnrealBloomPass gives no way to shorten one without the other — the tap
+ * counts are baked into its shader. */
 
 /** Below this for a whole sample window and the scene drops a tier. 45 rather
  * than 60 so a couple of dropped frames during a fly-to don't demote a machine
@@ -1097,15 +1116,14 @@ export class HubScene {
     this.buildVoyager();
     this.buildComets();
 
-    /* The ship is about a hundred and fifty separate primitives — twelve
-       modules with their panels, windows, caps, tunnels and engines, plus the
-       hub, a Ranger and a Lander — and almost none of them ever moves relative
-       to its neighbours. Left on the default, three re-composes every one of
-       those local matrices from its position, quaternion and scale on every
-       frame, to arrive at the same matrix it had last frame. Composed once
-       here instead; the world matrices still follow the rig, because that
-       propagation is a multiply by the parent and has nothing to do with this
-       flag. */
+    /* What is left of the ship after flatten has been over it: the merged
+       meshes, and the placement nodes their parts used to hang from. None of
+       them moves relative to its neighbours. Left on the default, three
+       re-composes every one of those local matrices from its position,
+       quaternion and scale on every frame, to arrive at the same matrix it had
+       last frame. Composed once here instead; the world matrices still follow
+       the rig, because that propagation is a multiply by the parent and has
+       nothing to do with this flag. */
     this.voyager.traverse((child) => {
       if (child === this.voyager) return;
       child.updateMatrix();
@@ -1554,6 +1572,65 @@ export class HubScene {
     mesh.scale.setScalar(radius);
     mesh.layers.set(PICK_LAYER);
     return mesh;
+  }
+
+  /** Collapse a sub-assembly built out of primitives into one mesh per
+   * material, with every part's own transform baked into the vertices.
+   *
+   * The two spacecraft are modelled the way a model kit is: the Endurance is
+   * two hundred boxes and cylinders on a hundred and eighty nodes, the
+   * telescope another dozen and a half. That is the right way to *author*
+   * them — the ring is twelve modules of eight parts each because it is
+   * legible as twelve modules of eight parts — and the wrong way to draw them.
+   * Two hundred parts is two hundred draw calls, two hundred local matrices
+   * recomposed per frame, and two hundred frustum tests, every frame, for a
+   * ship that is four pixels across for most of its life. It was four fifths
+   * of the scene's entire draw call count.
+   *
+   * Nothing about the result changes: the transforms are baked, not dropped,
+   * and the parts keep the material they were given. What is required of the
+   * caller is that the sub-assembly be *rigid* — anything that has to move on
+   * its own must sit outside the root this is handed, which is why the ring
+   * and the hub are flattened separately. The ring turns; the hub does not.
+   *
+   * Skips anything the camera would not draw anyway, which is how the pick
+   * spheres survive: they hang off these same rigs and they are invisible by
+   * layer, so merging one into the visible geometry would put a smooth ball
+   * around the ship. */
+  private flatten(root: THREE.Object3D) {
+    root.updateMatrixWorld(true);
+    const toLocal = new THREE.Matrix4().copy(root.matrixWorld).invert();
+    const byMaterial = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const merged: THREE.Mesh[] = [];
+
+    root.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.layers.test(this.camera.layers)) return;
+      const material = mesh.material as THREE.Material;
+      const geometry = (mesh.geometry as THREE.BufferGeometry).clone();
+      geometry.applyMatrix4(new THREE.Matrix4().multiplyMatrices(toLocal, mesh.matrixWorld));
+      const group = byMaterial.get(material);
+      if (group) group.push(geometry);
+      else byMaterial.set(material, [geometry]);
+      merged.push(mesh);
+    });
+
+    for (const mesh of merged) mesh.removeFromParent();
+
+    for (const [material, parts] of byMaterial) {
+      /* No groups: one material means one draw, and asking for groups here
+         would hand it back the per-part split this exists to remove. */
+      const geometry = mergeGeometries(parts, false);
+      for (const part of parts) part.dispose();
+      if (!geometry) continue;
+      const mesh = new THREE.Mesh(geometry, material);
+      /* The parts were placed once and never moved; the merged mesh sits at
+         the root's own origin and never moves either. Its world matrix still
+         follows the rig, which is a multiply by the parent and unaffected. */
+      mesh.matrixAutoUpdate = false;
+      root.add(mesh);
+      this.disposables.push(geometry);
+    }
   }
 
   private planetMaterial(
@@ -2749,16 +2826,11 @@ export class HubScene {
     this.hubbleInfo = info;
 
     /* The telescope is a dozen and a half parts and not one of them moves
-       relative to the others — only the rig they hang off is aimed. Left on
-       the default, three recomposes every one of those local matrices from its
-       position, quaternion and scale on every frame to arrive at the matrix it
-       already had. Composed once here instead; the world matrices still follow
-       the rig, which is a multiply by the parent and unaffected by this. */
-    rig.traverse((child) => {
-      if (child === rig) return;
-      child.updateMatrix();
-      child.matrixAutoUpdate = false;
-    });
+       relative to the others — only the rig they hang off is aimed. So they go
+       the way the Endurance's do: baked into one mesh per material, which
+       takes the per-frame matrix work the note here used to save and the draw
+       calls with it. The pick sphere on the rig is left alone — see flatten. */
+    this.flatten(rig);
   }
 
   private buildVoyager() {
@@ -3115,6 +3187,13 @@ export class HubScene {
       m.position.set(-0.1, 0.05, 0);
     });
 
+    /* Two hundred parts, seven materials, and from here on fourteen draws.
+       Separately, because the ring spins and the hub deliberately does not —
+       flattening the pair together would weld the crew's gravity to the
+       docking ports. See flatten. */
+    this.flatten(this.enduranceRing);
+    this.flatten(this.enduranceHub);
+
     this.scene.add(this.voyager);
 
     /* Follows the ship down to three quarters. This is the figure the chase
@@ -3194,6 +3273,8 @@ export class HubScene {
       // Raised alongside the planets' own exposure: at 0.62 the brightened
       // bodies started clearing the threshold themselves and dissolved into
       // glowing smudges. Only genuinely emitting things belong in the bloom.
+      // Full frame — see BLOOM_SCALE for why this is not the free win it looks
+      // like.
       this.bloom = new UnrealBloomPass(new THREE.Vector2(width, height), 0.95, 0.5, 0.95);
       composer.addPass(this.bloom);
     }
@@ -7213,6 +7294,22 @@ export class HubScene {
       lens.uStrength2,
       true,
     );
+
+    /* And when neither mass is bending anything — which is the resting scene,
+       with the hole out past the edge of the frame — the pass is switched off
+       rather than run.
+
+       The shader already knew: its first two lines test exactly this and fall
+       through to a straight copy of the frame. But a straight copy is still a
+       full-screen pass. It reads five million texels and writes five million
+       more, and it costs a ping-pong between the composer's two half-float
+       targets, every frame, to arrive at the image it was handed. The test
+       belongs one level up, where the answer is "do not draw" rather than
+       "draw the same thing". The thresholds are the shader's own, so the pass
+       goes out exactly when it stops having anything to do. */
+    this.lensPass.enabled =
+      (lens.uStrength.value > 0.001 && lens.uRadius.value > 0.0001) ||
+      (lens.uStrength2.value > 0.001 && lens.uRadius2.value > 0.0001);
   }
 
   /** Where a body sits on screen and how big it looks, in the units the
