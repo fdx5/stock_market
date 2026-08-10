@@ -1888,7 +1888,11 @@ export class HubScene {
     this.holeGroup.add(horizon);
     this.disposables.push(horizonGeo, horizonMat);
 
-    const discGeo = new THREE.RingGeometry(HORIZON * 1.35, HORIZON * 5.2, 220, 24);
+    /* Out from 5.2 horizon radii to 6.6 — 43 units rather than 34. The
+       ending now flies across this sheet at a metre or two above it for
+       twenty seconds, and what that shot needs more than anything is somewhere
+       to look: a disc whose far edge is close enough to see is a pond. */
+    const discGeo = new THREE.RingGeometry(HORIZON * 1.35, HORIZON * 6.6, 260, 30);
     discGeo.rotateX(-Math.PI / 2);
     this.discMaterial = new THREE.ShaderMaterial({
       vertexShader: DISC_VERT,
@@ -1896,10 +1900,11 @@ export class HubScene {
       uniforms: {
         uTime: { value: 0 },
         uInner: { value: HORIZON * 1.35 },
-        uOuter: { value: HORIZON * 5.2 },
+        uOuter: { value: HORIZON * 6.6 },
         uFeed: { value: 0 },
         uGlowTint: { value: new THREE.Color(0x39ff9e) },
         uGlowMix: { value: 0 },
+        uDetail: { value: 0 },
       },
       transparent: true,
       depthWrite: false,
@@ -4144,14 +4149,15 @@ export class HubScene {
        hug      10    skimming its glass, where the sky inside can be seen moving
        enter     3    round and in
        tunnel   10    inside it, first person, riding across the passage
-       space    10    out the far side, near the hole, closing on it
-       disc      8    down onto the disc and round it, skimming
+       space    12    out the far side, closing until the hole is half the frame
+       disc     20    down onto the sheet and across it, at a metre above
        inside    4.5  past the horizon: flashes, and light with no source
        static    7    the dead channel, which is the auto tour's own
        plate     5    the far side, held, with the stone dropped in it
        return    2.4  the picture comes back
 
-     Seventy-seven seconds, and thirty of them are the arrival. That is
+     Ninety-one seconds. Thirty of them are the arrival and twenty are the
+     crossing, which is the shot the whole ending exists to get to. That is
      deliberate and it is the change this ending most needed: the wormhole is
      two units across and the first cut at this gave it three seconds, which
      is long enough to identify a thing and not long enough to look at one.
@@ -4162,20 +4168,20 @@ export class HubScene {
      stretches of it, not phases with boundaries. See the note where it is
      driven for what writing them as three separate phases cost. */
   private static readonly WF_TUNNEL = 10;
-  private static readonly WF_SPACE = 10;
-  private static readonly WF_DISC = 8;
+  private static readonly WF_SPACE = 12;
+  private static readonly WF_DISC = 20;
   private static readonly WF_INSIDE = 4.5;
   private static readonly WF_STATIC = 7;
   private static readonly WF_PLATE = 5;
   private static readonly WF_RETURN = 2.4;
   private static readonly WF_T_DIVE = 30;
   private static readonly WF_T_TUNNEL = 40;
-  private static readonly WF_T_SPACE = 50;
-  private static readonly WF_T_DISC = 58;
-  private static readonly WF_T_INSIDE = 62.5;
-  private static readonly WF_T_STATIC = 69.5;
-  private static readonly WF_T_PLATE = 74.5;
-  private static readonly WF_END = 76.9;
+  private static readonly WF_T_SPACE = 52;
+  private static readonly WF_T_DISC = 72;
+  private static readonly WF_T_INSIDE = 76.5;
+  private static readonly WF_T_STATIC = 83.5;
+  private static readonly WF_T_PLATE = 88.5;
+  private static readonly WF_END = 90.9;
 
   private updateWormholeFinale(dt: number) {
     const t = this.finaleT;
@@ -4351,7 +4357,12 @@ export class HubScene {
        * sits outside Neptune's orbit the whole way in. */
       const out = this.tmpV3.copy(this.holeWorld).normalize();
       const perp = this.jetSideB.copy(axis).cross(out).normalize();
-      const radius = 330 - 235 * ease;
+      /* In to 30 units rather than 95. At 95 the horizon subtends eight
+         degrees and the hole is a dot with a bright ring; at 30 it subtends
+         twenty-five, which against a fifty-degree field is half the frame —
+         and half the frame is the point at which a black hole stops being an
+         object in a shot and becomes the shot. */
+      const radius = 300 - 270 * ease;
       this.camera.position
         .copy(this.holeWorld)
         .addScaledVector(perp, radius * 0.8)
@@ -4399,32 +4410,53 @@ export class HubScene {
        * aimed at the middle, everything streams outward from the far side of
        * the frame and the shot reads as an orbit however low it is. Aimed
        * along the track and down, the surface runs at you and past you. */
-      this.finaleAngle += (0.75 + 1.6 * s) * dt;
-      const plunge = clamp01((s - 0.78) / 0.22);
-      /* Closer than it was, and lower. The sheet runs from 8.8 to 33.8 and the
-         run used to hold out at 26 — which is over the disc but a long way
-         over it, and from there the layers below are a texture rather than a
-         surface. Down to 17 and a metre and a half off it, the shear between
-         one stream and the next is something the eye can follow, which is the
-         entire reason for flying this at all. Still well outside the 6.5
-         horizon: the last fifth is what goes through that. */
-      const ring = 26 - 9 * s + Math.sin(s * Math.PI * 2.2) * 5.5 * (1 - s * 0.5);
+      /* Twenty seconds, and shaped like a crossing rather than a descent:
+         a long way out and high enough to see how far it goes, then down onto
+         it, then across it at a metre or two for most of the movement, then
+         in. The sheet reaches 43 units now, so at the start the far edge is
+         beyond anything the eye can resolve and what is under the camera is a
+         plane running away in every direction — which is the only way a flat
+         ring becomes an open sea.
+
+         The angular rate is deliberately low and nearly constant. This is the
+         one movement in the ending that is not accelerating toward anything:
+         it is a glide, and a glide that speeds up is a fall. */
+      this.finaleAngle += (0.30 + 0.34 * s) * dt;
+      const plunge = clamp01((s - 0.86) / 0.14);
+      const descend = smoothstep(0.0, 0.34, s);
+      const run = smoothstep(0.26, 0.92, s);
+      // 46 out to 13, with a slow weave over the top of the closing so the
+      // craft wanders across the sheet rather than tracking one circle of it.
+      const ring = 46 - 33 * run + Math.sin(s * Math.PI * 3.1) * 7.0 * (1 - s * 0.55);
       const radius = ring * (1 - plunge) + 5.0 * plunge;
-      const height = (3.0 - 1.9 * s) * (1 - plunge * 0.92);
+      /* Down from fourteen to a metre and a half. The first third is the only
+         part of this shot with any altitude in it and it is what establishes
+         the scale — from down on the deck a plane and a wall look the same. */
+      const height = (14.0 - 12.4 * descend - 0.4 * run) * (1 - plunge * 0.92);
       const cosA = Math.cos(this.finaleAngle);
       const sinA = Math.sin(this.finaleAngle);
-      this.camera.position
+      const want = this.tmpV2
         .copy(this.holeWorld)
         .addScaledVector(side1, cosA * radius)
         .addScaledVector(side2, sinA * radius)
         .addScaledVector(axis, height);
+      /* Eased in from wherever the approach left the camera. This join was a
+         cut: the approach ends on its own frame at its own radius and this
+         movement begins on the hole's, and the two are nowhere near each
+         other — every other seam in this ending is covered by a whiteout or a
+         blackout and this one is covered by nothing at all. */
+      const join = clamp01((t - HubScene.WF_T_SPACE) / 2.2);
+      this.camera.position.lerp(want, join * join * (3 - 2 * join));
 
       /* The look-ahead point: along the track and inward, on the sheet
          itself. It closes on the middle as the plunge takes over, so the last
-         second of the movement is the camera turning to face what it has been
-         running across — which is the turn the whole eight seconds is for. */
-      const look = this.finaleAngle + 0.85 * (1 - plunge);
-      const lookR = ring * 0.55 * (1 - plunge);
+         seconds of the movement are the camera turning to face what it has
+         been running across — which is the turn the whole crossing is for.
+         Further ahead than it was, because the shot is longer and slower: at
+         0.85 radians the horizon sat off to one side, and what this needs is
+         to be looking down the track. */
+      const look = this.finaleAngle + 1.15 * (1 - plunge);
+      const lookR = ring * 0.62 * (1 - plunge);
       this.controls.target
         .copy(this.holeWorld)
         .addScaledVector(side1, Math.cos(look) * lookR)
@@ -5258,6 +5290,24 @@ export class HubScene {
        it into a lamp. The disc should warm when it is feeding. It should not
        out-shine the sun. */
     this.discMaterial.uniforms.uFeed.value = this.feed + glowBright + jet * 0.3;
+
+    /* How much of the disc's expensive structure to compute this frame.
+     *
+     * The disc is the most costly surface on the page — sixteen turns of
+     * simplex a fragment at full detail — and it is on screen for the whole
+     * session. For almost all of that it is a small bright ring away in a
+     * corner, where the domain warp and the third turbulence sheet are below
+     * a pixel and cost exactly what they cost from a metre away. So they are
+     * bought by distance: full inside 180 units, gone by 240, and a smooth
+     * ramp between the two so nothing pops as it crosses.
+     *
+     * The threshold is set by where the disc stops being readable rather than
+     * by a frame-rate target. At 240 units the sheet subtends about twenty
+     * degrees; the ending's crossing flies it between 5 and 46, and the
+     * telescope frames it at 157, so everything that is actually looking at
+     * this thing gets all of it. */
+    const near = this.camera.position.distanceTo(holePos);
+    this.discMaterial.uniforms.uDetail.value = clamp01((240 - near) / 60);
   }
 
   /** The jet, on the two moments in the cycle that earn one: when the rock is

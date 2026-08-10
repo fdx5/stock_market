@@ -582,6 +582,14 @@ uniform float uFeed;
  * of being flooded flat. */
 uniform vec3 uGlowTint;
 uniform float uGlowMix;
+/** How much of the expensive structure to compute, 0..1, driven by how near
+ * the camera is. The disc is sixteen turns of simplex noise a fragment at
+ * full detail and it is on screen for the whole session — but for almost all
+ * of that it is a small bright ring in a corner, where a domain warp and a
+ * third turbulence sheet are below a pixel and cost the same as they do from
+ * a metre away. It reaches zero a little before the branch stops running, so
+ * the layers fade out rather than switching off. */
+uniform float uDetail;
 varying vec3 vPosL;
 
 ${NOISE}
@@ -599,8 +607,30 @@ void main() {
   float swirl = ang + uTime * omega * 26.0;
 
   vec3 q = vec3(cos(swirl) * r, sin(swirl) * r, t * 3.0) * 0.42;
-  float turb = fbm(q + vec3(0.0, 0.0, uTime * 0.12), 4, 2.2, 0.55) * 0.5 + 0.5;
-  float fil = ridged(q * 1.9 - vec3(0.0, 0.0, uTime * 0.2), 3);
+
+  /* Domain warp — the one thing here that makes this a fluid rather than a
+   * texture on a turntable.
+   *
+   * The sample position is displaced by a slower, coarser field of its own
+   * before the turbulence is read from it. Without it every filament keeps
+   * its shape for ever and merely travels: the disc rotates, and nothing in
+   * it ever happens. With it the filaments curl into each other, stretch
+   * where the warp diverges and pile up where it converges, and the whole
+   * sheet reads as something being stirred — which is what an accretion disc
+   * is doing every second of its life.
+   *
+   * Two octaves and two samples, which is the cheapest domain warp there is,
+   * and it buys more than the third turbulence sheet below does. */
+  vec3 warp = vec3(0.0);
+  if (uDetail > 0.01) {
+    vec3 wq = vec3(cos(swirl) * r, sin(swirl) * r, t * 2.0) * 0.17;
+    float wx = fbm(wq + vec3(0.0, 0.0, uTime * 0.05), 2, 2.3, 0.5);
+    float wy = fbm(wq + vec3(5.2, 1.3, uTime * 0.05 + 3.7), 2, 2.3, 0.5);
+    warp = vec3(wx, wy, 0.0) * 0.62 * uDetail;
+  }
+
+  float turb = fbm(q + warp + vec3(0.0, 0.0, uTime * 0.12), 4, 2.2, 0.55) * 0.5 + 0.5;
+  float fil = ridged((q + warp * 0.7) * 1.9 - vec3(0.0, 0.0, uTime * 0.2), 3);
 
   /* A second sheet, going round at its own rate.
    *
@@ -624,13 +654,14 @@ void main() {
    * something is sliding over something else. Three is where that starts to
    * be true, and the third is the cheapest of them because it carries the
    * fine detail rather than the body: two octaves, sampled tight. */
-  float swirl3 = ang + uTime * omega * 8.5 - 1.3;
-  vec3 q3 = vec3(cos(swirl3) * r, sin(swirl3) * r, t * 3.0 + 27.0) * 1.15;
-  float turb3 = fbm(q3, 2, 2.4, 0.5) * 0.5 + 0.5;
-
   float density = mix(turb, fil, 0.45);
   density = mix(density, density * (0.55 + turb2 * 0.95), 0.65);
-  density = mix(density, density * (0.62 + turb3 * 0.82), 0.5);
+  if (uDetail > 0.01) {
+    float swirl3 = ang + uTime * omega * 8.5 - 1.3;
+    vec3 q3 = vec3(cos(swirl3) * r, sin(swirl3) * r, t * 3.0 + 27.0) * 1.15;
+    float turb3 = fbm(q3, 2, 2.4, 0.5) * 0.5 + 0.5;
+    density = mix(density, density * (0.62 + turb3 * 0.82), 0.5 * uDetail);
+  }
 
   /* And the lanes, which cost nothing at all. A travelling sine in radius
      whose phase advances with the local orbital rate: the bands are
@@ -643,17 +674,28 @@ void main() {
      the fine one runs at a different multiple of omega so the two drift
      through each other instead of travelling together. */
   density *= 0.86 + 0.14 * sin(r * 4.0 - uTime * omega * 34.0);
-  density *= 0.90 + 0.10 * sin(r * 10.3 - uTime * omega * 51.0 + 2.2);
-  // Thin at both edges: sharp at the ISCO, feathered at the outer rim.
-  density *= smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.55, 1.0, t));
+  density *= 1.0 - uDetail * (0.10 - 0.10 * sin(r * 10.3 - uTime * omega * 51.0 + 2.2));
+  /* Thin at both edges: sharp at the ISCO, feathered at the outer rim. The
+     outer feather starts later than it used to — the sheet reaches further
+     out now, and a disc that has faded to nothing by two thirds of its own
+     radius has no far distance for a camera down on it to look across. */
+  density *= smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.72, 1.0, t));
 
-  // Temperature: T ∝ r^-3/4 for a thin disc. Colour ramp follows it.
+  /* Temperature: T ∝ r^-3/4 for a thin disc, and the colour ramp follows it.
+     Five stops rather than four. Flown over at close range the ramp is most
+     of what the eye has to judge distance by — the far reaches of the sheet
+     should be a different colour from the ground under the camera, or the
+     whole plane reads as one flat surface at one temperature. The deep red
+     at the outside is new, and so is the separation between the gold and the
+     white above it. */
   float temp = pow(1.0 - t, 2.1);
-  vec3 cold = vec3(0.75, 0.16, 0.03);
-  vec3 warm = vec3(1.0, 0.55, 0.14);
-  vec3 hot  = vec3(1.0, 0.92, 0.62);
-  vec3 xhot = vec3(0.78, 0.9, 1.0);
-  vec3 color = mix(cold, warm, smoothstep(0.05, 0.45, temp));
+  vec3 ember = vec3(0.46, 0.07, 0.02);
+  vec3 cold = vec3(0.86, 0.20, 0.03);
+  vec3 warm = vec3(1.0, 0.55, 0.13);
+  vec3 hot  = vec3(1.0, 0.86, 0.46);
+  vec3 xhot = vec3(0.82, 0.93, 1.0);
+  vec3 color = mix(ember, cold, smoothstep(0.0, 0.16, temp));
+  color = mix(color, warm, smoothstep(0.10, 0.45, temp));
   color = mix(color, hot, smoothstep(0.42, 0.78, temp));
   color = mix(color, xhot, smoothstep(0.82, 1.0, temp));
 
