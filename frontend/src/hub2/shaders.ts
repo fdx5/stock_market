@@ -185,7 +185,7 @@ void main() {
      gradually instead of banding into an amber zone, a gold zone and a lemon
      core with visible seams between. */
   vec3 color = mix(uCool, uWarm, smoothstep(0.08, 0.66, heat));
-  color = mix(color, uHot, smoothstep(0.56, 1.02, heat));
+  color = mix(color, uHot, smoothstep(0.52, 0.94, heat));
 
   /* Limb darkening, per channel. mu is the cosine of the viewing angle, and
      the classic two-term Eddington approximation is close enough — but running
@@ -213,10 +213,13 @@ void main() {
      contrast is highest *near the limb*, where the hot walls of the magnetic
      flux tubes are turned toward the viewer and the surrounding photosphere is
      darkened. The old weighting multiplied them by limb, which put them
-     brightest dead centre: exactly backwards. */
+     brightest dead centre: exactly backwards.
+
+     Named for the chromospheric bright region rather than the obvious
+     "active", which is a reserved word in GLSL and will not compile. */
   float network = smoothstep(0.70, 0.97, heat);
-  float active = fbm(p * 3.1 + vec3(7.0, uTime * 0.012, 0.0), 2, 2.0, 0.6) * 0.5 + 0.5;
-  float facula = network * mix(0.4, 1.0, active) * mix(0.55, 1.3, 1.0 - mu);
+  float plage = fbm(p * 3.1 + vec3(7.0, uTime * 0.012, 0.0), 2, 2.0, 0.6) * 0.5 + 0.5;
+  float facula = network * mix(0.4, 1.0, plage) * mix(0.55, 1.3, 1.0 - mu);
   color += vec3(1.0, 0.95, 0.76) * facula * (0.42 + uPulse * 0.42);
 
   /* A thin chromospheric fringe in the last few degrees before the silhouette.
@@ -226,7 +229,7 @@ void main() {
   float fringe = smoothstep(0.2, 0.0, mu);
   color += uWarm * fringe * fringe * 0.16;
 
-  color *= 1.42 + uPulse * 0.5;
+  color *= 1.5 + uPulse * 0.5;
 
   /* A shoulder on the highlights that does not take the colour with it. The
      gain above puts the hot cells over 1.0, and everything over 1.0 is heading
@@ -404,7 +407,13 @@ void main() {
   float inner = exp(-pow(d * uFalloff, 1.15));
   float outer = exp(-d * uFalloff * 0.34);
 
-  float a = (band * 0.42 + inner * 0.72 + outer * 0.16)
+  /* The outer term is weighted far below the other two, and it has to be: it
+     is the one that covers area, and area is what the bloom integrates. Taken
+     up to where it reads as a halo on its own it stops being a halo at all and
+     becomes a grey veil over the whole frame — the widest bloom mip picking up
+     a faint wash spread across a thousand pixels. It is a suggestion of one,
+     and the bloom turns the suggestion into the halo. */
+  float a = (band * 0.42 + inner * 0.72 + outer * 0.11)
           * (0.82 + plume * 0.3)
           * uIntensity * (0.85 + uPulse * 0.7);
   // Nothing at the quad's own edge, so the geometry never shows.
@@ -1936,17 +1945,43 @@ export const LENSING_SHADER = {
         texture2D(tDiffuse, clamp(uvB, 0.0, 1.0)).b
       );
 
-      /* The photon sphere: light that looped the hole and came back out. A
-         thin, bright, slightly breathing ring at ~1.5 horizon radii.
+      /* The halo: the far side of the disc, wrapped over and under the
+         horizon by the hole's own gravity, which is the single image everyone
+         who has seen the film remembers.
+         
+         It has to be DRAWN and cannot be bent into place. This pass resamples
+         what is already on the screen, and the far side of the disc is behind
+         an opaque black sphere — there is nothing there to displace. So the
+         band is painted at the radius the real one appears at, which is a
+         little outside the photon sphere, and given the disc's own colour and
+         the disc's own motion.
 
-         The angular term is deliberately low-frequency and low-amplitude. At
-         seven lobes and 4% it did not read as a ripple at all — it turned the
-         ring into a visible rotating heptagon, because a thin ring modulated
-         n times around its circumference IS an n-gon. Three broad lobes at
-         1% reads as the ring shimmering. */
-      float ripple = 1.0 + 0.01 * sin(uTime * 1.7 + atan(d.y, d.x) * 3.0);
-      float ring = exp(-pow((rn - 1.52 * ripple) * 13.0, 2.0));
-      color += vec3(1.0, 0.93, 0.82) * ring * (0.42 + uFeed * 0.9) * uStrength;
+         Two things about the motion, both learned the hard way. It is
+         brightness travelling round the ring and not the ring's radius
+         wobbling: a thin ring displaced n times around its circumference IS
+         an n-gon, and an earlier version of this turned into a slowly
+         rotating heptagon. And it is three harmonics at three rates rather
+         than one, so nothing about it is periodic enough for the eye to find
+         the number — what it reads instead is knots of material going round,
+         which is what they are. */
+      float a = atan(d.y, d.x);
+      float flow = 0.62
+        + 0.20 * sin(a * 3.0 - uTime * 1.30)
+        + 0.13 * sin(a * 5.0 + uTime * 0.85 + 1.3)
+        + 0.09 * sin(a * 8.0 - uTime * 1.90 + 0.6);
+
+      /* Thick. The old ring was a hairline at thirteen units of falloff — a
+         wire round the sphere, where the film's is a broad band with depth in
+         it. Four and a half puts real width on it, and the thin bright line
+         below still sits inside it as the photon sphere proper. */
+      float halo = exp(-pow((rn - 1.46) * 4.5, 2.0));
+      vec3 haloTint = mix(vec3(1.0, 0.52, 0.16), vec3(1.0, 0.93, 0.74), flow);
+      color += haloTint * halo * flow * (1.15 + uFeed * 1.1) * uStrength;
+
+      // And the photon sphere itself: the thin line where light that looped
+      // the hole comes back out, sitting inside the band it belongs to.
+      float ring = exp(-pow((rn - 1.52) * 15.0, 2.0));
+      color += vec3(1.0, 0.95, 0.88) * ring * (0.5 + uFeed * 0.9) * uStrength;
 
       /* The shadow. Nothing comes back out from inside, so nothing does here.
          Gated on the hole being on screen at all, which it did not used to
