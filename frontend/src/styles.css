@@ -10418,14 +10418,24 @@ thead .weekly-foreign-amount-col {
   gap: 7px;
 }
 
-.admin-mail-unconfigured {
+.admin-mail-unconfigured,
+.admin-mail-backend {
   margin-left: auto;
   font-size: 10.5px;
   font-weight: 800;
   padding: 3px 9px;
   border-radius: 999px;
   border: 1px solid currentColor;
+}
+
+.admin-mail-unconfigured {
   color: var(--status-warning);
+}
+
+/* Which transport is live, not a status — muted, because "it is working and it is
+   working this way" should not compete with the per-account status pills below it. */
+.admin-mail-backend {
+  color: var(--text-muted);
 }
 
 /* Already masked server-side (f***5@naver.com) — monospaced so the asterisks line

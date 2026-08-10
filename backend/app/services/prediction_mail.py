@@ -9,7 +9,8 @@ Everything in the body comes from the stored prediction row — the same row the
 renders and the grader later scores. Nothing is recomputed here, so a mail can never
 describe a different call than the site does for the same 예측일자.
 
-SMTP settings come from the environment; with none set `is_configured()` is False and
+Two transports, chosen by whichever is configured (see `backend_name`): a
+transactional-mail API key, or SMTP. With neither set `is_configured()` is False and
 the batch reports that instead of half-sending. See PREDICTION_MAIL_* below.
 """
 
@@ -26,6 +27,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr, formatdate, make_msgid
 
+import requests
+
 from app.services import (
     mail_subscription_store,
     prediction_engine,
@@ -35,6 +38,25 @@ from app.services import (
 from app.services import trading_calendar as cal
 
 logger = logging.getLogger(__name__)
+
+# Two ways to send, and the API one is preferred where it is configured.
+#
+# SMTP means authenticating as a mailbox owner, which for a personal Naver or Gmail
+# account means putting a credential to that whole account into a deployed service's
+# environment. An app password narrows the blast radius but is still an account
+# credential. A transactional-mail API key is scoped to one verb — send this message —
+# and is revoked and reissued without touching anything else, which is the right shape
+# for a secret that has to live on a server.
+#
+# SMTP is kept rather than replaced: it needs no third-party signup, and it is the
+# only option if the sender must be a specific existing mailbox.
+RESEND_API_KEY = os.environ.get("PREDICTION_MAIL_RESEND_KEY")
+RESEND_ENDPOINT = "https://api.resend.com/emails"
+# Resend's shared sender, usable with no domain set up at all. It can only deliver to
+# the address the Resend account itself was registered with — which is exactly the
+# case here (the reader is mailing themselves), so the whole domain-verification step
+# is skippable until a second recipient appears.
+RESEND_DEFAULT_FROM = "onboarding@resend.dev"
 
 SMTP_HOST = os.environ.get("PREDICTION_MAIL_SMTP_HOST", "smtp.naver.com")
 SMTP_PORT = int(os.environ.get("PREDICTION_MAIL_SMTP_PORT", "587"))
@@ -68,8 +90,22 @@ class MailNotConfigured(RuntimeError):
     sending nothing is worse than one that stops."""
 
 
+def backend_name() -> str | None:
+    """Which transport will actually be used, or None if neither is configured.
+
+    Reported to the admin panel so an operator can see *how* mail is going out, not
+    just that it can — the two have very different failure modes and the panel is the
+    only place that distinction is visible.
+    """
+    if RESEND_API_KEY:
+        return "resend"
+    if SMTP_USER and SMTP_PASSWORD and MAIL_FROM:
+        return "smtp"
+    return None
+
+
 def is_configured() -> bool:
-    return bool(SMTP_USER and SMTP_PASSWORD and MAIL_FROM and MAIL_TO)
+    return backend_name() is not None
 
 
 def mask_address(addr: str | None) -> str:
@@ -326,7 +362,39 @@ def build_text(row: dict) -> str:
 # sending
 # ---------------------------------------------------------------------------
 
-def _send_one(to_addr: str, subject: str, html_body: str, text_body: str) -> None:
+def _send_via_resend(to_addr: str, subject: str, html_body: str, text_body: str) -> None:
+    """One POST, no mailbox credential involved.
+
+    Errors are raised with Resend's own message attached: the two failures that
+    actually happen here are an unverified sender domain and delivering to an address
+    other than the Resend account's own, and both are only diagnosable from the body.
+    """
+    resp = requests.post(
+        RESEND_ENDPOINT,
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "from": f"{MAIL_FROM_NAME} <{MAIL_FROM or RESEND_DEFAULT_FROM}>",
+            "to": [to_addr],
+            "subject": subject,
+            "html": html_body,
+            "text": text_body,
+        },
+        timeout=30,
+    )
+    if resp.status_code >= 400:
+        detail = ""
+        try:
+            payload = resp.json()
+            detail = payload.get("message") or payload.get("error") or resp.text
+        except ValueError:
+            detail = resp.text
+        raise RuntimeError(f"Resend {resp.status_code}: {detail}"[:400])
+
+
+def _send_via_smtp(to_addr: str, subject: str, html_body: str, text_body: str) -> None:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = Header(subject, "utf-8")
     msg["From"] = formataddr((str(Header(MAIL_FROM_NAME, "utf-8")), MAIL_FROM))
@@ -348,6 +416,17 @@ def _send_one(to_addr: str, subject: str, html_body: str, text_body: str) -> Non
             s.ehlo()
             s.login(SMTP_USER, SMTP_PASSWORD)
             s.sendmail(MAIL_FROM, [to_addr], msg.as_string())
+
+
+def _send_one(to_addr: str, subject: str, html_body: str, text_body: str) -> None:
+    """Dispatches to whichever transport is configured, API key first."""
+    backend = backend_name()
+    if backend == "resend":
+        _send_via_resend(to_addr, subject, html_body, text_body)
+    elif backend == "smtp":
+        _send_via_smtp(to_addr, subject, html_body, text_body)
+    else:
+        raise MailNotConfigured("메일 발송 설정이 없습니다.")
 
 
 def _pick_row(code: str, predict_date: str | None) -> dict | None:
@@ -385,8 +464,8 @@ def send_watchlist(
     """
     if not dry_run and not is_configured():
         raise MailNotConfigured(
-            "PREDICTION_MAIL_USER / PREDICTION_MAIL_PASSWORD / PREDICTION_MAIL_TO "
-            "가 설정되지 않았습니다."
+            "PREDICTION_MAIL_RESEND_KEY 또는 "
+            "PREDICTION_MAIL_USER / PREDICTION_MAIL_PASSWORD 가 설정되지 않았습니다."
         )
 
     to_addr = to_addr or MAIL_TO
@@ -458,7 +537,7 @@ def send_subscriptions(
     predict_date: str | None = None,
     dry_run: bool = False,
     manual: bool = False,
-    only_email: str | None = None,
+    only_account: str | None = None,
 ) -> dict:
     """The batch entry point: every active subscription in the table gets its own
     stocks, and nothing else.
@@ -469,16 +548,26 @@ def send_subscriptions(
     point of a per-subscriber batch is that subscribers are independent.
     """
     targets = mail_subscription_store.resolve_targets(active_only=True)
-    if only_email:
-        # The admin panel identifies an account by its masked address, because that is
-        # all it was ever given. Matching on the mask keeps the clear address inside
-        # this process instead of making the client hold one so it can send it back.
-        wanted = only_email.strip().lower()
+    if only_account:
+        # Matched on account_id, never on the mask. Several distinct addresses can
+        # share one mask, so matching on that made a per-account send button mean
+        # "send to every account that happens to mask the same way" — which with one
+        # subscriber was invisible and with two would have been a privacy incident.
+        # The id keeps the clear address inside this process just as the mask did,
+        # while actually identifying one account.
+        wanted = only_account.strip().lower()
         targets = {
             addr: codes
             for addr, codes in targets.items()
-            if addr == wanted or mail_subscription_store.mask(addr) == only_email
+            if mail_subscription_store.account_id(addr) == wanted or addr == wanted
         }
+        if not targets:
+            return {
+                "subscriptions": 0,
+                "results": [],
+                "note": "지정한 계정을 찾을 수 없습니다.",
+                "ran_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+            }
     if not targets:
         return {
             "subscriptions": 0,

@@ -45,6 +45,11 @@ services:
       # 애플리케이션 비밀번호 rather than the account password on any 2FA-enabled
       # account. With USER/PASSWORD unset the batch reports "not configured" and
       # sends nothing, which is the intended default — mail is opt-in.
+      # Preferred transport: an API key scoped to sending, so no personal mailbox
+      # credential has to live on this service. Set either this or the SMTP pair
+      # below; with both, this wins (see prediction_mail.backend_name).
+      - key: PREDICTION_MAIL_RESEND_KEY
+        sync: false
       - key: PREDICTION_MAIL_SMTP_HOST
         value: smtp.naver.com
       - key: PREDICTION_MAIL_SMTP_PORT

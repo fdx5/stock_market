@@ -267,11 +267,14 @@ def mail_status():
     """
     summary = mail_subscription_store.today_summary()
     accounts = [
-        {**target, **summary.get(target["email"], {"sent_today": 0, "last_sent_at": None})}
+        {**target, **summary.get(target["id"], {"sent_today": 0, "last_sent_at": None})}
         for target in mail_subscription_store.list_targets()
     ]
     return {
         "configured": prediction_mail.is_configured(),
+        # Which transport is live — "resend" or "smtp". The two fail in different ways
+        # and this is the only screen that can say which one is in play.
+        "backend": prediction_mail.backend_name(),
         "accounts": accounts,
         "today": mail_subscription_store.seoul_today(),
     }
@@ -287,7 +290,7 @@ def mail_history(limit: int = Query(60, ge=1, le=300)):
 
 @router.post("/mail/send", dependencies=[Depends(require_admin)])
 def mail_send(
-    email: str | None = Query(None, description="마스킹된 주소. 생략 시 전체 계정"),
+    account: str | None = Query(None, description="계정 id (mail/status의 accounts[].id). 생략 시 전체"),
     date: str | None = Query(None, pattern=r"^\d{8}$"),
 ):
     """The 수기 발송 button.
@@ -303,7 +306,7 @@ def mail_send(
             detail="메일 발송이 설정되지 않았습니다. PREDICTION_MAIL_USER / PREDICTION_MAIL_PASSWORD 를 등록해 주세요.",
         )
     return prediction_mail.send_subscriptions(
-        predict_date=date, manual=True, only_email=email
+        predict_date=date, manual=True, only_account=account
     )
 
 

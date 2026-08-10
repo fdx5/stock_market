@@ -729,8 +729,8 @@ export default function AdminDashboardPage() {
   const [runningRegion, setRunningRegion] = useState<BatchRegion | null>(null);
   const [mailStatus, setMailStatus] = useState<MailStatus | null>(null);
   const [mailHistory, setMailHistory] = useState<MailSend[] | null>(null);
-  // Keyed by the masked address so two accounts can't share one spinner; "*" is the
-  // 전체 발송 button.
+  // Keyed by MailAccount.id so two accounts can't share one spinner — the mask is
+  // not unique enough for that. "*" is the 전체 발송 button.
   const [mailSending, setMailSending] = useState<string | null>(null);
   const [mailError, setMailError] = useState<string | null>(null);
   const [mailResult, setMailResult] = useState<string | null>(null);
@@ -1052,17 +1052,17 @@ export default function AdminDashboardPage() {
   /** 수기 발송. `email` is the masked handle from the status call, or undefined for
    * every account at once. Manual sends deliberately ignore the once-a-day cap the
    * scheduled batch observes — that is what makes this button worth having. */
-  function handleSendMail(email?: string, label?: string) {
+  function handleSendMail(account?: string, label?: string) {
     if (mailSending) return;
     const who = label ?? "구독 중인 모든 계정";
     if (!window.confirm(`${who}에 예측 메일을 지금 발송하시겠습니까?\n하루 1회 제한과 무관하게 즉시 발송됩니다.`)) {
       return;
     }
-    setMailSending(email ?? "*");
+    setMailSending(account ?? "*");
     setMailError(null);
     setMailResult(null);
     adminApi
-      .runMailSend(email)
+      .runMailSend(account)
       .then((report) => {
         const sent = report.results.reduce((n, r) => n + r.sent.length, 0);
         const failed = report.results.reduce((n, r) => n + (r.failed?.length ?? 0), 0);
@@ -2640,9 +2640,14 @@ export default function AdminDashboardPage() {
               to discover it by pressing twice. */}
           <h2 className="admin-mail-heading">
             <span className="admin-live-dot" /> 예측 메일 발송
-            {mailStatus && !mailStatus.configured && (
-              <span className="admin-mail-unconfigured">SMTP 미설정</span>
-            )}
+            {mailStatus &&
+              (mailStatus.configured ? (
+                <span className="admin-mail-backend">
+                  {mailStatus.backend === "resend" ? "API 발송" : "SMTP 발송"}
+                </span>
+              ) : (
+                <span className="admin-mail-unconfigured">발송 설정 필요</span>
+              ))}
           </h2>
           <div className="admin-batch-body">
             {mailStatus === null ? (
@@ -2654,10 +2659,10 @@ export default function AdminDashboardPage() {
             ) : (
               <>
                 {mailStatus.accounts.map((acct) => {
-                  const busy = mailSending === acct.email;
+                  const busy = mailSending === acct.id;
                   const codes = acct.stocks.filter((s) => s.active);
                   return (
-                    <div key={acct.email} className="admin-batch-item">
+                    <div key={acct.id} className="admin-batch-item">
                       <div className="admin-batch-row">
                         <span
                           className={`admin-batch-status admin-batch-status--${
@@ -2677,7 +2682,7 @@ export default function AdminDashboardPage() {
                           type="button"
                           className="admin-batch-run-btn"
                           disabled={mailSending !== null || !mailStatus.configured}
-                          onClick={() => handleSendMail(acct.email, acct.email)}
+                          onClick={() => handleSendMail(acct.id, acct.email)}
                         >
                           {busy ? "발송 중..." : "수기 발송"}
                         </button>

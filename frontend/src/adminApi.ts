@@ -213,9 +213,15 @@ export interface PredictionMarketStat {
   updated_at: string;
 }
 
-/** One subscribed account. `email` is masked server-side and is also the handle the
- * send button passes back — see adminApi.runMailSend. */
+/** One subscribed account.
+ *
+ * `id` identifies it; `email` only labels it. The mask keeps one leading and one
+ * trailing character, so fdx5@ and friend5@naver.com both render as
+ * `f***5@naver.com` — keying rows or targeting a send on that would conflate two
+ * different people. The id is an opaque server-side hash, unique per address and not
+ * reversible into one. */
 export interface MailAccount {
+  id: string;
   email: string;
   active: boolean;
   stocks: { code: string; name: string | null; active: boolean }[];
@@ -225,6 +231,8 @@ export interface MailAccount {
 
 export interface MailStatus {
   configured: boolean;
+  /** "resend" | "smtp" | null — which transport the server will actually use. */
+  backend: string | null;
   accounts: MailAccount[];
   today: string;
 }
@@ -678,13 +686,13 @@ export const adminApi = {
 
   mailStatus: () => authedGet<MailStatus>("/mail/status"),
   mailHistory: (limit = 60) => authedGet<{ items: MailSend[] }>(`/mail/history?limit=${limit}`),
-  /** The 수기 발송 button. `email` is the *masked* address the status call handed
-   * back — the server resolves it to a real mailbox, so the clear address never has
-   * to exist in the browser. Omitting it sends to every subscribed account. */
-  runMailSend: (email?: string, date?: string) =>
+  /** The 수기 발송 button. `account` is MailAccount.id — an opaque handle the server
+   * resolves to a real mailbox, so the address never has to exist in the browser.
+   * Omitting it sends to every subscribed account. */
+  runMailSend: (account?: string, date?: string) =>
     authedPost<MailSendReport>(
-      `/mail/send${email ? `?email=${encodeURIComponent(email)}` : ""}${
-        date ? `${email ? "&" : "?"}date=${date}` : ""
+      `/mail/send${account ? `?account=${encodeURIComponent(account)}` : ""}${
+        date ? `${account ? "&" : "?"}date=${date}` : ""
       }`
     ),
 

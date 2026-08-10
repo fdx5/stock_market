@@ -25,6 +25,7 @@ gets by reflex is the safe one.
 """
 
 import datetime as dt
+import hashlib
 import logging
 import os
 import re
@@ -122,13 +123,38 @@ def normalize_email(email: str) -> str:
 
 
 def mask(addr: str | None) -> str:
-    """`someone@example.com` -> `s*****e@example.com`. See the module docstring."""
+    """`someone@example.com` -> `s***e@example.com`. See the module docstring.
+
+    A label, never an identifier. The mask keeps one leading and one trailing
+    character, so every address sharing those and a domain collapses to the same
+    string — fdx5@, fabc5@ and friend5@naver.com are all `f***5@naver.com`. Use
+    `account_id` to tell accounts apart; using this for that is how the admin panel's
+    per-account send button briefly meant "send to everyone who happens to mask the
+    same way".
+    """
     if not addr or "@" not in addr:
         return "(미설정)"
     local, _, domain = addr.partition("@")
     if len(local) <= 2:
         return f"{local[0]}***@{domain}"
     return f"{local[0]}***{local[-1]}@{domain}"
+
+
+def account_id(email: str) -> str:
+    """A stable, opaque handle for one address.
+
+    The admin panel needs to name an account — to key a row, and to say which one a
+    send button belongs to — without ever holding the address. A hash gives both
+    properties the mask lacks: it is unique per address, and it cannot be turned back
+    into one. Stable across restarts and deploys because it is derived from the
+    address itself rather than from a row id, so a client holding an id from a
+    previous page load still refers to the same account.
+
+    Truncated to 12 hex characters: 48 bits against a subscriber list that will
+    realistically never exceed a few dozen makes a collision far less likely than the
+    database losing the row.
+    """
+    return hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()[:12]
 
 
 def _connect():
@@ -322,9 +348,18 @@ def list_targets(active_only: bool = False) -> list[dict]:
     grouped: dict[str, dict] = {}
     for raw in _with_connection(_run):
         row = _row(raw)
+        # Grouped by the clear address and carrying `id` for the client to key on.
+        # `email` here is a label only — several distinct addresses can share one mask
+        # (see mask's docstring), so anything that has to tell two accounts apart uses
+        # the id.
         entry = grouped.setdefault(
             row["email"],
-            {"email": mask(row["email"]), "active": row["active"], "stocks": []},
+            {
+                "id": account_id(row["email"]),
+                "email": mask(row["email"]),
+                "active": row["active"],
+                "stocks": [],
+            },
         )
         entry["stocks"].append(
             {"code": row["stock_code"], "name": row["stock_name"], "active": row["active"]}
@@ -435,8 +470,8 @@ def recent_sends(limit: int = 60, email: str | None = None) -> list[dict]:
 
 def today_summary() -> dict[str, dict]:
     """Per address: how many of its stocks have gone out today, and when the last one
-    did. Keyed by the *masked* address, which is also how the panel keys its rows —
-    the clear address never reaches the client."""
+    did. Keyed by `account_id` — keying it by the mask merged every account that
+    happens to mask alike into one row's counts."""
     day = seoul_today()
 
     def _run(conn):
@@ -447,6 +482,6 @@ def today_summary() -> dict[str, dict]:
         ).fetchall()
 
     return {
-        mask(r[0]): {"sent_today": int(r[1]), "last_sent_at": r[2]}
+        account_id(r[0]): {"sent_today": int(r[1]), "last_sent_at": r[2]}
         for r in _with_connection(_run)
     }
