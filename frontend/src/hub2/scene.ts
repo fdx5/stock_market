@@ -94,7 +94,8 @@ interface TierConfig {
   /** Latitude/longitude segments on a planet sphere. */
   segments: number;
   bloom: boolean;
-  /** The lensing pass is a full-screen resample with three texture fetches;
+  /** Kept on at every tier, including the cheap one — see the note on TIERS.
+   * The lensing pass is a full-screen resample with three texture fetches;
    * it is the first thing to go. */
   lensing: boolean;
   moons: boolean;
@@ -109,7 +110,7 @@ interface TierConfig {
 const TIERS: Record<Tier, TierConfig> = {
   ultra: { dpr: 2, stars: 26000, asteroids: 3600, segments: 96, bloom: true, lensing: true, moons: true, nebula: true, msaa: 4, grain: 0.035, debris: 900 },
   high: { dpr: 1.6, stars: 14000, asteroids: 1600, segments: 64, bloom: true, lensing: true, moons: true, nebula: true, msaa: 0, grain: 0.03, debris: 480 },
-  low: { dpr: 1.15, stars: 6000, asteroids: 520, segments: 40, bloom: false, lensing: false, moons: false, nebula: true, msaa: 0, grain: 0.02, debris: 180 },
+  low: { dpr: 1.15, stars: 6000, asteroids: 520, segments: 40, bloom: false, lensing: true, moons: false, nebula: true, msaa: 0, grain: 0.02, debris: 180 },
 };
 
 const TIER_ORDER: Tier[] = ["ultra", "high", "low"];
@@ -1390,6 +1391,15 @@ export class HubScene {
     this.disposables.push(geo, material);
   }
 
+  /** Granulation octaves for SUN_FRAG. The star is one sphere and this shader
+   * is essentially the whole cost of it, so the cheap tier gives up two
+   * octaves of surface detail rather than the surface — dropping to a lower
+   * segment count would only flatten the silhouette, which is not where the
+   * expense is. */
+  private get starDetail() {
+    return this.config.segments >= 64 ? 6 : 4;
+  }
+
   private buildStar() {
     const geo = new THREE.SphereGeometry(SUN_RADIUS, this.config.segments, this.config.segments / 2);
     this.sunMaterial = new THREE.ShaderMaterial({
@@ -1415,9 +1425,18 @@ export class HubScene {
            the lanes stop being amber and the granulation disappears into a flat
            lemon disc, which is the same washed-out failure the cream uHot used
            to cause. This sits just short of it. */
-        uCool: { value: new THREE.Color(0xcc7a0e) },
-        uWarm: { value: new THREE.Color(0xffcb40) },
-        uHot: { value: new THREE.Color(0xfff2a0) },
+        /* Softened once more, and the softening is in the *spread*, not in the
+           stops. uCool comes up off its near-black amber so the lanes read as
+           cooler gas rather than as holes, and uHot comes down off the lemon
+           top end — with the shader's own per-channel limb darkening now
+           reddening the rim and its highlight shoulder holding the hue in the
+           core, the ramp no longer has to carry the whole gradient by itself.
+           A narrow ramp between extreme stops is what made the disc look
+           posterised; a narrow ramp is also the only thing that ever did. */
+        uCool: { value: new THREE.Color(0xd4861c) },
+        uWarm: { value: new THREE.Color(0xffc93f) },
+        uHot: { value: new THREE.Color(0xffeb9c) },
+        uDetail: { value: this.starDetail },
       },
     });
     const sun = new THREE.Mesh(geo, this.sunMaterial);
@@ -1432,7 +1451,12 @@ export class HubScene {
        a plane close to the star leaves no band and the corona vanishes. That
        is what happened at 1.13. The flame is shortened with uFalloff instead,
        which is the knob that actually controls its reach. */
-    const CORONA_REACH = SUN_RADIUS * 2.0;
+    /* Widened from 2.0 for the faint outer halo the shader now draws — that
+       component is meant to carry two or three radii out at a few thousandths
+       of alpha, and on a plane that ends at 2.0 it would be cut off mid-fade,
+       which shows as a circular seam. Nothing about the bright part moved: it
+       is held where it was by uFalloff below, which is scaled to match. */
+    const CORONA_REACH = SUN_RADIUS * 2.6;
     const coronaGeo = new THREE.PlaneGeometry(2, 2, 1, 1);
     this.coronaMaterial = new THREE.ShaderMaterial({
       vertexShader: SUNGLOW_VERT,
@@ -1444,15 +1468,24 @@ export class HubScene {
         // orange halo around a yellow star reads as a ring rather than as the
         // star's own light continuing outward.
         uColor: { value: new THREE.Color(0xffc44a) },
-        uIntensity: { value: 0.68 },
+        /* And leaves it. Out past a radius or so the photosphere's light no
+           longer dominates and what is left is the corona's own — which is
+           nearly white, with the faintest cool cast. Keeping the gold out here
+           instead is what made the halo read as a painted ring. */
+        uOuterColor: { value: new THREE.Color(0xffeedd) },
+        uIntensity: { value: 0.62 },
         // Where the photosphere's edge falls in the disc's own 0..1 radius.
         uUnit: { value: SUN_RADIUS / CORONA_REACH },
-        /* Tightened from the 4.6 the blue star still uses. The flame used to
-           reach 2.44 sun radii; this brings it to 1.48, so the part
-           that extends past the surface is a third of what it was. Measured
-           against the shader's own falloff rather than guessed — shrinking the
-           plane, which was the first attempt, only made it disappear. */
-        uFalloff: { value: 5.7 },
+        /* Re-solved for the wider plane above, not re-guessed: the falloff is
+           measured in the band between uUnit and the plane's edge, so widening
+           the plane at a fixed number would have thrown the flame outward.
+           Solved to reach a little past where the old 5.7 against the old band
+           put it — the corona had been tightened to a rind at that setting, and
+           a corona that stops at its own limb is the one thing a real one never
+           does. The bright body now carries to about 1.7 sun radii and the
+           halo past 2.5, with the streamers lengthening the reach where they
+           sit rather than merely brightening it. */
+        uFalloff: { value: 7.2 },
       },
       transparent: true,
       depthWrite: false,
@@ -2183,6 +2216,7 @@ export class HubScene {
         uCool: { value: new THREE.Color(0x1d4bd6) },
         uWarm: { value: new THREE.Color(0x6fb4ff) },
         uHot: { value: new THREE.Color(0xecf6ff) },
+        uDetail: { value: this.starDetail },
       },
     });
     this.blueStar = new THREE.Mesh(geo, this.blueStarMaterial);
@@ -2199,7 +2233,10 @@ export class HubScene {
         uTime: { value: 0 },
         uPulse: { value: 0.7 },
         uColor: { value: new THREE.Color(0x6fb0ff) },
-        uIntensity: { value: 0.75 },
+        // Same reasoning as the sun's, one step further: on a hot star the
+        // outer halo is not merely white, it keeps a blue cast all the way out.
+        uOuterColor: { value: new THREE.Color(0xdcecff) },
+        uIntensity: { value: 0.62 },
         uUnit: { value: 1 / 3.4 },
         /* Tightened along with the sun's, and by the same reasoning: 8.5
            against the old 4.6 brings the halo in without touching the plane it
@@ -3136,6 +3173,12 @@ export class HubScene {
 
     composer.addPass(new RenderPass(this.scene, this.camera));
 
+    /* Built whichever tier the scene starts on. It used to be built only when
+       the tier of the moment wanted it, and demotion is one-way — so a device
+       that opened on the cheap tier, or dipped below the frame-rate threshold
+       once at any point, lost the lensing for the rest of the session and
+       could never get it back. The aiming carried on perfectly the whole time,
+       which is why this looked intermittent rather than switched off. */
     if (this.config.lensing) {
       this.lensPass = new ShaderPass(LENSING_SHADER as never);
       composer.addPass(this.lensPass);
@@ -7290,9 +7333,16 @@ export class HubScene {
      * dropped a tier. Ganymede and Titan and Europa are destinations somebody
      * came to find, not detail.
      *
-     * The tier still gives, and gives plenty: pixel ratio, bloom, lensing, the
-     * star count, the asteroid count, Pluto's debris, film grain. None of
-     * those is a named body that stops answering when it goes. */
+     * The tier still gives, and gives plenty: pixel ratio, bloom, the star
+     * count, the asteroid count, Pluto's debris, film grain. None of those is
+     * a named body that stops answering when it goes.
+     *
+     * Lensing came off that list. It is one full-screen pass that early-outs
+     * to a single texture fetch whenever neither the hole nor the wormhole is
+     * on screen — so it costs the cheap tier almost nothing most of the time,
+     * and what it buys is the entire reason those two objects look like what
+     * they are. Bloom, which the cheap tier does still drop, is several passes
+     * of blur at reduced resolution and is where that budget actually goes. */
 
     this.callbacks.onTier(tier);
   }
