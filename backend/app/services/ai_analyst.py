@@ -44,9 +44,10 @@ logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 # Overridable so the operator can trade quality for cost without editing code — this
-# runs ~34 stocks twice a day. Opus is the default because the judgement being asked
-# for here (weighing conflicting headlines against a technical setup) is exactly the
-# kind of call a weaker model gets confidently wrong.
+# runs ~94 stocks a day (three market-cap top-30s plus the carried extras), split
+# across two regional runs. Opus is the default because the judgement being asked for
+# here (weighing conflicting headlines against a technical setup) is exactly the kind
+# of call a weaker model gets confidently wrong.
 AI_MODEL = os.environ.get("PREDICTION_AI_MODEL", "claude-opus-4-8")
 AI_EFFORT = os.environ.get("PREDICTION_AI_EFFORT", "high")
 
@@ -57,12 +58,16 @@ AI_BACKEND = os.environ.get("PREDICTION_AI_BACKEND", "auto").lower()
 # so a Windows dev box (where it's claude.cmd) works the same as the Linux container.
 CLAUDE_CLI = os.environ.get("PREDICTION_CLAUDE_CLI", "claude")
 # Opus over a full roster is a multi-minute generation; the subprocess must outlive it.
-AI_TIMEOUT = int(os.environ.get("PREDICTION_AI_TIMEOUT", "600"))
+# Raised with the roster: at 10 names a market this was ten minutes of headroom over a
+# generation that took two or three, and at 30 the same generation is three times the
+# output. A timeout that expires mid-answer costs the whole market — it falls back to
+# the heuristic — so the headroom is worth more here than a fast failure is.
+AI_TIMEOUT = int(os.environ.get("PREDICTION_AI_TIMEOUT", "1800"))
 # What `claude --effort` accepts. The API path's effort vocabulary is the same today,
 # but it is the SDK's to change, so the CLI's is spelled out separately here.
 _CLI_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
-DETAIL_MAX_CHARS = 500
+DETAIL_MAX_CHARS = 700
 CLOSE_SUMMARY_MAX_CHARS = 260
 
 SOURCE_CLAUDE = "claude"
@@ -70,8 +75,18 @@ SOURCE_HEURISTIC = "heuristic"
 
 _SYSTEM_PROMPT = """당신은 한국 증권사 리서치센터의 시니어 애널리스트입니다. 장 마감 직후 데이터를 받아 익일 시세 방향을 판단합니다.
 
+## 반드시 먼저 읽을 것 — 이 시장의 익일 수익률 구조
+3년·51,780 종목일 백테스트에서 확인된 사실입니다. 추측이 아니라 측정치입니다.
+
+- **익일 수익률은 단기 평균회귀입니다.** 당일 등락률과 익일 등락률의 정보계수는 -0.028, 5일 모멘텀은 -0.020, 20일선 이격도는 -0.016입니다. 즉 **오늘 많이 오른 종목은 내일 되돌릴 확률이 근소하게 더 높습니다.**
+- 반대로 추세추종 신호(20일선 상회, MACD 확대, 거래량 동반 상승)는 전부 음(-)의 정보계수였습니다. 차트가 좋아 보인다는 이유로 상승을 예측하면 장기적으로 손해입니다.
+- 따라서 **오늘의 등락을 내일로 연장 추정하지 마십시오.** "오늘 급등했으니 상승 흐름이 이어질 것"은 이 데이터에서 반증된 논리입니다. `technical` 필드의 정량 점수는 이미 이 평균회귀 구조를 반영해 계산되어 있습니다.
+- 다만 이 효과는 매우 약합니다(익일 방향 적중 기대치 50~52%). 확신에 찬 표현을 쓰지 마십시오.
+
+당신이 기여할 수 있는 부분은 **가격 시계열에 아직 반영되지 않은 정보**입니다. 실적·공시·규제·수급 이탈처럼 평균회귀를 뒤집을 만한 실제 사건이 있을 때만 큰 점수를 주십시오. 그런 재료가 없다면 0 근처가 정답입니다.
+
 ## 당신의 역할
-차트 추이와 호가 분석(전체 가중치의 40%)은 이미 정량 엔진이 계산해 `technical` 필드로 제공됩니다. 당신은 나머지 60%를 담당합니다:
+차트 추이와 호가 분석(전체 가중치의 55%)은 이미 정량 엔진이 계산해 `technical` 필드로 제공됩니다. 당신은 나머지 45%를 담당합니다:
 - 언론 헤드라인의 호재/악재 성격과 그 지속성
 - 지수·환율·업종 전반의 흐름과 해당 종목의 상대 위치
 - 외국인/기관 수급의 방향과 강도 (국내 종목에 한해 제공됨)
@@ -79,7 +94,7 @@ _SYSTEM_PROMPT = """당신은 한국 증권사 리서치센터의 시니어 애�
 - 종목 고유의 국내외 이슈 (실적, 규제, 공급망, 경쟁사 동향 등)
 
 ## 점수 규칙
-`ai_score`는 -1.0 ~ +1.0 사이의 실수입니다. 이것은 당신이 담당하는 60% 영역만의 판단이며, 정량 엔진의 40%와는 별도로 매기십시오.
+`ai_score`는 -1.0 ~ +1.0 사이의 실수입니다. 이것은 당신이 담당하는 45% 영역만의 판단이며, 정량 엔진의 55%와는 별도로 매기십시오.
 - +0.6 이상: 명확한 호재가 다수이고 수급·지수 환경도 우호적
 - +0.2 ~ +0.6: 완만한 긍정
 - -0.2 ~ +0.2: 재료 부재 또는 호재와 악재가 상쇄
@@ -98,10 +113,16 @@ _SYSTEM_PROMPT = """당신은 한국 증권사 리서치센터의 시니어 애�
 - 예시 형태: "외국인 순매수와 반도체 업종 강세(+2.1%), 환율 하락이 겹치며 +1.8% 상승 마감했습니다. 다만 지수 상승분(+0.9%p)을 제외한 종목 고유 상승은 +0.9%p입니다."
 
 ## 작성 규칙
-`detail`은 반드시 한국어로 500자 이내로 작성합니다. 다음을 모두 담으십시오:
-1. 정량 지표(technical)가 말하는 바를 한 문장으로 요약
-2. 뉴스·수급·지수에서 읽어낸 핵심 근거 (실제 헤드라인 내용을 인용하되 제목을 그대로 나열하지 말 것)
-3. 당신이 담당한 60% 영역의 판단이 긍정/부정 중 어느 쪽인지와 그 강도의 근거
+`detail`은 반드시 한국어로 **600~700자**로 작성합니다. 짧게 끝내지 마십시오 — 독자가 이 판단을 재현할 수 있을 만큼 구체적이어야 합니다. 다음을 순서대로 모두 담으십시오:
+
+1. **정량 지표 요약** — `technical`의 단기 반전 신호가 어느 쪽을 가리키는지, 당일 등락률이 그 종목의 평소 변동성 대비 몇 배 수준인지 수치와 함께 한두 문장.
+2. **수급** — 외국인·기관 5일 순매수 금액을 실제 숫자로 인용하고, 그 방향이 주가 움직임과 일치하는지 어긋나는지 서술 (국내 종목에 한함).
+3. **지수·환율·업종** — 해당일 지수 등락과 비교해 이 종목이 시장을 이겼는지 졌는지, 환율이 이 종목 실적에 어느 방향으로 작용하는지.
+4. **뉴스** — 헤드라인에서 읽어낸 재료의 성격(일회성인지 지속성인지)과, 그것이 이미 주가에 반영되었다고 보는지 아닌지.
+5. **동종 업계 상대 비교** — 같은 로스터 안의 동종 종목과 비교해 이 종목이 상대적으로 앞서 있는지 뒤처져 있는지.
+6. **리스크 요인** — 이 판단이 틀릴 수 있는 가장 큰 이유 한 가지를 반드시 명시.
+
+수치는 반드시 제공된 데이터에서 인용하고, 없는 숫자를 만들어내지 마십시오. 6번은 생략하지 마십시오 — 반증 조건이 없는 예측은 근거가 아니라 주장입니다.
 
 3번에서 "익일 상승/하락/보합"이라고 단정하지 마십시오. 최종 방향과 등락률은 당신의 60%와 정량 엔진의 40%를 합산해 시스템이 계산하며, 그 결과가 문장 끝에 자동으로 덧붙습니다. 두 블록이 반대 방향일 때 당신이 미리 방향을 단정하면 본문과 결론이 서로 모순됩니다.
 
@@ -442,7 +463,12 @@ def analyze_with_claude(market: str, payloads: list[dict], market_ctx: dict) -> 
     # a large max_tokens — a non-streaming request of this size risks an HTTP timeout.
     with client.messages.stream(
         model=AI_MODEL,
-        max_tokens=32000,
+        # Sized off the roster, not picked round: 30 names × (500자 detail + 260자
+        # close_summary + drivers + numbers) is on the order of 25k output tokens
+        # before adaptive thinking takes its share, which put 32000 close enough to
+        # the ceiling that a verbose day would truncate — and a truncated JSON body
+        # fails the parse, losing the whole market to the heuristic fallback.
+        max_tokens=64000,
         thinking={"type": "adaptive"},
         output_config={
             "effort": AI_EFFORT,

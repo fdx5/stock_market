@@ -1,10 +1,21 @@
 """The fixed roster the AI 종목예측 batch scores every trading day.
 
-Three market-cap top-10s plus four semiconductor names carried explicitly (AMD,
-Intel, Micron, SanDisk) — the extras are the whole point of hardcoding them: none
-are reliably inside the Nasdaq-100's top 10 by weight, but they are the names a
-KOSPI/KOSDAQ audience actually watches, because Samsung Electronics and SK Hynix
-trade off their read-through.
+Three market-cap top-30s — KOSPI 1~30위, KOSDAQ 1~30위, NASDAQ 1~30위 — plus the
+semiconductor names carried explicitly (AMD, Intel, Micron, SanDisk), which a
+KOSPI/KOSDAQ audience watches because Samsung Electronics and SK Hynix trade off
+their read-through.
+
+The rank cut is the whole definition: membership is "is this name in its market's
+top 30 by market cap on the day the roster is built", nothing else. Ranks move, so
+the roster moves with them — a name that falls to 31st simply stops being scored,
+and one that climbs to 30th starts, with no list to maintain by hand.
+
+At 30 the explicit extras have mostly become redundant on their own merits: AMD,
+Intel and Micron all sit inside the Nasdaq-100's top 30 by weight, so in practice
+only SanDisk (not an index member at all — it re-listed as a standalone Nasdaq
+issue after splitting from Western Digital in Feb 2025) is still carried from
+outside the cut. They are appended after it, never into it, so an extra can never
+displace a name that earned its slot by rank.
 """
 
 import re
@@ -17,7 +28,9 @@ from app.services.cache import cache
 
 TTL_ROSTER_SECONDS = 12 * 3600
 
-TOP_N = 10
+# 시가총액 1위 ~ 30위. Raised from 10, which covered so little of each market that a
+# whole sector could move without a single roster name being in it.
+TOP_N = 30
 
 MARKET_KOSPI = "KOSPI"
 MARKET_KOSDAQ = "KOSDAQ"
@@ -29,10 +42,13 @@ MARKET_NASDAQ = "NASDAQ"
 KR_MARKETS = (MARKET_KOSPI, MARKET_KOSDAQ)
 US_MARKETS = (MARKET_NASDAQ,)
 
-# Added on top of the Nasdaq-100 top 10 by weight. AMD/INTC/MU sit well outside that
-# top 10 and SNDK isn't an index member at all (SanDisk re-listed as a standalone
-# Nasdaq issue after splitting from Western Digital in Feb 2025), so none would
-# survive a pure market-cap cut — they're here by explicit request.
+# Added on top of the Nasdaq-100 top 30 by weight, and mostly redundant at that depth:
+# AMD, INTC and MU are inside the top 30 on any ordinary day, so they cost nothing and
+# are kept as a floor rather than a supplement — the three names this audience most
+# needs present are present whatever the weights did this week. SNDK is the one that
+# still does real work: not an index member at all (SanDisk re-listed as a standalone
+# Nasdaq issue after splitting from Western Digital in Feb 2025), so no market-cap cut
+# of the Nasdaq-100 will ever reach it.
 US_EXTRA_TICKERS = ("AMD", "INTC", "MU", "SNDK")
 
 # The page renders Korean names, and the US roster is small and stable enough that a
@@ -65,9 +81,9 @@ US_KOREAN_NAMES = {
 def _is_common_stock(code: str) -> bool:
     """Filters KRX preferred shares out of the market-cap ranking.
 
-    Without this, 삼성전자우 lands in the KOSPI top 10 directly behind 삼성전자 and
-    burns a slot on a second line for a company already covered — a "시총 TOP 10" that
-    is really eight companies. KRX issues common stock on codes ending in 0 and
+    Without this, 삼성전자우 lands in the KOSPI ranking directly behind 삼성전자 and
+    burns a slot on a second line for a company already covered — a "시총 1~30위" that
+    is really twenty-six companies. KRX issues common stock on codes ending in 0 and
     preferred/derived classes on 5, 7, K, L, M and similar, so the last character is
     the standard discriminator.
     """
@@ -103,19 +119,19 @@ def _company_key(name: str) -> str:
 
 
 def _load_nasdaq_roster() -> list[dict]:
-    """Nasdaq-100's ten heaviest members plus the four explicit extras, deduped.
+    """Nasdaq-100's thirty heaviest members plus the explicit extras, deduped.
 
     `marcap` on a slickcharts constituent is index weight, not an absolute market
     cap — it's a cap-share proxy, which is all the ordering needs (see
     us_index_fetcher._fetch_slickcharts). The extras are appended after the cut so an
-    extra that *is* already in the top 10 (AMD has drifted in and out) doesn't push a
-    genuine top-10 name off the list or appear twice.
+    extra that *is* already inside the top 30 (AMD, INTC and MU normally are) doesn't
+    push a genuine top-30 name off the list or appear twice.
     """
     constituents = get_nasdaq100_constituents()
     by_weight = sorted(constituents, key=lambda it: it.get("marcap") or 0, reverse=True)
 
     # The Nasdaq-100 lists Alphabet's two share classes as separate members (as the
-    # real index does), so a naive top-10 spends two slots on one company. Ranking by
+    # real index does), so a naive top-30 spends two slots on one company. Ranking by
     # market cap means ranking companies, so the classes collapse to whichever is
     # heavier and the freed slot goes to the next real name.
     deduped: list[dict] = []

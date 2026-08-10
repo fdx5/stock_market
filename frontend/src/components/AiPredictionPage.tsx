@@ -9,6 +9,9 @@ import {
 } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import {
+  RELIABILITY_CLASS,
+  RESULT_ARROW,
+  RESULT_CLASS,
   accuracyTone,
   formatChangeRate,
   formatCountdown,
@@ -52,6 +55,16 @@ const MARKET_LABELS: Record<string, string> = {
 // Fixed display order for the per-market accuracy cards — matches the market tab
 // strip below, so the two don't disagree about reading order.
 const MARKET_ORDER = ["KOSPI", "KOSDAQ", "NASDAQ"];
+
+/* How much of a market group is on screen before it asks.
+ *
+ * Each group is a market-cap top 30 now, and three of them is ninety cards — a scroll
+ * long enough that the second market may as well not exist, and long enough that the
+ * page's own controls are a page-up away by the time anyone reaches the third. Twelve
+ * is four rows of the widest grid and two of the narrowest: enough that the cut is
+ * plainly a fold rather than the end of the data, and the button under it says exactly
+ * how much is behind it. */
+const GROUP_PAGE = 12;
 
 const SORT_LABELS: Record<SortKey, string> = {
   marketcap: "시가총액순",
@@ -189,6 +202,291 @@ function Scoreboard({ accuracy }: { accuracy: PredictionAccuracy }) {
   );
 }
 
+/** What the day's forecasts add up to, as one dial.
+ *
+ * The page had five stat tiles and no single object to look at, which is the shape of
+ * a spreadsheet rather than of a result. A forecast page's headline is not a table of
+ * averages — it is "which way, and how sure", and that is two numbers that belong in
+ * one mark.
+ *
+ * The ring is the direction split: 상승 / 보합 / 하락 as three arcs of one circle, in
+ * the same three colours the cards and the probability bars use, so the dial and the
+ * grid below it are visibly the same encoding at two scales. The figure inside is the
+ * mean 상승확률, which is the model's own answer rather than a count of verdicts.
+ *
+ * Nothing here is reachable only by colour: every arc's share is printed in the legend
+ * beside it, and the aria-label states the whole split as a sentence.
+ */
+function SignalDial({
+  up,
+  flat,
+  down,
+  total,
+  avgUpProb,
+  avgReliability,
+}: {
+  up: number;
+  flat: number;
+  down: number;
+  total: number;
+  avgUpProb: number | null;
+  avgReliability: number | null;
+}) {
+  if (!total) return null;
+
+  const upPct = (up / total) * 100;
+  const flatPct = (flat / total) * 100;
+  // The headline figure. The mean probability when the rows carry one; otherwise the
+  // share of 상승 verdicts, which is the same question answered more coarsely.
+  const headline = avgUpProb ?? Math.round(upPct);
+  const lean = up > down ? "up" : down > up ? "down" : "flat";
+
+  return (
+    <div className="pred-dial-wrap">
+      <div
+        className={`pred-dial pred-dial--${lean}`}
+        style={{
+          // Two stops define three arcs. Written as custom properties rather than an
+          // inline conic-gradient so the whole gradient — including the colours, which
+          // are theme tokens — stays in the stylesheet.
+          ["--seg-up" as string]: `${upPct}%`,
+          ["--seg-flat" as string]: `${upPct + flatPct}%`,
+        }}
+        role="img"
+        aria-label={`분석 ${total}종목의 방향 분포: 상승 ${up}종목, 보합 ${flat}종목, 하락 ${down}종목. 평균 상승확률 ${headline}%.`}
+      >
+        {/* The slow sweep. One rotating conic wedge at low alpha — the only motion in
+            the dial, and the thing that makes it read as an instrument that is running
+            rather than a pie chart that was printed. */}
+        <span className="pred-dial-sweep" aria-hidden="true" />
+        <span className="pred-dial-core">
+          <span className="pred-dial-value">
+            {headline}
+            <small>%</small>
+          </span>
+          <span className="pred-dial-caption">평균 상승확률</span>
+        </span>
+      </div>
+
+      <ul className="pred-dial-legend">
+        {(
+          [
+            ["up", "상승", up],
+            ["flat", "보합", flat],
+            ["down", "하락", down],
+          ] as const
+        ).map(([tone, label, count]) => (
+          <li key={tone} className={`pred-dial-key pred-dial-key--${tone}`}>
+            <span className="pred-dial-key-dot" aria-hidden="true" />
+            <span className="pred-dial-key-label">{label}</span>
+            <b>{count}</b>
+          </li>
+        ))}
+      </ul>
+
+      {avgReliability !== null ? (
+        <div className="pred-dial-meter">
+          <span className="pred-dial-meter-label">평균 신뢰도</span>
+          <span className="pred-dial-meter-track" aria-hidden="true">
+            <span className="pred-dial-meter-fill" style={{ width: `${avgReliability}%` }} />
+          </span>
+          <b className="pred-dial-meter-value">{avgReliability}</b>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** The three calls the model leaned hardest on, lifted out of the grid.
+ *
+ * A twenty-card grid sorted by market cap opens on 삼성전자 every single day, whatever
+ * the model actually found — the most interesting rows are wherever conviction happens
+ * to be highest, which on a market-cap ordering is nowhere in particular. This is the
+ * page answering "what did the AI actually find today" before asking anyone to scan.
+ *
+ * Sorted on |score|, not on signed score: a high-conviction 하락 is as much of a
+ * finding as a high-conviction 상승, and ranking on the signed value would quietly turn
+ * the strip into a buy list.
+ *
+ * It respects the filters above it. A reader who has narrowed to KOSDAQ is asking what
+ * the model found in KOSDAQ, and a strip that kept answering with the whole market
+ * would be answering a question nobody asked.
+ */
+function TopSignals({
+  items,
+  onOpen,
+}: {
+  items: PredictionItem[];
+  onOpen: (item: PredictionItem) => void;
+}) {
+  const picks = useMemo(
+    () => [...items].sort((a, b) => Math.abs(b.score) - Math.abs(a.score)).slice(0, 3),
+    [items]
+  );
+  if (picks.length < 2) return null;
+
+  return (
+    <section className="pred-top" aria-labelledby="pred-top-title">
+      <div className="pred-top-head">
+        <h2 id="pred-top-title" className="pred-top-title">
+          <span className="pred-top-title-mark" aria-hidden="true" />
+          AI가 가장 확신한 종목
+        </h2>
+        <p className="pred-top-sub">확신도 순 · 카드를 누르면 판단 근거 전체가 열립니다</p>
+      </div>
+      <div className="pred-top-row">
+        {picks.map((item, i) => {
+          const tone = RESULT_CLASS[item.result];
+          const probs = probabilities(item);
+          return (
+            <button
+              key={item.code}
+              type="button"
+              className={`pred-top-card pred-top-card--${tone}`}
+              style={{ animationDelay: `${i * 90}ms` }}
+              onClick={() => onOpen(item)}
+              aria-label={`확신도 ${i + 1}위 ${item.name}, 익일 ${item.result} 예측 ${formatChangeRate(
+                item.change_rate
+              )}. 상세 보기`}
+            >
+              <span className="pred-top-glow" aria-hidden="true" />
+              <span className="pred-top-rank" aria-hidden="true">
+                {String(i + 1).padStart(2, "0")}
+              </span>
+              <span className="pred-top-body">
+                <span className="pred-top-name">{item.name}</span>
+                <span className="pred-top-meta">
+                  {item.market} · {item.code}
+                </span>
+                <span className="pred-top-figure">
+                  <span className={`pred-top-arrow pred-top-arrow--${tone}`} aria-hidden="true">
+                    {RESULT_ARROW[item.result]}
+                  </span>
+                  <span className={`pred-top-change pred-top-change--${tone}`}>
+                    {formatChangeRate(item.change_rate)}
+                  </span>
+                  <span className="pred-top-verdict">{item.result}</span>
+                </span>
+                {probs ? (
+                  <span className="pred-top-bar" aria-hidden="true">
+                    <span className="pred-top-bar-seg pred-top-bar-seg--up" style={{ width: `${probs.up}%` }} />
+                    <span className="pred-top-bar-seg pred-top-bar-seg--flat" style={{ width: `${probs.flat}%` }} />
+                    <span className="pred-top-bar-seg pred-top-bar-seg--down" style={{ width: `${probs.down}%` }} />
+                  </span>
+                ) : null}
+                <span className="pred-top-foot">
+                  {probs ? <b>상승확률 {probs.up}%</b> : <b>확신도 {item.confidence}</b>}
+                  {item.reliability_grade ? <span>신뢰도 {item.reliability_grade}</span> : null}
+                  <span className="pred-top-cta">
+                    근거 {item.evidence.length}건 <span aria-hidden="true">›</span>
+                  </span>
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+/** The same day, as rows.
+ *
+ * Thirty cards of one market are thirty separate little layouts, and comparing the
+ * seventh's 상승확률 against the twenty-second's means finding the same graphic twice
+ * in two different places on screen. A row puts every number in a column, which is the
+ * only arrangement in which thirty of anything are actually comparable.
+ *
+ * It carries the same facts as a card, not fewer: rank, verdict, target, expected
+ * move, the three probabilities, reliability, and the graded outcome where there is
+ * one. What it drops is the card's prose — the 장 마감 설명 — which is a paragraph, and
+ * a paragraph is what the modal behind every row is for.
+ */
+function PredictionRows({
+  items,
+  rankByCode,
+  onOpen,
+}: {
+  items: PredictionItem[];
+  rankByCode: Map<string, number>;
+  onOpen: (item: PredictionItem) => void;
+}) {
+  return (
+    <div className="pred-rows">
+      {/* Column names, and nothing more than that to a screen reader: each row below
+          is a button that states its own contents in its label, so announcing these
+          again per row would triple the length of every one of thirty rows. Grid
+          roles are deliberately not used — the rows are controls first, and a button
+          that claims to be a table cell stops being announced as pressable. */}
+      <div className="pred-row pred-row--head" aria-hidden="true">
+        <span>순위</span>
+        <span>종목</span>
+        <span>예측</span>
+        <span>예상 등락</span>
+        <span>방향 확률</span>
+        <span>신뢰도</span>
+        <span />
+      </div>
+      {items.map((item) => {
+        const tone = RESULT_CLASS[item.result];
+        const probs = probabilities(item);
+        const rank = rankByCode.get(item.code);
+        return (
+          <button
+            key={item.code}
+            type="button"
+            className={`pred-row pred-row--${tone}${
+              item.hit === null ? "" : ` pred-row--${item.hit ? "hit" : "miss"}`
+            }`}
+            onClick={() => onOpen(item)}
+            aria-label={`${item.name} 익일 ${item.result} 예측 ${formatChangeRate(item.change_rate)}. 상세 보기`}
+          >
+            <span className="pred-row-rank">{rank ?? "―"}</span>
+            <span className="pred-row-name">
+              <b>{item.name}</b>
+              <small>{item.code}</small>
+            </span>
+            <span className={`pred-row-verdict pred-row-verdict--${tone}`}>
+              <span aria-hidden="true">{RESULT_ARROW[item.result]}</span>
+              {item.result}
+            </span>
+            <span className={`pred-row-change pred-row-change--${tone}`}>
+              {formatChangeRate(item.change_rate)}
+            </span>
+            <span className="pred-row-prob">
+              {probs ? (
+                <>
+                  <span className="pred-row-bar" aria-hidden="true">
+                    <span className="pred-top-bar-seg pred-top-bar-seg--up" style={{ width: `${probs.up}%` }} />
+                    <span className="pred-top-bar-seg pred-top-bar-seg--flat" style={{ width: `${probs.flat}%` }} />
+                    <span className="pred-top-bar-seg pred-top-bar-seg--down" style={{ width: `${probs.down}%` }} />
+                  </span>
+                  <span className="pred-row-prob-num">{probs.up}%</span>
+                </>
+              ) : (
+                <span className="pred-row-prob-num">―</span>
+              )}
+            </span>
+            <span className="pred-row-rel">
+              {item.reliability_grade ? (
+                <span className={`pred-chip pred-chip--${RELIABILITY_CLASS[item.reliability_grade]}`}>
+                  {item.reliability_grade}
+                  {item.reliability !== null ? ` ${item.reliability}` : ""}
+                </span>
+              ) : (
+                "―"
+              )}
+            </span>
+            <span className="pred-row-go" aria-hidden="true">
+              {item.hit === null ? "›" : item.hit ? "적중" : "빗나감"}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function StatTile({
   label,
   value,
@@ -299,6 +597,36 @@ export default function AiPredictionPage() {
   const [sort, setSort] = useState<SortKey>("marketcap");
   const [hideUnreliable, setHideUnreliable] = useState(false);
   const [selected, setSelected] = useState<PredictionItem | null>(null);
+  /* Free-text narrowing over name and code. Not a feature the ten-name roster needed —
+     with ninety it is the difference between "is 카카오 in here" being a question you
+     answer by looking and one you answer by scrolling three market groups. */
+  const [query, setQuery] = useState("");
+  /* 카드 / 리스트. The card grid is the page's identity and stays the default; the list
+     is what thirty rows of one market are actually comparable in, since it puts every
+     number in the same column instead of in the same place on ninety separate cards.
+     Remembered, because it is a reading preference rather than a per-visit choice. */
+  const [dense, setDense] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.localStorage.getItem("pred:view") === "list";
+    } catch {
+      // Private mode, storage disabled — the preference is a nicety, not a dependency.
+      return false;
+    }
+  });
+  /* Which groups the reader has opened past the fold. A market group now holds thirty
+     cards, and three of them stacked is a ninety-card scroll before anything else on
+     the page is reachable — so each group shows a screenful and says how many more it
+     has. Keyed by market, so opening KOSPI doesn't also open NASDAQ. */
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("pred:view", dense ? "list" : "card");
+    } catch {
+      // As above.
+    }
+  }, [dense]);
 
   useEffect(() => {
     // Independent of the date navigator — this is each market's own trailing record,
@@ -350,19 +678,42 @@ export default function AiPredictionPage() {
     };
   }, [selectedDate]);
 
+  /* 시가총액 순위, computed once per day rather than read off display order.
+   *
+   * The roster IS the market-cap top 30, so a row's rank inside its group is a real
+   * fact about it — 1위 삼성전자, 17위 whoever — and printing it is what turns a wall
+   * of ninety cards back into a list a reader has a map of. It has to come from the
+   * cap ordering and not from the rendered order, because the rendered order is
+   * whatever the sort control says: sort by 확신도 and the third card can perfectly
+   * well be the market's largest company. */
+  const rankByCode = useMemo(() => {
+    const ranks = new Map<string, number>();
+    for (const group of day?.groups ?? []) {
+      [...group.items]
+        .sort((a, b) => (b.market_cap ?? -1) - (a.market_cap ?? -1))
+        .forEach((item, i) => ranks.set(item.code, i + 1));
+    }
+    return ranks;
+  }, [day]);
+
   const groups = useMemo(() => {
     if (!day) return [];
+    const needle = query.trim().toLowerCase();
     const filtered = market === "ALL" ? day.groups : day.groups.filter((g) => g.market === market);
     return filtered
-      .map((g) => ({
-        ...g,
-        items: sortItems(
-          hideUnreliable ? g.items.filter((i) => i.reliability_grade !== "낮음") : g.items,
-          sort
-        ),
-      }))
+      .map((g) => {
+        let items = hideUnreliable ? g.items.filter((i) => i.reliability_grade !== "낮음") : g.items;
+        if (needle) {
+          // Code as well as name: a US ticker is what a reader types, and a KRX code is
+          // what they paste out of another screen.
+          items = items.filter(
+            (i) => i.name.toLowerCase().includes(needle) || i.code.toLowerCase().includes(needle)
+          );
+        }
+        return { ...g, items: sortItems(items, sort) };
+      })
       .filter((g) => g.items.length > 0);
-  }, [day, market, sort, hideUnreliable]);
+  }, [day, market, sort, hideUnreliable, query]);
 
   const totals = useMemo(() => {
     const items = groups.flatMap((g) => g.items);
@@ -429,6 +780,37 @@ export default function AiPredictionPage() {
   const olderDate = dateIndex >= 0 ? dates[dateIndex + 1] : undefined;
   const newerDate = dateIndex > 0 ? dates[dateIndex - 1] : undefined;
 
+  /* ← / → step through 예측일자.
+   *
+   * The date strip is the control this page is used through — every other filter
+   * narrows one day, this one changes which day — and reaching for two small arrows
+   * at the end of a scrolling chip row is the slowest way to work it. The arrows and
+   * the chips stay exactly as they were; this is a shortcut over them, not a
+   * replacement, and the hint under the strip is what stops it being a secret.
+   *
+   * Ignored while the focus is in a field or on a control that uses the same keys
+   * itself — the sort <select> is one, and stealing → from it would break choosing a
+   * sort option with the keyboard. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable)) {
+        return;
+      }
+      // ← is older, → is newer: the strip runs oldest-left like every other time axis
+      // on this site, so the arrows move along it rather than along the array, which
+      // is newest-first.
+      const next = event.key === "ArrowLeft" ? olderDate : newerDate;
+      if (!next) return;
+      event.preventDefault();
+      setSelectedDate(next.date);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [olderDate, newerDate]);
+
   // The countdown targets the earliest-opening market that actually has rows on this
   // date — on a normal weekday both batches land on the same session, but around a
   // weekend the Korean and US predictions target different days, and the hero should
@@ -486,58 +868,102 @@ export default function AiPredictionPage() {
         </div>
       </header>
 
+      {/* ── the console ──
+          Two columns rather than one centred stack: the left side says what this is
+          and when it expires, the right side says what it found. The old layout put
+          the second of those in five equal tiles below the fold of a phone, which
+          made the page's actual output the least prominent thing on it. */}
       <section className="pred-hero" aria-labelledby="pred-hero-title">
         <span className="pred-hero-aurora" aria-hidden="true" />
+        <span className="pred-hero-grid" aria-hidden="true" />
         <div className="pred-hero-inner">
-          <span className="pred-hero-badge">
-            <span className="pred-hero-badge-dot" aria-hidden="true" />
-            AI 종목예측
-          </span>
-          <h1 id="pred-hero-title" className="pred-hero-title">
-            {day?.date ? (
-              <>
-                <span className="pred-hero-date">{formatFullDate(day.date)}</span>
-                <span className="pred-hero-weekday">{day.weekday}요일</span>
-              </>
-            ) : (
-              "예측 데이터 준비 중"
-            )}
-          </h1>
-          <p className="pred-hero-sub">
-            방향 확률 · 신뢰도 · 장 마감 설명 · 근거 데이터 · 적중률을 함께 기록합니다
-            {/* Inline rather than a separate line: the caveat belongs beside the claim
-                it qualifies, not below it where a reader can take in the promise and
-                scroll past the qualification. Wraps under on narrow viewports. */}
-            <span className="pred-hero-caution">
-              (AI 종목 예측은 실제 결과와 다를 수 있으니 참고 용도로만 봐주세요)
+          <div className="pred-hero-main">
+            <span className="pred-hero-badge">
+              <span className="pred-hero-badge-dot" aria-hidden="true" />
+              AI 종목예측
+              <span className="pred-hero-badge-sep" aria-hidden="true" />
+              <span className="pred-hero-badge-state">{isSettled ? "채점 완료" : "예측 진행중"}</span>
             </span>
-          </p>
-          {day?.date && countdownMarket && !isSettled ? (
-            <OpenCountdown isoDate={day.iso} market={countdownMarket} />
-          ) : null}
-          {isSettled ? (
-            <div className="pred-settled">
-              <span className="pred-settled-mark" aria-hidden="true">
-                ✓
+            <h1 id="pred-hero-title" className="pred-hero-title">
+              {day?.date ? (
+                <>
+                  <span className="pred-hero-date">{formatFullDate(day.date)}</span>
+                  <span className="pred-hero-weekday">{day.weekday}요일</span>
+                </>
+              ) : (
+                "예측 데이터 준비 중"
+              )}
+            </h1>
+            <p className="pred-hero-sub">
+              방향 확률 · 신뢰도 · 장 마감 설명 · 근거 데이터 · 적중률을 함께 기록합니다
+              {/* Inline rather than a separate line: the caveat belongs beside the claim
+                  it qualifies, not below it where a reader can take in the promise and
+                  scroll past the qualification. Wraps under on narrow viewports. */}
+              <span className="pred-hero-caution">
+                (AI 종목 예측은 실제 결과와 다를 수 있으니 참고 용도로만 봐주세요)
               </span>
-              채점 완료 · {totals.total}종목 중 {totals.hit}종목 적중 (
-              {Math.round((totals.hit / totals.total) * 100)}%)
+            </p>
+            <div className="pred-hero-status">
+              {day?.date && countdownMarket && !isSettled ? (
+                <OpenCountdown isoDate={day.iso} market={countdownMarket} />
+              ) : null}
+              {isSettled ? (
+                <div className="pred-settled">
+                  <span className="pred-settled-mark" aria-hidden="true">
+                    ✓
+                  </span>
+                  채점 완료 · {totals.total}종목 중 {totals.hit}종목 적중 (
+                  {Math.round((totals.hit / totals.total) * 100)}%)
+                </div>
+              ) : null}
             </div>
+            {day?.generated_at ? (
+              <p className="pred-hero-generated">
+                <span className="pred-hero-generated-mark" aria-hidden="true" />
+                분석 완료 {formatGeneratedAt(day.generated_at)} (KST)
+              </p>
+            ) : null}
+          </div>
+
+          {/* The output side. Absent while the first day is still loading — a dial
+              spun up on zeros would state a finding the page does not have yet. */}
+          {totals.total > 0 ? (
+            <SignalDial
+              up={totals.up}
+              flat={totals.flat}
+              down={totals.down}
+              total={totals.total}
+              avgUpProb={totals.avgUpProb}
+              avgReliability={totals.avgReliability}
+            />
           ) : null}
-          {accuracy ? <Scoreboard accuracy={accuracy} /> : null}
-          {day?.generated_at ? (
-            <p className="pred-hero-generated">분석 완료 {formatGeneratedAt(day.generated_at)} (KST)</p>
-          ) : null}
-          <Link to="/ai-prediction/grading" className="pred-matrix-link">
-            날짜 × 종목 채점 결과 매트릭스 보기 <span aria-hidden="true">→</span>
-          </Link>
         </div>
+
+        {/* The track record, along the foot of the console rather than floating in
+            the middle of it: it qualifies everything above, and it is the one block
+            here a sceptical reader goes looking for. */}
+        {accuracy ? <Scoreboard accuracy={accuracy} /> : null}
+
+        <Link to="/ai-prediction/grading" className="pred-matrix-link">
+          날짜 × 종목 채점 결과 매트릭스 보기 <span aria-hidden="true">→</span>
+        </Link>
       </section>
+
+      {!error && !showSkeleton ? <TopSignals items={groups.flatMap((g) => g.items)} onOpen={setSelected} /> : null}
 
       {/* One filter row above everything it scopes — date, market, sort and the
           reliability filter all re-render the same slice rather than each card
           carrying its own control. */}
       <div className="pred-controls">
+        <div className="pred-controls-caption">
+          <span className="pred-controls-caption-label">예측일자</span>
+          {/* The shortcut, stated where the control it drives is. A keyboard
+              affordance nobody is told about is a keyboard affordance nobody uses. */}
+          <span className="pred-controls-hint" aria-hidden="true">
+            <kbd>←</kbd>
+            <kbd>→</kbd> 로 날짜 이동
+          </span>
+        </div>
         <div className="pred-datenav">
           <button
             type="button"
@@ -611,6 +1037,50 @@ export default function AiPredictionPage() {
             ))}
           </div>
           <div className="pred-filter-tools">
+            {/* Search first in the row because at ninety rows it is the tool most
+                reached for. Type-to-filter with no submit: there is nothing to wait
+                for, the whole day is already in memory. */}
+            <label className="pred-search">
+              <span className="sr-only">종목 검색</span>
+              <span className="pred-search-icon" aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="종목명 · 코드 검색"
+                autoComplete="off"
+              />
+              {query ? (
+                <button
+                  type="button"
+                  className="pred-search-clear"
+                  onClick={() => setQuery("")}
+                  aria-label="검색어 지우기"
+                >
+                  ×
+                </button>
+              ) : null}
+            </label>
+            {/* Card ↔ list. Two states, so a segmented pair rather than a menu — the
+                alternative is always visible and one click away. */}
+            <div className="pred-viewtoggle" role="group" aria-label="보기 방식">
+              <button
+                type="button"
+                className={`pred-viewbtn${dense ? "" : " is-active"}`}
+                aria-pressed={!dense}
+                onClick={() => setDense(false)}
+              >
+                카드
+              </button>
+              <button
+                type="button"
+                className={`pred-viewbtn${dense ? " is-active" : ""}`}
+                aria-pressed={dense}
+                onClick={() => setDense(true)}
+              >
+                리스트
+              </button>
+            </div>
             {unreliableTotal > 0 ? (
               <button
                 type="button"
@@ -731,12 +1201,33 @@ export default function AiPredictionPage() {
           </p>
         ) : null}
 
-        {groups.map((group) => (
+        {groups.map((group) => {
+          /* Open past the fold when the reader asked, or when a filter has already cut
+             the group down to something a screen holds. A "18종목 더 보기" button under
+             a search that matched four rows would be a control that does nothing. */
+          const isOpen = expanded[group.market] || group.items.length <= GROUP_PAGE;
+          const shown = isOpen ? group.items : group.items.slice(0, GROUP_PAGE);
+          const hidden = group.items.length - shown.length;
+          const dist = group.summary.up + group.summary.flat + group.summary.down || 1;
+          return (
           <section key={group.market} className="pred-group" aria-labelledby={`pred-group-${group.market}`}>
             <div className="pred-group-head">
               <h2 id={`pred-group-${group.market}`} className="pred-group-title">
                 {group.label}
                 <span className="pred-group-count">{group.items.length}종목</span>
+                {/* The group's shape, as one bar beside its name. Three market groups
+                    of thirty is more numbers than a reader will total in their head,
+                    and this is the totalling done for them — same three colours as the
+                    dial above and the cards below. */}
+                <span
+                  className="pred-group-dist"
+                  role="img"
+                  aria-label={`상승 ${group.summary.up}, 보합 ${group.summary.flat}, 하락 ${group.summary.down}`}
+                >
+                  <span className="pred-group-dist-seg pred-group-dist-seg--up" style={{ width: `${(group.summary.up / dist) * 100}%` }} />
+                  <span className="pred-group-dist-seg pred-group-dist-seg--flat" style={{ width: `${(group.summary.flat / dist) * 100}%` }} />
+                  <span className="pred-group-dist-seg pred-group-dist-seg--down" style={{ width: `${(group.summary.down / dist) * 100}%` }} />
+                </span>
               </h2>
               <div className="pred-group-summary">
                 <span className="pred-group-chip pred-group-chip--up">상승 {group.summary.up}</span>
@@ -765,13 +1256,45 @@ export default function AiPredictionPage() {
               </div>
             </div>
             <MarketContext items={group.items} />
-            <div className="pred-grid">
-              {group.items.map((item, i) => (
-                <PredictionCard key={item.code} item={item} index={i} onOpen={setSelected} />
-              ))}
-            </div>
+            {dense ? (
+              <PredictionRows items={shown} rankByCode={rankByCode} onOpen={setSelected} />
+            ) : (
+              <div className="pred-grid">
+                {shown.map((item, i) => (
+                  <PredictionCard
+                    key={item.code}
+                    item={item}
+                    index={i}
+                    rank={rankByCode.get(item.code)}
+                    onOpen={setSelected}
+                  />
+                ))}
+              </div>
+            )}
+            {hidden > 0 ? (
+              <button
+                type="button"
+                className="pred-more"
+                onClick={() => setExpanded((prev) => ({ ...prev, [group.market]: true }))}
+              >
+                {group.label} 나머지 {hidden}종목 더 보기
+                <span aria-hidden="true">↓</span>
+              </button>
+            ) : null}
+            {/* Only when this group was actually opened by hand — a group short enough
+                to be open on its own has nothing to collapse. */}
+            {isOpen && expanded[group.market] ? (
+              <button
+                type="button"
+                className="pred-more pred-more--less"
+                onClick={() => setExpanded((prev) => ({ ...prev, [group.market]: false }))}
+              >
+                {group.label} 접기 <span aria-hidden="true">↑</span>
+              </button>
+            ) : null}
           </section>
-        ))}
+          );
+        })}
       </main>
 
       {selected ? <PredictionDetailModal item={selected} onClose={() => setSelected(null)} /> : null}

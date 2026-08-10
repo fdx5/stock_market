@@ -105,10 +105,16 @@ function Outcome({ item }: { item: PredictionItem }) {
 export default function PredictionCard({
   item,
   index,
+  rank,
   onOpen,
 }: {
   item: PredictionItem;
   index: number;
+  /** 시가총액 순위 within its market, 1-based. The roster is each market's top 30 by
+   * cap, so this is a real property of the row rather than a position in the grid —
+   * and with thirty cards in a group it is the fastest way back to "which one is
+   * this". Absent on a row whose market cap was never recorded. */
+  rank?: number;
   onOpen: (item: PredictionItem) => void;
 }) {
   const { ref, revealed } = useRevealOnScroll<HTMLButtonElement>();
@@ -143,7 +149,10 @@ export default function PredictionCard({
         </span>
         <span className="pred-card-id">
           <span className="pred-card-name">{item.name}</span>
-          <span className="pred-card-code">{item.code}</span>
+          <span className="pred-card-code">
+            {rank ? <b className="pred-card-rank">시총 {rank}위</b> : null}
+            {item.code}
+          </span>
         </span>
         <span className={`pred-verdict pred-verdict--${tone}`}>
           <span className="pred-verdict-arrow" aria-hidden="true">

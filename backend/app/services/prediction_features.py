@@ -219,8 +219,13 @@ def collect_all(roster: list[dict], session: dt.date, max_workers: int = 4) -> l
 
     Capped low on purpose: each stock fans out to several scraped endpoints on the
     same two hosts (Naver, Bing), and a wide pool turns one batch run into a burst
-    those hosts can reasonably read as abuse. Four in flight keeps a ~34-stock run to
-    a couple of minutes while staying a polite client.
+    those hosts can reasonably read as abuse.
+
+    Left at four when the roster went from ~34 names to ~94. The number is a politeness
+    budget against somebody else's servers, not a throughput dial, and tripling the
+    roster is exactly the moment it would be tempting — and wrong — to widen it: the
+    run simply takes proportionally longer, which costs a batch that already runs at
+    23:00 against nothing at all.
     """
     if not roster:
         return []

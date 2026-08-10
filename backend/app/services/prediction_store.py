@@ -471,13 +471,16 @@ def list_by_code(code: str, limit: int = 30) -> list[dict]:
     return [_row_to_prediction(row) for row in _with_connection(_run)]
 
 
-def list_ungraded(markets: tuple[str, ...], upto_date: str, limit: int = 400) -> list[dict]:
+def list_ungraded(markets: tuple[str, ...], upto_date: str, limit: int = 1200) -> list[dict]:
     """Predictions whose target session has already traded but which nobody has scored
     yet, oldest first.
 
     Oldest first because a backlog (the grader's first run, or a stretch where the
     batch was down) should be worked through in order — if the limit truncates it, the
-    rows left behind are the recent ones the next run will reach anyway.
+    rows left behind are the recent ones the next run will reach anyway. The limit is
+    a backlog depth in sessions, so it moved with the roster: ~94 rows a session means
+    1,200 is about twelve sessions of catch-up in one run, which is the headroom 400
+    bought at the old ten-name roster.
 
     Deliberately keyed on `graded_at IS NULL` rather than on a date window: a row that
     couldn't be graded on the day (the price feed hadn't published the close yet)
@@ -531,11 +534,19 @@ def apply_grades(grades: list[dict]) -> int:
     return _with_connection(_run)
 
 
-def graded_history(codes: tuple[str, ...] | None = None, limit: int = 4000) -> list[tuple]:
+def graded_history(codes: tuple[str, ...] | None = None, limit: int = 12_000) -> list[tuple]:
     """(stock_code, market, predict_date, hit) for every scored prediction, newest
     first. The windowing into 20일/60일/전체 is done in Python by
     `accuracy_summary` — three correlated subqueries per stock would be a far heavier
-    way to answer a question this dataset is small enough to answer in memory."""
+    way to answer a question this dataset is small enough to answer in memory.
+
+    The limit is a global newest-first cut, so it has to be read in sessions rather
+    than in rows: the roster writes ~94 graded rows a session, and the deepest window
+    asked of the result is 60 sessions per stock. 12,000 is about 127 sessions of
+    headroom; the 4,000 it replaced was 117 sessions at the old ten-name roster and
+    would have become 42 at this one — which is under the 60-session window and would
+    have quietly shortened every stock's 60일 figure without failing anything.
+    """
 
     def _run(conn):
         if codes:

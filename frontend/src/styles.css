@@ -11395,16 +11395,135 @@ button.admin-comments-text--clickable:hover {
   animation-delay: 2.1s;
 }
 
+/* --- The page's own ground ------------------------------------------------
+   Every other page on this site sits directly on --page-plane. This one doesn't,
+   and the reason is what the page is: the others report numbers that exist, and
+   this one reports a machine's opinion about numbers that don't exist yet. The
+   backdrop is the only place that difference can be said before a single figure
+   is read.
+
+   Two fixed layers, both behind everything and both pointer-transparent:
+
+     ::before  three slow-drifting colour fields — the page's violet, and the up
+               and down hues the forecasts themselves are drawn in. Blurred past
+               any edge, so it reads as depth rather than as three circles.
+     ::after   a fine lattice, faded out toward the bottom of the viewport. It is
+               the thing that makes the wash read as instrumentation rather than
+               as decoration; on its own the wash could be any marketing page.
+
+   Fixed rather than absolute so the field stays put while ninety cards scroll
+   over it — a backdrop that scrolls with the content is just a very tall image,
+   and at this page's new length it would run out.
+   ------------------------------------------------------------------------- */
+
+.app--prediction {
+  position: relative;
+  isolation: isolate;
+}
+
+.app--prediction::before,
+.app--prediction::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.app--prediction::before {
+  background:
+    radial-gradient(46% 38% at 12% 8%, color-mix(in srgb, var(--series-violet) 26%, transparent), transparent 72%),
+    radial-gradient(40% 34% at 88% 4%, color-mix(in srgb, var(--up-color) 15%, transparent), transparent 70%),
+    radial-gradient(52% 40% at 68% 86%, color-mix(in srgb, var(--down-color) 14%, transparent), transparent 74%);
+  filter: blur(20px);
+  opacity: 0.5;
+  animation: pred-field 34s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+/* The lattice. Two hairline gradients rather than a background image, masked so it
+   is densest at the top — where the console is — and gone by the fold, where ninety
+   cards need a quiet ground to sit on. */
+.app--prediction::after {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--series-violet) 22%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--series-violet) 22%, transparent) 1px, transparent 1px);
+  background-size: 46px 46px;
+  opacity: 0.28;
+  -webkit-mask-image: linear-gradient(to bottom, black 0%, transparent 62%);
+  mask-image: linear-gradient(to bottom, black 0%, transparent 62%);
+}
+
+/* The light theme takes the same field at a fraction of the strength. A wash tuned
+   against near-black turns into a stain on warm off-white, and this page's job is to
+   be read, not to be atmospheric at the cost of its own type. */
+:root[data-theme="light"] .app--prediction::before {
+  opacity: 0.3;
+}
+
+:root[data-theme="light"] .app--prediction::after {
+  opacity: 0.16;
+}
+
+@keyframes pred-field {
+  from {
+    transform: translate3d(-2%, -1%, 0) scale(1.05);
+  }
+  to {
+    transform: translate3d(3%, 2%, 0) scale(1.12);
+  }
+}
+
 /* --- Hero ---------------------------------------------------------------- */
 
 .pred-hero {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  background: var(--surface-1);
-  margin-bottom: 18px;
+  border: 1px solid color-mix(in srgb, var(--series-violet) 26%, var(--border));
+  border-radius: 20px;
+  /* Translucent rather than opaque: the field behind the page shows through the
+     console, which is what ties the two together — an opaque panel would read as a
+     card sitting on a wallpaper. */
+  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 18px 48px color-mix(in srgb, black 28%, transparent);
+  padding: 0 0 14px;
+  margin-bottom: 16px;
   isolation: isolate;
+}
+
+/* The seam along the top edge, in the page's three colours. Violet is the page,
+   red and blue are the two directions everything below is scored in — so the first
+   thing on screen is already the legend for the rest of it. */
+.pred-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    var(--up-color),
+    var(--series-violet) 42%,
+    var(--series-violet) 58%,
+    var(--down-color)
+  );
+  opacity: 0.9;
+}
+
+/* The console's own lattice, brighter than the page's and clipped to the panel. */
+.pred-hero-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--series-violet) 30%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--series-violet) 30%, transparent) 1px, transparent 1px);
+  background-size: 34px 34px;
+  opacity: 0.2;
+  -webkit-mask-image: radial-gradient(70% 90% at 78% 40%, black, transparent 72%);
+  mask-image: radial-gradient(70% 90% at 78% 40%, black, transparent 72%);
+  pointer-events: none;
 }
 
 /* A slow drifting wash rather than a static gradient — the page's one large
@@ -11420,7 +11539,10 @@ button.admin-comments-text--clickable:hover {
     radial-gradient(34% 42% at 74% 26%, color-mix(in srgb, var(--up-color) 28%, transparent), transparent 70%),
     radial-gradient(40% 48% at 58% 82%, color-mix(in srgb, var(--down-color) 26%, transparent), transparent 72%);
   filter: blur(38px);
-  opacity: 0.55;
+  /* Pulled back from 0.55 when the page grew a field of its own behind it. The two
+     wash the same three hues over the same corner of the screen, and at full strength
+     they compound into a bloom the hero's type has to fight. */
+  opacity: 0.4;
   animation: pred-aurora 22s ease-in-out infinite alternate;
   will-change: transform;
   pointer-events: none;
@@ -11435,13 +11557,25 @@ button.admin-comments-text--clickable:hover {
   }
 }
 
+/* Statement on the left, finding on the right. The dial column is fixed-width so the
+   prose column takes every pixel a wide screen offers rather than the two splitting
+   it evenly — one is a paragraph, the other is a circle, and they do not want the
+   same amount of room. */
 .pred-hero-inner {
-  padding: 26px 24px 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px 28px;
+  padding: 24px 24px 18px;
+}
+
+.pred-hero-main {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  text-align: center;
+  align-items: flex-start;
+  gap: 9px;
+  min-width: 0;
+  text-align: left;
 }
 
 .pred-hero-badge {
@@ -11456,6 +11590,22 @@ button.admin-comments-text--clickable:hover {
   background: color-mix(in srgb, var(--series-violet) 14%, transparent);
   border-radius: 999px;
   padding: 5px 13px;
+}
+
+.pred-hero-badge-sep {
+  width: 1px;
+  height: 10px;
+  background: color-mix(in srgb, var(--series-violet) 45%, transparent);
+}
+
+/* Whether this day is still a forecast or already a scored one — the single most
+   load-bearing fact on the page, since it decides whether every number below is a
+   claim or a result. It rides in the badge rather than in a line of its own because
+   that is where the eye already is. */
+.pred-hero-badge-state {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
 }
 
 /* "Live" pulse on the badge dot — the one always-on motion cue that this page's data
@@ -11485,7 +11635,6 @@ button.admin-comments-text--clickable:hover {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  justify-content: center;
   gap: 10px;
   margin: 2px 0 0;
   /* The hero figure is the page's own sans at display size — no serif or display
@@ -11533,20 +11682,51 @@ button.admin-comments-text--clickable:hover {
   white-space: nowrap;
 }
 
+/* The countdown and the settled badge are mutually exclusive states of one slot, so
+   they share a row and neither carries a margin of its own. */
+.pred-hero-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.pred-hero-status:empty {
+  display: none;
+}
+
+.pred-hero-status .pred-settled {
+  margin-top: 0;
+}
+
 .pred-hero-generated {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   margin: 0;
   font-size: 11.5px;
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A lit tick against the timestamp: the batch ran, and this is when. Static — the
+   pulsing dot in the badge already carries "live", and two blinking marks in one
+   corner is a page that fidgets. */
+.pred-hero-generated-mark {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--status-good);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--status-good) 70%, transparent);
 }
 
 .pred-countdown {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin-top: 4px;
   padding: 8px 16px;
   border-radius: 12px;
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--series-violet) 30%, var(--border));
   background: color-mix(in srgb, var(--page-plane) 70%, transparent);
 }
 
@@ -11569,6 +11749,413 @@ button.admin-comments-text--clickable:hover {
   color: var(--status-good);
 }
 
+/* --- The signal dial ------------------------------------------------------
+   The day's output as one object. Three arcs of a ring for the direction split, the
+   mean 상승확률 in the middle, the counts printed beside it, and the mean reliability
+   as a bar underneath — four facts that used to be four of five equal tiles below the
+   fold, arranged so the first one answers the question and the rest qualify it.
+   ------------------------------------------------------------------------- */
+
+.pred-dial-wrap {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 6px 18px;
+  padding: 4px 6px 4px 20px;
+  border-left: 1px solid var(--gridline);
+}
+
+/* The element itself carries no paint and no mask, only the box.
+ *
+ * That is deliberate and it is the whole trick: a mask on an element clips its
+ * descendants too, so drawing the ring on `.pred-dial` directly would punch the hole
+ * straight through the figure standing in the middle of it. The ring is a pseudo-
+ * element, the sweep is a layer, the number is a third — three siblings, one of which
+ * is masked. */
+.pred-dial {
+  position: relative;
+  width: 148px;
+  height: 148px;
+  display: grid;
+  place-items: center;
+  filter: drop-shadow(0 0 10px color-mix(in srgb, var(--series-violet) 26%, transparent));
+}
+
+.pred-dial::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  /* Three shares of one circle. The stops are set per-render as percentages, so the
+     ring is the data — not an image of it. */
+  background: conic-gradient(
+    var(--up-color) 0 var(--seg-up),
+    var(--status-neutral) var(--seg-up) var(--seg-flat),
+    var(--down-color) var(--seg-flat) 100%
+  );
+  /* Ring, not pie: the hole is where the headline figure goes, and a filled disc
+     would put white type on three different hues. */
+  -webkit-mask: radial-gradient(farthest-side, transparent 63%, black 64%);
+  mask: radial-gradient(farthest-side, transparent 63%, black 64%);
+}
+
+.pred-dial-core {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+}
+
+.pred-dial-value {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-dial-value small {
+  font-size: 15px;
+  margin-left: 1px;
+  color: var(--text-secondary);
+}
+
+.pred-dial-caption {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+/* The sweep. One transparent-to-violet wedge turning once every six seconds behind
+   the ring — the page's one piece of "this is computing" motion, and the reason the
+   dial reads as an instrument. It is inside the ring's mask, so it only ever paints
+   on the annulus. */
+.pred-dial-sweep {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    color-mix(in srgb, white 40%, transparent),
+    transparent 22%,
+    transparent 100%
+  );
+  /* Masked to the same annulus as the ring, so the wedge never sweeps across the
+     figure in the middle. */
+  -webkit-mask: radial-gradient(farthest-side, transparent 63%, black 64%);
+  mask: radial-gradient(farthest-side, transparent 63%, black 64%);
+  mix-blend-mode: overlay;
+  opacity: 0.55;
+  animation: pred-sweep 6s linear infinite;
+}
+
+@keyframes pred-sweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pred-dial-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pred-dial-key {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.pred-dial-key b {
+  margin-left: auto;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-dial-key-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.pred-dial-key--up .pred-dial-key-dot {
+  background: var(--up-color);
+}
+
+.pred-dial-key--flat .pred-dial-key-dot {
+  background: var(--status-neutral);
+}
+
+.pred-dial-key--down .pred-dial-key-dot {
+  background: var(--down-color);
+}
+
+.pred-dial-meter {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.pred-dial-meter-track {
+  flex: 1 1 auto;
+  min-width: 70px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--baseline) 55%, transparent);
+  overflow: hidden;
+}
+
+.pred-dial-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--series-violet), color-mix(in srgb, var(--series-violet) 45%, white));
+}
+
+.pred-dial-meter-value {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- 가장 확신한 종목 ------------------------------------------------------
+   The three highest-conviction calls, lifted out of a ninety-card grid and given the
+   width to be read at a glance. This is the page answering what it found before it
+   asks anyone to scan, and it is the block most likely to be the reason a visitor
+   opens a card at all — so it gets real size, a real hover, and the same colours as
+   everything below it.
+   ------------------------------------------------------------------------- */
+
+.pred-top {
+  margin-bottom: 18px;
+}
+
+.pred-top-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+}
+
+.pred-top-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.pred-top-title-mark {
+  width: 4px;
+  height: 15px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--series-violet), color-mix(in srgb, var(--series-violet) 30%, transparent));
+}
+
+.pred-top-sub {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.pred-top-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.pred-top-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding: 15px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  animation: pred-card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.pred-top-card:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--series-violet) 60%, transparent);
+  box-shadow: 0 14px 34px color-mix(in srgb, black 38%, transparent);
+}
+
+.pred-top-card:focus-visible {
+  outline: 2px solid var(--series-violet);
+  outline-offset: 2px;
+}
+
+/* The verdict's colour, bled in from the left behind the rank. Stronger than the
+   card grid's wash because these three are meant to be seen from across the page. */
+.pred-top-glow {
+  position: absolute;
+  inset: -40% 55% -40% -30%;
+  z-index: -1;
+  filter: blur(26px);
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.pred-top-card--up .pred-top-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--up-color) 55%, transparent), transparent 70%);
+}
+
+.pred-top-card--down .pred-top-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--down-color) 55%, transparent), transparent 70%);
+}
+
+.pred-top-card--flat .pred-top-glow {
+  background: radial-gradient(circle, color-mix(in srgb, var(--status-neutral) 45%, transparent), transparent 70%);
+}
+
+.pred-top-rank {
+  flex: 0 0 auto;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  /* Outlined rather than filled: it is an ordinal, not a value, and a solid number
+     this size would outweigh the 등락률 beside it. */
+  color: transparent;
+  -webkit-text-stroke: 1.2px color-mix(in srgb, var(--series-violet) 70%, transparent);
+}
+
+.pred-top-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.pred-top-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pred-top-meta {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-top-figure {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.pred-top-arrow {
+  font-size: 11px;
+}
+
+.pred-top-change {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-top-arrow--up,
+.pred-top-change--up {
+  color: var(--up-color);
+}
+
+.pred-top-arrow--down,
+.pred-top-change--down {
+  color: var(--down-color);
+}
+
+.pred-top-arrow--flat,
+.pred-top-change--flat {
+  color: var(--status-neutral);
+}
+
+.pred-top-verdict {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.pred-top-bar,
+.pred-row-bar {
+  display: flex;
+  height: 6px;
+  margin: 4px 0 2px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--baseline) 40%, transparent);
+}
+
+.pred-top-bar-seg--up {
+  background: var(--up-color);
+}
+
+.pred-top-bar-seg--flat {
+  background: var(--status-neutral);
+}
+
+.pred-top-bar-seg--down {
+  background: var(--down-color);
+}
+
+.pred-top-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.pred-top-foot b {
+  color: var(--text-secondary);
+  font-weight: 700;
+}
+
+.pred-top-cta {
+  margin-left: auto;
+  color: var(--series-violet);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pred-top-card:hover .pred-top-cta {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* --- Controls (one filter row above everything it scopes) ---------------- */
 
 .pred-controls {
@@ -11576,6 +12163,45 @@ button.admin-comments-text--clickable:hover {
   flex-direction: column;
   gap: 10px;
   margin-bottom: 16px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-1) 70%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.pred-controls-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.pred-controls-caption-label {
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--text-muted);
+}
+
+.pred-controls-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.pred-controls-hint kbd {
+  display: inline-block;
+  min-width: 17px;
+  margin-right: 2px;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--page-plane);
+  font: inherit;
+  font-size: 10px;
+  text-align: center;
+  color: var(--text-secondary);
 }
 
 .pred-datenav {
@@ -11708,6 +12334,117 @@ button.admin-comments-text--clickable:hover {
   cursor: pointer;
 }
 
+/* --- Search + view mode ---------------------------------------------------
+   Both arrived with the roster. At ten names a market you find a stock by looking at
+   the page; at thirty you find it by typing, and you compare thirty of them in rows
+   rather than in cards.
+   ------------------------------------------------------------------------- */
+
+.pred-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pred-search input {
+  width: 178px;
+  padding: 7px 26px 7px 28px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12.5px;
+  /* Safari draws its own clear button on a search input, on top of ours. */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.pred-search input::-webkit-search-decoration,
+.pred-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.pred-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.pred-search input:focus {
+  outline: none;
+  border-color: var(--series-violet);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--series-violet) 18%, transparent);
+}
+
+/* The magnifier, drawn rather than fetched: a ring and a handle, two elements'
+   worth of geometry in one. */
+.pred-search-icon {
+  position: absolute;
+  left: 10px;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--text-muted);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.pred-search-icon::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 5px;
+  height: 1.5px;
+  background: var(--text-muted);
+  transform: rotate(45deg);
+}
+
+.pred-search-clear {
+  position: absolute;
+  right: 6px;
+  width: 17px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--baseline) 60%, transparent);
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.pred-search-clear:hover {
+  background: var(--baseline);
+  color: var(--text-primary);
+}
+
+.pred-viewtoggle {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--page-plane);
+}
+
+.pred-viewbtn {
+  padding: 5px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pred-viewbtn.is-active {
+  background: color-mix(in srgb, var(--series-violet) 22%, transparent);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--series-violet) 45%, transparent);
+}
+
 /* --- Stat tiles ---------------------------------------------------------- */
 
 .pred-stats {
@@ -11718,16 +12455,49 @@ button.admin-comments-text--clickable:hover {
 }
 
 .pred-stat {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: 12px 14px;
+  padding: 13px 14px 12px;
   border-radius: 13px;
   border: 1px solid var(--border);
-  background: var(--surface-1);
+  background: color-mix(in srgb, var(--surface-1) 84%, transparent);
+  overflow: hidden;
   /* A hairline accent on the leading edge instead of a coloured fill — the tile is
      chrome around a number, not a data mark, so it stays recessive. */
   border-left: 3px solid var(--baseline);
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+/* A short lit rule under the top edge, in the tile's own tone. Enough to make the
+   row read as five instruments rather than five boxes, at no cost to the figure. */
+.pred-stat::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 38%;
+  height: 2px;
+  background: linear-gradient(90deg, currentColor, transparent);
+  color: var(--baseline);
+  opacity: 0.7;
+}
+
+.pred-stat:hover {
+  transform: translateY(-2px);
+}
+
+.pred-stat--up::after {
+  color: var(--up-color);
+}
+
+.pred-stat--down::after {
+  color: var(--down-color);
+}
+
+.pred-stat--flat::after {
+  color: var(--status-neutral);
 }
 
 .pred-stat--up {
@@ -11836,12 +12606,262 @@ button.admin-comments-text--clickable:hover {
   color: var(--text-muted);
 }
 
+/* The group's direction split, beside its name. */
+.pred-group-dist {
+  display: inline-flex;
+  width: 84px;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--baseline) 40%, transparent);
+}
+
+.pred-group-dist-seg--up {
+  background: var(--up-color);
+}
+
+.pred-group-dist-seg--flat {
+  background: var(--status-neutral);
+}
+
+.pred-group-dist-seg--down {
+  background: var(--down-color);
+}
+
+/* --- 더 보기 ---------------------------------------------------------------
+   The fold under each market group. Full width and clearly a control, because the
+   thing it is competing with is a reader assuming the group ended at twelve.
+   ------------------------------------------------------------------------- */
+
+.pred-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 11px 16px;
+  border-radius: 12px;
+  border: 1px dashed color-mix(in srgb, var(--series-violet) 45%, var(--border));
+  background: color-mix(in srgb, var(--series-violet) 8%, transparent);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.pred-more:hover {
+  border-color: var(--series-violet);
+  background: color-mix(in srgb, var(--series-violet) 16%, transparent);
+  color: var(--text-primary);
+}
+
+.pred-more--less {
+  border-style: solid;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* --- List view ------------------------------------------------------------
+   Same rows as the cards, in columns. One grid template shared by the header and
+   every row, so the two can never disagree about where a column is — which is the
+   failure mode of building a "table" out of flex rows.
+   ------------------------------------------------------------------------- */
+
+.pred-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pred-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1.6fr) 84px 84px minmax(110px, 1.2fr) 92px 58px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  border-left: 3px solid var(--baseline);
+  background: color-mix(in srgb, var(--surface-1) 76%, transparent);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+
+.pred-row:hover {
+  transform: translateX(3px);
+  border-color: color-mix(in srgb, var(--series-violet) 45%, transparent);
+  border-left-color: var(--series-violet);
+  background: var(--surface-1);
+}
+
+.pred-row:focus-visible {
+  outline: 2px solid var(--series-violet);
+  outline-offset: 1px;
+}
+
+.pred-row--up {
+  border-left-color: var(--up-color);
+}
+
+.pred-row--down {
+  border-left-color: var(--down-color);
+}
+
+.pred-row--flat {
+  border-left-color: var(--status-neutral);
+}
+
+/* The header is the same grid with none of the interaction — a row of column names,
+   sticky-free and quiet. */
+.pred-row--head {
+  padding: 4px 12px;
+  border: none;
+  background: none;
+  cursor: default;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
+.pred-row-rank {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-row-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pred-row-name b {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pred-row-name small {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-row-verdict {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 3px 0;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.pred-row-verdict--up {
+  color: var(--up-color);
+}
+
+.pred-row-verdict--down {
+  color: var(--down-color);
+}
+
+.pred-row-verdict--flat {
+  color: var(--status-neutral);
+}
+
+.pred-row-change {
+  font-size: 14px;
+  font-weight: 800;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-row-change--up {
+  color: var(--up-color);
+}
+
+.pred-row-change--down {
+  color: var(--down-color);
+}
+
+.pred-row-change--flat {
+  color: var(--status-neutral);
+}
+
+.pred-row-prob {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pred-row-bar {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.pred-row-prob-num {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-row-rel {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.pred-row-go {
+  text-align: right;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.pred-row:hover .pred-row-go {
+  color: var(--series-violet);
+}
+
+.pred-row--hit .pred-row-go {
+  color: var(--status-good);
+}
+
+.pred-row--miss .pred-row-go {
+  color: var(--status-critical);
+}
+
 /* --- Card grid ----------------------------------------------------------- */
 
 .pred-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
   gap: 12px;
+}
+
+/* 시총 순위, on the code line. The roster is a rank cut, so this says where in it a
+   card sits — 1위 and 28위 are the same roster and very different companies. */
+.pred-card-rank {
+  margin-right: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--series-violet) 16%, transparent);
+  color: var(--series-violet);
+  font-size: 9.5px;
+  font-weight: 700;
 }
 
 .pred-card {
@@ -12206,11 +13226,13 @@ button.admin-comments-text--clickable:hover {
 
 /* --- 채점 결과 매트릭스 page ------------------------------------------------ */
 
+/* Now a direct child of the console rather than of its centred stack, so it aligns
+   with the panel's own edge and sits below the scoreboard it follows on from. */
 .pred-matrix-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 12px;
+  margin: 12px 0 0 24px;
   font-size: 12.5px;
   font-weight: 700;
   color: var(--series-violet);
@@ -12272,10 +13294,23 @@ button.admin-comments-text--clickable:hover {
   font-size: 13px;
 }
 
+/* The page gutter is taken out of this box's own width rather than given to it as
+   padding, which every sibling section here does and which this one must not.
+   Padding on a scroll container sits INSIDE the scrollport: the frozen 종목 column
+   (.pred-matrix-stockhead, sticky left: 0) parks at the scrollport edge — 20px in
+   from the box — while the scrolled date cells still paint across that 20px strip,
+   because overflow clips at the padding box, not at the content box. The result was
+   a column of result cells sliding through the blank margin to the left of every
+   stock name, most obvious on a phone where the matrix is scrolled sideways
+   constantly.
+
+   1060px = the old 1100px box less its two 20px gutters, so the table still lines up
+   with the hero text above it at every width; the frozen column now parks exactly on
+   the box edge, with nothing to its left to show through. */
 .pred-matrix-scroll {
-  max-width: 1100px;
+  width: calc(100% - 40px);
+  max-width: 1060px;
   margin: 18px auto 40px;
-  padding: 0 20px;
   overflow-x: auto;
 }
 
@@ -13245,6 +14280,19 @@ thead .pred-matrix-stockhead {
   overflow: hidden;
 }
 
+/* Inside the console it is a foot rather than a floating card: it spans the panel,
+   loses its own rounding and side borders, and keeps only the rule that separates it
+   from the statement above. */
+.pred-hero > .pred-scoreboard {
+  margin: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  border-top: 1px solid var(--gridline);
+  background: color-mix(in srgb, var(--page-plane) 34%, transparent);
+}
+
 .pred-market-score {
   display: flex;
   flex-direction: column;
@@ -13660,8 +14708,28 @@ thead .pred-matrix-stockhead {
      animation that normally reveals them is exactly what's being disabled. */
   .pred-hero-aurora,
   .pred-hero-badge-dot,
-  .pred-skeleton-row {
+  .pred-skeleton-row,
+  .app--prediction::before,
+  .pred-dial-sweep,
+  .pred-top-card {
     animation: none;
+  }
+
+  /* The sweep is the dial's only motion and it carries nothing — the ring is the
+     data. Off, it should not leave a bright wedge frozen over one arc. */
+  .pred-dial-sweep {
+    opacity: 0;
+  }
+
+  .pred-top-card {
+    opacity: 1;
+    transform: none;
+  }
+
+  .pred-top-card:hover,
+  .pred-row:hover,
+  .pred-stat:hover {
+    transform: none;
   }
 
   .pred-card,
@@ -13691,9 +14759,69 @@ thead .pred-matrix-stockhead {
   }
 }
 
+/* The console folds before the cards do. Two columns need room for a 148px dial and
+   a headline date beside it; below this the dial goes under the statement, centred,
+   with the legend beside it rather than stacked under it. */
+@media (max-width: 900px) {
+  .pred-hero-inner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pred-dial-wrap {
+    justify-content: start;
+    padding: 14px 0 0;
+    border-left: none;
+    border-top: 1px solid var(--gridline);
+  }
+}
+
+/* The list view's seven columns don't survive a phone. Rank, verdict and reliability
+   are the three a narrow row can lose and still answer "which stock, which way, how
+   much" — the modal behind the row carries all three in full. */
+@media (max-width: 720px) {
+  .pred-row {
+    grid-template-columns: minmax(0, 1fr) 74px 76px 40px;
+  }
+
+  .pred-row-rank,
+  .pred-row-verdict,
+  .pred-row-rel {
+    display: none;
+  }
+}
+
 @media (max-width: 640px) {
   .pred-hero-inner {
-    padding: 20px 16px 18px;
+    padding: 20px 16px 16px;
+  }
+
+  .pred-matrix-link {
+    margin-left: 16px;
+  }
+
+  .pred-dial {
+    width: 124px;
+    height: 124px;
+  }
+
+  .pred-dial-value {
+    font-size: 28px;
+  }
+
+  /* Every tool full width and stacked: at this width a search field beside a
+     segmented toggle beside a select is three half-sized controls. */
+  .pred-search,
+  .pred-search input,
+  .pred-viewtoggle {
+    width: 100%;
+  }
+
+  .pred-viewbtn {
+    flex: 1 1 0;
+  }
+
+  .pred-top-row {
+    grid-template-columns: 1fr;
   }
 
   .pred-grid {
