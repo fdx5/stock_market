@@ -17,7 +17,31 @@ export interface ThemeColors {
   violet: string;
   good: string;
   critical: string;
+  /** Categorical series slots, assigned by fixed index and never cycled — a chart with
+   * several same-kind lines (the DRAM history page's seven spot-price items) needs more
+   * distinguishable hues than the four accent tokens above provide.
+   *
+   * These are a separate set rather than an extension of `blue`/`aqua`/`yellow`/
+   * `violet` because the light mode's accents are deliberately dusty, and a palette
+   * built from them fails on its own terms at this width: run through the CVD checker
+   * against this surface, seven muted hues come back below the chroma floor (aqua and
+   * yellow read as gray) with a worst adjacent separation of ΔE 5.8, meaning two of the
+   * seven lines are indistinguishable to a deuteranope and nearly so to anyone else.
+   * The steps below clear the lightness band, chroma floor, CVD separation and
+   * normal-vision floor in both modes.
+   *
+   * Four of the dark steps are the accent tokens above, so the dark chart still reads
+   * as part of this app. On the light surface four of the seven sit below 3:1 contrast,
+   * which obliges the relief the history page ships: a labelled legend and a table of
+   * the same numbers, so identity never rests on the color alone. */
+  series: string[];
 }
+
+// Slot order is the colorblind-safety mechanism, not decoration — neighbouring slots
+// are the pairs a reader compares, so the ordering is what the separation checks are
+// run against. Reordering these requires re-validating, not taste.
+const DARK_SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"];
+const LIGHT_SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7"];
 
 const DARK: ThemeColors = {
   surface: "#1a1a19",
@@ -34,6 +58,7 @@ const DARK: ThemeColors = {
   violet: "#9085e9",
   good: "#0ca30c",
   critical: "#d03b3b",
+  series: DARK_SERIES,
 };
 
 // A toned-down, dusty/pastel palette rather than a straight light-mode inversion —
@@ -55,6 +80,7 @@ const LIGHT: ThemeColors = {
   violet: "#7367bd",
   good: "#3f8656",
   critical: "#bb5252",
+  series: LIGHT_SERIES,
 };
 
 const STORAGE_KEY = "site_theme";

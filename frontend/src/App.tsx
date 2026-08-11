@@ -42,6 +42,8 @@ const GlobalTop100Page = lazy(() => import("./components/GlobalTop100Page"));
 const NewsPage = lazy(() => import("./components/NewsPage"));
 const AiPredictionPage = lazy(() => import("./components/AiPredictionPage"));
 const PredictionGradingPage = lazy(() => import("./components/PredictionGradingPage"));
+// Pulls in lightweight-charts, so it stays out of every other route's bundle.
+const DramPriceHistoryPage = lazy(() => import("./components/DramPriceHistoryPage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
@@ -91,6 +93,8 @@ export default function App() {
     page = <AiPredictionPage />;
   } else if (path === "/ai-prediction/grading") {
     page = <PredictionGradingPage />;
+  } else if (path === "/dram-price") {
+    page = <DramPriceHistoryPage />;
   } else if (path === "/admin") {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {

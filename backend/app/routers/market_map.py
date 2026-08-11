@@ -237,6 +237,17 @@ def dram_price_latest(response: Response):
     return dram_price.get_latest()
 
 
+@router.get("/dram-price/history")
+def dram_price_history(response: Response, days: int = Query(400, ge=2, le=2000)):
+    """Every item's daily series for the D램 현물가격 이력 page.
+
+    `no-store` for the same reason as the snapshot above: the batch can land at any
+    hour, and a cached response would show a chart that silently omits today.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    return dram_price.get_history_all(days)
+
+
 @router.post("/dram-price/refresh")
 def dram_price_refresh(authorization: str | None = Header(None)):
     """Daily batch trigger (see .github/workflows/dram-price-refresh.yml) plus

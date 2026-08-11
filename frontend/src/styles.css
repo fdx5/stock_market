@@ -4453,8 +4453,27 @@ thead .weekly-foreign-amount-col {
   font-variant-numeric: tabular-nums;
 }
 
-.dram-price-toggle {
+/* The 이력 link takes over pushing the group right, so it lands immediately left of
+   the fold toggle rather than back beside the title. */
+.dram-price-history-link {
   margin-left: auto;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--gridline);
+  color: var(--text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.dram-price-history-link:hover {
+  color: var(--text-primary);
+  border-color: var(--baseline, var(--text-muted));
+}
+
+.dram-price-toggle {
+  margin-left: 0;
 }
 
 /* Same collapse transition as .indicator-panel-body, sized for a 7-row table rather
@@ -4504,6 +4523,230 @@ thead .weekly-foreign-amount-col {
 }
 
 .dram-price-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* ── D램 현물가격 이력 페이지 ─────────────────────────────────────────────── */
+.dram-hist-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Both filters on one row above the plot — what is measured, then over how long. */
+.dram-hist-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.dram-hist-segmented {
+  display: inline-flex;
+  border: 1px solid var(--gridline);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dram-hist-segmented button {
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dram-hist-segmented button + button {
+  border-left: 1px solid var(--gridline);
+}
+
+.dram-hist-segmented button.active {
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  color: var(--text-primary);
+}
+
+.dram-hist-segmented button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* Says what the y-axis currently means. The two modes look identical in shape and
+   differ only in scale, so without this a reader can misread an indexed chart as
+   dollars. */
+.dram-hist-mode-note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* Positioning context for the hover tooltip, which is absolutely placed against the
+   plot rather than following the pointer around the document. */
+.dram-hist-chart-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.dram-hist-chart {
+  width: 100%;
+  min-height: 420px;
+}
+
+.dram-hist-tip {
+  display: none;
+  position: absolute;
+  z-index: 5;
+  /* Never intercepts the pointer — it sits inside the plot it is describing, and a
+     tooltip that blocks the crosshair it belongs to makes the chart unhoverable. */
+  pointer-events: none;
+  min-width: 200px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--gridline);
+  background: color-mix(in srgb, var(--surface-1) 94%, transparent);
+  backdrop-filter: blur(3px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.dram-hist-tip-date {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.dram-hist-tip-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.dram-hist-tip-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.dram-hist-tip-name {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Pushed right and tabular so the values form a readable column even though the
+   names beside them vary in length. */
+.dram-hist-tip-value {
+  margin-left: auto;
+  color: var(--text-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Legend and filter in one control: seven series always need a legend, and a legend
+   the reader can click is one fewer thing on screen than a legend plus a filter. */
+.dram-hist-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dram-hist-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--gridline);
+  background: transparent;
+  /* Text ink, never the series color — the swatch beside it carries identity, and a
+     label painted in a sub-3:1 series color would be the least readable thing here. */
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dram-hist-legend-item.hover,
+.dram-hist-legend-item:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+/* A filtered-out series stays listed and keeps its color — it is hidden, not gone,
+   and its swatch is how the reader turns it back on. */
+.dram-hist-legend-item.off {
+  opacity: 0.4;
+}
+
+.dram-hist-legend-item.off .dram-hist-swatch {
+  background: var(--text-muted) !important;
+}
+
+.dram-hist-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.dram-hist-table-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.dram-hist-table-wrap {
+  overflow-x: auto;
+}
+
+.dram-hist-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.dram-hist-table th {
+  text-align: right;
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.dram-hist-table td {
+  text-align: right;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--gridline);
+  font-variant-numeric: tabular-nums;
+}
+
+.dram-hist-table th:first-child,
+.dram-hist-table td.dram-hist-name {
+  text-align: left;
+  font-variant-numeric: normal;
+}
+
+.dram-hist-table td.dram-hist-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dram-hist-table tbody tr.dimmed {
+  opacity: 0.45;
+}
+
+.dram-hist-table tbody tr:last-child td {
   border-bottom: none;
 }
 

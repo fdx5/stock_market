@@ -135,6 +135,55 @@ def latest_snapshot() -> dict:
     return {"price_date": price_date, "items": items}
 
 
+def history_all(limit_days: int = 400) -> dict:
+    """Every item's full daily series, oldest first, in TrendForce's table order.
+
+    One query rather than a `history()` per item: the whole table is a handful of rows
+    per day, and issuing seven round trips to Turso to draw one chart would put the
+    network between the page and each line it renders.
+
+    `limit_days` bounds the number of distinct *dates*, not rows — a row limit would
+    cut a day in half and leave one item's series ending a day early, which on a chart
+    reads as a line that stops for no reason.
+
+    Items are keyed on name and carry their own points rather than the response being a
+    date-major grid: an item that TrendForce added partway through has no rows before
+    that date, and a grid would have to invent nulls to keep its columns aligned. The
+    chart wants "here is this line's data", which is exactly this shape.
+    """
+
+    def _run(conn):
+        return conn.execute(
+            "SELECT price_date, item_name, price, change_pct, sort_order "
+            "FROM dram_prices WHERE price_date IN "
+            "  (SELECT DISTINCT price_date FROM dram_prices ORDER BY price_date DESC LIMIT ?) "
+            "ORDER BY sort_order, price_date",
+            (limit_days,),
+        ).fetchall()
+
+    rows = _with_connection(_run)
+
+    series: dict[str, dict] = {}
+    dates: set[str] = set()
+    for price_date, item_name, price, change_pct, sort_order in rows:
+        dates.add(price_date)
+        entry = series.setdefault(
+            item_name, {"item_name": item_name, "sort_order": sort_order, "points": []}
+        )
+        entry["points"].append(
+            {"price_date": price_date, "price": price, "change_pct": change_pct}
+        )
+
+    ordered = sorted(series.values(), key=lambda s: s["sort_order"])
+    for entry in ordered:
+        entry.pop("sort_order")
+
+    return {
+        "dates": sorted(dates),
+        "items": ordered,
+    }
+
+
 def history(item_name: str, limit_days: int = 90) -> list[dict]:
     """One item's daily prices, oldest first — the series a future trend chart draws
     once enough days have accumulated (see dram_price.py)."""

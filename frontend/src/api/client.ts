@@ -193,6 +193,30 @@ export interface DramPriceResponse {
   items: DramPriceItem[];
 }
 
+/** One point on one item's price history. */
+export interface DramHistoryPoint {
+  price_date: string;
+  price: number;
+  change_pct: number | null;
+}
+
+/** One item's whole recorded series, oldest first. */
+export interface DramHistorySeries {
+  item_name: string;
+  points: DramHistoryPoint[];
+}
+
+/** Every item's series for the 이력 page's chart.
+ *
+ * `dates` is the union of every date any item has a print for — the chart's x-domain.
+ * An item's `points` can be shorter than it (TrendForce adds and drops items over
+ * time), which is why the series carry their own dates rather than being positional
+ * against this list. */
+export interface DramHistoryResponse {
+  dates: string[];
+  items: DramHistorySeries[];
+}
+
 /** Trailing returns off the same daily series the sparkline is drawn from. Any of
  * them is null when the window doesn't reach that far back — a stock listed three
  * weeks ago has no 3-month return, and `ytd` is null until the series crosses a New
@@ -905,6 +929,8 @@ export const api = {
   sector: (code: string) => getJSON<SectorName>(`${BASE}/market/sector?code=${code}`),
   usSector: (code: string) => getJSON<UsSectorName>(`${BASE}/market/us-sector?code=${encodeURIComponent(code)}`),
   dramPrice: () => getJSON<DramPriceResponse>(`${BASE}/market/dram-price`),
+  dramPriceHistory: (days = 400) =>
+    getJSON<DramHistoryResponse>(`${BASE}/market/dram-price/history?days=${days}`),
   usSectorMap: (code: string, limit = 40) =>
     getJSON<UsSectorMap & { generated_at: string }>(
       `${BASE}/market/us-sector-map?code=${encodeURIComponent(code)}&limit=${limit}`

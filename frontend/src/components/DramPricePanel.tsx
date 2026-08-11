@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { DramPriceItem, api } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { pct } from "../mapTile";
+import { Link } from "../router";
 
 // 반도체/전자(KR) · Information Technology(US) 종목의 상세 페이지에서만 의미가 있는
 // 패널이라, 매번 종목이 바뀔 때만 다시 확인하면 충분하다 — 배치는 하루 한 번만
@@ -72,6 +73,12 @@ export default function DramPricePanel({ code, market }: { code: string; market:
       <div className="dram-price-head">
         <span className="dram-price-title">{t("D램 현물가격")}</span>
         {priceDate && <span className="dram-price-date">{t("기준일")} {priceDate}</span>}
+        {/* Sits left of the fold toggle: this panel shows one day, and "what has this
+            been doing" is the immediate next question — but it is a different page, so
+            it stays a link rather than another thing that expands in place. */}
+        <Link to="/dram-price" className="dram-price-history-link">
+          {t("이력")}
+        </Link>
         <button
           type="button"
           className="indicator-panel-toggle dram-price-toggle"

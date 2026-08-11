@@ -144,6 +144,13 @@ def get_history(item_name: str, limit_days: int = 90) -> list[dict]:
     return store.history(item_name, limit_days)
 
 
+def get_history_all(limit_days: int = 400) -> dict:
+    """Every item's series, for the 이력 page's chart. Read-only against whatever the
+    daily batch has accumulated — like `get_latest`, it never scrapes on the request
+    path, so opening the chart costs one SQL read and no upstream fetch."""
+    return store.history_all(limit_days)
+
+
 # ---------------------------------------------------------------------------
 # In-process scheduler (secondary trigger)
 # ---------------------------------------------------------------------------

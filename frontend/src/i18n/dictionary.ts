@@ -416,4 +416,24 @@ export const DICTIONARY: Record<string, string> = {
   "투자자 매매동향 데이터가 없습니다.": "No investor trading trend data available.",
   "날짜": "Date",
   "종가": "Close",
+
+  // D램 현물가격 패널 / 이력 페이지
+  "이력": "History",
+  "D램 현물가격 이력": "DRAM Spot Price History",
+  "TrendForce 일별 현물가 · 수집된 전체 기간": "TrendForce daily spot prices · full recorded period",
+  "아직 수집된 이력이 없습니다.": "No history has been recorded yet.",
+  "표시 기준": "Measure",
+  "기간": "Period",
+  "가격": "Price",
+  "지수": "Index",
+  "품목": "Item",
+  "시작": "Start",
+  "기간 등락": "Period change",
+  "최근 일간": "Latest daily",
+  "기간 요약": "Period summary",
+  "일": " days",
+  "각 품목의 기간 첫날을 100으로 환산했습니다. 가격대가 다른 품목의 등락을 같은 축에서 비교합니다.":
+    "Each item is rebased to 100 at the first day in range, so items at different price levels can be compared on one axis.",
+  "실제 현물가(USD)입니다. 품목별 가격대 차이가 커서 저가 품목의 움직임은 지수 보기가 더 잘 보입니다.":
+    "Actual spot prices in USD. Price levels differ widely between items, so the index view shows the cheaper items' movement more clearly.",
 };
