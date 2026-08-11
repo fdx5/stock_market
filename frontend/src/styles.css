@@ -212,11 +212,10 @@ body {
    flat and lifts only its neon aura on hover. The look is committed here (fixed dark screen
    in both page themes); the Sun/Sat weekend accent recolors the date dots red / cyan for
    the KR convention, and a status pip + label read the KRX session (green live / red closed). */
-.led,
-.hud {
-  /* LED palette — scoped to the block so nothing else on the page inherits it. Shared
-     with the narrow-viewport HUD band below, which is the same display in a different
-     enclosure and must not drift in colour from the cabinet. */
+.led {
+  /* LED palette — scoped to the block so nothing else on the page inherits it. The
+     narrow-viewport band below is a different instrument with its own palette and
+     deliberately does not share these. */
   --led-amber: #ffc846;    /* warm data glyphs */
   --led-amber-dim: #c79433;
   --led-label: #8fbad4;    /* cool cyan chrome for labels/captions */
@@ -543,8 +542,7 @@ body {
    slate chrome — dark-on-light instead of light-on-dark. Most pieces recolor through the
    scoped vars; the few rules with baked colors (screen texture, glyph glow, frame) are
    re-stated here for the light context. */
-:root[data-theme="light"] .led,
-:root[data-theme="light"] .hud {
+:root[data-theme="light"] .led {
   --led-amber: #26356e;    /* indigo data ink */
   --led-amber-dim: #6a7691;
   --led-label: #55637f;    /* slate chrome for labels/captions */
@@ -615,312 +613,463 @@ body {
   text-shadow: none;
 }
 
-/* ── HUD band (narrow viewports) ──────────────────────────────────────────────────────
-   Below 820px HeaderDateTime renders this instead of the cabinet — the sign used to just
-   step aside there, which meant a phone got the date, the two session clocks and the sky
-   nowhere at all. It is the same display, re-enclosed: one full-width strip of dark glass
-   instead of a tall 228px block, so the width the phone does have goes into legibility.
-   The head line carries the date and Seoul's sky; below it one wide row per city pairs
-   the flag and session state on the left with a large dot-matrix time on the right, over
-   a hairline rail that fills as that market's session runs — the one reading the cabinet
-   has no room for. Digits run larger here than on the desktop board on purpose: this is
-   read at arm's length, one-handed, often outdoors. */
+/* ── The narrow-viewport band ─────────────────────────────────────────────────────────
+   Below 820px HeaderDateTime renders this instead of the cabinet, and it is deliberately
+   not the cabinet's design: no dot-matrix mask, no amber-on-black sign, no split-flap
+   nostalgia. Those are what makes the cabinet good furniture for the corner of a desktop
+   header, and none of them survive being read one-handed on a moving train.
+
+   What this is instead: a strip of instrument glass with three readings stacked by how
+   often they are wanted. The countdown to the next bell takes the largest type, because
+   a phone already draws a clock and the market is the part it does not know. Under it,
+   both sessions as bars on one Seoul-time axis with a line marking now — the shape of
+   the trading day, read spatially rather than assembled from four numbers. At the foot,
+   the two wall clocks, small, for when the exact figure is the thing wanted.
+
+   Colour encodes the market and nothing else — Seoul amber, New York cyan — and the
+   market that is trading is the one that is lit. Open-versus-closed is therefore carried
+   by brightness as well as hue, which is what keeps it working for a reader who cannot
+   separate the two colours. */
 .hud {
   width: 100%;
   min-width: 0;
+
+  --kr: #ffb02e;          /* Seoul */
+  --us: #4ad0ff;          /* New York */
+  --hud-ink: #dde5f2;     /* primary readings */
+  --hud-dim: #75849c;     /* labels, dormant sessions */
+  --hud-faint: #3a4557;   /* rules, empty track */
+  --hud-red: #ff6a5c;     /* Sunday */
+  --hud-blue: #56b8ff;    /* Saturday */
+  --hud-glass: #070a11;
+  --hud-edge: rgba(120, 170, 220, 0.16);
+  --hud-digits: "Consolas", ui-monospace, "DejaVu Sans Mono", monospace;
 }
 
-.hud-panel {
+/* Market identity, set once and inherited by whatever the class is put on — a track, a
+   tick, a clock, the headline. Scoped under .hud so two of the shortest class names in
+   the codebase cannot reach anything else. */
+.hud .is-kr { --tone: var(--kr); }
+.hud .is-us { --tone: var(--us); }
+
+.hud-deck {
   position: relative;
   overflow: hidden;
-  padding: 11px 13px 10px;
-  border-radius: 14px;
-  background:
-    /* the unlit dot grid, then the screen's own vignette, over near-black glass */
-    radial-gradient(circle at 50% 50%, rgba(255, 210, 130, 0.04) 32%, transparent 34%),
-    radial-gradient(120% 140% at 82% -20%, rgba(var(--led-aura), 0.13), transparent 58%),
-    linear-gradient(165deg, #0d1119 0%, var(--led-screen) 58%, #04060a 100%);
-  background-size: 3px 3px, 100% 100%, 100% 100%;
-  border: 1px solid rgba(var(--led-aura), 0.22);
-  box-shadow:
-    0 0 22px -6px rgba(var(--led-aura), 0.22),
-    0 14px 28px -20px rgba(0, 0, 0, 0.9),
-    inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-/* Scanlines, same pitch as the cabinet's so both read as one piece of hardware. */
-.hud-panel::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px);
-}
-
-/* Corner brackets, scaled up from the cabinet's for the wider frame. */
-.hud-corners i {
-  position: absolute;
-  width: 11px;
-  height: 11px;
-  border: 1.5px solid rgba(var(--led-aura), 0.7);
-  box-shadow: 0 0 6px rgba(var(--led-aura), 0.4);
-  z-index: 2;
-}
-.hud-corners i:nth-child(1) { top: 5px; left: 5px; border-right: 0; border-bottom: 0; border-radius: 5px 0 0 0; }
-.hud-corners i:nth-child(2) { top: 5px; right: 5px; border-left: 0; border-bottom: 0; border-radius: 0 5px 0 0; }
-.hud-corners i:nth-child(3) { bottom: 5px; left: 5px; border-right: 0; border-top: 0; border-radius: 0 0 0 5px; }
-.hud-corners i:nth-child(4) { bottom: 5px; right: 5px; border-left: 0; border-top: 0; border-radius: 0 0 5px 0; }
-
-/* The sweep. A soft cyan bar travelling down the glass on a long cycle — present enough
-   to say "live", slow and faint enough not to compete with the numbers it crosses. */
-.hud-scan {
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 42%;
-  pointer-events: none;
-  z-index: 1;
-  background: linear-gradient(
-    180deg,
-    rgba(var(--led-aura), 0) 0%,
-    rgba(var(--led-aura), 0.07) 55%,
-    rgba(var(--led-aura), 0) 100%
-  );
-  animation: hud-sweep 7s linear infinite;
-}
-
-@keyframes hud-sweep {
-  0% { transform: translateY(-100%); }
-  100% { transform: translateY(240%); }
-}
-
-/* Unlike the cabinet's blink — which is the display being a display — a bar travelling
-   across the screen is the kind of motion that makes people ill. It stops. */
-@media (prefers-reduced-motion: reduce) {
-  .hud-scan {
-    animation: none;
-    opacity: 0;
-  }
-}
-
-/* Head line: big day number, weekday + month/year stacked beside it, sky pushed right. */
-.hud-head {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding-bottom: 9px;
-  margin-bottom: 9px;
-  border-bottom: 1px solid rgba(var(--led-aura), 0.18);
-}
-
-.hud-headmeta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  line-height: 1.15;
+  gap: 11px;
+  padding: 12px 14px 13px;
+  border-radius: 16px;
+  color: var(--hud-ink);
+  background:
+    /* a soft wash of each market's colour at its own end of the panel, so the strip is
+       tinted by the two things it reports rather than by a decorative gradient */
+    radial-gradient(120% 150% at 0% 0%, rgba(255, 176, 46, 0.11), transparent 55%),
+    radial-gradient(120% 150% at 100% 100%, rgba(74, 208, 255, 0.12), transparent 55%),
+    linear-gradient(180deg, #10151f 0%, var(--hud-glass) 100%);
+  border: 1px solid var(--hud-edge);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 16px 30px -22px rgba(0, 0, 0, 0.9);
+}
+
+/* ── context line: the date, and Seoul's sky ── */
+
+.hud-ctx {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   min-width: 0;
 }
 
-.hud-wx {
+.hud-date {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-  padding-left: 10px;
-  flex: none;
-}
-
-.hud-wxread {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  line-height: 1.1;
-}
-
-/* Which city's sky this is. The cabinet says it in a tooltip; a phone has no hover, so
-   it says it out loud. */
-.hud-wxcity {
-  font-size: 8px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  color: var(--led-label);
-  opacity: 0.8;
-}
-
-.hud-clocks {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-/* One city per row: [flag + name] [session state] … [glyph + time + tz], with the rail
-   spanning the full width underneath. `1fr` on the middle cell is what pins the times to
-   the right edge in both rows, so the two clocks still read as an aligned column. */
-.hud-row {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr) max-content;
-  align-items: center;
-  column-gap: 8px;
-  row-gap: 5px;
-}
-
-.hud-city {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--hud-ink);
   white-space: nowrap;
+}
+
+/* Korean calendar convention, kept: Sunday reads red, Saturday blue. */
+.hud-date.is-sun { color: var(--hud-red); }
+.hud-date.is-sat { color: var(--hud-blue); }
+
+.hud-dow {
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.07em;
-  color: var(--led-label);
-  text-shadow: 0 0 7px rgba(var(--led-aura), 0.3);
+  letter-spacing: 0.14em;
+  opacity: 0.7;
 }
 
-/* Session state per city — the HUD's addition over the cabinet, which only ever reads
-   KRX. Red closed / green live, matching the pip it wraps. */
-.hud-state {
+.hud-sky {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-width: 0;
-  font-size: 8.5px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  white-space: nowrap;
-  color: var(--led-red);
-  text-shadow: 0 0 6px currentColor;
-}
-
-.hud-state.is-open {
-  color: var(--led-green);
-}
-
-/* The pip is the cabinet's, one size down — at this scale its bloom would otherwise
-   wash into the city name next to it. */
-.hud-state .led-dot {
-  width: 7px;
-  height: 7px;
   flex: none;
 }
 
-.hud-time {
+.hud-sky .led-wx {
+  display: block;
+  flex: none;
+}
+
+.hud-temp {
+  font-family: var(--hud-digits);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-ink);
+}
+
+.hud-skycity {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: var(--hud-dim);
+}
+
+/* ── the bell: the panel's headline ── */
+
+.hud-bell {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  min-width: 0;
+}
+
+.hud-bell-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--tone);
+  white-space: nowrap;
+  flex: none;
+}
+
+/* The verb is the quiet half of the label — which market it is matters more than
+   whether the word is "opens" or "closes", and the colour has already said which. */
+.hud-bell-verb {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--hud-dim);
+}
+
+.hud-bell-value {
+  font-family: var(--hud-digits);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--tone);
+  text-shadow: 0 0 18px color-mix(in srgb, var(--tone) 35%, transparent);
+  margin-left: auto;
+}
+
+.hud-live {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  justify-self: end;
+  gap: 4px;
+  flex: none;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--tone);
+  border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
 }
 
-/* The reason the band exists: the time at a size you can read without stopping to look.
-   The mask pitch stays at the fine 1.5px the small readouts use, so bigger glyphs simply
-   carry more dots rather than coarser ones. */
-.hud-time .led-clock,
-.hud-time .led-seg,
-.hud-time .led-col {
-  font-size: 19px;
+.hud-live i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--tone);
+  box-shadow: 0 0 6px 1px color-mix(in srgb, var(--tone) 70%, transparent);
+  animation: hud-pulse 2s ease-in-out infinite;
 }
 
-.hud-time .led-daynight {
-  width: 13px;
-  height: 13px;
+@keyframes hud-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }
 
-/* Session rail: how far this market is through its trading day. Dim and empty outside
-   the session, lit with a glowing head while it runs. */
-.hud-rail {
-  grid-column: 1 / -1;
-  height: 2px;
-  border-radius: 2px;
-  background: rgba(var(--led-aura), 0.12);
-}
+/* ── the day: both sessions on one Seoul-time axis ── */
 
-/* Positioned, so the lit head below anchors to the end of the *fill* rather than to the
-   end of the track. Not clipped, so its bloom is allowed off the 2px hairline. */
-.hud-rail i {
-  display: block;
+/* A 2-column grid — flag gutter, then the axis — so the two tracks, the now line and
+   the tick row all measure against the same width and stay in register. The now line
+   and the ticks are grid items placed in the axis column; items sharing a cell stack,
+   which is how the line crosses the tracks without being nested in either. */
+.hud-day {
   position: relative;
-  height: 100%;
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 6px;
+  padding-top: 1px;
+}
+
+.hud-flag {
+  width: 15px;
+  height: 10px;
   border-radius: 2px;
-  background: color-mix(in srgb, var(--led-label) 45%, transparent);
+  object-fit: cover;
+  flex: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+
+.hud-track {
+  position: relative;
+  height: 9px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--hud-faint) 45%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+/* The session window: where this market's bar sits on the day. Dormant it is an outline
+   in its own colour — present, but plainly not now. */
+.hud-win {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 38%, transparent);
+  overflow: hidden;
+}
+
+/* Elapsed portion of the session. Only lit while the market is trading — a solid bar on
+   a session that finished hours ago would compete with the one that is running. */
+.hud-win i {
+  display: block;
+  height: 100%;
+  border-radius: 5px 0 0 5px;
+  background: color-mix(in srgb, var(--tone) 30%, transparent);
   transition: width 0.6s linear;
 }
 
-.hud-rail i.is-live {
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--led-green) 30%, transparent),
-    var(--led-green)
-  );
-  box-shadow: 0 0 7px 1px color-mix(in srgb, var(--led-green) 65%, transparent);
-}
-
-/* The head of a running rail pulses — a market in session, ticking. */
-.hud-rail i.is-live::after {
-  content: "";
-  position: absolute;
-  top: -1px;
-  right: 0;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--led-green);
-  box-shadow: 0 0 6px 2px color-mix(in srgb, var(--led-green) 70%, transparent);
-  animation: led-blink 2.3s ease-in-out infinite;
-}
-
-/* Smallest phones: the English city names and a 19px clock stop fitting on one line
-   together, so the digits give up a step rather than the row wrapping. */
-@media (max-width: 360px) {
-  .hud-panel {
-    padding: 10px 10px 9px;
-  }
-
-  .hud-time {
-    gap: 5px;
-  }
-
-  .hud-time .led-clock,
-  .hud-time .led-seg,
-  .hud-time .led-col {
-    font-size: 16px;
-  }
-}
-
-/* Light theme: the panel follows the cabinet into pale LCD glass — brushed white with
-   slate ink, no bloom. The shared .led-* pieces inside it recolor through the vars and
-   the light-theme rules above; only the enclosure is restated here. */
-:root[data-theme="light"] .hud-panel {
-  background:
-    radial-gradient(circle at 50% 50%, rgba(38, 53, 90, 0.1) 32%, transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0)),
-    linear-gradient(165deg, #f4f6fa, var(--led-screen));
-  background-size: 3px 3px, 100% 100%, 100% 100%;
-  border: 1px solid rgba(var(--led-aura), 0.34);
+.hud-track.is-live .hud-win {
+  background: color-mix(in srgb, var(--tone) 22%, transparent);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 8px 20px -14px rgba(40, 55, 90, 0.4);
+    inset 0 0 0 1px color-mix(in srgb, var(--tone) 70%, transparent),
+    0 0 12px -2px color-mix(in srgb, var(--tone) 55%, transparent);
 }
 
-:root[data-theme="light"] .hud-panel::after {
-  background: repeating-linear-gradient(0deg, rgba(38, 53, 90, 0.06) 0 1px, transparent 1px 3px);
+.hud-track.is-live .hud-win i {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--tone) 55%, transparent), var(--tone));
 }
 
-:root[data-theme="light"] .hud-scan {
+/* Now. One line down both tracks — the panel's only shared reference, and the thing that
+   turns two bars into a day. */
+.hud-now {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  position: relative;
+  pointer-events: none;
+  z-index: 2;
+  align-self: stretch;
+}
+
+.hud-now i {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  left: var(--now);
+  width: 1px;
+  margin-left: -0.5px;
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.5) 55%,
-    rgba(255, 255, 255, 0) 100%
+    rgba(230, 240, 255, 0.15),
+    rgba(230, 240, 255, 0.85),
+    rgba(230, 240, 255, 0.15)
   );
 }
 
-:root[data-theme="light"] .hud-city,
-:root[data-theme="light"] .hud-state {
+.hud-now i::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  left: -2.5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #eef4ff;
+  box-shadow: 0 0 8px 2px rgba(200, 225, 255, 0.6);
+}
+
+/* Bar edges, labelled in Seoul time — the reading that makes the New York bar useful
+   from this side of the world. */
+.hud-ticks {
+  grid-column: 2;
+  grid-row: 3;
+  position: relative;
+  height: 11px;
+}
+
+.hud-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  font-family: var(--hud-digits);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--tone) 72%, var(--hud-dim));
+}
+
+/* ── the clocks: exact figures, last ── */
+
+.hud-clocks {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hud-edge);
+}
+
+.hud-clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* The second clock hangs off the right edge, so the pair brackets the strip instead of
+   bunching at one end. */
+.hud-clock + .hud-clock {
+  justify-content: flex-end;
+}
+
+.hud-clock-read {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.hud-clock-city {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.13em;
+  color: var(--hud-dim);
+  white-space: nowrap;
+}
+
+.hud-clock-tz {
+  padding: 0 3px;
+  border-radius: 2px;
+  font-size: 7.5px;
+  letter-spacing: 0.04em;
+  color: color-mix(in srgb, var(--tone) 78%, var(--hud-dim));
+  border: 1px solid color-mix(in srgb, var(--tone) 26%, transparent);
+}
+
+.hud-clock-time {
+  font-family: var(--hud-digits);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  color: var(--hud-dim);
+}
+
+/* Trading: the clock joins its market's colour. This is the same "lit means live" rule
+   the tracks use, so the panel only ever teaches it once. */
+.hud-clock.is-live .hud-clock-time {
+  color: var(--tone);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--tone) 30%, transparent);
+}
+
+.hud-clock.is-live .hud-clock-city {
+  color: color-mix(in srgb, var(--tone) 60%, var(--hud-ink));
+}
+
+/* Smallest phones: the countdown and the two clocks are the readings that must survive,
+   so the city names — already carried by the flags beside them — are what goes. */
+@media (max-width: 360px) {
+  .hud-deck { padding: 11px 11px 12px; }
+  .hud-bell-value { font-size: 26px; }
+  /* Zeroing the row's font-size collapses the city name (a bare text node) while the
+     tz chip, which sets its own size, stays. */
+  .hud-clock-city { font-size: 0; gap: 0; }
+  .hud-clock-tz { font-size: 7.5px; }
+}
+
+/* ── light theme ──────────────────────────────────────────────────────────────────────
+   Not an inversion. On a white page the lit-glass reading fails — a glow on paper is
+   just a blur — so the strip becomes printed instrument card: cool paper, ink-dark
+   readings, the two market colours darkened until they hold their own against white,
+   and every bloom removed. "Lit means live" survives as "saturated means live". */
+:root[data-theme="light"] .hud {
+  --kr: #b06d00;
+  --us: #0a6f9c;
+  --hud-ink: #141c2b;
+  --hud-dim: #6c7a91;
+  --hud-faint: #c2ccdb;
+  --hud-red: #cf3b31;
+  --hud-blue: #1668aa;
+  --hud-glass: #eef1f7;
+  --hud-edge: rgba(60, 85, 125, 0.2);
+}
+
+:root[data-theme="light"] .hud-deck {
+  background:
+    radial-gradient(120% 150% at 0% 0%, rgba(176, 109, 0, 0.07), transparent 55%),
+    radial-gradient(120% 150% at 100% 100%, rgba(10, 111, 156, 0.08), transparent 55%),
+    linear-gradient(180deg, #ffffff 0%, var(--hud-glass) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 10px 22px -18px rgba(30, 50, 85, 0.5);
+}
+
+:root[data-theme="light"] .hud-bell-value,
+:root[data-theme="light"] .hud-clock.is-live .hud-clock-time {
   text-shadow: none;
+}
+
+:root[data-theme="light"] .hud-track {
+  background: color-mix(in srgb, var(--hud-faint) 70%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(30, 50, 85, 0.05);
+}
+
+:root[data-theme="light"] .hud-track.is-live .hud-win {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 70%, transparent);
+}
+
+:root[data-theme="light"] .hud-now i {
+  background: linear-gradient(
+    180deg,
+    rgba(20, 28, 43, 0.2),
+    rgba(20, 28, 43, 0.75),
+    rgba(20, 28, 43, 0.2)
+  );
+}
+
+:root[data-theme="light"] .hud-now i::after {
+  background: #141c2b;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+/* The pip is the only motion in the panel and it is a pulse in place, not travel. Under
+   a reduced-motion preference it simply stays lit — the tag still reads LIVE. */
+@media (prefers-reduced-motion: reduce) {
+  .hud-live i {
+    animation: none;
+    opacity: 1;
+  }
 }
 
 /* Stacks at the same width the cabinet becomes the band, not at 640. The band is a
