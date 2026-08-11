@@ -131,6 +131,46 @@ export function sessionBucket(now: Date = new Date()): Bucket {
   return { key: `close:${previousDate(date)}`, phase: "closed" };
 }
 
+/**
+ * The same window for the US board, on a New York clock.
+ *
+ * It has to be a different function, and the reason is a bug this replaces. The
+ * US board was keyed on the Seoul bucket above, and Seoul time does not divide
+ * the New York session at all: the whole US regular session falls between 22:30
+ * and 05:00 KST, which is one `close:` bucket until Seoul's midnight and another
+ * after it. So the six US names were picked once and then held for the entire
+ * session, and the one time they did change it was because a date on the other
+ * side of the world had rolled over — not because anything had happened in the
+ * market they describe.
+ *
+ * The session comes from the payload rather than from a clock, because the
+ * backend already knows it and holidays and early closes are exactly the days a
+ * clock gets wrong. The hour is only used to divide the regular session into the
+ * same hourly windows the KR board gets.
+ */
+export function usSessionBucket(
+  session: "pre" | "regular" | "post" | null | undefined,
+  now: Date = new Date()
+): Bucket {
+  const date = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const hour = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    hour12: false,
+  }).format(now);
+
+  if (session === "pre") return { key: `us-pre:${date}`, phase: "pre" };
+  if (session === "regular") return { key: `us-live:${date}:${hour}`, phase: "live" };
+  // "post", and anything the payload has not said — both are "the session that
+  // matters is over", which ranks like a finished day.
+  return { key: `us-close:${date}`, phase: "closed" };
+}
+
 /* ── which three ─────────────────────────────────────────────────────────── */
 
 /** Below this a "board member" is too small for its percentage to mean much —

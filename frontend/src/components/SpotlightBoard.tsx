@@ -4,7 +4,13 @@ import { useLanguage, useT } from "../i18n/LanguageContext";
 import { wonSuffix } from "../i18n/format";
 import { useMediaQuery } from "../useMediaQuery";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
-import { BoardKind, SessionPhase, SpotlightPick, pickSpotlight, sessionBucket } from "../spotlight";
+import {
+  BoardKind,
+  SpotlightPick,
+  pickSpotlight,
+  sessionBucket,
+  usSessionBucket,
+} from "../spotlight";
 import { useMarketSnapshot } from "../useMarketSnapshot";
 import { useUsMarketSnapshot } from "../useUsMarketSnapshot";
 import SpotSparkline from "./SpotSparkline";
@@ -76,28 +82,31 @@ export default function SpotlightBoard({
      time — a page left open across 09:00 would otherwise keep yesterday's
      closing six until something unrelated happened to re-render it. Thirty
      seconds is well inside the shortest bucket (an hour) and costs one Date. */
-  const [bucket, setBucket] = useState(() => sessionBucket());
+  /* A clock of its own rather than a value derived at render time — a page left
+     open across 09:00 would otherwise keep yesterday's closing six until
+     something unrelated happened to re-render it. Thirty seconds is well inside
+     the shortest window (an hour) and costs one Date.
 
-  /* Which weighting the ranking uses. The bucket's own phase is a Seoul clock,
-     which is the right clock for KOSPI and the wrong one for New York — see the
-     note in describe(). On the US board the payload's session decides: the
-     regular session ranks like an open market, and anything after it ranks like
-     a finished one, where the day's story is where the money went. */
-  const phase: SessionPhase = isUs
-    ? usSnapshot.session === "regular"
-      ? "live"
-      : usSnapshot.session === "pre"
-        ? "pre"
-        : "closed"
-    : bucket.phase;
+     `tick` only exists to make that clock a dependency; the bucket itself is
+     recomputed below, because on the US side it also depends on the session
+     flag, which arrives with the snapshot rather than with the clock. */
+  const [tick, setTick] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => {
-      const next = sessionBucket();
-      setBucket((prev) => (prev.key === next.key ? prev : next));
-    }, CLOCK_MS);
+    const id = window.setInterval(() => setTick((n) => n + 1), CLOCK_MS);
     return () => window.clearInterval(id);
   }, []);
 
+  /* Which window the six belong to. The two boards are on two clocks, and they
+     have to be: the whole New York regular session falls inside one Seoul
+     "after close" bucket, so keying the US board on Seoul time froze its six for
+     the entire session. See usSessionBucket. */
+  const bucket = useMemo(
+    () => (isUs ? usSessionBucket(usSnapshot.session, new Date()) : sessionBucket()),
+    // `tick` is the point of the dependency; the value is never read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [isUs, usSnapshot.session, tick]
+  );
+  const phase = bucket.phase;
   /* Held across snapshot refreshes, replaced only when the bucket changes. The
      ref is the memo: useMemo on [bucket.key] alone would recompute whenever
      React felt like dropping the cache, and on [bucket.key, snapshot] would
