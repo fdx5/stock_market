@@ -7,7 +7,7 @@ import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedText
 import { useMobileBarDismissed } from "../mobileBarPreference";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
-import { scrollBelowStickyHeader } from "../stickyScroll";
+import { scrollBelowStickyHeader, scrollToSection, trackStickyHeight } from "../stickyScroll";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useMarketSnapshot } from "../useMarketSnapshot";
@@ -162,6 +162,15 @@ export default function MarketDeskPage() {
     const observer = new ResizeObserver(apply);
     observer.observe(header);
     return () => observer.disconnect();
+  }, []);
+
+  /* And the whole pinned stack's height, for CSS. See trackStickyHeight — the
+     bands' scroll-margin has to land on the same line the rail's own click does,
+     and the only way to guarantee that is for both to come from one measurement. */
+  useEffect(() => {
+    const page = pageRef.current;
+    if (!page) return;
+    return trackStickyHeight(page);
   }, []);
 
   useEffect(() => {
@@ -375,10 +384,7 @@ export default function MarketDeskPage() {
     setSelected(stock);
   };
 
-  const jumpTo = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) scrollBelowStickyHeader(el);
-  };
+
 
   const close = liveQuote?.close ?? summary?.close;
   const change = liveQuote?.change ?? summary?.change;
@@ -499,7 +505,7 @@ export default function MarketDeskPage() {
                 type="button"
                 className={activeSection === section.id ? "is-active" : ""}
                 aria-current={activeSection === section.id ? "true" : undefined}
-                onClick={() => jumpTo(section.id)}
+                onClick={() => scrollToSection(section.id)}
               >
                 <span className="desk-rail-dot" aria-hidden="true" />
                 <span className="desk-rail-label">{t(section.label)}</span>

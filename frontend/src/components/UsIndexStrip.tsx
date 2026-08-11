@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { GlobalIndexWidget, api } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -65,27 +65,34 @@ export default function UsIndexStrip() {
 
   return (
     <div className="desk-idx" role="group" aria-label={t("미국 지수")}>
+      {/* The separator is a sibling between cells, never a child of one.
+          Inside the cell it had no grid placement of its own while every other
+          child does, so it auto-placed into whichever slot was free and shoved
+          that cell's label and value out of line — which is why the first cell
+          (no separator) sat differently from the two after it. */}
       {us.map((item, index) => {
         const pct = item.change_pct ?? 0;
         const tone = pct > 0 ? "up" : pct < 0 ? "down" : "flat";
         return (
-          <div className="desk-idx-cell" key={item.key}>
+          <Fragment key={item.key}>
             {index > 0 && <span className="desk-idx-sep" aria-hidden="true" />}
-            <span className="desk-idx-label">{item.label}</span>
-            <span className="desk-idx-value">
-              {item.close === null
-                ? "—"
-                : item.close.toLocaleString(undefined, {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-            </span>
-            <span className={`desk-idx-delta change-${tone}`}>
-              <i aria-hidden="true">{pct > 0 ? "▲" : pct < 0 ? "▼" : "—"}</i>
-              {Math.abs(item.change ?? 0).toFixed(2)} ({pct >= 0 ? "+" : ""}
-              {pct.toFixed(2)}%)
-            </span>
-          </div>
+            <div className="desk-idx-cell">
+              <span className="desk-idx-label">{item.label}</span>
+              <span className="desk-idx-value">
+                {item.close === null
+                  ? "—"
+                  : item.close.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+              </span>
+              <span className={`desk-idx-delta change-${tone}`}>
+                <i aria-hidden="true">{pct > 0 ? "▲" : pct < 0 ? "▼" : "—"}</i>
+                {Math.abs(item.change ?? 0).toFixed(2)} ({pct >= 0 ? "+" : ""}
+                {pct.toFixed(2)}%)
+              </span>
+            </div>
+          </Fragment>
         );
       })}
     </div>

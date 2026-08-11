@@ -5,6 +5,7 @@ import { trillionSuffix, wonSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
+import { scrollToSection, trackStickyHeight } from "../stickyScroll";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
@@ -291,6 +292,15 @@ export default function GlobalStockPage() {
     return () => observer.disconnect();
   }, []);
 
+  /* And the whole pinned stack's height, for CSS. See trackStickyHeight — the
+     bands' scroll-margin has to land on the same line the rail's own click does,
+     and the only way to guarantee that is for both to come from one measurement. */
+  useEffect(() => {
+    const page = pageRef.current;
+    if (!page) return;
+    return trackStickyHeight(page);
+  }, []);
+
   useEffect(() => {
     const observed = SECTIONS.map((sec) => document.getElementById(sec.id)).filter(
       (el): el is HTMLElement => el !== null
@@ -309,10 +319,7 @@ export default function GlobalStockPage() {
     return () => observer.disconnect();
   }, [quote, error]);
 
-  const jumpTo = (id: string) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
-  };
+
 
   return (
     <div className="app app--desk app--gdesk" ref={pageRef}>
@@ -410,7 +417,7 @@ export default function GlobalStockPage() {
                 type="button"
                 className={activeSection === section.id ? "is-active" : ""}
                 aria-current={activeSection === section.id ? "true" : undefined}
-                onClick={() => jumpTo(section.id)}
+                onClick={() => scrollToSection(section.id)}
               >
                 <span className="desk-rail-dot" aria-hidden="true" />
                 <span className="desk-rail-label">{t(section.label)}</span>

@@ -112,15 +112,26 @@
 
 /* ── the live index strip ───────────────────────────────────────────────── */
 
+/* `stretch`, not `center`. Centering cells of unequal height leaves each one's
+   internal rows on its own line, so the three labels and the three values do not
+   sit level with each other — which is the shape the strip is supposed to have.
+   Stretched, every cell is the height of the tallest and the rows line up. */
 .desk-idx {
   grid-column: 2;
   grid-row: 1;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 14px;
   min-width: 0;
 }
 
+/* Exactly two rows, named, and nothing may add a third.
+ *
+ * Every child places itself explicitly, so anything that does not — a separator
+ * rendered inside the cell, say — auto-places into a row of its own and makes
+ * that cell taller than its neighbours. `grid-template-rows` fixes the row
+ * count, and `align-content: center` keeps the pair centred in whatever height
+ * the stretched row hands the cell. */
 .desk-idx-cell {
   display: grid;
   grid-template-columns: auto auto;
@@ -128,6 +139,7 @@
   column-gap: 8px;
   row-gap: 1px;
   align-items: baseline;
+  align-content: center;
   padding: 5px 10px;
   border-radius: 9px;
   border: 1px solid transparent;
@@ -152,6 +164,12 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   color: var(--text-muted);
+  /* A label that wraps is a cell one line taller than the two beside it. These
+     come from the backend and vary in length — 다우존스 against 나스닥종합
+     against SOXL — so the wrap has to be refused rather than hoped against. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .desk-idx-value {
@@ -193,8 +211,12 @@
   font-weight: 700;
 }
 
+/* A sibling between cells, never a child of one — see UsIndexStrip. Sized off
+   the row it sits in rather than a fixed height, so it matches whatever the
+   cells settle at. */
 .desk-idx-sep {
   width: 1px;
+  align-self: center;
   height: 30px;
   background: var(--gridline);
   flex-shrink: 0;
@@ -420,9 +442,18 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  /* The rail's scroll target. Without this a jump lands the band's top edge
-     under the sticky pair above it. */
-  scroll-margin-top: calc(var(--desk-header-h) + 78px);
+  /* Where a scroll-into-view lands, measured rather than guessed.
+   *
+   * This used to be the header's height plus a hard-coded 78px for the command
+   * deck, and 78 is only ever right by accident: the deck's height moves with
+   * the viewport as its chips and index strip wrap, and below the phone
+   * breakpoint the deck is not sticky at all and should count for nothing. The
+   * rail's jumps landed a little high or a little low depending on the width.
+   *
+   * `--desk-sticky-h` is published by trackStickyHeight from the same function
+   * the rail's own click scrolls by, so the two agree by construction rather
+   * than by two numbers being kept in step by hand. */
+  scroll-margin-top: calc(var(--desk-sticky-h, 96px) + 12px);
 }
 
 .desk-band-head {

@@ -57,3 +57,51 @@ export function scrollViewportTopTo(viewportTop: number, gap?: number): void {
 export function scrollBelowStickyHeader(el: HTMLElement, gap?: number): void {
   scrollViewportTopTo(el.getBoundingClientRect().top, gap);
 }
+
+/** Scrolls to an element by id, below whatever is pinned. What both desks' rails
+ * call, so the two cannot drift apart in where a jump lands. */
+export function scrollToSection(id: string): void {
+  const el = document.getElementById(id);
+  if (el) scrollBelowStickyHeader(el);
+}
+
+/** Publishes the measured height of the pinned stack onto an element as
+ * `--desk-sticky-h`, and keeps it current as the stack resizes.
+ *
+ * CSS needs this figure too — `scroll-margin-top` on the bands is what any
+ * scroll-into-view lands against — and CSS cannot measure. It used to be written
+ * as the header variable plus a hard-coded 78px for the command deck, which is
+ * wrong the moment the deck is any other height, and the deck's height changes
+ * with the viewport: the chips wrap, the index strip wraps, and below the phone
+ * breakpoint the deck stops being sticky at all and should count for nothing.
+ *
+ * Derived from stickyHeaderOffset rather than measured again here, so the number
+ * CSS scrolls to and the number the rail's own click scrolls to are the same
+ * number by construction.
+ *
+ * Returns a teardown for the caller's effect.
+ */
+export function trackStickyHeight(target: HTMLElement): () => void {
+  const apply = () =>
+    target.style.setProperty("--desk-sticky-h", `${stickyHeaderOffset(0)}px`);
+  apply();
+
+  if (typeof ResizeObserver === "undefined") {
+    window.addEventListener("resize", apply);
+    return () => window.removeEventListener("resize", apply);
+  }
+
+  const observer = new ResizeObserver(apply);
+  for (const selector of STICKY_SELECTORS) {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el) observer.observe(el);
+  }
+  /* The deck flips between sticky and static at a breakpoint the observer cannot
+     see — nothing resizes when a media query changes `position`, so a rotation
+     into the phone layout would leave the old figure in place. */
+  window.addEventListener("resize", apply);
+  return () => {
+    observer.disconnect();
+    window.removeEventListener("resize", apply);
+  };
+}
