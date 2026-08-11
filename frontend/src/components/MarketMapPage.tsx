@@ -108,6 +108,21 @@ function downloadTimestamp(): string {
   return `${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
 }
 
+/** iOS-family browsers, where `<a download>` opens the image in a viewer instead of
+ * saving it — the one platform that genuinely needs the share sheet to get a file into
+ * Photos/Files.
+ *
+ * A user-agent test, which is normally the wrong tool, because the thing that has to
+ * be known here is not detectable: `download` is present on the anchor prototype in
+ * iOS Safari and simply does not do what it says. There is nothing to feature-detect.
+ *
+ * iPadOS reports itself as a Mac, so it is identified by a Mac that has a touchscreen.
+ */
+const IS_IOS_LIKE =
+  typeof navigator !== "undefined" &&
+  (/iP(hone|ad|od)/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
 // Sentinel for the sector filter's "show everything" option — distinct from any real
 // sector label (including "기타") so it can never collide with backend-assigned data.
 const ALL_SECTORS = "__all__";
@@ -636,12 +651,18 @@ export default function MarketMapPage({
     setMapDownloadError(null);
   };
 
-  // Whether this platform can hand the PNG to a native share sheet. Computed at render
-  // rather than inside the handler so the modal can decide what control to draw — the
-  // save affordance differs by platform and the user should see which one they get,
-  // not discover it after a tap.
+  // Whether to offer the share sheet at all. Computed at render rather than inside the
+  // handler so the modal can decide what control to draw — the user should see which
+  // save affordance they get, not discover it after a tap.
+  //
+  // Restricted to iOS-family browsers, which is narrower than "the platform can share".
+  // Android can share too, but the download link beside it already saves the file
+  // there, so the sheet is a redundant second path — and on at least one device (a
+  // Galaxy Fold's inner display) invoking it leaves the share UI flickering and
+  // unusable. A redundant control that breaks on real hardware is worth removing;
+  // on iOS it is not redundant, it is the only way to save.
   const canShareMapFile = useMemo(() => {
-    if (!mapPreview) return false;
+    if (!mapPreview || !IS_IOS_LIKE) return false;
     if (typeof navigator.canShare !== "function" || typeof navigator.share !== "function") {
       return false;
     }
@@ -1031,26 +1052,12 @@ export default function MarketMapPage({
                   {mapDownloadError}
                 </span>
               )}
-              {/* A real anchor the user taps, not a <button> that builds a hidden one
-                  and fires a synthetic .click() at it. That synthetic click was the
-                  only thing here that could summon Android's system "실행" chooser,
-                  and a genuine tap on a genuine link is what the browser's own
-                  download path is built for. It also means the control works with no
-                  JavaScript running at all once the preview exists. */}
-              <a
-                className="kospi-map-preview-download"
-                href={mapPreview.url}
-                download={mapPreview.filename}
-                onClick={() => setMapDownloadError(null)}
-              >
-                {t("다운로드")}
-              </a>
-              {/* Offered alongside, not instead: the share sheet is the only way to
-                  reach Photos/Files on iOS and in in-app browsers, while the download
-                  above is the reliable one on desktop and Android Chrome. Showing both
-                  beats guessing which platform this is. Disabled while a sheet is up,
-                  since on Android it is drawn over a page that stays interactive. */}
-              {canShareMapFile && (
+              {/* One control, whichever one actually saves on this platform. Both were
+                  shown at once briefly and that is worse than either alone: on iOS the
+                  download link navigates the page to the image instead of saving it,
+                  and on Android the share sheet is a redundant second path that
+                  misbehaves on some hardware. */}
+              {canShareMapFile ? (
                 <button
                   type="button"
                   className="kospi-map-preview-share"
@@ -1058,8 +1065,22 @@ export default function MarketMapPage({
                   disabled={sharing}
                   aria-busy={sharing}
                 >
-                  {sharing ? t("저장 중...") : t("공유로 저장")}
+                  {sharing ? t("저장 중...") : t("저장")}
                 </button>
+              ) : (
+                /* A real anchor the user taps, not a <button> that builds a hidden one
+                   and fires a synthetic .click() at it. That synthetic click was the
+                   only thing here that could summon Android's system "실행" chooser,
+                   and a genuine tap on a genuine link is what the browser's own
+                   download path is built for. */
+                <a
+                  className="kospi-map-preview-download"
+                  href={mapPreview.url}
+                  download={mapPreview.filename}
+                  onClick={() => setMapDownloadError(null)}
+                >
+                  {t("다운로드")}
+                </a>
               )}
             </div>
           </div>

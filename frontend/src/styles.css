@@ -3775,11 +3775,6 @@ thead .weekly-foreign-amount-col {
   white-space: nowrap;
 }
 
-/* Secondary to the download beside it: same size and shape, no fill. */
-.kospi-map-preview-share {
-  background: transparent;
-  color: var(--series-blue);
-}
 
 /* Touch, regardless of how wide the screen is.
    The mobile rules for this modal live under `max-width: 640px`, which a large
