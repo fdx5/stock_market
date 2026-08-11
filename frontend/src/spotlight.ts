@@ -32,12 +32,27 @@ import { MarketMapItem } from "./api/client";
  * is a fact; "지금이 기회" would be advice, and this file must never grow one.
  */
 
+/** Which board a pick belongs to. The two KR ones rank on money; the two US
+ * ones cannot, because their payload carries no volume. See BoardKind. */
+export type BoardName = "KOSPI" | "KOSDAQ" | "S&P 500" | "NASDAQ 100";
+
+/** What kind of data the board's payload is, which decides both how the three
+ * are scored and which observations are available to say about them.
+ *
+ *  "kr" — has volume, so turnover is real and is half the ranking.
+ *  "us" — has no volume at all, so size stands in for it, and no line may
+ *         mention 거래대금. It does have a pre/post session flag, which the KR
+ *         side has no equivalent of and which is worth saying when set.
+ */
+export type BoardKind = "kr" | "us";
+
 export interface SpotlightPick {
   item: MarketMapItem;
-  market: "KOSPI" | "KOSDAQ";
+  market: BoardName;
   /** 1-based rank by today's move within its own board. */
   changeRank: number;
-  /** 1-based rank by turnover (close × volume) within its own board. */
+  /** 1-based rank by turnover (close × volume) within its own board. 0 on a
+   * board with no volume — see BoardKind. */
   turnoverRank: number;
   /** Cap-weighted move of this stock's sector today, in per cent. */
   sectorChange: number;
@@ -119,10 +134,23 @@ export function sessionBucket(now: Date = new Date()): Bucket {
 const MIN_MARCAP = 200_000_000_000;
 /** And below this in turnover the move happened on nobody's money. */
 const MIN_TURNOVER = 2_000_000_000;
+/** The US floor, in dollars of market cap. There is no turnover to filter on, so
+ * size is the only liquidity proxy available — and both these indices are large
+ * caps by construction, so this only screens the very bottom of the NASDAQ 100. */
+const MIN_US_CAP = 10_000_000_000;
 const PICKS = 3;
 
 function turnoverOf(item: MarketMapItem): number {
   return item.close * (item.volume ?? 0);
+}
+
+/** The size figure to rank by. `marcap` is an absolute won amount on the KR
+ * maps and the constituent's index *weight* in per cent on the US ones — same
+ * field name, different quantity — so the US side prefers `market_cap`, which
+ * is the real one, and falls back to the weight when it is missing. */
+function sizeOf(item: MarketMapItem, kind: BoardKind): number {
+  if (kind === "kr") return item.marcap;
+  return item.market_cap ?? item.marcap;
 }
 
 /** Rank map, 1-based, by a descending key. */
@@ -194,25 +222,43 @@ function percentile(sortedAsc: number[], value: number): number {
  */
 export function pickSpotlight(
   items: MarketMapItem[],
-  market: "KOSPI" | "KOSDAQ",
-  phase: SessionPhase
+  market: BoardName,
+  phase: SessionPhase,
+  kind: BoardKind = "kr",
+  /* Tickers already spoken for by an earlier board.
+   *
+   * KOSPI and KOSDAQ are disjoint, so this is unused on the KR desk. The two US
+   * indices are not remotely disjoint — the NASDAQ 100 is almost a subset of the
+   * S&P 500 by cap — so without it the same two or three mega caps win both rows
+   * and "six stocks in focus" is five, or four. The S&P is picked first as the
+   * broader board and the NASDAQ row takes the best of what is left, which also
+   * makes the second row the more interesting of the two. */
+  exclude?: Set<string>
 ): SpotlightPick[] {
-  const candidates = items.filter(
-    (item) =>
-      item.change_pct > 0 &&
-      item.marcap >= MIN_MARCAP &&
-      turnoverOf(item) >= MIN_TURNOVER
+  const candidates = items.filter((item) =>
+    (kind === "kr"
+      ? item.change_pct > 0 && item.marcap >= MIN_MARCAP && turnoverOf(item) >= MIN_TURNOVER
+      : item.change_pct > 0 && sizeOf(item, kind) >= MIN_US_CAP) &&
+    !exclude?.has(item.code)
   );
   if (candidates.length === 0) return [];
 
   const changeRanks = rankBy(items, (i) => i.change_pct);
-  const turnoverRanks = rankBy(items, turnoverOf);
-  const capRanks = rankBy(items, (i) => i.marcap);
+  // Meaningless on a board with no volume; every entry would be a tie at zero,
+  // so the map is simply not built and every turnoverRank comes out 0.
+  const turnoverRanks = kind === "kr" ? rankBy(items, turnoverOf) : new Map<string, number>();
+  const capRanks = rankBy(items, (i) => sizeOf(i, kind));
   const sectors = sectorMoves(items);
 
-  const limitCount = items.filter((i) => i.change_pct >= LIMIT_PCT).length;
+  const limitCount = kind === "kr" ? items.filter((i) => i.change_pct >= LIMIT_PCT).length : 0;
   const changesAsc = candidates.map((i) => i.change_pct).sort((a, b) => a - b);
-  const turnoversAsc = candidates.map(turnoverOf).sort((a, b) => a - b);
+  /* The second axis. On the KR boards it is money; on the US ones there is none
+     to be had, so it is size — which is not the same measure and is not pretended
+     to be. What it buys is the same thing turnover buys: it keeps the three from
+     being whichever small constituent happened to print the largest percentage. */
+  const secondAsc = candidates
+    .map((i) => (kind === "kr" ? turnoverOf(i) : sizeOf(i, kind)))
+    .sort((a, b) => a - b);
 
   const moveWeight = phase === "closed" ? 0.45 : 0.62;
   const scored = candidates
@@ -220,7 +266,8 @@ export function pickSpotlight(
       item,
       score:
         percentile(changesAsc, item.change_pct) * moveWeight +
-        percentile(turnoversAsc, turnoverOf(item)) * (1 - moveWeight),
+        percentile(secondAsc, kind === "kr" ? turnoverOf(item) : sizeOf(item, kind)) *
+          (1 - moveWeight),
     }))
     .sort((a, b) => b.score - a.score);
 
@@ -263,15 +310,17 @@ export function pickSpotlight(
       capRank: capRanks.get(item.code) ?? 0,
       limitCount,
     };
-    return { ...pick, lines: describe(pick, phase, used) };
+    return { ...pick, lines: describe(pick, phase, used, kind) };
   });
 }
 
 /* ── what is said about each ─────────────────────────────────────────────── */
 
-const BOARD_LABEL: Record<"KOSPI" | "KOSDAQ", string> = {
+const BOARD_LABEL: Record<BoardName, string> = {
   KOSPI: "코스피",
   KOSDAQ: "코스닥",
+  "S&P 500": "S&P 500",
+  "NASDAQ 100": "나스닥 100",
 };
 
 function formatWon(value: number): string {
@@ -282,7 +331,15 @@ function formatWon(value: number): string {
 
 /** The kinds of observation a card can carry, so a row can avoid repeating one.
  * See the `used` set in pickSpotlight. */
-type NoteKind = "limit" | "against" | "money" | "bigcap" | "carried" | "ahead" | "profile";
+type NoteKind =
+  | "limit"
+  | "against"
+  | "money"
+  | "bigcap"
+  | "carried"
+  | "ahead"
+  | "session"
+  | "profile";
 
 /** KRX's daily price limit. A close within a whisker of it is 상한가, and on a
  * board of gainers it is the single most specific thing that can be said about
@@ -309,14 +366,24 @@ const LIMIT_PCT = 29.0;
 function describe(
   pick: Omit<SpotlightPick, "lines">,
   phase: SessionPhase,
-  used: Set<NoteKind>
+  used: Set<NoteKind>,
+  kind: BoardKind
 ): string[] {
   const { item, market, changeRank, turnoverRank, sectorChange, sectorMembers, capRank, limitCount } =
     pick;
   const board = BOARD_LABEL[market];
   const sector = item.sector?.trim() ?? "";
   const turnover = turnoverOf(item);
-  const atLimit = item.change_pct >= LIMIT_PCT;
+  /* The daily price limit is a KRX rule. A US stock has no cap to run into, so
+     this must never fire there — +30% on NASDAQ is a large move, not a limit,
+     and calling it one would be inventing a market mechanic. */
+  const atLimit = kind === "kr" && item.change_pct >= LIMIT_PCT;
+
+  /* The US payload says which session it is quoting from, and it is worth
+     saying: a reader looking at +4% needs to know whether the market was open
+     when it happened. The KR maps carry no equivalent flag. */
+  const session = kind === "us" ? item.session : undefined;
+  const sessionWord = session === "pre" ? "프리마켓" : session === "post" ? "애프터마켓" : null;
 
   /* Noun-ending throughout, by request, and it suits the card better than the
      sentences it replaced: six of these stack in a row, and a column of 했다 /
@@ -324,8 +391,9 @@ function describe(
      of 마감 / 몰림 / 앞섬 reads as six labels that can be scanned in any. The
      tense still has to change with the session — 마감 is a fact after 15:30 and
      a guess before it — so the phase still picks the word, it just picks a noun
-     now. */
-  const state = phase === "closed" ? "마감" : "거래 중";
+     now. On the US side the session flag is more specific than the clock and
+     wins outright. */
+  const state = sessionWord ?? (phase === "closed" ? "마감" : "거래 중");
   const lead = atLimit
     ? `${board} 상승률 ${changeRank}위 · 가격제한폭 도달 · +${item.change_pct.toFixed(2)}% ${state}`
     : changeRank <= 20
@@ -359,14 +427,20 @@ function describe(
       text: `${sector} 업종 ${sectorChange.toFixed(2)}% 하락 속 나 홀로 역행`,
     },
     {
+      // KR only: turnoverRank is 0 on a board with no volume, so this is already
+      // unreachable there, but the guard says why rather than leaving it to a
+      // rank that happens to be falsy.
       kind: "money",
-      when: turnoverRank > 0 && turnoverRank <= 10,
+      when: kind === "kr" && turnoverRank > 0 && turnoverRank <= 10,
       text: `거래대금 ${board} ${turnoverRank}위 · ${formatWon(turnover)} 자금 몰림`,
     },
     {
       kind: "bigcap",
       when: capRank > 0 && capRank <= 25 && item.change_pct >= 3,
-      text: `시총 ${board} ${capRank}위 대형주의 하루 ${item.change_pct.toFixed(2)}% 이동`,
+      text:
+        kind === "kr"
+          ? `시총 ${board} ${capRank}위 대형주의 하루 ${item.change_pct.toFixed(2)}% 이동`
+          : `${board} 시총 ${capRank}위 대형주의 ${item.change_pct.toFixed(2)}% 이동`,
     },
     {
       kind: "carried",
@@ -381,9 +455,24 @@ function describe(
       text: `${sector} 업종 평균 ${sectorChange >= 0 ? "+" : ""}${sectorChange.toFixed(2)}% 대비 큰 폭 앞섬`,
     },
     {
+      /* Splits the move into its two legs, which only a US payload can do: the
+         regular session and whatever happened around it. Worth a slot of its own
+         because "up 4%" and "up 1% then up 3% after the bell on a headline" are
+         different events wearing the same number. */
+      kind: "session",
+      when:
+        kind === "us" &&
+        sessionWord !== null &&
+        typeof item.extended_change_pct === "number",
+      text:
+        typeof item.regular_change_pct === "number"
+          ? `정규장 ${item.regular_change_pct >= 0 ? "+" : ""}${item.regular_change_pct.toFixed(2)}% · ${sessionWord} ${(item.extended_change_pct ?? 0) >= 0 ? "+" : ""}${(item.extended_change_pct ?? 0).toFixed(2)}%`
+          : `${sessionWord} ${(item.extended_change_pct ?? 0) >= 0 ? "+" : ""}${(item.extended_change_pct ?? 0).toFixed(2)}% · 정규장 개장 전`,
+    },
+    {
       kind: "profile",
       when: true,
-      text: profileOf(item, board, turnover, turnoverRank),
+      text: profileOf(item, board, turnover, turnoverRank, kind),
     },
   ];
 
@@ -401,16 +490,33 @@ function profileOf(
   item: MarketMapItem,
   board: string,
   turnover: number,
-  turnoverRank: number
+  turnoverRank: number,
+  kind: BoardKind
 ): string {
   const bits: string[] = [];
-  if (turnoverRank > 0 && turnoverRank <= 60) {
-    bits.push(`거래대금 ${formatWon(turnover)} · ${board} ${turnoverRank}위`);
+  if (kind === "kr") {
+    if (turnoverRank > 0 && turnoverRank <= 60) {
+      bits.push(`거래대금 ${formatWon(turnover)} · ${board} ${turnoverRank}위`);
+    }
+    if (typeof item.per === "number" && item.per > 0) bits.push(`PER ${item.per.toFixed(1)}배`);
+    if (typeof item.foreign_ratio === "number" && item.foreign_ratio > 0) {
+      bits.push(`외국인 지분 ${item.foreign_ratio.toFixed(1)}%`);
+    }
+    if (bits.length === 0) return `거래대금 ${formatWon(turnover)}`;
+  } else {
+    // No turnover, no PER and no holding split in a US map payload — what is
+    // left is what the company is worth and where it sits.
+    const cap = item.market_cap;
+    if (typeof cap === "number" && cap > 0) bits.push(`시총 ${formatUsd(cap)}`);
+    if (item.sector) bits.push(item.sector);
+    if (bits.length === 0) return `${board} 구성종목`;
   }
-  if (typeof item.per === "number" && item.per > 0) bits.push(`PER ${item.per.toFixed(1)}배`);
-  if (typeof item.foreign_ratio === "number" && item.foreign_ratio > 0) {
-    bits.push(`외국인 지분 ${item.foreign_ratio.toFixed(1)}%`);
-  }
-  if (bits.length === 0) return `거래대금 ${formatWon(turnover)}`;
   return bits.slice(0, 3).join(" · ");
+}
+
+/** Dollars, at the scale a mega cap is actually discussed in. */
+function formatUsd(value: number): string {
+  if (value >= 1e12) return `$${(value / 1e12).toFixed(2)}T`;
+  if (value >= 1e9) return `$${Math.round(value / 1e9).toLocaleString()}B`;
+  return `$${Math.round(value / 1e6).toLocaleString()}M`;
 }

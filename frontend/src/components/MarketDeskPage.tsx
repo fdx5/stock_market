@@ -10,6 +10,7 @@ import { Link, navigate } from "../router";
 import { scrollBelowStickyHeader } from "../stickyScroll";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { useMarketSnapshot } from "../useMarketSnapshot";
 import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import CommandPalette from "./CommandPalette";
@@ -338,6 +339,17 @@ export default function MarketDeskPage() {
     return () => observer.disconnect();
   }, [summary, error]);
 
+  /* The two KR boards as one list, for the breadth gauge. Breadth across one of
+     them is not breadth across the market — KOSDAQ is where most of the listed
+     names are and where a retail reader's holdings mostly sit, and a KOSPI-only
+     count says the opposite thing on plenty of days. Shared with the spotlight
+     board, which is built from the same two responses. */
+  const krSnapshot = useMarketSnapshot();
+  const krBoard = useMemo(
+    () => (krSnapshot.generatedAt === null ? null : [...krSnapshot.kospi, ...krSnapshot.kosdaq]),
+    [krSnapshot]
+  );
+
   const summaryName = useTranslatedText(summary?.name ?? "");
   const translatedOverview = useTranslatedTexts(overview);
   const mobileBarDismissed = useMobileBarDismissed();
@@ -516,7 +528,7 @@ export default function MarketDeskPage() {
               <MarketIndexBoard />
             </div>
             <div className="desk-card desk-card--breadth">
-              <MarketBreadthGauge />
+              <MarketBreadthGauge items={krBoard} scopeLabel="코스피+코스닥" />
             </div>
             <div className="desk-card desk-card--radar">
               <StockRadarBoard onSelect={selectStock} activeCode={selected?.code} />

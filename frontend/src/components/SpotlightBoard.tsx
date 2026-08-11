@@ -4,10 +4,11 @@ import { useLanguage, useT } from "../i18n/LanguageContext";
 import { wonSuffix } from "../i18n/format";
 import { useMediaQuery } from "../useMediaQuery";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
-import { SpotlightPick, pickSpotlight, sessionBucket } from "../spotlight";
+import { BoardKind, SpotlightPick, pickSpotlight, sessionBucket } from "../spotlight";
 import { useMarketSnapshot } from "../useMarketSnapshot";
+import { useUsMarketSnapshot } from "../useUsMarketSnapshot";
 import SpotSparkline from "./SpotSparkline";
-import StockIcon from "./StockIcon";
+import StockLogo from "./StockLogo";
 
 /* 오늘의 주목 종목 — three per board, wide cards, with a line of context.
  *
@@ -38,12 +39,38 @@ const SPARK_QUERY = "(min-width: 1181px)";
 export default function SpotlightBoard({
   onSelect,
   activeCode,
+  kind = "kr",
 }: {
   onSelect: (stock: StockSearchResult) => void;
   activeCode?: string;
+  /** "kr" draws KOSPI and KOSDAQ, "us" the S&P 500 and NASDAQ 100. They differ
+   * in more than their contents — see BoardKind in spotlight.ts. */
+  kind?: BoardKind;
 }) {
   const t = useT();
-  const snapshot = useMarketSnapshot();
+  /* Both hooks are called unconditionally, because hooks are. Each is a
+     refcounted singleton whose poll only starts once it has a subscriber, so the
+     unused one costs a subscription to a poller the other page is not running —
+     no request and no timer. */
+  const krSnapshot = useMarketSnapshot();
+  const usSnapshot = useUsMarketSnapshot();
+  const isUs = kind === "us";
+
+  const snapshot = isUs
+    ? {
+        generatedAt: usSnapshot.generatedAt,
+        boards: [
+          { items: usSnapshot.sp500, name: "S&P 500" as const },
+          { items: usSnapshot.nasdaq, name: "NASDAQ 100" as const },
+        ],
+      }
+    : {
+        generatedAt: krSnapshot.generatedAt,
+        boards: [
+          { items: krSnapshot.kospi, name: "KOSPI" as const },
+          { items: krSnapshot.kosdaq, name: "KOSDAQ" as const },
+        ],
+      };
 
   /* The bucket is read from a clock of its own rather than derived at render
      time — a page left open across 09:00 would otherwise keep yesterday's
@@ -67,34 +94,65 @@ export default function SpotlightBoard({
     const held = heldRef.current;
     if (held && held.key === bucket.key && held.picks.length > 0) return held.picks;
     if (snapshot.generatedAt === null) return [];
-    const next = [
-      ...pickSpotlight(snapshot.kospi, "KOSPI", bucket.phase),
-      ...pickSpotlight(snapshot.kosdaq, "KOSDAQ", bucket.phase),
-    ];
+    /* The first board's picks are excluded from the second's. KOSPI and KOSDAQ
+       are disjoint so it changes nothing there; the NASDAQ 100 is very nearly a
+       subset of the S&P 500, and without it the same mega caps win both rows and
+       "six in focus" is four. */
+    const first = pickSpotlight(
+      snapshot.boards[0].items,
+      snapshot.boards[0].name,
+      bucket.phase,
+      kind
+    );
+    const taken = new Set(first.map((p) => p.item.code));
+    const second = pickSpotlight(
+      snapshot.boards[1].items,
+      snapshot.boards[1].name,
+      bucket.phase,
+      kind,
+      taken
+    );
+    const next = [...first, ...second];
     if (next.length === 0) return held?.picks ?? [];
     heldRef.current = { key: bucket.key, picks: next };
     return next;
-  }, [bucket.key, bucket.phase, snapshot]);
+  }, [bucket.key, bucket.phase, snapshot, kind]);
 
   /* Prices come from this minute's snapshot rather than from the frozen pick, so
      a card that was chosen at 09:00 still shows the 09:47 price. Looked up by
      code against the live lists. */
   const live = useMemo(() => {
     const map = new Map<string, number[]>();
-    for (const item of [...snapshot.kospi, ...snapshot.kosdaq]) {
-      map.set(item.code, [item.close, item.change, item.change_pct]);
+    for (const board of snapshot.boards) {
+      for (const item of board.items) {
+        map.set(item.code, [item.close, item.change, item.change_pct]);
+      }
     }
     return map;
   }, [snapshot]);
 
   const names = useTranslatedTexts(picks.map((p) => p.item.name));
-  const series = useSparklines(picks, useMediaQuery(SPARK_QUERY));
+  // The daily-close endpoint the line is drawn from is KR only.
+  const series = useSparklines(picks, useMediaQuery(SPARK_QUERY) && !isUs);
 
-  const kospi = picks.filter((p) => p.market === "KOSPI");
-  const kosdaq = picks.filter((p) => p.market === "KOSDAQ");
+  const firstName = snapshot.boards[0].name;
+  const secondName = snapshot.boards[1].name;
+  const firstRow = picks.filter((p) => p.market === firstName);
+  const secondRow = picks.filter((p) => p.market === secondName);
 
-  const phaseLabel =
-    bucket.phase === "pre" ? "프리장 기준" : bucket.phase === "live" ? "장중 기준" : "장 마감 기준";
+  /* The US session flag is more specific than a Seoul clock and is what those
+     rows are actually quoting from, so it names the badge on that page. */
+  const phaseLabel = isUs
+    ? usSnapshot.session === "pre"
+      ? "프리마켓 기준"
+      : usSnapshot.session === "post"
+        ? "애프터마켓 기준"
+        : "정규장 기준"
+    : bucket.phase === "pre"
+      ? "프리장 기준"
+      : bucket.phase === "live"
+        ? "장중 기준"
+        : "장 마감 기준";
 
   if (picks.length === 0) {
     return (
@@ -131,22 +189,24 @@ export default function SpotlightBoard({
 
       <div className="desk-spot-rows">
         <Row
-          label="코스피"
-          picks={kospi}
+          label={isUs ? "S&P 500" : "코스피"}
+          picks={firstRow}
           names={names}
           offset={0}
           live={live}
           series={series}
+          currency={isUs ? "usd" : "krw"}
           onSelect={onSelect}
           activeCode={activeCode}
         />
         <Row
-          label="코스닥"
-          picks={kosdaq}
+          label={isUs ? "나스닥 100" : "코스닥"}
+          picks={secondRow}
           names={names}
-          offset={kospi.length}
+          offset={firstRow.length}
           live={live}
           series={series}
+          currency={isUs ? "usd" : "krw"}
           onSelect={onSelect}
           activeCode={activeCode}
         />
@@ -214,6 +274,7 @@ function Row({
   offset,
   live,
   series,
+  currency,
   onSelect,
   activeCode,
 }: {
@@ -224,6 +285,7 @@ function Row({
   offset: number;
   live: Map<string, number[]>;
   series: Map<string, DailyPricePoint[]>;
+  currency: "krw" | "usd";
   onSelect: (stock: StockSearchResult) => void;
   activeCode?: string;
 }) {
@@ -252,22 +314,31 @@ function Row({
               type="button"
               className={`desk-spot-card is-${tone} ${activeCode === item.code ? "is-active" : ""}`}
               onClick={() =>
-                onSelect({ code: item.code, name: item.name, market: pick.market })
+                onSelect({
+                  code: item.code,
+                  name: item.name,
+                  market: currency === "usd" ? "US" : pick.market,
+                })
               }
             >
               <span className="desk-spot-top">
-                <StockIcon code={item.code} className="desk-spot-logo" />
+                <StockLogo code={item.code} className="desk-spot-logo" />
                 <span className="desk-spot-id">
                   <b className="desk-spot-name">{names[offset + index] ?? item.name}</b>
                   <i className="desk-spot-sector">{item.sector}</i>
                 </span>
                 <span className="desk-spot-quote">
                   <b className="desk-spot-price">
-                    {close.toLocaleString()}
-                    {wonSuffix(lang)}
+                    {currency === "usd"
+                      ? `$${close.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                      : `${close.toLocaleString()}${wonSuffix(lang)}`}
                   </b>
                   <i className={`desk-spot-pct change-${tone}`}>
-                    {changePct >= 0 ? "▲" : "▼"} {Math.abs(change).toLocaleString()} (
+                    {changePct >= 0 ? "▲" : "▼"}{" "}
+                    {currency === "usd"
+                      ? Math.abs(change).toFixed(2)
+                      : Math.abs(change).toLocaleString()}{" "}
+                    (
                     {changePct >= 0 ? "+" : ""}
                     {changePct}%)
                   </i>

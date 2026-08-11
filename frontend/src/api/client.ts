@@ -136,6 +136,11 @@ export interface MarketMapItem extends ExtendedHours {
   foreign_ratio?: number;
   per?: number | null;
   roe?: number | null;
+  /** US maps only, and the field that has to be read instead of `marcap` there:
+   * on a US constituent `marcap` is the index *weight* in per cent, not a
+   * capitalisation, so the two names mean different quantities on the two sides.
+   * This is the real one, in dollars. */
+  market_cap?: number | null;
 }
 
 export interface MarketMapResponse {

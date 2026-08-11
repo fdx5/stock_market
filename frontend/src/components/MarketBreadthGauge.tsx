@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { MarketMapItem } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
-import { useMarketSnapshot } from "../useMarketSnapshot";
 
 /* How wide the market is up or down, and which 업종 is carrying it.
  *
@@ -107,26 +106,28 @@ function moodFor(temperature: number): { key: string; tone: "hot" | "warm" | "ev
   return { key: "하락 폭넓음", tone: "cold" };
 }
 
+/**
+ * Driven by items handed in rather than by a fetch of its own, so the same gauge
+ * serves both desks: the KR one feeds it KOSPI+KOSDAQ, the global one feeds it
+ * the S&P 500 and NASDAQ 100 union. Nothing in the measurement is market
+ * specific — advancing against declining, and a cap-weighted sector average, are
+ * the same two questions on any board.
+ *
+ * `scopeLabel` and `total` are what the header says the count covers, since
+ * "700종목" means nothing without knowing which seven hundred.
+ */
 export default function MarketBreadthGauge({
+  items,
+  scopeLabel,
   onOpenSector,
 }: {
+  /** Null while the first snapshot is in flight. */
+  items: MarketMapItem[] | null;
+  scopeLabel: string;
   onOpenSector?: (sector: string) => void;
 }) {
   const t = useT();
-  /* Both boards, because breadth across one of them is not breadth across the
-     market — KOSDAQ is where most of the listed names are and where a retail
-     reader's holdings mostly sit, and a KOSPI-only count would say the opposite
-     thing on plenty of days. Shared with the spotlight board, which is built
-     out of the same two responses; see useMarketSnapshot. */
-  const snapshot = useMarketSnapshot();
-
-  const breadth = useMemo(
-    () =>
-      snapshot.generatedAt === null
-        ? null
-        : measure([...snapshot.kospi, ...snapshot.kosdaq]),
-    [snapshot]
-  );
+  const breadth = useMemo(() => (items && items.length > 0 ? measure(items) : null), [items]);
 
   if (!breadth) {
     return (
@@ -165,7 +166,7 @@ export default function MarketBreadthGauge({
       <div className="desk-card-head">
         <h3 id="desk-breadth-title">{t("시장 폭")}</h3>
         <span className="desk-card-note">
-          {t("코스피+코스닥")} {breadth.total.toLocaleString()}
+          {t(scopeLabel)} {breadth.total.toLocaleString()}
           {t("종목")}
         </span>
       </div>

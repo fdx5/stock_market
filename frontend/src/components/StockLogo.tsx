@@ -21,5 +21,19 @@ export default function StockLogo({ code, className }: { code: string; className
   // `cover` the KR icons are styled with (these are wide wordmarks as often as square
   // marks, and cover crops them to a stripe), and a light plate so the dark-on-
   // transparent ones don't vanish on a dark theme.
-  return <UsStockIcon code={code} className={`${className} stock-logo--us`} />;
+  //
+  // The fallback matters more since the desk boards started using this. usLogo.ts covers
+  // every constituent of both US indices, but these lists are not index lists: the
+  // popular ranking is whatever visitors actually looked at, which reaches names in
+  // neither (SPCX, SKHY). Without a fallback UsStockIcon renders nothing for those, and
+  // a row with an empty square where its neighbours have a mark reads as broken rather
+  // than as unavailable. A monogram is always resolvable, since the ticker is the one
+  // thing every row has.
+  return (
+    <UsStockIcon
+      code={code}
+      className={`${className} stock-logo--us`}
+      fallback={<span className={`${className} stock-logo--mono`}>{code.slice(0, 2)}</span>}
+    />
+  );
 }

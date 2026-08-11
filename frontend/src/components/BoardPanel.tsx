@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { BoardComment, BoardDetail, BoardPost, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
-import { scrollViewportTopTo } from "../stickyScroll";
+import { scrollViewportTopTo, stickyHeaderOffset } from "../stickyScroll";
 
 const PAGE_SIZE = 10;
 
@@ -85,15 +85,29 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     };
   }, [code]);
 
-  // After "더보기" adds rows, the scroll position doesn't move on its own —
-  // scroll the first newly revealed row into view so it's obvious something loaded.
+  /* After "더보기" adds rows, the scroll position doesn't move on its own —
+     bring the first newly revealed row into view so it is obvious something
+     loaded.
+
+     `block: "nearest"` on its own is not enough on the desk. It scrolls the
+     minimum distance to make the row visible, and "visible" to the browser
+     includes the strip underneath the pinned header and command deck — so on the
+     desk the new rows arrive tucked behind them. The row is only corrected when
+     it actually lands inside that band, which leaves the common case (new rows
+     below the fold, scrolled up from the bottom) exactly as it was. */
   useEffect(() => {
     const revealIndex = pendingRevealIndex.current;
     if (revealIndex === null) return;
     pendingRevealIndex.current = null;
     const target = posts[revealIndex];
     if (!target) return;
-    rowRefs.current.get(target.nid)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const row = rowRefs.current.get(target.nid);
+    if (!row) return;
+    row.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    requestAnimationFrame(() => {
+      const top = row.getBoundingClientRect().top;
+      if (top < stickyHeaderOffset()) scrollViewportTopTo(top);
+    });
   }, [posts, visibleCount]);
 
   // Expanding a row inserts detail+comments directly below it without moving

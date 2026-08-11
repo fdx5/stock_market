@@ -798,6 +798,162 @@
   font-weight: 600;
 }
 
+/* The global desk's pulse row is two cards, not three: there is no US index
+   board to put beside them. The KR one draws KOSPI and KOSDAQ with their
+   investor flows, and the US majors already have a permanent home in the sticky
+   command deck above — repeating them here would be the same three numbers
+   twice on one screen. */
+.desk-pulse-grid--us {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+
+/* ── the US ranking board ───────────────────────────────────────────────── */
+
+.desk-usrank {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.desk-usrank-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.desk-seg--scope button {
+  font-weight: 600;
+}
+
+.desk-usrank-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.desk-usrank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* Two columns of ranks on a wide screen. Fifteen names down one column is a
+     scroll; fifteen across two is a board you take in at once. */
+  grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  gap: 2px 20px;
+}
+
+.desk-usrank-row {
+  display: grid;
+  grid-template-columns: 22px 20px 52px minmax(0, 1fr) minmax(0, 0.9fr) auto 62px;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.desk-usrank-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.desk-usrank-row.is-active {
+  border-color: color-mix(in srgb, var(--series-violet) 55%, transparent);
+  background: color-mix(in srgb, var(--series-violet) 12%, transparent);
+}
+
+.desk-usrank-rank {
+  font-size: 11px;
+  font-weight: 800;
+  text-align: right;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-usrank-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.desk-usrank-code {
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.desk-usrank-name,
+.desk-usrank-sector {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-usrank-name {
+  font-size: 12.5px;
+}
+
+.desk-usrank-sector {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.desk-usrank-price,
+.desk-usrank-pct {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.desk-usrank-price {
+  color: var(--text-secondary);
+}
+
+.desk-usrank-pct {
+  font-weight: 700;
+}
+
+.desk-usrank-sectors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 6px 24px;
+}
+
+.desk-usrank-sectors li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px minmax(60px, 0.7fr) 56px;
+  align-items: center;
+  gap: 8px;
+}
+
+.desk-usrank-sector-name {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* How many constituents carry the average, so a sector of three is not read
+   with the same weight as a sector of seventy. */
+.desk-usrank-sector-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── the breadth gauge ──────────────────────────────────────────────────── */
 
 .desk-breadth {

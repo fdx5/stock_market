@@ -19,6 +19,9 @@ interface Props {
   onSelect: (stock: StockSearchResult) => void;
   /** Highlighted as the active chip — the stock the dashboard is currently showing. */
   activeCode?: string;
+  /** "US" restricts both groups to US tickers, for the global desk. Omitted
+   * keeps the combined lists every KR surface has always shown. */
+  market?: "US";
 }
 
 interface Group {
@@ -47,11 +50,15 @@ interface Group {
  * still one tap away, and the counts on the tabs so a collapsed group still says what
  * it is holding.
  */
-export default function StockQuickAccess({ onSelect, activeCode }: Props) {
+export default function StockQuickAccess({ onSelect, activeCode, market }: Props) {
   const t = useT();
   const isMobile = useMediaQuery(MOBILE_QUERY);
-  const { recents } = useWatchlist();
-  const popular = usePopularStocks(POPULAR_LIMIT);
+  const { recents: allRecents } = useWatchlist();
+  const popular = usePopularStocks(POPULAR_LIMIT, market);
+  /* On the global desk the strip must not surface KR names — the popular list is
+     asked for US-only above, and the browser's own trail mixes both markets by
+     construction, so it is filtered here. */
+  const recents = market === "US" ? allRecents.filter((item) => item.market === "US") : allRecents;
   const [activeTab, setActiveTab] = useState<GroupKey>("popular");
 
   const popularNames = useTranslatedTexts((popular ?? []).map((item) => item.name));

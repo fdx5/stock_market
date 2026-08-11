@@ -10352,6 +10352,23 @@ thead .weekly-foreign-amount-col {
   padding: 1px;
 }
 
+/* What stands in when the logo host has no image for a ticker — see StockLogo.
+   It inherits whatever size class the caller gave the <img>, so it lands in the
+   same box at the same dimensions rather than collapsing the row it sits in. */
+.stock-logo--mono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  overflow: hidden;
+}
+
 .admin-toppages-stock-code {
   color: var(--text-muted);
   font-weight: 400;

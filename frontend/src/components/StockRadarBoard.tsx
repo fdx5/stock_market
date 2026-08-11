@@ -6,7 +6,7 @@ import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { usePopularStocks } from "../usePopularStocks";
 import { StoredStock, getRecents, subscribeWatchlist } from "../watchlist";
-import StockIcon from "./StockIcon";
+import StockLogo from "./StockLogo";
 
 /* 종목 레이더 — what the room is looking at, and what you were looking at.
  *
@@ -31,16 +31,25 @@ type Mode = "popular" | "recents";
 export default function StockRadarBoard({
   onSelect,
   activeCode,
+  market,
 }: {
   onSelect: (stock: StockSearchResult) => void;
   activeCode?: string;
+  /* Which side of the world this board is on.
+   *
+   * Undefined is the KR desk: the combined popular ranking, and every recent the
+   * browser holds. "US" is the global desk, where the brief is that no KR market
+   * information appears at all — so the ranking is asked for US-only (the backend
+   * filters a deeper pool; see /search/popular) and the recents are filtered to
+   * US tickers, since that list mixes both markets by construction. */
+  market?: "US";
 }) {
   const t = useT();
   const { lang } = useLanguage();
   const [mode, setMode] = useState<Mode>("popular");
   const [recents, setRecents] = useState<StoredStock[]>(() => getRecents());
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({});
-  const popular = usePopularStocks(MAX_ROWS);
+  const popular = usePopularStocks(MAX_ROWS, market);
 
   useEffect(() => subscribeWatchlist(() => setRecents(getRecents())), []);
 
@@ -56,12 +65,15 @@ export default function StockRadarBoard({
           market: item.market,
           rank: index + 1,
         }))
-      : recents.slice(0, MAX_ROWS).map((item) => ({
-          code: item.code,
-          name: item.name,
-          market: item.market,
-          rank: null,
-        }));
+      : recents
+          .filter((item) => (market === "US" ? item.market === "US" : true))
+          .slice(0, MAX_ROWS)
+          .map((item) => ({
+            code: item.code,
+            name: item.name,
+            market: item.market,
+            rank: null,
+          }));
 
   const names = useTranslatedTexts(rows.map((row) => row.name));
   const loadingPopular = mode === "popular" && popular === null;
@@ -79,11 +91,10 @@ export default function StockRadarBoard({
 
     const poll = () => {
       for (const code of codes) {
-        api
-          .quote(code)
+        (market === "US" ? api.usStockQuote(code) : api.quote(code))
           .then((quote) => {
             if (cancelled) return;
-            setQuotes((prev) => ({ ...prev, [code]: quote }));
+            setQuotes((prev) => ({ ...prev, [code]: quote as StockQuote }));
           })
           .catch(() => {
             // One row failing keeps its last price rather than emptying the board.
@@ -97,7 +108,7 @@ export default function StockRadarBoard({
       cancelled = true;
       stop();
     };
-  }, [codeKey]);
+  }, [codeKey, market]);
 
   return (
     <section className="desk-radar" aria-labelledby="desk-radar-title">
@@ -163,13 +174,14 @@ export default function StockRadarBoard({
                       ) : (
                         <span className="desk-radar-rank is-blank" aria-hidden="true" />
                       )}
-                      <StockIcon code={row.code} className="desk-radar-logo" />
+                      <StockLogo code={row.code} className="desk-radar-logo" />
                       <span className="desk-radar-name">{names[index] ?? row.name}</span>
                       {quote ? (
                         <>
                           <span className="desk-radar-price">
-                            {quote.close.toLocaleString()}
-                            {wonSuffix(lang)}
+                            {market === "US"
+                              ? `$${quote.close.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                              : `${quote.close.toLocaleString()}${wonSuffix(lang)}`}
                           </span>
                           <span className={`desk-radar-pct change-${tone}`}>
                             {quote.change_pct >= 0 ? "+" : ""}
