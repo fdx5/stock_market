@@ -31,6 +31,7 @@ from app.services import (
     prediction_engine,
     prediction_features,
     prediction_grader,
+    prediction_mail,
     prediction_quality,
     prediction_store,
 )
@@ -390,6 +391,14 @@ def run_batch(region: str, force: bool = False, triggered_by: str = "system") ->
         # completion (ok, skipped, or error above), since a skip is itself a fact
         # worth knowing ("이미 실행됨" vs the batch silently never having fired at all).
         kakao_notify.schedule_prediction_result(region, recorded)
+        # 예측 메일 — the same ten-minute delay, and deliberately driven from here
+        # rather than from a clock. The mail's subject line is a specific 예측일자 for
+        # a specific stock, so the only moment it can be sent is once that row exists;
+        # a fixed daily time would have to guess, and would guess wrong for whichever
+        # region hadn't run yet. Handed `summary` rather than `recorded` because only
+        # the full summary carries the per-stock rows this run produced, which is what
+        # keeps a KR run from mailing NASDAQ names (and vice versa).
+        prediction_mail.schedule_after_batch(summary)
         return summary
     finally:
         with _status_lock:

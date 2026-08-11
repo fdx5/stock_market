@@ -22,6 +22,8 @@ import logging
 import os
 import smtplib
 import ssl
+import threading
+import time
 from email.header import Header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -597,12 +599,29 @@ def send_watchlist(
             skipped.append({"code": code, "reason": "예측 이력 없음"})
             continue
 
-        # The daily cap, checked per stock rather than per run: a batch that retries
-        # after a partial failure has to be able to finish the stocks it missed
-        # without re-mailing the ones it already delivered.
-        if not manual and not dry_run and mail_subscription_store.already_sent(to_addr, code):
-            skipped.append({"code": code, "name": row["name"], "reason": "오늘 이미 발송됨"})
-            continue
+        # The cap, checked per stock rather than per run: a batch that retries after a
+        # partial failure has to be able to finish the stocks it missed without
+        # re-mailing the ones it already delivered.
+        #
+        # Keyed on 예측일자 when the row has one, which is every real row — a forecast
+        # is the thing a reader should receive once, and that is not the same as once a
+        # calendar day. Two runs can produce one forecast (cron and the in-process
+        # scheduler on the same evening) and one forecast can outlive a day (the forced
+        # Sunday run re-scores Friday's session), so the day rule admits duplicates the
+        # 예측일자 rule catches. It falls back to the day rule only if a row somehow
+        # carries no predict_date, where some cap is better than none.
+        if not manual and not dry_run:
+            if row["predict_date"]:
+                seen = mail_subscription_store.already_sent_for_prediction(
+                    to_addr, code, row["predict_date"]
+                )
+                reason = "이미 발송된 예측"
+            else:
+                seen = mail_subscription_store.already_sent(to_addr, code)
+                reason = "오늘 이미 발송됨"
+            if seen:
+                skipped.append({"code": code, "name": row["name"], "reason": reason})
+                continue
 
         history = prediction_store.list_by_code(code, limit=30)
         subject = build_subject(row)
@@ -655,6 +674,7 @@ def send_subscriptions(
     dry_run: bool = False,
     manual: bool = False,
     only_account: str | None = None,
+    only_codes: tuple[str, ...] | None = None,
 ) -> dict:
     """The batch entry point: every active subscription in the table gets its own
     stocks, and nothing else.
@@ -663,8 +683,23 @@ def send_subscriptions(
     module's constants, so adding a stock for one reader is a row and not a deploy. A
     failure for one address is reported and the next address still runs — the whole
     point of a per-subscriber batch is that subscribers are independent.
+
+    `only_codes` narrows every subscriber's list to an intersection, which is what the
+    automatic post-batch send uses to stay inside the region that just ran. Without it
+    the KR batch would mail a subscriber's NASDAQ names too, carrying yesterday's
+    figures and — worse — consuming their 예측일자 slot, so the US batch thirteen hours
+    later would find them already sent and skip the mail that had the fresh data. An
+    address left with no codes after the intersection is dropped rather than mailed an
+    empty report.
     """
     targets = mail_subscription_store.resolve_targets(active_only=True)
+    if only_codes is not None:
+        wanted_codes = set(only_codes)
+        targets = {
+            addr: [c for c in codes if c in wanted_codes]
+            for addr, codes in targets.items()
+        }
+        targets = {addr: codes for addr, codes in targets.items() if codes}
     if only_account:
         # Matched on account_id, never on the mask. Several distinct addresses can
         # share one mask, so matching on that made a per-account send button mean
@@ -686,10 +721,17 @@ def send_subscriptions(
                 "ran_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
             }
     if not targets:
+        # Two very different situations, and the automatic send hits the second one
+        # routinely: a region whose stocks nobody subscribes to is a normal quiet run,
+        # not a misconfigured table with no subscribers in it.
         return {
             "subscriptions": 0,
             "results": [],
-            "note": "활성 구독이 없습니다. mail_subscription_store.subscribe() 로 등록하세요.",
+            "note": (
+                "이번 발송 대상 종목을 구독한 계정이 없습니다."
+                if only_codes is not None
+                else "활성 구독이 없습니다. mail_subscription_store.subscribe() 로 등록하세요."
+            ),
             "ran_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
         }
 
@@ -718,3 +760,77 @@ def send_subscriptions(
         "predict_date": predict_date,
         "ran_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
     }
+
+
+# ---------------------------------------------------------------------------
+# automatic send, 10 minutes after a batch produces the rows
+# ---------------------------------------------------------------------------
+#
+# There is no clock time for this. The mail follows the data: whenever a region's
+# predictions land, that region's subscribers hear about it ten minutes later. Which
+# means the two regions mail at different times of day by construction rather than by
+# configuration — the KR batch runs 23:00 KST and the US batch 23:00 ET, about
+# thirteen hours apart, so a subscriber holding both gets a late-evening mail for their
+# Korean names and a midday one for their US names. Pinning a single clock time
+# instead would have mailed one of the two regions a forecast that didn't exist yet.
+#
+# The ten minutes are the same headroom kakao_notify uses after the same event: the
+# rows are committed before run_batch returns, so the delay is not waiting for data to
+# be ready but for the admin panel's view of the run to settle, and it leaves a window
+# in which an operator who sees a bad run can still pull the plug.
+
+_AUTO_SEND_DELAY_SECONDS = 10 * 60
+
+
+def _delayed_subscription_send(codes: tuple[str, ...], predict_date: str | None) -> None:
+    time.sleep(_AUTO_SEND_DELAY_SECONDS)
+    try:
+        report = send_subscriptions(
+            predict_date=predict_date,
+            # Not manual: this is the scheduled sender the 예측일자 cap was written
+            # for, and the thing that stops two triggers landing on one evening from
+            # sending two copies of one forecast.
+            manual=False,
+            only_codes=codes,
+        )
+        sent = sum(len(r.get("sent") or []) for r in report.get("results", []))
+        logger.info(
+            "prediction_mail: auto send after batch — %d accounts, %d mails, predict_date=%s",
+            report.get("subscriptions", 0),
+            sent,
+            predict_date,
+        )
+    except Exception:  # noqa: BLE001
+        # Same tolerance as kakao_notify's delayed send: there is no retry queue for a
+        # one-off, and the next batch will produce the next forecast regardless. The
+        # attempt is already in mail_send_log for anyone asking why nothing arrived.
+        logger.exception("prediction_mail: auto send after batch failed")
+
+
+def schedule_after_batch(summary: dict) -> None:
+    """Queues the automatic send for the stocks a batch run just produced.
+
+    Called from prediction_batch.run_batch on a successful run. The code list comes
+    from that run's own rows rather than from the region name, so the mail can only
+    ever cover stocks whose predictions actually exist — a stock dropped from the
+    roster, or one whose collection failed, simply isn't in the list.
+
+    Silent no-op when mail is unconfigured or the run saved nothing, so an installation
+    that never set up mail pays nothing for this and a skipped run doesn't spawn a
+    thread that will find nothing to do.
+
+    A daemon thread rather than a persistent queue: a restart inside the ten minutes
+    loses the send, the same volatility already accepted for kakao_notify's delayed
+    notification and prediction_batch's own in-memory run history. The next run's mail
+    is unaffected, and nothing is sent twice as a result.
+    """
+    if not is_configured():
+        return
+    codes = tuple(dict.fromkeys(r["code"] for r in summary.get("results") or []))
+    if not codes:
+        return
+    threading.Thread(
+        target=_delayed_subscription_send,
+        args=(codes, summary.get("predict_date")),
+        daemon=True,
+    ).start()
