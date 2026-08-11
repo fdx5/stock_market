@@ -105,15 +105,28 @@ body {
     stroke 0.4s ease;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    transition-duration: 0.001ms !important;
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-  }
-}
+/* There is deliberately no blanket reduced-motion reset here.
+ *
+ * There was one: `*, *::before, *::after` with `animation-duration: 0.001ms`,
+ * `animation-iteration-count: 1` and `transition-duration: 0.001ms`, all
+ * !important. It is the reset everybody copies, and on a page like this one it
+ * is wrong, because it cannot tell the difference between an effect and the
+ * content. It stopped the price belt, the index tiles, the FX and commodity
+ * tiles and the 급등/급락 beacon — every one of which is either live market
+ * data presenting itself or the thing that marks live data out — along with
+ * the decorative animations it was aimed at. And because it was !important on
+ * `*`, the only way to exempt anything was another !important, so each rescue
+ * added an exception rather than a fix.
+ *
+ * Reduced motion is honoured per element instead, next to whatever is moving,
+ * where there is enough context to say whether stopping it removes motion or
+ * removes information. Search this file for `prefers-reduced-motion` to see
+ * what is switched off: entrance animations, pulsing dots, sweeping glints,
+ * skeleton shimmers, and the hub's camera flights over in scene.ts. Anything
+ * that carries a number keeps moving.
+ *
+ * If something new needs to be still, give it its own rule. Do not bring this
+ * one back. */
 
 .app {
   max-width: 1280px;
@@ -1105,36 +1118,11 @@ a.app-brand:hover .app-logo-wide {
   100% { transform: translateY(-85.714%); }
 }
 
-/* The roll keeps running under reduced motion, and each count has to be named
-   again because the animation lives on the variant class rather than on the
-   track. The !important is aimed at the blanket rule near the top of this file,
-   which puts `animation-duration: 0.001ms !important` on every element — a
-   class beats `*` among important declarations, which is what carries these.
-
-   Parking on the first member, which is what this used to do, is not a quieter
-   version of the tile. Each of these holds three to six indices in one slot and
-   shows them in turn; stopped, five of the six simply do not exist, and the
-   grid silently reports less than it says it does. The panel below is the same
-   data in a list, so nothing here is the only route to a number — but a tile
-   captioned for a group while showing one member of it is wrong rather than
-   calm. See the belt's own note for the same argument. */
-@media (prefers-reduced-motion: reduce) {
-  .global-index-flip-track--3 {
-    animation: global-index-flip-3 10s ease-in-out infinite !important;
-  }
-
-  .global-index-flip-track--4 {
-    animation: global-index-flip-4 13s ease-in-out infinite !important;
-  }
-
-  .global-index-flip-track--5 {
-    animation: global-index-flip-5 16s ease-in-out infinite !important;
-  }
-
-  .global-index-flip-track--6 {
-    animation: global-index-flip-6 19s ease-in-out infinite !important;
-  }
-}
+/* Deliberately not stopped under reduced motion. Each of these tiles holds
+   three to six indices in one slot and shows them in turn, so a parked tile is
+   not a quieter tile — it is a tile captioned for a group while showing one
+   member of it, with the other five nowhere on the page. See the note at the
+   top of this file. */
 
 .global-index-tile--skeleton {
   height: 80px;
@@ -2250,20 +2238,9 @@ a.app-brand:hover .app-logo-wide {
   100% { transform: translateY(-75%); }
 }
 
-/* Keeps rolling under reduced motion, for the reason the index grid's own note
+/* Not stopped under reduced motion either, for the reason the index grid's note
    gives: the FX tile carries four rates and the commodity tile three, and a
-   parked tile shows one of them while still being captioned for the set. Named
-   per member count here too, since that is where the animation is declared, and
-   !important to clear the blanket rule at the top of this file. */
-@media (prefers-reduced-motion: reduce) {
-  .macro-flip--4 .macro-flip-track {
-    animation: macro-flip-4 13s ease-in-out infinite !important;
-  }
-
-  .macro-flip--3 .macro-flip-track {
-    animation: macro-flip-3 10s ease-in-out infinite !important;
-  }
-}
+   parked tile shows one of them while still being captioned for the set. */
 
 /* On the global page these stand alone under the index grid rather than hanging off
    the index tiles, so they take that grid's own spacing and tile chrome — same gap,
@@ -2916,30 +2893,8 @@ a.app-brand:hover .app-logo-wide {
 /* The lamp keeps turning under reduced motion. It used to settle into a steady
    even spread — a lit lamp rather than a turning one — and the intent was
    sound, but a warning beacon that does not sweep is not a warning beacon, it
-   is a coloured dot beside a tab label. The sweep is what marks 급등/급락 out
-   of a row of eight otherwise identical tabs.
-
-   Restored as longhands plus an explicit delay rather than one shorthand on
-   everything: the two beams run half a cycle apart, and a shorthand here would
-   reset animation-delay to 0 with !important behind it, which beats the -0.7s
-   on --left below and fires both beams together. The !important itself is for
-   the blanket rule at the top of this file — it puts
-   `animation-duration: 0.001ms !important` on every element, and a class beats
-   `*` among important declarations. */
-@media (prefers-reduced-motion: reduce) {
-  .tab-beacon-dome,
-  .tab-beacon-glow {
-    animation: tab-beacon-flare 0.7s ease-in-out infinite !important;
-  }
-
-  .tab-beacon-beam {
-    animation: tab-beacon-beam 1.4s ease-in-out infinite !important;
-  }
-
-  .tab-beacon-beam--left {
-    animation-delay: -0.7s !important;
-  }
-}
+   is a coloured dot beside a tab label, and the sweep is what marks 급등/급락
+   out of a row of eight otherwise identical tabs. */
 
 .top50-table-wrap {
   /* Sized to show ~5 data rows before scrolling (50 stocks total). */
@@ -3980,13 +3935,8 @@ thead .weekly-foreign-amount-col {
   }
 }
 
-/* The belt keeps running under reduced motion, and the !important is aimed at
-   the blanket rule near the top of this file — that one puts
-   `animation-duration: 0.001ms !important` on every element on the page, so a
-   plain declaration here would lose to it. A class beats `*` among important
-   declarations, which is the whole trick.
-
-   This used to stop the belt and hand back `overflow-x: auto` instead, on the
+/* The belt keeps running under reduced motion.
+   This used to stop it and hand back `overflow-x: auto` instead, on the
    theory that a reader who cannot take a moving marquee could scroll it by
    hand. That escape hatch never worked: .ticker-track is `width: max-content`,
    so it is exactly as wide as its own contents and has nothing to overflow —
@@ -3997,15 +3947,10 @@ thead .weekly-foreign-amount-col {
 
    And the belt is the page's subject rather than an effect played at the
    reader: it is the live prices, the same numbers the panels below carry, and
-   it moves because that is how a ticker presents them. The genuinely
-   vestibular things this setting exists for — the entrance animations, the
-   pulsing dots, the sweeping beacons, the hub's camera flights — are all still
-   switched off, each where it lives. */
-@media (prefers-reduced-motion: reduce) {
-  .ticker-track {
-    animation: ticker-scroll 46s linear infinite !important;
-  }
-}
+   it moves because that is how a ticker presents them. The things the setting
+   does still switch off — entrance animations, pulsing dots, skeleton
+   shimmers, the hub's camera flights — are each turned off where they live.
+   See the note at the top of this file. */
 
 .ticker-card {
   display: flex;
