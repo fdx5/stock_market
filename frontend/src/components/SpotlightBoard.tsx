@@ -132,8 +132,7 @@ export default function SpotlightBoard({
   }, [snapshot]);
 
   const names = useTranslatedTexts(picks.map((p) => p.item.name));
-  // The daily-close endpoint the line is drawn from is KR only.
-  const series = useSparklines(picks, useMediaQuery(SPARK_QUERY) && !isUs);
+  const series = useSparklines(picks, useMediaQuery(SPARK_QUERY), kind);
 
   const firstName = snapshot.boards[0].name;
   const secondName = snapshot.boards[1].name;
@@ -229,7 +228,11 @@ export default function SpotlightBoard({
  * instead of blanking and refetching. The map only ever grows within a session,
  * and six entries an hour is not a leak worth managing.
  */
-function useSparklines(picks: SpotlightPick[], enabled: boolean): Map<string, DailyPricePoint[]> {
+function useSparklines(
+  picks: SpotlightPick[],
+  enabled: boolean,
+  kind: BoardKind
+): Map<string, DailyPricePoint[]> {
   const [series, setSeries] = useState<Map<string, DailyPricePoint[]>>(new Map());
   const codeKey = picks
     .map((p) => p.item.code)
@@ -242,8 +245,9 @@ function useSparklines(picks: SpotlightPick[], enabled: boolean): Map<string, Da
     let cancelled = false;
 
     for (const code of codes) {
-      api
-        .dailyPrices(code, 0, SPARK_DAYS)
+      (kind === "us"
+        ? api.usDailyPrices(code, 0, SPARK_DAYS)
+        : api.dailyPrices(code, 0, SPARK_DAYS))
         .then((page) => {
           if (cancelled || page.items.length === 0) return;
           setSeries((prev) => {
@@ -262,7 +266,7 @@ function useSparklines(picks: SpotlightPick[], enabled: boolean): Map<string, Da
     return () => {
       cancelled = true;
     };
-  }, [codeKey, enabled]);
+  }, [codeKey, enabled, kind]);
 
   return series;
 }
@@ -350,16 +354,21 @@ function Row({
                     <em key={i}>{line}</em>
                   ))}
                 </span>
-                {(() => {
-                  const bars = series.get(item.code);
-                  if (!bars) return null;
-                  return (
-                    <span className="desk-spot-sparkwrap">
-                      <SpotSparkline points={bars} tone={tone} />
-                      <i className="desk-spot-sparklabel">{SPARK_DAYS}{t("일")}</i>
-                    </span>
-                  );
-                })()}
+                <span className="desk-spot-sparkwrap">
+                  {(() => {
+                    const bars = series.get(item.code);
+                    if (!bars) return null;
+                    return (
+                      <>
+                        <SpotSparkline points={bars} tone={tone} />
+                        <i className="desk-spot-sparklabel">
+                          {SPARK_DAYS}
+                          {t("일")}
+                        </i>
+                      </>
+                    );
+                  })()}
+                </span>
               </span>
             </button>
           );

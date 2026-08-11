@@ -726,14 +726,28 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The commentary and the line, side by side under a hairline. The text takes
-   what it needs and the chart takes the rest, which on a wide card is the
-   spare width the two-line note was leaving empty and on a narrow one is
-   nothing — the chart is simply not requested below 1181px. See SPARK_QUERY. */
+/* The commentary and the line, side by side under a hairline.
+ *
+ * Three rules here exist purely so the six cards agree with each other, because
+ * six charts at six different heights read as six unrelated widgets no matter
+ * how good each one is on its own:
+ *
+ *  1. `margin-top: auto` pins this block to the card's bottom edge. The cards in
+ *     a row are already equal height (grid stretch), so anchoring the block to
+ *     the bottom rather than letting it sit under a variable-height header puts
+ *     every chart on one baseline.
+ *  2. The text block reserves two lines whether it has one or two. Its height is
+ *     what would otherwise differ between the KOSPI row and the KOSDAQ row,
+ *     which are two separate grids and so cannot stretch to each other.
+ *  3. The chart column is a fixed width and is always rendered — even with no
+ *     series yet, or none available. Dropping it would let the text reflow into
+ *     its column, which is the misalignment all of this is preventing.
+ */
 .desk-spot-body {
   display: flex;
   align-items: stretch;
   gap: 12px;
+  margin-top: auto;
   padding-top: 9px;
   border-top: 1px solid var(--gridline);
 }
@@ -744,6 +758,9 @@
   gap: 3px;
   flex: 1;
   min-width: 0;
+  /* Two lines of 12px text at 1.55, plus the gap between them. Stated as a calc
+     rather than a magic 40px so it stays true if either value above changes. */
+  min-height: calc(12px * 1.55 * 2 + 3px);
 }
 
 .desk-spot-sparkwrap {
@@ -751,6 +768,10 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  /* Matches SpotSparkline's own viewBox width, so the column holds its place
+     before the first series lands and keeps it if one never does. */
+  width: 132px;
 }
 
 /* Inherited by the path, the fill gradient and the dot, all of which paint with
