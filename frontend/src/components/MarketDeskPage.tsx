@@ -37,6 +37,7 @@ import RecentNewsDigest from "./RecentNewsDigest";
 import SearchBar from "./SearchBar";
 import SectorMapPanel from "./SectorMapPanel";
 import SidePanel from "./SidePanel";
+import SpotlightBoard from "./SpotlightBoard";
 import StockIcon from "./StockIcon";
 import StockQuickAccess from "./StockQuickAccess";
 import StockRadarBoard from "./StockRadarBoard";
@@ -62,16 +63,19 @@ import "./marketDesk.css";
  *   2. a pulse row — the index, the breadth under it, and what the room is
  *      looking at — three different answers to "how is it going" side by side
  *      rather than stacked;
- *   3. the global band, unchanged;
- *   4. the flow board, which is the classic panel's seven tabs given a section
+ *   3. 오늘의 주목 종목 — the same question one level down, three names per
+ *      board with a line saying what stood around them;
+ *   4. the global band, unchanged;
+ *   5. the flow board, which is the classic panel's seven tabs given a section
  *      of their own and the full width to be read in;
- *   5. the focus workspace, which is the stock detail, whole.
+ *   6. the focus workspace, which is the stock detail, whole.
  *
  * Nothing was dropped to do it. Every panel the classic desk renders is
  * rendered here, by the same component, with the same props — this file
  * imports MarketIndexBoard and MarketFlowBoard rather than reimplementing
  * either, so the two pages cannot drift apart in what they show. What is new
- * is additive: the breadth gauge, the radar board, the palette and the rail.
+ * is additive: the breadth gauge, the spotlight board, the radar board, the
+ * palette and the rail.
  */
 
 const QUOTE_POLL_MS = 10_000;
@@ -97,9 +101,10 @@ function formatShares(shares: number, lang: "ko" | "en"): string {
   return lang === "en" ? `${shares.toLocaleString()} shares` : `${shares.toLocaleString()}주`;
 }
 
-/** The four bands the rail knows about. Ids are the scroll targets. */
+/** The bands the rail knows about. Ids are the scroll targets. */
 const SECTIONS = [
   { id: "desk-pulse", label: "마켓 펄스" },
+  { id: "desk-spotlight", label: "주목 종목" },
   { id: "desk-global", label: "글로벌" },
   { id: "desk-flow", label: "수급 · 순위" },
   { id: "desk-focus", label: "종목" },
@@ -519,7 +524,24 @@ export default function MarketDeskPage() {
           </div>
         </section>
 
-        {/* ── Band 2: the world. Unchanged from the classic desk, moved out from
+        {/* ── Band 2: the six. Sits directly under the pulse because it is the
+               same question one level down — the pulse says how the market
+               went, this says which names carried it, and the reader who wants
+               a specific stock out of "코스피 +0.7%" has to be given one
+               somewhere. Three per board, picked on the move and the money
+               together, held still for the session window they belong to.
+
+               See spotlight.ts for the selection, the commentary, and why none
+               of the commentary is generated. ── */}
+        <section className="desk-band" id="desk-spotlight" aria-labelledby="desk-spotlight-title">
+          <div className="desk-band-head">
+            <h2 id="desk-spotlight-title">{t("오늘의 주목 종목")}</h2>
+            <span className="desk-band-rule" aria-hidden="true" />
+          </div>
+          <SpotlightBoard onSelect={selectStock} activeCode={selected?.code} />
+        </section>
+
+        {/* ── Band 3: the world. Unchanged from the classic desk, moved out from
                under the KR index so the two are peers rather than one being a
                footnote to the other. ── */}
         <section className="desk-band" id="desk-global" aria-labelledby="desk-global-title">
@@ -530,7 +552,7 @@ export default function MarketDeskPage() {
           <GlobalIndexGrid />
         </section>
 
-        {/* ── Band 3: the flow board — the classic panel's seven rankings, given
+        {/* ── Band 4: the flow board — the classic panel's seven rankings, given
                the full width instead of a half column. Same component, same
                tabs, same data; what changes is that the table is now wide
                enough to read without its own horizontal scroll on a laptop. ── */}
@@ -544,7 +566,7 @@ export default function MarketDeskPage() {
           </div>
         </section>
 
-        {/* ── Band 4: the workspace. Everything the classic desk's stock zone
+        {/* ── Band 5: the workspace. Everything the classic desk's stock zone
                carries, in the same two-column shape, with the header made
                sticky so the name and price stay on screen while the reader is
                down in the chart or the discussion. ── */}

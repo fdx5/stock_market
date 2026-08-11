@@ -542,6 +542,215 @@
   gap: 12px;
 }
 
+/* ── 오늘의 주목 종목 ───────────────────────────────────────────────────── */
+
+.desk-spot {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.desk-spot-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* Says which window the six belong to, because "주목 종목" means a different
+   thing before the open than it does after the close and the card text is
+   written in a different tense for each. */
+.desk-spot-phase {
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: var(--text-secondary);
+}
+
+.desk-spot-phase.is-live {
+  color: var(--status-good);
+  border-color: color-mix(in srgb, var(--status-good) 45%, transparent);
+  background: color-mix(in srgb, var(--status-good) 10%, transparent);
+}
+
+.desk-spot-phase.is-pre {
+  color: var(--status-warning);
+  border-color: color-mix(in srgb, var(--status-warning) 45%, transparent);
+  background: color-mix(in srgb, var(--status-warning) 10%, transparent);
+}
+
+/* Not fine print. The panel names six stocks on a public front page and the
+   sentence saying what that is and is not has to be readable at the same glance
+   as the cards, or it is decoration. */
+.desk-spot-note {
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.desk-spot-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.desk-spot-rowhead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.desk-spot-rowhead h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.desk-spot-rowrule {
+  flex: 1;
+  height: 1px;
+  background: var(--gridline);
+}
+
+/* Three across, and wide rather than tall — each card carries a headline row and
+   a sentence, which is a shape that reads left to right. Equal columns so the
+   three are peers; a stock is not more notable for having a longer name. */
+.desk-spot-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.desk-spot-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--desk-radius);
+  background: var(--desk-card-bg);
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+  /* The tint is the card's own move, kept very low so six of them do not turn
+     the band into a heat map — the number carries the colour, this only leans
+     it. */
+  box-shadow: inset 3px 0 0 0 var(--desk-spot-edge, transparent);
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.desk-spot-card.is-up { --desk-spot-edge: var(--up-color); }
+.desk-spot-card.is-down { --desk-spot-edge: var(--down-color); }
+
+.desk-spot-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--desk-spot-edge, var(--text-primary)) 45%, transparent);
+}
+
+.desk-spot-card.is-active {
+  border-color: color-mix(in srgb, var(--series-violet) 60%, transparent);
+  background: color-mix(in srgb, var(--series-violet) 10%, transparent);
+}
+
+.desk-spot-card.is-skeleton {
+  cursor: default;
+  gap: 12px;
+}
+
+.desk-spot-top {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.desk-spot-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  object-fit: contain;
+}
+
+.desk-spot-id {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.desk-spot-name {
+  font-size: 14.5px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-spot-sector {
+  font-size: 10.5px;
+  font-style: normal;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-spot-quote {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  white-space: nowrap;
+}
+
+.desk-spot-price {
+  font-size: 14.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-spot-pct {
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The commentary. Set on its own baseline grid against a hairline, so it reads
+   as a note about the row above rather than as more of the row. */
+.desk-spot-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-top: 9px;
+  border-top: 1px solid var(--gridline);
+}
+
+.desk-spot-lines em {
+  font-style: normal;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  word-break: keep-all;
+}
+
+/* The first line is the move itself and is the one thing on the card that is
+   also a headline. */
+.desk-spot-lines em:first-child {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
 /* ── the breadth gauge ──────────────────────────────────────────────────── */
 
 .desk-breadth {
@@ -1060,7 +1269,14 @@
   }
 }
 
+/* Two across, so a card keeps enough width for its sentence to be more than
+   three words a line. The third wraps to a second row rather than all three
+   squeezing. */
 @media (max-width: 1180px) {
+  .desk-spot-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .desk-focus-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1129,6 +1345,12 @@
 
   .desk-band {
     scroll-margin-top: 16px;
+  }
+}
+
+@media (max-width: 760px) {
+  .desk-spot-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

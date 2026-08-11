@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { MarketMapItem, api } from "../api/client";
+import { useMemo } from "react";
+import { MarketMapItem } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
-import { startVisibilityAwareInterval } from "../pollVisibility";
+import { useMarketSnapshot } from "../useMarketSnapshot";
 
 /* How wide the market is up or down, and which 업종 is carrying it.
  *
@@ -18,7 +18,6 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
  * own holding is probably red. That gap is what breadth measures, and it is the
  * single most useful thing on this page that the classic desk never showed. */
 
-const REFRESH_MS = 60_000;
 /** A move this size or bigger counts as a real one rather than noise. */
 const STRONG_PCT = 5;
 /** Sectors shown on each side of the heat list. */
@@ -114,35 +113,20 @@ export default function MarketBreadthGauge({
   onOpenSector?: (sector: string) => void;
 }) {
   const t = useT();
-  const [items, setItems] = useState<MarketMapItem[] | null>(null);
+  /* Both boards, because breadth across one of them is not breadth across the
+     market — KOSDAQ is where most of the listed names are and where a retail
+     reader's holdings mostly sit, and a KOSPI-only count would say the opposite
+     thing on plenty of days. Shared with the spotlight board, which is built
+     out of the same two responses; see useMarketSnapshot. */
+  const snapshot = useMarketSnapshot();
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = () => {
-      /* Both boards, because breadth across one of them is not breadth across
-         the market — KOSDAQ is where most of the listed names are and where a
-         retail reader's holdings mostly sit, and a KOSPI-only count would say
-         the opposite thing on plenty of days. */
-      Promise.all([api.marketMap(500, false), api.kosdaqMap(200, false)])
-        .then(([kospi, kosdaq]) => {
-          if (cancelled) return;
-          setItems([...kospi.items, ...kosdaq.items]);
-        })
-        .catch(() => {
-          // A missed refresh keeps the last reading rather than blanking it.
-        });
-    };
-
-    load();
-    const stop = startVisibilityAwareInterval(load, REFRESH_MS);
-    return () => {
-      cancelled = true;
-      stop();
-    };
-  }, []);
-
-  const breadth = useMemo(() => (items ? measure(items) : null), [items]);
+  const breadth = useMemo(
+    () =>
+      snapshot.generatedAt === null
+        ? null
+        : measure([...snapshot.kospi, ...snapshot.kosdaq]),
+    [snapshot]
+  );
 
   if (!breadth) {
     return (
