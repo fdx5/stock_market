@@ -3756,7 +3756,10 @@ thead .weekly-foreign-amount-col {
   flex-shrink: 0;
 }
 
-.kospi-map-preview-download {
+/* An <a>, so it needs the button's box drawn onto it explicitly — see the comment at
+   its call site for why it is a real link rather than a synthesized click. */
+.kospi-map-preview-download,
+.kospi-map-preview-share {
   font-size: 13px;
   font-weight: 700;
   padding: 8px 20px;
@@ -3765,12 +3768,50 @@ thead .weekly-foreign-amount-col {
   background: var(--series-blue);
   color: white;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* Secondary to the download beside it: same size and shape, no fill. */
+.kospi-map-preview-share {
+  background: transparent;
+  color: var(--series-blue);
+}
+
+/* Touch, regardless of how wide the screen is.
+   The mobile rules for this modal live under `max-width: 640px`, which a large
+   foldable's inner display (roughly 850–900 CSS px) never matches — so a phone was
+   getting the desktop layout: two controls side by side, sized for a mouse, on a
+   surface where the thumb has to reach across a fold. Keying the touch treatment on
+   the pointer rather than on width covers the device the width query was written for
+   and the ones it never anticipated. */
+@media (pointer: coarse) {
+  .kospi-map-preview-footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .kospi-map-preview-download,
+  .kospi-map-preview-share {
+    width: 100%;
+    /* Comfortably past the 44px minimum touch target — these sit at the bottom of a
+       tall modal where a mis-tap lands on the overlay and closes it. */
+    min-height: 48px;
+  }
+
+  .kospi-map-preview-error {
+    margin-right: 0;
+    text-align: center;
+  }
 }
 
 /* Held down while the share sheet is up. The sheet is system UI over a page that
    stays interactive, so the button has to look unavailable or it invites the second
    tap that stacks a second save dialog. */
-.kospi-map-preview-download[disabled],
+.kospi-map-preview-share[disabled],
 .kospi-map-preview-close[disabled] {
   opacity: 0.55;
   cursor: default;
@@ -5549,7 +5590,8 @@ thead .weekly-foreign-amount-col {
     flex-direction: column-reverse;
   }
 
-  .kospi-map-preview-download {
+  .kospi-map-preview-download,
+  .kospi-map-preview-share {
     width: 100%;
   }
 
