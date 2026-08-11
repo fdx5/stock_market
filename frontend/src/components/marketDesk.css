@@ -1574,9 +1574,14 @@
     box-shadow: none;
   }
 
-  /* One column, in reading order: search, then the index, then the chips. The
-     clock is already hidden below its own breakpoint by HeaderDateTime, which
-     returns null on a phone rather than rendering something too small to read. */
+  /* One column, in reading order: search, the clock, the index, then the chips.
+     The clock needs an explicit row here — the wider layout parks it on row 3,
+     which is the chips' row once the grid is a single column, and the two would
+     land in the same cell. It sits directly under the search rather than at the
+     foot of the deck because below 820px HeaderDateTime swaps the fixed-width LED
+     cabinet for a full-width HUD band (see .hud in styles.css), and the whole
+     point of that band is that a phone can see the date, the two session clocks
+     and the weather at all — burying it under the chip row would give it back. */
   .desk-command-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1589,8 +1594,9 @@
   }
 
   .desk-command-search { grid-row: 1; }
-  .desk-idx { grid-row: 2; }
-  .desk-command-chips { grid-row: 3; }
+  .desk-command-clock { grid-row: 2; display: block; }
+  .desk-idx { grid-row: 3; }
+  .desk-command-chips { grid-row: 4; }
 
   /* The strip scrolls sideways rather than wrapping — two index cells and a
      session pill wrapped onto three lines is taller than the thing it is

@@ -212,14 +212,11 @@ body {
    flat and lifts only its neon aura on hover. The look is committed here (fixed dark screen
    in both page themes); the Sun/Sat weekend accent recolors the date dots red / cyan for
    the KR convention, and a status pip + label read the KRX session (green live / red closed). */
-.led {
-  flex-shrink: 0;
-  align-self: stretch;
-  display: flex;
-  align-items: center;
-  padding-top: 2px;
-
-  /* LED palette — scoped to the block so nothing else on the page inherits it. */
+.led,
+.hud {
+  /* LED palette — scoped to the block so nothing else on the page inherits it. Shared
+     with the narrow-viewport HUD band below, which is the same display in a different
+     enclosure and must not drift in colour from the cabinet. */
   --led-amber: #ffc846;    /* warm data glyphs */
   --led-amber-dim: #c79433;
   --led-label: #8fbad4;    /* cool cyan chrome for labels/captions */
@@ -229,6 +226,14 @@ body {
   --led-aura: 88, 200, 255; /* cyan aura rgb, for the frame glow */
   --led-screen: #05070c;
   --led-font: "Consolas", ui-monospace, "DejaVu Sans Mono", monospace;
+}
+
+.led {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  padding-top: 2px;
 }
 
 .led-cabinet {
@@ -538,7 +543,8 @@ body {
    slate chrome — dark-on-light instead of light-on-dark. Most pieces recolor through the
    scoped vars; the few rules with baked colors (screen texture, glyph glow, frame) are
    re-stated here for the light context. */
-:root[data-theme="light"] .led {
+:root[data-theme="light"] .led,
+:root[data-theme="light"] .hud {
   --led-amber: #26356e;    /* indigo data ink */
   --led-amber-dim: #6a7691;
   --led-label: #55637f;    /* slate chrome for labels/captions */
@@ -609,15 +615,318 @@ body {
   text-shadow: none;
 }
 
-/* Below this width the search + shortcuts need the whole row, so the sign steps aside
-   rather than squeezing them. */
-@media (max-width: 820px) {
-  .led {
-    display: none;
+/* ── HUD band (narrow viewports) ──────────────────────────────────────────────────────
+   Below 820px HeaderDateTime renders this instead of the cabinet — the sign used to just
+   step aside there, which meant a phone got the date, the two session clocks and the sky
+   nowhere at all. It is the same display, re-enclosed: one full-width strip of dark glass
+   instead of a tall 228px block, so the width the phone does have goes into legibility.
+   The head line carries the date and Seoul's sky; below it one wide row per city pairs
+   the flag and session state on the left with a large dot-matrix time on the right, over
+   a hairline rail that fills as that market's session runs — the one reading the cabinet
+   has no room for. Digits run larger here than on the desktop board on purpose: this is
+   read at arm's length, one-handed, often outdoors. */
+.hud {
+  width: 100%;
+  min-width: 0;
+}
+
+.hud-panel {
+  position: relative;
+  overflow: hidden;
+  padding: 11px 13px 10px;
+  border-radius: 14px;
+  background:
+    /* the unlit dot grid, then the screen's own vignette, over near-black glass */
+    radial-gradient(circle at 50% 50%, rgba(255, 210, 130, 0.04) 32%, transparent 34%),
+    radial-gradient(120% 140% at 82% -20%, rgba(var(--led-aura), 0.13), transparent 58%),
+    linear-gradient(165deg, #0d1119 0%, var(--led-screen) 58%, #04060a 100%);
+  background-size: 3px 3px, 100% 100%, 100% 100%;
+  border: 1px solid rgba(var(--led-aura), 0.22);
+  box-shadow:
+    0 0 22px -6px rgba(var(--led-aura), 0.22),
+    0 14px 28px -20px rgba(0, 0, 0, 0.9),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Scanlines, same pitch as the cabinet's so both read as one piece of hardware. */
+.hud-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.14) 0 1px, transparent 1px 3px);
+}
+
+/* Corner brackets, scaled up from the cabinet's for the wider frame. */
+.hud-corners i {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid rgba(var(--led-aura), 0.7);
+  box-shadow: 0 0 6px rgba(var(--led-aura), 0.4);
+  z-index: 2;
+}
+.hud-corners i:nth-child(1) { top: 5px; left: 5px; border-right: 0; border-bottom: 0; border-radius: 5px 0 0 0; }
+.hud-corners i:nth-child(2) { top: 5px; right: 5px; border-left: 0; border-bottom: 0; border-radius: 0 5px 0 0; }
+.hud-corners i:nth-child(3) { bottom: 5px; left: 5px; border-right: 0; border-top: 0; border-radius: 0 0 0 5px; }
+.hud-corners i:nth-child(4) { bottom: 5px; right: 5px; border-left: 0; border-top: 0; border-radius: 0 0 5px 0; }
+
+/* The sweep. A soft cyan bar travelling down the glass on a long cycle — present enough
+   to say "live", slow and faint enough not to compete with the numbers it crosses. */
+.hud-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 42%;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(var(--led-aura), 0) 0%,
+    rgba(var(--led-aura), 0.07) 55%,
+    rgba(var(--led-aura), 0) 100%
+  );
+  animation: hud-sweep 7s linear infinite;
+}
+
+@keyframes hud-sweep {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(240%); }
+}
+
+/* Unlike the cabinet's blink — which is the display being a display — a bar travelling
+   across the screen is the kind of motion that makes people ill. It stops. */
+@media (prefers-reduced-motion: reduce) {
+  .hud-scan {
+    animation: none;
+    opacity: 0;
   }
 }
 
-@media (max-width: 640px) {
+/* Head line: big day number, weekday + month/year stacked beside it, sky pushed right. */
+.hud-head {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid rgba(var(--led-aura), 0.18);
+}
+
+.hud-headmeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.hud-wx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding-left: 10px;
+  flex: none;
+}
+
+.hud-wxread {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1.1;
+}
+
+/* Which city's sky this is. The cabinet says it in a tooltip; a phone has no hover, so
+   it says it out loud. */
+.hud-wxcity {
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--led-label);
+  opacity: 0.8;
+}
+
+.hud-clocks {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* One city per row: [flag + name] [session state] … [glyph + time + tz], with the rail
+   spanning the full width underneath. `1fr` on the middle cell is what pins the times to
+   the right edge in both rows, so the two clocks still read as an aligned column. */
+.hud-row {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 5px;
+}
+
+.hud-city {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  color: var(--led-label);
+  text-shadow: 0 0 7px rgba(var(--led-aura), 0.3);
+}
+
+/* Session state per city — the HUD's addition over the cabinet, which only ever reads
+   KRX. Red closed / green live, matching the pip it wraps. */
+.hud-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  white-space: nowrap;
+  color: var(--led-red);
+  text-shadow: 0 0 6px currentColor;
+}
+
+.hud-state.is-open {
+  color: var(--led-green);
+}
+
+/* The pip is the cabinet's, one size down — at this scale its bloom would otherwise
+   wash into the city name next to it. */
+.hud-state .led-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+}
+
+.hud-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  justify-self: end;
+}
+
+/* The reason the band exists: the time at a size you can read without stopping to look.
+   The mask pitch stays at the fine 1.5px the small readouts use, so bigger glyphs simply
+   carry more dots rather than coarser ones. */
+.hud-time .led-clock,
+.hud-time .led-seg,
+.hud-time .led-col {
+  font-size: 19px;
+}
+
+.hud-time .led-daynight {
+  width: 13px;
+  height: 13px;
+}
+
+/* Session rail: how far this market is through its trading day. Dim and empty outside
+   the session, lit with a glowing head while it runs. */
+.hud-rail {
+  grid-column: 1 / -1;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(var(--led-aura), 0.12);
+}
+
+/* Positioned, so the lit head below anchors to the end of the *fill* rather than to the
+   end of the track. Not clipped, so its bloom is allowed off the 2px hairline. */
+.hud-rail i {
+  display: block;
+  position: relative;
+  height: 100%;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--led-label) 45%, transparent);
+  transition: width 0.6s linear;
+}
+
+.hud-rail i.is-live {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--led-green) 30%, transparent),
+    var(--led-green)
+  );
+  box-shadow: 0 0 7px 1px color-mix(in srgb, var(--led-green) 65%, transparent);
+}
+
+/* The head of a running rail pulses — a market in session, ticking. */
+.hud-rail i.is-live::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  right: 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--led-green);
+  box-shadow: 0 0 6px 2px color-mix(in srgb, var(--led-green) 70%, transparent);
+  animation: led-blink 2.3s ease-in-out infinite;
+}
+
+/* Smallest phones: the English city names and a 19px clock stop fitting on one line
+   together, so the digits give up a step rather than the row wrapping. */
+@media (max-width: 360px) {
+  .hud-panel {
+    padding: 10px 10px 9px;
+  }
+
+  .hud-time {
+    gap: 5px;
+  }
+
+  .hud-time .led-clock,
+  .hud-time .led-seg,
+  .hud-time .led-col {
+    font-size: 16px;
+  }
+}
+
+/* Light theme: the panel follows the cabinet into pale LCD glass — brushed white with
+   slate ink, no bloom. The shared .led-* pieces inside it recolor through the vars and
+   the light-theme rules above; only the enclosure is restated here. */
+:root[data-theme="light"] .hud-panel {
+  background:
+    radial-gradient(circle at 50% 50%, rgba(38, 53, 90, 0.1) 32%, transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0)),
+    linear-gradient(165deg, #f4f6fa, var(--led-screen));
+  background-size: 3px 3px, 100% 100%, 100% 100%;
+  border: 1px solid rgba(var(--led-aura), 0.34);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 8px 20px -14px rgba(40, 55, 90, 0.4);
+}
+
+:root[data-theme="light"] .hud-panel::after {
+  background: repeating-linear-gradient(0deg, rgba(38, 53, 90, 0.06) 0 1px, transparent 1px 3px);
+}
+
+:root[data-theme="light"] .hud-scan {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.5) 55%,
+    rgba(255, 255, 255, 0) 100%
+  );
+}
+
+:root[data-theme="light"] .hud-city,
+:root[data-theme="light"] .hud-state {
+  text-shadow: none;
+}
+
+/* Stacks at the same width the cabinet becomes the band, not at 640. The band is a
+   full-width strip by design, so leaving it as a side-by-side flex item for the 180px
+   between the two breakpoints would have it fighting the search column for the row. */
+@media (max-width: 820px) {
   .app-header-trailing--dash {
     flex-direction: column;
     gap: 16px;

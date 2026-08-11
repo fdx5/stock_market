@@ -2,19 +2,30 @@ import { Fragment, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
-import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
+import { useMediaQuery } from "../useMediaQuery";
 
 /** An airport split-flap departure-board rendered date/clock block for the empty right
- * side of the dashboard header strip. Desktop only — on a phone the header is already
- * two lines of search + shortcuts with no room to spare, so this declines to mount there
- * (and stops its per-second timer from running on the device that least wants a
- * background tick).
+ * side of the dashboard header strip.
  *
  * The date and weekday follow Korea (the site's home market); two live clocks below
  * carry Seoul and New York, the two sessions a KR investor watches, laid out like flight
  * times; and a small weather glyph beside the date reports Seoul's current sky. Times are
  * derived with Intl in the given time zone, so they stay correct wherever the visitor's
- * own clock is set and flip DST on their own. */
+ * own clock is set and flip DST on their own.
+ *
+ * Two shapes, one set of numbers. The desktop LED cabinet is a tall fixed-width block
+ * that only fits beside a wide header, so below `HUD_QUERY` the same readings re-lay
+ * themselves as a full-width HUD band: the date and sky on one line, then one wide row
+ * per city with digits big enough to read at arm's length. The narrow viewport used to
+ * get nothing at all here, which is the one place the information is hardest to come by
+ * otherwise. */
+
+/** Where the cabinet gives way to the band. Matches the width at which the header's
+ * search + shortcuts claim the whole row — past it there is no column left to stand a
+ * 228px cabinet in. Lives in JS rather than CSS because the two shapes are different
+ * trees, not the same tree restyled. */
+const HUD_QUERY = "(max-width: 820px)";
+
 function parts(now: Date, tz: string, opts: Intl.DateTimeFormatOptions): Record<string, string> {
   const out: Record<string, string> = {};
   for (const p of new Intl.DateTimeFormat("en-US", { timeZone: tz, ...opts }).formatToParts(now)) {
@@ -44,14 +55,31 @@ function isDaytime(now: Date, tz: string): boolean {
   return h >= 6 && h < 18;
 }
 
-/** Whether the KRX regular session is live: weekdays 09:00–15:30 KST. Holidays aren't
- * tracked here, so a holiday still reads as "open" during those hours — good enough for
- * the header's live/closed pip and label. */
-function isKrxOpen(now: Date): boolean {
-  const p = parts(now, "Asia/Seoul", { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
-  if (p.weekday === "Sat" || p.weekday === "Sun") return false;
+const SEOUL = "Asia/Seoul";
+const NY = "America/New_York";
+
+/** Each city's regular session, as minutes-from-local-midnight. KRX 09:00–15:30 KST,
+ * NYSE 09:30–16:00 ET. Both are local wall-clock ranges, so reading them against a
+ * time already converted into that zone gets DST right for free. Holidays aren't
+ * tracked, so a holiday still reads as "open" during those hours — good enough for a
+ * live/closed pip. */
+const SESSIONS: Record<string, [number, number]> = {
+  [SEOUL]: [9 * 60, 15 * 60 + 30],
+  [NY]: [9 * 60 + 30, 16 * 60],
+};
+
+/** Session state for one city: whether it is trading now, and how far through the day's
+ * session the clock has travelled (0 before the bell, 1 after the close, 0 all weekend).
+ * The progress figure is what the HUD's hairline rail under each clock draws. */
+function session(now: Date, tz: string): { open: boolean; progress: number } {
+  const p = parts(now, tz, { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  if (p.weekday === "Sat" || p.weekday === "Sun") return { open: false, progress: 0 };
+  const [start, end] = SESSIONS[tz];
   const mins = (Number(p.hour) % 24) * 60 + Number(p.minute);
-  return mins >= 9 * 60 && mins < 15 * 60 + 30;
+  return {
+    open: mins >= start && mins < end,
+    progress: Math.min(1, Math.max(0, (mins - start) / (end - start))),
+  };
 }
 
 type Wx = "clear" | "partly" | "cloudy" | "fog" | "rain" | "snow" | "thunder";
@@ -168,18 +196,35 @@ function LedClock({ text }: { text: string }) {
 
 export default function HeaderDateTime() {
   const { lang } = useLanguage();
-  const isMobile = useMediaQuery(MOBILE_QUERY);
+  const isHud = useMediaQuery(HUD_QUERY);
   const [now, setNow] = useState(() => new Date());
   const [weather, setWeather] = useState<{ temperature: number; code: number; is_day: boolean } | null>(null);
 
   useEffect(() => {
-    if (isMobile) return; // no timer on phones — the block isn't shown there
-    const id = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(id);
-  }, [isMobile]);
+    // The tick now runs on phones as well, so it stands down while the tab is hidden
+    // rather than waking a backgrounded handset once a second to redraw a clock nobody
+    // is looking at — and re-reads the time on the way back, since the seconds that
+    // passed in between were never rendered.
+    let id: number | undefined;
+    const start = () => {
+      if (id !== undefined) return;
+      setNow(new Date());
+      id = window.setInterval(() => setNow(new Date()), 1000);
+    };
+    const stop = () => {
+      window.clearInterval(id);
+      id = undefined;
+    };
+    const onVisibility = () => (document.visibilityState === "visible" ? start() : stop());
+    start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
 
   useEffect(() => {
-    if (isMobile) return;
     let alive = true;
     const load = () =>
       api
@@ -194,12 +239,7 @@ export default function HeaderDateTime() {
       alive = false;
       stop();
     };
-  }, [isMobile]);
-
-  if (isMobile) return null;
-
-  const SEOUL = "Asia/Seoul";
-  const NY = "America/New_York";
+  }, []);
 
   const dp = parts(now, SEOUL, { year: "numeric", month: "short", day: "numeric", weekday: "short" });
   const monthEn = dp.month.toUpperCase();
@@ -212,14 +252,88 @@ export default function HeaderDateTime() {
   // Korean calendar convention: Sunday numbers in red, Saturday in blue.
   const weekendTone = weekdayEn === "SUN" ? "is-sun" : weekdayEn === "SAT" ? "is-sat" : "";
 
-  // KRX session state drives the status pip (green live / red closed) and its label.
-  const krxOpen = isKrxOpen(now);
-  const statusLabel = krxOpen ? (lang === "ko" ? "장중" : "OPEN") : lang === "ko" ? "장마감" : "CLOSED";
+  const label = (open: boolean) =>
+    open ? (lang === "ko" ? "장중" : "OPEN") : lang === "ko" ? "장마감" : "CLOSED";
 
   const cities = [
-    { key: SEOUL, label: lang === "ko" ? "서울" : "SEOUL", flag: "/img/flag/kr.svg" },
-    { key: NY, label: lang === "ko" ? "뉴욕" : "NEW YORK", flag: "/img/flag/us.svg" },
+    { key: SEOUL, label: lang === "ko" ? "서울" : "SEOUL", flag: "/img/flag/kr.svg", session: session(now, SEOUL) },
+    { key: NY, label: lang === "ko" ? "뉴욕" : "NEW YORK", flag: "/img/flag/us.svg", session: session(now, NY) },
   ];
+
+  // KRX session state drives the cabinet's status pip (green live / red closed) and its
+  // label; the HUD gives every city its own instead.
+  const krxOpen = cities[0].session.open;
+
+  /* ── The narrow shape. Same readings, re-laid as a full-width band ──────────────────
+     The cabinet's vertical stack (topbar / date / two clock rows) needs a fixed 228px
+     column it cannot have here, so the band spends the width it does have instead: the
+     date, sky and temperature share one head line, and each city gets a whole row to
+     itself — flag and session state on the left, day/night glyph and big dot-matrix time
+     on the right, over a hairline rail that fills as that market's session runs. Reading
+     a phone at arm's length is the whole reason the digits are larger here than in the
+     cabinet, not smaller. */
+  if (isHud) {
+    return (
+      <div className="hud" role="group" aria-label={lang === "ko" ? "시각 · 날씨" : "Clocks and weather"}>
+        <div className="hud-panel">
+          <div className="hud-corners" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </div>
+          {/* A slow sweep down the glass — the one moving element that makes the band
+              read as a live display rather than a printed strip. */}
+          <span className="hud-scan" aria-hidden="true" />
+
+          <div className="hud-head">
+            <span className={`led-big ${weekendTone}`}>{day}</span>
+            <span className="hud-headmeta">
+              <span className={`led-weekday ${weekendTone}`}>{weekday}</span>
+              <span className="led-monthday">
+                {monthEn} {year}
+              </span>
+            </span>
+            {weather && (
+              <span className="hud-wx">
+                <WeatherIcon type={wxType(weather.code)} day={weather.is_day} />
+                <span className="hud-wxread">
+                  <span className="led-temp">{weather.temperature}°</span>
+                  <span className="hud-wxcity">{lang === "ko" ? "서울" : "SEOUL"}</span>
+                </span>
+              </span>
+            )}
+          </div>
+
+          <div className="hud-clocks">
+            {cities.map((c) => (
+              <div className="hud-row" key={c.key}>
+                <span className="hud-city">
+                  <img className="led-flag" src={c.flag} alt="" />
+                  {c.label}
+                </span>
+                <span className={`hud-state${c.session.open ? " is-open" : ""}`}>
+                  <span className={`led-dot${c.session.open ? " is-open" : ""}`} />
+                  {label(c.session.open)}
+                </span>
+                <span className="hud-time">
+                  <DayNightIcon day={isDaytime(now, c.key)} />
+                  <LedClock text={clock(now, c.key)} />
+                  <span className="led-tz">{tzAbbr(now, c.key)}</span>
+                </span>
+                <span className="hud-rail" aria-hidden="true">
+                  <i
+                    className={c.session.open ? "is-live" : ""}
+                    style={{ width: `${c.session.progress * 100}%` }}
+                  />
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="led" aria-hidden="true">
@@ -235,7 +349,7 @@ export default function HeaderDateTime() {
           <div className="led-topbar">
             <span className="led-brand">
               <span className={`led-dot${krxOpen ? " is-open" : ""}`} />
-              {statusLabel}
+              {label(krxOpen)}
             </span>
             <span className="led-sub">
               {monthEn} {year}
