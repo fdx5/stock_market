@@ -763,16 +763,23 @@
   min-height: calc(12px * 1.55 * 2 + 3px);
 }
 
+/* Hard against the card's right edge, on every card, whatever the text beside it
+   is doing. `margin-left: auto` rather than relying on the text block's `flex: 1`
+   to push it there — a note short enough not to fill its line would otherwise
+   leave the chart floating in the middle of the card, and the six would each
+   float to a different place. The width matches SpotSparkline's own viewBox, so
+   the column also holds its place before the first series lands and keeps it if
+   one never does. */
 .desk-spot-sparkwrap {
   position: relative;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  /* Matches SpotSparkline's own viewBox width, so the column holds its place
-     before the first series lands and keeps it if one never does. */
+  margin-left: auto;
   width: 132px;
 }
+
 
 /* Inherited by the path, the fill gradient and the dot, all of which paint with
    currentColor — so the whole line changes with the card's tone from one
@@ -781,6 +788,10 @@
 .desk-spot-spark {
   color: var(--text-muted);
   opacity: 0.85;
+  /* Fills its column exactly, so the drawn line's right edge is the card's right
+     edge — the wrapper aligns the box, this aligns the ink inside it. */
+  display: block;
+  width: 100%;
 }
 
 .desk-spot-spark.is-up { color: var(--up-color); }

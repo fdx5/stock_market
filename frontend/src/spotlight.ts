@@ -63,6 +63,10 @@ export interface SpotlightPick {
   capRank: number;
   /** How many names on this board are at the daily price limit today. */
   limitCount: number;
+  /** 1-based rank by today's move within this stock's own sector, and how many
+   * names that sector has on the board. Both 0 when it has no usable sector. */
+  sectorRank: number;
+  sectorSize: number;
   /** The finished commentary, already in reading order. */
   lines: string[];
 }
@@ -251,6 +255,28 @@ export function pickSpotlight(
   const sectors = sectorMoves(items);
 
   const limitCount = kind === "kr" ? items.filter((i) => i.change_pct >= LIMIT_PCT).length : 0;
+
+  /* Where each name places inside its own sector. This is the observation that
+     keeps the US cards from all reading alike: with no volume, no price limit
+     and no extended session to talk about during regular hours, the only notes
+     left there were size and sector average, and three cards in a row fell to
+     the same one. "Second of seventy-eight in Information Technology" is
+     specific, always computable, and says something the other notes do not. */
+  const bySector = new Map<string, MarketMapItem[]>();
+  for (const item of items) {
+    const sector = item.sector?.trim();
+    if (!sector) continue;
+    const bucket = bySector.get(sector);
+    if (bucket) bucket.push(item);
+    else bySector.set(sector, [item]);
+  }
+  const sectorRanks = new Map<string, { rank: number; size: number }>();
+  for (const [, members] of bySector) {
+    const sorted = [...members].sort((a, b) => b.change_pct - a.change_pct);
+    sorted.forEach((item, index) =>
+      sectorRanks.set(item.code, { rank: index + 1, size: sorted.length })
+    );
+  }
   const changesAsc = candidates.map((i) => i.change_pct).sort((a, b) => a - b);
   /* The second axis. On the KR boards it is money; on the US ones there is none
      to be had, so it is size — which is not the same measure and is not pretended
@@ -309,6 +335,8 @@ export function pickSpotlight(
       sectorMembers: sectorInfo?.members ?? 0,
       capRank: capRanks.get(item.code) ?? 0,
       limitCount,
+      sectorRank: sectorRanks.get(item.code)?.rank ?? 0,
+      sectorSize: sectorRanks.get(item.code)?.size ?? 0,
     };
     return { ...pick, lines: describe(pick, phase, used, kind) };
   });
@@ -339,6 +367,8 @@ type NoteKind =
   | "carried"
   | "ahead"
   | "session"
+  | "sectorrank"
+  | "weight"
   | "profile";
 
 /** KRX's daily price limit. A close within a whisker of it is 상한가, and on a
@@ -369,8 +399,18 @@ function describe(
   used: Set<NoteKind>,
   kind: BoardKind
 ): string[] {
-  const { item, market, changeRank, turnoverRank, sectorChange, sectorMembers, capRank, limitCount } =
-    pick;
+  const {
+    item,
+    market,
+    changeRank,
+    turnoverRank,
+    sectorChange,
+    sectorMembers,
+    capRank,
+    limitCount,
+    sectorRank,
+    sectorSize,
+  } = pick;
   const board = BOARD_LABEL[market];
   const sector = item.sector?.trim() ?? "";
   const turnover = turnoverOf(item);
@@ -383,7 +423,14 @@ function describe(
      saying: a reader looking at +4% needs to know whether the market was open
      when it happened. The KR maps carry no equivalent flag. */
   const session = kind === "us" ? item.session : undefined;
-  const sessionWord = session === "pre" ? "프리마켓" : session === "post" ? "애프터마켓" : null;
+  const sessionWord =
+    session === "pre"
+      ? "프리마켓"
+      : session === "post"
+        ? "애프터마켓"
+        : session === "regular"
+          ? "정규장 거래 중"
+          : null;
 
   /* Noun-ending throughout, by request, and it suits the card better than the
      sentences it replaced: six of these stack in a row, and a column of 했다 /
@@ -391,9 +438,18 @@ function describe(
      of 마감 / 몰림 / 앞섬 reads as six labels that can be scanned in any. The
      tense still has to change with the session — 마감 is a fact after 15:30 and
      a guess before it — so the phase still picks the word, it just picks a noun
-     now. On the US side the session flag is more specific than the clock and
-     wins outright. */
-  const state = sessionWord ?? (phase === "closed" ? "마감" : "거래 중");
+     now.
+
+     The US side never reads that clock. `phase` is derived from Seoul time, and
+     Seoul time says nothing whatsoever about New York: at 22:48 KST the KRX has
+     been shut for seven hours and the NYSE is mid-session, so a US card built on
+     it announced "+1.23% 마감" about a market that was open. The session flag on
+     the payload is the only correct source there, and when it is missing the
+     fallback is deliberately the neutral word rather than the confident one — a
+     card that says 거래 중 when trading has stopped is wrong by a few hours,
+     where 마감 during the open session is wrong about what the market IS. */
+  const state =
+    kind === "us" ? (sessionWord ?? "거래 중") : phase === "closed" ? "마감" : "거래 중";
   const lead = atLimit
     ? `${board} 상승률 ${changeRank}위 · 가격제한폭 도달 · +${item.change_pct.toFixed(2)}% ${state}`
     : changeRank <= 20
@@ -451,7 +507,7 @@ function describe(
       kind: "ahead",
       // Only when the sector actually went somewhere. Against a flat sector the
       // comparison is arithmetic, not information.
-      when: realSector && Math.abs(sectorChange) >= 1 && gap >= 5,
+      when: realSector && Math.abs(sectorChange) >= (kind === "us" ? 0.4 : 1) && gap >= (kind === "us" ? 2.5 : 5),
       text: `${sector} 업종 평균 ${sectorChange >= 0 ? "+" : ""}${sectorChange.toFixed(2)}% 대비 큰 폭 앞섬`,
     },
     {
@@ -468,6 +524,22 @@ function describe(
         typeof item.regular_change_pct === "number"
           ? `정규장 ${item.regular_change_pct >= 0 ? "+" : ""}${item.regular_change_pct.toFixed(2)}% · ${sessionWord} ${(item.extended_change_pct ?? 0) >= 0 ? "+" : ""}${(item.extended_change_pct ?? 0).toFixed(2)}%`
           : `${sessionWord} ${(item.extended_change_pct ?? 0) >= 0 ? "+" : ""}${(item.extended_change_pct ?? 0).toFixed(2)}% · 정규장 개장 전`,
+    },
+    {
+      // Leading its own sector says more than leading the board, because a
+      // sector is a set of companies with the same weather.
+      kind: "sectorrank",
+      when: realSector && sectorRank > 0 && sectorRank <= 3 && sectorSize >= 8,
+      text: `${sector} ${sectorSize}종목 중 상승률 ${sectorRank}위`,
+    },
+    {
+      /* US only: `marcap` on a US constituent is the index weight in per cent,
+         not a capitalisation. It is the one figure the KR payload has no
+         equivalent of, and on an index page it is exactly the right unit —
+         how much of the index this one name actually is. */
+      kind: "weight",
+      when: kind === "us" && item.marcap > 0.15,
+      text: `${board} 지수 내 비중 ${item.marcap.toFixed(2)}%`,
     },
     {
       kind: "profile",

@@ -4,7 +4,7 @@ import { useLanguage, useT } from "../i18n/LanguageContext";
 import { wonSuffix } from "../i18n/format";
 import { useMediaQuery } from "../useMediaQuery";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
-import { BoardKind, SpotlightPick, pickSpotlight, sessionBucket } from "../spotlight";
+import { BoardKind, SessionPhase, SpotlightPick, pickSpotlight, sessionBucket } from "../spotlight";
 import { useMarketSnapshot } from "../useMarketSnapshot";
 import { useUsMarketSnapshot } from "../useUsMarketSnapshot";
 import SpotSparkline from "./SpotSparkline";
@@ -77,6 +77,19 @@ export default function SpotlightBoard({
      closing six until something unrelated happened to re-render it. Thirty
      seconds is well inside the shortest bucket (an hour) and costs one Date. */
   const [bucket, setBucket] = useState(() => sessionBucket());
+
+  /* Which weighting the ranking uses. The bucket's own phase is a Seoul clock,
+     which is the right clock for KOSPI and the wrong one for New York — see the
+     note in describe(). On the US board the payload's session decides: the
+     regular session ranks like an open market, and anything after it ranks like
+     a finished one, where the day's story is where the money went. */
+  const phase: SessionPhase = isUs
+    ? usSnapshot.session === "regular"
+      ? "live"
+      : usSnapshot.session === "pre"
+        ? "pre"
+        : "closed"
+    : bucket.phase;
   useEffect(() => {
     const id = window.setInterval(() => {
       const next = sessionBucket();
@@ -101,14 +114,14 @@ export default function SpotlightBoard({
     const first = pickSpotlight(
       snapshot.boards[0].items,
       snapshot.boards[0].name,
-      bucket.phase,
+      phase,
       kind
     );
     const taken = new Set(first.map((p) => p.item.code));
     const second = pickSpotlight(
       snapshot.boards[1].items,
       snapshot.boards[1].name,
-      bucket.phase,
+      phase,
       kind,
       taken
     );
@@ -116,7 +129,7 @@ export default function SpotlightBoard({
     if (next.length === 0) return held?.picks ?? [];
     heldRef.current = { key: bucket.key, picks: next };
     return next;
-  }, [bucket.key, bucket.phase, snapshot, kind]);
+  }, [bucket.key, phase, snapshot, kind]);
 
   /* Prices come from this minute's snapshot rather than from the frozen pick, so
      a card that was chosen at 09:00 still shows the 09:47 price. Looked up by
