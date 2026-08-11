@@ -478,11 +478,55 @@
 /* Index wide, breadth medium, watchlist narrow — in the order they are read,
    and weighted by how much each needs. The index panel carries two tiles and
    the macro strip; the watchlist is a list of names and numbers. */
+/* `align-items` is left at its default stretch on purpose — it was `start`, and
+   `start` is what made the three cards three different heights, each one only as
+   tall as whatever it happened to contain. Three cards in a row with three
+   different bottom edges read as three unrelated widgets that happen to be
+   adjacent; one edge reads as a band.
+
+   Stretching is only half of it. A stretched card is a tall box with its content
+   at the top and a hole under it, so each card is also a flex column whose list
+   takes the slack (see below): the extra height lands inside the part that is
+   meant to be a list of rows, not as a gap between two things that were supposed
+   to sit together. */
 .desk-pulse-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.8fr);
   gap: 16px;
-  align-items: start;
+}
+
+.desk-pulse-grid > .desk-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Each board's own root fills the card it was given. min-height: 0 because a
+   flex child's default floor is its content, which would push the card back out
+   to the tallest of the three and undo the stretch. */
+.desk-card--index .market-overview-index,
+.desk-card--breadth .desk-breadth,
+.desk-card--radar .desk-radar {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Where the slack goes. Both of these are the last block in their card and both
+   are lists of rows, so a short card grows its list downward and everything
+   above it stays exactly where the other cards put it. */
+.desk-card--breadth .desk-sectors,
+.desk-card--radar .desk-radar-list {
+  flex: 1;
+}
+
+/* The index card is the exception, and has to be: the macro strip is a pair of
+   flip tiles on a fixed --flip-h viewport, so growing it would stretch the frame
+   away from the row it is clipping and the flip would show two rates at once.
+   It is pushed to the card's bottom edge instead, which lines it up with the
+   other two cards' last rows and leaves the slack above it, between the index
+   tiles and the strip — the one place in this card where a gap reads as spacing
+   rather than as something having come loose. */
+.desk-card--index .macro-rates {
+  margin-top: auto;
 }
 
 /* The index board's own rules assume it has a sibling to its right — see
@@ -506,7 +550,10 @@
   gap: 14px;
 }
 
+/* Grows with the card like the real content does, so the row does not visibly
+   change height on the frame the first reading lands. */
 .desk-breadth-skeleton {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -722,6 +769,14 @@
 .desk-seg button.is-on {
   background: var(--surface-1);
   color: var(--text-primary);
+}
+
+/* A column, so the head stays put and the list below it can be handed the card's
+   spare height — see the pulse-row block above. Without this the section is a
+   plain block and `flex: 1` on the list has nothing to grow against. */
+.desk-radar {
+  display: flex;
+  flex-direction: column;
 }
 
 .desk-radar-list {
