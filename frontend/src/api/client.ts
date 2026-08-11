@@ -899,7 +899,15 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 
 export const api = {
   search: (q: string) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
-  popularSearches: (limit = 8) => getJSON<{ items: PopularStock[] }>(`${BASE}/search/popular?limit=${limit}`),
+  /* `market` narrows the ranking to one side. The log is overwhelmingly KR, so a
+     US-only strip taken from the combined top 20 is empty most days — the backend
+     ranks a deeper pool and filters it, which is the only way the global page can
+     show a US 실시간 인기 strip at all. Omitted keeps the combined ranking the KR
+     surfaces have always shown. */
+  popularSearches: (limit = 8, market?: "US" | "KR") =>
+    getJSON<{ items: PopularStock[] }>(
+      `${BASE}/search/popular?limit=${limit}${market ? `&market=${market}` : ""}`
+    ),
   summary: (code: string) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`),
   quote: (code: string) => getJSONFresh<StockQuote>(`${BASE}/stock/${code}/quote`),
   overview: (code: string) => getJSON<CompanyOverview>(`${BASE}/stock/${code}/overview`),

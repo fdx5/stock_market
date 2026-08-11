@@ -43,17 +43,42 @@ def _resolve_market(code: str) -> str:
     return "KOSPI" if code.isdigit() and len(code) == 6 else "US"
 
 
-def _load_popular(limit: int) -> list[dict]:
+# One pool, deep enough that filtering it by market still fills a strip.
+#
+# The ranking is overwhelmingly KR — this is a KR-first site and the log reflects
+# that — so a US-only view taken from the top 20 is usually empty. Ranking 200 and
+# filtering afterwards is what lets the global page show a US strip at all, and it
+# costs nothing extra: the query is the same GROUP BY over the same window, and one
+# cached pool now serves every (limit, market) combination the clients ask for
+# instead of one cache entry per limit.
+POPULAR_POOL = 200
+
+
+def _load_popular_pool() -> list[dict]:
     since = (datetime.now(timezone.utc) - POPULAR_WINDOW).isoformat()
     return [
         {**row, "market": _resolve_market(row["code"])}
-        for row in stock_search_store.top_searches(since, limit)
+        for row in stock_search_store.top_searches(since, POPULAR_POOL)
     ]
 
 
 @router.get("/search/popular")
-def popular(limit: int = Query(8, ge=1, le=20)):
+def popular(
+    limit: int = Query(8, ge=1, le=20),
+    market: str | None = Query(
+        None,
+        description='Restrict to one side: "US" for US tickers, "KR" for KOSPI/KOSDAQ. '
+        "Omitted returns the combined ranking, which is what the KR surfaces want.",
+    ),
+):
     """Most-viewed stocks across all visitors in the last 24h — the data behind the
-    dashboard's "실시간 인기 종목" strip, from the same table the admin ranking uses."""
-    items = cache.get_or_set(f"popular_searches:{limit}", TTL_POPULAR_SECONDS, lambda: _load_popular(limit))
-    return {"items": items}
+    "실시간 인기 종목" strips, from the same table the admin ranking uses."""
+    pool = cache.get_or_set("popular_searches:pool", TTL_POPULAR_SECONDS, _load_popular_pool)
+
+    wanted = (market or "").strip().upper()
+    if wanted == "US":
+        pool = [row for row in pool if row["market"] == "US"]
+    elif wanted == "KR":
+        pool = [row for row in pool if row["market"] != "US"]
+
+    return {"items": pool[:limit]}
