@@ -5182,7 +5182,25 @@ export class HubScene {
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), 0.05);
     const time = this.timer.getElapsed();
-    const speed = this.reducedMotion ? 0.25 : 1;
+    /* One, always. This used to be 0.25 under reduced motion, and it is
+     * multiplied into every moving thing in the scene — orbits, spins, the
+     * disc, the jets, the merger, the wormhole's sky, the comets, the belt —
+     * so the whole system ran as a quarter-speed slow motion. That is not what
+     * the setting asks for. `prefers-reduced-motion` is about motion imposed
+     * on the visitor: a camera that flies, swoops, spirals and blacks the
+     * screen out. A planet going round the star at the rate it has always gone
+     * round is the subject of the page, not an effect played at it, and
+     * slowing it does not reduce anything — it only makes the page look
+     * broken, which is how it was found.
+     *
+     * Every part of the setting that does matter is handled where the motion
+     * actually is, and none of it goes through here: the opening flight is
+     * skipped (startIntro), fly-tos and dives cut straight to the destination
+     * (focusOn, diveInto), the black hole's ending and the tour's are not
+     * begun at all (select, updateVoyagerTour), and the idle auto-rotate never
+     * starts (just below). Kept as a name rather than folded away because the
+     * shape of the frame is worth being able to read. */
+    const speed = 1;
 
     this.updateFlight(dt);
     if (!this.flight) {
