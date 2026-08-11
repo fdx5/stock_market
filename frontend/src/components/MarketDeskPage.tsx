@@ -15,7 +15,7 @@ import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import CommandPalette from "./CommandPalette";
 import DeskIndexStrip from "./DeskIndexStrip";
-import DramPricePanel from "./DramPricePanel";
+import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
 import GlobalNewsIcon from "./GlobalNewsIcon";
@@ -604,7 +604,7 @@ export default function MarketDeskPage() {
 
           {selected && !error && (
             <>
-              <DramPricePanel code={selected.code} market="KR" />
+              <CommodityPanel />
 
               <div className="desk-focus-grid">
                 <div className="desk-focus-main">

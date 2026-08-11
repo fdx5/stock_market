@@ -454,7 +454,18 @@ export const DICTIONARY: Record<string, string> = {
   "날짜": "Date",
   "종가": "Close",
 
-  // D램 현물가격 패널 / 이력 페이지
+  // 원자재 패널 (선물가격 · D램 현물가격) / D램 이력 페이지
+  "원자재": "Commodities",
+  "선물가격": "Futures",
+  "D램 현물가격": "DRAM Spot",
+  "일중 고가": "Day high",
+  "일중 저가": "Day low",
+  "변동률": "Change %",
+  "기준일": "As of",
+  "10초마다 갱신 · 가격은 지연될 수 있습니다": "Refreshed every 10s · prices may be delayed",
+  "선물 시세를 불러오는 중...": "Loading futures prices...",
+  "선물 시세를 불러오지 못했습니다.": "Could not load futures prices.",
+  "표시할 D램 현물가격이 없습니다.": "No DRAM spot prices to show.",
   "이력": "History",
   "D램 현물가격 이력": "DRAM Spot Price History",
   "TrendForce 일별 현물가 · 수집된 전체 기간": "TrendForce daily spot prices · full recorded period",

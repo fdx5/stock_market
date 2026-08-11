@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import Response
 
+from app.data.futures_fetcher import TTL_FUTURES_SECONDS, get_futures
 from app.data.market_ticker_fetcher import TTL_TICKER_SECONDS, get_market_ticker
 from app.data.price_fetcher import get_history
 from app.data.us_index_fetcher import TTL_CONSTITUENTS_SECONDS as US_SECTOR_TTL_SECONDS
@@ -226,6 +227,19 @@ def weather(response: Response):
     browser reuse a response for the same TTL_WEATHER_SECONDS the server cache uses."""
     response.headers["Cache-Control"] = f"public, max-age={TTL_WEATHER_SECONDS}"
     return get_seoul_weather()
+
+
+@router.get("/futures")
+def futures(response: Response):
+    """The 선물가격 board — one live price per commodity contract, refreshed every
+    TTL_FUTURES_SECONDS. See data/futures_fetcher for the roster and why the prices come
+    from Yahoo rather than from the page the roster was transcribed from.
+
+    Same reasoning as /ticker: the panel polls at exactly the TTL, so letting the browser
+    reuse a response for that long turns roughly half the polls into cache hits carrying
+    the bytes a real fetch would have returned anyway."""
+    response.headers["Cache-Control"] = f"public, max-age={TTL_FUTURES_SECONDS}"
+    return get_futures()
 
 
 @router.get("/dram-price")

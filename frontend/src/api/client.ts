@@ -214,6 +214,25 @@ export interface DramPriceResponse {
   items: DramPriceItem[];
 }
 
+/** One commodity contract on the 선물가격 board.
+ *
+ * `unit` is what the price is quoted in ("¢/bu", "$/oz") and is not decoration: the
+ * board puts corn at 460 next to cocoa at 5637 next to copper at 6.63, and without the
+ * unit those read as one scale with outliers. `decimals` is chosen server-side from the
+ * price's own magnitude for the same reason — see futures_fetcher._decimals. */
+export interface FuturesItem {
+  symbol: string;
+  name: string;
+  name_en: string;
+  /** Key into CommodityIcon's glyph set, not a URL. */
+  icon: string;
+  unit: string;
+  price: number;
+  change: number;
+  change_pct: number;
+  decimals: number;
+}
+
 /** One point on one item's price history. */
 export interface DramHistoryPoint {
   price_date: string;
@@ -958,6 +977,7 @@ export const api = {
   sector: (code: string) => getJSON<SectorName>(`${BASE}/market/sector?code=${code}`),
   usSector: (code: string) => getJSON<UsSectorName>(`${BASE}/market/us-sector?code=${encodeURIComponent(code)}`),
   dramPrice: () => getJSON<DramPriceResponse>(`${BASE}/market/dram-price`),
+  futures: () => getJSON<{ items: FuturesItem[] }>(`${BASE}/market/futures`),
   dramPriceHistory: (days = 400) =>
     getJSON<DramHistoryResponse>(`${BASE}/market/dram-price/history?days=${days}`),
   usSectorMap: (code: string, limit = 40) =>

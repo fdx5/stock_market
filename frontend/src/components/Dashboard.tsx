@@ -12,7 +12,7 @@ import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
-import DramPricePanel from "./DramPricePanel";
+import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
 import HeaderDateTime from "./HeaderDateTime";
@@ -406,7 +406,7 @@ export default function Dashboard() {
             <span className="dash-zone-rule" aria-hidden="true" />
           </div>
 
-          <DramPricePanel code={selected.code} market="KR" />
+          <CommodityPanel />
 
           <div className="layout">
           <div className="main-col">
