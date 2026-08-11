@@ -1105,10 +1105,34 @@ a.app-brand:hover .app-logo-wide {
   100% { transform: translateY(-85.714%); }
 }
 
-/* No motion: park each tile on its first member instead of rolling. */
+/* The roll keeps running under reduced motion, and each count has to be named
+   again because the animation lives on the variant class rather than on the
+   track. The !important is aimed at the blanket rule near the top of this file,
+   which puts `animation-duration: 0.001ms !important` on every element — a
+   class beats `*` among important declarations, which is what carries these.
+
+   Parking on the first member, which is what this used to do, is not a quieter
+   version of the tile. Each of these holds three to six indices in one slot and
+   shows them in turn; stopped, five of the six simply do not exist, and the
+   grid silently reports less than it says it does. The panel below is the same
+   data in a list, so nothing here is the only route to a number — but a tile
+   captioned for a group while showing one member of it is wrong rather than
+   calm. See the belt's own note for the same argument. */
 @media (prefers-reduced-motion: reduce) {
-  .global-index-flip-track {
-    animation: none;
+  .global-index-flip-track--3 {
+    animation: global-index-flip-3 10s ease-in-out infinite !important;
+  }
+
+  .global-index-flip-track--4 {
+    animation: global-index-flip-4 13s ease-in-out infinite !important;
+  }
+
+  .global-index-flip-track--5 {
+    animation: global-index-flip-5 16s ease-in-out infinite !important;
+  }
+
+  .global-index-flip-track--6 {
+    animation: global-index-flip-6 19s ease-in-out infinite !important;
   }
 }
 
@@ -2226,10 +2250,18 @@ a.app-brand:hover .app-logo-wide {
   100% { transform: translateY(-75%); }
 }
 
-/* No motion: park each tile on its first member instead of animating. */
+/* Keeps rolling under reduced motion, for the reason the index grid's own note
+   gives: the FX tile carries four rates and the commodity tile three, and a
+   parked tile shows one of them while still being captioned for the set. Named
+   per member count here too, since that is where the animation is declared, and
+   !important to clear the blanket rule at the top of this file. */
 @media (prefers-reduced-motion: reduce) {
-  .macro-flip-track {
-    animation: none;
+  .macro-flip--4 .macro-flip-track {
+    animation: macro-flip-4 13s ease-in-out infinite !important;
+  }
+
+  .macro-flip--3 .macro-flip-track {
+    animation: macro-flip-3 10s ease-in-out infinite !important;
   }
 }
 
