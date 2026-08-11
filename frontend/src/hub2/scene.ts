@@ -653,7 +653,23 @@ export class HubScene {
    * frame-rate sampling below — a pinned tier that demotes itself anyway is
    * not pinned. */
   private pinned: boolean;
-  private reducedMotion: boolean;
+
+  /* There is deliberately no `reducedMotion` flag here any more.
+   *
+   * There was one, read from `prefers-reduced-motion` at construction, and it
+   * did five things: it multiplied every moving body in the scene by 0.25, it
+   * skipped the opening arrival, it cut fly-tos and the dive-in to a hard cut,
+   * and it replaced both endings with a camera reset. The whole scene is
+   * motion — it is a solar system — so what the flag actually produced was not
+   * a calmer page, it was a quarter-speed one with its transitions missing,
+   * reported as a stuck page by somebody whose desktop had the setting on
+   * without their knowing. The same visitor's phone, which did not have it on,
+   * behaved correctly, which is how it was finally pinned down.
+   *
+   * The page offers a way out that the setting cannot: nothing here is the
+   * only route to anything. Every body's destination is in the dock below the
+   * canvas as an ordinary link, so a reader who does not want a camera flying
+   * at them can simply not fly it. See the matching note in styles.css. */
 
   private labelLayer: HTMLDivElement;
   private labels: LabelRig[] = [];
@@ -1093,7 +1109,6 @@ export class HubScene {
     this.pinned = tier !== undefined;
     this.tier = tier ?? initialTier();
     this.config = TIERS[this.tier];
-    this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     const width = Math.max(container.clientWidth, 1);
     const height = Math.max(container.clientHeight, 1);
@@ -3725,13 +3740,7 @@ export class HubScene {
 
   private startIntro() {
     // A long, slow arrival: the system unfolds once, from far outside the
-    // orbit of Neptune down into the plane. Skipped entirely under reduced
-    // motion, which is the whole point of the setting.
-    if (this.reducedMotion) {
-      this.camera.position.copy(this.restPosition());
-      this.controls.target.set(0, 0, 0);
-      return;
-    }
+    // orbit of Neptune down into the plane.
     this.beginFlight({
       fromPos: this.camera.position.clone(),
       toPos: this.restPosition(),
@@ -3852,13 +3861,6 @@ export class HubScene {
     const pickable = this.pickables.find((p) => p.info.key === info.key);
     if (!pickable) return false;
 
-    // A dive is entirely motion. Under reduced motion there is nothing left of
-    // it worth keeping, so the tap does what it did before this existed.
-    if (this.reducedMotion) {
-      this.callbacks.onSelect(info);
-      return true;
-    }
-
     const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
     const dir = this.camera.position.clone().sub(target);
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, 1);
@@ -3917,14 +3919,6 @@ export class HubScene {
 
     const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
     this.followPrev.copy(target);
-    if (this.reducedMotion) {
-      // No tween, but still re-seat the camera so the body is centred and the
-      // pivot is where the follow logic expects it.
-      this.camera.position.copy(this.framePosition(target, info.size, view));
-      this.controls.target.copy(target);
-      return true;
-    }
-
     this.beginFlight({
       fromPos: this.camera.position.clone(),
       toPos: this.framePosition(target, info.size, view),
@@ -3953,11 +3947,6 @@ export class HubScene {
     const info = pickable.info;
     this.voyagerTour = false;
     this.cancelFinale();
-
-    if (this.reducedMotion) {
-      this.callbacks.onSelect(info);
-      return true;
-    }
 
     this.selectedKey = info.key;
     const target = pickable.anchor.getWorldPosition(new THREE.Vector3());
@@ -4293,11 +4282,8 @@ export class HubScene {
     if (!pickable) return;
 
     /* The hole is the last stop and it is not a stop. Rather than framing it
-       for ten seconds and moving on, the tour goes in — see updateFinale.
-       Except under reduced motion, where an accelerating spiral that ends by
-       blacking the screen out is precisely the thing the setting is asking not
-       to be shown; there it stays an ordinary stop. */
-    if (pickable.info.key === "blackhole" && !this.reducedMotion) {
+       for ten seconds and moving on, the tour goes in — see updateFinale. */
+    if (pickable.info.key === "blackhole") {
       this.beginFinale();
       return;
     }
@@ -5193,13 +5179,11 @@ export class HubScene {
      * slowing it does not reduce anything — it only makes the page look
      * broken, which is how it was found.
      *
-     * Every part of the setting that does matter is handled where the motion
-     * actually is, and none of it goes through here: the opening flight is
-     * skipped (startIntro), fly-tos and dives cut straight to the destination
-     * (focusOn, diveInto), the black hole's ending and the tour's are not
-     * begun at all (select, updateVoyagerTour), and the idle auto-rotate never
-     * starts (just below). Kept as a name rather than folded away because the
-     * shape of the frame is worth being able to read. */
+     * The rest of the flag went the same way and for the same reason — see the
+     * note by `pinned`. Kept as a name rather than folded away because the
+     * shape of the frame is worth being able to read: every update below takes
+     * a rate, and it is useful to be able to see that they all take the same
+     * one. */
     const speed = 1;
 
     this.updateFlight(dt);
@@ -5207,7 +5191,7 @@ export class HubScene {
       this.idleFor += dt;
       // Left alone, the scene starts turning on its own. Slowly enough that it
       // reads as drift rather than as a carousel.
-      if (this.idleFor > 22 && !this.reducedMotion) this.controls.autoRotate = true;
+      if (this.idleFor > 22) this.controls.autoRotate = true;
     }
     this.advanceTour(dt);
 
@@ -7186,12 +7170,7 @@ export class HubScene {
       this.voyagerTour = false;
       this.voyagerTourU = 0;
       this.callbacks.onVoyagerTour(false);
-      /* Except under reduced motion, where forty-eight seconds of accelerating
-         camera and full-frame effects is precisely the thing the setting is
-         asking not to be shown. There the tour simply ends where it arrived,
-         the way the auto tour's ending is skipped for the same reason. */
-      if (this.reducedMotion) this.resetCamera();
-      else this.beginFinale("wormhole");
+      this.beginFinale("wormhole");
     }
   }
 

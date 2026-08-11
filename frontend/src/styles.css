@@ -118,15 +118,25 @@ body {
  * `*`, the only way to exempt anything was another !important, so each rescue
  * added an exception rather than a fix.
  *
- * Reduced motion is honoured per element instead, next to whatever is moving,
- * where there is enough context to say whether stopping it removes motion or
- * removes information. Search this file for `prefers-reduced-motion` to see
- * what is switched off: entrance animations, pulsing dots, sweeping glints,
- * skeleton shimmers, and the hub's camera flights over in scene.ts. Anything
- * that carries a number keeps moving.
+ * Removing it left a dozen per-element rules behind, and those went too, one
+ * report at a time: the LED board, the skeleton shimmers, the open-market dot,
+ * the mobile bar, the running-batch badge and the whole prediction page. Every
+ * one of them turned out to be the same shape of mistake — the thing switched
+ * off was the thing that distinguished a live state from a dead one, so a
+ * reader with the setting on got a page that looked broken rather than calm.
+ * The hub's own five went with them; see the note by `pinned` in
+ * hub2/scene.ts, which is where the last of it lived.
  *
- * If something new needs to be still, give it its own rule. Do not bring this
- * one back. */
+ * So this file honours the setting nowhere, and that is a decision rather than
+ * an oversight. What makes it defensible here is that nothing on these pages
+ * is animated as an effect played AT the reader: no parallax, no auto-playing
+ * video, no full-screen transitions, nothing that moves without being asked
+ * except a ticker, a flip tile and a few pulses, all small, all local, all
+ * carrying a number.
+ *
+ * If something new genuinely needs to be still — something large, or fast, or
+ * across the whole viewport — give that one thing its own rule. Do not bring
+ * the blanket back. */
 
 .app {
   max-width: 1280px;
@@ -519,15 +529,8 @@ body {
   border: 1px solid rgba(var(--led-aura), 0.26);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .led-cabinet {
-    transition: none;
-  }
-  .led-dot,
-  .led-col {
-    animation: none;
-  }
-}
+/* The board keeps flickering under reduced motion. A dot-matrix display that
+   does not is a picture of one. */
 
 /* ── Light theme: a wholly different palette ──────────────────────────────────────────
    On the white page the glowing dark-glass LED would clash, so it flips to a bright LCD:
@@ -4139,15 +4142,8 @@ thead .weekly-foreign-amount-col {
   border-radius: 2px 2px 0 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .kospi-map-skeleton-block,
-  .kospi-map-skeleton-row,
-  .skeleton,
-  .skeleton-row {
-    animation: none;
-    opacity: 0.5;
-  }
-}
+/* The shimmer keeps running under reduced motion. It is the only thing saying
+   the page is still loading rather than finished and empty. */
 
 /* The light theme's border is an actual visible color rather than a page-matching
    "fake gap" (see --map-gap), so the same 2px weight that reads as a subtle seam
@@ -5071,11 +5067,8 @@ thead .weekly-foreign-amount-col {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .market-status-pill.is-open .market-status-dot {
-    animation: none;
-  }
-}
+/* The open-market dot keeps pulsing under reduced motion — the pulse is what
+   separates 장중 from a pill that merely says so. */
 
 /* ── Gainers / losers table ──────────────────────────────────────────────── */
 .movers-table .top50-table-name button {
@@ -5511,11 +5504,7 @@ thead .weekly-foreign-amount-col {
     transform: translateY(0);
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .mobile-stock-bar {
-      transition: none;
-    }
-  }
+  /* The bar keeps sliding in under reduced motion, like everything else here. */
 
   .mobile-stock-bar-id {
     display: flex;
@@ -11048,11 +11037,9 @@ thead .weekly-foreign-amount-col {
   overflow-wrap: anywhere;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .admin-batch-status--running {
-    animation: none;
-  }
-}
+/* The running-batch pulse keeps going under reduced motion. Still, "running"
+   and "finished" look the same, which is the one thing this badge exists to
+   tell apart. */
 
 .admin-sessions-table {
   display: flex;
@@ -15208,63 +15195,17 @@ thead .pred-matrix-stockhead {
 
 /* --- Motion & viewport --------------------------------------------------- */
 
-@media (prefers-reduced-motion: reduce) {
-  /* Everything decorative stops; nothing that carries information is animated in the
-     first place, so the page is fully readable with all of it off. Cards must be
-     forced visible here — their default state is transparent, and the entrance
-     animation that normally reveals them is exactly what's being disabled. */
-  .pred-hero-aurora,
-  .pred-hero-badge-dot,
-  .pred-skeleton-row,
-  .app--prediction::before,
-  .pred-dial-sweep,
-  .pred-top-card {
-    animation: none;
-  }
-
-  /* The sweep is the dial's only motion and it carries nothing — the ring is the
-     data. Off, it should not leave a bright wedge frozen over one arc. */
-  .pred-dial-sweep {
-    opacity: 0;
-  }
-
-  .pred-top-card {
-    opacity: 1;
-    transform: none;
-  }
-
-  .pred-top-card:hover,
-  .pred-row:hover,
-  .pred-stat:hover {
-    transform: none;
-  }
-
-  .pred-card,
-  .pred-card.is-revealed {
-    opacity: 1;
-    transform: none;
-    animation: none;
-  }
-
-  .pred-card:hover {
-    transform: none;
-  }
-
-  .pred-datechip:hover {
-    transform: none;
-  }
-
-  .pred-gauge-fill,
-  .pred-prob-seg,
-  .pred-reliability-fill {
-    transition: none;
-  }
-
-  .pred-modal,
-  .pred-modal-backdrop {
-    animation: none;
-  }
-}
+/* Nothing is switched off here under reduced motion either — the aurora, the
+   badge dot, the dial sweep, the card entrances, the hover lifts, the gauge
+   fills and the modal all run as written.
+ *
+ * The block that used to sit here also had to force .pred-card and
+ * .pred-top-card visible, because a card's resting state is `opacity: 0` and
+ * the entrance animation it was disabling is the only thing that reveals it.
+ * That is a rescue the page no longer needs: the reveal is driven by an
+ * IntersectionObserver in PredictionCard.tsx, which knows nothing about this
+ * setting and falls back to visible-immediately where it is unavailable, so
+ * every card still ends up on screen by its own route. */
 
 /* The console folds before the cards do. Two columns need room for a 148px dial and
    a headline date beside it; below this the dial goes under the statement, centred,
