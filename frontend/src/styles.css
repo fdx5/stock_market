@@ -2913,18 +2913,31 @@ a.app-brand:hover .app-logo-wide {
   }
 }
 
+/* The lamp keeps turning under reduced motion. It used to settle into a steady
+   even spread — a lit lamp rather than a turning one — and the intent was
+   sound, but a warning beacon that does not sweep is not a warning beacon, it
+   is a coloured dot beside a tab label. The sweep is what marks 급등/급락 out
+   of a row of eight otherwise identical tabs.
+
+   Restored as longhands plus an explicit delay rather than one shorthand on
+   everything: the two beams run half a cycle apart, and a shorthand here would
+   reset animation-delay to 0 with !important behind it, which beats the -0.7s
+   on --left below and fires both beams together. The !important itself is for
+   the blanket rule at the top of this file — it puts
+   `animation-duration: 0.001ms !important` on every element, and a class beats
+   `*` among important declarations. */
 @media (prefers-reduced-motion: reduce) {
-  /* Still a lit lamp, just not a turning one — the beams settle at a steady, even
-     spread instead of disappearing entirely. */
   .tab-beacon-dome,
   .tab-beacon-glow {
-    animation: none;
+    animation: tab-beacon-flare 0.7s ease-in-out infinite !important;
   }
 
   .tab-beacon-beam {
-    animation: none;
-    opacity: 0.5;
-    transform: scaleX(0.8);
+    animation: tab-beacon-beam 1.4s ease-in-out infinite !important;
+  }
+
+  .tab-beacon-beam--left {
+    animation-delay: -0.7s !important;
   }
 }
 
