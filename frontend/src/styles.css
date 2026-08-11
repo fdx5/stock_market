@@ -3935,10 +3935,30 @@ thead .weekly-foreign-amount-col {
   }
 }
 
+/* The belt keeps running under reduced motion, and the !important is aimed at
+   the blanket rule near the top of this file — that one puts
+   `animation-duration: 0.001ms !important` on every element on the page, so a
+   plain declaration here would lose to it. A class beats `*` among important
+   declarations, which is the whole trick.
+
+   This used to stop the belt and hand back `overflow-x: auto` instead, on the
+   theory that a reader who cannot take a moving marquee could scroll it by
+   hand. That escape hatch never worked: .ticker-track is `width: max-content`,
+   so it is exactly as wide as its own contents and has nothing to overflow —
+   the box that clips is .ticker-bar, and it is `overflow: hidden`. What the
+   setting actually produced was a frozen belt showing whichever four or five
+   cards happened to fit, with no way to reach the rest. A stopped ticker is
+   not a calmer ticker, it is a broken one.
+
+   And the belt is the page's subject rather than an effect played at the
+   reader: it is the live prices, the same numbers the panels below carry, and
+   it moves because that is how a ticker presents them. The genuinely
+   vestibular things this setting exists for — the entrance animations, the
+   pulsing dots, the sweeping beacons, the hub's camera flights — are all still
+   switched off, each where it lives. */
 @media (prefers-reduced-motion: reduce) {
   .ticker-track {
-    animation: none;
-    overflow-x: auto;
+    animation: ticker-scroll 46s linear infinite !important;
   }
 }
 
