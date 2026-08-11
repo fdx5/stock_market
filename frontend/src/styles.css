@@ -13655,7 +13655,7 @@ button.admin-comments-text--clickable:hover {
 }
 
 .pred-matrix-hero {
-  max-width: 1100px;
+  max-width: 1400px;
   margin: 28px auto 0;
   padding: 0 20px;
 }
@@ -13672,15 +13672,205 @@ button.admin-comments-text--clickable:hover {
   color: var(--text-secondary);
 }
 
+/* ── the scoreboard ──────────────────────────────────────────────────────
+   The page is called 채점 결과 and used to never say what the result was: a
+   reader had to count ✓ and ✕ out of a grid by eye to answer the one question
+   it exists for. This states it, at the top, before the grid.
+
+   Every figure is counted from the same cells the grid draws, so the headline
+   and the grid cannot disagree — there is no second source for either to drift
+   against. */
+.pred-score {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  align-items: center;
+  gap: 18px 28px;
+  max-width: 1400px;
+  margin: 20px auto 0;
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+}
+
+.pred-score-main {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pred-score-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.pred-score-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  margin: 0;
+}
+
+.pred-score-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pred-score-stats dt {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.pred-score-stats dd {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.pred-score-stats dd.is-hit { color: var(--status-good); }
+.pred-score-stats dd.is-miss { color: var(--status-critical); }
+.pred-score-stats dd.is-pending { color: var(--text-muted); }
+
+/* The two names worth knowing before reading anything else. Both are over graded
+   calls only and only appear once a stock has enough of them to mean something
+   — one graded call and one hit is not "the most accurate stock", it is a coin
+   that landed once. See `extremes`. */
+.pred-score-extremes {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--gridline);
+}
+
+.pred-score-extreme {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.pred-score-extreme b {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.pred-score-extreme.is-best { color: var(--status-good); }
+.pred-score-extreme.is-worst { color: var(--status-critical); }
+
+/* ── the rate readout ────────────────────────────────────────────────────
+   One component for the whole board, for each stock and for each session, so
+   all three are read on the same scale rather than in three different units.
+
+   Three colour bands rather than a continuous gradient: this is a batting
+   average off a few dozen calls, and shading it continuously would imply a
+   precision the sample size does not support. */
+.pred-rate {
+  display: grid;
+  grid-template-columns: auto minmax(48px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  --pred-rate-tone: var(--text-muted);
+}
+
+.pred-rate.is-high { --pred-rate-tone: var(--status-good); }
+.pred-rate.is-mid { --pred-rate-tone: var(--status-warning); }
+.pred-rate.is-low { --pred-rate-tone: var(--status-critical); }
+
+.pred-rate-value {
+  font-size: 13px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--pred-rate-tone);
+  min-width: 34px;
+}
+
+.pred-rate-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--gridline);
+  overflow: hidden;
+}
+
+.pred-rate-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--pred-rate-tone);
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.pred-rate-count {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pred-rate--hero .pred-rate-value {
+  font-size: 34px;
+  line-height: 1;
+  min-width: 68px;
+}
+
+.pred-rate--hero .pred-rate-track {
+  height: 9px;
+  border-radius: 5px;
+}
+
+.pred-rate--hero .pred-rate-count {
+  font-size: 12px;
+}
+
 .pred-matrix-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  max-width: 1100px;
+  max-width: 1400px;
   margin: 16px auto 0;
   padding: 0 20px;
+}
+
+/* Matches .pred-sort's select so the density toggle reads as one of the same
+   set of controls rather than as a button that wandered in. */
+.pred-density {
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease;
+}
+
+.pred-density:hover {
+  border-color: color-mix(in srgb, var(--series-violet) 55%, transparent);
+  color: var(--text-primary);
+}
+
+.pred-density.is-on {
+  border-color: color-mix(in srgb, var(--series-violet) 60%, transparent);
+  background: color-mix(in srgb, var(--series-violet) 14%, transparent);
+  color: var(--text-primary);
 }
 
 .pred-matrix-legend {
@@ -13719,11 +13909,22 @@ button.admin-comments-text--clickable:hover {
    1060px = the old 1100px box less its two 20px gutters, so the table still lines up
    with the hero text above it at every width; the frozen column now parks exactly on
    the box edge, with nothing to its left to show through. */
+/* Wider than the 1060 it was. The grid gained two columns that are always on
+   screen — the per-stock rate and, at the foot, the per-session one — and the
+   date columns it pushes aside are the whole point of the page. The cap is a
+   ceiling rather than a target: the container is still `calc(100% - 40px)` on
+   anything narrower. `max-height` with the sticky head and foot turns the grid
+   into its own scrollport, so the dates stay overhead and the session rates stay
+   underfoot however far down sixty stocks the reader is. */
 .pred-matrix-scroll {
   width: calc(100% - 40px);
-  max-width: 1060px;
+  max-width: 1400px;
   margin: 18px auto 40px;
-  overflow-x: auto;
+  overflow: auto;
+  max-height: min(72vh, 760px);
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: 12px;
 }
 
 .pred-matrix {
@@ -13752,6 +13953,12 @@ button.admin-comments-text--clickable:hover {
   border-bottom: 1px solid var(--gridline);
 }
 
+/* Fixed, not just a minimum. The rate column beside it is sticky at this exact
+   offset, and a name column that grew with its longest stock name would slide
+   the two out of register — the frozen pair has to have a width the CSS knows.
+   Long names ellipsis instead (see .pred-matrix-stockname). The right border
+   moves to the rate column, so the frozen block ends in one line rather than
+   two. */
 .pred-matrix-stockhead {
   position: sticky;
   left: 0;
@@ -13759,8 +13966,9 @@ button.admin-comments-text--clickable:hover {
   background: var(--surface-1);
   text-align: left !important;
   padding: 7px 12px !important;
-  min-width: 132px;
-  border-right: 1px solid var(--gridline);
+  width: 148px;
+  min-width: 148px;
+  max-width: 148px;
   border-bottom: 1px solid var(--gridline);
 }
 
@@ -13769,6 +13977,8 @@ thead .pred-matrix-stockhead {
 }
 
 .pred-matrix-stockname {
+  overflow: hidden;
+  text-overflow: ellipsis;
   display: block;
   font-weight: 700;
   color: var(--text-primary);
@@ -13780,10 +13990,144 @@ thead .pred-matrix-stockhead {
   color: var(--text-muted);
 }
 
+/* The per-stock rate, pinned beside the name so it travels with the row instead
+   of having to be counted along it. Sticky at the name column's own width, so
+   the two move together when the grid scrolls sideways. */
+.pred-matrix-ratehead,
+.pred-matrix-ratecell {
+  position: sticky;
+  left: 148px;
+  z-index: 2;
+  width: 168px;
+  min-width: 168px;
+  padding: 6px 12px 6px 0 !important;
+  background: var(--surface-1);
+  text-align: left !important;
+  border-right: 1px solid var(--gridline);
+}
+
+thead .pred-matrix-ratehead {
+  z-index: 4;
+}
+
+/* The per-session answer, along the bottom. Reading down a column already showed
+   how one day went; this states it, so a bad session is visible without counting
+   a column of marks. Stuck to the bottom of the scrollport for the same reason
+   the header row is stuck to the top — over sixty stocks it would otherwise be
+   off-screen for the whole scroll. */
+.pred-matrix tfoot th,
+.pred-matrix tfoot td {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--surface-1);
+  border-top: 1px solid var(--gridline);
+}
+
+.pred-matrix tfoot .pred-matrix-stockhead,
+.pred-matrix tfoot .pred-matrix-ratecell {
+  z-index: 4;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.pred-matrix-datefoot {
+  padding: 5px 4px !important;
+  --pred-rate-tone: var(--text-muted);
+}
+
+.pred-matrix-datefoot.is-high { --pred-rate-tone: var(--status-good); }
+.pred-matrix-datefoot.is-mid { --pred-rate-tone: var(--status-warning); }
+.pred-matrix-datefoot.is-low { --pred-rate-tone: var(--status-critical); }
+
+.pred-matrix-datefoot-value {
+  display: block;
+  font-size: 12px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--pred-rate-tone);
+}
+
+.pred-matrix-datefoot-count {
+  display: block;
+  font-size: 9.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .pred-matrix-cell {
   width: 126px;
   height: 56px;
   border-bottom: 1px solid color-mix(in srgb, var(--gridline) 60%, transparent);
+}
+
+/* Compact: the mark alone, in a square. Sixty detailed columns is four numbers
+   times sixty that nobody reads across, and the grid was meant to be legible as
+   a shape — which is exactly what those numbers prevent. They are still one
+   hover away (the cell carries them in its title) and one click away in full. */
+.pred-matrix--compact .pred-matrix-cell {
+  width: 38px;
+  height: 34px;
+}
+
+.pred-matrix--compact .pred-matrix-mark {
+  font-size: 13px;
+}
+
+.pred-matrix--compact .pred-matrix-cellbtn {
+  padding: 0;
+}
+
+/* ── the grading page on a narrow screen ─────────────────────────────────── */
+
+@media (max-width: 900px) {
+  .pred-score {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .pred-rate--hero .pred-rate-value {
+    font-size: 28px;
+    min-width: 58px;
+  }
+
+  .pred-score-stats {
+    gap: 10px 18px;
+  }
+
+  .pred-score-stats dd {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 680px) {
+  /* The frozen pair is 316px of a 360px screen, which leaves no room for the
+     grid it is supposed to be labelling. The name column stays — a row with no
+     name is unreadable — and the rate column goes, since the same number for
+     the same stock is what the sort is now ordering by and the scoreboard above
+     already carries the total. Compact mode is where this page is worth using
+     at this width anyway. */
+  .pred-matrix-ratehead,
+  .pred-matrix-ratecell {
+    display: none;
+  }
+
+  .pred-matrix-stockhead {
+    width: 108px;
+    min-width: 108px;
+    max-width: 108px;
+    padding: 6px 8px !important;
+    border-right: 1px solid var(--gridline);
+  }
+
+  .pred-matrix-scroll {
+    max-height: 70vh;
+  }
+
+  .pred-matrix-controls {
+    gap: 8px;
+  }
 }
 
 .pred-matrix-cell--hit {
