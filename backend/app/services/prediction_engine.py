@@ -529,8 +529,15 @@ def _compose_detail(item: dict, technical: dict, ai: dict, result: str, move_pct
     verdict = f" [익일 전망: {result} {move_pct:+.2f}%]"
     if not base:
         base = f"{item['name']} 정량 지표는 {technical['summary']}."
-    combined = base if base.endswith(verdict) else f"{base}{verdict}"
-    return ai_analyst._truncate(combined)
+    if base.endswith(verdict):
+        return ai_analyst._truncate(base)
+    # Trim the rationale to leave room for the verdict rather than truncating the two
+    # together: the verdict is the last thing in the string, so a combined truncation
+    # cuts the direction and the number off the row they exist to state — the one part
+    # of this text that must never be missing. A rationale that runs long loses its
+    # final sentence instead, which the reader can survive.
+    room = max(0, ai_analyst.DETAIL_MAX_CHARS - len(verdict))
+    return f"{ai_analyst._truncate(base, room)}{verdict}"
 
 
 def build_prediction(

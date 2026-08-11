@@ -133,6 +133,36 @@ def last_run_or_snapshot(region: str) -> dict | None:
     }
 
 
+def _sum_usage(per_market: dict[str, dict]) -> dict | None:
+    """This region's total Claude consumption, or None when nothing reached Claude.
+
+    Summed across markets rather than reported per-market alone because the number an
+    operator acts on is the run's total: a subscription's window is consumed by the
+    batch as a whole, and the per-market split only matters once that total is too
+    big. Both are kept — the split stays on `markets`.
+    """
+    usages = [m["ai_usage"] for m in per_market.values() if m.get("ai_usage")]
+    if not usages:
+        return None
+    total = {
+        key: sum(int(u.get(key) or 0) for u in usages)
+        for key in (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+            "total_tokens",
+        )
+    }
+    # Only the CLI path reports a cost, so this is absent on the API path rather than
+    # being reported as a misleading zero.
+    costs = [u["cost_usd"] for u in usages if u.get("cost_usd") is not None]
+    if costs:
+        total["cost_usd"] = round(sum(costs), 4)
+    total["calls"] = len(usages)
+    return total
+
+
 def _group_by_market(features: list[dict]) -> dict[str, list[dict]]:
     grouped: dict[str, list[dict]] = {}
     for f in features:
@@ -255,7 +285,7 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
             # sector averages inside it are a property of the whole group — the thing
             # that lets a single row say whether the stock moved or the market did.
             market_ctx = prediction_quality.build_market_context(market, payloads, index, fx)
-            judgements, source, ai_error = ai_analyst.analyze(market, payloads, market_ctx)
+            judgements, source, ai_error, ai_usage = ai_analyst.analyze(market, payloads, market_ctx)
 
             # Falling back to the heuristic is correct when no key is configured, but
             # falling back *with* a key set means the Claude call failed — a wrong
@@ -291,6 +321,8 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
                 )
 
             per_market[market] = {"count": len(payloads), "ai_source": source}
+            if ai_usage:
+                per_market[market]["ai_usage"] = ai_usage
 
         # A manual rerun (force=True) regenerates the day: delete this run's
         # (수집일자, 시장) slice, then insert fresh — so a roster that shifted since the
@@ -304,7 +336,14 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
         else:
             saved = prediction_store.upsert_predictions(rows)
         elapsed = round(time.time() - started, 1)
-        logger.info("prediction_batch: %s saved=%d in %ss", region, saved, elapsed)
+        ai_usage = _sum_usage(per_market)
+        logger.info(
+            "prediction_batch: %s saved=%d in %ss tokens=%s",
+            region,
+            saved,
+            elapsed,
+            ai_usage.get("total_tokens") if ai_usage else "n/a",
+        )
 
         return {
             "region": region,
@@ -314,6 +353,7 @@ def _run_batch_impl(region: str, force: bool, triggered_by: str) -> dict:
             "predict_weekday": cal.korean_weekday(predict_day),
             "saved": saved,
             "markets": per_market,
+            "ai_usage": ai_usage,
             "grading": grading,
             "elapsed_seconds": elapsed,
             "warnings": warnings,
@@ -353,6 +393,7 @@ def _record(region: str, summary: dict) -> dict:
         "predict_weekday": summary.get("predict_weekday"),
         "saved": summary.get("saved", 0),
         "markets": summary.get("markets", {}),
+        "ai_usage": summary.get("ai_usage"),
         "grading": summary.get("grading"),
         "elapsed_seconds": summary.get("elapsed_seconds"),
         "warnings": summary.get("warnings", []),

@@ -17,6 +17,17 @@ services:
       # service avoids any accidental metered calls elsewhere.
       - key: PREDICTION_AI_BACKEND
         value: subscription
+      # Thinking depth, and the largest cost knob after the model itself — thinking
+      # bills as output. "medium" is the code default; raise to "high"/"xhigh" only if
+      # the scores visibly degrade. Every run now reports its token usage in the batch
+      # summary and the admin panel, so that is a measurable question, not a guess.
+      # - key: PREDICTION_AI_EFFORT
+      #   value: medium
+      # Set to "1" to have Claude write 장 마감 설명 instead of the deterministic
+      # composer in prediction_quality. Off by default: it was ~20% of the generated
+      # text to explain a move that already happened, from numbers this app holds.
+      # - key: PREDICTION_AI_CLOSE_SUMMARY
+      #   value: "1"
       # Long-lived subscription token from `claude setup-token` (run locally while
       # logged into Claude Code on a Pro/Max plan). Set as a secret in the dashboard.
       - key: CLAUDE_CODE_OAUTH_TOKEN
