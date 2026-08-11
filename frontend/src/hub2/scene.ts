@@ -2505,10 +2505,12 @@ export class HubScene {
     (saturn ? saturn.axis : this.scene).add(this.wormhole);
     this.disposables.push(geo, this.wormholeMaterial);
 
-    /* Pickable, and deliberately not a destination — `to` is empty, the way
-       the telescope's is. It has to be in `pickables` at all because that is
-       the list observe() looks a target up in, so a wormhole the telescope
-       cannot find is a wormhole missing from the deep-sky menu. */
+    /* A destination now, and the body whose dive needs the least explaining:
+       every dive here ends by filling the frame and whiting out, and on a
+       wormhole that reads as going through rather than as an effect played
+       over a planet. `primary` so the label stands without being hovered — a
+       route this page offers nowhere else should not be discoverable only by
+       sweeping the pointer across the sky. */
     const info: BodyInfo = {
       key: "wormhole",
       ko: WORMHOLE.ko,
@@ -2518,9 +2520,8 @@ export class HubScene {
       to: WORMHOLE.to,
       accent: "#9ec7ff",
       size: WORMHOLE_RADIUS,
-      primary: false,
-      // Nothing to fall into: a dive ends by opening a page, and this has none.
-      dive: false,
+      primary: true,
+      dive: true,
     };
     const hit = this.hitSphere(WORMHOLE_RADIUS * 1.8);
     this.wormhole.add(hit);

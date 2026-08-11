@@ -547,13 +547,25 @@ export const NEUTRON_BINARY: LandmarkSpec = {
  * Saturn's own 144 the far edge of it is 160 from the sun, comfortably inside
  * the 172.4 where Uranus's rings begin. That last one is the constraint that
  * stops this going any further out: the two planets do line up. */
+/* The mouth off Saturn, and the way through to the market desk.
+ *
+ * It carried no destination for as long as it was scenery. Giving it one is
+ * the obvious reading of the object — the whole point of a wormhole is that it
+ * is a shortcut to somewhere else — and of everything in this sky it is the
+ * body whose dive needs the least explaining: the camera falls until the mouth
+ * is the entire frame and the page changes out of the white-out, which is what
+ * going through one would look like from the inside of the ship.
+ *
+ * The fall stops just short of the surface rather than passing through it, for
+ * the reasons diveInto's own note gives — the spheres are front-faced and the
+ * near plane clips anything closer. Nothing here is inside anything. */
 export const WORMHOLE: LandmarkSpec = {
   key: "wormhole",
-  ko: "웜홀",
-  en: "Wormhole",
+  ko: "마켓 데스크",
+  en: "MARKET DESK",
   bodyKo: "웜홀",
   bodyEn: "Wormhole",
-  to: "",
+  to: "/desk",
   position: [27, 17, 0],
 };
 

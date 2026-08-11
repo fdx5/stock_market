@@ -1,0 +1,868 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   The market desk.
+
+   Scoped entirely under .app--desk. Nothing in here can reach the classic
+   dashboard or any other route, which is the point: the two pages share their
+   components and therefore share those components' styles from styles.css, and
+   the only thing this file is allowed to do is arrange them and dress the
+   pieces that are new. Any rule below that touches a class defined in
+   styles.css is written as a descendant of a .desk- container, so it is an
+   override in one place rather than a change to the shared component.
+
+   Built on the same tokens as the rest of the site (--surface-1, --border,
+   --up-color …), so light and dark both fall out of the theme without a single
+   colour being restated here.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.app--desk {
+  /* Wider than the 1280 every other page uses. The pulse row is three panels
+     that are only worth putting side by side if each is wide enough to read,
+     and at 1280 the third one is a column of clipped numbers. Everything still
+     collapses to one column well before this matters on a laptop. */
+  max-width: 1680px;
+  /* Set by the page from the sticky header's measured height — see the
+     ResizeObserver in MarketDeskPage. The fallback keeps the command bar in a
+     sane place for the one frame before the first measurement lands. */
+  --desk-header-h: 96px;
+  --desk-radius: 14px;
+  --desk-card-bg: color-mix(in srgb, var(--surface-1) 92%, transparent);
+}
+
+.desk-main {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+/* ── the command bar ────────────────────────────────────────────────────── */
+
+/* Sticks below the site header rather than scrolling away with the page. On the
+   classic desk the search field is a one-off you pass on the way in; here it is
+   the page's main verb and stays reachable from the bottom of the chart. */
+.desk-command {
+  position: sticky;
+  top: var(--desk-header-h);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 0 14px;
+  margin-bottom: 16px;
+  background: var(--page-plane);
+  /* The fade is what stops rows of the ticker appearing to slide out of the
+     bar's bottom edge — a hard edge over moving content reads as a seam. */
+  box-shadow: 0 12px 16px -12px var(--page-plane);
+}
+
+.desk-command-inner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.desk-command-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* SearchBar brings its own width rules; inside the command bar it shares the
+   row with the palette trigger, so it gives up trying to be the whole line. */
+.desk-command-search > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── the command palette ────────────────────────────────────────────────── */
+
+.desk-cmd-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.desk-cmd-trigger:hover {
+  border-color: color-mix(in srgb, var(--series-violet) 55%, transparent);
+  color: var(--text-secondary);
+  transform: translateY(-1px);
+}
+
+.desk-cmd-trigger-icon {
+  font-size: 14px;
+}
+
+.desk-cmd-trigger kbd,
+.desk-cmd-foot kbd,
+.desk-cmd-field kbd {
+  font: inherit;
+  font-size: 10.5px;
+  padding: 2px 5px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-muted);
+}
+
+.desk-cmd-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+  background: color-mix(in srgb, var(--page-plane) 72%, transparent);
+  backdrop-filter: blur(3px);
+  animation: desk-fade-in 0.14s ease-out;
+}
+
+.desk-cmd {
+  width: min(620px, 100%);
+  max-height: 70vh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--desk-radius);
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  animation: desk-rise 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.desk-cmd-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--gridline);
+  color: var(--text-muted);
+}
+
+.desk-cmd-field input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text-primary);
+  outline: none;
+}
+
+.desk-cmd-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.desk-cmd-row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 9px;
+  background: none;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.desk-cmd-row.is-active {
+  background: color-mix(in srgb, var(--series-violet) 20%, transparent);
+}
+
+.desk-cmd-kind {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+  padding: 3px 0;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-primary) 9%, transparent);
+  color: var(--text-muted);
+}
+
+.desk-cmd-kind.is-page {
+  background: color-mix(in srgb, var(--series-blue) 22%, transparent);
+  color: var(--series-blue);
+}
+
+.desk-cmd-label {
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-cmd-hint {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-cmd-empty {
+  margin: 0;
+  padding: 26px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.desk-cmd-foot {
+  display: flex;
+  gap: 16px;
+  padding: 9px 14px;
+  border-top: 1px solid var(--gridline);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.desk-cmd-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@keyframes desk-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes desk-rise {
+  from { opacity: 0; transform: translateY(-8px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── bands ──────────────────────────────────────────────────────────────── */
+
+.desk-band {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* The rail's scroll target. Without this a jump lands the band's top edge
+     under the sticky pair above it. */
+  scroll-margin-top: calc(var(--desk-header-h) + 78px);
+}
+
+.desk-band-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.desk-band-head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.desk-band-rule {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, var(--gridline), transparent);
+}
+
+.desk-card {
+  border: 1px solid var(--border);
+  border-radius: var(--desk-radius);
+  background: var(--desk-card-bg);
+  padding: 16px;
+  min-width: 0;
+}
+
+.desk-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.desk-card-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.desk-card-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── band 1: the pulse row ──────────────────────────────────────────────── */
+
+/* Index wide, breadth medium, watchlist narrow — in the order they are read,
+   and weighted by how much each needs. The index panel carries two tiles and
+   the macro strip; the watchlist is a list of names and numbers. */
+.desk-pulse-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr) minmax(0, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* The index board's own rules assume it has a sibling to its right — see
+   .market-overview-index in styles.css. Alone in a card, that divider is a line
+   down the card's inside edge and the padding is a gap to nothing. */
+.desk-card--index .market-overview-index {
+  border-right: none;
+  padding-right: 0;
+}
+
+.desk-card--index .market-overview-half,
+.desk-card--flow .market-overview-half {
+  gap: 12px;
+}
+
+/* ── the breadth gauge ──────────────────────────────────────────────────── */
+
+.desk-breadth {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.desk-breadth-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.desk-temp {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+/* The dial is a ring whose colour carries the reading, so the number inside it
+   is legible at a glance without being read as a number first. The tint is set
+   per mood below rather than interpolated, because five named states are what
+   the widget actually claims to distinguish. */
+.desk-temp-dial {
+  position: relative;
+  flex-shrink: 0;
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 1px;
+  border: 3px solid var(--desk-temp-ring, var(--text-muted));
+  background: radial-gradient(
+    circle at 50% 42%,
+    color-mix(in srgb, var(--desk-temp-ring, var(--text-muted)) 22%, transparent),
+    transparent 72%
+  );
+}
+
+.desk-temp-value {
+  font-size: 27px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--desk-temp-ring, var(--text-primary));
+}
+
+.desk-temp-unit {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--desk-temp-ring, var(--text-muted));
+}
+
+.desk-temp--hot   { --desk-temp-ring: var(--up-color); }
+.desk-temp--warm  { --desk-temp-ring: color-mix(in srgb, var(--up-color) 70%, var(--text-muted)); }
+.desk-temp--even  { --desk-temp-ring: var(--text-muted); }
+.desk-temp--cool  { --desk-temp-ring: color-mix(in srgb, var(--down-color) 70%, var(--text-muted)); }
+.desk-temp--cold  { --desk-temp-ring: var(--down-color); }
+
+.desk-temp-read {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.desk-temp-mood {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--desk-temp-ring, var(--text-primary));
+}
+
+.desk-temp-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-temp-strong {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-temp-strong em {
+  font-style: normal;
+}
+
+.desk-temp-strong .is-up { color: var(--up-color); }
+.desk-temp-strong .is-down { color: var(--down-color); }
+
+/* One bar, three segments. Widths come from flex-grow so the bar never needs
+   measuring and reflows with the card at any width. */
+.desk-adline {
+  display: flex;
+  height: 26px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--gridline);
+}
+
+.desk-adline-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  transition: flex-grow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.desk-adline-seg.is-up { background: var(--up-color); }
+.desk-adline-seg.is-down { background: var(--down-color); }
+.desk-adline-seg.is-flat { background: var(--baseline); }
+
+.desk-sectors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.desk-sector-col h4 {
+  margin: 0 0 7px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.desk-sector-col ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.desk-sector-col li,
+.desk-sector-col li > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px 46px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.desk-sector-col li > button {
+  border: none;
+  background: none;
+  padding: 1px 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.desk-sector-col li > button:hover {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.desk-sector-name {
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.desk-sector-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--gridline);
+  overflow: hidden;
+}
+
+.desk-sector-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.desk-sector-fill.is-up { background: var(--up-color); }
+.desk-sector-fill.is-down { background: var(--down-color); }
+
+.desk-sector-pct {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── the watchlist ──────────────────────────────────────────────────────── */
+
+.desk-seg {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.desk-seg button {
+  border: none;
+  background: none;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease;
+}
+
+.desk-seg button.is-on {
+  background: var(--surface-1);
+  color: var(--text-primary);
+}
+
+.desk-watch-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.desk-watch-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.desk-watch-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+/* The stock the workspace below is currently showing, so the list doubles as a
+   position indicator rather than only as a set of links. */
+.desk-watch-row.is-active {
+  border-color: color-mix(in srgb, var(--series-violet) 55%, transparent);
+  background: color-mix(in srgb, var(--series-violet) 13%, transparent);
+}
+
+.desk-watch-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: contain;
+}
+
+.desk-watch-name {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-watch-price,
+.desk-watch-pct {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-watch-price {
+  color: var(--text-secondary);
+}
+
+.desk-watch-pct {
+  font-weight: 700;
+  min-width: 52px;
+  text-align: right;
+}
+
+.desk-watch-skeleton {
+  grid-column: 3 / span 2;
+  height: 13px;
+  border-radius: 4px;
+}
+
+.desk-watch-empty {
+  margin: 0;
+  padding: 18px 6px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+}
+
+/* ── the rail ───────────────────────────────────────────────────────────── */
+
+/* Fixed to the viewport's right edge rather than placed in the flow: it is a
+   position indicator, and one that scrolled with the content it indexes would
+   be telling you where you are only while you are already there. */
+.desk-rail {
+  position: fixed;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 25;
+}
+
+.desk-rail ul {
+  list-style: none;
+  margin: 0;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.desk-rail button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 7px;
+  border: none;
+  background: none;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.desk-rail-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--baseline);
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+/* The label is hidden until the rail is approached, so at rest it is four dots
+   against the page rather than a floating menu competing with the content. */
+.desk-rail-label {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-width 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.18s ease;
+}
+
+.desk-rail:hover .desk-rail-label,
+.desk-rail:focus-within .desk-rail-label {
+  max-width: 120px;
+  opacity: 1;
+}
+
+.desk-rail button.is-active {
+  color: var(--text-primary);
+}
+
+.desk-rail button.is-active .desk-rail-dot {
+  background: var(--series-violet);
+  transform: scale(1.25);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--series-violet) 22%, transparent);
+}
+
+.desk-rail button:hover .desk-rail-dot {
+  background: var(--text-secondary);
+}
+
+/* ── band 4: the focus workspace ────────────────────────────────────────── */
+
+.desk-focus-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
+  align-items: start;
+}
+
+.desk-focus-main,
+.desk-focus-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* The name and price ride along while the reader is down in the chart or the
+   discussion thread — on the classic desk both scroll away and the only way
+   back to "which stock am I looking at" is upward. */
+.desk-stock-header {
+  position: sticky;
+  top: calc(var(--desk-header-h) + 62px);
+  z-index: 12;
+}
+
+/* A moved price lights its own card edge for one beat. The tape is the one
+   thing on this page that changes without being asked, and a number that
+   silently swaps digits is a number nobody sees change. */
+.desk-stock-header.is-flash-up {
+  animation: desk-flash-up var(--desk-flash, 900ms) ease-out;
+}
+
+.desk-stock-header.is-flash-down {
+  animation: desk-flash-down var(--desk-flash, 900ms) ease-out;
+}
+
+@keyframes desk-flash-up {
+  0% {
+    border-color: var(--up-color);
+    box-shadow: 0 0 0 1px var(--up-color), 0 0 22px -6px var(--up-color);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: none;
+  }
+}
+
+@keyframes desk-flash-down {
+  0% {
+    border-color: var(--down-color);
+    box-shadow: 0 0 0 1px var(--down-color), 0 0 22px -6px var(--down-color);
+  }
+  100% {
+    border-color: var(--border);
+    box-shadow: none;
+  }
+}
+
+/* ── responsive ─────────────────────────────────────────────────────────── */
+
+/* The pulse row's third column is the first to go: the watchlist is a list and
+   reads perfectly well full width under the other two. */
+@media (max-width: 1400px) {
+  .desk-pulse-grid {
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  }
+
+  .desk-card--watch {
+    grid-column: 1 / -1;
+  }
+
+  .desk-watch-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 4px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .desk-focus-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Sticky only pays for itself beside a tall column. Stacked, the header would
+     pin over the chart it belongs to. */
+  .desk-stock-header {
+    position: static;
+  }
+}
+
+@media (max-width: 1024px) {
+  .desk-rail {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .desk-pulse-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* The header is at its tallest here — nav wrapped to three rows — so a second
+     sticky strip under it would take most of a phone screen before any content
+     started. */
+  .desk-command {
+    position: static;
+    padding-top: 0;
+    box-shadow: none;
+  }
+
+  .desk-command-inner {
+    flex-wrap: wrap;
+  }
+
+  .desk-main {
+    gap: 24px;
+  }
+
+  .desk-band {
+    scroll-margin-top: 16px;
+  }
+}
+
+@media (max-width: 620px) {
+  .desk-sectors {
+    grid-template-columns: 1fr;
+  }
+
+  .desk-temp-dial {
+    width: 62px;
+    height: 62px;
+  }
+
+  .desk-temp-value {
+    font-size: 23px;
+  }
+
+  .desk-cmd-backdrop {
+    padding-top: 6vh;
+  }
+}
