@@ -242,6 +242,26 @@ export default function MarketMapPage({
   const [hovered, setHovered] = useState<MarketMapItem | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [mapPreview, setMapPreview] = useState<{ blob: Blob; url: string; filename: string } | null>(null);
+  // A share in flight. The ref is the one the handlers read — see confirmMapDownload
+  // for why the state alone cannot close the double-tap window — and the state exists
+  // only to re-render the button into its busy form.
+  const sharingRef = useRef(false);
+  const [sharing, setSharing] = useState(false);
+  const [mapDownloadError, setMapDownloadError] = useState<string | null>(null);
+  // Navigating away with the preview open otherwise leaks the PNG for the tab's
+  // lifetime. Tracked through a ref and released only on unmount: a cleanup keyed on
+  // `mapPreview` would revoke the live URL on StrictMode's double-invoke in dev and
+  // blank the image.
+  const previewUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    previewUrlRef.current = mapPreview?.url ?? null;
+  }, [mapPreview]);
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    },
+    []
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -604,41 +624,80 @@ export default function MarketMapPage({
   };
 
   const closeMapPreview = () => {
+    // Refused while a share sheet is up. The sheet is system UI drawn over the page,
+    // so a tap meant for it can land on the overlay behind — and closing here revokes
+    // the object URL the share target is still reading from, which turns a working
+    // save into a failure the user never asked for.
+    if (sharingRef.current) return;
     setMapPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev.url);
       return null;
     });
+    setMapDownloadError(null);
   };
 
   const confirmMapDownload = async () => {
-    if (!mapPreview) return;
-    const { blob, filename } = mapPreview;
+    // Re-entrancy guard, and the reason this whole handler was unusable on Android:
+    // tapping 다운로드 again while the share sheet is open starts a second share, which
+    // the browser rejects as a concurrent request. That rejection is not AbortError, so
+    // the old code fell straight through to the anchor path and opened the system
+    // "실행" chooser on top of the still-open share sheet. Each further tap stacked
+    // another one, which is what read as a flickering popup that could not be used.
+    //
+    // A ref rather than the state flag alone: two taps can land in the same render, and
+    // `sharing` would still be false in the second handler's closure.
+    if (!mapPreview || sharingRef.current) return;
+    sharingRef.current = true;
+    setSharing(true);
+    setMapDownloadError(null);
+    const { blob, url, filename } = mapPreview;
 
-    // On mobile, an <a download> click on its own frequently just opens the image
-    // instead of saving it (no filesystem access from the browser sandbox). The Web
-    // Share API's native share sheet lets the user save straight to Photos/Files, so
-    // prefer it whenever the platform can share a file; fall back to the anchor trick
-    // for desktop browsers and any mobile browser without file-sharing support.
-    if (typeof navigator.canShare === "function" && typeof navigator.share === "function") {
-      const file = new File([blob], filename, { type: "image/png" });
-      if (navigator.canShare({ files: [file] })) {
-        try {
-          await navigator.share({ files: [file] });
-          return;
-        } catch (err) {
-          if ((err as Error)?.name === "AbortError") return;
-          // Share failed for a non-cancel reason (e.g. no share target for images) —
-          // fall through to the anchor-download path below.
+    try {
+      // On mobile, an <a download> click on its own frequently just opens the image
+      // instead of saving it (no filesystem access from the browser sandbox). The Web
+      // Share API's native share sheet lets the user save straight to Photos/Files, so
+      // prefer it whenever the platform can share a file; fall back to the anchor trick
+      // for desktop browsers and any mobile browser without file-sharing support.
+      if (typeof navigator.canShare === "function" && typeof navigator.share === "function") {
+        const file = new File([blob], filename, { type: "image/png" });
+        if (navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file] });
+            // Shared successfully — the sheet already told the user it saved, so
+            // leaving the preview up just makes them dismiss the same thing twice.
+            sharingRef.current = false;
+            closeMapPreview();
+            return;
+          } catch (err) {
+            const name = (err as Error)?.name;
+            // The user dismissed the sheet. Not a failure, and emphatically not a
+            // reason to open a second save UI they did not ask for.
+            if (name === "AbortError") return;
+            // The sheet was presented but the request was refused — a concurrent share
+            // or a lost user gesture. Falling through here is what produced the
+            // stacked chooser; the correct response is to stop and let them tap again.
+            if (name === "NotAllowedError" || name === "InvalidStateError") return;
+            // Anything else means the sheet never appeared (no image share target, or
+            // the platform lied about canShare), so the anchor below is still worth a
+            // try.
+          }
         }
       }
-    }
 
-    const a = document.createElement("a");
-    a.href = mapPreview.url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch {
+      // Both paths are gone. Say so instead of leaving a button that visibly does
+      // nothing — the image is on screen and can still be long-pressed to save.
+      setMapDownloadError(t("저장에 실패했습니다. 이미지를 길게 눌러 저장해 주세요."));
+    } finally {
+      sharingRef.current = false;
+      setSharing(false);
+    }
   };
 
   return (
@@ -972,7 +1031,13 @@ export default function MarketMapPage({
           >
             <div className="kospi-map-preview-header">
               <span>{t("맵 이미지 미리보기")}</span>
-              <button type="button" className="kospi-map-preview-close" onClick={closeMapPreview} aria-label={t("닫기")}>
+              <button
+                type="button"
+                className="kospi-map-preview-close"
+                onClick={closeMapPreview}
+                disabled={sharing}
+                aria-label={t("닫기")}
+              >
                 ×
               </button>
             </div>
@@ -980,8 +1045,23 @@ export default function MarketMapPage({
               <img src={mapPreview.url} alt={mapPreview.filename} className="kospi-map-preview-image" />
             </div>
             <div className="kospi-map-preview-footer">
-              <button type="button" className="kospi-map-preview-download" onClick={confirmMapDownload}>
-                {t("다운로드")}
+              {mapDownloadError && (
+                <span className="kospi-map-preview-error" role="alert">
+                  {mapDownloadError}
+                </span>
+              )}
+              {/* Disabled while the share sheet is up. On Android the sheet is drawn
+                  over the page and the page stays interactive underneath, so without
+                  this the button invites exactly the second tap that stacked a system
+                  chooser on top of the sheet. */}
+              <button
+                type="button"
+                className="kospi-map-preview-download"
+                onClick={confirmMapDownload}
+                disabled={sharing}
+                aria-busy={sharing}
+              >
+                {sharing ? t("저장 중...") : t("다운로드")}
               </button>
             </div>
           </div>

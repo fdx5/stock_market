@@ -217,6 +217,9 @@ export const DICTIONARY: Record<string, string> = {
   "MAP 다운로드": "Download Map",
   "맵 이미지 미리보기": "Map Image Preview",
   "다운로드": "Download",
+  "저장 중...": "Saving...",
+  "저장에 실패했습니다. 이미지를 길게 눌러 저장해 주세요.":
+    "Couldn't save. Press and hold the image to save it.",
   "하락": "Down",
   "상승": "Up",
   "-5% ~ +5% 기준 포화": "Saturated at -5% ~ +5%",

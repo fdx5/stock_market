@@ -3767,6 +3767,25 @@ thead .weekly-foreign-amount-col {
   cursor: pointer;
 }
 
+/* Held down while the share sheet is up. The sheet is system UI over a page that
+   stays interactive, so the button has to look unavailable or it invites the second
+   tap that stacks a second save dialog. */
+.kospi-map-preview-download[disabled],
+.kospi-map-preview-close[disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Shown only when both save paths failed. Sits left of the button on desktop; the
+   footer reverses to a column on narrow screens, where it lands under the button. */
+.kospi-map-preview-error {
+  margin-right: auto;
+  align-self: center;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--status-warning);
+}
+
 .lang-toggle {
   display: inline-flex;
   gap: 2px;
