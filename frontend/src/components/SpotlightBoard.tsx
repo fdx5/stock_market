@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { StockSearchResult } from "../api/client";
+import { DailyPricePoint, StockSearchResult, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { wonSuffix } from "../i18n/format";
+import { useMediaQuery } from "../useMediaQuery";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { SpotlightPick, pickSpotlight, sessionBucket } from "../spotlight";
 import { useMarketSnapshot } from "../useMarketSnapshot";
+import SpotSparkline from "./SpotSparkline";
 import StockIcon from "./StockIcon";
 
 /* 오늘의 주목 종목 — three per board, wide cards, with a line of context.
@@ -23,6 +25,15 @@ import StockIcon from "./StockIcon";
  * which six cards they are does not. */
 
 const CLOCK_MS = 30_000;
+/** How many sessions the card's line covers. A month of trading is enough to
+ * show whether today is the start of something or the top of a run, and short
+ * enough that one day still visibly moves the shape. */
+const SPARK_DAYS = 20;
+/* The line is drawn only where there is room beside the text for it to be more
+ * than a smudge. Below this the card is already stacking its own header, and a
+ * 130px chart squeezed under a wrapped stock name is worse than no chart — so
+ * the six requests are not made at all rather than made and hidden. */
+const SPARK_QUERY = "(min-width: 1181px)";
 
 export default function SpotlightBoard({
   onSelect,
@@ -77,6 +88,7 @@ export default function SpotlightBoard({
   }, [snapshot]);
 
   const names = useTranslatedTexts(picks.map((p) => p.item.name));
+  const series = useSparklines(picks, useMediaQuery(SPARK_QUERY));
 
   const kospi = picks.filter((p) => p.market === "KOSPI");
   const kosdaq = picks.filter((p) => p.market === "KOSDAQ");
@@ -124,6 +136,7 @@ export default function SpotlightBoard({
           names={names}
           offset={0}
           live={live}
+          series={series}
           onSelect={onSelect}
           activeCode={activeCode}
         />
@@ -133,6 +146,7 @@ export default function SpotlightBoard({
           names={names}
           offset={kospi.length}
           live={live}
+          series={series}
           onSelect={onSelect}
           activeCode={activeCode}
         />
@@ -141,12 +155,65 @@ export default function SpotlightBoard({
   );
 }
 
+/* Twenty sessions of closes for each of the six, fetched once per set.
+ *
+ * Six requests is the cost, and the two things that keep it honest are the key
+ * and the gate. The key is the sorted code list, so the fetch runs when the
+ * *set* changes — which is once a session bucket, not once a minute, because
+ * the picks above it are frozen on the same bucket. And `enabled` is a desktop
+ * media query, so a phone never issues them at all rather than issuing them for
+ * lines it will not draw.
+ *
+ * Results accumulate rather than reset between sets: a stock that stays in the
+ * spotlight from one hour to the next keeps its line through the changeover
+ * instead of blanking and refetching. The map only ever grows within a session,
+ * and six entries an hour is not a leak worth managing.
+ */
+function useSparklines(picks: SpotlightPick[], enabled: boolean): Map<string, DailyPricePoint[]> {
+  const [series, setSeries] = useState<Map<string, DailyPricePoint[]>>(new Map());
+  const codeKey = picks
+    .map((p) => p.item.code)
+    .sort()
+    .join(",");
+
+  useEffect(() => {
+    if (!enabled || !codeKey) return;
+    const codes = codeKey.split(",");
+    let cancelled = false;
+
+    for (const code of codes) {
+      api
+        .dailyPrices(code, 0, SPARK_DAYS)
+        .then((page) => {
+          if (cancelled || page.items.length === 0) return;
+          setSeries((prev) => {
+            if (prev.has(code)) return prev;
+            const next = new Map(prev);
+            next.set(code, page.items);
+            return next;
+          });
+        })
+        .catch(() => {
+          // One missing series draws no line on that card. The rest of the card
+          // is the point of it and does not depend on this.
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [codeKey, enabled]);
+
+  return series;
+}
+
 function Row({
   label,
   picks,
   names,
   offset,
   live,
+  series,
   onSelect,
   activeCode,
 }: {
@@ -156,6 +223,7 @@ function Row({
   /** Where this row starts in the flat `names` array. */
   offset: number;
   live: Map<string, number[]>;
+  series: Map<string, DailyPricePoint[]>;
   onSelect: (stock: StockSearchResult) => void;
   activeCode?: string;
 }) {
@@ -205,10 +273,22 @@ function Row({
                   </i>
                 </span>
               </span>
-              <span className="desk-spot-lines">
-                {pick.lines.map((line, i) => (
-                  <em key={i}>{line}</em>
-                ))}
+              <span className="desk-spot-body">
+                <span className="desk-spot-lines">
+                  {pick.lines.map((line, i) => (
+                    <em key={i}>{line}</em>
+                  ))}
+                </span>
+                {(() => {
+                  const bars = series.get(item.code);
+                  if (!bars) return null;
+                  return (
+                    <span className="desk-spot-sparkwrap">
+                      <SpotSparkline points={bars} tone={tone} />
+                      <i className="desk-spot-sparklabel">{SPARK_DAYS}{t("일")}</i>
+                    </span>
+                  );
+                })()}
               </span>
             </button>
           );

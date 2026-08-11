@@ -726,14 +726,61 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* The commentary. Set on its own baseline grid against a hairline, so it reads
-   as a note about the row above rather than as more of the row. */
+/* The commentary and the line, side by side under a hairline. The text takes
+   what it needs and the chart takes the rest, which on a wide card is the
+   spare width the two-line note was leaving empty and on a narrow one is
+   nothing — the chart is simply not requested below 1181px. See SPARK_QUERY. */
+.desk-spot-body {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  padding-top: 9px;
+  border-top: 1px solid var(--gridline);
+}
+
 .desk-spot-lines {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding-top: 9px;
-  border-top: 1px solid var(--gridline);
+  flex: 1;
+  min-width: 0;
+}
+
+.desk-spot-sparkwrap {
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* Inherited by the path, the fill gradient and the dot, all of which paint with
+   currentColor — so the whole line changes with the card's tone from one
+   declaration. Muted well below the header's own colour: this is context behind
+   the numbers, not a second headline. */
+.desk-spot-spark {
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.desk-spot-spark.is-up { color: var(--up-color); }
+.desk-spot-spark.is-down { color: var(--down-color); }
+
+.desk-spot-card:hover .desk-spot-spark {
+  opacity: 1;
+}
+
+/* Says what the line covers, because a sparkline with no scale is otherwise a
+   shape with no units and could be read as today. */
+.desk-spot-sparklabel {
+  position: absolute;
+  right: 1px;
+  top: -2px;
+  font-style: normal;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+  pointer-events: none;
 }
 
 .desk-spot-lines em {

@@ -318,12 +318,19 @@ function describe(
   const turnover = turnoverOf(item);
   const atLimit = item.change_pct >= LIMIT_PCT;
 
-  const verb = phase === "closed" ? "마감했다" : "거래되고 있다";
+  /* Noun-ending throughout, by request, and it suits the card better than the
+     sentences it replaced: six of these stack in a row, and a column of 했다 /
+     됐다 endings reads as prose that wants to be read in order, where a column
+     of 마감 / 몰림 / 앞섬 reads as six labels that can be scanned in any. The
+     tense still has to change with the session — 마감 is a fact after 15:30 and
+     a guess before it — so the phase still picks the word, it just picks a noun
+     now. */
+  const state = phase === "closed" ? "마감" : "거래 중";
   const lead = atLimit
-    ? `${board} 상승률 ${changeRank}위. 가격제한폭까지 올라 +${item.change_pct.toFixed(2)}%로 ${verb}.`
+    ? `${board} 상승률 ${changeRank}위 · 가격제한폭 도달 · +${item.change_pct.toFixed(2)}% ${state}`
     : changeRank <= 20
-      ? `${board} 상승률 ${changeRank}위. +${item.change_pct.toFixed(2)}%로 ${verb}.`
-      : `+${item.change_pct.toFixed(2)}%로 ${verb}.`;
+      ? `${board} 상승률 ${changeRank}위 · +${item.change_pct.toFixed(2)}% ${state}`
+      : `+${item.change_pct.toFixed(2)}% ${state}`;
 
   // A sector is only a sector if several names carry it — one member is this
   // stock wearing a category name, and reporting it as a trend would be a lie
@@ -343,35 +350,35 @@ function describe(
       when: atLimit,
       text:
         limitCount > 1
-          ? `오늘 ${board}에서 가격제한폭까지 오른 ${limitCount}종목 중 하나. 거래대금 ${formatWon(turnover)}.`
-          : `오늘 ${board}에서 가격제한폭까지 오른 유일한 종목. 거래대금 ${formatWon(turnover)}.`,
+          ? `오늘 ${board} 상한가 ${limitCount}종목 중 하나 · 거래대금 ${formatWon(turnover)}`
+          : `오늘 ${board}의 유일한 상한가 · 거래대금 ${formatWon(turnover)}`,
     },
     {
       kind: "against",
       when: realSector && sectorChange <= -0.3,
-      text: `${sector} 업종이 ${sectorChange.toFixed(2)}%로 밀린 가운데 홀로 반대 방향으로 움직였다.`,
+      text: `${sector} 업종 ${sectorChange.toFixed(2)}% 하락 속 나 홀로 역행`,
     },
     {
       kind: "money",
       when: turnoverRank > 0 && turnoverRank <= 10,
-      text: `거래대금 ${formatWon(turnover)}으로 ${board} ${turnoverRank}위, 하루 자금이 이 종목에 몰렸다.`,
+      text: `거래대금 ${board} ${turnoverRank}위 · ${formatWon(turnover)} 자금 몰림`,
     },
     {
       kind: "bigcap",
       when: capRank > 0 && capRank <= 25 && item.change_pct >= 3,
-      text: `시총 ${board} ${capRank}위 대형주가 하루 만에 ${item.change_pct.toFixed(2)}% 움직였다.`,
+      text: `시총 ${board} ${capRank}위 대형주의 하루 ${item.change_pct.toFixed(2)}% 이동`,
     },
     {
       kind: "carried",
       when: realSector && sectorChange >= 1.2 && gap < 3,
-      text: `${sector} 업종 전체가 +${sectorChange.toFixed(2)}%로 강세인 흐름에 함께 실렸다.`,
+      text: `${sector} 업종 +${sectorChange.toFixed(2)}% 강세 흐름에 동반`,
     },
     {
       kind: "ahead",
       // Only when the sector actually went somewhere. Against a flat sector the
       // comparison is arithmetic, not information.
       when: realSector && Math.abs(sectorChange) >= 1 && gap >= 5,
-      text: `${sector} 업종 평균 ${sectorChange >= 0 ? "+" : ""}${sectorChange.toFixed(2)}%를 크게 앞질렀다.`,
+      text: `${sector} 업종 평균 ${sectorChange >= 0 ? "+" : ""}${sectorChange.toFixed(2)}% 대비 큰 폭 앞섬`,
     },
     {
       kind: "profile",
@@ -398,12 +405,12 @@ function profileOf(
 ): string {
   const bits: string[] = [];
   if (turnoverRank > 0 && turnoverRank <= 60) {
-    bits.push(`거래대금 ${formatWon(turnover)}(${board} ${turnoverRank}위)`);
+    bits.push(`거래대금 ${formatWon(turnover)} · ${board} ${turnoverRank}위`);
   }
   if (typeof item.per === "number" && item.per > 0) bits.push(`PER ${item.per.toFixed(1)}배`);
   if (typeof item.foreign_ratio === "number" && item.foreign_ratio > 0) {
     bits.push(`외국인 지분 ${item.foreign_ratio.toFixed(1)}%`);
   }
-  if (bits.length === 0) return `거래대금 ${formatWon(turnover)}.`;
-  return `${bits.slice(0, 3).join(" · ")}.`;
+  if (bits.length === 0) return `거래대금 ${formatWon(turnover)}`;
+  return bits.slice(0, 3).join(" · ");
 }
