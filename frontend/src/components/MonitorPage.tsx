@@ -77,10 +77,16 @@ function clockOf(ms: number): string {
 }
 
 /** The visitor's route as activity_log reports it, reduced to the path the graph knows.
- * Query strings carry the stock code and would never match a node. */
+ * Query strings carry the stock code and would never match a node, and the two routes
+ * that take a path parameter arrive as a real code (/investor/005930, /index/kospi)
+ * while the graph holds them as the template App.tsx matches — without collapsing them
+ * back, those two nodes could never light for anyone. */
 function routeOf(path: string): string {
   const clean = path.split("?")[0].replace(/\/+$/, "");
-  return clean === "" ? "/" : clean;
+  if (clean === "") return "/";
+  if (/^\/investor\/[^/]+$/.test(clean)) return "/investor/{code}";
+  if (/^\/index\/[^/]+$/i.test(clean)) return "/index/{symbol}";
+  return clean;
 }
 
 export default function MonitorPage() {
