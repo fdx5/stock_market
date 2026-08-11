@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -361,36 +361,34 @@ export default function HeaderDateTime() {
   const us = market(now, NY);
   const krxOpen = kr.open;
 
-  /* ── The narrow shape ───────────────────────────────────────────────────────────────
-     Not the cabinet re-laid. A phone already has a clock — the operating system draws
-     one at the top of every screen — so spending the largest type here on the current
-     time would spend it on the one reading the device already gives away for free.
+  /* ── The narrow shape: everything, in two rows ──────────────────────────────────────
+     This is ambient information — worth a glance, not worth a panel — so it gets two
+     rows and about 57px, down from the 175 the first attempt spent. Nothing was dropped
+     to get there; the rows were made to carry two things each.
 
-     What the phone does not have is the market: whether anything is trading, how long
-     until the next bell, and what time the New York session lands in Seoul hours. So
-     the band answers that instead, in three steps:
+     Row one is the readings: date and sky on the left, both wall clocks on the right.
+     Row two is the day: a hairline track running the full width with the next bell
+     counted down at the end of it.
 
-       the bell      one countdown, in the biggest type on the panel, to whichever
-                     event is next — the live market's close, or the soonest open
-       the day       both sessions as bars on one shared Seoul-time axis, with a line
-                     marking now, so the shape of the day is read rather than computed
-       the clocks    the two wall times, small, at the foot, for when the exact figure
-                     is what is wanted
+     The track is what makes two rows enough. On a Seoul-time axis the two sessions
+     never overlap — KRX runs 09:00–15:30, New York 22:30–05:00 the next morning — so
+     both blocks fit one track with no ambiguity about which is which, and the whole
+     trading day costs six pixels of height. A mark rides it at now; where that mark
+     sits against the two blocks is the status report.
 
-     Colour carries the market, not the state: Seoul is amber, New York is cyan, and
-     whichever is trading is the one that is lit. Everything else sits in slate. */
+     Colour does the rest of the work that words would otherwise need: Seoul amber, New
+     York cyan, and the market that is trading is the one that is lit — its block on the
+     track, its clock on the row above, and the countdown if it is the one being counted.
+     Nothing else in the strip is coloured, so "lit" means "live" with no legend. */
   const focus = kr.open ? kr : us.open ? us : kr.wait <= us.wait ? kr : us;
-  const focusIsKr = focus === kr;
-  const focusTone = focusIsKr ? "is-kr" : "is-us";
-  const focusCity = focusIsKr ? (lang === "ko" ? "서울" : "SEOUL") : lang === "ko" ? "뉴욕" : "NEW YORK";
+  const focusTone = focus === kr ? "is-kr" : "is-us";
+  // "NEW YORK" is the cabinet's label and too long for this slot; the strip uses NY.
+  const focusCity =
+    focus === kr ? (lang === "ko" ? "서울" : "SEOUL") : lang === "ko" ? "뉴욕" : "NY";
+  // Short forms: this label sits at the end of a hairline with the figure beside it, and
+  // "서울 마감" in that slot says everything "서울 장 마감까지" would.
   const focusVerb =
-    focus.event === "close"
-      ? lang === "ko"
-        ? "마감까지"
-        : "closes in"
-      : lang === "ko"
-        ? "개장까지"
-        : "opens in";
+    focus.event === "close" ? (lang === "ko" ? "마감" : "close") : lang === "ko" ? "개장" : "open";
 
   const lanes = [
     { ...cities[0], tone: "is-kr", mkt: kr, geom: lane(now, SEOUL) },
@@ -405,91 +403,62 @@ export default function HeaderDateTime() {
         aria-label={lang === "ko" ? "장 시간 · 시각 · 날씨" : "Market hours, clocks and weather"}
       >
         <div className="hud-deck">
-          <div className="hud-ctx">
+          <div className="hud-line">
             <span className={`hud-date ${weekendTone}`}>
               {lang === "ko" ? `${monthNum}월 ${day}일` : `${monthEn} ${day}`}
               <span className="hud-dow">{weekday}</span>
             </span>
+
             {weather && (
               <span className="hud-sky">
                 <WeatherIcon type={wxType(weather.code)} day={weather.is_day} />
                 <span className="hud-temp">{weather.temperature}°</span>
-                <span className="hud-skycity">{lang === "ko" ? "서울" : "SEOUL"}</span>
               </span>
             )}
-          </div>
 
-          {/* The bell. The label names the market so the figure is never ambiguous, and
-              the whole line takes that market's colour — a cyan countdown is New York's
-              by the time it has been read once. */}
-          <div className={`hud-bell ${focusTone}`}>
-            <span className="hud-bell-label">
-              {focusCity} <span className="hud-bell-verb">{focusVerb}</span>
-            </span>
-            <span className="hud-bell-value">{countdown(focus.wait, lang === "ko")}</span>
-            {(kr.open || us.open) && (
-              <span className={`hud-live ${kr.open ? "is-kr" : "is-us"}`}>
-                <i />
-                {label(true)}
-              </span>
-            )}
-          </div>
-
-          {/* The day. Two bars on one Seoul-time axis running 08:00 → 08:00, and the
-              `--now` line crossing both. The bars are positioned in percent of the axis,
-              so the geometry is the data — nothing here is drawn to look right. */}
-          <div className="hud-day">
-            {lanes.map((l) => (
-              <Fragment key={l.key}>
-                <img className="hud-flag" src={l.flag} alt="" />
-                <span className={`hud-track ${l.tone}${l.mkt.open ? " is-live" : ""}`}>
-                  <span
-                    className="hud-win"
-                    style={{ left: `${l.geom.from * 100}%`, width: `${(l.geom.to - l.geom.from) * 100}%` }}
-                  >
-                    <i style={{ width: `${l.mkt.progress * 100}%` }} />
-                  </span>
-                </span>
-              </Fragment>
-            ))}
-
-            <span
-              className="hud-now"
-              aria-hidden="true"
-              style={{ "--now": `${axisPos(zoneMins(now, SEOUL)) * 100}%` } as CSSProperties}
-            >
-              <i />
-            </span>
-
-            {/* Every bar edge, labelled in Seoul time. "New York opens at 22:30" is the
-                form of 09:30 ET that is worth anything on this side of the world. */}
-            <span className="hud-ticks">
-              {lanes.flatMap((l) => [
-                { at: l.geom.from, text: l.geom.openAt, tone: l.tone, k: `${l.key}-o` },
-                { at: l.geom.to, text: l.geom.closeAt, tone: l.tone, k: `${l.key}-c` },
-              ]).map((t) => (
-                <span key={t.k} className={`hud-tick ${t.tone}`} style={{ left: `${t.at * 100}%` }}>
-                  {t.text}
+            {/* Each clock carries its market's state as well as its time: the trading
+                one is lit in its own colour, the other sits in slate. Seconds are their
+                own element so the narrowest phones can drop them and keep hour:minute
+                at full size rather than shrinking the whole clock to fit. */}
+            <span className="hud-clocks">
+              {lanes.map((l) => (
+                <span key={l.key} className={`hud-clock ${l.tone}${l.mkt.open ? " is-live" : ""}`}>
+                  <img className="hud-flag" src={l.flag} alt="" />
+                  <span className="hud-hm">{clock(now, l.key).slice(0, 5)}</span>
+                  <span className="hud-sec">{clock(now, l.key).slice(5)}</span>
                 </span>
               ))}
             </span>
           </div>
 
-          {/* The exact figures, last and smallest — wanted less often than the two
-              readings above them, and always available when they are. */}
-          <div className="hud-clocks">
-            {lanes.map((l) => (
-              <span key={l.key} className={`hud-clock ${l.tone}${l.mkt.open ? " is-live" : ""}`}>
-                <img className="hud-flag" src={l.flag} alt="" />
-                <span className="hud-clock-read">
-                  <span className="hud-clock-city">
-                    {l.label}
-                    <span className="hud-clock-tz">{tzAbbr(now, l.key)}</span>
-                  </span>
-                  <span className="hud-clock-time">{clock(now, l.key)}</span>
+          <div className="hud-line hud-line--day">
+            {/* Blocks are placed in percent of the axis, so the geometry is the data. */}
+            <span className="hud-rail">
+              {lanes.map((l) => (
+                <span
+                  key={l.key}
+                  className={`hud-win ${l.tone}${l.mkt.open ? " is-live" : ""}`}
+                  style={{ left: `${l.geom.from * 100}%`, width: `${(l.geom.to - l.geom.from) * 100}%` }}
+                >
+                  <i style={{ width: `${l.mkt.progress * 100}%` }} />
                 </span>
+              ))}
+              <span
+                className="hud-mark"
+                aria-hidden="true"
+                style={{ left: `${axisPos(zoneMins(now, SEOUL)) * 100}%` }}
+              />
+            </span>
+
+            {/* The next bell, at the end of the track it belongs to. Past a day it drops
+                to days and hours — counting 65 hours down in seconds is a twitch, not a
+                reading — which is also what keeps this from growing a digit on Friday. */}
+            <span className={`hud-next ${focusTone}`}>
+              <span className="hud-next-label">
+                {focusCity} {focusVerb}
               </span>
-            ))}
+              <span className="hud-next-value">{countdown(focus.wait, lang === "ko")}</span>
+            </span>
           </div>
         </div>
       </div>
