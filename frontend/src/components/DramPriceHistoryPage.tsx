@@ -340,7 +340,7 @@ export default function DramPriceHistoryPage() {
   return (
     <div className="app">
       <header className="app-header">
-        <Link to="/dashboard" className="back-link">
+        <Link to="/desk" className="back-link">
           ← {t("메인으로")}
         </Link>
         <div>

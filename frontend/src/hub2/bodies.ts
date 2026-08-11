@@ -142,7 +142,7 @@ const EARTH_MOONS: MoonSpec[] = [
     key: "samsung",
     ko: "삼성전자",
     en: "Samsung",
-    to: "/dashboard?code=005930",
+    to: "/desk?code=005930",
     texture: "",
     radius: 5.2,
     size: 0.42,
@@ -156,7 +156,7 @@ const EARTH_MOONS: MoonSpec[] = [
     key: "skhynix",
     ko: "SK하이닉스",
     en: "SK hynix",
-    to: "/dashboard?code=000660",
+    to: "/desk?code=000660",
     texture: "",
     radius: 6.6,
     size: 0.42,
@@ -594,11 +594,11 @@ export const VOYAGER: LandmarkSpec = {
 
 export const STAR: LandmarkSpec = {
   key: "sun",
-  ko: "대시보드",
-  en: "DASHBOARD",
+  ko: "마켓 데스크",
+  en: "MARKET DESK",
   bodyKo: "태양",
   bodyEn: "Sun",
-  to: "/dashboard",
+  to: "/desk",
   position: [0, 0, 0],
 };
 
@@ -615,7 +615,7 @@ export interface Destination {
 }
 
 export const DESTINATIONS: Destination[] = [
-  { key: "sun", ko: "대시보드", en: "DASHBOARD", to: "/dashboard", accent: "#ffce6a" },
+  { key: "sun", ko: STAR.ko, en: STAR.en, to: STAR.to, accent: "#ffce6a" },
   ...PLANETS.map((p) => ({ key: p.key, ko: p.ko, en: p.en, to: p.to, feed: p.feed, accent: p.glow })),
   { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, to: BLACK_HOLE.to, accent: "#ff9a4d" },
   { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, to: NEUTRON_BINARY.to, accent: "#9fd0ff" },

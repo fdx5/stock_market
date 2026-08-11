@@ -437,7 +437,7 @@ export default function HubType2() {
       <div className="h2 is-fallback">
         <div className="h2-fallback">
           <h1 className="h2-wordmark">
-            <Link to="/dashboard" className="h2-wordmark-link">
+            <Link to="/desk" className="h2-wordmark-link">
               <span className="h2-wordmark-main">K-STOCK</span>
               <span className="h2-wordmark-sub">HUB</span>
             </Link>
@@ -492,7 +492,7 @@ export default function HubType2() {
           {status.label}
         </span>
         <h1 className="h2-wordmark">
-          <Link to="/dashboard" className="h2-wordmark-link">
+          <Link to="/desk" className="h2-wordmark-link">
             <span className="h2-wordmark-main">K-STOCK</span>
             <span className="h2-wordmark-sub">HUB</span>
           </Link>

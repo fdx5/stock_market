@@ -106,7 +106,7 @@ export default function GlobalStockPage() {
   // the dashboard, which owns the KR pipeline — the inverse of Dashboard's own
   // handler, so the two pages hand off to each other in both directions.
   const selectStock = (stock: { code: string; market: string }) => {
-    navigate(stock.market === "US" ? `/global?code=${stock.code}` : `/dashboard?code=${stock.code}`);
+    navigate(stock.market === "US" ? `/global?code=${stock.code}` : `/desk?code=${stock.code}`);
   };
 
   useEffect(() => {
@@ -253,7 +253,7 @@ export default function GlobalStockPage() {
           </div>
         </div>
         <div className="app-nav-row">
-          <Link to="/dashboard" className="kospi-map-nav-link kospi-map-nav-link--home">
+          <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
           <Link to="/map" className="kospi-map-nav-link">

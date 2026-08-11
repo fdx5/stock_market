@@ -19,7 +19,8 @@ export function pageLabel(path: string): string {
   // /dashboard. Without this the admin dashboard filed every landing on the new
   // main page under "대시보드" and the two were indistinguishable in the stats.
   if (path === "/") return "메인 (태양계)";
-  if (path === "/dashboard") return "종목 대시보드";
+  if (path === "/desk") return "마켓 데스크";
+  if (path === "/dashboard") return "종목 대시보드 (구)";
   if (/^\/investor\//.test(path)) return "투자자 동향";
   if (/^\/index\/(kospi|kosdaq)/i.test(path)) return "지수 차트";
   if (path === "/kospi-100") return "코스피 100";
