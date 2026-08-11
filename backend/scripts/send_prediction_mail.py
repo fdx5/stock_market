@@ -152,9 +152,9 @@ def main() -> int:
         return 0
 
     # send
-    if not args.dry_run and not (
-        prediction_mail.SMTP_USER and prediction_mail.SMTP_PASSWORD
-    ):
+    # `is_configured` rather than the SMTP pair: either transport can send, and gating
+    # on SMTP alone refused to run on a Resend-only setup that would have worked.
+    if not args.dry_run and not prediction_mail.is_configured():
         print(SMTP_HELP, file=sys.stderr)
         return 2
 

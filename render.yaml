@@ -52,10 +52,20 @@ services:
       - key: GLOBAL_TOP100_REFRESH_TOKEN
         sync: false
       # 종목별 예측 결과 메일 (app/services/prediction_mail.py, scripts/send_prediction_mail.py).
+      #
+      # Every setting below is now OPTIONAL here, and the admin panel's 메일 설정
+      # drawer is the expected place to fill them in — it writes to the mail_config
+      # table, which takes precedence over anything set on this page and applies to the
+      # next send without a redeploy. See app/services/mail_config_store.py.
+      #
+      # They are kept declared because a `sync: false` entry is still the right way to
+      # seed a fresh service, and because the table needs a database to live in: if
+      # Turso is unreachable, these are what mail falls back to.
+      #
       # Naver's SMTP needs POP3/SMTP switched on in 메일 환경설정, and an
       # 애플리케이션 비밀번호 rather than the account password on any 2FA-enabled
-      # account. With USER/PASSWORD unset the batch reports "not configured" and
-      # sends nothing, which is the intended default — mail is opt-in.
+      # account. With neither transport configured the batch reports "not configured"
+      # and sends nothing, which is the intended default — mail is opt-in.
       # Preferred transport: an API key scoped to sending, so no personal mailbox
       # credential has to live on this service. Set either this or the SMTP pair
       # below; with both, this wins (see prediction_mail.backend_name).

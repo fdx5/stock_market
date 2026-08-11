@@ -227,6 +227,11 @@ export interface MailAccount {
   stocks: { code: string; name: string | null; active: boolean }[];
   sent_today: number;
   last_sent_at: string | null;
+  /** This account's own Resend key, masked (`re_…cR6`), or null if it uses the shared
+   * one. Without a verified sending domain a key reaches only the address its own
+   * account was registered with, so each subscriber needs their own — see
+   * mail_config_store.mail_account_config. */
+  resend_key: string | null;
 }
 
 export interface MailStatus {
@@ -241,11 +246,35 @@ export interface MailStatus {
    * unconfigured panel can say which one is missing rather than only that one is. */
   diagnosis: {
     present: Record<string, boolean>;
+    /** Per-setting source and masked value — the same shape /mail/config returns. */
+    settings?: MailSetting[];
     unrecognized_names: string[];
+    /** Always false now that nothing is bound at import; kept so an older deployed
+     * frontend reading it still type-checks. */
     needs_restart: boolean;
   };
   accounts: MailAccount[];
   today: string;
+}
+
+/** One mail setting as the server sees it.
+ *
+ * `value` is masked for secrets (`re_…cR6`) and full for the rest — a sender address
+ * is worth reading back, an API key is not. `source` says whether the value came from
+ * the settings table or from the deploy environment, which is the only thing that
+ * distinguishes "my edit took effect" from "a variable is still shadowing it". */
+export interface MailSetting {
+  name: string;
+  source: "db" | "env" | null;
+  configured: boolean;
+  secret: boolean;
+  value: string | null;
+}
+
+export interface MailConfig {
+  settings: MailSetting[];
+  backend: string | null;
+  smtp_fallback: boolean;
 }
 
 export interface MailSend {
@@ -566,6 +595,30 @@ async function authedPatch<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function authedPut<T>(path: string, body: unknown): Promise<T> {
+  const session = getStoredSession();
+  if (!session) throw new AdminAuthError("로그인이 필요합니다.");
+  const res = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.token}` },
+    body: JSON.stringify(body),
+  });
+  if (res.status === 401) {
+    clearStoredSession();
+    throw new AdminAuthError("세션이 만료되었습니다. 다시 로그인해 주세요.");
+  }
+  if (!res.ok) {
+    // Same detail-surfacing as authedPost: a rejected setting name comes back as a
+    // 400 with the reason, which is more useful than the status alone.
+    const detail = await res
+      .json()
+      .then((body) => (typeof body?.detail === "string" ? body.detail : null))
+      .catch(() => null);
+    throw new Error(detail ?? `Admin API error: ${res.status}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 async function authedPost<T>(path: string): Promise<T> {
   const session = getStoredSession();
   if (!session) throw new AdminAuthError("로그인이 필요합니다.");
@@ -696,6 +749,16 @@ export const adminApi = {
   runKakaoDramPriceNotify: () => authedPost<KakaoDramPriceRun>("/notify/kakao/dram-price/run"),
 
   mailStatus: () => authedGet<MailStatus>("/mail/status"),
+  mailConfig: () => authedGet<MailConfig>("/mail/config"),
+  /** Registers one subscriber's own Resend key. `account` is MailAccount.id, so the
+   * address never has to exist in the browser. Empty value clears it. */
+  saveMailAccountKey: (account: string, value: string) =>
+    authedPut<{ stored: boolean; account: string }>("/mail/account-key", { account, value }),
+  /** Saves one setting. An empty `value` deletes the row and hands the setting back to
+   * the environment. One at a time on purpose — a whole-form save would have to send
+   * the masked secrets back and would overwrite the real key with its own mask. */
+  saveMailConfig: (name: string, value: string) =>
+    authedPut<MailConfig & { name: string; stored: boolean }>("/mail/config", { name, value }),
   mailHistory: (limit = 60) => authedGet<{ items: MailSend[] }>(`/mail/history?limit=${limit}`),
   /** The 수기 발송 button. `account` is MailAccount.id — an opaque handle the server
    * resolves to a real mailbox, so the address never has to exist in the browser.

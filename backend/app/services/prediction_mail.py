@@ -32,6 +32,7 @@ from email.utils import formataddr, formatdate, make_msgid
 import requests
 
 from app.services import (
+    mail_config_store,
     mail_subscription_store,
     prediction_engine,
     prediction_grader,
@@ -52,7 +53,14 @@ logger = logging.getLogger(__name__)
 #
 # SMTP is kept rather than replaced: it needs no third-party signup, and it is the
 # only option if the sender must be a specific existing mailbox.
-RESEND_API_KEY = os.environ.get("PREDICTION_MAIL_RESEND_KEY")
+#
+# Every one of these settings is read through mail_config_store at the moment it is
+# used, not bound to a module constant at import. Two reasons, both learned the hard
+# way: a constant captures whatever the environment held when the process started, so
+# a value added to a running service reads as missing until someone restarts it (the
+# `needs_restart` flag below exists only to make that visible) — and the settings now
+# live in a table an operator can edit from the admin panel, which would be pointless
+# if the process only looked once. See mail_config_store for the precedence rule.
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 # Resend's shared sender, usable with no domain set up at all. It can only deliver to
 # the address the Resend account itself was registered with — which is exactly the
@@ -65,23 +73,80 @@ RESEND_DEFAULT_FROM = "onboarding@resend.dev"
 # naver.com or gmail.com address it has no proof you own is a guaranteed rejection.
 # Someone who really wants a custom sender sets PREDICTION_MAIL_FROM and verifies that
 # domain with Resend first; everyone else gets the shared sender, which just works.
-RESEND_FROM = os.environ.get("PREDICTION_MAIL_FROM") or RESEND_DEFAULT_FROM
 
-SMTP_HOST = os.environ.get("PREDICTION_MAIL_SMTP_HOST", "smtp.naver.com")
-SMTP_PORT = int(os.environ.get("PREDICTION_MAIL_SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("PREDICTION_MAIL_USER")
-SMTP_PASSWORD = os.environ.get("PREDICTION_MAIL_PASSWORD")
-# Most providers reject a From that isn't the authenticated mailbox, so this defaults
-# to the login rather than to a friendly-looking address that would silently bounce.
-MAIL_FROM = os.environ.get("PREDICTION_MAIL_FROM") or SMTP_USER
-MAIL_FROM_NAME = os.environ.get("PREDICTION_MAIL_FROM_NAME", "K-Stock Hub 예측")
-# No default recipient. A personal address is not configuration to be baked into a
-# public repository — it belongs in the environment beside the credentials, and with
-# nothing set the batch says so rather than mailing a stale hard-coded address.
-MAIL_TO = os.environ.get("PREDICTION_MAIL_TO")
-# 465 is implicit TLS (SMTPS); 587 is STARTTLS. Choosing on the port rather than on a
-# second flag keeps one setting instead of two that can contradict each other.
-USE_SSL = SMTP_PORT == 465
+
+def resend_api_key(to_addr: str | None = None) -> str | None:
+    """The key to send *this* recipient with.
+
+    A recipient's own key wins over the shared one. Without a verified sending domain
+    a Resend key reaches only the address its account was registered with, so one
+    shared key cannot serve two subscribers — installing the second subscriber's key
+    globally doesn't add them, it swaps which one is refused. Each recipient carrying
+    their own key is the arrangement that reaches everyone, because each is then the
+    account owner the restriction is written for.
+
+    Called with no address (`backend_name`, the CLI's configured-check) it reports the
+    shared key alone, which is the right answer for "can this service send at all".
+    """
+    return mail_config_store.account_key(to_addr) or mail_config_store.get(
+        "PREDICTION_MAIL_RESEND_KEY"
+    )
+
+
+def resend_from() -> str:
+    return mail_config_store.get("PREDICTION_MAIL_FROM") or RESEND_DEFAULT_FROM
+
+
+def smtp_host() -> str:
+    return mail_config_store.get("PREDICTION_MAIL_SMTP_HOST") or "smtp.naver.com"
+
+
+def smtp_port() -> int:
+    raw = mail_config_store.get("PREDICTION_MAIL_SMTP_PORT") or "587"
+    try:
+        return int(raw)
+    except ValueError:
+        # A typo'd port is a misconfiguration, not a reason to crash every caller that
+        # merely asks whether mail is set up — `smtp_configured()` reads this too.
+        logger.warning("prediction_mail: SMTP 포트 값이 숫자가 아닙니다 (%r), 587 사용", raw)
+        return 587
+
+
+def smtp_user() -> str | None:
+    return mail_config_store.get("PREDICTION_MAIL_USER")
+
+
+def smtp_password() -> str | None:
+    return mail_config_store.get("PREDICTION_MAIL_PASSWORD")
+
+
+def mail_from() -> str | None:
+    """Most providers reject a From that isn't the authenticated mailbox, so this
+    defaults to the SMTP login rather than to a friendly-looking address that would
+    silently bounce."""
+    return mail_config_store.get("PREDICTION_MAIL_FROM") or smtp_user()
+
+
+def mail_from_name() -> str:
+    return mail_config_store.get("PREDICTION_MAIL_FROM_NAME") or "K-Stock Hub 예측"
+
+
+def mail_to() -> str | None:
+    """The one-off recipient for `--to`-style sends, and the only setting still read
+    from the environment alone: it is not a transport setting but a fallback address
+    from before the subscription table existed. Real recipients are rows now.
+
+    No default. A personal address is not configuration to be baked into a public
+    repository, and with nothing set the batch says so rather than mailing a stale
+    hard-coded address.
+    """
+    return os.environ.get("PREDICTION_MAIL_TO")
+
+
+def use_ssl() -> bool:
+    """465 is implicit TLS (SMTPS); 587 is STARTTLS. Choosing on the port rather than
+    on a second flag keeps one setting instead of two that can contradict each other."""
+    return smtp_port() == 465
 
 SITE_URL = "https://kospi-predictor.onrender.com"
 
@@ -112,7 +177,7 @@ class ResendRecipientRestricted(RuntimeError):
 
 
 def smtp_configured() -> bool:
-    return bool(SMTP_USER and SMTP_PASSWORD and MAIL_FROM)
+    return bool(smtp_user() and smtp_password() and mail_from())
 
 
 def backend_name() -> str | None:
@@ -122,7 +187,7 @@ def backend_name() -> str | None:
     just that it can — the two have very different failure modes and the panel is the
     only place that distinction is visible.
     """
-    if RESEND_API_KEY:
+    if resend_api_key():
         return "resend"
     if smtp_configured():
         return "smtp"
@@ -130,31 +195,32 @@ def backend_name() -> str | None:
 
 
 def is_configured() -> bool:
-    return backend_name() is not None
+    """Can this service send to anyone at all?
+
+    Per-account keys count. With every subscriber carrying their own Resend key and no
+    shared key configured, `backend_name()` is None and yet every send would succeed —
+    gating the admin panel's 수기 발송 button on that alone locked out exactly the
+    setup the per-account table exists to support.
+    """
+    return backend_name() is not None or bool(mail_config_store.account_keys_masked())
 
 
 def config_diagnosis() -> dict:
-    """Which mail settings this process can actually see — presence only, never values.
+    """Which mail settings this process can actually see, and where each came from.
 
     "발송 설정 필요" on the panel is the same message whether a key was never set, was
     set on the wrong service, or was spelled differently, and those need completely
-    different fixes. Reading the environment back is the only thing that separates
+    different fixes. Reading the configuration back is the only thing that separates
     them: the deploy log says what was configured, this says what arrived.
 
-    `os.environ` is re-read here rather than reported from the module constants above.
-    Those are bound once at import, so a variable added to a running process would
-    show as missing forever — which is itself worth being able to see, hence
-    `needs_restart`.
+    `settings` carries the source of each value ('db' or 'env'), which is the question
+    that matters once a setting can come from two places — a row overriding a corrected
+    environment variable looks exactly like a corrected environment variable that
+    didn't take, and only the source tells them apart. Secrets arrive masked; see
+    mail_config_store.describe.
     """
-    live = {
-        name: bool(os.environ.get(name))
-        for name in (
-            "PREDICTION_MAIL_RESEND_KEY",
-            "PREDICTION_MAIL_USER",
-            "PREDICTION_MAIL_PASSWORD",
-            "PREDICTION_MAIL_FROM",
-        )
-    }
+    settings = mail_config_store.describe()
+    live = {s["name"]: s["configured"] for s in settings}
     # Names people reach for when the real one doesn't work — reported so a typo or a
     # provider's own documented name shows up as "set, but not under the name this
     # app reads" instead of as nothing at all.
@@ -165,10 +231,13 @@ def config_diagnosis() -> dict:
     ]
     return {
         "present": live,
+        "settings": settings,
         "unrecognized_names": near_misses,
-        # True when the value landed after this process started, so a restart is the
-        # fix rather than more configuration.
-        "needs_restart": bool(live["PREDICTION_MAIL_RESEND_KEY"]) and not RESEND_API_KEY,
+        # Kept in the payload for the panel's sake, permanently False now: nothing here
+        # is bound at import any more, so a value that has landed anywhere this process
+        # can read is a value it is already using. Removing the field outright would
+        # break a deployed frontend that still reads it.
+        "needs_restart": False,
     }
 
 
@@ -436,11 +505,11 @@ def _send_via_resend(to_addr: str, subject: str, html_body: str, text_body: str)
     resp = requests.post(
         RESEND_ENDPOINT,
         headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Authorization": f"Bearer {resend_api_key(to_addr)}",
             "Content-Type": "application/json",
         },
         json={
-            "from": f"{MAIL_FROM_NAME} <{RESEND_FROM}>",
+            "from": f"{mail_from_name()} <{resend_from()}>",
             "to": [to_addr],
             "subject": subject,
             "html": html_body,
@@ -487,36 +556,42 @@ def _resend_hint(detail: str) -> str:
         )
     if "domain" in lowered and "verif" in lowered:
         return (
-            " — 발신 도메인이 인증되지 않았습니다. PREDICTION_MAIL_FROM 을 비우면 "
-            "인증 없이 쓸 수 있는 공용 발신자로 나갑니다."
+            " — 발신 도메인이 인증되지 않았습니다. 관리자 패널의 발신 주소"
+            "(PREDICTION_MAIL_FROM)를 비우면 인증 없이 쓸 수 있는 공용 발신자로 나갑니다."
         )
     if "api key" in lowered or "unauthorized" in lowered:
-        return " — API 키가 올바르지 않습니다. PREDICTION_MAIL_RESEND_KEY 를 확인하세요."
+        return (
+            " — API 키가 올바르지 않습니다. 관리자 패널의 메일 설정에서 "
+            "PREDICTION_MAIL_RESEND_KEY 를 다시 저장하세요."
+        )
     return ""
 
 
 def _send_via_smtp(to_addr: str, subject: str, html_body: str, text_body: str) -> None:
     msg = MIMEMultipart("alternative")
     msg["Subject"] = Header(subject, "utf-8")
-    msg["From"] = formataddr((str(Header(MAIL_FROM_NAME, "utf-8")), MAIL_FROM))
+    sender = mail_from()
+    msg["From"] = formataddr((str(Header(mail_from_name(), "utf-8")), sender))
     msg["To"] = to_addr
     msg["Date"] = formatdate(localtime=True)
     msg["Message-ID"] = make_msgid()
     msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
+    host, port = smtp_host(), smtp_port()
+    user, password = smtp_user(), smtp_password()
     context = ssl.create_default_context()
-    if USE_SSL:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=30) as s:
-            s.login(SMTP_USER, SMTP_PASSWORD)
-            s.sendmail(MAIL_FROM, [to_addr], msg.as_string())
+    if use_ssl():
+        with smtplib.SMTP_SSL(host, port, context=context, timeout=30) as s:
+            s.login(user, password)
+            s.sendmail(sender, [to_addr], msg.as_string())
     else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as s:
+        with smtplib.SMTP(host, port, timeout=30) as s:
             s.ehlo()
             s.starttls(context=context)
             s.ehlo()
-            s.login(SMTP_USER, SMTP_PASSWORD)
-            s.sendmail(MAIL_FROM, [to_addr], msg.as_string())
+            s.login(user, password)
+            s.sendmail(sender, [to_addr], msg.as_string())
 
 
 def _send_one(to_addr: str, subject: str, html_body: str, text_body: str) -> None:
@@ -530,7 +605,9 @@ def _send_one(to_addr: str, subject: str, html_body: str, text_body: str) -> Non
     it delivers what Resend won't. Only this error falls through; see
     ResendRecipientRestricted.
     """
-    backend = backend_name()
+    # Resolved per recipient: a subscriber with their own key sends via the API even
+    # when no shared key exists, which is the whole point of the per-account table.
+    backend = "resend" if resend_api_key(to_addr) else ("smtp" if smtp_configured() else None)
     if backend == "resend":
         try:
             _send_via_resend(to_addr, subject, html_body, text_body)
@@ -581,15 +658,20 @@ def send_watchlist(
     always sends — that is the whole point of the button, and someone who asks twice
     on purpose is not making the mistake the daily cap exists to prevent.
     """
-    if not dry_run and not is_configured():
-        raise MailNotConfigured(
-            "PREDICTION_MAIL_RESEND_KEY 또는 "
-            "PREDICTION_MAIL_USER / PREDICTION_MAIL_PASSWORD 가 설정되지 않았습니다."
-        )
-
-    to_addr = to_addr or MAIL_TO
+    to_addr = to_addr or mail_to()
     if not to_addr:
         raise MailNotConfigured("수신 주소(PREDICTION_MAIL_TO)가 설정되지 않았습니다.")
+
+    # Resolved after the recipient is known, and against that recipient. A subscriber
+    # holding their own Resend key is sendable even with no shared key configured at
+    # all — checking `is_configured()` here (which only sees the shared settings)
+    # refused exactly the case the per-account table exists to serve.
+    if not dry_run and not (resend_api_key(to_addr) or smtp_configured()):
+        raise MailNotConfigured(
+            f"{mask_address(to_addr)} 로 보낼 수단이 없습니다 — 이 계정의 Resend 키를 "
+            "등록하거나, 공용 PREDICTION_MAIL_RESEND_KEY 또는 "
+            "PREDICTION_MAIL_USER / PREDICTION_MAIL_PASSWORD 를 설정하세요."
+        )
     accuracy = prediction_grader.accuracy_summary(tuple(codes))
     sent, skipped, failed = [], [], []
 

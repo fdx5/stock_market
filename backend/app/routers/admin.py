@@ -8,6 +8,7 @@ from app.services import (
     dram_price,
     hub_event_store,
     kakao_notify,
+    mail_config_store,
     mail_subscription_store,
     page_view_store,
     prediction_batch,
@@ -266,8 +267,19 @@ def mail_status():
     all. See mail_subscription_store.mask.
     """
     summary = mail_subscription_store.today_summary()
+    # Which accounts carry their own Resend key, keyed by the same opaque handle the
+    # rows use. Masked — the panel shows that a key exists and which one, never a
+    # usable value.
+    keys = {
+        mail_subscription_store.account_id(addr): masked
+        for addr, masked in mail_config_store.account_keys_masked().items()
+    }
     accounts = [
-        {**target, **summary.get(target["id"], {"sent_today": 0, "last_sent_at": None})}
+        {
+            **target,
+            **summary.get(target["id"], {"sent_today": 0, "last_sent_at": None}),
+            "resend_key": keys.get(target["id"]),
+        }
         for target in mail_subscription_store.list_targets()
     ]
     return {
@@ -289,6 +301,81 @@ def mail_status():
         "accounts": accounts,
         "today": mail_subscription_store.seoul_today(),
     }
+
+
+class MailAccountKeyPayload(BaseModel):
+    # MailAccount.id — the opaque handle, so the browser never has to hold the address.
+    account: str
+    # Empty clears it and the account falls back to the shared key.
+    value: str = ""
+
+
+@router.put("/mail/account-key", dependencies=[Depends(require_admin)])
+def mail_account_key(payload: MailAccountKeyPayload):
+    """Registers one subscriber's own Resend key.
+
+    Necessary because an unverified Resend sender reaches only the address its own
+    account was registered with: with one shared key, whichever subscriber does not own
+    that account is refused. A key per recipient is the only arrangement short of
+    domain verification that delivers to all of them.
+    """
+    target = next(
+        (
+            addr
+            for addr in mail_subscription_store.resolve_targets(active_only=False)
+            if mail_subscription_store.account_id(addr) == payload.account.strip().lower()
+        ),
+        None,
+    )
+    if target is None:
+        raise HTTPException(status_code=404, detail="해당 계정을 찾을 수 없습니다.")
+    result = mail_config_store.set_account_key(target, payload.value)
+    return {**result, "account": payload.account}
+
+
+class MailConfigPayload(BaseModel):
+    name: str
+    # Empty means "stop overriding this setting" — the row is deleted and the
+    # environment takes over again. See mail_config_store.set_value.
+    value: str = ""
+
+
+@router.get("/mail/config", dependencies=[Depends(require_admin)])
+def mail_config():
+    """The mail settings and where each one comes from.
+
+    Secrets come back masked (`re_…cR6`), which is enough to confirm *which* key is in
+    play without the panel ever holding a usable one. There is deliberately no endpoint
+    that reads a secret back in the clear: a value typed in here is write-only from the
+    browser's point of view, and an operator who has lost the key reissues it at the
+    provider rather than reading it out of this app.
+    """
+    return {
+        "settings": mail_config_store.describe(),
+        "backend": prediction_mail.backend_name(),
+        "smtp_fallback": (
+            prediction_mail.backend_name() == "resend" and prediction_mail.smtp_configured()
+        ),
+    }
+
+
+@router.put("/mail/config", dependencies=[Depends(require_admin)])
+def mail_config_set(payload: MailConfigPayload):
+    """Writes one setting to the table, taking effect on the next send.
+
+    One at a time rather than a whole-form PUT: a form submit carrying every field
+    would have to send back the masked secrets it was given, and the first operator to
+    save after only editing the sender would overwrite the Resend key with `re_…cR6`.
+    """
+    try:
+        result = mail_config_store.set_value(payload.name, payload.value)
+    except mail_config_store.UnknownSetting as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    # No audit entry here on purpose: activity_log is the visitor tail, keyed by
+    # session and path, and an admin config change is neither. mail_config_store
+    # already logs the setting name (never the value) at info level, which is where an
+    # operator looking for "when did this key change" will find it.
+    return {**result, "settings": mail_config_store.describe()}
 
 
 @router.get("/mail/history", dependencies=[Depends(require_admin)])

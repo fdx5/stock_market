@@ -2669,12 +2669,7 @@ export default function AdminDashboardPage() {
                 identical from the outside and need completely different fixes. */}
             {mailStatus && !mailStatus.configured && (
               <div className="admin-mail-diag">
-                {mailStatus.diagnosis.needs_restart ? (
-                  <p>
-                    키는 등록되어 있으나 <b>서버가 재시작되지 않았습니다.</b> Render에서 Manual
-                    Deploy → Restart service 를 실행하세요.
-                  </p>
-                ) : mailStatus.diagnosis.unrecognized_names.length > 0 ? (
+                {mailStatus.diagnosis.unrecognized_names.length > 0 ? (
                   <p>
                     <code>{mailStatus.diagnosis.unrecognized_names.join(", ")}</code> 이(가)
                     설정되어 있습니다. 이 앱이 읽는 이름은{" "}
@@ -2683,8 +2678,7 @@ export default function AdminDashboardPage() {
                 ) : (
                   <p>
                     서버가 <code>PREDICTION_MAIL_RESEND_KEY</code> 를 보지 못하고 있습니다.
-                    Render 대시보드 → 해당 서비스 → Environment 에 이 이름으로 등록되어 있는지,
-                    저장 후 재배포가 끝났는지 확인하세요.
+                    아래 <b>메일 설정</b>에서 바로 저장하면 재배포 없이 적용됩니다.
                   </p>
                 )}
                 <span className="admin-mail-diag-vars">
@@ -2696,6 +2690,13 @@ export default function AdminDashboardPage() {
                 </span>
               </div>
             )}
+            {/* ── 메일 설정 ──
+                These used to be deploy-environment variables only, which meant the
+                person looking at a failed send could see what was missing and still
+                not be able to fix it without a dashboard login and a restart. Saving a
+                row here takes effect on the next send. The 출처 badge is the important
+                part of the row: with two possible sources, "db" is the only proof that
+                an edit here is what the sender is actually using. */}
             {/* The automatic schedule, stated because it has no clock time to look up:
                 the mail follows its region's batch, so the two regions land ~13 hours
                 apart and neither has a fixed hour on this page to read off. */}
@@ -2754,7 +2755,12 @@ export default function AdminDashboardPage() {
                         <button
                           type="button"
                           className="admin-batch-run-btn"
-                          disabled={mailSending !== null || !mailStatus.configured}
+                          disabled={
+                            mailSending !== null ||
+                            // This account's own key is enough on its own — the shared
+                            // configuration only matters to accounts without one.
+                            !(acct.resend_key || mailStatus.configured)
+                          }
                           onClick={() => handleSendMail(acct.id, acct.email)}
                         >
                           {busy ? "발송 중..." : "수기 발송"}
