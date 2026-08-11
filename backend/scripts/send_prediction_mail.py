@@ -58,8 +58,17 @@ def _dump(obj) -> None:
 
 def _resolve_names(codes: list[str]) -> dict[str, str]:
     """Stock names off the most recent prediction for each code, so the admin panel
-    shows 삼성전자 rather than 005930. Best-effort: a code with no prediction history
-    yet simply keeps a null name and displays as its code."""
+    shows 삼성전자 rather than 005930. Best-effort: a code no source knows simply keeps
+    a null name and displays as its code.
+
+    Prediction history first, roster second. History is the better source — it is the
+    name the mail itself will carry — but a code that was just added to the roster has
+    none until the next batch runs, and that is exactly when someone is subscribing to
+    it. Falling through to the roster means a fresh name reads as 아스테라랩스 in the
+    admin panel from the moment it is subscribed rather than as a bare ticker until
+    tomorrow.
+    """
+    from app.data import prediction_universe
     from app.services import prediction_store
 
     out: dict[str, str] = {}
@@ -69,6 +78,19 @@ def _resolve_names(codes: list[str]) -> dict[str, str]:
             if rows:
                 out[code] = rows[0]["name"]
         except Exception:  # noqa: BLE001 - a name is a nicety, never a reason to fail
+            pass
+
+    missing = [c for c in codes if c not in out]
+    if missing:
+        try:
+            roster = prediction_universe.get_roster(
+                prediction_universe.KR_MARKETS + prediction_universe.US_MARKETS
+            )
+            by_code = {it["code"]: it["name"] for it in roster}
+            for code in missing:
+                if code in by_code:
+                    out[code] = by_code[code]
+        except Exception:  # noqa: BLE001 - same: never a reason to fail a subscribe
             pass
     return out
 

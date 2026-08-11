@@ -233,6 +233,10 @@ export interface MailStatus {
   configured: boolean;
   /** "resend" | "smtp" | null — which transport the server will actually use. */
   backend: string | null;
+  /** SMTP is configured behind the API transport, so a recipient the API refuses
+   * still gets their mail. False with more than one account means only the address
+   * the Resend account itself owns can actually be delivered to. */
+  smtp_fallback: boolean;
   /** Presence-only view of the mail environment variables the server can see, so an
    * unconfigured panel can say which one is missing rather than only that one is. */
   diagnosis: {

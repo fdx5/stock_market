@@ -2653,7 +2653,11 @@ export default function AdminDashboardPage() {
             {mailStatus &&
               (mailStatus.configured ? (
                 <span className="admin-mail-backend">
-                  {mailStatus.backend === "resend" ? "API 발송" : "SMTP 발송"}
+                  {mailStatus.backend === "resend"
+                    ? mailStatus.smtp_fallback
+                      ? "API 발송 (SMTP 예비)"
+                      : "API 발송"
+                    : "SMTP 발송"}
                 </span>
               ) : (
                 <span className="admin-mail-unconfigured">발송 설정 필요</span>
@@ -2692,6 +2696,25 @@ export default function AdminDashboardPage() {
                 </span>
               </div>
             )}
+            {/* Configured, and still unable to reach most of the list. An unverified
+                Resend sender delivers only to the address the Resend account owns, so
+                with several subscribers and no SMTP behind it every account but one
+                fails — which looks like a broken send rather than a missing setting. */}
+            {mailStatus &&
+              mailStatus.configured &&
+              mailStatus.backend === "resend" &&
+              !mailStatus.smtp_fallback &&
+              mailStatus.accounts.length > 1 && (
+                <div className="admin-mail-diag">
+                  <p>
+                    발신 도메인이 인증되지 않은 상태에서는 <b>Resend 가입 주소로만</b> 발송됩니다.
+                    구독 계정이 {mailStatus.accounts.length}개이므로 나머지 계정은 발송이 거부됩니다
+                    — Resend에서 발신 도메인을 인증하거나,{" "}
+                    <code>PREDICTION_MAIL_USER</code> / <code>PREDICTION_MAIL_PASSWORD</code> 를
+                    등록해 SMTP 예비 발송을 켜세요.
+                  </p>
+                </div>
+              )}
             {mailStatus === null ? (
               <div className="admin-batch-row">
                 <span className="admin-skeleton admin-skeleton--row" />

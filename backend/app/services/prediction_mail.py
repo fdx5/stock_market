@@ -97,6 +97,22 @@ class MailNotConfigured(RuntimeError):
     sending nothing is worse than one that stops."""
 
 
+class ResendRecipientRestricted(RuntimeError):
+    """Resend refused *this recipient*, not the message.
+
+    Its own class because it is the one Resend failure that another transport can
+    still deliver: with an unverified sender domain the shared sender only reaches the
+    address the Resend account was registered with, so every other subscriber is
+    rejected no matter how correct the mail is. Every other Resend error (bad key,
+    malformed body) would fail identically over SMTP and must stay a plain failure —
+    retrying those would just send the same rejection down a second path.
+    """
+
+
+def smtp_configured() -> bool:
+    return bool(SMTP_USER and SMTP_PASSWORD and MAIL_FROM)
+
+
 def backend_name() -> str | None:
     """Which transport will actually be used, or None if neither is configured.
 
@@ -106,7 +122,7 @@ def backend_name() -> str | None:
     """
     if RESEND_API_KEY:
         return "resend"
-    if SMTP_USER and SMTP_PASSWORD and MAIL_FROM:
+    if smtp_configured():
         return "smtp"
     return None
 
@@ -437,7 +453,21 @@ def _send_via_resend(to_addr: str, subject: str, html_body: str, text_body: str)
             detail = payload.get("message") or payload.get("error") or resp.text
         except ValueError:
             detail = resp.text
-        raise RuntimeError(f"Resend {resp.status_code}: {detail}{_resend_hint(detail)}"[:500])
+        message = f"Resend {resp.status_code}: {detail}{_resend_hint(detail)}"[:500]
+        if _is_recipient_restriction(detail):
+            raise ResendRecipientRestricted(message)
+        raise RuntimeError(message)
+
+
+def _is_recipient_restriction(detail: str) -> bool:
+    """Does this rejection mean "not this address" rather than "not this message"?
+
+    Matched on Resend's wording because the status code doesn't distinguish it — the
+    restriction and a malformed payload are both 403/422. The same phrases drive
+    `_resend_hint`; they are read here to decide whether SMTP is worth trying.
+    """
+    lowered = (detail or "").lower()
+    return "testing emails" in lowered or "own email" in lowered
 
 
 def _resend_hint(detail: str) -> str:
@@ -488,10 +518,28 @@ def _send_via_smtp(to_addr: str, subject: str, html_body: str, text_body: str) -
 
 
 def _send_one(to_addr: str, subject: str, html_body: str, text_body: str) -> None:
-    """Dispatches to whichever transport is configured, API key first."""
+    """Dispatches to whichever transport is configured, API key first.
+
+    With both configured, a Resend recipient restriction falls through to SMTP rather
+    than failing. That case is specific and worth handling: an unverified Resend sender
+    domain delivers only to the Resend account's own address, so the first subscriber
+    receives mail normally and every subsequent one is rejected — the transport works,
+    just not for them. SMTP authenticates as a real mailbox and has no such limit, so
+    it delivers what Resend won't. Only this error falls through; see
+    ResendRecipientRestricted.
+    """
     backend = backend_name()
     if backend == "resend":
-        _send_via_resend(to_addr, subject, html_body, text_body)
+        try:
+            _send_via_resend(to_addr, subject, html_body, text_body)
+        except ResendRecipientRestricted:
+            if not smtp_configured():
+                raise
+            logger.info(
+                "prediction_mail: Resend refused %s (unverified sender domain), sending via SMTP",
+                mask_address(to_addr),
+            )
+            _send_via_smtp(to_addr, subject, html_body, text_body)
     elif backend == "smtp":
         _send_via_smtp(to_addr, subject, html_body, text_body)
     else:

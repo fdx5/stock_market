@@ -13,9 +13,14 @@ and one that climbs to 30th starts, with no list to maintain by hand.
 At 30 the explicit extras have mostly become redundant on their own merits: AMD,
 Intel and Micron all sit inside the Nasdaq-100's top 30 by weight, so in practice
 only SanDisk (not an index member at all — it re-listed as a standalone Nasdaq
-issue after splitting from Western Digital in Feb 2025) is still carried from
-outside the cut. They are appended after it, never into it, so an extra can never
-displace a name that earned its slot by rank.
+issue after splitting from Western Digital in Feb 2025) and Astera Labs are still
+carried from outside the cut. They are appended after it, never into it, so an extra
+can never displace a name that earned its slot by rank.
+
+The extras are also what a mail subscription can rely on. A subscriber picks stock
+codes, but only a roster name is ever scored, so subscribing to a code outside the
+roster produces a subscription that silently mails nothing — "예측 이력 없음" every
+day. Anything a reader is subscribed to therefore has to be here.
 """
 
 import re
@@ -49,7 +54,11 @@ US_MARKETS = (MARKET_NASDAQ,)
 # still does real work: not an index member at all (SanDisk re-listed as a standalone
 # Nasdaq issue after splitting from Western Digital in Feb 2025), so no market-cap cut
 # of the Nasdaq-100 will ever reach it.
-US_EXTRA_TICKERS = ("AMD", "INTC", "MU", "SNDK")
+#
+# ALAB is here for the same structural reason as SNDK rather than for its weight: it is
+# not a Nasdaq-100 member, so no top-30 cut reaches it, and a reader is subscribed to
+# it by mail. An unscored code is a subscription that quietly mails nothing.
+US_EXTRA_TICKERS = ("AMD", "INTC", "MU", "SNDK", "ALAB")
 
 # The page renders Korean names, and the US roster is small and stable enough that a
 # literal map beats routing 14 names through the Google Translate endpoint on every
@@ -75,6 +84,7 @@ US_KOREAN_NAMES = {
     "INTC": "인텔",
     "MU": "마이크론 테크놀로지",
     "SNDK": "샌디스크",
+    "ALAB": "아스테라랩스",
 }
 
 

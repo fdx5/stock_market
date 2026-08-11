@@ -275,6 +275,13 @@ def mail_status():
         # Which transport is live — "resend" or "smtp". The two fail in different ways
         # and this is the only screen that can say which one is in play.
         "backend": prediction_mail.backend_name(),
+        # Whether SMTP is standing behind the API transport. It matters to whoever
+        # reads this screen because it decides what happens to a second subscriber:
+        # an unverified Resend sender reaches only the Resend account's own address,
+        # and with this false every other account's mail simply fails.
+        "smtp_fallback": (
+            prediction_mail.backend_name() == "resend" and prediction_mail.smtp_configured()
+        ),
         # Presence-only view of the mail settings this process can see. Returned
         # always, not just on failure, so the panel can explain "발송 설정 필요"
         # instead of only stating it. Never carries a value.
