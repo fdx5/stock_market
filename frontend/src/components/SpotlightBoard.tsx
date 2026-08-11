@@ -204,7 +204,7 @@ export default function SpotlightBoard({
       <div className="desk-spot-meta">
         <span className={`desk-spot-phase is-${bucket.phase}`}>{t(phaseLabel)}</span>
         <span className="desk-spot-note">
-          {t("상승률과 거래대금을 함께 보고 지수별 3종목을 고릅니다. 투자 판단의 근거가 아닙니다.")}
+          {t("상승률과 거래대금을 기준으로 지수별 3종목을 선별합니다.")}
         </span>
       </div>
 
