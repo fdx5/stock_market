@@ -4845,47 +4845,6 @@ thead .weekly-foreign-amount-col {
   white-space: nowrap;
 }
 
-/* A starred chip carries its own remove control, which can't be a <button> inside
-   a <button> — the wrapper turns into the chip and the two children split it. */
-.quick-access-chip--removable {
-  padding: 0 4px 0 10px;
-  gap: 2px;
-}
-
-.quick-access-chip-main {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  padding: 5px 0;
-  border: none;
-  background: none;
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-}
-
-.quick-access-chip-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  flex-shrink: 0;
-  border: none;
-  border-radius: 50%;
-  background: none;
-  color: var(--text-muted);
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.quick-access-chip-remove:hover {
-  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
-  color: var(--text-primary);
-}
-
 .quick-access-clear {
   flex-shrink: 0;
   padding: 5px 8px;
@@ -5433,38 +5392,6 @@ thead .weekly-foreign-amount-col {
 }
 
 /* ── Favourite star ──────────────────────────────────────────────────────── */
-.favorite-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  /* 32px square: comfortably over the ~28px minimum for a reliable thumb tap,
-     without visually competing with the stock name it sits beside. */
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: none;
-  border-radius: 50%;
-  background: none;
-  color: var(--text-muted);
-  font-size: 19px;
-  line-height: 1;
-  cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease, transform 0.15s ease;
-}
-
-.favorite-button:hover {
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
-  color: var(--status-warning);
-}
-
-.favorite-button.is-on {
-  color: var(--status-warning);
-}
-
-.favorite-button.is-on:active {
-  transform: scale(0.88);
-}
-
 /* ── Mobile stock bar ────────────────────────────────────────────────────── */
 /* Hidden outright above the phone breakpoint: on a desktop the stock header is
    only ever a short scroll away, and a permanent bottom bar there would just eat
@@ -5968,24 +5895,12 @@ thead .weekly-foreign-amount-col {
      asymmetric padding its base rule gives it (room on the right for the ×) rather
      than the even padding above — which, sitting later in the file at equal
      specificity, would otherwise win and collapse the × against the edge. */
-  .quick-access-chip--removable {
-    padding: 0 3px 0 8px;
-  }
-
-  .quick-access-chip-main {
-    padding: 4px 0;
-  }
-
-  /* Only the plain <button> chips — the starred ones are a <span> wrapping two real
-     buttons, and a pseudo-element on that wrapper would paint over both and swallow
-     the taps it is meant to help. Those get theirs on .quick-access-chip-main. */
-  button.quick-access-chip,
-  .quick-access-chip-main {
+  button.quick-access-chip {
     position: relative;
   }
 
-  button.quick-access-chip::after,
-  .quick-access-chip-main::after {
+  /* Widens the tap target past the chip's own drawn height without moving it. */
+  button.quick-access-chip::after {
     content: "";
     position: absolute;
     inset: -5px 0;
@@ -6005,12 +5920,6 @@ thead .weekly-foreign-amount-col {
 
   .quick-access-rank {
     font-size: 9px;
-  }
-
-  .quick-access-chip-remove {
-    width: 18px;
-    height: 18px;
-    font-size: 13px;
   }
 
   .quick-access-clear {
@@ -6064,14 +5973,6 @@ thead .weekly-foreign-amount-col {
   .orderbook-balance-title,
   .orderbook-balance-lean {
     font-size: 10px;
-  }
-
-  /* The star must not be squeezed between the name and the price line when the
-     header wraps — it keeps its own slot right after the name. */
-  .stock-header .favorite-button {
-    width: 30px;
-    height: 30px;
-    font-size: 18px;
   }
 }
 
@@ -10449,6 +10350,23 @@ thead .weekly-foreign-amount-col {
   object-fit: contain;
   background: #fff;
   padding: 1px;
+}
+
+/* What stands in when the logo host has no image for a ticker — see StockLogo.
+   It inherits whatever size class the caller gave the <img>, so it lands in the
+   same box at the same dimensions rather than collapsing the row it sits in. */
+.stock-logo--mono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  overflow: hidden;
 }
 
 .admin-toppages-stock-code {

@@ -100,7 +100,7 @@ function FlipTile({ members }: { members: GlobalIndexWidget[] }) {
   );
 }
 
-export default function GlobalIndexGrid() {
+export default function GlobalIndexGrid({ excludeKr = false }: { excludeKr?: boolean }) {
   const [items, setItems] = useState<GlobalIndexWidget[] | null>(null);
 
   useEffect(() => {
@@ -128,8 +128,14 @@ export default function GlobalIndexGrid() {
   // Two rolling tiles, split by the group the backend tags each index with — US majors
   // (plus the live KOSPI futures print when its session is open) in one, the overseas
   // markets in the other. Order within each group is preserved as sent.
-  const usMembers = items?.filter((it) => it.group !== "overseas") ?? [];
-  const overseasMembers = items?.filter((it) => it.group === "overseas") ?? [];
+  /* `excludeKr` drops anything flagged as a Korean instrument. That is one entry
+     today — KORU, a Korea leverage ETF that trades in New York, so the backend
+     files it under the US group, correctly. It is still a Korean-market product,
+     and the global desk's brief is that no KR market information appears there.
+     The KR desk passes nothing and keeps it. */
+  const visible = excludeKr ? (items ?? []).filter((it) => it.flag !== "kr") : (items ?? []);
+  const usMembers = visible.filter((it) => it.group !== "overseas");
+  const overseasMembers = visible.filter((it) => it.group === "overseas");
 
   return (
     <div className="global-index-grid">

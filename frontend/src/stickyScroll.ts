@@ -12,9 +12,37 @@
 /** Breathing room left between the header and whatever is scrolled to. */
 export const HEADER_CLEARANCE = 12;
 
+/* Everything that can be pinned over the top of the page, in stacking order.
+ *
+ * It was just `.app-header` for as long as that was the only sticky thing on any
+ * route. The market desk pins a second strip under it — the command deck, with
+ * search, the live index and the shortcut chips — so on that page a scroll
+ * measured against the header alone lands its target underneath the deck. The
+ * symptom was expanding a post in 종목토론방: the row it scrolled to arrived
+ * behind the deck and had to be nudged back down by hand.
+ *
+ * Anything added to this list has to be genuinely pinned to the viewport top, and
+ * that is checked rather than assumed — see below. */
+const STICKY_SELECTORS = [".app-header", ".desk-command"];
+
+/** How much of the viewport's top edge is covered by pinned chrome right now.
+ *
+ * Each candidate is included only when it is *currently* sticky or fixed. The
+ * command deck is `position: static` below the phone breakpoint — where the
+ * header is at its tallest and a second pinned strip would eat the screen — and
+ * counting its height there would scroll every target a deck's height too far.
+ * Reading the computed style is what keeps this correct across that breakpoint
+ * without either file knowing the other's media query. */
 export function stickyHeaderOffset(gap = HEADER_CLEARANCE): number {
-  const header = document.querySelector<HTMLElement>(".app-header");
-  return (header?.getBoundingClientRect().height ?? 0) + gap;
+  let covered = 0;
+  for (const selector of STICKY_SELECTORS) {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (!el) continue;
+    const position = window.getComputedStyle(el).position;
+    if (position !== "sticky" && position !== "fixed") continue;
+    covered += el.getBoundingClientRect().height;
+  }
+  return covered + gap;
 }
 
 /** Scrolls the page so a given viewport-relative y lands just below the header.

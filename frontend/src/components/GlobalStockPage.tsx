@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CompanyNewsItem, GlobalEnrichment, IndicatorPoint, UsStockQuote, api } from "../api/client";
 import { syncTimeScales } from "../chartSync";
 import { trillionSuffix, wonSuffix } from "../i18n/format";
@@ -11,7 +11,6 @@ import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import DailyPricePanel from "./DailyPricePanel";
 import DramPricePanel from "./DramPricePanel";
-import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalBoardPanel from "./GlobalBoardPanel";
 import GlobalIndexGrid from "./GlobalIndexGrid";
@@ -26,17 +25,40 @@ import DashboardIcon from "./DashboardIcon";
 import Logo from "./Logo";
 import MacroRatesStrip from "./MacroRatesStrip";
 import MarketIcon from "./MarketIcon";
+import MarketBreadthGauge from "./MarketBreadthGauge";
 import MarketTickerBar from "./MarketTickerBar";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
+import CommandPalette from "./CommandPalette";
+import HeaderDateTime from "./HeaderDateTime";
 import SearchBar from "./SearchBar";
 import SessionBadge from "./SessionBadge";
 import SessionSplit from "./SessionSplit";
 import StockQuickAccess from "./StockQuickAccess";
 import ThemeToggle from "./ThemeToggle";
+import SpotlightBoard from "./SpotlightBoard";
+import StockRadarBoard from "./StockRadarBoard";
+import UsIndexStrip from "./UsIndexStrip";
+import UsRankBoard from "./UsRankBoard";
 import UsSectorMapPanel from "./UsSectorMapPanel";
 import VisitorBadge from "./VisitorBadge";
+import { useUsMarketSnapshot } from "../useUsMarketSnapshot";
+import "./marketDesk.css";
 
 const QUOTE_POLL_MS = 10_000;
+
+/** The bands the rail knows about, in page order. Ids are the scroll targets.
+ *
+ * There is no 수급 band here and there cannot be: no free US feed breaks volume
+ * out by participant, so the KR desk's 개인/외국인/기관 board has no counterpart.
+ * Its slot is taken by the rankings the constituent snapshots do support — see
+ * UsRankBoard. */
+const SECTIONS = [
+  { id: "gdesk-pulse", label: "마켓 펄스" },
+  { id: "gdesk-spotlight", label: "주목 종목" },
+  { id: "gdesk-index", label: "글로벌 지수" },
+  { id: "gdesk-rank", label: "순위" },
+  { id: "gdesk-focus", label: "종목" },
+];
 
 type Tab = "news" | "board" | "daily";
 
@@ -107,7 +129,7 @@ export default function GlobalStockPage() {
   // the dashboard, which owns the KR pipeline — the inverse of Dashboard's own
   // handler, so the two pages hand off to each other in both directions.
   const selectStock = (stock: { code: string; market: string }) => {
-    navigate(stock.market === "US" ? `/global?code=${stock.code}` : `/dashboard?code=${stock.code}`);
+    navigate(stock.market === "US" ? `/global?code=${stock.code}` : `/desk?code=${stock.code}`);
   };
 
   useEffect(() => {
@@ -239,9 +261,62 @@ export default function GlobalStockPage() {
     };
   }, [indicatorPoints]);
 
+  /* The same two constituent maps the breadth gauge, the spotlight and the
+     ranking board all read, pulled once and shared — see useUsMarketSnapshot. */
+  const usSnapshot = useUsMarketSnapshot();
+  const usBoard = useMemo(
+    () => (usSnapshot.generatedAt === null ? null : usSnapshot.all),
+    [usSnapshot]
+  );
+
+  const [activeSection, setActiveSection] = useState<string>(SECTIONS[0].id);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+
+  /* The command deck sticks below the site header, whose height is not fixed —
+     the nav row wraps as the viewport narrows. Measured and published as a custom
+     property rather than guessed at. Same mechanism as the KR desk. */
+  useEffect(() => {
+    const header = headerRef.current;
+    const page = pageRef.current;
+    if (!header || !page) return;
+    const apply = () => page.style.setProperty("--desk-header-h", `${header.offsetHeight}px`);
+    apply();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", apply);
+      return () => window.removeEventListener("resize", apply);
+    }
+    const observer = new ResizeObserver(apply);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const observed = SECTIONS.map((sec) => document.getElementById(sec.id)).filter(
+      (el): el is HTMLElement => el !== null
+    );
+    if (observed.length === 0) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (visible) setActiveSection(visible.target.id);
+      },
+      { rootMargin: "-33% 0px -55% 0px" }
+    );
+    observed.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [quote, error]);
+
+  const jumpTo = (id: string) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
+
   return (
-    <div className="app">
-      <header className="app-header">
+    <div className="app app--desk app--gdesk" ref={pageRef}>
+      <header className="app-header" ref={headerRef}>
         <div className="app-title-row">
           <div className="app-brand">
             <Link to="/">
@@ -254,7 +329,7 @@ export default function GlobalStockPage() {
           </div>
         </div>
         <div className="app-nav-row">
-          <Link to="/dashboard" className="kospi-map-nav-link kospi-map-nav-link--home">
+          <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
           <Link to="/map" className="kospi-map-nav-link">
@@ -303,22 +378,109 @@ export default function GlobalStockPage() {
           as a live band across the top of the page. */}
       <MarketTickerBar />
 
-      {/* Until now this page was a navigation dead end: a visitor arriving from a
-          map tile or a trending chip could only leave via the browser's back
-          button or a market-map link. It gets the dashboard's own search + shortcut
-          strip so any stock, KR or US, is reachable from here too. */}
-      <div className="app-header-trailing">
-        <SearchBar onSelect={selectStock} />
-        <StockQuickAccess onSelect={selectStock} activeCode={code} />
+      {/* The command deck, same shape as the KR desk's: search and ⌘K on the
+          left, the live index in the middle, the clock spanning both rows on the
+          right, and the shortcut chips underneath. The index here is the US
+          majors with any KR-flagged instrument filtered out — see UsIndexStrip.
+
+          The chips and the search are asked for US-only, since the popular
+          ranking and the browser's own trail both mix markets by construction and
+          this page must not surface KR names. */}
+      <div className="desk-command">
+        <div className="desk-command-grid">
+          <div className="desk-command-search">
+            <SearchBar onSelect={selectStock} />
+            <CommandPalette onSelectStock={selectStock} />
+          </div>
+          <UsIndexStrip />
+          <div className="desk-command-clock">
+            <HeaderDateTime />
+          </div>
+          <div className="desk-command-chips">
+            <StockQuickAccess onSelect={selectStock} activeCode={code} market="US" />
+          </div>
+        </div>
       </div>
 
-      <GlobalIndexGrid />
+      <nav className="desk-rail" aria-label={t("구역 이동")}>
+        <ul>
+          {SECTIONS.map((section) => (
+            <li key={section.id}>
+              <button
+                type="button"
+                className={activeSection === section.id ? "is-active" : ""}
+                aria-current={activeSection === section.id ? "true" : undefined}
+                onClick={() => jumpTo(section.id)}
+              >
+                <span className="desk-rail-dot" aria-hidden="true" />
+                <span className="desk-rail-label">{t(section.label)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </nav>
 
-      {/* The dashboard's own FX/oil pair, repeated here under the index grid. It
-          reads from the shared market-ticker poller, so a second placement costs
-          no extra request — and a US name is quoted in the dollar this rate
-          converts, which makes it more relevant on this page, not less. */}
-      <MacroRatesStrip variant="card" />
+      <main className="desk-main">
+        {/* ── Band 1: the pulse, US edition. The breadth gauge is the same
+               component the KR desk uses — advancing against declining and a
+               cap-weighted sector average are the same two questions on any
+               board — fed the S&P 500 and NASDAQ 100 union instead. The radar is
+               asked for the US popular ranking. ── */}
+        <section className="desk-band desk-band--pulse" id="gdesk-pulse" aria-labelledby="gdesk-pulse-title">
+          <div className="desk-band-head">
+            <h2 id="gdesk-pulse-title">{t("마켓 펄스")}</h2>
+            <span className="desk-band-rule" aria-hidden="true" />
+          </div>
+          <div className="desk-pulse-grid desk-pulse-grid--us">
+            <div className="desk-card desk-card--breadth">
+              <MarketBreadthGauge items={usBoard} scopeLabel="S&P 500 + 나스닥 100" />
+            </div>
+            <div className="desk-card desk-card--radar">
+              <StockRadarBoard onSelect={selectStock} activeCode={code} market="US" />
+            </div>
+          </div>
+        </section>
+
+        {/* ── Band 2: the six, from the two US boards. ── */}
+        <section className="desk-band" id="gdesk-spotlight" aria-labelledby="gdesk-spotlight-title">
+          <div className="desk-band-head">
+            <h2 id="gdesk-spotlight-title">{t("오늘의 주목 종목")}</h2>
+            <span className="desk-band-rule" aria-hidden="true" />
+          </div>
+          <SpotlightBoard onSelect={selectStock} activeCode={code} kind="us" />
+        </section>
+
+        {/* ── Band 3: the index grid and the macro strip. `excludeKr` drops KORU,
+               a Korea leverage ETF that trades in New York and is therefore filed
+               under the US group — correctly, and still a KR instrument. The FX
+               strip stays: a US name is quoted in the dollar it converts. ── */}
+        <section className="desk-band" id="gdesk-index" aria-labelledby="gdesk-index-title">
+          <div className="desk-band-head">
+            <h2 id="gdesk-index-title">{t("글로벌 지수")}</h2>
+            <span className="desk-band-rule" aria-hidden="true" />
+          </div>
+          <GlobalIndexGrid excludeKr />
+          <MacroRatesStrip variant="card" />
+        </section>
+
+        {/* ── Band 4: the rankings that stand in for the KR desk's 수급 board. ── */}
+        <section className="desk-band" id="gdesk-rank" aria-labelledby="gdesk-rank-title">
+          <div className="desk-band-head">
+            <h2 id="gdesk-rank-title">{t("순위")}</h2>
+            <span className="desk-band-rule" aria-hidden="true" />
+          </div>
+          <div className="desk-card desk-card--flow">
+            <UsRankBoard onSelect={selectStock} activeCode={code} />
+          </div>
+        </section>
+
+        {/* ── Band 5: the workspace — this page's original stock detail, whole and
+               unchanged, inside the desk's own band. ── */}
+        <section className="desk-band desk-band--focus" id="gdesk-focus" aria-labelledby="gdesk-focus-title">
+          <div className="desk-band-head">
+            <h2 id="gdesk-focus-title">{t("종목 상세")}</h2>
+            <span className="desk-band-rule" aria-hidden="true" />
+          </div>
 
       {loading && (
         <span className="sr-only" role="status">
@@ -360,7 +522,6 @@ export default function GlobalStockPage() {
                   )}
                   {quote.name}
                 </span>
-                <FavoriteButton stock={{ code: quote.code, name: quote.name, market: "US" }} />
                 <span className="code">{quote.code}</span>
                 <span
                   className={`price ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}
@@ -439,6 +600,8 @@ export default function GlobalStockPage() {
           </div>
         </div>
       )}
+        </section>
+      </main>
 
       <Footer />
     </div>

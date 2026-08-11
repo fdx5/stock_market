@@ -142,7 +142,7 @@ const EARTH_MOONS: MoonSpec[] = [
     key: "samsung",
     ko: "삼성전자",
     en: "Samsung",
-    to: "/dashboard?code=005930",
+    to: "/desk?code=005930",
     texture: "",
     radius: 5.2,
     size: 0.42,
@@ -156,7 +156,7 @@ const EARTH_MOONS: MoonSpec[] = [
     key: "skhynix",
     ko: "SK하이닉스",
     en: "SK hynix",
-    to: "/dashboard?code=000660",
+    to: "/desk?code=000660",
     texture: "",
     radius: 6.6,
     size: 0.42,
@@ -547,13 +547,25 @@ export const NEUTRON_BINARY: LandmarkSpec = {
  * Saturn's own 144 the far edge of it is 160 from the sun, comfortably inside
  * the 172.4 where Uranus's rings begin. That last one is the constraint that
  * stops this going any further out: the two planets do line up. */
+/* The mouth off Saturn, and the way through to the market desk.
+ *
+ * It carried no destination for as long as it was scenery. Giving it one is
+ * the obvious reading of the object — the whole point of a wormhole is that it
+ * is a shortcut to somewhere else — and of everything in this sky it is the
+ * body whose dive needs the least explaining: the camera falls until the mouth
+ * is the entire frame and the page changes out of the white-out, which is what
+ * going through one would look like from the inside of the ship.
+ *
+ * The fall stops just short of the surface rather than passing through it, for
+ * the reasons diveInto's own note gives — the spheres are front-faced and the
+ * near plane clips anything closer. Nothing here is inside anything. */
 export const WORMHOLE: LandmarkSpec = {
   key: "wormhole",
-  ko: "웜홀",
-  en: "Wormhole",
+  ko: "마켓 데스크",
+  en: "MARKET DESK",
   bodyKo: "웜홀",
   bodyEn: "Wormhole",
-  to: "",
+  to: "/desk",
   position: [27, 17, 0],
 };
 
@@ -582,11 +594,11 @@ export const VOYAGER: LandmarkSpec = {
 
 export const STAR: LandmarkSpec = {
   key: "sun",
-  ko: "대시보드",
-  en: "DASHBOARD",
+  ko: "마켓 데스크",
+  en: "MARKET DESK",
   bodyKo: "태양",
   bodyEn: "Sun",
-  to: "/dashboard",
+  to: "/desk",
   position: [0, 0, 0],
 };
 
@@ -603,7 +615,7 @@ export interface Destination {
 }
 
 export const DESTINATIONS: Destination[] = [
-  { key: "sun", ko: "대시보드", en: "DASHBOARD", to: "/dashboard", accent: "#ffce6a" },
+  { key: "sun", ko: STAR.ko, en: STAR.en, to: STAR.to, accent: "#ffce6a" },
   ...PLANETS.map((p) => ({ key: p.key, ko: p.ko, en: p.en, to: p.to, feed: p.feed, accent: p.glow })),
   { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, to: BLACK_HOLE.to, accent: "#ff9a4d" },
   { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, to: NEUTRON_BINARY.to, accent: "#9fd0ff" },

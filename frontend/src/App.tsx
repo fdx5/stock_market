@@ -8,9 +8,22 @@ import { useRoute } from "./router";
 // InvestorTrend use) instead of every route's code landing in one bundle regardless
 // of which page a visitor lands on first.
 const Dashboard = lazy(() => import("./components/Dashboard"));
+/* The market desk — the stock desk rebuilt around what a reader actually does
+   with it, reached through the wormhole off Saturn. It carries everything
+   /dashboard carries and reuses the same components to do it, so the two are
+   the same information in two arrangements rather than two codebases; what
+   differs is the order, the grouping and what is on screen at once. */
+const MarketDeskPage = lazy(() => import("./components/MarketDeskPage"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
-   used to be lives at /dashboard and is reached from the star at the centre of
-   the page. Anything that means "open a stock" targets /dashboard?code=.
+   used to be is reached from the star at the centre of the page, and anything
+   that means "open a stock" targets /desk?code=.
+
+   The desk moved. Every link on the site — the star and the two stock moons in
+   the sky, every page's home link and back link, the footer, and every "open
+   this stock" from a map tile, a board card or a prediction row — now points at
+   /desk. /dashboard stays routed and unchanged so that bookmarks, shared links
+   and anything already indexed keep resolving, and the command palette still
+   lists it; nothing else links to it.
 
    Two entrances have been built against that same site map. This is the second
    one: the solar system rendered in WebGL rather than in CSS 3D transforms.
@@ -65,6 +78,8 @@ export default function App() {
     page = <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
   } else if (path === "/dashboard") {
     page = <Dashboard />;
+  } else if (path === "/desk") {
+    page = <MarketDeskPage />;
   } else if (path === "/kospi-100") {
     page = <KospiBoardPage />;
   } else if (path === "/kosdaq-100") {

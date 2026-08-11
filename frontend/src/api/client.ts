@@ -120,6 +120,27 @@ export interface MarketMapItem extends ExtendedHours {
   close: number;
   change: number;
   change_pct: number;
+  /* The two KR maps carry these as well, and always have — they were simply
+   * never declared, because the treemaps size by cap and colour by change and
+   * needed none of them. The spotlight board is built out of them: turnover
+   * (close × volume) is how it tells a real move from a thin one, and the rest
+   * are what its commentary is written from.
+   *
+   * Optional because this same type backs the S&P 500 and NASDAQ 100 maps,
+   * whose upstream is a different scraper. Anything reading them has to cope
+   * with absence rather than assume a number. `per` and `roe` are null for a
+   * few dozen names even on the KR side — a company with no earnings has no
+   * ratio, which is a fact about the company and not a gap in the data. */
+  volume?: number;
+  shares?: number;
+  foreign_ratio?: number;
+  per?: number | null;
+  roe?: number | null;
+  /** US maps only, and the field that has to be read instead of `marcap` there:
+   * on a US constituent `marcap` is the index *weight* in per cent, not a
+   * capitalisation, so the two names mean different quantities on the two sides.
+   * This is the real one, in dollars. */
+  market_cap?: number | null;
 }
 
 export interface MarketMapResponse {
@@ -883,7 +904,15 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 
 export const api = {
   search: (q: string) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
-  popularSearches: (limit = 8) => getJSON<{ items: PopularStock[] }>(`${BASE}/search/popular?limit=${limit}`),
+  /* `market` narrows the ranking to one side. The log is overwhelmingly KR, so a
+     US-only strip taken from the combined top 20 is empty most days — the backend
+     ranks a deeper pool and filters it, which is the only way the global page can
+     show a US 실시간 인기 strip at all. Omitted keeps the combined ranking the KR
+     surfaces have always shown. */
+  popularSearches: (limit = 8, market?: "US" | "KR") =>
+    getJSON<{ items: PopularStock[] }>(
+      `${BASE}/search/popular?limit=${limit}${market ? `&market=${market}` : ""}`
+    ),
   summary: (code: string) => getJSON<StockSummary>(`${BASE}/stock/${code}/summary`),
   quote: (code: string) => getJSONFresh<StockQuote>(`${BASE}/stock/${code}/quote`),
   overview: (code: string) => getJSON<CompanyOverview>(`${BASE}/stock/${code}/overview`),

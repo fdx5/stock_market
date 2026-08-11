@@ -354,7 +354,7 @@ export default function MonitorPage() {
       </header>
 
       <div className="app-nav-row monitor-nav-row">
-        <Link to="/dashboard" className="kospi-map-nav-link kospi-map-nav-link--home">
+        <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
           <DashboardIcon /> 홈
         </Link>
         <Link to="/map" className="kospi-map-nav-link">

@@ -161,7 +161,7 @@ export default function PredictionGradingPage() {
           </div>
         </div>
         <div className="app-nav-row">
-          <Link to="/dashboard" className="kospi-map-nav-link kospi-map-nav-link--home">
+          <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> 홈
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link">

@@ -12,6 +12,7 @@ import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
+import { useMarketIndices } from "../useMarketIndices";
 import MacroRatesStrip from "./MacroRatesStrip";
 import TabBeacon from "./TabBeacon";
 
@@ -433,7 +434,54 @@ function InvestorTableRow({
   );
 }
 
-export default function MarketOverviewPanel({
+/* The panel is two boards that share a card and nothing else: the index side
+ * reads /indices on a fifteen-second loop, the flow side reads /investor/summary
+ * and /investor/weekly-foreign on a five-minute one, and neither looks at the
+ * other's state. They are exported separately so a page can place them apart —
+ * the market desk stacks the index board into its pulse row and gives the flow
+ * board a full-width section of its own — while this default export keeps them
+ * side by side exactly as the classic dashboard has always drawn them.
+ *
+ * Splitting them costs nothing in traffic: each board owns its own polling, so
+ * one of each on a page makes precisely the calls the single component used to.
+ * Mounting BOTH boards twice would double it, which is why no page does. */
+const SUMMARY_REFRESH_MS = 5 * 60_000;
+
+/** KOSPI/KOSDAQ, their investor flows, the session pill and the macro strip.
+ *
+ * The poll moved out to useMarketIndices, which is a module-level singleton: the
+ * market desk reads the same endpoint twice — here and in its sticky command
+ * strip — and two components each running their own fifteen-second interval
+ * would be two requests a tick for one set of numbers. Nothing about what this
+ * draws changed with it. */
+export function MarketIndexBoard() {
+  const t = useT();
+  const { kospi, kosdaq, kospiInvestor, kosdaqInvestor } = useMarketIndices();
+
+  return (
+    <div className="market-overview-half market-overview-index">
+      <div className="market-overview-heading">
+        <h2>{t("코스피 · 코스닥 지수")}</h2>
+        <MarketStatusPill status={kospi?.market_status ?? kosdaq?.market_status ?? null} />
+      </div>
+      <p className="market-overview-subtitle">
+        {t("지수 하단은 시장 전체 개인/외국인/기관 누적 순매수(억원)이며, 매수는 빨간색, 매도는 파란색입니다.")}
+      </p>
+      <div className="index-tiles">
+        <IndexTile index={kospi} investor={kospiInvestor} label="코스피" />
+        <IndexTile index={kosdaq} investor={kosdaqInvestor} label="코스닥" />
+      </div>
+
+      {/* The two macro numbers a KR investor reads next to the index itself.
+          Polled on the ticker's own cadence rather than the index refresh, since
+          they come from the ticker payload. */}
+      <MacroRatesStrip />
+    </div>
+  );
+}
+
+/** The seven ranking lists — caps, movers, investor flows, weekly foreign. */
+export function MarketFlowBoard({
   onSelectStock,
 }: {
   onSelectStock: (stock: StockSearchResult) => void;
@@ -441,10 +489,6 @@ export default function MarketOverviewPanel({
   const { lang } = useLanguage();
   const t = useT();
   const [tab, setTab] = useState<Tab>("top50");
-  const [kospi, setKospi] = useState<IndexQuote | null>(null);
-  const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
-  const [kospiInvestor, setKospiInvestor] = useState<MarketInvestorSummary | null>(null);
-  const [kosdaqInvestor, setKosdaqInvestor] = useState<MarketInvestorSummary | null>(null);
   const [items, setItems] = useState<InvestorSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -453,30 +497,8 @@ export default function MarketOverviewPanel({
   const [weeklyForeignLoading, setWeeklyForeignLoading] = useState(true);
   const [weeklyForeignError, setWeeklyForeignError] = useState<string | null>(null);
 
-  const INDEX_REFRESH_MS = 15_000;
-  const SUMMARY_REFRESH_MS = 5 * 60_000;
-
   useEffect(() => {
     let cancelled = false;
-
-    const loadIndices = () => {
-      // Always reuses the backend's stale-while-revalidate cache (fresh=false) rather
-      // than forcing a synchronous re-scrape on every page entry — with a 10-20s TTL,
-      // the worst case is a few seconds of staleness, which is far cheaper than
-      // blocking a request thread on Naver for every visitor's first paint.
-      api
-        .indices(false)
-        .then((res) => {
-          if (cancelled) return;
-          setKospi(res.kospi);
-          setKosdaq(res.kosdaq);
-          setKospiInvestor(res.kospi_investor);
-          setKosdaqInvestor(res.kosdaq_investor);
-        })
-        .catch(() => {
-          // A missed index refresh just keeps showing the last known values.
-        });
-    };
 
     const loadSummary = (isInitial: boolean) => {
       if (isInitial) setLoading(true);
@@ -515,17 +537,14 @@ export default function MarketOverviewPanel({
         });
     };
 
-    loadIndices();
     loadSummary(true);
     loadWeeklyForeign(true);
 
-    const stopIndexPolling = startVisibilityAwareInterval(() => loadIndices(), INDEX_REFRESH_MS);
     const stopSummaryPolling = startVisibilityAwareInterval(() => loadSummary(false), SUMMARY_REFRESH_MS);
     const stopWeeklyForeignPolling = startVisibilityAwareInterval(() => loadWeeklyForeign(false), SUMMARY_REFRESH_MS);
 
     return () => {
       cancelled = true;
-      stopIndexPolling();
       stopSummaryPolling();
       stopWeeklyForeignPolling();
     };
@@ -534,27 +553,7 @@ export default function MarketOverviewPanel({
   const latestDate = items[0]?.date;
 
   return (
-    <section className="card market-overview-panel">
-      <div className="market-overview-half market-overview-index">
-        <div className="market-overview-heading">
-          <h2>{t("코스피 · 코스닥 지수")}</h2>
-          <MarketStatusPill status={kospi?.market_status ?? kosdaq?.market_status ?? null} />
-        </div>
-        <p className="market-overview-subtitle">
-          {t("지수 하단은 시장 전체 개인/외국인/기관 누적 순매수(억원)이며, 매수는 빨간색, 매도는 파란색입니다.")}
-        </p>
-        <div className="index-tiles">
-          <IndexTile index={kospi} investor={kospiInvestor} label="코스피" />
-          <IndexTile index={kosdaq} investor={kosdaqInvestor} label="코스닥" />
-        </div>
-
-        {/* The two macro numbers a KR investor reads next to the index itself.
-            Polled on the ticker's own cadence rather than the index refresh, since
-            they come from the ticker payload. */}
-        <MacroRatesStrip />
-      </div>
-
-      <div className="market-overview-half market-overview-investor">
+    <div className="market-overview-half market-overview-investor">
         <div className="market-overview-tab-bar">
           <button
             type="button"
@@ -681,7 +680,20 @@ export default function MarketOverviewPanel({
             )}
           </>
         )}
-      </div>
+    </div>
+  );
+}
+
+/** The classic dashboard's card: both boards, side by side, unchanged. */
+export default function MarketOverviewPanel({
+  onSelectStock,
+}: {
+  onSelectStock: (stock: StockSearchResult) => void;
+}) {
+  return (
+    <section className="card market-overview-panel">
+      <MarketIndexBoard />
+      <MarketFlowBoard onSelectStock={onSelectStock} />
     </section>
   );
 }

@@ -377,7 +377,7 @@ function StockCard({ item, ctx, compact }: { item: StockBoardItem; ctx: CardCont
   const { board, lang, displayName } = ctx;
   const dir = direction(item.change_pct);
   const isUs = board.market === "nasdaq";
-  const href = isUs ? `/global?code=${item.code}` : `/dashboard?code=${item.code}`;
+  const href = isUs ? `/global?code=${item.code}` : `/desk?code=${item.code}`;
   // A 3-month sparkline is colored by what it actually shows — its own start-to-end
   // direction — not by today's tick, which the badge beside it already carries.
   const trend =
@@ -897,7 +897,7 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
           </div>
         </div>
         <div className="app-nav-row">
-          <Link to="/dashboard" className="kospi-map-nav-link kospi-map-nav-link--home">
+          <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
           <Link to="/map" className="kospi-map-nav-link">
