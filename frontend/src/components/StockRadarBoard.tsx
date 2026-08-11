@@ -78,20 +78,29 @@ export default function StockRadarBoard({
   const names = useTranslatedTexts(rows.map((row) => row.name));
   const loadingPopular = mode === "popular" && popular === null;
 
-  // A stable key, so the poll re-runs when the *set* of codes changes rather
-  // than on every render that hands it a freshly built array.
-  const codeKey = rows.map((r) => r.code).join(",");
+  /* A stable key, so the poll re-runs when the *set* of rows changes rather
+     than on every render that hands it a freshly built array. Each row carries
+     its own market, because this board's rows are not all on this board's side
+     of the world: the KR desk asks for the *combined* popular ranking and shows
+     every recent the browser holds, both of which mix US tickers in. Quoting
+     those through the KR endpoint asked /api/stock/NVDA/quote, which 404s (the
+     code is not in the KOSPI+KOSDAQ universe) every fifteen seconds for as long
+     as the row is on screen, and left the row permanently priceless. */
+  const quoteKey = rows.map((r) => `${r.market === "US" ? "US" : "KR"}:${r.code}`).join(",");
   const quotesRef = useRef(quotes);
   quotesRef.current = quotes;
 
   useEffect(() => {
-    if (!codeKey) return;
-    const codes = codeKey.split(",");
+    if (!quoteKey) return;
+    const targets = quoteKey.split(",").map((entry) => {
+      const [side, code] = entry.split(":");
+      return { code, us: side === "US" };
+    });
     let cancelled = false;
 
     const poll = () => {
-      for (const code of codes) {
-        (market === "US" ? api.usStockQuote(code) : api.quote(code))
+      for (const { code, us } of targets) {
+        (us ? api.usStockQuote(code) : api.quote(code))
           .then((quote) => {
             if (cancelled) return;
             setQuotes((prev) => ({ ...prev, [code]: quote as StockQuote }));
@@ -108,7 +117,7 @@ export default function StockRadarBoard({
       cancelled = true;
       stop();
     };
-  }, [codeKey, market]);
+  }, [quoteKey]);
 
   return (
     <section className="desk-radar" aria-labelledby="desk-radar-title">
