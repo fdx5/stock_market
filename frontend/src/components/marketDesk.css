@@ -1626,6 +1626,26 @@
   }
 }
 
+/* ── The quick-access strip leaves the deck on a phone ────────────────────────
+   Its two groups are 실시간 인기 and 최근 본 종목, and those are the same two
+   lists 종목 레이더 carries down in the pulse band — the radar says so in its
+   own header comment. The radar carries them better, too: a chip is a name and
+   a link, and each radar row is that same name with a live price against it.
+
+   On a wide screen the duplication costs two lines at the top of a page that
+   has room for them. On a phone it costs two lines of a screen that has about
+   twelve, to say a scroll early what the page says properly a scroll later. So
+   here the strip goes and the radar keeps the job.
+
+   Scoped to .desk-command-chips, which is the desk pages' wrapper — this must
+   not reach the dashboard, where StockQuickAccess is rendered bare and there is
+   no radar underneath to inherit the work. */
+@media (max-width: 640px) {
+  .desk-command-chips {
+    display: none;
+  }
+}
+
 @media (max-width: 620px) {
   .desk-sectors {
     grid-template-columns: 1fr;
