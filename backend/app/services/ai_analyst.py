@@ -49,7 +49,25 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 # here (weighing conflicting headlines against a technical setup) is exactly the kind
 # of call a weaker model gets confidently wrong.
 AI_MODEL = os.environ.get("PREDICTION_AI_MODEL", "claude-opus-4-8")
-AI_EFFORT = os.environ.get("PREDICTION_AI_EFFORT", "high")
+# Thinking is billed as output, and at "high" over a 30-name roster it was the single
+# largest line in the bill — comparable to the whole visible answer. "medium" is the
+# default because the qualitative call here (is this headline material or noise?) is
+# not the kind of problem that keeps improving with more deliberation, unlike the
+# multi-step reasoning "high" is meant for. Raise it back per-market if the scores
+# visibly degrade; that is cheaper to discover than to assume.
+AI_EFFORT = os.environ.get("PREDICTION_AI_EFFORT", "medium")
+
+# Whether Claude writes 장 마감 설명, or the deterministic composer does.
+#
+# Off by default, and this is the largest single saving in the module: at ~260자 a
+# stock it was a fifth of the generated text, and prediction_quality already has
+# compose_close_summary() producing the same paragraph from the same numbers — it was
+# written as the omission fallback and prediction_engine already routes to it whenever
+# the field comes back empty. Explaining a move that has *already happened* from
+# figures the app holds is arithmetic with a sentence around it, not judgement, so
+# paying an LLM for it buys phrasing rather than insight. Set to "1" to hand it back
+# to Claude.
+AI_CLOSE_SUMMARY = os.environ.get("PREDICTION_AI_CLOSE_SUMMARY", "").strip() in ("1", "true", "yes")
 
 # Which billing path the Claude call takes: "api" | "subscription" | "heuristic" |
 # "auto". See the module docstring; "auto" is resolved in _select_backend().
@@ -67,8 +85,18 @@ AI_TIMEOUT = int(os.environ.get("PREDICTION_AI_TIMEOUT", "1800"))
 # but it is the SDK's to change, so the CLI's is spelled out separately here.
 _CLI_EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 
-DETAIL_MAX_CHARS = 700
+DETAIL_MAX_CHARS = 450
 CLOSE_SUMMARY_MAX_CHARS = 260
+
+# How many headlines per stock reach the model. Titles are over half the request
+# payload, and the list arrives newest-first from both sources — the 6th-oldest
+# headline on a name is nearly always a restatement of the first five or a story
+# already priced in, so it costs tokens on every stock to change almost no judgement.
+HEADLINES_PER_STOCK = 5
+# Signals are ordered reversal → trend → momentum → band → volume → orderbook, so a
+# cap keeps the short-term reversal read (the part with actual predictive sign) and
+# drops the tail of confirmatory chart notes.
+SIGNALS_PER_STOCK = 5
 
 SOURCE_CLAUDE = "claude"
 SOURCE_HEURISTIC = "heuristic"
@@ -103,32 +131,42 @@ _SYSTEM_PROMPT = """당신은 한국 증권사 리서치센터의 시니어 애�
 
 헤드라인이 없거나 내용이 빈약하면 0에 가깝게 두십시오. 없는 재료를 지어내지 마십시오.
 
+## 작성 규칙 — 분량을 재료에 맞추십시오
+`detail`은 한국어로 작성하되, **길이는 실제로 할 말이 있는 만큼만** 쓰십시오. 분량을 채우려고 쓰지 마십시오.
+
+- **판단을 바꿀 재료가 있는 종목**(실적·공시·규제·수급 이탈·뚜렷한 뉴스): **250~400자**
+- **재료가 없는 종목**(헤드라인 부재 또는 무의미, 수급 중립): **80~150자**. "특이 재료 없음"을 짧게 쓰고 끝내는 것이 정답입니다. 대다수 종목은 여기에 해당합니다.
+
+담을 내용은 다음 세 가지뿐입니다:
+
+1. **뉴스** — 재료의 성격(일회성인지 지속성인지), 이미 주가에 반영됐다고 보는지. 없으면 없다고 한 문장.
+2. **동종 업계 상대 비교** — 같은 로스터의 동종 종목 대비 앞서는지 뒤처지는지. 비교 대상이 없으면 생략.
+3. **리스크 요인** — 이 판단이 틀릴 수 있는 가장 큰 이유 하나. 생략하지 마십시오 — 반증 조건이 없는 예측은 근거가 아니라 주장입니다.
+
+**다음은 쓰지 마십시오. 시스템이 이미 갖고 있어 중복이고, 화면에는 별도로 표시됩니다:**
+- `technical`의 `summary`·`score_40pct`·`signals` 재진술
+- 당일 등락률, 수급 금액, 지수·환율 수치의 나열 — 그 숫자가 당신의 판단을 실제로 바꾼 경우에만 한 번 인용하십시오
+- 서론("~를 살펴보면"), 맺음말("종합하면"), 면책 문구
+
+수치는 제공된 데이터에서만 인용하고, 없는 숫자를 만들어내지 마십시오. 투자 권유 표현("매수하십시오")은 쓰지 마십시오.
+
+"익일 상승/하락/보합"이라고 단정하지 마십시오. 최종 방향과 등락률은 당신의 45%와 정량 엔진의 55%를 합산해 시스템이 계산하며, 그 결과가 문장 끝에 자동으로 덧붙습니다. 두 블록이 반대 방향일 때 당신이 미리 방향을 단정하면 본문과 결론이 서로 모순됩니다.
+
+`drivers`는 최대 3개, 각 20자 이내의 핵심 근거 키워드입니다. `detail`의 요약이 아닙니다.
+
+로스터의 모든 종목에 대해 빠짐없이 응답하십시오."""
+
+# Appended to the system prompt only when AI_CLOSE_SUMMARY is on. Kept separate so the
+# default path doesn't pay for instructions describing a field it never asks for.
+_CLOSE_SUMMARY_PROMPT = """
+
 ## 장 마감 설명 (`close_summary`)
 `detail`이 "익일 어떻게 될 것인가"라면, `close_summary`는 "오늘 왜 이렇게 끝났는가"입니다. 예측이 아니라 이미 확정된 당일 종가 변동에 대한 설명이며, 두 필드는 서로 다른 질문에 답해야 합니다.
 
 - 200자 이내 한국어. `session.change_pct`(당일 등락률)를 반드시 첫 문장에 명시하십시오.
 - 실제로 그 변동을 설명할 수 있는 요인만 쓰십시오. 제공된 데이터에 없는 요인(공시, 실적 발표 등)을 추측해 넣지 마십시오.
 - `market_context`의 지수 등락, 업종 평균, 환율과 `investor_flow`, `session.volume_ratio`, 헤드라인이 사용 가능한 근거의 전부입니다.
-- 종목 고유의 움직임인지 시장 전체의 움직임인지를 구분해 주십시오. 지수가 +1.5%인 날의 +1.6%와 지수가 -0.5%인 날의 +1.6%는 완전히 다른 사건입니다.
-- 예시 형태: "외국인 순매수와 반도체 업종 강세(+2.1%), 환율 하락이 겹치며 +1.8% 상승 마감했습니다. 다만 지수 상승분(+0.9%p)을 제외한 종목 고유 상승은 +0.9%p입니다."
-
-## 작성 규칙
-`detail`은 반드시 한국어로 **600~700자**로 작성합니다. 짧게 끝내지 마십시오 — 독자가 이 판단을 재현할 수 있을 만큼 구체적이어야 합니다. 다음을 순서대로 모두 담으십시오:
-
-1. **정량 지표 요약** — `technical`의 단기 반전 신호가 어느 쪽을 가리키는지, 당일 등락률이 그 종목의 평소 변동성 대비 몇 배 수준인지 수치와 함께 한두 문장.
-2. **수급** — 외국인·기관 5일 순매수 금액을 실제 숫자로 인용하고, 그 방향이 주가 움직임과 일치하는지 어긋나는지 서술 (국내 종목에 한함).
-3. **지수·환율·업종** — 해당일 지수 등락과 비교해 이 종목이 시장을 이겼는지 졌는지, 환율이 이 종목 실적에 어느 방향으로 작용하는지.
-4. **뉴스** — 헤드라인에서 읽어낸 재료의 성격(일회성인지 지속성인지)과, 그것이 이미 주가에 반영되었다고 보는지 아닌지.
-5. **동종 업계 상대 비교** — 같은 로스터 안의 동종 종목과 비교해 이 종목이 상대적으로 앞서 있는지 뒤처져 있는지.
-6. **리스크 요인** — 이 판단이 틀릴 수 있는 가장 큰 이유 한 가지를 반드시 명시.
-
-수치는 반드시 제공된 데이터에서 인용하고, 없는 숫자를 만들어내지 마십시오. 6번은 생략하지 마십시오 — 반증 조건이 없는 예측은 근거가 아니라 주장입니다.
-
-3번에서 "익일 상승/하락/보합"이라고 단정하지 마십시오. 최종 방향과 등락률은 당신의 60%와 정량 엔진의 40%를 합산해 시스템이 계산하며, 그 결과가 문장 끝에 자동으로 덧붙습니다. 두 블록이 반대 방향일 때 당신이 미리 방향을 단정하면 본문과 결론이 서로 모순됩니다.
-
-투자 권유 표현("매수하십시오", "지금 사야 합니다")은 쓰지 마십시오. 관측과 판단만 서술하십시오. 데이터에 없는 수치를 만들어내지 마십시오.
-
-로스터의 모든 종목에 대해 빠짐없이 응답하십시오."""
+- 종목 고유의 움직임인지 시장 전체의 움직임인지를 구분해 주십시오. 지수가 +1.5%인 날의 +1.6%와 지수가 -0.5%인 날의 +1.6%는 완전히 다른 사건입니다."""
 
 # Both backends pin the shape with a schema (output_config for the API, --json-schema
 # for the CLI). The CLI path additionally states it in the prompt: schema enforcement
@@ -136,33 +174,50 @@ _SYSTEM_PROMPT = """당신은 한국 증권사 리서치센터의 시니어 애�
 # quietly ignored it would cost a whole market's analysis.
 _JSON_INSTRUCTION = """반드시 아래 형식의 JSON 객체 하나만 출력하십시오. 코드블록 표시(```), 머리말, 설명 문장 없이 순수 JSON만 반환하십시오.
 
-{"stocks": [{"code": "종목코드", "ai_score": -1.0~1.0 사이 실수, "confidence": "강" 또는 "중" 또는 "약", "drivers": ["핵심 근거", ...], "detail": "500자 이내 근거 서술", "close_summary": "당일 종가 변동 설명"}, ...]}
+{"stocks": [{"code": "종목코드", "ai_score": -1.0~1.0 사이 실수, "confidence": "강" 또는 "중" 또는 "약", "drivers": ["핵심 근거", ...], "detail": "근거 서술"%s}, ...]}
 
 로스터의 모든 종목을 stocks 배열에 빠짐없이 포함하십시오."""
 
-_OUTPUT_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "stocks": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "code": {"type": "string"},
-                    "ai_score": {"type": "number"},
-                    "confidence": {"type": "string", "enum": ["강", "중", "약"]},
-                    "drivers": {"type": "array", "items": {"type": "string"}},
-                    "detail": {"type": "string"},
-                    "close_summary": {"type": "string"},
+_CLOSE_SUMMARY_FIELD = ', "close_summary": "당일 종가 변동 설명"'
+
+
+def _system_prompt() -> str:
+    return _SYSTEM_PROMPT + (_CLOSE_SUMMARY_PROMPT if AI_CLOSE_SUMMARY else "")
+
+
+def _json_instruction() -> str:
+    return _JSON_INSTRUCTION % (_CLOSE_SUMMARY_FIELD if AI_CLOSE_SUMMARY else "")
+
+
+def _output_schema() -> dict:
+    """Built per call rather than as a constant because the close_summary field is
+    optional: a schema that still requires it would force the model to generate the
+    paragraph even with every instruction to write it removed."""
+    properties = {
+        "code": {"type": "string"},
+        "ai_score": {"type": "number"},
+        "confidence": {"type": "string", "enum": ["강", "중", "약"]},
+        "drivers": {"type": "array", "items": {"type": "string"}},
+        "detail": {"type": "string"},
+    }
+    if AI_CLOSE_SUMMARY:
+        properties["close_summary"] = {"type": "string"}
+    return {
+        "type": "object",
+        "properties": {
+            "stocks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": list(properties),
+                    "additionalProperties": False,
                 },
-                "required": ["code", "ai_score", "confidence", "drivers", "detail", "close_summary"],
-                "additionalProperties": False,
-            },
-        }
-    },
-    "required": ["stocks"],
-    "additionalProperties": False,
-}
+            }
+        },
+        "required": ["stocks"],
+        "additionalProperties": False,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +416,10 @@ def _truncate(text: str, limit: int = DETAIL_MAX_CHARS) -> str:
         idx = cut.rfind(sep)
         if idx > limit * 0.6:
             return cut[: idx + len(sep)].strip()
-    return cut.rstrip() + "…"
+    # limit - 1, because the ellipsis is a character too. Cutting at `limit` and then
+    # appending returned limit + 1 and quietly broke every caller that had budgeted
+    # exact room for something after the truncated text.
+    return clean[: max(0, limit - 1)].rstrip() + "…"
 
 
 def _build_request_payload(market: str, payloads: list[dict], market_ctx: dict) -> str:
@@ -385,19 +443,25 @@ def _build_request_payload(market: str, payloads: list[dict], market_ctx: dict) 
             "market": item["market"],
             "close": tech["close"],
             "session": {
+                # prev_close is dropped: it is close ÷ (1 + change_pct), so sending it
+                # spends tokens on every stock to restate a number already present.
                 "change_pct": tech.get("session_change_pct"),
-                "prev_close": tech.get("prev_close"),
                 "volume_ratio_vs_20d": tech.get("volume_ratio"),
             },
             "technical": {
                 "score_40pct": tech["score"],
                 "summary": tech["summary"],
-                "signals": tech["drivers"],
+                "signals": tech["drivers"][:SIGNALS_PER_STOCK],
                 "volatility_20d_pct": tech["volatility_pct"],
             },
+            # Title and date only. The press name was costing ~5 characters a headline
+            # across the whole roster and never changed a judgement — whether a story
+            # is material is a property of the story, and the model was told not to
+            # weight outlets against each other anyway. The date stays because
+            # recency is what separates a live catalyst from one already traded.
             "headlines": [
-                {"t": h.get("title", ""), "p": h.get("press", ""), "d": h.get("date", "")}
-                for h in (p.get("headlines") or [])[:8]
+                {"t": h.get("title", ""), "d": h.get("date", "")}
+                for h in (p.get("headlines") or [])[:HEADLINES_PER_STOCK]
             ],
         }
         if p.get("flows"):
@@ -440,44 +504,66 @@ def _parse_response(text: str, payloads: list[dict]) -> dict[str, dict]:
             "code": code,
             "ai_score": max(-1.0, min(1.0, score)),
             "confidence": row.get("confidence") if row.get("confidence") in ("강", "중", "약") else "중",
-            "drivers": [str(d) for d in (row.get("drivers") or [])][:6],
+            "drivers": [str(d) for d in (row.get("drivers") or [])][:3],
             "detail": _truncate(row.get("detail", "")),
-            # Shorter cap than the rationale: this is one paragraph explaining a single
-            # number, and the page prints it above the fold on every card's modal.
+            # Absent when AI_CLOSE_SUMMARY is off, and empty is the contract that makes
+            # that work: prediction_engine reads a blank close_summary as "compose it
+            # from the numbers" and calls prediction_quality. Shorter cap than the
+            # rationale when Claude does write it — one paragraph explaining a single
+            # number, printed above the fold on every card's modal.
             "close_summary": _truncate(row.get("close_summary", ""), CLOSE_SUMMARY_MAX_CHARS),
             "source": SOURCE_CLAUDE,
         }
     return results
 
 
-def analyze_with_claude(market: str, payloads: list[dict], market_ctx: dict) -> dict[str, dict]:
+def _normalize_usage(raw: dict | None, **extra) -> dict:
+    """One shape for both billing paths, so the batch summary reads the same whether
+    the run went through the metered API or the subscription CLI."""
+    raw = raw or {}
+    usage = {
+        key: int(raw.get(key) or 0)
+        for key in (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        )
+    }
+    usage["total_tokens"] = sum(usage.values())
+    usage.update({k: v for k, v in extra.items() if v is not None})
+    return usage
+
+
+def analyze_with_claude(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[str, dict], dict]:
     """One call per market covering its whole roster. Raises on any failure — the
     caller decides whether to fall back, so a partial or malformed model response can
-    never be silently mixed with heuristic rows without that being recorded."""
+    never be silently mixed with heuristic rows without that being recorded.
+
+    Returns (results-by-code, usage)."""
     import anthropic
 
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     user_payload = _build_request_payload(market, payloads, market_ctx)
 
-    # Streaming because a full-roster analysis at high effort is a long generation and
-    # a large max_tokens — a non-streaming request of this size risks an HTTP timeout.
+    # Streaming because a full-roster analysis is a long generation and a large
+    # max_tokens — a non-streaming request of this size risks an HTTP timeout.
     with client.messages.stream(
         model=AI_MODEL,
-        # Sized off the roster, not picked round: 30 names × (500자 detail + 260자
-        # close_summary + drivers + numbers) is on the order of 25k output tokens
-        # before adaptive thinking takes its share, which put 32000 close enough to
-        # the ceiling that a verbose day would truncate — and a truncated JSON body
-        # fails the parse, losing the whole market to the heuristic fallback.
+        # Headroom, not a target. Unused max_tokens is not billed, but a body that
+        # truncates mid-JSON fails the parse and costs the whole market — so this
+        # stays well above the ~15k the trimmed roster now generates rather than
+        # being re-sized down alongside it.
         max_tokens=64000,
         thinking={"type": "adaptive"},
         output_config={
             "effort": AI_EFFORT,
-            "format": {"type": "json_schema", "schema": _OUTPUT_SCHEMA},
+            "format": {"type": "json_schema", "schema": _output_schema()},
         },
         # The system prompt is byte-identical across every run and both markets, so it
         # is worth a cache breakpoint: the second call of each batch reads it instead
         # of re-processing it.
-        system=[{"type": "text", "text": _SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        system=[{"type": "text", "text": _system_prompt(), "cache_control": {"type": "ephemeral"}}],
         messages=[{"role": "user", "content": user_payload}],
     ) as stream:
         response = stream.get_final_message()
@@ -488,7 +574,12 @@ def analyze_with_claude(market: str, payloads: list[dict], market_ctx: dict) -> 
     text = next((b.text for b in response.content if b.type == "text"), "")
     if not text:
         raise RuntimeError(f"Claude returned no text content (market={market})")
-    return _parse_response(text, payloads)
+
+    usage = _normalize_usage(
+        response.usage.model_dump() if hasattr(response.usage, "model_dump") else dict(response.usage or {}),
+        stop_reason=response.stop_reason,
+    )
+    return _parse_response(text, payloads), usage
 
 
 # ---------------------------------------------------------------------------
@@ -552,11 +643,15 @@ def _extract_json(text: str) -> str:
     return s[start : end + 1]
 
 
-def analyze_with_claude_subscription(market: str, payloads: list[dict], market_ctx: dict) -> dict[str, dict]:
+def analyze_with_claude_subscription(
+    market: str, payloads: list[dict], market_ctx: dict
+) -> tuple[dict[str, dict], dict]:
     """Same contract as analyze_with_claude, but routed through the Claude Code CLI so
     the call bills a Claude subscription (CLAUDE_CODE_OAUTH_TOKEN) rather than API
     credits. Raises on any failure so the caller falls back per-market exactly as it
     does for the API path.
+
+    Returns (results-by-code, usage).
 
     The whole prompt is passed as one argv entry (subprocess with a list, no shell), so
     the Korean text and the roster JSON need no escaping and can't be misread as flags.
@@ -566,7 +661,7 @@ def analyze_with_claude_subscription(market: str, payloads: list[dict], market_c
         [
             "다음은 분석 대상 데이터입니다:",
             _build_request_payload(market, payloads, market_ctx),
-            _JSON_INSTRUCTION,
+            _json_instruction(),
         ]
     )
 
@@ -597,11 +692,11 @@ def analyze_with_claude_subscription(market: str, payloads: list[dict], market_c
         "-p",
         prompt,
         "--system-prompt",
-        _SYSTEM_PROMPT,
+        _system_prompt(),
         "--tools",
         "",
         "--json-schema",
-        json.dumps(_OUTPUT_SCHEMA),
+        json.dumps(_output_schema()),
         "--output-format",
         "json",
         "--model",
@@ -645,7 +740,20 @@ def analyze_with_claude_subscription(market: str, payloads: list[dict], market_c
     text = envelope.get("result", "")
     if not text:
         raise RuntimeError(f"claude CLI 응답에 result 텍스트가 없음 (market={market})")
-    return _parse_response(_extract_json(text), payloads)
+
+    # The envelope carries what the run actually cost, and until now this function
+    # read `result` and threw the rest away — which is why the only way to size a
+    # batch was to estimate it from character counts. `total_cost_usd` is the CLI's
+    # own list-price figure and is informational on a subscription (the run bills
+    # against the plan's window, not a dollar balance), but it is the one number that
+    # makes two configurations directly comparable.
+    usage = _normalize_usage(
+        envelope.get("usage"),
+        cost_usd=envelope.get("total_cost_usd"),
+        duration_ms=envelope.get("duration_ms"),
+        num_turns=envelope.get("num_turns"),
+    )
+    return _parse_response(_extract_json(text), payloads), usage
 
 
 def _select_backend() -> str:
@@ -661,8 +769,10 @@ def _select_backend() -> str:
     return "heuristic"
 
 
-def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[str, dict], str, str | None]:
-    """Returns (results-by-code, source-label, failure-reason).
+def analyze(
+    market: str, payloads: list[dict], market_ctx: dict
+) -> tuple[dict[str, dict], str, str | None, dict | None]:
+    """Returns (results-by-code, source-label, failure-reason, usage).
 
     Falls back per *market*, not per stock: mixing a Claude judgement for one name
     with a lexicon judgement for the next would make the scores on a single page
@@ -676,15 +786,20 @@ def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[s
     the reason out, diagnosing a misconfiguration meant reading the server's own log
     on the host. The batch puts this string straight into its warnings, which reach
     the cron output and the admin panel.
+
+    The fourth is what the call consumed, and None on the heuristic path (which
+    consumes nothing). It travels the same route as the reason for the same purpose:
+    the operator cannot see this process, so anything they need to know about a run
+    has to ride out on its summary.
     """
     if not payloads:
-        return {}, SOURCE_HEURISTIC, None
+        return {}, SOURCE_HEURISTIC, None, None
 
     backend = _select_backend()
     if backend in ("subscription", "api"):
         runner = analyze_with_claude_subscription if backend == "subscription" else analyze_with_claude
         try:
-            results = runner(market, payloads, market_ctx)
+            results, usage = runner(market, payloads, market_ctx)
             missing = [p for p in payloads if p["item"]["code"] not in results]
             if missing:
                 logger.warning(
@@ -695,11 +810,20 @@ def analyze(market: str, payloads: list[dict], market_ctx: dict) -> tuple[dict[s
                     market,
                 )
                 results.update(analyze_heuristic(missing))
-            return results, SOURCE_CLAUDE, None
+            logger.info(
+                "ai_analyst: %s %s in=%d out=%d cache_read=%d total=%d",
+                backend,
+                market,
+                usage.get("input_tokens", 0),
+                usage.get("output_tokens", 0),
+                usage.get("cache_read_input_tokens", 0),
+                usage.get("total_tokens", 0),
+            )
+            return results, SOURCE_CLAUDE, None, usage
         except Exception as exc:  # noqa: BLE001 - a batch that runs beats one that doesn't
             logger.warning(
                 "ai_analyst: Claude(%s) analysis failed for %s (%s); using heuristic", backend, market, exc
             )
-            return analyze_heuristic(payloads), SOURCE_HEURISTIC, f"{type(exc).__name__}: {exc}"
+            return analyze_heuristic(payloads), SOURCE_HEURISTIC, f"{type(exc).__name__}: {exc}", None
 
-    return analyze_heuristic(payloads), SOURCE_HEURISTIC, None
+    return analyze_heuristic(payloads), SOURCE_HEURISTIC, None, None
