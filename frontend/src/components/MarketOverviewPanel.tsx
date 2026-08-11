@@ -12,6 +12,7 @@ import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText, useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
+import { useMarketIndices } from "../useMarketIndices";
 import MacroRatesStrip from "./MacroRatesStrip";
 import TabBeacon from "./TabBeacon";
 
@@ -444,46 +445,18 @@ function InvestorTableRow({
  * Splitting them costs nothing in traffic: each board owns its own polling, so
  * one of each on a page makes precisely the calls the single component used to.
  * Mounting BOTH boards twice would double it, which is why no page does. */
-const INDEX_REFRESH_MS = 15_000;
 const SUMMARY_REFRESH_MS = 5 * 60_000;
 
-/** KOSPI/KOSDAQ, their investor flows, the session pill and the macro strip. */
+/** KOSPI/KOSDAQ, their investor flows, the session pill and the macro strip.
+ *
+ * The poll moved out to useMarketIndices, which is a module-level singleton: the
+ * market desk reads the same endpoint twice — here and in its sticky command
+ * strip — and two components each running their own fifteen-second interval
+ * would be two requests a tick for one set of numbers. Nothing about what this
+ * draws changed with it. */
 export function MarketIndexBoard() {
   const t = useT();
-  const [kospi, setKospi] = useState<IndexQuote | null>(null);
-  const [kosdaq, setKosdaq] = useState<IndexQuote | null>(null);
-  const [kospiInvestor, setKospiInvestor] = useState<MarketInvestorSummary | null>(null);
-  const [kosdaqInvestor, setKosdaqInvestor] = useState<MarketInvestorSummary | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const loadIndices = () => {
-      // Always reuses the backend's stale-while-revalidate cache (fresh=false) rather
-      // than forcing a synchronous re-scrape on every page entry — with a 10-20s TTL,
-      // the worst case is a few seconds of staleness, which is far cheaper than
-      // blocking a request thread on Naver for every visitor's first paint.
-      api
-        .indices(false)
-        .then((res) => {
-          if (cancelled) return;
-          setKospi(res.kospi);
-          setKosdaq(res.kosdaq);
-          setKospiInvestor(res.kospi_investor);
-          setKosdaqInvestor(res.kosdaq_investor);
-        })
-        .catch(() => {
-          // A missed index refresh just keeps showing the last known values.
-        });
-    };
-
-    loadIndices();
-    const stopIndexPolling = startVisibilityAwareInterval(() => loadIndices(), INDEX_REFRESH_MS);
-    return () => {
-      cancelled = true;
-      stopIndexPolling();
-    };
-  }, []);
+  const { kospi, kosdaq, kospiInvestor, kosdaqInvestor } = useMarketIndices();
 
   return (
     <div className="market-overview-half market-overview-index">

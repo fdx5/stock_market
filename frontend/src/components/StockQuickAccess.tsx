@@ -5,7 +5,7 @@ import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { MOBILE_QUERY, useMediaQuery } from "../useMediaQuery";
 import { usePopularStocks } from "../usePopularStocks";
 import { useWatchlist } from "../useWatchlist";
-import { StoredStock, clearRecents, removeFavorite } from "../watchlist";
+import { clearRecents } from "../watchlist";
 import StockIcon from "./StockIcon";
 
 const POPULAR_LIMIT = 8;
@@ -13,7 +13,7 @@ const POPULAR_LIMIT = 8;
 // implying more content than the row will actually hold.
 const POPULAR_SKELETON = [0, 1, 2, 3, 4];
 
-type GroupKey = "popular" | "favorites" | "recents";
+type GroupKey = "popular" | "recents";
 
 interface Props {
   onSelect: (stock: StockSearchResult) => void;
@@ -50,16 +50,15 @@ interface Group {
 export default function StockQuickAccess({ onSelect, activeCode }: Props) {
   const t = useT();
   const isMobile = useMediaQuery(MOBILE_QUERY);
-  const { favorites, recents } = useWatchlist();
+  const { recents } = useWatchlist();
   const popular = usePopularStocks(POPULAR_LIMIT);
   const [activeTab, setActiveTab] = useState<GroupKey>("popular");
 
   const popularNames = useTranslatedTexts((popular ?? []).map((item) => item.name));
-  const favoriteNames = useTranslatedTexts(favorites.map((item) => item.name));
   const recentNames = useTranslatedTexts(recents.map((item) => item.name));
 
   const hasPopular = popular === null || popular.length > 0;
-  if (!hasPopular && favorites.length === 0 && recents.length === 0) return null;
+  if (!hasPopular && recents.length === 0) return null;
 
   const chipClass = (code: string) => `quick-access-chip ${code === activeCode ? "is-active" : ""}`;
 
@@ -90,26 +89,6 @@ export default function StockQuickAccess({ onSelect, activeCode }: Props) {
                 <span className="quick-access-chip-name">{popularNames[idx] ?? item.name}</span>
               </button>
             )),
-    });
-  }
-
-  if (favorites.length > 0) {
-    groups.push({
-      key: "favorites",
-      icon: "★",
-      label: t("관심종목"),
-      shortLabel: t("관심"),
-      count: favorites.length,
-      chips: favorites.map((item, idx) => (
-        <FavoriteChip
-          key={item.code}
-          item={item}
-          displayName={favoriteNames[idx] ?? item.name}
-          className={chipClass(item.code)}
-          onSelect={onSelect}
-          removeLabel={t("관심종목에서 제거")}
-        />
-      )),
     });
   }
 
@@ -181,39 +160,5 @@ export default function StockQuickAccess({ onSelect, activeCode }: Props) {
         {active.trailing}
       </div>
     </div>
-  );
-}
-
-/** Split out so the remove control can sit inside the chip without nesting a
- * button in a button (invalid, and a real click-target hazard on touch). */
-function FavoriteChip({
-  item,
-  displayName,
-  className,
-  onSelect,
-  removeLabel,
-}: {
-  item: StoredStock;
-  displayName: string;
-  className: string;
-  onSelect: (stock: StockSearchResult) => void;
-  removeLabel: string;
-}) {
-  return (
-    <span className={`${className} quick-access-chip--removable`}>
-      <button type="button" className="quick-access-chip-main" onClick={() => onSelect(item)}>
-        <StockIcon className="quick-access-chip-logo" code={item.code} />
-        <span className="quick-access-chip-name">{displayName}</span>
-      </button>
-      <button
-        type="button"
-        className="quick-access-chip-remove"
-        onClick={() => removeFavorite(item.code)}
-        aria-label={`${item.name} ${removeLabel}`}
-        title={removeLabel}
-      >
-        ×
-      </button>
-    </span>
   );
 }

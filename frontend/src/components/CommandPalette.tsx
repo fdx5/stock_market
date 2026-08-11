@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StockSearchResult, api } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { navigate } from "../router";
-import { getFavorites, getRecents, toSearchResult } from "../watchlist";
+import { getRecents, toSearchResult } from "../watchlist";
 
 /* ⌘K / Ctrl-K, and the reason it earns its keep on a stock page specifically.
  *
@@ -14,8 +14,8 @@ import { getFavorites, getRecents, toSearchResult } from "../watchlist";
  * every morning should not have to aim at anything.
  *
  * Everything in here is already available: /search for the stocks, the router
- * for the boards, and localStorage's stars and recents for the resting state,
- * so the palette is a keyboard in front of things the page could already do. */
+ * for the boards, and localStorage's recents for the resting state, so the
+ * palette is a keyboard in front of things the page could already do. */
 
 interface Destination {
   key: string;
@@ -132,13 +132,16 @@ export default function CommandPalette({
     };
   }, [query]);
 
-  /* The resting list: stars first, then recents, deduplicated. This is the
+  /* The resting list: this browser's own trail, most recent first. It is the
      state the palette is in most of the time it is open — somebody who opens it
-     to reach a stock they check daily should find it there without typing. */
+     to reach a stock they were just looking at should find it there without
+     typing. Deduplicated because getRecents already is, but the guard is kept:
+     the loop used to merge two lists and would silently start repeating if a
+     second source is ever added back. */
   const restingStocks = useMemo(() => {
     const seen = new Set<string>();
     const out: StockSearchResult[] = [];
-    for (const stock of [...getFavorites(), ...getRecents()]) {
+    for (const stock of getRecents()) {
       if (seen.has(stock.code)) continue;
       seen.add(stock.code);
       out.push(toSearchResult(stock));

@@ -101,11 +101,11 @@ function measure(items: MarketMapItem[]): Breadth {
  *  breadth is a mood, and reporting it to one decimal place would claim a
  *  precision that a count of stocks does not have. */
 function moodFor(temperature: number): { key: string; tone: "hot" | "warm" | "even" | "cool" | "cold" } {
-  if (temperature >= 70) return { key: "강한 매수 우위", tone: "hot" };
-  if (temperature >= 56) return { key: "매수 우위", tone: "warm" };
-  if (temperature > 44) return { key: "혼조", tone: "even" };
-  if (temperature > 30) return { key: "매도 우위", tone: "cool" };
-  return { key: "강한 매도 우위", tone: "cold" };
+  if (temperature >= 70) return { key: "상승 폭넓음", tone: "hot" };
+  if (temperature >= 56) return { key: "상승 우세", tone: "warm" };
+  if (temperature > 44) return { key: "혼조세", tone: "even" };
+  if (temperature > 30) return { key: "하락 우세", tone: "cool" };
+  return { key: "하락 폭넓음", tone: "cold" };
 }
 
 export default function MarketBreadthGauge({

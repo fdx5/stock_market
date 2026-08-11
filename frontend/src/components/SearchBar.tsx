@@ -27,7 +27,7 @@ export default function SearchBar({ onSelect }: Props) {
   const [activeIndex, setActiveIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { favorites, recents } = useWatchlist();
+  const { recents } = useWatchlist();
   const popular = usePopularStocks(SUGGESTION_LIMIT);
 
   // iPadOS Safari hands focus back to the last-focused form control whenever it
@@ -90,9 +90,10 @@ export default function SearchBar({ onSelect }: Props) {
   }, []);
 
   // Shown when the box is focused but empty — the old behaviour was a dead
-  // dropdown until the visitor typed. Favourites first (an explicit choice), then
-  // their own history, then what everyone else is watching. A stock already listed
-  // in a higher group is skipped rather than repeated down the list.
+  // dropdown until the visitor typed. Their own history first, then what everyone
+  // else is watching. A stock already listed in a higher group is skipped rather
+  // than repeated down the list. (A starred group used to lead; the feature is
+  // gone from the site.)
   const suggestionGroups = useMemo<SuggestionGroup[]>(() => {
     const seen = new Set<string>();
     const take = (items: StockSearchResult[]) => {
@@ -107,7 +108,6 @@ export default function SearchBar({ onSelect }: Props) {
     };
 
     const groups: SuggestionGroup[] = [
-      { key: "favorites", label: t("관심종목"), icon: "★", items: take(favorites) },
       { key: "recents", label: t("최근 본 종목"), icon: "🕘", items: take(recents) },
       {
         key: "popular",
@@ -119,7 +119,7 @@ export default function SearchBar({ onSelect }: Props) {
       },
     ];
     return groups.filter((group) => group.items.length > 0);
-  }, [favorites, recents, popular, t]);
+  }, [recents, popular, t]);
 
   const isSuggesting = query.trim().length === 0;
   // One flat list behind the grouped rendering, so arrow keys walk the whole

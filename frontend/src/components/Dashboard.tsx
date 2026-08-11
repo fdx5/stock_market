@@ -13,7 +13,6 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import DramPricePanel from "./DramPricePanel";
-import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
 import HeaderDateTime from "./HeaderDateTime";
@@ -451,9 +450,6 @@ export default function Dashboard() {
                     <StockIcon className="stock-header-logo" code={summary.code} />
                     {summaryName}
                   </span>
-                  <FavoriteButton
-                    stock={{ code: summary.code, name: summary.name, market: selected?.market ?? "KOSPI" }}
-                  />
                   <span className="code">{summary.code}</span>
                   {awaitingQuote ? (
                     <span className="price">

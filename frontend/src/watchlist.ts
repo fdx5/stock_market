@@ -9,11 +9,19 @@ export interface StoredStock {
   market: string;
 }
 
-const FAVORITES_KEY = "kstock_favorites";
 const RECENTS_KEY = "kstock_recents";
 
-const MAX_FAVORITES = 20;
 const MAX_RECENTS = 10;
+
+/* There was a starred list here too, under "kstock_favorites", with its own
+ * getter, an isFavorite test, a toggle and a remove — and a star button on
+ * every stock header to drive them. It is gone from the whole site.
+ *
+ * The key is deliberately not cleaned up on read. Nothing writes it any more
+ * and nothing displays it, so it is inert; deleting it would mean shipping a
+ * migration that runs in every visitor's browser to reclaim a few hundred bytes
+ * they will never notice, and would throw away the one copy of the data if the
+ * feature is ever wanted back. It costs nothing to leave. */
 
 // Both lists live in localStorage (not the backend): they're a per-device
 // convenience, and this app has no accounts to hang them off. Writes broadcast a
@@ -47,41 +55,8 @@ function write(key: string, items: StoredStock[]): void {
   window.dispatchEvent(new Event(CHANGE_EVENT));
 }
 
-export function getFavorites(): StoredStock[] {
-  return read(FAVORITES_KEY);
-}
-
 export function getRecents(): StoredStock[] {
   return read(RECENTS_KEY);
-}
-
-export function isFavorite(code: string): boolean {
-  return getFavorites().some((item) => item.code === code);
-}
-
-/** Adds when absent, removes when present. Returns the new starred state so callers
- * can react without a second read. */
-export function toggleFavorite(stock: StoredStock): boolean {
-  const current = getFavorites();
-  const existing = current.find((item) => item.code === stock.code);
-  if (existing) {
-    write(
-      FAVORITES_KEY,
-      current.filter((item) => item.code !== stock.code)
-    );
-    return false;
-  }
-  // Newest first, matching the recents list — a star you just added should be the
-  // one you see first, not buried at the end of a 20-item strip.
-  write(FAVORITES_KEY, [stock, ...current].slice(0, MAX_FAVORITES));
-  return true;
-}
-
-export function removeFavorite(code: string): void {
-  write(
-    FAVORITES_KEY,
-    getFavorites().filter((item) => item.code !== code)
-  );
 }
 
 /** Records a visit, moving an already-seen stock back to the front rather than

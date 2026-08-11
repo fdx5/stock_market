@@ -13,8 +13,8 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import CommandPalette from "./CommandPalette";
+import DeskIndexStrip from "./DeskIndexStrip";
 import DramPricePanel from "./DramPricePanel";
-import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
 import GlobalNewsIcon from "./GlobalNewsIcon";
@@ -39,9 +39,9 @@ import SectorMapPanel from "./SectorMapPanel";
 import SidePanel from "./SidePanel";
 import StockIcon from "./StockIcon";
 import StockQuickAccess from "./StockQuickAccess";
+import StockRadarBoard from "./StockRadarBoard";
 import ThemeToggle from "./ThemeToggle";
 import VisitorBadge from "./VisitorBadge";
-import WatchlistBoard from "./WatchlistBoard";
 import "./marketDesk.css";
 
 /* The market desk.
@@ -59,8 +59,9 @@ import "./marketDesk.css";
  *
  *   1. a command bar that stays put, so search is never something to scroll
  *      back to, and ⌘K reaches any stock or board from anywhere;
- *   2. a pulse row — index, breadth, and the reader's own list — three
- *      different answers to "how is it going" side by side rather than stacked;
+ *   2. a pulse row — the index, the breadth under it, and what the room is
+ *      looking at — three different answers to "how is it going" side by side
+ *      rather than stacked;
  *   3. the global band, unchanged;
  *   4. the flow board, which is the classic panel's seven tabs given a section
  *      of their own and the full width to be read in;
@@ -70,7 +71,7 @@ import "./marketDesk.css";
  * rendered here, by the same component, with the same props — this file
  * imports MarketIndexBoard and MarketFlowBoard rather than reimplementing
  * either, so the two pages cannot drift apart in what they show. What is new
- * is additive: the breadth gauge, the live watchlist, the palette and the rail.
+ * is additive: the breadth gauge, the radar board, the palette and the rail.
  */
 
 const QUOTE_POLL_MS = 10_000;
@@ -431,19 +432,39 @@ export default function MarketDeskPage() {
         </div>
       </header>
 
-      {/* ── The command bar. Sticky, because searching is not a thing you do once
-             on arrival — it is the main verb of the page, and on the classic
-             desk it scrolls away after the first screen and has to be scrolled
-             back to. ── */}
+      {/* ── The command deck. Sticky, because searching is not a thing you do
+             once on arrival — it is the main verb of the page, and on the
+             classic desk it scrolls away after the first screen and has to be
+             scrolled back to.
+
+             Laid out as a grid rather than a row of flex children, and that is
+             the whole fix for how sparse this strip used to look. The search
+             field had `flex: 1` on a 1680px page, so it was a thousand pixels
+             of empty input; the clock sat at the far right at its own fixed
+             size with a column of dead air above and below it; and the chip row
+             underneath ran out after six chips and left the rest of the line
+             blank. Three separate holes, all of them the same mistake — letting
+             one element absorb width it had no use for.
+
+             Now the search takes a readable measure and stops, the space it
+             used to waste carries the live index (the one thing worth having in
+             a bar that stays on screen — see DeskIndexStrip), and the clock
+             spans both rows so its height is the deck's height rather than a
+             gap. ── */}
       <div className="desk-command">
-        <div className="desk-command-inner">
+        <div className="desk-command-grid">
           <div className="desk-command-search">
             <SearchBar onSelect={selectStock} />
             <CommandPalette onSelectStock={selectStock} />
           </div>
-          <HeaderDateTime />
+          <DeskIndexStrip />
+          <div className="desk-command-clock">
+            <HeaderDateTime />
+          </div>
+          <div className="desk-command-chips">
+            <StockQuickAccess onSelect={selectStock} activeCode={selected?.code} />
+          </div>
         </div>
-        <StockQuickAccess onSelect={selectStock} activeCode={selected?.code} />
       </div>
 
       <MarketTickerBar />
@@ -474,11 +495,12 @@ export default function MarketDeskPage() {
       <main className="desk-main">
         {/* ── Band 1: the pulse. Three different answers to "how is the market
                doing" that a reader would otherwise have to visit three places
-               for — the index, how broad the move is under it, and what their
-               own list is doing. Side by side on a desktop specifically because
-               the three are only useful against each other: an index up with
-               breadth at 30 is a different market from an index up with breadth
-               at 70, and stacking them hides the comparison. ── */}
+               for — where the index closed, how broad the move under it
+               actually was, and which names the room is on. Side by side on a
+               desktop specifically because the first two are only useful
+               against each other: an index up with breadth at 30 is a different
+               market from an index up with breadth at 70, and stacking them
+               hides the comparison. ── */}
         <section className="desk-band desk-band--pulse" id="desk-pulse" aria-labelledby="desk-pulse-title">
           <div className="desk-band-head">
             <h2 id="desk-pulse-title">{t("마켓 펄스")}</h2>
@@ -491,8 +513,8 @@ export default function MarketDeskPage() {
             <div className="desk-card desk-card--breadth">
               <MarketBreadthGauge />
             </div>
-            <div className="desk-card desk-card--watch">
-              <WatchlistBoard onSelect={selectStock} activeCode={selected?.code} />
+            <div className="desk-card desk-card--radar">
+              <StockRadarBoard onSelect={selectStock} activeCode={selected?.code} />
             </div>
           </div>
         </section>
@@ -584,9 +606,6 @@ export default function MarketDeskPage() {
                             <StockIcon className="stock-header-logo" code={summary.code} />
                             {summaryName}
                           </span>
-                          <FavoriteButton
-                            stock={{ code: summary.code, name: summary.name, market: selected?.market ?? "KOSPI" }}
-                          />
                           <span className="code">{summary.code}</span>
                           {awaitingQuote || close === undefined ? (
                             <span className="price">

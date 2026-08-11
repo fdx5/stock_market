@@ -11,7 +11,6 @@ import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import DailyPricePanel from "./DailyPricePanel";
 import DramPricePanel from "./DramPricePanel";
-import FavoriteButton from "./FavoriteButton";
 import Footer from "./Footer";
 import GlobalBoardPanel from "./GlobalBoardPanel";
 import GlobalIndexGrid from "./GlobalIndexGrid";
@@ -360,7 +359,6 @@ export default function GlobalStockPage() {
                   )}
                   {quote.name}
                 </span>
-                <FavoriteButton stock={{ code: quote.code, name: quote.name, market: "US" }} />
                 <span className="code">{quote.code}</span>
                 <span
                   className={`price ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}

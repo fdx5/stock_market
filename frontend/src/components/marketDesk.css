@@ -54,25 +54,187 @@
   box-shadow: 0 12px 16px -12px var(--page-plane);
 }
 
-.desk-command-inner {
-  display: flex;
+/* Two rows and three columns, and the clock spans both rows.
+ *
+ *   ┌──────────────┬──────────────────────┬─────────┐
+ *   │ search + ⌘K  │ live index strip     │  clock  │
+ *   ├──────────────┴──────────────────────┤ (spans) │
+ *   │ quick-access chips                  │         │
+ *   └─────────────────────────────────────┴─────────┘
+ *
+ * The search column is capped rather than fluid. A search field is read at the
+ * left end and typed into from the left end, so width past a certain point is
+ * not capacity, it is blank — and on a 1680px page `flex: 1` made it a thousand
+ * pixels of nothing. 460 is about as wide as a stock name plus its code ever
+ * needs. The index strip then takes the width the field gave up, which is the
+ * one thing worth carrying in a bar that stays on screen. */
+.desk-command-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 460px) minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
   align-items: center;
-  gap: 14px;
+  column-gap: 18px;
+  row-gap: 10px;
 }
 
 .desk-command-search {
+  grid-column: 1;
+  grid-row: 1;
   display: flex;
   align-items: center;
   gap: 10px;
+  min-width: 0;
+}
+
+/* SearchBar brings its own width rules; here it shares the row with the palette
+   trigger, so it gives up trying to be the whole line. */
+.desk-command-search > :first-child {
   flex: 1;
   min-width: 0;
 }
 
-/* SearchBar brings its own width rules; inside the command bar it shares the
-   row with the palette trigger, so it gives up trying to be the whole line. */
-.desk-command-search > :first-child {
-  flex: 1;
+.desk-command-chips {
+  grid-column: 1 / 3;
+  grid-row: 2;
   min-width: 0;
+}
+
+/* The clock is a fixed-size LED cabinet. Spanning both rows makes the deck's
+   height its height instead of leaving a band of dead air above and below it,
+   which is what it did sitting in a single flex row. */
+.desk-command-clock {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* ── the live index strip ───────────────────────────────────────────────── */
+
+.desk-idx {
+  grid-column: 2;
+  grid-row: 1;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.desk-idx-cell {
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  row-gap: 1px;
+  align-items: baseline;
+  padding: 5px 10px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  text-decoration: none;
+  color: inherit;
+  min-width: 0;
+}
+
+.desk-idx-cell--link {
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+
+.desk-idx-cell--link:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  border-color: var(--border);
+}
+
+.desk-idx-label {
+  grid-column: 1;
+  grid-row: 1;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.desk-idx-value {
+  grid-column: 1;
+  grid-row: 2;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-idx-delta {
+  grid-column: 2;
+  grid-row: 2;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.desk-idx-delta i {
+  font-style: normal;
+  font-size: 8px;
+}
+
+.desk-idx-flow {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.desk-idx-flow b {
+  font-weight: 700;
+}
+
+.desk-idx-sep {
+  width: 1px;
+  height: 30px;
+  background: var(--gridline);
+  flex-shrink: 0;
+}
+
+.desk-idx-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.desk-idx-session i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.desk-idx-session.is-open {
+  color: var(--status-good);
+  border-color: color-mix(in srgb, var(--status-good) 45%, transparent);
+}
+
+.desk-idx-session.is-open i {
+  background: var(--status-good);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-good) 60%, transparent);
+  animation: desk-pip 2s ease-out infinite;
+}
+
+@keyframes desk-pip {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-good) 60%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 /* ── the command palette ────────────────────────────────────────────────── */
@@ -535,7 +697,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── the watchlist ──────────────────────────────────────────────────────── */
+/* ── the radar board ────────────────────────────────────────────────────── */
 
 .desk-seg {
   display: inline-flex;
@@ -562,7 +724,7 @@
   color: var(--text-primary);
 }
 
-.desk-watch-list {
+.desk-radar-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -571,9 +733,9 @@
   gap: 3px;
 }
 
-.desk-watch-row {
+.desk-radar-row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  grid-template-columns: 16px 20px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   width: 100%;
@@ -588,54 +750,74 @@
   transition: background 0.16s ease, border-color 0.16s ease;
 }
 
-.desk-watch-row:hover {
+.desk-radar-row:hover {
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
 }
 
-/* The stock the workspace below is currently showing, so the list doubles as a
+.desk-radar-row.is-skeleton {
+  display: block;
+  cursor: default;
+  padding: 8px;
+}
+
+/* The stock the workspace below is currently showing, so the board doubles as a
    position indicator rather than only as a set of links. */
-.desk-watch-row.is-active {
+.desk-radar-row.is-active {
   border-color: color-mix(in srgb, var(--series-violet) 55%, transparent);
   background: color-mix(in srgb, var(--series-violet) 13%, transparent);
 }
 
-.desk-watch-logo {
+.desk-radar-rank {
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The crowd's top three, which is the part of a popularity ranking anybody
+   actually reads. */
+.desk-radar-rank.is-top {
+  color: var(--up-color);
+}
+
+.desk-radar-logo {
   width: 18px;
   height: 18px;
   border-radius: 4px;
   object-fit: contain;
 }
 
-.desk-watch-name {
+.desk-radar-name {
   font-size: 12.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.desk-watch-price,
-.desk-watch-pct {
+.desk-radar-price,
+.desk-radar-pct {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
-.desk-watch-price {
+.desk-radar-price {
   color: var(--text-secondary);
 }
 
-.desk-watch-pct {
+.desk-radar-pct {
   font-weight: 700;
   min-width: 52px;
   text-align: right;
 }
 
-.desk-watch-skeleton {
-  grid-column: 3 / span 2;
+.desk-radar-skeleton {
+  grid-column: 4 / span 2;
   height: 13px;
   border-radius: 4px;
 }
 
-.desk-watch-empty {
+.desk-radar-empty {
   margin: 0;
   padding: 18px 6px;
   font-size: 12px;
@@ -785,20 +967,40 @@
 
 /* ── responsive ─────────────────────────────────────────────────────────── */
 
-/* The pulse row's third column is the first to go: the watchlist is a list and
-   reads perfectly well full width under the other two. */
+/* The clock is the first thing to leave the deck's top row — it is the widest
+   fixed element and the least urgent, and below this the index strip and the
+   search field would start fighting for the same line. */
+@media (max-width: 1500px) {
+  .desk-command-grid {
+    grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
+  }
+
+  .desk-command-clock {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    justify-content: flex-start;
+  }
+
+  .desk-command-chips {
+    grid-column: 1 / -1;
+  }
+}
+
+/* The pulse row's third column is the first to go: the radar is a list and
+   reads perfectly well full width under the other two, where the extra width
+   lets it run as two columns instead of one. */
 @media (max-width: 1400px) {
   .desk-pulse-grid {
     grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
   }
 
-  .desk-card--watch {
+  .desk-card--radar {
     grid-column: 1 / -1;
   }
 
-  .desk-watch-list {
+  .desk-radar-list {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
     gap: 4px;
   }
 }
@@ -835,8 +1037,35 @@
     box-shadow: none;
   }
 
-  .desk-command-inner {
-    flex-wrap: wrap;
+  /* One column, in reading order: search, then the index, then the chips. The
+     clock is already hidden below its own breakpoint by HeaderDateTime, which
+     returns null on a phone rather than rendering something too small to read. */
+  .desk-command-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .desk-command-search,
+  .desk-idx,
+  .desk-command-chips,
+  .desk-command-clock {
+    grid-column: 1;
+  }
+
+  .desk-command-search { grid-row: 1; }
+  .desk-idx { grid-row: 2; }
+  .desk-command-chips { grid-row: 3; }
+
+  /* The strip scrolls sideways rather than wrapping — two index cells and a
+     session pill wrapped onto three lines is taller than the thing it is
+     summarising. */
+  .desk-idx {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .desk-idx::-webkit-scrollbar {
+    display: none;
   }
 
   .desk-main {
