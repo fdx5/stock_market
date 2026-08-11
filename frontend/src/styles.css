@@ -2615,16 +2615,14 @@ a.app-brand:hover .app-logo-wide {
   --alert-wash: rgba(30, 120, 230, 0.18);
 }
 
-/* No motion: the tiles keep their colour and badge, they just stop throbbing. */
-@media (prefers-reduced-motion: reduce) {
-  .macro-rate-tile--danger,
-  .macro-rate-tile--danger .macro-alert-badge,
-  .macro-rate-icon-wrap--warn::before,
-  .macro-rate-icon-wrap--danger::before,
-  .macro-rate-icon-wrap--cool::before {
-    animation: none;
-  }
-}
+/* The alert throb, the badge's blink and the icon's pulsing ring all keep
+   running under reduced motion. They used to stop, on the grounds that the tile
+   keeps its colour and its badge either way — but the alert states are the one
+   thing on this strip that is not simply a number, and the pulse is how a rate
+   that has crossed a threshold distinguishes itself from the three beside it
+   that have not. A still alert is a colour, and a colour is what the tile
+   already had before anything went wrong. See the note at the top of this
+   file. */
 
 /* On the light theme the metals sit on a near-white surface, so pure white glints and
    a pale halo disappear. Deepen both — the ring's inner highlight stays bright because
@@ -2641,24 +2639,13 @@ a.app-brand:hover .app-logo-wide {
   --metal-glow: rgba(112, 132, 154, 0.7);
 }
 
-/* No motion: keep the ring and halo, drop everything that moves — the metals still
-   read as highlighted, they just stop twinkling. */
-@media (prefers-reduced-motion: reduce) {
-  .macro-rate-icon-wrap::before,
-  .macro-rate-icon-wrap::after {
-    animation: none;
-  }
-
-  .macro-rate-icon-wrap::after {
-    opacity: 0.7;
-  }
-
-  .macro-glint {
-    animation: none;
-    opacity: 0.55;
-    transform: scale(0.85);
-  }
-}
+/* The sparkle rig keeps running under reduced motion — the spinning ring, the
+   breathing halo and the three off-beat glints. Parking it left the ring's
+   highlight frozen wherever the gradient happened to stop and the glints held
+   at a dim half-scale, which is not a calmer version of the effect so much as
+   the effect caught mid-frame. The whole point of the rig is that the two
+   metals catch the eye while the tile is rolling past; still, they are two
+   icons with a smear on them. See the note at the top of this file. */
 
 .macro-rate-body {
   display: flex;
