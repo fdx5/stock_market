@@ -10438,6 +10438,19 @@ thead .weekly-foreign-amount-col {
   color: var(--text-muted);
 }
 
+/* The automatic schedule. Informational, so it stays quieter than the warning box
+   below it — an operator should be able to skip past it once they know it. */
+.admin-mail-schedule {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+.admin-mail-schedule b {
+  color: var(--text-primary);
+}
+
 /* Only rendered while mail is unconfigured, and carrying the one thing the panel
    couldn't say before: which variable is missing and what to do about it. */
 .admin-mail-diag {

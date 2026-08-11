@@ -2696,6 +2696,14 @@ export default function AdminDashboardPage() {
                 </span>
               </div>
             )}
+            {/* The automatic schedule, stated because it has no clock time to look up:
+                the mail follows its region's batch, so the two regions land ~13 hours
+                apart and neither has a fixed hour on this page to read off. */}
+            <p className="admin-mail-schedule">
+              예측 배치가 끝나고 <b>10분 뒤</b> 해당 시장 구독 종목만 자동 발송됩니다 — 코스피·코스닥은
+              23:10 KST, 나스닥은 23:10 ET(한국 시간 낮 12~13시)경. 같은 예측일자는 한 번만 나가고,
+              아래 수기 발송 버튼은 그 제한과 무관하게 즉시 보냅니다.
+            </p>
             {/* Configured, and still unable to reach most of the list. An unverified
                 Resend sender delivers only to the address the Resend account owns, so
                 with several subscribers and no SMTP behind it every account but one

@@ -94,6 +94,8 @@ _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_mail_log_sent_at ON mail_send_log (sent_at DESC)",
     "CREATE INDEX IF NOT EXISTS idx_mail_log_dedupe "
     "ON mail_send_log (email, stock_code, sent_date, status)",
+    "CREATE INDEX IF NOT EXISTS idx_mail_log_predict "
+    "ON mail_send_log (email, stock_code, predict_date, status)",
 )
 
 _SELECT = "id, email, stock_code, stock_name, active, created_at, updated_at"
@@ -430,6 +432,30 @@ def already_sent(email: str, stock_code: str, day: str | None = None) -> bool:
             "SELECT 1 FROM mail_send_log "
             "WHERE email = ? AND stock_code = ? AND sent_date = ? AND status = 'sent' LIMIT 1",
             (email, stock_code, target_day),
+        ).fetchone()
+
+    return _with_connection(_run) is not None
+
+
+def already_sent_for_prediction(email: str, stock_code: str, predict_date: str) -> bool:
+    """Has this address already had *this forecast* for this stock?
+
+    The rule the automatic post-batch send is deduped by, and a better fit than
+    `already_sent` for it. The batch is what triggers a mail now, and one forecast can
+    be produced by more than one run: the two triggers (GitHub cron and the in-process
+    scheduler) can both land on the same evening, and the forced Sunday run re-scores
+    the session Friday already covered — same 예측일자, different calendar day, so a
+    per-day rule lets that second copy through while this one doesn't.
+
+    It is strictly tighter than the day rule wherever both apply: a run repeated within
+    one day carries the same predict_date too. As with `already_sent`, only 'sent'
+    counts, so a failed attempt never costs the reader that forecast.
+    """
+    def _run(conn):
+        return conn.execute(
+            "SELECT 1 FROM mail_send_log "
+            "WHERE email = ? AND stock_code = ? AND predict_date = ? AND status = 'sent' LIMIT 1",
+            (email, stock_code, predict_date),
         ).fetchone()
 
     return _with_connection(_run) is not None
