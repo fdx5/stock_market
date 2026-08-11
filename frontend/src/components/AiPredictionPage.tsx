@@ -96,13 +96,25 @@ function OpenCountdown({ isoDate, market }: { isoDate: string; market: string })
   if (!target) return null;
   const remaining = formatCountdown(target.getTime() - now);
 
+  // The label is part of the sentence, so it changes with the state rather than
+  // staying fixed while only the value swaps: "…개장까지" is the opening half of a
+  // countdown and reads as a fragment once there is nothing left to count, which is
+  // how it came out as "한국 증시 개장까지 / 장이 시작되었습니다". The market name
+  // stays in both states because this page shows KR and US sessions side by side.
   return (
     <div className="pred-countdown">
-      <span className="pred-countdown-label">{marketOpenLabel(market)} 개장까지</span>
       {remaining ? (
-        <span className="pred-countdown-value">{remaining}</span>
+        <>
+          <span className="pred-countdown-label">{marketOpenLabel(market)} 개장까지</span>
+          <span className="pred-countdown-value">{remaining}</span>
+        </>
       ) : (
-        <span className="pred-countdown-value pred-countdown-value--open">장이 시작되었습니다</span>
+        <>
+          <span className="pred-countdown-label">{marketOpenLabel(market)}</span>
+          <span className="pred-countdown-value pred-countdown-value--open">
+            장이 시작되었습니다
+          </span>
+        </>
       )}
     </div>
   );
