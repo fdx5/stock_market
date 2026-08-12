@@ -1515,13 +1515,13 @@
 
 /* ── responsive ─────────────────────────────────────────────────────────── */
 
-/* ── Tablet landscape and small laptops: the clock keeps its column ──────────
-   This used to drop the clock out of the top row and re-hang it as a third row
-   under the chips. On an iPad held landscape — 1024 to 1366px, the whole of
-   which sat under the old 1500px cut — that spent a full-width band of a sticky
-   bar on a 228px cabinet and pushed everything below it down, which is the
-   shape the deck exists to avoid. So the cabinet stays in column 3, spanning
-   both rows, exactly as it does on a wide screen.
+/* ── Anything narrower than a desktop: the clock keeps its column ────────────
+   This used to drop the clock out of the top row and re-hang it as a row of its
+   own under the chips. That spent a full-width band of a sticky bar on a 228px
+   cabinet and pushed everything below it down — on a tablet or an unfolded
+   handset it cost 100 to 150px of a screen that has no such height to spare. So
+   the cabinet stays in column 3, spanning both rows, exactly as it does on a
+   wide screen.
 
    The room comes from the two elements that can give it up. The search field's
    ceiling becomes a fraction of the viewport instead of a flat 400px, so it is
@@ -1531,10 +1531,15 @@
    of pushing its neighbours — the same trade it already makes on a phone, and
    the reason the cabinet's fixed 228px is never the thing that has to give.
 
-   1024 is the floor because it is the narrowest iPad landscape there has ever
-   been. Under it the three columns really are too little to share and the old
-   stacking takes over again — see the block directly below. */
-@media (min-width: 1024px) and (max-width: 1500px) {
+   The floor is 821 because that is the cabinet's own floor: at 820 and below
+   HeaderDateTime stops drawing a cabinet at all and swaps in the full-width HUD
+   band, which is a different instrument and wants the whole line. Tying the two
+   numbers together is the point — every viewport that renders a cabinet keeps
+   it in its column, and there is no longer a range that draws one and then has
+   nowhere to put it. Picking a tablet-shaped number instead is what left the
+   821-1023 band (an unfolded Fold, a half-screen laptop window) still wrapping
+   after the iPad widths were fixed. If HUD_QUERY moves, this moves with it. */
+@media (min-width: 821px) and (max-width: 1500px) {
   /* The ceiling has to be a `min()` rather than a flat length: against a
      `1fr` middle column the search track takes its maximum and lets the strip
      absorb the whole shortfall, which is backwards — on the global desk that
@@ -1597,20 +1602,20 @@
   }
 }
 
-/* The bottom of the tablet band — every iPad but the 12.9" one, so 1024 through
-   the 11" Pro's 1194 — is where the sizing above still leaves the global desk's
-   third US index over the edge of its column, by about the width of one figure
-   at the top of the range and rather more at the foot. So one figure goes: the
+/* The bottom of that band — every iPad but the 12.9" one, and every unfolded
+   handset — is where the sizing above still leaves the global desk's third US
+   index over the edge of its column, by about the width of one figure at the
+   top of the range and rather more at the foot. So one figure goes: the
    absolute move, which is the half of the delta that says least. A reader
    scanning a sticky bar wants to know the market is off a quarter of a percent;
    that it is off 123.45 points is the number they open the index for. Keeping
    the percentage keeps all three majors readable instead of two and a sliver.
 
    The KR desk carries two indices and a session pill and has room to spare at
-   these widths; it drops the same figure anyway, because the two strips sit in
+   the wider end; it drops the same figure anyway, because the two strips sit in
    the same slot on two versions of the same page and should not disagree about
    what a delta looks like. */
-@media (min-width: 1024px) and (max-width: 1200px) {
+@media (min-width: 821px) and (max-width: 1200px) {
   .desk-idx {
     gap: 8px;
   }
@@ -1637,34 +1642,24 @@
   }
 }
 
-/* Narrower than any tablet in landscape, wider than the single-column phone
-   layout: a window this size has two useful columns, not three, so the clock
-   goes back to being a row of its own under the chips. */
-@media (max-width: 1023px) {
-  .desk-command-grid {
-    grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
-  }
+/* ── The strip keeps its first two readings ──────────────────────────────────
+   At the foot of the range — an unfolded handset in landscape, around 830 to
+   960 — the column left over after a 228px cabinet and a search field is about
+   300px, and the strip wants half again as much. Rather than scroll it and clip
+   a figure mid-number, it gives up its third child onward, which is a different
+   thing on each of the two desks and the right thing on both.
 
-  .desk-command-clock {
-    grid-column: 1 / -1;
-    grid-row: 3;
-    justify-content: flex-start;
-  }
+   On the KR desk that is the 장중 / 장마감 pill, and losing it costs nothing at
+   all: the cabinet standing immediately to its right prints the same KRX status
+   in its own top bar, with the same live dot. It was a duplicate the moment the
+   clock moved into this column.
 
-  .desk-command-chips {
-    grid-column: 1 / -1;
-  }
-
-  /* Two columns are not enough for the global desk's three majors either, and
-     cells no longer squash to make it look like they are — so the strip needs
-     the sideways scroll here as much as it does in the bands either side. */
-  .desk-idx {
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .desk-idx::-webkit-scrollbar {
+   On the global desk it is the third US major and the separator before it. That
+   is a real reading to lose, so it goes last and only here — two majors read
+   properly beat three cut off, and the pulse row below carries the full grid a
+   scroll later. */
+@media (min-width: 821px) and (max-width: 1000px) {
+  .desk-idx > :nth-child(n + 4) {
     display: none;
   }
 }
@@ -1727,14 +1722,30 @@
     box-shadow: none;
   }
 
-  /* One column, in reading order: search, the clock, the index, then the chips.
-     This is where the clock finally does leave the right-hand column — not
-     because it is crowded but because there is no second column left to stand
-     it in. It sits directly under the search rather than at the foot of the deck
-     because below 820px HeaderDateTime swaps the fixed-width LED cabinet for a
-     full-width HUD band (see .hud in styles.css), and the whole point of that
-     band is that a phone can see the date, the two session clocks and the
-     weather at all — burying it under the chip row would give it back. */
+  .desk-main {
+    gap: 24px;
+  }
+
+  .desk-band {
+    scroll-margin-top: 16px;
+  }
+}
+
+/* ── The phone deck: one column, in reading order ────────────────────────────
+   Search, the clock, the index, then the chips.
+
+   820 is HeaderDateTime's HUD_QUERY, and this block starts exactly where that
+   one does on purpose. This is where the clock finally does leave the
+   right-hand column — not because it is crowded but because at this width it is
+   no longer a 228px cabinet to stand in a column. It is the full-width HUD
+   band, a different instrument that wants the whole line, and every viewport
+   above this keeps its cabinet in column 3 (see the band far above).
+
+   The band sits directly under the search rather than at the foot of the deck
+   because its whole point is that a phone can see the date, the two session
+   clocks and the weather at all — burying it under the chip row would give
+   that back. */
+@media (max-width: 820px) {
   .desk-command-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1751,12 +1762,17 @@
   .desk-idx { grid-row: 3; }
   .desk-command-chips { grid-row: 4; }
 
-  .desk-main {
-    gap: 24px;
+  /* The strip scrolls sideways rather than wrapping — two index cells and a
+     session pill wrapped onto three lines is taller than the thing it is
+     summarising, and cells no longer squash to disguise the overflow. */
+  .desk-idx {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
   }
 
-  .desk-band {
-    scroll-margin-top: 16px;
+  .desk-idx::-webkit-scrollbar {
+    display: none;
   }
 }
 
