@@ -52,6 +52,8 @@ export const DICTIONARY: Record<string, string> = {
   "장중 기준": "Intraday",
   "장 마감 기준": "Session close",
   "상승률과 거래대금을 기준으로 지수별 3종목을 선별합니다.": "Three per board, selected on move and turnover.",
+  "프리마켓 상승률을 기준으로 지수별 3종목을 선별합니다.":
+    "Three per board, selected on the pre-market move.",
   "시장 폭": "Market breadth",
   "시장 체온": "Market temperature",
   "코스피+코스닥": "KOSPI+KOSDAQ",

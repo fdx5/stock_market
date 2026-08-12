@@ -204,7 +204,15 @@ export default function SpotlightBoard({
       <div className="desk-spot-meta">
         <span className={`desk-spot-phase is-${bucket.phase}`}>{t(phaseLabel)}</span>
         <span className="desk-spot-note">
-          {t("상승률과 거래대금을 기준으로 지수별 3종목을 선별합니다.")}
+          {/* Turnover is not a figure yet during the KR pre-market hour — the
+              volume column is the regular session's and reads zero until the
+              KRX opens — so the six are picked on the move and on size there,
+              and the caption has to say which. See turnoverIsReal. */}
+          {t(
+            !isUs && bucket.phase === "pre"
+              ? "프리마켓 상승률을 기준으로 지수별 3종목을 선별합니다."
+              : "상승률과 거래대금을 기준으로 지수별 3종목을 선별합니다."
+          )}
         </span>
       </div>
 

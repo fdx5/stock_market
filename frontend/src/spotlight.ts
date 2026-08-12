@@ -63,6 +63,9 @@ export interface SpotlightPick {
   capRank: number;
   /** How many names on this board are at the daily price limit today. */
   limitCount: number;
+  /** How many names on this board are up at all. The only breadth figure the
+   * pre-market hour has to offer, where turnover is not yet a number. */
+  riserCount: number;
   /** 1-based rank by today's move within this stock's own sector, and how many
    * names that sector has on the board. Both 0 when it has no usable sector. */
   sectorRank: number;
@@ -112,18 +115,28 @@ export interface Bucket {
   phase: SessionPhase;
 }
 
+/** How finely the pre-market window is sliced. Ten minutes rather than the hour
+ * the other windows get, because this one starts from nothing: at 08:00 the NXT
+ * pre-market has just opened and almost no name has printed yet, so an hourly
+ * bucket locks the six on the first two or three quotes of the morning and holds
+ * them past every stock that actually moves between 08:10 and 08:50. The other
+ * windows open onto a board that is already full and can afford to hold still. */
+const PRE_SLICE_MIN = 10;
+
 /** The window the current six belong to. The selection is recomputed only when
  * this key changes, which is what makes the board hold still rather than
  * reshuffling under the reader every time the minute poll lands.
  *
- *   08:00–08:59  프리장 — picked once and held for the hour
+ *   08:00–08:59  프리장 — repicked every ten minutes, see PRE_SLICE_MIN
  *   09:00–15:29  장중  — repicked on the hour
  *   15:30–23:59  마감  — the day's finished ranking
  *   00:00–07:59  마감  — still yesterday's, until the pre-market window opens
  */
 export function sessionBucket(now: Date = new Date()): Bucket {
   const { date, minutes } = seoulParts(now);
-  if (minutes >= PRE_OPEN && minutes < OPEN) return { key: `pre:${date}`, phase: "pre" };
+  if (minutes >= PRE_OPEN && minutes < OPEN) {
+    return { key: `pre:${date}:${Math.floor(minutes / PRE_SLICE_MIN)}`, phase: "pre" };
+  }
   if (minutes >= OPEN && minutes < CLOSE) {
     return { key: `live:${date}:${Math.floor(minutes / 60)}`, phase: "live" };
   }
@@ -186,6 +199,34 @@ const PICKS = 3;
 
 function turnoverOf(item: MarketMapItem): number {
   return item.close * (item.volume ?? 0);
+}
+
+/**
+ * Whether this board's volume column means anything yet.
+ *
+ * It does not, for one hour a day, and the panel used to go blank over it. The
+ * KR payload's `volume` is the day's cumulative *regular-session* figure lifted
+ * from the ranking-page scrape; only price, change and cap are overlaid with the
+ * live NXT quote. So between 08:00 and 09:00 — while the NXT pre-market is the
+ * only venue trading and the KRX has not opened — every name on the board reads
+ * a real move against a volume of zero, `turnoverOf` returns zero for all of
+ * them, and MIN_TURNOVER, a hard filter, threw away the entire board. Six
+ * skeleton cards, every morning, for the hour with the day's sharpest movers on
+ * it.
+ *
+ * Asked of the data rather than of the clock, because the clock gets this wrong
+ * in both directions: the first minutes after 09:00 are also below the turnover
+ * floor for most names, and a holiday is 08:00 all day. A quarter of the board
+ * is the threshold so that one stale row cannot flip it on, and so that it flips
+ * within seconds of the real open, when the liquid names all print at once.
+ */
+function turnoverIsReal(items: MarketMapItem[], kind: BoardKind): boolean {
+  if (kind !== "kr" || items.length === 0) return false;
+  let traded = 0;
+  for (const item of items) {
+    if ((item.volume ?? 0) > 0) traded += 1;
+  }
+  return traded * 4 >= items.length;
 }
 
 /** The size figure to rank by. `marcap` is an absolute won amount on the KR
@@ -279,22 +320,35 @@ export function pickSpotlight(
    * makes the second row the more interesting of the two. */
   exclude?: Set<string>
 ): SpotlightPick[] {
+  /* Whether this run has turnover to work with at all. False for the whole US
+     side, and false on the KR side during the pre-market hour — see
+     turnoverIsReal. Everything below that touches money is switched off by it
+     rather than left to produce "거래대금 0원 · 1위" out of a table of ties. */
+  const hasTurnover = turnoverIsReal(items, kind);
+
   const candidates = items.filter((item) =>
     (kind === "kr"
-      ? item.change_pct > 0 && item.marcap >= MIN_MARCAP && turnoverOf(item) >= MIN_TURNOVER
+      ? item.change_pct > 0 &&
+        item.marcap >= MIN_MARCAP &&
+        // The floor is a statement about money, so it can only be applied where
+        // there is money to measure. Before the KRX opens, cap is the only
+        // liquidity proxy left — the same position the US boards are in
+        // permanently — and it is already doing that job on the line above.
+        (!hasTurnover || turnoverOf(item) >= MIN_TURNOVER)
       : item.change_pct > 0 && sizeOf(item, kind) >= MIN_US_CAP) &&
     !exclude?.has(item.code)
   );
   if (candidates.length === 0) return [];
 
   const changeRanks = rankBy(items, (i) => i.change_pct);
-  // Meaningless on a board with no volume; every entry would be a tie at zero,
-  // so the map is simply not built and every turnoverRank comes out 0.
-  const turnoverRanks = kind === "kr" ? rankBy(items, turnoverOf) : new Map<string, number>();
+  // Meaningless on a board with no usable volume; every entry would be a tie at
+  // zero, so the map is simply not built and every turnoverRank comes out 0.
+  const turnoverRanks = hasTurnover ? rankBy(items, turnoverOf) : new Map<string, number>();
   const capRanks = rankBy(items, (i) => sizeOf(i, kind));
   const sectors = sectorMoves(items);
 
   const limitCount = kind === "kr" ? items.filter((i) => i.change_pct >= LIMIT_PCT).length : 0;
+  const riserCount = items.filter((i) => i.change_pct > 0).length;
 
   /* Where each name places inside its own sector. This is the observation that
      keeps the US cards from all reading alike: with no volume, no price limit
@@ -318,22 +372,26 @@ export function pickSpotlight(
     );
   }
   const changesAsc = candidates.map((i) => i.change_pct).sort((a, b) => a - b);
-  /* The second axis. On the KR boards it is money; on the US ones there is none
-     to be had, so it is size — which is not the same measure and is not pretended
-     to be. What it buys is the same thing turnover buys: it keeps the three from
-     being whichever small constituent happened to print the largest percentage. */
-  const secondAsc = candidates
-    .map((i) => (kind === "kr" ? turnoverOf(i) : sizeOf(i, kind)))
-    .sort((a, b) => a - b);
+  /* The second axis. Money wherever there is money to measure; size wherever
+     there is not — the US boards always, the KR boards until the KRX opens.
+     Size is not the same measure and is not pretended to be, but it buys the
+     same thing turnover buys: it keeps the three from being whichever small
+     constituent happened to print the largest percentage. */
+  const secondOf = (i: MarketMapItem) => (hasTurnover ? turnoverOf(i) : sizeOf(i, kind));
+  const secondAsc = candidates.map(secondOf).sort((a, b) => a - b);
 
-  const moveWeight = phase === "closed" ? 0.45 : 0.62;
+  /* Weighting the move against the second axis. After the close it tips toward
+     turnover, which is the honest reading of a finished session. Before the open
+     it tips the other way: the brief for the pre-market hour is the morning's
+     급등 names, and the axis it would be tipping toward is a cap ranking that
+     barely changes from one day to the next. */
+  const moveWeight = phase === "closed" ? 0.45 : hasTurnover || kind === "us" ? 0.62 : 0.7;
   const scored = candidates
     .map((item) => ({
       item,
       score:
         percentile(changesAsc, item.change_pct) * moveWeight +
-        percentile(secondAsc, kind === "kr" ? turnoverOf(item) : sizeOf(item, kind)) *
-          (1 - moveWeight),
+        percentile(secondAsc, secondOf(item)) * (1 - moveWeight),
     }))
     .sort((a, b) => b.score - a.score);
 
@@ -375,10 +433,11 @@ export function pickSpotlight(
       sectorMembers: sectorInfo?.members ?? 0,
       capRank: capRanks.get(item.code) ?? 0,
       limitCount,
+      riserCount,
       sectorRank: sectorRanks.get(item.code)?.rank ?? 0,
       sectorSize: sectorRanks.get(item.code)?.size ?? 0,
     };
-    return { ...pick, lines: describe(pick, phase, used, kind) };
+    return { ...pick, lines: describe(pick, phase, used, kind, hasTurnover) };
   });
 }
 
@@ -403,6 +462,7 @@ type NoteKind =
   | "limit"
   | "against"
   | "money"
+  | "breadth"
   | "bigcap"
   | "carried"
   | "ahead"
@@ -437,7 +497,11 @@ function describe(
   pick: Omit<SpotlightPick, "lines">,
   phase: SessionPhase,
   used: Set<NoteKind>,
-  kind: BoardKind
+  kind: BoardKind,
+  /** Whether turnover is a real figure on this board right now — false for the
+   * US side always and for the KR side before the KRX opens. Every clause below
+   * that names 거래대금 is gated on it; see turnoverIsReal. */
+  hasTurnover: boolean
 ): string[] {
   const {
     item,
@@ -448,6 +512,7 @@ function describe(
     sectorMembers,
     capRank,
     limitCount,
+    riserCount,
     sectorRank,
     sectorSize,
   } = pick;
@@ -487,9 +552,22 @@ function describe(
      the payload is the only correct source there, and when it is missing the
      fallback is deliberately the neutral word rather than the confident one — a
      card that says 거래 중 when trading has stopped is wrong by a few hours,
-     where 마감 during the open session is wrong about what the market IS. */
+     where 마감 during the open session is wrong about what the market IS.
+
+     The KR pre-market gets a word of its own, and needs one: 08:00–09:00 is NXT,
+     the KRX is shut, and the figure on the card is a pre-market quote against
+     yesterday's close. 거래 중 there would name the wrong venue, and the NXT
+     session itself stops matching at 08:50 while the last price stands until
+     09:00 — so the word describes what the number IS rather than claiming
+     anything about this second. */
   const state =
-    kind === "us" ? (sessionWord ?? "거래 중") : phase === "closed" ? "마감" : "거래 중";
+    kind === "us"
+      ? (sessionWord ?? "거래 중")
+      : phase === "closed"
+        ? "마감"
+        : phase === "pre"
+          ? "프리마켓"
+          : "거래 중";
   const lead = atLimit
     ? `${board} 상승률 ${changeRank}위 · 가격제한폭 도달 · +${item.change_pct.toFixed(2)}% ${state}`
     : changeRank <= 20
@@ -512,10 +590,13 @@ function describe(
          warns against, and both were caught by reading the real output. */
       kind: "limit",
       when: atLimit,
-      text:
-        limitCount > 1
-          ? `오늘 ${board} 상한가 ${limitCount}종목 중 하나 · 거래대금 ${formatWon(turnover)}`
-          : `오늘 ${board}의 유일한 상한가 · 거래대금 ${formatWon(turnover)}`,
+      text: (() => {
+        const many =
+          limitCount > 1
+            ? `오늘 ${board} 상한가 ${limitCount}종목 중 하나`
+            : `오늘 ${board}의 유일한 상한가`;
+        return hasTurnover ? `${many} · 거래대금 ${formatWon(turnover)}` : many;
+      })(),
     },
     {
       kind: "against",
@@ -523,19 +604,31 @@ function describe(
       text: `${sector} 업종 ${sectorChange.toFixed(2)}% 하락 속 나 홀로 역행`,
     },
     {
-      // KR only: turnoverRank is 0 on a board with no volume, so this is already
-      // unreachable there, but the guard says why rather than leaving it to a
-      // rank that happens to be falsy.
+      // turnoverRank is 0 wherever turnover is not a real figure, so this is
+      // already unreachable there, but the guard says why rather than leaving it
+      // to a rank that happens to be falsy.
       kind: "money",
-      when: kind === "kr" && turnoverRank > 0 && turnoverRank <= 10,
+      when: hasTurnover && turnoverRank > 0 && turnoverRank <= 10,
       text: `거래대금 ${board} ${turnoverRank}위 · ${formatWon(turnover)} 자금 몰림`,
+    },
+    {
+      /* What stands in for the money line during the pre-market hour. It is
+         about the board rather than the stock, deliberately: with no turnover
+         to rank on, how broad the morning is decides whether a +6% quote is a
+         market opening green or one name being marked up on its own. */
+      kind: "breadth",
+      when: kind === "kr" && !hasTurnover && riserCount > 0,
+      text: `프리마켓에서 ${board} ${riserCount}종목 상승 중`,
     },
     {
       kind: "bigcap",
       when: capRank > 0 && capRank <= 25 && item.change_pct >= 3,
       text:
         kind === "kr"
-          ? `시총 ${board} ${capRank}위 대형주의 하루 ${item.change_pct.toFixed(2)}% 이동`
+          ? // "하루" is a claim about a session, and before 09:00 there has not
+            // been one — the figure is an hour of pre-market against yesterday's
+            // close.
+            `시총 ${board} ${capRank}위 대형주의 ${phase === "pre" ? "프리마켓" : "하루"} ${item.change_pct.toFixed(2)}% 이동`
           : `${board} 시총 ${capRank}위 대형주의 ${item.change_pct.toFixed(2)}% 이동`,
     },
     {
@@ -584,7 +677,7 @@ function describe(
     {
       kind: "profile",
       when: true,
-      text: profileOf(item, board, turnover, turnoverRank, kind),
+      text: profileOf(item, board, turnover, turnoverRank, kind, hasTurnover, capRank),
     },
   ];
 
@@ -603,18 +696,28 @@ function profileOf(
   board: string,
   turnover: number,
   turnoverRank: number,
-  kind: BoardKind
+  kind: BoardKind,
+  hasTurnover: boolean,
+  capRank: number
 ): string {
   const bits: string[] = [];
   if (kind === "kr") {
-    if (turnoverRank > 0 && turnoverRank <= 60) {
+    if (hasTurnover && turnoverRank > 0 && turnoverRank <= 60) {
       bits.push(`거래대금 ${formatWon(turnover)} · ${board} ${turnoverRank}위`);
     }
+    /* Cap rank takes the money line's place before the open. It is the one
+       standing figure that is as true at 08:10 as at 15:30, and without it a
+       pre-market card whose only other facts are missing falls through to the
+       empty string below — which is how this function ended up as a fallback
+       that could itself need one. */
+    if (!hasTurnover && capRank > 0) bits.push(`시총 ${board} ${capRank}위`);
     if (typeof item.per === "number" && item.per > 0) bits.push(`PER ${item.per.toFixed(1)}배`);
     if (typeof item.foreign_ratio === "number" && item.foreign_ratio > 0) {
       bits.push(`외국인 지분 ${item.foreign_ratio.toFixed(1)}%`);
     }
-    if (bits.length === 0) return `거래대금 ${formatWon(turnover)}`;
+    if (bits.length === 0) {
+      return hasTurnover ? `거래대금 ${formatWon(turnover)}` : `시총 ${formatWon(item.marcap)}`;
+    }
   } else {
     // No turnover, no PER and no holding split in a US map payload — what is
     // left is what the company is worth and where it sits.
