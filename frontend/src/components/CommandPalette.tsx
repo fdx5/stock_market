@@ -205,11 +205,19 @@ export default function CommandPalette({
         className="desk-cmd-trigger"
         onClick={() => setOpen(true)}
         aria-keyshortcuts="Meta+K Control+K"
+        /* Stated rather than left to the caption below, because a narrow deck
+           hides that caption outright and the button would otherwise be left
+           named by an aria-hidden glyph. */
+        aria-label={t("종목 · 페이지 바로가기")}
       >
         <span className="desk-cmd-trigger-icon" aria-hidden="true">
           ⌕
         </span>
-        {t("종목 · 페이지 바로가기")}
+        {/* Wrapped rather than bare text so the tablet band in marketDesk.css
+            can drop the caption and the shortcut and leave the glyph as the
+            whole button. The shortcut is the half worth losing first: it spells
+            out ⌘K on the devices least likely to have a ⌘. */}
+        <span className="desk-cmd-trigger-label">{t("종목 · 페이지 바로가기")}</span>
         <kbd>⌘K</kbd>
       </button>
     );

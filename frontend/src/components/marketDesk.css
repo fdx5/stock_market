@@ -146,6 +146,13 @@
   text-decoration: none;
   color: inherit;
   min-width: 0;
+  /* A cell is its numbers or it is nothing. As a flex child it would otherwise
+     shrink under a tight strip and, since every figure inside it is `nowrap`,
+     spill its delta across the next cell's value — two indices printed on top
+     of one another, which reads as a rendering fault rather than a squeeze.
+     Held at its natural width it stays legible and the strip scrolls instead;
+     every viewport narrow enough to run out of room gives it that scroll. */
+  flex-shrink: 0;
 }
 
 .desk-idx-cell--link {
@@ -196,6 +203,17 @@
 .desk-idx-delta i {
   font-style: normal;
   font-size: 8px;
+}
+
+/* Brackets as punctuation between the two figures rather than characters in the
+   percentage — so the compact band can hide the absolute move and take the
+   brackets with it. */
+.desk-idx-pct::before {
+  content: "(";
+}
+
+.desk-idx-pct::after {
+  content: ")";
 }
 
 .desk-idx-flow {
@@ -1497,10 +1515,132 @@
 
 /* ── responsive ─────────────────────────────────────────────────────────── */
 
-/* The clock is the first thing to leave the deck's top row — it is the widest
-   fixed element and the least urgent, and below this the index strip and the
-   search field would start fighting for the same line. */
-@media (max-width: 1500px) {
+/* ── Tablet landscape and small laptops: the clock keeps its column ──────────
+   This used to drop the clock out of the top row and re-hang it as a third row
+   under the chips. On an iPad held landscape — 1024 to 1366px, the whole of
+   which sat under the old 1500px cut — that spent a full-width band of a sticky
+   bar on a 228px cabinet and pushed everything below it down, which is the
+   shape the deck exists to avoid. So the cabinet stays in column 3, spanning
+   both rows, exactly as it does on a wide screen.
+
+   The room comes from the two elements that can give it up. The search field's
+   ceiling becomes a fraction of the viewport instead of a flat 400px, so it is
+   the first thing to yield as the screen narrows — a search field is read and
+   typed from its left end, so width past a certain point is not capacity. The
+   index strip is set in a smaller hand and, past that, scrolls sideways instead
+   of pushing its neighbours — the same trade it already makes on a phone, and
+   the reason the cabinet's fixed 228px is never the thing that has to give.
+
+   1024 is the floor because it is the narrowest iPad landscape there has ever
+   been. Under it the three columns really are too little to share and the old
+   stacking takes over again — see the block directly below. */
+@media (min-width: 1024px) and (max-width: 1500px) {
+  /* The ceiling has to be a `min()` rather than a flat length: against a
+     `1fr` middle column the search track takes its maximum and lets the strip
+     absorb the whole shortfall, which is backwards — on the global desk that
+     alone was enough to push the third US index out of view. Tying it to the
+     viewport makes the field give ground first, which is the order that keeps
+     all three indices readable down to 1024. */
+  .desk-command-grid {
+    grid-template-columns: minmax(240px, min(28vw, 400px)) minmax(0, 1fr) auto;
+    column-gap: 14px;
+  }
+
+  /* Clipped and scrollable rather than fluid: a grid column of `minmax(0, 1fr)`
+     will happily shrink under its flex contents, and without this the cells
+     would spill past the column and shove the clock off the row — the wrap this
+     whole block is here to prevent. Widest case is the global desk's three US
+     majors (UsIndexStrip), which are five digits and a two-part delta each. */
+  .desk-idx {
+    gap: 10px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .desk-idx::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* A size down, so the common iPad widths land inside the column instead of
+     one cell short of it and having to be scrolled for the last index. */
+  .desk-idx-cell {
+    padding: 5px 7px;
+    column-gap: 6px;
+  }
+
+  .desk-idx-value {
+    font-size: 15px;
+  }
+
+  .desk-idx-delta {
+    font-size: 10.5px;
+  }
+
+  /* The palette trigger keeps its tap target and loses its caption. Sharing the
+     search column, it was spending about 180px to name a shortcut the field
+     beside it already performs, and all 180 came out of that field — at 1024
+     the input was left too short to show its own placeholder. As a glyph it is
+     still the same button, one tap from the same palette. */
+  .desk-cmd-trigger {
+    gap: 0;
+    padding: 0 11px;
+  }
+
+  .desk-cmd-trigger-label,
+  .desk-cmd-trigger kbd {
+    display: none;
+  }
+
+  .desk-cmd-trigger-icon {
+    font-size: 17px;
+  }
+}
+
+/* The bottom of the tablet band — every iPad but the 12.9" one, so 1024 through
+   the 11" Pro's 1194 — is where the sizing above still leaves the global desk's
+   third US index over the edge of its column, by about the width of one figure
+   at the top of the range and rather more at the foot. So one figure goes: the
+   absolute move, which is the half of the delta that says least. A reader
+   scanning a sticky bar wants to know the market is off a quarter of a percent;
+   that it is off 123.45 points is the number they open the index for. Keeping
+   the percentage keeps all three majors readable instead of two and a sliver.
+
+   The KR desk carries two indices and a session pill and has room to spare at
+   these widths; it drops the same figure anyway, because the two strips sit in
+   the same slot on two versions of the same page and should not disagree about
+   what a delta looks like. */
+@media (min-width: 1024px) and (max-width: 1200px) {
+  .desk-idx {
+    gap: 8px;
+  }
+
+  .desk-idx-cell {
+    padding: 5px;
+  }
+
+  .desk-idx-value {
+    font-size: 14px;
+  }
+
+  .desk-idx-delta {
+    font-size: 10px;
+  }
+
+  .desk-idx-abs {
+    display: none;
+  }
+
+  .desk-idx-pct::before,
+  .desk-idx-pct::after {
+    content: "";
+  }
+}
+
+/* Narrower than any tablet in landscape, wider than the single-column phone
+   layout: a window this size has two useful columns, not three, so the clock
+   goes back to being a row of its own under the chips. */
+@media (max-width: 1023px) {
   .desk-command-grid {
     grid-template-columns: minmax(280px, 420px) minmax(0, 1fr);
   }
@@ -1513,6 +1653,19 @@
 
   .desk-command-chips {
     grid-column: 1 / -1;
+  }
+
+  /* Two columns are not enough for the global desk's three majors either, and
+     cells no longer squash to make it look like they are — so the strip needs
+     the sideways scroll here as much as it does in the bands either side. */
+  .desk-idx {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .desk-idx::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -1575,13 +1728,13 @@
   }
 
   /* One column, in reading order: search, the clock, the index, then the chips.
-     The clock needs an explicit row here — the wider layout parks it on row 3,
-     which is the chips' row once the grid is a single column, and the two would
-     land in the same cell. It sits directly under the search rather than at the
-     foot of the deck because below 820px HeaderDateTime swaps the fixed-width LED
-     cabinet for a full-width HUD band (see .hud in styles.css), and the whole
-     point of that band is that a phone can see the date, the two session clocks
-     and the weather at all — burying it under the chip row would give it back. */
+     This is where the clock finally does leave the right-hand column — not
+     because it is crowded but because there is no second column left to stand
+     it in. It sits directly under the search rather than at the foot of the deck
+     because below 820px HeaderDateTime swaps the fixed-width LED cabinet for a
+     full-width HUD band (see .hud in styles.css), and the whole point of that
+     band is that a phone can see the date, the two session clocks and the
+     weather at all — burying it under the chip row would give it back. */
   .desk-command-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1597,19 +1750,6 @@
   .desk-command-clock { grid-row: 2; display: block; }
   .desk-idx { grid-row: 3; }
   .desk-command-chips { grid-row: 4; }
-
-  /* The strip scrolls sideways rather than wrapping — two index cells and a
-     session pill wrapped onto three lines is taller than the thing it is
-     summarising. */
-  .desk-idx {
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-  }
-
-  .desk-idx::-webkit-scrollbar {
-    display: none;
-  }
 
   .desk-main {
     gap: 24px;

@@ -63,10 +63,19 @@ function Cell({
       <span className="desk-idx-value">
         {quote.close.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
       </span>
+      {/* The two halves of the delta are separate elements so the narrowest
+          tablet column can keep the percentage and drop the absolute move —
+          see the compact band in marketDesk.css. The brackets around the
+          percentage live in CSS for the same reason: they are punctuation
+          between two figures, and with only one figure left they would be
+          bracketing nothing. */}
       <span className={`desk-idx-delta change-${tone}`}>
         <i aria-hidden="true">{arrow}</i>
-        {Math.abs(quote.change).toFixed(2)} ({quote.change_pct >= 0 ? "+" : ""}
-        {quote.change_pct}%)
+        <span className="desk-idx-abs">{Math.abs(quote.change).toFixed(2)}</span>
+        <span className="desk-idx-pct">
+          {quote.change_pct >= 0 ? "+" : ""}
+          {quote.change_pct}%
+        </span>
       </span>
       {/* Whose money moved it. The full board below spells out all three
           investor groups; up here only the foreign line, because it is the one

@@ -86,10 +86,18 @@ export default function UsIndexStrip() {
                       maximumFractionDigits: 2,
                     })}
               </span>
+              {/* Split into absolute and percentage, same as DeskIndexStrip and
+                  for the same reason: three US majors are the widest thing the
+                  command deck's middle column ever has to hold, and on a 1024
+                  iPad the absolute move is what gives way so all three stay
+                  readable rather than two and a half. */}
               <span className={`desk-idx-delta change-${tone}`}>
                 <i aria-hidden="true">{pct > 0 ? "▲" : pct < 0 ? "▼" : "—"}</i>
-                {Math.abs(item.change ?? 0).toFixed(2)} ({pct >= 0 ? "+" : ""}
-                {pct.toFixed(2)}%)
+                <span className="desk-idx-abs">{Math.abs(item.change ?? 0).toFixed(2)}</span>
+                <span className="desk-idx-pct">
+                  {pct >= 0 ? "+" : ""}
+                  {pct.toFixed(2)}%
+                </span>
               </span>
             </div>
           </Fragment>
