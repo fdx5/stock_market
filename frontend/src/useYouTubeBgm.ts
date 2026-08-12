@@ -28,16 +28,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
    player is built by the time the click lands.
    ========================================================================= */
 
-/* The playlist. Two tracks, and which one plays is decided fresh every time the
-   music is switched on.
+/* The playlist. Four tracks, and which one plays is decided fresh every time
+   the music is switched on.
 
    The names here are only what the board shows for the instant before the
    player has been asked its own — see `titleFor`. The player's answer always
-   wins, so renaming a video on YouTube changes the board without a deploy. */
+   wins, so renaming a video on YouTube changes the board without a deploy.
+
+   Every id here needs a matching frontend/public/bgm/<id>.json or the equaliser
+   falls back to its decorative bars for that track — see useBgmEqualizer, and
+   backend/scripts/bgm_envelope.py for how the file is made. */
 const TRACKS = [
   { id: "8PqN8kexaT0", name: "Breath of the Galaxy" },
   { id: "7dn32JVyB6s", name: "Map in Grey" },
   { id: "FbQ3gMEeobg", name: "A Path of Gentle Piano" },
+  { id: "TMXlHacZSh0", name: "Interstellar Drift" },
 ];
 
 /** Which track to play next, never the one just heard.
@@ -49,7 +54,7 @@ const TRACKS = [
  * becoming "cycle in order".
  *
  * At two tracks this was strict alternation, because excluding one of two
- * leaves no choice. With three it is what it says: a real draw from the two
+ * leaves no choice. Past that it is what it says: a real draw from the tracks
  * that are not playing. `excludeId` is null on the first listen of a visit,
  * which is the one time every track is in the hat.
  *
