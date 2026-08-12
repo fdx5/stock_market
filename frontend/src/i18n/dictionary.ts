@@ -56,6 +56,13 @@ export const DICTIONARY: Record<string, string> = {
     "Three per board, selected on the pre-market move.",
   "시장 폭": "Market breadth",
   "시장 체온": "Market temperature",
+  "지수 쏠림": "Cap tilt",
+  /* "시총가중" is already carried further down, for the treemap legend. */
+  "동일가중": "Equal-weighted",
+  "격차": "Spread",
+  "대형주 우위": "Large caps ahead",
+  "중소형주 우위": "Small caps ahead",
+  "고른 흐름": "Evenly spread",
   "코스피+코스닥": "KOSPI+KOSDAQ",
   "주도 업종": "Leading sectors",
   "부진 업종": "Lagging sectors",

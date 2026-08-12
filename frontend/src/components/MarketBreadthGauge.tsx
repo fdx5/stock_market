@@ -24,6 +24,10 @@ const SECTOR_SHOWN = 5;
 /** A sector needs this many names before its average means anything. */
 const SECTOR_MIN_MEMBERS = 3;
 
+/** Below this the two averages are the same number with rounding noise between
+ * them, and calling one side ahead of the other would be reading a coin toss. */
+const TILT_FLAT_PP = 0.25;
+
 interface Breadth {
   up: number;
   down: number;
@@ -34,6 +38,10 @@ interface Breadth {
   temperature: number;
   sectors: SectorHeat[];
   total: number;
+  /** Mean move weighted by size — roughly what the index did. */
+  capWeighted: number;
+  /** Mean move with every name counting once — what the average holding did. */
+  equalWeighted: number;
 }
 
 interface SectorHeat {
@@ -43,11 +51,32 @@ interface SectorHeat {
   members: number;
 }
 
+/** The size to weigh a name by.
+ *
+ * `marcap` is an absolute currency amount on the KR maps and the constituent's
+ * index *weight* in per cent on the US ones — same field, different quantity —
+ * and `market_cap` is the real capitalisation where it exists. Weighing the US
+ * union by `marcap` would mix two weight bases in one average: a name that is
+ * in the NASDAQ 100 carries its share of a hundred names, one that is only in
+ * the S&P carries its share of five hundred, and the sixteen NASDAQ-only names
+ * would count for several times what they are. Dollars are the same unit for
+ * everyone.
+ */
+function capOf(item: MarketMapItem): number {
+  return Math.max(item.market_cap ?? item.marcap, 0);
+}
+
 function measure(items: MarketMapItem[]): Breadth {
   let up = 0;
   let down = 0;
   let strongUp = 0;
   let strongDown = 0;
+  /* The two averages behind the tilt reading. Same moves, two weightings — see
+     the block comment on the tilt panel below for why the gap between them is
+     worth a panel of its own. */
+  let capSum = 0;
+  let capTotal = 0;
+  let plainSum = 0;
 
   /* Cap-weighted rather than a plain mean of the members' percentages. A
      sector's move is what its money did, and an equal-weighted average lets the
@@ -61,6 +90,11 @@ function measure(items: MarketMapItem[]): Breadth {
     else if (item.change_pct < 0) down += 1;
     if (item.change_pct >= STRONG_PCT) strongUp += 1;
     else if (item.change_pct <= -STRONG_PCT) strongDown += 1;
+
+    const size = capOf(item);
+    capSum += item.change_pct * size;
+    capTotal += size;
+    plainSum += item.change_pct;
 
     const sector = item.sector?.trim();
     if (!sector) continue;
@@ -92,7 +126,24 @@ function measure(items: MarketMapItem[]): Breadth {
     temperature: decisive > 0 ? (up / decisive) * 100 : 50,
     sectors,
     total: items.length,
+    capWeighted: capTotal > 0 ? capSum / capTotal : 0,
+    equalWeighted: items.length > 0 ? plainSum / items.length : 0,
   };
+}
+
+/** Which side of the board is ahead, in words. Ahead, not leading: when the tape
+ * is red a positive gap means the big names fell less, which is the same fact
+ * about relative strength and not a claim that anything is pulling anything. */
+function tiltFor(gap: number): { key: string; tone: "large" | "small" | "even" } {
+  if (gap >= TILT_FLAT_PP) return { key: "대형주 우위", tone: "large" };
+  if (gap <= -TILT_FLAT_PP) return { key: "중소형주 우위", tone: "small" };
+  return { key: "고른 흐름", tone: "even" };
+}
+
+/** Signed, two places, with the sign always shown — these are read against each
+ * other and an unsigned positive would have to be inferred from its neighbour. */
+function signed(value: number): string {
+  return `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(2)}`;
 }
 
 /** What the temperature reads as, in words. The bands are deliberately wide:
@@ -192,6 +243,7 @@ export default function MarketBreadthGauge({
             </em>
           </span>
         </div>
+        <TiltPanel breadth={breadth} />
       </div>
 
       {/* One bar, three segments, in the order a reader scans: gains on the left
@@ -226,6 +278,87 @@ export default function MarketBreadthGauge({
         />
       </div>
     </section>
+  );
+}
+
+/**
+ * 지수 쏠림 — the same day's moves averaged twice, and the gap between them.
+ *
+ * This panel exists because of the sentence at the top of this file: an index is
+ * a cap-weighted average, and a cap-weighted average is one stock's opinion when
+ * that stock is fifteen per cent of the market. The counts beside it answer
+ * *how many* names are up. Neither answers the question a reader actually has
+ * when the index is green and their screen is red, which is *whose* green it is.
+ *
+ * Two numbers answer it. Weight every move by size and you get roughly what the
+ * index did; weight every move the same and you get what the average holding
+ * did. On a normal day the two sit within a tenth of each other. When they come
+ * apart, the distance is the story — 시총가중 +0.9% against 동일가중 −0.2% is a
+ * market where six companies are the index and the other five hundred are
+ * furniture, and no other figure on this card will say so.
+ *
+ * Both come out of the snapshot the gauge is already measuring, so the panel
+ * costs one extra pass over an array that is in memory anyway. And both are
+ * descriptive: what the two halves of the board did, with no claim about which
+ * one is right or what follows from it.
+ *
+ * It also happens to fill the empty right half of the temperature row, which is
+ * why it is here rather than in a card of its own — the reading it qualifies is
+ * the one directly to its left.
+ */
+function TiltPanel({ breadth }: { breadth: Breadth }) {
+  const t = useT();
+  const gap = breadth.capWeighted - breadth.equalWeighted;
+  const tilt = tiltFor(gap);
+
+  /* Half the track is a 1.5%p gap, which is a wide day — past that the bar is
+     simply full rather than rescaling, because a scale that moves with its own
+     reading cannot be compared against yesterday's glance at it. */
+  const reach = Math.min(1, Math.abs(gap) / 1.5) * 50;
+
+  return (
+    <div className={`desk-tilt desk-tilt--${tilt.tone}`}>
+      <span className="desk-tilt-head">
+        <b>{t("지수 쏠림")}</b>
+        <em className="desk-tilt-verdict">{t(tilt.key)}</em>
+      </span>
+
+      <span className="desk-tilt-stats">
+        <span className="desk-tilt-stat">
+          <i>{t("시총가중")}</i>
+          <b className={breadth.capWeighted >= 0 ? "change-up" : "change-down"}>
+            {signed(breadth.capWeighted)}%
+          </b>
+        </span>
+        <span className="desk-tilt-stat">
+          <i>{t("동일가중")}</i>
+          <b className={breadth.equalWeighted >= 0 ? "change-up" : "change-down"}>
+            {signed(breadth.equalWeighted)}%
+          </b>
+        </span>
+        <span className="desk-tilt-stat desk-tilt-stat--gap">
+          <i>{t("격차")}</i>
+          <b>{signed(gap)}%p</b>
+        </span>
+      </span>
+
+      {/* Centre-anchored: the middle of the track is the two averages agreeing,
+          and the bar grows toward whichever side is ahead. Deliberately not in
+          the up/down colours — this is a distance between two averages, not a
+          gain, and painting it red would have it read as a market that is
+          falling. */}
+      <span
+        className="desk-tilt-track"
+        role="img"
+        aria-label={`${t("지수 쏠림")} ${t(tilt.key)} ${signed(gap)}%p`}
+      >
+        <span className="desk-tilt-mid" aria-hidden="true" />
+        <span
+          className="desk-tilt-fill"
+          style={gap >= 0 ? { left: "50%", width: `${reach}%` } : { right: "50%", width: `${reach}%` }}
+        />
+      </span>
+    </div>
   );
 }
 

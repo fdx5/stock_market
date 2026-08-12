@@ -1056,6 +1056,11 @@
   display: flex;
   align-items: center;
   gap: 14px;
+  /* The tilt panel drops to its own line rather than crushing the reading it
+     qualifies. It is the only child that can wrap — the dial does not shrink and
+     the mood text is three short lines — so this costs nothing until the card
+     is genuinely too narrow for three blocks. */
+  flex-wrap: wrap;
 }
 
 /* The dial is a ring whose colour carries the reading, so the number inside it
@@ -1068,8 +1073,21 @@
   width: 74px;
   height: 74px;
   border-radius: 50%;
-  display: flex;
+  /* Grid rather than flex, and that is the whole of the fix for a reading that
+     sat against the top of the ring instead of in the middle of it.
+
+     The two spans do have to share a baseline — the ° is a mark on the number,
+     not a second number standing beside it — but in a flex container
+     `align-items: baseline` answers a second question at the same time, and
+     answers it badly: it pins the baseline-aligned group to the cross-start
+     edge of the line, which on a 74px circle is the top. Grid keeps the two
+     questions apart. `align-items: baseline` lines the spans up with each other
+     inside their row; `align-content: center` puts that row in the middle of
+     the circle. */
+  display: grid;
+  grid-auto-flow: column;
   align-items: baseline;
+  align-content: center;
   justify-content: center;
   gap: 1px;
   border: 3px solid var(--desk-temp-ring, var(--text-muted));
@@ -1132,6 +1150,156 @@
 
 .desk-temp-strong .is-up { color: var(--up-color); }
 .desk-temp-strong .is-down { color: var(--down-color); }
+
+/* ── 지수 쏠림 ───────────────────────────────────────────────────────────────
+   Cap-weighted against equal-weighted, in the half of the temperature row that
+   was empty. `margin-left: auto` rather than a flex-grow on its neighbour: the
+   mood text is set at its natural width and should stay next to the dial it
+   describes, so the slack is collected here at the end of the row instead of
+   being shared out along it.
+
+   Its own tone variable, and deliberately not --up-color / --down-color. The
+   figure is a distance between two averages — a wide gap on a day when
+   everything is falling is still a gap, and painting it in the market's down
+   colour would have a reader take it for a loss. Two series hues carry the
+   direction instead, and the even state stays grey because "the two agree" is
+   the absence of a direction rather than a third one. */
+.desk-tilt {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  /* Takes whatever is left of the row, down to the 260 the three stats need on
+     one line; under that it wraps to a line of its own rather than squeezing
+     the reading it sits beside.
+
+     The basis is that 260 floor and not the panel's comfortable width, which is
+     the part worth writing down. A flex container breaks lines on the item's
+     hypothetical size — its basis, clamped — and only shrinks what is already
+     on the line afterwards. So a basis of 460 with a min-width of 260 does not
+     mean "shrink to 260 before wrapping"; it means "wrap the moment there is
+     less than 460", and the min-width never gets a say. Which is exactly what
+     it did: at the width the KR desk's card actually is, the panel jumped to
+     its own line and left an L-shaped hole under the dial.
+
+     No auto margin either, for a related reason — an auto margin absorbs a
+     line's whole free space before flex-grow is offered any, so the two cannot
+     both be asked for. Growing is what keeps the panel flush with the card's
+     right edge here, so growing is what it does. */
+  flex: 1 1 260px;
+}
+
+/* One hue for both sides, and that is a decision rather than an omission. The
+   theme's two loud colours already mean something on this card — red is up,
+   blue is down — so painting a small-cap tilt blue would have it read as a
+   market falling, which is a different claim and often not even true at the
+   same time. Violet belongs to neither, and which side is ahead is carried by
+   the side of centre the bar grows from and by the verdict spelling it out.
+   Even stays grey: the two averages agreeing is the absence of a direction. */
+.desk-tilt--large,
+.desk-tilt--small { --desk-tilt-tone: var(--series-violet); }
+.desk-tilt--even  { --desk-tilt-tone: var(--text-muted); }
+
+/* Title and verdict adjacent, not pushed to opposite ends. Space-between was
+   the first draft and it broke at exactly the width this panel is here to fill:
+   at 460px the two sat far enough apart to read as two unrelated labels rather
+   than as a heading and its reading. */
+.desk-tilt-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.desk-tilt-head b {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.desk-tilt-verdict {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--desk-tilt-tone, var(--text-muted));
+}
+
+/* Reads as "지수 쏠림 · 대형주 우위" — one heading, not two labels. */
+.desk-tilt-verdict::before {
+  content: "· ";
+  color: var(--text-muted);
+}
+
+.desk-tilt-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+/* Label over figure, so the three read as a row of readings rather than as a
+   sentence with three nouns in it. */
+.desk-tilt-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.desk-tilt-stat i {
+  font-style: normal;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.desk-tilt-stat b {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* The gap is the panel's own reading rather than one of the two inputs, so it
+   is pushed to the far end and takes the tone colour the verdict wears. */
+.desk-tilt-stat--gap {
+  margin-left: auto;
+  align-items: flex-end;
+}
+
+.desk-tilt-stat--gap b {
+  color: var(--desk-tilt-tone, var(--text-primary));
+}
+
+.desk-tilt-track {
+  position: relative;
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--gridline);
+  overflow: hidden;
+}
+
+/* The zero mark. Always drawn, including when the fill covers it, because the
+   bar means nothing without knowing that its middle is the origin. */
+.desk-tilt-mid {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+  background: color-mix(in srgb, var(--text-primary) 30%, transparent);
+  z-index: 1;
+}
+
+.desk-tilt-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--desk-tilt-tone, var(--text-muted));
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
 
 /* One bar, three segments. Widths come from flex-grow so the bar never needs
    measuring and reflows with the card at any width. */
