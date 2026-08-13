@@ -188,7 +188,7 @@ export default function StockRadarBoard({
                       {quote ? (
                         <>
                           <span className="desk-radar-price">
-                            {market === "US"
+                            {row.market === "US"
                               ? `$${quote.close.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
                               : `${quote.close.toLocaleString()}${wonSuffix(lang)}`}
                           </span>

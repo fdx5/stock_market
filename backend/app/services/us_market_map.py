@@ -27,20 +27,26 @@ def get_nasdaq100_map(limit: int = 103, fresh: bool = False) -> list[dict]:
 SKHYNIX_TICKER = "SKHY"
 TTL_SKHYNIX_SECONDS = 15
 
-# The tile's area is driven by this alone (an explicit request: "시가총액만 반영해서
-# 면적을 그려줘") — Yahoo's own marketCap field for the ADR, divided by each index's
-# rough aggregate market cap to land in the same "percent of the index" units real
-# constituents' weights are already in. There's no true index weight for a non-member,
-# so the denominator is an order-of-magnitude estimate; the numerator (what actually
-# varies day to day) is real. Neither number is ever shown, both only ever feed one
-# division.
+# SKHY is an ADR with ten ADSs representing one ordinary share. Yahoo's
+# `marketCap` for the new listing applies the ADS price to an issuer-wide share
+# count, which makes the map value much larger than the capitalization of the
+# securities actually listed in the US. The Nasdaq offering/listing comprises
+# 177.9m ADSs (17.79m underlying ordinary shares), so size this synthetic US tile
+# from that listed ADS count and its live price.
+SKHYNIX_LISTED_ADS = 177_900_000
+
+# The tile's area is the listed ADR capitalization (live ADS price times listed ADS
+# count), divided by each index's rough aggregate market cap to land in the same
+# "percent of the index" units real constituents' weights are already in. There's no
+# true index weight for a non-member, so the denominator is an order-of-magnitude
+# estimate. Neither number is shown; both only feed the treemap sizing calculation.
 _SP500_TOTAL_MARKETCAP_USD = 48_000_000_000_000
 _NASDAQ100_TOTAL_MARKETCAP_USD = 26_000_000_000_000
 
 
 def _fetch_skhynix_quote() -> dict | None:
     quote = yahoo_bulk_quote.get_quotes([SKHYNIX_TICKER]).get(SKHYNIX_TICKER)
-    if not quote or not quote.get("market_cap"):
+    if not quote or not quote.get("close"):
         return None
     return {
         **quote,
@@ -71,7 +77,8 @@ def _skhynix_tile(total_marketcap_usd: float) -> dict | None:
     if base is None:
         return None
     tile = {k: v for k, v in base.items() if k != "market_cap"}
-    tile["marcap"] = base["market_cap"] / total_marketcap_usd * 100
+    adr_marketcap_usd = base["close"] * SKHYNIX_LISTED_ADS
+    tile["marcap"] = adr_marketcap_usd / total_marketcap_usd * 100
     return tile
 
 
