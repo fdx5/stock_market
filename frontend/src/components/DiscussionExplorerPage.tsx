@@ -120,6 +120,7 @@ function DetailPanel({
   market: "KR" | "US";
   onClose: () => void;
 }) {
+  const panelRef = useRef<HTMLElement>(null);
   const [detail, setDetail] = useState<BoardDetail | null>(null);
   const [comments, setComments] = useState<BoardComment[]>([]);
   const [loading, setLoading] = useState(market === "KR");
@@ -128,27 +129,37 @@ function DetailPanel({
   useEffect(() => {
     if (market !== "KR") return;
     let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setError("");
-    Promise.all([api.boardDetail(code, post.id), api.boardComments(code, post.id)])
+    Promise.all([api.boardDetail(code, post.id, controller.signal), api.boardComments(code, post.id, controller.signal)])
       .then(([nextDetail, nextComments]) => {
         if (cancelled) return;
         setDetail(nextDetail);
         setComments(nextComments.items);
       })
       .catch((reason: Error) => {
-        if (!cancelled) setError(reason.message || "게시글을 불러오지 못했습니다.");
+        if (!cancelled && reason.name !== "AbortError") setError(reason.message || "게시글을 불러오지 못했습니다.");
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [code, market, post.id]);
 
+  useEffect(() => () => {
+    // Prompt WebKit to release decoded image surfaces between repeated panels.
+    panelRef.current?.querySelectorAll("img").forEach((image) => {
+      image.removeAttribute("src");
+      image.removeAttribute("srcset");
+    });
+  }, []);
+
   return (
-    <aside className="discussion-detail" aria-label="게시글 상세">
+    <aside ref={panelRef} className="discussion-detail" aria-label="게시글 상세">
       <div className="discussion-detail-glow" aria-hidden="true" />
       <header>
         <div>
@@ -165,7 +176,7 @@ function DetailPanel({
         {market === "US" && <p className="discussion-detail-text">{post.source?.text || post.preview}</p>}
         {detail?.blocks.map((block, index) =>
           block.type === "image" && block.src ? (
-            <img key={`${post.id}-${index}`} src={block.src} alt="게시글 첨부 이미지" loading="lazy" />
+            <img key={`${post.id}-${index}`} src={block.src} alt="게시글 첨부 이미지" loading="lazy" decoding="async" />
           ) : (
             <p key={`${post.id}-${index}`} className="discussion-detail-text">{block.text}</p>
           )
@@ -215,6 +226,7 @@ export default function DiscussionExplorerPage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const nextDomesticPage = useRef(6);
   const nextGlobalOffset = useRef<string | null>(null);
+  const etfUniverseRequested = useRef(false);
   const sceneRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -226,6 +238,18 @@ export default function DiscussionExplorerPage() {
   const activePointers = useRef(new Set<number>());
   const pendingCardTap = useRef<{ post: UniversePost; pointerId: number; x: number; y: number } | null>(null);
   const starPaused = useRef(false);
+  const pageVisible = useRef(!document.hidden);
+  const removalTimers = useRef(new Set<number>());
+
+  useEffect(() => {
+    const onVisibilityChange = () => { pageVisible.current = !document.hidden; };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      removalTimers.current.forEach((timer) => window.clearTimeout(timer));
+      removalTimers.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     starPaused.current = isIphonePortrait && Boolean(selected);
@@ -298,7 +322,9 @@ export default function DiscussionExplorerPage() {
     };
     resize();
     draw(0);
-    if (!reducedMotion) frame = window.requestAnimationFrame(animateStars);
+    // A static star field preserves the atmosphere on compact iPhones without a
+    // permanent canvas repaint loop competing with WebKit's 3D compositor.
+    if (!reducedMotion && !compactIos) frame = window.requestAnimationFrame(animateStars);
     // Safari changes innerHeight while its address bar moves. Reallocating a canvas
     // buffer on every such resize is expensive and can retain old IOSurface memory.
     // On compact iOS only an orientation change warrants a new backing store.
@@ -315,17 +341,19 @@ export default function DiscussionExplorerPage() {
   };
 
   useEffect(() => {
-    Promise.all([api.etfs("KR"), api.etfs("US")])
-      .then(([kr, us]) => setEtfUniverse([...kr.items, ...us.items]))
-      .catch(() => setEtfUniverse([]));
-  }, []);
-
-  useEffect(() => {
     const query = searchQuery.trim();
     if (!query) {
       setStockResults([]);
       setSearching(false);
       return;
+    }
+    // The ETF catalog is only needed once the visitor actually searches. Avoid
+    // retaining that additional dataset during ordinary universe exploration.
+    if (!etfUniverseRequested.current) {
+      etfUniverseRequested.current = true;
+      Promise.all([api.etfs("KR"), api.etfs("US")])
+        .then(([kr, us]) => setEtfUniverse([...kr.items, ...us.items]))
+        .catch(() => setEtfUniverse([]));
     }
     setSearching(true);
     const timer = window.setTimeout(() => {
@@ -397,12 +425,15 @@ export default function DiscussionExplorerPage() {
 
   useEffect(() => {
     applySceneTransform();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!autoRotate || selected || reducedMotion) return;
     let frame = 0;
     let previous = performance.now();
     const animate = (now: number) => {
-      const elapsed = Math.min(40, now - previous);
-      previous = now;
-      if (autoRotate && !drag.current.active && !selected && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      const interval = isIphonePortrait ? 1000 / 30 : 0;
+      if (pageVisible.current && !drag.current.active && now - previous >= interval) {
+        const elapsed = Math.min(50, now - previous);
+        previous = now;
         // 0.00525 = the original 0.0035 speed × 1.5. Time-based motion keeps the
         // angular velocity identical on 60/90/120Hz displays and after a busy frame.
         rotation.current.y += elapsed * 0.00525;
@@ -412,7 +443,7 @@ export default function DiscussionExplorerPage() {
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [autoRotate, selected]);
+  }, [autoRotate, isIphonePortrait, selected]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -440,22 +471,30 @@ export default function DiscussionExplorerPage() {
   }, []);
 
   const activePosts = useMemo(() => posts.filter((post) => !removed.has(post.id)), [posts, removed]);
+  // Data remains at 40 signals, while compact iPhone WebKit only composites a
+  // bounded window of 3D cards at once to avoid its per-page GPU memory ceiling.
+  const renderedPosts = useMemo(
+    () => isIphonePortrait ? activePosts.slice(0, 28) : activePosts,
+    [activePosts, isIphonePortrait],
+  );
   const positions = useMemo(() => {
-    const count = Math.max(INITIAL_COUNT, activePosts.length);
+    const count = Math.max(isIphonePortrait ? 28 : INITIAL_COUNT, renderedPosts.length);
     // Keep the complete orbit inside narrow screens. Desktop retains the cinematic
     // 510px radius; phones use a tighter physical sphere plus their smaller zoom.
     const sphereRadius = Math.min(SPHERE_RADIUS, Math.max(280, window.innerWidth * 0.44));
-    return new Map(activePosts.map((post, index) => [post.id, spherePoint(index, count, sphereRadius)]));
-  }, [activePosts]);
+    return new Map(renderedPosts.map((post, index) => [post.id, spherePoint(index, count, sphereRadius)]));
+  }, [isIphonePortrait, renderedPosts]);
 
   const selectPost = (post: UniversePost) => {
     if (selected && selected.id !== post.id) {
       const previousId = selected.id;
       setDisintegrating(previousId);
-      window.setTimeout(() => {
+      const timer = window.setTimeout(() => {
         setRemoved((current) => new Set(current).add(previousId));
         setDisintegrating((current) => current === previousId ? null : current);
-      }, 850);
+        removalTimers.current.delete(timer);
+      }, isIphonePortrait ? 400 : 850);
+      removalTimers.current.add(timer);
     }
     reportDiscussionPostClick({ code, name, title: post.title, postId: post.id, market, assetKind });
     setSelected(post);
@@ -468,10 +507,12 @@ export default function DiscussionExplorerPage() {
     // the card remains in the scene just long enough to complete its dust animation.
     setSelected(null);
     setDisintegrating(closingId);
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       setRemoved((current) => new Set(current).add(closingId));
       setDisintegrating((current) => current === closingId ? null : current);
-    }, 850);
+      removalTimers.current.delete(timer);
+    }, isIphonePortrait ? 400 : 850);
+    removalTimers.current.add(timer);
   };
 
   const loadMore = async () => {
@@ -501,7 +542,13 @@ export default function DiscussionExplorerPage() {
       }
       const existing = new Set(posts.map((post) => post.id));
       const additions = incoming.filter((post) => !existing.has(post.id)).slice(0, wanted);
-      setPosts((current) => [...current, ...additions]);
+      // Discard explored post payloads instead of retaining them forever behind the
+      // removed-id filter. Repeated explore/refill cycles now stay bounded at 40.
+      setPosts((current) => [
+        ...current.filter((post) => !removed.has(post.id)),
+        ...additions,
+      ].slice(0, MAX_VISIBLE));
+      setRemoved(new Set());
     } finally {
       setLoadingMore(false);
     }
@@ -706,7 +753,7 @@ export default function DiscussionExplorerPage() {
 
         <div className="discussion-scene" ref={sceneRef}>
           <div className="discussion-core" aria-hidden="true"><i /><span>{code}</span></div>
-          {activePosts.map((post, index) => {
+          {renderedPosts.map((post, index) => {
             const point = positions.get(post.id) || { x: 0, y: 0, z: 0 };
             const renderedRadius = Math.min(SPHERE_RADIUS, Math.max(280, window.innerWidth * 0.44));
             const depth = (point.z + renderedRadius) / (renderedRadius * 2);

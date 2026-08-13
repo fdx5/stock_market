@@ -181,7 +181,45 @@
 .discussion-explorer.is-iphone-portrait .discussion-node > button {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+  animation: none;
+  will-change: auto;
   box-shadow: inset 0 1px rgba(255,255,255,.08), 0 5px 13px rgba(0,0,0,.25);
+}
+/* Ten gently floating cards retain the weightless feel while avoiding forty
+   simultaneous WebKit compositor layers on compact iPhones. */
+.discussion-explorer.is-iphone-portrait .discussion-node:nth-child(4n) > button {
+  animation: discussion-card-float var(--drift-duration, 8s) ease-in-out var(--float-delay, 0s) infinite alternate;
+}
+.discussion-explorer.is-iphone-portrait .discussion-cosmos {
+  filter: none;
+  transform: none;
+}
+.discussion-explorer.is-iphone-portrait .discussion-back,
+.discussion-explorer.is-iphone-portrait .discussion-search-prompt,
+.discussion-explorer.is-iphone-portrait .discussion-search-box,
+.discussion-explorer.is-iphone-portrait .discussion-search-results,
+.discussion-explorer.is-iphone-portrait .discussion-statusbar,
+.discussion-explorer.is-iphone-portrait .discussion-controls button,
+.discussion-explorer.is-iphone-portrait .discussion-help,
+.discussion-explorer.is-iphone-portrait .discussion-footer > div {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.discussion-explorer.is-iphone-portrait .discussion-core {
+  box-shadow: inset 0 0 30px rgba(34,211,238,.06), 0 0 45px rgba(76,29,149,.14);
+}
+.discussion-explorer.is-iphone-portrait .discussion-core i {
+  animation: none;
+  box-shadow: 0 0 12px #fff, 0 0 30px #22d3ee, 0 0 48px #7c3aed;
+}
+.discussion-explorer.is-iphone-portrait .discussion-detail-glow { display: none; }
+.discussion-explorer.is-iphone-portrait .discussion-comets > i { display: none; }
+.discussion-explorer.is-iphone-portrait .discussion-comets > i:first-child {
+  display: block;
+  filter: none;
+}
+.discussion-explorer.is-iphone-portrait::after {
+  background: radial-gradient(circle, transparent 52%, rgba(0,0,0,.55) 120%);
 }
 .discussion-explorer.is-iphone-portrait .discussion-node.is-hot-view > button {
   filter: none;

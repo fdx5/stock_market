@@ -922,8 +922,8 @@ export interface GradingMatrixResponse {
   rows: GradingMatrixRow[];
 }
 
-async function getJSON<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+async function getJSON<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, init);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { detail?: string });
     throw new Error(body.detail || `요청 실패 (${res.status})`);
@@ -1044,10 +1044,11 @@ export const api = {
     getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
       `${BASE}/stock/${code}/board?page=${page}&fresh=${fresh}`
     ),
-  boardDetail: (code: string, nid: string) => getJSON<BoardDetail>(`${BASE}/stock/${code}/board/${nid}`),
-  boardComments: (code: string, nid: string) =>
+  boardDetail: (code: string, nid: string, signal?: AbortSignal) => getJSON<BoardDetail>(`${BASE}/stock/${code}/board/${nid}`, { signal }),
+  boardComments: (code: string, nid: string, signal?: AbortSignal) =>
     getJSON<{ nid: string; items: BoardComment[]; count: number }>(
-      `${BASE}/stock/${code}/board/${nid}/comments`
+      `${BASE}/stock/${code}/board/${nid}/comments`,
+      { signal },
     ),
   indices: (fresh = false) =>
     getJSON<{
