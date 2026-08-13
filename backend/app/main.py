@@ -479,6 +479,10 @@ if STATIC_DIR.exists():
         path = request.url.path
         if path.startswith("/assets/"):
             response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
+        elif path.startswith("/img/discussion-pillars-"):
+            # Versioned, compressed discussion backgrounds change filename whenever
+            # their pixels change, so browsers/CDNs can safely retain them for a year.
+            response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
         elif path.startswith(("/video/", "/img/", "/favicon", "/apple-touch-icon")):
             response.headers["Cache-Control"] = STATIC_CACHE_CONTROL
         elif not path.startswith("/api/"):
