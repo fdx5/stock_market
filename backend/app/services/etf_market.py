@@ -96,7 +96,7 @@ def _build(region: str) -> dict:
             "week52_low": series.week52_low if series else None,
             "sparkline": points,
         })
-    items.sort(key=lambda item: item["volume"], reverse=True)
+    items.sort(key=lambda item: item["turnover"], reverse=True)
     return {"region": region, "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), "items": items}
 
 
