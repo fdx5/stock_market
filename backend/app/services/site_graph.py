@@ -40,6 +40,7 @@ PAGES: list[dict] = [
     {"id": "page:/dashboard", "label": "종목 대시보드 (구)", "path": "/dashboard", "group": "stock"},
     {"id": "page:/global", "label": "해외 종목", "path": "/global", "group": "stock"},
     {"id": "page:/global-top100", "label": "글로벌 시총 TOP100", "path": "/global-top100", "group": "stock"},
+    {"id": "page:/etf", "label": "ETF 마켓", "path": "/etf", "group": "etf"},
     {"id": "page:/map", "label": "KOSPI MAP", "path": "/map", "group": "map"},
     {"id": "page:/kosdaq-map", "label": "KOSDAQ MAP", "path": "/kosdaq-map", "group": "map"},
     {"id": "page:/sp500-map", "label": "S&P500 MAP", "path": "/sp500-map", "group": "map"},
@@ -70,6 +71,7 @@ DEPOTS: list[dict] = [
     {"id": "store:activity", "label": "활동 로그", "group": "store"},
     {"id": "up:naver", "label": "Naver 금융", "group": "upstream"},
     {"id": "up:yahoo", "label": "Yahoo Finance", "group": "upstream"},
+    {"id": "up:toss", "label": "토스증권 커뮤니티", "group": "upstream"},
     {"id": "up:slickcharts", "label": "slickcharts", "group": "upstream"},
     {"id": "up:cmc", "label": "companiesmarketcap", "group": "upstream"},
     {"id": "up:fdr", "label": "FinanceDataReader", "group": "upstream"},
@@ -173,6 +175,12 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/translate",
     ],
     "page:/global-top100": ["/api/global-top100", "/api/visitors/count"],
+    "page:/etf": [
+        "/api/etfs",
+        "/api/etfs/discussions",
+        "/api/etfs/{code}/toss-discussion",
+        "/api/translate",
+    ],
     "page:/map": ["/api/market/map", "/api/market/ticker", "/api/visitors/count", "/api/translate"],
     "page:/kosdaq-map": [
         "/api/market/kosdaq-map",
@@ -314,6 +322,9 @@ VISITOR_SHELL_CALLS: list[str] = ["/api/activity/event"]
 # reads Naver through the same cache, and listing them one by one would be twenty lines
 # saying the same thing. Longest prefix wins, so a specific route can still override.
 API_DEPENDS: list[tuple[str, list[str]]] = [
+    ("/api/etfs/{code}/toss-discussion", ["store:cache", "up:toss"]),
+    ("/api/etfs/discussions", ["store:cache", "up:naver", "up:toss"]),
+    ("/api/etfs", ["store:cache", "up:naver", "up:yahoo"]),
     ("/api/market/us-logo", ["up:cmc"]),
     ("/api/market/sp500-map", ["store:cache", "up:slickcharts", "up:yahoo"]),
     ("/api/market/nasdaq100-map", ["store:cache", "up:slickcharts", "up:yahoo"]),
@@ -359,6 +370,7 @@ _GROUP_BY_PREFIX: list[tuple[str, str]] = [
     ("/api/admin/monitor", "monitor"),
     ("/api/admin", "admin"),
     ("/api/notify", "admin"),
+    ("/api/etfs", "etf"),
     ("/api/market", "market"),
     ("/api/us-stock", "stock"),
     ("/api/stock", "stock"),

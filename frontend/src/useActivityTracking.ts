@@ -41,6 +41,7 @@ export function pageLabel(path: string): string {
   if (path === "/admin") return "관리자 로그인";
   if (path === "/admin/dashboard") return "관리자 대시보드";
   if (path === "/admin/db") return "관리자 DB";
+  if (path === "/admin/monitor") return "관리자 모니터";
   return "기타";
 }
 
