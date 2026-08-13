@@ -327,9 +327,13 @@ def get_returns_for_codes(codes: list[str]) -> dict[str, dict]:
         for code in missing:
             series = fetched.get(code)
             value = (
-                {"d20": series.returns.get("d20"), "d120": series.returns.get("d120")}
+                {
+                    "d20": series.returns.get("d20"),
+                    "d60": series.returns.get("d60"),
+                    "d120": series.returns.get("d120"),
+                }
                 if series is not None
-                else {"d20": None, "d120": None}
+                else {"d20": None, "d60": None, "d120": None}
             )
             cache.get_or_set(f"kr_returns:{code}", RETURNS_TTL_SECONDS, lambda value=value: value)
     return {c: cache.peek(f"kr_returns:{c}") for c in codes if cache.peek(f"kr_returns:{c}") is not None}

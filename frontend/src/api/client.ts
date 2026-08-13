@@ -603,6 +603,7 @@ export interface WeeklyForeignItem {
  * reach back that far (a recent listing) or the fetch failed for that symbol. */
 export interface MarketReturns {
   d20: number | null;
+  d60: number | null;
   d120: number | null;
 }
 

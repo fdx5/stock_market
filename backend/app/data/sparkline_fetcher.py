@@ -60,7 +60,7 @@ SPARKLINE_POINTS = 60
 # ask for (거래일 기준 20일/120일), distinct from m1/m3's calendar-month framing even
 # though d20 lands close to m1.
 # YTD is not in here because it isn't a fixed offset — see `_summarize`.
-_RETURN_OFFSETS = {"w1": 5, "m1": 21, "m3": 63, "d20": 20, "d120": 120}
+_RETURN_OFFSETS = {"w1": 5, "m1": 21, "m3": 63, "d20": 20, "d60": 60, "d120": 120}
 
 
 @dataclass

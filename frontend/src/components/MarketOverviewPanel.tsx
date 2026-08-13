@@ -276,6 +276,7 @@ function Top50PriceList({
             <th>{t("현재가")}</th>
             <th>{t("등락")}</th>
             <th>{t("20일 등락률")}</th>
+            <th>{t("60일 등락률")}</th>
             <th>{t("120일 등락률")}</th>
             <th>{t("거래량")}</th>
             <th>{t("거래대금")}</th>
@@ -285,7 +286,7 @@ function Top50PriceList({
           {loading
             ? SKELETON_ROWS.map((i) => (
                 <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
                   </td>
                 </tr>
@@ -312,6 +313,7 @@ function Top50PriceList({
                       {pct(item.change_pct)}
                     </td>
                     <td style={{ color: returnColor(ret?.d20) }}>{returnPct(ret?.d20)}</td>
+                    <td style={{ color: returnColor(ret?.d60) }}>{returnPct(ret?.d60)}</td>
                     <td style={{ color: returnColor(ret?.d120) }}>{returnPct(ret?.d120)}</td>
                     <td>{formatVolume(item.volume)}</td>
                     <td>{formatTurnover(item.close, item.volume, lang)}</td>
@@ -395,6 +397,7 @@ function MoversList({
             <th>{t("현재가")}</th>
             <th>{t("등락")}</th>
             <th>{t("20일 등락률")}</th>
+            <th>{t("60일 등락률")}</th>
             <th>{t("120일 등락률")}</th>
             <th>{t("거래량")}</th>
             <th>{t("거래대금")}</th>
@@ -404,7 +407,7 @@ function MoversList({
           {loading
             ? SKELETON_ROWS.map((i) => (
                 <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
-                  <td colSpan={8}>
+                  <td colSpan={9}>
                     <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
                   </td>
                 </tr>
@@ -432,6 +435,7 @@ function MoversList({
                       {pct(item.change_pct)}
                     </td>
                     <td style={{ color: returnColor(ret?.d20) }}>{returnPct(ret?.d20)}</td>
+                    <td style={{ color: returnColor(ret?.d60) }}>{returnPct(ret?.d60)}</td>
                     <td style={{ color: returnColor(ret?.d120) }}>{returnPct(ret?.d120)}</td>
                     <td>{formatVolume(item.volume)}</td>
                     <td>{formatTurnover(item.close, item.volume, lang)}</td>
