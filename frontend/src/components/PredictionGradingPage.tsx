@@ -5,6 +5,7 @@ import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import PredictionDetailModal from "./PredictionDetailModal";
@@ -327,6 +328,7 @@ export default function PredictionGradingPage() {
           <Link to="/ai-prediction" className="kospi-map-nav-link">
             ← AI 예측으로
           </Link>
+          <EtfNavLink />
         </div>
       </header>
 

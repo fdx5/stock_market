@@ -2075,7 +2075,7 @@ a.app-brand:hover .app-logo-wide {
 
 .board-more-btn:disabled {
   opacity: 0.6;
-  cursor: default;
+  cursor: pointer;
 }
 
 /* Text alone ("불러오는 중...") was easy to miss next to the more-common
@@ -3727,6 +3727,112 @@ thead .weekly-foreign-amount-col {
 
 .kospi-map-nav-link--nasdaq:hover {
   background: color-mix(in srgb, var(--series-orange) 22%, transparent);
+}
+
+/* ETF is the next primary destination under construction. It borrows TOP 100's
+   filled-pill silhouette, but uses a layered gold face and a restrained compositor-
+   only gleam so it is unmistakable without sacrificing dark text contrast. */
+@keyframes etf-gold-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 9px rgb(255 193 7 / 55%), 0 0 20px rgb(255 159 10 / 26%);
+  }
+  50% {
+    box-shadow: 0 0 15px rgb(255 215 64 / 85%), 0 0 31px rgb(255 159 10 / 46%);
+  }
+}
+
+.kospi-map-nav-link--etf {
+  appearance: none;
+  min-width: 91px;
+  padding-left: 31px;
+  padding-right: 14px;
+  color: #251700;
+  border-color: #ffe783;
+  background: linear-gradient(135deg, #fff0a6 0%, #ffd23f 32%, #f4a900 66%, #ffe37a 100%);
+  font-family: inherit;
+  font-weight: 900;
+  letter-spacing: 0.055em;
+  line-height: normal;
+  cursor: default;
+  text-shadow: 0 1px 0 rgb(255 255 255 / 48%);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 42%);
+  animation: etf-gold-breathe 2.8s ease-in-out infinite;
+}
+
+.kospi-map-nav-link--etf::before {
+  content: "N";
+  position: absolute;
+  z-index: 3;
+  left: 6px;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border: 1.5px solid #fff;
+  border-radius: 6px;
+  background: linear-gradient(145deg, #ff315f, #d90072 68%, #8c005e);
+  box-shadow: 0 3px 8px rgb(141 0 72 / 48%), 0 0 13px rgb(255 34 112 / 65%);
+  color: #fff;
+  font: 1000 12px/1 Arial, sans-serif;
+  letter-spacing: -.04em;
+  text-shadow: 0 1px 2px rgb(83 0 43 / 70%);
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  animation: etf-new-badge-spin 2.8s cubic-bezier(.55,.05,.28,1) infinite;
+}
+
+@keyframes etf-new-badge-spin {
+  0%, 18% { transform: translateY(-50%) rotateY(0deg) rotate(-7deg) scale(1); }
+  48% { transform: translateY(-50%) rotateY(360deg) rotate(5deg) scale(1.1); }
+  65%, 100% { transform: translateY(-50%) rotateY(360deg) rotate(-7deg) scale(1); }
+}
+
+.kospi-map-nav-link--etf::after {
+  background: linear-gradient(100deg, transparent 25%, rgb(255 255 255 / 92%) 50%, transparent 75%);
+  animation-duration: 2.6s;
+  animation-delay: 0.2s;
+}
+
+.kospi-map-nav-link--etf:hover {
+  background: linear-gradient(135deg, #fff5bf 0%, #ffdc58 32%, #ffb70f 66%, #ffeb96 100%);
+}
+
+.kospi-map-nav-link--etf .market-nav-icon {
+  filter: drop-shadow(0 1px 0 rgb(255 255 255 / 55%));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kospi-map-nav-link--etf {
+    animation: none;
+  }
+
+  .kospi-map-nav-link--etf::after {
+    animation: none;
+    opacity: 0.35;
+    transform: translateX(210%) skewX(-20deg);
+  }
+
+  .kospi-map-nav-link--etf::before {
+    animation: none;
+    transform: translateY(-50%) rotate(-7deg);
+  }
+}
+
+@media (max-width: 640px) {
+  .kospi-map-nav-link--etf {
+    min-width: 83px;
+    padding-left: 28px;
+    padding-right: 10px;
+  }
+
+  .kospi-map-nav-link--etf::before {
+    left: 5px;
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+  }
 }
 
 /* TOP 100's pill is the one filled shape in a row of outlined neon ones.

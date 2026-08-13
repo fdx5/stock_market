@@ -50,6 +50,11 @@ def _quote_from_data(data: dict) -> dict:
         "change": change,
         "change_pct": change_pct,
         "marcap": marcap,
+        "volume": int(data.get("accumulatedTradingVolumeRaw") or 0),
+        "turnover": int(data.get("accumulatedTradingValueRaw") or 0),
+        "open": float(data.get("openPriceRaw") or 0),
+        "high": float(data.get("highPriceRaw") or 0),
+        "low": float(data.get("lowPriceRaw") or 0),
     }
 
 

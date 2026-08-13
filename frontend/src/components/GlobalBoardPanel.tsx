@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GlobalDiscussionPost, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
@@ -24,21 +24,23 @@ function naverDiscussionUrl(code: string): string {
 // real page covers anyone who wants to reply. Fetched 10 at a time (Naver's own
 // offset-cursor pagination) with a "더보기" button instead of one large upfront page,
 // since the first page needs to paint fast.
-export default function GlobalBoardPanel({ code, name }: { code: string; name: string }) {
+export default function GlobalBoardPanel({ code, name, initialPostId, sourceUrl, discussionType = "foreignStock", source = "naver" }: { code: string; name: string; initialPostId?: string | null; sourceUrl?: string; discussionType?: "foreignStock" | "foreignEtf"; source?: "naver" | "toss" }) {
   const t = useT();
   const { lang } = useLanguage();
   const [posts, setPosts] = useState<GlobalDiscussionPost[]>([]);
   const [nextOffset, setNextOffset] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const focusedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setPosts([]);
     setNextOffset(null);
-    api
-      .globalDiscussion(code, PAGE_SIZE)
+    focusedRef.current = false;
+    const request = source === "toss" ? api.tossEtfDiscussion(code, PAGE_SIZE) : api.globalDiscussion(code, PAGE_SIZE, null, discussionType);
+    request
       .then((res) => {
         if (cancelled) return;
         setPosts(res.items);
@@ -54,15 +56,21 @@ export default function GlobalBoardPanel({ code, name }: { code: string; name: s
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [code, discussionType, source]);
 
   const translatedTexts = useTranslatedTexts(posts.map((p) => p.text));
+
+  useEffect(() => {
+    if (!initialPostId || focusedRef.current || !posts.some((post) => post.id === initialPostId)) return;
+    focusedRef.current = true;
+    requestAnimationFrame(() => document.getElementById(`global-discussion-${initialPostId}`)?.scrollIntoView({ behavior: "smooth", block: "center" }));
+  }, [initialPostId, posts]);
 
   function loadMore() {
     if (!nextOffset || loadingMore) return;
     setLoadingMore(true);
-    api
-      .globalDiscussion(code, PAGE_SIZE, nextOffset)
+    const request = source === "toss" ? api.tossEtfDiscussion(code, PAGE_SIZE, nextOffset) : api.globalDiscussion(code, PAGE_SIZE, nextOffset, discussionType);
+    request
       .then((res) => {
         setPosts((prev) => [...prev, ...res.items]);
         setNextOffset(res.next_offset);
@@ -76,12 +84,12 @@ export default function GlobalBoardPanel({ code, name }: { code: string; name: s
   return (
     <div className="global-board-panel">
       <a
-        href={naverDiscussionUrl(code)}
+        href={sourceUrl ?? naverDiscussionUrl(code)}
         target="_blank"
         rel="noopener noreferrer"
         className="global-board-source-link"
       >
-        {t("네이버 종목토론방에서 보기")} ↗
+        {source === "toss" ? "토스증권 커뮤니티에서 보기" : t("네이버 종목토론방에서 보기")} ↗
       </a>
 
       {loading && <div className="loading-state">{t("불러오는 중...")}</div>}
@@ -94,7 +102,7 @@ export default function GlobalBoardPanel({ code, name }: { code: string; name: s
         <>
           <ul className="board-comments-list global-board-comments-list">
             {posts.map((p, idx) => (
-              <li key={p.id} className={p.is_reply ? "global-board-reply" : undefined}>
+              <li id={`global-discussion-${p.id}`} key={p.id} className={`${p.is_reply ? "global-board-reply " : ""}${p.id === initialPostId ? "global-board-focused" : ""}`.trim()}>
                 <div className="board-comment-meta">
                   <span className="board-comment-author">{p.author}</span>
                   <span className="board-comment-date">{formatWrittenAt(p.written_at)}</span>

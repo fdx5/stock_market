@@ -17,6 +17,7 @@ import LoadingState from "./LoadingState";
 import FightCheerSection from "./FightCheerSection";
 import FightCompanyModal from "./FightCompanyModal";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import LanguageToggle from "./LanguageToggle";
@@ -561,6 +562,7 @@ export default function MarketCapFightPage() {
           </Link>
           {/* This page IS 시총대결, so the slot the link would occupy on every other
               header is the one immediately after it — same position, one link earlier. */}
+          <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>

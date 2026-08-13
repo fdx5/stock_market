@@ -2,6 +2,7 @@ import { useT } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import BattleIcon from "./BattleIcon";
 import DashboardIcon from "./DashboardIcon";
+import EtfIcon from "./EtfIcon";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import Logo from "./Logo";
@@ -37,6 +38,9 @@ export default function Footer() {
           </Link>
           <Link to="/nasdaq100-map" className="app-footer-market-link app-footer-market-link--nasdaq">
             <MarketIcon /> NASDAQ100
+          </Link>
+          <Link to="/etf" className="app-footer-market-link app-footer-market-link--etf">
+            <EtfIcon /> ETF
           </Link>
           <Link to="/kospi-100" className="app-footer-market-link app-footer-market-link--top100">
             <RankIcon /> TOP 100

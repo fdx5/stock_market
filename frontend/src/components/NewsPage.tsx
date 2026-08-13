@@ -11,6 +11,7 @@ import CompanyLogo from "./CompanyLogo";
 import DashboardIcon from "./DashboardIcon";
 import LoadingState from "./LoadingState";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import GlobeRankIcon from "./GlobeRankIcon";
 import LanguageToggle from "./LanguageToggle";
 import PredictIcon from "./PredictIcon";
@@ -198,6 +199,7 @@ export default function NewsPage() {
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
           </Link>
+          <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>

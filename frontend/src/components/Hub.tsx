@@ -3183,9 +3183,9 @@ export default function Hub() {
         type="button"
         ref={blackHoleRef}
         className="hb-blackhole"
-        onClick={() => open("/kospi-100")}
-        aria-label={en ? "Black hole: KOSPI TOP 100" : "블랙홀: 코스피 TOP 100"}
-        title={en ? "Gargantua — KOSPI TOP 100" : "가르강튀아 — 코스피 TOP 100"}
+        onClick={() => open("/etf")}
+        aria-label={en ? "Black hole: ETF MARKET" : "블랙홀: ETF 마켓"}
+        title={en ? "Gargantua — ETF MARKET" : "가르강튀아 — ETF 마켓"}
       >
         {/* The hole's breathing bloom, deliberately a sibling of the art
             rather than part of it — see .hb-bh-bloom in hub.css for why an
@@ -3212,7 +3212,7 @@ export default function Hub() {
         {/* Names the market, not just "TOP 100" — the neutron binary opens the
             KOSDAQ board, so a generic label on either one would leave the pair
             looking like two routes to the same place. */}
-        <span className="hb-blackhole-tip">{en ? "KOSPI TOP 100" : "코스피 TOP 100"}</span>
+        <span className="hb-blackhole-tip">{en ? "ETF MARKET" : "ETF 마켓"}</span>
       </button>
 
       {/* Pluto, drifting in from the black hole's left and eventually
@@ -3355,9 +3355,9 @@ export default function Hub() {
         type="button"
         ref={neutronRef}
         className="hb-neutron-binary"
-        onClick={() => open("/kosdaq-100")}
-        aria-label={en ? "Neutron binary: KOSDAQ TOP 100" : "중성자 쌍성: 코스닥 TOP 100"}
-        title={en ? "Neutron star merger — KOSDAQ TOP 100" : "중성자별 병합 — 코스닥 TOP 100"}
+        onClick={() => open("/kospi-100")}
+        aria-label={en ? "Neutron binary: KOSPI TOP 100" : "중성자 쌍성: 코스피 TOP 100"}
+        title={en ? "Neutron star merger — KOSPI TOP 100" : "중성자별 병합 — 코스피 TOP 100"}
       >
         <span className="hb-neutron-star hb-neutron-star--a" />
         <span className="hb-neutron-star hb-neutron-star--b" />
@@ -3390,7 +3390,7 @@ export default function Hub() {
             open sky rather than a corner, so its tip hangs below — nothing to
             fall off, and it keeps the label clear of the merged remnant's
             diffraction spikes above. */}
-        <span className="hb-neutron-tip">{en ? "KOSDAQ TOP 100" : "코스닥 TOP 100"}</span>
+        <span className="hb-neutron-tip">{en ? "KOSPI TOP 100" : "코스피 TOP 100"}</span>
       </button>
       {/* The merger's first half-second: the white gamma-ray-burst flash (see
           useNeutronBinary/fireMergerBurst above) — fixed to the whole viewport

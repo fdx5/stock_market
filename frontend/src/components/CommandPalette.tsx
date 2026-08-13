@@ -34,6 +34,7 @@ const DESTINATIONS: Destination[] = [
   { key: "kospi-100", label: "KOSPI TOP 100", hint: "순위", to: "/kospi-100" },
   { key: "kosdaq-100", label: "KOSDAQ TOP 100", hint: "순위", to: "/kosdaq-100" },
   { key: "global-top100", label: "글로벌 시총 TOP 100", hint: "순위", to: "/global-top100" },
+  { key: "etf", label: "ETF 마켓", hint: "국내·해외 ETF", to: "/etf" },
   { key: "ai-prediction", label: "AI 예측", hint: "분석", to: "/ai-prediction" },
   { key: "fight", label: "시총 대결", hint: "분석", to: "/fight" },
   { key: "news", label: "글로벌 뉴스", hint: "뉴스", to: "/news" },

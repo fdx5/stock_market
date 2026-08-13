@@ -607,6 +607,33 @@ export interface MarketReturns {
   d120: number | null;
 }
 
+export interface EtfItem {
+  code: string;
+  naver_code: string;
+  name: string;
+  benchmark: string;
+  category: string;
+  region: "KR" | "US";
+  currency: string;
+  close: number;
+  change: number;
+  change_pct: number;
+  volume: number;
+  turnover: number;
+  average_volume: number | null;
+  session: "regular" | "pre" | "post";
+  returns: { d20: number | null; d60: number | null; d120: number | null; ytd: number | null };
+  week52_high: number | null;
+  week52_low: number | null;
+  sparkline: number[];
+}
+
+export interface EtfMarketResponse {
+  region: "KR" | "US";
+  updated_at: string;
+  items: EtfItem[];
+}
+
 export interface InvestorTrendRecord {
   date: string;
   close: number;
@@ -931,6 +958,13 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 }
 
 export const api = {
+  etfs: (region: "KR" | "US") => getJSONFresh<EtfMarketResponse>(`${BASE}/etfs?region=${region}`),
+  etfDiscussions: () => getJSONFresh<{ items: Record<string, BoardPost[]> }>(`${BASE}/etfs/discussions?region=KR`),
+  etfGlobalDiscussions: () => getJSONFresh<{ items: Record<string, GlobalDiscussionPost[]> }>(`${BASE}/etfs/discussions?region=US`),
+  tossEtfDiscussion: (code: string, limit = 10, offset?: string | null) =>
+    getJSONFresh<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
+      `${BASE}/etfs/${encodeURIComponent(code)}/toss-discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
+    ),
   search: (q: string) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
   /* `market` narrows the ranking to one side. The log is overwhelmingly KR, so a
      US-only strip taken from the combined top 20 is empty most days — the backend
@@ -1074,9 +1108,9 @@ export const api = {
   globalIndices: () => getJSON<{ items: GlobalIndexWidget[] }>(`${BASE}/global/indices`),
   globalEnrichment: (code: string, lang: string = "ko") =>
     getJSON<GlobalEnrichment>(`${BASE}/global/${code}/enrichment?lang=${lang}`),
-  globalDiscussion: (code: string, limit = 10, offset?: string | null) =>
+  globalDiscussion: (code: string, limit = 10, offset?: string | null, discussionType: "foreignStock" | "foreignEtf" = "foreignStock") =>
     getJSON<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
-      `${BASE}/global/${code}/discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
+      `${BASE}/global/${code}/discussion?limit=${limit}&discussion_type=${discussionType}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
     ),
   predictionDates: (limit = 30) =>
     getJSON<{ items: PredictionDateOption[] }>(`${BASE}/prediction/dates?limit=${limit}`),

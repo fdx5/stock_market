@@ -32,6 +32,7 @@ export function pageLabel(path: string): string {
   if (path === "/nasdaq100-map") return "NASDAQ100 맵";
   if (path === "/global") return "해외 종목";
   if (path === "/global-top100") return "글로벌 시총 TOP100";
+  if (path === "/etf") return "ETF 마켓";
   if (path === "/battle") return "줄다리기";
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";

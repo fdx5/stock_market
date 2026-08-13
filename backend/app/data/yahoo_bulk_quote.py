@@ -111,6 +111,9 @@ def _read(row: dict) -> dict | None:
         # (the US maps' synthetic SK Hynix tile) that needs a real market cap rather
         # than an index weight.
         "market_cap": row.get("marketCap"),
+        "volume": int(row.get("regularMarketVolume") or 0),
+        "average_volume": int(row.get("averageDailyVolume3Month") or row.get("averageDailyVolume10Day") or 0),
+        "currency": row.get("currency") or "USD",
         "session": session,
         # The regular session's own close and move, so a surface showing an extended
         # price can still say what the stock did while the exchange was open. Null

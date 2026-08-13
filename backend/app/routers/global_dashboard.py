@@ -175,5 +175,10 @@ def enrichment(code: str, lang: str = Query("ko")):
 
 
 @router.get("/{code}/discussion")
-def discussion(code: str, limit: int = Query(10, ge=1, le=50), offset: str | None = Query(None)):
-    return global_discussion_fetcher.get_discussion(code, limit, offset)
+def discussion(
+    code: str,
+    limit: int = Query(10, ge=1, le=50),
+    offset: str | None = Query(None),
+    discussion_type: str = Query("foreignStock", pattern="^(foreignStock|foreignEtf)$"),
+):
+    return global_discussion_fetcher.get_discussion(code, limit, offset, discussion_type)

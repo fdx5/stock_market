@@ -11,6 +11,7 @@ import CheerSection from "./CheerSection";
 import DashboardIcon from "./DashboardIcon";
 import LoadingState from "./LoadingState";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import GlobalTop20 from "./GlobalTop20";
@@ -184,6 +185,7 @@ export default function TugOfWarPage() {
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
           </Link>
+          <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>

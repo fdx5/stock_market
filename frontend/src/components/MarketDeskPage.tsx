@@ -15,6 +15,7 @@ import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import CommandPalette from "./CommandPalette";
 import DeskIndexStrip from "./DeskIndexStrip";
+import EtfIcon from "./EtfIcon";
 import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
@@ -426,6 +427,9 @@ export default function MarketDeskPage() {
           </Link>
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
+          </Link>
+          <Link to="/etf" className="kospi-map-nav-link kospi-map-nav-link--etf">
+            <EtfIcon /> ETF
           </Link>
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100

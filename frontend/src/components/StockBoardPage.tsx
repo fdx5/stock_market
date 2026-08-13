@@ -10,6 +10,7 @@ import { changeToRgb, rgbToCss } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import LanguageToggle from "./LanguageToggle";
@@ -906,6 +907,7 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> {t("NASDAQ MAP")}
           </Link>
+          <EtfNavLink />
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
             <PredictIcon /> {t("AI 예측")}
           </Link>

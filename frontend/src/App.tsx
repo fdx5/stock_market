@@ -52,6 +52,7 @@ const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const GlobalStockPage = lazy(() => import("./components/GlobalStockPage"));
 const MarketCapFightPage = lazy(() => import("./components/MarketCapFightPage"));
 const GlobalTop100Page = lazy(() => import("./components/GlobalTop100Page"));
+const EtfPage = lazy(() => import("./components/EtfPage"));
 const NewsPage = lazy(() => import("./components/NewsPage"));
 const AiPredictionPage = lazy(() => import("./components/AiPredictionPage"));
 const PredictionGradingPage = lazy(() => import("./components/PredictionGradingPage"));
@@ -102,6 +103,8 @@ export default function App() {
     page = <MarketCapFightPage />;
   } else if (path === "/global-top100") {
     page = <GlobalTop100Page />;
+  } else if (path === "/etf") {
+    page = <EtfPage />;
   } else if (path === "/news") {
     page = <NewsPage />;
   } else if (path === "/ai-prediction") {

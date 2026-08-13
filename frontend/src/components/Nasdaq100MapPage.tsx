@@ -1,5 +1,6 @@
 import { api } from "../api/client";
 import BattleIcon from "./BattleIcon";
+import EtfIcon from "./EtfIcon";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import MarketIcon from "./MarketIcon";
@@ -24,6 +25,7 @@ export default function Nasdaq100MapPage() {
         { to: "/map", label: "KOSPI", icon: <MarketIcon /> },
         { to: "/kosdaq-map", label: "KOSDAQ", icon: <MarketIcon />, className: "kospi-map-nav-link--kosdaq" },
         { to: "/sp500-map", label: "S&P500", icon: <MarketIcon />, className: "kospi-map-nav-link--sp500" },
+        { to: "/etf", label: "ETF", icon: <EtfIcon />, className: "kospi-map-nav-link--etf" },
         { to: "/kospi-100", label: "TOP 100", icon: <RankIcon />, className: "kospi-map-nav-link--top100" },
         { to: "/ai-prediction", label: "AI 예측", icon: <PredictIcon />, className: "kospi-map-nav-link--predict" },
         {

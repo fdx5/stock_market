@@ -14,6 +14,7 @@ import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import GlobalIndexGrid from "./GlobalIndexGrid";
 import HeaderDateTime from "./HeaderDateTime";
 import GlobalNewsIcon from "./GlobalNewsIcon";
@@ -335,6 +336,7 @@ export default function Dashboard() {
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
           </Link>
+          <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>

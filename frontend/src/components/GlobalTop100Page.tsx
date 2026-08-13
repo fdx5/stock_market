@@ -10,6 +10,7 @@ import BattleIcon from "./BattleIcon";
 import CompanyLogo from "./CompanyLogo";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import GlobalTop100Sparkline, { formatPrice } from "./GlobalTop100Sparkline";
@@ -368,6 +369,7 @@ export default function GlobalTop100Page() {
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
           </Link>
+          <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>

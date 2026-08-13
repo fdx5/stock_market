@@ -17,6 +17,7 @@ import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import DashboardIcon from "./DashboardIcon";
+import EtfNavLink from "./EtfNavLink";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import Logo from "./Logo";
@@ -375,6 +376,7 @@ export default function MonitorPage() {
         <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
           <MarketIcon /> NASDAQ100
         </Link>
+        <EtfNavLink />
         <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
           <RankIcon /> TOP 100
         </Link>

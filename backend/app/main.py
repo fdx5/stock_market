@@ -20,6 +20,7 @@ from app.routers import (
     admin_comments,
     admin_db,
     battle,
+    etf,
     fight,
     geo,
     global_dashboard,
@@ -106,6 +107,7 @@ app.include_router(market_map.router, prefix="/api/market")
 app.include_router(visitors.router, prefix="/api/visitors")
 app.include_router(investor.router, prefix="/api/investor")
 app.include_router(battle.router, prefix="/api/battle")
+app.include_router(etf.router, prefix="/api/etfs")
 app.include_router(fight.router, prefix="/api/fight")
 app.include_router(global_dashboard.router, prefix="/api/global")
 app.include_router(prediction.router, prefix="/api/prediction")

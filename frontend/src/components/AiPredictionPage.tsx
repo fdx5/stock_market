@@ -25,6 +25,7 @@ import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import LanguageToggle from "./LanguageToggle";
@@ -861,6 +862,7 @@ export default function AiPredictionPage() {
           </Link>
           {/* This row has no NASDAQ100 link to sit after (unlike the map/dashboard
               rows), so TOP 100 closes the market-destination block instead. */}
+          <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>

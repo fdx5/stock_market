@@ -23,6 +23,11 @@ _session.mount(
 
 DISCUSSION_URL = "https://m.stock.naver.com/front-api/discussion/list"
 
+# FinanceDataReader's NASDAQ stock listing omits exchange-traded funds, so these
+# Nasdaq-listed ETFs would otherwise fall through to Naver's NYSE/Arca `.K` bucket.
+# Naver itself keys their world-stock pages and discussions with `.O` (e.g. QQQ.O).
+_NASDAQ_ETFS = {"QQQ", "TQQQ", "SQQQ"}
+
 
 def _load_nasdaq_symbols() -> set[str]:
     return set(fdr.StockListing("NASDAQ")["Symbol"].astype(str))
@@ -48,6 +53,8 @@ def resolve_naver_suffix(code: str) -> str:
     NVDA.O/AMD.O/GOOGL.O and CPNG.K/PLTR.K; not documented anywhere). Nasdaq membership
     (already fetched elsewhere in this app via the same FinanceDataReader listing) decides
     which bucket a ticker falls into."""
+    if code in _NASDAQ_ETFS:
+        return "O"
     try:
         is_nasdaq = code in _get_nasdaq_symbols()
     except Exception:
@@ -55,10 +62,10 @@ def resolve_naver_suffix(code: str) -> str:
     return "O" if is_nasdaq else "K"
 
 
-def _fetch_discussion(code: str, limit: int, offset: str | None) -> dict:
+def _fetch_discussion(code: str, limit: int, offset: str | None, discussion_type: str = "foreignStock") -> dict:
     item_code = f"{code}.{resolve_naver_suffix(code)}"
     params: dict[str, object] = {
-        "discussionType": "foreignStock",
+        "discussionType": discussion_type,
         "itemCode": item_code,
         "pageSize": limit,
     }
@@ -98,9 +105,20 @@ def _fetch_discussion(code: str, limit: int, offset: str | None) -> dict:
     return {"items": items, "next_offset": next_offset}
 
 
-def get_discussion(code: str, limit: int = 10, offset: str | None = None) -> dict:
-    key = f"global_discussion:{code}:{limit}:{offset or 'first'}"
+def get_discussion(
+    code: str,
+    limit: int = 10,
+    offset: str | None = None,
+    discussion_type: str = "foreignStock",
+) -> dict:
+    # Include the resolved suffix so a corrected exchange mapping cannot reuse an
+    # older response cached under the wrong Naver item code.
+    key = f"global_discussion:{discussion_type}:{code}.{resolve_naver_suffix(code)}:{limit}:{offset or 'first'}"
     try:
-        return cache.get_or_set(key, TTL_DISCUSSION_SECONDS, lambda: _fetch_discussion(code, limit, offset))
+        return cache.get_or_set(
+            key,
+            TTL_DISCUSSION_SECONDS,
+            lambda: _fetch_discussion(code, limit, offset, discussion_type),
+        )
     except Exception:
         return {"items": [], "next_offset": None}

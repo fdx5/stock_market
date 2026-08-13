@@ -13,6 +13,7 @@ import BattleIcon from "./BattleIcon";
 import DailyPricePanel from "./DailyPricePanel";
 import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
+import EtfNavLink from "./EtfNavLink";
 import GlobalBoardPanel from "./GlobalBoardPanel";
 import GlobalIndexGrid from "./GlobalIndexGrid";
 import GlobalNewsIcon from "./GlobalNewsIcon";
@@ -351,6 +352,7 @@ export default function GlobalStockPage() {
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
             <MarketIcon /> NASDAQ100
           </Link>
+          <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>

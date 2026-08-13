@@ -497,21 +497,21 @@ export interface LandmarkSpec {
 
 export const BLACK_HOLE: LandmarkSpec = {
   key: "blackhole",
-  ko: "코스피 TOP 100",
-  en: "KOSPI TOP 100",
+  ko: "ETF",
+  en: "ETF MARKET",
   bodyKo: "블랙홀",
   bodyEn: "Black hole",
-  to: "/kospi-100",
+  to: "/etf",
   position: [-215, 46, -150],
 };
 
 export const NEUTRON_BINARY: LandmarkSpec = {
   key: "neutron",
-  ko: "코스닥 TOP 100",
-  en: "KOSDAQ TOP 100",
+  ko: "코스피 TOP 100",
+  en: "KOSPI TOP 100",
   bodyKo: "중성자별",
   bodyEn: "Neutron star",
-  to: "/kosdaq-100",
+  to: "/kospi-100",
   /* Pushed further back and inboard from an earlier (235, 62, -120). This is
      the one landmark that periodically grows: the merger throws a remnant a
      hundred units across, and from the resting camera the old position put its
@@ -561,11 +561,11 @@ export const NEUTRON_BINARY: LandmarkSpec = {
  * near plane clips anything closer. Nothing here is inside anything. */
 export const WORMHOLE: LandmarkSpec = {
   key: "wormhole",
-  ko: "마켓 데스크",
-  en: "MARKET DESK",
+  ko: "코스닥 TOP 100",
+  en: "KOSDAQ TOP 100",
   bodyKo: "웜홀",
   bodyEn: "Wormhole",
-  to: "/desk",
+  to: "/kosdaq-100",
   position: [27, 17, 0],
 };
 
@@ -619,6 +619,7 @@ export const DESTINATIONS: Destination[] = [
   ...PLANETS.map((p) => ({ key: p.key, ko: p.ko, en: p.en, to: p.to, feed: p.feed, accent: p.glow })),
   { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, to: BLACK_HOLE.to, accent: "#ff9a4d" },
   { key: "neutron", ko: NEUTRON_BINARY.ko, en: NEUTRON_BINARY.en, to: NEUTRON_BINARY.to, accent: "#9fd0ff" },
+  { key: "wormhole", ko: WORMHOLE.ko, en: WORMHOLE.en, to: WORMHOLE.to, accent: "#c18cff" },
 ];
 
 /** What the auto tour visits, in order: the eight planets from the inside out,

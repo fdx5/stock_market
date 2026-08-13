@@ -29,6 +29,13 @@ TTL_ORDERBOOK_SECONDS = 15
 def _resolve_name(code: str) -> str:
     name = get_stock_name(code)
     if name is None:
+        # ETF discussion boards use the same Naver endpoint as stocks, but the stock
+        # universe deliberately excludes funds. Keep ETF codes resolvable here so the
+        # shared board/detail/comments API can serve the ETF page too.
+        from app.services.etf_market import KR_ETFS
+
+        name = next((etf_name for etf_code, etf_name, *_ in KR_ETFS if etf_code == code), None)
+    if name is None:
         raise HTTPException(status_code=404, detail=f"종목 코드 '{code}'를 찾을 수 없습니다.")
     return name
 

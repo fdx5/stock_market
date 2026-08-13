@@ -35,7 +35,7 @@ type CommentsState =
   | { status: "error"; message: string }
   | { status: "ready"; items: BoardComment[] };
 
-export default function BoardPanel({ code, name }: { code: string; name: string }) {
+export default function BoardPanel({ code, name, initialNid }: { code: string; name: string; initialNid?: string | null }) {
   const { lang } = useLanguage();
   const t = useT();
   const [posts, setPosts] = useState<BoardPost[]>([]);
@@ -51,6 +51,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
   const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const pendingRevealIndex = useRef<number | null>(null);
   const pendingExpandNid = useRef<string | null>(null);
+  const initialOpened = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +64,7 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
     setExhausted(false);
     setDetails({});
     setComments({});
+    initialOpened.current = false;
 
     // fresh=true: this is the page-entry load, so it must reflect the current board
     // state rather than whatever was cached from an earlier visitor's page view.
@@ -212,6 +214,16 @@ export default function BoardPanel({ code, name }: { code: string; name: string 
         });
     }
   };
+
+  // A rolling ETF headline opens the board already focused on that exact post.
+  // Wait until page 1 has rendered so scrollRowToTop can find the corresponding row.
+  useEffect(() => {
+    if (!initialNid || initialOpened.current || !posts.some((post) => post.nid === initialNid)) return;
+    initialOpened.current = true;
+    toggleExpand(initialNid);
+    // toggleExpand intentionally runs only once for this mounted board instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialNid, posts]);
 
   return (
     <div className="board-panel">
