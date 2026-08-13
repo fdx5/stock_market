@@ -532,6 +532,12 @@ export default function GlobalStockPage() {
                   {quote.name}
                 </span>
                 <span className="code">{quote.code}</span>
+                <Link
+                  to={`/discussion-explorer?code=${encodeURIComponent(quote.code)}&name=${encodeURIComponent(quote.name)}&market=US`}
+                  className="discussion-explorer-link"
+                >
+                  <span aria-hidden="true">✦</span> 종목토론탐험 <i aria-hidden="true">→</i>
+                </Link>
                 <span
                   className={`price ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}
                 >

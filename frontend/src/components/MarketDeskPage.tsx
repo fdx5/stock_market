@@ -15,6 +15,7 @@ import { recordRecent } from "../watchlist";
 import BattleIcon from "./BattleIcon";
 import CommandPalette from "./CommandPalette";
 import DeskIndexStrip from "./DeskIndexStrip";
+import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
 import EtfIcon from "./EtfIcon";
 import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
@@ -431,6 +432,9 @@ export default function MarketDeskPage() {
           <Link to="/etf" className="kospi-map-nav-link kospi-map-nav-link--etf">
             <EtfIcon /> ETF
           </Link>
+          <Link to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK" className="kospi-map-nav-link kospi-map-nav-link--discussion">
+            종목토론탐험
+          </Link>
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>
@@ -651,6 +655,15 @@ export default function MarketDeskPage() {
                             {summaryName}
                           </span>
                           <span className="code">{summary.code}</span>
+                          <div className="discussion-explorer-row">
+                            <Link
+                              to={`/discussion-explorer?code=${encodeURIComponent(summary.code)}&name=${encodeURIComponent(summaryName)}&market=KR`}
+                              className="discussion-explorer-link"
+                            >
+                              <span aria-hidden="true">✦</span> 종목토론탐험 <i aria-hidden="true">→</i>
+                            </Link>
+                            <DiscussionHeadlineTicker code={summary.code} />
+                          </div>
                           {awaitingQuote || close === undefined ? (
                             <span className="price">
                               <span className="skeleton" style={{ width: 150, height: 22 }} />

@@ -1276,6 +1276,92 @@ a.app-brand:hover .app-logo-wide {
   font-variant-numeric: tabular-nums;
 }
 
+.stock-header .discussion-explorer-link {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 1px;
+  padding: 8px 13px;
+  color: #dffcff;
+  border: 1px solid color-mix(in srgb, #22d3ee 42%, var(--border));
+  border-radius: 9px;
+  background: linear-gradient(115deg, color-mix(in srgb, #0891b2 18%, var(--card-bg)), color-mix(in srgb, #7c3aed 14%, var(--card-bg)));
+  box-shadow: inset 0 1px rgb(255 255 255 / 7%);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  text-decoration: none;
+  transition: transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+
+.stock-header .discussion-explorer-row {
+  order: 20;
+  flex: 1 0 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.discussion-headline-ticker {
+  min-width: 0;
+  flex: 1;
+  height: 35px;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #22d3ee 18%, var(--border));
+  border-radius: 9px;
+  background: linear-gradient(90deg, color-mix(in srgb, #071b2c 82%, var(--card-bg)), color-mix(in srgb, #241342 38%, var(--card-bg)));
+  box-shadow: inset 0 1px rgb(255 255 255 / 4%);
+}
+
+.discussion-headline-label {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 11px;
+  color: #8eeafb;
+  border-right: 1px solid rgb(103 232 249 / 15%);
+  background: color-mix(in srgb, #061728 88%, transparent);
+  font: 800 8px/1 Inter, sans-serif;
+  letter-spacing: .13em;
+  white-space: nowrap;
+}
+
+.discussion-headline-label i { width: 5px; height: 5px; border-radius: 50%; background: #34d399; box-shadow: 0 0 8px #34d399; animation: discussion-live-pulse 1.6s ease-in-out infinite; }
+.discussion-headline-window { min-width: 0; flex: 1; overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 4%, #000 96%, transparent); }
+.discussion-headline-track { width: max-content; display: flex; animation: discussion-headline-flow 72s linear infinite; will-change: transform; }
+.discussion-headline-ticker:hover .discussion-headline-track { animation-play-state: paused; }
+.discussion-headline-set { display: flex; align-items: center; flex: 0 0 auto; }
+.discussion-headline-item { display: inline-flex; align-items: center; gap: 7px; padding: 0 18px; color: color-mix(in srgb, var(--text) 74%, #9bdff1); font-size: 10px; font-weight: 600; white-space: nowrap; }
+.discussion-headline-item::after { content: "◆"; margin-left: 17px; color: rgb(167 139 250 / 38%); font-size: 5px; }
+.discussion-headline-item i { color: #67e8f9; font: 700 8px/1 Inter, sans-serif; font-style: normal; }
+
+@keyframes discussion-headline-flow { to { transform: translateX(-50%); } }
+@keyframes discussion-live-pulse { 50% { opacity: .35; transform: scale(.75); } }
+
+@media (max-width: 760px) {
+  .stock-header .discussion-explorer-row { align-items: stretch; flex-direction: column; gap: 8px; }
+  .discussion-headline-ticker { width: 100%; flex: 0 0 33px; }
+  .discussion-headline-label { padding-inline: 8px; font-size: 7px; }
+  .discussion-headline-item { padding-inline: 12px; font-size: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .discussion-headline-track { animation-play-state: paused; }
+}
+
+.stock-header .discussion-explorer-link span { color: #67e8f9; text-shadow: 0 0 9px #22d3ee; }
+.stock-header .discussion-explorer-link i { margin-left: 2px; color: #a78bfa; font-style: normal; transition: transform .2s ease; }
+.stock-header .discussion-explorer-link:hover { transform: translateY(-1px); border-color: #22d3ee; box-shadow: 0 7px 22px rgb(8 145 178 / 18%); }
+.stock-header .discussion-explorer-link:hover i { transform: translateX(3px); }
+
 .stock-header .price {
   font-size: 22px;
   font-weight: 700;
@@ -3803,6 +3889,57 @@ thead .weekly-foreign-amount-col {
   filter: drop-shadow(0 1px 0 rgb(255 255 255 / 55%));
 }
 
+/* The discussion universe sits directly after ETF. Its cool cyan-violet face bridges
+   the ETF gold and the neutral TOP 100 pill, while the shared N badge marks both new
+   destinations consistently. */
+.kospi-map-nav-link--discussion {
+  min-width: 136px;
+  padding-left: 32px;
+  padding-right: 14px;
+  color: #f4fdff;
+  border-color: rgb(103 232 249 / 72%);
+  background: linear-gradient(125deg, rgb(8 82 112 / 94%), rgb(65 48 142 / 94%));
+  font-weight: 850;
+  letter-spacing: -.015em;
+  text-shadow: 0 1px 5px rgb(0 0 0 / 46%);
+  box-shadow: inset 0 1px rgb(255 255 255 / 18%), 0 0 15px rgb(34 211 238 / 18%);
+}
+
+.kospi-map-nav-link--discussion::before {
+  content: "N";
+  position: absolute;
+  z-index: 3;
+  left: 6px;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  border: 1.5px solid #fff;
+  border-radius: 6px;
+  color: #fff;
+  background: linear-gradient(145deg, #ff315f, #d90072 68%, #8c005e);
+  box-shadow: 0 3px 8px rgb(141 0 72 / 48%), 0 0 13px rgb(255 34 112 / 65%);
+  font: 1000 12px/1 Arial, sans-serif;
+  letter-spacing: -.04em;
+  text-shadow: 0 1px 2px rgb(83 0 43 / 70%);
+  pointer-events: none;
+  transform-origin: 50% 50%;
+  animation: etf-new-badge-spin 2.8s cubic-bezier(.55,.05,.28,1) infinite;
+}
+
+.kospi-map-nav-link--discussion::after {
+  background: linear-gradient(100deg, transparent 25%, rgb(255 255 255 / 78%) 50%, transparent 75%);
+  animation-duration: 3.1s;
+}
+
+.kospi-map-nav-link--discussion:hover {
+  color: #fff;
+  border-color: #a5f3fc;
+  background: linear-gradient(125deg, rgb(9 107 139 / 98%), rgb(80 60 171 / 98%));
+  box-shadow: inset 0 1px rgb(255 255 255 / 22%), 0 0 23px rgb(34 211 238 / 30%);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kospi-map-nav-link--etf {
     animation: none;
@@ -3818,6 +3955,11 @@ thead .weekly-foreign-amount-col {
     animation: none;
     transform: translateY(-50%) rotate(-7deg);
   }
+
+  .kospi-map-nav-link--discussion::before {
+    animation: none;
+    transform: translateY(-50%) rotate(-7deg);
+  }
 }
 
 @media (max-width: 640px) {
@@ -3828,6 +3970,19 @@ thead .weekly-foreign-amount-col {
   }
 
   .kospi-map-nav-link--etf::before {
+    left: 5px;
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+  }
+
+  .kospi-map-nav-link--discussion {
+    min-width: 125px;
+    padding-left: 28px;
+    padding-right: 10px;
+  }
+
+  .kospi-map-nav-link--discussion::before {
     left: 5px;
     width: 18px;
     height: 18px;
@@ -7675,6 +7830,23 @@ thead .weekly-foreign-amount-col {
 .app-footer-links a.app-footer-market-link--nasdaq {
   color: var(--series-orange);
   animation-delay: 1.8s;
+}
+
+.app-footer-links a.app-footer-market-link--discussion {
+  color: #22c7d9;
+  animation-delay: 2.1s;
+}
+
+.discussion-nav-n {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  color: #fff;
+  background: linear-gradient(145deg, #ff315f, #b90070);
+  box-shadow: 0 0 8px rgb(255 34 112 / 42%);
+  font: 900 9px/1 Arial, sans-serif;
 }
 
 .app-footer-bottom {

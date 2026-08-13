@@ -26,6 +26,7 @@ export default function Nasdaq100MapPage() {
         { to: "/kosdaq-map", label: "KOSDAQ", icon: <MarketIcon />, className: "kospi-map-nav-link--kosdaq" },
         { to: "/sp500-map", label: "S&P500", icon: <MarketIcon />, className: "kospi-map-nav-link--sp500" },
         { to: "/etf", label: "ETF", icon: <EtfIcon />, className: "kospi-map-nav-link--etf" },
+        { to: "/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", label: "종목토론탐험", className: "kospi-map-nav-link--discussion" },
         { to: "/kospi-100", label: "TOP 100", icon: <RankIcon />, className: "kospi-map-nav-link--top100" },
         { to: "/ai-prediction", label: "AI 예측", icon: <PredictIcon />, className: "kospi-map-nav-link--predict" },
         {
