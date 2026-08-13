@@ -555,7 +555,7 @@ export default function DiscussionExplorerPage() {
   };
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if ((event.target as HTMLElement).closest("button, a, .discussion-detail")) return;
+    if (selected || (event.target as HTMLElement).closest("button, a, .discussion-detail")) return;
     drag.current = { active: true, x: event.clientX, y: event.clientY, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -607,6 +607,9 @@ export default function DiscussionExplorerPage() {
   const captureCardRelease = (event: ReactPointerEvent<HTMLElement>) => {
     const pending = pendingCardTap.current;
     const wasSingleTap = activePointers.current.size === 1 && pending?.pointerId === event.pointerId;
+    // Card buttons stop the bubbling pointerup event, so release any stage drag in
+    // capture phase before opening the detail panel.
+    drag.current.active = false;
     activePointers.current.delete(event.pointerId);
     pendingCardTap.current = null;
     if (!wasSingleTap || !pending) return;
@@ -616,11 +619,18 @@ export default function DiscussionExplorerPage() {
   };
 
   const capturePointerCancel = (event: ReactPointerEvent<HTMLElement>) => {
+    drag.current.active = false;
     activePointers.current.delete(event.pointerId);
     pendingCardTap.current = null;
   };
 
   const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    // A stale pointer capture must never rotate the universe behind an open panel.
+    // Mouse movement with no pressed button also terminates a missed pointerup.
+    if (selected || (event.pointerType === "mouse" && event.buttons === 0)) {
+      drag.current.active = false;
+      return;
+    }
     if (!drag.current.active || drag.current.pointerId !== event.pointerId) return;
     rotation.current.y += (event.clientX - drag.current.x) * 0.24;
     rotation.current.x -= (event.clientY - drag.current.y) * 0.18;
