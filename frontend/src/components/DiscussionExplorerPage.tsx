@@ -215,6 +215,8 @@ export default function DiscussionExplorerPage() {
   const zoom = useRef(defaultZoom());
   const drag = useRef({ active: false, x: 0, y: 0, pointerId: -1 });
   const touchDistance = useRef<number | null>(null);
+  const activePointers = useRef(new Set<number>());
+  const pendingCardTap = useRef<{ post: UniversePost; pointerId: number; x: number; y: number } | null>(null);
 
   useEffect(() => {
     const canvas = starCanvasRef.current;
@@ -496,6 +498,13 @@ export default function DiscussionExplorerPage() {
   };
 
   const captureCardPress = (event: ReactPointerEvent<HTMLElement>) => {
+    activePointers.current.add(event.pointerId);
+    if (activePointers.current.size > 1) {
+      // A second contact turns the gesture into pinch/rotate immediately. Never let
+      // either finger activate a card when it is released.
+      pendingCardTap.current = null;
+      return;
+    }
     const target = event.target as HTMLElement;
     if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-controls, .discussion-footer, .discussion-hud")) return;
     const buttons = Array.from(sceneRef.current?.querySelectorAll<HTMLButtonElement>(".discussion-node > button") ?? []);
@@ -519,9 +528,33 @@ export default function DiscussionExplorerPage() {
     const postId = chosen.dataset.postId;
     const post = activePosts.find((item) => item.id === postId);
     if (!post) return;
+    pendingCardTap.current = { post, pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+  };
+
+  const capturePointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    const pending = pendingCardTap.current;
+    if (!pending || pending.pointerId !== event.pointerId) return;
+    // Eight physical CSS pixels tolerates normal tap jitter while cancelling a drag
+    // early enough that an iPhone pinch never becomes an accidental post open.
+    if (Math.hypot(event.clientX - pending.x, event.clientY - pending.y) > 8 || activePointers.current.size > 1) {
+      pendingCardTap.current = null;
+    }
+  };
+
+  const captureCardRelease = (event: ReactPointerEvent<HTMLElement>) => {
+    const pending = pendingCardTap.current;
+    const wasSingleTap = activePointers.current.size === 1 && pending?.pointerId === event.pointerId;
+    activePointers.current.delete(event.pointerId);
+    pendingCardTap.current = null;
+    if (!wasSingleTap || !pending) return;
     event.preventDefault();
     event.stopPropagation();
-    selectPost(post);
+    selectPost(pending.post);
+  };
+
+  const capturePointerCancel = (event: ReactPointerEvent<HTMLElement>) => {
+    activePointers.current.delete(event.pointerId);
+    pendingCardTap.current = null;
   };
 
   const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -570,6 +603,9 @@ export default function DiscussionExplorerPage() {
       className={`discussion-explorer ${selected ? "has-detail" : ""} ${isIphonePortrait ? "is-iphone-portrait" : ""}`}
       ref={stageRef}
       onPointerDownCapture={captureCardPress}
+      onPointerMoveCapture={capturePointerMove}
+      onPointerUpCapture={captureCardRelease}
+      onPointerCancelCapture={capturePointerCancel}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
       onPointerUp={pointerUp}
@@ -696,15 +732,12 @@ export default function DiscussionExplorerPage() {
                   data-post-id={post.id}
                   onPointerDown={(event) => {
                     event.stopPropagation();
-                    // The sphere and each card keep moving between press and release.
-                    // Select on press, before browser hit-testing can cancel the click
-                    // because the transformed target moved away from the pointer.
-                    selectPost(post);
                   }}
                   onPointerUp={(event) => event.stopPropagation()}
                   onClick={(event) => {
                     event.stopPropagation();
-                    // Pointer interaction is handled on pointerdown; detail===0 keeps
+                    // Pointer interaction is resolved by the stage gesture arbiter;
+                    // detail===0 keeps
                     // Enter/Space keyboard activation available without double firing.
                     if (event.detail === 0) selectPost(post);
                   }}
