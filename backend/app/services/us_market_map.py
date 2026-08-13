@@ -1,4 +1,8 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from app.data import yahoo_bulk_quote
+from app.data.exchange_fetcher import get_usd_krw
+from app.data.stock_quote_fetcher import get_stock_quote
 from app.data.us_index_fetcher import get_nasdaq100_constituents, get_sp500_constituents, market_session
 from app.services.cache import cache
 
@@ -25,31 +29,57 @@ def get_nasdaq100_map(limit: int = 103, fresh: bool = False) -> list[dict]:
 # the fact. One name is a one-symbol call to the same batched endpoint the whole
 # roster's overlay already makes; no separate fetcher needed.
 SKHYNIX_TICKER = "SKHY"
+SKHYNIX_KRX_CODE = "000660"
+MARKETCAP_BENCHMARK_TICKER = "MU"
 TTL_SKHYNIX_SECONDS = 15
 
 # SKHY is an ADR with ten ADSs representing one ordinary share. Yahoo's
-# `marketCap` for the new listing applies the ADS price to an issuer-wide share
-# count, which makes the map value much larger than the capitalization of the
-# securities actually listed in the US. The Nasdaq offering/listing comprises
-# 177.9m ADSs (17.79m underlying ordinary shares), so size this synthetic US tile
-# from that listed ADS count and its live price.
+# `marketCap` for the new listing applies the ADS price to an issuer-wide share count,
+# so it cannot distinguish the KRX capitalization from the separately listed ADRs.
+# The Nasdaq offering/listing comprises 177.9m ADSs (17.79m underlying ordinary
+# shares). The synthetic tile combines the full domestic capitalization with the
+# value of those listed ADSs, as requested.
 SKHYNIX_LISTED_ADS = 177_900_000
 
-# The tile's area is the listed ADR capitalization (live ADS price times listed ADS
-# count), divided by each index's rough aggregate market cap to land in the same
-# "percent of the index" units real constituents' weights are already in. There's no
-# true index weight for a non-member, so the denominator is an order-of-magnitude
-# estimate. Neither number is shown; both only feed the treemap sizing calculation.
+# The tile's area is (KRX market cap converted to USD + listed ADR capitalization),
+# divided by each index's rough aggregate market cap to land in the same "percent of
+# the index" units real constituents' weights are already in. There's no true index
+# weight for a non-member, so the denominator is an order-of-magnitude estimate.
 _SP500_TOTAL_MARKETCAP_USD = 48_000_000_000_000
 _NASDAQ100_TOTAL_MARKETCAP_USD = 26_000_000_000_000
 
 
 def _fetch_skhynix_quote() -> dict | None:
-    quote = yahoo_bulk_quote.get_quotes([SKHYNIX_TICKER]).get(SKHYNIX_TICKER)
-    if not quote or not quote.get("close"):
+    # These are independent upstreams; fetching them together keeps a cold map request
+    # near the latency of one quote instead of the sum of all three timeouts.
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        adr_future = pool.submit(
+            yahoo_bulk_quote.get_quotes, [SKHYNIX_TICKER, MARKETCAP_BENCHMARK_TICKER]
+        )
+        krx_future = pool.submit(get_stock_quote, SKHYNIX_KRX_CODE)
+        fx_future = pool.submit(get_usd_krw)
+        us_quotes = adr_future.result()
+        quote = us_quotes.get(SKHYNIX_TICKER)
+        benchmark_quote = us_quotes.get(MARKETCAP_BENCHMARK_TICKER)
+        krx_quote = krx_future.result()
+        fx = fx_future.result()
+
+    if (
+        not quote
+        or not quote.get("close")
+        or not krx_quote
+        or not krx_quote.get("marcap")
+        or not fx
+        or not fx.get("rate")
+        or not benchmark_quote
+        or not benchmark_quote.get("market_cap")
+    ):
         return None
     return {
         **quote,
+        "krx_marcap_krw": krx_quote["marcap"],
+        "usd_krw": fx["rate"],
+        "benchmark_marketcap_usd": benchmark_quote["market_cap"],
         "code": SKHYNIX_TICKER,
         # Plain text — the flag marking this as the one Korean name on the map is drawn
         # as an actual /img/flag/kr.svg image on the frontend instead (see
@@ -66,7 +96,7 @@ def _get_skhynix_quote() -> dict | None:
     return cache.get_or_set("skhynix_us_map_tile", TTL_SKHYNIX_SECONDS, _fetch_skhynix_quote)
 
 
-def _skhynix_tile(total_marketcap_usd: float) -> dict | None:
+def _skhynix_tile(total_marketcap_usd: float, benchmark_weight: float | None = None) -> dict | None:
     # `_get_skhynix_quote` is cached and returns the SAME dict object on every hit
     # within its TTL — mutating it (e.g. `.pop`) here would corrupt that shared cache
     # entry for every caller after the first, which is exactly what an earlier version
@@ -76,10 +106,27 @@ def _skhynix_tile(total_marketcap_usd: float) -> dict | None:
     base = _get_skhynix_quote()
     if base is None:
         return None
-    tile = {k: v for k, v in base.items() if k != "market_cap"}
+    tile = {
+        k: v
+        for k, v in base.items()
+        if k not in {"market_cap", "krx_marcap_krw", "usd_krw", "benchmark_marketcap_usd"}
+    }
+    domestic_marketcap_usd = base["krx_marcap_krw"] / base["usd_krw"]
     adr_marketcap_usd = base["close"] * SKHYNIX_LISTED_ADS
-    tile["marcap"] = adr_marketcap_usd / total_marketcap_usd * 100
+    # The hard-coded aggregate is only a fallback. Index totals move substantially,
+    # so infer today's denominator from MU's live market cap and the same index weight
+    # already used to size its tile. This keeps SKHY and MU on one comparable scale.
+    if benchmark_weight and benchmark_weight > 0:
+        total_marketcap_usd = base["benchmark_marketcap_usd"] / (benchmark_weight / 100)
+    tile["marcap"] = (domestic_marketcap_usd + adr_marketcap_usd) / total_marketcap_usd * 100
     return tile
+
+
+def _benchmark_weight(items: list[dict]) -> float | None:
+    return next(
+        (item["marcap"] for item in items if item.get("code") == MARKETCAP_BENCHMARK_TICKER),
+        None,
+    )
 
 
 def get_sp500_map_with_skhynix(limit: int = 503, fresh: bool = False) -> list[dict]:
@@ -87,14 +134,14 @@ def get_sp500_map_with_skhynix(limit: int = 503, fresh: bool = False) -> list[di
     not answering for SKHY, or a crumb handshake failure) just omits the tile for that
     request rather than failing the whole map; it reappears once the miss clears."""
     items = get_sp500_map(limit, fresh=fresh)
-    extra = _skhynix_tile(_SP500_TOTAL_MARKETCAP_USD)
+    extra = _skhynix_tile(_SP500_TOTAL_MARKETCAP_USD, _benchmark_weight(items))
     return items + [extra] if extra else items
 
 
 def get_nasdaq100_map_with_skhynix(limit: int = 103, fresh: bool = False) -> list[dict]:
     """See get_sp500_map_with_skhynix."""
     items = get_nasdaq100_map(limit, fresh=fresh)
-    extra = _skhynix_tile(_NASDAQ100_TOTAL_MARKETCAP_USD)
+    extra = _skhynix_tile(_NASDAQ100_TOTAL_MARKETCAP_USD, _benchmark_weight(items))
     return items + [extra] if extra else items
 
 
@@ -160,7 +207,7 @@ def get_us_sector_map(code: str, limit: int = US_SECTOR_PEER_LIMIT) -> dict:
         else []
     )
     if sector == "Information Technology":
-        extra = _skhynix_tile(_SP500_TOTAL_MARKETCAP_USD)
+        extra = _skhynix_tile(_SP500_TOTAL_MARKETCAP_USD, _benchmark_weight(ranked))
         if extra:
             peers = peers + [extra]
 
