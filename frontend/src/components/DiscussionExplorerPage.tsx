@@ -71,6 +71,13 @@ function defaultZoom(): number {
   return 0.82;
 }
 
+function maximumZoom(): number {
+  // Large CSS-scaled 3D layers are the main WebKit GPU-memory pressure point.
+  // 1.05 still gives an iPhone 2.5x magnification from its 0.42 default.
+  if (/iPhone|iPod/i.test(navigator.userAgent) && window.innerWidth <= 480) return 1.05;
+  return 1.65;
+}
+
 function normalizeDomestic(post: BoardPost): UniversePost {
   return {
     id: post.nid,
@@ -218,6 +225,11 @@ export default function DiscussionExplorerPage() {
   const touchDistance = useRef<number | null>(null);
   const activePointers = useRef(new Set<number>());
   const pendingCardTap = useRef<{ post: UniversePost; pointerId: number; x: number; y: number } | null>(null);
+  const starPaused = useRef(false);
+
+  useEffect(() => {
+    starPaused.current = isIphonePortrait && Boolean(selected);
+  }, [isIphonePortrait, selected]);
 
   useEffect(() => {
     const canvas = starCanvasRef.current;
@@ -281,17 +293,19 @@ export default function DiscussionExplorerPage() {
     const animateStars = (time: number) => {
       // Slow stellar scintillation does not need a 60 Hz repaint. 20 Hz looks
       // continuous while leaving the main thread/GPU budget to the 3D cards.
-      if (time - previous >= (compactIos ? 100 : 50)) { draw(time); previous = time; }
+      if (!starPaused.current && time - previous >= (compactIos ? 100 : 50)) { draw(time); previous = time; }
       frame = window.requestAnimationFrame(animateStars);
     };
     resize();
     draw(0);
-    // While an iPhone detail panel is open, stop the hidden canvas entirely rather
-    // than merely hiding it with CSS. This reserves the frame budget for scrolling.
-    if (!reducedMotion && !(compactIos && selected)) frame = window.requestAnimationFrame(animateStars);
-    window.addEventListener("resize", resize, { passive: true });
-    return () => { window.cancelAnimationFrame(frame); window.removeEventListener("resize", resize); };
-  }, [selected]);
+    if (!reducedMotion) frame = window.requestAnimationFrame(animateStars);
+    // Safari changes innerHeight while its address bar moves. Reallocating a canvas
+    // buffer on every such resize is expensive and can retain old IOSurface memory.
+    // On compact iOS only an orientation change warrants a new backing store.
+    const resizeEvent = compactIos ? "orientationchange" : "resize";
+    window.addEventListener(resizeEvent, resize, { passive: true });
+    return () => { window.cancelAnimationFrame(frame); window.removeEventListener(resizeEvent, resize); };
+  }, []);
 
   const applySceneTransform = () => {
     if (!sceneRef.current) return;
@@ -408,7 +422,7 @@ export default function DiscussionExplorerPage() {
       else if (["ArrowRight", "d", "D"].includes(event.key)) rotation.current.y += step;
       else if (["ArrowUp", "w", "W"].includes(event.key)) rotation.current.x -= step;
       else if (["ArrowDown", "s", "S"].includes(event.key)) rotation.current.x += step;
-      else if (["+", "="].includes(event.key)) zoom.current = Math.min(1.65, zoom.current + 0.08);
+      else if (["+", "="].includes(event.key)) zoom.current = Math.min(maximumZoom(), zoom.current + 0.08);
       else if (["-", "_"].includes(event.key)) zoom.current = Math.max(0.42, zoom.current - 0.08);
       else if (event.key === "Escape") {
         const closeButton = document.querySelector<HTMLButtonElement>(".discussion-detail header button");
@@ -579,7 +593,7 @@ export default function DiscussionExplorerPage() {
     // Scrollable overlays own their wheel gesture. Letting it bubble into the stage
     // zoomed the entire universe while the user was only reading a post/search list.
     if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-help")) return;
-    zoom.current = Math.max(0.42, Math.min(1.65, zoom.current - event.deltaY * 0.0007));
+    zoom.current = Math.max(0.42, Math.min(maximumZoom(), zoom.current - event.deltaY * 0.0007));
     setZoomLabel(Math.round(zoom.current * 100));
     applySceneTransform();
   };
@@ -592,7 +606,7 @@ export default function DiscussionExplorerPage() {
     const [a, b] = Array.from(event.touches);
     const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     if (touchDistance.current !== null) {
-      zoom.current = Math.max(0.42, Math.min(1.65, zoom.current + (distance - touchDistance.current) * 0.003));
+      zoom.current = Math.max(0.42, Math.min(maximumZoom(), zoom.current + (distance - touchDistance.current) * 0.003));
       // Do not update React state during a pinch: doing so reconciled all 50 cards on
       // every iOS touchmove. The scene transform itself remains immediate and smooth.
       applySceneTransform();
@@ -764,7 +778,7 @@ export default function DiscussionExplorerPage() {
 
       <div className="discussion-controls">
         <button type="button" className={autoRotate ? "is-on" : ""} onClick={() => setAutoRotate((value) => !value)} title="자동 회전">◉<span>자동 회전</span></button>
-        <button type="button" onClick={() => { zoom.current = Math.min(1.65, zoom.current + 0.12); setZoomLabel(Math.round(zoom.current * 100)); applySceneTransform(); }} title="확대">＋<span>확대</span></button>
+        <button type="button" onClick={() => { zoom.current = Math.min(maximumZoom(), zoom.current + 0.12); setZoomLabel(Math.round(zoom.current * 100)); applySceneTransform(); }} title="확대">＋<span>확대</span></button>
         <button type="button" onClick={() => { zoom.current = Math.max(0.42, zoom.current - 0.12); setZoomLabel(Math.round(zoom.current * 100)); applySceneTransform(); }} title="축소">−<span>축소</span></button>
         <button type="button" onClick={() => { const nextZoom = defaultZoom(); rotation.current = { x: -8, y: 0 }; zoom.current = nextZoom; setZoomLabel(Math.round(nextZoom * 100)); applySceneTransform(); }} title="시점 초기화">⌖<span>초기화</span></button>
         <button type="button" onClick={() => setHelpOpen((value) => !value)} title="조작 도움말">?<span>조작법</span></button>
