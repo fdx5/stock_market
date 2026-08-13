@@ -33,6 +33,7 @@ export function pageLabel(path: string): string {
   if (path === "/global") return "해외 종목";
   if (path === "/global-top100") return "글로벌 시총 TOP100";
   if (path === "/etf") return "ETF 마켓";
+  if (path === "/discussion-explorer") return "종목토론탐험";
   if (path === "/battle") return "줄다리기";
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";
@@ -98,6 +99,43 @@ export function reportStockView(code: string, name: string): void {
   });
 }
 
+export function reportDiscussionPostClick(options: {
+  code: string;
+  name: string;
+  title: string;
+  postId: string;
+  market: "KR" | "US";
+  assetKind: "STOCK" | "ETF";
+}): void {
+  if (isAdminPath(window.location.pathname)) return;
+  const context = `${options.market}/${options.assetKind}`;
+  sendEvent({
+    type: "click",
+    path: "/discussion-explorer",
+    label: `게시글 클릭 · ${options.title}`.slice(0, 100),
+    stock_code: options.code,
+    stock_name: options.name,
+    object_key: `${context}:${options.postId}`.slice(0, 100),
+  });
+}
+
+export function reportDiscussionSearchSelection(options: {
+  code: string;
+  name: string;
+  market: "KR" | "US";
+  assetKind: "STOCK" | "ETF";
+}): void {
+  if (isAdminPath(window.location.pathname)) return;
+  sendEvent({
+    type: "click",
+    path: "/discussion-explorer",
+    label: `종목 검색 이동 · ${options.name} (${options.code}) · ${options.market}/${options.assetKind}`.slice(0, 100),
+    stock_code: options.code,
+    stock_name: options.name,
+    object_key: `search:${options.market}/${options.assetKind}:${options.code}`.slice(0, 100),
+  });
+}
+
 /** Mounted once at the app root. Reports a page_view whenever `path` changes, and a
  * click event (debounced per label+path) for clicks on interactive elements — the
  * data behind the admin dashboard's live tail and per-page trend graph. Events that
@@ -108,6 +146,21 @@ export function useActivityTracking(path: string): void {
 
   useEffect(() => {
     if (isAdminPath(path)) return;
+    if (path === "/discussion-explorer") {
+      const params = new URLSearchParams(window.location.search);
+      const code = params.get("code") || "005930";
+      const name = params.get("name") || code;
+      const market = params.get("market") === "US" ? "US" : "KR";
+      const assetKind = params.get("asset") === "ETF" ? "ETF" : "STOCK";
+      sendEvent({
+        type: "page_view",
+        path,
+        label: `종목토론탐험 · ${name} (${code}) · ${market}/${assetKind}`.slice(0, 100),
+        stock_code: code,
+        stock_name: name,
+      });
+      return;
+    }
     sendEvent({ type: "page_view", path, label: pageLabel(path) });
   }, [path]);
 

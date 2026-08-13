@@ -2,6 +2,7 @@ import { PointerEvent as ReactPointerEvent, WheelEvent, useEffect, useMemo, useR
 import { BoardComment, BoardDetail, BoardPost, EtfItem, GlobalDiscussionPost, StockSearchResult, api } from "../api/client";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { reportDiscussionPostClick, reportDiscussionSearchSelection } from "../useActivityTracking";
 import StockLogo from "./StockLogo";
 import "../discussionExplorer.css";
 
@@ -442,6 +443,7 @@ export default function DiscussionExplorerPage() {
         setDisintegrating((current) => current === previousId ? null : current);
       }, 850);
     }
+    reportDiscussionPostClick({ code, name, title: post.title, postId: post.id, market, assetKind });
     setSelected(post);
   };
 
@@ -658,6 +660,12 @@ export default function DiscussionExplorerPage() {
                 type="button"
                 key={`${item.kind}-${item.market}-${item.code}`}
                 onClick={() => {
+                  reportDiscussionSearchSelection({
+                    code: item.code,
+                    name: item.name,
+                    market: item.market,
+                    assetKind: item.kind,
+                  });
                   window.location.assign(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${item.market}&asset=${item.kind}`);
                 }}
               >
