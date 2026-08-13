@@ -5,8 +5,8 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import StockLogo from "./StockLogo";
 import "../discussionExplorer.css";
 
-const INITIAL_COUNT = 50;
-const MAX_VISIBLE = 50;
+const INITIAL_COUNT = 40;
+const MAX_VISIBLE = 40;
 const SPHERE_RADIUS = 510;
 
 const STAR_COLORS = ["#ffffff", "#dff7ff", "#9edcff", "#c7b9ff", "#ffe2a8"];
@@ -187,6 +187,7 @@ export default function DiscussionExplorerPage() {
   const market = params.get("market") === "US" ? "US" : "KR";
   const assetKind: AssetKind = params.get("asset") === "ETF" ? "ETF" : "STOCK";
   const backPath = assetKind === "ETF" ? "/etf" : market === "US" ? `/global?code=${encodeURIComponent(code)}` : `/desk?code=${encodeURIComponent(code)}`;
+  const isIphonePortrait = /iPhone|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches;
 
   useDocumentTitle(`${name} 종목토론탐험 · K-Stock Hub`);
   const [posts, setPosts] = useState<UniversePost[]>([]);
@@ -221,6 +222,7 @@ export default function DiscussionExplorerPage() {
     const context = canvas.getContext("2d", { alpha: true });
     if (!context) return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const compactIos = /iPhone|iPod/i.test(navigator.userAgent) && window.innerWidth <= 480;
     let frame = 0;
     let previous = -Infinity;
     let width = 0;
@@ -232,7 +234,7 @@ export default function DiscussionExplorerPage() {
       height = window.innerHeight;
       // A capped DPR keeps stars crisp without allocating a full 4K canvas on
       // high-density phones and tablets.
-      ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+      ratio = compactIos ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.round(width * ratio);
       canvas.height = Math.round(height * ratio);
       canvas.style.width = `${width}px`;
@@ -252,7 +254,7 @@ export default function DiscussionExplorerPage() {
         context.beginPath();
         context.arc(x, y, radius / 2, 0, Math.PI * 2);
         context.fill();
-        if (star.radiant) {
+        if (star.radiant && !compactIos) {
           const glow = context.createRadialGradient(x, y, 0, x, y, radius * 4.8);
           glow.addColorStop(0, "rgba(255,255,255,.9)");
           glow.addColorStop(.18, star.color);
@@ -276,15 +278,17 @@ export default function DiscussionExplorerPage() {
     const animateStars = (time: number) => {
       // Slow stellar scintillation does not need a 60 Hz repaint. 20 Hz looks
       // continuous while leaving the main thread/GPU budget to the 3D cards.
-      if (time - previous >= 50) { draw(time); previous = time; }
+      if (time - previous >= (compactIos ? 100 : 50)) { draw(time); previous = time; }
       frame = window.requestAnimationFrame(animateStars);
     };
     resize();
     draw(0);
-    if (!reducedMotion) frame = window.requestAnimationFrame(animateStars);
+    // While an iPhone detail panel is open, stop the hidden canvas entirely rather
+    // than merely hiding it with CSS. This reserves the frame budget for scrolling.
+    if (!reducedMotion && !(compactIos && selected)) frame = window.requestAnimationFrame(animateStars);
     window.addEventListener("resize", resize, { passive: true });
     return () => { window.cancelAnimationFrame(frame); window.removeEventListener("resize", resize); };
-  }, []);
+  }, [selected]);
 
   const applySceneTransform = () => {
     if (!sceneRef.current) return;
@@ -554,7 +558,8 @@ export default function DiscussionExplorerPage() {
     const distance = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     if (touchDistance.current !== null) {
       zoom.current = Math.max(0.42, Math.min(1.65, zoom.current + (distance - touchDistance.current) * 0.003));
-      setZoomLabel(Math.round(zoom.current * 100));
+      // Do not update React state during a pinch: doing so reconciled all 50 cards on
+      // every iOS touchmove. The scene transform itself remains immediate and smooth.
       applySceneTransform();
     }
     touchDistance.current = distance;
@@ -562,7 +567,7 @@ export default function DiscussionExplorerPage() {
 
   return (
     <main
-      className={`discussion-explorer ${selected ? "has-detail" : ""}`}
+      className={`discussion-explorer ${selected ? "has-detail" : ""} ${isIphonePortrait ? "is-iphone-portrait" : ""}`}
       ref={stageRef}
       onPointerDownCapture={captureCardPress}
       onPointerDown={pointerDown}
@@ -571,7 +576,7 @@ export default function DiscussionExplorerPage() {
       onPointerCancel={pointerUp}
       onWheel={onWheel}
       onTouchMove={onTouchMove}
-      onTouchEnd={() => { touchDistance.current = null; }}
+      onTouchEnd={() => { touchDistance.current = null; setZoomLabel(Math.round(zoom.current * 100)); }}
     >
       <div className="discussion-cosmos" aria-hidden="true" />
       <div className="discussion-nebula" aria-hidden="true" />

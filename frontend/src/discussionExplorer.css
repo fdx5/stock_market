@@ -63,6 +63,7 @@
   will-change: transform;
 }
 .discussion-node > button:hover, .discussion-node.is-selected > button { animation-play-state: paused; }
+.discussion-explorer.has-detail .discussion-node > button { animation-play-state: paused; }
 .discussion-node > button:hover, .discussion-node.is-selected > button { z-index: 200; color: #fff; border-color: var(--card-accent, #67e8f9); background: linear-gradient(135deg, color-mix(in srgb, var(--card-a) 88%, white), var(--card-b)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-accent) 25%, transparent), 0 0 34px color-mix(in srgb, var(--card-accent) 34%, transparent), 0 18px 50px rgba(0,0,0,.45); }
 .discussion-node.is-high-view > button { border-width: 2px; filter: saturate(1.35) brightness(1.12); box-shadow: inset 0 1px rgba(255,255,255,.14), 0 0 16px color-mix(in srgb, var(--card-accent) 23%, transparent), 0 10px 25px rgba(0,0,0,.28); }
 .discussion-node.is-high-view strong { color: #fff; text-shadow: 0 0 12px color-mix(in srgb, var(--card-accent) 65%, transparent); }
@@ -168,6 +169,30 @@
   .discussion-detail { inset: auto 8px calc(65px + env(safe-area-inset-bottom)); width: auto; max-height: 57vh; transform: none; border-radius: 17px; animation-name: detail-mobile-enter; }
   .discussion-detail header { padding: 17px 17px 13px; }.discussion-detail-scroll { padding: 16px 17px 21px; }
 }
+
+/* Mobile Safari pays a disproportionate cost for dozens of filtered 3D layers.
+   Keep the same visual hierarchy on iPhone portrait while avoiding live backdrop
+   sampling and animated paint effects that compete with gestures and panel scroll. */
+.discussion-explorer.is-iphone-portrait .discussion-node > button {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: inset 0 1px rgba(255,255,255,.08), 0 5px 13px rgba(0,0,0,.25);
+}
+.discussion-explorer.is-iphone-portrait .discussion-node.is-hot-view > button {
+  filter: none;
+  box-shadow: inset 0 1px rgba(255,255,255,.16), 0 0 3px var(--card-accent), 0 0 16px color-mix(in srgb, var(--card-accent) 48%, transparent), 0 7px 16px rgba(0,0,0,.3);
+}
+.discussion-explorer.is-iphone-portrait .discussion-node.is-hot-view > button::after { animation: none; opacity: .28; }
+.discussion-explorer.is-iphone-portrait .discussion-node.is-high-view > button,
+.discussion-explorer.is-iphone-portrait .discussion-node.is-low-view > button { filter: none; }
+.discussion-explorer.is-iphone-portrait .discussion-detail {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: linear-gradient(145deg, rgba(7,19,39,.985), rgba(10,8,30,.98));
+  box-shadow: 0 12px 40px rgba(0,0,0,.62), 0 0 24px rgba(34,211,238,.08);
+}
+.discussion-explorer.is-iphone-portrait.has-detail .discussion-comets,
+.discussion-explorer.is-iphone-portrait.has-detail .discussion-stars { visibility: hidden; }
 @keyframes detail-mobile-enter { from { opacity: 0; transform: translateY(30px) scale(.98); } }
 
 @media (max-height: 620px) and (orientation: landscape) {
