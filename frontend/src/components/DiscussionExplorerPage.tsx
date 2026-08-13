@@ -536,6 +536,10 @@ export default function DiscussionExplorerPage() {
   };
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    // Scrollable overlays own their wheel gesture. Letting it bubble into the stage
+    // zoomed the entire universe while the user was only reading a post/search list.
+    if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-help")) return;
     zoom.current = Math.max(0.42, Math.min(1.65, zoom.current - event.deltaY * 0.0007));
     setZoomLabel(Math.round(zoom.current * 100));
     applySceneTransform();
@@ -730,7 +734,12 @@ export default function DiscussionExplorerPage() {
       </footer>
 
       {selected && (
-        <div className="discussion-detail-layer" onPointerDown={(event) => event.stopPropagation()}>
+        <div
+          className="discussion-detail-layer"
+          onPointerDown={(event) => event.stopPropagation()}
+          onWheel={(event) => event.stopPropagation()}
+          onTouchMove={(event) => event.stopPropagation()}
+        >
           <DetailPanel key={selected.id} post={selected} code={code} market={market} onClose={closeSelectedPost} />
         </div>
       )}
