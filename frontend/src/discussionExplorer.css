@@ -148,16 +148,21 @@
 }
 
 @media (max-width: 760px) {
-  .discussion-hud { grid-template-columns: 42px 1fr auto; gap: 10px; padding-inline: 12px; }
-  .discussion-back { width: 39px; height: 39px; }
-  .discussion-heading > span { font-size: 7px; }.discussion-heading p { font-size: 9px; }
-  .discussion-counter strong { font-size: 25px; }.discussion-counter span { font-size: 6px; }
-  .discussion-search { top: 70px; width: calc(100vw - 24px); }
-  .discussion-search-prompt { margin-bottom: 5px; font-size: 9px; }
-  .discussion-search-box { min-height: 41px; }.discussion-search-box input { height: 39px; }
+  .discussion-hud { grid-template-columns: 36px minmax(0,1fr) auto; gap: 8px; padding: max(8px, env(safe-area-inset-top)) 12px 8px; }
+  .discussion-back { width: 34px; height: 34px; font-size: 19px; }
+  .discussion-heading { min-width: 0; }
+  .discussion-heading > span, .discussion-heading p { display: none; }
+  .discussion-heading h1 { gap: .28em; font-size: clamp(15px, 4.2vw, 18px); white-space: nowrap; }
+  .discussion-heading h1 b { margin-left: 3px; font-size: .5em; }
+  .discussion-heading-logo { width: .92em; height: .92em; flex-basis: .92em; }
+  .discussion-counter strong { font-size: 21px; }.discussion-counter span { display: none; }
+  .discussion-search { top: calc(max(8px, env(safe-area-inset-top)) + 42px); width: calc(100vw - 24px); }
+  .discussion-search-prompt { margin-bottom: 4px; padding-block: 3px; font-size: 8px; }
+  .discussion-search-box { min-height: 39px; }.discussion-search-box input { height: 37px; font-size: 11px; }
+  .discussion-search-box > button.discussion-search-cta { height: 30px; padding-inline: 10px; }
   .discussion-search-results { max-height: 46vh; }
-  .discussion-statusbar { top: 145px; gap: 10px; font-size: 8px; }
-  .discussion-scene { top: 48%; }
+  .discussion-statusbar { top: calc(max(8px, env(safe-area-inset-top)) + 108px); gap: 10px; font-size: 8px; }
+  .discussion-scene { top: 56%; }
   .discussion-node { width: 145px; margin-left: -72px; }
   .discussion-node > button { min-height: 76px; padding: 11px; backdrop-filter: blur(6px); }
   .discussion-node strong { font-size: 10px; }.discussion-node-preview { display: none; }
