@@ -3248,6 +3248,9 @@ a.app-brand:hover .app-logo-wide {
 }
 
 .top50-table-name button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: none;
   border: none;
   padding: 0;
@@ -3260,6 +3263,17 @@ a.app-brand:hover .app-logo-wide {
 .top50-table-name button:hover {
   text-decoration: underline;
   color: var(--series-blue);
+}
+
+/* Stock logo shown ahead of the name in every 수급·순위 ranking row (시총 50위,
+   급등/급락 TOP, 투자자 매매동향, 외국인 주간매수/매도) — same size across all of
+   them so the tabs read as one table family. */
+.flow-row-logo {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  border-radius: 3px;
+  flex-shrink: 0;
 }
 
 .investor-table {
@@ -3309,6 +3323,9 @@ a.app-brand:hover .app-logo-wide {
 }
 
 .investor-table-name a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--text-primary);
   font-weight: 600;
   text-decoration: none;

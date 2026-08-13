@@ -56,8 +56,11 @@ SPARKLINE_POINTS = 60
 # Trading days behind the latest bar that each trailing return is measured from. Not
 # calendar days: the series is indexed by session, so counting sessions is both exact
 # and free. ~5 / ~21 / ~63 sessions are the usual 1주 / 1개월 / 3개월 conventions.
+# d20/d120 are the literal session-count conventions the 순위 board's ranking tables
+# ask for (거래일 기준 20일/120일), distinct from m1/m3's calendar-month framing even
+# though d20 lands close to m1.
 # YTD is not in here because it isn't a fixed offset — see `_summarize`.
-_RETURN_OFFSETS = {"w1": 5, "m1": 21, "m3": 63}
+_RETURN_OFFSETS = {"w1": 5, "m1": 21, "m3": 63, "d20": 20, "d120": 120}
 
 
 @dataclass

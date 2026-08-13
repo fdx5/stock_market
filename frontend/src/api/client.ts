@@ -598,6 +598,14 @@ export interface WeeklyForeignItem {
   amount: number;
 }
 
+/** One code's trailing return off a year of daily bars — see
+ * backend/app/services/market_map.get_returns_for_codes. Null when the series doesn't
+ * reach back that far (a recent listing) or the fetch failed for that symbol. */
+export interface MarketReturns {
+  d20: number | null;
+  d120: number | null;
+}
+
 export interface InvestorTrendRecord {
   date: string;
   close: number;
@@ -957,6 +965,12 @@ export const api = {
   kosdaqMap: (limit = 200, fresh = false) =>
     getJSONFresh<MarketMapResponse>(
       `${BASE}/market/kosdaq-map?limit=${limit}&fresh=${fresh}`
+    ),
+  /** 20일/120일 등락률 for just the given codes — call with the rows actually on
+   * screen (a ranking table's 50 or 20 codes), not a whole screened universe. */
+  marketReturns: (codes: string[]) =>
+    getJSON<{ items: Record<string, MarketReturns> }>(
+      `${BASE}/market/returns?codes=${codes.join(",")}`
     ),
   sp500Map: (limit = 503, fresh = false) =>
     getJSONFresh<MarketMapResponse>(

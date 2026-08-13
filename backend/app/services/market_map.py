@@ -4,6 +4,7 @@ import FinanceDataReader as fdr
 import pandas as pd
 
 from app.data.naver_price_fetcher import NAVER_PAGE_SIZE, fetch_market_cap_page
+from app.data.sparkline_fetcher import get_kr_sparklines
 from app.data.stock_quote_fetcher import get_stock_quotes_bulk
 from app.data.universe import get_stock_market
 from app.services.cache import cache
@@ -21,6 +22,12 @@ SECOND_TIER_PAGES = 3
 SECOND_TIER_TTL_SECONDS = 30
 LONG_TAIL_TTL_SECONDS = 60
 TTL_INDUSTRY_SECONDS = 24 * 3600
+
+# 20일/120일 등락률 come off a year of daily bars per code (see sparkline_fetcher), the
+# same slow-moving history the 100-종목 board's sparklines already use — a session's
+# trailing return doesn't change until tomorrow's bar lands, so this can sit far behind
+# the map's own 10s/30s price tiers without ever showing a stale number.
+RETURNS_TTL_SECONDS = 15 * 60
 
 # KRX-DESC gives a fine-grained KSIC industry string (~100+ distinct values across the
 # top names), too granular for a Finviz-style zoned map. Bucket into broad sectors via
@@ -302,3 +309,27 @@ def get_sector_map(code: str, limit: int = SECTOR_PEER_LIMIT) -> dict:
         "count": len(peers),
         "items": peers,
     }
+
+
+def get_returns_for_codes(codes: list[str]) -> dict[str, dict]:
+    """20일/120일 등락률 for the given codes — the 수급·순위 board's ranking tables call
+    this for just the rows they render (50 코스피/코스닥 시총 rows, or 20 급등/급락 rows),
+    never the wider screened universe those tables are drawn from.
+
+    Cached per code (not per request) so the KOSPI/KOSDAQ/급등/급락 tabs, which share
+    most of their codes, only ever pay for a symbol's year-of-daily-bars fetch once per
+    RETURNS_TTL_SECONDS regardless of how many tabs asked for it.
+    """
+    codes = list(dict.fromkeys(codes))  # de-dupe, keep first-seen order
+    missing = [c for c in codes if cache.peek(f"kr_returns:{c}") is None]
+    if missing:
+        fetched = get_kr_sparklines(missing)
+        for code in missing:
+            series = fetched.get(code)
+            value = (
+                {"d20": series.returns.get("d20"), "d120": series.returns.get("d120")}
+                if series is not None
+                else {"d20": None, "d120": None}
+            )
+            cache.get_or_set(f"kr_returns:{code}", RETURNS_TTL_SECONDS, lambda value=value: value)
+    return {c: cache.peek(f"kr_returns:{c}") for c in codes if cache.peek(f"kr_returns:{c}") is not None}

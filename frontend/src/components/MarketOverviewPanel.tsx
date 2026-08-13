@@ -4,6 +4,7 @@ import {
   InvestorSummaryItem,
   MarketInvestorSummary,
   MarketMapItem,
+  MarketReturns,
   StockSearchResult,
   WeeklyForeignItem,
   api,
@@ -14,6 +15,7 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link } from "../router";
 import { useMarketIndices } from "../useMarketIndices";
 import MacroRatesStrip from "./MacroRatesStrip";
+import StockIcon from "./StockIcon";
 import TabBeacon from "./TabBeacon";
 
 type Tab = "top50" | "kosdaq50" | "gainers" | "losers" | "investor" | "foreignBuyTop20" | "foreignSellTop20";
@@ -56,6 +58,64 @@ function amountColor(value: number): string {
 
 function pct(value: number): string {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+/** A trailing return that may not exist yet (a recent listing, or a symbol whose
+ * history fetch simply hasn't landed). Rendered as "-" rather than a false 0.00%. */
+function returnPct(value: number | null | undefined): string {
+  return value === null || value === undefined ? "-" : pct(value);
+}
+
+function returnColor(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "var(--text-muted)";
+  return value > 0 ? "var(--up-color)" : value < 0 ? "var(--down-color)" : "var(--text-muted)";
+}
+
+/** 거래량 — the day's cumulative share count, already riding along on the same
+ * market-cap page scrape that supplies price and change (see MarketMapItem.volume). */
+function formatVolume(value: number | undefined): string {
+  if (!value) return "-";
+  return value.toLocaleString();
+}
+
+/** 거래대금 — no free KR feed publishes this for the ranking universe, so it's
+ * estimated as close × volume, the same convention the spotlight board's `turnoverOf`
+ * already uses. Won-denominated, so divide into 억 before applying the 억/조 scale. */
+function formatTurnover(close: number, volume: number | undefined, lang: Lang): string {
+  if (!volume) return "-";
+  const eok = (close * volume) / 100_000_000;
+  if (lang === "en") {
+    if (eok >= 10_000) return `${(eok / 10_000).toFixed(1)}T`;
+    return `${(eok / 10).toFixed(1)}B`;
+  }
+  if (eok >= 10_000) return `${(eok / 10_000).toFixed(1)}조`;
+  return `${Math.round(eok).toLocaleString()}억`;
+}
+
+/** Fetches 20일/120일 등락률 for exactly the codes a table has on screen, refreshed
+ * whenever that set of codes changes. Kept off the tables' own faster price-poll
+ * interval — a trailing return can't move until tomorrow's bar, so there's nothing to
+ * gain from asking again every 10-60s the way price/volume do. */
+function useMarketReturns(codes: string[]): Record<string, MarketReturns> {
+  const [returns, setReturns] = useState<Record<string, MarketReturns>>({});
+  const key = codes.join(",");
+
+  useEffect(() => {
+    if (codes.length === 0) return;
+    let cancelled = false;
+    api
+      .marketReturns(codes)
+      .then((res) => {
+        if (!cancelled) setReturns((prev) => ({ ...prev, ...res.items }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+
+  return returns;
 }
 
 function MarketInvestorLine({ summary }: { summary: MarketInvestorSummary | null }) {
@@ -202,6 +262,7 @@ function Top50PriceList({
   }, [market]);
 
   const translatedNames = useTranslatedTexts(items.map((it) => it.name));
+  const returns = useMarketReturns(items.map((it) => it.code));
 
   if (error) return <div className="error-state">{t(error)}</div>;
 
@@ -214,37 +275,49 @@ function Top50PriceList({
             <th>{t("종목명")}</th>
             <th>{t("현재가")}</th>
             <th>{t("등락")}</th>
+            <th>{t("20일 등락률")}</th>
+            <th>{t("120일 등락률")}</th>
+            <th>{t("거래량")}</th>
+            <th>{t("거래대금")}</th>
           </tr>
         </thead>
         <tbody>
           {loading
             ? SKELETON_ROWS.map((i) => (
                 <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
-                  <td colSpan={4}>
+                  <td colSpan={8}>
                     <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
                   </td>
                 </tr>
               ))
-            : items.map((item, idx) => (
-                <tr key={item.code}>
-                  <td className="top50-table-rank">{idx + 1}</td>
-                  <td className="top50-table-name">
-                    <button
-                      type="button"
-                      onClick={() => onSelectStock({ code: item.code, name: item.name, market })}
-                    >
-                      {translatedNames[idx] ?? item.name}
-                    </button>
-                  </td>
-                  <td>
-                    {item.close.toLocaleString()}
-                    {lang === "en" ? " KRW" : "원"}
-                  </td>
-                  <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
-                    {pct(item.change_pct)}
-                  </td>
-                </tr>
-          ))}
+            : items.map((item, idx) => {
+                const ret = returns[item.code];
+                return (
+                  <tr key={item.code}>
+                    <td className="top50-table-rank">{idx + 1}</td>
+                    <td className="top50-table-name">
+                      <button
+                        type="button"
+                        onClick={() => onSelectStock({ code: item.code, name: item.name, market })}
+                      >
+                        <StockIcon className="flow-row-logo" code={item.code} />
+                        {translatedNames[idx] ?? item.name}
+                      </button>
+                    </td>
+                    <td>
+                      {item.close.toLocaleString()}
+                      {lang === "en" ? " KRW" : "원"}
+                    </td>
+                    <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
+                      {pct(item.change_pct)}
+                    </td>
+                    <td style={{ color: returnColor(ret?.d20) }}>{returnPct(ret?.d20)}</td>
+                    <td style={{ color: returnColor(ret?.d120) }}>{returnPct(ret?.d120)}</td>
+                    <td>{formatVolume(item.volume)}</td>
+                    <td>{formatTurnover(item.close, item.volume, lang)}</td>
+                  </tr>
+                );
+              })}
         </tbody>
       </table>
     </div>
@@ -308,6 +381,7 @@ function MoversList({
     .slice(0, MOVERS_LIMIT);
 
   const translatedNames = useTranslatedTexts(ranked.map((it) => it.name));
+  const returns = useMarketReturns(ranked.map((it) => it.code));
 
   if (error) return <div className="error-state">{t(error)}</div>;
 
@@ -320,38 +394,50 @@ function MoversList({
             <th>{t("종목명")}</th>
             <th>{t("현재가")}</th>
             <th>{t("등락")}</th>
+            <th>{t("20일 등락률")}</th>
+            <th>{t("120일 등락률")}</th>
+            <th>{t("거래량")}</th>
+            <th>{t("거래대금")}</th>
           </tr>
         </thead>
         <tbody>
           {loading
             ? SKELETON_ROWS.map((i) => (
                 <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
-                  <td colSpan={4}>
+                  <td colSpan={8}>
                     <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
                   </td>
                 </tr>
               ))
-            : ranked.map((item, idx) => (
-                <tr key={`${item.market}-${item.code}`}>
-                  <td className="top50-table-rank">{idx + 1}</td>
-                  <td className="top50-table-name">
-                    <button
-                      type="button"
-                      onClick={() => onSelectStock({ code: item.code, name: item.name, market: item.market })}
-                    >
-                      {translatedNames[idx] ?? item.name}
-                      <span className="movers-market-tag">{item.market === "KOSPI" ? "KP" : "KQ"}</span>
-                    </button>
-                  </td>
-                  <td>
-                    {item.close.toLocaleString()}
-                    {lang === "en" ? " KRW" : "원"}
-                  </td>
-                  <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
-                    {pct(item.change_pct)}
-                  </td>
-                </tr>
-              ))}
+            : ranked.map((item, idx) => {
+                const ret = returns[item.code];
+                return (
+                  <tr key={`${item.market}-${item.code}`}>
+                    <td className="top50-table-rank">{idx + 1}</td>
+                    <td className="top50-table-name">
+                      <button
+                        type="button"
+                        onClick={() => onSelectStock({ code: item.code, name: item.name, market: item.market })}
+                      >
+                        <StockIcon className="flow-row-logo" code={item.code} />
+                        {translatedNames[idx] ?? item.name}
+                        <span className="movers-market-tag">{item.market === "KOSPI" ? "KP" : "KQ"}</span>
+                      </button>
+                    </td>
+                    <td>
+                      {item.close.toLocaleString()}
+                      {lang === "en" ? " KRW" : "원"}
+                    </td>
+                    <td style={{ color: item.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}>
+                      {pct(item.change_pct)}
+                    </td>
+                    <td style={{ color: returnColor(ret?.d20) }}>{returnPct(ret?.d20)}</td>
+                    <td style={{ color: returnColor(ret?.d120) }}>{returnPct(ret?.d120)}</td>
+                    <td>{formatVolume(item.volume)}</td>
+                    <td>{formatTurnover(item.close, item.volume, lang)}</td>
+                  </tr>
+                );
+              })}
         </tbody>
       </table>
     </div>
@@ -365,7 +451,10 @@ function WeeklyForeignRow({ item, rank, lang }: { item: WeeklyForeignItem; rank:
     <tr>
       <td className="top50-table-rank weekly-foreign-rank-col">{medal || rank}</td>
       <td className="investor-table-name weekly-foreign-name-col">
-        <Link to={`/investor/${item.code}`}>{name}</Link>
+        <Link to={`/investor/${item.code}`}>
+          <StockIcon className="flow-row-logo" code={item.code} />
+          {name}
+        </Link>
       </td>
       <td className="weekly-foreign-amount-col" style={{ color: amountColor(item.amount) }}>
         {formatAmount(item.amount, lang)}
@@ -425,7 +514,10 @@ function InvestorTableRow({
   return (
     <tr>
       <td className="investor-table-name">
-        <Link to={`/investor/${item.code}`}>{name}</Link>
+        <Link to={`/investor/${item.code}`}>
+          <StockIcon className="flow-row-logo" code={item.code} />
+          {name}
+        </Link>
       </td>
       <td style={{ color: amountColor(item.individual_amount) }}>{formatAmount(item.individual_amount, lang)}</td>
       <td style={{ color: amountColor(item.institution_amount) }}>{formatAmount(item.institution_amount, lang)}</td>

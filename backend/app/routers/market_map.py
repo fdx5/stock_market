@@ -20,6 +20,7 @@ from app.services.market_map import (
     SECTOR_PEER_LIMIT,
     get_kosdaq_map,
     get_kospi_map,
+    get_returns_for_codes,
     get_sector_map,
     get_sector_name,
 )
@@ -127,6 +128,20 @@ def stock_board(
     if market not in MARKETS:  # pragma: no cover - the pattern above already rejects these
         raise HTTPException(status_code=404, detail=f"지원하지 않는 시장입니다: {market}")
     return get_board(market, limit, fresh=fresh, slim=slim)
+
+
+@router.get("/returns")
+def market_returns(response: Response, codes: str = Query(..., min_length=6)):
+    """20일/120일 등락률 for a comma-separated list of KRX codes. The 수급·순위 board's
+    ranking tabs call this for just the codes they render — see get_returns_for_codes.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    code_list = [c.strip() for c in codes.split(",") if c.strip()]
+    if not code_list:
+        return {"items": {}}
+    if len(code_list) > 100:
+        raise HTTPException(status_code=400, detail="한 번에 최대 100개 종목까지 조회할 수 있습니다.")
+    return {"items": get_returns_for_codes(code_list)}
 
 
 @router.get("/sector-map")

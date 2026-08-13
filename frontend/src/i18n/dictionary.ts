@@ -402,6 +402,8 @@ export const DICTIONARY: Record<string, string> = {
   "대비": "Change",
   "거래량": "Volume",
   "거래대금": "Value",
+  "20일 등락률": "20d Change",
+  "120일 등락률": "120d Change",
   "시가": "Open",
   "고가": "High",
   "저가": "Low",
