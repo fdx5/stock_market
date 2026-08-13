@@ -6350,6 +6350,30 @@ thead .weekly-foreign-amount-col {
     gap: 3px;
   }
 
+  /* These promoted links carry an absolutely positioned N badge. Re-apply their
+     reserved badge gutter after the generic mobile shorthand above, otherwise that
+     shorthand collapses the left padding and lets the badge cover icon/text. */
+  .app-nav-row .kospi-map-nav-link--etf {
+    min-width: 94px;
+    min-height: 30px;
+    padding: 5px 11px 5px 32px;
+    gap: 4px;
+  }
+
+  .app-nav-row .kospi-map-nav-link--discussion {
+    min-width: 137px;
+    min-height: 30px;
+    padding: 5px 11px 5px 31px;
+  }
+
+  .app-nav-row .kospi-map-nav-link--etf::before,
+  .app-nav-row .kospi-map-nav-link--discussion::before {
+    left: 6px;
+    width: 17px;
+    height: 17px;
+    font-size: 10px;
+  }
+
   .app-nav-row .mini-apps-icon {
     width: 12px;
     height: 12px;
