@@ -644,7 +644,16 @@
 .desk-spot-rows {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+}
+
+.desk-spot-row {
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: calc(var(--desk-radius) + 3px);
+  background:
+    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--series-violet) 7%, transparent), transparent 34%),
+    color-mix(in srgb, var(--desk-card-bg) 52%, transparent);
 }
 
 .desk-spot-rowhead {
@@ -674,18 +683,19 @@
    three are peers; a stock is not more notable for having a longer name. */
 .desk-spot-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
 .desk-spot-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
+  gap: 12px;
+  padding: 15px 16px 14px;
   border: 1px solid var(--border);
   border-radius: var(--desk-radius);
-  background: var(--desk-card-bg);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--desk-spot-edge, var(--series-violet)) 5%, var(--desk-card-bg)), var(--desk-card-bg) 48%);
   font: inherit;
   color: var(--text-primary);
   text-align: left;
@@ -718,15 +728,22 @@
 
 .desk-spot-top {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 38px minmax(0, 1fr);
   align-items: center;
-  gap: 10px;
+  column-gap: 11px;
+  row-gap: 10px;
 }
 
 .desk-spot-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 7px;
+  grid-column: 1;
+  grid-row: 1;
+  width: 38px;
+  height: 38px;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-raised, var(--desk-card-bg)) 92%, white 8%);
+  box-sizing: border-box;
   object-fit: contain;
 }
 
@@ -740,9 +757,9 @@
 .desk-spot-name {
   font-size: 14.5px;
   font-weight: 800;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .desk-spot-sector {
@@ -755,10 +772,15 @@
 }
 
 .desk-spot-quote {
+  grid-column: 1 / -1;
+  grid-row: 2;
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 1px;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--gridline);
   white-space: nowrap;
 }
 
@@ -797,8 +819,7 @@
   align-items: stretch;
   gap: 12px;
   margin-top: auto;
-  padding-top: 9px;
-  border-top: 1px solid var(--gridline);
+  padding-top: 0;
 }
 
 .desk-spot-lines {
@@ -826,7 +847,11 @@
   align-items: center;
   justify-content: flex-end;
   margin-left: auto;
-  width: 132px;
+  width: clamp(132px, 11vw, 176px);
+}
+
+.desk-spot-sparkwrap:empty {
+  display: none;
 }
 
 
@@ -1945,8 +1970,91 @@
 }
 
 @media (max-width: 760px) {
+  .desk-spot {
+    gap: 12px;
+  }
+
+  .desk-spot-row {
+    padding: 9px;
+  }
+
   .desk-spot-grid {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .desk-spot-card {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .desk-spot-top {
+    grid-template-columns: 30px minmax(0, 1fr);
+    column-gap: 8px;
+    row-gap: 7px;
+  }
+
+  .desk-spot-logo {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+  }
+
+  .desk-spot-name {
+    font-size: 12.5px;
+    line-height: 1.25;
+  }
+
+  .desk-spot-sector {
+    font-size: 9.5px;
+  }
+
+  .desk-spot-quote {
+    gap: 5px;
+    padding-top: 7px;
+  }
+
+  .desk-spot-price {
+    font-size: 12.5px;
+  }
+
+  .desk-spot-pct {
+    font-size: 9.5px;
+  }
+
+  .desk-spot-body {
+    display: block;
+  }
+
+  .desk-spot-sparkwrap {
+    display: none;
+  }
+
+  .desk-spot-lines {
+    min-height: 0;
+  }
+
+  .desk-spot-lines em {
+    font-size: 10.5px;
+    line-height: 1.35;
+  }
+
+  .desk-spot-lines em:nth-child(n + 2) {
+    display: none;
+  }
+}
+
+@media (max-width: 430px) {
+  .desk-spot-row {
+    padding: 7px;
+  }
+
+  .desk-spot-grid {
+    gap: 7px;
+  }
+
+  .desk-spot-card {
+    padding: 9px 8px;
   }
 }
 

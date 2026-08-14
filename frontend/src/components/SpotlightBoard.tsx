@@ -44,8 +44,8 @@ const SPARK_DAYS = 20;
  * the six requests are not made at all rather than made and hidden. */
 const SPARK_QUERY = "(min-width: 1181px)";
 const SPOTLIGHT_ETFS: Record<"KR" | "US", string[]> = {
-  KR: ["069500", "360750", "458730"],
-  US: ["SPY", "QQQ", "SCHD"],
+  KR: ["069500", "360750", "133690", "458730"],
+  US: ["SPY", "QQQ", "VTI", "SCHD"],
 };
 
 export default function SpotlightBoard({
@@ -210,7 +210,7 @@ export default function SpotlightBoard({
                 <span className="skeleton" style={{ width: 54, height: 14 }} />
               </div>
               <div className="desk-spot-grid">
-                {[0, 1, 2].map((i) => (
+                {[0, 1, 2, 3].map((i) => (
                   <div className="desk-spot-card is-skeleton" key={i}>
                     <span className="skeleton" style={{ height: 22 }} />
                     <span className="skeleton" style={{ height: 30 }} />
@@ -273,6 +273,7 @@ export default function SpotlightBoard({
 const ETF_ISSUER_DOMAINS: Record<string, string> = {
   SPY: "ssga.com",
   QQQ: "invesco.com",
+  VTI: "vanguard.com",
   SCHD: "schwabassetmanagement.com",
 };
 
@@ -334,7 +335,7 @@ function EtfRow({ items, region }: { items: EtfItem[]; region: "KR" | "US" }) {
               className={`desk-spot-card is-${tone}`}
               onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${region}&asset=ETF`)}
             >
-              <span className="desk-spot-top">
+              <span className="desk-spot-top" title={item.name}>
                 {region === "KR"
                   ? <StockLogo code={item.code} className="desk-spot-logo" />
                   : <EtfIssuerLogo code={item.code} />}
@@ -482,11 +483,11 @@ function Row({
                 })
               }
             >
-              <span className="desk-spot-top">
+              <span className="desk-spot-top" title={names[offset + index] ?? item.name}>
                 <StockLogo code={item.code} className="desk-spot-logo" />
                 <span className="desk-spot-id">
                   <b className="desk-spot-name">{names[offset + index] ?? item.name}</b>
-                  <i className="desk-spot-sector">{item.sector}</i>
+                  <i className="desk-spot-sector">{item.code} · {item.sector}</i>
                 </span>
                 <span className="desk-spot-quote">
                   <b className="desk-spot-price">

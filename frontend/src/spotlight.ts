@@ -195,7 +195,7 @@ const MIN_TURNOVER = 2_000_000_000;
  * size is the only liquidity proxy available — and both these indices are large
  * caps by construction, so this only screens the very bottom of the NASDAQ 100. */
 const MIN_US_CAP = 10_000_000_000;
-const PICKS = 3;
+const PICKS = 4;
 
 function turnoverOf(item: MarketMapItem): number {
   return item.close * (item.volume ?? 0);
