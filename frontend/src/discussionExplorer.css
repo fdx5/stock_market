@@ -21,10 +21,14 @@
 .discussion-heading > span { display: block; margin-bottom: 3px; color: #67e8f9; font: 600 10px/1.2 Inter, sans-serif; letter-spacing: .24em; }
 .discussion-heading h1 { margin: 0; display: flex; align-items: center; gap: .32em; font-size: clamp(19px, 2.2vw, 31px); line-height: 1.1; letter-spacing: -.04em; }
 .discussion-heading-asset { pointer-events: auto; display: inline-flex; align-items: center; gap: .32em; min-width: 0; color: inherit; text-decoration: none; border-radius: 8px; transition: color .2s, filter .2s; }
+.discussion-heading-asset > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .discussion-heading-asset:hover, .discussion-heading-asset:focus-visible { color: #fff; filter: drop-shadow(0 0 9px rgba(103,232,249,.38)); outline: none; }
 .discussion-heading-logo { width: 1em; height: 1em; flex: 0 0 1em; object-fit: contain; border-radius: .18em; background: rgba(255,255,255,.92); box-shadow: 0 0 .7em rgba(103,232,249,.2); }
 .discussion-heading h1 .stock-logo--mono { display: inline-grid; place-items: center; color: #061525; font-size: .34em; font-weight: 900; letter-spacing: 0; }
 .discussion-heading h1 b { margin-left: 7px; color: #8093ac; font-size: .54em; letter-spacing: .06em; }
+.discussion-heading-quote { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 7px; margin-left: 9px; padding-left: 13px; border-left: 1px solid rgba(148,163,184,.22); white-space: nowrap; letter-spacing: -.02em; }
+.discussion-heading-quote strong { color: #dcebf3; font-size: .64em; font-weight: 750; }.discussion-heading-quote em { font-size: .43em; font-style: normal; font-weight: 750; }.discussion-heading-quote em span { opacity: .86; }
+.discussion-heading-quote.is-up strong, .discussion-heading-quote.is-up em { color: #fb7185; text-shadow: 0 0 12px rgba(251,113,133,.18); }.discussion-heading-quote.is-down strong, .discussion-heading-quote.is-down em { color: #60a5fa; text-shadow: 0 0 12px rgba(96,165,250,.18); }.discussion-heading-quote.is-flat strong, .discussion-heading-quote.is-flat em { color: #a8bac7; }
 .discussion-heading p { margin: 4px 0 0; color: rgba(226,248,255,.58); font-size: 12px; letter-spacing: .12em; }
 .discussion-counter { text-align: right; }
 .discussion-counter strong { display: block; color: #fff; font: 300 clamp(25px, 3vw, 42px)/.9 Inter, sans-serif; text-shadow: 0 0 25px rgba(103,232,249,.55); }
@@ -60,7 +64,7 @@
 .discussion-core span { position: absolute; bottom: 43px; color: rgba(224,252,255,.42); font: 600 10px/1 Inter; letter-spacing: .24em; }
 
 .discussion-node { position: absolute; width: clamp(132px, 12vw, 205px); margin: -44px 0 0 calc(clamp(132px, 12vw, 205px) / -2); transform-style: preserve-3d; contain: layout paint style; backface-visibility: visible; }
-.discussion-node > button { position: relative; width: 100%; min-height: 87px; padding: 14px 14px 12px; overflow: hidden; color: var(--card-text, #dff8ff); text-align: left; border: 1px solid color-mix(in srgb, var(--card-accent, #67e8f9) 42%, transparent); border-radius: 13px; background: linear-gradient(135deg, var(--card-a, rgba(10,30,52,.94)), var(--card-b, rgba(8,12,31,.92))); box-shadow: inset 0 1px rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.24); transform: translate3d(0,0,0) scale(var(--node-scale)); transform-origin: center; cursor: pointer; transition: border-color .2s, box-shadow .2s, background .2s; animation: discussion-micro-orbit var(--drift-duration, 8s) ease-in-out var(--float-delay, 0s) infinite var(--drift-direction, normal); backface-visibility: visible; -webkit-backface-visibility: visible; will-change: transform; }
+.discussion-node > button { position: relative; width: 100%; min-height: 87px; padding: 14px 14px 12px; overflow: hidden; color: var(--card-text, #dff8ff); text-align: left; border: 1px solid color-mix(in srgb, var(--card-accent, #67e8f9) 42%, transparent); border-radius: 13px; background: linear-gradient(135deg, var(--card-a, rgba(10,30,52,.94)), var(--card-b, rgba(8,12,31,.92))); box-shadow: inset 0 1px rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.24); transform: translate3d(0,0,0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); transform-origin: center; cursor: pointer; transition: border-color .2s, box-shadow .2s, background .2s; animation: discussion-micro-orbit var(--drift-duration, 8s) ease-in-out var(--float-delay, 0s) infinite var(--drift-direction, normal); backface-visibility: visible; -webkit-backface-visibility: visible; will-change: transform; }
 /* Every card keeps the subtle vertical float that gives the universe its weightless
    feel. Two out of three use this compositor-only Y motion; every third card retains
    the richer micro-orbit, avoiding the old cost of fifty complex animations. */
@@ -162,16 +166,16 @@
 @keyframes detail-enter { from { opacity: 0; transform: translate(35px,-50%) scale(.96); } }
 @keyframes sand-away { 0% { opacity: 1; } 45% { opacity: .72; } 100% { opacity: 0; transform: translate3d(var(--sand-x, 30px), 120px, 20px) rotateZ(9deg) scale(.45); } }
 @keyframes sand-particles { from { opacity: .9; transform: scale(.9); } to { opacity: 0; transform: translate(55px, 105px) scale(1.8) rotate(20deg); } }
-@keyframes card-crumble { 0% { opacity: 1; transform: translate3d(0,0,0) scale(var(--node-scale)); } 45% { opacity: .58; } 100% { opacity: 0; transform: translate3d(18px,42px,0) scale(calc(var(--node-scale) * .72)); } }
+@keyframes card-crumble { 0% { opacity: 1; transform: translate3d(0,0,0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); } 45% { opacity: .58; } 100% { opacity: 0; transform: translate3d(18px,42px,0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1) * .72)); } }
 @keyframes discussion-card-float {
-  from { transform: translate3d(0, var(--drift-y-start, 0px), 0) scale(var(--node-scale)); }
-  to { transform: translate3d(0, var(--drift-y, 0px), 0) scale(var(--node-scale)); }
+  from { transform: translate3d(0, var(--drift-y-start, 0px), 0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
+  to { transform: translate3d(0, var(--drift-y, 0px), 0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
 }
 @keyframes hot-border-sheen { 0%, 18% { background-position: 150% 0; opacity: 0; } 36% { opacity: .82; } 58%, 100% { background-position: -70% 0; opacity: 0; } }
 @keyframes discussion-micro-orbit {
-  0%, 100% { transform: translate3d(var(--drift-x-start, 0px), var(--drift-y-start, 0px), 0) rotateZ(var(--drift-r-start, 0deg)) scale(var(--node-scale)); }
-  45% { transform: translate3d(var(--drift-x, 0px), var(--drift-y, 0px), 0) rotateZ(var(--drift-r, 0deg)) scale(var(--node-scale)); }
-  72% { transform: translate3d(var(--drift-x-mid, 0px), var(--drift-y-mid, 0px), 0) rotateZ(var(--drift-r-mid, 0deg)) scale(var(--node-scale)); }
+  0%, 100% { transform: translate3d(var(--drift-x-start, 0px), var(--drift-y-start, 0px), 0) rotateZ(var(--drift-r-start, 0deg)) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
+  45% { transform: translate3d(var(--drift-x, 0px), var(--drift-y, 0px), 0) rotateZ(var(--drift-r, 0deg)) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
+  72% { transform: translate3d(var(--drift-x-mid, 0px), var(--drift-y-mid, 0px), 0) rotateZ(var(--drift-r-mid, 0deg)) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
 }
 
 @media (max-width: 760px) {
@@ -180,6 +184,7 @@
   .discussion-heading { min-width: 0; }
   .discussion-heading > span, .discussion-heading p { display: none; }
   .discussion-heading h1 { gap: .28em; font-size: clamp(15px, 4.2vw, 18px); white-space: nowrap; }
+  .discussion-heading-quote { display: grid; gap: 1px; margin-left: 4px; padding-left: 8px; }.discussion-heading-quote strong { font-size: .64em; }.discussion-heading-quote em { font-size: .5em; }
   .discussion-heading h1 b { margin-left: 3px; font-size: .5em; }
   .discussion-heading-logo { width: .92em; height: .92em; flex-basis: .92em; }
   .discussion-counter strong { font-size: 21px; }.discussion-counter span { display: none; }

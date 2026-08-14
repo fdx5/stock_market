@@ -104,6 +104,7 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/stock/{code}/balance",
         "/api/stock/{code}/daily",
         "/api/stock/{code}/board",
+        "/api/stock/{code}/quote",
         "/api/stock/{code}/board/{nid}",
         "/api/stock/{code}/board/{nid}/comments",
         # 종목 레이더 and 오늘의 주목 종목 both carry a US side, so the desk quotes
@@ -164,6 +165,7 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/global/indices",
         "/api/global/{code}/enrichment",
         "/api/global/{code}/discussion",
+        "/api/us-stock/{code}/quote",
         "/api/fight/news",
         "/api/fight/news/article",
         "/api/market/sp500-map",

@@ -3,6 +3,7 @@ import { BoardComment, BoardDetail, BoardPost, EtfItem, GlobalDiscussionPost, St
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { reportDiscussionPostClick, reportDiscussionSearchSelection } from "../useActivityTracking";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import StockLogo from "./StockLogo";
 import "../discussionExplorer.css";
 
@@ -60,6 +61,7 @@ type AssetKind = "STOCK" | "ETF";
 type SearchAsset = { code: string; name: string; market: "KR" | "US"; kind: AssetKind };
 
 type Point3D = { x: number; y: number; z: number };
+type ExplorerQuote = { close: number; change: number; change_pct: number };
 
 function ExplorerFpsMeter({ cards }: { cards: number }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -129,7 +131,8 @@ function maximumZoom(): number {
   // Large CSS-scaled 3D layers are the main WebKit GPU-memory pressure point.
   // 1.05 still gives an iPhone 2.5x magnification from its 0.42 default.
   if (window.matchMedia("(pointer: coarse)").matches && window.innerWidth <= 480) return 1.05;
-  return 1.65;
+  if (window.matchMedia("(pointer: coarse)").matches) return 1.2;
+  return 1.4;
 }
 
 function normalizeDomestic(post: BoardPost): UniversePost {
@@ -270,10 +273,9 @@ export default function DiscussionExplorerPage() {
   const market = params.get("market") === "US" ? "US" : "KR";
   const assetKind: AssetKind = params.get("asset") === "ETF" ? "ETF" : "STOCK";
   const backPath = assetKind === "ETF" ? "/etf" : market === "US" ? `/global?code=${encodeURIComponent(code)}` : `/desk?code=${encodeURIComponent(code)}`;
-  const isIphonePortrait = /iPhone|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches;
-  const isCompactTouch = window.innerWidth <= 1100 && window.matchMedia("(pointer: coarse)").matches;
 
   useDocumentTitle(`${name} 종목토론탐험 · K-Stock Hub`);
+  const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [posts, setPosts] = useState<UniversePost[]>([]);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<UniversePost | null>(null);
@@ -284,11 +286,14 @@ export default function DiscussionExplorerPage() {
   const [autoRotate, setAutoRotate] = useState(true);
   const [zoomLabel, setZoomLabel] = useState(100);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [headerQuote, setHeaderQuote] = useState<ExplorerQuote | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [stockResults, setStockResults] = useState<StockSearchResult[]>([]);
   const [etfUniverse, setEtfUniverse] = useState<EtfItem[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const isIphonePortrait = /iPhone|iPod/i.test(navigator.userAgent) && viewportWidth < window.innerHeight;
+  const isCompactTouch = viewportWidth <= 1100 && window.matchMedia("(pointer: coarse)").matches;
   const nextDomesticPage = useRef(6);
   const nextGlobalOffset = useRef<string | null>(null);
   const etfUniverseRequested = useRef(false);
@@ -306,6 +311,10 @@ export default function DiscussionExplorerPage() {
   const starPaused = useRef(false);
   const pageVisible = useRef(!document.hidden);
   const removalTimers = useRef(new Set<number>());
+  const gestureTransformFrame = useRef(0);
+  const zoomLabelTimer = useRef<number | null>(null);
+  const appliedFaceRotation = useRef({ x: Number.NaN, y: Number.NaN });
+  const appliedZoomCompensation = useRef(Number.NaN);
 
   useEffect(() => {
     const onVisibilityChange = () => { pageVisible.current = !document.hidden; };
@@ -315,12 +324,48 @@ export default function DiscussionExplorerPage() {
       removalTimers.current.forEach((timer) => window.clearTimeout(timer));
       removalTimers.current.clear();
       if (searchInputTimer.current !== null) window.clearTimeout(searchInputTimer.current);
+      if (gestureTransformFrame.current) window.cancelAnimationFrame(gestureTransformFrame.current);
+      if (zoomLabelTimer.current !== null) window.clearTimeout(zoomLabelTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    let settleTimer = 0;
+    const settleViewport = () => {
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => {
+        // Width changes represent a real layout/orientation change. Mobile browser
+        // chrome mostly changes height, which must not rebuild the 3D tree.
+        setViewportWidth((current) => Math.abs(current - window.innerWidth) >= 24 ? window.innerWidth : current);
+      }, 280);
+    };
+    window.addEventListener("resize", settleViewport, { passive: true });
+    window.addEventListener("orientationchange", settleViewport, { passive: true });
+    return () => {
+      window.clearTimeout(settleTimer);
+      window.removeEventListener("resize", settleViewport);
+      window.removeEventListener("orientationchange", settleViewport);
     };
   }, []);
 
   useEffect(() => {
     starPaused.current = Boolean(selected);
   }, [isIphonePortrait, selected]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const poll = () => {
+      const request = market === "US" ? api.usStockQuote(code) : api.quote(code);
+      request.then((quote) => {
+        if (!cancelled) setHeaderQuote({ close: quote.close, change: quote.change, change_pct: quote.change_pct });
+      }).catch(() => {
+        // Discussion remains usable when a quote provider is temporarily unavailable.
+      });
+    };
+    poll();
+    const stopPolling = startVisibilityAwareInterval(poll, 10_000);
+    return () => { cancelled = true; stopPolling(); };
+  }, [code, market]);
 
   useEffect(() => {
     const canvas = starCanvasRef.current;
@@ -403,9 +448,45 @@ export default function DiscussionExplorerPage() {
   const applySceneTransform = () => {
     if (!sceneRef.current) return;
     sceneRef.current.style.transform = `translate3d(-50%, -50%, 0) scale(${zoom.current}) rotateX(${rotation.current.x}deg) rotateY(${rotation.current.y}deg)`;
-    sceneRef.current.style.setProperty("--face-x", `${-rotation.current.x}deg`);
-    sceneRef.current.style.setProperty("--face-y", `${-rotation.current.y}deg`);
+    // Above 100%, enlarge the 3D spacing but hold card raster size steady. This keeps
+    // spatial zoom useful without asking the GPU to allocate 40 oversized textures.
+    const zoomCompensation = zoom.current > 1 ? 1 / zoom.current : 1;
+    if (Math.abs(appliedZoomCompensation.current - zoomCompensation) > 0.001) {
+      sceneRef.current.style.setProperty("--zoom-compensation", String(zoomCompensation));
+      appliedZoomCompensation.current = zoomCompensation;
+    }
+    // Zoom changes do not change billboard orientation. Avoid invalidating inherited
+    // custom properties across every card during a pinch/wheel gesture.
+    if (appliedFaceRotation.current.x !== rotation.current.x || appliedFaceRotation.current.y !== rotation.current.y) {
+      sceneRef.current.style.setProperty("--face-x", `${-rotation.current.x}deg`);
+      sceneRef.current.style.setProperty("--face-y", `${-rotation.current.y}deg`);
+      appliedFaceRotation.current = { ...rotation.current };
+    }
   };
+
+  const scheduleSceneTransform = () => {
+    if (gestureTransformFrame.current) return;
+    gestureTransformFrame.current = window.requestAnimationFrame(() => {
+      gestureTransformFrame.current = 0;
+      applySceneTransform();
+    });
+  };
+
+  const scheduleZoomLabel = () => {
+    if (zoomLabelTimer.current !== null) window.clearTimeout(zoomLabelTimer.current);
+    zoomLabelTimer.current = window.setTimeout(() => {
+      setZoomLabel(Math.round(zoom.current * 100));
+      zoomLabelTimer.current = null;
+    }, 120);
+  };
+
+  useEffect(() => {
+    zoom.current = Math.min(maximumZoom(), Math.max(0.42, zoom.current));
+    appliedFaceRotation.current = { x: Number.NaN, y: Number.NaN };
+    appliedZoomCompensation.current = Number.NaN;
+    scheduleSceneTransform();
+    setZoomLabel(Math.round(zoom.current * 100));
+  }, [viewportWidth]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -494,7 +575,7 @@ export default function DiscussionExplorerPage() {
   }, [assetKind, code, market]);
 
   useEffect(() => {
-    applySceneTransform();
+    scheduleSceneTransform();
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (!autoRotate || selected || reducedMotion) return;
     let frame = 0;
@@ -551,9 +632,9 @@ export default function DiscussionExplorerPage() {
     const count = Math.max(isIphonePortrait ? 28 : INITIAL_COUNT, renderedPosts.length);
     // Keep the complete orbit inside narrow screens. Desktop retains the cinematic
     // 510px radius; phones use a tighter physical sphere plus their smaller zoom.
-    const sphereRadius = Math.min(SPHERE_RADIUS, Math.max(280, window.innerWidth * 0.44));
+    const sphereRadius = Math.min(SPHERE_RADIUS, Math.max(280, viewportWidth * 0.44));
     return new Map(renderedPosts.map((post, index) => [post.id, spherePoint(index, count, sphereRadius)]));
-  }, [isIphonePortrait, renderedPosts]);
+  }, [isIphonePortrait, renderedPosts, viewportWidth]);
 
   const selectPost = (post: UniversePost) => {
     if (selected && selected.id !== post.id) {
@@ -721,8 +802,8 @@ export default function DiscussionExplorerPage() {
     // zoomed the entire universe while the user was only reading a post/search list.
     if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-help")) return;
     zoom.current = Math.max(0.42, Math.min(maximumZoom(), zoom.current - event.deltaY * 0.0007));
-    setZoomLabel(Math.round(zoom.current * 100));
-    applySceneTransform();
+    scheduleZoomLabel();
+    scheduleSceneTransform();
   };
 
   const onTouchMove = (event: React.TouchEvent<HTMLDivElement>) => {
@@ -736,7 +817,7 @@ export default function DiscussionExplorerPage() {
       zoom.current = Math.max(0.42, Math.min(maximumZoom(), zoom.current + (distance - touchDistance.current) * 0.003));
       // Do not update React state during a pinch: doing so reconciled all 50 cards on
       // every iOS touchmove. The scene transform itself remains immediate and smooth.
-      applySceneTransform();
+      scheduleSceneTransform();
     }
     touchDistance.current = distance;
   };
@@ -755,7 +836,7 @@ export default function DiscussionExplorerPage() {
       onPointerCancel={pointerUp}
       onWheel={onWheel}
       onTouchMove={onTouchMove}
-      onTouchEnd={() => { touchDistance.current = null; setZoomLabel(Math.round(zoom.current * 100)); }}
+      onTouchEnd={() => { touchDistance.current = null; setZoomLabel(Math.round(zoom.current * 100)); scheduleSceneTransform(); }}
     >
       <div className="discussion-cosmos" aria-hidden="true" />
       <div className="discussion-nebula" aria-hidden="true" />
@@ -773,6 +854,16 @@ export default function DiscussionExplorerPage() {
               <span>{name}</span>
               <b>{code}</b>
             </Link>
+            {headerQuote && (
+              <span className={`discussion-heading-quote is-${headerQuote.change > 0 ? "up" : headerQuote.change < 0 ? "down" : "flat"}`}>
+                <strong>{market === "US" ? `$${headerQuote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : `${headerQuote.close.toLocaleString("ko-KR")}원`}</strong>
+                <em>
+                  {headerQuote.change >= 0 ? "+" : "-"}
+                  {market === "US" ? `$${Math.abs(headerQuote.change).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : Math.abs(headerQuote.change).toLocaleString("ko-KR")}
+                  <span> ({headerQuote.change_pct >= 0 ? "+" : ""}{headerQuote.change_pct.toFixed(2)}%)</span>
+                </em>
+              </span>
+            )}
           </h1>
           <p>종목토론탐험</p>
         </div>
@@ -857,7 +948,7 @@ export default function DiscussionExplorerPage() {
           <div className="discussion-core" aria-hidden="true"><i /><span>{code}</span></div>
           {renderedPosts.map((post, index) => {
             const point = positions.get(post.id) || { x: 0, y: 0, z: 0 };
-            const renderedRadius = Math.min(SPHERE_RADIUS, Math.max(280, window.innerWidth * 0.44));
+            const renderedRadius = Math.min(SPHERE_RADIUS, Math.max(280, viewportWidth * 0.44));
             const depth = (point.z + renderedRadius) / (renderedRadius * 2);
             const theme = CARD_THEMES[index % CARD_THEMES.length];
             const viewTone = post.views >= 50 ? "is-hot-view" : post.views >= 15 ? "is-high-view" : post.views < 10 ? "is-low-view" : "is-mid-view";
