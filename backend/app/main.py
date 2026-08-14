@@ -477,6 +477,10 @@ if STATIC_DIR.exists():
     async def add_static_cache_headers(request, call_next):
         response = await call_next(request)
         path = request.url.path
+        if path.startswith(("/admin", "/api/")):
+            # robots.txt prevents crawling, while X-Robots-Tag also prevents an
+            # externally linked admin/API URL from appearing as a URL-only result.
+            response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
         if path.startswith("/assets/"):
             response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
         elif path.startswith("/img/discussion-pillars-"):

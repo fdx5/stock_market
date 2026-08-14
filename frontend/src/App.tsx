@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import LoadingState from "./components/LoadingState";
 import { useActivityTracking } from "./useActivityTracking";
 import { useRoute } from "./router";
@@ -70,6 +70,13 @@ const MonitorPage = lazy(() => import("./components/MonitorPage"));
 export default function App() {
   const path = useRoute();
   useActivityTracking(path);
+
+  useEffect(() => {
+    const canonicalPath = path === "/type2" ? "/" : path;
+    const canonicalUrl = `https://kospi-predictor.onrender.com${canonicalPath}`;
+    document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", canonicalUrl);
+    document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl);
+  }, [path]);
 
   let page;
   const investorMatch = path.match(/^\/investor\/([^/]+)\/?$/);
