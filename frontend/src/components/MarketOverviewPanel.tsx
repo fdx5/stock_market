@@ -448,7 +448,7 @@ function MoversList({
   );
 }
 
-function WeeklyForeignRow({ item, rank, lang }: { item: WeeklyForeignItem; rank: number; lang: Lang }) {
+function WeeklyForeignRow({ item, rank, lang, side }: { item: WeeklyForeignItem; rank: number; lang: Lang; side: "buy" | "sell" }) {
   const name = useTranslatedText(item.name);
   const medal = medalFor(rank);
   return (
@@ -463,6 +463,13 @@ function WeeklyForeignRow({ item, rank, lang }: { item: WeeklyForeignItem; rank:
       <td className="weekly-foreign-amount-col" style={{ color: amountColor(item.amount) }}>
         {formatAmount(item.amount, lang)}
       </td>
+      <td className="weekly-foreign-price-col">{item.close.toLocaleString()}{lang === "en" ? " KRW" : "원"}</td>
+      <td className="weekly-foreign-change-col" style={{ color: returnColor(item.weekly_change_pct) }}>
+        {pct(item.weekly_change_pct)}
+      </td>
+      <td className="weekly-foreign-days-col">{side === "buy" ? item.foreign_buy_days : item.foreign_sell_days}{lang === "en" ? "d" : "일"}</td>
+      <td className="weekly-foreign-flow-col" style={{ color: amountColor(item.institution_amount) }}>{formatAmount(item.institution_amount, lang)}</td>
+      <td className="weekly-foreign-flow-col" style={{ color: amountColor(item.individual_amount) }}>{formatAmount(item.individual_amount, lang)}</td>
     </tr>
   );
 }
@@ -472,11 +479,13 @@ function WeeklyForeignTable({
   lang,
   amountLabel,
   loading,
+  side,
 }: {
   items: WeeklyForeignItem[];
   lang: Lang;
   amountLabel: string;
   loading: boolean;
+  side: "buy" | "sell";
 }) {
   const t = useT();
   return (
@@ -487,19 +496,24 @@ function WeeklyForeignTable({
             <th className="weekly-foreign-rank-col">{t("순위")}</th>
             <th className="weekly-foreign-name-col">{t("종목명")}</th>
             <th className="weekly-foreign-amount-col">{amountLabel}</th>
+            <th className="weekly-foreign-price-col">{t("현재가")}</th>
+            <th className="weekly-foreign-change-col">{t("주간 등락률")}</th>
+            <th className="weekly-foreign-days-col">{side === "buy" ? t("외국인 매수일") : t("외국인 매도일")}</th>
+            <th className="weekly-foreign-flow-col">{t("기관 주간 순매수(억원)")}</th>
+            <th className="weekly-foreign-flow-col">{t("개인 주간 순매수(억원)")}</th>
           </tr>
         </thead>
         <tbody>
           {loading
             ? SKELETON_ROWS.map((i) => (
                 <tr key={`skeleton-${i}`} className="skeleton-row-tr" aria-hidden="true">
-                  <td colSpan={3}>
+                  <td colSpan={8}>
                     <div className="skeleton-row" style={{ animationDelay: `${i * 60}ms` }} />
                   </td>
                 </tr>
               ))
             : items.map((item, idx) => (
-                <WeeklyForeignRow key={item.code} item={item} rank={idx + 1} lang={lang} />
+                <WeeklyForeignRow key={item.code} item={item} rank={idx + 1} lang={lang} side={side} />
               ))}
         </tbody>
       </table>
@@ -731,6 +745,7 @@ export function MarketFlowBoard({
                 lang={lang}
                 amountLabel={tab === "foreignBuyTop20" ? t("외국인 순매수(억원)") : t("외국인 순매도(억원)")}
                 loading={weeklyForeignLoading}
+                side={tab === "foreignBuyTop20" ? "buy" : "sell"}
               />
             )}
           </>

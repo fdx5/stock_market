@@ -57,7 +57,9 @@ def _load_weekly_foreign() -> list[dict]:
     items = []
     with ThreadPoolExecutor(max_workers=16) as pool:
         futures = {
-            pool.submit(investor_fetcher.get_investor_trend, entry["code"], WEEKLY_FOREIGN_TRADING_DAYS): entry
+            # One extra close lets the board calculate the five-session price move
+            # while the investor-flow sums still cover exactly five trading days.
+            pool.submit(investor_fetcher.get_investor_trend, entry["code"], WEEKLY_FOREIGN_TRADING_DAYS + 1): entry
             for entry in universe
         }
         for future in as_completed(futures):
@@ -69,6 +71,12 @@ def _load_weekly_foreign() -> list[dict]:
             if not trend:
                 continue
 
+            ordered = sorted(trend, key=lambda row: row["date"], reverse=True)
+            week = ordered[:WEEKLY_FOREIGN_TRADING_DAYS]
+            latest_close = week[0]["close"]
+            comparison_close = ordered[WEEKLY_FOREIGN_TRADING_DAYS]["close"] if len(ordered) > WEEKLY_FOREIGN_TRADING_DAYS else week[-1]["close"]
+            weekly_change_pct = (latest_close / comparison_close - 1) * 100 if comparison_close else 0.0
+
             items.append(
                 {
                     "code": entry["code"],
@@ -76,7 +84,13 @@ def _load_weekly_foreign() -> list[dict]:
                     # Sum of daily net foreign amounts over the trading days Naver
                     # returned (usually 5) — the closest a free source gets to a
                     # true "weekly" foreign net-buy/sell figure.
-                    "amount": round(sum(r["foreign_amount"] for r in trend), 1),
+                    "amount": round(sum(r["foreign_amount"] for r in week), 1),
+                    "close": latest_close,
+                    "weekly_change_pct": round(weekly_change_pct, 2),
+                    "foreign_buy_days": sum(1 for r in week if r["foreign_amount"] > 0),
+                    "foreign_sell_days": sum(1 for r in week if r["foreign_amount"] < 0),
+                    "institution_amount": round(sum(r["institution_amount"] for r in week), 1),
+                    "individual_amount": round(sum(r["individual_amount"] for r in week), 1),
                 }
             )
 
@@ -84,7 +98,7 @@ def _load_weekly_foreign() -> list[dict]:
 
 
 def get_weekly_foreign_top() -> dict:
-    items = cache.get_or_set("weekly_foreign_top", TTL_WEEKLY_FOREIGN_SECONDS, _load_weekly_foreign)
+    items = cache.get_or_set("weekly_foreign_top:v2", TTL_WEEKLY_FOREIGN_SECONDS, _load_weekly_foreign)
     buy = sorted(items, key=lambda it: it["amount"], reverse=True)[:WEEKLY_FOREIGN_TOP_N]
     sell = sorted(items, key=lambda it: it["amount"])[:WEEKLY_FOREIGN_TOP_N]
     return {"buy": buy, "sell": sell}

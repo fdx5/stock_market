@@ -3423,18 +3423,29 @@ a.app-brand:hover .app-logo-wide {
    amount columns. */
 .weekly-foreign-table {
   table-layout: fixed;
+  min-width: 980px;
 }
 
 .weekly-foreign-rank-col {
   width: 44px;
 }
 
-.weekly-foreign-name-col,
-.weekly-foreign-amount-col {
-  width: calc((100% - 44px) / 2);
+.weekly-foreign-name-col {
+  width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.weekly-foreign-amount-col {
+  width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.weekly-foreign-price-col { width: 108px; }
+.weekly-foreign-change-col { width: 94px; }
+.weekly-foreign-days-col { width: 96px; }
+.weekly-foreign-flow-col { width: 154px; }
 
 /* The column's too narrow for the full header label on one line — let just the
    header wrap instead of widening the column at the data rows' expense. */
@@ -5310,6 +5321,38 @@ thead .weekly-foreign-amount-col {
   font-variant-numeric: tabular-nums;
 }
 
+.commodity-table td.commodity-market,
+.commodity-table th.commodity-market-head {
+  text-align: left;
+}
+
+.commodity-market {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.commodity-market-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.commodity-market-info img {
+  width: 18px;
+  height: 12px;
+  border-radius: 2px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.commodity-market-info b {
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
 .commodity-table thead th:first-child,
 .commodity-table td.commodity-name {
   text-align: left;
@@ -5410,6 +5453,11 @@ thead .weekly-foreign-amount-col {
 
 .commodity-price {
   font-weight: 700;
+}
+
+.commodity-synced-at {
+  color: var(--text-muted);
+  font-size: 10.5px;
 }
 
 /* 값이 바뀐 행만 잠깐 빛난다. 배경만 건드리므로 글자 색(등락 색)과 충돌하지 않고,

@@ -4,6 +4,8 @@
 // names. Dynamic content (stock names, news, comments) is translated separately —
 // see useTranslatedText(s) — since it can't be known ahead of time.
 export const DICTIONARY: Record<string, string> = {
+  "시장": "Market",
+  "가격 연동": "Price Synced",
   // Shared
   "메인으로": "Main",
   "홈": "Home",
@@ -440,6 +442,11 @@ export const DICTIONARY: Record<string, string> = {
   "순위": "Rank",
   "외국인 순매수(억원)": "Foreign Net Buy (100M KRW)",
   "외국인 순매도(억원)": "Foreign Net Sell (100M KRW)",
+  "주간 등락률": "Weekly Change",
+  "외국인 매수일": "Foreign Buy Days",
+  "외국인 매도일": "Foreign Sell Days",
+  "기관 주간 순매수(억원)": "Institution Weekly Net (100M KRW)",
+  "개인 주간 순매수(억원)": "Retail Weekly Net (100M KRW)",
   "최근 5거래일 기준 외국인 누적 순매수 상위 20종목입니다. · 종목명을 누르면 최근 추이를 볼 수 있습니다.":
     "Top 20 stocks by cumulative foreign net buy over the last 5 trading days · click a stock name to see its recent trend.",
 
@@ -474,7 +481,6 @@ export const DICTIONARY: Record<string, string> = {
   "일중 저가": "Day low",
   "변동률": "Change %",
   "기준일": "As of",
-  "10초마다 갱신 · 가격은 지연될 수 있습니다": "Refreshed every 10s · prices may be delayed",
   "선물 시세를 불러오는 중...": "Loading futures prices...",
   "선물 시세를 불러오지 못했습니다.": "Could not load futures prices.",
   "표시할 D램 현물가격이 없습니다.": "No DRAM spot prices to show.",

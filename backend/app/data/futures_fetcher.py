@@ -24,6 +24,8 @@ nothing without "¢/bu" beside it, and the four price scales on this board (doll
 cents, dollars-per-tonne, index points) otherwise look like one scale with wild outliers.
 """
 
+import datetime as dt
+
 from app.data import yahoo_bulk_quote
 from app.services.cache import cache
 
@@ -68,6 +70,17 @@ ROSTER: list[dict] = [
     {"symbol": "LBR=F", "name": "원목", "name_en": "Lumber", "icon": "lumber", "unit": "$/1000bf"},
 ]
 
+FUTURES_MARKETS = {
+    "GC=F": ("us", "COMEX"), "SI=F": ("us", "COMEX"), "HG=F": ("us", "COMEX"), "ALI=F": ("us", "COMEX"),
+    "PL=F": ("us", "NYMEX"), "PA=F": ("us", "NYMEX"), "CL=F": ("us", "NYMEX"), "NG=F": ("us", "NYMEX"),
+    "HO=F": ("us", "NYMEX"), "RB=F": ("us", "NYMEX"), "BZ=F": ("gb", "ICE Europe"),
+    "ZW=F": ("us", "CBOT"), "ZC=F": ("us", "CBOT"), "ZS=F": ("us", "CBOT"), "ZL=F": ("us", "CBOT"),
+    "ZM=F": ("us", "CBOT"), "ZR=F": ("us", "CBOT"), "ZO=F": ("us", "CBOT"),
+    "CT=F": ("us", "ICE US"), "CC=F": ("us", "ICE US"), "KC=F": ("us", "ICE US"),
+    "SB=F": ("us", "ICE US"), "OJ=F": ("us", "ICE US"),
+    "LE=F": ("us", "CME"), "GF=F": ("us", "CME"), "HE=F": ("us", "CME"), "LBR=F": ("us", "CME"),
+}
+
 
 def _decimals(price: float) -> int:
     """Enough digits to see the contract move, without printing noise.
@@ -94,6 +107,7 @@ def _build() -> dict:
         raise RuntimeError("Yahoo v7 returned no futures quotes from either host")
 
     items: list[dict] = []
+    updated_at = dt.datetime.now(dt.timezone.utc).isoformat()
     for entry in ROSTER:
         quote = quotes.get(entry["symbol"])
         if not quote:
@@ -102,6 +116,7 @@ def _build() -> dict:
             # merge) so a one-off gap never empties the board.
             continue
         price = float(quote["close"])
+        flag, market_name = FUTURES_MARKETS.get(entry["symbol"], ("us", "CME"))
         items.append(
             {
                 "symbol": entry["symbol"],
@@ -109,6 +124,9 @@ def _build() -> dict:
                 "name_en": entry["name_en"],
                 "icon": entry["icon"],
                 "unit": entry["unit"],
+                "flag": flag,
+                "market_name": market_name,
+                "updated_at": updated_at,
                 "price": round(price, _decimals(price)),
                 "change": quote["change"],
                 "change_pct": quote["change_pct"],

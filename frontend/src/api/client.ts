@@ -227,6 +227,9 @@ export interface FuturesItem {
   /** Key into CommodityIcon's glyph set, not a URL. */
   icon: string;
   unit: string;
+  flag: string;
+  market_name: string;
+  updated_at: string;
   price: number;
   change: number;
   change_pct: number;
@@ -596,6 +599,12 @@ export interface WeeklyForeignItem {
   code: string;
   name: string;
   amount: number;
+  close: number;
+  weekly_change_pct: number;
+  foreign_buy_days: number;
+  foreign_sell_days: number;
+  institution_amount: number;
+  individual_amount: number;
 }
 
 /** One code's trailing return off a year of daily bars — see

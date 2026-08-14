@@ -31,7 +31,8 @@ function sameFutures(a: FuturesItem[], b: FuturesItem[]): boolean {
   return a.every((item, i) => {
     const next = b[i];
     return (
-      item.symbol === next.symbol && item.price === next.price && item.change_pct === next.change_pct
+      item.symbol === next.symbol && item.price === next.price && item.change_pct === next.change_pct &&
+      item.updated_at === next.updated_at
     );
   });
 }
@@ -40,6 +41,19 @@ function FuturesBoard() {
   const t = useT();
   const { lang } = useLanguage();
   const en = lang === "en";
+  const formatSyncedAt = (value: string) => {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return new Intl.DateTimeFormat(en ? "en-US" : "ko-KR", {
+      timeZone: "Asia/Seoul",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    }).format(date);
+  };
   const [items, setItems] = useState<FuturesItem[]>([]);
   const [failed, setFailed] = useState(false);
   const itemsRef = useRef<FuturesItem[]>([]);
@@ -126,9 +140,11 @@ function FuturesBoard() {
               {/* "종목"이 아니라 "품목" — 사전에서 "종목"은 개수 뒤에 붙는 조수사로
                   이미 쓰이고 있어(" stocks") 열 제목으로는 영문이 깨진다. */}
               <th>{t("품목")}</th>
+              <th className="commodity-market-head">{t("시장")}</th>
               <th>{t("현재가")}</th>
               <th>{t("대비")}</th>
               <th>{t("변동률")}</th>
+              <th>{t("가격 연동")}</th>
             </tr>
           </thead>
           <tbody>
@@ -143,19 +159,26 @@ function FuturesBoard() {
                     <span className="commodity-name-text">{en ? item.name_en : item.name}</span>
                     <span className="commodity-unit">{item.unit}</span>
                   </td>
+                  <td className="commodity-market">
+                    <span className="commodity-market-info">
+                      <img src={`/img/flag/${item.flag}.svg`} alt="" loading="lazy" />
+                      <b>{item.flag === "gb" ? "UK" : "US"}</b>
+                      <span>{item.market_name}</span>
+                    </span>
+                  </td>
                   <td className="commodity-price">{item.price.toFixed(item.decimals)}</td>
                   <td className={tone}>
                     {item.change > 0 ? "+" : ""}
                     {item.change.toFixed(item.decimals)}
                   </td>
                   <td className={tone}>{pct(item.change_pct)}</td>
+                  <td className="commodity-synced-at">{formatSyncedAt(item.updated_at)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
       </div>
-      <p className="commodity-foot">{t("10초마다 갱신 · 가격은 지연될 수 있습니다")}</p>
     </>
   );
 }
