@@ -74,6 +74,13 @@
 }
 .discussion-node > button:hover, .discussion-node.is-selected > button { animation-play-state: paused; }
 .discussion-explorer.has-detail .discussion-node > button { animation-play-state: paused; }
+/* Orientation changes can dispatch several viewport sizes while browser chrome and
+   safe-area insets settle. Freeze decorative compositing during that short window. */
+.discussion-explorer.is-viewport-changing .discussion-node > button,
+.discussion-explorer.is-viewport-changing .discussion-comets > i,
+.discussion-explorer.is-viewport-changing .discussion-core i,
+.discussion-explorer.is-viewport-changing .discussion-search-prompt,
+.discussion-explorer.is-viewport-changing .discussion-statusbar i { animation-play-state: paused !important; }
 .discussion-node > button:hover, .discussion-node.is-selected > button { z-index: 200; color: #fff; border-color: var(--card-accent, #67e8f9); background: linear-gradient(135deg, color-mix(in srgb, var(--card-a) 88%, white), var(--card-b)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--card-accent) 25%, transparent), 0 0 34px color-mix(in srgb, var(--card-accent) 34%, transparent), 0 18px 50px rgba(0,0,0,.45); }
 .discussion-node.is-high-view > button { border-width: 2px; box-shadow: inset 0 1px rgba(255,255,255,.14), 0 0 16px color-mix(in srgb, var(--card-accent) 23%, transparent), 0 10px 25px rgba(0,0,0,.28); }
 .discussion-node.is-high-view strong { color: #fff; text-shadow: 0 0 12px color-mix(in srgb, var(--card-accent) 65%, transparent); }

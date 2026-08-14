@@ -313,6 +313,8 @@ export default function DiscussionExplorerPage() {
   const removalTimers = useRef(new Set<number>());
   const gestureTransformFrame = useRef(0);
   const zoomLabelTimer = useRef<number | null>(null);
+  const zoomCommitTimer = useRef<number | null>(null);
+  const viewportChanging = useRef(false);
   const appliedFaceRotation = useRef({ x: Number.NaN, y: Number.NaN });
   const appliedZoomCompensation = useRef(Number.NaN);
 
@@ -326,6 +328,7 @@ export default function DiscussionExplorerPage() {
       if (searchInputTimer.current !== null) window.clearTimeout(searchInputTimer.current);
       if (gestureTransformFrame.current) window.cancelAnimationFrame(gestureTransformFrame.current);
       if (zoomLabelTimer.current !== null) window.clearTimeout(zoomLabelTimer.current);
+      if (zoomCommitTimer.current !== null) window.clearTimeout(zoomCommitTimer.current);
     };
   }, []);
 
@@ -333,11 +336,18 @@ export default function DiscussionExplorerPage() {
     let settleTimer = 0;
     const settleViewport = () => {
       window.clearTimeout(settleTimer);
+      viewportChanging.current = true;
+      stageRef.current?.classList.add("is-viewport-changing");
       settleTimer = window.setTimeout(() => {
         // Width changes represent a real layout/orientation change. Mobile browser
         // chrome mostly changes height, which must not rebuild the 3D tree.
         setViewportWidth((current) => Math.abs(current - window.innerWidth) >= 24 ? window.innerWidth : current);
-      }, 280);
+        viewportChanging.current = false;
+        stageRef.current?.classList.remove("is-viewport-changing");
+        appliedFaceRotation.current = { x: Number.NaN, y: Number.NaN };
+        commitCardScale();
+        applySceneTransform();
+      }, 320);
     };
     window.addEventListener("resize", settleViewport, { passive: true });
     window.addEventListener("orientationchange", settleViewport, { passive: true });
@@ -381,6 +391,7 @@ export default function DiscussionExplorerPage() {
     let width = 0;
     let height = 0;
     let ratio = 1;
+    let resizeTimer = 0;
 
     const resize = () => {
       width = window.innerWidth;
@@ -442,21 +453,36 @@ export default function DiscussionExplorerPage() {
     // Safari changes innerHeight while its address bar moves. Reallocating a canvas
     // buffer on every such resize is expensive and can retain old IOSurface memory.
     // On compact iOS only an orientation change warrants a new backing store.
-    const resizeEvent = compactTouch ? "orientationchange" : "resize";
-    window.addEventListener(resizeEvent, resize, { passive: true });
-    return () => { window.cancelAnimationFrame(frame); window.removeEventListener(resizeEvent, resize); };
+    const settleCanvas = () => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(() => { resize(); draw(performance.now()); }, 320);
+    };
+    window.addEventListener("resize", settleCanvas, { passive: true });
+    window.addEventListener("orientationchange", settleCanvas, { passive: true });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(resizeTimer);
+      window.removeEventListener("resize", settleCanvas);
+      window.removeEventListener("orientationchange", settleCanvas);
+    };
   }, []);
 
-  const applySceneTransform = () => {
+  const commitCardScale = () => {
     if (!sceneRef.current) return;
-    sceneRef.current.style.transform = `translate3d(-50%, -50%, 0) scale(${zoom.current}) rotateX(${rotation.current.x}deg) rotateY(${rotation.current.y}deg)`;
     // Above 100%, enlarge the 3D spacing but hold card raster size steady. This keeps
     // spatial zoom useful without asking the GPU to allocate 40 oversized textures.
+    // This is intentionally committed only after a gesture. Updating an inherited
+    // variable on every pinch frame forced all card animations to be recalculated.
     const zoomCompensation = zoom.current > 1 ? 1 / zoom.current : 1;
     if (Math.abs(appliedZoomCompensation.current - zoomCompensation) > 0.001) {
       sceneRef.current.style.setProperty("--zoom-compensation", String(zoomCompensation));
       appliedZoomCompensation.current = zoomCompensation;
     }
+  };
+
+  const applySceneTransform = () => {
+    if (!sceneRef.current) return;
+    sceneRef.current.style.transform = `translate3d(-50%, -50%, 0) scale(${zoom.current}) rotateX(${rotation.current.x}deg) rotateY(${rotation.current.y}deg)`;
     // Zoom changes do not change billboard orientation. Avoid invalidating inherited
     // custom properties across every card during a pinch/wheel gesture.
     if (appliedFaceRotation.current.x !== rotation.current.x || appliedFaceRotation.current.y !== rotation.current.y) {
@@ -482,10 +508,19 @@ export default function DiscussionExplorerPage() {
     }, 120);
   };
 
+  const scheduleCardScaleCommit = () => {
+    if (zoomCommitTimer.current !== null) window.clearTimeout(zoomCommitTimer.current);
+    zoomCommitTimer.current = window.setTimeout(() => {
+      commitCardScale();
+      zoomCommitTimer.current = null;
+    }, 180);
+  };
+
   useEffect(() => {
     zoom.current = Math.min(maximumZoom(), Math.max(0.42, zoom.current));
     appliedFaceRotation.current = { x: Number.NaN, y: Number.NaN };
     appliedZoomCompensation.current = Number.NaN;
+    commitCardScale();
     scheduleSceneTransform();
     setZoomLabel(Math.round(zoom.current * 100));
   }, [viewportWidth]);
@@ -584,7 +619,7 @@ export default function DiscussionExplorerPage() {
     let previous = performance.now();
     const animate = (now: number) => {
       const interval = isCompactTouch ? 1000 / 45 : 0;
-      if (pageVisible.current && !drag.current.active && now - previous >= interval) {
+      if (pageVisible.current && !viewportChanging.current && !drag.current.active && now - previous >= interval) {
         const elapsed = Math.min(50, now - previous);
         previous = now;
         // 0.00525 = the original 0.0035 speed × 1.5. Time-based motion keeps the
@@ -616,6 +651,7 @@ export default function DiscussionExplorerPage() {
       else return;
       rotation.current.x = Math.max(-80, Math.min(80, rotation.current.x));
       setZoomLabel(Math.round(zoom.current * 100));
+      if (["+", "=", "-", "_"].includes(event.key)) commitCardScale();
       applySceneTransform();
       event.preventDefault();
     };
@@ -805,6 +841,7 @@ export default function DiscussionExplorerPage() {
     if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-help")) return;
     zoom.current = Math.max(0.42, Math.min(maximumZoom(), zoom.current - event.deltaY * 0.0007));
     scheduleZoomLabel();
+    scheduleCardScaleCommit();
     scheduleSceneTransform();
   };
 
@@ -838,7 +875,7 @@ export default function DiscussionExplorerPage() {
       onPointerCancel={pointerUp}
       onWheel={onWheel}
       onTouchMove={onTouchMove}
-      onTouchEnd={() => { touchDistance.current = null; setZoomLabel(Math.round(zoom.current * 100)); scheduleSceneTransform(); }}
+      onTouchEnd={() => { touchDistance.current = null; setZoomLabel(Math.round(zoom.current * 100)); commitCardScale(); scheduleSceneTransform(); }}
     >
       <div className="discussion-cosmos" aria-hidden="true" />
       <div className="discussion-nebula" aria-hidden="true" />
@@ -1020,9 +1057,9 @@ export default function DiscussionExplorerPage() {
 
       <div className="discussion-controls">
         <button type="button" className={autoRotate ? "is-on" : ""} onClick={() => setAutoRotate((value) => !value)} title="자동 회전">◉<span>자동 회전</span></button>
-        <button type="button" onClick={() => { zoom.current = Math.min(maximumZoom(), zoom.current + 0.12); setZoomLabel(Math.round(zoom.current * 100)); applySceneTransform(); }} title="확대">＋<span>확대</span></button>
-        <button type="button" onClick={() => { zoom.current = Math.max(0.42, zoom.current - 0.12); setZoomLabel(Math.round(zoom.current * 100)); applySceneTransform(); }} title="축소">−<span>축소</span></button>
-        <button type="button" onClick={() => { const nextZoom = defaultZoom(); rotation.current = { x: -8, y: 0 }; zoom.current = nextZoom; setZoomLabel(Math.round(nextZoom * 100)); applySceneTransform(); }} title="시점 초기화">⌖<span>초기화</span></button>
+        <button type="button" onClick={() => { zoom.current = Math.min(maximumZoom(), zoom.current + 0.12); setZoomLabel(Math.round(zoom.current * 100)); commitCardScale(); applySceneTransform(); }} title="확대">＋<span>확대</span></button>
+        <button type="button" onClick={() => { zoom.current = Math.max(0.42, zoom.current - 0.12); setZoomLabel(Math.round(zoom.current * 100)); commitCardScale(); applySceneTransform(); }} title="축소">−<span>축소</span></button>
+        <button type="button" onClick={() => { const nextZoom = defaultZoom(); rotation.current = { x: -8, y: 0 }; zoom.current = nextZoom; setZoomLabel(Math.round(nextZoom * 100)); commitCardScale(); applySceneTransform(); }} title="시점 초기화">⌖<span>초기화</span></button>
         <button type="button" onClick={() => setHelpOpen((value) => !value)} title="조작 도움말">?<span>조작법</span></button>
       </div>
 
