@@ -237,7 +237,9 @@
 .discussion-explorer.is-compact-touch .discussion-node.is-hot-view > button { box-shadow:inset 0 1px rgba(255,255,255,.14),0 0 3px var(--card-accent),0 0 14px color-mix(in srgb,var(--card-accent) 42%,transparent),0 6px 14px rgba(0,0,0,.3); }
 .discussion-explorer.is-compact-touch .discussion-detail { animation:none; box-shadow:0 12px 38px rgba(0,0,0,.62),0 0 20px rgba(34,211,238,.07); }
 .discussion-explorer.is-compact-touch .discussion-detail-glow { display:none; }
-.discussion-explorer.is-compact-touch.has-detail .discussion-scene,.discussion-explorer.is-compact-touch.has-detail .discussion-stars,.discussion-explorer.is-compact-touch.has-detail .discussion-comets { visibility:hidden; }
+.discussion-explorer.is-compact-touch.has-detail .discussion-scene { pointer-events:none; }
+.discussion-explorer.is-compact-touch.has-detail .discussion-node:nth-child(4n) > button,
+.discussion-explorer.is-compact-touch.has-detail .discussion-comets > i:first-child { animation-play-state:running; }
 .discussion-explorer.is-compact-touch .discussion-node.is-disintegrating { animation:ios-card-away .38s ease-out forwards; }
 .discussion-explorer.is-compact-touch .discussion-node.is-disintegrating::before,.discussion-explorer.is-compact-touch .discussion-node.is-disintegrating::after { display:none; }
 .discussion-explorer.is-compact-touch .discussion-node.is-disintegrating > button { animation:none; filter:none; }
