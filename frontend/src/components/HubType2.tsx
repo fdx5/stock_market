@@ -498,7 +498,9 @@ export default function HubType2() {
           </Link>
         </h1>
         <p className="h2-tagline">
-          {en ? "Every market signal, in one place." : "증시의 모든 정보가 여기서 만납니다"}
+          {en
+            ? "Korean and US stocks, ETFs and market-cap maps in one place."
+            : "코스피·코스닥·미국 주식·ETF 시세와 시가총액 맵을 한눈에"}
         </p>
       </header>
 

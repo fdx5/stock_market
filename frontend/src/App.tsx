@@ -67,6 +67,73 @@ const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
 // touches a visitor's bundle.
 const MonitorPage = lazy(() => import("./components/MonitorPage"));
 
+const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
+  "/": {
+    title: "K-Stock Hub | 코스피·코스닥·미국 주식 시세와 ETF",
+    description: "코스피·코스닥·미국 증시 시세와 시가총액 맵, 주식·ETF 거래대금 순위, 뉴스와 종목토론을 한눈에 확인하세요.",
+  },
+  "/desk": {
+    title: "오늘의 주식 시황과 실시간 시세 | K-Stock Hub",
+    description: "코스피·코스닥 시장 현황, 국내외 주식 실시간 시세, 거래대금·상승·하락 종목 순위와 주요 뉴스를 확인하세요.",
+  },
+  "/map": {
+    title: "코스피 시가총액 맵·주식 히트맵 | K-Stock Hub",
+    description: "코스피 상위 500개 종목을 시가총액 비중과 등락률로 표현한 실시간 주식 히트맵입니다. 업종별 시장 흐름을 한눈에 확인하세요.",
+  },
+  "/kosdaq-map": {
+    title: "코스닥 시가총액 맵·주식 히트맵 | K-Stock Hub",
+    description: "코스닥 주요 종목의 시가총액 비중과 등락률을 업종별 히트맵으로 비교하고 오늘의 시장 흐름을 확인하세요.",
+  },
+  "/sp500-map": {
+    title: "S&P500 시가총액 맵·미국 주식 히트맵 | K-Stock Hub",
+    description: "S&P500 종목의 시가총액 비중과 등락률을 한눈에 비교하는 미국 주식 시장 히트맵입니다.",
+  },
+  "/nasdaq100-map": {
+    title: "나스닥100 시가총액 맵·미국 증시 | K-Stock Hub",
+    description: "나스닥100 주요 기술주의 시가총액 비중과 등락률을 실시간 주식 히트맵으로 확인하세요.",
+  },
+  "/etf": {
+    title: "국내·미국 ETF 순위와 거래대금 | K-Stock Hub",
+    description: "국내 ETF와 미국 ETF의 시세, 등락률, 수익률과 거래대금 순위를 검색하고 비교하세요.",
+  },
+  "/kospi-100": {
+    title: "코스피 시가총액·거래대금 순위 TOP 100 | K-Stock Hub",
+    description: "코스피 종목의 시가총액, 거래대금, 상승률과 하락률 순위를 빠르게 비교하세요.",
+  },
+  "/kosdaq-100": {
+    title: "코스닥 시가총액·거래대금 순위 TOP 100 | K-Stock Hub",
+    description: "코스닥 종목의 시가총액, 거래대금, 상승률과 하락률 순위를 확인하세요.",
+  },
+  "/nasdaq-100": {
+    title: "나스닥 종목 시세와 순위 TOP 100 | K-Stock Hub",
+    description: "나스닥 주요 종목의 주가, 시가총액, 거래량과 등락률 순위를 비교하세요.",
+  },
+  "/global-top100": {
+    title: "세계 기업 시가총액 순위 TOP 100 | K-Stock Hub",
+    description: "글로벌 기업 시가총액 순위와 국가·업종별 주요 기업 정보를 한눈에 확인하세요.",
+  },
+  "/discussion-explorer": {
+    title: "주식·ETF 종목토론 | K-Stock Hub",
+    description: "국내외 주식과 ETF의 최근 게시글과 댓글을 3D 공간에서 탐색하고 종목별 투자자 의견을 확인하세요.",
+  },
+  "/ai-prediction": {
+    title: "AI 주가 예측과 종목 분석 | K-Stock Hub",
+    description: "국내 주식과 미국 주식의 AI 예측 결과, 근거 지표와 과거 예측 채점 결과를 확인하세요.",
+  },
+  "/news": {
+    title: "오늘의 국내외 증시 뉴스 | K-Stock Hub",
+    description: "국내 증시와 미국 증시에 영향을 주는 주요 글로벌 경제·기업 뉴스를 한곳에서 확인하세요.",
+  },
+  "/fight": {
+    title: "기업 시가총액 비교·시총대결 | K-Stock Hub",
+    description: "국내외 주요 기업의 시가총액과 기업 정보를 직관적으로 비교하세요.",
+  },
+  "/dram-price": {
+    title: "D램·메모리 반도체 가격 추이 | K-Stock Hub",
+    description: "D램 현물가격과 메모리 반도체 가격 변화를 기간별 차트로 확인하세요.",
+  },
+};
+
 export default function App() {
   const path = useRoute();
   useActivityTracking(path);
@@ -76,6 +143,15 @@ export default function App() {
     const canonicalUrl = `https://kospi-predictor.onrender.com${canonicalPath}`;
     document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", canonicalUrl);
     document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl);
+
+    const seo = PUBLIC_PAGE_SEO[canonicalPath];
+    if (!seo) return;
+    document.title = seo.title;
+    document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", seo.description);
+    document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute("content", seo.title);
+    document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", seo.description);
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute("content", seo.title);
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", seo.description);
   }, [path]);
 
   let page;
