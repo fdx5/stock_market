@@ -182,6 +182,17 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/etfs/{code}/toss-discussion",
         "/api/translate",
     ],
+    # The explorer chooses one discussion source from the market/asset query params,
+    # then lazily loads the cross-market ETF catalog only when search is used.
+    "page:/discussion-explorer": [
+        "/api/search",
+        "/api/etfs",
+        "/api/stock/{code}/board",
+        "/api/stock/{code}/board/{nid}",
+        "/api/stock/{code}/board/{nid}/comments",
+        "/api/global/{code}/discussion",
+        "/api/etfs/{code}/toss-discussion",
+    ],
     "page:/map": ["/api/market/map", "/api/market/ticker", "/api/visitors/count", "/api/translate"],
     "page:/kosdaq-map": [
         "/api/market/kosdaq-map",
