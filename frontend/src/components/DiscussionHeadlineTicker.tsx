@@ -1,25 +1,30 @@
 import { useEffect, useState } from "react";
-import { BoardPost, api } from "../api/client";
+import { api } from "../api/client";
 
-export default function DiscussionHeadlineTicker({ code }: { code: string }) {
-  const [posts, setPosts] = useState<BoardPost[]>([]);
+type HeadlinePost = { id: string; title: string };
+
+export default function DiscussionHeadlineTicker({ code, market = "KR" }: { code: string; market?: "KR" | "US" }) {
+  const [posts, setPosts] = useState<HeadlinePost[]>([]);
 
   useEffect(() => {
     let cancelled = false;
-    api.board(code, 1, true)
-      .then((result) => {
-        if (!cancelled) setPosts(result.items.slice(0, 10));
+    const request = market === "US"
+      ? api.globalDiscussion(code, 10).then((result) => result.items.slice(0, 10).map((post) => ({ id: post.id, title: post.title || post.text })))
+      : api.board(code, 1, true).then((result) => result.items.slice(0, 10).map((post) => ({ id: post.nid, title: post.title })));
+    request
+      .then((items) => {
+        if (!cancelled) setPosts(items);
       })
       .catch(() => {
         if (!cancelled) setPosts([]);
       });
     return () => { cancelled = true; };
-  }, [code]);
+  }, [code, market]);
 
   if (posts.length === 0) return null;
 
   const renderSet = (copy: number) => posts.map((post, index) => (
-    <span className="discussion-headline-item" key={`${copy}-${post.nid}`}>
+    <span className="discussion-headline-item" key={`${copy}-${post.id}`}>
       <i>{String(index + 1).padStart(2, "0")}</i>
       {post.title}
     </span>

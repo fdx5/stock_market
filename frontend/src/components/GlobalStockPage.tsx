@@ -24,6 +24,7 @@ import LanguageToggle from "./LanguageToggle";
 import PredictIcon from "./PredictIcon";
 import RankIcon from "./RankIcon";
 import DashboardIcon from "./DashboardIcon";
+import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
 import Logo from "./Logo";
 import MacroRatesStrip from "./MacroRatesStrip";
 import MarketIcon from "./MarketIcon";
@@ -532,12 +533,15 @@ export default function GlobalStockPage() {
                   {quote.name}
                 </span>
                 <span className="code">{quote.code}</span>
-                <Link
-                  to={`/discussion-explorer?code=${encodeURIComponent(quote.code)}&name=${encodeURIComponent(quote.name)}&market=US`}
-                  className="discussion-explorer-link"
-                >
-                  <span aria-hidden="true">✦</span> 종목토론탐험 <i aria-hidden="true">→</i>
-                </Link>
+                <div className="discussion-explorer-row">
+                  <Link
+                    to={`/discussion-explorer?code=${encodeURIComponent(quote.code)}&name=${encodeURIComponent(quote.name)}&market=US`}
+                    className="discussion-explorer-link"
+                  >
+                    <span aria-hidden="true">✦</span> 종목토론탐험 <i aria-hidden="true">→</i>
+                  </Link>
+                  <DiscussionHeadlineTicker code={quote.code} market="US" />
+                </div>
                 <span
                   className={`price ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}
                 >
