@@ -85,7 +85,12 @@
 .discussion-node.is-disintegrating { z-index: 999 !important; pointer-events: none; animation: sand-away .86s cubic-bezier(.2,.7,.2,1) forwards; }
 .discussion-node.is-disintegrating::before, .discussion-node.is-disintegrating::after { content: ""; position: absolute; inset: 5% 10%; z-index: 3; pointer-events: none; background-image: radial-gradient(circle, #a5f3fc 0 1px, transparent 1.7px), radial-gradient(circle, #c4b5fd 0 1px, transparent 1.8px); background-size: 11px 13px, 17px 9px; animation: sand-particles .84s ease-out forwards; }
 .discussion-node.is-disintegrating::after { animation-delay: .08s; animation-direction: reverse; }
-.discussion-node.is-disintegrating > button { animation: card-crumble .84s ease-in forwards; mask-image: radial-gradient(circle at 15% 20%, transparent 0 1px, #000 2px); mask-size: 9px 9px; }
+.discussion-node.is-disintegrating > button {
+  animation: card-crumble .62s ease-in forwards;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+.discussion-explorer.has-detail .discussion-comets > i { animation-play-state: paused; }
 
 .discussion-loading, .discussion-error { position: absolute; z-index: 25; left: 50%; top: 50%; display: grid; justify-items: center; gap: 18px; transform: translate(-50%, -50%); color: #b8d7e5; text-align: center; }
 .discussion-loader-orbit { position: relative; width: 86px; height: 86px; border: 1px solid rgba(103,232,249,.2); border-radius: 50%; animation: core-spin 2.8s linear infinite; }
@@ -135,9 +140,9 @@
 @keyframes core-spin { to { transform: rotate(360deg); } }
 @keyframes core-pulse { 50% { transform: scale(1.25); box-shadow: 0 0 24px #fff, 0 0 65px #22d3ee, 0 0 120px #7c3aed; } }
 @keyframes detail-enter { from { opacity: 0; transform: translate(35px,-50%) scale(.96); } }
-@keyframes sand-away { 0% { filter: none; } 45% { opacity: .72; filter: blur(1px) brightness(1.5); } 100% { opacity: 0; filter: blur(9px); transform: translate3d(var(--sand-x, 30px), 120px, 20px) rotateZ(9deg) scale(.45); } }
+@keyframes sand-away { 0% { opacity: 1; } 45% { opacity: .72; } 100% { opacity: 0; transform: translate3d(var(--sand-x, 30px), 120px, 20px) rotateZ(9deg) scale(.45); } }
 @keyframes sand-particles { from { opacity: .9; transform: scale(.9); } to { opacity: 0; transform: translate(55px, 105px) scale(1.8) rotate(20deg); } }
-@keyframes card-crumble { 0% { opacity: 1; filter: brightness(1); } 35% { filter: brightness(1.8) saturate(.7); } 100% { opacity: 0; filter: blur(6px) brightness(2); clip-path: polygon(0 0, 84% 4%, 70% 18%, 94% 29%, 59% 43%, 80% 58%, 42% 68%, 61% 84%, 9% 100%); } }
+@keyframes card-crumble { 0% { opacity: 1; transform: translate3d(0,0,0) scale(var(--node-scale)); } 45% { opacity: .58; } 100% { opacity: 0; transform: translate3d(18px,42px,0) scale(calc(var(--node-scale) * .72)); } }
 @keyframes discussion-card-float {
   from { transform: translate3d(0, var(--drift-y-start, 0px), 0) scale(var(--node-scale)); }
   to { transform: translate3d(0, var(--drift-y, 0px), 0) scale(var(--node-scale)); }
