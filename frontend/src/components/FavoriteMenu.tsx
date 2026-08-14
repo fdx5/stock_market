@@ -5,6 +5,7 @@ import { navigate } from "../router";
 type FavoritePage = {
   path: string;
   title: string;
+  customTitle?: boolean;
 };
 
 const STORAGE_KEY = "kstock_favorite_pages";
@@ -42,6 +43,10 @@ export default function FavoriteMenu() {
   const rootRef = useRef<HTMLSpanElement>(null);
   const [open, setOpen] = useState(false);
   const [favorites, setFavorites] = useState<FavoritePage[]>(readFavorites);
+  const [adding, setAdding] = useState(false);
+  const [addTitle, setAddTitle] = useState("");
+  const [editingPath, setEditingPath] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
   const path = currentPath();
   const isFavorite = useMemo(() => favorites.some((item) => item.path === path), [favorites, path]);
 
@@ -66,7 +71,7 @@ export default function FavoriteMenu() {
       const title = document.title || "K-Stock Hub";
       setFavorites((previous) => {
         const saved = previous.find((item) => item.path === path);
-        if (!saved || saved.title === title) return previous;
+        if (!saved || saved.customTitle || saved.title === title) return previous;
         const next = previous.map((item) => (item.path === path ? { ...item, title } : item));
         writeFavorites(next);
         return next;
@@ -79,15 +84,23 @@ export default function FavoriteMenu() {
     return () => observer.disconnect();
   }, [path]);
 
-  const toggleCurrent = () => {
+  const beginToggleCurrent = () => {
+    if (isFavorite) {
+      removeFavorite(path);
+      return;
+    }
+    setAddTitle(document.title || "K-Stock Hub");
+    setAdding(true);
+  };
+
+  const saveCurrent = () => {
+    const title = addTitle.trim() || document.title || "K-Stock Hub";
     setFavorites((previous) => {
-      const exists = previous.some((item) => item.path === path);
-      const next = exists
-        ? previous.filter((item) => item.path !== path)
-        : [...previous, { path, title: document.title || "K-Stock Hub" }];
+      const next = [...previous.filter((item) => item.path !== path), { path, title, customTitle: true }];
       writeFavorites(next);
       return next;
     });
+    setAdding(false);
   };
 
   const removeFavorite = (favoritePath: string) => {
@@ -96,6 +109,26 @@ export default function FavoriteMenu() {
       writeFavorites(next);
       return next;
     });
+    if (editingPath === favoritePath) setEditingPath(null);
+  };
+
+  const beginEdit = (favorite: FavoritePage) => {
+    setEditingPath(favorite.path);
+    setEditTitle(favorite.title);
+  };
+
+  const saveEdit = () => {
+    if (!editingPath) return;
+    const title = editTitle.trim();
+    if (!title) return;
+    setFavorites((previous) => {
+      const next = previous.map((item) =>
+        item.path === editingPath ? { ...item, title, customTitle: true } : item,
+      );
+      writeFavorites(next);
+      return next;
+    });
+    setEditingPath(null);
   };
 
   return (
@@ -114,7 +147,7 @@ export default function FavoriteMenu() {
 
       {open && (
         <span className="favorite-menu-popover" role="menu">
-          <button type="button" className="favorite-menu-current" role="menuitem" onClick={toggleCurrent}>
+          <button type="button" className="favorite-menu-current" role="menuitem" onClick={beginToggleCurrent}>
             <span aria-hidden="true">{isFavorite ? "★" : "☆"}</span>
             {lang === "ko"
               ? isFavorite
@@ -124,6 +157,25 @@ export default function FavoriteMenu() {
                 ? "Remove current page"
                 : "Add current page"}
           </button>
+
+          {adding && (
+            <span className="favorite-menu-editor">
+              <input
+                type="text"
+                value={addTitle}
+                maxLength={100}
+                aria-label={lang === "ko" ? "즐겨찾기 이름" : "Favorite name"}
+                autoFocus
+                onChange={(event) => setAddTitle(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") saveCurrent();
+                  if (event.key === "Escape") setAdding(false);
+                }}
+              />
+              <button type="button" onClick={saveCurrent}>{lang === "ko" ? "저장" : "Save"}</button>
+              <button type="button" onClick={() => setAdding(false)}>{lang === "ko" ? "취소" : "Cancel"}</button>
+            </span>
+          )}
 
           <span className="favorite-menu-heading">
             {lang === "ko" ? `즐겨찾기 ${favorites.length}` : `Favorites ${favorites.length}`}
@@ -136,18 +188,46 @@ export default function FavoriteMenu() {
             <span className="favorite-menu-list">
               {favorites.map((favorite) => (
                 <span className="favorite-menu-item" key={favorite.path}>
+                  {editingPath === favorite.path ? (
+                    <span className="favorite-menu-item-editor">
+                      <input
+                        type="text"
+                        value={editTitle}
+                        maxLength={100}
+                        aria-label={lang === "ko" ? "즐겨찾기 이름 수정" : "Edit favorite name"}
+                        autoFocus
+                        onChange={(event) => setEditTitle(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") saveEdit();
+                          if (event.key === "Escape") setEditingPath(null);
+                        }}
+                      />
+                      <button type="button" onClick={saveEdit} aria-label={lang === "ko" ? "수정 저장" : "Save edit"}>✓</button>
+                      <button type="button" onClick={() => setEditingPath(null)} aria-label={lang === "ko" ? "수정 취소" : "Cancel edit"}>×</button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="favorite-menu-link"
+                      role="menuitem"
+                      title={favorite.title}
+                      onClick={() => {
+                        setOpen(false);
+                        navigate(favorite.path);
+                      }}
+                    >
+                      <span>{favorite.title}</span>
+                      <small>{favorite.path}</small>
+                    </button>
+                  )}
                   <button
                     type="button"
-                    className="favorite-menu-link"
-                    role="menuitem"
-                    title={favorite.title}
-                    onClick={() => {
-                      setOpen(false);
-                      navigate(favorite.path);
-                    }}
+                    className="favorite-menu-edit"
+                    aria-label={lang === "ko" ? `${favorite.title} 이름 수정` : `Rename ${favorite.title}`}
+                    title={lang === "ko" ? "이름 수정" : "Rename"}
+                    onClick={() => beginEdit(favorite)}
                   >
-                    <span>{favorite.title}</span>
-                    <small>{favorite.path}</small>
+                    ✎
                   </button>
                   <button
                     type="button"

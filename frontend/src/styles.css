@@ -4465,9 +4465,41 @@ thead .weekly-foreign-amount-col {
 
 .favorite-menu-current,
 .favorite-menu-link,
+.favorite-menu-edit,
 .favorite-menu-remove {
   border: 0;
   font: inherit;
+  cursor: pointer;
+}
+
+.favorite-menu-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 5px;
+}
+
+.favorite-menu-editor input,
+.favorite-menu-item-editor input {
+  min-width: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--series-blue);
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.favorite-menu-editor button,
+.favorite-menu-item-editor button {
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -4510,11 +4542,19 @@ thead .weekly-foreign-amount-col {
 
 .favorite-menu-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px;
+  grid-template-columns: minmax(0, 1fr) 30px 30px;
   align-items: center;
   gap: 4px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface) 86%, var(--text-primary) 4%);
+}
+
+.favorite-menu-item-editor {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px 28px;
+  gap: 4px;
+  padding: 5px;
 }
 
 .favorite-menu-link {
@@ -4544,6 +4584,7 @@ thead .weekly-foreign-amount-col {
   font-size: 9px;
 }
 
+.favorite-menu-edit,
 .favorite-menu-remove {
   width: 28px;
   height: 28px;
@@ -4555,6 +4596,7 @@ thead .weekly-foreign-amount-col {
 
 .favorite-menu-current:hover,
 .favorite-menu-link:hover,
+.favorite-menu-edit:hover,
 .favorite-menu-remove:hover {
   color: var(--series-blue);
 }
