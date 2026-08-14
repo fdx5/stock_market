@@ -304,13 +304,9 @@
   background: linear-gradient(145deg, rgba(7,19,39,.985), rgba(10,8,30,.98));
   box-shadow: 0 12px 40px rgba(0,0,0,.62), 0 0 24px rgba(34,211,238,.08);
 }
-.discussion-explorer.is-iphone-portrait.has-detail .discussion-comets,
-.discussion-explorer.is-iphone-portrait.has-detail .discussion-stars { visibility: hidden; }
-/* Keep the 3D compositor tree allocated across detail open/close cycles. Repeated
-   display:none reconstruction leaked transient IOSurfaces in mobile WebKit and caused
-   progressively worse FPS. Visibility hides painting without rebuilding every card. */
+/* Keep the 3D compositor tree visible and allocated behind the detail panel. The
+   low-cost mobile animation profile preserves depth without rebuilding IOSurfaces. */
 .discussion-explorer.is-iphone-portrait.has-detail .discussion-scene {
-  visibility: hidden;
   pointer-events: none;
 }
 .discussion-explorer.is-iphone-portrait .discussion-node.is-disintegrating {
