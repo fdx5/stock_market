@@ -10,6 +10,13 @@ const INITIAL_COUNT = 40;
 const MAX_VISIBLE = 40;
 const SPHERE_RADIUS = 510;
 
+const FPS_METER_ENABLED = (() => {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("fps")) return false;
+  const value = (params.get("fps") ?? "").trim().toLowerCase();
+  return !["0", "off", "false", "no"].includes(value);
+})();
+
 const STAR_COLORS = ["#ffffff", "#dff7ff", "#9edcff", "#c7b9ff", "#ffe2a8"];
 const cosmicRandom = (seed: number) => {
   const value = Math.sin(seed * 91.733 + 17.17) * 43758.5453;
@@ -53,6 +60,53 @@ type AssetKind = "STOCK" | "ETF";
 type SearchAsset = { code: string; name: string; market: "KR" | "US"; kind: AssetKind };
 
 type Point3D = { x: number; y: number; z: number };
+
+function ExplorerFpsMeter({ cards }: { cards: number }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fpsRef = useRef<HTMLElement>(null);
+  const frameRef = useRef<HTMLSpanElement>(null);
+  const worstRef = useRef<HTMLSpanElement>(null);
+  const heapRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    let raf = 0;
+    let frames = 0;
+    let since = performance.now();
+    let previous = since;
+    let worst = 0;
+    const tick = (now: number) => {
+      const delta = now - previous;
+      previous = now;
+      if (delta < 1000) worst = Math.max(worst, delta);
+      frames += 1;
+      const elapsed = now - since;
+      if (elapsed >= 500) {
+        const fps = frames * 1000 / elapsed;
+        if (fpsRef.current) fpsRef.current.textContent = fps.toFixed(0);
+        if (frameRef.current) frameRef.current.textContent = `${(elapsed / frames).toFixed(1)} ms`;
+        if (worstRef.current) worstRef.current.textContent = `${worst.toFixed(1)} ms`;
+        if (rootRef.current) rootRef.current.dataset.tone = fps >= 50 ? "good" : fps >= 30 ? "fair" : "bad";
+        const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+        if (heapRef.current) heapRef.current.textContent = memory ? `${(memory.usedJSHeapSize / 1048576).toFixed(0)} MB` : "N/A";
+        frames = 0;
+        worst = 0;
+        since = now;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="discussion-fps" ref={rootRef} data-tone="good" aria-hidden="true">
+      <div><strong ref={fpsRef}>—</strong><b>FPS</b><span ref={frameRef}>— ms</span></div>
+      <small>WORST <span ref={worstRef}>— ms</span></small>
+      <small>HEAP <span ref={heapRef}>—</span></small>
+      <small>CARDS <span>{cards}</span></small>
+    </div>
+  );
+}
 
 function spherePoint(index: number, count: number, sphereRadius: number): Point3D {
   const y = 1 - (index / Math.max(1, count - 1)) * 2;
@@ -706,6 +760,7 @@ export default function DiscussionExplorerPage() {
       <div className="discussion-nebula" aria-hidden="true" />
       <canvas className="discussion-stars" ref={starCanvasRef} aria-hidden="true" />
       <div className="discussion-comets" aria-hidden="true"><i /><i /><i /></div>
+      {FPS_METER_ENABLED && <ExplorerFpsMeter cards={renderedPosts.length} />}
 
       <header className="discussion-hud">
         <Link to={backPath} className="discussion-back" aria-label="종목 상세로 돌아가기">←</Link>
