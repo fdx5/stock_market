@@ -25,8 +25,11 @@ cents, dollars-per-tonne, index points) otherwise look like one scale with wild 
 """
 
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app.data import yahoo_bulk_quote
+import requests
+
+from app.data import yahoo_bulk_quote, yahoo_quote, yahoo_session
 from app.services.cache import cache
 
 # The panel polls every 10s; this is what actually bounds how often Yahoo is asked,
@@ -82,6 +85,44 @@ FUTURES_MARKETS = {
 }
 
 
+def _fetch_v8_quote(symbol: str) -> tuple[str, dict] | None:
+    """Emergency quote path used only when both Yahoo v7 hosts fail."""
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+    resp = requests.get(
+        url,
+        headers=yahoo_session.HEADERS,
+        params={"interval": "15m", "range": "1d", **yahoo_quote.BASE_PARAMS},
+        timeout=5,
+    )
+    resp.raise_for_status()
+    result = resp.json()["chart"]["result"][0]
+    quote = yahoo_quote.extract_quote(result)
+    if quote is None:
+        return None
+    close = float(quote["price"])
+    previous = float(quote["previous_close"])
+    change = close - previous
+    return symbol, {
+        "close": close,
+        "change": round(change, 4),
+        "change_pct": round(change / previous * 100, 2) if previous else 0.0,
+    }
+
+
+def _v8_fallback_quotes() -> dict[str, dict]:
+    quotes: dict[str, dict] = {}
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(_fetch_v8_quote, entry["symbol"]) for entry in ROSTER]
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+            except Exception:
+                continue
+            if result:
+                quotes[result[0]] = result[1]
+    return quotes
+
+
 def _decimals(price: float) -> int:
     """Enough digits to see the contract move, without printing noise.
 
@@ -100,6 +141,8 @@ def _decimals(price: float) -> int:
 
 def _build() -> dict:
     quotes = yahoo_bulk_quote.get_quotes([entry["symbol"] for entry in ROSTER])
+    if not quotes:
+        quotes = _v8_fallback_quotes()
 
     # Empty is an upstream failure, not a real market state. Raising keeps an
     # existing last-known-good cache entry instead of replacing the board with [].
