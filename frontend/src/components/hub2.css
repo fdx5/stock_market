@@ -485,13 +485,24 @@
 /* The two shared site controls carry their own styles from styles.css; these
    only reseat them against a dark, glassy background rather than the app's
    normal surface. */
-.h2-toggles .lang-toggle,
+.h2-toggles .language-controls,
 .h2-toggles .theme-toggle {
   background: var(--panel);
   border: 1px solid var(--panel-line);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border-radius: 8px;
+}
+
+.h2-toggles .language-controls {
+  padding-left: 4px;
+}
+
+.h2-toggles .favorite-menu-popover {
+  background: rgba(5, 12, 24, 0.96);
+  border-color: var(--panel-line);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 /* ─────────────────────────── the index readout ─────────────────────────── */
