@@ -355,7 +355,9 @@ export default function DiscussionExplorerPage() {
   useEffect(() => {
     let cancelled = false;
     const poll = () => {
-      const request = market === "US" ? api.usStockQuote(code) : api.quote(code);
+      const request = assetKind === "ETF"
+        ? api.etfQuote(code, market)
+        : market === "US" ? api.usStockQuote(code) : api.quote(code);
       request.then((quote) => {
         if (!cancelled) setHeaderQuote({ close: quote.close, change: quote.change, change_pct: quote.change_pct });
       }).catch(() => {
@@ -365,7 +367,7 @@ export default function DiscussionExplorerPage() {
     poll();
     const stopPolling = startVisibilityAwareInterval(poll, 10_000);
     return () => { cancelled = true; stopPolling(); };
-  }, [code, market]);
+  }, [assetKind, code, market]);
 
   useEffect(() => {
     const canvas = starCanvasRef.current;

@@ -959,6 +959,8 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 
 export const api = {
   etfs: (region: "KR" | "US") => getJSONFresh<EtfMarketResponse>(`${BASE}/etfs?region=${region}`),
+  etfQuote: (code: string, region: "KR" | "US") =>
+    getJSONFresh<EtfItem>(`${BASE}/etfs/${encodeURIComponent(code)}/quote?region=${region}`),
   etfDiscussions: () => getJSONFresh<{ items: Record<string, BoardPost[]> }>(`${BASE}/etfs/discussions?region=KR`),
   etfGlobalDiscussions: () => getJSONFresh<{ items: Record<string, GlobalDiscussionPost[]> }>(`${BASE}/etfs/discussions?region=US`),
   tossEtfDiscussion: (code: string, limit = 10, offset?: string | null) =>

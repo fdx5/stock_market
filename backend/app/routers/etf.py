@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.services.etf_market import get_etf_discussions, get_etfs
 from app.data.toss_discussion_fetcher import get_toss_discussion
@@ -16,6 +16,16 @@ def etf_market(response: Response, region: str = Query("KR", pattern="^(KR|US)$"
 def etf_discussions(response: Response, region: str = Query("KR", pattern="^(KR|US)$")):
     response.headers["Cache-Control"] = "no-store"
     return {"items": get_etf_discussions(region)}
+
+
+@router.get("/{code}/quote")
+def etf_quote(code: str, response: Response, region: str = Query("KR", pattern="^(KR|US)$")):
+    response.headers["Cache-Control"] = "no-store"
+    normalized = code.strip().upper()
+    item = next((item for item in get_etfs(region)["items"] if item["code"].upper() == normalized), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="ETF quote not found")
+    return item
 
 
 @router.get("/{code}/toss-discussion")
