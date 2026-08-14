@@ -64,7 +64,7 @@
 .discussion-core span { position: absolute; bottom: 43px; color: rgba(224,252,255,.42); font: 600 10px/1 Inter; letter-spacing: .24em; }
 
 .discussion-node { position: absolute; width: clamp(132px, 12vw, 205px); margin: -44px 0 0 calc(clamp(132px, 12vw, 205px) / -2); transform-style: preserve-3d; contain: layout paint style; backface-visibility: visible; }
-.discussion-node > button { position: relative; width: 100%; min-height: 87px; padding: 14px 14px 12px; overflow: hidden; color: var(--card-text, #dff8ff); text-align: left; border: 1px solid color-mix(in srgb, var(--card-accent, #67e8f9) 42%, transparent); border-radius: 13px; background: linear-gradient(135deg, var(--card-a, rgba(10,30,52,.94)), var(--card-b, rgba(8,12,31,.92))); box-shadow: inset 0 1px rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.24); transform: translate3d(0,0,0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); transform-origin: center; cursor: pointer; transition: border-color .2s, box-shadow .2s, background .2s; animation: discussion-micro-orbit var(--drift-duration, 8s) ease-in-out var(--float-delay, 0s) infinite var(--drift-direction, normal); backface-visibility: visible; -webkit-backface-visibility: visible; }
+.discussion-node > button { position: relative; width: 100%; min-height: 87px; padding: 14px 14px 12px; overflow: hidden; color: var(--card-text, #dff8ff); text-align: left; border: 1px solid color-mix(in srgb, var(--card-accent, #67e8f9) 42%, transparent); border-radius: 13px; background: linear-gradient(135deg, var(--card-a, rgba(10,30,52,.94)), var(--card-b, rgba(8,12,31,.92))); box-shadow: inset 0 1px rgba(255,255,255,.08), 0 8px 22px rgba(0,0,0,.24); transform: translate3d(0,0,0) scale(var(--node-scale)); transform-origin: center; cursor: pointer; transition: border-color .2s, box-shadow .2s, background .2s; animation: discussion-micro-orbit var(--drift-duration, 8s) ease-in-out var(--float-delay, 0s) infinite var(--drift-direction, normal); backface-visibility: visible; -webkit-backface-visibility: visible; }
 /* Every card keeps the subtle vertical float that gives the universe its weightless
    feel. Two out of three use this compositor-only Y motion; every third card retains
    the richer micro-orbit, avoiding the old cost of fifty complex animations. */
@@ -126,7 +126,7 @@
 .discussion-footer button { min-height: 39px; padding: 0 18px; color: #dffcff; border: 1px solid rgba(103,232,249,.35); border-radius: 10px; background: linear-gradient(115deg, rgba(8,70,92,.8), rgba(54,36,112,.76)); box-shadow: 0 0 24px rgba(34,211,238,.1); font-size: 11px; cursor: pointer; }
 .discussion-footer button:disabled { opacity: .42; cursor: default; filter: saturate(.3); }
 
-.discussion-detail-layer { position: fixed; z-index: 1000; inset: 0; pointer-events: none; transform: translateZ(0); }
+.discussion-detail-layer { position: fixed; z-index: 1000; inset: 0; pointer-events: none; }
 .discussion-detail { position: absolute; right: clamp(70px, 6vw, 94px); top: 50%; width: min(430px, calc(100vw - 120px)); max-height: min(72vh, 720px); display: flex; flex-direction: column; overflow: hidden; color: #ddecf4; border: 1px solid rgba(103,232,249,.28); border-radius: 20px; background: linear-gradient(145deg, rgba(7,19,39,.95), rgba(10,8,30,.94)); backdrop-filter: blur(24px); box-shadow: -30px 30px 90px rgba(0,0,0,.55), 0 0 45px rgba(34,211,238,.1); transform: translateY(-50%); animation: detail-enter .45s cubic-bezier(.2,.8,.2,1); user-select: text; touch-action: pan-y; pointer-events: auto; }
 .discussion-detail-glow { position: absolute; top: -100px; right: -80px; width: 240px; height: 240px; border-radius: 50%; background: rgba(56,189,248,.13); filter: blur(48px); pointer-events: none; }
 .discussion-detail header { position: relative; display: flex; justify-content: space-between; gap: 12px; padding: 22px 22px 17px; border-bottom: 1px solid rgba(148,163,184,.12); }
@@ -172,16 +172,16 @@
 @keyframes detail-enter { from { opacity: 0; transform: translate(35px,-50%) scale(.96); } }
 @keyframes sand-away { 0% { opacity: 1; } 45% { opacity: .72; } 100% { opacity: 0; transform: translate3d(var(--sand-x, 30px), 120px, 20px) rotateZ(9deg) scale(.45); } }
 @keyframes sand-particles { from { opacity: .9; transform: scale(.9); } to { opacity: 0; transform: translate(55px, 105px) scale(1.8) rotate(20deg); } }
-@keyframes card-crumble { 0% { opacity: 1; transform: translate3d(0,0,0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); } 45% { opacity: .58; } 100% { opacity: 0; transform: translate3d(18px,42px,0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1) * .72)); } }
+@keyframes card-crumble { 0% { opacity: 1; transform: translate3d(0,0,0) scale(var(--node-scale)); } 45% { opacity: .58; } 100% { opacity: 0; transform: translate3d(18px,42px,0) scale(calc(var(--node-scale) * .72)); } }
 @keyframes discussion-card-float {
-  from { transform: translate3d(0, var(--drift-y-start, 0px), 0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
-  to { transform: translate3d(0, var(--drift-y, 0px), 0) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
+  from { transform: translate3d(0, var(--drift-y-start, 0px), 0) scale(var(--node-scale)); }
+  to { transform: translate3d(0, var(--drift-y, 0px), 0) scale(var(--node-scale)); }
 }
 @keyframes hot-border-sheen { 0%, 18% { background-position: 150% 0; opacity: 0; } 36% { opacity: .82; } 58%, 100% { background-position: -70% 0; opacity: 0; } }
 @keyframes discussion-micro-orbit {
-  0%, 100% { transform: translate3d(var(--drift-x-start, 0px), var(--drift-y-start, 0px), 0) rotateZ(var(--drift-r-start, 0deg)) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
-  45% { transform: translate3d(var(--drift-x, 0px), var(--drift-y, 0px), 0) rotateZ(var(--drift-r, 0deg)) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
-  72% { transform: translate3d(var(--drift-x-mid, 0px), var(--drift-y-mid, 0px), 0) rotateZ(var(--drift-r-mid, 0deg)) scale(calc(var(--node-scale) * var(--zoom-compensation, 1))); }
+  0%, 100% { transform: translate3d(var(--drift-x-start, 0px), var(--drift-y-start, 0px), 0) rotateZ(var(--drift-r-start, 0deg)) scale(var(--node-scale)); }
+  45% { transform: translate3d(var(--drift-x, 0px), var(--drift-y, 0px), 0) rotateZ(var(--drift-r, 0deg)) scale(var(--node-scale)); }
+  72% { transform: translate3d(var(--drift-x-mid, 0px), var(--drift-y-mid, 0px), 0) rotateZ(var(--drift-r-mid, 0deg)) scale(var(--node-scale)); }
 }
 
 @media (max-width: 760px) {
