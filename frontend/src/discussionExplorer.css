@@ -238,7 +238,13 @@
 }
 .discussion-explorer.is-iphone-portrait.has-detail .discussion-comets,
 .discussion-explorer.is-iphone-portrait.has-detail .discussion-stars { visibility: hidden; }
-.discussion-explorer.is-iphone-portrait.has-detail .discussion-scene { display: none; }
+/* Keep the 3D compositor tree allocated across detail open/close cycles. Repeated
+   display:none reconstruction leaked transient IOSurfaces in mobile WebKit and caused
+   progressively worse FPS. Visibility hides painting without rebuilding every card. */
+.discussion-explorer.is-iphone-portrait.has-detail .discussion-scene {
+  visibility: hidden;
+  pointer-events: none;
+}
 .discussion-explorer.is-iphone-portrait .discussion-node.is-disintegrating {
   animation: ios-card-away .38s ease-out forwards;
 }

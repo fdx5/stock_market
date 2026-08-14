@@ -126,6 +126,15 @@ function DetailPanel({
   const [loading, setLoading] = useState(market === "KR");
   const [error, setError] = useState("");
 
+  const releasePanelMedia = () => {
+    panelRef.current?.querySelectorAll("img").forEach((image) => {
+      // Replacing the source before detach releases WebKit's decoded IOSurface more
+      // reliably than removing a node and waiting for its image cache to be collected.
+      image.src = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+      image.removeAttribute("srcset");
+    });
+  };
+
   useEffect(() => {
     if (market !== "KR") return;
     let cancelled = false;
@@ -150,10 +159,11 @@ function DetailPanel({
     };
   }, [code, market, post.id]);
 
-  useEffect(() => () => {
-    // Prompt WebKit to release decoded image surfaces between repeated panels.
-    panelRef.current?.querySelectorAll("img").forEach((image) => {
-      image.removeAttribute("src");
+  useEffect(() => {
+    // Capture the mounted element: React may clear panelRef before passive cleanup.
+    const panel = panelRef.current;
+    return () => panel?.querySelectorAll("img").forEach((image) => {
+      image.src = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
       image.removeAttribute("srcset");
     });
   }, []);
@@ -167,7 +177,7 @@ function DetailPanel({
           <h2>{detail?.title || post.title}</h2>
           <p>{detail?.author || post.author} · {detail?.written_at?.slice(0, 16).replace("T", " ") || post.date}</p>
         </div>
-        <button type="button" onClick={onClose} aria-label="상세 닫기">×</button>
+        <button type="button" onClick={() => { releasePanelMedia(); onClose(); }} aria-label="상세 닫기">×</button>
       </header>
 
       <div className="discussion-detail-scroll">
@@ -254,7 +264,7 @@ export default function DiscussionExplorerPage() {
   }, []);
 
   useEffect(() => {
-    starPaused.current = isIphonePortrait && Boolean(selected);
+    starPaused.current = Boolean(selected);
   }, [isIphonePortrait, selected]);
 
   useEffect(() => {
