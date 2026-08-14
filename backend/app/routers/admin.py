@@ -108,6 +108,24 @@ def pages_top(limit: int = Query(7, ge=1, le=200)):
     return {"items": items}
 
 
+@router.get("/growth/overview", dependencies=[Depends(require_admin)])
+def growth_overview(days: int = Query(90, ge=7, le=730)):
+    now = datetime.now(timezone.utc)
+    data = page_view_store.growth_overview((now - timedelta(days=days)).isoformat())
+    goal = page_view_store.growth_goal(now.isoformat())
+    today_kst = (now + timedelta(hours=9)).date().isoformat()
+    today = next((row for row in reversed(data["daily"]) if row["date"] == today_kst), None)
+    visitors = today["visitors"] if today else 0
+    baseline = max(1.0, float(goal["baseline_daily_visitors"]))
+    multiplier = visitors / baseline
+    target = int(goal["target_multiplier"])
+    for row in data["daily"]:
+        row["multiplier"] = round(row["visitors"] / baseline, 2)
+        row["achievement_pct"] = round(min(100, row["visitors"] / (baseline * target) * 100), 2)
+    return {**data, "days": days, "goal": goal, "today": today or {"date": today_kst, "visitors": 0, "pageviews": 0},
+            "current_multiplier": round(multiplier, 2), "achievement_pct": round(min(100, multiplier / target * 100), 2)}
+
+
 @router.get("/stocks/top", dependencies=[Depends(require_admin)])
 def stocks_top(limit: int = Query(10, ge=1, le=500)):
     since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()

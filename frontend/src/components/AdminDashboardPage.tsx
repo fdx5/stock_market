@@ -1501,6 +1501,7 @@ export default function AdminDashboardPage() {
           {/* Admin-only, and only ever rendered here — neither the DB console nor the
               monitor has an entry point outside this page, and the page itself is
               behind the login. */}
+          <Link to="/admin/growth" className="kospi-map-nav-link">📈 성장 통계</Link>
           <Link to="/admin/db" className="kospi-map-nav-link kospi-map-nav-link--db">
             <DbIcon /> DB 조회
           </Link>

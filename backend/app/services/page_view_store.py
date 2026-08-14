@@ -25,16 +25,32 @@ CREATE TABLE IF NOT EXISTS page_views (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id TEXT NOT NULL,
     path TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    event_type TEXT NOT NULL DEFAULT 'page_view',
+    referrer TEXT,
+    source_channel TEXT,
+    source_name TEXT,
+    utm_source TEXT,
+    utm_medium TEXT,
+    utm_campaign TEXT
 )
 """
 _INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_created_at ON page_views (created_at)"
+_EVENT_INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_event_created ON page_views (event_type, created_at)"
+_GOAL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS traffic_growth_goal (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    started_at TEXT NOT NULL,
+    baseline_daily_visitors REAL NOT NULL,
+    target_multiplier INTEGER NOT NULL DEFAULT 100
+)
+"""
 
 # The trend chart only ever queries the last 30 days (see admin.py's pages_trend),
 # so rows older than that are pure dead weight on the table — purged on a timer in
 # main.py's startup thread to keep it bounded regardless of traffic volume, rather
 # than growing forever.
-RETENTION_DAYS = 30
+RETENTION_DAYS = 730
 
 
 def _connect():
@@ -47,7 +63,22 @@ def _connect():
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(page_views)").fetchall()}
+    migrations = {
+        "event_type": "TEXT NOT NULL DEFAULT 'page_view'",
+        "referrer": "TEXT",
+        "source_channel": "TEXT",
+        "source_name": "TEXT",
+        "utm_source": "TEXT",
+        "utm_medium": "TEXT",
+        "utm_campaign": "TEXT",
+    }
+    for name, definition in migrations.items():
+        if name not in columns:
+            conn.execute(f"ALTER TABLE page_views ADD COLUMN {name} {definition}")
     conn.execute(_INDEX)
+    conn.execute(_EVENT_INDEX)
+    conn.execute(_GOAL_SCHEMA)
     conn.commit()
     return conn
 
@@ -71,11 +102,25 @@ def _with_connection(fn):
             return fn(_conn)
 
 
-def record_page_view(session_id: str, path: str, created_at: str) -> None:
+def record_page_view(
+    session_id: str,
+    path: str,
+    created_at: str,
+    event_type: str = "page_view",
+    referrer: str | None = None,
+    source_channel: str | None = None,
+    source_name: str | None = None,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
+) -> None:
     def _run(conn):
         conn.execute(
-            "INSERT INTO page_views (session_id, path, created_at) VALUES (?, ?, ?)",
-            (session_id, path, created_at),
+            "INSERT INTO page_views (session_id, path, created_at, event_type, referrer, "
+            "source_channel, source_name, utm_source, utm_medium, utm_campaign) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, path, created_at, event_type, referrer, source_channel,
+             source_name, utm_source, utm_medium, utm_campaign),
         )
         conn.commit()
 
@@ -153,4 +198,75 @@ def purge_older_than(cutoff_iso: str) -> int:
         conn.commit()
         return cursor.rowcount or 0
 
+    return _with_connection(_run)
+
+
+def growth_overview(since_iso: str) -> dict:
+    """Acquisition and growth metrics based only on real navigations."""
+    where = "created_at >= ? AND event_type = 'page_view'"
+
+    def _run(conn):
+        daily = conn.execute(
+            "SELECT strftime('%Y-%m-%d', created_at, '+9 hours') day, "
+            "COUNT(*), COUNT(DISTINCT session_id), "
+            "SUM(CASE WHEN source_channel='search' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN source_channel='email' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN source_channel='social' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN source_channel='referral' THEN 1 ELSE 0 END), "
+            "SUM(CASE WHEN source_channel='direct' OR source_channel IS NULL THEN 1 ELSE 0 END) "
+            f"FROM page_views WHERE {where} GROUP BY day ORDER BY day", (since_iso,)
+        ).fetchall()
+        channels = conn.execute(
+            "SELECT COALESCE(source_channel, 'direct'), COUNT(*), COUNT(DISTINCT session_id) "
+            f"FROM page_views WHERE {where} GROUP BY 1 ORDER BY 2 DESC", (since_iso,)
+        ).fetchall()
+        pages = conn.execute(
+            "SELECT path, COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
+            f"WHERE {where} GROUP BY path ORDER BY 3 DESC, 2 DESC LIMIT 50", (since_iso,)
+        ).fetchall()
+        sources = conn.execute(
+            "SELECT COALESCE(source_name, 'unknown'), COUNT(*), COUNT(DISTINCT session_id) "
+            f"FROM page_views WHERE {where} AND source_channel='search' GROUP BY 1 ORDER BY 2 DESC", (since_iso,)
+        ).fetchall()
+        campaigns = conn.execute(
+            "SELECT COALESCE(utm_campaign, '(미지정)'), COALESCE(utm_source, source_name, 'unknown'), "
+            "COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
+            f"WHERE {where} AND (utm_campaign IS NOT NULL OR source_channel='email') "
+            "GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 30", (since_iso,)
+        ).fetchall()
+        return daily, channels, pages, sources, campaigns
+
+    daily, channels, pages, sources, campaigns = _with_connection(_run)
+    return {
+        "daily": [{"date": r[0], "pageviews": r[1], "visitors": r[2], "search": r[3] or 0,
+                   "email": r[4] or 0, "social": r[5] or 0, "referral": r[6] or 0,
+                   "direct": r[7] or 0} for r in daily],
+        "channels": [{"channel": r[0], "pageviews": r[1], "visitors": r[2]} for r in channels],
+        "pages": [{"path": r[0], "pageviews": r[1], "visitors": r[2]} for r in pages],
+        "search_sources": [{"source": r[0], "pageviews": r[1], "visitors": r[2]} for r in sources],
+        "campaigns": [{"campaign": r[0], "source": r[1], "pageviews": r[2], "visitors": r[3]} for r in campaigns],
+    }
+
+
+def growth_goal(now_iso: str) -> dict:
+    """Create the shared 100x goal once, then keep its baseline stable."""
+    def _run(conn):
+        row = conn.execute(
+            "SELECT started_at, baseline_daily_visitors, target_multiplier FROM traffic_growth_goal WHERE id=1"
+        ).fetchone()
+        if row is None:
+            # A non-zero baseline keeps the target meaningful on a brand-new install.
+            today = now_iso[:10]
+            count = conn.execute(
+                "SELECT COUNT(DISTINCT session_id) FROM page_views WHERE event_type='page_view' "
+                "AND strftime('%Y-%m-%d', created_at, '+9 hours')=?", (today,)
+            ).fetchone()[0]
+            baseline = float(max(1, count))
+            conn.execute(
+                "INSERT INTO traffic_growth_goal (id, started_at, baseline_daily_visitors, target_multiplier) VALUES (1, ?, ?, 100)",
+                (now_iso, baseline),
+            )
+            conn.commit()
+            return {"started_at": now_iso, "baseline_daily_visitors": baseline, "target_multiplier": 100}
+        return {"started_at": row[0], "baseline_daily_visitors": row[1], "target_multiplier": row[2]}
     return _with_connection(_run)

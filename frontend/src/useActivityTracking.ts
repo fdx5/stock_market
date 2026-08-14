@@ -3,6 +3,42 @@ import { getSessionId } from "./session";
 
 const EVENT_ENDPOINT = "/api/activity/event";
 const CLICK_DEBOUNCE_MS = 500;
+const ATTRIBUTION_KEY = "traffic_attribution_v1";
+
+type Attribution = {
+  referrer: string;
+  source_channel: "search" | "email" | "social" | "referral" | "direct";
+  source_name: string;
+  utm_source: string;
+  utm_medium: string;
+  utm_campaign: string;
+};
+
+function acquisitionAttribution(): Attribution {
+  try {
+    const stored = sessionStorage.getItem(ATTRIBUTION_KEY);
+    if (stored) return JSON.parse(stored) as Attribution;
+  } catch { /* storage can be unavailable in private modes */ }
+  const query = new URLSearchParams(window.location.search);
+  const utmSource = query.get("utm_source") || "";
+  const utmMedium = query.get("utm_medium") || "";
+  const utmCampaign = query.get("utm_campaign") || "";
+  const referrer = document.referrer || "";
+  let host = "";
+  try { host = referrer ? new URL(referrer).hostname.toLowerCase() : ""; } catch { host = ""; }
+  const text = `${utmSource} ${utmMedium}`.toLowerCase();
+  let source_channel: Attribution["source_channel"] = "direct";
+  let source_name = utmSource || (host ? host.replace(/^www\./, "") : "direct");
+  if (/email|newsletter|mail/.test(text)) source_channel = "email";
+  else if (query.has("gclid") || /google\.|search\.naver\.|bing\.|search\.daum\./.test(host)) {
+    source_channel = "search";
+    source_name = query.has("gclid") || host.includes("google") ? "google" : host.includes("naver") ? "naver" : host.includes("daum") ? "daum" : "bing";
+  } else if (/instagram|facebook|twitter|x\.com|youtube|t\.co|linkedin|threads/.test(host) || /social/.test(text)) source_channel = "social";
+  else if (host && !host.includes(window.location.hostname)) source_channel = "referral";
+  const result = { referrer, source_channel, source_name, utm_source: utmSource, utm_medium: utmMedium, utm_campaign: utmCampaign };
+  try { sessionStorage.setItem(ATTRIBUTION_KEY, JSON.stringify(result)); } catch { /* best effort */ }
+  return result;
+}
 
 /** A route's display name in the admin statistics.
  *
@@ -162,10 +198,11 @@ export function useActivityTracking(path: string): void {
         label: `종목토론 · ${name} (${code}) · ${market}/${assetKind}`.slice(0, 100),
         stock_code: code,
         stock_name: name,
+        ...acquisitionAttribution(),
       });
       return;
     }
-    sendEvent({ type: "page_view", path, label: pageLabel(path) });
+    sendEvent({ type: "page_view", path, label: pageLabel(path), ...acquisitionAttribution() });
   }, [path]);
 
   useEffect(() => {

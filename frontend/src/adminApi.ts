@@ -22,6 +22,19 @@ export interface AdminSummary {
   top_pages: PageCount[];
 }
 
+export interface GrowthOverview {
+  days: number;
+  goal: { started_at: string; baseline_daily_visitors: number; target_multiplier: number };
+  today: { date: string; visitors: number; pageviews: number; search?: number; email?: number };
+  current_multiplier: number;
+  achievement_pct: number;
+  daily: Array<{ date: string; visitors: number; pageviews: number; search: number; email: number; social: number; referral: number; direct: number; multiplier: number; achievement_pct: number }>;
+  channels: Array<{ channel: string; visitors: number; pageviews: number }>;
+  pages: Array<{ path: string; visitors: number; pageviews: number }>;
+  search_sources: Array<{ source: string; visitors: number; pageviews: number }>;
+  campaigns: Array<{ campaign: string; source: string; visitors: number; pageviews: number }>;
+}
+
 export type AdminTrendRange = "1h" | "3h" | "6h" | "12h" | "24h" | "3d" | "7d" | "30d";
 
 export interface TrendPoint {
@@ -694,6 +707,7 @@ function sourceParam(source: string | null, separator: "?" | "&" = "?"): string 
 
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
+  growthOverview: (days = 90) => authedGet<GrowthOverview>(`/growth/overview?days=${days}`),
   trend: (range: AdminTrendRange) => authedGet<TrendResponse>(`/pages/trend?range=${range}`),
   visitorTrend: (range: AdminTrendRange) =>
     authedGet<VisitorTrendResponse>(`/pages/visitor-trend?range=${range}`),

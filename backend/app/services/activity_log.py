@@ -42,6 +42,12 @@ def record_event(
     action: str | None = None,
     object_key: str | None = None,
     value: float | None = None,
+    referrer: str | None = None,
+    source_channel: str | None = None,
+    source_name: str | None = None,
+    utm_source: str | None = None,
+    utm_medium: str | None = None,
+    utm_campaign: str | None = None,
 ) -> None:
     now = time.time()
     created_at = _now_iso()
@@ -90,7 +96,8 @@ def record_event(
     if event_type in ("page_view", "click"):
         threading.Thread(
             target=page_view_store.record_page_view,
-            args=(session_id, path, created_at),
+            args=(session_id, path, created_at, event_type, referrer, source_channel,
+                  source_name, utm_source, utm_medium, utm_campaign),
             daemon=True,
         ).start()
     elif event_type == "hub" and action:

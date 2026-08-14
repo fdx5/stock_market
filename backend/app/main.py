@@ -7,12 +7,12 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.staticfiles import NotModifiedResponse
 
 from app.data.global_discussion_fetcher import warm_nasdaq_symbols
-from app.data.universe import warm_english_names
+from app.data.universe import get_top_market_cap, warm_english_names
 from app.data.us_universe import warm_us_korean_names
 from app.routers import (
     activity,
@@ -49,6 +49,7 @@ from app.services import (
 )
 from app.services import global_top100 as global_top100_service
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
+from app.services.seo import build_sitemap, render_spa_shell
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.stock_board import warm_boards
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
@@ -512,6 +513,12 @@ if STATIC_DIR.exists():
     # semantics identical to the mounted half of the site rather than reimplementing
     # them slightly differently here.
     _conditional = StaticFiles(directory=STATIC_DIR)
+    _spa_template = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+
+    @app.get("/sitemap.xml", include_in_schema=False)
+    def dynamic_sitemap():
+        xml = build_sitemap(get_top_market_cap(100))
+        return Response(content=xml, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str, request: Request):
@@ -524,7 +531,8 @@ if STATIC_DIR.exists():
         if full_path and candidate.is_relative_to(STATIC_DIR) and candidate.is_file():
             target = candidate
         else:
-            target = STATIC_DIR / "index.html"
+            query = {key: value for key, value in request.query_params.items()}
+            return HTMLResponse(render_spa_shell(_spa_template, "/" + full_path, query))
 
         # stat_result is passed in so FileResponse fills in etag/last-modified during
         # construction instead of lazily while streaming the body — they have to

@@ -62,6 +62,7 @@ const DiscussionExplorerPage = lazy(() => import("./components/DiscussionExplore
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
+const AdminGrowthPage = lazy(() => import("./components/AdminGrowthPage"));
 // The neuron monitor is the one route that pulls in three.js. Lazy like every other
 // page, so that ~150KB gzipped lands only when an admin actually opens it and never
 // touches a visitor's bundle.
@@ -140,18 +141,24 @@ export default function App() {
 
   useEffect(() => {
     const canonicalPath = path === "/type2" ? "/" : path;
-    const canonicalUrl = `https://kospi-predictor.onrender.com${canonicalPath}`;
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code")?.replace(/[^A-Za-z0-9.-]/g, "").slice(0, 16) || "";
+    const keepsStockCode = code && ["/desk", "/global", "/discussion-explorer"].includes(canonicalPath);
+    const canonicalUrl = `https://kospi-predictor.onrender.com${canonicalPath}${keepsStockCode ? `?code=${encodeURIComponent(code)}` : ""}`;
     document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", canonicalUrl);
     document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl);
 
     const seo = PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
-    document.title = seo.title;
-    document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", seo.description);
-    document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute("content", seo.title);
-    document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", seo.description);
-    document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute("content", seo.title);
-    document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", seo.description);
+    const name = params.get("name")?.replace(/[<>\r\n]/g, "").trim().slice(0, 80) || code;
+    const title = keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title;
+    const description = keepsStockCode && name ? `${name}(${code}) 현재가, 등락률, 차트와 최신 종목 정보를 확인하세요.` : seo.description;
+    document.title = title;
+    document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", description);
+    document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute("content", title);
+    document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", description);
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute("content", title);
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", description);
   }, [path]);
 
   let page;
@@ -207,6 +214,8 @@ export default function App() {
     page = <MonitorPage />;
   } else if (path === "/admin/db") {
     page = <AdminDbPage />;
+  } else if (path === "/admin/growth") {
+    page = <AdminGrowthPage />;
   } else {
     // "/" and anything unrecognised land on the entrance rather than dropping
     // straight into the stock desk. "/type2" lands here too — it was this

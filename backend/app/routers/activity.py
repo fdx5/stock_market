@@ -42,6 +42,12 @@ class ActivityEvent(BaseModel):
     action: str | None = Field(default=None, max_length=40)
     object_key: str | None = Field(default=None, max_length=100)
     value: float | None = Field(default=None, ge=0, le=MAX_DWELL_VALUE)
+    referrer: str | None = Field(default=None, max_length=500)
+    source_channel: str | None = Field(default=None, max_length=30)
+    source_name: str | None = Field(default=None, max_length=100)
+    utm_source: str | None = Field(default=None, max_length=100)
+    utm_medium: str | None = Field(default=None, max_length=100)
+    utm_campaign: str | None = Field(default=None, max_length=150)
 
     @field_validator("type")
     @classmethod
@@ -70,5 +76,11 @@ def post_event(payload: ActivityEvent):
         action=payload.action,
         object_key=payload.object_key,
         value=payload.value,
+        referrer=payload.referrer,
+        source_channel=payload.source_channel,
+        source_name=payload.source_name,
+        utm_source=payload.utm_source,
+        utm_medium=payload.utm_medium,
+        utm_campaign=payload.utm_campaign,
     )
     return {"ok": True}
