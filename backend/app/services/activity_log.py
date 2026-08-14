@@ -45,6 +45,10 @@ def record_event(
 ) -> None:
     now = time.time()
     created_at = _now_iso()
+    # Store one canonical key for an SPA route. Older/browser-specific clients can
+    # include a query string, fragment, or trailing slash; treating those as separate
+    # pages makes the admin UI label a known route as "기타".
+    path = path.split("?", 1)[0].split("#", 1)[0].rstrip("/") or "/"
     path = path[:MAX_PATH_LEN]
     label = label[:MAX_LABEL_LEN] if label else None
     object_key = object_key[:MAX_LABEL_LEN] if object_key else None

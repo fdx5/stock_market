@@ -15,6 +15,10 @@ const CLICK_DEBOUNCE_MS = 500;
  * so a route added to App.tsx without a line here shows up as obviously
  * missing rather than quietly impersonating the desk. */
 export function pageLabel(path: string): string {
+  // Activity rows may originate from older clients that sent a query string or
+  // trailing slash. Classify the canonical route instead of falling through to 기타.
+  const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
+  path = cleanPath;
   // "/" is the orbit entrance now, not the stock desk — the desk moved to
   // /dashboard. Without this the admin dashboard filed every landing on the new
   // main page under "대시보드" and the two were indistinguishable in the stats.
