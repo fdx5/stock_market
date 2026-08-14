@@ -43,7 +43,10 @@ const SPARK_DAYS = 20;
  * 130px chart squeezed under a wrapped stock name is worse than no chart — so
  * the six requests are not made at all rather than made and hidden. */
 const SPARK_QUERY = "(min-width: 1181px)";
-const SPOTLIGHT_ETFS = ["SPY", "QQQ", "SCHD"];
+const SPOTLIGHT_ETFS: Record<"KR" | "US", string[]> = {
+  KR: ["069500", "360750", "458730"],
+  US: ["SPY", "QQQ", "SCHD"],
+};
 
 export default function SpotlightBoard({
   onSelect,
@@ -67,12 +70,12 @@ export default function SpotlightBoard({
   const [etfs, setEtfs] = useState<EtfItem[]>([]);
 
   useEffect(() => {
-    if (!isUs) return;
     let cancelled = false;
-    const load = () => api.etfs("US").then((response) => {
+    const region = isUs ? "US" : "KR";
+    const load = () => api.etfs(region).then((response) => {
         if (cancelled) return;
         const byCode = new Map(response.items.map((item) => [item.code, item]));
-        setEtfs(SPOTLIGHT_ETFS.map((code) => byCode.get(code)).filter((item): item is EtfItem => Boolean(item)));
+        setEtfs(SPOTLIGHT_ETFS[region].map((code) => byCode.get(code)).filter((item): item is EtfItem => Boolean(item)));
       }).catch(() => {
         // The two stock rows remain useful if the independent ETF feed is unavailable.
       });
@@ -201,7 +204,7 @@ export default function SpotlightBoard({
     return (
       <div className="desk-spot" aria-busy="true">
         <div className="desk-spot-rows">
-          {(isUs ? [0, 1, 2] : [0, 1]).map((row) => (
+          {[0, 1, 2].map((row) => (
             <div className="desk-spot-row" key={row}>
               <div className="desk-spot-rowhead">
                 <span className="skeleton" style={{ width: 54, height: 14 }} />
@@ -261,7 +264,7 @@ export default function SpotlightBoard({
           onSelect={onSelect}
           activeCode={activeCode}
         />
-        {isUs && <EtfRow items={etfs} />}
+        <EtfRow items={etfs} region={isUs ? "US" : "KR"} />
       </div>
     </div>
   );
@@ -289,14 +292,20 @@ function EtfIssuerLogo({ code }: { code: string }) {
   );
 }
 
-function formatEtfTurnover(value: number): string {
+function formatEtfTurnover(value: number, region: "KR" | "US"): string {
+  if (region === "KR") {
+    if (value >= 1e12) return `${(value / 1e12).toFixed(1)}조원`;
+    if (value >= 1e8) return `${Math.round(value / 1e8).toLocaleString()}억원`;
+    return `${Math.round(value).toLocaleString()}원`;
+  }
   if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
   if (value >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
   return `$${Math.round(value).toLocaleString()}`;
 }
 
-function EtfRow({ items }: { items: EtfItem[] }) {
+function EtfRow({ items, region }: { items: EtfItem[]; region: "KR" | "US" }) {
   const t = useT();
+  const { lang } = useLanguage();
   if (items.length === 0) return null;
   return (
     <section className="desk-spot-row desk-spot-row--etf" aria-label="ETF">
@@ -323,16 +332,22 @@ function EtfRow({ items }: { items: EtfItem[] }) {
               type="button"
               key={item.code}
               className={`desk-spot-card is-${tone}`}
-              onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=US&asset=ETF`)}
+              onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${region}&asset=ETF`)}
             >
               <span className="desk-spot-top">
-                <EtfIssuerLogo code={item.code} />
+                {region === "KR"
+                  ? <StockLogo code={item.code} className="desk-spot-logo" />
+                  : <EtfIssuerLogo code={item.code} />}
                 <span className="desk-spot-id">
                   <b className="desk-spot-name">{item.name}</b>
                   <i className="desk-spot-sector">{item.code} · {item.benchmark}</i>
                 </span>
                 <span className="desk-spot-quote">
-                  <b className="desk-spot-price">${item.close.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b>
+                  <b className="desk-spot-price">
+                    {region === "US"
+                      ? `$${item.close.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                      : `${item.close.toLocaleString()}${wonSuffix(lang)}`}
+                  </b>
                   <i className={`desk-spot-pct change-${tone}`}>
                     {item.change_pct >= 0 ? "+" : ""}{item.change_pct.toFixed(2)}%
                   </i>
@@ -341,7 +356,7 @@ function EtfRow({ items }: { items: EtfItem[] }) {
               <span className="desk-spot-body">
                 <span className="desk-spot-lines">
                   <em>{item.category} · {item.benchmark}</em>
-                  <em>{t("거래대금")} {formatEtfTurnover(item.turnover)} · 20{t("일")} {item.returns.d20 == null ? "—" : `${item.returns.d20 >= 0 ? "+" : ""}${item.returns.d20.toFixed(2)}%`}</em>
+                  <em>{t("거래대금")} {formatEtfTurnover(item.turnover, region)} · 20{t("일")} {item.returns.d20 == null ? "—" : `${item.returns.d20 >= 0 ? "+" : ""}${item.returns.d20.toFixed(2)}%`}</em>
                 </span>
                 <span className="desk-spot-sparkwrap">
                   <SpotSparkline points={points} tone={tone} />
