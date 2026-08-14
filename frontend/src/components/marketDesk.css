@@ -747,6 +747,53 @@
   object-fit: contain;
 }
 
+.desk-etf-logo {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: #fff;
+  border-color: color-mix(in srgb, var(--series-violet) 32%, var(--border));
+  background: linear-gradient(145deg, #6554d9, #2395bd);
+}
+
+.desk-etf-logo.is-kodex {
+  background: linear-gradient(145deg, #153f91, #1978dc);
+}
+
+.desk-etf-logo.is-tiger {
+  color: #1b1710;
+  border-color: color-mix(in srgb, #f29b22 55%, var(--border));
+  background: linear-gradient(145deg, #ffd45a, #ef8b1c);
+}
+
+.desk-etf-logo > b {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 900;
+  font-style: normal;
+}
+
+.desk-etf-logo > img {
+  position: absolute;
+  inset: 3px;
+  z-index: 1;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
+  border-radius: 7px;
+  object-fit: contain;
+  background: #fff;
+}
+
+.desk-spot-row--etf .desk-spot-name {
+  font-size: 13.5px;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
 .desk-spot-id {
   display: flex;
   flex-direction: column;
@@ -2003,6 +2050,10 @@
   .desk-spot-name {
     font-size: 12.5px;
     line-height: 1.25;
+  }
+
+  .desk-spot-row--etf .desk-spot-name {
+    font-size: clamp(10px, 3vw, 11.5px);
   }
 
   .desk-spot-sector {

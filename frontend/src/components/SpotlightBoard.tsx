@@ -270,26 +270,34 @@ export default function SpotlightBoard({
   );
 }
 
-const ETF_ISSUER_DOMAINS: Record<string, string> = {
-  SPY: "ssga.com",
-  QQQ: "invesco.com",
-  VTI: "vanguard.com",
-  SCHD: "schwabassetmanagement.com",
+const ETF_PRESENTATION: Record<string, { displayName: string; issuer: string; mark: string; domain: string }> = {
+  "069500": { displayName: "KODEX 200", issuer: "KODEX", mark: "K", domain: "" },
+  "360750": { displayName: "TIGER S&P500", issuer: "TIGER", mark: "T", domain: "" },
+  "133690": { displayName: "TIGER 나스닥100", issuer: "TIGER", mark: "T", domain: "" },
+  "458730": { displayName: "TIGER 배당다우", issuer: "TIGER", mark: "T", domain: "" },
+  SPY: { displayName: "SPDR S&P500", issuer: "SPDR", mark: "S", domain: "ssga.com" },
+  QQQ: { displayName: "Invesco QQQ", issuer: "Invesco", mark: "Q", domain: "invesco.com" },
+  VTI: { displayName: "Vanguard VTI", issuer: "Vanguard", mark: "V", domain: "vanguard.com" },
+  SCHD: { displayName: "Schwab SCHD", issuer: "Schwab", mark: "S", domain: "schwabassetmanagement.com" },
 };
 
 function EtfIssuerLogo({ code }: { code: string }) {
   const [failed, setFailed] = useState(false);
-  const domain = ETF_ISSUER_DOMAINS[code];
-  if (!domain || failed) return <span className="desk-spot-logo stock-logo--mono">{code.slice(0, 2)}</span>;
+  const presentation = ETF_PRESENTATION[code];
+  const mark = presentation?.mark ?? code.slice(0, 2);
   return (
-    <img
-      className="desk-spot-logo stock-logo--us"
-      src={`https://www.google.com/s2/favicons?domain_url=https://${domain}&sz=128`}
-      alt=""
-      loading="lazy"
-      decoding="async"
-      onError={() => setFailed(true)}
-    />
+    <span className={`desk-spot-logo desk-etf-logo is-${presentation?.issuer.toLowerCase() ?? "generic"}`} aria-label={`${presentation?.issuer ?? code} logo`}>
+      <b aria-hidden="true">{mark}</b>
+      {presentation?.domain && !failed && (
+        <img
+          src={`https://www.google.com/s2/favicons?domain_url=https://${presentation.domain}&sz=128`}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </span>
   );
 }
 
@@ -316,6 +324,7 @@ function EtfRow({ items, region }: { items: EtfItem[]; region: "KR" | "US" }) {
       </div>
       <div className="desk-spot-grid">
         {items.map((item) => {
+          const displayName = ETF_PRESENTATION[item.code]?.displayName ?? item.name;
           const tone = item.change_pct > 0 ? "up" : item.change_pct < 0 ? "down" : "flat";
           const points: DailyPricePoint[] = item.sparkline.slice(-SPARK_DAYS).reverse().map((close, index) => ({
             date: String(index),
@@ -336,11 +345,9 @@ function EtfRow({ items, region }: { items: EtfItem[]; region: "KR" | "US" }) {
               onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${region}&asset=ETF`)}
             >
               <span className="desk-spot-top" title={item.name}>
-                {region === "KR"
-                  ? <StockLogo code={item.code} className="desk-spot-logo" />
-                  : <EtfIssuerLogo code={item.code} />}
+                <EtfIssuerLogo code={item.code} />
                 <span className="desk-spot-id">
-                  <b className="desk-spot-name">{item.name}</b>
+                  <b className="desk-spot-name">{displayName}</b>
                   <i className="desk-spot-sector">{item.code} · {item.benchmark}</i>
                 </span>
                 <span className="desk-spot-quote">
