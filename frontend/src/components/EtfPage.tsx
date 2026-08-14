@@ -50,7 +50,7 @@ function EtfCard({ item, rank, discussions, onBoard }: { item: EtfItem; rank: nu
   const range = item.week52_high && item.week52_low && item.week52_high !== item.week52_low
     ? Math.min(100, Math.max(0, ((item.close - item.week52_low) / (item.week52_high - item.week52_low)) * 100)) : null;
   return (
-    <article className="etf-card">
+    <article className="etf-card" data-tone={tone(item.change_pct)}>
       <div className="etf-card-head">
         <span className="etf-rank">{rank}</span><div className="etf-identity"><strong>{item.name}</strong><span>{item.code} · {item.benchmark}</span></div>
         <span className={`etf-change ${tone(item.change_pct)}`}>{pct(item.change_pct)}</span>
@@ -66,7 +66,10 @@ function EtfCard({ item, rank, discussions, onBoard }: { item: EtfItem; rank: nu
           <span className="etf-discussion-label">최근 토론</span>
           {discussions.length > 0 ? <div className="etf-discussion-window"><div className="etf-discussion-track" style={{ "--ticker-count": discussions.length, "--ticker-duration": `${Math.max(18, discussions.length * 3)}s` } as CSSProperties}>{[...discussions, discussions[0]].map((post, index) => <button key={`${post.id}-${index}`} type="button" onClick={() => onBoard(item, post.id)} title={post.title}>{post.title}</button>)}</div></div> : <span className="etf-discussion-empty">최근 글이 없습니다</span>}
         </div>
-        <button className="etf-board-button" type="button" onClick={() => onBoard(item)}>종목 토론방 보기 <span>›</span></button>
+        <div className="etf-card-actions">
+          <button className="etf-board-button" type="button" onClick={() => onBoard(item)}>토론방 <span>›</span></button>
+          <Link className="etf-explorer-button" to={`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${item.region}&asset=ETF`}>3D 탐험 <span>✦</span></Link>
+        </div>
       </>
     </article>
   );
@@ -117,16 +120,30 @@ export default function EtfPage() {
     return b[sort] - a[sort];
   }), [items, category, query, sort]);
   const leaders = items.slice().sort((a,b) => b.volume-a.volume);
+  const totalTurnover = items.reduce((sum, item) => sum + item.turnover, 0);
+  const advancers = items.filter(item => item.change_pct > 0).length;
+  const decliners = items.filter(item => item.change_pct < 0).length;
+  const breadth = items.length ? (advancers / items.length) * 100 : 50;
+  const radarItems = items.slice().sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct)).slice(0, 7);
 
   return <div className="app etf-page">
     <header className="app-header"><div className="app-title-row"><Link to="/" className="app-brand" aria-label="K-Stock Hub"><Logo className="app-logo-wide" /></Link><div className="app-header-meta"><LanguageToggle /><ThemeToggle /></div></div>
       <div className="app-nav-row"><Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home"><DashboardIcon /> 홈</Link><Link to="/map" className="kospi-map-nav-link"><MarketIcon /> KOSPI</Link><Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq"><MarketIcon /> KOSDAQ</Link><Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500"><MarketIcon /> S&P500</Link><Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq"><MarketIcon /> NASDAQ100</Link><Link to="/etf" className="kospi-map-nav-link kospi-map-nav-link--etf is-active"><EtfIcon /> ETF</Link><Link to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK" className="kospi-map-nav-link kospi-map-nav-link--discussion">종목토론탐험</Link><Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100"><RankIcon /> TOP 100</Link><Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict"><PredictIcon /> AI 예측</Link><Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100"><GlobeRankIcon /> 글로벌 시총</Link><Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle"><BattleIcon /> 시총대결</Link><Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news"><GlobalNewsIcon /> NEWS</Link></div>
     </header>
     <main className="etf-main">
-      <section className="etf-hero"><div><span className="etf-eyebrow">ETF MARKET INTELLIGENCE</span><h1>오늘의 ETF 마켓</h1><p>거래량, 수익률, 52주 위치와 가격 흐름을 비교</p></div><div className="etf-live"><i /> 10초 자동 갱신<strong>{updatedAt ? new Date(updatedAt).toLocaleTimeString("ko-KR") : "—"}</strong></div></section>
+      <section className="etf-hero">
+        <div className="etf-hero-copy"><span className="etf-eyebrow">ETF MARKET INTELLIGENCE</span><h1>자금의 궤도를<br/><em>발견하는 마켓</em></h1><p>거래대금, 모멘텀, 52주 위치와 실시간 토론을 하나의 레이더에서 탐색하세요.</p></div>
+        <div className="etf-orbit" aria-hidden="true"><i/><i/><i/><span>ETF<b>{region}</b></span></div>
+        <div className="etf-live"><i /> LIVE · 10초 갱신<strong>{updatedAt ? new Date(updatedAt).toLocaleTimeString("ko-KR") : "—"}</strong></div>
+      </section>
       <section className="etf-pulse"><div><span>거래량 1위</span><strong>{leaders[0]?.name ?? "—"}</strong><b>{leaders[0] ? compact(leaders[0].volume) : "—"}</b></div><div><span>상승 선두</span><strong>{items.slice().sort((a,b)=>b.change_pct-a.change_pct)[0]?.name ?? "—"}</strong><b className="up">{pct(items.slice().sort((a,b)=>b.change_pct-a.change_pct)[0]?.change_pct)}</b></div><div><span>조회 종목</span><strong>{items.length} ETFs</strong><b>{region === "KR" ? "한국 거래소" : "미국 시장"}</b></div></section>
+      <section className="etf-market-radar" aria-label="ETF 시장 흐름 요약">
+        <div className="etf-breadth"><span>MARKET BREADTH</span><strong>{advancers}<small> 상승</small> <i>/</i> {decliners}<small> 하락</small></strong><div><i style={{ width: `${breadth}%` }}/></div><p>총 거래대금 <b>{compact(totalTurnover)} {items[0]?.currency ?? ""}</b></p></div>
+        <div className="etf-radar-track">{radarItems.map((item, index) => <button key={item.code} type="button" data-tone={tone(item.change_pct)} onClick={() => setQuery(item.name)} style={{ "--signal": `${Math.min(100, 28 + Math.abs(item.change_pct) * 11)}%`, "--delay": `${index * .06}s` } as CSSProperties}><span>{item.code}</span><strong>{item.name}</strong><b>{pct(item.change_pct)}</b><i/></button>)}</div>
+      </section>
       <div className="etf-tabs" role="tablist"><button className={region === "KR" ? "active" : ""} onClick={() => { setRegion("KR"); setCategory("전체"); setQuery(""); }}>국내 ETF <span className="etf-tab-symbol"><KoreaFlag /></span></button><button className={region === "US" ? "active" : ""} onClick={() => { setRegion("US"); setCategory("전체"); setQuery(""); }}>해외 ETF <span className="etf-tab-symbol"><GlobalGlobe /></span></button></div>
       <section className="etf-tools"><div className="etf-search"><span>⌕</span><input value={query} onChange={e => setQuery(e.target.value)} placeholder="ETF명, 종목코드, 추종지수 검색" aria-label="ETF 검색" />{query && <button onClick={() => setQuery("")} aria-label="검색어 지우기">×</button>}{suggestions.length > 0 && <div className="etf-suggestions">{suggestions.map(item => <button key={item.code} onClick={() => setQuery(item.name)}><b>{item.name}</b><span>{item.code} · {item.benchmark}</span></button>)}</div>}</div><label>정렬<select value={sort} onChange={e => setSort(e.target.value as SortKey)}><option value="turnover">거래대금 높은순</option><option value="volume">거래량 높은순</option><option value="change">오늘 등락률</option><option value="d20">20일 수익률</option><option value="d60">60일 수익률</option><option value="d120">120일 수익률</option><option value="name">이름순</option></select></label></section>
+      <div className="etf-section-heading"><div><span>ETF SIGNAL DECK</span><h2>시장을 움직이는 ETF</h2></div><strong>{visible.length}<small>개 신호</small></strong></div>
       <div className="etf-categories">{categories.map(value => <button key={value} className={category === value ? "active" : ""} onClick={() => setCategory(value)}>{value}</button>)}</div>
       {error && <div className="error-state">{error}</div>}{loading && items.length === 0 ? <div className="etf-loading">ETF 데이터를 불러오는 중입니다…</div> : <section className="etf-grid">{visible.map((item, index) => <EtfCard key={item.code} item={item} rank={index + 1} discussions={(item.region === "KR" ? discussions[item.code]?.map(post => ({ id: post.nid, title: post.title })) : globalDiscussions[item.code]?.map(post => ({ id: post.id, title: post.title || post.text }))) ?? []} onBoard={openBoard} />)}</section>}
       {!loading && visible.length === 0 && <div className="etf-empty">검색 조건에 맞는 ETF가 없습니다.</div>}
