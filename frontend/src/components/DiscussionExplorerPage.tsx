@@ -135,6 +135,12 @@ function maximumZoom(): number {
   return 1.4;
 }
 
+function normalizeAngle(angle: number): number {
+  // Very large CSS rotation values gradually lose floating-point precision in
+  // long-running WebKit/Blink compositor sessions. Keep the equivalent angle small.
+  return ((angle + 180) % 360 + 360) % 360 - 180;
+}
+
 function normalizeDomestic(post: BoardPost): UniversePost {
   return {
     id: post.nid,
@@ -388,6 +394,7 @@ export default function DiscussionExplorerPage() {
     const compactTouch = window.innerWidth <= 1100 && window.matchMedia("(pointer: coarse)").matches;
     let frame = 0;
     let previous = -Infinity;
+    let animationStarted = performance.now();
     let width = 0;
     let height = 0;
     let ratio = 1;
@@ -440,9 +447,12 @@ export default function DiscussionExplorerPage() {
     };
 
     const animateStars = (time: number) => {
-      // Slow stellar scintillation does not need a 60 Hz repaint. 20 Hz looks
+      // Slow stellar scintillation does not need a 60 Hz repaint. 12 Hz looks
       // continuous while leaving the main thread/GPU budget to the 3D cards.
-      if (!starPaused.current && time - previous >= 50) { draw(time); previous = time; }
+      if (!starPaused.current && time - previous >= 84) { draw(time); previous = time; }
+      // After the entrance ambience has settled, retain the last star frame. A
+      // permanent full-screen canvas repaint caused heat/throttling on long visits.
+      if (time - animationStarted >= 20_000) { frame = 0; return; }
       frame = window.requestAnimationFrame(animateStars);
     };
     resize();
@@ -482,13 +492,17 @@ export default function DiscussionExplorerPage() {
 
   const applySceneTransform = () => {
     if (!sceneRef.current) return;
-    sceneRef.current.style.transform = `translate3d(-50%, -50%, 0) scale(${zoom.current}) rotateX(${rotation.current.x}deg) rotateY(${rotation.current.y}deg)`;
+    rotation.current.x = normalizeAngle(rotation.current.x);
+    rotation.current.y = normalizeAngle(rotation.current.y);
+    const x = Math.round(rotation.current.x * 1000) / 1000;
+    const y = Math.round(rotation.current.y * 1000) / 1000;
+    sceneRef.current.style.transform = `translate3d(-50%, -50%, 0) scale(${zoom.current}) rotateX(${x}deg) rotateY(${y}deg)`;
     // Zoom changes do not change billboard orientation. Avoid invalidating inherited
     // custom properties across every card during a pinch/wheel gesture.
-    if (appliedFaceRotation.current.x !== rotation.current.x || appliedFaceRotation.current.y !== rotation.current.y) {
-      sceneRef.current.style.setProperty("--face-x", `${-rotation.current.x}deg`);
-      sceneRef.current.style.setProperty("--face-y", `${-rotation.current.y}deg`);
-      appliedFaceRotation.current = { ...rotation.current };
+    if (appliedFaceRotation.current.x !== x || appliedFaceRotation.current.y !== y) {
+      sceneRef.current.style.setProperty("--face-x", `${-x}deg`);
+      sceneRef.current.style.setProperty("--face-y", `${-y}deg`);
+      appliedFaceRotation.current = { x, y };
     }
   };
 
@@ -614,7 +628,7 @@ export default function DiscussionExplorerPage() {
   useEffect(() => {
     scheduleSceneTransform();
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (!autoRotate || selected || reducedMotion) return;
+    if (!autoRotate || selected || disintegrating || reducedMotion) return;
     let frame = 0;
     let previous = performance.now();
     const animate = (now: number) => {
@@ -631,7 +645,7 @@ export default function DiscussionExplorerPage() {
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [autoRotate, isCompactTouch, selected]);
+  }, [autoRotate, disintegrating, isCompactTouch, selected]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
