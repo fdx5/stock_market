@@ -46,7 +46,7 @@ export default function Footer() {
             to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK"
             className="app-footer-market-link app-footer-market-link--discussion"
           >
-            <span className="discussion-nav-n" aria-hidden="true">N</span> 종목토론탐험
+            <span className="discussion-nav-n" aria-hidden="true">N</span> 종목토론
           </Link>
           <Link to="/kospi-100" className="app-footer-market-link app-footer-market-link--top100">
             <RankIcon /> TOP 100

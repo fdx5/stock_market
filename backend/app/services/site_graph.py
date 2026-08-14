@@ -41,7 +41,7 @@ PAGES: list[dict] = [
     {"id": "page:/global", "label": "해외 종목", "path": "/global", "group": "stock"},
     {"id": "page:/global-top100", "label": "글로벌 시총 TOP100", "path": "/global-top100", "group": "stock"},
     {"id": "page:/etf", "label": "ETF 마켓", "path": "/etf", "group": "etf"},
-    {"id": "page:/discussion-explorer", "label": "종목토론탐험", "path": "/discussion-explorer", "group": "stock"},
+    {"id": "page:/discussion-explorer", "label": "종목토론", "path": "/discussion-explorer", "group": "stock"},
     {"id": "page:/map", "label": "KOSPI MAP", "path": "/map", "group": "map"},
     {"id": "page:/kosdaq-map", "label": "KOSDAQ MAP", "path": "/kosdaq-map", "group": "map"},
     {"id": "page:/sp500-map", "label": "S&P500 MAP", "path": "/sp500-map", "group": "map"},

@@ -457,7 +457,7 @@ export default function Dashboard() {
                     to={`/discussion-explorer?code=${encodeURIComponent(summary.code)}&name=${encodeURIComponent(summaryName)}&market=KR`}
                     className="discussion-explorer-link"
                   >
-                    <span aria-hidden="true">✦</span> 종목토론탐험 <i aria-hidden="true">→</i>
+                    <span aria-hidden="true">✦</span> 종목토론 <i aria-hidden="true">→</i>
                   </Link>
                   {awaitingQuote ? (
                     <span className="price">

@@ -9,7 +9,7 @@ export default function EtfNavLink() {
         to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK"
         className="kospi-map-nav-link kospi-map-nav-link--discussion"
       >
-        종목토론탐험
+        종목토론
       </Link>
     </>
   );

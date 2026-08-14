@@ -538,7 +538,7 @@ export default function GlobalStockPage() {
                     to={`/discussion-explorer?code=${encodeURIComponent(quote.code)}&name=${encodeURIComponent(quote.name)}&market=US`}
                     className="discussion-explorer-link"
                   >
-                    <span aria-hidden="true">✦</span> 종목토론탐험 <i aria-hidden="true">→</i>
+                    <span aria-hidden="true">✦</span> 종목토론 <i aria-hidden="true">→</i>
                   </Link>
                   <DiscussionHeadlineTicker code={quote.code} market="US" />
                 </div>

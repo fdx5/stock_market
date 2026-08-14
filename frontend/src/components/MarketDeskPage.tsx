@@ -433,7 +433,7 @@ export default function MarketDeskPage() {
             <EtfIcon /> ETF
           </Link>
           <Link to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK" className="kospi-map-nav-link kospi-map-nav-link--discussion">
-            종목토론탐험
+            종목토론
           </Link>
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
@@ -660,7 +660,7 @@ export default function MarketDeskPage() {
                               to={`/discussion-explorer?code=${encodeURIComponent(summary.code)}&name=${encodeURIComponent(summaryName)}&market=KR`}
                               className="discussion-explorer-link"
                             >
-                              <span aria-hidden="true">✦</span> 종목토론탐험 <i aria-hidden="true">→</i>
+                              <span aria-hidden="true">✦</span> 종목토론 <i aria-hidden="true">→</i>
                             </Link>
                             <DiscussionHeadlineTicker code={summary.code} />
                           </div>

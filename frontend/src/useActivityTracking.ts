@@ -37,7 +37,7 @@ export function pageLabel(path: string): string {
   if (path === "/global") return "해외 종목";
   if (path === "/global-top100") return "글로벌 시총 TOP100";
   if (path === "/etf") return "ETF 마켓";
-  if (path === "/discussion-explorer") return "종목토론탐험";
+  if (path === "/discussion-explorer") return "종목토론";
   if (path === "/battle") return "줄다리기";
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";
@@ -159,7 +159,7 @@ export function useActivityTracking(path: string): void {
       sendEvent({
         type: "page_view",
         path,
-        label: `종목토론탐험 · ${name} (${code}) · ${market}/${assetKind}`.slice(0, 100),
+        label: `종목토론 · ${name} (${code}) · ${market}/${assetKind}`.slice(0, 100),
         stock_code: code,
         stock_name: name,
       });

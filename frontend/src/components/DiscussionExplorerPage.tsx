@@ -280,7 +280,7 @@ export default function DiscussionExplorerPage() {
   const assetKind: AssetKind = params.get("asset") === "ETF" ? "ETF" : "STOCK";
   const backPath = assetKind === "ETF" ? "/etf" : market === "US" ? `/global?code=${encodeURIComponent(code)}` : `/desk?code=${encodeURIComponent(code)}`;
 
-  useDocumentTitle(`${name} 종목토론탐험 · K-Stock Hub`);
+  useDocumentTitle(`${name} 종목토론 · K-Stock Hub`);
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);
   const [posts, setPosts] = useState<UniversePost[]>([]);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
@@ -900,7 +900,7 @@ export default function DiscussionExplorerPage() {
               </span>
             )}
           </h1>
-          <p>종목토론탐험</p>
+          <p>종목토론</p>
         </div>
         <div className="discussion-counter"><strong>{activePosts.length}</strong><span>ACTIVE SIGNALS</span></div>
       </header>
