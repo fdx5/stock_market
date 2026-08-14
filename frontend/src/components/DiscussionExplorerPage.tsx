@@ -701,7 +701,13 @@ export default function DiscussionExplorerPage() {
         <Link to={backPath} className="discussion-back" aria-label="종목 상세로 돌아가기">←</Link>
         <div className="discussion-heading">
           <span>LIVE DISCUSSION UNIVERSE</span>
-          <h1><StockLogo code={code} className="discussion-heading-logo" />{name} <b>{code}</b></h1>
+          <h1>
+            <Link to={backPath} className="discussion-heading-asset" aria-label={`${name} 종목 상세로 이동`}>
+              <StockLogo code={code} className="discussion-heading-logo" />
+              <span>{name}</span>
+              <b>{code}</b>
+            </Link>
+          </h1>
           <p>종목토론탐험</p>
         </div>
         <div className="discussion-counter"><strong>{activePosts.length}</strong><span>ACTIVE SIGNALS</span></div>
