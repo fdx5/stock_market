@@ -49,7 +49,7 @@ from app.services import (
 )
 from app.services import global_top100 as global_top100_service
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
-from app.services.seo import build_sitemap, render_spa_shell
+from app.services.seo import build_rss, build_sitemap, render_spa_shell
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.stock_board import warm_boards
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
@@ -519,6 +519,11 @@ if STATIC_DIR.exists():
     def dynamic_sitemap():
         xml = build_sitemap(get_top_market_cap(100))
         return Response(content=xml, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
+
+    @app.get("/rss.xml", include_in_schema=False)
+    def discovery_rss():
+        xml = build_rss(get_top_market_cap(30))
+        return Response(content=xml, media_type="application/rss+xml", headers={"Cache-Control": "public, max-age=3600"})
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str, request: Request):

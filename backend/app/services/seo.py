@@ -11,7 +11,7 @@ import html
 import json
 import re
 from urllib.parse import urlencode
-from datetime import date
+from datetime import date, datetime, timezone
 
 SITE = "https://kospi-predictor.onrender.com"
 IMAGE = f"{SITE}/img/kospi-map-preview.png"
@@ -93,7 +93,28 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         "inLanguage": "ko-KR",
     }
     script = '<script type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
-    return document.replace("</head>", f"{script}\n  </head>", 1)
+    document = document.replace("</head>", f"{script}\n  </head>", 1)
+
+    # Naver's Yeti can render JavaScript, but its official SPA guidance still
+    # recommends server-rendering the important content. React replaces this
+    # lightweight shell as soon as it mounts; crawlers and slow connections get
+    # a meaningful heading, summary, and crawlable internal links immediately.
+    links = [
+        ("/desk", "국내 주식 시세"), ("/map", "코스피 시가총액 맵"),
+        ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf", "국내·해외 ETF"),
+        ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
+        ("/news", "증시 뉴스"), ("/discussion-explorer", "종목토론"),
+    ]
+    nav = "".join(f'<a href="{href}">{html.escape(label)}</a>' for href, label in links)
+    shell = (
+        '<section data-seo-shell="true" style="min-height:100vh;padding:48px 6%;'
+        'background:#08111f;color:#eef6ff;font-family:sans-serif">'
+        f'<h1 style="font-size:32px">{html.escape(title)}</h1>'
+        f'<p style="max-width:760px;line-height:1.8;color:#b9c9da">{html.escape(description)}</p>'
+        f'<nav aria-label="주요 서비스" style="display:flex;flex-wrap:wrap;gap:16px">{nav}</nav>'
+        '</section>'
+    )
+    return document.replace('<div id="root"></div>', f'<div id="root">{shell}</div>', 1)
 
 
 def build_sitemap(kr_stocks: list[dict]) -> str:
@@ -131,3 +152,30 @@ def build_sitemap(kr_stocks: list[dict]) -> str:
         )
     return '<?xml version="1.0" encoding="UTF-8"?>\n' \
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' + "\n".join(rows) + "\n</urlset>\n"
+
+
+def build_rss(kr_stocks: list[dict]) -> str:
+    """Compact discovery feed for Naver Search Advisor and feed readers."""
+    now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    items: list[str] = []
+    featured = [(path, *PAGES[path]) for path in ("/", "/desk", "/map", "/kosdaq-map", "/etf", "/news")]
+    for path, title, description in featured:
+        url = f"{SITE}{path}"
+        items.append(f"<item><title>{html.escape(title)}</title><link>{html.escape(url)}</link>"
+                     f"<guid isPermaLink=\"true\">{html.escape(url)}</guid><description>{html.escape(description)}</description>"
+                     f"<pubDate>{now}</pubDate></item>")
+    for stock in kr_stocks[:30]:
+        code = re.sub(r"\D", "", str(stock.get("code", "")))[:6]
+        name = str(stock.get("name", "")).strip()[:80]
+        if not code or not name:
+            continue
+        url = f"{SITE}/desk?" + urlencode({"code": code, "name": name})
+        title = f"{name} 주가·차트·투자자 동향"
+        items.append(f"<item><title>{html.escape(title)}</title><link>{html.escape(url)}</link>"
+                     f"<guid isPermaLink=\"true\">{html.escape(url)}</guid>"
+                     f"<description>{html.escape(name)}({code})의 현재가와 시장 정보를 확인하세요.</description>"
+                     f"<pubDate>{now}</pubDate></item>")
+    return ('<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0"><channel>'
+            f'<title>K-Stock Hub 증시 정보</title><link>{SITE}</link>'
+            '<description>국내외 주식 시세, 시가총액 맵, ETF와 시장 정보</description><language>ko-KR</language>'
+            f'<lastBuildDate>{now}</lastBuildDate>{"".join(items)}</channel></rss>\n')

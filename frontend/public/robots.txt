@@ -4,3 +4,9 @@ Disallow: /admin
 Disallow: /api/
 
 Sitemap: https://kospi-predictor.onrender.com/sitemap.xml
+Sitemap: https://kospi-predictor.onrender.com/rss.xml
+
+User-agent: Yeti
+Allow: /
+Disallow: /admin
+Disallow: /api/
