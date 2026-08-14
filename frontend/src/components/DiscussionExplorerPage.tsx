@@ -230,6 +230,7 @@ export default function DiscussionExplorerPage() {
   const sceneRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchInputTimer = useRef<number | null>(null);
   const starCanvasRef = useRef<HTMLCanvasElement>(null);
   const rotation = useRef({ x: -8, y: 0 });
   const zoom = useRef(defaultZoom());
@@ -248,6 +249,7 @@ export default function DiscussionExplorerPage() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       removalTimers.current.forEach((timer) => window.clearTimeout(timer));
       removalTimers.current.clear();
+      if (searchInputTimer.current !== null) window.clearTimeout(searchInputTimer.current);
     };
   }, []);
 
@@ -356,13 +358,16 @@ export default function DiscussionExplorerPage() {
         .catch(() => setEtfUniverse([]));
     }
     setSearching(true);
-    const timer = window.setTimeout(() => {
-      api.search(query)
-        .then(setStockResults)
-        .catch(() => setStockResults([]))
-        .finally(() => setSearching(false));
-    }, 220);
-    return () => window.clearTimeout(timer);
+    const controller = new AbortController();
+    api.search(query, controller.signal)
+      .then(setStockResults)
+      .catch((reason: Error) => {
+        if (reason.name !== "AbortError") setStockResults([]);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSearching(false);
+      });
+    return () => controller.abort();
   }, [searchQuery]);
 
   const searchResults = useMemo<SearchAsset[]>(() => {
@@ -714,14 +719,29 @@ export default function DiscussionExplorerPage() {
           <span aria-hidden="true">⌕</span>
           <input
             ref={searchInputRef}
-            value={searchQuery}
-            onChange={(event) => { setSearchQuery(event.target.value); setSearchOpen(true); }}
+            defaultValue=""
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setSearchOpen(true);
+              if (searchInputTimer.current !== null) window.clearTimeout(searchInputTimer.current);
+              // Keep native typing independent from the expensive 3D React tree.
+              searchInputTimer.current = window.setTimeout(() => {
+                setSearchQuery(value);
+                searchInputTimer.current = null;
+              }, 180);
+            }}
             onFocus={() => setSearchOpen(true)}
             placeholder="종목명·티커를 입력하세요 (예: SK하이닉스, AAPL, QQQ)"
             aria-label="국내 해외 종목 및 ETF 통합 검색"
           />
           {searching && <i aria-label="검색 중" />}
-          {searchQuery && <button type="button" onClick={() => { setSearchQuery(""); setSearchOpen(false); }} aria-label="검색어 지우기">×</button>}
+          {searchQuery && <button type="button" onClick={() => {
+            if (searchInputTimer.current !== null) window.clearTimeout(searchInputTimer.current);
+            searchInputTimer.current = null;
+            if (searchInputRef.current) searchInputRef.current.value = "";
+            setSearchQuery("");
+            setSearchOpen(false);
+          }} aria-label="검색어 지우기">×</button>}
           {!searchQuery && !searching && <button type="button" className="discussion-search-cta" onClick={() => searchInputRef.current?.focus()}>종목 찾기</button>}
         </div>
         {searchOpen && searchQuery.trim() && (

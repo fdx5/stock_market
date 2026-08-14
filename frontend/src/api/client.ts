@@ -965,7 +965,7 @@ export const api = {
     getJSONFresh<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
       `${BASE}/etfs/${encodeURIComponent(code)}/toss-discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
     ),
-  search: (q: string) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`),
+  search: (q: string, signal?: AbortSignal) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`, { signal }),
   /* `market` narrows the ranking to one side. The log is overwhelmingly KR, so a
      US-only strip taken from the combined top 20 is empty most days — the backend
      ranks a deeper pool and filters it, which is the only way the global page can
