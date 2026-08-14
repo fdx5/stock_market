@@ -28,8 +28,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
    player is built by the time the click lands.
    ========================================================================= */
 
-/* The playlist. Four tracks, and which one plays is decided fresh every time
-   the music is switched on.
+/* The playlist. The first track is the entrance signature for a visit; after
+   that, which one plays is decided fresh every time the music is switched on.
 
    The names here are only what the board shows for the instant before the
    player has been asked its own — see `titleFor`. The player's answer always
@@ -39,6 +39,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
    falls back to its decorative bars for that track — see useBgmEqualizer, and
    backend/scripts/bgm_envelope.py for how the file is made. */
 const TRACKS = [
+  { id: "0o2V139DBVQ", name: "Gateway to the Distant Universe" },
   { id: "8PqN8kexaT0", name: "Breath of the Galaxy" },
   { id: "7dn32JVyB6s", name: "Map in Grey" },
   { id: "FbQ3gMEeobg", name: "A Path of Gentle Piano" },
@@ -201,6 +202,9 @@ export function useYouTubeBgm(): Bgm {
    * listen of a visit a free draw rather than forcing it onto whichever track
    * a default would have named. */
   const trackRef = useRef<(typeof TRACKS)[number] | null>(null);
+  /** Only the first BGM ON of this page visit is deterministic. Warming the
+   * iframe must not consume it; an OFF -> ON after that returns to random. */
+  const firstActivationRef = useRef(true);
   /* What the visitor last asked for. A ref rather than the state above
      because the player may finish building after several more presses, and
      what it should do when it arrives is whatever was asked for LAST — not
@@ -424,14 +428,33 @@ export function useYouTubeBgm(): Bgm {
       /* Built but not yet ready — which is the common case when the pointer
          warmed it a moment ago. Its methods do not exist yet, and calling one
          would throw; its onReady reads wantRef and will do this itself. */
-      if (!readyRef.current) return;
+      if (!readyRef.current) {
+        if (want && firstActivationRef.current) {
+          firstActivationRef.current = false;
+          const track = TRACKS[0];
+          trackRef.current = track;
+          setTitle(track.name);
+          setTrackId(track.id);
+        }
+        return;
+      }
       /* Called straight from the click handler, on purpose. iOS grants
          playback to a call that is still inside the tap's own stack and to
          nothing else — no timeout, no promise callback, no matter how soon
          after. This is the path that has to work on an iPad, which is why the
          player is warmed up long before the button is reached. */
       if (want) {
-        playRandom(player);
+        if (firstActivationRef.current) {
+          firstActivationRef.current = false;
+          const track = TRACKS[0];
+          trackRef.current = track;
+          setTitle(track.name);
+          setTrackId(track.id);
+          player.loadVideoById(track.id);
+          armWatchdog();
+        } else {
+          playRandom(player);
+        }
       } else {
         window.clearTimeout(watchdogRef.current);
         player.pauseVideo();
@@ -442,13 +465,16 @@ export function useYouTubeBgm(): Bgm {
     // already pointed at the chosen track rather than loading one and
     // immediately replacing it.
     if (want) {
-      const track = pickTrack(trackRef.current?.id ?? null);
+      const track = firstActivationRef.current
+        ? TRACKS[0]
+        : pickTrack(trackRef.current?.id ?? null);
+      firstActivationRef.current = false;
       trackRef.current = track;
       setTitle(track.name);
       setTrackId(track.id);
       build();
     }
-  }, [build, playRandom]);
+  }, [armWatchdog, build, playRandom]);
 
   /* Stable across renders, so the equaliser's effect is not torn down and
      rebuilt on every state change this component makes. It reads the player
