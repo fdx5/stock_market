@@ -321,6 +321,7 @@ export default function DiscussionExplorerPage() {
   const zoomLabelTimer = useRef<number | null>(null);
   const viewportChanging = useRef(false);
   const appliedFaceRotation = useRef({ x: Number.NaN, y: Number.NaN });
+  const lastFaceUpdate = useRef(0);
 
   useEffect(() => {
     const onVisibilityChange = () => { pageVisible.current = !document.hidden; };
@@ -348,7 +349,7 @@ export default function DiscussionExplorerPage() {
         viewportChanging.current = false;
         stageRef.current?.classList.remove("is-viewport-changing");
         appliedFaceRotation.current = { x: Number.NaN, y: Number.NaN };
-        applySceneTransform();
+        applySceneTransform(true);
       }, 320);
     };
     window.addEventListener("resize", settleViewport, { passive: true });
@@ -473,7 +474,7 @@ export default function DiscussionExplorerPage() {
     };
   }, []);
 
-  const applySceneTransform = () => {
+  const applySceneTransform = (forceFace = false) => {
     if (!sceneRef.current) return;
     rotation.current.x = normalizeAngle(rotation.current.x);
     rotation.current.y = normalizeAngle(rotation.current.y);
@@ -482,10 +483,16 @@ export default function DiscussionExplorerPage() {
     sceneRef.current.style.transform = `translate3d(-50%, -50%, 0) scale(${zoom.current}) rotateX(${x}deg) rotateY(${y}deg)`;
     // Zoom changes do not change billboard orientation. Avoid invalidating inherited
     // custom properties across every card during a pinch/wheel gesture.
-    if (appliedFaceRotation.current.x !== x || appliedFaceRotation.current.y !== y) {
+    const now = performance.now();
+    // Updating inherited billboard variables recalculates every card subtree. On
+    // touch devices 20 Hz remains visually locked to the very slow globe while
+    // leaving alternate frames entirely to the compositor.
+    const faceDue = forceFace || !isCompactTouch || now - lastFaceUpdate.current >= 50;
+    if (faceDue && (appliedFaceRotation.current.x !== x || appliedFaceRotation.current.y !== y)) {
       sceneRef.current.style.setProperty("--face-x", `${-x}deg`);
       sceneRef.current.style.setProperty("--face-y", `${-y}deg`);
       appliedFaceRotation.current = { x, y };
+      lastFaceUpdate.current = now;
     }
   };
 
@@ -821,6 +828,7 @@ export default function DiscussionExplorerPage() {
   const pointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     drag.current.active = false;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    applySceneTransform(true);
   };
 
   const onWheel = (event: WheelEvent<HTMLDivElement>) => {
@@ -851,7 +859,7 @@ export default function DiscussionExplorerPage() {
 
   return (
     <main
-      className={`discussion-explorer ${selected ? "has-detail" : ""} ${isIphonePortrait ? "is-iphone-portrait" : ""}`}
+      className={`discussion-explorer ${selected ? "has-detail" : ""} ${isCompactTouch ? "is-compact-touch" : ""} ${isIphonePortrait ? "is-iphone-portrait" : ""}`}
       ref={stageRef}
       onPointerDownCapture={captureCardPress}
       onPointerMoveCapture={capturePointerMove}

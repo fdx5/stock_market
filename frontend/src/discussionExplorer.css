@@ -220,6 +220,29 @@
   }
 }
 
+/* Sustainable mobile profile shared by iOS, Android and coarse-pointer tablets.
+   All 40 signals remain in the universe; only ten run independent float timelines. */
+.discussion-explorer.is-compact-touch .discussion-node > button {
+  animation: none;
+  box-shadow: inset 0 1px rgba(255,255,255,.08), 0 5px 13px rgba(0,0,0,.25);
+}
+.discussion-explorer.is-compact-touch .discussion-node:nth-child(4n) > button {
+  animation: discussion-card-float var(--drift-duration, 8s) ease-in-out var(--float-delay, 0s) infinite alternate;
+}
+.discussion-explorer.is-compact-touch .discussion-cosmos { filter:none; transform:none; }
+.discussion-explorer.is-compact-touch .discussion-nebula { background:radial-gradient(ellipse at 34% 40%,rgba(14,165,233,.08),transparent 35%),radial-gradient(ellipse at 70% 55%,rgba(139,92,246,.09),transparent 30%); }
+.discussion-explorer.is-compact-touch .discussion-comets > i { display:none; }
+.discussion-explorer.is-compact-touch .discussion-comets > i:first-child { display:block; filter:none; }
+.discussion-explorer.is-compact-touch .discussion-core i { animation:none; box-shadow:0 0 12px #fff,0 0 28px #22d3ee,0 0 44px #7c3aed; }
+.discussion-explorer.is-compact-touch .discussion-node.is-hot-view > button { box-shadow:inset 0 1px rgba(255,255,255,.14),0 0 3px var(--card-accent),0 0 14px color-mix(in srgb,var(--card-accent) 42%,transparent),0 6px 14px rgba(0,0,0,.3); }
+.discussion-explorer.is-compact-touch .discussion-detail { animation:none; box-shadow:0 12px 38px rgba(0,0,0,.62),0 0 20px rgba(34,211,238,.07); }
+.discussion-explorer.is-compact-touch .discussion-detail-glow { display:none; }
+.discussion-explorer.is-compact-touch.has-detail .discussion-scene,.discussion-explorer.is-compact-touch.has-detail .discussion-stars,.discussion-explorer.is-compact-touch.has-detail .discussion-comets { visibility:hidden; }
+.discussion-explorer.is-compact-touch .discussion-node.is-disintegrating { animation:ios-card-away .38s ease-out forwards; }
+.discussion-explorer.is-compact-touch .discussion-node.is-disintegrating::before,.discussion-explorer.is-compact-touch .discussion-node.is-disintegrating::after { display:none; }
+.discussion-explorer.is-compact-touch .discussion-node.is-disintegrating > button { animation:none; filter:none; }
+.discussion-explorer.is-compact-touch .discussion-detail-comments article { content-visibility:auto; contain-intrinsic-size:58px; }
+
 /* Mobile Safari pays a disproportionate cost for dozens of filtered 3D layers.
    Keep the same visual hierarchy on iPhone portrait while avoiding live backdrop
    sampling and animated paint effects that compete with gestures and panel scroll. */
