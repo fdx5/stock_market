@@ -128,7 +128,7 @@ function defaultZoom(): number {
 function maximumZoom(): number {
   // Large CSS-scaled 3D layers are the main WebKit GPU-memory pressure point.
   // 1.05 still gives an iPhone 2.5x magnification from its 0.42 default.
-  if (/iPhone|iPod/i.test(navigator.userAgent) && window.innerWidth <= 480) return 1.05;
+  if (window.matchMedia("(pointer: coarse)").matches && window.innerWidth <= 480) return 1.05;
   return 1.65;
 }
 
@@ -271,6 +271,7 @@ export default function DiscussionExplorerPage() {
   const assetKind: AssetKind = params.get("asset") === "ETF" ? "ETF" : "STOCK";
   const backPath = assetKind === "ETF" ? "/etf" : market === "US" ? `/global?code=${encodeURIComponent(code)}` : `/desk?code=${encodeURIComponent(code)}`;
   const isIphonePortrait = /iPhone|iPod/i.test(navigator.userAgent) && window.matchMedia("(orientation: portrait)").matches;
+  const isCompactTouch = window.innerWidth <= 1100 && window.matchMedia("(pointer: coarse)").matches;
 
   useDocumentTitle(`${name} 종목토론탐험 · K-Stock Hub`);
   const [posts, setPosts] = useState<UniversePost[]>([]);
@@ -327,7 +328,7 @@ export default function DiscussionExplorerPage() {
     const context = canvas.getContext("2d", { alpha: true });
     if (!context) return;
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const compactIos = /iPhone|iPod/i.test(navigator.userAgent) && window.innerWidth <= 480;
+    const compactTouch = window.innerWidth <= 1100 && window.matchMedia("(pointer: coarse)").matches;
     let frame = 0;
     let previous = -Infinity;
     let width = 0;
@@ -339,7 +340,7 @@ export default function DiscussionExplorerPage() {
       height = window.innerHeight;
       // A capped DPR keeps stars crisp without allocating a full 4K canvas on
       // high-density phones and tablets.
-      ratio = compactIos ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+      ratio = compactTouch ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
       canvas.width = Math.round(width * ratio);
       canvas.height = Math.round(height * ratio);
       canvas.style.width = `${width}px`;
@@ -359,7 +360,7 @@ export default function DiscussionExplorerPage() {
         context.beginPath();
         context.arc(x, y, radius / 2, 0, Math.PI * 2);
         context.fill();
-        if (star.radiant && !compactIos) {
+        if (star.radiant && !compactTouch) {
           const glow = context.createRadialGradient(x, y, 0, x, y, radius * 4.8);
           glow.addColorStop(0, "rgba(255,255,255,.9)");
           glow.addColorStop(.18, star.color);
@@ -383,18 +384,18 @@ export default function DiscussionExplorerPage() {
     const animateStars = (time: number) => {
       // Slow stellar scintillation does not need a 60 Hz repaint. 20 Hz looks
       // continuous while leaving the main thread/GPU budget to the 3D cards.
-      if (!starPaused.current && time - previous >= (compactIos ? 100 : 50)) { draw(time); previous = time; }
+      if (!starPaused.current && time - previous >= 50) { draw(time); previous = time; }
       frame = window.requestAnimationFrame(animateStars);
     };
     resize();
     draw(0);
     // A static star field preserves the atmosphere on compact iPhones without a
     // permanent canvas repaint loop competing with WebKit's 3D compositor.
-    if (!reducedMotion && !compactIos) frame = window.requestAnimationFrame(animateStars);
+    if (!reducedMotion && !compactTouch) frame = window.requestAnimationFrame(animateStars);
     // Safari changes innerHeight while its address bar moves. Reallocating a canvas
     // buffer on every such resize is expensive and can retain old IOSurface memory.
     // On compact iOS only an orientation change warrants a new backing store.
-    const resizeEvent = compactIos ? "orientationchange" : "resize";
+    const resizeEvent = compactTouch ? "orientationchange" : "resize";
     window.addEventListener(resizeEvent, resize, { passive: true });
     return () => { window.cancelAnimationFrame(frame); window.removeEventListener(resizeEvent, resize); };
   }, []);
@@ -499,7 +500,7 @@ export default function DiscussionExplorerPage() {
     let frame = 0;
     let previous = performance.now();
     const animate = (now: number) => {
-      const interval = isIphonePortrait ? 1000 / 30 : 0;
+      const interval = isCompactTouch ? 1000 / 45 : 0;
       if (pageVisible.current && !drag.current.active && now - previous >= interval) {
         const elapsed = Math.min(50, now - previous);
         previous = now;
@@ -512,7 +513,7 @@ export default function DiscussionExplorerPage() {
     };
     frame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(frame);
-  }, [autoRotate, isIphonePortrait, selected]);
+  }, [autoRotate, isCompactTouch, selected]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
