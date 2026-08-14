@@ -88,6 +88,11 @@ def _decimals(price: float) -> int:
 def _build() -> dict:
     quotes = yahoo_bulk_quote.get_quotes([entry["symbol"] for entry in ROSTER])
 
+    # Empty is an upstream failure, not a real market state. Raising keeps an
+    # existing last-known-good cache entry instead of replacing the board with [].
+    if not quotes:
+        raise RuntimeError("Yahoo v7 returned no futures quotes from either host")
+
     items: list[dict] = []
     for entry in ROSTER:
         quote = quotes.get(entry["symbol"])

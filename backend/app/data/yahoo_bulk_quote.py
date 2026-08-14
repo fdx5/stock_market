@@ -19,10 +19,15 @@ a failed batch must cost those names their live print — never the page.
 """
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import logging
 
 from app.data import yahoo_session
 
-QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
+QUOTE_URLS = (
+    "https://query1.finance.yahoo.com/v7/finance/quote",
+    "https://query2.finance.yahoo.com/v7/finance/quote",
+)
+logger = logging.getLogger(__name__)
 
 # 200 covers the S&P 500 in three requests and keeps the comma-joined query string well
 # inside any URL length limit. Yahoo accepts more, but an oversized batch that gets
@@ -126,10 +131,10 @@ def _read(row: dict) -> dict | None:
     }
 
 
-def _fetch_chunk(symbols: list[str], retry: bool = True) -> dict[str, dict]:
+def _fetch_chunk_from(url: str, symbols: list[str], retry: bool = True) -> dict[str, dict]:
     session, crumb = yahoo_session.get_crumb()
     resp = session.get(
-        QUOTE_URL, params={"symbols": ",".join(symbols), "crumb": crumb}, timeout=TIMEOUT_SECONDS
+        url, params={"symbols": ",".join(symbols), "crumb": crumb}, timeout=TIMEOUT_SECONDS
     )
     if resp.status_code in (401, 403) and retry:
         # A crumb expires with its cookie. One re-acquisition, then give up: a genuinely
@@ -137,7 +142,7 @@ def _fetch_chunk(symbols: list[str], retry: bool = True) -> dict[str, dict]:
         # get_crumb decides whether that re-acquisition actually happens — four chunks
         # failing together are four reports of one dead crumb, not four dead crumbs.
         yahoo_session.get_crumb(force_refresh=True)
-        return _fetch_chunk(symbols, retry=False)
+        return _fetch_chunk_from(url, symbols, retry=False)
     resp.raise_for_status()
 
     quotes: dict[str, dict] = {}
@@ -146,6 +151,21 @@ def _fetch_chunk(symbols: list[str], retry: bool = True) -> dict[str, dict]:
         if quote and row.get("symbol"):
             quotes[row["symbol"]] = quote
     return quotes
+
+
+def _fetch_chunk(symbols: list[str]) -> dict[str, dict]:
+    """Use query2 only when the normal query1 v7 call fails or is unexpectedly empty."""
+    last_error: Exception | None = None
+    for url in QUOTE_URLS:
+        try:
+            quotes = _fetch_chunk_from(url, symbols)
+            if quotes:
+                return quotes
+            last_error = RuntimeError(f"Yahoo v7 returned no quotes from {url}")
+        except Exception as exc:  # noqa: BLE001 - the second host is the recovery path
+            last_error = exc
+            logger.warning("Yahoo v7 quote host failed: host=%s error=%s", url, type(exc).__name__)
+    raise last_error or RuntimeError("Yahoo v7 quote hosts returned no quotes")
 
 
 def get_quotes(symbols: list[str]) -> dict[str, dict]:

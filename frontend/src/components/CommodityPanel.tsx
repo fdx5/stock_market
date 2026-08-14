@@ -55,6 +55,10 @@ function FuturesBoard() {
         .futures()
         .then((res) => {
           if (cancelled) return;
+          if (res.items.length === 0) {
+            if (itemsRef.current.length === 0) setFailed(true);
+            return;
+          }
           setFailed(false);
           const previous = itemsRef.current;
           if (sameFutures(previous, res.items)) return;
