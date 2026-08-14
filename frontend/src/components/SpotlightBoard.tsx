@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { DailyPricePoint, StockSearchResult, api } from "../api/client";
+import { DailyPricePoint, EtfItem, StockSearchResult, api } from "../api/client";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { wonSuffix } from "../i18n/format";
 import { useMediaQuery } from "../useMediaQuery";
@@ -13,6 +13,8 @@ import {
 } from "../spotlight";
 import { useMarketSnapshot } from "../useMarketSnapshot";
 import { useUsMarketSnapshot } from "../useUsMarketSnapshot";
+import { navigate } from "../router";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import SpotSparkline from "./SpotSparkline";
 import StockLogo from "./StockLogo";
 
@@ -41,6 +43,7 @@ const SPARK_DAYS = 20;
  * 130px chart squeezed under a wrapped stock name is worse than no chart — so
  * the six requests are not made at all rather than made and hidden. */
 const SPARK_QUERY = "(min-width: 1181px)";
+const SPOTLIGHT_ETFS = ["SPY", "QQQ", "SCHD"];
 
 export default function SpotlightBoard({
   onSelect,
@@ -61,6 +64,25 @@ export default function SpotlightBoard({
   const krSnapshot = useMarketSnapshot();
   const usSnapshot = useUsMarketSnapshot();
   const isUs = kind === "us";
+  const [etfs, setEtfs] = useState<EtfItem[]>([]);
+
+  useEffect(() => {
+    if (!isUs) return;
+    let cancelled = false;
+    const load = () => api.etfs("US").then((response) => {
+        if (cancelled) return;
+        const byCode = new Map(response.items.map((item) => [item.code, item]));
+        setEtfs(SPOTLIGHT_ETFS.map((code) => byCode.get(code)).filter((item): item is EtfItem => Boolean(item)));
+      }).catch(() => {
+        // The two stock rows remain useful if the independent ETF feed is unavailable.
+      });
+    load();
+    const stop = startVisibilityAwareInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      stop();
+    };
+  }, [isUs]);
 
   const snapshot = isUs
     ? {
@@ -179,7 +201,7 @@ export default function SpotlightBoard({
     return (
       <div className="desk-spot" aria-busy="true">
         <div className="desk-spot-rows">
-          {[0, 1].map((row) => (
+          {(isUs ? [0, 1, 2] : [0, 1]).map((row) => (
             <div className="desk-spot-row" key={row}>
               <div className="desk-spot-rowhead">
                 <span className="skeleton" style={{ width: 54, height: 14 }} />
@@ -239,8 +261,98 @@ export default function SpotlightBoard({
           onSelect={onSelect}
           activeCode={activeCode}
         />
+        {isUs && <EtfRow items={etfs} />}
       </div>
     </div>
+  );
+}
+
+const ETF_ISSUER_DOMAINS: Record<string, string> = {
+  SPY: "ssga.com",
+  QQQ: "invesco.com",
+  SCHD: "schwabassetmanagement.com",
+};
+
+function EtfIssuerLogo({ code }: { code: string }) {
+  const [failed, setFailed] = useState(false);
+  const domain = ETF_ISSUER_DOMAINS[code];
+  if (!domain || failed) return <span className="desk-spot-logo stock-logo--mono">{code.slice(0, 2)}</span>;
+  return (
+    <img
+      className="desk-spot-logo stock-logo--us"
+      src={`https://www.google.com/s2/favicons?domain_url=https://${domain}&sz=128`}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+function formatEtfTurnover(value: number): string {
+  if (value >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+  if (value >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
+  return `$${Math.round(value).toLocaleString()}`;
+}
+
+function EtfRow({ items }: { items: EtfItem[] }) {
+  const t = useT();
+  if (items.length === 0) return null;
+  return (
+    <section className="desk-spot-row desk-spot-row--etf" aria-label="ETF">
+      <div className="desk-spot-rowhead">
+        <h3>ETF</h3>
+        <span className="desk-spot-rowrule" aria-hidden="true" />
+      </div>
+      <div className="desk-spot-grid">
+        {items.map((item) => {
+          const tone = item.change_pct > 0 ? "up" : item.change_pct < 0 ? "down" : "flat";
+          const points: DailyPricePoint[] = item.sparkline.slice(-SPARK_DAYS).reverse().map((close, index) => ({
+            date: String(index),
+            close,
+            open: close,
+            high: close,
+            low: close,
+            change: 0,
+            change_pct: 0,
+            volume: 0,
+            value: 0,
+          }));
+          return (
+            <button
+              type="button"
+              key={item.code}
+              className={`desk-spot-card is-${tone}`}
+              onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=US&asset=ETF`)}
+            >
+              <span className="desk-spot-top">
+                <EtfIssuerLogo code={item.code} />
+                <span className="desk-spot-id">
+                  <b className="desk-spot-name">{item.name}</b>
+                  <i className="desk-spot-sector">{item.code} · {item.benchmark}</i>
+                </span>
+                <span className="desk-spot-quote">
+                  <b className="desk-spot-price">${item.close.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b>
+                  <i className={`desk-spot-pct change-${tone}`}>
+                    {item.change_pct >= 0 ? "+" : ""}{item.change_pct.toFixed(2)}%
+                  </i>
+                </span>
+              </span>
+              <span className="desk-spot-body">
+                <span className="desk-spot-lines">
+                  <em>{item.category} · {item.benchmark}</em>
+                  <em>{t("거래대금")} {formatEtfTurnover(item.turnover)} · 20{t("일")} {item.returns.d20 == null ? "—" : `${item.returns.d20 >= 0 ? "+" : ""}${item.returns.d20.toFixed(2)}%`}</em>
+                </span>
+                <span className="desk-spot-sparkwrap">
+                  <SpotSparkline points={points} tone={tone} />
+                  <i className="desk-spot-sparklabel">{SPARK_DAYS}{t("일")}</i>
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
