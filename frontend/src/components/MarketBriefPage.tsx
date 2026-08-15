@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "../router";
+import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import "./marketBrief.css";
 type Stock = {
@@ -77,15 +77,29 @@ function Bars({ items }: { items: { name: string; change_pct: number }[] }) {
     </div>
   );
 }
-export default function MarketBriefPage() {
-  useDocumentTitle("오늘의 장 마감 리포트 | K-Stock Hub");
-  const [market, setMarket] = useState<"KOSPI" | "KOSDAQ">("KOSPI"),
+export default function MarketBriefPage({
+  initialDate = "",
+  initialMarket = "KOSPI",
+}: {
+  initialDate?: string;
+  initialMarket?: "KOSPI" | "KOSDAQ";
+}) {
+  const [market, setMarket] = useState<"KOSPI" | "KOSDAQ">(initialMarket),
     [data, setData] = useState<Brief | null>(null),
     [history, setHistory] = useState<{ date: string; market: string }[]>([]),
-    [selected, setSelected] = useState("");
+    [selected, setSelected] = useState(initialDate);
   const [error, setError] = useState("");
+  useDocumentTitle(
+    data
+      ? `${data.date} ${data.market} 장 마감 분석 | K-Stock Hub`
+      : "오늘의 장 마감 리포트 | K-Stock Hub",
+  );
   useEffect(() => {
-    fetch("/api/market-brief?limit=180")
+    setMarket(initialMarket);
+    setSelected(initialDate);
+  }, [initialDate, initialMarket]);
+  useEffect(() => {
+    fetch("/api/market-brief?limit=500")
       .then((r) => r.json())
       .then((r) => setHistory(r.items || []))
       .catch(() => {});
@@ -101,7 +115,18 @@ export default function MarketBriefPage() {
         if (!r.ok) throw Error();
         return r.json();
       })
-      .then(setData)
+      .then((brief: Brief) => {
+        setData(brief);
+        /* Latest is a useful entry point, but a report that has resolved to a
+           trading day should be shared and revisited at its permanent URL. */
+        if (!selected) {
+          window.history.replaceState(
+            {},
+            "",
+            `/market-brief/${brief.date}/${brief.market.toLowerCase()}`,
+          );
+        }
+      })
       .catch(() => setError("리포트를 불러오지 못했습니다."));
   }, [market, selected]);
   const dates = useMemo(
@@ -110,6 +135,10 @@ export default function MarketBriefPage() {
     ],
     [history, market],
   );
+  const currentDate = selected || data?.date || "";
+  const currentIndex = dates.indexOf(currentDate);
+  const newerDate = currentIndex > 0 ? dates[currentIndex - 1] : "";
+  const olderDate = currentIndex >= 0 ? dates[currentIndex + 1] || "" : "";
   async function share() {
     const url = location.href;
     try {
@@ -146,8 +175,12 @@ export default function MarketBriefPage() {
               <button
                 className={market === x ? "active" : ""}
                 onClick={() => {
-                  setMarket(x);
-                  setSelected("");
+                  const date = selected || data?.date;
+                  navigate(
+                    date
+                      ? `/market-brief/${date}/${x.toLowerCase()}`
+                      : "/market-brief",
+                  );
                 }}
                 key={x}
               >
@@ -157,7 +190,14 @@ export default function MarketBriefPage() {
           </div>
           <select
             value={selected}
-            onChange={(e) => setSelected(e.target.value)}
+            onChange={(e) => {
+              const date = e.target.value;
+              navigate(
+                date
+                  ? `/market-brief/${date}/${market.toLowerCase()}`
+                  : "/market-brief",
+              );
+            }}
           >
             <option value="">최신 리포트</option>
             {dates.map((x) => (
@@ -165,6 +205,20 @@ export default function MarketBriefPage() {
             ))}
           </select>
         </div>
+        {dates.length > 0 && (
+          <nav className="brief-archive" aria-label="최근 장 마감 리포트">
+            <span>최근 리포트</span>
+            {dates.slice(0, 8).map((date) => (
+              <Link
+                className={date === currentDate ? "active" : ""}
+                key={date}
+                to={`/market-brief/${date}/${market.toLowerCase()}`}
+              >
+                {date.slice(5)}
+              </Link>
+            ))}
+          </nav>
+        )}
       </section>
       {error && <p className="brief-error">{error}</p>}
       {!data ? (
@@ -326,6 +380,18 @@ export default function MarketBriefPage() {
             </p>
             <p>{data.disclaimer}</p>
           </footer>
+          <nav className="brief-pagination" aria-label="장 마감 리포트 날짜 이동">
+            {olderDate ? (
+              <Link to={`/market-brief/${olderDate}/${market.toLowerCase()}`}>
+                ← {olderDate} 이전 리포트
+              </Link>
+            ) : <span />}
+            {newerDate && (
+              <Link to={`/market-brief/${newerDate}/${market.toLowerCase()}`}>
+                {newerDate} 다음 리포트 →
+              </Link>
+            )}
+          </nav>
         </article>
       )}
     </main>

@@ -94,3 +94,21 @@
   .brief-loading i::after,
   .brief-loading div::after { animation: none; }
 }
+
+.brief-archive { display:flex; align-items:center; gap:7px; overflow-x:auto; margin-top:15px; padding-bottom:5px; scrollbar-width:thin; }
+.brief-archive span { flex:0 0 auto; color:#65748a; font-size:11px; font-weight:700; }
+.brief-archive a { flex:0 0 auto; border:1px solid #ccd4df; border-radius:999px; background:#f5f7fa; color:#42526a; padding:6px 10px; font-size:11px; text-decoration:none; }
+.brief-archive a.active { border-color:#172b4d; background:#172b4d; color:#fff; }
+.brief-pagination { display:flex; justify-content:space-between; gap:15px; border-top:1px solid #d8dee7; margin-top:20px; padding-top:18px; }
+.brief-pagination a { color:#1e3e69; font-size:12px; font-weight:700; line-height:1.5; text-decoration:none; }
+.brief-pagination a:last-child { text-align:right; }
+
+@media (max-width:700px) {
+  .brief-archive { margin-top:12px; }
+  .brief-pagination { align-items:flex-start; }
+  .brief-pagination a { max-width:48%; }
+}
+
+@media print {
+  .brief-archive, .brief-pagination { display:none; }
+}

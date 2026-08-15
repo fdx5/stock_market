@@ -143,6 +143,7 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
 
 export default function App() {
   const path = useRoute();
+  const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq)\/?$/i);
   useActivityTracking(path);
 
   useEffect(() => {
@@ -154,17 +155,34 @@ export default function App() {
     document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", canonicalUrl);
     document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl);
 
-    const seo = PUBLIC_PAGE_SEO[canonicalPath];
+    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
     const name = params.get("name")?.replace(/[<>\r\n]/g, "").trim().slice(0, 80) || code;
-    const title = keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title;
-    const description = keepsStockCode && name ? `${name}(${code}) 현재가, 등락률, 차트와 최신 종목 정보를 확인하세요.` : seo.description;
+    const briefTitle = briefMatch
+      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 장 마감 분석 | K-Stock Hub`
+      : "";
+    const title = briefTitle || (keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title);
+    const description = briefMatch
+      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 종가, 외국인·기관 수급, 상승 종목 비중, 거래대금과 업종 흐름을 분석한 장 마감 리포트입니다.`
+      : keepsStockCode && name ? `${name}(${code}) 현재가, 등락률, 차트와 최신 종목 정보를 확인하세요.` : seo.description;
     document.title = title;
     document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", description);
     document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute("content", title);
     document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute("content", description);
+    document.querySelector<HTMLMetaElement>('meta[property="og:type"]')?.setAttribute("content", briefMatch ? "article" : "website");
     document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute("content", title);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", description);
+    const image = briefMatch
+      ? `https://kospi-predictor.onrender.com/market-brief/og/${briefMatch[1]}/${briefMatch[2].toLowerCase()}.png`
+      : "https://kospi-predictor.onrender.com/img/kospi-map-preview.png";
+    document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.setAttribute("content", image);
+    document.querySelector<HTMLMetaElement>('meta[property="og:image:secure_url"]')?.setAttribute("content", image);
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')?.setAttribute("content", image);
+    const imageAlt = briefMatch
+      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 장 마감 핵심 지표`
+      : "K-Stock Hub 시장 데이터";
+    document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')?.setAttribute("content", imageAlt);
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:image:alt"]')?.setAttribute("content", imageAlt);
   }, [path]);
 
   let page;
@@ -206,6 +224,13 @@ export default function App() {
     page = <NewsPage />;
   } else if (path === "/market-brief") {
     page = <MarketBriefPage />;
+  } else if (briefMatch) {
+    page = (
+      <MarketBriefPage
+        initialDate={briefMatch[1]}
+        initialMarket={briefMatch[2].toUpperCase() as "KOSPI" | "KOSDAQ"}
+      />
+    );
   } else if (path === "/ai-prediction") {
     page = <AiPredictionPage />;
   } else if (path === "/ai-prediction/grading") {

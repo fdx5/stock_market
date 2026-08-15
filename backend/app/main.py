@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response
@@ -47,6 +47,7 @@ from app.services import (
     page_view_store,
     prediction_batch,
     market_brief as market_brief_service,
+    market_brief_og,
     stock_search_store,
 )
 from app.services import global_top100 as global_top100_service
@@ -531,6 +532,24 @@ if STATIC_DIR.exists():
     def discovery_rss():
         xml = build_rss(get_top_market_cap(30))
         return Response(content=xml, media_type="application/rss+xml", headers={"Cache-Control": "public, max-age=3600"})
+
+    @app.get("/market-brief/og/{day}/{market}.png", include_in_schema=False)
+    def market_brief_share_image(day: str, market: str):
+        try:
+            datetime.strptime(day, "%Y-%m-%d")
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail="Report image not found") from exc
+        normalized_market = market.upper()
+        if normalized_market not in {"KOSPI", "KOSDAQ"}:
+            raise HTTPException(status_code=404, detail="Report image not found")
+        payload = market_brief_og.render(day, normalized_market)
+        if payload is None:
+            raise HTTPException(status_code=404, detail="Report image not found")
+        return Response(
+            content=payload,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"},
+        )
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str, request: Request):

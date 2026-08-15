@@ -7,6 +7,7 @@ requests==2.32.3
 beautifulsoup4==4.12.3
 lxml==5.2.2
 pydantic==2.9.2
+Pillow==11.3.0
 # No libsql client here on purpose. Every 0.1.x reaches Turso through the streaming
 # cursor endpoint, and Turso's AWS edge answers that with 502 "upstream forward
 # failed" while serving /v2/pipeline normally. services/turso.py speaks that endpoint

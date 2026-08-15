@@ -13,8 +13,31 @@ import re
 from urllib.parse import urlencode
 from datetime import date, datetime, timezone
 
+from app.services import market_brief_store
+
 SITE = "https://kospi-predictor.onrender.com"
 IMAGE = f"{SITE}/img/kospi-map-preview.png"
+MARKET_BRIEF_ROUTE = re.compile(r"^/market-brief/(\d{4}-\d{2}-\d{2})/(kospi|kosdaq)$", re.I)
+
+
+def _market_brief(path: str) -> tuple[dict | None, str, str]:
+    match = MARKET_BRIEF_ROUTE.fullmatch(path)
+    if not match:
+        return None, "", ""
+    day, market_slug = match.groups()
+    try:
+        datetime.strptime(day, "%Y-%m-%d")
+        report = market_brief_store.get(day, market_slug.upper())
+    except Exception:
+        report = None
+    return report, day, market_slug.lower()
+
+
+def _brief_description(report: dict, day: str, market: str) -> str:
+    summary = " ".join(str(report.get("summary") or "").split())
+    if summary:
+        return summary[:157] + ("…" if len(summary) > 157 else "")
+    return f"{day} {market.upper()} 종가, 등락률, 투자자 수급과 업종 흐름을 정리한 데이터 기반 장 마감 리포트입니다."
 
 PAGES: dict[str, tuple[str, str]] = {
     "/": ("K-Stock Hub | 코스피·코스닥·미국 주식 시세와 ETF", "코스피·코스닥·미국 증시 시세, 시가총액 맵, 거래대금 순위, ETF와 종목토론을 한곳에서 확인하세요."),
@@ -48,7 +71,14 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 
 def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical_path = "/" if path == "/type2" else path.rstrip("/") or "/"
-    title, description = PAGES.get(canonical_path, PAGES["/"])
+    brief, brief_day, brief_market = _market_brief(canonical_path)
+    page_lookup = "/market-brief" if brief_day else canonical_path
+    title, description = PAGES.get(page_lookup, PAGES["/"])
+    page_image = IMAGE
+    if brief:
+        title = f"{brief_day} {brief_market.upper()} 장 마감 분석 | K-Stock Hub"
+        description = _brief_description(brief, brief_day, brief_market)
+        page_image = f"{SITE}/market-brief/og/{brief_day}/{brief_market}.png"
 
     code = re.sub(r"[^A-Za-z0-9.-]", "", query.get("code", ""))[:16]
     supplied_name = re.sub(r"[<>\r\n]", "", query.get("name", "")).strip()[:80]
@@ -71,7 +101,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
 
     document = re.sub(r"<title>.*?</title>", f"<title>{html.escape(title)}</title>", template, count=1, flags=re.S)
     document = _replace_meta(document, 'name="description"', description)
-    if canonical_path == "/market-brief":
+    if page_lookup == "/market-brief":
         document = _replace_meta(
             document,
             'name="keywords"',
@@ -80,8 +110,14 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     document = _replace_meta(document, 'property="og:title"', title)
     document = _replace_meta(document, 'property="og:description"', description)
     document = _replace_meta(document, 'property="og:url"', canonical)
+    document = _replace_meta(document, 'property="og:type"', "article" if brief else "website")
+    document = _replace_meta(document, 'property="og:image"', page_image)
+    document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
+    document = _replace_meta(document, 'property="og:image:alt"', f"{brief_day} {brief_market.upper()} 장 마감 핵심 지표" if brief else "K-Stock Hub 시장 데이터")
     document = _replace_meta(document, 'name="twitter:title"', title)
     document = _replace_meta(document, 'name="twitter:description"', description)
+    document = _replace_meta(document, 'name="twitter:image"', page_image)
+    document = _replace_meta(document, 'name="twitter:image:alt"', f"{brief_day} {brief_market.upper()} 장 마감 핵심 지표" if brief else "K-Stock Hub 시장 데이터")
     document = re.sub(
         r'(<link\s+rel="canonical"\s+href=")[^"]*("\s*/?>)',
         rf"\g<1>{html.escape(canonical, quote=True)}\g<2>",
@@ -89,16 +125,31 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         count=1,
     )
 
-    structured = {
+    structured: dict = {
         "@context": "https://schema.org",
         "@type": "WebPage",
         "name": title,
         "description": description,
         "url": canonical,
-        "image": IMAGE,
+        "image": page_image,
         "isPartOf": {"@type": "WebSite", "name": "K-Stock Hub", "url": SITE},
         "inLanguage": "ko-KR",
     }
+    if brief:
+        published = str(brief.get("created_at") or f"{brief_day}T16:00:00+09:00")
+        structured = {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "headline": title.removesuffix(" | K-Stock Hub"),
+            "description": description,
+            "image": [page_image],
+            "datePublished": published,
+            "dateModified": published,
+            "mainEntityOfPage": {"@type": "WebPage", "@id": canonical},
+            "author": {"@type": "Organization", "name": "K-Stock Hub", "url": SITE},
+            "publisher": {"@type": "Organization", "name": "K-Stock Hub", "url": SITE},
+            "inLanguage": "ko-KR",
+        }
     script = '<script type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
     document = document.replace("</head>", f"{script}\n  </head>", 1)
 
@@ -114,11 +165,28 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         ("/discussion-explorer", "종목토론"),
     ]
     nav = "".join(f'<a href="{href}">{html.escape(label)}</a>' for href, label in links)
+    report_content = ""
+    if brief:
+        analysis = brief.get("analysis") or []
+        points = "".join(f"<li>{html.escape(str(point))}</li>" for point in analysis[:6])
+        report_content = f'<ul style="max-width:760px;line-height:1.8">{points}</ul>'
+        try:
+            archive = market_brief_store.dates(24)
+        except Exception:
+            archive = []
+        archive_links = "".join(
+            f'<a href="/market-brief/{item["date"]}/{str(item["market"]).lower()}">'
+            f'{html.escape(str(item["date"]))} {html.escape(str(item["market"]))}</a>'
+            for item in archive
+            if item.get("date") and item.get("market") in {"KOSPI", "KOSDAQ"}
+        )
+        report_content += f'<nav aria-label="최근 장 마감 리포트" style="display:flex;flex-wrap:wrap;gap:12px">{archive_links}</nav>'
     shell = (
         '<section data-seo-shell="true" style="min-height:100vh;padding:48px 6%;'
         'background:#08111f;color:#eef6ff;font-family:sans-serif">'
         f'<h1 style="font-size:32px">{html.escape(title)}</h1>'
         f'<p style="max-width:760px;line-height:1.8;color:#b9c9da">{html.escape(description)}</p>'
+        f'{report_content}'
         f'<nav aria-label="주요 서비스" style="display:flex;flex-wrap:wrap;gap:16px">{nav}</nav>'
         '</section>'
     )
@@ -128,10 +196,21 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
 def build_sitemap(kr_stocks: list[dict]) -> str:
     """Public route inventory plus data-rich stock pages Google can discover."""
     today = date.today().isoformat()
-    urls: list[tuple[str, str, str]] = []
+    urls: list[tuple[str, str, str, str]] = []
     priorities = {"/": "1.0", "/desk": "0.9", "/map": "0.9", "/market-brief": "0.9", "/etf": "0.8"}
     for path in PAGES:
-        urls.append((f"{SITE}{path}", priorities.get(path, "0.7"), "daily"))
+        urls.append((f"{SITE}{path}", priorities.get(path, "0.7"), "daily", today))
+
+    try:
+        brief_dates = market_brief_store.dates(1000)
+    except Exception:
+        brief_dates = []
+    for item in brief_dates:
+        day = str(item.get("date") or "")
+        market = str(item.get("market") or "").lower()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or market not in {"kospi", "kosdaq"}:
+            continue
+        urls.append((f"{SITE}/market-brief/{day}/{market}", "0.8", "never", day))
 
     for stock in kr_stocks:
         code = re.sub(r"\D", "", str(stock.get("code", "")))[:6]
@@ -139,8 +218,8 @@ def build_sitemap(kr_stocks: list[dict]) -> str:
         if not code:
             continue
         query = urlencode({"code": code, "name": name})
-        urls.append((f"{SITE}/desk?{query}", "0.7", "daily"))
-        urls.append((f"{SITE}/investor/{code}", "0.6", "daily"))
+        urls.append((f"{SITE}/desk?{query}", "0.7", "daily", today))
+        urls.append((f"{SITE}/investor/{code}", "0.6", "daily", today))
 
     for ticker, name in (
         ("AAPL", "Apple"), ("MSFT", "Microsoft"), ("NVDA", "NVIDIA"),
@@ -149,13 +228,13 @@ def build_sitemap(kr_stocks: list[dict]) -> str:
         ("MU", "Micron Technology"), ("SKHY", "SK Hynix ADR"),
     ):
         query = urlencode({"code": ticker, "name": name})
-        urls.append((f"{SITE}/global?{query}", "0.7", "daily"))
+        urls.append((f"{SITE}/global?{query}", "0.7", "daily", today))
 
     rows = []
-    for loc, priority, frequency in urls:
+    for loc, priority, frequency, lastmod in urls:
         escaped_loc = html.escape(loc, quote=False)
         rows.append(
-            f"  <url><loc>{escaped_loc}</loc><lastmod>{today}</lastmod>"
+            f"  <url><loc>{escaped_loc}</loc><lastmod>{lastmod}</lastmod>"
             f"<changefreq>{frequency}</changefreq><priority>{priority}</priority></url>"
         )
     return '<?xml version="1.0" encoding="UTF-8"?>\n' \
@@ -166,6 +245,28 @@ def build_rss(kr_stocks: list[dict]) -> str:
     """Compact discovery feed for Naver Search Advisor and feed readers."""
     now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
     items: list[str] = []
+    try:
+        brief_dates = market_brief_store.dates(30)
+    except Exception:
+        brief_dates = []
+    for item in brief_dates:
+        day = str(item.get("date") or "")
+        market = str(item.get("market") or "").upper()
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or market not in {"KOSPI", "KOSDAQ"}:
+            continue
+        url = f"{SITE}/market-brief/{day}/{market.lower()}"
+        title = f"{day} {market} 장 마감 분석"
+        try:
+            report = market_brief_store.get(day, market) or {}
+            description = _brief_description(report, day, market)
+            published = datetime.fromisoformat(str(item.get("created_at") or day)).astimezone(timezone.utc)
+            pub_date = published.strftime("%a, %d %b %Y %H:%M:%S +0000")
+        except Exception:
+            description = _brief_description({}, day, market)
+            pub_date = now
+        items.append(f"<item><title>{html.escape(title)}</title><link>{html.escape(url)}</link>"
+                     f"<guid isPermaLink=\"true\">{html.escape(url)}</guid><description>{html.escape(description)}</description>"
+                     f"<pubDate>{pub_date}</pubDate></item>")
     featured = [(path, *PAGES[path]) for path in ("/", "/desk", "/market-brief", "/map", "/kosdaq-map", "/etf", "/news")]
     for path, title, description in featured:
         url = f"{SITE}{path}"
