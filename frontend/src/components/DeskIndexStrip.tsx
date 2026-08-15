@@ -74,7 +74,7 @@ function Cell({
         <span className="desk-idx-abs">{Math.abs(quote.change).toFixed(2)}</span>
         <span className="desk-idx-pct">
           {quote.change_pct >= 0 ? "+" : ""}
-          {quote.change_pct}%
+          {quote.change_pct.toFixed(2)}%
         </span>
       </span>
       {/* Whose money moved it. The full board below spells out all three

@@ -469,7 +469,7 @@ export default function Dashboard() {
                       className={`price ${change > 0 ? "change-up" : change < 0 ? "change-down" : "change-flat"}`}
                     >
                       {close.toLocaleString()}{wonSuffix(lang)} ({change >= 0 ? "+" : ""}
-                      {change.toLocaleString()}, {changePct}%)
+                      {change.toLocaleString()}, {changePct.toFixed(2)}%)
                     </span>
                   )}
                   {marcap !== undefined && marcapChange !== undefined && (

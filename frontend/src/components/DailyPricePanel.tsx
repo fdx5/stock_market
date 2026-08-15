@@ -231,7 +231,7 @@ export default function DailyPricePanel({ code, market = "KR" }: { code: string;
                     </span>
                     <span className="daily-price-change-pct">
                       {row.change > 0 ? "+" : ""}
-                      {row.change_pct}%
+                      {row.change_pct.toFixed(2)}%
                     </span>
                   </td>
                   <td>{compactCount(row.volume, lang)}</td>

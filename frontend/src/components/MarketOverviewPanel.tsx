@@ -206,7 +206,7 @@ function IndexTile({
       <div className="index-tile-change" style={{ color }}>
         {index.change >= 0 ? "▲" : "▼"} {Math.abs(index.change).toLocaleString()} (
         {index.change_pct >= 0 ? "+" : ""}
-        {index.change_pct}%)
+        {index.change_pct.toFixed(2)}%)
       </div>
       <MarketInvestorLine summary={investor} />
     </div>

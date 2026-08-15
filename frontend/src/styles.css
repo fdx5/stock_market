@@ -3831,7 +3831,7 @@ thead .weekly-foreign-amount-col {
    theme-tuned value for both dark (#c98500) and light (#9c6a2f) mode, same as every
    other nav pill here, so no extra light/dark override is needed. */
 .kospi-map-nav-link--brief {
-  min-width: 132px;
+  min-width: 0;
   padding-left: 32px;
   color: var(--series-orange);
   border-color: var(--series-orange);
@@ -6931,7 +6931,7 @@ thead .weekly-foreign-amount-col {
   }
 
   .app-nav-row .kospi-map-nav-link--brief {
-    min-width: 128px;
+    min-width: 0;
     min-height: 30px;
     padding: 5px 11px 5px 31px;
   }

@@ -509,7 +509,7 @@ function Row({
                       : Math.abs(change).toLocaleString()}{" "}
                     (
                     {changePct >= 0 ? "+" : ""}
-                    {changePct}%)
+                    {changePct.toFixed(2)}%)
                   </i>
                 </span>
               </span>

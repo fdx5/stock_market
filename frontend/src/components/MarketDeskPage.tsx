@@ -675,7 +675,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
                             <span className={`price change-${headerTone}`}>
                               {close.toLocaleString()}
                               {wonSuffix(lang)} ({(change ?? 0) >= 0 ? "+" : ""}
-                              {(change ?? 0).toLocaleString()}, {changePct}%)
+                              {(change ?? 0).toLocaleString()}, {(changePct ?? 0).toFixed(2)}%)
                             </span>
                           )}
                           {marcap !== undefined && marcapChange !== undefined && (

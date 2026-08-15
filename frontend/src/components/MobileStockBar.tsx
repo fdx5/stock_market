@@ -71,7 +71,7 @@ export default function MobileStockBar({
           </span>
           <span className="mobile-stock-bar-change">
             {change >= 0 ? "▲" : "▼"} {Math.abs(change).toLocaleString()} ({changePct >= 0 ? "+" : ""}
-            {changePct}%)
+            {changePct.toFixed(2)}%)
           </span>
         </div>
       )}
