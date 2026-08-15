@@ -70,7 +70,7 @@
  * one thing worth carrying in a bar that stays on screen. */
 .desk-command-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 460px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(300px, 460px) minmax(0, 1fr) 290px auto;
   grid-template-rows: auto auto;
   align-items: center;
   column-gap: 18px;
@@ -103,11 +103,12 @@
    height its height instead of leaving a band of dead air above and below it,
    which is what it did sitting in a single flex row. */
 .desk-command-clock {
-  grid-column: 3;
+  grid-column: 4;
   grid-row: 1 / 3;
   display: flex;
   align-items: center;
-  height: 100%;
+  height: 151px;
+  min-height: 151px;
 }
 
 /* ── the live index strip ───────────────────────────────────────────────── */
@@ -645,6 +646,17 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.desk-command-grid > .desk-sentiment {
+  grid-column: 3;
+  grid-row: 1 / 3;
+  align-self: center;
+  height: 151px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .desk-spot-row {
@@ -1993,14 +2005,16 @@
   .desk-command-search,
   .desk-idx,
   .desk-command-chips,
-  .desk-command-clock {
+  .desk-command-clock,
+  .desk-command-grid > .desk-sentiment {
     grid-column: 1;
   }
 
   .desk-command-search { grid-row: 1; }
-  .desk-command-clock { grid-row: 2; display: block; }
-  .desk-idx { grid-row: 3; }
-  .desk-command-chips { grid-row: 4; }
+  .desk-idx { grid-row: 2; }
+  .desk-command-grid > .desk-sentiment { grid-row: 3; grid-column: 1; }
+  .desk-command-grid > .desk-command-clock { grid-row: 4; grid-column: 1; display: block; height: auto; min-height: 0; }
+  .desk-command-chips { grid-row: 5; }
 
   /* The strip scrolls sideways rather than wrapping — two index cells and a
      session pill wrapped onto three lines is taller than the thing it is

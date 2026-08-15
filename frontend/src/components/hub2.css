@@ -437,6 +437,64 @@
   gap: 8px;
 }
 
+/* Desktop-only market context panel. It occupies the quiet space immediately
+   left of the clocks, leaving the scene and the navigation rail untouched. */
+.h2-sentiment {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 16px);
+  width: 254px;
+  padding: 9px 10px 8px;
+  border: 1px solid var(--panel-line);
+  border-radius: 10px;
+  background: rgba(8, 14, 30, 0.66);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.h2-sentiment-title {
+  margin-bottom: 7px;
+  color: #ffcf6a;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.h2-sentiment-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.h2-sentiment-item { min-width: 0; text-align: center; }
+
+.h2-sentiment-donut {
+  --sentiment: 180deg;
+  --sentiment-color: #4f9bff;
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: conic-gradient(var(--sentiment-color) 0 var(--sentiment), rgba(130, 170, 230, 0.18) var(--sentiment) 360deg);
+  position: relative;
+}
+
+.h2-sentiment-donut::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: #0a1021;
+}
+
+.h2-sentiment-donut span { position: relative; z-index: 1; font-size: 12px; font-weight: 700; }
+.h2-sentiment-copy { display: grid; gap: 2px; }
+.h2-sentiment-copy b { font-size: 10px; letter-spacing: 0.04em; }
+.h2-sentiment-copy small { color: var(--hud-dim); font-size: 8px; white-space: nowrap; }
+.h2-sentiment-note { margin: 7px 0 0; color: var(--hud-faint); font-size: 8px; text-align: right; }
+
 .h2-clock {
   display: flex;
   align-items: baseline;
@@ -2030,6 +2088,8 @@
        clocks are the less useful half of that pair on a phone. */
     display: none;
   }
+
+  .h2-sentiment { display: none; }
 
   .h2-camera {
     top: auto;

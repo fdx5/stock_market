@@ -31,6 +31,7 @@ import MarketBreadthGauge from "./MarketBreadthGauge";
 import MarketIcon from "./MarketIcon";
 import { MarketFlowBoard, MarketIndexBoard } from "./MarketOverviewPanel";
 import MarketTickerBar from "./MarketTickerBar";
+import MarketSentimentPanel from "./MarketSentimentPanel";
 import MobileStockBar from "./MobileStockBar";
 import OrderBookBalance from "./OrderBookBalance";
 import PredictIcon from "./PredictIcon";
@@ -493,6 +494,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           <div className="desk-command-clock">
             <HeaderDateTime />
           </div>
+          <MarketSentimentPanel />
           <div className="desk-command-chips">
             <StockQuickAccess onSelect={selectStock} activeCode={selected?.code} />
           </div>

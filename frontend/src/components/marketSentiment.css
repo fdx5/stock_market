@@ -1,0 +1,16 @@
+.desk-sentiment{--sentiment-panel:var(--desk-card-bg);--sentiment-ink:var(--text-primary);--sentiment-muted:var(--text-muted);--sentiment-track:var(--gridline);width:290px;padding:7px 10px;border:1px solid var(--border);border-radius:12px;background:var(--sentiment-panel);box-shadow:var(--shadow-card,0 8px 24px rgba(20,32,55,.08))}
+.desk-sentiment header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;color:var(--sentiment-ink)}
+.desk-sentiment header span{font-size:9px;font-weight:500;font-family:inherit;letter-spacing:.12em}.desk-sentiment header small{font-size:10px;color:var(--sentiment-muted)}
+.desk-sentiment-list{display:grid;gap:5px}.desk-sentiment article{display:flex;align-items:center;gap:8px;min-width:0}.desk-sentiment-donut{--sentiment-angle:180deg;position:relative;flex:0 0 36px;width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--sentiment-color) 0 var(--sentiment-angle),var(--sentiment-track) var(--sentiment-angle) 360deg)}.desk-sentiment-donut::after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--sentiment-panel)}.desk-sentiment-donut strong{position:relative;z-index:1;font:500 11px inherit;font-variant-numeric:tabular-nums;color:var(--sentiment-color)}.desk-sentiment-copy{min-width:0;flex:1}.desk-sentiment-copy>div{display:flex;align-items:baseline;gap:6px}.desk-sentiment-copy b{font:500 11px inherit;color:var(--sentiment-ink)}.desk-sentiment-copy em{font-size:10px;font-style:normal;color:var(--sentiment-color)}.desk-sentiment-copy p{margin:1px 0 0;color:var(--sentiment-muted);font-size:10px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.desk-sentiment-copy b{font-size:10px}
+@media (max-width:1100px){
+  .desk-sentiment{display:block;width:auto;height:auto!important;min-height:0!important;margin:0}
+  .desk-sentiment header span{font-size:9px;font-weight:400}
+  .desk-sentiment-copy b{font-size:10px;font-weight:400}
+  .desk-sentiment-copy em{font-size:10px;font-weight:400}
+  .desk-sentiment-donut strong{font-size:11px;font-weight:500}
+  .desk-sentiment-copy p{font-size:9px}
+  .desk-sentiment-list{grid-template-columns:repeat(3,minmax(0,1fr));gap:5px}
+  .desk-sentiment article{padding:6px 7px;border:1px solid var(--border);border-radius:9px;background:color-mix(in srgb,var(--desk-card-bg) 82%,transparent)}
+  .desk-sentiment-copy p{display:none}
+}
