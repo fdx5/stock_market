@@ -21,6 +21,7 @@ export default function Nasdaq100MapPage() {
       fullLimit={103}
       market="us"
       marcapLabel="지수 내 비중"
+      enhancedSectorView
       navLinks={[
         { to: "/map", label: "KOSPI", icon: <MarketIcon /> },
         { to: "/kosdaq-map", label: "KOSDAQ", icon: <MarketIcon />, className: "kospi-map-nav-link--kosdaq" },

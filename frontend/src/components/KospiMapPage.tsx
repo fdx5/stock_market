@@ -19,6 +19,7 @@ export default function KospiMapPage() {
       tier1Limit={20}
       tier2Limit={50}
       fullLimit={500}
+      enhancedSectorView
       navLinks={[
         { to: "/kosdaq-map", label: "KOSDAQ", icon: <MarketIcon />, className: "kospi-map-nav-link--kosdaq" },
         { to: "/sp500-map", label: "S&P500", icon: <MarketIcon />, className: "kospi-map-nav-link--sp500" },

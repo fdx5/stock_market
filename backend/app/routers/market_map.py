@@ -17,10 +17,12 @@ from app.services import dram_price
 from app.services.indicators import compute_indicators
 from app.services.market_map import (
     LONG_TAIL_TTL_SECONDS,
+    SPARKLINE_DETAIL_TTL_SECONDS,
     SECTOR_PEER_LIMIT,
     get_kosdaq_map,
     get_kospi_map,
     get_returns_for_codes,
+    get_sparklines_for_codes,
     get_sector_map,
     get_sector_name,
 )
@@ -131,7 +133,7 @@ def stock_board(
 
 
 @router.get("/returns")
-def market_returns(response: Response, codes: str = Query(..., min_length=6)):
+def market_returns(response: Response, codes: str = Query(..., min_length=1), market: str = Query("kr", pattern="^(kr|us)$")):
     """20일/120일 등락률 for a comma-separated list of KRX codes. The 수급·순위 board's
     ranking tabs call this for just the codes they render — see get_returns_for_codes.
     """
@@ -141,7 +143,21 @@ def market_returns(response: Response, codes: str = Query(..., min_length=6)):
         return {"items": {}}
     if len(code_list) > 100:
         raise HTTPException(status_code=400, detail="한 번에 최대 100개 종목까지 조회할 수 있습니다.")
-    return {"items": get_returns_for_codes(code_list)}
+    return {"items": get_returns_for_codes(code_list, market=market)}
+
+
+@router.get("/sparklines")
+def market_sparklines(response: Response, codes: str = Query(..., min_length=1), market: str = Query("kr", pattern="^(kr|us)$")):
+    """On-demand mini charts for one hovered KRX sector, never a full-map batch."""
+    response.headers["Cache-Control"] = f"public, max-age={SPARKLINE_DETAIL_TTL_SECONDS}"
+    code_list = [c.strip() for c in codes.split(",") if c.strip()]
+    if not code_list:
+        return {"items": {}}
+    invalid_kr = market == "kr" and any(not c.isdigit() or len(c) != 6 for c in code_list)
+    invalid_us = market == "us" and any(not c.replace(".", "").replace("-", "").isalnum() or len(c) > 12 for c in code_list)
+    if len(code_list) > 30 or invalid_kr or invalid_us:
+        raise HTTPException(status_code=400, detail="한 번에 최대 30개 KRX 종목까지 조회할 수 있습니다.")
+    return {"items": get_sparklines_for_codes(code_list, market=market)}
 
 
 @router.get("/sector-map")

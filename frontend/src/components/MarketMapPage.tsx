@@ -1,5 +1,5 @@
-import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { MarketMapItem, MarketMapResponse, MarketSession } from "../api/client";
+import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { api, MarketMapItem, MarketMapResponse, MarketReturns, MarketSession, MarketSparkline } from "../api/client";
 import { wonSuffix } from "../i18n/format";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
@@ -127,6 +127,91 @@ const IS_IOS_LIKE =
 // sector label (including "기타") so it can never collide with backend-assigned data.
 const ALL_SECTORS = "__all__";
 
+type MapPeriod = "d1" | "d20" | "d60" | "d120" | "d240";
+const MAP_PERIODS: { key: MapPeriod; label: string; detail: string }[] = [
+  { key: "d1", label: "오늘", detail: "전일 종가 대비" },
+  { key: "d20", label: "1개월", detail: "20 거래일" },
+  { key: "d60", label: "3개월", detail: "60 거래일" },
+  { key: "d120", label: "6개월", detail: "120 거래일" },
+  { key: "d240", label: "1년", detail: "240 거래일" },
+];
+
+const SECTOR_SUMMARIES: Record<string, string> = {
+  "반도체/전자": "메모리·시스템 반도체와 전자부품, 완성품 기업의 흐름을 묶어 보여주는 핵심 수출 업종입니다.",
+  "배터리": "셀·양극재·소재와 장비 기업으로 구성되며 전기차 수요와 원재료 가격에 민감한 업종입니다.",
+  "제약/바이오": "신약 개발, 바이오시밀러와 의료 관련 기업으로 임상·허가 및 기술수출 뉴스의 영향이 큽니다.",
+  "자동차/조선": "완성차·부품과 조선·방산 기업으로 수출, 환율과 글로벌 수주 흐름을 함께 반영합니다.",
+  "금융": "은행·보험·증권 중심 업종으로 금리, 배당 정책과 자본건전성 변화가 주요 변수입니다.",
+  "화학/소재": "석유화학과 산업 소재 기업으로 원재료 가격, 스프레드와 제조업 경기의 영향을 받습니다.",
+  "철강/금속": "철강·비철금속 기업으로 원자재 가격, 중국 수요와 산업 생산 흐름에 민감합니다.",
+  "기계/산업재": "설비·중장비·자동화 기업으로 기업 투자와 국내외 수주 사이클을 반영합니다.",
+  "건설/부동산": "건설·개발 기업으로 금리, 주택 경기, 원가와 국내외 수주가 실적을 좌우합니다.",
+  "에너지/유틸리티": "정유·가스·전력 기업으로 에너지 가격과 요금 정책 변화가 핵심 변수입니다.",
+  "운송/물류": "항공·해운·육상 물류 기업으로 운임, 유가와 글로벌 교역량의 영향을 받습니다.",
+  "IT서비스/미디어": "플랫폼·소프트웨어·통신·콘텐츠 기업으로 이용자 성장과 광고·구독 경기가 중요합니다.",
+  "식품/음료": "내수 방어력과 해외 판매 확장을 함께 보는 소비 업종으로 원재료와 환율 영향을 받습니다.",
+  "유통/소비재": "유통·의류·생활소비재 기업으로 소비심리, 채널 변화와 브랜드 수요를 반영합니다.",
+  "지주/서비스": "지주회사와 사업서비스 기업으로 자회사 가치, 배당과 지배구조 변화가 주요 변수입니다.",
+  "Communication Services": "미디어·통신·플랫폼 기업군으로 이용자 성장, 광고 경기와 콘텐츠 수요의 영향을 받습니다.",
+  "Consumer Discretionary": "자동차·유통·레저 등 선택소비 기업군으로 고용, 소득과 소비심리에 민감합니다.",
+  "Consumer Staples": "식품·생활용품 등 필수소비 기업군으로 경기 변동에 비교적 방어적인 흐름을 보입니다.",
+  "Energy": "석유·가스 및 에너지 장비 기업군으로 국제 에너지 가격과 생산량 변화가 핵심 변수입니다.",
+  "Financials": "은행·보험·투자서비스 기업군으로 금리, 신용환경과 자본시장 흐름의 영향을 받습니다.",
+  "Health Care": "제약·바이오·의료기기 기업군으로 연구개발 성과, 허가와 의료 수요가 중요합니다.",
+  "Industrials": "항공우주·운송·기계 등 산업재 기업군으로 설비투자, 물동량과 수주 사이클을 반영합니다.",
+  "Information Technology": "반도체·하드웨어·소프트웨어 기업군으로 기술 투자와 디지털 수요를 반영합니다.",
+  "Materials": "화학·금속·건축소재 기업군으로 원자재 가격과 글로벌 제조업 경기에 민감합니다.",
+  "Real Estate": "리츠와 부동산 운영 기업군으로 금리, 임대 수요와 자산가치 변화가 주요 변수입니다.",
+  "Utilities": "전력·가스·수도 기업군으로 에너지 원가, 금리와 공공요금 정책의 영향을 받습니다.",
+  "기타": "독립적인 사업 특성으로 주요 분류에 포함되지 않은 기업을 모아 시장 흐름을 비교합니다.",
+};
+
+function SectorSparkline({ points, positive }: { points: number[]; positive: boolean }) {
+  if (points.length < 2) return <span className="kospi-sector-spark-empty">—</span>;
+  const width = 70, height = 24, min = Math.min(...points), max = Math.max(...points), range = max - min || 1;
+  const path = points.map((point, index) => {
+    const x = (index / (points.length - 1)) * width;
+    const y = height - 2 - ((point - min) / range) * (height - 4);
+    return `${index ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+  return <svg className="kospi-sector-spark" viewBox={`0 0 ${width} ${height}`} aria-hidden="true"><path d={path} className={positive ? "up" : "down"} /></svg>;
+}
+
+function sectorLayerPosition(
+  cursor: { x: number; y: number },
+  sectorRect: { left: number; top: number; right: number; bottom: number } | null
+): CSSProperties {
+  const viewportW = window.innerWidth;
+  const viewportH = window.innerHeight;
+  const gap = 14;
+  const edge = 10;
+  const width = Math.min(470, viewportW - edge * 2);
+  const estimatedHeight = Math.min(405, viewportH - edge * 2);
+  const clampX = (value: number) => Math.max(edge, Math.min(value, viewportW - width - edge));
+  const clampY = (value: number) => Math.max(edge, Math.min(value, viewportH - estimatedHeight - edge));
+
+  if (sectorRect) {
+    // Prefer a side that clears the entire hovered sector, not merely the cursor.
+    if (viewportW - sectorRect.right >= width + gap) {
+      return { left: sectorRect.right + gap, top: clampY(cursor.y - 42), width };
+    }
+    if (sectorRect.left >= width + gap) {
+      return { left: sectorRect.left - width - gap, top: clampY(cursor.y - 42), width };
+    }
+    if (viewportH - sectorRect.bottom >= estimatedHeight + gap) {
+      return { left: clampX(cursor.x - width / 2), top: sectorRect.bottom + gap, width };
+    }
+    if (sectorRect.top >= estimatedHeight + gap) {
+      return { left: clampX(cursor.x - width / 2), top: sectorRect.top - estimatedHeight - gap, width };
+    }
+  }
+
+  // A very large sector can leave no side fully clear. In that case use the side
+  // opposite the cursor and clamp to the viewport so the pointer never sits under it.
+  const left = cursor.x < viewportW / 2 ? cursor.x + gap : cursor.x - width - gap;
+  return { left: clampX(left), top: clampY(cursor.y - 36), width };
+}
+
 // The TOP 100 card boards, offered beside the live badge on every map. Labels are
 // left untranslated on purpose: they are the boards' own page titles ("KOSPI TOP
 // 100"), which read identically in both languages.
@@ -221,6 +306,8 @@ export interface MarketMapPageProps {
   /** Label for the marcap column/tooltip row/legend — e.g. "지수 내 비중" for US maps,
    * which show index weight rather than an absolute market cap. Defaults to "시가총액". */
   marcapLabel?: string;
+  /** KOSPI-only Finviz-style period rail and sector hover intelligence layer. */
+  enhancedSectorView?: boolean;
 }
 
 // Shared by KospiMapPage and KosdaqMapPage — both are a Finviz-style sector treemap over
@@ -239,6 +326,7 @@ export default function MarketMapPage({
   navLinks,
   market = "kr",
   marcapLabel = "시가총액",
+  enhancedSectorView = false,
 }: MarketMapPageProps) {
   const { lang } = useLanguage();
   const t = useT();
@@ -254,6 +342,14 @@ export default function MarketMapPage({
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"map" | "table">("map");
   const [selectedSector, setSelectedSector] = useState<string>(ALL_SECTORS);
+  const [period, setPeriod] = useState<MapPeriod>("d1");
+  const [periodReturns, setPeriodReturns] = useState<Record<string, MarketReturns>>({});
+  const [periodLoading, setPeriodLoading] = useState(false);
+  const [periodError, setPeriodError] = useState<string | null>(null);
+  const [hoveredSector, setHoveredSector] = useState<string | null>(null);
+  const [hoveredSectorRect, setHoveredSectorRect] = useState<{ left: number; top: number; right: number; bottom: number } | null>(null);
+  const [desktopHoverEnabled, setDesktopHoverEnabled] = useState(false);
+  const [sectorSparklines, setSectorSparklines] = useState<Record<string, MarketSparkline>>({});
   const [hovered, setHovered] = useState<MarketMapItem | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [mapPreview, setMapPreview] = useState<{ blob: Blob; url: string; filename: string } | null>(null);
@@ -268,6 +364,19 @@ export default function MarketMapPage({
   // `mapPreview` would revoke the live URL on StrictMode's double-invoke in dev and
   // blank the image.
   const previewUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 701px) and (hover: hover) and (pointer: fine)");
+    const syncDesktopHover = () => {
+      setDesktopHoverEnabled(query.matches);
+      if (!query.matches) {
+        setHoveredSector(null);
+        setHoveredSectorRect(null);
+      }
+    };
+    syncDesktopHover();
+    query.addEventListener("change", syncDesktopHover);
+    return () => query.removeEventListener("change", syncDesktopHover);
+  }, []);
   useEffect(() => {
     previewUrlRef.current = mapPreview?.url ?? null;
   }, [mapPreview]);
@@ -383,10 +492,65 @@ export default function MarketMapPage({
       .map(([sector]) => sector);
   }, [items]);
 
+  const codesKey = useMemo(() => items.map((item) => item.code).join(","), [items]);
+
+  useEffect(() => {
+    if (!enhancedSectorView || period === "d1" || !codesKey) return;
+    const codes = codesKey.split(",").filter((code) => periodReturns[code]?.[period] === undefined);
+    if (codes.length === 0) return;
+    let cancelled = false;
+    setPeriodLoading(true);
+    setPeriodError(null);
+    (async () => {
+      try {
+        // Sequential 100-code waves keep the upstream concurrency bounded at the
+        // service's existing 12 workers while still painting each completed wave.
+        for (let index = 0; index < codes.length; index += 100) {
+          const response = await api.marketReturns(codes.slice(index, index + 100), market);
+          if (cancelled) return;
+          setPeriodReturns((previous) => ({ ...previous, ...response.items }));
+        }
+      } catch {
+        if (!cancelled) setPeriodError("일부 기간 데이터를 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) setPeriodLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [codesKey, enhancedSectorView, market, period]);
+
+  const periodItems = useMemo(() => items.map((item) => {
+    if (period === "d1") return item;
+    const value = periodReturns[item.code]?.[period];
+    return value === null || value === undefined ? item : { ...item, change_pct: value };
+  }), [items, period, periodReturns]);
+
   const visibleItems = useMemo(
-    () => (selectedSector === ALL_SECTORS ? items : items.filter((it) => it.sector === selectedSector)),
-    [items, selectedSector]
+    () => (selectedSector === ALL_SECTORS ? periodItems : periodItems.filter((it) => it.sector === selectedSector)),
+    [periodItems, selectedSector]
   );
+
+  const hoveredSectorItems = useMemo(
+    () => hoveredSector
+      ? periodItems.filter((item) => item.sector === hoveredSector).sort((a, b) => b.marcap - a.marcap).slice(0, 6)
+      : [],
+    [hoveredSector, periodItems]
+  );
+
+  useEffect(() => {
+    if (!enhancedSectorView || !desktopHoverEnabled || hoveredSectorItems.length === 0) return;
+    const missing = hoveredSectorItems.map((item) => item.code).filter((code) => !sectorSparklines[code]);
+    if (missing.length === 0) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api.marketSparklines(missing, market)
+        .then((response) => {
+          if (!cancelled) setSectorSparklines((previous) => ({ ...previous, ...response.items }));
+        })
+        .catch(() => {});
+    }, 180);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [desktopHoverEnabled, enhancedSectorView, hoveredSectorItems, market, sectorSparklines]);
 
   const sectorZones = useMemo<SectorZone[]>(() => {
     if (visibleItems.length === 0 || size.w === 0 || size.h === 0) return [];
@@ -703,7 +867,7 @@ export default function MarketMapPage({
   };
 
   return (
-    <div className="app kospi-map-page">
+    <div className={`app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}`}>
       <header className="app-header">
         <div className="app-title-row">
           <Link to="/" className="app-brand" aria-label="K-Stock Hub">
@@ -806,8 +970,34 @@ export default function MarketMapPage({
       )}
 
       {!error && (
-        <>
-          <div className="kospi-map-legend">
+        <div className="kospi-map-workspace">
+          {enhancedSectorView && (
+            <aside className="kospi-map-period-rail" aria-label="조회 기간">
+              <div className="kospi-map-period-head">
+                <small>PERFORMANCE</small>
+                <strong>조회 기간</strong>
+                <p>별도 통계 저장 없이 일봉 기준으로 즉시 계산합니다.</p>
+              </div>
+              <div className="kospi-map-period-options">
+                {MAP_PERIODS.map((option) => (
+                  <label key={option.key} className={period === option.key ? "active" : ""}>
+                    <input
+                      type="checkbox"
+                      checked={period === option.key}
+                      onChange={() => setPeriod(option.key)}
+                    />
+                    <span><b>{option.label}</b><small>{option.detail}</small></span>
+                  </label>
+                ))}
+              </div>
+              <div className="kospi-map-period-status" aria-live="polite">
+                {periodLoading ? "기간 수익률 계산 중…" : periodError || `${items.length.toLocaleString()}개 종목`}
+              </div>
+              <p className="kospi-map-period-note">기간 수익률이 아직 준비되지 않은 종목은 당일 등락률로 표시됩니다.</p>
+            </aside>
+          )}
+          <div className="kospi-map-workspace-main">
+            <div className="kospi-map-legend">
             <div className="kospi-map-legend-info">
               <span className="kospi-map-legend-label">{t("하락")}</span>
               <span className="kospi-map-legend-bar" />
@@ -829,7 +1019,7 @@ export default function MarketMapPage({
                 ))}
               </select>
             </label>
-          </div>
+            </div>
 
           {view === "map" && (
             <div className="card kospi-map-canvas" ref={containerRef}>
@@ -846,6 +1036,23 @@ export default function MarketMapPage({
                   key={zone.sector}
                   className="kospi-map-sector"
                   style={{ left: zone.rect.x, top: zone.rect.y, width: zone.rect.w, height: zone.rect.h }}
+                  onMouseEnter={(event) => {
+                    if (enhancedSectorView && desktopHoverEnabled) {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setHoveredSector(zone.sector);
+                      setHoveredSectorRect({ left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom });
+                      setHoverPos({ x: event.clientX, y: event.clientY });
+                    }
+                  }}
+                  onMouseMove={(event) => {
+                    if (enhancedSectorView && desktopHoverEnabled) setHoverPos({ x: event.clientX, y: event.clientY });
+                  }}
+                  onMouseLeave={() => {
+                    if (enhancedSectorView && desktopHoverEnabled) {
+                      setHoveredSector(null);
+                      setHoveredSectorRect(null);
+                    }
+                  }}
                 >
                   {zone.headerH > 0 && (
                     <div className="kospi-map-sector-header" style={{ height: zone.headerH }}>
@@ -887,11 +1094,13 @@ export default function MarketMapPage({
                         }}
                         onClick={() => handleTileClick(tile.item.code)}
                         onMouseEnter={(e) => {
-                          setHovered(tile.item);
+                          if (!enhancedSectorView) setHovered(tile.item);
                           setHoverPos({ x: e.clientX, y: e.clientY });
                         }}
                         onMouseMove={(e) => setHoverPos({ x: e.clientX, y: e.clientY })}
-                        onMouseLeave={() => setHovered(null)}
+                        onMouseLeave={() => {
+                          if (!enhancedSectorView) setHovered(null);
+                        }}
                       >
                         {showName && (
                           <>
@@ -941,7 +1150,7 @@ export default function MarketMapPage({
             </div>
           )}
 
-          {view === "table" && (
+            {view === "table" && (
             <div className="card kospi-map-table-wrap">
               <table className="kospi-map-table">
                 <thead>
@@ -988,8 +1197,50 @@ export default function MarketMapPage({
                 </tbody>
               </table>
             </div>
-          )}
-        </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {enhancedSectorView && desktopHoverEnabled && hoveredSector && (
+        <section
+          className="kospi-sector-layer"
+          aria-live="polite"
+          style={sectorLayerPosition(hoverPos, hoveredSectorRect)}
+        >
+          <header>
+            <div>
+              <small>SECTOR OVERVIEW</small>
+              <h2>{hoveredSector}</h2>
+            </div>
+            <strong className={(sectorZones.find((zone) => zone.sector === hoveredSector)?.avgChangePct ?? 0) >= 0 ? "up" : "down"}>
+              {pct(sectorZones.find((zone) => zone.sector === hoveredSector)?.avgChangePct ?? 0)}
+            </strong>
+          </header>
+          <div className="kospi-sector-layer-meta">
+            <time>{generatedAt?.replace("T", " ") || new Date().toLocaleString("ko-KR")} 기준</time>
+            <span>{MAP_PERIODS.find((option) => option.key === period)?.label} 성과</span>
+          </div>
+          <p className="kospi-sector-layer-summary">
+            {SECTOR_SUMMARIES[hoveredSector] || SECTOR_SUMMARIES["기타"]}
+          </p>
+          <div className="kospi-sector-layer-columns" aria-hidden="true">
+            <span>종목 · 시가총액순</span><span>최근 차트</span><span>현재가</span><span>변동률</span>
+          </div>
+          <div className="kospi-sector-layer-list">
+            {hoveredSectorItems.map((item, index) => (
+              <div className="kospi-sector-layer-row" key={item.code}>
+                <span className="kospi-sector-layer-name">
+                  <i>{index + 1}</i><b>{nameByCode.get(item.code) ?? item.name}</b><small>{item.code}</small>
+                </span>
+                <SectorSparkline points={sectorSparklines[item.code]?.points ?? []} positive={item.change_pct >= 0} />
+                <span className="kospi-sector-layer-price">{formatPrice(item.close, market, lang)}</span>
+                <strong className={item.change_pct >= 0 ? "up" : "down"}>{pct(item.change_pct)}</strong>
+              </div>
+            ))}
+          </div>
+          <footer>시가총액 상위 6개 · 면적은 시가총액, 색상은 선택 기간 수익률 기준</footer>
+        </section>
       )}
 
       {hovered && (

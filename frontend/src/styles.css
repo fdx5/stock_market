@@ -4921,6 +4921,227 @@ thead .weekly-foreign-amount-col {
   overflow: hidden;
 }
 
+/* KOSPI's research workspace: the shared map component stays constrained on the
+   other three markets; only the opt-in page spans the viewport like the main desk. */
+.kospi-map-page--expanded {
+  width: 100%;
+  max-width: none;
+  padding: 18px 18px 40px;
+}
+
+.kospi-map-workspace {
+  min-width: 0;
+}
+
+.kospi-map-page--expanded .kospi-map-workspace {
+  display: grid;
+  grid-template-columns: 178px minmax(0, 1fr);
+  gap: 12px;
+  flex: 1;
+}
+
+.kospi-map-workspace-main {
+  min-width: 0;
+}
+
+.kospi-map-page--expanded .kospi-map-canvas {
+  height: max(650px, calc(100vh - 300px));
+}
+
+.kospi-map-period-rail {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  min-height: 650px;
+  padding: 16px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+}
+
+.kospi-map-period-head {
+  display: grid;
+  gap: 5px;
+  padding: 2px 4px 15px;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.kospi-map-period-head small {
+  color: var(--series-blue);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .14em;
+}
+
+.kospi-map-period-head strong { font-size: 16px; }
+.kospi-map-period-head p,
+.kospi-map-period-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.kospi-map-period-options {
+  display: grid;
+  gap: 7px;
+  padding: 14px 0;
+}
+
+.kospi-map-period-options label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 9px 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.kospi-map-period-options label:hover,
+.kospi-map-period-options label.active {
+  border-color: color-mix(in srgb, var(--series-blue) 55%, var(--border));
+  background: color-mix(in srgb, var(--series-blue) 11%, transparent);
+  color: var(--text-primary);
+}
+
+.kospi-map-period-options input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--series-blue);
+}
+
+.kospi-map-period-options span { display: grid; gap: 2px; }
+.kospi-map-period-options b { font-size: 12px; }
+.kospi-map-period-options small { color: var(--text-muted); font-size: 9px; }
+.kospi-map-period-status {
+  min-height: 34px;
+  margin-top: auto;
+  padding: 9px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--baseline) 22%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.kospi-map-period-note { padding: 10px 4px 0; }
+
+.kospi-sector-layer {
+  position: fixed;
+  z-index: 60;
+  max-width: calc(100vw - 20px);
+  max-height: calc(100vh - 20px);
+  overflow: hidden;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--series-blue) 50%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-1) 96%, transparent);
+  box-shadow: 0 20px 65px rgba(0, 0, 0, .48);
+  backdrop-filter: blur(14px);
+}
+
+.kospi-sector-layer > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 11px 14px 7px;
+}
+.kospi-sector-layer header div { display: grid; gap: 2px; }
+.kospi-sector-layer header small { color: var(--series-blue); font-size: 9px; font-weight: 800; letter-spacing: .14em; }
+.kospi-sector-layer h2 { margin: 0; font-size: 19px; letter-spacing: -.04em; }
+.kospi-sector-layer header > strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.kospi-sector-layer .up { color: var(--up-color); }
+.kospi-sector-layer .down { color: var(--down-color); }
+
+.kospi-sector-layer-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px 7px;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.kospi-sector-layer-summary {
+  margin: 0 14px 8px;
+  padding: 7px 9px;
+  border-left: 2px solid var(--series-blue);
+  background: color-mix(in srgb, var(--series-blue) 7%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.kospi-sector-layer-columns,
+.kospi-sector-layer-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) 70px 88px 56px;
+  align-items: center;
+  gap: 8px;
+}
+.kospi-sector-layer-columns {
+  padding: 5px 14px;
+  border-block: 1px solid var(--gridline);
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: right;
+}
+.kospi-sector-layer-columns span:first-child { text-align: left; }
+.kospi-sector-layer-list { padding: 2px 14px 4px; }
+.kospi-sector-layer-row {
+  min-height: 36px;
+  border-bottom: 1px solid color-mix(in srgb, var(--gridline) 75%, transparent);
+  font-size: 11px;
+}
+.kospi-sector-layer-row:last-child { border-bottom: 0; }
+.kospi-sector-layer-name {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+.kospi-sector-layer-name i { color: var(--text-muted); font-size: 9px; font-style: normal; }
+.kospi-sector-layer-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kospi-sector-layer-name small { color: var(--text-muted); font-size: 9px; }
+.kospi-sector-layer-price,
+.kospi-sector-layer-row > strong { text-align: right; font-variant-numeric: tabular-nums; }
+.kospi-sector-spark { display: block; width: 70px; height: 24px; }
+.kospi-sector-spark path { fill: none; stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+.kospi-sector-spark path.up { stroke: var(--up-color); }
+.kospi-sector-spark path.down { stroke: var(--down-color); }
+.kospi-sector-spark-empty { color: var(--text-muted); text-align: center; }
+.kospi-sector-layer > footer {
+  padding: 7px 14px;
+  border-top: 1px solid var(--gridline);
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+@media (max-width: 980px) {
+  .kospi-map-page--expanded { padding-inline: 12px; }
+  .kospi-map-page--expanded .kospi-map-workspace { grid-template-columns: 1fr; }
+  .kospi-map-period-rail { min-height: 0; }
+  .kospi-map-period-options { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .kospi-map-period-note { display: none; }
+}
+
+@media (max-width: 700px) {
+  .kospi-map-page--expanded { padding: 12px 8px 32px; }
+  .kospi-map-period-options { grid-template-columns: 1fr 1fr; }
+  .kospi-map-page--expanded .kospi-map-canvas { height: 680px; }
+  /* Touch has no durable hover state. Stock taps continue to open detail pages;
+     the sector intelligence layer remains a precise-pointer feature. */
+  .kospi-sector-layer { display: none; }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .kospi-sector-layer { display: none; }
+}
+
 .kospi-map-sector {
   position: absolute;
   box-sizing: border-box;

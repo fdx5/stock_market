@@ -4,7 +4,7 @@ import FinanceDataReader as fdr
 import pandas as pd
 
 from app.data.naver_price_fetcher import NAVER_PAGE_SIZE, fetch_market_cap_page
-from app.data.sparkline_fetcher import get_kr_sparklines
+from app.data.sparkline_fetcher import get_kr_sparklines, get_us_sparklines
 from app.data.stock_quote_fetcher import get_stock_quotes_bulk
 from app.data.universe import get_stock_market
 from app.services.cache import cache
@@ -28,6 +28,7 @@ TTL_INDUSTRY_SECONDS = 24 * 3600
 # trailing return doesn't change until tomorrow's bar lands, so this can sit far behind
 # the map's own 10s/30s price tiers without ever showing a stale number.
 RETURNS_TTL_SECONDS = 15 * 60
+SPARKLINE_DETAIL_TTL_SECONDS = 15 * 60
 
 # KRX-DESC gives a fine-grained KSIC industry string (~100+ distinct values across the
 # top names), too granular for a Finviz-style zoned map. Bucket into broad sectors via
@@ -311,7 +312,7 @@ def get_sector_map(code: str, limit: int = SECTOR_PEER_LIMIT) -> dict:
     }
 
 
-def get_returns_for_codes(codes: list[str]) -> dict[str, dict]:
+def get_returns_for_codes(codes: list[str], market: str = "kr") -> dict[str, dict]:
     """20일/120일 등락률 for the given codes — the 수급·순위 board's ranking tables call
     this for just the rows they render (50 코스피/코스닥 시총 rows, or 20 급등/급락 rows),
     never the wider screened universe those tables are drawn from.
@@ -321,9 +322,11 @@ def get_returns_for_codes(codes: list[str]) -> dict[str, dict]:
     RETURNS_TTL_SECONDS regardless of how many tabs asked for it.
     """
     codes = list(dict.fromkeys(codes))  # de-dupe, keep first-seen order
-    missing = [c for c in codes if cache.peek(f"kr_returns:{c}") is None]
+    # v2 adds the 240-session return used by the map's one-year filter.
+    cache_key = lambda code: f"{market}_returns_v2:{code}"
+    missing = [c for c in codes if cache.peek(cache_key(c)) is None]
     if missing:
-        fetched = get_kr_sparklines(missing)
+        fetched = get_us_sparklines(missing) if market == "us" else get_kr_sparklines(missing)
         for code in missing:
             series = fetched.get(code)
             value = (
@@ -331,9 +334,56 @@ def get_returns_for_codes(codes: list[str]) -> dict[str, dict]:
                     "d20": series.returns.get("d20"),
                     "d60": series.returns.get("d60"),
                     "d120": series.returns.get("d120"),
+                    "d240": series.returns.get("d240"),
                 }
                 if series is not None
-                else {"d20": None, "d60": None, "d120": None}
+                else {"d20": None, "d60": None, "d120": None, "d240": None}
             )
-            cache.get_or_set(f"kr_returns:{code}", RETURNS_TTL_SECONDS, lambda value=value: value)
-    return {c: cache.peek(f"kr_returns:{c}") for c in codes if cache.peek(f"kr_returns:{c}") is not None}
+            cache.get_or_set(cache_key(code), RETURNS_TTL_SECONDS, lambda value=value: value)
+    return {c: cache.peek(cache_key(c)) for c in codes if cache.peek(cache_key(c)) is not None}
+
+
+def get_sparklines_for_codes(codes: list[str], market: str = "kr") -> dict[str, dict]:
+    """Compact chart series for the sector-hover layer.
+
+    This deliberately uses the same one-year Naver daily series as trailing returns
+    and keeps only an in-memory TTL entry. No statistics table or batch job is added;
+    a sector pays for its charts only after somebody actually hovers it.
+    """
+    codes = list(dict.fromkeys(codes))[:30]
+    detail_key = lambda code: f"{market}_spark_detail_v2:{code}"
+    missing = [c for c in codes if cache.peek(detail_key(c)) is None]
+    if missing:
+        fetched = get_us_sparklines(missing) if market == "us" else get_kr_sparklines(missing)
+        for code in missing:
+            series = fetched.get(code)
+            value = (
+                {
+                    "points": series.points,
+                    "dates": series.dates,
+                    "returns": {
+                        "d20": series.returns.get("d20"),
+                        "d60": series.returns.get("d60"),
+                        "d120": series.returns.get("d120"),
+                        "d240": series.returns.get("d240"),
+                    },
+                }
+                if series is not None
+                else {"points": [], "dates": [], "returns": {"d20": None, "d60": None, "d120": None, "d240": None}}
+            )
+            cache.get_or_set(
+                detail_key(code),
+                SPARKLINE_DETAIL_TTL_SECONDS,
+                lambda value=value: value,
+            )
+            # A later period-filter request can reuse the exact same calculation.
+            cache.get_or_set(
+                f"{market}_returns_v2:{code}",
+                RETURNS_TTL_SECONDS,
+                lambda returns=value["returns"]: returns,
+            )
+    return {
+        code: cache.peek(detail_key(code))
+        for code in codes
+        if cache.peek(detail_key(code)) is not None
+    }

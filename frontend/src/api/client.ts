@@ -614,6 +614,13 @@ export interface MarketReturns {
   d20: number | null;
   d60: number | null;
   d120: number | null;
+  d240: number | null;
+}
+
+export interface MarketSparkline {
+  points: number[];
+  dates: string[];
+  returns: MarketReturns;
 }
 
 export interface EtfItem {
@@ -1014,9 +1021,9 @@ export const api = {
     ),
   /** 20일/120일 등락률 for just the given codes — call with the rows actually on
    * screen (a ranking table's 50 or 20 codes), not a whole screened universe. */
-  marketReturns: (codes: string[]) =>
+  marketReturns: (codes: string[], market: "kr" | "us" = "kr") =>
     getJSON<{ items: Record<string, MarketReturns> }>(
-      `${BASE}/market/returns?codes=${codes.join(",")}`
+      `${BASE}/market/returns?codes=${codes.join(",")}&market=${market}`
     ),
   sp500Map: (limit = 503, fresh = false) =>
     getJSONFresh<MarketMapResponse>(
@@ -1060,6 +1067,10 @@ export const api = {
     getJSON<{ nid: string; items: BoardComment[]; count: number }>(
       `${BASE}/stock/${code}/board/${nid}/comments`,
       { signal },
+    ),
+  marketSparklines: (codes: string[], market: "kr" | "us" = "kr") =>
+    getJSON<{ items: Record<string, MarketSparkline> }>(
+      `${BASE}/market/sparklines?codes=${codes.join(",")}&market=${market}`
     ),
   indices: (fresh = false) =>
     getJSON<{
