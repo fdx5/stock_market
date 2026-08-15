@@ -91,8 +91,8 @@ export default function MarketBriefPage({
   const [error, setError] = useState("");
   useDocumentTitle(
     data
-      ? `${data.date} ${data.market} 장 마감 분석 | K-Stock Hub`
-      : "오늘의 장 마감 리포트 | K-Stock Hub",
+      ? `${data.date} ${data.market} 오늘 브리핑 | K-Stock Hub`
+      : "오늘 브리핑 | K-Stock Hub",
   );
   useEffect(() => {
     setMarket(initialMarket);
@@ -127,7 +127,7 @@ export default function MarketBriefPage({
           );
         }
       })
-      .catch(() => setError("리포트를 불러오지 못했습니다."));
+      .catch(() => setError("오늘 브리핑을 불러오지 못했습니다."));
   }, [market, selected]);
   const dates = useMemo(
     () => [
@@ -148,7 +148,7 @@ export default function MarketBriefPage({
     try {
       if (navigator.share)
         await navigator.share({
-          title: `${data?.date} ${market} 장 마감 리포트`,
+          title: `${data?.date} ${market} 오늘 브리핑`,
           text: data?.summary,
           url,
         });
@@ -169,9 +169,9 @@ export default function MarketBriefPage({
       </header>
       <section className="brief-hero">
         <span>DAILY MARKET INTELLIGENCE</span>
-        <h1>장 마감 인사이트</h1>
+        <h1>오늘 브리핑</h1>
         <p>
-          가격, 수급, 시장 확산도와 뉴스 흐름을 결합한 데이터 기반 데일리 리서치
+          가격, 수급, 시장 확산도와 뉴스 흐름을 결합한 데이터 기반 오늘 브리핑
         </p>
         <div className="brief-controls">
           <div>
@@ -203,15 +203,15 @@ export default function MarketBriefPage({
               );
             }}
           >
-            <option value="">최신 리포트</option>
+            <option value="">최신 브리핑</option>
             {dates.map((x) => (
               <option key={x}>{x}</option>
             ))}
           </select>
         </div>
         {dates.length > 0 && (
-          <nav className="brief-archive" aria-label="최근 장 마감 리포트">
-            <span>최근 리포트</span>
+          <nav className="brief-archive" aria-label="최근 오늘 브리핑">
+            <span>최근 브리핑</span>
             {dates.slice(0, 8).map((date) => (
               <Link
                 className={date === currentDate ? "active" : ""}
@@ -235,9 +235,9 @@ export default function MarketBriefPage({
         <article className="brief-sheet">
           <header className="brief-report-head">
             <div>
-              <span>K-STOCK RESEARCH · CLOSE</span>
+              <span>K-STOCK · TODAY BRIEFING</span>
               <h2>
-                {data.date} {data.market} 장 마감 분석
+                {data.date} {data.market} 오늘 브리핑
               </h2>
               <p>{data.summary}</p>
             </div>
@@ -397,15 +397,15 @@ export default function MarketBriefPage({
             </Link>
             <Link to="/desk">종목 상세 분석</Link>
           </aside>
-          <nav className="brief-pagination" aria-label="장 마감 리포트 날짜 이동">
+          <nav className="brief-pagination" aria-label="오늘 브리핑 날짜 이동">
             {olderDate ? (
               <Link to={`/market-brief/${olderDate}/${market.toLowerCase()}`}>
-                ← {olderDate} 이전 리포트
+                ← {olderDate} 이전 브리핑
               </Link>
             ) : <span />}
             {newerDate && (
               <Link to={`/market-brief/${newerDate}/${market.toLowerCase()}`}>
-                {newerDate} 다음 리포트 →
+                {newerDate} 다음 브리핑 →
               </Link>
             )}
           </nav>

@@ -426,7 +426,7 @@ export default function EtfPage() {
             to="/market-brief"
             className="kospi-map-nav-link kospi-map-nav-link--brief"
           >
-            장 마감 리포트
+            오늘 브리핑
           </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI

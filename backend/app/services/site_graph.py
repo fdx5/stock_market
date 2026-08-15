@@ -59,7 +59,7 @@ PAGES: list[dict] = [
     {"id": "page:/fight", "label": "시총대결", "path": "/fight", "group": "play"},
     {"id": "page:/battle", "label": "줄다리기", "path": "/battle", "group": "play"},
     {"id": "page:/news", "label": "뉴스", "path": "/news", "group": "news"},
-    {"id": "page:/market-brief", "label": "장 마감 리포트", "path": "/market-brief", "group": "market"},
+    {"id": "page:/market-brief", "label": "오늘 브리핑", "path": "/market-brief", "group": "market"},
     {"id": "page:/admin", "label": "관리자 로그인", "path": "/admin", "group": "admin"},
     {"id": "page:/admin/dashboard", "label": "관리자", "path": "/admin/dashboard", "group": "admin"},
     {"id": "page:/admin/db", "label": "DB 콘솔", "path": "/admin/db", "group": "admin"},

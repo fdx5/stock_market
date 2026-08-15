@@ -9,10 +9,10 @@ def latest(market:str):
     if not item or item.get("version", 1) < market_brief.REPORT_VERSION:
         try:item=market_brief.generate(market)
         except Exception:pass
-    if not item:raise HTTPException(404,"리포트가 없습니다.")
+    if not item:raise HTTPException(404,"오늘 브리핑이 없습니다.")
     return item
 @router.get("/{day}/{market}")
 def detail(day:str,market:str):
     item=market_brief_store.get(day,market.upper())
-    if not item:raise HTTPException(404,"리포트가 없습니다.")
+    if not item:raise HTTPException(404,"오늘 브리핑이 없습니다.")
     return item

@@ -28,7 +28,7 @@ export default function Footer() {
             <DashboardIcon /> {t("홈")}
           </Link>
           <Link to="/market-brief" className="app-footer-market-link app-footer-market-link--brief">
-            장 마감 리포트
+            오늘 브리핑
           </Link>
           <Link to="/map" className="app-footer-market-link">
             <MarketIcon /> KOSPI

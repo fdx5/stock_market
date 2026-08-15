@@ -98,7 +98,7 @@ def generate(market: str, force: bool = False):
                "sectors": sector_rows[:10], "headlines": headlines[:8],
                "summary": f"{market}는 {pct:+.2f}% {tone} 마감했습니다. 상승 종목 비중은 {breadth:.1f}%였으며 수급의 핵심은 {driver}였습니다.",
                "analysis": analysis,
-               "disclaimer": "본 리포트는 공개 시장 데이터를 자동 집계한 투자 참고 자료이며 투자 권유가 아닙니다. 가격과 수급은 제공처 사정에 따라 지연·정정될 수 있습니다."}
+               "disclaimer": "오늘 브리핑은 공개 시장 데이터를 자동 집계한 투자 참고 자료이며 투자 권유가 아닙니다. 가격과 수급은 제공처 사정에 따라 지연·정정될 수 있습니다."}
     market_brief_store.save(day, market, payload, now.isoformat())
     return payload
 

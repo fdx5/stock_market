@@ -102,7 +102,7 @@ def render(day: str, market: str) -> bytes | None:
     draw.text((1135, 53), day, font=f_date, fill="#91a7c2", anchor="ra")
 
     draw.text((66, 123), market.upper(), font=f_market, fill="#ffffff")
-    draw.text((66, 190), "장 마감 데이터 브리핑", font=f_date, fill="#a9bbcf")
+    draw.text((66, 190), "오늘 브리핑", font=f_date, fill="#a9bbcf")
 
     index = report.get("index", {})
     draw.text((66, 254), _number(index.get("close")), font=f_index, fill="#ffffff")

@@ -325,7 +325,7 @@ export default function PredictionGradingPage() {
           <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> 홈
           </Link>
-          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">장 마감 리포트</Link>
+          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link">
             ← AI 예측으로
           </Link>

@@ -39,7 +39,7 @@ def _brief_description(report: dict, day: str, market: str) -> str:
     summary = " ".join(str(report.get("summary") or "").split())
     if summary:
         return summary[:157] + ("…" if len(summary) > 157 else "")
-    return f"{day} {market.upper()} 종가, 등락률, 투자자 수급과 업종 흐름을 정리한 데이터 기반 장 마감 리포트입니다."
+    return f"{day} {market.upper()} 종가, 등락률, 투자자 수급과 업종 흐름을 정리한 데이터 기반 오늘 브리핑입니다."
 
 
 def _stock_identity(path: str) -> tuple[str, str]:
@@ -68,7 +68,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "/global": ("미국 주식 시세와 종목 분석 | K-Stock Hub", "미국 주식 현재가, 등락률, 차트, 뉴스와 종목토론을 한 화면에서 확인하세요."),
     "/discussion-explorer": ("주식·ETF 종목토론 | K-Stock Hub", "국내외 주식과 ETF의 최근 게시글과 댓글을 3D 공간에서 탐색하세요."),
     "/news": ("오늘의 국내외 증시 뉴스 | K-Stock Hub", "국내 증시와 미국 증시에 영향을 주는 주요 경제·기업 뉴스를 확인하세요."),
-    "/market-brief": ("오늘의 코스피·코스닥 장 마감 분석 | K-Stock Hub", "오늘 코스피·코스닥 종가, 외국인·기관 수급, 거래대금, 상승 종목 비중과 업종 흐름을 분석한 데이터 기반 일일 장 마감 리포트입니다."),
+    "/market-brief": ("오늘 브리핑 | K-Stock Hub", "오늘 코스피·코스닥 종가, 외국인·기관 수급, 거래대금, 상승 종목 비중과 업종 흐름을 분석한 데이터 기반 오늘 브리핑입니다."),
     "/dram-price": ("D램 현물가격과 메모리 반도체 가격 추이 | K-Stock Hub", "D램 현물가격과 메모리 반도체 가격 변화를 기간별 차트로 확인하세요."),
     "/ai-prediction": ("AI 주가 예측과 종목 분석 | K-Stock Hub", "국내외 주식의 AI 예측 결과와 기술적 지표, 과거 예측 채점 결과를 확인하세요."),
     "/fight": ("기업 시가총액 비교 | K-Stock Hub", "국내외 주요 기업의 시가총액과 기업 정보를 직관적으로 비교하세요."),
@@ -91,7 +91,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     title, description = PAGES.get(page_lookup, PAGES["/"])
     page_image = IMAGE
     if brief:
-        title = f"{brief_day} {brief_market.upper()} 장 마감 분석 | K-Stock Hub"
+        title = f"{brief_day} {brief_market.upper()} 오늘 브리핑 | K-Stock Hub"
         description = _brief_description(brief, brief_day, brief_market)
         page_image = f"{SITE}/market-brief/og/{brief_day}/{brief_market}.png"
     elif stock_code:
@@ -127,7 +127,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         document = _replace_meta(
             document,
             'name="keywords"',
-            "오늘 증시 마감, 코스피 장 마감, 코스닥 장 마감, 국내 증시 분석, 외국인 기관 수급, 주식 시황, 장 마감 리포트",
+            "오늘 증시 마감, 코스피 장 마감, 코스닥 장 마감, 국내 증시 분석, 외국인 기관 수급, 주식 시황, 오늘 브리핑",
         )
     document = _replace_meta(document, 'property="og:title"', title)
     document = _replace_meta(document, 'property="og:description"', description)
@@ -135,11 +135,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     document = _replace_meta(document, 'property="og:type"', "article" if brief else "website")
     document = _replace_meta(document, 'property="og:image"', page_image)
     document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
-    document = _replace_meta(document, 'property="og:image:alt"', f"{brief_day} {brief_market.upper()} 장 마감 핵심 지표" if brief else "K-Stock Hub 시장 데이터")
+    document = _replace_meta(document, 'property="og:image:alt"', f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터")
     document = _replace_meta(document, 'name="twitter:title"', title)
     document = _replace_meta(document, 'name="twitter:description"', description)
     document = _replace_meta(document, 'name="twitter:image"', page_image)
-    document = _replace_meta(document, 'name="twitter:image:alt"', f"{brief_day} {brief_market.upper()} 장 마감 핵심 지표" if brief else "K-Stock Hub 시장 데이터")
+    document = _replace_meta(document, 'name="twitter:image:alt"', f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터")
     document = re.sub(
         r'(<link\s+rel="canonical"\s+href=")[^"]*("\s*/?>)',
         rf"\g<1>{html.escape(canonical, quote=True)}\g<2>",
@@ -206,7 +206,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         ("/desk", "국내 주식 시세"), ("/map", "코스피 시가총액 맵"),
         ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf", "국내·해외 ETF"),
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
-        ("/news", "증시 뉴스"), ("/market-brief", "오늘의 장 마감 리포트"),
+        ("/news", "증시 뉴스"), ("/market-brief", "오늘 브리핑"),
         ("/discussion-explorer", "종목토론"),
         ("/stock/005930", "삼성전자 주가"), ("/stock/000660", "SK하이닉스 주가"),
         ("/stock/373220", "LG에너지솔루션 주가"), ("/stock/207940", "삼성바이오로직스 주가"),
@@ -228,7 +228,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             for item in archive
             if item.get("date") and item.get("market") in {"KOSPI", "KOSDAQ"}
         )
-        report_content += f'<nav aria-label="최근 장 마감 리포트" style="display:flex;flex-wrap:wrap;gap:12px">{archive_links}</nav>'
+        report_content += f'<nav aria-label="최근 오늘 브리핑" style="display:flex;flex-wrap:wrap;gap:12px">{archive_links}</nav>'
     elif stock_code:
         report_content = (
             f'<p>{html.escape(stock_name)} 현재가와 기간별 차트, 거래량, 기술적 지표, '
@@ -236,7 +236,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             '<nav aria-label="종목 관련 분석" style="display:flex;flex-wrap:wrap;gap:12px">'
             f'<a href="/investor/{stock_code}">{html.escape(stock_name)} 외국인·기관 수급</a>'
             f'<a href="/discussion-explorer?code={stock_code}&amp;name={html.escape(stock_name, quote=True)}">{html.escape(stock_name)} 종목토론</a>'
-            '<a href="/market-brief">오늘의 장 마감 리포트</a></nav>'
+            '<a href="/market-brief">오늘 브리핑</a></nav>'
         )
     shell = (
         '<section data-seo-shell="true" style="min-height:100vh;padding:48px 6%;'
@@ -312,7 +312,7 @@ def build_rss(kr_stocks: list[dict]) -> str:
         if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day) or market not in {"KOSPI", "KOSDAQ"}:
             continue
         url = f"{SITE}/market-brief/{day}/{market.lower()}"
-        title = f"{day} {market} 장 마감 분석"
+        title = f"{day} {market} 오늘 브리핑"
         try:
             report = market_brief_store.get(day, market) or {}
             description = _brief_description(report, day, market)

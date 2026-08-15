@@ -128,8 +128,8 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
     description: "국내 증시와 미국 증시에 영향을 주는 주요 글로벌 경제·기업 뉴스를 한곳에서 확인하세요.",
   },
   "/market-brief": {
-    title: "오늘의 코스피·코스닥 장 마감 분석 | K-Stock Hub",
-    description: "오늘 코스피·코스닥 종가, 외국인·기관 수급, 거래대금, 상승 종목 비중과 업종 흐름을 분석한 데이터 기반 일일 장 마감 리포트입니다.",
+    title: "오늘 브리핑 | K-Stock Hub",
+    description: "오늘 코스피·코스닥 종가, 외국인·기관 수급, 거래대금, 상승 종목 비중과 업종 흐름을 분석한 데이터 기반 오늘 브리핑입니다.",
   },
   "/fight": {
     title: "기업 시가총액 비교·시총대결 | K-Stock Hub",
@@ -169,12 +169,12 @@ export default function App() {
     if (!seo) return;
     const name = canonicalName || code;
     const briefTitle = briefMatch
-      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 장 마감 분석 | K-Stock Hub`
+      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 오늘 브리핑 | K-Stock Hub`
       : "";
     const stockPageCode = stockMatch?.[1] || (canonicalPath.startsWith("/stock/") ? code : "");
     const title = briefTitle || (stockPageCode ? `${name || stockPageCode} 주가·차트·종목정보 | K-Stock Hub` : keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title);
     const description = briefMatch
-      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 종가, 외국인·기관 수급, 상승 종목 비중, 거래대금과 업종 흐름을 분석한 장 마감 리포트입니다.`
+      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 종가, 외국인·기관 수급, 상승 종목 비중, 거래대금과 업종 흐름을 분석한 오늘 브리핑입니다.`
       : stockPageCode ? `${name || stockPageCode}(${stockPageCode}) 현재가, 등락률, 차트, 외국인·기관 수급과 최신 종목 정보를 확인하세요.`
       : keepsStockCode && name ? `${name}(${code}) 현재가, 등락률, 차트와 최신 종목 정보를 확인하세요.` : seo.description;
     document.title = title;
@@ -191,7 +191,7 @@ export default function App() {
     document.querySelector<HTMLMetaElement>('meta[property="og:image:secure_url"]')?.setAttribute("content", image);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')?.setAttribute("content", image);
     const imageAlt = briefMatch
-      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 장 마감 핵심 지표`
+      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 오늘 브리핑 핵심 지표`
       : "K-Stock Hub 시장 데이터";
     document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')?.setAttribute("content", imageAlt);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image:alt"]')?.setAttribute("content", imageAlt);

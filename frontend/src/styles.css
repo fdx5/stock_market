@@ -3929,9 +3929,9 @@ thead .weekly-foreign-amount-col {
 
 .kospi-map-nav-link--etf {
   appearance: none;
-  min-width: 91px;
-  padding-left: 14px;
-  padding-right: 14px;
+  min-width: 0;
+  padding-left: 10px;
+  padding-right: 10px;
   color: #251700;
   border-color: #ffe783;
   background: linear-gradient(135deg, #fff0a6 0%, #ffd23f 32%, #f4a900 66%, #ffe37a 100%);
@@ -3969,7 +3969,7 @@ thead .weekly-foreign-amount-col {
    the ETF gold and the neutral TOP 100 pill, while the shared N badge marks both new
    destinations consistently. */
 .kospi-map-nav-link--discussion {
-  min-width: 136px;
+  min-width: 0;
   padding-left: 32px;
   padding-right: 14px;
   color: #f4fdff;
@@ -4040,7 +4040,7 @@ thead .weekly-foreign-amount-col {
 
 @media (max-width: 640px) {
   .kospi-map-nav-link--etf {
-    min-width: 72px;
+    min-width: 0;
     padding-left: 10px;
     padding-right: 10px;
   }
@@ -4053,7 +4053,7 @@ thead .weekly-foreign-amount-col {
   }
 
   .kospi-map-nav-link--discussion {
-    min-width: 125px;
+    min-width: 0;
     padding-left: 28px;
     padding-right: 10px;
   }
