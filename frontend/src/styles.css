@@ -4880,7 +4880,6 @@ thead .weekly-foreign-amount-col {
 }
 
 .kospi-map-sector-filter {
-  scroll-margin-top: 8px;
   display: inline-flex;
   align-items: center;
   gap: 6px;

@@ -392,7 +392,7 @@ export default function MarketMapPage({
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    if (!enhancedSectorView) return;
+    if (!enhancedSectorView || loading) return;
     const mobileOrFold = window.matchMedia(
       "(max-width: 700px), (max-width: 1400px) and (pointer: coarse)"
     );
@@ -403,12 +403,24 @@ export default function MarketMapPage({
       if (!mobileOrFold.matches) return;
       if (timer !== undefined) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        mapSectorFilterRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        const filter = mapSectorFilterRef.current;
+        if (!filter) return;
+        // Align to the top of the actually usable viewport instead of applying a
+        // device-specific pixel correction. Foldable orientation, browser chrome,
+        // and the sticky header can all change that boundary at runtime.
+        const visualTop = window.visualViewport?.offsetTop ?? 0;
+        const headerBottom = document.querySelector<HTMLElement>(".app-header")?.getBoundingClientRect().bottom ?? 0;
+        const usableTop = Math.max(visualTop, headerBottom, 0);
+        const filterTop = filter.getBoundingClientRect().top;
+        if (Math.abs(filterTop - usableTop) < 8) return;
+        const targetTop = Math.max(0, window.scrollY + filterTop - usableTop);
+        window.scrollTo({ top: targetTop, behavior: "smooth" });
       }, delay);
     };
     const handleOrientationChange = () => scrollToMap(260);
 
-    // Entry navigation uses a short delay so router scroll restoration settles first.
+    // Run only after the map has loaded and its final layout exists. Entry navigation
+    // still gets a short delay so router scroll restoration settles first.
     // Foldable orientation changes need longer for the inner viewport and treemap to
     // finish resizing before the target position is measured.
     scrollToMap(120);
@@ -419,7 +431,7 @@ export default function MarketMapPage({
       orientation.removeEventListener("change", handleOrientationChange);
       window.removeEventListener("orientationchange", handleOrientationChange);
     };
-  }, [enhancedSectorView, filePrefix]);
+  }, [enhancedSectorView, filePrefix, loading]);
 
   const TIER1_REFRESH_MS = 10_000;
   const TIER2_REFRESH_MS = 30_000;
