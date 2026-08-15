@@ -718,6 +718,7 @@ export default function MarketMapPage({
           <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
+          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">장 마감 리포트</Link>
           {navLinks.map((link) => (
             <Link
               key={link.to}
