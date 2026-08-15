@@ -12,7 +12,7 @@ from app.services.market_map import get_kosdaq_map, get_kospi_map
 KST = ZoneInfo("Asia/Seoul")
 log = logging.getLogger(__name__)
 _lock = threading.Lock()
-REPORT_VERSION = 2
+REPORT_VERSION = 3
 
 
 def _num(value):
@@ -20,6 +20,15 @@ def _num(value):
         return float(value or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _flow_money(value: float) -> str:
+    """Investor flow arrives in 억원; promote values of 1조원 or more."""
+    sign = "+" if value > 0 else "-" if value < 0 else ""
+    amount = abs(value)
+    if amount >= 10_000:
+        return f"{sign}{amount / 10_000:,.1f}조원"
+    return f"{sign}{amount:,.0f}억원"
 
 
 def generate(market: str, force: bool = False):
@@ -77,7 +86,7 @@ def generate(market: str, force: bool = False):
     analysis = [
         f"지수는 {index.get('close', 0):,.2f}로 마감해 전일 대비 {index.get('change', 0):+,.2f}포인트({pct:+.2f}%) 움직였습니다. 종가 방향은 {tone}로 분류되며 장중 가격보다 종가에서 확인된 방향성을 우선 평가했습니다.",
         f"시장 내부에서는 상승 {advance}개, 하락 {decline}개, 보합 {flat}개를 기록했습니다. 상승 종목 비중 {breadth:.1f}%는 지수 움직임이 일부 대형주에 국한됐는지, 다수 종목으로 확산됐는지를 판단하는 핵심 지표입니다.",
-        f"수급은 외국인 {foreign:+,.0f}억원, 기관 {institution:+,.0f}억원, 개인 {individual:+,.0f}억원으로 집계됐습니다. 이날 방향을 만든 주체는 {driver}이며 다음 거래일에도 같은 주체의 연속성이 유지되는지가 중요합니다.",
+        f"수급은 외국인 {_flow_money(foreign)}, 기관 {_flow_money(institution)}, 개인 {_flow_money(individual)}으로 집계됐습니다. 이날 방향을 만든 주체는 {driver}이며 다음 거래일에도 같은 주체의 연속성이 유지되는지가 중요합니다.",
         f"전체 추정 거래대금은 {turnover / 1e12:,.1f}조원입니다. 거래대금 상위 3개 종목 집중도는 {top3_share:.1f}%로, 수치가 높을수록 지수 상승과 체감 수익률 사이의 괴리가 커질 가능성이 있습니다.",
         f"업종별로는 {best_sector['name']}({best_sector['change_pct']:+.2f}%)가 가장 강했고 {weak_sector['name']}({weak_sector['change_pct']:+.2f}%)가 상대적으로 부진했습니다. 주도 업종의 강세가 인접 업종으로 번지는지 확인해야 추세의 지속성을 평가할 수 있습니다.",
         f"거래대금 기준 시장의 중심 종목은 {leader_names}입니다. 단순 등락률보다 실제 자금이 집중된 종목을 우선 추적했으며, 이들의 거래대금 유지 여부가 단기 시장 심리의 선행 신호가 될 수 있습니다.",
