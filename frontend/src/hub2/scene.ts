@@ -111,9 +111,12 @@ interface TierConfig {
 }
 
 const TIERS: Record<Tier, TierConfig> = {
-  ultra: { dpr: 2, stars: 26000, asteroids: 3600, segments: 96, bloom: true, lensing: true, moons: true, nebula: true, msaa: 4, grain: 0.035, debris: 900 },
-  high: { dpr: 1.6, stars: 14000, asteroids: 1600, segments: 64, bloom: true, lensing: true, moons: true, nebula: true, msaa: 0, grain: 0.03, debris: 480 },
-  low: { dpr: 1.15, stars: 6000, asteroids: 520, segments: 40, bloom: false, lensing: true, moons: false, nebula: true, msaa: 0, grain: 0.02, debris: 180 },
+  // Full native DPR is disproportionately expensive for the full-screen
+  // composer (especially bloom), while the visual difference above 1.6 is
+  // hard to notice on this deliberately soft, space-themed scene.
+  ultra: { dpr: 1.6, stars: 26000, asteroids: 3600, segments: 96, bloom: true, lensing: true, moons: true, nebula: true, msaa: 4, grain: 0.035, debris: 900 },
+  high: { dpr: 1.35, stars: 14000, asteroids: 1600, segments: 64, bloom: true, lensing: true, moons: true, nebula: true, msaa: 0, grain: 0.03, debris: 480 },
+  low: { dpr: 1, stars: 6000, asteroids: 520, segments: 40, bloom: false, lensing: true, moons: false, nebula: true, msaa: 0, grain: 0.02, debris: 180 },
 };
 
 const TIER_ORDER: Tier[] = ["ultra", "high", "low"];
@@ -1098,6 +1101,8 @@ export class HubScene {
   private fpsFrames = 0;
   private fpsSince = 0;
   private running = true;
+  private paused = false;
+  private visibilityObserver: IntersectionObserver | null = null;
   private ready = false;
 
   /* ── the meter, which is off unless somebody asked for it ──
@@ -1326,6 +1331,13 @@ export class HubScene {
     }
     this.startIntro();
     this.timer.connect(document);
+    const onVisibility = () => this.updateVisibilityPause();
+    document.addEventListener("visibilitychange", onVisibility);
+    this.disposables.push({ dispose: () => document.removeEventListener("visibilitychange", onVisibility) });
+    if (typeof IntersectionObserver !== "undefined") {
+      this.visibilityObserver = new IntersectionObserver(() => this.updateVisibilityPause(), { threshold: 0.01 });
+      this.visibilityObserver.observe(this.container);
+    }
     const start = performance.now();
     this.fpsSince = start;
     this.metering = typeof callbacks.onStats === "function";
@@ -1338,6 +1350,23 @@ export class HubScene {
       // would land in the numbers it is reporting.
       this.statsHistory = new Array<number>(STATS_HISTORY).fill(0);
     }
+    this.frame = requestAnimationFrame(this.tick);
+  }
+
+  /** Stop drawing when this canvas cannot be seen. The simulation clock is
+   * intentionally left intact; on resume the normal timer resumes the scene
+   * without spending GPU time on frames nobody can observe. */
+  private updateVisibilityPause() {
+    const hidden = document.visibilityState === "hidden";
+    const visible = this.visibilityObserver ? this.container.getBoundingClientRect().bottom > 0 && this.container.getBoundingClientRect().top < window.innerHeight : true;
+    const next = hidden || !visible;
+    if (next === this.paused || !this.running) return;
+    this.paused = next;
+    if (next) {
+      cancelAnimationFrame(this.frame);
+      return;
+    }
+    this.timer.reset();
     this.frame = requestAnimationFrame(this.tick);
   }
 
@@ -5261,7 +5290,7 @@ export class HubScene {
   /* ══════════════════════════ the frame ══════════════════════════ */
 
   private tick = () => {
-    if (!this.running) return;
+    if (!this.running || this.paused) return;
     this.frame = requestAnimationFrame(this.tick);
 
     /* The top of the frame, read before any work has been done in it. The gap
@@ -7718,6 +7747,8 @@ export class HubScene {
   dispose() {
     this.running = false;
     cancelAnimationFrame(this.frame);
+    this.visibilityObserver?.disconnect();
+    this.visibilityObserver = null;
     this.resizeObserver.disconnect();
 
     const el = this.renderer.domElement;
