@@ -191,6 +191,7 @@ function DramBoard() {
 
   useEffect(() => {
     let cancelled = false;
+    const startedAt = performance.now();
     // 일 배치가 하루 한 번 적재하는 스냅샷이라 폴링하지 않는다 — 탭을 열 때 한 번.
     api
       .dramPrice()
@@ -203,14 +204,29 @@ function DramBoard() {
         // 실패는 아래의 빈 상태 문구로 흡수된다.
       })
       .finally(() => {
-        if (!cancelled) setLoaded(true);
+        // A warm cache can answer before the browser paints the loading state.
+        // Keep the feedback visible just long enough for the tab click to feel
+        // acknowledged without making a cold request any slower.
+        const remaining = Math.max(0, 360 - (performance.now() - startedAt));
+        window.setTimeout(() => {
+          if (!cancelled) setLoaded(true);
+        }, remaining);
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  if (!loaded) return <p className="commodity-empty">{t("불러오는 중...")}</p>;
+  if (!loaded) {
+    return (
+      <div className="commodity-scroll commodity-dram-skeleton" aria-label={t("D램 현물가격을 불러오는 중")} aria-busy="true">
+        <table className="commodity-table" aria-hidden="true">
+          <thead><tr>{[42,24,24,24,20].map((width, index) => <th key={index}><span className="commodity-skeleton-block" style={{width:`${width}%`}} /></th>)}</tr></thead>
+          <tbody>{Array.from({length:5}, (_, row) => <tr key={row}>{[58,32,30,30,26].map((width, col) => <td key={col}><span className="commodity-skeleton-block" style={{width:`${width}%`, animationDelay:`${row * 55 + col * 25}ms`}} /></td>)}</tr>)}</tbody>
+        </table>
+      </div>
+    );
+  }
   if (items.length === 0) return <p className="commodity-empty">{t("표시할 D램 현물가격이 없습니다.")}</p>;
 
   return (

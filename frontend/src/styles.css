@@ -1432,7 +1432,7 @@ a.app-brand:hover .app-logo-wide {
    which would otherwise vertically centre the much-taller track in the short window and
    leave the flip permanently misaligned to the tile edges. */
 .global-index-tile--rotating {
-  --gi-flip-h: 80px;
+  --gi-flip-h: 112px;
   display: block;
   height: var(--gi-flip-h);
   padding: 0;
@@ -1523,7 +1523,7 @@ a.app-brand:hover .app-logo-wide {
    top of this file. */
 
 .global-index-tile--skeleton {
-  height: 80px;
+  height: 112px;
   background: linear-gradient(
     90deg,
     var(--surface-1) 25%,
@@ -1539,6 +1539,47 @@ a.app-brand:hover .app-logo-wide {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+
+.global-index-tile-extra {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.global-index-tile-extra span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.global-index-tile-extra small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.global-index-tile-extra b {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.global-index-chart-side {
+  flex: 1;
+  min-width: 150px;
+  max-width: 46%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.global-index-chart-side > span {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .global-index-tile-label {
@@ -1601,6 +1642,12 @@ a.app-brand:hover .app-logo-wide {
   margin-left: 8px;
 }
 
+.global-index-chart-side .global-index-spark {
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+}
+
 @media (max-width: 640px) {
   .global-index-grid {
     grid-template-columns: 1fr;
@@ -1611,6 +1658,12 @@ a.app-brand:hover .app-logo-wide {
     width: 34%;
     height: 40px;
   }
+
+  .global-index-tile--rotating { --gi-flip-h: 80px; }
+  .global-index-tile--skeleton { height: 80px; }
+  .global-index-tile-extra,
+  .global-index-chart-side > span { display: none; }
+  .global-index-chart-side { min-width: 0; max-width: 38%; }
 }
 
 .stock-header .overview p {
@@ -5526,6 +5579,46 @@ thead .weekly-foreign-amount-col {
   margin: 4px 0;
   font-size: 12px;
   color: var(--text-muted);
+}
+
+.commodity-dram-skeleton {
+  min-height: 193px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.commodity-dram-skeleton td {
+  height: 32px;
+}
+
+.commodity-skeleton-block {
+  display: inline-block;
+  min-width: 28px;
+  height: 10px;
+  border-radius: 999px;
+  vertical-align: middle;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--text-muted) 10%, transparent) 20%,
+    color-mix(in srgb, var(--text-muted) 24%, transparent) 45%,
+    color-mix(in srgb, var(--text-muted) 10%, transparent) 70%
+  );
+  background-size: 220% 100%;
+  animation: commodity-skeleton-shimmer 1.15s ease-in-out infinite;
+}
+
+.commodity-dram-skeleton th:not(:first-child) .commodity-skeleton-block,
+.commodity-dram-skeleton td:not(:first-child) .commodity-skeleton-block {
+  float: right;
+}
+
+@keyframes commodity-skeleton-shimmer {
+  from { background-position: 110% 0; }
+  to { background-position: -110% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .commodity-skeleton-block { animation: none; }
 }
 
 /* ── D램 현물가격 이력 페이지 ─────────────────────────────────────────────── */

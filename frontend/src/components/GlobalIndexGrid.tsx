@@ -47,6 +47,11 @@ function TileFace({ item }: { item: GlobalIndexWidget }) {
   const pct = item.change_pct ?? 0;
   const cls = changeClass(pct);
   const colorVar = pct < 0 ? "var(--down-color)" : "var(--up-color)";
+  const values = item.points.map((point) => point.close).filter(Number.isFinite);
+  const periodHigh = values.length ? Math.max(...values) : null;
+  const periodLow = values.length ? Math.min(...values) : null;
+  const previousClose = item.close !== null && item.change !== null ? item.close - item.change : null;
+  const latestDate = item.points[item.points.length - 1]?.date?.slice(5).replace("-", ".") ?? "-";
   return (
     <div className="global-index-face">
       <div className="global-index-tile-info">
@@ -63,12 +68,17 @@ function TileFace({ item }: { item: GlobalIndexWidget }) {
               {pct > 0 ? "+" : ""}
               {pct.toFixed(2)}%
             </span>
+            <div className="global-index-tile-extra">
+              <span><small>전일</small><b>{previousClose === null ? "-" : formatIndexValue(previousClose, item.unit)}</b></span>
+              <span><small>기간 고가</small><b>{periodHigh === null ? "-" : formatIndexValue(periodHigh, item.unit)}</b></span>
+              <span><small>기간 저가</small><b>{periodLow === null ? "-" : formatIndexValue(periodLow, item.unit)}</b></span>
+            </div>
           </>
         ) : (
           <span className="global-index-tile-value global-index-tile-value--empty">-</span>
         )}
       </div>
-      <Sparkline points={item.points} colorVar={colorVar} />
+      <div className="global-index-chart-side"><Sparkline points={item.points} colorVar={colorVar} /><span>{latestDate} 기준 · {item.points.length}개 구간</span></div>
     </div>
   );
 }
