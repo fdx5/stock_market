@@ -388,7 +388,7 @@ export default function MarketMapPage({
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const mapLegendRef = useRef<HTMLDivElement>(null);
+  const mapSectorFilterRef = useRef<HTMLLabelElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
@@ -403,7 +403,7 @@ export default function MarketMapPage({
       if (!mobileOrFold.matches) return;
       if (timer !== undefined) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        mapLegendRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        mapSectorFilterRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       }, delay);
     };
     const handleOrientationChange = () => scrollToMap(260);
@@ -1007,7 +1007,7 @@ export default function MarketMapPage({
               <div className="kospi-map-period-head">
                 <small>PERFORMANCE</small>
                 <strong>조회 기간</strong>
-                <p>별도 통계 저장 없이 일봉 기준으로 즉시 계산합니다.</p>
+                <p>기간별 변동률을 조회합니다.</p>
               </div>
               <div className="kospi-map-period-options">
                 {MAP_PERIODS.map((option) => (
@@ -1024,18 +1024,18 @@ export default function MarketMapPage({
               <div className="kospi-map-period-status" aria-live="polite">
                 {periodLoading ? "기간 수익률 계산 중…" : periodError || `${items.length.toLocaleString()}개 종목`}
               </div>
-              <p className="kospi-map-period-note">기간 수익률이 아직 준비되지 않은 종목은 당일 등락률로 표시됩니다.</p>
+              <p className="kospi-map-period-note">기간별 변동률을 조회합니다.</p>
             </aside>
           )}
           <div className="kospi-map-workspace-main">
-            <div className="kospi-map-legend" ref={mapLegendRef}>
+            <div className="kospi-map-legend">
             <div className="kospi-map-legend-info">
               <span className="kospi-map-legend-label">{t("하락")}</span>
               <span className="kospi-map-legend-bar" />
               <span className="kospi-map-legend-label">{t("상승")}</span>
               <span className="kospi-map-legend-scale">{t("-5% ~ +5% 기준 포화")}</span>
             </div>
-            <label className="kospi-map-sector-filter">
+            <label className="kospi-map-sector-filter" ref={mapSectorFilterRef}>
               <span className="kospi-map-sector-filter-label">{t("업종")}</span>
               <select
                 value={selectedSector}
