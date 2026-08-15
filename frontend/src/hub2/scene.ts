@@ -34,6 +34,8 @@ import {
   MILKYWAY_VERT,
   NEBULA_FRAG,
   NEBULA_VERT,
+  NEBULA_CACHE_FRAG,
+  NEBULA_CACHE_VERT,
   PLANET_FRAG,
   PLANET_VERT,
   REMNANT_FRAG,
@@ -742,6 +744,9 @@ export class HubScene {
   /** Billboarded to the camera every frame — see buildStar. */
   private corona!: THREE.Mesh;
   private nebulaMaterial: THREE.ShaderMaterial | null = null;
+  /** The procedural nebula evaluated once into a cube map. Its slow turn is
+   * the old background drift at runtime cost equivalent to one texture read. */
+  private nebulaCache: THREE.Mesh | null = null;
   private starMaterial!: THREE.ShaderMaterial;
   private starGeometry!: THREE.BufferGeometry;
   private belt: THREE.InstancedMesh | null = null;
@@ -1363,7 +1368,7 @@ export class HubScene {
 
     if (this.config.nebula) {
       const geo = new THREE.SphereGeometry(2600, 48, 32);
-      this.nebulaMaterial = new THREE.ShaderMaterial({
+      const sourceMaterial = new THREE.ShaderMaterial({
         vertexShader: NEBULA_VERT,
         fragmentShader: NEBULA_FRAG,
         uniforms: {
@@ -1391,11 +1396,44 @@ export class HubScene {
            rather than behind them. */
         blending: THREE.AdditiveBlending,
       });
-      const nebula = new THREE.Mesh(geo, this.nebulaMaterial);
-      nebula.renderOrder = -20;
-      nebula.frustumCulled = false;
-      this.scene.add(nebula);
-      this.disposables.push(geo, this.nebulaMaterial);
+      const source = new THREE.Mesh(geo, sourceMaterial);
+      source.frustumCulled = false;
+
+      /* This shader is around twenty coherent-noise octaves over the entire
+       * viewport. Its time input moves by only 0.004 per second, yet it was
+       * recomputed at display frequency. Evaluate the same shader from all
+       * six directions once, at a resolution well above its highest spatial
+       * frequency, then sample that radiance during normal frames. Camera
+       * rotation remains fully three-dimensional because the cache is a cube,
+       * not a screenshot. */
+      const cacheScene = new THREE.Scene();
+      cacheScene.add(source);
+      const cacheTarget = new THREE.WebGLCubeRenderTarget(1024, {
+        type: THREE.HalfFloatType,
+        depthBuffer: false,
+        stencilBuffer: false,
+        generateMipmaps: false,
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+      });
+      const cacheCamera = new THREE.CubeCamera(0.1, 4000, cacheTarget);
+      cacheCamera.update(this.renderer, cacheScene);
+      cacheScene.remove(source);
+
+      const cachedMaterial = new THREE.ShaderMaterial({
+        vertexShader: NEBULA_CACHE_VERT,
+        fragmentShader: NEBULA_CACHE_FRAG,
+        uniforms: { uMap: { value: cacheTarget.texture } },
+        side: THREE.BackSide,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+      });
+      this.nebulaCache = new THREE.Mesh(geo, cachedMaterial);
+      this.nebulaCache.renderOrder = -20;
+      this.nebulaCache.frustumCulled = false;
+      this.scene.add(this.nebulaCache);
+      this.disposables.push(geo, sourceMaterial, cachedMaterial, cacheTarget);
     }
 
     this.buildSkyPhoto();
@@ -5294,6 +5332,9 @@ export class HubScene {
     this.corona.quaternion.copy(this.camera.quaternion);
     this.starMaterial.uniforms.uTime.value = time;
     if (this.nebulaMaterial) this.nebulaMaterial.uniforms.uTime.value = time;
+    // The source drift was intentionally almost static. A tiny rigid turn
+    // keeps the cached distant sky alive without rebuilding its noise field.
+    if (this.nebulaCache) this.nebulaCache.rotation.y = time * 0.0008;
 
     this.updateHubble(dt, time, speed);
     if (this.beltGroup) this.beltGroup.rotation.y += dt * 0.012 * speed;

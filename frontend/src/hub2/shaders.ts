@@ -1180,6 +1180,26 @@ void main() {
 }
 `;
 
+/** Runtime form of the procedural nebula after it has been evaluated into a
+ * high-resolution cube map once. Sampling the cached radiance preserves the
+ * direction-dependent picture while avoiding twenty noise octaves for every
+ * screen pixel on every frame. */
+export const NEBULA_CACHE_VERT = /* glsl */ `
+varying vec3 vDir;
+void main() {
+  vDir = position;
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+}
+`;
+
+export const NEBULA_CACHE_FRAG = /* glsl */ `
+uniform samplerCube uMap;
+varying vec3 vDir;
+void main() {
+  gl_FragColor = textureCube(uMap, normalize(vDir));
+}
+`;
+
 /* ─────────────────────── the Milky Way, photographed ───────────────────────
    A 360° panorama of the real sky (ESO/S. Brunier, CC BY 4.0) mapped onto the
    inside of a sphere, so the band of the galaxy is a photograph rather than a
