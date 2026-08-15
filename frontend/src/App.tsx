@@ -54,6 +54,7 @@ const MarketCapFightPage = lazy(() => import("./components/MarketCapFightPage"))
 const GlobalTop100Page = lazy(() => import("./components/GlobalTop100Page"));
 const EtfPage = lazy(() => import("./components/EtfPage"));
 const NewsPage = lazy(() => import("./components/NewsPage"));
+const MarketBriefPage = lazy(() => import("./components/MarketBriefPage"));
 const AiPredictionPage = lazy(() => import("./components/AiPredictionPage"));
 const PredictionGradingPage = lazy(() => import("./components/PredictionGradingPage"));
 // Pulls in lightweight-charts, so it stays out of every other route's bundle.
@@ -198,6 +199,8 @@ export default function App() {
     page = <EtfPage />;
   } else if (path === "/news") {
     page = <NewsPage />;
+  } else if (path === "/market-brief") {
+    page = <MarketBriefPage />;
   } else if (path === "/ai-prediction") {
     page = <AiPredictionPage />;
   } else if (path === "/ai-prediction/grading") {

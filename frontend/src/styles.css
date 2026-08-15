@@ -3830,6 +3830,16 @@ thead .weekly-foreign-amount-col {
 /* Yellow-toned nav pill for the NEWS link — --series-yellow already carries a
    theme-tuned value for both dark (#c98500) and light (#9c6a2f) mode, same as every
    other nav pill here, so no extra light/dark override is needed. */
+.kospi-map-nav-link--brief {
+  color: var(--series-orange);
+  border-color: var(--series-orange);
+  background: color-mix(in srgb, var(--series-orange) 12%, transparent);
+}
+
+.kospi-map-nav-link--brief:hover {
+  background: color-mix(in srgb, var(--series-orange) 22%, transparent);
+}
+
 .kospi-map-nav-link--news {
   color: var(--series-yellow);
   border-color: var(--series-yellow);

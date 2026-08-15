@@ -63,6 +63,7 @@ export default function Footer() {
           <Link to="/news" className="app-footer-market-link app-footer-market-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
+          <Link to="/market-brief" className="app-footer-market-link">장 마감 리포트</Link>
           <a
             href="https://chs2147.github.io/mini-apps"
             target="_blank"

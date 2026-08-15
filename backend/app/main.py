@@ -27,6 +27,7 @@ from app.routers import (
     global_top100,
     investor,
     market_map,
+    market_brief,
     monitor,
     notify,
     prediction,
@@ -45,6 +46,7 @@ from app.services import (
     notify_stats_store,
     page_view_store,
     prediction_batch,
+    market_brief as market_brief_service,
     stock_search_store,
 )
 from app.services import global_top100 as global_top100_service
@@ -105,6 +107,7 @@ app.include_router(search.router, prefix="/api")
 app.include_router(stock.router, prefix="/api/stock")
 app.include_router(us_stock.router, prefix="/api/us-stock")
 app.include_router(market_map.router, prefix="/api/market")
+app.include_router(market_brief.router, prefix="/api/market-brief")
 app.include_router(visitors.router, prefix="/api/visitors")
 app.include_router(investor.router, prefix="/api/investor")
 app.include_router(battle.router, prefix="/api/battle")
@@ -368,6 +371,10 @@ def _start_dram_price_scheduler() -> None:
     # free-tier instance is asleep when that cron fires. Both paths call the same
     # idempotent run_batch, so whichever fires first does the work.
     dram_price.start_scheduler()
+
+@app.on_event("startup")
+def _start_market_brief_scheduler() -> None:
+    market_brief_service.start_scheduler()
 
 
 @app.get("/api/health")
