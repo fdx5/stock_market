@@ -5274,23 +5274,11 @@ export class HubScene {
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), 0.05);
     const time = this.timer.getElapsed();
-    /* One, always. This used to be 0.25 under reduced motion, and it is
-     * multiplied into every moving thing in the scene — orbits, spins, the
-     * disc, the jets, the merger, the wormhole's sky, the comets, the belt —
-     * so the whole system ran as a quarter-speed slow motion. That is not what
-     * the setting asks for. `prefers-reduced-motion` is about motion imposed
-     * on the visitor: a camera that flies, swoops, spirals and blacks the
-     * screen out. A planet going round the star at the rate it has always gone
-     * round is the subject of the page, not an effect played at it, and
-     * slowing it does not reduce anything — it only makes the page look
-     * broken, which is how it was found.
-     *
-     * The rest of the flag went the same way and for the same reason — see the
-     * note by `pinned`. Kept as a name rather than folded away because the
-     * shape of the frame is worth being able to read: every update below takes
-     * a rate, and it is useful to be able to see that they all take the same
-     * one. */
-    const speed = 1;
+    /* One shared clock for continuous scene motion. User feedback found the
+     * original rate visually dizzying, so orbits, spins, spacecraft, discs,
+     * jets, comets and belts now advance at one third speed. Camera input and
+     * click-to-focus flights deliberately keep their responsive timing. */
+    const speed = 1 / 3;
 
     this.updateFlight(dt);
     if (!this.flight) {
