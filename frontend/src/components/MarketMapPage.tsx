@@ -388,7 +388,21 @@ export default function MarketMapPage({
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const mapLegendRef = useRef<HTMLDivElement>(null);
+  const mobileEntryScrollDoneRef = useRef<string | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    if (!enhancedSectorView || mobileEntryScrollDoneRef.current === filePrefix) return;
+    const mobile = window.matchMedia("(max-width: 700px)");
+    if (!mobile.matches) return;
+
+    const timer = window.setTimeout(() => {
+      mobileEntryScrollDoneRef.current = filePrefix;
+      mapLegendRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [enhancedSectorView, filePrefix]);
 
   const TIER1_REFRESH_MS = 10_000;
   const TIER2_REFRESH_MS = 30_000;
@@ -997,7 +1011,7 @@ export default function MarketMapPage({
             </aside>
           )}
           <div className="kospi-map-workspace-main">
-            <div className="kospi-map-legend">
+            <div className="kospi-map-legend" ref={mapLegendRef}>
             <div className="kospi-map-legend-info">
               <span className="kospi-map-legend-label">{t("하락")}</span>
               <span className="kospi-map-legend-bar" />

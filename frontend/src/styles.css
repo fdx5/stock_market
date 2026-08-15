@@ -4851,6 +4851,7 @@ thead .weekly-foreign-amount-col {
 }
 
 .kospi-map-legend {
+  scroll-margin-top: 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
