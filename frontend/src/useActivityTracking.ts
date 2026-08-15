@@ -60,6 +60,7 @@ export function pageLabel(path: string): string {
   // main page under "대시보드" and the two were indistinguishable in the stats.
   if (path === "/") return "메인 (태양계)";
   if (path === "/desk") return "마켓 데스크";
+  if (/^\/stock\/\d{6}$/i.test(path)) return "국내 종목 상세";
   if (path === "/dashboard") return "종목 대시보드 (구)";
   if (/^\/investor\//.test(path)) return "투자자 동향";
   if (/^\/index\/(kospi|kosdaq)/i.test(path)) return "지수 차트";
@@ -78,6 +79,7 @@ export function pageLabel(path: string): string {
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";
   if (path === "/market-brief") return "장 마감 리포트";
+  if (/^\/market-brief\/\d{4}-\d{2}-\d{2}\/(kospi|kosdaq)$/i.test(path)) return "날짜별 장 마감 리포트";
   if (path === "/ai-prediction") return "AI 종목예측";
   if (path === "/ai-prediction/grading") return "AI 예측 채점";
   if (path === "/admin") return "관리자 로그인";

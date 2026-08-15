@@ -13,11 +13,13 @@ import re
 from urllib.parse import urlencode
 from datetime import date, datetime, timezone
 
+from app.data.universe import get_stock_name
 from app.services import market_brief_store
 
 SITE = "https://kospi-predictor.onrender.com"
 IMAGE = f"{SITE}/img/kospi-map-preview.png"
 MARKET_BRIEF_ROUTE = re.compile(r"^/market-brief/(\d{4}-\d{2}-\d{2})/(kospi|kosdaq)$", re.I)
+STOCK_ROUTE = re.compile(r"^/stock/(\d{6})$", re.I)
 
 
 def _market_brief(path: str) -> tuple[dict | None, str, str]:
@@ -38,6 +40,18 @@ def _brief_description(report: dict, day: str, market: str) -> str:
     if summary:
         return summary[:157] + ("…" if len(summary) > 157 else "")
     return f"{day} {market.upper()} 종가, 등락률, 투자자 수급과 업종 흐름을 정리한 데이터 기반 장 마감 리포트입니다."
+
+
+def _stock_identity(path: str) -> tuple[str, str]:
+    match = STOCK_ROUTE.fullmatch(path)
+    if not match:
+        return "", ""
+    code = match.group(1)
+    try:
+        name = get_stock_name(code) or code
+    except Exception:
+        name = code
+    return code, name
 
 PAGES: dict[str, tuple[str, str]] = {
     "/": ("K-Stock Hub | 코스피·코스닥·미국 주식 시세와 ETF", "코스피·코스닥·미국 증시 시세, 시가총액 맵, 거래대금 순위, ETF와 종목토론을 한곳에서 확인하세요."),
@@ -72,6 +86,7 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical_path = "/" if path == "/type2" else path.rstrip("/") or "/"
     brief, brief_day, brief_market = _market_brief(canonical_path)
+    stock_code, stock_name = _stock_identity(canonical_path)
     page_lookup = "/market-brief" if brief_day else canonical_path
     title, description = PAGES.get(page_lookup, PAGES["/"])
     page_image = IMAGE
@@ -79,6 +94,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         title = f"{brief_day} {brief_market.upper()} 장 마감 분석 | K-Stock Hub"
         description = _brief_description(brief, brief_day, brief_market)
         page_image = f"{SITE}/market-brief/og/{brief_day}/{brief_market}.png"
+    elif stock_code:
+        title = f"{stock_name} 주가·차트·외국인 기관 수급 | K-Stock Hub"
+        description = f"{stock_name}({stock_code}) 주가, 등락률, 거래량, 차트, 기술적 지표, 외국인·기관 수급과 최신 뉴스를 한 페이지에서 확인하세요."
 
     code = re.sub(r"[^A-Za-z0-9.-]", "", query.get("code", ""))[:16]
     supplied_name = re.sub(r"[<>\r\n]", "", query.get("name", "")).strip()[:80]
@@ -87,9 +105,13 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     if code and canonical_path in {"/desk", "/global", "/discussion-explorer"}:
         canonical_query["code"] = code
         if display_name:
+            canonical_query["name"] = display_name
             market_word = "미국 주식" if canonical_path == "/global" else "주식"
             title = f"{display_name} {market_word} 시세·차트·수급 | K-Stock Hub"
             description = f"{display_name}({code})의 현재가, 등락률, 차트, 투자자 수급과 최신 종목 정보를 확인하세요."
+        if canonical_path == "/desk" and re.fullmatch(r"\d{6}", code):
+            canonical_path = f"/stock/{code}"
+            canonical_query = {}
     if canonical_path.startswith("/investor/"):
         code = canonical_path.rsplit("/", 1)[-1]
         title = f"{code} 외국인·기관 매매동향 | K-Stock Hub"
@@ -150,6 +172,29 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             "publisher": {"@type": "Organization", "name": "K-Stock Hub", "url": SITE},
             "inLanguage": "ko-KR",
         }
+    elif stock_code:
+        structured = {
+            "@context": "https://schema.org",
+            "@graph": [
+                {
+                    "@type": "WebPage",
+                    "name": title,
+                    "description": description,
+                    "url": canonical,
+                    "isPartOf": {"@type": "WebSite", "name": "K-Stock Hub", "url": SITE},
+                    "about": {"@type": "Corporation", "name": stock_name, "identifier": stock_code},
+                    "inLanguage": "ko-KR",
+                },
+                {
+                    "@type": "BreadcrumbList",
+                    "itemListElement": [
+                        {"@type": "ListItem", "position": 1, "name": "K-Stock Hub", "item": SITE},
+                        {"@type": "ListItem", "position": 2, "name": "국내 주식", "item": f"{SITE}/desk"},
+                        {"@type": "ListItem", "position": 3, "name": stock_name, "item": canonical},
+                    ],
+                },
+            ],
+        }
     script = '<script type="application/ld+json">' + json.dumps(structured, ensure_ascii=False).replace("</", "<\\/") + "</script>"
     document = document.replace("</head>", f"{script}\n  </head>", 1)
 
@@ -163,6 +208,9 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
         ("/news", "증시 뉴스"), ("/market-brief", "오늘의 장 마감 리포트"),
         ("/discussion-explorer", "종목토론"),
+        ("/stock/005930", "삼성전자 주가"), ("/stock/000660", "SK하이닉스 주가"),
+        ("/stock/373220", "LG에너지솔루션 주가"), ("/stock/207940", "삼성바이오로직스 주가"),
+        ("/stock/005380", "현대차 주가"), ("/stock/035420", "NAVER 주가"),
     ]
     nav = "".join(f'<a href="{href}">{html.escape(label)}</a>' for href, label in links)
     report_content = ""
@@ -181,6 +229,15 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             if item.get("date") and item.get("market") in {"KOSPI", "KOSDAQ"}
         )
         report_content += f'<nav aria-label="최근 장 마감 리포트" style="display:flex;flex-wrap:wrap;gap:12px">{archive_links}</nav>'
+    elif stock_code:
+        report_content = (
+            f'<p>{html.escape(stock_name)} 현재가와 기간별 차트, 거래량, 기술적 지표, '
+            '외국인·기관 매매동향 및 관련 뉴스를 제공합니다.</p>'
+            '<nav aria-label="종목 관련 분석" style="display:flex;flex-wrap:wrap;gap:12px">'
+            f'<a href="/investor/{stock_code}">{html.escape(stock_name)} 외국인·기관 수급</a>'
+            f'<a href="/discussion-explorer?code={stock_code}&amp;name={html.escape(stock_name, quote=True)}">{html.escape(stock_name)} 종목토론</a>'
+            '<a href="/market-brief">오늘의 장 마감 리포트</a></nav>'
+        )
     shell = (
         '<section data-seo-shell="true" style="min-height:100vh;padding:48px 6%;'
         'background:#08111f;color:#eef6ff;font-family:sans-serif">'
@@ -218,7 +275,7 @@ def build_sitemap(kr_stocks: list[dict]) -> str:
         if not code:
             continue
         query = urlencode({"code": code, "name": name})
-        urls.append((f"{SITE}/desk?{query}", "0.7", "daily", today))
+        urls.append((f"{SITE}/stock/{code}", "0.8", "daily", today))
         urls.append((f"{SITE}/investor/{code}", "0.6", "daily", today))
 
     for ticker, name in (

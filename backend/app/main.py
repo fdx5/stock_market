@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.staticfiles import NotModifiedResponse
 
 from app.data.global_discussion_fetcher import warm_nasdaq_symbols
-from app.data.universe import get_top_market_cap, warm_english_names
+from app.data.universe import get_top_market_cap, get_top_market_cap_all, warm_english_names
 from app.data.us_universe import warm_us_korean_names
 from app.routers import (
     activity,
@@ -525,7 +525,10 @@ if STATIC_DIR.exists():
 
     @app.get("/sitemap.xml", include_in_schema=False)
     def dynamic_sitemap():
-        xml = build_sitemap(get_top_market_cap(100))
+        # Cover the searchable large/mid-cap universe, not only the same 100 names
+        # shown in the ranking UI. The universe is cached for a day, so the wider
+        # sitemap does not add per-request upstream traffic.
+        xml = build_sitemap(get_top_market_cap_all(1000))
         return Response(content=xml, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
 
     @app.get("/rss.xml", include_in_schema=False)

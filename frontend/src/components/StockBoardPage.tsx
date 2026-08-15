@@ -378,7 +378,7 @@ function StockCard({ item, ctx, compact }: { item: StockBoardItem; ctx: CardCont
   const { board, lang, displayName } = ctx;
   const dir = direction(item.change_pct);
   const isUs = board.market === "nasdaq";
-  const href = isUs ? `/global?code=${item.code}` : `/desk?code=${item.code}`;
+  const href = isUs ? `/global?code=${item.code}` : `/stock/${item.code}`;
   // A 3-month sparkline is colored by what it actually shows — its own start-to-end
   // direction — not by today's tick, which the badge beside it already carries.
   const trend =

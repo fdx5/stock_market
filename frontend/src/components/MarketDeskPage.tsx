@@ -113,16 +113,16 @@ const SECTIONS = [
   { id: "desk-focus", label: "종목" },
 ];
 
-export default function MarketDeskPage() {
+export default function MarketDeskPage({ initialCode }: { initialCode?: string }) {
   const { lang } = useLanguage();
   const t = useT();
-  useDocumentTitle("마켓 데스크 · K-Stock Hub");
 
-  const [selected, setSelected] = useState<StockSearchResult | null>(() => {
-    const code = new URLSearchParams(window.location.search).get("code") ?? DEFAULT_STOCK_CODE;
+  const [selected] = useState<StockSearchResult | null>(() => {
+    const code = initialCode ?? new URLSearchParams(window.location.search).get("code") ?? DEFAULT_STOCK_CODE;
     return { code, name: "", market: "KOSPI" };
   });
   const [summary, setSummary] = useState<StockSummary | null>(null);
+  useDocumentTitle(summary ? `${summary.name} 주가·차트·외국인 기관 수급 | K-Stock Hub` : "마켓 데스크 · K-Stock Hub");
   const [liveQuote, setLiveQuote] = useState<StockQuote | null>(null);
   const [quotePending, setQuotePending] = useState(false);
   const [indicatorPoints, setIndicatorPoints] = useState<IndicatorPoint[]>([]);
@@ -142,7 +142,7 @@ export default function MarketDeskPage() {
   const stockHeaderRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
-  const skipInitialScrollRef = useRef(!new URLSearchParams(window.location.search).get("code"));
+  const skipInitialScrollRef = useRef(!initialCode && !new URLSearchParams(window.location.search).get("code"));
 
   /* The command bar sticks *below* the site header, and the site header has no
      fixed height — the nav row wraps to two and three lines as the viewport
@@ -366,7 +366,7 @@ export default function MarketDeskPage() {
   const mobileBarDismissed = useMobileBarDismissed();
   const awaitingQuote = quotePending && liveQuote === null;
 
-  const suppressDefaultStockViewRef = useRef(!new URLSearchParams(window.location.search).get("code"));
+  const suppressDefaultStockViewRef = useRef(!initialCode && !new URLSearchParams(window.location.search).get("code"));
 
   useEffect(() => {
     if (!summary) return;
@@ -383,7 +383,7 @@ export default function MarketDeskPage() {
       navigate(`/global?code=${stock.code}`);
       return;
     }
-    setSelected(stock);
+    navigate(`/stock/${stock.code}`);
   };
 
 

@@ -144,26 +144,38 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
 export default function App() {
   const path = useRoute();
   const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq)\/?$/i);
+  const stockMatch = path.match(/^\/stock\/(\d{6})\/?$/);
   useActivityTracking(path);
 
   useEffect(() => {
-    const canonicalPath = path === "/type2" ? "/" : path;
+    let canonicalPath = path === "/type2" ? "/" : path;
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code")?.replace(/[^A-Za-z0-9.-]/g, "").slice(0, 16) || "";
     const keepsStockCode = code && ["/desk", "/global", "/discussion-explorer"].includes(canonicalPath);
-    const canonicalUrl = `https://kospi-predictor.onrender.com${canonicalPath}${keepsStockCode ? `?code=${encodeURIComponent(code)}` : ""}`;
+    const canonicalName = params.get("name")?.replace(/[<>\r\n]/g, "").trim().slice(0, 80) || "";
+    if (canonicalPath === "/desk" && /^\d{6}$/.test(code)) canonicalPath = `/stock/${code}`;
+    const canonicalQuery = keepsStockCode && !canonicalPath.startsWith("/stock/")
+      ? `?code=${encodeURIComponent(code)}${canonicalName ? `&name=${encodeURIComponent(canonicalName)}` : ""}`
+      : "";
+    const canonicalUrl = `https://kospi-predictor.onrender.com${canonicalPath}${canonicalQuery}`;
     document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", canonicalUrl);
     document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl);
 
-    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : PUBLIC_PAGE_SEO[canonicalPath];
+    const seo = briefMatch
+      ? PUBLIC_PAGE_SEO["/market-brief"]
+      : stockMatch || canonicalPath.startsWith("/stock/")
+        ? PUBLIC_PAGE_SEO["/desk"]
+        : PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
-    const name = params.get("name")?.replace(/[<>\r\n]/g, "").trim().slice(0, 80) || code;
+    const name = canonicalName || code;
     const briefTitle = briefMatch
       ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 장 마감 분석 | K-Stock Hub`
       : "";
-    const title = briefTitle || (keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title);
+    const stockPageCode = stockMatch?.[1] || (canonicalPath.startsWith("/stock/") ? code : "");
+    const title = briefTitle || (stockPageCode ? `${name || stockPageCode} 주가·차트·종목정보 | K-Stock Hub` : keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title);
     const description = briefMatch
       ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 종가, 외국인·기관 수급, 상승 종목 비중, 거래대금과 업종 흐름을 분석한 장 마감 리포트입니다.`
+      : stockPageCode ? `${name || stockPageCode}(${stockPageCode}) 현재가, 등락률, 차트, 외국인·기관 수급과 최신 종목 정보를 확인하세요.`
       : keepsStockCode && name ? `${name}(${code}) 현재가, 등락률, 차트와 최신 종목 정보를 확인하세요.` : seo.description;
     document.title = title;
     document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", description);
@@ -196,6 +208,8 @@ export default function App() {
     page = <Dashboard />;
   } else if (path === "/desk") {
     page = <MarketDeskPage />;
+  } else if (stockMatch) {
+    page = <MarketDeskPage key={stockMatch[1]} initialCode={stockMatch[1]} />;
   } else if (path === "/kospi-100") {
     page = <KospiBoardPage />;
   } else if (path === "/kosdaq-100") {

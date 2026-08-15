@@ -456,7 +456,7 @@ export default function MarketMapPage({
   }, [size]);
 
   const handleTileClick = (code: string) => {
-    navigate(market === "us" ? `/global?code=${code}` : `/desk?code=${code}`);
+    navigate(market === "us" ? `/global?code=${code}` : `/stock/${code}`);
   };
 
   // One batched translation request for every name currently loaded (tiles, table,

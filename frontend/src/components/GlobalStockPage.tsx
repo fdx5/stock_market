@@ -132,7 +132,7 @@ export default function GlobalStockPage() {
   // the dashboard, which owns the KR pipeline — the inverse of Dashboard's own
   // handler, so the two pages hand off to each other in both directions.
   const selectStock = (stock: { code: string; market: string }) => {
-    navigate(stock.market === "US" ? `/global?code=${stock.code}` : `/desk?code=${stock.code}`);
+    navigate(stock.market === "US" ? `/global?code=${stock.code}` : `/stock/${stock.code}`);
   };
 
   useEffect(() => {

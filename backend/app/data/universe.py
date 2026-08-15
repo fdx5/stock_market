@@ -52,6 +52,19 @@ def get_top_market_cap(limit: int = 100) -> list[dict]:
     return [{"code": str(row["Code"]), "name": str(row["Name"])} for _, row in df.iterrows()]
 
 
+def get_top_market_cap_all(limit: int = 1000) -> list[dict]:
+    """Largest KOSPI and KOSDAQ names for crawlable stock landing pages.
+
+    Kept separate from get_top_market_cap because that older function feeds a
+    KOSPI-only investor table whose market scope must not silently change.
+    """
+    df = _get_full_universe().sort_values("Marcap", ascending=False).head(limit)
+    return [
+        {"code": str(row["Code"]), "name": str(row["Name"]), "market": str(row["Market"])}
+        for _, row in df.iterrows()
+    ]
+
+
 def _load_english_names() -> dict[str, str]:
     df = _get_full_universe().sort_values("Marcap", ascending=False).head(ENGLISH_NAME_CANDIDATE_LIMIT)
     names = sorted(set(df["Name"].astype(str)))

@@ -140,7 +140,11 @@ export default function MarketBriefPage({
   const newerDate = currentIndex > 0 ? dates[currentIndex - 1] : "";
   const olderDate = currentIndex >= 0 ? dates[currentIndex + 1] || "" : "";
   async function share() {
-    const url = location.href;
+    const sharedUrl = new URL(location.href);
+    sharedUrl.searchParams.set("utm_source", "native_share");
+    sharedUrl.searchParams.set("utm_medium", "social");
+    sharedUrl.searchParams.set("utm_campaign", `market_brief_${data?.date || "latest"}`);
+    const url = sharedUrl.toString();
     try {
       if (navigator.share)
         await navigator.share({
@@ -321,7 +325,7 @@ export default function MarketBriefPage({
                     <tr key={x.code}>
                       <td>
                         <Link
-                          to={`/desk?code=${x.code}&name=${encodeURIComponent(x.name)}`}
+                          to={`/stock/${x.code}`}
                         >
                           {x.name}
                         </Link>
@@ -380,6 +384,19 @@ export default function MarketBriefPage({
             </p>
             <p>{data.disclaimer}</p>
           </footer>
+          <aside className="brief-next-actions" aria-label="관련 시장 데이터">
+            <div>
+              <small>다음 분석</small>
+              <strong>장 마감 흐름을 종목까지 확인하세요</strong>
+            </div>
+            <Link to={market === "KOSPI" ? "/map" : "/kosdaq-map"}>
+              {market} 시가총액 맵
+            </Link>
+            <Link to={market === "KOSPI" ? "/kospi-100" : "/kosdaq-100"}>
+              거래대금·등락률 순위
+            </Link>
+            <Link to="/desk">종목 상세 분석</Link>
+          </aside>
           <nav className="brief-pagination" aria-label="장 마감 리포트 날짜 이동">
             {olderDate ? (
               <Link to={`/market-brief/${olderDate}/${market.toLowerCase()}`}>
