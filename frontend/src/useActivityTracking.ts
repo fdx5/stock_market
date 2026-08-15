@@ -84,6 +84,7 @@ export function pageLabel(path: string): string {
   if (path === "/admin/dashboard") return "관리자 대시보드";
   if (path === "/admin/db") return "관리자 DB";
   if (path === "/admin/monitor") return "관리자 모니터";
+  if (path === "/admin/growth") return "성장 통계";
   return "기타";
 }
 
@@ -226,7 +227,24 @@ export function useActivityTracking(path: string): void {
       lastClickRef.current = { key, ts: now };
       sendEvent({ type: "click", path: currentPath, label });
     }
+    function onChange(event: Event) {
+      const currentPath = window.location.pathname;
+      if (isAdminPath(currentPath)) return;
+      const select = event.target instanceof HTMLSelectElement ? event.target : null;
+      if (!select) return;
+      const name = select.getAttribute("aria-label") || select.name || "선택 항목";
+      sendEvent({
+        type: "click",
+        path: currentPath,
+        label: `${name} 변경 · ${select.value || "최신"}`.slice(0, 100),
+        object_key: `select:${select.value || "latest"}`.slice(0, 100),
+      });
+    }
     document.addEventListener("click", onClick, true);
-    return () => document.removeEventListener("click", onClick, true);
+    document.addEventListener("change", onChange, true);
+    return () => {
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("change", onChange, true);
+    };
   }, []);
 }

@@ -59,10 +59,12 @@ PAGES: list[dict] = [
     {"id": "page:/fight", "label": "시총대결", "path": "/fight", "group": "play"},
     {"id": "page:/battle", "label": "줄다리기", "path": "/battle", "group": "play"},
     {"id": "page:/news", "label": "뉴스", "path": "/news", "group": "news"},
+    {"id": "page:/market-brief", "label": "장 마감 리포트", "path": "/market-brief", "group": "market"},
     {"id": "page:/admin", "label": "관리자 로그인", "path": "/admin", "group": "admin"},
     {"id": "page:/admin/dashboard", "label": "관리자", "path": "/admin/dashboard", "group": "admin"},
     {"id": "page:/admin/db", "label": "DB 콘솔", "path": "/admin/db", "group": "admin"},
     {"id": "page:/admin/monitor", "label": "모니터", "path": "/admin/monitor", "group": "admin"},
+    {"id": "page:/admin/growth", "label": "성장 통계", "path": "/admin/growth", "group": "admin"},
 ]
 
 # ─────────────────────── layer 3/4: stores and upstreams ───────────────────────
@@ -277,6 +279,11 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/visitors/count",
         "/api/translate",
     ],
+    "page:/market-brief": [
+        "/api/market-brief",
+        "/api/market-brief/latest/{market}",
+        "/api/market-brief/{day}/{market}",
+    ],
     "page:/admin": ["/api/admin/login"],
     "page:/admin/dashboard": [
         "/api/admin/summary",
@@ -319,6 +326,7 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/admin/monitor/graph",
         "/api/admin/monitor/pulse",
     ],
+    "page:/admin/growth": ["/api/admin/growth/overview"],
 }
 
 # ─────────────────────────── the app shell's own calls ───────────────────────────
@@ -338,6 +346,7 @@ VISITOR_SHELL_CALLS: list[str] = ["/api/activity/event"]
 # reads Naver through the same cache, and listing them one by one would be twenty lines
 # saying the same thing. Longest prefix wins, so a specific route can still override.
 API_DEPENDS: list[tuple[str, list[str]]] = [
+    ("/api/market-brief", ["store:cache", "store:turso", "up:naver", "up:fdr", "up:bing"]),
     ("/api/etfs/{code}/toss-discussion", ["store:cache", "up:toss"]),
     ("/api/etfs/discussions", ["store:cache", "up:naver", "up:toss"]),
     ("/api/etfs", ["store:cache", "up:naver", "up:yahoo"]),
@@ -387,6 +396,7 @@ _GROUP_BY_PREFIX: list[tuple[str, str]] = [
     ("/api/admin", "admin"),
     ("/api/notify", "admin"),
     ("/api/etfs", "etf"),
+    ("/api/market-brief", "market"),
     ("/api/market", "market"),
     ("/api/us-stock", "stock"),
     ("/api/stock", "stock"),

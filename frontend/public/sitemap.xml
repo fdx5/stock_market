@@ -24,5 +24,6 @@
   <url><loc>https://kospi-predictor.onrender.com/global</loc><lastmod>2026-08-15</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
   <url><loc>https://kospi-predictor.onrender.com/fight</loc><lastmod>2026-08-15</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>
   <url><loc>https://kospi-predictor.onrender.com/news</loc><lastmod>2026-08-15</lastmod><changefreq>daily</changefreq><priority>0.7</priority></url>
+  <url><loc>https://kospi-predictor.onrender.com/market-brief</loc><lastmod>2026-08-15</lastmod><changefreq>daily</changefreq><priority>0.9</priority></url>
   <url><loc>https://kospi-predictor.onrender.com/dram-price</loc><lastmod>2026-08-15</lastmod><changefreq>daily</changefreq><priority>0.6</priority></url>
 </urlset>

@@ -31,7 +31,7 @@ PAGES: dict[str, tuple[str, str]] = {
     "/global": ("미국 주식 시세와 종목 분석 | K-Stock Hub", "미국 주식 현재가, 등락률, 차트, 뉴스와 종목토론을 한 화면에서 확인하세요."),
     "/discussion-explorer": ("주식·ETF 종목토론 | K-Stock Hub", "국내외 주식과 ETF의 최근 게시글과 댓글을 3D 공간에서 탐색하세요."),
     "/news": ("오늘의 국내외 증시 뉴스 | K-Stock Hub", "국내 증시와 미국 증시에 영향을 주는 주요 경제·기업 뉴스를 확인하세요."),
-    "/market-brief": ("오늘의 코스피·코스닥 장 마감 분석 | K-Stock Hub", "코스피와 코스닥의 지수, 수급, 업종, 거래대금과 주요 뉴스를 분석한 일일 장 마감 리포트입니다."),
+    "/market-brief": ("오늘의 코스피·코스닥 장 마감 분석 | K-Stock Hub", "오늘 코스피·코스닥 종가, 외국인·기관 수급, 거래대금, 상승 종목 비중과 업종 흐름을 분석한 데이터 기반 일일 장 마감 리포트입니다."),
     "/dram-price": ("D램 현물가격과 메모리 반도체 가격 추이 | K-Stock Hub", "D램 현물가격과 메모리 반도체 가격 변화를 기간별 차트로 확인하세요."),
     "/ai-prediction": ("AI 주가 예측과 종목 분석 | K-Stock Hub", "국내외 주식의 AI 예측 결과와 기술적 지표, 과거 예측 채점 결과를 확인하세요."),
     "/fight": ("기업 시가총액 비교 | K-Stock Hub", "국내외 주요 기업의 시가총액과 기업 정보를 직관적으로 비교하세요."),
@@ -71,6 +71,12 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
 
     document = re.sub(r"<title>.*?</title>", f"<title>{html.escape(title)}</title>", template, count=1, flags=re.S)
     document = _replace_meta(document, 'name="description"', description)
+    if canonical_path == "/market-brief":
+        document = _replace_meta(
+            document,
+            'name="keywords"',
+            "오늘 증시 마감, 코스피 장 마감, 코스닥 장 마감, 국내 증시 분석, 외국인 기관 수급, 주식 시황, 장 마감 리포트",
+        )
     document = _replace_meta(document, 'property="og:title"', title)
     document = _replace_meta(document, 'property="og:description"', description)
     document = _replace_meta(document, 'property="og:url"', canonical)
@@ -104,7 +110,8 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         ("/desk", "국내 주식 시세"), ("/map", "코스피 시가총액 맵"),
         ("/kosdaq-map", "코스닥 시가총액 맵"), ("/etf", "국내·해외 ETF"),
         ("/sp500-map", "S&P 500 맵"), ("/nasdaq100-map", "나스닥 100 맵"),
-        ("/news", "증시 뉴스"), ("/discussion-explorer", "종목토론"),
+        ("/news", "증시 뉴스"), ("/market-brief", "오늘의 장 마감 리포트"),
+        ("/discussion-explorer", "종목토론"),
     ]
     nav = "".join(f'<a href="{href}">{html.escape(label)}</a>' for href, label in links)
     shell = (
@@ -122,7 +129,7 @@ def build_sitemap(kr_stocks: list[dict]) -> str:
     """Public route inventory plus data-rich stock pages Google can discover."""
     today = date.today().isoformat()
     urls: list[tuple[str, str, str]] = []
-    priorities = {"/": "1.0", "/desk": "0.9", "/map": "0.9", "/etf": "0.8"}
+    priorities = {"/": "1.0", "/desk": "0.9", "/map": "0.9", "/market-brief": "0.9", "/etf": "0.8"}
     for path in PAGES:
         urls.append((f"{SITE}{path}", priorities.get(path, "0.7"), "daily"))
 
@@ -159,7 +166,7 @@ def build_rss(kr_stocks: list[dict]) -> str:
     """Compact discovery feed for Naver Search Advisor and feed readers."""
     now = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
     items: list[str] = []
-    featured = [(path, *PAGES[path]) for path in ("/", "/desk", "/map", "/kosdaq-map", "/etf", "/news")]
+    featured = [(path, *PAGES[path]) for path in ("/", "/desk", "/market-brief", "/map", "/kosdaq-map", "/etf", "/news")]
     for path, title, description in featured:
         url = f"{SITE}{path}"
         items.append(f"<item><title>{html.escape(title)}</title><link>{html.escape(url)}</link>"

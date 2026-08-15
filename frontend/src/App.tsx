@@ -127,6 +127,10 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
     title: "오늘의 국내외 증시 뉴스 | K-Stock Hub",
     description: "국내 증시와 미국 증시에 영향을 주는 주요 글로벌 경제·기업 뉴스를 한곳에서 확인하세요.",
   },
+  "/market-brief": {
+    title: "오늘의 코스피·코스닥 장 마감 분석 | K-Stock Hub",
+    description: "오늘 코스피·코스닥 종가, 외국인·기관 수급, 거래대금, 상승 종목 비중과 업종 흐름을 분석한 데이터 기반 일일 장 마감 리포트입니다.",
+  },
   "/fight": {
     title: "기업 시가총액 비교·시총대결 | K-Stock Hub",
     description: "국내외 주요 기업의 시가총액과 기업 정보를 직관적으로 비교하세요.",
