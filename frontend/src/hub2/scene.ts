@@ -4006,7 +4006,7 @@ export class HubScene {
   /** Frames a body and makes it the camera's pivot. Does not navigate.
    *
    * `view` is the tour's; see framePosition(). */
-  focusOn(info: BodyInfo, duration = 1.05, view?: TourView) {
+  focusOn(info: BodyInfo, duration = 3.15, view?: TourView) {
     if (this.diving) return false;
     const pickable = this.pickables.find((p) => p.info.key === info.key);
     if (!pickable) return false;
@@ -5274,11 +5274,9 @@ export class HubScene {
     this.timer.update();
     const dt = Math.min(this.timer.getDelta(), 0.05);
     const time = this.timer.getElapsed();
-    /* One shared clock for continuous scene motion. User feedback found the
-     * original rate visually dizzying, so orbits, spins, spacecraft, discs,
-     * jets, comets and belts now advance at one third speed. Camera input and
-     * click-to-focus flights deliberately keep their responsive timing. */
-    const speed = 1 / 3;
+    /* Continuous scene motion stays on its original clock. Click-to-focus
+     * camera pacing is controlled independently by focusOn(). */
+    const speed = 1;
 
     this.updateFlight(dt);
     if (!this.flight) {
