@@ -109,9 +109,38 @@ def pages_top(limit: int = Query(7, ge=1, le=200)):
 
 
 @router.get("/growth/overview", dependencies=[Depends(require_admin)])
-def growth_overview(days: int = Query(90, ge=7, le=730)):
+def growth_overview(
+    days: int = Query(90, ge=1, le=730),
+    start_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+):
     now = datetime.now(timezone.utc)
-    data = page_view_store.growth_overview((now - timedelta(days=days)).isoformat())
+    if (start_date is None) != (end_date is None):
+        raise HTTPException(status_code=400, detail="시작일과 종료일을 모두 입력해 주세요.")
+    if start_date and end_date:
+        try:
+            kst = timezone(timedelta(hours=9))
+            start = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=kst)
+            end = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=kst)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="올바른 날짜를 입력해 주세요.") from exc
+        if start > end:
+            raise HTTPException(status_code=400, detail="시작일은 종료일보다 늦을 수 없습니다.")
+        if end.date() > (now + timedelta(hours=9)).date():
+            raise HTTPException(status_code=400, detail="종료일은 오늘보다 늦을 수 없습니다.")
+        days = (end.date() - start.date()).days + 1
+        if days > 730:
+            raise HTTPException(status_code=400, detail="최대 730일까지 조회할 수 있습니다.")
+        data = page_view_store.growth_overview(
+            start.astimezone(timezone.utc).isoformat(),
+            (end + timedelta(days=1)).astimezone(timezone.utc).isoformat(),
+        )
+    else:
+        kst = timezone(timedelta(hours=9))
+        today_start = datetime.combine(now.astimezone(kst).date(), datetime.min.time(), tzinfo=kst)
+        data = page_view_store.growth_overview(
+            (today_start - timedelta(days=days - 1)).astimezone(timezone.utc).isoformat()
+        )
     goal = page_view_store.growth_goal(now.isoformat())
     today_kst = (now + timedelta(hours=9)).date().isoformat()
     today = next((row for row in reversed(data["daily"]) if row["date"] == today_kst), None)

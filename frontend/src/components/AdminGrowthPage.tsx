@@ -4,10 +4,13 @@ import { Link, navigate } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import "./adminGrowth.css";
 import "./adminGrowthPastel.css";
+import "./adminGrowthFilters.css";
 
 const nf = new Intl.NumberFormat("ko-KR");
 const channelNames: Record<string, string> = { search: "검색", email: "메일", social: "소셜", referral: "외부 링크", direct: "직접 방문" };
 const channelColors: Record<string, string> = { search: "#bde0fe", email: "#cdb4db", social: "#ffc8dd", referral: "#ffe5b4", direct: "#b8e0d2" };
+const quickRanges = [1, 3, 5, 7, 15, 30, 90, 365, 730];
+const kstDate = (daysAgo = 0) => new Date(Date.now() + 9 * 60 * 60 * 1000 - daysAgo * 86_400_000).toISOString().slice(0, 10);
 
 function TrendChart({ rows }: { rows: GrowthOverview["daily"] }) {
   const points = useMemo(() => {
@@ -34,11 +37,22 @@ function TrendChart({ rows }: { rows: GrowthOverview["daily"] }) {
 
 export default function AdminGrowthPage() {
   useDocumentTitle("100배 성장 통계 | K-Stock Hub");
-  const [days, setDays] = useState(90);
+  const [days, setDays] = useState(30);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [startDate, setStartDate] = useState(kstDate(29));
+  const [endDate, setEndDate] = useState(kstDate());
+  const [appliedDates, setAppliedDates] = useState<{ start: string; end: string } | null>(null);
   const [data, setData] = useState<GrowthOverview | null>(null);
   const [error, setError] = useState("");
   useEffect(() => { if (!getStoredSession()) navigate("/admin"); }, []);
-  useEffect(() => { let cancelled = false; setData(null); setError(""); adminApi.growthOverview(days).then(value => { if (!cancelled) setData(value); }).catch(err => { if (err instanceof AdminAuthError) { clearStoredSession(); navigate("/admin"); } else if (!cancelled) setError(err instanceof Error ? err.message : "통계를 불러오지 못했습니다."); }); return () => { cancelled = true; }; }, [days]);
+  useEffect(() => { let cancelled = false; setData(null); setError(""); adminApi.growthOverview(days, appliedDates?.start, appliedDates?.end).then(value => { if (!cancelled) setData(value); }).catch(err => { if (err instanceof AdminAuthError) { clearStoredSession(); navigate("/admin"); } else if (!cancelled) setError(err instanceof Error ? err.message : "통계를 불러오지 못했습니다."); }); return () => { cancelled = true; }; }, [days, appliedDates]);
+  const selectQuickRange = (value: number) => { setDays(value); setAppliedDates(null); setCustomOpen(false); };
+  const applyCustomRange = () => {
+    if (!startDate || !endDate || startDate > endDate) { setError("시작일과 종료일을 올바르게 선택해 주세요."); return; }
+    const selectedDays = Math.floor((Date.parse(endDate) - Date.parse(startDate)) / 86_400_000) + 1;
+    if (selectedDays > 730) { setError("최대 730일까지 조회할 수 있습니다."); return; }
+    setDays(selectedDays); setAppliedDates({ start: startDate, end: endDate });
+  };
   const maxChannel = Math.max(1, ...(data?.channels.map(item => item.visitors) || [1]));
   const channelTotal = Math.max(1, data?.channels.reduce((sum, item) => sum + item.visitors, 0) || 1);
   let channelCursor = 0;
@@ -48,7 +62,7 @@ export default function AdminGrowthPage() {
   return <main className="admin-growth">
     <div className="growth-orb growth-orb--one"/><div className="growth-orb growth-orb--two"/>
     <header className="growth-header"><div><div className="growth-kicker"><i/> ACQUISITION MISSION</div><h1>방문자 100배 성장 관제실</h1><p>검색부터 캠페인까지, 유입의 흐름과 목표 달성 과정을 한눈에 확인합니다.</p></div><nav><Link to="/admin/dashboard">대시보드</Link><Link to="/admin/db">DB 조회</Link><Link to="/admin/monitor">모니터링</Link></nav></header>
-    <div className="growth-toolbar"><div className="ranges" role="group" aria-label="조회 기간">{[30,90,365,730].map(n => <button className={days===n?"active":""} onClick={() => setDays(n)} key={n}>{n === 730 ? "2년" : `${n}일`}</button>)}</div><span>데이터 기준 · KST</span></div>
+    <div className="growth-toolbar"><div className="growth-range-control"><div className="ranges" role="group" aria-label="조회 기간">{quickRanges.map(n => <button type="button" className={!appliedDates&&days===n?"active":""} onClick={() => selectQuickRange(n)} key={n}>{n===365?"1년":n===730?"2년":`${n}일`}</button>)}<button type="button" className={appliedDates?"active":""} onClick={() => setCustomOpen(value => !value)}>직접입력</button></div>{customOpen&&<div className="growth-custom-range" role="group" aria-label="직접 조회 기간"><label><span>시작일</span><input type="date" value={startDate} max={endDate||kstDate()} onChange={event=>setStartDate(event.target.value)}/></label><i>→</i><label><span>종료일</span><input type="date" value={endDate} min={startDate} max={kstDate()} onChange={event=>setEndDate(event.target.value)}/></label><button type="button" onClick={applyCustomRange}>조회</button></div>}</div><span>데이터 기준 · KST</span></div>
     {error && <div className="error">{error}</div>}
     {!data ? <div className="growth-skeleton"><i/><i/><i/><i/><div/></div> : <>
       <section className="cards">

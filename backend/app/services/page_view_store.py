@@ -201,9 +201,13 @@ def purge_older_than(cutoff_iso: str) -> int:
     return _with_connection(_run)
 
 
-def growth_overview(since_iso: str) -> dict:
+def growth_overview(since_iso: str, until_iso: str | None = None) -> dict:
     """Acquisition and growth metrics based only on real navigations."""
     where = "created_at >= ? AND event_type = 'page_view'"
+    params: tuple[str, ...] = (since_iso,)
+    if until_iso is not None:
+        where += " AND created_at < ?"
+        params = (since_iso, until_iso)
 
     def _run(conn):
         daily = conn.execute(
@@ -214,25 +218,25 @@ def growth_overview(since_iso: str) -> dict:
             "SUM(CASE WHEN source_channel='social' THEN 1 ELSE 0 END), "
             "SUM(CASE WHEN source_channel='referral' THEN 1 ELSE 0 END), "
             "SUM(CASE WHEN source_channel='direct' OR source_channel IS NULL THEN 1 ELSE 0 END) "
-            f"FROM page_views WHERE {where} GROUP BY day ORDER BY day", (since_iso,)
+            f"FROM page_views WHERE {where} GROUP BY day ORDER BY day", params
         ).fetchall()
         channels = conn.execute(
             "SELECT COALESCE(source_channel, 'direct'), COUNT(*), COUNT(DISTINCT session_id) "
-            f"FROM page_views WHERE {where} GROUP BY 1 ORDER BY 2 DESC", (since_iso,)
+            f"FROM page_views WHERE {where} GROUP BY 1 ORDER BY 2 DESC", params
         ).fetchall()
         pages = conn.execute(
             "SELECT path, COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
-            f"WHERE {where} GROUP BY path ORDER BY 3 DESC, 2 DESC LIMIT 50", (since_iso,)
+            f"WHERE {where} GROUP BY path ORDER BY 3 DESC, 2 DESC LIMIT 50", params
         ).fetchall()
         sources = conn.execute(
             "SELECT COALESCE(source_name, 'unknown'), COUNT(*), COUNT(DISTINCT session_id) "
-            f"FROM page_views WHERE {where} AND source_channel='search' GROUP BY 1 ORDER BY 2 DESC", (since_iso,)
+            f"FROM page_views WHERE {where} AND source_channel='search' GROUP BY 1 ORDER BY 2 DESC", params
         ).fetchall()
         campaigns = conn.execute(
             "SELECT COALESCE(utm_campaign, '(미지정)'), COALESCE(utm_source, source_name, 'unknown'), "
             "COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
             f"WHERE {where} AND (utm_campaign IS NOT NULL OR source_channel='email') "
-            "GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 30", (since_iso,)
+            "GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 30", params
         ).fetchall()
         return daily, channels, pages, sources, campaigns
 
