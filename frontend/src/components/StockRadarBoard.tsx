@@ -194,7 +194,7 @@ export default function StockRadarBoard({
                           </span>
                           <span className={`desk-radar-pct change-${tone}`}>
                             {quote.change_pct >= 0 ? "+" : ""}
-                            {quote.change_pct}%
+                            {quote.change_pct.toFixed(2)}%
                           </span>
                         </>
                       ) : (
