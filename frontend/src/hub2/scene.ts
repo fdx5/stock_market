@@ -348,10 +348,14 @@ class GlowPool {
     this.soft = new Float32Array(capacity);
 
     this.geometry = new THREE.BufferGeometry();
-    this.geometry.setAttribute("position", new THREE.BufferAttribute(this.position, 3));
-    this.geometry.setAttribute("aSize", new THREE.BufferAttribute(this.size, 1));
-    this.geometry.setAttribute("aColor", new THREE.BufferAttribute(this.color, 3));
-    this.geometry.setAttribute("aAlpha", new THREE.BufferAttribute(this.alpha, 1));
+    /* These four streams are rewritten and uploaded every frame. Telling the
+     * driver that up front lets it keep them in storage intended for frequent
+     * writes instead of repeatedly treating them like static geometry. This
+     * changes no data, count or shader input; it only fixes the usage hint. */
+    this.geometry.setAttribute("position", new THREE.BufferAttribute(this.position, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geometry.setAttribute("aSize", new THREE.BufferAttribute(this.size, 1).setUsage(THREE.DynamicDrawUsage));
+    this.geometry.setAttribute("aColor", new THREE.BufferAttribute(this.color, 3).setUsage(THREE.DynamicDrawUsage));
+    this.geometry.setAttribute("aAlpha", new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     this.geometry.setAttribute("aSoft", new THREE.BufferAttribute(this.soft, 1));
     // The pool is scattered all over the scene and its contents move every
     // frame; a bounding sphere computed once would cull half of it at random.
@@ -523,9 +527,11 @@ interface LabelRig {
   lastBody: string;
   /** The last values written to the element's own style, so a frame that would
    * write the same thing writes nothing. See updateLabels. */
-  lastOffset: string;
-  lastTransform: string;
-  lastOpacity: string;
+  lastOffset: number;
+  lastX: number;
+  lastY: number;
+  lastOpacity: number;
+  hot: boolean;
   /** This frame's measurement, written by labelCandidates and read by the pass
    * below it. Kept on the rig rather than in a Map the frame throws away. */
   shown: boolean;
@@ -3426,9 +3432,11 @@ export class HubScene {
       lastText: "",
       lastValue: "",
       lastBody: "",
-      lastOffset: "",
-      lastTransform: "",
-      lastOpacity: "",
+      lastOffset: NaN,
+      lastX: NaN,
+      lastY: NaN,
+      lastOpacity: NaN,
+      hot: false,
       shown: false,
       distance: 0,
       fade: 0,
@@ -3575,19 +3583,28 @@ export class HubScene {
        * two decimals, and at rest they hold the same value for seconds at a
        * time. Comparing first is much cheaper than writing, and it is the
        * writes that were making the browser re-lay-out the overlay. */
-      const apparent = Math.min(Math.max((info.size / distance / halfFov) * halfH + 12, 14), 130).toFixed(0);
+      const apparent = Math.round(Math.min(Math.max((info.size / distance / halfFov) * halfH + 12, 14), 130));
       if (apparent !== label.lastOffset) {
         label.el.style.setProperty("--offset", `${apparent}px`);
         label.lastOffset = apparent;
       }
-      const transform = `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0)`;
-      if (transform !== label.lastTransform) {
-        label.el.style.transform = transform;
-        label.lastTransform = transform;
+      /* Compare numbers first. The old path built a transform string for
+       * every visible label on every frame only to discover that its rounded
+       * value had not changed. Quantising numerically preserves the exact
+       * tenth-pixel output while keeping the common no-write path allocation
+       * free. */
+      // Round negative coordinates away from zero at a half step too, matching
+      // Number#toFixed rather than Math.round's asymmetric negative ties.
+      const tx = Math.sign(x) * Math.round(Math.abs(x) * 10) / 10;
+      const ty = Math.sign(y) * Math.round(Math.abs(y) * 10) / 10;
+      if (tx !== label.lastX || ty !== label.lastY) {
+        label.el.style.transform = `translate3d(${tx.toFixed(1)}px, ${ty.toFixed(1)}px, 0)`;
+        label.lastX = tx;
+        label.lastY = ty;
       }
-      const opacity = (hovered || selected ? 1 : fade * 0.92).toFixed(2);
+      const opacity = Math.round((hovered || selected ? 1 : fade * 0.92) * 100) / 100;
       if (opacity !== label.lastOpacity) {
-        label.el.style.opacity = opacity;
+        label.el.style.opacity = opacity.toFixed(2);
         label.lastOpacity = opacity;
       }
 
@@ -3627,7 +3644,11 @@ export class HubScene {
         label.lastBody = bodyText;
       }
 
-      label.el.classList.toggle("is-hot", hovered || selected);
+      const hot = hovered || selected;
+      if (hot !== label.hot) {
+        label.el.classList.toggle("is-hot", hot);
+        label.hot = hot;
+      }
       if (!label.visible) {
         label.el.classList.add("is-on");
         label.visible = true;
