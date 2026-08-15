@@ -389,19 +389,36 @@ export default function MarketMapPage({
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapLegendRef = useRef<HTMLDivElement>(null);
-  const mobileEntryScrollDoneRef = useRef<string | null>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    if (!enhancedSectorView || mobileEntryScrollDoneRef.current === filePrefix) return;
-    const mobile = window.matchMedia("(max-width: 700px)");
-    if (!mobile.matches) return;
+    if (!enhancedSectorView) return;
+    const mobileOrFold = window.matchMedia(
+      "(max-width: 700px), (max-width: 1400px) and (pointer: coarse)"
+    );
+    const orientation = window.matchMedia("(orientation: portrait)");
+    let timer: number | undefined;
 
-    const timer = window.setTimeout(() => {
-      mobileEntryScrollDoneRef.current = filePrefix;
-      mapLegendRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 120);
-    return () => window.clearTimeout(timer);
+    const scrollToMap = (delay: number) => {
+      if (!mobileOrFold.matches) return;
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        mapLegendRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, delay);
+    };
+    const handleOrientationChange = () => scrollToMap(260);
+
+    // Entry navigation uses a short delay so router scroll restoration settles first.
+    // Foldable orientation changes need longer for the inner viewport and treemap to
+    // finish resizing before the target position is measured.
+    scrollToMap(120);
+    orientation.addEventListener("change", handleOrientationChange);
+    window.addEventListener("orientationchange", handleOrientationChange);
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      orientation.removeEventListener("change", handleOrientationChange);
+      window.removeEventListener("orientationchange", handleOrientationChange);
+    };
   }, [enhancedSectorView, filePrefix]);
 
   const TIER1_REFRESH_MS = 10_000;
