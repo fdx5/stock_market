@@ -1370,6 +1370,17 @@ void main() {
   vColor = aColor;
   vAlpha = aAlpha;
   vSoft = aSoft;
+  /* The shared pool reserves enough room for the largest simultaneous event,
+     * so most of its slots have alpha zero during the resting scene. They used
+     * to continue through projection and point rasterisation anyway, only to
+     * multiply the fragment result by zero. Put those points outside clip
+     * space before rasterisation. Every non-zero particle follows the exact
+     * original path, so this removes invisible work without changing a pixel. */
+  if (aAlpha <= 0.0) {
+    gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+    gl_PointSize = 1.0;
+    return;
+  }
   vec4 mv = modelViewMatrix * vec4(position, 1.0);
   gl_Position = projectionMatrix * mv;
   /* Scaled by distance so a plume keeps its physical size rather than its

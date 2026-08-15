@@ -337,6 +337,10 @@ class GlowPool {
   private geometry: THREE.BufferGeometry;
   private material: THREE.ShaderMaterial;
   private cursor = 0;
+  /** Bit 0: position/size/colour changed. Bit 1: alpha changed. Keeping this
+   * per slot lets flush upload the live effects' contiguous runs instead of
+   * the entire pool, including dormant event ranges, every frame. */
+  private dirty: Uint8Array;
   /** Whether aSoft has been touched since it was last sent. See flush(). */
   private softDirty = false;
 
@@ -346,6 +350,7 @@ class GlowPool {
     this.color = new Float32Array(capacity * 3);
     this.alpha = new Float32Array(capacity);
     this.soft = new Float32Array(capacity);
+    this.dirty = new Uint8Array(capacity);
 
     this.geometry = new THREE.BufferGeometry();
     /* These four streams are rewritten and uploaded every frame. Telling the
@@ -357,6 +362,11 @@ class GlowPool {
     this.geometry.setAttribute("aColor", new THREE.BufferAttribute(this.color, 3).setUsage(THREE.DynamicDrawUsage));
     this.geometry.setAttribute("aAlpha", new THREE.BufferAttribute(this.alpha, 1).setUsage(THREE.DynamicDrawUsage));
     this.geometry.setAttribute("aSoft", new THREE.BufferAttribute(this.soft, 1));
+    // Nothing beyond `cursor` belongs to an effect. Without a draw range the
+    // renderer still submits all 6,200 zero-filled slots to the vertex shader.
+    // Grow the range as effects reserve slots; the visible population is
+    // unchanged, while capacity that was never allocated costs nothing.
+    this.geometry.setDrawRange(0, 0);
     // The pool is scattered all over the scene and its contents move every
     // frame; a bounding sphere computed once would cull half of it at random.
     this.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e6);
@@ -380,6 +390,7 @@ class GlowPool {
   allocate(count: number): number {
     const start = this.cursor;
     this.cursor += count;
+    this.geometry.setDrawRange(0, this.cursor);
     return start;
   }
 
@@ -400,10 +411,17 @@ class GlowPool {
     this.color[i * 3 + 1] = g;
     this.color[i * 3 + 2] = b;
     this.alpha[i] = a;
+    this.dirty[i] = 3;
   }
 
   hide(i: number) {
-    this.alpha[i] = 0;
+    // Most intermittent effects remain hidden for many consecutive frames.
+    // Avoid rewriting their already-zero slots; this also keeps the intent
+    // explicit for future dirty-range uploads.
+    if (this.alpha[i] !== 0) {
+      this.alpha[i] = 0;
+      this.dirty[i] |= 2;
+    }
   }
 
   setPixelRatio(ratio: number) {
@@ -433,14 +451,42 @@ class GlowPool {
     const color = this.geometry.attributes.aColor as THREE.BufferAttribute;
     const alpha = this.geometry.attributes.aAlpha as THREE.BufferAttribute;
 
-    position.addUpdateRange(0, n * 3);
-    position.needsUpdate = true;
-    size.addUpdateRange(0, n);
-    size.needsUpdate = true;
-    color.addUpdateRange(0, n * 3);
-    color.needsUpdate = true;
-    alpha.addUpdateRange(0, n);
-    alpha.needsUpdate = true;
+    let dynamicDirty = false;
+    let alphaDirty = false;
+    /* Effects reserve contiguous ranges, so their writes naturally collapse
+     * into a handful of bufferSubData calls. A scan over at most 6,200 bytes
+     * is substantially cheaper than resending roughly 200 KB of floats, and
+     * avoids uploading the large jet/stream/remnant blocks while dormant. */
+    for (let i = 0; i < n;) {
+      if ((this.dirty[i] & 1) === 0) {
+        i++;
+        continue;
+      }
+      const start = i++;
+      while (i < n && (this.dirty[i] & 1) !== 0) i++;
+      const count = i - start;
+      position.addUpdateRange(start * 3, count * 3);
+      size.addUpdateRange(start, count);
+      color.addUpdateRange(start * 3, count * 3);
+      dynamicDirty = true;
+    }
+    for (let i = 0; i < n;) {
+      if ((this.dirty[i] & 2) === 0) {
+        i++;
+        continue;
+      }
+      const start = i++;
+      while (i < n && (this.dirty[i] & 2) !== 0) i++;
+      alpha.addUpdateRange(start, i - start);
+      alphaDirty = true;
+    }
+    if (dynamicDirty) {
+      position.needsUpdate = true;
+      size.needsUpdate = true;
+      color.needsUpdate = true;
+    }
+    if (alphaDirty) alpha.needsUpdate = true;
+    this.dirty.fill(0, 0, n);
 
     if (this.softDirty) {
       const soft = this.geometry.attributes.aSoft as THREE.BufferAttribute;
