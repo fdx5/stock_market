@@ -184,15 +184,15 @@ export default function MarketBriefPage() {
               <p>{data.summary}</p>
             </div>
             <div className="brief-grade">
-              <small>MARKET TONE</small>
+              <small>시장 분위기</small>
               <strong
                 className={data.index.change_pct >= 0 ? "up-text" : "down-text"}
               >
                 {data.index.change_pct >= 1
-                  ? "RISK ON"
+                  ? "매수심리 우세"
                   : data.index.change_pct <= -1
-                    ? "RISK OFF"
-                    : "NEUTRAL"}
+                    ? "위험회피 경계"
+                    : "방향성 중립"}
               </strong>
               <em>{new Date(data.created_at).toLocaleString("ko-KR")}</em>
             </div>
