@@ -6,7 +6,7 @@ def history(limit:int=Query(120,ge=1,le=500)):return {"items":market_brief_store
 @router.get("/latest/{market}")
 def latest(market:str):
     item=market_brief_store.latest(market.upper())
-    if not item:
+    if not item or item.get("version", 1) < market_brief.REPORT_VERSION:
         try:item=market_brief.generate(market)
         except Exception:pass
     if not item:raise HTTPException(404,"리포트가 없습니다.")

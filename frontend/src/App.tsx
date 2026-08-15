@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect } from "react";
 import LoadingState from "./components/LoadingState";
 import { useActivityTracking } from "./useActivityTracking";
 import { useRoute } from "./router";
+import "./components/marketBriefPrint.css";
 
 // Route-level code splitting: each page only ships the JS it actually needs (e.g. the
 // map pages never pull in lightweight-charts, which only Dashboard/IndexChart/

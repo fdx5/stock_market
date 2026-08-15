@@ -1,0 +1,185 @@
+@media print {
+  html, body, #root {
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  * {
+    box-sizing: border-box !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  .brief-page {
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  .brief-site-head,
+  .brief-hero,
+  .brief-loading,
+  .brief-error,
+  .brief-news {
+    display: none !important;
+  }
+
+  .brief-sheet {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 4mm 5mm 3mm !important;
+    overflow: hidden !important;
+    border-top: 2mm solid #183b68 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    font-size: 7.5pt !important;
+  }
+
+  .brief-report-head {
+    display: flex !important;
+    gap: 6mm !important;
+    padding-bottom: 2.5mm !important;
+    break-inside: avoid !important;
+  }
+
+  .brief-report-head h2 {
+    margin: 1mm 0 !important;
+    font-size: 16pt !important;
+  }
+
+  .brief-report-head p {
+    margin: 0 !important;
+    max-width: none !important;
+    font-size: 7.6pt !important;
+    line-height: 1.35 !important;
+  }
+
+  .brief-grade {
+    min-width: 32mm !important;
+  }
+
+  .brief-grade strong {
+    margin: 1.5mm 0 !important;
+    font-size: 12pt !important;
+  }
+
+  .brief-kpis {
+    display: grid !important;
+    grid-template-columns: repeat(4, 1fr) !important;
+    break-inside: avoid !important;
+  }
+
+  .brief-kpis > div {
+    padding: 2.5mm 3mm !important;
+    background: #fff !important;
+    border-color: #d8dee7 !important;
+  }
+
+  .brief-kpis strong {
+    margin: 1mm 0 !important;
+    font-size: 12pt !important;
+  }
+
+  .brief-analysis {
+    padding: 2.5mm 0 !important;
+    break-inside: avoid !important;
+  }
+
+  .brief-sheet h3 {
+    margin: 0 0 1.5mm !important;
+    font-size: 8.5pt !important;
+  }
+
+  .brief-analysis ol {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 1mm 6mm !important;
+    margin: 0 !important;
+    padding-left: 4mm !important;
+  }
+
+  .brief-analysis li {
+    font-size: 7.2pt !important;
+    line-height: 1.35 !important;
+  }
+
+  .brief-two {
+    display: grid !important;
+    grid-template-columns: 1.25fr .75fr !important;
+    gap: 6mm !important;
+    padding: 2.5mm 0 !important;
+    break-inside: avoid !important;
+  }
+
+  .brief-bars {
+    gap: 1mm !important;
+  }
+
+  .brief-bars > div {
+    grid-template-columns: 24mm 1fr 12mm !important;
+    gap: 1.5mm !important;
+    font-size: 6.8pt !important;
+  }
+
+  .brief-bars > div > span {
+    height: 1.6mm !important;
+    background: #e5e9ef !important;
+    border: .2mm solid #ccd4df !important;
+  }
+
+  .brief-bars i.up { background: #ef6b75 !important; }
+  .brief-bars i.down { background: #5c83d6 !important; }
+
+  .breadth-donut {
+    display: grid !important;
+    width: 24mm !important;
+    margin: 0 auto !important;
+    border: 2mm solid #5c83d6 !important;
+    background-color: #ef6b75 !important;
+  }
+
+  .breadth-donut > div {
+    display: grid !important;
+    width: 15mm !important;
+    background: #fff !important;
+  }
+
+  .breadth-donut strong { font-size: 10pt !important; }
+  .breadth-legend { margin-top: 1mm !important; font-size: 6.5pt !important; }
+
+  .brief-sheet table {
+    display: table !important;
+    width: 100% !important;
+    visibility: visible !important;
+  }
+
+  .brief-sheet td {
+    padding: 1mm !important;
+    font-size: 6.8pt !important;
+    line-height: 1.15 !important;
+  }
+
+  .brief-sheet td small { font-size: 5.8pt !important; }
+  .brief-sheet a { color: #1e3e69 !important; text-decoration: none !important; }
+
+  .brief-sheet > footer {
+    margin-top: 1.5mm !important;
+    padding-top: 1.5mm !important;
+    font-size: 5.8pt !important;
+    line-height: 1.25 !important;
+    break-inside: avoid !important;
+  }
+
+  .brief-sheet > footer p { margin: .7mm 0 !important; }
+
+  @page {
+    size: A4 portrait;
+    margin: 6mm;
+  }
+}
