@@ -452,14 +452,14 @@ def _upload_one(page, frame, path: str) -> dict | None:
             what="image toolbar",
         ):
             raise NaverPublishError("image toolbar button not found")
-            # Fixed settle, then resolve and set in one step. The input is created by
-            # the click and Naver tears it down again, so a locator resolved in a polling
-            # loop can be stale by the time files are handed to it — setting them then
-            # succeeds silently and uploads nothing.
-            frame.wait_for_timeout(2500)
-            if not frame.locator("input#hidden-file").count():
-                raise NaverPublishError("no file input appeared after clicking 사진")
-            frame.locator("input#hidden-file").set_input_files(path)
+
+        # Fixed settle, then resolve and set in one step. The input is created by the
+        # click and Naver tears it down again, so a locator resolved in a polling loop
+        # can be stale by the time files are handed to it.
+        frame.wait_for_timeout(2500)
+        if not frame.locator("input#hidden-file").count():
+            raise NaverPublishError("no file input appeared after clicking 사진")
+        frame.locator("input#hidden-file").set_input_files(path)
     except Exception as exc:
         shot = _dump_debug(page, "upload_start_failed")
         log.warning(

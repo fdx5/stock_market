@@ -53,17 +53,12 @@ PUBLISH_GAP = (
 
 SITE_URL = "https://kospi-predictor.onrender.com"
 
-# Chart images in the post body (app/services/naver_brief_charts.py).
+# Chart images in the post body (app/services/naver_brief_charts.py). Set
+# NAVER_PUBLISH_CHARTS=0 to publish text-only.
 #
-# OFF by default, deliberately. The images render correctly and a manual probe proved
-# the editor's upload path works, but driving that path from inside the publish flow is
-# not yet reliable — set_input_files reports success and no image component ever appears.
-# Until that is understood, the daily batch should not spend ~3 extra minutes per post
-# retrying an upload that fails. Set NAVER_PUBLISH_CHARTS=1 to exercise it.
-#
-# The post is complete without charts, and resolve_image_slots drops unfilled slots, so
-# this switch changes decoration only.
-CHARTS_ENABLED = os.environ.get("NAVER_PUBLISH_CHARTS", "0") != "0"
+# The post is complete without charts and resolve_image_slots drops unfilled slots, so a
+# rendering or upload failure costs the post its pictures, never its publication.
+CHARTS_ENABLED = os.environ.get("NAVER_PUBLISH_CHARTS", "1") != "0"
 
 # One run at a time in this process, mirroring market_brief._lock. The store's claim()
 # is the real cross-process guard; this just avoids two threads spinning up two
