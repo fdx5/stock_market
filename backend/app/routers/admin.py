@@ -10,6 +10,9 @@ from app.services import (
     kakao_notify,
     mail_config_store,
     mail_subscription_store,
+    naver_publish_store,
+    naver_publisher,
+    naver_session_store,
     page_view_store,
     prediction_batch,
     prediction_mail,
@@ -531,3 +534,39 @@ def prediction_delete(
     """
     deleted = prediction_store.delete_predictions_by_predict_date(predict_date, market)
     return {"predict_date": predict_date, "market": market, "deleted": deleted}
+
+
+@router.get("/naver-blog/status", dependencies=[Depends(require_admin)])
+def naver_blog_status():
+    """Is the blog auto-publisher actually able to run right now?
+
+    Exists because the alternative was finding out at 16:20. Everything this feature
+    needs — the derived encryption key, the seeded cookies, the ledger — lives on the
+    server side, and until now nothing exposed whether the deployed instance could
+    decrypt the session it was expected to publish with. A silent "not_configured" looks
+    identical to "the batch has not run yet".
+
+    Reports the session's shape, never its contents: no cookie value is returned.
+    """
+    session = naver_session_store.get()
+    recent = naver_publish_store.recent(20)
+    return {
+        "configured": naver_publisher.is_configured(),
+        "key_source": naver_session_store.key_source(),
+        "charts_enabled": naver_publisher.CHARTS_ENABLED,
+        "publish_delay_seconds": naver_publisher.PUBLISH_DELAY_SECONDS,
+        "session": None
+        if not session
+        else {
+            "blog_id": session["blog_id"],
+            "cookie_count": len(session["cookies"]),
+            "cookie_names": sorted(
+                c.get("name", "") for c in session["cookies"] if str(c.get("name", "")).startswith("NID")
+            ),
+            "seeded_at": session["seeded_at"],
+            "refreshed_at": session["refreshed_at"],
+            "last_ok_at": session["last_ok_at"],
+        },
+        "last_run": naver_publisher.get_last_run(),
+        "recent_posts": recent,
+    }
