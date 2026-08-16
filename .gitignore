@@ -29,3 +29,14 @@ Thumbs.db
 
 # Local libSQL fallback DB (used when Turso credentials aren't set)
 backend/app/data/store/
+
+# Naver blog export output and, critically, the logged-in browser profile under
+# exports/naver_blog/browser_session/ — that directory holds live NID_AUT/NID_SES
+# session cookies and Chromium's "Login Data" store. Committing it would publish the
+# blog account's session to the repo. The exported HTML alongside it is regenerated
+# from market_close_briefs on every run, so nothing here needs version control.
+exports/
+
+# Diagnostic dump from scripts/naver_probe_editor.py — a snapshot of SmartEditor
+# internals, regenerated on demand and not source.
+backend/scripts/_probe_documentmodel.json

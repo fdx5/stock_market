@@ -79,7 +79,7 @@ export function pageLabel(path: string): string {
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";
   if (path === "/market-brief") return "오늘 브리핑";
-  if (/^\/market-brief\/\d{4}-\d{2}-\d{2}\/(kospi|kosdaq)$/i.test(path)) return "날짜별 오늘 브리핑";
+  if (/^\/market-brief\/\d{4}-\d{2}-\d{2}\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})$/i.test(path)) return "날짜별 오늘 브리핑";
   if (path === "/ai-prediction") return "AI 종목예측";
   if (path === "/ai-prediction/grading") return "AI 예측 채점";
   if (path === "/admin") return "관리자 로그인";

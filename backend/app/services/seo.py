@@ -18,7 +18,7 @@ from app.services import market_brief_store
 
 SITE = "https://kospi-predictor.onrender.com"
 IMAGE = f"{SITE}/img/kospi-map-preview.png"
-MARKET_BRIEF_ROUTE = re.compile(r"^/market-brief/(\d{4}-\d{2}-\d{2})/(kospi|kosdaq)$", re.I)
+MARKET_BRIEF_ROUTE = re.compile(r"^/market-brief/(\d{4}-\d{2}-\d{2})/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})$", re.I)
 STOCK_ROUTE = re.compile(r"^/stock/(\d{6})$", re.I)
 
 
@@ -29,7 +29,9 @@ def _market_brief(path: str) -> tuple[dict | None, str, str]:
     day, market_slug = match.groups()
     try:
         datetime.strptime(day, "%Y-%m-%d")
-        report = market_brief_store.get(day, market_slug.upper())
+        from app.services.market_brief import normalize_target
+        target = normalize_target(market_slug)
+        report = market_brief_store.get(day, target)
     except Exception:
         report = None
     return report, day, market_slug.lower()

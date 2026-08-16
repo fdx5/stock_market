@@ -521,44 +521,6 @@ export const NEUTRON_BINARY: LandmarkSpec = {
   position: [170, 35, -230],
 };
 
-/** The wormhole, hanging just off the outer edge of Saturn's rings — where
- * Interstellar's is, and for the reason that film puts it there: far enough
- * out to be a journey, near enough to a body everybody can name that its
- * distance means something.
- *
- * Not a destination. It is the one thing in this sky that is not a place on
- * this site, and the point of it is that it goes somewhere the site does not.
- *
- * `position` is NOT a world position, unlike every other landmark here. It is
- * an offset in Saturn's own equatorial frame — the frame the ring sheet lies
- * in — because the wormhole travels with Saturn. It has to: Saturn goes round
- * the sun in sixty-six seconds, so a fixed point "near the rings" is near them
- * for about four of those and on the far side of the system for the rest.
- *
- * 27 out and 17 up — twice the stand-off it was first given, which put it
- * directly over the rim of the rings and read as part of the ring system
- * rather than as a thing that had arrived beside it. The ring sheet ends at
- * 2.35 × 5.85 = 13.75, so it now sits about a ring-width clear of the edge.
- *
- * The clearances that matter, all of them in this frame: the ring sheet is
- * 21.6 away, Titan — the outermost moon, at 20.7 — is 18.1 at its closest
- * approach, and Mimas and Enceladus are further still. Outward it reaches
- * 16.4 units past Saturn in the orbital plane and 27.4 above it, so at
- * Saturn's own 144 the far edge of it is 160 from the sun, comfortably inside
- * the 172.4 where Uranus's rings begin. That last one is the constraint that
- * stops this going any further out: the two planets do line up. */
-/* The mouth off Saturn, and the way through to the market desk.
- *
- * It carried no destination for as long as it was scenery. Giving it one is
- * the obvious reading of the object — the whole point of a wormhole is that it
- * is a shortcut to somewhere else — and of everything in this sky it is the
- * body whose dive needs the least explaining: the camera falls until the mouth
- * is the entire frame and the page changes out of the white-out, which is what
- * going through one would look like from the inside of the ship.
- *
- * The fall stops just short of the surface rather than passing through it, for
- * the reasons diveInto's own note gives — the spheres are front-faced and the
- * near plane clips anything closer. Nothing here is inside anything. */
 export const WORMHOLE: LandmarkSpec = {
   key: "wormhole",
   ko: "코스닥 TOP 100",
@@ -569,17 +531,6 @@ export const WORMHOLE: LandmarkSpec = {
   position: [27, 17, 0],
 };
 
-/** The Endurance — Interstellar's ship, not Voyager 1.
- *
- * It replaced the probe when the grand tour stopped being a survey of the
- * outer system and became a run at the wormhole: a craft that coasts outward
- * on momentum it spent thirty years accumulating is the wrong vehicle for a
- * route that ends by flying into something.
- *
- * The export keeps its old name, and so does the key. The key is what the
- * scene, the label layer and every analytics row already call this object,
- * and renaming it would break the continuity of the second of those for a
- * string nobody sees. */
 export const VOYAGER: LandmarkSpec = {
   key: "voyager",
   ko: "글로벌 뉴스",
@@ -615,6 +566,7 @@ export interface Destination {
 }
 
 export const DESTINATIONS: Destination[] = [
+  { key: "brief", ko: "오늘 브리핑", en: "TODAY BRIEF", to: "/market-brief", accent: "#38bdf8" },
   { key: "sun", ko: STAR.ko, en: STAR.en, to: STAR.to, accent: "#ffce6a" },
   ...PLANETS.map((p) => ({ key: p.key, ko: p.ko, en: p.en, to: p.to, feed: p.feed, accent: p.glow })),
   { key: "blackhole", ko: BLACK_HOLE.ko, en: BLACK_HOLE.en, to: BLACK_HOLE.to, accent: "#ff9a4d" },
@@ -622,26 +574,7 @@ export const DESTINATIONS: Destination[] = [
   { key: "wormhole", ko: WORMHOLE.ko, en: WORMHOLE.en, to: WORMHOLE.to, accent: "#c18cff" },
 ];
 
-/** What the auto tour visits, in order: the eight planets from the inside out,
- * then the two landmarks out in deep sky.
- *
- * Not the star. The tour exists to show you the bodies you would otherwise
- * have to go looking for — the sun is already at the centre of the resting
- * view, dead ahead, and flying to it means flying to where the camera was
- * pointing all along. Everything here is somewhere you cannot see properly
- * from the front door.
- *
- * The hole goes last, after the neutron pair. It is the only stop that does
- * not simply end when its ten seconds are up — the tour falls into it, and the
- * screen goes with it (see HubScene.updateFinale). That has to be the finish;
- * put it in the middle and the tour comes back from a blackout to carry on
- * looking at a planet, which is an ending followed by more. */
 export const TOUR_ORDER: string[] = [
-  /* Named rather than taken from PLANETS, because it is no longer all of them:
-     the tour opens at Earth. Mercury and Venus are close in and small, and two
-     stops on grey rock before the tour has said anything is where a visitor
-     decides it is a screensaver. Starting at the one body everybody can place
-     buys the other six their attention. */
   "earth",
   "mars",
   "jupiter",
@@ -652,9 +585,5 @@ export const TOUR_ORDER: string[] = [
   BLACK_HOLE.key,
 ];
 
-/** Pluto: not a destination. It drifts in from the black hole's left, is torn
- * apart by it, and the cycle repeats — the type-1 hub's signature event, kept.
- * (It is also, by the IAU's 2006 reckoning, no longer a planet, which is the
- * joke.) */
 export const PLUTO_TEXTURE = `${TEX}/pluto.webp`;
 export const SUN_TEXTURE = `${TEX}/sun.webp`;

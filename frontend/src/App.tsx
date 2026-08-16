@@ -143,7 +143,7 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
 
 export default function App() {
   const path = useRoute();
-  const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq)\/?$/i);
+  const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})\/?$/i);
   const stockMatch = path.match(/^\/stock\/(\d{6})\/?$/);
   useActivityTracking(path);
 
@@ -168,13 +168,22 @@ export default function App() {
         : PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
     const name = canonicalName || code;
+    const briefRaw = briefMatch ? briefMatch[2].toUpperCase() : "";
+    const nameMap: Record<string, string> = {
+      "SAMSUNG": "삼성전자", "005930": "삼성전자",
+      "HYNIX": "SK하이닉스", "000660": "SK하이닉스",
+      "HYUNDAI": "현대차", "005380": "현대차",
+      "SKSQUARE": "SK스퀘어", "402340": "SK스퀘어",
+      "SEMCO": "삼성전기", "009150": "삼성전기",
+    };
+    const displayMarketName = nameMap[briefRaw] || briefRaw;
     const briefTitle = briefMatch
-      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 오늘 브리핑 | K-Stock Hub`
+      ? `${briefMatch[1]} ${displayMarketName} 오늘 브리핑 | K-Stock Hub`
       : "";
     const stockPageCode = stockMatch?.[1] || (canonicalPath.startsWith("/stock/") ? code : "");
     const title = briefTitle || (stockPageCode ? `${name || stockPageCode} 주가·차트·종목정보 | K-Stock Hub` : keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title);
     const description = briefMatch
-      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 종가, 외국인·기관 수급, 상승 종목 비중, 거래대금과 업종 흐름을 분석한 오늘 브리핑입니다.`
+      ? `${briefMatch[1]} ${displayMarketName} 종가, 외국인·기관 수급, 거래대금과 핵심 이슈 및 확인할 사항을 분석한 오늘 브리핑입니다.`
       : stockPageCode ? `${name || stockPageCode}(${stockPageCode}) 현재가, 등락률, 차트, 외국인·기관 수급과 최신 종목 정보를 확인하세요.`
       : keepsStockCode && name ? `${name}(${code}) 현재가, 등락률, 차트와 최신 종목 정보를 확인하세요.` : seo.description;
     document.title = title;
@@ -191,7 +200,7 @@ export default function App() {
     document.querySelector<HTMLMetaElement>('meta[property="og:image:secure_url"]')?.setAttribute("content", image);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')?.setAttribute("content", image);
     const imageAlt = briefMatch
-      ? `${briefMatch[1]} ${briefMatch[2].toUpperCase()} 오늘 브리핑 핵심 지표`
+      ? `${briefMatch[1]} ${displayMarketName} 오늘 브리핑 핵심 지표`
       : "K-Stock Hub 시장 데이터";
     document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')?.setAttribute("content", imageAlt);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image:alt"]')?.setAttribute("content", imageAlt);
@@ -239,10 +248,20 @@ export default function App() {
   } else if (path === "/market-brief") {
     page = <MarketBriefPage />;
   } else if (briefMatch) {
+    const raw = briefMatch[2].toUpperCase();
+    const codeMap: Record<string, string> = {
+      "005930": "SAMSUNG", "SAMSUNG": "SAMSUNG",
+      "000660": "HYNIX", "HYNIX": "HYNIX",
+      "005380": "HYUNDAI", "HYUNDAI": "HYUNDAI",
+      "402340": "SKSQUARE", "SKSQUARE": "SKSQUARE",
+      "009150": "SEMCO", "SEMCO": "SEMCO",
+      "KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ",
+    };
+    const normalized = codeMap[raw] || raw;
     page = (
       <MarketBriefPage
         initialDate={briefMatch[1]}
-        initialMarket={briefMatch[2].toUpperCase() as "KOSPI" | "KOSDAQ"}
+        initialMarket={normalized}
       />
     );
   } else if (path === "/ai-prediction") {
