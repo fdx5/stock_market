@@ -4,6 +4,15 @@ import "./marketSentiment.css";
 type Item = { key: string; name: string; score: number | null; message: string };
 
 const label = (n: number) => n <= 20 ? "극단적 공포" : n <= 40 ? "공포" : n <= 60 ? "중립" : n <= 80 ? "탐욕" : "극단적 탐욕";
+
+// Colour band, matching label()'s own boundaries. The colour used to switch at 50 while
+// the label switched at 40/60, so a 45 read "중립" in fear-blue and a 55 read "중립" in
+// greed-red — the two halves of the same row disagreeing about the same number.
+//
+// The colours themselves live in marketSentiment.css, not here: 중립 needs a different
+// green in light and dark mode to stay legible against each surface, and an inline style
+// cannot express that.
+const tone = (n: number) => (n <= 40 ? "fear" : n <= 60 ? "neutral" : "greed");
 function kosdaqScore(points: Array<{ close?: number }>): number | null {
   const a = points.map((p) => Number(p.close)).filter(Number.isFinite); if (a.length < 30) return null;
   const r = a.slice(-20); const mean = r.reduce((x, y) => x + y, 0) / r.length;
@@ -40,8 +49,10 @@ export default function MarketSentimentPanel({ en = false }: { en?: boolean }) {
   return <section className="desk-sentiment" aria-label={en ? "Market sentiment" : "시장 공포 탐욕 지수"}>
     <header><span>공포·탐욕 지수</span><small>{en ? "0 fear · 100 greed" : "0 공포 · 100 탐욕"}</small></header>
     <div className="desk-sentiment-list">{items.map((x) => {
-      const n = x.score ?? 0; const color = n > 50 ? "#ed5365" : "#438de8";
-      return <article key={x.key} style={{ "--sentiment-color": color } as CSSProperties}>
+      const n = x.score ?? 0;
+      // A missing score gets its own tone rather than falling through to 0, which
+      // rendered "데이터 대기" as an empty ring in extreme-fear blue.
+      return <article key={x.key} data-tone={x.score == null ? "unknown" : tone(n)}>
         <div className="desk-sentiment-donut" style={{ "--sentiment-angle": `${n * 3.6}deg` } as CSSProperties}><strong>{x.score ?? "—"}</strong></div>
         <div className="desk-sentiment-copy"><div><b>{x.name}</b><em>{x.score == null ? "측정 중" : label(n)}</em></div><p>{x.message}</p></div>
       </article>;

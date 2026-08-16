@@ -14,3 +14,21 @@
   .desk-sentiment article{padding:6px 7px;border:1px solid var(--border);border-radius:9px;background:color-mix(in srgb,var(--desk-card-bg) 82%,transparent)}
   .desk-sentiment-copy p{display:none}
 }
+
+/* Sentiment tone -> colour. Kept here rather than inline in the component because 중립
+   needs a different green per theme: one green cannot clear 3:1 contrast against both
+   the light (#f8f6f1) and the dark (#1a1a19) panel.
+
+   Bands match label() in MarketSentimentPanel.tsx: <=40 공포, <=60 중립, >60 탐욕.
+
+   Red-up / blue-down is the Korean market convention used across the app. Validated on
+   both surfaces: light passes every check; dark passes contrast, chroma and lightness
+   with CVD separation at deltaE 7.3 (deutan), which sits in the band that is only legal
+   alongside a non-colour cue. That cue is present and permanent here - each ring is
+   labelled 공포/중립/탐욕 in words and shows its number, so the colour is never the only
+   thing carrying the state. */
+.desk-sentiment article{--sentiment-color:#438de8}
+.desk-sentiment article[data-tone="neutral"]{--sentiment-color:#159a6b}
+.desk-sentiment article[data-tone="greed"]{--sentiment-color:#ed5365}
+.desk-sentiment article[data-tone="unknown"]{--sentiment-color:var(--sentiment-muted)}
+:root[data-theme="light"] .desk-sentiment article[data-tone="neutral"]{--sentiment-color:#166534}
