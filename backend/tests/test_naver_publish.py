@@ -447,3 +447,61 @@ def test_headline_without_a_url_stays_plain_rather_than_breaking():
     nodes = _nodes(_body(brief))
     match = [n for n in nodes if n["value"] == "URL 없는 기사"]
     assert match and not match[0].get("link")
+
+
+# --- holiday guard --------------------------------------------------------------------
+#
+# `weekday() < 5` does not know about public holidays. On 2026-08-17 (광복절 대체공휴일,
+# a Monday) the brief loop fires, generate() returns the previous session's report dated
+# 2026-08-14, and chaining the publisher on that would ask it to republish a day whose
+# posts already went out.
+
+
+def test_publisher_refuses_a_date_whose_posts_are_already_out(store):
+    """The ledger is the backstop behind the loop's date check."""
+    for market in ("KOSPI", "KOSDAQ", "SAMSUNG"):
+        store.enqueue("2026-08-14", market)
+        store.claim("2026-08-14", market)
+        store.mark_published("2026-08-14", market, "1", "u")
+
+    # A holiday run re-enqueues the same trading date...
+    for market in ("KOSPI", "KOSDAQ", "SAMSUNG"):
+        assert store.enqueue("2026-08-14", market) is False
+    # ...and finds nothing to do.
+    assert store.pending("2026-08-14") == []
+
+
+def test_reset_does_not_revive_published_rows():
+    """`--reset` is the operator's escape hatch for a wedged retry count. It must not
+    turn into a republish button — the holiday path would then post duplicates."""
+    from app.services import naver_publish_store
+
+    import tempfile as _t
+    from pathlib import Path as _P
+
+    tmp = _P(_t.mkdtemp()) / "p.db"
+    old_url, old_path, old_conn = (
+        naver_publish_store.TURSO_DATABASE_URL,
+        naver_publish_store.LOCAL_DB_PATH,
+        naver_publish_store._conn,
+    )
+    naver_publish_store.TURSO_DATABASE_URL = None
+    naver_publish_store.LOCAL_DB_PATH = tmp
+    naver_publish_store._conn = None
+    try:
+        naver_publish_store.enqueue("2026-08-14", "KOSPI")
+        naver_publish_store.claim("2026-08-14", "KOSPI")
+        naver_publish_store.mark_published("2026-08-14", "KOSPI", "9", "u")
+
+        naver_publish_store.enqueue("2026-08-14", "KOSDAQ")
+        naver_publish_store.claim("2026-08-14", "KOSDAQ")
+        naver_publish_store.mark_failed("2026-08-14", "KOSDAQ", "boom")
+
+        naver_publish_store.reset("2026-08-14")
+
+        assert naver_publish_store.get("2026-08-14", "KOSPI")["status"] == "published"
+        assert naver_publish_store.get("2026-08-14", "KOSDAQ")["status"] == "pending"
+    finally:
+        naver_publish_store.TURSO_DATABASE_URL = old_url
+        naver_publish_store.LOCAL_DB_PATH = old_path
+        naver_publish_store._conn = old_conn

@@ -23,7 +23,9 @@ reused. Like the Kakao refresh token, this row is seeded once from a local machi
 then read (and re-written, on every keep-alive) by the deployed service.
 """
 
+import base64
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
@@ -39,14 +41,16 @@ log = logging.getLogger(__name__)
 TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
 
-# Fernet key (urlsafe base64, 32 bytes) used to encrypt the cookie blob. Generate with
-# scripts/naver_login_setup.py --genkey, then set it BOTH in the local .env used to run
-# that script and as a Render secret — the local machine writes the row, the deployed
-# service reads it, and they have to agree.
+# OPTIONAL. Leave it unset and the key is derived from TURSO_AUTH_TOKEN instead (see
+# _derived_key) — that is the intended setup, because it means nothing extra has to be
+# configured on Render and nothing can fall out of sync with the local .env.
 #
-# Unset means the feature is off, not that it degrades to plaintext: get() returns None
-# and the publisher reports "not_configured", the same shape kakao_notify uses for a
-# missing KAKAO_REST_API_KEY.
+# Set it only to encrypt the session under a secret the database credentials cannot
+# reach. If you do, it must match on every machine that reads or writes the session.
+#
+# With neither this nor TURSO_AUTH_TOKEN available the feature is off, not degraded to
+# plaintext: get() returns None and the publisher reports "not_configured", the same
+# shape kakao_notify uses for a missing KAKAO_REST_API_KEY.
 NAVER_SESSION_KEY = os.environ.get("NAVER_SESSION_KEY")
 
 LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "naver_session.db"
@@ -98,22 +102,64 @@ def _with_connection(fn):
             return fn(_conn)
 
 
+def _derived_key() -> bytes | None:
+    """Encryption key derived from TURSO_AUTH_TOKEN, so no new secret has to be set.
+
+    Setting a separate NAVER_SESSION_KEY in the Render dashboard was one more manual
+    step that had to be kept in sync with the local .env, and forgetting it silently
+    disabled publishing. Deriving instead means the deployed service and the machine
+    that seeds the session agree automatically, because they already share the Turso
+    credentials — the same ones that reach the database holding the ciphertext.
+
+    Deriving rather than storing also keeps the key out of the database: a dump of the
+    briefs DB still does not yield a login.
+
+    PBKDF2 with a fixed salt is appropriate here. The input is a high-entropy API token,
+    not a human password, so the salt is only domain separation — it stops this key from
+    colliding with anything else derived from the same token.
+
+    Consequence to know about: rotating TURSO_AUTH_TOKEN invalidates the stored session.
+    get() already treats an undecryptable blob as "no session" and the publisher alerts
+    for a re-seed, so that degrades to the same one-minute recovery as an expired login.
+    """
+    if not TURSO_AUTH_TOKEN:
+        return None
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", TURSO_AUTH_TOKEN.encode("utf-8"), b"naver-session-store/v1", 200_000, dklen=32
+    )
+    return base64.urlsafe_b64encode(digest)
+
+
 def _fernet():
-    """Returns a Fernet, or None when NAVER_SESSION_KEY is unset/invalid.
+    """Returns a Fernet, or None when no key material is available.
+
+    NAVER_SESSION_KEY still wins when set — an explicit key remains supported for anyone
+    who wants the session encrypted under a secret the database credentials cannot
+    reach. Otherwise the key is derived (see _derived_key).
 
     Imported lazily so the rest of the backend still boots on a machine without the
     `cryptography` wheel — every other caller in this app treats a missing optional
     dependency as "feature off", not as a startup failure.
     """
-    if not NAVER_SESSION_KEY:
+    key = NAVER_SESSION_KEY.encode("utf-8") if NAVER_SESSION_KEY else _derived_key()
+    if not key:
         return None
     try:
         from cryptography.fernet import Fernet
 
-        return Fernet(NAVER_SESSION_KEY.encode("utf-8"))
+        return Fernet(key)
     except Exception:
-        log.exception("NAVER_SESSION_KEY is set but unusable as a Fernet key")
+        log.exception("Naver session key is present but unusable as a Fernet key")
         return None
+
+
+def key_source() -> str:
+    """Which key is in play — for the setup script's diagnostics."""
+    if NAVER_SESSION_KEY:
+        return "NAVER_SESSION_KEY"
+    if TURSO_AUTH_TOKEN:
+        return "derived from TURSO_AUTH_TOKEN"
+    return "none"
 
 
 def generate_key() -> str:

@@ -1,9 +1,9 @@
 """One-time Naver blog connection. Run this locally; never on the server.
 
     cd backend
-    python scripts/naver_login_setup.py --genkey     # first time only
     python scripts/naver_login_setup.py              # opens a browser, you log in
     python scripts/naver_login_setup.py --check      # verify the stored session works
+    python scripts/naver_login_setup.py --harvest    # recover a login whose window closed
 
 Why this exists at all: Naver shut down the official blog write API on 2020-05-06 and
 never replaced it, so there is no key to issue. The only thing that can publish is a
@@ -15,8 +15,9 @@ The password itself is never read, passed, or stored by this script.
 
 Same shape as scripts/kakao_get_refresh_token.py: seed a credential once from a trusted
 local machine into Turso, and let the deployed service read it from there. The env this
-runs with must therefore point at the SAME Turso database as Render, and share the same
-NAVER_SESSION_KEY - otherwise the server will hold a row it cannot decrypt.
+runs with must therefore point at the SAME Turso database as Render. Nothing else needs
+to match: the encryption key is derived from TURSO_AUTH_TOKEN, so both sides arrive at
+the same key on their own and there is no separate secret to copy across.
 """
 
 import argparse
@@ -74,9 +75,11 @@ def login(blog_id: str, timeout_s: int = 420) -> int:
     from playwright.sync_api import sync_playwright
 
     if not naver_session_store.is_configured():
-        print("[!] NAVER_SESSION_KEY 가 설정되지 않았습니다.")
-        print("    먼저 `python scripts/naver_login_setup.py --genkey` 를 실행하세요.")
+        print("[!] 암호화 키를 만들 수 없습니다 (TURSO_AUTH_TOKEN 이 없습니다).")
+        print("    backend/.env 의 TURSO_DATABASE_URL / TURSO_AUTH_TOKEN 을 확인하세요.")
         return 2
+
+    print(f"[i] 암호화 키: {naver_session_store.key_source()}")
 
     PROFILE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -175,7 +178,7 @@ def harvest(blog_id: str = BLOG_ID_DEFAULT) -> int:
     from playwright.sync_api import sync_playwright
 
     if not naver_session_store.is_configured():
-        print("[!] NAVER_SESSION_KEY 가 설정되지 않았습니다.")
+        print("[!] 암호화 키를 만들 수 없습니다 (TURSO_AUTH_TOKEN 이 없습니다).")
         return 2
 
     if not PROFILE_DIR.exists():
@@ -241,7 +244,8 @@ def check() -> int:
     session = naver_session_store.get()
     if not session:
         print("[!] 저장된 세션이 없거나 복호화할 수 없습니다.")
-        print("    NAVER_SESSION_KEY 가 저장 당시와 동일한지 확인하세요.")
+        print(f"    현재 키: {naver_session_store.key_source()}")
+        print("    TURSO_AUTH_TOKEN 이 저장 당시와 동일한지 확인하세요.")
         return 2
 
     print(f"저장 시각 : {session['seeded_at']}")

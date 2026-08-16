@@ -332,7 +332,9 @@ python scripts/naver_login_setup.py
 python scripts/naver_login_setup.py --check
 ```
 
-⚠️ **`.env`의 `TURSO_DATABASE_URL`이 Render와 같은 DB를 가리켜야 합니다.** 로컬에서 암호화해 저장하고 서버가 복호화해 읽는 구조입니다. `NAVER_SESSION_KEY`가 양쪽에서 다르면 서버는 복호화에 실패합니다.
+⚠️ **`.env`의 `TURSO_DATABASE_URL`/`TURSO_AUTH_TOKEN`이 Render와 같아야 합니다.** 로컬에서 암호화해 저장하고 서버가 복호화해 읽는 구조인데, **암호화 키를 `TURSO_AUTH_TOKEN`에서 유도**하므로 양쪽이 자동으로 같은 키에 도달합니다. Render에 따로 등록할 비밀값은 없습니다.
+
+`TURSO_AUTH_TOKEN`을 교체하면 저장된 세션을 못 읽게 됩니다. 그때는 세션 만료와 동일하게 처리됩니다 — 알림이 오고 `naver_login_setup.py` 1회 재실행으로 복구됩니다.
 
 ### 8.2 검증 (실제 발행 없이)
 
@@ -361,7 +363,8 @@ python scripts/naver_publish_now.py --status
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `NAVER_SESSION_KEY` | (없음) | **필수.** 미설정 시 기능 전체 비활성 |
+| `NAVER_SESSION_KEY` | (유도) | 선택. 미설정 시 `TURSO_AUTH_TOKEN`에서 유도 |
+| `NAVER_PUBLISH_CHARTS` | `1` | `0`이면 차트 없이 텍스트만 |
 | `NAVER_BLOG_ID` | `kospi-predictor` | 대상 블로그 |
 | `NAVER_PUBLISH_DELAY_SECONDS` | `600` | 리포트 생성 후 대기 |
 | `NAVER_PUBLISH_GAP_MIN` / `_MAX` | `60` / `180` | 종목 간 발행 간격 |

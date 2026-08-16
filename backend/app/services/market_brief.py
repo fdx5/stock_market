@@ -453,8 +453,24 @@ def _loop():
                 schedule_blog_export_after_brief()
 
                 # +10분 뒤 네이버 블로그 자동 발행 (app/services/naver_publisher.py).
-                from app.services.naver_publisher import schedule_publish_after_brief
-                schedule_publish_after_brief(report_date)
+                #
+                # Only when the market actually traded today. `weekday() < 5` does not
+                # know about public holidays — 2026-08-17 (광복절 대체공휴일) is a Monday,
+                # the loop fires, and generate() hands back the previous session's report
+                # dated 2026-08-14. Chaining the publisher on that asks it to publish a
+                # date whose posts already went out.
+                #
+                # The publish ledger refuses the duplicate, so this is defence in depth
+                # rather than the only guard — but it is the cheap one, and it is the one
+                # that still holds if the ledger is ever reset or restored from a backup.
+                if report_date == key:
+                    from app.services.naver_publisher import schedule_publish_after_brief
+                    schedule_publish_after_brief(report_date)
+                else:
+                    log.info(
+                        "market closed today (%s); latest report is %s - skipping blog publish",
+                        key, report_date,
+                    )
             except Exception:
                 log.exception("market brief batch failed")
         time.sleep(300)
