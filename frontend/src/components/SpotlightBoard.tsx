@@ -18,7 +18,7 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import SpotSparkline from "./SpotSparkline";
 import StockLogo from "./StockLogo";
 
-/* 오늘의 주목 종목 — three per board, wide cards, with a line of context.
+/* 오늘의 주목 종목 — four per board, wide cards, with a line of context.
  *
  * The picking and the commentary are in spotlight.ts, which is also where the
  * note on why none of it comes from a language model lives. This file is the
@@ -231,12 +231,12 @@ export default function SpotlightBoard({
         <span className="desk-spot-note">
           {/* Turnover is not a figure yet during the KR pre-market hour — the
               volume column is the regular session's and reads zero until the
-              KRX opens — so the six are picked on the move and on size there,
+              KRX opens — so the four are picked on the move and on size there,
               and the caption has to say which. See turnoverIsReal. */}
           {t(
             !isUs && bucket.phase === "pre"
-              ? "프리마켓 상승률을 기준으로 지수별 3종목을 선별합니다."
-              : "상승률과 거래대금을 기준으로 지수별 3종목을 선별합니다."
+              ? "프리마켓 상승률을 기준으로 지수별 4종목을 선별합니다."
+              : "상승률과 거래대금을 기준으로 지수별 4종목을 선별합니다."
           )}
         </span>
       </div>

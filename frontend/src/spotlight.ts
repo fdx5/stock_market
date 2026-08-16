@@ -17,7 +17,7 @@ import { MarketMapItem } from "./api/client";
  * a number, because it has no way to produce one that is not in the payload. It
  * costs nothing per view, where a model call would be six of them per bucket
  * per market. And it says the same thing to every reader at the same moment,
- * which for a "주목 종목" panel is the difference between a market view and six
+ * which for a "주목 종목" panel is the difference between a market view and four
  * private ones. The project already reached this conclusion once — see the note
  * on PREDICTION_AI_CLOSE_SUMMARY in render.yaml, which is off by default
  * because explaining a move that already happened, out of numbers the app is
@@ -288,7 +288,7 @@ function percentile(sortedAsc: number[], value: number): number {
 }
 
 /**
- * The three, per board.
+ * The four, per board.
  *
  * The brief was "상위 급등 종목 중에서 판단해서 셋". The judgement is three
  * rules, in the order they matter:

@@ -67,7 +67,7 @@ import "./marketDesk.css";
  *   2. a pulse row — the index, the breadth under it, and what the room is
  *      looking at — three different answers to "how is it going" side by side
  *      rather than stacked;
- *   3. 오늘의 주목 종목 — the same question one level down, three names per
+ *   3. 오늘의 주목 종목 — the same question one level down, four names per
  *      board with a line saying what stood around them;
  *   4. the global band, unchanged;
  *   5. the flow board, which is the classic panel's seven tabs given a section
