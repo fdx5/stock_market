@@ -553,6 +553,13 @@ def naver_blog_status():
     return {
         "configured": naver_publisher.is_configured(),
         "key_source": naver_session_store.key_source(),
+        # If a session row exists but "session" below is null while these two differ,
+        # the login is fine and the key is not: this instance's TURSO_AUTH_TOKEN is not
+        # the one the session was sealed with. That is the failure the fingerprint
+        # exists to make visible, because decryption failing looks the same as never
+        # having logged in.
+        "key_fingerprint": naver_session_store.key_fingerprint(),
+        "stored_key_fingerprint": naver_session_store.stored_key_fingerprint(),
         "charts_enabled": naver_publisher.CHARTS_ENABLED,
         "publish_delay_seconds": naver_publisher.PUBLISH_DELAY_SECONDS,
         "session": None

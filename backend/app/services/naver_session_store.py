@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS naver_sessions (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     cookies_encrypted TEXT NOT NULL,
     blog_id TEXT NOT NULL,
+    key_fingerprint TEXT,
     seeded_at TEXT NOT NULL,
     refreshed_at TEXT NOT NULL,
     last_ok_at TEXT
@@ -82,6 +83,11 @@ def _connect():
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
+    # Added after the table shipped; ALTER is the migration for a single-row table.
+    try:
+        conn.execute("ALTER TABLE naver_sessions ADD COLUMN key_fingerprint TEXT")
+    except Exception:
+        pass
     conn.commit()
     return conn
 
@@ -153,6 +159,24 @@ def _fernet():
         return None
 
 
+def key_fingerprint() -> str | None:
+    """Short, non-reversible id for the key currently in play.
+
+    Stored alongside the session so a later read can tell "encrypted under a different
+    key" apart from "no session at all". Those two look identical otherwise — decryption
+    just fails — and they need opposite responses: a key mismatch means the deriving
+    secret changed (TURSO_AUTH_TOKEN rotated, or the deployed service holds a different
+    token for the same database), while a missing session means nobody has logged in yet.
+
+    A truncated SHA-256 of the key, so the value is safe to log and to return from the
+    admin status endpoint.
+    """
+    key = NAVER_SESSION_KEY.encode("utf-8") if NAVER_SESSION_KEY else _derived_key()
+    if not key:
+        return None
+    return hashlib.sha256(key).hexdigest()[:16]
+
+
 def key_source() -> str:
     """Which key is in play — for the setup script's diagnostics."""
     if NAVER_SESSION_KEY:
@@ -186,34 +210,39 @@ def save(cookies: list[dict], blog_id: str, *, seeded: bool = False) -> None:
         raise RuntimeError("NAVER_SESSION_KEY is not set; refusing to store cookies in plaintext")
 
     blob = fernet.encrypt(json.dumps(cookies, ensure_ascii=False).encode("utf-8")).decode("utf-8")
+    fingerprint = key_fingerprint()
     now = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
 
     def _run(conn):
         if seeded:
             conn.execute(
                 """
-                INSERT INTO naver_sessions (id, cookies_encrypted, blog_id, seeded_at, refreshed_at, last_ok_at)
-                VALUES (1, ?, ?, ?, ?, NULL)
+                INSERT INTO naver_sessions
+                    (id, cookies_encrypted, blog_id, key_fingerprint, seeded_at, refreshed_at, last_ok_at)
+                VALUES (1, ?, ?, ?, ?, ?, NULL)
                 ON CONFLICT(id) DO UPDATE SET
                     cookies_encrypted = excluded.cookies_encrypted,
                     blog_id = excluded.blog_id,
+                    key_fingerprint = excluded.key_fingerprint,
                     seeded_at = excluded.seeded_at,
                     refreshed_at = excluded.refreshed_at,
                     last_ok_at = NULL
                 """,
-                (blob, blog_id, now, now),
+                (blob, blog_id, fingerprint, now, now),
             )
         else:
             conn.execute(
                 """
-                INSERT INTO naver_sessions (id, cookies_encrypted, blog_id, seeded_at, refreshed_at, last_ok_at)
-                VALUES (1, ?, ?, ?, ?, NULL)
+                INSERT INTO naver_sessions
+                    (id, cookies_encrypted, blog_id, key_fingerprint, seeded_at, refreshed_at, last_ok_at)
+                VALUES (1, ?, ?, ?, ?, ?, NULL)
                 ON CONFLICT(id) DO UPDATE SET
                     cookies_encrypted = excluded.cookies_encrypted,
                     blog_id = excluded.blog_id,
+                    key_fingerprint = excluded.key_fingerprint,
                     refreshed_at = excluded.refreshed_at
                 """,
-                (blob, blog_id, now, now),
+                (blob, blog_id, fingerprint, now, now),
             )
         conn.commit()
 
@@ -233,7 +262,7 @@ def get() -> dict | None:
 
     def _run(conn):
         return conn.execute(
-            "SELECT cookies_encrypted, blog_id, seeded_at, refreshed_at, last_ok_at "
+            "SELECT cookies_encrypted, blog_id, seeded_at, refreshed_at, last_ok_at, key_fingerprint "
             "FROM naver_sessions WHERE id = 1"
         ).fetchone()
 
@@ -241,11 +270,23 @@ def get() -> dict | None:
     if row is None:
         return None
 
-    blob, blog_id, seeded_at, refreshed_at, last_ok_at = row
+    blob, blog_id, seeded_at, refreshed_at, last_ok_at, stored_fp = row
     try:
         cookies = json.loads(fernet.decrypt(blob.encode("utf-8")).decode("utf-8"))
     except Exception:
-        log.exception("stored Naver session could not be decrypted; re-seed required")
+        current_fp = key_fingerprint()
+        if stored_fp and current_fp and stored_fp != current_fp:
+            # The distinction that matters: this is not a missing login, it is the same
+            # login encrypted under a key this process cannot reproduce — TURSO_AUTH_TOKEN
+            # differs from the one used to seed it. Re-running the login script fixes it,
+            # but so does pointing this process at the original token.
+            log.error(
+                "Naver session was encrypted under a different key (stored %s, current %s). "
+                "TURSO_AUTH_TOKEN does not match the machine that seeded the session.",
+                stored_fp, current_fp,
+            )
+        else:
+            log.exception("stored Naver session could not be decrypted; re-seed required")
         return None
 
     return {
@@ -255,6 +296,19 @@ def get() -> dict | None:
         "refreshed_at": refreshed_at,
         "last_ok_at": last_ok_at,
     }
+
+
+def stored_key_fingerprint() -> str | None:
+    """The fingerprint recorded when the session was written, read without decrypting.
+
+    Comparable against key_fingerprint() to tell a key mismatch apart from a missing
+    session — the one diagnosis that cannot be made from a failed decryption alone.
+    """
+    def _run(conn):
+        return conn.execute("SELECT key_fingerprint FROM naver_sessions WHERE id = 1").fetchone()
+
+    row = _with_connection(_run)
+    return row[0] if row else None
 
 
 def mark_ok() -> None:
