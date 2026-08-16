@@ -23,6 +23,18 @@ readability-lxml==0.8.4.1
 # 'output_config'" — which ai_analyst.analyze() caught and silently degraded to the
 # heuristic, so the batch stayed green while every rationale came from the fallback.
 anthropic==0.119.0
+# 네이버 블로그 자동 발행 (app/services/naver_blog_client.py).
+#
+# Naver terminated the official blog write API on 2020-05-06 and the 2026 API HUB
+# migration only carried the read-side search APIs across, so there is no HTTP endpoint
+# to call with a key — publishing requires a real logged-in browser session driving
+# SmartEditor. Hence a browser in the image. `playwright install chromium` runs as its
+# own Dockerfile step; the wheel alone does not ship the browser binary.
+playwright==1.55.0
+# Fernet, for encrypting the Naver session cookies at rest in Turso
+# (app/services/naver_session_store.py). Cookies are the whole credential here, so they
+# never touch the database in the clear.
+cryptography==46.0.1
 # zoneinfo reads the OS tz database, and python:3.11-slim ships without one — the
 # prediction batch anchors both market calendars to Asia/Seoul and America/New_York,
 # so the lookup has to succeed in the container, not just on a dev machine.

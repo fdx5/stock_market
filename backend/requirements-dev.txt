@@ -1,0 +1,8 @@
+# Test-only dependencies. Deliberately NOT in requirements.txt: the runtime image
+# already carries a Node install and a Chromium, and there is no reason to ship a test
+# runner alongside them.
+#
+#   python -m pip install -r requirements-dev.txt
+#   python -m pytest tests/ -v
+-r requirements.txt
+pytest==8.4.2

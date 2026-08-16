@@ -81,3 +81,21 @@ services:
         sync: false
       - key: PREDICTION_MAIL_TO
         sync: false
+      # 네이버 블로그 자동 발행 (app/services/naver_publisher.py).
+      #
+      # Fernet key for the stored login session. Generate locally with
+      # `python scripts/naver_login_setup.py --genkey`, then set the SAME value here and
+      # in the local .env used to seed the session — the local machine encrypts the
+      # cookies, this service decrypts them, and a mismatch leaves the server holding a
+      # row it cannot read. Unset disables publishing entirely (the batch reports
+      # "not_configured" and the keep-alive thread never starts), which is the intended
+      # default until the account has been connected once.
+      #
+      # The cookies themselves are NOT an env var — like the Kakao refresh token above,
+      # they live in Turso (naver_session_store.py), seeded once by
+      # scripts/naver_login_setup.py and rewritten on every keep-alive as Naver rotates
+      # NID_SES.
+      - key: NAVER_SESSION_KEY
+        sync: false
+      - key: NAVER_BLOG_ID
+        value: kospi-predictor

@@ -48,6 +48,7 @@ from app.services import (
     prediction_batch,
     market_brief as market_brief_service,
     market_brief_og,
+    naver_publisher,
     stock_search_store,
 )
 from app.services import global_top100 as global_top100_service
@@ -376,6 +377,16 @@ def _start_dram_price_scheduler() -> None:
 @app.on_event("startup")
 def _start_market_brief_scheduler() -> None:
     market_brief_service.start_scheduler()
+
+
+@app.on_event("startup")
+def _start_naver_session_keepalive() -> None:
+    # Not a batch — this only walks blog.naver.com every few hours so Naver keeps
+    # rotating the stored session cookies. The publish batch itself runs once per
+    # weekday off market_brief's chain, and a session touched that rarely from a
+    # datacenter IP is a session that expires early. No-ops when NAVER_SESSION_KEY
+    # is unset, which is also how the whole feature stays off until it is seeded.
+    naver_publisher.start_keepalive_scheduler()
 
 
 @app.get("/api/health")
