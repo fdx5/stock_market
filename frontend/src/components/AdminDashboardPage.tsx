@@ -32,6 +32,7 @@ import { Link, navigate } from "../router";
 import { pageLabel } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
+import AdminLiveIcon from "./AdminLiveIcon";
 import DbIcon from "./DbIcon";
 import MonitorIcon from "./MonitorIcon";
 import Footer from "./Footer";
@@ -1508,6 +1509,13 @@ export default function AdminDashboardPage() {
           </Link>
           <Link to="/admin/monitor" className="kospi-map-nav-link kospi-map-nav-link--monitor">
             <MonitorIcon /> 모니터링
+          </Link>
+          {/* The mobile-first counterpart to the two live panels below (실시간
+              세션 / 실시간 로그) — its own route rather than a toggle on this page,
+              since the point is a link that opens straight to just those two on a
+              phone, without the rest of this desktop grid. */}
+          <Link to="/admin/live" className="kospi-map-nav-link kospi-map-nav-link--live">
+            <AdminLiveIcon /> 실시간 로그
           </Link>
         </div>
       </header>

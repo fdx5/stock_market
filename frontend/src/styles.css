@@ -17,6 +17,11 @@
   --series-red: #e66767;
   --series-pink: #d1568f;
   --series-orange: #e0863f;
+  /* Two extras beyond the seven-series set above, used only by the live log's hub-action
+     badges (실시간 로그 · focus/exit) — never shown beside the market series, so the near
+     neighbours in that palette (yellow/aqua) are not a collision risk here. */
+  --series-amber: #d9a441;
+  --series-green: #3fae64;
 
   --status-good: #0ca30c;
   --status-warning: #fab219;
@@ -63,6 +68,8 @@
   --series-red: #bd5c66;
   --series-pink: #ab4a78;
   --series-orange: #b06a35;
+  --series-amber: #a37a2e;
+  --series-green: #3f8656;
 
   --status-good: #3f8656;
   --status-warning: #a37a2e;
@@ -16982,6 +16989,21 @@ thead .pred-matrix-ratehead {
 :root[data-theme="light"] .kospi-map-nav-link--monitor:hover {
   background: color-mix(in srgb, #1b7fa8 18%, transparent);
   color: #12617f;
+}
+
+/* Last of the admin-only row, leading to the mobile live-log console (/admin/live —
+   see adminLive.css). Tinted with --status-good rather than the monitor's cyan so the
+   two live entry points stay visually distinct from each other. */
+.kospi-map-nav-link--live {
+  color: var(--status-good);
+  border-color: color-mix(in srgb, var(--status-good) 45%, transparent);
+  background: color-mix(in srgb, var(--status-good) 12%, transparent);
+  animation-delay: 2.8s;
+}
+
+.kospi-map-nav-link--live:hover {
+  background: color-mix(in srgb, var(--status-good) 22%, transparent);
+  color: var(--text-primary);
 }
 
 /* A console, not a document: the page itself never scrolls, so the table list and the

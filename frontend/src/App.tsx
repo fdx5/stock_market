@@ -65,6 +65,7 @@ const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
 const AdminGrowthPage = lazy(() => import("./components/AdminGrowthPage"));
+const AdminLivePage = lazy(() => import("./components/AdminLivePage"));
 // The neuron monitor is the one route that pulls in three.js. Lazy like every other
 // page, so that ~150KB gzipped lands only when an admin actually opens it and never
 // touches a visitor's bundle.
@@ -282,6 +283,8 @@ export default function App() {
     page = <AdminDbPage />;
   } else if (path === "/admin/growth") {
     page = <AdminGrowthPage />;
+  } else if (path === "/admin/live") {
+    page = <AdminLivePage />;
   } else {
     // "/" and anything unrecognised land on the entrance rather than dropping
     // straight into the stock desk. "/type2" lands here too — it was this

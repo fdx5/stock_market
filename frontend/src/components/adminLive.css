@@ -1,0 +1,494 @@
+/* ==========================================================================
+   실시간 로그 (/admin/live, AdminLivePage.tsx)
+
+   A one-screen mobile console, deliberately not a shrunk-down version of the
+   desktop admin grid: one scrolling list, a sticky filter bar, and a session
+   strip above it, sized for a thumb rather than a mouse. Reuses the dashboard's
+   own shimmer/row-in keyframes (admin-shimmer, admin-row-in — see styles.css
+   around .admin-panel) so a row entering this list animates identically to one
+   entering the desktop tail.
+   ========================================================================== */
+
+.admin-live-page {
+  min-height: 100dvh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background:
+    radial-gradient(520px 240px at 15% -10%, color-mix(in srgb, var(--series-blue) 8%, transparent), transparent),
+    var(--page-plane);
+  color: var(--text-primary);
+  overflow: hidden;
+  animation: admin-fade-in 0.3s ease-out;
+}
+
+/* ── Top bar ───────────────────────────────────────────────────────────── */
+
+.admin-live-topbar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: calc(10px + env(safe-area-inset-top, 0px)) 14px 10px;
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-live-back,
+.admin-live-logout {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.admin-live-back svg,
+.admin-live-logout svg {
+  width: 18px;
+  height: 18px;
+}
+
+.admin-live-back:active,
+.admin-live-logout:active {
+  background: color-mix(in srgb, var(--text-primary) 8%, var(--surface-1));
+}
+
+.admin-live-title-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.admin-live-title-wrap h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.admin-live-updated {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-live-pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-good);
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-good) 55%, transparent);
+  animation: admin-live-ping 1.8s ease-out infinite;
+  flex-shrink: 0;
+}
+
+.admin-live-pulse--off {
+  background: var(--status-critical);
+  animation: none;
+  box-shadow: none;
+}
+
+@keyframes admin-live-ping {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-good) 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--status-good) 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--status-good) 0%, transparent);
+  }
+}
+
+/* ── Sessions strip ───────────────────────────────────────────────────── */
+
+.admin-live-sessions-strip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 10px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-live-sessions-track {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px;
+}
+
+.admin-live-sessions-track::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-live-sessions-empty {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  padding: 6px 4px;
+}
+
+.admin-live-session-chip {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 12px;
+  background: var(--page-plane);
+  border: 1px solid var(--border);
+  max-width: 190px;
+}
+
+.admin-live-session-chip--skeleton {
+  width: 150px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.admin-live-session-avatar {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #0d0d0d;
+  letter-spacing: -0.02em;
+}
+
+.admin-live-session-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+
+.admin-live-session-id {
+  font-size: 10.5px;
+  font-family: "Consolas", ui-monospace, "DejaVu Sans Mono", monospace;
+  color: var(--text-muted);
+}
+
+.admin-live-session-page {
+  font-size: 12px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.admin-live-session-stock-icon {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.admin-live-session-time {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+  align-self: flex-start;
+  margin-top: 1px;
+}
+
+.admin-live-sessions-count {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  background: var(--page-plane);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Scope tabs ───────────────────────────────────────────────────────── */
+
+.admin-live-tabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--page-plane);
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-live-tabs button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.admin-live-tabs button.active {
+  background: color-mix(in srgb, var(--series-blue) 20%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--series-blue) 55%, transparent);
+  color: var(--text-primary);
+}
+
+.admin-live-tab-count {
+  font-size: 10.5px;
+  font-weight: 700;
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-live-tabs button.active .admin-live-tab-count {
+  background: color-mix(in srgb, var(--series-blue) 45%, transparent);
+}
+
+/* ── Log list ─────────────────────────────────────────────────────────── */
+
+.admin-live-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 10px 10px calc(16px + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  position: relative;
+}
+
+.admin-live-jump {
+  position: sticky;
+  top: 2px;
+  z-index: 2;
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid color-mix(in srgb, var(--series-blue) 55%, transparent);
+  background: color-mix(in srgb, var(--series-blue) 88%, var(--surface-1));
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 7px 14px;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--series-blue) 35%, transparent);
+  cursor: pointer;
+  margin-bottom: 2px;
+  animation: admin-live-jump-in 0.22s ease-out;
+}
+
+.admin-live-jump svg {
+  width: 13px;
+  height: 13px;
+}
+
+@keyframes admin-live-jump-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.admin-live-row {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 10px;
+  padding: 9px 11px;
+  animation: admin-row-in 0.32s ease-out;
+}
+
+.admin-live-row--skeleton {
+  padding: 13px 11px;
+}
+
+.admin-live-row-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.admin-live-row-time {
+  flex-shrink: 0;
+  font-family: "Consolas", ui-monospace, "DejaVu Sans Mono", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-live-row-session {
+  flex-shrink: 0;
+  font-family: "Consolas", ui-monospace, "DejaVu Sans Mono", monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--page-plane);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.admin-live-row-session--btn {
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.admin-live-row-session--btn:active,
+.admin-live-row-session--btn.is-open {
+  background: color-mix(in srgb, var(--series-blue) 20%, var(--page-plane));
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--series-blue) 50%, transparent);
+}
+
+.admin-live-row-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-live-row-badge-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.admin-live-row-detail {
+  margin-top: 5px;
+  font-size: 13px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  line-height: 1.35;
+}
+
+.admin-live-row-detail-muted {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.admin-live-row-stock-icon {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  object-fit: cover;
+}
+
+.admin-live-row-key {
+  font-family: "Consolas", ui-monospace, "DejaVu Sans Mono", monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--page-plane);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* ── Session trail (expanded from a hub row) ─────────────────────────── */
+
+.admin-live-trail {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.admin-live-trail-loading,
+.admin-live-trail-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.admin-live-trail-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11.5px;
+}
+
+.admin-live-trail-time {
+  flex-shrink: 0;
+  font-family: "Consolas", ui-monospace, "DejaVu Sans Mono", monospace;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.admin-live-trail-kind {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.admin-live-trail-label {
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-live-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 40px 0;
+}
+
+/* Slightly roomier on a tablet-sized phone/small tablet, still one column —
+   this page is never meant to grow a second column the way the desktop grid
+   does; it stays a single scrolling console at every width. */
+@media (min-width: 480px) {
+  .admin-live-list {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .admin-live-row {
+    padding: 10px 13px;
+  }
+}
