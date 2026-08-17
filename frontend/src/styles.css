@@ -3965,55 +3965,23 @@ thead .weekly-foreign-amount-col {
   filter: drop-shadow(0 1px 0 rgb(255 255 255 / 55%));
 }
 
-/* The discussion universe sits directly after ETF. Its cool cyan-violet face bridges
-   the ETF gold and the neutral TOP 100 pill, while the shared N badge marks both new
-   destinations consistently. */
+/* The discussion pill now matches the battle link's flat single-tone treatment
+   (same --series-red accent) instead of its old two-tone gradient + spinning badge,
+   so the nav row reads as one consistent button family rather than one-off styles
+   per destination. */
 .kospi-map-nav-link--discussion {
-  min-width: 0;
-  padding-left: 32px;
-  padding-right: 14px;
-  color: #f4fdff;
-  border-color: rgb(103 232 249 / 72%);
-  background: linear-gradient(125deg, rgb(8 82 112 / 94%), rgb(65 48 142 / 94%));
-  font-weight: 850;
-  letter-spacing: -.015em;
-  text-shadow: 0 1px 5px rgb(0 0 0 / 46%);
-  box-shadow: inset 0 1px rgb(255 255 255 / 18%), 0 0 15px rgb(34 211 238 / 18%);
-}
-
-.kospi-map-nav-link--discussion::before {
-  content: "N";
-  position: absolute;
-  z-index: 3;
-  left: 6px;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: 19px;
-  height: 19px;
-  border: 1.5px solid #fff;
-  border-radius: 6px;
-  color: #fff;
-  background: linear-gradient(145deg, #ff315f, #d90072 68%, #8c005e);
-  box-shadow: 0 3px 8px rgb(141 0 72 / 48%), 0 0 13px rgb(255 34 112 / 65%);
-  font: 1000 12px/1 Arial, sans-serif;
-  letter-spacing: -.04em;
-  text-shadow: 0 1px 2px rgb(83 0 43 / 70%);
-  pointer-events: none;
-  transform-origin: 50% 50%;
-  animation: etf-new-badge-spin 2.8s cubic-bezier(.55,.05,.28,1) infinite;
+  color: var(--series-red);
+  border-color: var(--series-red);
+  background: color-mix(in srgb, var(--series-red) 12%, transparent);
+  animation-delay: 0.6s;
 }
 
 .kospi-map-nav-link--discussion::after {
-  background: linear-gradient(100deg, transparent 25%, rgb(255 255 255 / 78%) 50%, transparent 75%);
-  animation-duration: 3.1s;
+  animation-delay: 0.6s;
 }
 
 .kospi-map-nav-link--discussion:hover {
-  color: #fff;
-  border-color: #a5f3fc;
-  background: linear-gradient(125deg, rgb(9 107 139 / 98%), rgb(80 60 171 / 98%));
-  box-shadow: inset 0 1px rgb(255 255 255 / 22%), 0 0 23px rgb(34 211 238 / 30%);
+  background: color-mix(in srgb, var(--series-red) 22%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4032,10 +4000,6 @@ thead .weekly-foreign-amount-col {
     transform: translateY(-50%) rotate(-7deg);
   }
 
-  .kospi-map-nav-link--discussion::before {
-    animation: none;
-    transform: translateY(-50%) rotate(-7deg);
-  }
 }
 
 @media (max-width: 640px) {
@@ -4052,18 +4016,6 @@ thead .weekly-foreign-amount-col {
     font-size: 11px;
   }
 
-  .kospi-map-nav-link--discussion {
-    min-width: 0;
-    padding-left: 28px;
-    padding-right: 10px;
-  }
-
-  .kospi-map-nav-link--discussion::before {
-    left: 5px;
-    width: 18px;
-    height: 18px;
-    font-size: 11px;
-  }
 }
 
 /* TOP 100's pill is the one filled shape in a row of outlined neon ones.
@@ -6936,14 +6888,7 @@ thead .weekly-foreign-amount-col {
     padding: 5px 11px 5px 31px;
   }
 
-  .app-nav-row .kospi-map-nav-link--discussion {
-    min-width: 137px;
-    min-height: 30px;
-    padding: 5px 11px 5px 31px;
-  }
-
-  .app-nav-row .kospi-map-nav-link--brief::before,
-  .app-nav-row .kospi-map-nav-link--discussion::before {
+  .app-nav-row .kospi-map-nav-link--brief::before {
     left: 6px;
     width: 17px;
     height: 17px;
