@@ -5,7 +5,7 @@ import { trillionSuffix, wonSuffix } from "../i18n/format";
 import { useLanguage, useT } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
-import { scrollToSection, trackStickyHeight } from "../stickyScroll";
+import { scrollBelowStickyHeader, scrollToSection, trackStickyHeight } from "../stickyScroll";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
@@ -124,7 +124,13 @@ export default function GlobalStockPage() {
 
   const priceChartRef = useRef<PriceChartHandle>(null);
   const indicatorPanelRef = useRef<IndicatorPanelHandle>(null);
+  const stockHeaderRef = useRef<HTMLDivElement>(null);
   const reportedRef = useRef(false);
+  // Mirrors the KR desk (see MarketDeskPage): a landing that already carries a
+  // ?code= — a search hit or a shared link — should auto-scroll down to the
+  // stock detail band, which sits below the market bands on this page. Only a
+  // bare /global with no code at all (which just shows the error state) skips it.
+  const skipInitialScrollRef = useRef(!new URLSearchParams(window.location.search).get("code"));
 
   useDocumentTitle(quote ? `${quote.name} - K-Stock Hub` : "K-Stock Hub");
 
@@ -146,11 +152,30 @@ export default function GlobalStockPage() {
     setError(null);
     reportedRef.current = false;
 
+    const skipScroll = skipInitialScrollRef.current;
+    skipInitialScrollRef.current = false;
+    let followUpTimer: number | undefined;
+
+    // Offset by the sticky header rather than scrollIntoView'd flush to the
+    // viewport top — same reasoning as MarketDeskPage/Dashboard: without it the
+    // stock's name and price land underneath .app-header. A follow-up scroll
+    // corrects for the chart's own late layout settle.
+    const scrollToResult = () => {
+      if (skipScroll || cancelled) return;
+      const align = () => {
+        const target = stockHeaderRef.current;
+        if (target) scrollBelowStickyHeader(target);
+      };
+      requestAnimationFrame(align);
+      followUpTimer = window.setTimeout(align, 400);
+    };
+
     Promise.all([api.usStockQuote(code), api.usStockIndicators(code, 3)])
       .then(([quoteRes, indicatorRes]) => {
         if (cancelled) return;
         setQuote(quoteRes);
         setIndicatorPoints(indicatorRes.points);
+        scrollToResult();
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message || "데이터를 가져오지 못했습니다.");
@@ -161,6 +186,7 @@ export default function GlobalStockPage() {
 
     return () => {
       cancelled = true;
+      if (followUpTimer !== undefined) window.clearTimeout(followUpTimer);
     };
   }, [code]);
 
@@ -506,7 +532,7 @@ export default function GlobalStockPage() {
         <div className="layout">
           <div className="main-col">
             {!quote ? (
-              <div className="card stock-header stock-header-skeleton" aria-hidden="true">
+              <div className="card stock-header stock-header-skeleton" ref={stockHeaderRef} aria-hidden="true">
                 <span className="name">
                   <span className="skeleton" style={{ width: 22, height: 22, borderRadius: 5 }} />
                   <span className="skeleton" style={{ width: 120, height: 20 }} />
@@ -519,7 +545,7 @@ export default function GlobalStockPage() {
                 </span>
               </div>
             ) : (
-              <div className="card stock-header">
+              <div className="card stock-header" ref={stockHeaderRef}>
                 <span className="name">
                   {enrichment && !logoFailed ? (
                     <img
