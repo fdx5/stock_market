@@ -71,6 +71,12 @@ const AdminLivePage = lazy(() => import("./components/AdminLivePage"));
 // page, so that ~150KB gzipped lands only when an admin actually opens it and never
 // touches a visitor's bundle.
 const MonitorPage = lazy(() => import("./components/MonitorPage"));
+// Floating "최근 본 종목" rail — docked outside the content column on wide
+// desktop viewports, only on the pages in RECENT_DOCK_PATHS below. Lazy and
+// wrapped in its own silent Suspense so it never delays the page it floats
+// beside, and self-hides on any allowed route without enough gutter room for
+// it — see RecentStocksDock.tsx.
+const RecentStocksDock = lazy(() => import("./components/RecentStocksDock"));
 
 /** The one handling old /dashboard traffic gets: straight to the desk, query
  * string carried along as-is (?code=/&name= are exactly what MarketDeskPage
@@ -154,6 +160,16 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
     description: "D램 현물가격과 메모리 반도체 가격 변화를 기간별 차트로 확인하세요.",
   },
 };
+
+// Pages the recent-stocks dock is allowed on — the reader-facing "browsing a
+// stock or a ranking" surfaces, not the maps, battles, admin tools or the two
+// full-bleed 3D pages. Deliberately an explicit allowlist rather than "every
+// page with an .app column": that would also cover the map pages, /battle,
+// /ai-prediction/grading and friends, none of which were asked for.
+const RECENT_DOCK_PATHS = new Set([
+  "/desk", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
+  "/ai-prediction", "/global-top100", "/fight", "/news",
+]);
 
 export default function App() {
   const path = useRoute();
@@ -306,8 +322,21 @@ export default function App() {
     page = <HubType2 />;
   }
 
+  // /stock/:code is the canonical URL for the market desk (see the canonicalPath
+  // rewrite above), so it counts as "/desk" for the dock's allowlist too.
+  const showRecentDock = RECENT_DOCK_PATHS.has(path) || !!stockMatch;
+
   // The fallback stays silent for its first 2.5s (see LoadingState): a cached route
   // chunk resolves in milliseconds, and the old fallback made every navigation flash a
   // loading line before the page it was standing in for even had a chance to render.
-  return <Suspense fallback={<LoadingState />}>{page}</Suspense>;
+  return (
+    <>
+      <Suspense fallback={<LoadingState />}>{page}</Suspense>
+      {showRecentDock && (
+        <Suspense fallback={null}>
+          <RecentStocksDock />
+        </Suspense>
+      )}
+    </>
+  );
 }

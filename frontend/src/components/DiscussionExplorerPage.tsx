@@ -1282,7 +1282,7 @@ export default function DiscussionExplorerPage() {
           className="discussion-search-prompt"
           onClick={() => { searchInputRef.current?.focus(); setSearchOpen(true); }}
         >
-          <span aria-hidden="true">✦</span> 삼성전자 외 다른 종목도 탐험해 보세요
+          <span aria-hidden="true">✦</span> {name === "삼성전자" && "삼성전자 외 다른 종목도 탐험해 보세요"}
         </button>
         <div className={`discussion-search-box ${searchOpen ? "is-open" : ""}`}>
           <span aria-hidden="true">⌕</span>

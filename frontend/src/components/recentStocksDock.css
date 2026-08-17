@@ -1,0 +1,225 @@
+/* ═══ Recent stocks dock — the floating "최근 본 종목" rail ═══
+   Mounted at the App level, not inside any page's own layout, and positioned
+   with inline left/top computed in RecentStocksDock.tsx from the mounted
+   page's own .app box — see that file for why. Everything below is just the
+   card's own look; the *placement* logic lives in the component.
+
+   position: fixed also does the whole "keep up while scrolling" job for free:
+   nothing here or in the component tracks scroll position at all. */
+
+.recent-dock {
+  position: fixed;
+  z-index: 30;
+  width: 196px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: recent-dock-in 0.35s ease both;
+}
+
+@keyframes recent-dock-in {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.recent-dock-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.recent-dock-head:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
+}
+
+.recent-dock-head-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.recent-dock-head-label {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Reuses the admin dashboard's own "live" ring-pulse rather than inventing a
+   second one — same motion language, one definition. */
+.recent-dock-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--status-good);
+  animation: admin-pulse-ring 1.8s ease-out infinite;
+  flex-shrink: 0;
+}
+
+.recent-dock-chevron {
+  font-size: 13px;
+  color: var(--text-muted);
+  transform: rotate(90deg);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.recent-dock-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.recent-dock-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 2px;
+  margin: 0;
+}
+
+.recent-dock-list::-webkit-scrollbar {
+  display: none;
+}
+
+.recent-dock-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--surface-1);
+  text-decoration: none;
+  color: inherit;
+  animation: recent-dock-card-in 0.3s ease both;
+  transition: border-color 0.15s ease, transform 0.15s ease, background-color 0.6s ease, border-color 0.6s ease;
+}
+
+@keyframes recent-dock-card-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.recent-dock-card:hover {
+  border-color: var(--text-muted);
+  transform: translateX(-3px);
+}
+
+/* Briefly tints the whole card toward up/down when its price just moved —
+   the transition above is what turns this into a fade rather than a snap. */
+.recent-dock-card.is-flash-up {
+  background: color-mix(in srgb, var(--up-color) 16%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--up-color) 45%, var(--border));
+}
+
+.recent-dock-card.is-flash-down {
+  background: color-mix(in srgb, var(--down-color) 16%, var(--surface-1));
+  border-color: color-mix(in srgb, var(--down-color) 45%, var(--border));
+}
+
+.recent-dock-card-logo {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.recent-dock-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.recent-dock-card-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-dock-card-code {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.recent-dock-card-price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.recent-dock-card-price strong {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recent-dock-card-price em {
+  font-size: 10.5px;
+  font-weight: 700;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recent-dock-card-price em.is-up {
+  color: var(--up-color);
+}
+
+.recent-dock-card-price em.is-down {
+  color: var(--down-color);
+}
+
+.recent-dock-card-price em.is-flat {
+  color: var(--text-muted);
+}
+
+/* Reuses the admin dashboard's shimmer keyframe (same gradient shape the
+   quick-access chip skeleton also borrows) while the first quote is in flight. */
+.recent-dock-card-skeleton {
+  display: block;
+  width: 52px;
+  height: 26px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-1) 25%,
+    color-mix(in srgb, var(--text-primary) 8%, var(--surface-1)) 37%,
+    var(--surface-1) 63%
+  );
+  background-size: 400% 100%;
+  animation: admin-shimmer 1.4s ease infinite;
+}
