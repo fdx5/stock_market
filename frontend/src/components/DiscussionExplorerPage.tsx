@@ -4,6 +4,7 @@ import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { reportDiscussionPostClick, reportDiscussionSearchSelection } from "../useActivityTracking";
 import { startVisibilityAwareInterval } from "../pollVisibility";
+import OrderBookBalance from "./OrderBookBalance";
 import StockLogo from "./StockLogo";
 import "../discussionExplorer.css";
 
@@ -604,6 +605,15 @@ function DiscussionInsightPanel({
       </div>
 
       <MiniTrendChart points={spark?.points ?? []} tone={changeTone} />
+
+      {/* Naver's 10-hoga ladder is a KRX-only concept — no US listing or ETF has an
+          equivalent page to scrape, so this reuses the exact same gate as the
+          investor-flow section above rather than a fresh market/assetKind check. */}
+      {investorApplicable && (
+        <div className="discussion-insight-orderbook">
+          <OrderBookBalance code={code} />
+        </div>
+      )}
 
       <div className="discussion-insight-analysis">
         {brief ? (
