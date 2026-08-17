@@ -116,6 +116,15 @@
   display: none;
 }
 
+/* Wraps each card so the 종목토론 badge can sit as an absolutely-positioned
+   sibling of the card's own <a> instead of a nested one — an anchor inside
+   an anchor is invalid HTML, and the two need independent click targets
+   anyway (one opens the stock, the other opens its discussion board). */
+.recent-dock-card-wrap {
+  position: relative;
+  animation: recent-dock-card-in 0.3s ease both;
+}
+
 .recent-dock-card {
   display: flex;
   align-items: center;
@@ -126,7 +135,6 @@
   background: var(--surface-1);
   text-decoration: none;
   color: inherit;
-  animation: recent-dock-card-in 0.3s ease both;
   transition: border-color 0.15s ease, transform 0.15s ease, background-color 0.6s ease, border-color 0.6s ease;
 }
 
@@ -308,4 +316,51 @@
 .recent-dock-card-skeleton--compact {
   width: 100%;
   height: 30px;
+}
+
+/* ── 종목토론 badge — a corner button on each card, independent of the
+   card's own click target (see the .recent-dock-card-wrap comment above). ── */
+.recent-dock-card-discuss {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--status-warning) 55%, var(--border));
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--status-warning) 20%, var(--surface-1));
+  color: var(--status-warning);
+  cursor: pointer;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-warning) 14%, transparent);
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.recent-dock-card-discuss svg {
+  width: 11px;
+  height: 11px;
+}
+
+.recent-dock-card-discuss:hover,
+.recent-dock-card-discuss:focus-visible {
+  border-color: var(--status-warning);
+  background: color-mix(in srgb, var(--status-warning) 32%, var(--surface-1));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--status-warning) 22%, transparent);
+  transform: scale(1.1);
+}
+
+.recent-dock-card-wrap--compact .recent-dock-card-discuss {
+  top: -5px;
+  right: -5px;
+  width: 17px;
+  height: 17px;
+}
+
+.recent-dock-card-wrap--compact .recent-dock-card-discuss svg {
+  width: 9.5px;
+  height: 9.5px;
 }

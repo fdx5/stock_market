@@ -3,8 +3,9 @@ import { api } from "../api/client";
 import { useT } from "../i18n/LanguageContext";
 import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { startVisibilityAwareInterval } from "../pollVisibility";
-import { Link, useRoute } from "../router";
+import { Link, navigate, useRoute } from "../router";
 import { useWatchlist } from "../useWatchlist";
+import DiscussionIcon from "./DiscussionIcon";
 import StockLogo from "./StockLogo";
 import "./recentStocksDock.css";
 
@@ -218,51 +219,69 @@ export default function RecentStocksDock() {
             const href = isUs
               ? `/global?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`
               : `/desk?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`;
+            const discussHref = `/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${isUs ? "US" : "KR"}`;
             const displayName = names[idx] ?? item.name;
 
             return (
-              <Link
+              <div
                 key={item.code}
-                to={href}
-                className={`recent-dock-card ${compact ? "recent-dock-card--compact" : ""} ${flash ? `is-flash-${flash}` : ""}`}
+                className={`recent-dock-card-wrap ${compact ? "recent-dock-card-wrap--compact" : ""}`}
                 style={{ animationDelay: `${idx * 45}ms` }}
-                title={`${item.name} (${item.code})`}
               >
-                {compact ? (
-                  <>
-                    <span className="recent-dock-card-top">
-                      <StockLogo code={item.code} className="recent-dock-card-logo recent-dock-card-logo--compact" />
-                      <span className="recent-dock-card-name recent-dock-card-name--compact">{displayName}</span>
-                    </span>
-                    {quote ? (
-                      <>
-                        <strong className="recent-dock-card-price--compact">{priceText}</strong>
-                        <em className={`recent-dock-card-change--compact ${changeClass}`}>{pctText}</em>
-                      </>
-                    ) : (
-                      <span className="recent-dock-card-skeleton recent-dock-card-skeleton--compact" aria-hidden="true" />
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <StockLogo code={item.code} className="recent-dock-card-logo" />
-                    <span className="recent-dock-card-info">
-                      <span className="recent-dock-card-name">{displayName}</span>
-                      <span className="recent-dock-card-code">{item.code}</span>
-                    </span>
-                    <span className="recent-dock-card-price">
+                <Link
+                  to={href}
+                  className={`recent-dock-card ${compact ? "recent-dock-card--compact" : ""} ${flash ? `is-flash-${flash}` : ""}`}
+                  title={`${item.name} (${item.code})`}
+                >
+                  {compact ? (
+                    <>
+                      <span className="recent-dock-card-top">
+                        <StockLogo code={item.code} className="recent-dock-card-logo recent-dock-card-logo--compact" />
+                        <span className="recent-dock-card-name recent-dock-card-name--compact">{displayName}</span>
+                      </span>
                       {quote ? (
                         <>
-                          <strong>{priceText}</strong>
-                          <em className={changeClass}>{pctText}</em>
+                          <strong className="recent-dock-card-price--compact">{priceText}</strong>
+                          <em className={`recent-dock-card-change--compact ${changeClass}`}>{pctText}</em>
                         </>
                       ) : (
-                        <span className="recent-dock-card-skeleton" aria-hidden="true" />
+                        <span className="recent-dock-card-skeleton recent-dock-card-skeleton--compact" aria-hidden="true" />
                       )}
-                    </span>
-                  </>
-                )}
-              </Link>
+                    </>
+                  ) : (
+                    <>
+                      <StockLogo code={item.code} className="recent-dock-card-logo" />
+                      <span className="recent-dock-card-info">
+                        <span className="recent-dock-card-name">{displayName}</span>
+                        <span className="recent-dock-card-code">{item.code}</span>
+                      </span>
+                      <span className="recent-dock-card-price">
+                        {quote ? (
+                          <>
+                            <strong>{priceText}</strong>
+                            <em className={changeClass}>{pctText}</em>
+                          </>
+                        ) : (
+                          <span className="recent-dock-card-skeleton" aria-hidden="true" />
+                        )}
+                      </span>
+                    </>
+                  )}
+                </Link>
+                <button
+                  type="button"
+                  className="recent-dock-card-discuss"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    navigate(discussHref);
+                  }}
+                  title={t("종목토론")}
+                  aria-label={`${item.name} ${t("종목토론")}`}
+                >
+                  <DiscussionIcon />
+                </button>
+              </div>
             );
           })}
         </div>
