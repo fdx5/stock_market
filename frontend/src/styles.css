@@ -4077,7 +4077,8 @@ thead .weekly-foreign-amount-col {
 }
 
 .kospi-map-nav-link--battle .market-nav-icon,
-.app-footer-market-link--battle .market-nav-icon {
+.app-footer-market-link--battle .market-nav-icon,
+.kospi-map-nav-link--discussion .market-nav-icon {
   animation-delay: 0.6s;
 }
 

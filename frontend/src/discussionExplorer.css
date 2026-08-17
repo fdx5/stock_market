@@ -56,6 +56,85 @@
 .discussion-statusbar { position: absolute; z-index: 32; top: 106px; left: 50%; display: flex; gap: 19px; padding: 8px 14px; transform: translateX(-50%); color: #8fa6bd; border: 1px solid rgba(148,163,184,.15); border-radius: 999px; background: rgba(3,9,24,.58); backdrop-filter: blur(12px); font-size: 10px; letter-spacing: .05em; white-space: nowrap; }
 .discussion-statusbar i { display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%; background: #34d399; box-shadow: 0 0 10px #34d399; animation: status-pulse 1.6s ease infinite; }
 
+/* Two floating, tilted glass cards flanking the sphere — a full-titles board list on
+   the right, a price/trend/AI-brief card on the left. Both sit over the animated
+   scene, so they follow the same no-backdrop-filter rule as the rest of the HUD (see
+   the shared perf note further down): opaque cosmic gradients read as glass without
+   the recurring re-rasterize cost live backdrop sampling would add every frame. */
+.discussion-list-panel, .discussion-insight-panel {
+  position: absolute;
+  z-index: 41;
+  top: 150px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #ddecf4;
+  border: 1px solid rgba(103,232,249,.28);
+  border-radius: 18px;
+  background: linear-gradient(150deg, rgba(7,19,39,.95), rgba(10,8,30,.94));
+  box-shadow: 0 22px 60px rgba(0,0,0,.5), 0 0 30px rgba(34,211,238,.08);
+  transition: transform .35s ease, box-shadow .35s ease;
+  pointer-events: auto;
+}
+.discussion-list-panel { right: clamp(14px, 2vw, 28px); width: clamp(230px, 21vw, 300px); max-height: min(40vh, 430px); transform: perspective(900px) rotateY(-5deg) rotateX(1deg); transform-origin: right center; }
+.discussion-list-panel:hover { transform: perspective(900px) rotateY(-1deg) rotateX(0deg); box-shadow: 0 26px 70px rgba(0,0,0,.55), 0 0 40px rgba(34,211,238,.14); }
+.discussion-list-panel.is-collapsed { max-height: none; }
+
+.discussion-list-panel > header { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px 12px; border-bottom:1px solid rgba(148,163,184,.14); }
+.discussion-list-panel > header > div { display:grid; gap:2px; min-width:0; }
+.discussion-list-panel > header > div > span { color:#67e8f9; font:600 8px/1 Inter, sans-serif; letter-spacing:.22em; }
+.discussion-list-panel > header strong { display:flex; align-items:baseline; gap:6px; color:#f0fbff; font-size:12px; font-weight:750; letter-spacing:-.01em; }
+.discussion-list-panel > header strong b { color:#a5f3fc; font-size:14px; font-weight:900; }
+.discussion-list-panel > header > button { flex:0 0 auto; display:grid; place-items:center; width:26px; height:26px; color:#9cb3c8; border:1px solid rgba(148,163,184,.16); border-radius:8px; background:rgba(255,255,255,.03); font-size:11px; cursor:pointer; transition:.2s; }
+.discussion-list-panel > header > button:hover { color:#e8fdff; border-color:rgba(103,232,249,.5); }
+
+.discussion-list-scroll { overflow-y:auto; padding:6px; touch-action:pan-y; scrollbar-width:thin; scrollbar-color:#27526b transparent; }
+.discussion-list-empty { margin:0; padding:22px 10px; color:#71879a; text-align:center; font-size:11px; }
+.discussion-list-row { display:flex; align-items:flex-start; gap:9px; width:100%; padding:10px 9px; border:0; border-radius:11px; background:transparent; color:inherit; text-align:left; cursor:pointer; transition:background .15s ease; }
+.discussion-list-row:hover { background:rgba(103,232,249,.08); }
+.discussion-list-row.is-active { background:linear-gradient(120deg, rgba(34,211,238,.16), rgba(124,58,237,.14)); box-shadow:inset 0 0 0 1px rgba(103,232,249,.35); }
+.discussion-list-row-index { flex:0 0 auto; margin-top:1px; color:rgba(125,211,252,.45); font:600 9px/1.4 Inter; letter-spacing:.06em; }
+.discussion-list-row-body { min-width:0; display:grid; gap:4px; }
+.discussion-list-row-body strong { display:block; color:#e7f7ff; font-size:11.5px; font-weight:650; line-height:1.4; word-break:break-word; }
+.discussion-list-row.is-active .discussion-list-row-body strong { color:#fff; }
+.discussion-list-row-body em { display:block; overflow:hidden; color:#7294aa; font-size:9px; font-style:normal; white-space:nowrap; text-overflow:ellipsis; }
+
+/* Left-side companion: price + trend + brief. Only ever mounted on widths that leave
+   genuine spare room beside the sphere — see the min-width gate near the bottom of
+   this file — so it never has to compete with the 3D scene for space. */
+.discussion-insight-panel { left: clamp(14px, 2vw, 28px); width: clamp(260px, 23vw, 330px); max-height: min(56vh, 580px); padding-bottom: 16px; transform: perspective(900px) rotateY(5deg) rotateX(1deg); transform-origin: left center; display: none; }
+.discussion-insight-panel:hover { transform: perspective(900px) rotateY(1deg) rotateX(0deg); box-shadow: 0 26px 70px rgba(0,0,0,.55), 0 0 40px rgba(34,211,238,.14); }
+.discussion-insight-panel > header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:14px 16px 12px; border-bottom:1px solid rgba(148,163,184,.14); }
+.discussion-insight-panel > header > span { color:#67e8f9; font:700 9px/1 Inter, sans-serif; letter-spacing:.16em; }
+.discussion-insight-panel > header > em { color:#7294aa; font-size:9px; font-style:normal; white-space:nowrap; }
+.discussion-insight-price { display:flex; align-items:baseline; gap:9px; padding:14px 16px 4px; }
+.discussion-insight-price strong { color:#f5fcff; font-size:19px; letter-spacing:-.02em; }
+.discussion-insight-price-loading { color:#7294aa; font-size:12px; font-weight:600; }
+.discussion-insight-price span { font-size:12px; font-weight:800; }
+.discussion-insight-price span.is-up { color:#fb7185; text-shadow:0 0 12px rgba(251,113,133,.22); }
+.discussion-insight-price span.is-down { color:#60a5fa; text-shadow:0 0 12px rgba(96,165,250,.22); }
+.discussion-insight-price span.is-flat { color:#a8bac7; }
+.discussion-insight-chart, .discussion-insight-chart-empty { display:block; width:100%; height:58px; margin:6px 0 4px; padding:0 10px; box-sizing:border-box; }
+.discussion-insight-chart-empty { display:grid; place-items:center; color:#5e7386; font-size:10px; }
+.discussion-insight-chart-fill { fill:rgba(103,232,249,.1); stroke:none; }
+.discussion-insight-chart-line { fill:none; stroke:#67e8f9; stroke-width:2; vector-effect:non-scaling-stroke; filter:drop-shadow(0 2px 4px rgba(103,232,249,.28)); }
+.discussion-insight-chart.is-up .discussion-insight-chart-line { stroke:#fb7185; filter:drop-shadow(0 2px 4px rgba(251,113,133,.28)); }
+.discussion-insight-chart.is-up .discussion-insight-chart-fill { fill:rgba(251,113,133,.1); }
+.discussion-insight-chart.is-down .discussion-insight-chart-line { stroke:#60a5fa; filter:drop-shadow(0 2px 4px rgba(96,165,250,.28)); }
+.discussion-insight-chart.is-down .discussion-insight-chart-fill { fill:rgba(96,165,250,.1); }
+.discussion-insight-analysis { overflow-y:auto; padding:8px 16px 0; touch-action:pan-y; scrollbar-width:thin; scrollbar-color:#27526b transparent; }
+.discussion-insight-analysis p { margin:0 0 10px; color:#cfdee6; font-size:11.5px; line-height:1.62; }
+.discussion-insight-analysis p:last-child { margin-bottom:0; }
+.discussion-insight-issues { margin:2px 0 10px; padding:10px 12px; border:1px solid rgba(103,232,249,.18); border-radius:11px; background:rgba(103,232,249,.05); }
+.discussion-insight-issues b { display:block; margin-bottom:6px; color:#67e8f9; font:700 9px/1 Inter, sans-serif; letter-spacing:.14em; }
+.discussion-insight-issues ul { margin:0; padding-left:16px; }
+.discussion-insight-issues li { margin-bottom:5px; color:#cfdee6; font-size:11px; line-height:1.5; }
+.discussion-insight-issues li:last-child { margin-bottom:0; }
+
+@media (min-width: 1320px) {
+  .discussion-insight-panel { display: flex; }
+}
+
 .discussion-viewport { position: absolute; inset: 0; perspective: 1450px; perspective-origin: 50% 50%; cursor: grab; }
 .discussion-viewport:active { cursor: grabbing; }
 .discussion-scene { position: absolute; left: 50%; top: 51%; width: 0; height: 0; transform-style: preserve-3d; will-change: transform; contain: layout style; }
@@ -211,6 +290,7 @@
   .discussion-footer > div { display: none; }.discussion-footer button { width: 100%; max-width: 370px; }
   .discussion-detail { inset: auto 8px calc(65px + env(safe-area-inset-bottom)); width: auto; max-height: 57vh; transform: none; border-radius: 17px; animation-name: detail-mobile-enter; }
   .discussion-detail header { padding: 17px 17px 13px; }.discussion-detail-scroll { padding: 16px 17px 21px; }
+  .discussion-list-panel { display: none; }
 }
 
 @media (hover: none), (pointer: coarse) {
@@ -327,6 +407,7 @@
 @media (max-height: 620px) and (orientation: landscape) {
   .discussion-hud { padding-top: 9px; }.discussion-search { top: 5px; width: 46vw; }.discussion-search-prompt { display: none; }.discussion-statusbar { top: 58px; }.discussion-heading p { display: none; }
   .discussion-detail { max-height: 76vh; }.discussion-footer { bottom: 8px; }.discussion-controls { right: 8px; }
+  .discussion-list-panel, .discussion-insight-panel { top: 90px; max-height: min(70vh, 360px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

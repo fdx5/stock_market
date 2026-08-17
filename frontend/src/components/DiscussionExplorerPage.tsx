@@ -1,5 +1,5 @@
 import { PointerEvent as ReactPointerEvent, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
-import { BoardComment, BoardDetail, BoardPost, EtfItem, GlobalDiscussionPost, StockSearchResult, api } from "../api/client";
+import { BoardComment, BoardDetail, BoardPost, EtfItem, GlobalDiscussionPost, InvestorTrendRecord, MarketSparkline, StockSearchResult, api } from "../api/client";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { reportDiscussionPostClick, reportDiscussionSearchSelection } from "../useActivityTracking";
@@ -266,6 +266,345 @@ function DetailPanel({
               </article>
             ))}
           </section>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+/** A flat, all-titles-at-once companion to the 3D sphere: the sphere reads as an
+ * atmosphere, not a scanner, since only cards facing the camera are legible at any
+ * moment. This panel lists every currently loaded post in one place so a visitor can
+ * actually scan the board. Posts arrive newest-first from both `loadDomestic` (board
+ * pages fetched in page order) and `loadCursorDiscussion` (cursor starts at the latest
+ * post), so the incoming order already reads as "최신순" without re-sorting an
+ * ambiguous date string. Selecting a row opens the same detail popup as tapping its
+ * card in the sphere. */
+function DiscussionListPanel({
+  posts,
+  selectedId,
+  onSelect,
+}: {
+  posts: UniversePost[];
+  selectedId: string | null;
+  onSelect: (post: UniversePost) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <aside className={`discussion-list-panel ${collapsed ? "is-collapsed" : ""}`} aria-label="전체 토론 목록">
+      <header>
+        <div>
+          <span>ALL SIGNALS</span>
+          <strong>
+            전체 목록 <b>{posts.length}</b>
+          </strong>
+        </div>
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          aria-label={collapsed ? "목록 펼치기" : "목록 접기"}
+        >
+          {collapsed ? "▸" : "▾"}
+        </button>
+      </header>
+      {!collapsed && (
+        <div className="discussion-list-scroll">
+          {posts.length === 0 ? (
+            <p className="discussion-list-empty">표시할 토론이 없습니다</p>
+          ) : (
+            posts.map((post, index) => (
+              <button
+                key={post.id}
+                type="button"
+                className={`discussion-list-row ${selectedId === post.id ? "is-active" : ""}`}
+                onClick={() => onSelect(post)}
+              >
+                <span className="discussion-list-row-index">{String(index + 1).padStart(2, "0")}</span>
+                <span className="discussion-list-row-body">
+                  <strong>{post.title}</strong>
+                  <em>
+                    {post.author} · 조회 {post.views.toLocaleString()}
+                  </em>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </aside>
+  );
+}
+
+/** The five names `market_brief.py` actually generates a daily AI-written brief for
+ * (see MARKET_TABS in MarketBriefPage.tsx) — every other code this page can be opened
+ * with falls back to the rule-based summary below instead of silently showing nothing. */
+const AI_BRIEF_SLUGS: Record<string, string> = {
+  "005930": "samsung",
+  "000660": "hynix",
+  "005380": "hyundai",
+  "402340": "sksquare",
+  "009150": "semco",
+};
+
+type StockBrief = { date: string; summary: string; analysis: string[]; key_issues?: string[] };
+
+function formatEok(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  if (abs >= 10_000) return `${sign}${(abs / 10_000).toFixed(1)}조`;
+  return `${sign}${Math.round(abs).toLocaleString()}억`;
+}
+
+/** KST calendar date as YYYY-MM-DD, matching the trading-date string market_brief.py
+ * stores — en-CA is just the shortest built-in Intl locale that formats that way. */
+function todayKst(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date());
+}
+
+function toneOf(value: number | null | undefined): "up" | "down" | "flat" {
+  if (!value) return "flat";
+  return value > 0 ? "up" : value < 0 ? "down" : "flat";
+}
+
+function MiniTrendChart({ points, tone: chartTone }: { points: number[]; tone: "up" | "down" | "flat" }) {
+  if (points.length < 2) return <div className="discussion-insight-chart-empty">차트 준비 중</div>;
+  const min = Math.min(...points);
+  const max = Math.max(...points);
+  const span = max - min || 1;
+  const coords = points.map((value, index) => [
+    (index / (points.length - 1)) * 280,
+    58 - ((value - min) / span) * 48,
+  ]);
+  const line = coords.map(([x, y]) => `${x},${y}`).join(" ");
+  const area = `0,58 ${line} 280,58`;
+  return (
+    <svg className={`discussion-insight-chart is-${chartTone}`} viewBox="0 0 280 58" preserveAspectRatio="none" aria-hidden="true">
+      <polygon points={area} className="discussion-insight-chart-fill" />
+      <polyline points={line} className="discussion-insight-chart-line" />
+    </svg>
+  );
+}
+
+function fmtPct(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
+}
+
+/** Every line the AUTO SUMMARY branch shows when there's no real brief to fall back
+ * on — a short read built entirely from numbers already on screen (today's change%,
+ * the 20-day trailing return, the year of daily closes behind the trend chart, and —
+ * for a KR stock code — its trailing investor-flow rows), so it stays honest about
+ * being derived rather than written. `investorRecords` is null when the flow data
+ * doesn't apply to this asset (US stocks, ETFs) so that section is simply omitted
+ * rather than showing a "loading" line that would never resolve. Returns one string
+ * per line rather than a single blob so the panel can render a real paragraph break
+ * between each point instead of one dense wall of text. */
+function buildRuleBasedLines(
+  quote: ExplorerQuote | null,
+  spark: MarketSparkline | null,
+  changeTone: "up" | "down" | "flat",
+  investorRecords: InvestorTrendRecord[] | null,
+): string[] {
+  const lines: string[] = [];
+  const r = spark?.returns;
+
+  lines.push(
+    changeTone === "up"
+      ? `오늘 장중 ${quote ? fmtPct(quote.change_pct) : ""} 상승하며 강세 흐름을 보이고 있습니다.`
+      : changeTone === "down"
+        ? `오늘 장중 ${quote ? fmtPct(quote.change_pct) : ""} 하락하며 약세 흐름을 보이고 있습니다.`
+        : "오늘 장중 뚜렷한 방향성 없이 보합권에서 움직이고 있습니다.",
+  );
+
+  lines.push(
+    r?.d20 == null
+      ? "최근 20거래일 추세 데이터를 준비하는 중입니다."
+      : `최근 20거래일(약 1개월) 수익률은 ${fmtPct(r.d20)}로, ${r.d20 >= 0 ? "단기 상승 흐름" : "단기 조정 흐름"}에 가깝습니다.`,
+  );
+
+  const points = spark?.points ?? [];
+  if (quote && points.length >= 2) {
+    const hi = Math.max(...points);
+    const lo = Math.min(...points);
+    if (hi > lo) {
+      const posPct = ((quote.close - lo) / (hi - lo)) * 100;
+      lines.push(
+        `최근 조회 구간(약 1년) 고가 대비 ${fmtPct(((quote.close - hi) / hi) * 100)}, 저가 대비 ${fmtPct(((quote.close - lo) / lo) * 100)} 지점으로, 구간 내 위치는 하단 대비 상위 ${posPct.toFixed(0)}% 수준입니다.`,
+      );
+    }
+  } else {
+    lines.push("최근 1년 가격 구간 데이터를 준비하는 중입니다.");
+  }
+
+  if (investorRecords) {
+    const latest = investorRecords[0];
+    if (latest) {
+      lines.push(
+        `최근 거래일(${latest.date}) 수급은 외국인 ${formatEok(latest.foreign_amount)}, 기관 ${formatEok(latest.institution_amount)}, 개인 ${formatEok(latest.individual_amount)} 순매수(매도)입니다.`,
+      );
+      const cumForeign = investorRecords.reduce((sum, row) => sum + row.foreign_amount, 0);
+      const cumInstitution = investorRecords.reduce((sum, row) => sum + row.institution_amount, 0);
+      lines.push(
+        `최근 ${investorRecords.length}거래일 누적으로는 외국인 ${formatEok(cumForeign)}, 기관 ${formatEok(cumInstitution)} 순매수(매도)를 기록해, ${cumForeign >= 0 ? "외국인 자금이 순유입" : "외국인 자금이 순유출"}되는 흐름입니다.`,
+      );
+    } else {
+      lines.push("최근 수급(외국인·기관) 데이터를 준비하는 중입니다.");
+    }
+  }
+
+  return lines;
+}
+
+/** A floating, tilted card mirroring DiscussionListPanel on the opposite side — the
+ * sphere's spare left real estate on wide screens. Shows the price already polled for
+ * the header, a trailing-close trend chart, and a short read of today's session: a
+ * real AI-written blurb for the five stocks `market_brief.py` covers, and a rule-based
+ * one (built from the same change%/trailing-return numbers already on screen) for
+ * every other code, so the panel never has to hide itself for lack of a real brief.
+ * Desktop-only: gated to width in CSS rather than unmounted, since the fetches it
+ * triggers are cheap and worth warming even just under the breakpoint. */
+function DiscussionInsightPanel({
+  code,
+  market,
+  assetKind,
+  quote,
+}: {
+  code: string;
+  market: "KR" | "US";
+  assetKind: AssetKind;
+  quote: ExplorerQuote | null;
+}) {
+  const [brief, setBrief] = useState<StockBrief | null>(null);
+  const [spark, setSpark] = useState<MarketSparkline | null>(null);
+  const [investorRecords, setInvestorRecords] = useState<InvestorTrendRecord[]>([]);
+  // Naver's investor-flow table only exists for KR common stocks — not US listings,
+  // not ETFs — so this is checked once here rather than inferred from an empty
+  // response, which would be indistinguishable from "still loading".
+  const investorApplicable = market === "KR" && assetKind === "STOCK";
+
+  useEffect(() => {
+    setBrief(null);
+    const slug = market === "KR" && assetKind === "STOCK" ? AI_BRIEF_SLUGS[code] : undefined;
+    if (!slug) return;
+    let cancelled = false;
+
+    const load = () => {
+      fetch(`/api/market-brief/latest/${slug}`)
+        .then((response) => (response.ok ? response.json() : Promise.reject()))
+        .then((data: StockBrief) => {
+          // The batch that writes this only runs once, at 16:10 KST after close (see
+          // market_brief.py's _loop). Mid-session — or on a day the batch hasn't run
+          // yet — "latest" is still whatever the last completed session produced,
+          // sometimes several days stale across a holiday weekend. Showing that next
+          // to a live current price reads as "today's take" when it isn't, so it's
+          // only surfaced once its trading date actually catches up to today; until
+          // then the rule-based summary below (built from the same live numbers) is
+          // the honest one to show.
+          if (!cancelled && data.date === todayKst()) setBrief(data);
+        })
+        .catch(() => {
+          // No brief published yet for today — the rule-based summary covers it.
+        });
+    };
+
+    load();
+    // It's written to storage once, at 16:10 KST — polling every 10s like the quote
+    // would just be 360 wasted requests an hour for a value that changes once a day.
+    // Five minutes is fast enough to flip a page left open across that moment from
+    // the rule-based summary to the real brief without a manual refresh.
+    const stopPolling = startVisibilityAwareInterval(load, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+  }, [code, market, assetKind]);
+
+  useEffect(() => {
+    setSpark(null);
+    let cancelled = false;
+    api
+      .marketSparklines([code], market === "US" ? "us" : "kr")
+      .then((res) => {
+        if (!cancelled) setSpark(res.items[code] ?? null);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [code, market]);
+
+  useEffect(() => {
+    setInvestorRecords([]);
+    if (!investorApplicable) return;
+    let cancelled = false;
+    const load = () => {
+      api
+        .investorTrend(code, 20)
+        .then((res) => {
+          if (!cancelled) setInvestorRecords(res.records);
+        })
+        .catch(() => {});
+    };
+    load();
+    const stopPolling = startVisibilityAwareInterval(load, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      stopPolling();
+    };
+  }, [code, investorApplicable]);
+
+  const changeTone = toneOf(quote?.change_pct);
+  const ruleBasedLines = useMemo(
+    () => buildRuleBasedLines(quote, spark, changeTone, investorApplicable ? investorRecords : null),
+    [quote, spark, changeTone, investorApplicable, investorRecords],
+  );
+
+  return (
+    <aside className="discussion-insight-panel" aria-label="종목 브리핑">
+      <header>
+        <span>{brief ? "AI 브리핑" : "AUTO SUMMARY"}</span>
+        <em>{brief ? `${brief.date} 기준` : "실시간 지표 기반"}</em>
+      </header>
+
+      <div className="discussion-insight-price">
+        {quote ? (
+          <>
+            <strong>
+              {market === "US"
+                ? `$${quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : `${quote.close.toLocaleString("ko-KR")}원`}
+            </strong>
+            <span className={`is-${changeTone}`}>
+              {quote.change >= 0 ? "+" : ""}
+              {quote.change_pct.toFixed(2)}%
+            </span>
+          </>
+        ) : (
+          <strong className="discussion-insight-price-loading">시세 확인 중…</strong>
+        )}
+      </div>
+
+      <MiniTrendChart points={spark?.points ?? []} tone={changeTone} />
+
+      <div className="discussion-insight-analysis">
+        {brief ? (
+          <>
+            <p>{brief.summary}</p>
+            {brief.analysis.slice(0, 3).map((line, index) => (
+              <p key={index}>{line}</p>
+            ))}
+            {brief.key_issues && brief.key_issues.length > 0 && (
+              <div className="discussion-insight-issues">
+                <b>핵심 이슈</b>
+                <ul>
+                  {brief.key_issues.slice(0, 4).map((issue, index) => (
+                    <li key={index}>{issue}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        ) : (
+          ruleBasedLines.map((line, index) => <p key={index}>{line}</p>)
         )}
       </div>
     </aside>
@@ -740,7 +1079,7 @@ export default function DiscussionExplorerPage() {
   };
 
   const pointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (selected || (event.target as HTMLElement).closest("button, a, .discussion-detail")) return;
+    if (selected || (event.target as HTMLElement).closest("button, a, .discussion-detail, .discussion-list-panel, .discussion-insight-panel")) return;
     drag.current = { active: true, x: event.clientX, y: event.clientY, pointerId: event.pointerId };
     event.currentTarget.setPointerCapture(event.pointerId);
   };
@@ -754,7 +1093,7 @@ export default function DiscussionExplorerPage() {
       return;
     }
     const target = event.target as HTMLElement;
-    if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-controls, .discussion-footer, .discussion-hud")) return;
+    if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-controls, .discussion-footer, .discussion-hud, .discussion-list-panel, .discussion-insight-panel")) return;
     const buttons = Array.from(sceneRef.current?.querySelectorAll<HTMLButtonElement>(".discussion-node > button") ?? []);
     const matches = buttons.filter((button) => {
       const rect = button.getBoundingClientRect();
@@ -835,7 +1174,7 @@ export default function DiscussionExplorerPage() {
     const target = event.target as HTMLElement;
     // Scrollable overlays own their wheel gesture. Letting it bubble into the stage
     // zoomed the entire universe while the user was only reading a post/search list.
-    if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-help")) return;
+    if (target.closest(".discussion-detail-layer, .discussion-search, .discussion-help, .discussion-list-panel, .discussion-insight-panel")) return;
     zoom.current = Math.max(0.42, Math.min(maximumZoom(), zoom.current - event.deltaY * 0.0007));
     scheduleZoomLabel();
     scheduleSceneTransform();
@@ -973,6 +1312,9 @@ export default function DiscussionExplorerPage() {
         <span>확대 {zoomLabel}%</span>
         <span>현재 {activePosts.length}/{MAX_VISIBLE}</span>
       </div>
+
+      <DiscussionInsightPanel code={code} market={market} assetKind={assetKind} quote={headerQuote} />
+      <DiscussionListPanel posts={activePosts} selectedId={selected?.id ?? null} onSelect={selectPost} />
 
       <section className="discussion-viewport" aria-label={`${name} 최근 종목 토론 3차원 공간`}>
         {loading && <div className="discussion-loading"><div className="discussion-loader-orbit"><i /><i /><i /></div><p>토론 유니버스를 생성하는 중…</p></div>}

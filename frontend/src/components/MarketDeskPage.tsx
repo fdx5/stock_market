@@ -16,6 +16,7 @@ import BattleIcon from "./BattleIcon";
 import CommandPalette from "./CommandPalette";
 import DeskIndexStrip from "./DeskIndexStrip";
 import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
+import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
 import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
@@ -435,7 +436,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
             <EtfIcon /> ETF
           </Link>
           <Link to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK" className="kospi-map-nav-link kospi-map-nav-link--discussion">
-            종목토론
+            <DiscussionIcon /> 종목토론
           </Link>
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100

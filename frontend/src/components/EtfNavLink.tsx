@@ -1,4 +1,5 @@
 import { Link } from "../router";
+import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
 
 export default function EtfNavLink() {
@@ -9,7 +10,7 @@ export default function EtfNavLink() {
         to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK"
         className="kospi-map-nav-link kospi-map-nav-link--discussion"
       >
-        종목토론
+        <DiscussionIcon /> 종목토론
       </Link>
     </>
   );

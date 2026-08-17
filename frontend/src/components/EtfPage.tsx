@@ -5,6 +5,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import BattleIcon from "./BattleIcon";
 import BoardPanel from "./BoardPanel";
 import DashboardIcon from "./DashboardIcon";
+import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
@@ -47,6 +48,26 @@ function KoreaFlag() {
       <g fill="#111">
         <path d="m6 5 5-3 .7 1.15-5 3zm1.15 1.85 5-3 .7 1.15-5 3zm17.7 10.3 5-3 .7 1.15-5 3zm1.15 1.85 5-3 .7 1.15-5 3zM25 3l5 3-.7 1.15-5-3zm-1.15 1.85 5 3-.7 1.15-5-3zM6 19l5-3 .7 1.15-5 3zm1.15 1.85 5-3 .7 1.15-5 3z" />
       </g>
+    </svg>
+  );
+}
+
+function CardViewIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="1" y="1" width="6.2" height="6.2" rx="1.4" fill="currentColor" opacity="0.55" />
+      <rect x="8.8" y="1" width="6.2" height="6.2" rx="1.4" fill="currentColor" />
+      <rect x="1" y="8.8" width="6.2" height="6.2" rx="1.4" fill="currentColor" />
+      <rect x="8.8" y="8.8" width="6.2" height="6.2" rx="1.4" fill="currentColor" opacity="0.55" />
+    </svg>
+  );
+}
+
+function TableViewIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <rect x="1" y="2" width="14" height="12" rx="2" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M1 6.4h14M6.2 6.4v7.6" stroke="currentColor" strokeWidth="1.4" />
     </svg>
   );
 }
@@ -280,9 +301,122 @@ function EtfCard({
   );
 }
 
+const TABLE_COLUMNS: { key: SortKey; label: string; align?: "left" }[] = [
+  { key: "name", label: "종목", align: "left" },
+  { key: "change", label: "현재가 · 등락" },
+  { key: "d20", label: "20일" },
+  { key: "d60", label: "60일" },
+  { key: "d120", label: "120일" },
+  { key: "volume", label: "거래량" },
+  { key: "turnover", label: "거래대금" },
+];
+
+function EtfTable({
+  items,
+  discussions,
+  globalDiscussions,
+  sort,
+  setSort,
+  onBoard,
+}: {
+  items: EtfItem[];
+  discussions: Record<string, BoardPost[]>;
+  globalDiscussions: Record<string, GlobalDiscussionPost[]>;
+  sort: SortKey;
+  setSort: (key: SortKey) => void;
+  onBoard: (item: EtfItem, nid?: string) => void;
+}) {
+  return (
+    <div className="etf-table-wrap">
+      <table className="etf-table">
+        <thead>
+          <tr>
+            <th className="etf-table-rank">#</th>
+            {TABLE_COLUMNS.map((col) => (
+              <th
+                key={col.key}
+                className={`${col.align === "left" ? "etf-table-left" : ""} ${sort === col.key ? "is-sorted" : ""}`}
+              >
+                <button type="button" onClick={() => setSort(col.key)}>
+                  {col.label}
+                  {sort === col.key && <i className="etf-table-sort-caret" aria-hidden="true" />}
+                </button>
+              </th>
+            ))}
+            <th className="etf-table-left">추이</th>
+            <th className="etf-table-left">52주 위치</th>
+            <th className="etf-table-left">토론</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item, index) => {
+            const range =
+              item.week52_high && item.week52_low && item.week52_high !== item.week52_low
+                ? Math.min(
+                    100,
+                    Math.max(
+                      0,
+                      ((item.close - item.week52_low) / (item.week52_high - item.week52_low)) * 100,
+                    ),
+                  )
+                : null;
+            const discussionCount =
+              (item.region === "KR" ? discussions[item.code]?.length : globalDiscussions[item.code]?.length) ?? 0;
+            return (
+              <tr key={item.code} data-tone={tone(item.change_pct)}>
+                <td className="etf-table-rank">{index + 1}</td>
+                <td className="etf-table-name">
+                  <div>
+                    <strong>{item.name}</strong>
+                    <span>
+                      {item.code} · {item.benchmark}
+                    </span>
+                  </div>
+                  <span className="etf-table-category">{item.category}</span>
+                </td>
+                <td className="etf-table-price">
+                  <strong>{money(item.close, item.currency)}</strong>
+                  <span className={tone(item.change_pct)}>{pct(item.change_pct)}</span>
+                </td>
+                <td className={`etf-table-num ${tone(item.returns.d20)}`}>{pct(item.returns.d20)}</td>
+                <td className={`etf-table-num ${tone(item.returns.d60)}`}>{pct(item.returns.d60)}</td>
+                <td className={`etf-table-num ${tone(item.returns.d120)}`}>{pct(item.returns.d120)}</td>
+                <td className="etf-table-num">{compact(item.volume)}</td>
+                <td className="etf-table-num">
+                  {compact(item.turnover)} {item.currency}
+                </td>
+                <td className="etf-table-spark">
+                  <Sparkline values={item.sparkline} direction={tone(item.change_pct)} />
+                </td>
+                <td className="etf-table-range">
+                  <div className="etf-table-range-track">
+                    <i style={{ width: `${range ?? 0}%` }} />
+                  </div>
+                </td>
+                <td className="etf-table-actions">
+                  <button type="button" onClick={() => onBoard(item)} title={`${item.name} 토론방`}>
+                    토론 {discussionCount > 0 && <b>{discussionCount}</b>}
+                  </button>
+                  <Link
+                    to={`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${item.region}&asset=ETF`}
+                    title={`${item.name} 3D 탐험`}
+                  >
+                    3D ✦
+                  </Link>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function EtfPage() {
   useDocumentTitle("ETF 마켓 · K-Stock Hub");
   const [region, setRegion] = useState<Region>("KR");
+  const [viewMode, setViewMode] = useState<"card" | "table">("card");
   const [byRegion, setByRegion] = useState<Record<Region, EtfItem[]>>({
     KR: [],
     US: [],
@@ -459,7 +593,7 @@ export default function EtfPage() {
             to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK"
             className="kospi-map-nav-link kospi-map-nav-link--discussion"
           >
-            종목토론
+            <DiscussionIcon /> 종목토론
           </Link>
           <Link
             to="/kospi-100"
@@ -665,10 +799,32 @@ export default function EtfPage() {
             <span>ETF SIGNAL DECK</span>
             <h2>시장을 움직이는 ETF</h2>
           </div>
-          <strong>
-            {visible.length}
-            <small>개 신호</small>
-          </strong>
+          <div className="etf-section-heading-right">
+            <div className="etf-view-toggle" role="tablist" aria-label="ETF 목록 보기 방식">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "card"}
+                className={viewMode === "card" ? "active" : ""}
+                onClick={() => setViewMode("card")}
+              >
+                <CardViewIcon /> 카드형
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "table"}
+                className={viewMode === "table" ? "active" : ""}
+                onClick={() => setViewMode("table")}
+              >
+                <TableViewIcon /> 표로 보기
+              </button>
+            </div>
+            <strong>
+              {visible.length}
+              <small>개 신호</small>
+            </strong>
+          </div>
         </div>
         <div className="etf-categories">
           {categories.map((value) => (
@@ -684,7 +840,7 @@ export default function EtfPage() {
         {error && <div className="error-state">{error}</div>}
         {loading && items.length === 0 ? (
           <div className="etf-loading">ETF 데이터를 불러오는 중입니다…</div>
-        ) : (
+        ) : viewMode === "card" ? (
           <section className="etf-grid">
             {visible.map((item, index) => (
               <EtfCard
@@ -706,6 +862,15 @@ export default function EtfPage() {
               />
             ))}
           </section>
+        ) : (
+          <EtfTable
+            items={visible}
+            discussions={discussions}
+            globalDiscussions={globalDiscussions}
+            sort={sort}
+            setSort={setSort}
+            onBoard={openBoard}
+          />
         )}
         {!loading && visible.length === 0 && (
           <div className="etf-empty">검색 조건에 맞는 ETF가 없습니다.</div>
