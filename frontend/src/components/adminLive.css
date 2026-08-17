@@ -22,6 +22,18 @@
   animation: admin-fade-in 0.3s ease-out;
 }
 
+/* The shared session-strip/tabs/list block (LiveSessionsAndLog.tsx), dropped
+   into this page's flex column directly under the topbar, and also embedded
+   inside a card on the dashboard's 실시간 tab — in both places its immediate
+   parent is a bounded-height flex column, so it only needs to claim the rest
+   of that column. */
+.admin-live-embed {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* ── Top bar ───────────────────────────────────────────────────────────── */
 
 .admin-live-topbar {

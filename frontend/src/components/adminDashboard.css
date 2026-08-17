@@ -1,0 +1,207 @@
+/* ==========================================================================
+   관리자 대시보드 (/admin/dashboard) — 탭 셸 + 실시간/운영 탭 전용 레이아웃
+
+   Card-level styling (stat tiles, trend chart, toppages lists, batch/mail/kakao
+   rows, comments table) all still come from the existing `.admin-*` rules in
+   styles.css — this file only owns what's new: the tab shell, the responsive
+   op-card grid, and the live-log embed's sizing inside a card.
+   ========================================================================== */
+
+.admin-dash-page {
+  min-height: 100vh;
+  background: var(--page-plane);
+  color: var(--text-primary);
+  padding-bottom: 40px;
+}
+
+.admin-dash-header {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.admin-dash-brand {
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  text-decoration: none;
+  flex-shrink: 0;
+}
+
+.admin-dash-subnav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.admin-dash-subnav::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-dash-subnav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.admin-dash-subnav a:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--series-blue) 45%, var(--border));
+}
+
+.admin-dash-subnav a svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Tab bar ──────────────────────────────────────────────────────────── */
+
+.admin-dash-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 14px 24px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-dash-tabs button {
+  position: relative;
+  padding: 10px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 10px 10px 0 0;
+}
+
+.admin-dash-tabs button:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+.admin-dash-tabs button.active {
+  color: var(--text-primary);
+}
+
+.admin-dash-tabs button.active::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 3px;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(90deg, var(--series-blue), var(--series-violet));
+}
+
+/* ── 실시간 탭 ─────────────────────────────────────────────────────────── */
+
+.admin-live-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px 24px 0;
+}
+
+.admin-panel--live {
+  display: flex;
+  flex-direction: column;
+  height: 62vh;
+  min-height: 420px;
+}
+
+.admin-panel--live .admin-panel-head {
+  flex-shrink: 0;
+}
+
+.admin-panel--live-embed {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-1);
+}
+
+.admin-live-dot--off {
+  background: var(--status-critical);
+  animation: none;
+}
+
+/* ── 운영 탭 ───────────────────────────────────────────────────────────── */
+
+.admin-ops-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 20px 24px 0;
+}
+
+.admin-ops-section {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.admin-ops-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.admin-ops-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.admin-ops-grid .admin-batch-item {
+  margin: 0;
+}
+
+/* Comments tab reuses .admin-ops-section as its outer card for visual
+   consistency with the 운영 tab, rather than a bespoke wrapper. */
+
+@media (max-width: 900px) {
+  .admin-dash-header {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .admin-dash-tabs,
+  .admin-live-tab,
+  .admin-ops-tab {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .admin-panel--live {
+    height: 70vh;
+  }
+}
