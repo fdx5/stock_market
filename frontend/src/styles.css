@@ -13154,6 +13154,10 @@ button.admin-comments-text--clickable:hover {
    ------------------------------------------------------------------------- */
 
 .app--prediction {
+  /* Matches .app--desk — the card grid below is repeat(auto-fill, minmax(268px,
+     1fr)), so the extra room past the generic .app's 1280px just adds columns
+     instead of leaving anything stretched or clipped. */
+  max-width: 1680px;
   position: relative;
   isolation: isolate;
 }

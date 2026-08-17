@@ -1,4 +1,6 @@
-.etf-page { --etf-gold: #f7b500; --etf-gold-soft: #ffe38a; min-height: 100vh; }
+/* max-width matches .app--desk (styles.css) — the generic .app's 1280px was clipping
+   .etf-main's own min(1540px,100%) target before it ever got there. */
+.etf-page { --etf-gold: #f7b500; --etf-gold-soft: #ffe38a; min-height: 100vh; max-width: 1680px; }
 .etf-main { width: min(1540px, 100%); margin: 0 auto; padding: 34px 20px 70px; }
 .etf-hero { position: relative; isolation:isolate; overflow: hidden; display: flex; justify-content: space-between; align-items: end; gap: 24px; min-height: 230px; padding: 42px 46px; border: 1px solid color-mix(in srgb, var(--etf-gold) 48%, var(--border)); border-radius: 30px; background: radial-gradient(circle at 78% 17%,rgb(255 210 82 / 24%),transparent 24%),radial-gradient(circle at 5% 110%,rgb(230 157 0 / 18%),transparent 38%),linear-gradient(122deg,color-mix(in srgb,var(--surface-1) 91%,#513900) 0%,var(--surface-1) 52%,color-mix(in srgb,var(--surface-1) 94%,#b47a00) 100%); box-shadow:0 30px 90px rgb(0 0 0 / 18%),inset 0 1px 0 rgb(255 240 184 / 32%); }
 .etf-hero::before { content:""; position:absolute; z-index:-1; inset:-55%; background:repeating-linear-gradient(90deg,transparent 0 54px,rgb(255 209 75 / 6%) 55px),repeating-linear-gradient(0deg,transparent 0 34px,rgb(255 209 75 / 5%) 35px),linear-gradient(105deg,transparent 34%,rgb(255 224 122 / 12%) 48%,transparent 61%); transform:perspective(480px) rotateX(62deg) rotateZ(-8deg) translateY(13%); transform-origin:center; animation:etf-hero-grid 14s linear infinite; }
