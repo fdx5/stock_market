@@ -17,6 +17,15 @@
   animation: recent-dock-in 0.35s ease both;
 }
 
+/* The narrow variant — same four data points (logo, name, price, change),
+   just stacked into a column instead of laid out in a row, for the gutter a
+   1920px screen leaves next to the site's wider pages (desk/global/etf/
+   ai-prediction, all ~1680px of content). Ticker code is dropped here rather
+   than shrunk further; the full name plus a hover title already carries it. */
+.recent-dock--compact {
+  width: 92px;
+}
+
 @keyframes recent-dock-in {
   from {
     opacity: 0;
@@ -81,6 +90,15 @@
 
 .recent-dock-chevron.is-collapsed {
   transform: rotate(-90deg);
+}
+
+/* No label span at this width (see RecentStocksDock.tsx) — just the icon,
+   the live dot and the chevron, so center what's left instead of leaving it
+   pinned to the left edge with dead space beside it. */
+.recent-dock--compact .recent-dock-head {
+  justify-content: center;
+  padding: 8px;
+  gap: 6px;
 }
 
 .recent-dock-list {
@@ -222,4 +240,72 @@
   );
   background-size: 400% 100%;
   animation: admin-shimmer 1.4s ease infinite;
+}
+
+/* ── Compact card: logo+name row, then price, then change — three short
+   lines instead of one row, so the same four data points fit a ~92px
+   column. See the width comment on .recent-dock--compact above. ── */
+.recent-dock-card--compact {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 8px;
+}
+
+.recent-dock-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.recent-dock-card-logo--compact {
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+}
+
+.recent-dock-card-name--compact {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.recent-dock-card-price--compact {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-dock-card-change--compact {
+  font-size: 10px;
+  font-weight: 700;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.recent-dock-card-change--compact.is-up {
+  color: var(--up-color);
+}
+
+.recent-dock-card-change--compact.is-down {
+  color: var(--down-color);
+}
+
+.recent-dock-card-change--compact.is-flat {
+  color: var(--text-muted);
+}
+
+.recent-dock-card-skeleton--compact {
+  width: 100%;
+  height: 30px;
 }

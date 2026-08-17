@@ -12,21 +12,30 @@ const MAX_ITEMS = 5;
 const POLL_MS = 5_000;
 const COLLAPSE_KEY = "kstock_recent_dock_collapsed";
 
-// Footprint the dock needs in the gutter past the page's own content column
-// before it's worth showing at all. Below this the page's own max-width
-// container already reaches close enough to the browser edge that the dock
-// would have to either clip or sit on top of the content it's meant to stand
-// beside — so instead it just doesn't render, on any screen that tight
-// (which naturally includes every phone and tablet, with no separate mobile
-// check needed).
-const DOCK_WIDTH = 196;
-const GAP_FROM_CONTENT = 20;
-const GAP_FROM_EDGE = 16;
-const MIN_GUTTER = DOCK_WIDTH + GAP_FROM_CONTENT + GAP_FROM_EDGE;
+// Two footprints, not one. A gutter this wide (roomy monitors, or a page
+// whose own content stays under ~1300px) gets the full card — logo, name,
+// code, price and change all on one row. A gutter too narrow for that but
+// still real (this is the common case: 1920px next to the 1680px-wide desk/
+// global/etf/ai-prediction pages, which leaves ~120px) gets a slimmer
+// "compact" card instead — same four data points, stacked into a narrow
+// column, name in place of code. Below COMPACT_MIN_GUTTER there just isn't
+// room for either without overlapping the content beside it, so the dock
+// renders nothing (which naturally covers every phone and tablet too, with
+// no separate mobile check needed).
+const FULL_WIDTH = 196;
+const FULL_GAP_CONTENT = 20;
+const FULL_GAP_EDGE = 16;
+const FULL_MIN_GUTTER = FULL_WIDTH + FULL_GAP_CONTENT + FULL_GAP_EDGE;
+
+const COMPACT_WIDTH = 92;
+const COMPACT_GAP_CONTENT = 8;
+const COMPACT_GAP_EDGE = 8;
+const COMPACT_MIN_GUTTER = COMPACT_WIDTH + COMPACT_GAP_CONTENT + COMPACT_GAP_EDGE;
 
 interface DockPos {
   left: number;
   top: number;
+  compact: boolean;
 }
 
 interface LiveQuote {
@@ -43,9 +52,10 @@ interface LiveQuote {
  * those pages is done by measuring the mounted page's own `.app` element
  * rather than any fixed offset, since each of them sets its own max-width
  * (1280 by default, 1680 on the desk/global/prediction pages, ...); the same
- * measurement doubles as the "is there actually room" check, so the dock
- * quietly renders nothing on a desktop viewport too narrow to fit it without
- * overlapping the content it's meant to sit beside.
+ * measurement decides which of two card designs fits the room available —
+ * see FULL_MIN_GUTTER/COMPACT_MIN_GUTTER above — and only renders nothing
+ * below the smaller of the two, which naturally covers phones and tablets
+ * without a separate mobile check.
  *
  * `position: fixed` against the viewport is also the entire "follow while
  * scrolling" behavior — nothing else has to track scroll position for that. */
@@ -82,13 +92,15 @@ export default function RecentStocksDock() {
       }
       const rect = app.getBoundingClientRect();
       const gutter = window.innerWidth - rect.right;
-      if (gutter < MIN_GUTTER) {
+      if (gutter < COMPACT_MIN_GUTTER) {
         setDock(null);
         return;
       }
+      const compact = gutter < FULL_MIN_GUTTER;
       const header = document.querySelector<HTMLElement>(".app-header");
       const headerH = header ? header.getBoundingClientRect().height : 72;
-      setDock({ left: rect.right + GAP_FROM_CONTENT, top: Math.max(24, headerH + 24) });
+      const gapContent = compact ? COMPACT_GAP_CONTENT : FULL_GAP_CONTENT;
+      setDock({ left: rect.right + gapContent, top: Math.max(24, headerH + 24), compact });
     };
 
     measure();
@@ -164,11 +176,23 @@ export default function RecentStocksDock() {
     });
   };
 
+  const compact = dock.compact;
+
   return (
-    <aside className="recent-dock" style={{ left: dock.left, top: dock.top }} aria-label={t("최근 본 종목")}>
-      <button type="button" className="recent-dock-head" onClick={toggleCollapsed} aria-expanded={!collapsed}>
+    <aside
+      className={`recent-dock ${compact ? "recent-dock--compact" : ""}`}
+      style={{ left: dock.left, top: dock.top }}
+      aria-label={t("최근 본 종목")}
+    >
+      <button
+        type="button"
+        className="recent-dock-head"
+        onClick={toggleCollapsed}
+        aria-expanded={!collapsed}
+        title={t("최근 본 종목")}
+      >
         <span className="recent-dock-head-icon" aria-hidden="true">🕘</span>
-        <span className="recent-dock-head-label">{t("최근 본 종목")}</span>
+        {!compact && <span className="recent-dock-head-label">{t("최근 본 종목")}</span>}
         <span className="recent-dock-live-dot" aria-hidden="true" />
         <span className={`recent-dock-chevron ${collapsed ? "is-collapsed" : ""}`} aria-hidden="true">
           ›
@@ -183,38 +207,61 @@ export default function RecentStocksDock() {
             const isUs = item.market === "US";
             const up = !!quote && quote.change > 0;
             const down = !!quote && quote.change < 0;
+            const changeClass = up ? "is-up" : down ? "is-down" : "is-flat";
+            const arrow = up ? "▲" : down ? "▼" : "•";
+            const priceText = quote
+              ? isUs
+                ? `$${quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                : quote.close.toLocaleString("ko-KR")
+              : null;
+            const pctText = quote ? `${arrow} ${Math.abs(quote.change_pct).toFixed(2)}%` : null;
             const href = isUs
               ? `/global?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`
               : `/desk?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`;
+            const displayName = names[idx] ?? item.name;
+
             return (
               <Link
                 key={item.code}
                 to={href}
-                className={`recent-dock-card ${flash ? `is-flash-${flash}` : ""}`}
+                className={`recent-dock-card ${compact ? "recent-dock-card--compact" : ""} ${flash ? `is-flash-${flash}` : ""}`}
                 style={{ animationDelay: `${idx * 45}ms` }}
                 title={`${item.name} (${item.code})`}
               >
-                <StockLogo code={item.code} className="recent-dock-card-logo" />
-                <span className="recent-dock-card-info">
-                  <span className="recent-dock-card-name">{names[idx] ?? item.name}</span>
-                  <span className="recent-dock-card-code">{item.code}</span>
-                </span>
-                <span className="recent-dock-card-price">
-                  {quote ? (
-                    <>
-                      <strong>
-                        {isUs
-                          ? `$${quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                          : quote.close.toLocaleString("ko-KR")}
-                      </strong>
-                      <em className={up ? "is-up" : down ? "is-down" : "is-flat"}>
-                        {up ? "▲" : down ? "▼" : "•"} {Math.abs(quote.change_pct).toFixed(2)}%
-                      </em>
-                    </>
-                  ) : (
-                    <span className="recent-dock-card-skeleton" aria-hidden="true" />
-                  )}
-                </span>
+                {compact ? (
+                  <>
+                    <span className="recent-dock-card-top">
+                      <StockLogo code={item.code} className="recent-dock-card-logo recent-dock-card-logo--compact" />
+                      <span className="recent-dock-card-name recent-dock-card-name--compact">{displayName}</span>
+                    </span>
+                    {quote ? (
+                      <>
+                        <strong className="recent-dock-card-price--compact">{priceText}</strong>
+                        <em className={`recent-dock-card-change--compact ${changeClass}`}>{pctText}</em>
+                      </>
+                    ) : (
+                      <span className="recent-dock-card-skeleton recent-dock-card-skeleton--compact" aria-hidden="true" />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <StockLogo code={item.code} className="recent-dock-card-logo" />
+                    <span className="recent-dock-card-info">
+                      <span className="recent-dock-card-name">{displayName}</span>
+                      <span className="recent-dock-card-code">{item.code}</span>
+                    </span>
+                    <span className="recent-dock-card-price">
+                      {quote ? (
+                        <>
+                          <strong>{priceText}</strong>
+                          <em className={changeClass}>{pctText}</em>
+                        </>
+                      ) : (
+                        <span className="recent-dock-card-skeleton" aria-hidden="true" />
+                      )}
+                    </span>
+                  </>
+                )}
               </Link>
             );
           })}
