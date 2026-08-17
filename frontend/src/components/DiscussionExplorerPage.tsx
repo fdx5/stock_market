@@ -464,11 +464,13 @@ function buildRuleBasedLines(
  * triggers are cheap and worth warming even just under the breakpoint. */
 function DiscussionInsightPanel({
   code,
+  name,
   market,
   assetKind,
   quote,
 }: {
   code: string;
+  name: string;
   market: "KR" | "US";
   assetKind: AssetKind;
   quote: ExplorerQuote | null;
@@ -566,21 +568,27 @@ function DiscussionInsightPanel({
       </header>
 
       <div className="discussion-insight-price">
-        {quote ? (
-          <>
-            <strong>
-              {market === "US"
-                ? `$${quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : `${quote.close.toLocaleString("ko-KR")}원`}
-            </strong>
-            <span className={`is-${changeTone}`}>
-              {quote.change >= 0 ? "+" : ""}
-              {quote.change_pct.toFixed(2)}%
-            </span>
-          </>
-        ) : (
-          <strong className="discussion-insight-price-loading">시세 확인 중…</strong>
-        )}
+        <div className="discussion-insight-identity">
+          <StockLogo code={code} className="discussion-insight-logo" />
+          <span>{name}</span>
+        </div>
+        <div className="discussion-insight-quote">
+          {quote ? (
+            <>
+              <strong>
+                {market === "US"
+                  ? `$${quote.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : `${quote.close.toLocaleString("ko-KR")}원`}
+              </strong>
+              <span className={`is-${changeTone}`}>
+                {quote.change >= 0 ? "+" : ""}
+                {quote.change_pct.toFixed(2)}%
+              </span>
+            </>
+          ) : (
+            <strong className="discussion-insight-price-loading">시세 확인 중…</strong>
+          )}
+        </div>
       </div>
 
       <MiniTrendChart points={spark?.points ?? []} tone={changeTone} />
@@ -1313,7 +1321,7 @@ export default function DiscussionExplorerPage() {
         <span>현재 {activePosts.length}/{MAX_VISIBLE}</span>
       </div>
 
-      <DiscussionInsightPanel code={code} market={market} assetKind={assetKind} quote={headerQuote} />
+      <DiscussionInsightPanel code={code} name={name} market={market} assetKind={assetKind} quote={headerQuote} />
       <DiscussionListPanel posts={activePosts} selectedId={selected?.id ?? null} onSelect={selectPost} />
 
       <section className="discussion-viewport" aria-label={`${name} 최근 종목 토론 3차원 공간`}>

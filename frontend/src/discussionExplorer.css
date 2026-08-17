@@ -107,13 +107,17 @@
 .discussion-insight-panel > header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:14px 16px 12px; border-bottom:1px solid rgba(148,163,184,.14); }
 .discussion-insight-panel > header > span { color:#67e8f9; font:700 9px/1 Inter, sans-serif; letter-spacing:.16em; }
 .discussion-insight-panel > header > em { color:#7294aa; font-size:9px; font-style:normal; white-space:nowrap; }
-.discussion-insight-price { display:flex; align-items:baseline; gap:9px; padding:14px 16px 4px; }
-.discussion-insight-price strong { color:#f5fcff; font-size:19px; letter-spacing:-.02em; }
+.discussion-insight-price { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px 4px; }
+.discussion-insight-identity { display:flex; align-items:center; gap:7px; min-width:0; }
+.discussion-insight-logo { width:20px; height:20px; flex:0 0 auto; border-radius:6px; object-fit:cover; background:rgba(255,255,255,.92); box-shadow:0 0 0 1px rgba(255,255,255,.14); }
+.discussion-insight-identity span { overflow:hidden; color:#cfdee6; font-size:11.5px; font-weight:700; letter-spacing:-.01em; white-space:nowrap; text-overflow:ellipsis; }
+.discussion-insight-quote { display:flex; align-items:baseline; gap:9px; flex:0 0 auto; }
+.discussion-insight-quote strong { color:#f5fcff; font-size:19px; letter-spacing:-.02em; white-space:nowrap; }
 .discussion-insight-price-loading { color:#7294aa; font-size:12px; font-weight:600; }
-.discussion-insight-price span { font-size:12px; font-weight:800; }
-.discussion-insight-price span.is-up { color:#fb7185; text-shadow:0 0 12px rgba(251,113,133,.22); }
-.discussion-insight-price span.is-down { color:#60a5fa; text-shadow:0 0 12px rgba(96,165,250,.22); }
-.discussion-insight-price span.is-flat { color:#a8bac7; }
+.discussion-insight-quote span { font-size:12px; font-weight:800; white-space:nowrap; }
+.discussion-insight-quote span.is-up { color:#fb7185; text-shadow:0 0 12px rgba(251,113,133,.22); }
+.discussion-insight-quote span.is-down { color:#60a5fa; text-shadow:0 0 12px rgba(96,165,250,.22); }
+.discussion-insight-quote span.is-flat { color:#a8bac7; }
 .discussion-insight-chart, .discussion-insight-chart-empty { display:block; width:100%; height:58px; margin:6px 0 4px; padding:0 10px; box-sizing:border-box; }
 .discussion-insight-chart-empty { display:grid; place-items:center; color:#5e7386; font-size:10px; }
 .discussion-insight-chart-fill { fill:rgba(103,232,249,.1); stroke:none; }
