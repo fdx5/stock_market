@@ -16,6 +16,7 @@ import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import Logo from "./Logo";
 import MarketTickerBar from "./MarketTickerBar";
+import KakaoIcon from "./KakaoIcon";
 import RankIcon from "./RankIcon";
 import SessionBadge from "./SessionBadge";
 import SessionSplit from "./SessionSplit";
@@ -122,6 +123,14 @@ const IS_IOS_LIKE =
   typeof navigator !== "undefined" &&
   (/iP(hone|ad|od)/.test(navigator.userAgent) ||
     (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+/** Android or iOS — the platforms whose OS share sheet actually lists the KakaoTalk
+ * app as a file-share target. Desktop Windows/macOS route navigator.share(files) to
+ * a generic system share flyout instead; that flyout's own "copy" action was tested
+ * against the real KakaoTalk PC client and does not put a pasteable image on the
+ * clipboard, so desktop gets its own path (see handleShareMap) rather than trusting
+ * canShare() there. */
+const IS_MOBILE_LIKE = typeof navigator !== "undefined" && (/Android/i.test(navigator.userAgent) || IS_IOS_LIKE);
 
 // Sentinel for the sector filter's "show everything" option — distinct from any real
 // sector label (including "기타") so it can never collide with backend-assigned data.
@@ -686,9 +695,11 @@ export default function MarketMapPage({
   // Redraws the current sector zones/tiles from scratch onto an off-screen canvas
   // instead of screenshotting the live DOM: that would need html2canvas or similar to
   // rasterize the actual tile buttons, and this way reuses the exact layout data that
-  // renders the on-screen map, so the two can never visually drift apart.
-  const handleDownloadMap = async () => {
-    if (sectorZones.length === 0 || size.w === 0 || size.h === 0) return;
+  // renders the on-screen map, so the two can never visually drift apart. Shared by
+  // the download button and the Kakao share button below, so the PNG the user saves
+  // and the PNG that goes into the share sheet are always pixel-identical.
+  const renderMapPng = async (): Promise<Blob | null> => {
+    if (sectorZones.length === 0 || size.w === 0 || size.h === 0) return null;
 
     const cardBg = resolveCssColor("var(--surface-1)");
     const gapColor = resolveCssColor("var(--map-gap)");
@@ -725,7 +736,7 @@ export default function MarketMapPage({
     canvas.width = Math.round(size.w * scale);
     canvas.height = Math.round(size.h * scale);
     const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    if (!ctx) return null;
     ctx.scale(scale, scale);
 
     ctx.fillStyle = cardBg;
@@ -837,12 +848,89 @@ export default function MarketMapPage({
     // Blob (rather than a data: URL) is required for the mobile save path below:
     // iOS Safari and in-app browsers (KakaoTalk, Naver, etc.) silently ignore
     // <a download> on data: URLs, so the "download" never actually saves a file there.
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+    return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  };
+
+  const handleDownloadMap = async () => {
+    const blob = await renderMapPng();
     if (!blob) return;
     setMapPreview((prev) => {
       if (prev) URL.revokeObjectURL(prev.url);
       return { blob, url: URL.createObjectURL(blob), filename: `${filePrefix}_${downloadTimestamp()}.png` };
     });
+  };
+
+  // Kakao share: on Android/iOS, hands the map PNG + link to the OS share sheet in
+  // one call, and KakaoTalk's own app in that sheet takes both together. Desktop has
+  // no such integration — Windows' system share flyout lists no KakaoTalk target for
+  // the PC client, and its own "복사" action was tested against the real client and
+  // does not leave a pasteable image on the clipboard — so desktop instead writes the
+  // PNG straight to the clipboard itself (the same mechanism a screenshot paste
+  // uses) and opens an anchored panel with an explicit "링크도 복사" button for the link.
+  //
+  // A single paste can only ever deliver one clipboard representation to the target
+  // app — that's the platform's model, not something a web page can get around — so
+  // the link can't ride along in the same Ctrl+V as the image. Sequencing both writes
+  // automatically and leaning on Windows' clipboard history (Win+V) to recover the
+  // first one was tried and dropped: that history is off by default for most visitors,
+  // so the link would simply be unrecoverable for them. An explicit second click has
+  // no such dependency — it copies the link only when the user asks for it, which is
+  // also what avoids the earlier bug where an automatic second write silently clobbered
+  // the image before it had been pasted.
+  const [kakaoSharing, setKakaoSharing] = useState(false);
+  const [kakaoShareCopied, setKakaoShareCopied] = useState(false);
+  const [kakaoShareStage, setKakaoShareStage] = useState<"idle" | "image-copied" | "link-copied">("idle");
+  const kakaoShareUrlRef = useRef("");
+  const handleCopyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(kakaoShareUrlRef.current);
+      setKakaoShareStage("link-copied");
+      setTimeout(() => setKakaoShareStage("idle"), 4000);
+    } catch {
+      /* clipboard denied — leave the image-copied panel up so the user can retry */
+    }
+  };
+  const handleShareMap = async () => {
+    if (kakaoSharing) return;
+    setKakaoSharing(true);
+    setKakaoShareStage("idle");
+    try {
+      const sharedUrl = new URL(location.href);
+      sharedUrl.searchParams.set("utm_source", "kakaotalk");
+      sharedUrl.searchParams.set("utm_medium", "social");
+      sharedUrl.searchParams.set("utm_campaign", `${filePrefix}_map`);
+      const url = sharedUrl.toString();
+      kakaoShareUrlRef.current = url;
+      const title = `${pageTitle} | K-Stock Hub`;
+      const text = `${t(subtitlePrefix)} ${t("종목 MAP")}`;
+
+      const blob = await renderMapPng();
+      const file = blob ? new File([blob], `${filePrefix}_${downloadTimestamp()}.png`, { type: "image/png" }) : null;
+
+      if (IS_MOBILE_LIKE && file && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title, text, url });
+        return;
+      }
+
+      if (blob && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+        setKakaoShareStage("image-copied");
+        return;
+      }
+
+      if (navigator.share) {
+        await navigator.share({ title, text, url });
+        return;
+      }
+
+      await navigator.clipboard.writeText(url);
+      setKakaoShareCopied(true);
+      setTimeout(() => setKakaoShareCopied(false), 2000);
+    } catch {
+      /* user cancelled the share sheet, or clipboard was denied — no error UI for either */
+    } finally {
+      setKakaoSharing(false);
+    }
   };
 
   const closeMapPreview = () => {
@@ -999,6 +1087,39 @@ export default function MarketMapPage({
             >
               {t("MAP 다운로드")}
             </button>
+            <div className="kospi-map-share-wrap">
+              <button
+                type="button"
+                className="kospi-map-download-btn kospi-map-share-btn"
+                onClick={handleShareMap}
+                disabled={sectorZones.length === 0 || kakaoSharing}
+              >
+                <KakaoIcon />
+                {kakaoShareCopied ? t("링크 복사됨") : kakaoSharing ? t("공유 준비 중...") : t("카카오톡 공유")}
+              </button>
+              {kakaoShareStage !== "idle" && (
+                <div className="kospi-map-share-popover" role="status">
+                  <button
+                    type="button"
+                    className="kospi-map-share-popover-close"
+                    onClick={() => setKakaoShareStage("idle")}
+                    aria-label={t("닫기")}
+                  >
+                    ×
+                  </button>
+                  {kakaoShareStage === "image-copied" ? (
+                    <>
+                      <p>{t("MAP 이미지가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.")}</p>
+                      <button type="button" className="kospi-map-share-popover-link" onClick={handleCopyShareLink}>
+                        {t("링크도 복사하기")}
+                      </button>
+                    </>
+                  ) : (
+                    <p>{t("링크가 복사되었습니다. 채팅창에 이어서 붙여넣어 주세요.")}</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
