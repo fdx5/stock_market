@@ -104,9 +104,13 @@
    this file — so it never has to compete with the 3D scene for space. */
 .discussion-insight-panel { left: clamp(14px, 2vw, 28px); width: clamp(260px, 23vw, 330px); max-height: min(56vh, 580px); padding-bottom: 16px; transform: perspective(900px) rotateY(5deg) rotateX(1deg); transform-origin: left center; display: none; }
 .discussion-insight-panel:hover { transform: perspective(900px) rotateY(1deg) rotateX(0deg); box-shadow: 0 26px 70px rgba(0,0,0,.55), 0 0 40px rgba(34,211,238,.14); }
-.discussion-insight-panel > header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; padding:14px 16px 12px; border-bottom:1px solid rgba(148,163,184,.14); }
-.discussion-insight-panel > header > span { color:#67e8f9; font:700 9px/1 Inter, sans-serif; letter-spacing:.16em; }
-.discussion-insight-panel > header > em { color:#7294aa; font-size:9px; font-style:normal; white-space:nowrap; }
+.discussion-insight-panel.is-collapsed { max-height: none; padding-bottom: 0; }
+.discussion-insight-panel > header { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px 12px; border-bottom:1px solid rgba(148,163,184,.14); }
+.discussion-insight-panel > header > div { display:grid; gap:2px; min-width:0; }
+.discussion-insight-panel > header > div > span { color:#67e8f9; font:700 9px/1 Inter, sans-serif; letter-spacing:.16em; }
+.discussion-insight-panel > header > div > em { color:#7294aa; font-size:9px; font-style:normal; white-space:nowrap; }
+.discussion-insight-panel > header > button { flex:0 0 auto; display:grid; place-items:center; width:26px; height:26px; color:#9cb3c8; border:1px solid rgba(148,163,184,.16); border-radius:8px; background:rgba(255,255,255,.03); font-size:11px; cursor:pointer; transition:.2s; }
+.discussion-insight-panel > header > button:hover { color:#e8fdff; border-color:rgba(103,232,249,.5); }
 .discussion-insight-price { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:14px 16px 4px; }
 .discussion-insight-identity { display:flex; align-items:center; gap:7px; min-width:0; }
 .discussion-insight-logo { width:20px; height:20px; flex:0 0 auto; border-radius:6px; object-fit:cover; background:rgba(255,255,255,.92); box-shadow:0 0 0 1px rgba(255,255,255,.14); }

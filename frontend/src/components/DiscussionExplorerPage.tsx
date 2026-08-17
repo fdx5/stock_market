@@ -475,6 +475,7 @@ function DiscussionInsightPanel({
   assetKind: AssetKind;
   quote: ExplorerQuote | null;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   const [brief, setBrief] = useState<StockBrief | null>(null);
   const [spark, setSpark] = useState<MarketSparkline | null>(null);
   const [investorRecords, setInvestorRecords] = useState<InvestorTrendRecord[]>([]);
@@ -561,12 +562,23 @@ function DiscussionInsightPanel({
   );
 
   return (
-    <aside className="discussion-insight-panel" aria-label="종목 브리핑">
+    <aside className={`discussion-insight-panel ${collapsed ? "is-collapsed" : ""}`} aria-label="종목 브리핑">
       <header>
-        <span>{brief ? "AI 브리핑" : "AUTO SUMMARY"}</span>
-        <em>{brief ? `${brief.date} 기준` : "실시간 지표 기반"}</em>
+        <div>
+          <span>{brief ? "AI 브리핑" : "AUTO SUMMARY"}</span>
+          {brief && <em>{brief.date} 기준</em>}
+        </div>
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          aria-label={collapsed ? "브리핑 펼치기" : "브리핑 접기"}
+        >
+          {collapsed ? "▸" : "▾"}
+        </button>
       </header>
 
+      {!collapsed && (
+      <>
       <div className="discussion-insight-price">
         <div className="discussion-insight-identity">
           <StockLogo code={code} className="discussion-insight-logo" />
@@ -615,6 +627,8 @@ function DiscussionInsightPanel({
           ruleBasedLines.map((line, index) => <p key={index}>{line}</p>)
         )}
       </div>
+      </>
+      )}
     </aside>
   );
 }
