@@ -1,14 +1,13 @@
 import { lazy, Suspense, useEffect } from "react";
 import LoadingState from "./components/LoadingState";
 import { useActivityTracking } from "./useActivityTracking";
-import { useRoute } from "./router";
+import { navigate, useRoute } from "./router";
 import "./components/marketBriefPrint.css";
 
 // Route-level code splitting: each page only ships the JS it actually needs (e.g. the
 // map pages never pull in lightweight-charts, which only Dashboard/IndexChart/
 // InvestorTrend use) instead of every route's code landing in one bundle regardless
 // of which page a visitor lands on first.
-const Dashboard = lazy(() => import("./components/Dashboard"));
 /* The market desk — the stock desk rebuilt around what a reader actually does
    with it, reached through the wormhole off Saturn. It carries everything
    /dashboard carries and reuses the same components to do it, so the two are
@@ -22,9 +21,11 @@ const MarketDeskPage = lazy(() => import("./components/MarketDeskPage"));
    The desk moved. Every link on the site — the star and the two stock moons in
    the sky, every page's home link and back link, the footer, and every "open
    this stock" from a map tile, a board card or a prediction row — now points at
-   /desk. /dashboard stays routed and unchanged so that bookmarks, shared links
-   and anything already indexed keep resolving, and the command palette still
-   lists it; nothing else links to it.
+   /desk, and the command palette's own "클래식 대시보드" entry is the last
+   thing on the site that still points at /dashboard on purpose. Old
+   bookmarks, shared links and search results keep sending real traffic there
+   regardless — see DashboardRedirect below, which is the whole handling that
+   gets any of it onto the desk instead of the retired page.
 
    Two entrances have been built against that same site map. This is the second
    one: the solar system rendered in WebGL rather than in CSS 3D transforms.
@@ -70,6 +71,18 @@ const AdminLivePage = lazy(() => import("./components/AdminLivePage"));
 // page, so that ~150KB gzipped lands only when an admin actually opens it and never
 // touches a visitor's bundle.
 const MonitorPage = lazy(() => import("./components/MonitorPage"));
+
+/** The one handling old /dashboard traffic gets: straight to the desk, query
+ * string carried along as-is (?code=/&name= are exactly what MarketDeskPage
+ * itself reads off /desk). Rendered instead of <Dashboard/> so a visitor who
+ * still has the old URL bookmarked never sees the retired page, even briefly
+ * — Dashboard's own chunk is never requested for this path. */
+function DashboardRedirect() {
+  useEffect(() => {
+    navigate(`/desk${window.location.search}`);
+  }, []);
+  return null;
+}
 
 const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
   "/": {
@@ -215,7 +228,7 @@ export default function App() {
   } else if (indexMatch) {
     page = <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
   } else if (path === "/dashboard") {
-    page = <Dashboard />;
+    page = <DashboardRedirect />;
   } else if (path === "/desk") {
     page = <MarketDeskPage />;
   } else if (stockMatch) {

@@ -535,9 +535,12 @@ void main() {
 
   // Market wash, into the shadow only. Red up, blue down, same as the HUD's
   // --up / --down: the planet and the number printed next to it must not
-  // disagree about which way the market went.
+  // disagree about which way the market went. Kept faint on purpose — on most
+  // trading days the index is up, so anything stronger left the night side
+  // reading as a rendering fault (a warm cast that's always there) rather than
+  // as a live signal. This should sit right at the edge of noticeable.
   vec3 trendTint = uTrend >= 0.0 ? vec3(1.0, 0.34, 0.42) : vec3(0.31, 0.61, 1.0);
-  color += trendTint * abs(uTrend) * (1.0 - day) * 0.16;
+  color += trendTint * abs(uTrend) * (1.0 - day) * 0.05;
 
   // A hint of lift when this is the body the camera is holding — enough to
   // read as "this one", not enough to be a second light source.
