@@ -139,6 +139,14 @@
   .discussion-insight-panel { display: flex; }
 }
 
+/* Unfolded foldables (Galaxy Z Fold and similar) land in landscape well under the
+   desktop-oriented 1320px gate above, but rotated open they have the same genuine
+   spare width beside the sphere that a laptop does — this catches that case without
+   loosening the gate for narrower single-screen phones held in landscape. */
+@media (min-width: 860px) and (max-width: 1319px) and (orientation: landscape) {
+  .discussion-insight-panel { display: flex; }
+}
+
 .discussion-viewport { position: absolute; inset: 0; perspective: 1450px; perspective-origin: 50% 50%; cursor: grab; }
 .discussion-viewport:active { cursor: grabbing; }
 .discussion-scene { position: absolute; left: 50%; top: 51%; width: 0; height: 0; transform-style: preserve-3d; will-change: transform; contain: layout style; }
