@@ -5148,7 +5148,7 @@ thead .weekly-foreign-amount-col {
   .kospi-map-page--expanded { padding-inline: 12px; }
   .kospi-map-page--expanded .kospi-map-workspace { grid-template-columns: 1fr; }
   .kospi-map-period-rail { min-height: 0; }
-  .kospi-map-period-options { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .kospi-map-period-options { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .kospi-map-period-note { display: none; }
 }
 

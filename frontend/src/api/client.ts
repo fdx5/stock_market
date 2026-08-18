@@ -611,6 +611,7 @@ export interface WeeklyForeignItem {
  * backend/app/services/market_map.get_returns_for_codes. Null when the series doesn't
  * reach back that far (a recent listing) or the fetch failed for that symbol. */
 export interface MarketReturns {
+  w1: number | null;
   d20: number | null;
   d60: number | null;
   d120: number | null;

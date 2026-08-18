@@ -136,9 +136,10 @@ const IS_MOBILE_LIKE = typeof navigator !== "undefined" && (/Android/i.test(navi
 // sector label (including "기타") so it can never collide with backend-assigned data.
 const ALL_SECTORS = "__all__";
 
-type MapPeriod = "d1" | "d20" | "d60" | "d120" | "d240";
+type MapPeriod = "d1" | "w1" | "d20" | "d60" | "d120" | "d240";
 const MAP_PERIODS: { key: MapPeriod; label: string; detail: string }[] = [
   { key: "d1", label: "오늘", detail: "전일 종가 대비" },
+  { key: "w1", label: "7일", detail: "5 거래일" },
   { key: "d20", label: "1개월", detail: "20 거래일" },
   { key: "d60", label: "3개월", detail: "60 거래일" },
   { key: "d120", label: "6개월", detail: "120 거래일" },

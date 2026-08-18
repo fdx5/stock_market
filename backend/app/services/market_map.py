@@ -322,8 +322,9 @@ def get_returns_for_codes(codes: list[str], market: str = "kr") -> dict[str, dic
     RETURNS_TTL_SECONDS regardless of how many tabs asked for it.
     """
     codes = list(dict.fromkeys(codes))  # de-dupe, keep first-seen order
-    # v2 adds the 240-session return used by the map's one-year filter.
-    cache_key = lambda code: f"{market}_returns_v2:{code}"
+    # v2 adds the 240-session return used by the map's one-year filter. v3 adds the
+    # 5-session (~1주/7일) return for the map period rail's "7일" option.
+    cache_key = lambda code: f"{market}_returns_v3:{code}"
     missing = [c for c in codes if cache.peek(cache_key(c)) is None]
     if missing:
         fetched = get_us_sparklines(missing) if market == "us" else get_kr_sparklines(missing)
@@ -331,13 +332,14 @@ def get_returns_for_codes(codes: list[str], market: str = "kr") -> dict[str, dic
             series = fetched.get(code)
             value = (
                 {
+                    "w1": series.returns.get("w1"),
                     "d20": series.returns.get("d20"),
                     "d60": series.returns.get("d60"),
                     "d120": series.returns.get("d120"),
                     "d240": series.returns.get("d240"),
                 }
                 if series is not None
-                else {"d20": None, "d60": None, "d120": None, "d240": None}
+                else {"w1": None, "d20": None, "d60": None, "d120": None, "d240": None}
             )
             cache.get_or_set(cache_key(code), RETURNS_TTL_SECONDS, lambda value=value: value)
     return {c: cache.peek(cache_key(c)) for c in codes if cache.peek(cache_key(c)) is not None}
@@ -351,7 +353,7 @@ def get_sparklines_for_codes(codes: list[str], market: str = "kr") -> dict[str, 
     a sector pays for its charts only after somebody actually hovers it.
     """
     codes = list(dict.fromkeys(codes))[:30]
-    detail_key = lambda code: f"{market}_spark_detail_v2:{code}"
+    detail_key = lambda code: f"{market}_spark_detail_v3:{code}"
     missing = [c for c in codes if cache.peek(detail_key(c)) is None]
     if missing:
         fetched = get_us_sparklines(missing) if market == "us" else get_kr_sparklines(missing)
@@ -362,6 +364,7 @@ def get_sparklines_for_codes(codes: list[str], market: str = "kr") -> dict[str, 
                     "points": series.points,
                     "dates": series.dates,
                     "returns": {
+                        "w1": series.returns.get("w1"),
                         "d20": series.returns.get("d20"),
                         "d60": series.returns.get("d60"),
                         "d120": series.returns.get("d120"),
@@ -369,7 +372,7 @@ def get_sparklines_for_codes(codes: list[str], market: str = "kr") -> dict[str, 
                     },
                 }
                 if series is not None
-                else {"points": [], "dates": [], "returns": {"d20": None, "d60": None, "d120": None, "d240": None}}
+                else {"points": [], "dates": [], "returns": {"w1": None, "d20": None, "d60": None, "d120": None, "d240": None}}
             )
             cache.get_or_set(
                 detail_key(code),
@@ -378,7 +381,7 @@ def get_sparklines_for_codes(codes: list[str], market: str = "kr") -> dict[str, 
             )
             # A later period-filter request can reuse the exact same calculation.
             cache.get_or_set(
-                f"{market}_returns_v2:{code}",
+                f"{market}_returns_v3:{code}",
                 RETURNS_TTL_SECONDS,
                 lambda returns=value["returns"]: returns,
             )
