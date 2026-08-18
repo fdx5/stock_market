@@ -144,6 +144,18 @@ export function sessionBucket(now: Date = new Date()): Bucket {
   return { key: `close:${previousDate(date)}`, phase: "closed" };
 }
 
+/** Whether it's earlier than the KR market's own day start — before the NXT
+ * pre-market opens at 08:00 KST. Nothing has happened on "today"'s session
+ * yet at that hour, so anything narrating "오늘" against a KR quote is
+ * actually narrating whatever the quote provider last settled on, which at
+ * this hour is still 전일 (yesterday)'s regular close. Its own export,
+ * separate from sessionBucket above, because callers outside this file's own
+ * board-picking need just the boolean — see the AUTO SUMMARY panel in
+ * DiscussionExplorerPage.tsx. */
+export function isBeforeKrPreMarket(now: Date = new Date()): boolean {
+  return seoulParts(now).minutes < PRE_OPEN;
+}
+
 /**
  * The same window for the US board, on a New York clock.
  *

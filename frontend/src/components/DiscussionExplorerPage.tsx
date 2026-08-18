@@ -4,6 +4,7 @@ import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { reportDiscussionPostClick, reportDiscussionSearchSelection } from "../useActivityTracking";
 import { startVisibilityAwareInterval } from "../pollVisibility";
+import { isBeforeKrPreMarket } from "../spotlight";
 import OrderBookBalance from "./OrderBookBalance";
 import StockLogo from "./StockLogo";
 import "../discussionExplorer.css";
@@ -398,22 +399,36 @@ function fmtPct(value: number): string {
  * doesn't apply to this asset (US stocks, ETFs) so that section is simply omitted
  * rather than showing a "loading" line that would never resolve. Returns one string
  * per line rather than a single blob so the panel can render a real paragraph break
- * between each point instead of one dense wall of text. */
+ * between each point instead of one dense wall of text.
+ *
+ * `beforePreMarket` covers the one window where "오늘 장중" would be a lie: 00:00–07:59
+ * KST, before the NXT pre-market even opens, when a KR quote is still whatever
+ * yesterday's regular session settled on — see isBeforeKrPreMarket. The number in
+ * `quote.change_pct` is already correct for that prior session (nothing has traded
+ * since), so only the wording changes, from present-tense "오늘 장중" to past-tense
+ * "전일 장" — never both narrating a live session that hasn't started. */
 function buildRuleBasedLines(
   quote: ExplorerQuote | null,
   spark: MarketSparkline | null,
   changeTone: "up" | "down" | "flat",
   investorRecords: InvestorTrendRecord[] | null,
+  beforePreMarket: boolean,
 ): string[] {
   const lines: string[] = [];
   const r = spark?.returns;
 
   lines.push(
-    changeTone === "up"
-      ? `오늘 장중 ${quote ? fmtPct(quote.change_pct) : ""} 상승하며 강세 흐름을 보이고 있습니다.`
-      : changeTone === "down"
-        ? `오늘 장중 ${quote ? fmtPct(quote.change_pct) : ""} 하락하며 약세 흐름을 보이고 있습니다.`
-        : "오늘 장중 뚜렷한 방향성 없이 보합권에서 움직이고 있습니다.",
+    beforePreMarket
+      ? changeTone === "up"
+        ? `전일 장에서는 ${quote ? fmtPct(quote.change_pct) : ""} 상승하며 강세 흐름으로 마감했습니다.`
+        : changeTone === "down"
+          ? `전일 장에서는 ${quote ? fmtPct(quote.change_pct) : ""} 하락하며 약세 흐름으로 마감했습니다.`
+          : "전일 장에서는 뚜렷한 방향성 없이 보합권에서 마감했습니다."
+      : changeTone === "up"
+        ? `오늘 장중 ${quote ? fmtPct(quote.change_pct) : ""} 상승하며 강세 흐름을 보이고 있습니다.`
+        : changeTone === "down"
+          ? `오늘 장중 ${quote ? fmtPct(quote.change_pct) : ""} 하락하며 약세 흐름을 보이고 있습니다.`
+          : "오늘 장중 뚜렷한 방향성 없이 보합권에서 움직이고 있습니다.",
   );
 
   lines.push(
@@ -557,9 +572,12 @@ function DiscussionInsightPanel({
   }, [code, investorApplicable]);
 
   const changeTone = toneOf(quote?.change_pct);
+  // Only meaningful on the KR side — isBeforeKrPreMarket is keyed to the NXT
+  // pre-market's 08:00 KST open, which has nothing to do with when US markets run.
+  const beforePreMarket = market === "KR" && isBeforeKrPreMarket();
   const ruleBasedLines = useMemo(
-    () => buildRuleBasedLines(quote, spark, changeTone, investorApplicable ? investorRecords : null),
-    [quote, spark, changeTone, investorApplicable, investorRecords],
+    () => buildRuleBasedLines(quote, spark, changeTone, investorApplicable ? investorRecords : null, beforePreMarket),
+    [quote, spark, changeTone, investorApplicable, investorRecords, beforePreMarket],
   );
 
   return (
