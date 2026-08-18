@@ -347,7 +347,7 @@ def schedule_publish_after_brief(report_date: str | None = None) -> None:
 # that rarely, from a datacenter IP, is a session that expires early. This walks the
 # blog every few hours purely to let Naver rotate NID_SES.
 
-KEEPALIVE_INTERVAL_SECONDS = int(os.environ.get("NAVER_KEEPALIVE_SECONDS", str(6 * 3600)))
+KEEPALIVE_INTERVAL_SECONDS = int(os.environ.get("NAVER_KEEPALIVE_SECONDS", str(3 * 3600)))
 
 
 def keep_alive_once() -> bool:
