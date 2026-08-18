@@ -116,34 +116,46 @@
   display: none;
 }
 
-/* Wraps the card and the 종목토론 button as flex siblings instead of nesting
-   the button inside the card's own <a> — an anchor inside an anchor is
-   invalid HTML, and the two need independent click targets anyway (one
-   opens the stock, the other opens its discussion board). Laying them out
-   side by side in normal flow (rather than floating the button as an
-   absolutely-positioned corner badge) keeps it fully on-card: nothing pokes
-   past the wrap's own box for the scrollable list below to clip. */
+/* Positions the 종목토론 button as a sibling of the card's own <a> instead of
+   nesting it inside — an anchor inside an anchor is invalid HTML, and the
+   two need independent click targets anyway (one opens the stock, the other
+   opens its discussion board). For the full card, the button is absolutely
+   positioned into the price row's now-empty right side (price moved to
+   left-align — see .recent-dock-card-price) rather than floating past the
+   card's edge: anchored to the *wrap's* bottom/right padding rather than a
+   hardcoded top offset, it lines up with the price row regardless of how
+   tall the name row above it grows, and never pokes outside the wrap's own
+   box for the scrollable list below to clip. The compact layout overrides
+   this back to a normal-flow row below the card — see
+   .recent-dock-card-wrap--compact. */
 .recent-dock-card-wrap {
+  position: relative;
   display: flex;
   align-items: stretch;
   gap: 6px;
   animation: recent-dock-card-in 0.3s ease both;
 }
 
-/* Compact card is already squeezed to ~92px — a button beside it would
-   eat into the width name/price need and force even more "..." truncation
-   than the column layout already causes. Wrapping the button onto its own
-   line below the card instead keeps the full width free for card content. */
+/* Compact card is already squeezed to ~92px, and the name never truncates
+   (see .recent-dock-card-name) — a button competing with it for width would
+   only mean more wrapped lines. Wrapping the button onto its own line below
+   the card instead keeps the full width free for name/price. */
 .recent-dock-card-wrap--compact {
   flex-direction: column;
   gap: 4px;
 }
 
+/* logo+name get a row to themselves, and price+change are forced onto a
+   second row below (via .recent-dock-card-price's flex-basis: 100%) rather
+   than competing with them for width on one line. That's what gets the name
+   from ~37px of usable width up to ~100px, so a typical name settles inside
+   two lines instead of wrapping four or five times. */
 .recent-dock-card {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 9px;
   padding: 9px 11px;
   border: 1px solid var(--border);
@@ -198,13 +210,25 @@
   flex: 1;
 }
 
+/* Wraps instead of ellipsizing on the first line — a shortened company name
+   reads as wrong information — but only up to 2 lines; the row above already
+   gives this most of the card's width, so 2 lines covers all but the rare
+   outlier, and that outlier gets a "…" rather than pushing the card taller
+   still. keep-all avoids splitting a Korean word mid-syllable at the wrap
+   point; break-word is only the fallback for a single unbroken English
+   token wider than the column. */
 .recent-dock-card-name {
   font-size: 12px;
   font-weight: 700;
+  line-height: 1.3;
   color: var(--text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
 
 .recent-dock-card-code {
@@ -213,12 +237,54 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* flex-basis: 100% is what forces this onto its own line below logo+name in
+   the wrapping row above, and padding-right reserves the 종목토론 button's
+   footprint at the row's actual right edge (see .recent-dock-card-discuss).
+   .recent-dock-card-price's own margin-left: auto (not justify-content, which
+   would collapse to flex-start with only one child on the loading/skeleton
+   render where .recent-dock-card-change-amount doesn't exist yet) is what
+   keeps it pinned to the right whether or not that sibling is present. */
+.recent-dock-card-price-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex: 0 0 100%;
+  padding-right: 34px;
+}
+
 .recent-dock-card-price {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 2px;
-  flex-shrink: 0;
+  min-width: 0;
+  margin-left: auto;
+}
+
+/* The one quote field the rest of the card doesn't already show anywhere —
+   the absolute won/dollar move, next to .recent-dock-card-price's %. Sits in
+   the space .recent-dock-card-price-line's space-between leaves open once
+   price/change are pulled right. */
+.recent-dock-card-change-amount {
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.recent-dock-card-change-amount.is-up {
+  color: var(--up-color);
+}
+
+.recent-dock-card-change-amount.is-down {
+  color: var(--down-color);
+}
+
+.recent-dock-card-change-amount.is-flat {
+  color: var(--text-muted);
 }
 
 .recent-dock-card-price strong {
@@ -266,7 +332,7 @@
   animation: admin-shimmer 1.4s ease infinite;
 }
 
-/* ── Compact card: logo+name row, then price, then change — three short
+/* ── Compact card: logo, then name, then price, then change — four short
    lines instead of one row, so the same four data points fit a ~92px
    column. See the width comment on .recent-dock--compact above. ── */
 .recent-dock-card--compact {
@@ -276,10 +342,15 @@
   padding: 8px;
 }
 
+/* Logo stacked above the name, not beside it — beside it would leave the
+   (never-truncated, see .recent-dock-card-name--compact) name only ~52px to
+   wrap in instead of the column's full ~76px, which meant more wrapped
+   lines for the same text. */
 .recent-dock-card-top {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -292,10 +363,11 @@
 .recent-dock-card-name--compact {
   font-size: 10.5px;
   font-weight: 700;
+  line-height: 1.25;
   color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: break-word;
   min-width: 0;
 }
 
@@ -334,39 +406,44 @@
   height: 30px;
 }
 
-/* ── 종목토론 button — a fixed-width square tile beside the card, in normal
-   flow as a flex sibling (see the .recent-dock-card-wrap comment above), so
-   it always renders fully on-screen instead of floating past the card's
-   edge where the scrollable list could clip it. ── */
+/* ── 종목토론 button — sits over the price row's now-empty right side (see
+   .recent-dock-card-price), bottom/right-anchored to the wrap's own padding
+   box rather than a top offset so it lines up with the price row no matter
+   how tall the name row above it grows. Reset back to a normal-flow tile
+   below the card for the compact layout, where there's no spare row to
+   float over — see the override at the bottom of this block. ── */
 .recent-dock-card-discuss {
-  flex: none;
-  align-self: stretch;
-  width: 28px;
+  position: absolute;
+  right: 11px;
+  bottom: 9px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--status-warning) 55%, var(--border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--status-warning) 16%, var(--surface-1));
-  color: var(--status-warning);
+  border: 1px solid color-mix(in srgb, var(--status-good) 55%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--status-good) 16%, var(--surface-1));
+  color: var(--status-good);
   cursor: pointer;
   transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
 }
 
 .recent-dock-card-discuss svg {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 .recent-dock-card-discuss:hover,
 .recent-dock-card-discuss:focus-visible {
-  border-color: var(--status-warning);
-  background: color-mix(in srgb, var(--status-warning) 32%, var(--surface-1));
+  border-color: var(--status-good);
+  background: color-mix(in srgb, var(--status-good) 32%, var(--surface-1));
   transform: scale(1.06);
 }
 
 .recent-dock-card-wrap--compact .recent-dock-card-discuss {
+  position: static;
   width: 100%;
   height: 16px;
   gap: 4px;

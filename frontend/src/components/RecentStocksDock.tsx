@@ -216,6 +216,15 @@ export default function RecentStocksDock() {
                 : quote.close.toLocaleString("ko-KR")
               : null;
             const pctText = quote ? `${arrow} ${Math.abs(quote.change_pct).toFixed(2)}%` : null;
+            // Fills the gap the price row's right-alignment leaves on the left (see
+            // recentStocksDock.css's .recent-dock-card-price-line) with the one quote
+            // field the card doesn't already show anywhere: the absolute won/dollar
+            // move, as opposed to the % the card already had.
+            const changeAmountText = quote
+              ? isUs
+                ? `${arrow} $${Math.abs(quote.change).toFixed(2)}`
+                : `${arrow} ${Math.abs(quote.change).toLocaleString("ko-KR")}`
+              : null;
             const href = isUs
               ? `/global?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`
               : `/desk?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`;
@@ -255,15 +264,20 @@ export default function RecentStocksDock() {
                         <span className="recent-dock-card-name">{displayName}</span>
                         <span className="recent-dock-card-code">{item.code}</span>
                       </span>
-                      <span className="recent-dock-card-price">
-                        {quote ? (
-                          <>
-                            <strong>{priceText}</strong>
-                            <em className={changeClass}>{pctText}</em>
-                          </>
-                        ) : (
-                          <span className="recent-dock-card-skeleton" aria-hidden="true" />
+                      <span className="recent-dock-card-price-line">
+                        {quote && (
+                          <span className={`recent-dock-card-change-amount ${changeClass}`}>{changeAmountText}</span>
                         )}
+                        <span className="recent-dock-card-price">
+                          {quote ? (
+                            <>
+                              <strong>{priceText}</strong>
+                              <em className={changeClass}>{pctText}</em>
+                            </>
+                          ) : (
+                            <span className="recent-dock-card-skeleton" aria-hidden="true" />
+                          )}
+                        </span>
                       </span>
                     </>
                   )}
