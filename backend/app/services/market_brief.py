@@ -48,6 +48,16 @@ def _flow_verb(amount: float) -> str:
     return "순매수" if amount > 0 else "순매도" if amount < 0 else "보합"
 
 
+def _is_same_trading_day(news_date: str, day: str) -> bool:
+    """finance.naver's per-item date ('YYYY.MM.DD HH:MM' or date-only) against our
+    'YYYY-MM-DD' report day. Headlines were previously taken as the N most recent
+    items with no date check at all, which silently back-filled the closing news
+    radar with the prior session's articles whenever a stock had no fresh coverage
+    yet at the 16:10 KST batch (small-cap names especially) — showing e.g. 8/19 news
+    on the 8/20 report. Better to show fewer (or zero) headlines than the wrong day's."""
+    return (news_date or "").strip()[:10].replace(".", "-") == day
+
+
 def _flow_phrase(amount: float, actor: str) -> str:
     """e.g. '외국인의 +1,552억원 순매수' / '외국인의 -795억원 순매도'."""
     return f"{actor}의 {_flow_money(amount)} {_flow_verb(amount)}"
@@ -176,9 +186,14 @@ def _generate_stock_brief(symbol: str, force: bool = False):
     ]
 
     # 4. News Headlines
+    # Fetches a wider pool than the 8 that end up in the report: same-day coverage for
+    # a given stock can be thin, so filtering down to `day` before capping avoids
+    # dropping to a near-empty list on a slow news day (see _is_same_trading_day).
     headlines = []
     try:
-        for news in news_fetcher.get_news(code, 8):
+        for news in news_fetcher.get_news(code, 20):
+            if not _is_same_trading_day(news.get("date", ""), day):
+                continue
             title = news.get("title") or news.get("headline")
             if title and title not in {h["title"] for h in headlines}:
                 headlines.append({
@@ -188,6 +203,8 @@ def _generate_stock_brief(symbol: str, force: bool = False):
                     "press": news.get("press", "언론사"),
                     "date": news.get("date", day),
                 })
+            if len(headlines) >= 8:
+                break
     except Exception:
         pass
 
@@ -449,7 +466,9 @@ def generate(market: str, force: bool = False):
     headlines = []
     for stock in active[:4]:
         try:
-            for news in news_fetcher.get_news(stock["code"], 2):
+            for news in news_fetcher.get_news(stock["code"], 6):
+                if not _is_same_trading_day(news.get("date", ""), day):
+                    continue
                 title = news.get("title") or news.get("headline")
                 if title and title not in {h["title"] for h in headlines}:
                     headlines.append({"title": title, "url": news.get("url") or news.get("link"), "stock": stock["name"]})

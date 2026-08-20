@@ -3838,34 +3838,9 @@ thead .weekly-foreign-amount-col {
    theme-tuned value for both dark (#c98500) and light (#9c6a2f) mode, same as every
    other nav pill here, so no extra light/dark override is needed. */
 .kospi-map-nav-link--brief {
-  min-width: 0;
-  padding-left: 32px;
   color: var(--series-orange);
   border-color: var(--series-orange);
   background: color-mix(in srgb, var(--series-orange) 12%, transparent);
-}
-
-.kospi-map-nav-link--brief::before {
-  content: "N";
-  position: absolute;
-  z-index: 3;
-  left: 6px;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: 19px;
-  height: 19px;
-  border: 1.5px solid #fff;
-  border-radius: 6px;
-  background: linear-gradient(145deg, #ff315f, #d90072 68%, #8c005e);
-  box-shadow: 0 3px 8px rgb(141 0 72 / 48%), 0 0 13px rgb(255 34 112 / 65%);
-  color: #fff;
-  font: 1000 12px/1 Arial, sans-serif;
-  letter-spacing: -.04em;
-  text-shadow: 0 1px 2px rgb(83 0 43 / 70%);
-  pointer-events: none;
-  transform-origin: 50% 50%;
-  animation: etf-new-badge-spin 2.8s cubic-bezier(.55,.05,.28,1) infinite;
 }
 
 .kospi-map-nav-link--brief:hover {
@@ -3952,12 +3927,6 @@ thead .weekly-foreign-amount-col {
   animation: etf-gold-breathe 2.8s ease-in-out infinite;
 }
 
-@keyframes etf-new-badge-spin {
-  0%, 18% { transform: translateY(-50%) rotateY(0deg) rotate(-7deg) scale(1); }
-  48% { transform: translateY(-50%) rotateY(360deg) rotate(5deg) scale(1.1); }
-  65%, 100% { transform: translateY(-50%) rotateY(360deg) rotate(-7deg) scale(1); }
-}
-
 .kospi-map-nav-link--etf::after {
   background: linear-gradient(100deg, transparent 25%, rgb(255 255 255 / 92%) 50%, transparent 75%);
   animation-duration: 2.6s;
@@ -4002,11 +3971,6 @@ thead .weekly-foreign-amount-col {
     transform: translateX(210%) skewX(-20deg);
   }
 
-  .kospi-map-nav-link--brief::before {
-    animation: none;
-    transform: translateY(-50%) rotate(-7deg);
-  }
-
 }
 
 @media (max-width: 640px) {
@@ -4014,13 +3978,6 @@ thead .weekly-foreign-amount-col {
     min-width: 0;
     padding-left: 10px;
     padding-right: 10px;
-  }
-
-  .kospi-map-nav-link--brief::before {
-    left: 5px;
-    width: 18px;
-    height: 18px;
-    font-size: 11px;
   }
 
 }
@@ -6943,9 +6900,8 @@ thead .weekly-foreign-amount-col {
     gap: 3px;
   }
 
-  /* These promoted links carry an absolutely positioned N badge. Re-apply their
-     reserved badge gutter after the generic mobile shorthand above, otherwise that
-     shorthand collapses the left padding and lets the badge cover icon/text. */
+  /* These promoted links get their own sizing re-applied after the generic mobile
+     shorthand above, which would otherwise collapse them to the plain pill size. */
   .app-nav-row .kospi-map-nav-link--etf {
     min-width: 72px;
     min-height: 30px;
@@ -6954,16 +6910,8 @@ thead .weekly-foreign-amount-col {
   }
 
   .app-nav-row .kospi-map-nav-link--brief {
-    min-width: 0;
     min-height: 30px;
-    padding: 5px 11px 5px 31px;
-  }
-
-  .app-nav-row .kospi-map-nav-link--brief::before {
-    left: 6px;
-    width: 17px;
-    height: 17px;
-    font-size: 10px;
+    padding: 5px 11px;
   }
 
   .app-nav-row .mini-apps-icon {
