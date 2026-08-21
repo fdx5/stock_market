@@ -224,9 +224,9 @@ function WeekdayBars({ rows }: { rows: GrowthOverview["daily"] }) {
 
 export default function AdminGrowthPage() {
   useDocumentTitle("100배 성장 통계 | K-Stock Hub");
-  const [days, setDays] = useState(30);
+  const [days, setDays] = useState(7);
   const [customOpen, setCustomOpen] = useState(false);
-  const [startDate, setStartDate] = useState(kstDate(29));
+  const [startDate, setStartDate] = useState(kstDate(6));
   const [endDate, setEndDate] = useState(kstDate());
   const [appliedDates, setAppliedDates] = useState<{ start: string; end: string } | null>(null);
   const [data, setData] = useState<GrowthOverview | null>(null);
