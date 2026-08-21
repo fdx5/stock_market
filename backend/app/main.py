@@ -7,9 +7,11 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.staticfiles import NotModifiedResponse
+
+from app.services.libsql_gate import StoreUnavailable
 
 from app.data.global_discussion_fetcher import warm_nasdaq_symbols
 from app.data.universe import get_top_market_cap, get_top_market_cap_all, warm_english_names
@@ -66,6 +68,19 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(StoreUnavailable)
+async def _store_unavailable_handler(request: Request, exc: StoreUnavailable) -> JSONResponse:
+    # No router actually caught this anywhere (grepped: zero call sites), so a gated
+    # store's own breaker doing exactly what it is documented to do - short-circuit
+    # while its DB is in trouble - was surfacing as an unhandled 500 on every route
+    # that touches that store, instead of the clean "no data right now" the gate module
+    # promises its callers. One handler here covers every store, not just the one that
+    # happened to trip first.
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
 # Compresses JS/CSS bundles and JSON API responses on the wire — same bytes served,
 # fewer bytes billed against Render's free-tier bandwidth cap.
 app.add_middleware(GZipMiddleware, minimum_size=500)
