@@ -1,5 +1,6 @@
 import os
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.services import libsql_gate, turso
@@ -46,6 +47,27 @@ CREATE TABLE IF NOT EXISTS traffic_growth_goal (
 )
 """
 
+# One row per closed KST calendar day - a day's totals never change once that day is
+# over, so growth_overview() reads this instead of re-scanning raw page_views for
+# every request. Kept indefinitely (it's at most ~730 tiny rows even over the growth
+# page's max range): unlike page_views itself, this table is never purged, so the
+# daily trend survives raw-row retention pruning too.
+_DAILY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS page_views_daily (
+    day TEXT PRIMARY KEY,
+    pageviews INTEGER NOT NULL,
+    visitors INTEGER NOT NULL,
+    search INTEGER NOT NULL,
+    email INTEGER NOT NULL,
+    social INTEGER NOT NULL,
+    referral INTEGER NOT NULL,
+    direct INTEGER NOT NULL,
+    computed_at TEXT NOT NULL
+)
+"""
+
+KST = timezone(timedelta(hours=9))
+
 # The trend chart only ever queries the last 30 days (see admin.py's pages_trend),
 # so rows older than that are pure dead weight on the table — purged on a timer in
 # main.py's startup thread to keep it bounded regardless of traffic volume, rather
@@ -79,6 +101,7 @@ def _new_ready_connection():
     conn.execute(_INDEX)
     conn.execute(_EVENT_INDEX)
     conn.execute(_GOAL_SCHEMA)
+    conn.execute(_DAILY_SCHEMA)
     conn.commit()
     return conn
 
@@ -201,25 +224,109 @@ def purge_older_than(cutoff_iso: str) -> int:
     return _with_connection(_run)
 
 
+def _kst_day_bounds(day: str) -> tuple[str, str]:
+    """UTC-ISO [start, end) for one KST calendar day ('YYYY-MM-DD')."""
+    start = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=KST)
+    return start.astimezone(timezone.utc).isoformat(), (start + timedelta(days=1)).astimezone(timezone.utc).isoformat()
+
+
+def _to_kst_date(iso_str: str):
+    parsed = datetime.fromisoformat(iso_str)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(KST).date()
+
+
+def _compute_daily_row(conn, day: str) -> dict:
+    """One day's totals via a raw-table scan bounded to just that day."""
+    start_iso, end_iso = _kst_day_bounds(day)
+    row = conn.execute(
+        "SELECT COUNT(*), COUNT(DISTINCT session_id), "
+        "SUM(CASE WHEN source_channel='search' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN source_channel='email' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN source_channel='social' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN source_channel='referral' THEN 1 ELSE 0 END), "
+        "SUM(CASE WHEN source_channel='direct' OR source_channel IS NULL THEN 1 ELSE 0 END) "
+        "FROM page_views WHERE created_at >= ? AND created_at < ? AND event_type = 'page_view'",
+        (start_iso, end_iso),
+    ).fetchone()
+    return {
+        "date": day, "pageviews": row[0] or 0, "visitors": row[1] or 0,
+        "search": row[2] or 0, "email": row[3] or 0, "social": row[4] or 0,
+        "referral": row[5] or 0, "direct": row[6] or 0,
+    }
+
+
+def _cache_daily_row(conn, row: dict) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO page_views_daily "
+        "(day, pageviews, visitors, search, email, social, referral, direct, computed_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (row["date"], row["pageviews"], row["visitors"], row["search"], row["email"],
+         row["social"], row["referral"], row["direct"], datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def _daily_rows(conn, since_date, until_date_exclusive, today) -> list[dict]:
+    """The trend series for [since_date, until_date_exclusive) in KST days.
+
+    Closed days (before `today`) are read from page_views_daily in one query, and
+    only whichever of those are missing (first time that day is ever requested) fall
+    back to a single-day raw scan - cached immediately after, so every day is scanned
+    at most once, ever. Today is still accumulating and is always computed live,
+    never cached.
+    """
+    closed_end = min(today, until_date_exclusive)
+    result: dict[str, dict] = {}
+
+    if since_date < closed_end:
+        cached = conn.execute(
+            "SELECT day, pageviews, visitors, search, email, social, referral, direct "
+            "FROM page_views_daily WHERE day >= ? AND day < ? ORDER BY day",
+            (since_date.isoformat(), closed_end.isoformat()),
+        ).fetchall()
+        for r in cached:
+            result[r[0]] = {"date": r[0], "pageviews": r[1], "visitors": r[2], "search": r[3] or 0,
+                             "email": r[4] or 0, "social": r[5] or 0, "referral": r[6] or 0, "direct": r[7] or 0}
+
+        d = since_date
+        while d < closed_end:
+            day_str = d.isoformat()
+            if day_str not in result:
+                row = _compute_daily_row(conn, day_str)
+                _cache_daily_row(conn, row)
+                result[day_str] = row
+            d += timedelta(days=1)
+
+    if since_date <= today < until_date_exclusive:
+        result[today.isoformat()] = _compute_daily_row(conn, today.isoformat())
+
+    return [result[k] for k in sorted(result)]
+
+
 def growth_overview(since_iso: str, until_iso: str | None = None) -> dict:
-    """Acquisition and growth metrics based only on real navigations."""
+    """Acquisition and growth metrics based only on real navigations.
+
+    The day-by-day trend (`daily`) is requested on every load - twice per load, once
+    more for the admin panel's period-over-period comparison - so it is the one piece
+    sourced from page_views_daily instead of re-scanning raw page_views for the whole
+    range each time (see _daily_rows). The four breakdown queries below are only ever
+    meaningful as a total over the whole selected range, not per day, so they still
+    scan page_views directly.
+    """
     where = "created_at >= ? AND event_type = 'page_view'"
     params: tuple[str, ...] = (since_iso,)
     if until_iso is not None:
         where += " AND created_at < ?"
         params = (since_iso, until_iso)
 
+    since_date = _to_kst_date(since_iso)
+    today = datetime.now(timezone.utc).astimezone(KST).date()
+    until_date_exclusive = _to_kst_date(until_iso) if until_iso is not None else today + timedelta(days=1)
+
     def _run(conn):
-        daily = conn.execute(
-            "SELECT strftime('%Y-%m-%d', created_at, '+9 hours') day, "
-            "COUNT(*), COUNT(DISTINCT session_id), "
-            "SUM(CASE WHEN source_channel='search' THEN 1 ELSE 0 END), "
-            "SUM(CASE WHEN source_channel='email' THEN 1 ELSE 0 END), "
-            "SUM(CASE WHEN source_channel='social' THEN 1 ELSE 0 END), "
-            "SUM(CASE WHEN source_channel='referral' THEN 1 ELSE 0 END), "
-            "SUM(CASE WHEN source_channel='direct' OR source_channel IS NULL THEN 1 ELSE 0 END) "
-            f"FROM page_views WHERE {where} GROUP BY day ORDER BY day", params
-        ).fetchall()
+        daily = _daily_rows(conn, since_date, until_date_exclusive, today)
         channels = conn.execute(
             "SELECT COALESCE(source_channel, 'direct'), COUNT(*), COUNT(DISTINCT session_id) "
             f"FROM page_views WHERE {where} GROUP BY 1 ORDER BY 2 DESC", params
@@ -242,9 +349,7 @@ def growth_overview(since_iso: str, until_iso: str | None = None) -> dict:
 
     daily, channels, pages, sources, campaigns = _with_connection(_run)
     return {
-        "daily": [{"date": r[0], "pageviews": r[1], "visitors": r[2], "search": r[3] or 0,
-                   "email": r[4] or 0, "social": r[5] or 0, "referral": r[6] or 0,
-                   "direct": r[7] or 0} for r in daily],
+        "daily": daily,
         "channels": [{"channel": r[0], "pageviews": r[1], "visitors": r[2]} for r in channels],
         "pages": [{"path": r[0], "pageviews": r[1], "visitors": r[2]} for r in pages],
         "search_sources": [{"source": r[0], "pageviews": r[1], "visitors": r[2]} for r in sources],
