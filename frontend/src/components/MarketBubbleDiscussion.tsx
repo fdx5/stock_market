@@ -104,6 +104,7 @@ export default function MarketBubbleDiscussion({ item, market, colors, onClose }
         </section>
       ) : (
         <section className="bubble-discussion-list">
+          <div className="bubble-post-scroll">
           {loading && <div className="bubble-panel-loading"><i />토론 신호를 불러오는 중</div>}
           {error && <div className="bubble-panel-error">{error}</div>}
           {!loading && posts.map((post, index) => (
@@ -115,6 +116,7 @@ export default function MarketBubbleDiscussion({ item, market, colors, onClose }
             </button>
           ))}
           {!loading && posts.length === 0 && <div className="bubble-panel-empty">등록된 토론 게시글이 없습니다.</div>}
+          </div>
           <nav className="bubble-list-pagination" aria-label="게시글 페이지">
             <button type="button" disabled={page === 1} onClick={() => setPage((p) => p - 1)}>‹ 이전</button>
             <span><b>{page}</b> PAGE</span>
