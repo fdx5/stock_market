@@ -1,4 +1,6 @@
-import { PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import { MutableRefObject, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { StockBoard, StockBoardItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
@@ -37,6 +39,52 @@ const PALETTE = [
   ["#d87561", "#71312c"], ["#6e7fc2", "#2c3868"], ["#94aa58", "#455621"],
   ["#bd6698", "#622c4d"], ["#4d9cb4", "#225365"], ["#b98556", "#60401f"],
 ];
+
+const transparentLogoCache = new Map<string, Promise<string>>();
+
+function transparentBubbleLogo(src: string) {
+  const cached = transparentLogoCache.get(src);
+  if (cached) return cached;
+  const request = new Promise<string>((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) { resolve(src); return; }
+        context.drawImage(image, 0, 0);
+        const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < pixels.data.length; i += 4) {
+          const r = pixels.data[i], g = pixels.data[i + 1], b = pixels.data[i + 2];
+          const brightest = Math.max(r, g, b), darkest = Math.min(r, g, b);
+          if (darkest > 232 && brightest - darkest < 14) {
+            pixels.data[i + 3] = Math.round(pixels.data[i + 3] * Math.max(0, (252 - darkest) / 20));
+          }
+        }
+        context.putImageData(pixels, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } catch { resolve(src); }
+    };
+    image.onerror = () => resolve(src);
+    image.src = src;
+  });
+  transparentLogoCache.set(src, request);
+  return request;
+}
+
+function BubbleCompanyLogo({ src }: { src: string }) {
+  const [resolved, setResolved] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setResolved(null);
+    transparentBubbleLogo(src).then((next) => { if (alive) setResolved(next); });
+    return () => { alive = false; };
+  }, [src]);
+  if (!resolved) return null;
+  return <img src={resolved} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />;
+}
 
 function rankRadiusScale(index: number) {
   if (index < 2) return 1.74;  // 1–2: previous 1.16 × 1.5
@@ -101,6 +149,76 @@ function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
       <small>BUBBLES <span>{bubbles}</span></small>
     </div>
   );
+}
+
+function BubbleWebGLSurface({ bodiesRef, palette, count }: {
+  bodiesRef: MutableRefObject<Body[]>; palette: number[]; count: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current, stage = canvas?.parentElement;
+    if (!canvas || !stage || count === 0) return;
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "high-performance" });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, window.innerWidth <= 760 ? 1.15 : 1.5));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = .86;
+    const scene = new THREE.Scene();
+    // Keep the camera well outside even the largest rank-scaled sphere.
+    // A close camera clips the front cap of large spheres and makes them look
+    // like white-centred rings because the transparent page shows through.
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 2400);
+    camera.position.z = 1200;
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
+    scene.environment = environment;
+    scene.add(new THREE.HemisphereLight(0xfffbf3, 0x71859e, .62));
+    const key = new THREE.DirectionalLight(0xfff7e8, 1.18); key.position.set(-3, 5, 8); scene.add(key);
+    const fill = new THREE.DirectionalLight(0xc9ddff, .32); fill.position.set(5, -2, 5); scene.add(fill);
+    const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 26 : 34, window.innerWidth <= 760 ? 18 : 26);
+    const meshes: THREE.Mesh[] = [], shaders: any[] = [];
+    for (let i = 0; i < count; i++) {
+      const colors = PALETTE[palette[i] % PALETTE.length];
+      const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .12);
+      const material = new THREE.MeshPhysicalMaterial({
+        color: baseColor,
+        roughness: .38 + (i % 5) * .028,
+        metalness: 0,
+        clearcoat: .48 + (i % 3) * .055,
+        clearcoatRoughness: .3 + (i % 4) * .035,
+        envMapIntensity: .58 + (i % 4) * .055,
+        sheen: .1 + (i % 3) * .025,
+        sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(0xffffff), .14),
+        sheenRoughness: .7,
+        specularIntensity: .58 + (i % 4) * .06,
+        specularColor: new THREE.Color(colors[0]).lerp(new THREE.Color(0xffffff), .32),
+        transparent: false,
+        opacity: 1,
+      });
+      // Rotate the room reflection independently for each sphere. This keeps
+      // highlights tied to the curved material without stamping one identical
+      // white spot on every bubble.
+      material.envMapRotation.set(
+        ((i * 37) % 19 - 9) * Math.PI / 180,
+        (i * 137.508) * Math.PI / 180,
+        ((i * 61) % 23 - 11) * Math.PI / 180,
+      );
+      material.onBeforeCompile = (shader) => {
+        shader.uniforms.uImpact = { value: new THREE.Vector3(1, 0, 0) };
+        shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform float uDeform; uniform float uWobble; uniform float uPhase;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=pow(max(0.0,facing),2.05); float back=pow(max(0.0,-facing),1.72); float shoulder=pow(max(0.0,1.0-abs(facing)),1.45); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; float sideSettle=sin(uPhase*1.28+.45)*uWobble; transformed+=n*(-contact*uDeform*1.29+back*uDeform*.6+contact*contactRebound*.315+back*delayedBack*.45+shoulder*sideSettle*.105);`);
+        shaders[i] = shader;
+      };
+      const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
+    }
+    const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.left=-w/2;camera.right=w/2;camera.top=h/2;camera.bottom=-h/2;camera.updateProjectionMatrix(); };
+    const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
+    let raf=0;
+    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i];mesh.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=Math.max(0,body.deform);shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
+    raf=requestAnimationFrame(render);
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+  }, [bodiesRef, count, palette]);
+  return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
 
 export default function MarketBubblePage() {
@@ -253,7 +371,8 @@ export default function MarketBubblePage() {
         const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
         if (amount >= body.deformTarget * .92) body.deformAngleTarget += difference;
         if (amount > body.deformTarget + .008) {
-          body.wobbleEnergy = Math.min(.225, Math.max(body.wobbleEnergy, amount * .9));
+          body.wobbleEnergy = Math.min(.46, Math.max(body.wobbleEnergy, amount * 1.12));
+          body.wobblePhase = 0;
           // Let impact direction and strength select the material response, so
           // repeated contacts do not replay one recognisable deformation loop.
           body.jellyProfile = Math.abs(Math.floor(angle / 37) + Math.floor(amount * 113)) % 4;
@@ -265,11 +384,14 @@ export default function MarketBubblePage() {
         // Ease toward a decaying target. Sustained contact holds a soft shape;
         // separation releases it gradually with a subtle gelatin overshoot.
         a.deformTarget *= Math.pow(.935, dt);
-        a.wobbleEnergy *= Math.pow(.972, dt);
+        // A short, collision-triggered recoil: one or two gelatin oscillations,
+        // then a completely still surface until the next impact.
+        a.wobbleEnergy *= Math.pow(.956, dt);
         const profile = a.jellyProfile;
         const springRate = [1, 1.18, .82, 1.08][profile];
         const damping = [.94, .925, .955, .935][profile];
-        a.wobblePhase += ((.092 + profile * .012) + a.wobbleEnergy * (.28 + profile * .035)) * dt;
+        if (a.wobbleEnergy > .0004) a.wobblePhase += (.19 + profile * .018) * dt;
+        else a.wobbleEnergy = 0;
         a.deformVelocity += (a.deformTarget - a.deform) * .038 * springRate * dt;
         a.deformVelocity *= Math.pow(damping, dt);
         a.deform += a.deformVelocity * dt;
@@ -279,7 +401,7 @@ export default function MarketBubblePage() {
           a.deform = 0;
           a.deformVelocity = 0;
         }
-        a.deform = Math.max(-.12, Math.min(.465, a.deform));
+        a.deform = Math.max(-.12, Math.min(.62, a.deform));
         if (pinnedRef.current === i) {
           a.vx = 0; a.vy = 0;
           continue;
@@ -307,13 +429,20 @@ export default function MarketBubblePage() {
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
         const min = (a.r + b.r) * .9;
         if (d < min) {
-          const nx = dx / d, ny = dy / d, overlap = (min - d) * .5;
+          // Resolve penetration over several frames. The softer separation
+          // avoids a rigid snap while remaining stable under sustained contact.
+          const nx = dx / d, ny = dy / d, overlap = (min - d) * .32;
           a.x -= nx * overlap; a.y -= ny * overlap; b.x += nx * overlap; b.y += ny * overlap;
           const impulse = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-          const softness = Math.min(.405, (.025 + overlap / Math.max(20, Math.min(a.r, b.r)) * .23 + Math.max(0, -impulse) * .018) * 2.8125);
+          const impactSpeed = Math.max(0, -impulse);
+          const baseSoftness = (.025 + overlap / Math.max(20, Math.min(a.r, b.r)) * .23 + impactSpeed * .018) * 2.8125;
+          // Preserve gentle low-speed contacts. Once relative impact speed is
+          // meaningful, ramp the jelly deformation from 2x up to 4x.
+          const speedBoost = impactSpeed < .45 ? 1 : 2 + Math.min(1, (impactSpeed - .45) / 1.55) * 2;
+          const softness = Math.min(.58, baseSoftness * speedBoost);
           const angle = Math.atan2(ny, nx) * 180 / Math.PI;
           excite(a, softness, angle); excite(b, softness, angle + 180);
-          if (impulse < 0) { a.vx += impulse * nx * .72; a.vy += impulse * ny * .72; b.vx -= impulse * nx * .72; b.vy -= impulse * ny * .72; }
+          if (impulse < 0) { a.vx += impulse * nx * .56; a.vy += impulse * ny * .56; b.vx -= impulse * nx * .56; b.vy -= impulse * ny * .56; }
         }
       }
       bodies.forEach((body) => {
@@ -387,6 +516,7 @@ export default function MarketBubblePage() {
         onPointerMove={movePointer}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
+        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} palette={palette} count={items.length} />}
         <div className="bubble-stage-hint">버블을 건드려 보세요 <span>마우스 이동 · 클릭</span></div>
         {loading && <div className="bubble-loading"><MarketBubbleIcon /><span>시장 데이터를 불러오는 중</span></div>}
         {!loading && items.map((item, index) => {
@@ -395,8 +525,11 @@ export default function MarketBubblePage() {
           const diameter = (body?.r ?? 72) * 2;
           const lightAngle = 108 + (index * 17) % 46;
           const rimAngle = (index * 47 + 18) % 360;
-          const rimWidth = 3.4 + (index % 4) * .9;
-          const rimAlpha = .55 + (index % 5) * .06;
+          const rimWidth = 2.1 + (index % 3) * .35;
+          const rimAlpha = .28 + (index % 4) * .035;
+          const highlightX = 24 + (index * 13) % 18;
+          const highlightY = 17 + (index * 7) % 16;
+          const causticX = 58 + (index * 11) % 17;
           const positive = item.change_pct > .04, negative = item.change_pct < -.04;
           return (
             <button
@@ -413,6 +546,11 @@ export default function MarketBubblePage() {
                 "--bubble-rim-angle": `${rimAngle}deg`,
                 "--bubble-rim-width": `${rimWidth}px`,
                 "--bubble-rim-color": `rgba(255,255,255,${rimAlpha})`,
+                "--sphere-highlight-x": `${highlightX}%`,
+                "--sphere-highlight-y": `${highlightY}%`,
+                "--sphere-caustic-x": `${causticX}%`,
+                "--sphere-roll-duration": `${12 + (index % 6) * 2}s`,
+                "--sphere-roll-direction": index % 2 ? "reverse" : "normal",
               } as React.CSSProperties}
               onClick={(event) => {
                 event.stopPropagation();
@@ -442,7 +580,9 @@ export default function MarketBubblePage() {
               <span className="stock-bubble-content">
                 <span className="stock-bubble-rank">#{item.rank}</span>
                 <span className="stock-bubble-logo-wrap">
-                  <img src={market === "nasdaq" ? usCompanyLogoUrl(item.code) : stockIconUrl(item.code)} alt="" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  {market === "nasdaq"
+                    ? <img src={usCompanyLogoUrl(item.code)} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+                    : <BubbleCompanyLogo src={stockIconUrl(item.code)} />}
                 </span>
                 <strong>{shortName(item, market)}</strong>
                 <b>{formatPrice(item, market)}</b>
