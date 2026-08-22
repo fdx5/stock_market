@@ -38,6 +38,15 @@ const PALETTE = [
   ["#bd6698", "#622c4d"], ["#4d9cb4", "#225365"], ["#b98556", "#60401f"],
 ];
 
+function rankRadiusScale(index: number) {
+  if (index < 2) return 1.74;  // 1–2: previous 1.16 × 1.5
+  if (index < 5) return 1.38;  // 3–5
+  if (index < 8) return 1.20;  // 6–8
+  if (index < 11) return 1.05; // 9–11
+  if (index < 14) return .94;  // 12–14
+  return .82;                  // 15–20
+}
+
 function formatPrice(item: StockBoardItem, market: Market) {
   return market === "nasdaq"
     ? `$${item.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -154,7 +163,7 @@ export default function MarketBubblePage() {
     const base = getBaseRadius(rect.width, rect.height);
     const nextBodies: Body[] = items.map((_, i) => {
       const col = i % 5, row = Math.floor(i / 5);
-      const r = base * (i < 4 ? 1.16 : i < 10 ? 1.04 : .92);
+      const r = base * rankRadiusScale(i);
       return {
         x: ((col + .65 + (row % 2) * .16) / 5.35) * rect.width,
         y: ((row + .7) / 4.45) * rect.height,
@@ -196,7 +205,7 @@ export default function MarketBubblePage() {
 
       const nextBase = getBaseRadius(nextRect.width, nextRect.height);
       bodiesRef.current.forEach((body, i) => {
-        const radiusScale = i < 4 ? 1.16 : i < 10 ? 1.04 : .92;
+        const radiusScale = rankRadiusScale(i);
         const nextRadius = nextBase * radiusScale;
         body.x = previousSize.width > 0 ? body.x / previousSize.width * nextRect.width : nextRect.width / 2;
         body.y = previousSize.height > 0 ? body.y / previousSize.height * nextRect.height : nextRect.height / 2;
