@@ -10,7 +10,13 @@ import MarketBubbleDiscussion from "./MarketBubbleDiscussion";
 import "./marketBubble.css";
 
 type Market = "kospi" | "kosdaq" | "nasdaq";
-type Body = { x: number; y: number; vx: number; vy: number; r: number; el: HTMLButtonElement | null };
+type Body = {
+  x: number; y: number; vx: number; vy: number; r: number;
+  deform: number; deformTarget: number; deformVelocity: number;
+  deformAngle: number; deformAngleTarget: number;
+  wobbleEnergy: number; wobblePhase: number;
+  el: HTMLButtonElement | null;
+};
 
 const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "kospi", label: "코스피", title: "KOSPI 주요종목" },
@@ -19,10 +25,10 @@ const MARKETS: { key: Market; label: string; title: string }[] = [
 ];
 
 const PALETTE = [
-  ["#f7b7c6", "#d96c8a"], ["#afd8f4", "#5d9bc7"], ["#bfe9d0", "#61aa83"],
-  ["#f8d7a4", "#d89c4d"], ["#d5c4f5", "#8970c0"], ["#bce8e5", "#55a7a2"],
-  ["#f4c4ad", "#cd8062"], ["#c8dcf8", "#7796c5"], ["#d8e7b0", "#8ba95a"],
-  ["#f0c6e7", "#b66ca4"], ["#c8e7f0", "#6eacbd"], ["#ead4b8", "#b58a59"],
+  ["#e26078", "#68172f"], ["#568ed2", "#183967"], ["#45ad7d", "#174f3b"],
+  ["#d39b46", "#684316"], ["#9472c5", "#412b6b"], ["#45aaa5", "#18575a"],
+  ["#d87561", "#71312c"], ["#6e7fc2", "#2c3868"], ["#94aa58", "#455621"],
+  ["#bd6698", "#622c4d"], ["#4d9cb4", "#225365"], ["#b98556", "#60401f"],
 ];
 
 function formatPrice(item: StockBoardItem, market: Market) {
@@ -101,6 +107,13 @@ export default function MarketBubblePage() {
         vx: (Math.random() - .5) * .44,
         vy: (Math.random() - .5) * .44,
         r,
+        deform: 0,
+        deformTarget: 0,
+        deformVelocity: 0,
+        deformAngle: 0,
+        deformAngleTarget: 0,
+        wobbleEnergy: 0,
+        wobblePhase: Math.random() * Math.PI * 2,
         el: null,
       };
     });
@@ -159,8 +172,33 @@ export default function MarketBubblePage() {
       const width = stage.clientWidth, height = stage.clientHeight;
       const bodies = bodiesRef.current;
       const pointer = pointerRef.current;
+      const excite = (body: Body, amount: number, angle: number) => {
+        // Preserve the actual contact side (not only the collision axis), while
+        // still taking the shortest path as that contact direction changes.
+        const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
+        if (amount >= body.deformTarget * .92) body.deformAngleTarget += difference;
+        if (amount > body.deformTarget + .008) {
+          body.wobbleEnergy = Math.min(.225, Math.max(body.wobbleEnergy, amount * .9));
+        }
+        body.deformTarget = Math.max(body.deformTarget, amount);
+      };
       for (let i = 0; i < bodies.length; i++) {
         const a = bodies[i];
+        // Ease toward a decaying target. Sustained contact holds a soft shape;
+        // separation releases it gradually with a subtle gelatin overshoot.
+        a.deformTarget *= Math.pow(.935, dt);
+        a.wobbleEnergy *= Math.pow(.972, dt);
+        a.wobblePhase += (.105 + a.wobbleEnergy * .34) * dt;
+        a.deformVelocity += (a.deformTarget - a.deform) * .038 * dt;
+        a.deformVelocity *= Math.pow(.94, dt);
+        a.deform += a.deformVelocity * dt;
+        const angleDifference = ((a.deformAngleTarget - a.deformAngle + 180) % 360 + 360) % 360 - 180;
+        a.deformAngle += angleDifference * Math.min(1, .075 * dt);
+        if (a.deformTarget < .0003 && Math.abs(a.deform) < .0003 && Math.abs(a.deformVelocity) < .0003) {
+          a.deform = 0;
+          a.deformVelocity = 0;
+        }
+        a.deform = Math.max(-.12, Math.min(.465, a.deform));
         if (pinnedRef.current === i) {
           a.vx = 0; a.vy = 0;
           continue;
@@ -174,11 +212,11 @@ export default function MarketBubblePage() {
         a.vx += Math.sin(now * .00038 + i * 1.71) * .005;
         a.vy += Math.cos(now * .00031 + i * 1.13) * .005;
         a.vx *= .994; a.vy *= .994;
-        a.x += a.vx * dt; a.y += a.vy * dt;
-        if (a.x < a.r) { a.x = a.r; a.vx = Math.abs(a.vx) * .82; }
-        if (a.x > width - a.r) { a.x = width - a.r; a.vx = -Math.abs(a.vx) * .82; }
-        if (a.y < a.r) { a.y = a.r; a.vy = Math.abs(a.vy) * .82; }
-        if (a.y > height - a.r) { a.y = height - a.r; a.vy = -Math.abs(a.vy) * .82; }
+        a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5;
+        if (a.x < a.r) { const speed = Math.abs(a.vx); a.x = a.r; a.vx = speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 180); }
+        if (a.x > width - a.r) { const speed = Math.abs(a.vx); a.x = width - a.r; a.vx = -speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 0); }
+        if (a.y < a.r) { const speed = Math.abs(a.vy); a.y = a.r; a.vy = speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), -90); }
+        if (a.y > height - a.r) { const speed = Math.abs(a.vy); a.y = height - a.r; a.vy = -speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 90); }
       }
       for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
         if (pinnedRef.current === i || pinnedRef.current === j) continue;
@@ -189,11 +227,44 @@ export default function MarketBubblePage() {
           const nx = dx / d, ny = dy / d, overlap = (min - d) * .5;
           a.x -= nx * overlap; a.y -= ny * overlap; b.x += nx * overlap; b.y += ny * overlap;
           const impulse = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
+          const softness = Math.min(.405, (.025 + overlap / Math.max(20, Math.min(a.r, b.r)) * .23 + Math.max(0, -impulse) * .018) * 2.8125);
+          const angle = Math.atan2(ny, nx) * 180 / Math.PI;
+          excite(a, softness, angle); excite(b, softness, angle + 180);
           if (impulse < 0) { a.vx += impulse * nx * .72; a.vy += impulse * ny * .72; b.vx -= impulse * nx * .72; b.vy -= impulse * ny * .72; }
         }
       }
       bodies.forEach((body) => {
-        if (body.el) body.el.style.transform = `translate3d(${body.x - body.r}px,${body.y - body.r}px,0)`;
+        if (body.el) {
+          const squash = body.deform;
+          const impact = Math.max(0, squash);
+          const breathing = Math.sin(now * .00115 + body.r * .37) * .0045;
+          const waveA = Math.sin(body.wobblePhase) * body.wobbleEnergy;
+          const waveB = Math.sin(body.wobblePhase * 1.47 + 1.8) * body.wobbleEnergy;
+          const waveC = Math.sin(body.wobblePhase * .83 + 3.2) * body.wobbleEnergy;
+          const impactRadians = body.deformAngle * Math.PI / 180;
+          const impactX = Math.cos(impactRadians);
+          const impactY = Math.sin(impactRadians);
+          const normalScale = Math.max(.4, Math.min(1.25, 1 - squash * 1.5 + breathing + waveA * .1));
+          const tangentScale = Math.max(.78, Math.min(1.68, 1 + squash * 1.02 - breathing - waveA * .07));
+          const scaleDifference = normalScale - tangentScale;
+          const matrix11 = tangentScale + scaleDifference * impactX * impactX;
+          const matrix12 = scaleDifference * impactX * impactY;
+          const matrix21 = matrix12;
+          const matrix22 = tangentScale + scaleDifference * impactY * impactY;
+          body.el.style.transform = `translate3d(${body.x - body.r}px,${body.y - body.r}px,0)`;
+          body.el.style.setProperty("--liquid-m11", matrix11.toFixed(4));
+          body.el.style.setProperty("--liquid-m12", matrix12.toFixed(4));
+          body.el.style.setProperty("--liquid-m21", matrix21.toFixed(4));
+          body.el.style.setProperty("--liquid-m22", matrix22.toFixed(4));
+          body.el.style.setProperty("--liquid-origin", `${50 - impactX * 48}% ${50 - impactY * 48}%`);
+          body.el.style.setProperty("--liquid-radius", `${50 + waveA * 32}% ${50 - waveB * 27}% ${50 + waveC * 30}% ${50 - waveA * 24}% / ${50 - waveC * 26}% ${50 + waveA * 29}% ${50 - waveB * 31}% ${50 + waveB * 24}%`);
+          body.el.style.setProperty("--liquid-glass-opacity", Math.min(.84, .6 + impact * 1.2).toFixed(3));
+          body.el.style.setProperty("--liquid-inner-alpha", Math.min(.42, .19 + impact * .32).toFixed(3));
+          body.el.style.setProperty("--liquid-shine-alpha", Math.min(.64, .48 + impact * .8).toFixed(3));
+          body.el.style.setProperty("--liquid-shadow-alpha", Math.min(.34, .16 + impact * .28).toFixed(3));
+          body.el.style.setProperty("--liquid-shadow-y", `${13 - impact * 18}px`);
+          body.el.style.setProperty("--liquid-shadow-blur", `${23 + impact * 42}px`);
+        }
       });
       frame = requestAnimationFrame(tick);
     };
@@ -253,6 +324,15 @@ export default function MarketBubblePage() {
           const colors = PALETTE[palette[index] % PALETTE.length];
           const body = bodiesRef.current[index];
           const diameter = (body?.r ?? 72) * 2;
+          const lightX = 23 + (index * 7) % 22;
+          const lightY = 15 + (index * 11) % 18;
+          const lightAngle = 108 + (index * 17) % 46;
+          const lightAlpha = .2 + (index % 5) * .025;
+          const depthMix = 44 + (index * 5) % 19;
+          const rimAngle = (index * 47 + 18) % 360;
+          const rimWidth = 3.4 + (index % 4) * .9;
+          const rimAlpha = .55 + (index % 5) * .06;
+          const rimSoftness = .1 + (index % 3) * .14;
           const positive = item.change_pct > .04, negative = item.change_pct < -.04;
           return (
             <button
@@ -260,7 +340,21 @@ export default function MarketBubblePage() {
               ref={(el) => { if (bodiesRef.current[index]) bodiesRef.current[index].el = el; }}
               type="button"
               className="stock-bubble"
-              style={{ width: diameter, height: diameter, "--bubble-light": colors[0], "--bubble-dark": colors[1] } as React.CSSProperties}
+              style={{
+                width: diameter,
+                height: diameter,
+                "--bubble-light": colors[0],
+                "--bubble-dark": colors[1],
+                "--bubble-light-x": `${lightX}%`,
+                "--bubble-light-y": `${lightY}%`,
+                "--bubble-light-angle": `${lightAngle}deg`,
+                "--bubble-light-color": `rgba(255,255,255,${lightAlpha})`,
+                "--bubble-depth-mix": `${depthMix}%`,
+                "--bubble-rim-angle": `${rimAngle}deg`,
+                "--bubble-rim-width": `${rimWidth}px`,
+                "--bubble-rim-color": `rgba(255,255,255,${rimAlpha})`,
+                "--bubble-rim-softness": `${rimSoftness}px`,
+              } as React.CSSProperties}
               onClick={(event) => {
                 event.stopPropagation();
                 if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
