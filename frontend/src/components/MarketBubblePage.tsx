@@ -45,6 +45,7 @@ export default function MarketBubblePage() {
   const [discussionIndex, setDiscussionIndex] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const bodiesRef = useRef<Body[]>([]);
+  const stageSizeRef = useRef({ width: 0, height: 0 });
   const pointerRef = useRef({ x: -9999, y: -9999, active: false });
   const pinnedRef = useRef<number | null>(null);
   const clickTimerRef = useRef<number | null>(null);
@@ -84,7 +85,13 @@ export default function MarketBubblePage() {
     const stage = stageRef.current;
     if (!stage || items.length === 0) return;
     const rect = stage.getBoundingClientRect();
-    const base = Math.max(54, Math.min(88, Math.min(rect.width, rect.height) / 9.2));
+    const getBaseRadius = (width: number, height: number) => Math.max(22, Math.min(
+      88,
+      width / 10,
+      height / 9.2,
+      Math.sqrt((width * height) / 20) * .42,
+    ));
+    const base = getBaseRadius(rect.width, rect.height);
     const nextBodies: Body[] = items.map((_, i) => {
       const col = i % 5, row = Math.floor(i / 5);
       const r = base * (i < 4 ? 1.16 : i < 10 ? 1.04 : .92);
@@ -106,7 +113,41 @@ export default function MarketBubblePage() {
       el.style.transform = `translate3d(${body.x - body.r}px,${body.y - body.r}px,0)`;
     });
     bodiesRef.current = nextBodies;
+    stageSizeRef.current = { width: rect.width, height: rect.height };
     firstLoadRef.current = false;
+
+    const resizeStage = () => {
+      const nextRect = stage.getBoundingClientRect();
+      const previousSize = stageSizeRef.current;
+      if (nextRect.width <= 0 || nextRect.height <= 0 ||
+          (nextRect.width === previousSize.width && nextRect.height === previousSize.height)) return;
+
+      const nextBase = getBaseRadius(nextRect.width, nextRect.height);
+      bodiesRef.current.forEach((body, i) => {
+        const radiusScale = i < 4 ? 1.16 : i < 10 ? 1.04 : .92;
+        const nextRadius = nextBase * radiusScale;
+        body.x = previousSize.width > 0 ? body.x / previousSize.width * nextRect.width : nextRect.width / 2;
+        body.y = previousSize.height > 0 ? body.y / previousSize.height * nextRect.height : nextRect.height / 2;
+        body.r = nextRadius;
+        body.x = Math.max(nextRadius, Math.min(nextRect.width - nextRadius, body.x));
+        body.y = Math.max(nextRadius, Math.min(nextRect.height - nextRadius, body.y));
+        if (body.el) {
+          body.el.style.width = `${nextRadius * 2}px`;
+          body.el.style.height = `${nextRadius * 2}px`;
+          body.el.style.transform = `translate3d(${body.x - nextRadius}px,${body.y - nextRadius}px,0)`;
+        }
+      });
+      pointerRef.current.active = false;
+      stageSizeRef.current = { width: nextRect.width, height: nextRect.height };
+    };
+
+    const observer = new ResizeObserver(resizeStage);
+    observer.observe(stage);
+    window.addEventListener("orientationchange", resizeStage);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("orientationchange", resizeStage);
+    };
   }, [market, items.map((it) => it.code).join(",")]);
 
   useEffect(() => {
@@ -182,10 +223,15 @@ export default function MarketBubblePage() {
   return (
     <main className="bubble-page" data-color-pulse={colorPulse}>
       <header className="bubble-header">
-        <Link to="/desk" className="bubble-brand" aria-label="K-Stock Hub 홈">
+        <div className="bubble-header-start">
+          <Link to="/desk" className="bubble-back-link" aria-label="메인 대시보드로 돌아가기">
+            <span aria-hidden="true">←</span>
+          </Link>
+          <Link to="/desk" className="bubble-brand" aria-label="K-Stock Hub 홈">
           <span className="bubble-brand-mark"><MarketBubbleIcon /></span>
           <span><strong>증시버블</strong><small>MARKET BUBBLES</small></span>
-        </Link>
+          </Link>
+        </div>
         <div className="bubble-heading">
           <p>시가총액 TOP 20 · 5초마다 갱신</p>
           <h1>{MARKETS.find((it) => it.key === market)?.title}</h1>
