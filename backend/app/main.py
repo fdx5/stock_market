@@ -524,15 +524,14 @@ if STATIC_DIR.exists():
             response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
         elif path.startswith(("/video/", "/img/", "/favicon", "/apple-touch-icon")):
             response.headers["Cache-Control"] = STATIC_CACHE_CONTROL
-        elif not path.startswith("/api/"):
-            # The SPA shell (index.html, served for "/" and every client route) must be
-            # revalidated on every load. Without this it has no Cache-Control at all, so
-            # browsers heuristically cache it and — after a deploy replaces the hashed
-            # /assets chunks — keep serving a stale index.html that points at now-deleted
-            # chunk filenames, which 404 and leave a blank white screen until a hard
-            # reload. "no-cache" means "always revalidate via ETag", so a plain refresh
-            # picks up the new index.html (and thus the new chunk names) immediately.
-            response.headers["Cache-Control"] = "no-cache"
+        elif response.headers.get("content-type", "").startswith("text/html"):
+            # Never retain the SPA shell. Revalidation alone was insufficient at some
+            # browser/CDN layers during deploys: a stale shell could still reference
+            # entry chunks removed by the new image and white-screen before React ran.
+            # Hashed /assets remain immutable; only HTML gets the strict no-store policy.
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
         return response
 
     # Starlette's own StaticFiles (which backs the /assets mount above) answers a
