@@ -57,6 +57,9 @@
 .bubble-discussion-edge { position:absolute; z-index:-1; top:5%; bottom:5%; left:-9px; width:13px; border-radius:12px 0 0 12px; background:var(--panel-dark); filter:brightness(.78); box-shadow:-5px 7px 14px rgba(37,48,63,.2); transform:rotateY(-35deg); }
 @keyframes panel-fade { from { opacity:0; } } @keyframes panel-in-right { from { opacity:0; transform:translateX(110%) rotateY(-10deg) scale(.92); } to { opacity:1; transform:none; } }
 .bubble-discussion-head { position:relative; z-index:1; display:flex; justify-content:space-between; align-items:flex-start; flex:0 0 auto; padding:25px 25px 20px; border-bottom:1px solid rgba(45,59,75,.11); }
+.bubble-discussion-identity { display:flex; align-items:center; gap:12px; min-width:0; }
+.bubble-discussion-logo { flex:0 0 auto; width:42px; height:42px; padding:7px; border:1px solid rgba(255,255,255,.72); border-radius:14px; background:rgba(255,255,255,.62); box-shadow:0 7px 18px rgba(42,56,73,.14),inset 0 1px rgba(255,255,255,.9); object-fit:contain; box-sizing:border-box; }
+.bubble-discussion-logo.stock-logo--mono { display:grid; place-items:center; padding:0; color:#34475a; font-size:10px; font-weight:900; }
 .bubble-discussion-head span { color:rgba(33,48,64,.54); font-size:8px; font-weight:900; letter-spacing:.19em; }.bubble-discussion-head h2 { margin:5px 0 1px; font-size:23px; letter-spacing:-.055em; }.bubble-discussion-head p { margin:0; color:rgba(35,49,64,.58); font-size:10px; font-weight:700; }
 .bubble-discussion-head>button { width:34px; height:34px; border:1px solid rgba(42,56,72,.12); border-radius:50%; color:#334355; background:rgba(255,255,255,.43); box-shadow:0 5px 13px rgba(45,58,74,.11),inset 0 1px rgba(255,255,255,.8); font-size:22px; line-height:1; cursor:pointer; }
 .bubble-discussion-list,.bubble-discussion-detail { position:relative; z-index:1; min-height:0; flex:1; display:flex; flex-direction:column; padding:12px 14px 15px; }

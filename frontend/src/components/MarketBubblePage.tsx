@@ -98,8 +98,7 @@ export default function MarketBubblePage() {
   const [market, setMarket] = useState<Market>("kospi");
   const [board, setBoard] = useState<StockBoard | null>(null);
   const [loading, setLoading] = useState(true);
-  const [palette, setPalette] = useState(() => Array.from({ length: 20 }, (_, i) => i % PALETTE.length));
-  const [colorPulse, setColorPulse] = useState(0);
+  const [palette] = useState(() => Array.from({ length: 20 }, (_, i) => i % PALETTE.length).sort(() => Math.random() - .5));
   const [discussionIndex, setDiscussionIndex] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const bodiesRef = useRef<Body[]>([]);
@@ -329,27 +328,13 @@ export default function MarketBubblePage() {
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  const randomizeTen = (sourceIndex?: number) => {
-    const order = Array.from({ length: 20 }, (_, i) => i).sort(() => Math.random() - .5).slice(0, 10);
-    setPalette((old) => old.map((value, i) => order.includes(i) ? (value + 1 + Math.floor(Math.random() * (PALETTE.length - 1))) % PALETTE.length : value));
-    setColorPulse((n) => n + 1);
-    if (sourceIndex != null) {
-      const source = bodiesRef.current[sourceIndex];
-      bodiesRef.current.forEach((body, i) => {
-        if (i === sourceIndex || !source) return;
-        const dx = body.x - source.x, dy = body.y - source.y, d = Math.hypot(dx, dy) || 1;
-        body.vx += dx / d * 1.25; body.vy += dy / d * 1.25;
-      });
-    }
-  };
-
   const movePointer = (event: PointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     pointerRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top, active: true };
   };
 
   return (
-    <main className="bubble-page" data-color-pulse={colorPulse}>
+    <main className="bubble-page">
       <header className="bubble-header">
         <div className="bubble-header-start">
           <Link to="/desk" className="bubble-back-link" aria-label="메인 대시보드로 돌아가기">
@@ -373,7 +358,6 @@ export default function MarketBubblePage() {
         aria-label={`${market} 시가총액 상위 20개 종목 버블`}
         onPointerMove={movePointer}
         onPointerLeave={() => { pointerRef.current.active = false; }}
-        onClick={(event) => { if (event.target === event.currentTarget) randomizeTen(); }}
       >
         <div className="bubble-stage-hint">버블을 건드려 보세요 <span>마우스 이동 · 클릭</span></div>
         {loading && <div className="bubble-loading"><MarketBubbleIcon /><span>시장 데이터를 불러오는 중</span></div>}
@@ -406,7 +390,6 @@ export default function MarketBubblePage() {
                 event.stopPropagation();
                 if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
                 clickTimerRef.current = window.setTimeout(() => {
-                  randomizeTen(index);
                   setDiscussionIndex(index);
                   reportMarketBubbleEvent({ action: "bubble_click", market, code: item.code, name: item.name });
                   clickTimerRef.current = null;

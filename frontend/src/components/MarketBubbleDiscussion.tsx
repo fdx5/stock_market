@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BoardDetail, BoardPost, GlobalDiscussionPost, StockBoardItem, api } from "../api/client";
 import { reportMarketBubbleEvent } from "../useActivityTracking";
+import StockLogo from "./StockLogo";
 
 type Market = "kospi" | "kosdaq" | "nasdaq";
 type DiscussionItem = {
@@ -77,7 +78,10 @@ export default function MarketBubbleDiscussion({ item, market, colors, onClose }
     <aside className="bubble-discussion" style={{ "--panel-light": colors[0], "--panel-dark": colors[1] } as React.CSSProperties} aria-label={`${item.name} 종목토론`}>
       <div className="bubble-discussion-edge" />
       <header className="bubble-discussion-head">
-        <div><span>MARKET CONVERSATION</span><h2>{item.name}</h2><p>종목토론 · 10건씩 보기</p></div>
+        <div className="bubble-discussion-identity">
+          <StockLogo code={item.code} className="bubble-discussion-logo" />
+          <div><span>MARKET CONVERSATION</span><h2>{item.name}</h2><p>종목토론 · 10건씩 보기</p></div>
+        </div>
         <button type="button" onClick={onClose} aria-label="종목토론 닫기">×</button>
       </header>
 
@@ -94,8 +98,8 @@ export default function MarketBubbleDiscussion({ item, market, colors, onClose }
               : <p key={index}>{block.text}</p>)}
           </div>
           <nav className="bubble-detail-nav" aria-label="게시글 이동">
-            <button type="button" disabled={selected === posts.length - 1} onClick={() => movePost(1)}><small>PREVIOUS</small><span>‹ 이전글 보기</span></button>
-            <button type="button" disabled={selected === 0} onClick={() => movePost(-1)}><small>NEXT</small><span>다음글 보기 ›</span></button>
+            <button type="button" disabled={selected === 0} onClick={() => movePost(-1)}><small>PREVIOUS</small><span>‹ 이전글 보기</span></button>
+            <button type="button" disabled={selected === posts.length - 1} onClick={() => movePost(1)}><small>NEXT</small><span>다음글 보기 ›</span></button>
           </nav>
         </section>
       ) : (
