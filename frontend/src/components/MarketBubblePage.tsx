@@ -16,8 +16,14 @@ type Body = {
   deformAngle: number; deformAngleTarget: number;
   wobbleEnergy: number; wobblePhase: number;
   lastMatrix: string; lastOrigin: string; lastRadius: string;
-  el: HTMLButtonElement | null;
+  el: HTMLButtonElement | null; shell: HTMLSpanElement | null;
 };
+
+const FPS_METER_ENABLED = (() => {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has("fps")) return false;
+  return !["0", "off", "false", "no"].includes((params.get("fps") ?? "").trim().toLowerCase());
+})();
 
 const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "kospi", label: "코스피", title: "KOSPI 주요종목" },
@@ -41,6 +47,51 @@ function formatPrice(item: StockBoardItem, market: Market) {
 function shortName(item: StockBoardItem, market: Market) {
   const name = market === "nasdaq" ? item.name_ko || item.name : item.name;
   return name.replace(/\s+(Inc\.?|Corporation|Corp\.?|Common Stock).*$/i, "").slice(0, 18);
+}
+
+function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fpsRef = useRef<HTMLElement>(null);
+  const frameRef = useRef<HTMLSpanElement>(null);
+  const worstRef = useRef<HTMLSpanElement>(null);
+  const heapRef = useRef<HTMLSpanElement>(null);
+  const runtimeRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    let raf = 0, frames = 0, worst = 0;
+    const started = performance.now();
+    let since = started, previous = started;
+    const tick = (now: number) => {
+      const delta = now - previous; previous = now;
+      if (delta < 1000) worst = Math.max(worst, delta);
+      frames += 1;
+      const elapsed = now - since;
+      if (elapsed >= 500) {
+        const fps = frames * 1000 / elapsed;
+        if (fpsRef.current) fpsRef.current.textContent = fps.toFixed(0);
+        if (frameRef.current) frameRef.current.textContent = `${(elapsed / frames).toFixed(1)} ms`;
+        if (worstRef.current) worstRef.current.textContent = `${worst.toFixed(1)} ms`;
+        if (runtimeRef.current) runtimeRef.current.textContent = `${Math.floor((now - started) / 1000)} s`;
+        if (rootRef.current) rootRef.current.dataset.tone = fps >= 50 ? "good" : fps >= 30 ? "fair" : "bad";
+        const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+        if (heapRef.current) heapRef.current.textContent = memory ? `${(memory.usedJSHeapSize / 1048576).toFixed(0)} MB` : "N/A";
+        frames = 0; worst = 0; since = now;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="bubble-fps" ref={rootRef} data-tone="good" aria-hidden="true">
+      <div><strong ref={fpsRef}>—</strong><b>FPS</b><span ref={frameRef}>— ms</span></div>
+      <small>WORST <span ref={worstRef}>— ms</span></small>
+      <small>HEAP <span ref={heapRef}>—</span></small>
+      <small>RUNTIME <span ref={runtimeRef}>— s</span></small>
+      <small>BUBBLES <span>{bubbles}</span></small>
+    </div>
+  );
 }
 
 export default function MarketBubblePage() {
@@ -119,12 +170,14 @@ export default function MarketBubblePage() {
         lastOrigin: "",
         lastRadius: "",
         el: null,
+        shell: null,
       };
     });
     stage.querySelectorAll<HTMLButtonElement>(".stock-bubble").forEach((el, i) => {
       const body = nextBodies[i];
       if (!body) return;
       body.el = el;
+      body.shell = el.querySelector<HTMLSpanElement>(".stock-bubble-shell");
       el.style.width = `${body.r * 2}px`;
       el.style.height = `${body.r * 2}px`;
       el.style.transform = `translate3d(${body.x - body.r}px,${body.y - body.r}px,0)`;
@@ -172,6 +225,12 @@ export default function MarketBubblePage() {
     const tick = (now: number) => {
       const stage = stageRef.current;
       if (!stage) { frame = requestAnimationFrame(tick); return; }
+      if (document.hidden) {
+        previous = now;
+        pointerRef.current.active = false;
+        frame = requestAnimationFrame(tick);
+        return;
+      }
       const dt = Math.min(2, (now - previous) / 16.667); previous = now;
       const width = stage.clientWidth, height = stage.clientHeight;
       const bodies = bodiesRef.current;
@@ -216,6 +275,8 @@ export default function MarketBubblePage() {
         a.vx += Math.sin(now * .00038 + i * 1.71) * .005;
         a.vy += Math.cos(now * .00031 + i * 1.13) * .005;
         a.vx *= .994; a.vy *= .994;
+        const speed = Math.hypot(a.vx, a.vy);
+        if (speed > 3.2) { const limit = 3.2 / speed; a.vx *= limit; a.vy *= limit; }
         a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5;
         if (a.x < a.r) { const speed = Math.abs(a.vx); a.x = a.r; a.vx = speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 180); }
         if (a.x > width - a.r) { const speed = Math.abs(a.vx); a.x = width - a.r; a.vx = -speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 0); }
@@ -260,9 +321,9 @@ export default function MarketBubblePage() {
             ? "50%"
             : `${(50 + waveA * 32).toFixed(1)}% ${(50 - waveB * 27).toFixed(1)}% ${(50 + waveC * 30).toFixed(1)}% ${(50 - waveA * 24).toFixed(1)}% / ${(50 - waveC * 26).toFixed(1)}% ${(50 + waveA * 29).toFixed(1)}% ${(50 - waveB * 31).toFixed(1)}% ${(50 + waveB * 24).toFixed(1)}%`;
           body.el.style.transform = `translate3d(${body.x - body.r}px,${body.y - body.r}px,0)`;
-          if (matrix !== body.lastMatrix) { body.el.style.setProperty("--liquid-matrix", matrix); body.lastMatrix = matrix; }
-          if (origin !== body.lastOrigin) { body.el.style.setProperty("--liquid-origin", origin); body.lastOrigin = origin; }
-          if (radius !== body.lastRadius) { body.el.style.setProperty("--liquid-radius", radius); body.lastRadius = radius; }
+          if (body.shell && matrix !== body.lastMatrix) { body.shell.style.transform = matrix; body.lastMatrix = matrix; }
+          if (body.shell && origin !== body.lastOrigin) { body.shell.style.transformOrigin = origin; body.lastOrigin = origin; }
+          if (body.shell && radius !== body.lastRadius) { body.shell.style.borderRadius = radius; body.lastRadius = radius; }
         }
       });
       frame = requestAnimationFrame(tick);
@@ -400,6 +461,7 @@ export default function MarketBubblePage() {
         {MARKETS.map((entry) => <button key={entry.key} role="tab" aria-selected={market === entry.key} className={market === entry.key ? "is-active" : ""} onClick={() => { if (market !== entry.key) reportMarketBubbleEvent({ action: "market_switch", market: entry.key }); setMarket(entry.key); }}>{entry.label}</button>)}
       </div>
       <div className="bubble-instruction"><span>CLICK</span> 종목토론 보기 · <span>DOUBLE CLICK</span> 종목 상세</div>
+      {FPS_METER_ENABLED && <BubbleFpsMeter bubbles={items.length} />}
     </main>
   );
 }
