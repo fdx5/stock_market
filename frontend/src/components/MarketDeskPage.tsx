@@ -662,7 +662,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
                             {summaryName}
                           </span>
                           <span className="code">{summary.code}</span>
-                          <MarketBubbleStockLink code={summary.code} market={selected?.market?.toUpperCase() === "KOSDAQ" ? "kosdaq" : "kospi"} />
+                          <MarketBubbleStockLink code={summary.code} market="kr" />
                           <div className="discussion-explorer-row">
                             <Link
                               to={`/discussion-explorer?code=${encodeURIComponent(summary.code)}&name=${encodeURIComponent(summaryName)}&market=KR`}

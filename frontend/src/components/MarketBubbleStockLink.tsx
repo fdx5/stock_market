@@ -18,26 +18,28 @@ function loadBoard(market: BubbleMarket) {
   return request;
 }
 
-export default function MarketBubbleStockLink({ code, market }: { code: string; market: BubbleMarket }) {
-  const [visible, setVisible] = useState(false);
+export default function MarketBubbleStockLink({ code, market }: { code: string; market: BubbleMarket | "kr" }) {
+  const [targetMarket, setTargetMarket] = useState<BubbleMarket | null>(null);
 
   useEffect(() => {
     let alive = true;
-    setVisible(false);
-    loadBoard(market).then((board) => {
+    setTargetMarket(null);
+    const markets: BubbleMarket[] = market === "kr" ? ["kospi", "kosdaq"] : [market];
+    Promise.all(markets.map(async (candidate) => ({ candidate, board: await loadBoard(candidate) }))).then((results) => {
       if (!alive) return;
-      const topCodes = board.items.slice().sort((a, b) => a.rank - b.rank).slice(0, 20);
-      setVisible(topCodes.some((item) => item.code.toUpperCase() === code.toUpperCase()));
-    }).catch(() => { if (alive) setVisible(false); });
+      const matched = results.find(({ board }) => board.items.slice().sort((a, b) => a.rank - b.rank).slice(0, 20)
+        .some((item) => item.code.toUpperCase() === code.toUpperCase()));
+      setTargetMarket(matched?.candidate ?? null);
+    }).catch(() => { if (alive) setTargetMarket(null); });
     return () => { alive = false; };
   }, [code, market]);
 
-  if (!visible) return null;
-  const marketLabel = market === "kosdaq" ? "코스닥" : market === "nasdaq" ? "나스닥" : "코스피";
+  if (!targetMarket) return null;
+  const marketLabel = targetMarket === "kosdaq" ? "코스닥" : targetMarket === "nasdaq" ? "나스닥" : "코스피";
   return (
     <div className="stock-bubble-detail-row">
       <Link
-        to={`/market-bubbles?market=${market}`}
+        to={`/market-bubbles?market=${targetMarket}`}
         className="stock-bubble-detail-link"
         aria-label={`${marketLabel} 증시버블로 이동`}
         title={`${marketLabel} 증시버블에서 보기`}
