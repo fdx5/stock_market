@@ -14,7 +14,7 @@ type Body = {
   x: number; y: number; vx: number; vy: number; r: number;
   deform: number; deformTarget: number; deformVelocity: number;
   deformAngle: number; deformAngleTarget: number;
-  wobbleEnergy: number; wobblePhase: number;
+  wobbleEnergy: number; wobblePhase: number; jellyProfile: number;
   lastMatrix: string; lastOrigin: string; lastPosition: string;
   el: HTMLButtonElement | null; shell: HTMLSpanElement | null;
 };
@@ -177,6 +177,7 @@ export default function MarketBubblePage() {
         deformAngleTarget: 0,
         wobbleEnergy: 0,
         wobblePhase: Math.random() * Math.PI * 2,
+        jellyProfile: i % 4,
         lastMatrix: "",
         lastOrigin: "",
         lastPosition: "",
@@ -253,6 +254,9 @@ export default function MarketBubblePage() {
         if (amount >= body.deformTarget * .92) body.deformAngleTarget += difference;
         if (amount > body.deformTarget + .008) {
           body.wobbleEnergy = Math.min(.225, Math.max(body.wobbleEnergy, amount * .9));
+          // Let impact direction and strength select the material response, so
+          // repeated contacts do not replay one recognisable deformation loop.
+          body.jellyProfile = Math.abs(Math.floor(angle / 37) + Math.floor(amount * 113)) % 4;
         }
         body.deformTarget = Math.max(body.deformTarget, amount);
       };
@@ -262,9 +266,12 @@ export default function MarketBubblePage() {
         // separation releases it gradually with a subtle gelatin overshoot.
         a.deformTarget *= Math.pow(.935, dt);
         a.wobbleEnergy *= Math.pow(.972, dt);
-        a.wobblePhase += (.105 + a.wobbleEnergy * .34) * dt;
-        a.deformVelocity += (a.deformTarget - a.deform) * .038 * dt;
-        a.deformVelocity *= Math.pow(.94, dt);
+        const profile = a.jellyProfile;
+        const springRate = [1, 1.18, .82, 1.08][profile];
+        const damping = [.94, .925, .955, .935][profile];
+        a.wobblePhase += ((.092 + profile * .012) + a.wobbleEnergy * (.28 + profile * .035)) * dt;
+        a.deformVelocity += (a.deformTarget - a.deform) * .038 * springRate * dt;
+        a.deformVelocity *= Math.pow(damping, dt);
         a.deform += a.deformVelocity * dt;
         const angleDifference = ((a.deformAngleTarget - a.deformAngle + 180) % 360 + 360) % 360 - 180;
         a.deformAngle += angleDifference * Math.min(1, .075 * dt);
@@ -316,18 +323,27 @@ export default function MarketBubblePage() {
           // Continuous sub-pixel "breathing" forced all shells to composite forever.
           const isDeforming = Math.abs(squash) > .0008 || body.wobbleEnergy > .001;
           const waveA = Math.sin(body.wobblePhase) * body.wobbleEnergy;
-          const impactRadians = body.deformAngle * Math.PI / 180;
+          const waveB = Math.sin(body.wobblePhase * (1.32 + body.jellyProfile * .09) + 1.65) * body.wobbleEnergy;
+          const axisTravel = [0, waveB * 70, waveA * 25, (waveA - waveB) * 65][body.jellyProfile];
+          const impactRadians = (body.deformAngle + axisTravel) * Math.PI / 180;
           const impactX = Math.cos(impactRadians);
           const impactY = Math.sin(impactRadians);
-          const normalScale = isDeforming ? Math.max(.4, Math.min(1.25, 1 - squash * 1.5 + waveA * .1)) : 1;
-          const tangentScale = isDeforming ? Math.max(.78, Math.min(1.68, 1 + squash * 1.02 - waveA * .07)) : 1;
+          const normalCompression = [1.5, 1.7, 1.34, 1.57][body.jellyProfile];
+          const tangentExpansion = [1.02, 1.18, .9, 1.08][body.jellyProfile];
+          const rebound = [waveA * .1, waveA * .14, waveA * .065, (waveA * .09 + waveB * .055)][body.jellyProfile];
+          const sideRipple = [waveA * .07, waveB * .09, waveA * .045, (waveA - waveB) * .065][body.jellyProfile];
+          const normalScale = isDeforming ? Math.max(.4, Math.min(1.25, 1 - squash * normalCompression + rebound)) : 1;
+          const tangentScale = isDeforming ? Math.max(.78, Math.min(1.68, 1 + squash * tangentExpansion - sideRipple)) : 1;
           const scaleDifference = normalScale - tangentScale;
           const matrix11 = tangentScale + scaleDifference * impactX * impactX;
           const matrix12 = scaleDifference * impactX * impactY;
           const matrix21 = matrix12;
           const matrix22 = tangentScale + scaleDifference * impactY * impactY;
           const matrix = isDeforming ? `matrix(${matrix11.toFixed(3)},${matrix12.toFixed(3)},${matrix21.toFixed(3)},${matrix22.toFixed(3)},0,0)` : "matrix(1,0,0,1,0,0)";
-          const origin = `${(50 - impactX * 48).toFixed(1)}% ${(50 - impactY * 48).toFixed(1)}%`;
+          const contactRadians = body.deformAngle * Math.PI / 180;
+          const contactX = Math.cos(contactRadians), contactY = Math.sin(contactRadians);
+          const anchorDepth = [48, 43, 52, 46][body.jellyProfile];
+          const origin = `${(50 - contactX * anchorDepth).toFixed(1)}% ${(50 - contactY * anchorDepth).toFixed(1)}%`;
           const position = `translate3d(${(body.x - body.r).toFixed(1)}px,${(body.y - body.r).toFixed(1)}px,0)`;
           if (position !== body.lastPosition) { body.el.style.transform = position; body.lastPosition = position; }
           if (body.shell && matrix !== body.lastMatrix) { body.shell.style.transform = matrix; body.lastMatrix = matrix; }
