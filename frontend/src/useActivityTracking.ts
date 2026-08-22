@@ -75,6 +75,7 @@ export function pageLabel(path: string): string {
   if (path === "/global-top100") return "글로벌 시총 TOP100";
   if (path === "/etf") return "ETF 마켓";
   if (path === "/discussion-explorer") return "종목토론";
+  if (path === "/market-bubbles") return "증시버블";
   if (path === "/battle") return "줄다리기";
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";
@@ -177,6 +178,32 @@ export function reportDiscussionSearchSelection(options: {
     stock_code: options.code,
     stock_name: options.name,
     object_key: `search:${options.market}/${options.assetKind}:${options.code}`.slice(0, 100),
+  });
+}
+
+export type MarketBubbleAction = "bubble_click" | "discussion_post" | "market_switch" | "stock_detail";
+
+export function reportMarketBubbleEvent(options: {
+  action: MarketBubbleAction;
+  market: "kospi" | "kosdaq" | "nasdaq";
+  code?: string;
+  name?: string;
+  detail?: string;
+}): void {
+  if (isAdminPath(window.location.pathname)) return;
+  const actionLabels: Record<MarketBubbleAction, string> = {
+    bubble_click: "버블 클릭",
+    discussion_post: "토론 게시글 클릭",
+    market_switch: "시장 전환",
+    stock_detail: "종목 상세 이동",
+  };
+  sendEvent({
+    type: "click",
+    path: "/market-bubbles",
+    label: `${actionLabels[options.action]} · ${options.name || options.market}${options.detail ? ` · ${options.detail}` : ""}`.slice(0, 100),
+    stock_code: options.code,
+    stock_name: options.name,
+    object_key: `bubble:${options.action}:${options.market}:${options.code || options.market}`.slice(0, 100),
   });
 }
 

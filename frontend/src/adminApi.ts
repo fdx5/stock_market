@@ -86,6 +86,12 @@ export interface StockSearchCount {
   count: number;
 }
 
+export interface BubbleStats {
+  actions: Array<{ action: string; count: number; sessions: number }>;
+  markets: Array<{ market: string; count: number }>;
+  stocks: Array<{ code: string; name: string; count: number; sessions: number }>;
+}
+
 /* ───────────────────── main-page behaviour ─────────────────────
    Separate from the page and stock statistics above because it measures
    something else: not where people went, but what they touched once they had
@@ -722,6 +728,7 @@ export const adminApi = {
   // see admin.py's _RANKING_WINDOW.
   pagesTop: (limit = 7) => authedGet<{ items: PageCount[] }>(`/pages/top?limit=${limit}`),
   stocksTop: (limit = 10) => authedGet<{ items: StockSearchCount[] }>(`/stocks/top?limit=${limit}`),
+  bubbleStats: () => authedGet<BubbleStats>("/bubbles/stats"),
   tail: (limit = 100) => authedGet<{ events: ActivityEvent[] }>(`/live/tail?limit=${limit}`),
   sessions: () => authedGet<{ sessions: ActiveSession[] }>("/live/sessions"),
   /* Main-page behaviour. The summary and trend follow the chart's own range;

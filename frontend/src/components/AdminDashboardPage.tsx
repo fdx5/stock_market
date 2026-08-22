@@ -3,6 +3,7 @@ import {
   AdminAuthError,
   AdminSummary,
   AdminTrendRange,
+  BubbleStats,
   HubAction,
   HubObjectCount,
   HubSummary,
@@ -346,6 +347,7 @@ export default function AdminDashboardPage() {
   const [hubRankAction, setHubRankAction] = useState<HubAction | "all">("all");
   const [pagesTop, setPagesTop] = useState<PageCount[] | null>(null);
   const [stocksTop, setStocksTop] = useState<StockSearchCount[] | null>(null);
+  const [bubbleStats, setBubbleStats] = useState<BubbleStats | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [activeLegend, setActiveLegend] = useState<string | null>(null);
   const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(new Set());
@@ -414,12 +416,13 @@ export default function AdminDashboardPage() {
     if (!authed) return undefined;
     let cancelled = false;
     const load = () => {
-      Promise.all([adminApi.pagesTop(200), adminApi.stocksTop(500), adminApi.hubObjectsTop(300)])
-        .then(([pages, stocks, hub]) => {
+      Promise.all([adminApi.pagesTop(200), adminApi.stocksTop(500), adminApi.hubObjectsTop(300), adminApi.bubbleStats()])
+        .then(([pages, stocks, hub, bubbles]) => {
           if (cancelled) return;
           setPagesTop(pages.items);
           setStocksTop(stocks.items);
           setHubObjects(hub.items);
+          setBubbleStats(bubbles);
         })
         .catch(handleAuthError);
     };
@@ -1007,6 +1010,35 @@ export default function AdminDashboardPage() {
                       );
                     })}
                   </div>
+                )}
+              </div>
+
+              <div className="admin-trend-topstocks admin-bubble-stats">
+                <h3 className="admin-trend-toppages-title">
+                  증시버블 종목 클릭 (7일 누적)
+                  <span className="admin-toppages-hint">페이지·시장·종목 이벤트</span>
+                </h3>
+                {bubbleStats === null ? (
+                  <div className="admin-toppages-list">{[0, 1, 2, 3].map((i) => <div key={i} className="admin-toppages-row"><span className="admin-skeleton admin-skeleton--row" /></div>)}</div>
+                ) : bubbleStats.stocks.length === 0 ? (
+                  <p className="admin-empty">아직 증시버블 종목 클릭 기록이 없습니다.</p>
+                ) : (
+                  <>
+                    <div className="admin-bubble-summary">
+                      {bubbleStats.markets.map((m) => <span key={m.market}><b>{m.market.toUpperCase()}</b> {m.count.toLocaleString()}</span>)}
+                      {bubbleStats.actions.map((a) => <span key={a.action}><b>{a.action}</b> {a.count.toLocaleString()}</span>)}
+                    </div>
+                    <div className="admin-toppages-list admin-toppages-list--scroll">
+                      {bubbleStats.stocks.map((s, i) => {
+                        const top = bubbleStats.stocks[0]?.count || 1;
+                        return <div key={s.code} className={`admin-toppages-row${i < 3 ? " admin-toppages-row--top" : ""}`}>
+                          <span className="admin-toppages-rank">{i + 1}</span>
+                          <div className="admin-toppages-info"><span className="admin-toppages-label admin-toppages-label--stock"><StockLogo code={s.code} className="admin-toppages-stock-icon" />{s.name}<span className="admin-toppages-stock-code">({s.code}) · {s.sessions}명</span></span><div className="admin-toppages-bar-track"><div className="admin-toppages-bar-fill" style={{ width: `${Math.max(3, s.count / top * 100)}%`, background: "var(--series-violet)" }} /></div></div>
+                          <span className="admin-toppages-count">{s.count.toLocaleString()}</span>
+                        </div>;
+                      })}
+                    </div>
+                  </>
                 )}
               </div>
 

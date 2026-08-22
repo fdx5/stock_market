@@ -165,6 +165,12 @@ def stocks_top(limit: int = Query(10, ge=1, le=500)):
     return {"items": items}
 
 
+@router.get("/bubbles/stats", dependencies=[Depends(require_admin)])
+def bubbles_stats():
+    since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
+    return page_view_store.bubble_stats(since)
+
+
 # ── the entrance page's own behaviour ──
 #
 # Kept apart from the page and stock endpoints above on purpose. Those answer

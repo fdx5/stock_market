@@ -4,6 +4,7 @@ import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
 import { usCompanyLogoUrl } from "../usLogo";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { reportMarketBubbleEvent } from "../useActivityTracking";
 import MarketBubbleIcon from "./MarketBubbleIcon";
 import MarketBubbleDiscussion from "./MarketBubbleDiscussion";
 import "./marketBubble.css";
@@ -220,6 +221,7 @@ export default function MarketBubblePage() {
                 clickTimerRef.current = window.setTimeout(() => {
                   randomizeTen(index);
                   setDiscussionIndex(index);
+                  reportMarketBubbleEvent({ action: "bubble_click", market, code: item.code, name: item.name });
                   clickTimerRef.current = null;
                 }, 260);
               }}
@@ -227,6 +229,7 @@ export default function MarketBubblePage() {
                 event.stopPropagation();
                 if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
                 clickTimerRef.current = null;
+                reportMarketBubbleEvent({ action: "stock_detail", market, code: item.code, name: item.name });
                 navigate(market === "nasdaq" ? `/global?code=${item.code}` : `/stock/${item.code}`);
               }}
               onPointerEnter={() => {
@@ -265,7 +268,7 @@ export default function MarketBubblePage() {
       )}
 
       <div className="bubble-switcher" role="tablist" aria-label="시장 선택">
-        {MARKETS.map((entry) => <button key={entry.key} role="tab" aria-selected={market === entry.key} className={market === entry.key ? "is-active" : ""} onClick={() => setMarket(entry.key)}>{entry.label}</button>)}
+        {MARKETS.map((entry) => <button key={entry.key} role="tab" aria-selected={market === entry.key} className={market === entry.key ? "is-active" : ""} onClick={() => { if (market !== entry.key) reportMarketBubbleEvent({ action: "market_switch", market: entry.key }); setMarket(entry.key); }}>{entry.label}</button>)}
       </div>
       <div className="bubble-instruction"><span>CLICK</span> 종목토론 보기 · <span>DOUBLE CLICK</span> 종목 상세</div>
     </main>

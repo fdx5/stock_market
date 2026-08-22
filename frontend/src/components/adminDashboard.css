@@ -205,3 +205,6 @@
     height: 70vh;
   }
 }
+.admin-bubble-summary { display:flex; flex-wrap:wrap; gap:6px; padding:2px 0 10px; }
+.admin-bubble-summary span { padding:5px 8px; border:1px solid var(--border); border-radius:999px; color:var(--text-muted); background:var(--surface-soft); font-size:9px; }
+.admin-bubble-summary b { color:var(--text); text-transform:uppercase; }

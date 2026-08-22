@@ -42,6 +42,7 @@ PAGES: list[dict] = [
     {"id": "page:/global-top100", "label": "글로벌 시총 TOP100", "path": "/global-top100", "group": "stock"},
     {"id": "page:/etf", "label": "ETF 마켓", "path": "/etf", "group": "etf"},
     {"id": "page:/discussion-explorer", "label": "종목토론", "path": "/discussion-explorer", "group": "stock"},
+    {"id": "page:/market-bubbles", "label": "증시버블", "path": "/market-bubbles", "group": "stock"},
     {"id": "page:/map", "label": "KOSPI MAP", "path": "/map", "group": "map"},
     {"id": "page:/kosdaq-map", "label": "KOSDAQ MAP", "path": "/kosdaq-map", "group": "map"},
     {"id": "page:/sp500-map", "label": "S&P500 MAP", "path": "/sp500-map", "group": "map"},
@@ -199,6 +200,12 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/etfs/{code}/toss-discussion",
         "/api/etfs/{code}/quote",
     ],
+    "page:/market-bubbles": [
+        "/api/market/board",
+        "/api/stock/{code}/board",
+        "/api/stock/{code}/board/{nid}",
+        "/api/global/{code}/discussion",
+    ],
     "page:/map": ["/api/market/map", "/api/market/ticker", "/api/visitors/count", "/api/translate"],
     "page:/kosdaq-map": [
         "/api/market/kosdaq-map",
@@ -291,6 +298,7 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/admin/pages/visitor-trend",
         "/api/admin/pages/top",
         "/api/admin/stocks/top",
+        "/api/admin/bubbles/stats",
         "/api/admin/hub/summary",
         "/api/admin/hub/trend",
         "/api/admin/hub/objects/top",

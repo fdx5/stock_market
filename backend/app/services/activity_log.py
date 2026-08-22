@@ -97,7 +97,8 @@ def record_event(
         threading.Thread(
             target=page_view_store.record_page_view,
             args=(session_id, path, created_at, event_type, referrer, source_channel,
-                  source_name, utm_source, utm_medium, utm_campaign),
+                  source_name, utm_source, utm_medium, utm_campaign, label,
+                  stock_code, stock_name, object_key),
             daemon=True,
         ).start()
     elif event_type == "hub" and action:

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BoardDetail, BoardPost, GlobalDiscussionPost, StockBoardItem, api } from "../api/client";
+import { reportMarketBubbleEvent } from "../useActivityTracking";
 
 type Market = "kospi" | "kosdaq" | "nasdaq";
 type DiscussionItem = {
@@ -58,6 +59,7 @@ export default function MarketBubbleDiscussion({ item, market, colors, onClose }
   const openPost = (index: number) => {
     setSelected(index); setDetail(null);
     const post = posts[index];
+    if (post) reportMarketBubbleEvent({ action: "discussion_post", market, code: item.code, name: item.name, detail: post.title });
     if (!post || market === "nasdaq") return;
     setDetailLoading(true);
     api.boardDetail(item.code, post.id).then(setDetail).catch(() => setError("게시글 상세 내용을 불러오지 못했습니다."))

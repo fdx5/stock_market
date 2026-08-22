@@ -376,7 +376,7 @@ export default function LiveSessionsAndLog({
                     </>
                   )
                 ) : e.label ? (
-                  `${pageLabel(e.path)} · ${e.label}`
+                  <>{e.stock_code && <><StockLogo code={e.stock_code} className="admin-live-row-stock-icon" /> {e.stock_name} <span className="admin-live-row-detail-muted">({e.stock_code})</span> · </>}{pageLabel(e.path)} · {e.label}{e.object_key && <span className="admin-live-row-key">{e.object_key}</span>}</>
                 ) : (
                   pageLabel(e.path)
                 )}

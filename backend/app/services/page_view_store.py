@@ -34,6 +34,10 @@ CREATE TABLE IF NOT EXISTS page_views (
     utm_source TEXT,
     utm_medium TEXT,
     utm_campaign TEXT
+    ,label TEXT
+    ,stock_code TEXT
+    ,stock_name TEXT
+    ,object_key TEXT
 )
 """
 _INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_created_at ON page_views (created_at)"
@@ -94,6 +98,10 @@ def _new_ready_connection():
         "utm_source": "TEXT",
         "utm_medium": "TEXT",
         "utm_campaign": "TEXT",
+        "label": "TEXT",
+        "stock_code": "TEXT",
+        "stock_name": "TEXT",
+        "object_key": "TEXT",
     }
     for name, definition in migrations.items():
         if name not in columns:
@@ -136,18 +144,58 @@ def record_page_view(
     utm_source: str | None = None,
     utm_medium: str | None = None,
     utm_campaign: str | None = None,
+    label: str | None = None,
+    stock_code: str | None = None,
+    stock_name: str | None = None,
+    object_key: str | None = None,
 ) -> None:
     def _run(conn):
         conn.execute(
             "INSERT INTO page_views (session_id, path, created_at, event_type, referrer, "
-            "source_channel, source_name, utm_source, utm_medium, utm_campaign) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "source_channel, source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, path, created_at, event_type, referrer, source_channel,
-             source_name, utm_source, utm_medium, utm_campaign),
+             source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key),
         )
         conn.commit()
 
     _with_connection(_run)
+
+
+def bubble_stats(since_iso: str) -> dict:
+    """Persistent interaction totals for the market-bubbles page."""
+    def _run(conn):
+        totals = conn.execute(
+            "SELECT object_key, COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
+            "WHERE created_at >= ? AND path='/market-bubbles' AND event_type='click' "
+            "AND object_key LIKE 'bubble:%' GROUP BY object_key ORDER BY COUNT(*) DESC",
+            (since_iso,),
+        ).fetchall()
+        stocks = conn.execute(
+            "SELECT stock_code, MAX(stock_name), COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
+            "WHERE created_at >= ? AND path='/market-bubbles' AND event_type='click' "
+            "AND stock_code IS NOT NULL GROUP BY stock_code ORDER BY COUNT(*) DESC LIMIT 100",
+            (since_iso,),
+        ).fetchall()
+        return totals, stocks
+
+    totals, stocks = _with_connection(_run)
+    actions: dict[str, dict] = {}
+    markets: dict[str, int] = {}
+    for key, count, sessions in totals:
+        parts = (key or "").split(":")
+        if len(parts) < 4:
+            continue
+        action, market = parts[1], parts[2]
+        row = actions.setdefault(action, {"action": action, "count": 0, "sessions": 0})
+        row["count"] += count
+        row["sessions"] += sessions
+        markets[market] = markets.get(market, 0) + count
+    return {
+        "actions": sorted(actions.values(), key=lambda row: row["count"], reverse=True),
+        "markets": [{"market": key, "count": value} for key, value in sorted(markets.items(), key=lambda row: row[1], reverse=True)],
+        "stocks": [{"code": code, "name": name or code, "count": count, "sessions": sessions} for code, name, count, sessions in stocks],
+    }
 
 
 def counts_by_page(since_iso: str) -> list[dict]:
