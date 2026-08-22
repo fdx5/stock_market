@@ -62,6 +62,7 @@ const PredictionGradingPage = lazy(() => import("./components/PredictionGradingP
 // Pulls in lightweight-charts, so it stays out of every other route's bundle.
 const DramPriceHistoryPage = lazy(() => import("./components/DramPriceHistoryPage"));
 const DiscussionExplorerPage = lazy(() => import("./components/DiscussionExplorerPage"));
+const MarketBubblePage = lazy(() => import("./components/MarketBubblePage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
@@ -138,6 +139,10 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
   "/discussion-explorer": {
     title: "주식·ETF 종목토론 | K-Stock Hub",
     description: "국내외 주식과 ETF의 최근 게시글과 댓글을 3D 공간에서 탐색하고 종목별 투자자 의견을 확인하세요.",
+  },
+  "/market-bubbles": {
+    title: "증시버블 · 시가총액 TOP 20 | K-Stock Hub",
+    description: "코스피·코스닥·나스닥 시가총액 상위 20개 종목의 현재가와 등락률을 움직이는 버블로 확인하세요.",
   },
   "/ai-prediction": {
     title: "AI 주가 예측과 종목 분석 | K-Stock Hub",
@@ -302,6 +307,8 @@ export default function App() {
     page = <DramPriceHistoryPage />;
   } else if (path === "/discussion-explorer") {
     page = <DiscussionExplorerPage />;
+  } else if (path === "/market-bubbles") {
+    page = <MarketBubblePage />;
   } else if (path === "/admin") {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {

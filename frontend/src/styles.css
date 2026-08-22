@@ -3960,6 +3960,39 @@ thead .weekly-foreign-amount-col {
   background: color-mix(in srgb, var(--series-red) 22%, transparent);
 }
 
+.kospi-map-nav-link--bubbles {
+  position: relative;
+  color: #52677d;
+  background: linear-gradient(145deg, rgba(228, 241, 250, .94), rgba(242, 232, 250, .9));
+  border-color: rgba(112, 132, 158, .2);
+}
+
+.kospi-map-nav-link--bubbles:hover {
+  color: #293e55;
+  border-color: rgba(90, 116, 148, .35);
+  box-shadow: 0 7px 18px rgba(83, 105, 133, .16), inset 0 1px rgba(255, 255, 255, .8);
+}
+
+.market-bubble-new {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 1px;
+  border-radius: 50%;
+  color: #fff;
+  background: linear-gradient(145deg, #ff7189, #df3558);
+  box-shadow: 0 3px 8px rgba(210, 48, 82, .3), inset 0 1px rgba(255, 255, 255, .45);
+  font-size: 8px;
+  font-weight: 950;
+  line-height: 1;
+  animation: market-bubble-new-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes market-bubble-new-pulse {
+  50% { transform: translateY(-1px) scale(1.08); box-shadow: 0 4px 11px rgba(210, 48, 82, .4), 0 0 0 4px rgba(237, 70, 103, .09); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .kospi-map-nav-link--etf {
     animation: none;

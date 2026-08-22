@@ -1,6 +1,7 @@
 import { Link } from "../router";
 import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
+import MarketBubbleNavLink from "./MarketBubbleNavLink";
 
 export default function EtfNavLink() {
   return (
@@ -12,6 +13,7 @@ export default function EtfNavLink() {
       >
         <DiscussionIcon /> 종목토론
       </Link>
+      <MarketBubbleNavLink />
     </>
   );
 }

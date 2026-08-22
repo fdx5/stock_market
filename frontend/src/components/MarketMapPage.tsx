@@ -1023,6 +1023,7 @@ export default function MarketMapPage({
             >
               {link.icon}
               {t(link.label)}
+              {link.to === "/market-bubbles" && <span className="market-bubble-new" aria-label="신규">N</span>}
             </Link>
           ))}
           <VisitorBadge />

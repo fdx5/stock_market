@@ -7,6 +7,7 @@ import BoardPanel from "./BoardPanel";
 import DashboardIcon from "./DashboardIcon";
 import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
+import MarketBubbleNavLink from "./MarketBubbleNavLink";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobalBoardPanel from "./GlobalBoardPanel";
@@ -595,6 +596,7 @@ export default function EtfPage() {
           >
             <DiscussionIcon /> 종목토론
           </Link>
+          <MarketBubbleNavLink />
           <Link
             to="/kospi-100"
             className="kospi-map-nav-link kospi-map-nav-link--top100"

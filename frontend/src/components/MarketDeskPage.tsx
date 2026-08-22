@@ -18,6 +18,7 @@ import DeskIndexStrip from "./DeskIndexStrip";
 import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
 import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
+import MarketBubbleNavLink from "./MarketBubbleNavLink";
 import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
@@ -438,6 +439,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           <Link to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK" className="kospi-map-nav-link kospi-map-nav-link--discussion">
             <DiscussionIcon /> 종목토론
           </Link>
+          <MarketBubbleNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
             <RankIcon /> TOP 100
           </Link>
