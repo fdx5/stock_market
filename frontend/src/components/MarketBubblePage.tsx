@@ -203,10 +203,26 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         (i * 137.508) * Math.PI / 180,
         ((i * 61) % 23 - 11) * Math.PI / 180,
       );
+      // Re-roll a hand-shaped mochi silhouette on every page entry. The
+      // profile stays frozen afterwards, so only an actual collision moves it.
+      const organicSeed = Math.random() * Math.PI * 2;
+      const organicShape = new THREE.Vector4(
+        organicSeed,
+        .035 + Math.random() * .035,
+        (Math.random() - .5) * .11,
+        (Math.random() - .5) * .09,
+      );
+      const mochiDetail = new THREE.Vector3(
+        2 + Math.floor(Math.random() * 3),
+        4 + Math.floor(Math.random() * 4),
+        Math.random() * Math.PI * 2,
+      );
       material.onBeforeCompile = (shader) => {
         shader.uniforms.uImpact = { value: new THREE.Vector3(1, 0, 0) };
+        shader.uniforms.uOrganic = { value: organicShape };
+        shader.uniforms.uMochiDetail = { value: mochiDetail };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform float uDeform; uniform float uWobble; uniform float uPhase;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=pow(max(0.0,facing),2.05); float back=pow(max(0.0,-facing),1.72); float shoulder=pow(max(0.0,1.0-abs(facing)),1.45); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; float sideSettle=sin(uPhase*1.28+.45)*uWobble; transformed+=n*(-contact*uDeform*1.29+back*uDeform*.6+contact*contactRebound*.315+back*delayedBack*.45+shoulder*sideSettle*.105);`);
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.55+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.3+sin(azimuth*(uMochiDetail.x+uMochiDetail.y)+uOrganic.x*.63)*.15; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=pow(max(0.0,facing),2.05); float stickyTip=pow(max(0.0,facing),5.2); float back=pow(max(0.0,-facing),1.72); float shoulder=pow(max(0.0,1.0-abs(facing)),1.45); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; float sideSettle=sin(uPhase*1.28+.45)*uWobble; transformed+=n*(-contact*compression*1.29+back*compression*.6+stickyTip*adhesion*1.72-shoulder*adhesion*.13+contact*contactRebound*.315+back*delayedBack*.45+shoulder*sideSettle*.105);`);
         shaders[i] = shader;
       };
       const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
@@ -214,7 +230,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.left=-w/2;camera.right=w/2;camera.top=h/2;camera.bottom=-h/2;camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
     let raf=0;
-    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i];mesh.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=Math.max(0,body.deform);shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
+    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i];mesh.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
     return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
   }, [bodiesRef, count, palette]);
@@ -352,6 +368,8 @@ export default function MarketBubblePage() {
 
   useEffect(() => {
     let frame = 0, previous = performance.now();
+    const adhesionPairs = new Map<string, { strength: number; life: number }>();
+    const adhesionCooldowns = new Map<string, number>();
     const tick = (now: number) => {
       const stage = stageRef.current;
       if (!stage) { frame = requestAnimationFrame(tick); return; }
@@ -379,6 +397,12 @@ export default function MarketBubblePage() {
         }
         body.deformTarget = Math.max(body.deformTarget, amount);
       };
+      const stretchToward = (body: Body, amount: number, angle: number) => {
+        const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
+        body.deformAngleTarget += difference;
+        body.deformTarget = Math.min(body.deformTarget, -amount);
+        body.deform += (-amount - body.deform) * .24;
+      };
       for (let i = 0; i < bodies.length; i++) {
         const a = bodies[i];
         // Ease toward a decaying target. Sustained contact holds a soft shape;
@@ -401,7 +425,7 @@ export default function MarketBubblePage() {
           a.deform = 0;
           a.deformVelocity = 0;
         }
-        a.deform = Math.max(-.12, Math.min(.62, a.deform));
+        a.deform = Math.max(-.3, Math.min(.62, a.deform));
         if (pinnedRef.current === i) {
           a.vx = 0; a.vy = 0;
           continue;
@@ -428,6 +452,9 @@ export default function MarketBubblePage() {
         const a = bodies[i], b = bodies[j];
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
         const min = (a.r + b.r) * .9;
+        const pairKey = `${i}:${j}`;
+        const activeAdhesion = adhesionPairs.get(pairKey);
+        if (activeAdhesion) activeAdhesion.life += dt;
         if (d < min) {
           // Resolve penetration over several frames. The softer separation
           // avoids a rigid snap while remaining stable under sustained contact.
@@ -442,7 +469,50 @@ export default function MarketBubblePage() {
           const softness = Math.min(.58, baseSoftness * speedBoost);
           const angle = Math.atan2(ny, nx) * 180 / Math.PI;
           excite(a, softness, angle); excite(b, softness, angle + 180);
+          if (!activeAdhesion && (adhesionCooldowns.get(pairKey) ?? 0) <= now) {
+            adhesionPairs.set(pairKey, {
+              strength: Math.min(1, .36 + impactSpeed * .32 + softness * .42),
+              life: 0,
+            });
+          } else if (activeAdhesion && activeAdhesion.life > 30) {
+            adhesionPairs.delete(pairKey);
+            adhesionCooldowns.set(pairKey, now + 1250);
+            const forcedSnap = .24 + activeAdhesion.strength * .28;
+            a.vx -= nx * forcedSnap; a.vy -= ny * forcedSnap;
+            b.vx += nx * forcedSnap; b.vy += ny * forcedSnap;
+            a.deformTarget = 0; b.deformTarget = 0;
+          }
           if (impulse < 0) { a.vx += impulse * nx * .56; a.vy += impulse * ny * .56; b.vx -= impulse * nx * .56; b.vy -= impulse * ny * .56; }
+        } else {
+          const adhesion = adhesionPairs.get(pairKey);
+          if (!adhesion) continue;
+          const releaseDistance = min * (1.09 + adhesion.strength * .105);
+          if (d >= releaseDistance || adhesion.life > 30) {
+            adhesionPairs.delete(pairKey);
+            adhesionCooldowns.set(pairKey, now + 1250);
+            const nx = dx / d, ny = dy / d;
+            // Break the sticky neck with enough separation speed to make the
+            // detach readable, then recoil each stretched face toward round.
+            const snap = .18 + adhesion.strength * .24;
+            a.vx -= nx * snap; a.vy -= ny * snap;
+            b.vx += nx * snap; b.vy += ny * snap;
+            a.deformTarget = 0; b.deformTarget = 0;
+            a.deformVelocity += .045 + adhesion.strength * .055;
+            b.deformVelocity += .045 + adhesion.strength * .055;
+            a.wobbleEnergy = Math.max(a.wobbleEnergy, .09 + adhesion.strength * .17);
+            b.wobbleEnergy = Math.max(b.wobbleEnergy, .09 + adhesion.strength * .17);
+            a.wobblePhase = 0; b.wobblePhase = 0;
+            continue;
+          }
+          const nx = dx / d, ny = dy / d;
+          const extension = (d - min) / Math.max(1, releaseDistance - min);
+          const tension = (.014 + adhesion.strength * .052) * (1 - extension * .42) * dt;
+          a.vx += nx * tension; a.vy += ny * tension;
+          b.vx -= nx * tension; b.vy -= ny * tension;
+          const stretch = (.075 + extension * .235) * adhesion.strength;
+          const angle = Math.atan2(ny, nx) * 180 / Math.PI;
+          stretchToward(a, stretch, angle);
+          stretchToward(b, stretch, angle + 180);
         }
       }
       bodies.forEach((body) => {
