@@ -15,6 +15,7 @@ type Body = {
   deform: number; deformTarget: number; deformVelocity: number;
   deformAngle: number; deformAngleTarget: number;
   wobbleEnergy: number; wobblePhase: number;
+  lastMatrix: string; lastOrigin: string; lastRadius: string;
   el: HTMLButtonElement | null;
 };
 
@@ -114,6 +115,9 @@ export default function MarketBubblePage() {
         deformAngleTarget: 0,
         wobbleEnergy: 0,
         wobblePhase: Math.random() * Math.PI * 2,
+        lastMatrix: "",
+        lastOrigin: "",
+        lastRadius: "",
         el: null,
       };
     });
@@ -236,7 +240,6 @@ export default function MarketBubblePage() {
       bodies.forEach((body) => {
         if (body.el) {
           const squash = body.deform;
-          const impact = Math.max(0, squash);
           const breathing = Math.sin(now * .00115 + body.r * .37) * .0045;
           const waveA = Math.sin(body.wobblePhase) * body.wobbleEnergy;
           const waveB = Math.sin(body.wobblePhase * 1.47 + 1.8) * body.wobbleEnergy;
@@ -251,19 +254,15 @@ export default function MarketBubblePage() {
           const matrix12 = scaleDifference * impactX * impactY;
           const matrix21 = matrix12;
           const matrix22 = tangentScale + scaleDifference * impactY * impactY;
+          const matrix = `matrix(${matrix11.toFixed(3)},${matrix12.toFixed(3)},${matrix21.toFixed(3)},${matrix22.toFixed(3)},0,0)`;
+          const origin = `${(50 - impactX * 48).toFixed(1)}% ${(50 - impactY * 48).toFixed(1)}%`;
+          const radius = body.wobbleEnergy < .003
+            ? "50%"
+            : `${(50 + waveA * 32).toFixed(1)}% ${(50 - waveB * 27).toFixed(1)}% ${(50 + waveC * 30).toFixed(1)}% ${(50 - waveA * 24).toFixed(1)}% / ${(50 - waveC * 26).toFixed(1)}% ${(50 + waveA * 29).toFixed(1)}% ${(50 - waveB * 31).toFixed(1)}% ${(50 + waveB * 24).toFixed(1)}%`;
           body.el.style.transform = `translate3d(${body.x - body.r}px,${body.y - body.r}px,0)`;
-          body.el.style.setProperty("--liquid-m11", matrix11.toFixed(4));
-          body.el.style.setProperty("--liquid-m12", matrix12.toFixed(4));
-          body.el.style.setProperty("--liquid-m21", matrix21.toFixed(4));
-          body.el.style.setProperty("--liquid-m22", matrix22.toFixed(4));
-          body.el.style.setProperty("--liquid-origin", `${50 - impactX * 48}% ${50 - impactY * 48}%`);
-          body.el.style.setProperty("--liquid-radius", `${50 + waveA * 32}% ${50 - waveB * 27}% ${50 + waveC * 30}% ${50 - waveA * 24}% / ${50 - waveC * 26}% ${50 + waveA * 29}% ${50 - waveB * 31}% ${50 + waveB * 24}%`);
-          body.el.style.setProperty("--liquid-glass-opacity", Math.min(.84, .6 + impact * 1.2).toFixed(3));
-          body.el.style.setProperty("--liquid-inner-alpha", Math.min(.42, .19 + impact * .32).toFixed(3));
-          body.el.style.setProperty("--liquid-shine-alpha", Math.min(.64, .48 + impact * .8).toFixed(3));
-          body.el.style.setProperty("--liquid-shadow-alpha", Math.min(.34, .16 + impact * .28).toFixed(3));
-          body.el.style.setProperty("--liquid-shadow-y", `${13 - impact * 18}px`);
-          body.el.style.setProperty("--liquid-shadow-blur", `${23 + impact * 42}px`);
+          if (matrix !== body.lastMatrix) { body.el.style.setProperty("--liquid-matrix", matrix); body.lastMatrix = matrix; }
+          if (origin !== body.lastOrigin) { body.el.style.setProperty("--liquid-origin", origin); body.lastOrigin = origin; }
+          if (radius !== body.lastRadius) { body.el.style.setProperty("--liquid-radius", radius); body.lastRadius = radius; }
         }
       });
       frame = requestAnimationFrame(tick);
@@ -324,15 +323,10 @@ export default function MarketBubblePage() {
           const colors = PALETTE[palette[index] % PALETTE.length];
           const body = bodiesRef.current[index];
           const diameter = (body?.r ?? 72) * 2;
-          const lightX = 23 + (index * 7) % 22;
-          const lightY = 15 + (index * 11) % 18;
           const lightAngle = 108 + (index * 17) % 46;
-          const lightAlpha = .2 + (index % 5) * .025;
-          const depthMix = 44 + (index * 5) % 19;
           const rimAngle = (index * 47 + 18) % 360;
           const rimWidth = 3.4 + (index % 4) * .9;
           const rimAlpha = .55 + (index % 5) * .06;
-          const rimSoftness = .1 + (index % 3) * .14;
           const positive = item.change_pct > .04, negative = item.change_pct < -.04;
           return (
             <button
@@ -345,15 +339,10 @@ export default function MarketBubblePage() {
                 height: diameter,
                 "--bubble-light": colors[0],
                 "--bubble-dark": colors[1],
-                "--bubble-light-x": `${lightX}%`,
-                "--bubble-light-y": `${lightY}%`,
                 "--bubble-light-angle": `${lightAngle}deg`,
-                "--bubble-light-color": `rgba(255,255,255,${lightAlpha})`,
-                "--bubble-depth-mix": `${depthMix}%`,
                 "--bubble-rim-angle": `${rimAngle}deg`,
                 "--bubble-rim-width": `${rimWidth}px`,
                 "--bubble-rim-color": `rgba(255,255,255,${rimAlpha})`,
-                "--bubble-rim-softness": `${rimSoftness}px`,
               } as React.CSSProperties}
               onClick={(event) => {
                 event.stopPropagation();
@@ -380,7 +369,7 @@ export default function MarketBubblePage() {
               onPointerLeave={() => { if (pinnedRef.current === index) pinnedRef.current = null; }}
               aria-label={`${shortName(item, market)} ${formatPrice(item, market)} ${item.change_pct.toFixed(2)}%, 더블 클릭해 종목 열기`}
             >
-              <span className="stock-bubble-glass" />
+              <span className="stock-bubble-shell"><span className="stock-bubble-glass" /></span>
               <span className="stock-bubble-content">
                 <span className="stock-bubble-rank">#{item.rank}</span>
                 <span className="stock-bubble-logo-wrap">
