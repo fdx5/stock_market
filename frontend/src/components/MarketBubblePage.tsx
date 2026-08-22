@@ -15,7 +15,7 @@ type Body = {
   deform: number; deformTarget: number; deformVelocity: number;
   deformAngle: number; deformAngleTarget: number;
   wobbleEnergy: number; wobblePhase: number;
-  lastMatrix: string; lastOrigin: string; lastRadius: string;
+  lastMatrix: string; lastOrigin: string; lastPosition: string;
   el: HTMLButtonElement | null; shell: HTMLSpanElement | null;
 };
 
@@ -168,7 +168,7 @@ export default function MarketBubblePage() {
         wobblePhase: Math.random() * Math.PI * 2,
         lastMatrix: "",
         lastOrigin: "",
-        lastRadius: "",
+        lastPosition: "",
         el: null,
         shell: null,
       };
@@ -301,29 +301,26 @@ export default function MarketBubblePage() {
       bodies.forEach((body) => {
         if (body.el) {
           const squash = body.deform;
-          const breathing = Math.sin(now * .00115 + body.r * .37) * .0045;
+          // A settled bubble must leave its expensive translucent shell cached.
+          // Continuous sub-pixel "breathing" forced all shells to composite forever.
+          const isDeforming = Math.abs(squash) > .0008 || body.wobbleEnergy > .001;
           const waveA = Math.sin(body.wobblePhase) * body.wobbleEnergy;
-          const waveB = Math.sin(body.wobblePhase * 1.47 + 1.8) * body.wobbleEnergy;
-          const waveC = Math.sin(body.wobblePhase * .83 + 3.2) * body.wobbleEnergy;
           const impactRadians = body.deformAngle * Math.PI / 180;
           const impactX = Math.cos(impactRadians);
           const impactY = Math.sin(impactRadians);
-          const normalScale = Math.max(.4, Math.min(1.25, 1 - squash * 1.5 + breathing + waveA * .1));
-          const tangentScale = Math.max(.78, Math.min(1.68, 1 + squash * 1.02 - breathing - waveA * .07));
+          const normalScale = isDeforming ? Math.max(.4, Math.min(1.25, 1 - squash * 1.5 + waveA * .1)) : 1;
+          const tangentScale = isDeforming ? Math.max(.78, Math.min(1.68, 1 + squash * 1.02 - waveA * .07)) : 1;
           const scaleDifference = normalScale - tangentScale;
           const matrix11 = tangentScale + scaleDifference * impactX * impactX;
           const matrix12 = scaleDifference * impactX * impactY;
           const matrix21 = matrix12;
           const matrix22 = tangentScale + scaleDifference * impactY * impactY;
-          const matrix = `matrix(${matrix11.toFixed(3)},${matrix12.toFixed(3)},${matrix21.toFixed(3)},${matrix22.toFixed(3)},0,0)`;
+          const matrix = isDeforming ? `matrix(${matrix11.toFixed(3)},${matrix12.toFixed(3)},${matrix21.toFixed(3)},${matrix22.toFixed(3)},0,0)` : "matrix(1,0,0,1,0,0)";
           const origin = `${(50 - impactX * 48).toFixed(1)}% ${(50 - impactY * 48).toFixed(1)}%`;
-          const radius = body.wobbleEnergy < .003
-            ? "50%"
-            : `${(50 + waveA * 32).toFixed(1)}% ${(50 - waveB * 27).toFixed(1)}% ${(50 + waveC * 30).toFixed(1)}% ${(50 - waveA * 24).toFixed(1)}% / ${(50 - waveC * 26).toFixed(1)}% ${(50 + waveA * 29).toFixed(1)}% ${(50 - waveB * 31).toFixed(1)}% ${(50 + waveB * 24).toFixed(1)}%`;
-          body.el.style.transform = `translate3d(${body.x - body.r}px,${body.y - body.r}px,0)`;
+          const position = `translate3d(${(body.x - body.r).toFixed(1)}px,${(body.y - body.r).toFixed(1)}px,0)`;
+          if (position !== body.lastPosition) { body.el.style.transform = position; body.lastPosition = position; }
           if (body.shell && matrix !== body.lastMatrix) { body.shell.style.transform = matrix; body.lastMatrix = matrix; }
           if (body.shell && origin !== body.lastOrigin) { body.shell.style.transformOrigin = origin; body.lastOrigin = origin; }
-          if (body.shell && radius !== body.lastRadius) { body.shell.style.borderRadius = radius; body.lastRadius = radius; }
         }
       });
       frame = requestAnimationFrame(tick);
