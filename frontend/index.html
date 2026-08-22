@@ -24,16 +24,16 @@
       // cannot run at all. Recover once with a cache-busting URL, then stop to avoid
       // reload loops during a genuine outage or while offline.
       (function () {
+        var buildId = "__KSTOCK_BUILD_ID__";
         window.__KSTOCK_APP_BOOTED__ = false;
         var recoveryStarted = false;
         function recoverStaleBoot() {
           if (window.__KSTOCK_APP_BOOTED__ || recoveryStarted) return;
           recoveryStarted = true;
           try {
-            var key = "kst_boot_recovery_at";
-            var last = Number(sessionStorage.getItem(key) || 0);
-            if (Date.now() - last < 30000) return;
-            sessionStorage.setItem(key, String(Date.now()));
+            var key = "kst_boot_recovered_" + buildId;
+            if (localStorage.getItem(key) === "1") return;
+            localStorage.setItem(key, "1");
           } catch (e) {}
           var next = new URL(window.location.href);
           next.searchParams.set("__fresh", String(Date.now()));

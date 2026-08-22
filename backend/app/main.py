@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -546,7 +547,8 @@ if STATIC_DIR.exists():
     # semantics identical to the mounted half of the site rather than reimplementing
     # them slightly differently here.
     _conditional = StaticFiles(directory=STATIC_DIR)
-    _spa_template = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    _build_id = re.sub(r"[^A-Za-z0-9._-]", "", os.environ.get("RENDER_GIT_COMMIT", "dev"))[:16] or "dev"
+    _spa_template = (STATIC_DIR / "index.html").read_text(encoding="utf-8").replace("__KSTOCK_BUILD_ID__", _build_id)
 
     @app.get("/sitemap.xml", include_in_schema=False)
     def dynamic_sitemap():
