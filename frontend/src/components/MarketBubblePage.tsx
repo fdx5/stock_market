@@ -95,7 +95,10 @@ function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
 }
 
 export default function MarketBubblePage() {
-  const [market, setMarket] = useState<Market>("kospi");
+  const [market, setMarket] = useState<Market>(() => {
+    const requested = new URLSearchParams(window.location.search).get("market")?.toLowerCase();
+    return requested === "kosdaq" || requested === "nasdaq" || requested === "kospi" ? requested : "kospi";
+  });
   const [board, setBoard] = useState<StockBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [palette] = useState(() => Array.from({ length: 20 }, (_, i) => i % PALETTE.length).sort(() => Math.random() - .5));

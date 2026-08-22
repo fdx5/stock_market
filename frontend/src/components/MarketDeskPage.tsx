@@ -19,6 +19,7 @@ import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
 import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
 import MarketBubbleNavLink from "./MarketBubbleNavLink";
+import MarketBubbleStockLink from "./MarketBubbleStockLink";
 import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
 import GlobalIndexGrid from "./GlobalIndexGrid";
@@ -661,6 +662,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
                             {summaryName}
                           </span>
                           <span className="code">{summary.code}</span>
+                          <MarketBubbleStockLink code={summary.code} market={selected?.market?.toUpperCase() === "KOSDAQ" ? "kosdaq" : "kospi"} />
                           <div className="discussion-explorer-row">
                             <Link
                               to={`/discussion-explorer?code=${encodeURIComponent(summary.code)}&name=${encodeURIComponent(summaryName)}&market=KR`}

@@ -28,6 +28,7 @@ import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
 import Logo from "./Logo";
 import MacroRatesStrip from "./MacroRatesStrip";
 import MarketIcon from "./MarketIcon";
+import MarketBubbleStockLink from "./MarketBubbleStockLink";
 import MarketBreadthGauge from "./MarketBreadthGauge";
 import MarketTickerBar from "./MarketTickerBar";
 import PriceChart, { PriceChartHandle } from "./PriceChart";
@@ -560,6 +561,7 @@ export default function GlobalStockPage() {
                   {quote.name}
                 </span>
                 <span className="code">{quote.code}</span>
+                <MarketBubbleStockLink code={quote.code} market="nasdaq" />
                 <div className="discussion-explorer-row">
                   <Link
                     to={`/discussion-explorer?code=${encodeURIComponent(quote.code)}&name=${encodeURIComponent(quote.name)}&market=US`}
