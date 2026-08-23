@@ -38,27 +38,8 @@ const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "nasdaq", label: "나스닥", title: "NASDAQ 주요종목" },
 ];
 
-const PALETTE = [
-  ["#f07f9f", "#b73d69"], ["#67b4ed", "#286eb9"], ["#e7bd57", "#a87019"],
-  ["#e78ac4", "#a83d83"], ["#7395e8", "#3558ae"], ["#61c99a", "#197b59"],
-  ["#f09a83", "#b94d42"], ["#72cbe0", "#23849e"], ["#f0ce78", "#ba8127"],
-  ["#cf86d7", "#8f439d"], ["#71a8f0", "#3163bd"], ["#55c9c3", "#167d83"],
-  ["#ee91b2", "#b44b78"], ["#dca94d", "#9b6418"], ["#879ee8", "#465db2"],
-  ["#54d5ae", "#15836c"], ["#f3a66f", "#bd5b38"], ["#60c4f3", "#246fae"],
-  ["#d89af0", "#884cab"], ["#f1c45f", "#a87318"],
-];
-
-const SURFACE_ACCENTS = [
-  ["#ffd0dc", "#d9d4ff"], ["#c9efff", "#e0d7ff"], ["#fff0ba", "#ffd4c8"],
-  ["#ffd3ed", "#d7e9ff"], ["#d4e3ff", "#d8f4ef"], ["#c9f2df", "#fff0c5"],
-  ["#ffd8ca", "#dcd8ff"], ["#d2f3ff", "#f0d8ff"], ["#fff1c3", "#d8efff"],
-  ["#f3d4ff", "#d3f1ef"], ["#d2e6ff", "#ffe0ea"], ["#c9f4ef", "#ffe2cd"],
-  ["#ffd4e4", "#d5eaff"], ["#ffe7af", "#d6f0ec"], ["#d8deff", "#f0d5ff"],
-  ["#c8ffeb", "#d8e6ff"], ["#ffe0c8", "#f1d5ff"], ["#c7edff", "#d9fff2"],
-  ["#f0d3ff", "#ffe0ec"], ["#fff0b8", "#d7eeff"],
-];
-
 const transparentLogoCache = new Map<string, Promise<string>>();
+const logoPaletteCache = new Map<string, Promise<[string, string]>>();
 
 function transparentBubbleLogo(src: string) {
   const cached = transparentLogoCache.get(src);
@@ -112,6 +93,52 @@ function rankRadiusScale(index: number, mobile = false) {
   if (index < 9) return leaderScale * .5;  // 6–9위: 선두의 50%
   if (index < 15) return leaderScale * .4; // 10–15위: 선두의 40%
   return leaderScale * .3;                 // 16–20위: 선두의 30%
+}
+
+function logoPastelPalette(src: string, cacheKey: string) {
+  const cached = logoPaletteCache.get(cacheKey);
+  if (cached) return cached;
+  const request = transparentBubbleLogo(src).then((resolved) => new Promise<[string, string]>((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 40; canvas.height = 40;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) throw new Error("canvas unavailable");
+        context.drawImage(image, 0, 0, 40, 40);
+        const data = context.getImageData(0, 0, 40, 40).data;
+        const bins = Array.from({ length: 18 }, () => ({ weight: 0, r: 0, g: 0, b: 0 }));
+        let neutralWeight = 0, neutral = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] < 70) continue;
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const max = Math.max(r, g, b), min = Math.min(r, g, b), chroma = max - min;
+          if (max > 245 && min > 232) continue;
+          if (chroma < 14) { const weight = data[i + 3] / 255; neutral += ((r + g + b) / 3) * weight; neutralWeight += weight; continue; }
+          const color = new THREE.Color(r / 255, g / 255, b / 255);
+          const hsl = { h: 0, s: 0, l: 0 }; color.getHSL(hsl);
+          const bin = bins[Math.min(17, Math.floor(hsl.h * 18))];
+          const weight = (data[i + 3] / 255) * (.35 + hsl.s) * (1 - Math.abs(hsl.l - .5) * .55);
+          bin.weight += weight; bin.r += r * weight; bin.g += g * weight; bin.b += b * weight;
+        }
+        const dominant = bins.reduce((best, bin) => bin.weight > best.weight ? bin : best, bins[0]);
+        const source = dominant.weight > 1
+          ? new THREE.Color(dominant.r / dominant.weight / 255, dominant.g / dominant.weight / 255, dominant.b / dominant.weight / 255)
+          : new THREE.Color((neutralWeight ? neutral / neutralWeight : 112) / 255);
+        const hsl = { h: 0, s: 0, l: 0 }; source.getHSL(hsl);
+        const saturation = dominant.weight > 1 ? Math.min(.72, Math.max(.38, hsl.s * .78)) : .12;
+        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .72);
+        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.78, saturation * 1.12), .43);
+        resolve([`#${pastel.getHexString()}`, `#${shade.getHexString()}`]);
+      } catch { resolve(["#a9bfd2", "#58748d"]); }
+    };
+    image.onerror = () => resolve(["#a9bfd2", "#58748d"]);
+    image.src = resolved;
+  }));
+  logoPaletteCache.set(cacheKey, request);
+  return request;
 }
 
 function formatPrice(item: StockBoardItem, market: Market) {
@@ -170,8 +197,8 @@ function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
   );
 }
 
-function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
-  bodiesRef: MutableRefObject<Body[]>; palette: number[]; count: number; focusRef: MutableRefObject<number | null>;
+function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
+  bodiesRef: MutableRefObject<Body[]>; bubbleColors: [string, string][]; count: number; focusRef: MutableRefObject<number | null>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -214,8 +241,9 @@ function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
     const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 40 : 56, window.innerWidth <= 760 ? 28 : 40);
     const meshes: THREE.Mesh[] = [], shadows: THREE.Sprite[] = [], shadowTextures: THREE.CanvasTexture[] = [], shaders: any[] = [];
     for (let i = 0; i < count; i++) {
-      const colors = PALETTE[palette[i] % PALETTE.length];
-      const accents = SURFACE_ACCENTS[palette[i] % SURFACE_ACCENTS.length];
+      const colors = bubbleColors[i] ?? ["#a9bfd2", "#58748d"];
+      const logoColor = new THREE.Color(colors[0]);
+      const accents = [logoColor.clone().lerp(new THREE.Color(0xffffff), .52), logoColor.clone().lerp(new THREE.Color(colors[1]), .24)];
       const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .41);
       const lightVariation = ((i * 37) % 11) / 10;
       const material = new THREE.MeshPhysicalMaterial({
@@ -267,8 +295,8 @@ function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
         shader.uniforms.uImpact = { value: new THREE.Vector3(1, 0, 0) };
         shader.uniforms.uOrganic = { value: organicShape };
         shader.uniforms.uMochiDetail = { value: mochiDetail };
-        shader.uniforms.uAccentA = { value: new THREE.Color(accents[0]) };
-        shader.uniforms.uAccentB = { value: new THREE.Color(accents[1]) };
+        shader.uniforms.uAccentA = { value: accents[0] };
+        shader.uniforms.uAccentB = { value: accents[1] };
         const baseCoverage = [.74, .58, .82, .48, .68][i % 5];
         shader.uniforms.uAccentStrength = { value: new THREE.Vector2((1 - baseCoverage) * 1.12, i % 3 === 0 ? 0 : (1 - baseCoverage) * .76) };
         shader.uniforms.uAccentSpread = { value: new THREE.Vector2(1.45 + (i * 7 % 23) * .09, 1.7 + (i * 11 % 19) * .11) };
@@ -310,7 +338,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
     const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight;const focused=focusRef.current==null?null:meshes[focusRef.current];if(focused){controls.target.lerp(focused.position,.055);const desired=focused.position.clone().add(new THREE.Vector3(0,0,Math.max(570,focused.scale.x*5.4)));camera.position.lerp(desired,.04);}controls.update();meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,body.z);mesh.scale.setScalar(body.r);mesh.rotation.x+=body.vy*.00018;mesh.rotation.y+=body.vx*.00022;const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,body.z-body.r*.72);shadow.scale.set(body.r*(2.05+(i%3)*.08),body.r*(1.66+(i%4)*.06),1);const shader=shaders[i];if(shader){shader.uniforms.uImpact.value.set(body.impactX,-body.impactY,body.impactZ).normalize();shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}if(body.el){projected.copy(mesh.position).project(camera);const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;const distance=camera.position.distanceTo(mesh.position);const scale=Math.max(.52,Math.min(1.75,cameraDistance/distance));const position=`translate3d(${(px-body.r).toFixed(1)}px,${(py-body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;if(position!==body.lastPosition){body.el.style.transform=position;body.lastPosition=position;}body.el.style.zIndex=`${10+Math.round((1-projected.z)*500)}`;body.el.style.setProperty("--info-compensation",`${Math.min(1.32,Math.max(1,1/scale)).toFixed(3)}`);body.el.style.visibility=projected.z>1||projected.z<-1?"hidden":"visible";}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
     return()=>{cancelAnimationFrame(raf);observer.disconnect();controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
-  }, [bodiesRef, count, focusRef, palette]);
+  }, [bodiesRef, bubbleColors, count, focusRef]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
 
@@ -321,7 +349,7 @@ export default function MarketBubblePage() {
   });
   const [board, setBoard] = useState<StockBoard | null>(null);
   const [loading, setLoading] = useState(true);
-  const [palette] = useState(() => Array.from({ length: BUBBLE_COUNT }, (_, i) => i % PALETTE.length).sort(() => Math.random() - .5));
+  const [bubbleColors, setBubbleColors] = useState<[string, string][]>([]);
   const [discussionIndex, setDiscussionIndex] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const bodiesRef = useRef<Body[]>([]);
@@ -334,6 +362,16 @@ export default function MarketBubblePage() {
   useDocumentTitle("증시버블 · K-Stock Hub");
 
   const items = useMemo(() => board?.items.slice().sort((a, b) => a.rank - b.rank).slice(0, BUBBLE_COUNT) ?? [], [board]);
+
+  useEffect(() => {
+    let alive = true;
+    if (!items.length) { setBubbleColors([]); return () => { alive = false; }; }
+    Promise.all(items.map((item) => {
+      const logo = market === "nasdaq" ? usCompanyLogoUrl(item.code) : stockIconUrl(item.code);
+      return logoPastelPalette(logo, `${market}:${item.code}`);
+    })).then((colors) => { if (alive) setBubbleColors(colors); });
+    return () => { alive = false; };
+  }, [market, items.map((item) => item.code).join(",")]);
 
   useEffect(() => () => {
     if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
@@ -637,11 +675,11 @@ export default function MarketBubblePage() {
         onPointerMove={movePointer}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
-        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} palette={palette} count={items.length} focusRef={focusRef} />}
+        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} />}
         <div className="bubble-stage-hint">버블을 건드려 보세요 <span>마우스 이동 · 클릭</span></div>
         {loading && <div className="bubble-loading"><MarketBubbleIcon /><span>시장 데이터를 불러오는 중</span></div>}
         {!loading && items.map((item, index) => {
-          const colors = PALETTE[palette[index] % PALETTE.length];
+          const colors = bubbleColors[index] ?? ["#a9bfd2", "#58748d"];
           const body = bodiesRef.current[index];
           const diameter = (body?.r ?? 72) * 2;
           const lightAngle = 108 + (index * 17) % 46;
@@ -737,7 +775,7 @@ export default function MarketBubblePage() {
           <MarketBubbleDiscussion
             item={items[discussionIndex]}
             market={market}
-            colors={PALETTE[palette[discussionIndex] % PALETTE.length] as [string, string]}
+            colors={(bubbleColors[discussionIndex] ?? ["#a9bfd2", "#58748d"]) as [string, string]}
             onClose={() => setDiscussionIndex(null)}
           />
         </>
