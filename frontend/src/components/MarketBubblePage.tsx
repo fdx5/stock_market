@@ -104,12 +104,13 @@ function BubbleCompanyLogo({ src }: { src: string }) {
 }
 
 function rankRadiusScale(index: number, mobile = false) {
-  if (index < 2) return 1.827;  // 1–2
-  if (index < 5) return 1.449;  // 3–5
-  if (index < 8) return 1.26;   // 6–8
-  if (index < 11) return mobile ? 1.1445 : 1.1025; // 9–11
-  if (index < 14) return mobile ? 1.071 : .987;    // 12–14
-  return mobile ? 1.03 : .90;                 // 15위
+  void mobile;
+  const leaderScale = 1.827 * 2;
+  if (index < 2) return leaderScale;       // 1–2위: 기존 대비 2배
+  if (index < 5) return leaderScale * .7;  // 3–5위: 선두의 70%
+  if (index < 9) return leaderScale * .5;  // 6–9위: 선두의 50%
+  if (index < 15) return leaderScale * .4; // 10–15위: 선두의 40%
+  return leaderScale * .3;                 // 16–20위: 선두의 30%
 }
 
 function formatPrice(item: StockBoardItem, market: Market) {
