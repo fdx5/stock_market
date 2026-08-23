@@ -227,6 +227,8 @@ def _nasdaq_roster(limit: int, fresh: bool) -> list[dict]:
             # absolute cap — see `marcap_kind` on the response, and the same note in
             # us_market_map. It is still the right thing to weight sector averages by.
             "marcap": it["marcap"],
+            # Absolute USD market cap for surfaces that display a monetary value.
+            "market_cap": it.get("market_cap"),
         }
         for rank, it in enumerate(ranked, start=1)
     ]

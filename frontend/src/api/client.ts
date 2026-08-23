@@ -285,6 +285,8 @@ export interface StockBoardItem extends ExtendedHours {
   change_pct: number;
   /** Won for the KR boards; index weight (%) for NASDAQ — see `marcap_kind`. */
   marcap: number;
+  /** NASDAQ only: absolute market capitalization in USD. */
+  market_cap?: number | null;
   /** KR boards only — these ride along on the market-cap page scrape. Null when the
    * figure genuinely doesn't exist (a loss-making company has no PER). */
   volume?: number | null;

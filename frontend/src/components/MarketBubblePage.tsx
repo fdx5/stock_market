@@ -147,6 +147,18 @@ function formatPrice(item: StockBoardItem, market: Market) {
     : `${Math.round(item.close).toLocaleString("ko-KR")}원`;
 }
 
+function formatMarketCap(item: StockBoardItem, market: Market) {
+  if (market === "nasdaq") {
+    const value = item.market_cap;
+    if (!value || value <= 0) return null;
+    if (value >= 1e12) return { currency: "$", value: (value / 1e12).toFixed(value >= 10e12 ? 1 : 2), unit: "T" };
+    return { currency: "$", value: (value / 1e9).toFixed(value >= 100e9 ? 0 : 1), unit: "B" };
+  }
+  if (!item.marcap || item.marcap <= 0) return null;
+  if (item.marcap >= 1e12) return { currency: "", value: (item.marcap / 1e12).toFixed(item.marcap >= 100e12 ? 0 : 1), unit: "조 원" };
+  return { currency: "", value: Math.round(item.marcap / 1e8).toLocaleString("ko-KR"), unit: "억 원" };
+}
+
 function shortName(item: StockBoardItem, market: Market) {
   const name = market === "nasdaq" ? item.name_ko || item.name : item.name;
   return name.replace(/\s+(Inc\.?|Corporation|Corp\.?|Common Stock).*$/i, "").slice(0, 18);
@@ -697,6 +709,7 @@ export default function MarketBubblePage() {
           const secondaryLightOpacity = index % 5 === 2 ? .34 : index % 7 === 4 ? .2 : 0;
           const lightShape = `${34 + (index * 17) % 43}% ${41 + (index * 23) % 47}% ${38 + (index * 31) % 49}% ${45 + (index * 13) % 41}% / ${39 + (index * 19) % 46}% ${46 + (index * 11) % 39}% ${35 + (index * 29) % 48}% ${43 + (index * 7) % 42}%`;
           const positive = item.change_pct > .04, negative = item.change_pct < -.04;
+          const marketCap = formatMarketCap(item, market);
           return (
             <button
               key={`${market}-${item.code}`}
@@ -751,6 +764,9 @@ export default function MarketBubblePage() {
               onPointerLeave={() => { if (pinnedRef.current === index) pinnedRef.current = null; }}
               aria-label={`${shortName(item, market)} ${formatPrice(item, market)} ${item.change_pct.toFixed(2)}%, 더블 클릭해 종목 열기`}
             >
+              <span className="stock-bubble-marcap">
+                {marketCap ? <>시총 {marketCap.currency}<b>{marketCap.value}</b>{marketCap.unit}</> : "시총 산정 중"}
+              </span>
               <span className="stock-bubble-shell"><span className="stock-bubble-glass" /></span>
               <span className="stock-bubble-lightfield" aria-hidden="true" />
               <span className="stock-bubble-content">
