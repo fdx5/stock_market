@@ -11540,27 +11540,28 @@ thead .weekly-foreign-amount-col {
   overflow: hidden;
 }
 
-/* Four columns now, not three: the chart plus three rankings. The chart gives
-   up one unit rather than the rankings splitting two between them — at 6/2/2/2
-   each list is 2/12 of the row and a body's name wraps in it, and a ranking
-   whose labels wrap is not readable at a glance, which is the only thing a
-   ranking is for. 5/2.33 each keeps every list at the width the first two
-   already proved works. */
+/* The trend chart owns the full first row; the four rankings share the second.
+   Keeping all five sections on one line made the implicit fifth column squeeze
+   names and push the hub ranking outside the panel after bubble stats landed. */
 .admin-trend-layout {
   display: grid;
-  grid-template-columns: 5fr 2fr 2fr 2fr;
-  grid-template-rows: minmax(0, 1fr);
-  gap: 20px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: minmax(270px, auto) minmax(0, auto);
+  column-gap: 18px;
+  row-gap: 20px;
   align-items: stretch;
   flex: 1;
   min-height: 0;
 }
 
 .admin-trend-main {
+  grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--gridline);
 }
 
 .admin-trend-toppages,
@@ -11572,6 +11573,12 @@ thead .weekly-foreign-amount-col {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* The first ranking starts the lower row, so it does not need an inner divider. */
+.admin-trend-layout > .admin-trend-toppages {
+  padding-left: 0;
+  border-left: 0;
 }
 
 .admin-trend-toppages-title {
@@ -11614,7 +11621,7 @@ thead .weekly-foreign-amount-col {
    `overscroll-behavior` keeps a flick at the end of the list from carrying on
    into the page behind it. */
 .admin-toppages-list--scroll {
-  max-height: 336px;
+  max-height: 288px;
   overflow-y: auto;
   overscroll-behavior: contain;
   /* Room for the scrollbar so the bars underneath don't reflow when it
@@ -12569,6 +12576,11 @@ button.admin-comments-text--clickable:hover {
     grid-template-rows: none;
     align-items: stretch;
     flex: none;
+  }
+
+  .admin-trend-main {
+    padding-bottom: 0;
+    border-bottom: 0;
   }
 
   /* Stacked, the box follows the drawing rather than a slice of the viewport. It was
