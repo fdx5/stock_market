@@ -22,6 +22,8 @@ type Body = {
   lastMatrix: string; lastOrigin: string; lastPosition: string;
   el: HTMLButtonElement | null; shell: HTMLSpanElement | null;
 };
+type GestureState = { pointers: Map<number, { x: number; y: number }>; suppressUntil: number };
+type CameraCommand = { nonce: number; type: "reset" };
 
 const FPS_METER_ENABLED = (() => {
   const params = new URLSearchParams(window.location.search);
@@ -209,8 +211,8 @@ function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
   );
 }
 
-function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
-  bodiesRef: MutableRefObject<Body[]>; bubbleColors: [string, string][]; count: number; focusRef: MutableRefObject<number | null>;
+function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCommandRef }: {
+  bodiesRef: MutableRefObject<Body[]>; bubbleColors: [string, string][]; count: number; focusRef: MutableRefObject<number | null>; cameraCommandRef: MutableRefObject<CameraCommand>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -228,7 +230,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
     const cameraDistance = 1200;
     const camera = new THREE.PerspectiveCamera(42, 1, 20, 4600);
     camera.position.z = cameraDistance;
-    const controls = new OrbitControls(camera, canvas);
+    const controls = new OrbitControls(camera, stage);
     controls.enableDamping = true;
     controls.dampingFactor = .065;
     controls.enablePan = true;
@@ -239,6 +241,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
     controls.maxDistance = 2900;
     controls.touches.ONE = THREE.TOUCH.ROTATE;
     controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+    controls.saveState();
     const releaseFocus = () => { focusRef.current = null; };
     controls.addEventListener("start", releaseFocus);
     const pmrem = new THREE.PMREMGenerator(renderer);
@@ -275,6 +278,9 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
         iridescenceThicknessRange: [110, 320],
         ior: 1.46,
         thickness: 1.25,
+        transmission: window.innerWidth <= 760 ? 0 : .055 + (i % 3) * .012,
+        attenuationColor: new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .18),
+        attenuationDistance: 1.7 + (i % 4) * .22,
         emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
         emissiveIntensity: .035 + lightVariation * .045,
         transparent: true,
@@ -318,7 +324,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
         shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=pow(smoothstep(-.28,1.0,facing),2.15); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=max(uDeform,0.0); float rebound=sin(uPhase)*uWobble; float axial=max(0.0,dot(transformed,hit)); transformed-=hit*axial*contact*compression*.58; transformed+=n*(-contact*compression*.34+shoulder*compression*.27); transformed+=n*(contact*rebound*.13-shoulder*rebound*.055);`);
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; varying vec3 vBubbleNormal;")
-          .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),pow(1.0-max(bubbleN.z,0.0),2.5)*.14);`);
+          .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); float dome=max(bubbleN.z,0.0); float opticalRim=pow(1.0-dome,2.8); diffuseColor.rgb*=.94+dome*.08; diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),opticalRim*.16);`);
         shaders[i] = shader;
       };
       const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
@@ -347,10 +353,11 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
     const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
     let raf=0;
     const projected = new THREE.Vector3();
-    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight;const focused=focusRef.current==null?null:meshes[focusRef.current];if(focused){controls.target.lerp(focused.position,.055);const desired=focused.position.clone().add(new THREE.Vector3(0,0,Math.max(570,focused.scale.x*5.4)));camera.position.lerp(desired,.04);}controls.update();meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,body.z);mesh.scale.setScalar(body.r);mesh.rotation.x+=body.vy*.00018;mesh.rotation.y+=body.vx*.00022;const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,body.z-body.r*.72);shadow.scale.set(body.r*(2.05+(i%3)*.08),body.r*(1.66+(i%4)*.06),1);const shader=shaders[i];if(shader){shader.uniforms.uImpact.value.set(body.impactX,-body.impactY,body.impactZ).normalize();shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}if(body.el){projected.copy(mesh.position).project(camera);const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;const distance=camera.position.distanceTo(mesh.position);const scale=Math.max(.52,Math.min(1.75,cameraDistance/distance));const position=`translate3d(${(px-body.r).toFixed(1)}px,${(py-body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;if(position!==body.lastPosition){body.el.style.transform=position;body.lastPosition=position;}body.el.style.zIndex=`${10+Math.round((1-projected.z)*500)}`;body.el.style.setProperty("--info-compensation",`${Math.min(1.32,Math.max(1,1/scale)).toFixed(3)}`);body.el.style.visibility=projected.z>1||projected.z<-1?"hidden":"visible";}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
+    let handledCommand = cameraCommandRef.current.nonce;
+    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight;if(cameraCommandRef.current.nonce!==handledCommand){handledCommand=cameraCommandRef.current.nonce;focusRef.current=null;controls.reset();}const focused=focusRef.current==null?null:meshes[focusRef.current];if(focused){controls.target.lerp(focused.position,.055);const desired=focused.position.clone().add(new THREE.Vector3(0,0,Math.max(570,focused.scale.x*5.4)));camera.position.lerp(desired,.04);}controls.update();meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,body.z);mesh.scale.setScalar(body.r);mesh.rotation.x+=body.vy*.00018;mesh.rotation.y+=body.vx*.00022;const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,body.z-body.r*.72);shadow.scale.set(body.r*(2.05+(i%3)*.08),body.r*(1.66+(i%4)*.06),1);const shader=shaders[i];if(shader){shader.uniforms.uImpact.value.set(body.impactX,-body.impactY,body.impactZ).normalize();shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}if(body.el){projected.copy(mesh.position).project(camera);const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;const distance=camera.position.distanceTo(mesh.position);const scale=Math.max(.52,Math.min(1.75,cameraDistance/distance));const position=`translate3d(${(px-body.r).toFixed(1)}px,${(py-body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;if(position!==body.lastPosition){body.el.style.transform=position;body.lastPosition=position;}body.el.style.zIndex=`${10+Math.round((1-projected.z)*500)}`;body.el.style.setProperty("--info-compensation",`${Math.min(1.32,Math.max(1,1/scale)).toFixed(3)}`);body.el.style.visibility=projected.z>1||projected.z<-1?"hidden":"visible";}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
     return()=>{cancelAnimationFrame(raf);observer.disconnect();controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
-  }, [bodiesRef, bubbleColors, count, focusRef]);
+  }, [bodiesRef, bubbleColors, cameraCommandRef, count, focusRef]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
 
@@ -369,6 +376,8 @@ export default function MarketBubblePage() {
   const pointerRef = useRef({ x: -9999, y: -9999, active: false });
   const pinnedRef = useRef<number | null>(null);
   const focusRef = useRef<number | null>(null);
+  const cameraCommandRef = useRef<CameraCommand>({ nonce: 0, type: "reset" });
+  const gestureRef = useRef<GestureState>({ pointers: new Map(), suppressUntil: 0 });
   const clickTimerRef = useRef<number | null>(null);
   const firstLoadRef = useRef(true);
   useDocumentTitle("증시버블 · K-Stock Hub");
@@ -661,6 +670,28 @@ export default function MarketBubblePage() {
     pointerRef.current = { x: event.clientX - rect.left, y: event.clientY - rect.top, active: true };
   };
 
+  const beginGesture = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    gestureRef.current.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (gestureRef.current.pointers.size > 1) gestureRef.current.suppressUntil = Number.POSITIVE_INFINITY;
+  };
+  const trackGesture = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    const start = gestureRef.current.pointers.get(event.pointerId);
+    if (!start) return;
+    if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > 7) {
+      gestureRef.current.suppressUntil = Number.POSITIVE_INFINITY;
+    }
+  };
+  const endGesture = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch") return;
+    gestureRef.current.pointers.delete(event.pointerId);
+    if (gestureRef.current.pointers.size === 0 && !Number.isFinite(gestureRef.current.suppressUntil)) {
+      gestureRef.current.suppressUntil = performance.now() + 420;
+    }
+  };
+  const gestureBlocksSelection = () => performance.now() < gestureRef.current.suppressUntil;
+
   return (
     <main className="bubble-page">
       <header className="bubble-header">
@@ -685,10 +716,23 @@ export default function MarketBubblePage() {
         className="bubble-stage"
         aria-label={`${market} 시가총액 상위 20개 종목 버블`}
         onPointerMove={movePointer}
+        onPointerDownCapture={beginGesture}
+        onPointerMoveCapture={trackGesture}
+        onPointerUpCapture={endGesture}
+        onPointerCancelCapture={endGesture}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
-        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} />}
+        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} cameraCommandRef={cameraCommandRef} />}
         <div className="bubble-stage-hint">버블을 건드려 보세요 <span>마우스 이동 · 클릭</span></div>
+        <div className="bubble-explorer-guide" aria-hidden="true">
+          <span><i>↻</i><b>회전</b><small>한 손가락 · 드래그</small></span>
+          <span><i>⌁</i><b>확대·이동</b><small>두 손가락 · 휠</small></span>
+          <span><i>◎</i><b>포커스</b><small>버블 탭</small></span>
+        </div>
+        <button className="bubble-camera-reset" type="button" onClick={() => { cameraCommandRef.current = { nonce: cameraCommandRef.current.nonce + 1, type: "reset" }; }} aria-label="3D 카메라 처음 위치로 초기화">
+          <span>⌂</span><b>전체 보기</b>
+        </button>
+        <div className="bubble-depth-scale" aria-hidden="true"><span>NEAR</span><i /><span>FAR</span></div>
         {loading && <div className="bubble-loading"><MarketBubbleIcon /><span>시장 데이터를 불러오는 중</span></div>}
         {!loading && items.map((item, index) => {
           const colors = bubbleColors[index] ?? ["#a9bfd2", "#58748d"];
@@ -741,6 +785,7 @@ export default function MarketBubblePage() {
               } as React.CSSProperties}
               onClick={(event) => {
                 event.stopPropagation();
+                if (gestureBlocksSelection()) return;
                 if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
                 clickTimerRef.current = window.setTimeout(() => {
                   focusRef.current = index;
@@ -751,6 +796,7 @@ export default function MarketBubblePage() {
               }}
               onDoubleClick={(event) => {
                 event.stopPropagation();
+                if (gestureBlocksSelection()) return;
                 if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
                 clickTimerRef.current = null;
                 reportMarketBubbleEvent({ action: "stock_detail", market, code: item.code, name: item.name });
