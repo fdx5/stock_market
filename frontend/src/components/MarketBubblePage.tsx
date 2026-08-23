@@ -164,7 +164,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, window.innerWidth <= 760 ? 1.15 : 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = .86;
+    renderer.toneMappingExposure = .96;
     const scene = new THREE.Scene();
     // Keep the camera well outside even the largest rank-scaled sphere.
     // A close camera clips the front cap of large spheres and makes them look
@@ -174,28 +174,35 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     const pmrem = new THREE.PMREMGenerator(renderer);
     const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
     scene.environment = environment;
-    scene.add(new THREE.HemisphereLight(0xfffbf3, 0x71859e, .62));
-    const key = new THREE.DirectionalLight(0xfff7e8, 1.18); key.position.set(-3, 5, 8); scene.add(key);
-    const fill = new THREE.DirectionalLight(0xc9ddff, .32); fill.position.set(5, -2, 5); scene.add(fill);
+    scene.add(new THREE.HemisphereLight(0xeef6ff, 0x10182a, .82));
+    const key = new THREE.DirectionalLight(0xfff4dc, 1.55); key.position.set(-4, 6, 9); scene.add(key);
+    const fill = new THREE.DirectionalLight(0x90bfff, .52); fill.position.set(6, 1, 6); scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xa9dfff, .62); rim.position.set(-5, -4, 3); scene.add(rim);
     // Extra radial segments keep the frozen organic profile round even on the
     // smallest bubbles.  The previous low-poly silhouette exposed corners.
     const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 40 : 56, window.innerWidth <= 760 ? 28 : 40);
-    const meshes: THREE.Mesh[] = [], shaders: any[] = [];
+    const meshes: THREE.Mesh[] = [], shadows: THREE.Sprite[] = [], shadowTextures: THREE.CanvasTexture[] = [], shaders: any[] = [];
     for (let i = 0; i < count; i++) {
       const colors = PALETTE[palette[i] % PALETTE.length];
-      const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .12);
+      const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .22);
+      const lightVariation = ((i * 37) % 11) / 10;
       const material = new THREE.MeshPhysicalMaterial({
         color: baseColor,
-        roughness: .38 + (i % 5) * .028,
-        metalness: 0,
-        clearcoat: .48 + (i % 3) * .055,
-        clearcoatRoughness: .3 + (i % 4) * .035,
-        envMapIntensity: .58 + (i % 4) * .055,
-        sheen: .1 + (i % 3) * .025,
-        sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(0xffffff), .14),
-        sheenRoughness: .7,
-        specularIntensity: .58 + (i % 4) * .06,
-        specularColor: new THREE.Color(colors[0]).lerp(new THREE.Color(0xffffff), .32),
+        roughness: .2 + (i % 4) * .018,
+        metalness: .035,
+        clearcoat: .92,
+        clearcoatRoughness: .12 + (i % 3) * .025,
+        envMapIntensity: .98 + lightVariation * .34,
+        sheen: .27 + lightVariation * .17,
+        sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(i % 2 ? 0xd9e9ff : 0xffead6), .26 + lightVariation * .2),
+        sheenRoughness: .42,
+        specularIntensity: .96,
+        specularColor: new THREE.Color(colors[0]).lerp(new THREE.Color(0xffffff), .72),
+        iridescence: .22 + (i % 3) * .035,
+        iridescenceIOR: 1.38,
+        iridescenceThicknessRange: [110, 320],
+        emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
+        emissiveIntensity: .035 + lightVariation * .045,
         transparent: false,
         opacity: 1,
       });
@@ -230,13 +237,33 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         shaders[i] = shader;
       };
       const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
+
+      // Each bubble gets a subtly different, palette-tinted pool of shadow.
+      // Keeping this in WebGL makes the shadow follow the organic body without
+      // reintroducing the detached circular CSS layer.
+      const shadowCanvas = document.createElement("canvas");
+      shadowCanvas.width = 128; shadowCanvas.height = 128;
+      const shadowContext = shadowCanvas.getContext("2d");
+      if (shadowContext) {
+        const shadowColor = new THREE.Color(colors[1]);
+        const red = Math.round(shadowColor.r * 255), green = Math.round(shadowColor.g * 255), blue = Math.round(shadowColor.b * 255);
+        const gradient = shadowContext.createRadialGradient(64, 64, 5, 64, 64, 62);
+        gradient.addColorStop(0, `rgba(${red},${green},${blue},${.31 + (i % 4) * .025})`);
+        gradient.addColorStop(.42, `rgba(${red},${green},${blue},.14)`);
+        gradient.addColorStop(1, `rgba(${red},${green},${blue},0)`);
+        shadowContext.fillStyle = gradient; shadowContext.fillRect(0, 0, 128, 128);
+      }
+      const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
+      const shadowMaterial = new THREE.SpriteMaterial({ map: shadowTexture, transparent: true, depthWrite: false, opacity: .68 + (i % 5) * .045 });
+      const shadow = new THREE.Sprite(shadowMaterial); shadow.renderOrder = -1; scene.add(shadow);
+      shadows.push(shadow); shadowTextures.push(shadowTexture);
     }
     const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.left=-w/2;camera.right=w/2;camera.top=h/2;camera.bottom=-h/2;camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
     let raf=0;
-    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i];mesh.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
+    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,-8-i*.02);shadow.scale.set(body.r*(2.12+(i%3)*.09),body.r*(1.76+(i%4)*.07),1);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
   }, [bodiesRef, count, palette]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
@@ -621,6 +648,7 @@ export default function MarketBubblePage() {
                 height: diameter,
                 "--bubble-light": colors[0],
                 "--bubble-dark": colors[1],
+                "--bubble-size": `${diameter}px`,
                 "--bubble-light-angle": `${lightAngle}deg`,
                 "--bubble-rim-angle": `${rimAngle}deg`,
                 "--bubble-rim-width": `${rimWidth}px`,
