@@ -1,5 +1,6 @@
 import { MutableRefObject, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { StockBoard, StockBoardItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
@@ -35,10 +36,19 @@ const MARKETS: { key: Market; label: string; title: string }[] = [
 ];
 
 const PALETTE = [
-  ["#e26078", "#68172f"], ["#568ed2", "#183967"], ["#45ad7d", "#174f3b"],
-  ["#d39b46", "#684316"], ["#9472c5", "#412b6b"], ["#45aaa5", "#18575a"],
-  ["#d87561", "#71312c"], ["#6e7fc2", "#2c3868"], ["#94aa58", "#455621"],
-  ["#bd6698", "#622c4d"], ["#4d9cb4", "#225365"], ["#b98556", "#60401f"],
+  ["#f07f9f", "#b73d69"], ["#67b4ed", "#286eb9"], ["#e7bd57", "#a87019"],
+  ["#e78ac4", "#a83d83"], ["#7395e8", "#3558ae"], ["#61c99a", "#197b59"],
+  ["#f09a83", "#b94d42"], ["#72cbe0", "#23849e"], ["#f0ce78", "#ba8127"],
+  ["#cf86d7", "#8f439d"], ["#71a8f0", "#3163bd"], ["#55c9c3", "#167d83"],
+  ["#ee91b2", "#b44b78"], ["#dca94d", "#9b6418"], ["#879ee8", "#465db2"],
+];
+
+const SURFACE_ACCENTS = [
+  ["#ffd0dc", "#d9d4ff"], ["#c9efff", "#e0d7ff"], ["#fff0ba", "#ffd4c8"],
+  ["#ffd3ed", "#d7e9ff"], ["#d4e3ff", "#d8f4ef"], ["#c9f2df", "#fff0c5"],
+  ["#ffd8ca", "#dcd8ff"], ["#d2f3ff", "#f0d8ff"], ["#fff1c3", "#d8efff"],
+  ["#f3d4ff", "#d3f1ef"], ["#d2e6ff", "#ffe0ea"], ["#c9f4ef", "#ffe2cd"],
+  ["#ffd4e4", "#d5eaff"], ["#ffe7af", "#d6f0ec"], ["#d8deff", "#f0d5ff"],
 ];
 
 const transparentLogoCache = new Map<string, Promise<string>>();
@@ -170,18 +180,21 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     // like white-centred rings because the transparent page shows through.
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 2400);
     camera.position.z = 1200;
-    // A single physical key light avoids the many white panel reflections that
-    // RoomEnvironment produced. Per-bubble highlight character is layered
-    // separately, so the surface stays calm and readable.
-    scene.add(new THREE.HemisphereLight(0xeef6ff, 0x10182a, 1.05));
-    const key = new THREE.DirectionalLight(0xfff4dc, 1.72); key.position.set(-4, 6, 9); scene.add(key);
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
+    scene.environment = environment;
+    scene.add(new THREE.HemisphereLight(0xeef6ff, 0x10182a, .82));
+    const key = new THREE.DirectionalLight(0xfff4dc, 1.55); key.position.set(-4, 6, 9); scene.add(key);
+    const fill = new THREE.DirectionalLight(0x90bfff, .52); fill.position.set(6, 1, 6); scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xa9dfff, .62); rim.position.set(-5, -4, 3); scene.add(rim);
     // Extra radial segments keep the frozen organic profile round even on the
     // smallest bubbles.  The previous low-poly silhouette exposed corners.
     const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 40 : 56, window.innerWidth <= 760 ? 28 : 40);
     const meshes: THREE.Mesh[] = [], shadows: THREE.Sprite[] = [], shadowTextures: THREE.CanvasTexture[] = [], shaders: any[] = [];
     for (let i = 0; i < count; i++) {
       const colors = PALETTE[palette[i] % PALETTE.length];
-      const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .22);
+      const accents = SURFACE_ACCENTS[palette[i] % SURFACE_ACCENTS.length];
+      const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .41);
       const lightVariation = ((i * 37) % 11) / 10;
       const material = new THREE.MeshPhysicalMaterial({
         color: baseColor,
@@ -189,7 +202,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         metalness: .035,
         clearcoat: .92,
         clearcoatRoughness: .12 + (i % 3) * .025,
-        envMapIntensity: 0,
+        envMapIntensity: .98 + lightVariation * .34,
         sheen: .27 + lightVariation * .17,
         sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(i % 2 ? 0xd9e9ff : 0xffead6), .26 + lightVariation * .2),
         sheenRoughness: .42,
@@ -200,8 +213,9 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         iridescenceThicknessRange: [110, 320],
         emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
         emissiveIntensity: .035 + lightVariation * .045,
-        transparent: false,
-        opacity: 1,
+        transparent: true,
+        opacity: .7 + (i % 4) * .025,
+        depthWrite: false,
       });
       // Rotate the room reflection independently for each sphere. This keeps
       // highlights tied to the curved material without stamping one identical
@@ -229,8 +243,18 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         shader.uniforms.uImpact = { value: new THREE.Vector3(1, 0, 0) };
         shader.uniforms.uOrganic = { value: organicShape };
         shader.uniforms.uMochiDetail = { value: mochiDetail };
+        shader.uniforms.uAccentA = { value: new THREE.Color(accents[0]) };
+        shader.uniforms.uAccentB = { value: new THREE.Color(accents[1]) };
+        const baseCoverage = [.74, .58, .82, .48, .68][i % 5];
+        shader.uniforms.uAccentStrength = { value: new THREE.Vector2((1 - baseCoverage) * 1.12, i % 3 === 0 ? 0 : (1 - baseCoverage) * .76) };
+        shader.uniforms.uAccentSpread = { value: new THREE.Vector2(1.45 + (i * 7 % 23) * .09, 1.7 + (i * 11 % 19) * .11) };
+        shader.uniforms.uAccentDirA = { value: new THREE.Vector3(-.72 + (i * 17 % 31) / 50, .28 + (i * 13 % 29) / 60, .68).normalize() };
+        shader.uniforms.uAccentDirB = { value: new THREE.Vector3(.42 + (i * 19 % 27) / 52, -.55 + (i * 7 % 25) / 55, .7).normalize() };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.68+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.32; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=smoothstep(-.08,1.0,facing); contact*=contact; float stickyTip=pow(max(0.0,facing),7.0); float stickyNeck=pow(max(0.0,facing),3.1); float back=pow(max(0.0,-facing),1.9); float shoulder=pow(max(0.0,1.0-abs(facing)),1.7); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; transformed+=n*(-contact*compression*1.22+back*compression*.46+stickyNeck*adhesion*.72+stickyTip*adhesion*2.35-shoulder*adhesion*.08+contact*contactRebound*.1+back*delayedBack*.12);`);
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.68+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.32; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=smoothstep(-.08,1.0,facing); contact*=contact; float stickyTip=pow(max(0.0,facing),7.0); float stickyNeck=pow(max(0.0,facing),3.1); float back=pow(max(0.0,-facing),1.9); float shoulder=pow(max(0.0,1.0-abs(facing)),1.7); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; transformed+=n*(-contact*compression*1.22+back*compression*.46+stickyNeck*adhesion*.72+stickyTip*adhesion*2.35-shoulder*adhesion*.08+contact*contactRebound*.1+back*delayedBack*.12);`);
+        shader.fragmentShader = shader.fragmentShader
+          .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; varying vec3 vBubbleNormal;")
+          .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),pow(1.0-max(bubbleN.z,0.0),2.5)*.14);`);
         shaders[i] = shader;
       };
       const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
@@ -260,7 +284,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     let raf=0;
     const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,-8-i*.02);shadow.scale.set(body.r*(2.12+(i%3)*.09),body.r*(1.76+(i%4)*.07),1);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();renderer.dispose();};
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
   }, [bodiesRef, count, palette]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
