@@ -29,7 +29,7 @@ const FPS_METER_ENABLED = (() => {
   return !["0", "off", "false", "no"].includes((params.get("fps") ?? "").trim().toLowerCase());
 })();
 
-const BUBBLE_COUNT = 15;
+const BUBBLE_COUNT = 20;
 
 const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "kospi", label: "코스피", title: "KOSPI 주요종목" },
@@ -43,6 +43,8 @@ const PALETTE = [
   ["#f09a83", "#b94d42"], ["#72cbe0", "#23849e"], ["#f0ce78", "#ba8127"],
   ["#cf86d7", "#8f439d"], ["#71a8f0", "#3163bd"], ["#55c9c3", "#167d83"],
   ["#ee91b2", "#b44b78"], ["#dca94d", "#9b6418"], ["#879ee8", "#465db2"],
+  ["#54d5ae", "#15836c"], ["#f3a66f", "#bd5b38"], ["#60c4f3", "#246fae"],
+  ["#d89af0", "#884cab"], ["#f1c45f", "#a87318"],
 ];
 
 const SURFACE_ACCENTS = [
@@ -51,6 +53,8 @@ const SURFACE_ACCENTS = [
   ["#ffd8ca", "#dcd8ff"], ["#d2f3ff", "#f0d8ff"], ["#fff1c3", "#d8efff"],
   ["#f3d4ff", "#d3f1ef"], ["#d2e6ff", "#ffe0ea"], ["#c9f4ef", "#ffe2cd"],
   ["#ffd4e4", "#d5eaff"], ["#ffe7af", "#d6f0ec"], ["#d8deff", "#f0d5ff"],
+  ["#c8ffeb", "#d8e6ff"], ["#ffe0c8", "#f1d5ff"], ["#c7edff", "#d9fff2"],
+  ["#f0d3ff", "#ffe0ec"], ["#fff0b8", "#d7eeff"],
 ];
 
 const transparentLogoCache = new Map<string, Promise<string>>();
@@ -616,7 +620,7 @@ export default function MarketBubblePage() {
           </Link>
         </div>
         <div className="bubble-heading">
-          <p>시가총액 TOP 15 · 5초마다 갱신</p>
+          <p>시가총액 TOP 20 · 5초마다 갱신</p>
           <h1>{MARKETS.find((it) => it.key === market)?.title}</h1>
         </div>
         <div className="bubble-live"><i /> LIVE <span>{board ? new Date(board.generated_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--:--:--"}</span></div>
@@ -625,7 +629,7 @@ export default function MarketBubblePage() {
       <section
         ref={stageRef}
         className="bubble-stage"
-        aria-label={`${market} 시가총액 상위 15개 종목 버블`}
+        aria-label={`${market} 시가총액 상위 20개 종목 버블`}
         onPointerMove={movePointer}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
