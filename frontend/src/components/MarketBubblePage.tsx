@@ -5,7 +5,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { StockBoard, StockBoardItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
-import { usCompanyLogoUrl } from "../usLogo";
+import { usCompanyLogoProxyUrl, usCompanyLogoUrl } from "../usLogo";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { reportMarketBubbleEvent } from "../useActivityTracking";
 import MarketBubbleIcon from "./MarketBubbleIcon";
@@ -128,9 +128,9 @@ function logoPastelPalette(src: string, cacheKey: string) {
           ? new THREE.Color(dominant.r / dominant.weight / 255, dominant.g / dominant.weight / 255, dominant.b / dominant.weight / 255)
           : new THREE.Color((neutralWeight ? neutral / neutralWeight : 112) / 255);
         const hsl = { h: 0, s: 0, l: 0 }; source.getHSL(hsl);
-        const saturation = dominant.weight > 1 ? Math.min(.92, Math.max(.62, hsl.s)) : .2;
-        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .57);
-        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.94, saturation * 1.06), .32);
+        const saturation = dominant.weight > 1 ? Math.min(.96, Math.max(.7, hsl.s * 1.06)) : .24;
+        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .51);
+        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.98, saturation * 1.04), .27);
         resolve([`#${pastel.getHexString()}`, `#${shade.getHexString()}`]);
       } catch { resolve(["#a9bfd2", "#58748d"]); }
     };
@@ -367,7 +367,7 @@ export default function MarketBubblePage() {
     let alive = true;
     if (!items.length) { setBubbleColors([]); return () => { alive = false; }; }
     Promise.all(items.map((item) => {
-      const logo = market === "nasdaq" ? usCompanyLogoUrl(item.code) : stockIconUrl(item.code);
+      const logo = market === "nasdaq" ? usCompanyLogoProxyUrl(item.code) : stockIconUrl(item.code);
       return logoPastelPalette(logo, `${market}:${item.code}`);
     })).then((colors) => { if (alive) setBubbleColors(colors); });
     return () => { alive = false; };
