@@ -92,9 +92,9 @@ function rankRadiusScale(index: number, mobile = false) {
   const leaderScale = 1.827 * 2;
   if (index < 2) return leaderScale;       // 1–2위: 기존 대비 2배
   if (index < 5) return leaderScale * .7;  // 3–5위: 선두의 70%
-  if (index < 9) return leaderScale * .5;  // 6–9위: 선두의 50%
-  if (index < 15) return leaderScale * .4; // 10–15위: 선두의 40%
-  return leaderScale * .3;                 // 16–20위: 선두의 30%
+  if (index < 9) return leaderScale * .525; // 6–9위: 기존 대비 5% 확대
+  if (index < 15) return leaderScale * .44; // 10–15위: 기존 대비 10% 확대
+  return leaderScale * .345;                // 16–20위: 기존 대비 15% 확대
 }
 
 function logoPastelPalette(src: string, cacheKey: string) {
