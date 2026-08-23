@@ -175,7 +175,9 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     scene.add(new THREE.HemisphereLight(0xfffbf3, 0x71859e, .62));
     const key = new THREE.DirectionalLight(0xfff7e8, 1.18); key.position.set(-3, 5, 8); scene.add(key);
     const fill = new THREE.DirectionalLight(0xc9ddff, .32); fill.position.set(5, -2, 5); scene.add(fill);
-    const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 26 : 34, window.innerWidth <= 760 ? 18 : 26);
+    // Extra radial segments keep the frozen organic profile round even on the
+    // smallest bubbles.  The previous low-poly silhouette exposed corners.
+    const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 40 : 56, window.innerWidth <= 760 ? 28 : 40);
     const meshes: THREE.Mesh[] = [], shaders: any[] = [];
     for (let i = 0; i < count; i++) {
       const colors = PALETTE[palette[i] % PALETTE.length];
@@ -208,13 +210,13 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
       const organicSeed = Math.random() * Math.PI * 2;
       const organicShape = new THREE.Vector4(
         organicSeed,
-        .035 + Math.random() * .035,
-        (Math.random() - .5) * .11,
-        (Math.random() - .5) * .09,
+        .022 + Math.random() * .025,
+        (Math.random() - .5) * .075,
+        (Math.random() - .5) * .06,
       );
       const mochiDetail = new THREE.Vector3(
-        2 + Math.floor(Math.random() * 3),
-        4 + Math.floor(Math.random() * 4),
+        2 + Math.floor(Math.random() * 2),
+        3 + Math.floor(Math.random() * 3),
         Math.random() * Math.PI * 2,
       );
       material.onBeforeCompile = (shader) => {
@@ -222,7 +224,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         shader.uniforms.uOrganic = { value: organicShape };
         shader.uniforms.uMochiDetail = { value: mochiDetail };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.55+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.3+sin(azimuth*(uMochiDetail.x+uMochiDetail.y)+uOrganic.x*.63)*.15; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=pow(max(0.0,facing),2.05); float stickyTip=pow(max(0.0,facing),5.2); float back=pow(max(0.0,-facing),1.72); float shoulder=pow(max(0.0,1.0-abs(facing)),1.45); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; float sideSettle=sin(uPhase*1.28+.45)*uWobble; transformed+=n*(-contact*compression*1.29+back*compression*.6+stickyTip*adhesion*1.72-shoulder*adhesion*.13+contact*contactRebound*.315+back*delayedBack*.45+shoulder*sideSettle*.105);`);
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.68+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.32; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=smoothstep(-.08,1.0,facing); contact*=contact; float stickyTip=pow(max(0.0,facing),7.0); float stickyNeck=pow(max(0.0,facing),3.1); float back=pow(max(0.0,-facing),1.9); float shoulder=pow(max(0.0,1.0-abs(facing)),1.7); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; transformed+=n*(-contact*compression*1.22+back*compression*.46+stickyNeck*adhesion*.72+stickyTip*adhesion*2.35-shoulder*adhesion*.08+contact*contactRebound*.1+back*delayedBack*.12);`);
         shaders[i] = shader;
       };
       const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
@@ -389,7 +391,7 @@ export default function MarketBubblePage() {
         const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
         if (amount >= body.deformTarget * .92) body.deformAngleTarget += difference;
         if (amount > body.deformTarget + .008) {
-          body.wobbleEnergy = Math.min(.46, Math.max(body.wobbleEnergy, amount * 1.12));
+          body.wobbleEnergy = Math.min(.13, Math.max(body.wobbleEnergy, amount * .24));
           body.wobblePhase = 0;
           // Let impact direction and strength select the material response, so
           // repeated contacts do not replay one recognisable deformation loop.
@@ -410,7 +412,7 @@ export default function MarketBubblePage() {
         a.deformTarget *= Math.pow(.935, dt);
         // A short, collision-triggered recoil: one or two gelatin oscillations,
         // then a completely still surface until the next impact.
-        a.wobbleEnergy *= Math.pow(.956, dt);
+        a.wobbleEnergy *= Math.pow(.91, dt);
         const profile = a.jellyProfile;
         const springRate = [1, 1.18, .82, 1.08][profile];
         const damping = [.94, .925, .955, .935][profile];
@@ -486,7 +488,7 @@ export default function MarketBubblePage() {
         } else {
           const adhesion = adhesionPairs.get(pairKey);
           if (!adhesion) continue;
-          const releaseDistance = min * (1.09 + adhesion.strength * .105);
+          const releaseDistance = min * (1.14 + adhesion.strength * .16);
           if (d >= releaseDistance || adhesion.life > 30) {
             adhesionPairs.delete(pairKey);
             adhesionCooldowns.set(pairKey, now + 1250);
@@ -497,10 +499,10 @@ export default function MarketBubblePage() {
             a.vx -= nx * snap; a.vy -= ny * snap;
             b.vx += nx * snap; b.vy += ny * snap;
             a.deformTarget = 0; b.deformTarget = 0;
-            a.deformVelocity += .045 + adhesion.strength * .055;
-            b.deformVelocity += .045 + adhesion.strength * .055;
-            a.wobbleEnergy = Math.max(a.wobbleEnergy, .09 + adhesion.strength * .17);
-            b.wobbleEnergy = Math.max(b.wobbleEnergy, .09 + adhesion.strength * .17);
+            a.deformVelocity += .025 + adhesion.strength * .025;
+            b.deformVelocity += .025 + adhesion.strength * .025;
+            a.wobbleEnergy = Math.max(a.wobbleEnergy, .025 + adhesion.strength * .04);
+            b.wobbleEnergy = Math.max(b.wobbleEnergy, .025 + adhesion.strength * .04);
             a.wobblePhase = 0; b.wobblePhase = 0;
             continue;
           }
@@ -509,7 +511,11 @@ export default function MarketBubblePage() {
           const tension = (.014 + adhesion.strength * .052) * (1 - extension * .42) * dt;
           a.vx += nx * tension; a.vy += ny * tension;
           b.vx -= nx * tension; b.vy -= ny * tension;
-          const stretch = (.075 + extension * .235) * adhesion.strength;
+          // Build a narrow, readable taffy neck near the end of separation.
+          // Smoothstep-like easing keeps the early contact soft and lets the
+          // final third carry most of the visible stretch before it snaps.
+          const easedExtension = extension * extension * (3 - 2 * extension);
+          const stretch = (.09 + easedExtension * .34) * adhesion.strength;
           const angle = Math.atan2(ny, nx) * 180 / Math.PI;
           stretchToward(a, stretch, angle);
           stretchToward(b, stretch, angle + 180);
@@ -523,14 +529,14 @@ export default function MarketBubblePage() {
           const isDeforming = Math.abs(squash) > .0008 || body.wobbleEnergy > .001;
           const waveA = Math.sin(body.wobblePhase) * body.wobbleEnergy;
           const waveB = Math.sin(body.wobblePhase * (1.32 + body.jellyProfile * .09) + 1.65) * body.wobbleEnergy;
-          const axisTravel = [0, waveB * 70, waveA * 25, (waveA - waveB) * 65][body.jellyProfile];
+          const axisTravel = [0, waveB * 12, waveA * 7, (waveA - waveB) * 11][body.jellyProfile];
           const impactRadians = (body.deformAngle + axisTravel) * Math.PI / 180;
           const impactX = Math.cos(impactRadians);
           const impactY = Math.sin(impactRadians);
           const normalCompression = [1.5, 1.7, 1.34, 1.57][body.jellyProfile];
           const tangentExpansion = [1.02, 1.18, .9, 1.08][body.jellyProfile];
-          const rebound = [waveA * .1, waveA * .14, waveA * .065, (waveA * .09 + waveB * .055)][body.jellyProfile];
-          const sideRipple = [waveA * .07, waveB * .09, waveA * .045, (waveA - waveB) * .065][body.jellyProfile];
+          const rebound = [waveA * .025, waveA * .035, waveA * .018, (waveA * .022 + waveB * .012)][body.jellyProfile];
+          const sideRipple = [waveA * .015, waveB * .02, waveA * .012, (waveA - waveB) * .015][body.jellyProfile];
           const normalScale = isDeforming ? Math.max(.4, Math.min(1.25, 1 - squash * normalCompression + rebound)) : 1;
           const tangentScale = isDeforming ? Math.max(.78, Math.min(1.68, 1 + squash * tangentExpansion - sideRipple)) : 1;
           const scaleDifference = normalScale - tangentScale;
