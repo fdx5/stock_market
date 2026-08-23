@@ -128,9 +128,9 @@ function logoPastelPalette(src: string, cacheKey: string) {
           ? new THREE.Color(dominant.r / dominant.weight / 255, dominant.g / dominant.weight / 255, dominant.b / dominant.weight / 255)
           : new THREE.Color((neutralWeight ? neutral / neutralWeight : 112) / 255);
         const hsl = { h: 0, s: 0, l: 0 }; source.getHSL(hsl);
-        const saturation = dominant.weight > 1 ? Math.min(.72, Math.max(.38, hsl.s * .78)) : .12;
-        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .72);
-        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.78, saturation * 1.12), .43);
+        const saturation = dominant.weight > 1 ? Math.min(.82, Math.max(.5, hsl.s * .9)) : .16;
+        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .64);
+        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.86, saturation * 1.12), .38);
         resolve([`#${pastel.getHexString()}`, `#${shade.getHexString()}`]);
       } catch { resolve(["#a9bfd2", "#58748d"]); }
     };
