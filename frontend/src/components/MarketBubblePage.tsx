@@ -1,10 +1,11 @@
 import { MutableRefObject, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { StockBoard, StockBoardItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
-import { usCompanyLogoUrl } from "../usLogo";
+import { usCompanyLogoProxyUrl, usCompanyLogoUrl } from "../usLogo";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { reportMarketBubbleEvent } from "../useActivityTracking";
 import MarketBubbleIcon from "./MarketBubbleIcon";
@@ -13,7 +14,8 @@ import "./marketBubble.css";
 
 type Market = "kospi" | "kosdaq" | "nasdaq";
 type Body = {
-  x: number; y: number; vx: number; vy: number; r: number;
+  x: number; y: number; z: number; vx: number; vy: number; vz: number; r: number;
+  impactX: number; impactY: number; impactZ: number;
   deform: number; deformTarget: number; deformVelocity: number;
   deformAngle: number; deformAngleTarget: number;
   wobbleEnergy: number; wobblePhase: number; jellyProfile: number;
@@ -27,7 +29,8 @@ const FPS_METER_ENABLED = (() => {
   return !["0", "off", "false", "no"].includes((params.get("fps") ?? "").trim().toLowerCase());
 })();
 
-const BUBBLE_COUNT = 15;
+const BUBBLE_COUNT = 20;
+const WORLD_SCALE = 2;
 
 const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "kospi", label: "코스피", title: "KOSPI 주요종목" },
@@ -35,23 +38,8 @@ const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "nasdaq", label: "나스닥", title: "NASDAQ 주요종목" },
 ];
 
-const PALETTE = [
-  ["#f07f9f", "#b73d69"], ["#67b4ed", "#286eb9"], ["#e7bd57", "#a87019"],
-  ["#e78ac4", "#a83d83"], ["#7395e8", "#3558ae"], ["#61c99a", "#197b59"],
-  ["#f09a83", "#b94d42"], ["#72cbe0", "#23849e"], ["#f0ce78", "#ba8127"],
-  ["#cf86d7", "#8f439d"], ["#71a8f0", "#3163bd"], ["#55c9c3", "#167d83"],
-  ["#ee91b2", "#b44b78"], ["#dca94d", "#9b6418"], ["#879ee8", "#465db2"],
-];
-
-const SURFACE_ACCENTS = [
-  ["#ffd0dc", "#d9d4ff"], ["#c9efff", "#e0d7ff"], ["#fff0ba", "#ffd4c8"],
-  ["#ffd3ed", "#d7e9ff"], ["#d4e3ff", "#d8f4ef"], ["#c9f2df", "#fff0c5"],
-  ["#ffd8ca", "#dcd8ff"], ["#d2f3ff", "#f0d8ff"], ["#fff1c3", "#d8efff"],
-  ["#f3d4ff", "#d3f1ef"], ["#d2e6ff", "#ffe0ea"], ["#c9f4ef", "#ffe2cd"],
-  ["#ffd4e4", "#d5eaff"], ["#ffe7af", "#d6f0ec"], ["#d8deff", "#f0d5ff"],
-];
-
 const transparentLogoCache = new Map<string, Promise<string>>();
+const logoPaletteCache = new Map<string, Promise<[string, string]>>();
 
 function transparentBubbleLogo(src: string) {
   const cached = transparentLogoCache.get(src);
@@ -98,18 +86,77 @@ function BubbleCompanyLogo({ src }: { src: string }) {
 }
 
 function rankRadiusScale(index: number, mobile = false) {
-  if (index < 2) return 1.827;  // 1–2
-  if (index < 5) return 1.449;  // 3–5
-  if (index < 8) return 1.26;   // 6–8
-  if (index < 11) return mobile ? 1.1445 : 1.1025; // 9–11
-  if (index < 14) return mobile ? 1.071 : .987;    // 12–14
-  return mobile ? 1.03 : .90;                 // 15위
+  void mobile;
+  const leaderScale = 1.827 * 2;
+  if (index < 2) return leaderScale;       // 1–2위: 기존 대비 2배
+  if (index < 5) return leaderScale * .7;  // 3–5위: 선두의 70%
+  if (index < 9) return leaderScale * .5;  // 6–9위: 선두의 50%
+  if (index < 15) return leaderScale * .4; // 10–15위: 선두의 40%
+  return leaderScale * .3;                 // 16–20위: 선두의 30%
+}
+
+function logoPastelPalette(src: string, cacheKey: string) {
+  const cached = logoPaletteCache.get(cacheKey);
+  if (cached) return cached;
+  const request = transparentBubbleLogo(src).then((resolved) => new Promise<[string, string]>((resolve) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 40; canvas.height = 40;
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        if (!context) throw new Error("canvas unavailable");
+        context.drawImage(image, 0, 0, 40, 40);
+        const data = context.getImageData(0, 0, 40, 40).data;
+        const bins = Array.from({ length: 18 }, () => ({ weight: 0, r: 0, g: 0, b: 0 }));
+        let neutralWeight = 0, neutral = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] < 70) continue;
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const max = Math.max(r, g, b), min = Math.min(r, g, b), chroma = max - min;
+          if (max > 245 && min > 232) continue;
+          if (chroma < 14) { const weight = data[i + 3] / 255; neutral += ((r + g + b) / 3) * weight; neutralWeight += weight; continue; }
+          const color = new THREE.Color(r / 255, g / 255, b / 255);
+          const hsl = { h: 0, s: 0, l: 0 }; color.getHSL(hsl);
+          const bin = bins[Math.min(17, Math.floor(hsl.h * 18))];
+          const weight = (data[i + 3] / 255) * (.35 + hsl.s) * (1 - Math.abs(hsl.l - .5) * .55);
+          bin.weight += weight; bin.r += r * weight; bin.g += g * weight; bin.b += b * weight;
+        }
+        const dominant = bins.reduce((best, bin) => bin.weight > best.weight ? bin : best, bins[0]);
+        const source = dominant.weight > 1
+          ? new THREE.Color(dominant.r / dominant.weight / 255, dominant.g / dominant.weight / 255, dominant.b / dominant.weight / 255)
+          : new THREE.Color((neutralWeight ? neutral / neutralWeight : 112) / 255);
+        const hsl = { h: 0, s: 0, l: 0 }; source.getHSL(hsl);
+        const saturation = dominant.weight > 1 ? Math.min(.96, Math.max(.7, hsl.s * 1.06)) : .24;
+        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .51);
+        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.98, saturation * 1.04), .27);
+        resolve([`#${pastel.getHexString()}`, `#${shade.getHexString()}`]);
+      } catch { resolve(["#a9bfd2", "#58748d"]); }
+    };
+    image.onerror = () => resolve(["#a9bfd2", "#58748d"]);
+    image.src = resolved;
+  }));
+  logoPaletteCache.set(cacheKey, request);
+  return request;
 }
 
 function formatPrice(item: StockBoardItem, market: Market) {
   return market === "nasdaq"
     ? `$${item.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : `${Math.round(item.close).toLocaleString("ko-KR")}원`;
+}
+
+function formatMarketCap(item: StockBoardItem, market: Market) {
+  if (market === "nasdaq") {
+    const value = item.market_cap;
+    if (!value || value <= 0) return null;
+    if (value >= 1e12) return { currency: "$", value: (value / 1e12).toFixed(value >= 10e12 ? 1 : 2), unit: "T" };
+    return { currency: "$", value: (value / 1e9).toFixed(value >= 100e9 ? 0 : 1), unit: "B" };
+  }
+  if (!item.marcap || item.marcap <= 0) return null;
+  if (item.marcap >= 1e12) return { currency: "", value: (item.marcap / 1e12).toFixed(item.marcap >= 100e12 ? 0 : 1), unit: "조 원" };
+  return { currency: "", value: Math.round(item.marcap / 1e8).toLocaleString("ko-KR"), unit: "억 원" };
 }
 
 function shortName(item: StockBoardItem, market: Market) {
@@ -162,8 +209,8 @@ function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
   );
 }
 
-function BubbleWebGLSurface({ bodiesRef, palette, count }: {
-  bodiesRef: MutableRefObject<Body[]>; palette: number[]; count: number;
+function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
+  bodiesRef: MutableRefObject<Body[]>; bubbleColors: [string, string][]; count: number; focusRef: MutableRefObject<number | null>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -178,8 +225,22 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     // Keep the camera well outside even the largest rank-scaled sphere.
     // A close camera clips the front cap of large spheres and makes them look
     // like white-centred rings because the transparent page shows through.
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 2400);
-    camera.position.z = 1200;
+    const cameraDistance = 1200;
+    const camera = new THREE.PerspectiveCamera(42, 1, 20, 4600);
+    camera.position.z = cameraDistance;
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = .065;
+    controls.enablePan = true;
+    controls.panSpeed = .55;
+    controls.rotateSpeed = .48;
+    controls.zoomSpeed = .72;
+    controls.minDistance = 520;
+    controls.maxDistance = 2900;
+    controls.touches.ONE = THREE.TOUCH.ROTATE;
+    controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+    const releaseFocus = () => { focusRef.current = null; };
+    controls.addEventListener("start", releaseFocus);
     const pmrem = new THREE.PMREMGenerator(renderer);
     const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
     scene.environment = environment;
@@ -192,8 +253,9 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 40 : 56, window.innerWidth <= 760 ? 28 : 40);
     const meshes: THREE.Mesh[] = [], shadows: THREE.Sprite[] = [], shadowTextures: THREE.CanvasTexture[] = [], shaders: any[] = [];
     for (let i = 0; i < count; i++) {
-      const colors = PALETTE[palette[i] % PALETTE.length];
-      const accents = SURFACE_ACCENTS[palette[i] % SURFACE_ACCENTS.length];
+      const colors = bubbleColors[i] ?? ["#a9bfd2", "#58748d"];
+      const logoColor = new THREE.Color(colors[0]);
+      const accents = [logoColor.clone().lerp(new THREE.Color(0xffffff), .52), logoColor.clone().lerp(new THREE.Color(colors[1]), .24)];
       const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .41);
       const lightVariation = ((i * 37) % 11) / 10;
       const material = new THREE.MeshPhysicalMaterial({
@@ -201,8 +263,8 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         roughness: .2 + (i % 4) * .018,
         metalness: .035,
         clearcoat: .92,
-        clearcoatRoughness: .12 + (i % 3) * .025,
-        envMapIntensity: .98 + lightVariation * .34,
+        clearcoatRoughness: .075 + (i % 3) * .018,
+        envMapIntensity: 1.18 + lightVariation * .38,
         sheen: .27 + lightVariation * .17,
         sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(i % 2 ? 0xd9e9ff : 0xffead6), .26 + lightVariation * .2),
         sheenRoughness: .42,
@@ -211,6 +273,8 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         iridescence: .22 + (i % 3) * .035,
         iridescenceIOR: 1.38,
         iridescenceThicknessRange: [110, 320],
+        ior: 1.46,
+        thickness: 1.25,
         emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
         emissiveIntensity: .035 + lightVariation * .045,
         transparent: true,
@@ -243,15 +307,15 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         shader.uniforms.uImpact = { value: new THREE.Vector3(1, 0, 0) };
         shader.uniforms.uOrganic = { value: organicShape };
         shader.uniforms.uMochiDetail = { value: mochiDetail };
-        shader.uniforms.uAccentA = { value: new THREE.Color(accents[0]) };
-        shader.uniforms.uAccentB = { value: new THREE.Color(accents[1]) };
+        shader.uniforms.uAccentA = { value: accents[0] };
+        shader.uniforms.uAccentB = { value: accents[1] };
         const baseCoverage = [.74, .58, .82, .48, .68][i % 5];
-        shader.uniforms.uAccentStrength = { value: new THREE.Vector2((1 - baseCoverage) * 1.12, i % 3 === 0 ? 0 : (1 - baseCoverage) * .76) };
+        shader.uniforms.uAccentStrength = { value: new THREE.Vector2((1 - baseCoverage) * .82, i % 3 === 0 ? 0 : (1 - baseCoverage) * .54) };
         shader.uniforms.uAccentSpread = { value: new THREE.Vector2(1.45 + (i * 7 % 23) * .09, 1.7 + (i * 11 % 19) * .11) };
         shader.uniforms.uAccentDirA = { value: new THREE.Vector3(-.72 + (i * 17 % 31) / 50, .28 + (i * 13 % 29) / 60, .68).normalize() };
         shader.uniforms.uAccentDirB = { value: new THREE.Vector3(.42 + (i * 19 % 27) / 52, -.55 + (i * 7 % 25) / 55, .7).normalize() };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.68+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.32; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=smoothstep(-.34,1.0,facing); contact*=contact; float stickyTip=pow(max(0.0,facing),7.0); float stickyNeck=pow(max(0.0,facing),3.1); float back=pow(max(0.0,-facing),1.9); float shoulder=pow(max(0.0,1.0-abs(facing)),1.22); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; float axial=dot(transformed,hit); float frontPlate=smoothstep(.4,.97,axial); transformed+=hit*compression*(1.0-axial)*1.08; transformed+=hit*frontPlate*compression*.07; transformed+=n*(-contact*compression*.22+shoulder*compression*.34+stickyNeck*adhesion*.72+stickyTip*adhesion*2.35-shoulder*adhesion*.08);`);
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=pow(smoothstep(-.28,1.0,facing),2.15); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=max(uDeform,0.0); float rebound=sin(uPhase)*uWobble; float axial=max(0.0,dot(transformed,hit)); transformed-=hit*axial*contact*compression*.58; transformed+=n*(-contact*compression*.34+shoulder*compression*.27); transformed+=n*(contact*rebound*.13-shoulder*rebound*.055);`);
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; varying vec3 vBubbleNormal;")
           .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),pow(1.0-max(bubbleN.z,0.0),2.5)*.14);`);
@@ -279,13 +343,14 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
       const shadow = new THREE.Sprite(shadowMaterial); shadow.renderOrder = -1; scene.add(shadow);
       shadows.push(shadow); shadowTextures.push(shadowTexture);
     }
-    const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.left=-w/2;camera.right=w/2;camera.top=h/2;camera.bottom=-h/2;camera.updateProjectionMatrix(); };
+    const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/Math.max(1,h);camera.fov=THREE.MathUtils.radToDeg(2*Math.atan(h/(2*cameraDistance)));camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
     let raf=0;
-    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,-8-i*.02);shadow.scale.set(body.r*(2.12+(i%3)*.09),body.r*(1.76+(i%4)*.07),1);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
+    const projected = new THREE.Vector3();
+    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight;const focused=focusRef.current==null?null:meshes[focusRef.current];if(focused){controls.target.lerp(focused.position,.055);const desired=focused.position.clone().add(new THREE.Vector3(0,0,Math.max(570,focused.scale.x*5.4)));camera.position.lerp(desired,.04);}controls.update();meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,body.z);mesh.scale.setScalar(body.r);mesh.rotation.x+=body.vy*.00018;mesh.rotation.y+=body.vx*.00022;const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,body.z-body.r*.72);shadow.scale.set(body.r*(2.05+(i%3)*.08),body.r*(1.66+(i%4)*.06),1);const shader=shaders[i];if(shader){shader.uniforms.uImpact.value.set(body.impactX,-body.impactY,body.impactZ).normalize();shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}if(body.el){projected.copy(mesh.position).project(camera);const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;const distance=camera.position.distanceTo(mesh.position);const scale=Math.max(.52,Math.min(1.75,cameraDistance/distance));const position=`translate3d(${(px-body.r).toFixed(1)}px,${(py-body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;if(position!==body.lastPosition){body.el.style.transform=position;body.lastPosition=position;}body.el.style.zIndex=`${10+Math.round((1-projected.z)*500)}`;body.el.style.setProperty("--info-compensation",`${Math.min(1.32,Math.max(1,1/scale)).toFixed(3)}`);body.el.style.visibility=projected.z>1||projected.z<-1?"hidden":"visible";}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
-  }, [bodiesRef, count, palette]);
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+  }, [bodiesRef, bubbleColors, count, focusRef]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
 
@@ -296,18 +361,29 @@ export default function MarketBubblePage() {
   });
   const [board, setBoard] = useState<StockBoard | null>(null);
   const [loading, setLoading] = useState(true);
-  const [palette] = useState(() => Array.from({ length: BUBBLE_COUNT }, (_, i) => i % PALETTE.length).sort(() => Math.random() - .5));
+  const [bubbleColors, setBubbleColors] = useState<[string, string][]>([]);
   const [discussionIndex, setDiscussionIndex] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const bodiesRef = useRef<Body[]>([]);
   const stageSizeRef = useRef({ width: 0, height: 0 });
   const pointerRef = useRef({ x: -9999, y: -9999, active: false });
   const pinnedRef = useRef<number | null>(null);
+  const focusRef = useRef<number | null>(null);
   const clickTimerRef = useRef<number | null>(null);
   const firstLoadRef = useRef(true);
   useDocumentTitle("증시버블 · K-Stock Hub");
 
   const items = useMemo(() => board?.items.slice().sort((a, b) => a.rank - b.rank).slice(0, BUBBLE_COUNT) ?? [], [board]);
+
+  useEffect(() => {
+    let alive = true;
+    if (!items.length) { setBubbleColors([]); return () => { alive = false; }; }
+    Promise.all(items.map((item) => {
+      const logo = market === "nasdaq" ? usCompanyLogoProxyUrl(item.code) : stockIconUrl(item.code);
+      return logoPastelPalette(logo, `${market}:${item.code}`);
+    })).then((colors) => { if (alive) setBubbleColors(colors); });
+    return () => { alive = false; };
+  }, [market, items.map((item) => item.code).join(",")]);
 
   useEffect(() => () => {
     if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
@@ -352,11 +428,16 @@ export default function MarketBubblePage() {
       const col = i % 5, row = Math.floor(i / 5);
       const r = base * rankRadiusScale(i, rect.width <= 760);
       return {
-        x: ((col + .65 + (row % 2) * .16) / 5.35) * rect.width,
-        y: ((row + .7) / (rows + .45)) * rect.height,
+        x: rect.width * .5 + ((((col + .65 + (row % 2) * .16) / 5.35) * rect.width) - rect.width * .5) * 1.55,
+        y: rect.height * .5 + ((((row + .7) / (rows + .45)) * rect.height) - rect.height * .5) * 1.55,
         vx: (Math.random() - .5) * .44,
         vy: (Math.random() - .5) * .44,
+        z: (-210 + (i * 83) % 470) * WORLD_SCALE,
+        vz: (Math.random() - .5) * .52,
         r,
+        impactX: 1,
+        impactY: 0,
+        impactZ: 0,
         deform: 0,
         deformTarget: 0,
         deformVelocity: 0,
@@ -398,8 +479,10 @@ export default function MarketBubblePage() {
         body.x = previousSize.width > 0 ? body.x / previousSize.width * nextRect.width : nextRect.width / 2;
         body.y = previousSize.height > 0 ? body.y / previousSize.height * nextRect.height : nextRect.height / 2;
         body.r = nextRadius;
-        body.x = Math.max(nextRadius, Math.min(nextRect.width - nextRadius, body.x));
-        body.y = Math.max(nextRadius, Math.min(nextRect.height - nextRadius, body.y));
+        const halfWorldWidth = nextRect.width * WORLD_SCALE * .5;
+        const halfWorldHeight = nextRect.height * WORLD_SCALE * .5;
+        body.x = Math.max(nextRect.width*.5-halfWorldWidth+nextRadius, Math.min(nextRect.width*.5+halfWorldWidth-nextRadius, body.x));
+        body.y = Math.max(nextRect.height*.5-halfWorldHeight+nextRadius, Math.min(nextRect.height*.5+halfWorldHeight-nextRadius, body.y));
         if (body.el) {
           body.el.style.width = `${nextRadius * 2}px`;
           body.el.style.height = `${nextRadius * 2}px`;
@@ -421,8 +504,6 @@ export default function MarketBubblePage() {
 
   useEffect(() => {
     let frame = 0, previous = performance.now();
-    const adhesionPairs = new Map<string, { strength: number; life: number }>();
-    const adhesionCooldowns = new Map<string, number>();
     const tick = (now: number) => {
       const stage = stageRef.current;
       if (!stage) { frame = requestAnimationFrame(tick); return; }
@@ -442,7 +523,7 @@ export default function MarketBubblePage() {
         const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
         if (amount > body.deformTarget + .008) {
           body.deformAngleTarget += difference;
-          body.wobbleEnergy = 0;
+          body.wobbleEnergy = Math.max(body.wobbleEnergy, Math.min(.1, amount * .2));
           body.wobblePhase = 0;
           // Let impact direction and strength select the material response, so
           // repeated contacts do not replay one recognisable deformation loop.
@@ -452,20 +533,16 @@ export default function MarketBubblePage() {
         body.deform = Math.max(body.deform, amount * .46);
         body.deformVelocity = 0;
       };
-      const stretchToward = (body: Body, amount: number, angle: number) => {
-        const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
-        body.deformAngleTarget += difference;
-        body.deformTarget = Math.min(body.deformTarget, -amount);
-        body.deform += (-amount - body.deform) * .24;
-      };
       for (let i = 0; i < bodies.length; i++) {
         const a = bodies[i];
         // Ease toward a decaying target. Sustained contact holds a soft shape;
         // separation releases it gradually with a subtle gelatin overshoot.
         a.deformTarget *= Math.pow(.935, dt);
-        // A short, collision-triggered recoil: one or two gelatin oscillations,
-        // then a completely still surface until the next impact.
-        a.wobbleEnergy = 0;
+        // One short, strongly damped elastic recoil after impact. Sustained
+        // contact cannot restart it, which avoids the old resting jitter.
+        a.wobbleEnergy *= Math.pow(.86, dt);
+        if (a.wobbleEnergy > .0007) a.wobblePhase += .24 * dt;
+        else a.wobbleEnergy = 0;
         // Monotonic easing prevents the surface from overshooting and
         // shivering after contact while keeping a soft recovery.
         a.deform += (a.deformTarget - a.deform) * Math.min(1, .16 * dt);
@@ -478,7 +555,7 @@ export default function MarketBubblePage() {
         }
         a.deform = Math.max(-.3, Math.min(.62, a.deform));
         if (pinnedRef.current === i) {
-          a.vx = 0; a.vy = 0;
+          a.vx = 0; a.vy = 0; a.vz = 0;
           continue;
         }
         if (pointer.active) {
@@ -489,86 +566,57 @@ export default function MarketBubblePage() {
         }
         a.vx += Math.sin(now * .00038 + i * 1.71) * .005;
         a.vy += Math.cos(now * .00031 + i * 1.13) * .005;
-        a.vx *= .994; a.vy *= .994;
-        const speed = Math.hypot(a.vx, a.vy);
-        if (speed > 3.2) { const limit = 3.2 / speed; a.vx *= limit; a.vy *= limit; }
-        a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5;
-        if (a.x < a.r) { const speed = Math.abs(a.vx); a.x = a.r; a.vx = speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 180); }
-        if (a.x > width - a.r) { const speed = Math.abs(a.vx); a.x = width - a.r; a.vx = -speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 0); }
-        if (a.y < a.r) { const speed = Math.abs(a.vy); a.y = a.r; a.vy = speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), -90); }
-        if (a.y > height - a.r) { const speed = Math.abs(a.vy); a.y = height - a.r; a.vy = -speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 90); }
+        a.vz += Math.sin(now * .00027 + i * 2.03) * .0035;
+        a.vx *= .995; a.vy *= .995; a.vz *= .995;
+        const speed = Math.hypot(a.vx, a.vy, a.vz);
+        if (speed > 3.25) { const limit = 3.25 / speed; a.vx *= limit; a.vy *= limit; a.vz *= limit; }
+        a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5; a.z += a.vz * dt * 4.5;
+        const depthScale = Math.max(.55, (1200 - a.z) / 1200);
+        const halfViewWidth = width * depthScale * .5 * WORLD_SCALE;
+        const halfViewHeight = height * depthScale * .5 * WORLD_SCALE;
+        const minX = width * .5 - halfViewWidth + a.r, maxX = width * .5 + halfViewWidth - a.r;
+        const minY = height * .5 - halfViewHeight + a.r, maxY = height * .5 + halfViewHeight - a.r;
+        if (a.x < minX) { const speed = Math.abs(a.vx); a.x = minX; a.vx = speed * .78; a.impactX=-1;a.impactY=0;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 180); }
+        if (a.x > maxX) { const speed = Math.abs(a.vx); a.x = maxX; a.vx = -speed * .78; a.impactX=1;a.impactY=0;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 0); }
+        if (a.y < minY) { const speed = Math.abs(a.vy); a.y = minY; a.vy = speed * .78; a.impactX=0;a.impactY=-1;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), -90); }
+        if (a.y > maxY) { const speed = Math.abs(a.vy); a.y = maxY; a.vy = -speed * .78; a.impactX=0;a.impactY=1;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 90); }
+        const zLimit = (width <= 760 ? 280 : 360) * WORLD_SCALE;
+        if (a.z < -zLimit) { const speed=Math.abs(a.vz);a.z=-zLimit;a.vz=speed*.8;a.impactX=0;a.impactY=0;a.impactZ=-1;excite(a,Math.min(.34,.08+speed*.05),0); }
+        if (a.z > zLimit) { const speed=Math.abs(a.vz);a.z=zLimit;a.vz=-speed*.8;a.impactX=0;a.impactY=0;a.impactZ=1;excite(a,Math.min(.34,.08+speed*.05),0); }
       }
       for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
         const a = bodies[i], b = bodies[j];
-        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
-        // Keep the bodies at their real outer boundary. The visible contact is
-        // created by local surface compression, not by intersecting spheres.
-        const min = (a.r + b.r) * .985;
-        const nx = dx / d, ny = dy / d;
-        const aMovable = pinnedRef.current !== i;
-        const bMovable = pinnedRef.current !== j;
-        const pairKey = `${i}:${j}`;
-        const activeAdhesion = adhesionPairs.get(pairKey);
-        if (activeAdhesion) activeAdhesion.life += dt;
-        if (d < min) {
-          const penetration = min - d;
-          const aShare = aMovable ? (bMovable ? .505 : 1.01) : 0;
-          const bShare = bMovable ? (aMovable ? .505 : 1.01) : 0;
-          a.x -= nx * penetration * aShare; a.y -= ny * penetration * aShare;
-          b.x += nx * penetration * bShare; b.y += ny * penetration * bShare;
-          const impulse = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-          const impactSpeed = Math.max(0, -impulse);
-          const baseSoftness = (.025 + penetration / Math.max(20, Math.min(a.r, b.r)) * .23 + impactSpeed * .018) * 2.8125;
-          // Preserve gentle low-speed contacts. Once relative impact speed is
-          // meaningful, ramp the jelly deformation from 2x up to 4x.
-          const speedBoost = impactSpeed < .45 ? 1 : 2 + Math.min(1, (impactSpeed - .45) / 1.55) * 2;
-          const softness = Math.min(.36, Math.max(.12, baseSoftness * speedBoost));
-          const angle = Math.atan2(ny, nx) * 180 / Math.PI;
-          excite(a, softness, angle); excite(b, softness, angle + 180);
-          if (!activeAdhesion && (adhesionCooldowns.get(pairKey) ?? 0) <= now) {
-            adhesionPairs.set(pairKey, {
-              strength: Math.min(1, .36 + impactSpeed * .32 + softness * .42),
-              life: 0,
-            });
-          } else if (activeAdhesion && activeAdhesion.life > 30) {
-            adhesionPairs.delete(pairKey);
-            adhesionCooldowns.set(pairKey, now + 1250);
-            const forcedSnap = .24 + activeAdhesion.strength * .28;
-            if (aMovable) { a.vx -= nx * forcedSnap; a.vy -= ny * forcedSnap; }
-            if (bMovable) { b.vx += nx * forcedSnap; b.vy += ny * forcedSnap; }
-            a.deformTarget = 0; b.deformTarget = 0;
-          }
-          if (impulse < 0) {
-            // Equalise normal velocity without a rebound. This prevents a
-            // resting pair from repeatedly separating and re-colliding.
-            const aImpulseShare = aMovable ? (bMovable ? .5 : 1) : 0;
-            const bImpulseShare = bMovable ? (aMovable ? .5 : 1) : 0;
-            a.vx += impulse * nx * aImpulseShare; a.vy += impulse * ny * aImpulseShare;
-            b.vx -= impulse * nx * bImpulseShare; b.vy -= impulse * ny * bImpulseShare;
-          }
-        } else {
-          const adhesion = adhesionPairs.get(pairKey);
-          if (!adhesion) continue;
-          const releaseDistance = min * (1.14 + adhesion.strength * .16);
-          if (d >= releaseDistance || adhesion.life > 30) {
-            adhesionPairs.delete(pairKey);
-            adhesionCooldowns.set(pairKey, now + 1250);
-            const snap = .18 + adhesion.strength * .24;
-            if (aMovable) { a.vx -= nx * snap; a.vy -= ny * snap; }
-            if (bMovable) { b.vx += nx * snap; b.vy += ny * snap; }
-            a.deformTarget = 0; b.deformTarget = 0;
-            continue;
-          }
-          const extension = (d - min) / Math.max(1, releaseDistance - min);
-          const tension = (.014 + adhesion.strength * .052) * (1 - extension * .42) * dt;
-          if (aMovable) { a.vx += nx * tension; a.vy += ny * tension; }
-          if (bMovable) { b.vx -= nx * tension; b.vy -= ny * tension; }
-          const easedExtension = extension * extension * (3 - 2 * extension);
-          const stretch = (.09 + easedExtension * .34) * adhesion.strength;
-          const angle = Math.atan2(ny, nx) * 180 / Math.PI;
-          stretchToward(a, stretch, angle);
-          stretchToward(b, stretch, angle + 180);
+        const dx = b.x-a.x, dy = b.y-a.y, dz = b.z-a.z;
+        const distance = Math.hypot(dx,dy,dz) || 1;
+        const radiusSum=a.r+b.r;
+        const contactDistance=radiusSum*.985;
+        if (distance >= contactDistance) continue;
+        const nx=dx/distance, ny=dy/distance, nz=dz/distance;
+        const overlap=contactDistance-distance;
+        // Let the shells visibly overlap like soft gum. Only the deeper core
+        // receives positional correction; the outer volume is spring-driven.
+        const coreDistance=radiusSum*.86;
+        const penetration=Math.max(0,coreDistance-distance);
+        const aMovable=pinnedRef.current!==i, bMovable=pinnedRef.current!==j;
+        const aShare=aMovable?(bMovable?.5:1):0, bShare=bMovable?(aMovable?.5:1):0;
+        a.x-=nx*penetration*aShare*.42;a.y-=ny*penetration*aShare*.42;a.z-=nz*penetration*aShare*.42;
+        b.x+=nx*penetration*bShare*.42;b.y+=ny*penetration*bShare*.42;b.z+=nz*penetration*bShare*.42;
+        const relativeNormal=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny+(b.vz-a.vz)*nz;
+        const impactSpeed=Math.max(0,-relativeNormal);
+        if(relativeNormal<-.08){
+          const restitution=.76;
+          const impulse=-(1+restitution)*relativeNormal/(Math.max(.5,aShare+bShare));
+          if(aMovable){a.vx-=nx*impulse*aShare;a.vy-=ny*impulse*aShare;a.vz-=nz*impulse*aShare;}
+          if(bMovable){b.vx+=nx*impulse*bShare;b.vy+=ny*impulse*bShare;b.vz+=nz*impulse*bShare;}
         }
+        const elasticPush=Math.min(.085,(overlap/contactDistance)*.24)*dt;
+        if(aMovable){a.vx-=nx*elasticPush*aShare;a.vy-=ny*elasticPush*aShare;a.vz-=nz*elasticPush*aShare;}
+        if(bMovable){b.vx+=nx*elasticPush*bShare;b.vy+=ny*elasticPush*bShare;b.vz+=nz*elasticPush*bShare;}
+        const softness=Math.min(.52,Math.max(.08,.07+overlap/Math.max(24,Math.min(a.r,b.r))*.72+impactSpeed*.07));
+        a.impactX=nx;a.impactY=ny;a.impactZ=nz;
+        b.impactX=-nx;b.impactY=-ny;b.impactZ=-nz;
+        const angle=Math.atan2(ny,nx)*180/Math.PI;
+        excite(a,softness,angle);excite(b,softness,angle+180);
       }
       bodies.forEach((body) => {
         if (body.el) {
@@ -598,8 +646,6 @@ export default function MarketBubblePage() {
           const contactX = Math.cos(contactRadians), contactY = Math.sin(contactRadians);
           const anchorDepth = [48, 43, 52, 46][body.jellyProfile];
           const origin = `${(50 - contactX * anchorDepth).toFixed(1)}% ${(50 - contactY * anchorDepth).toFixed(1)}%`;
-          const position = `translate3d(${(body.x - body.r).toFixed(1)}px,${(body.y - body.r).toFixed(1)}px,0)`;
-          if (position !== body.lastPosition) { body.el.style.transform = position; body.lastPosition = position; }
           if (body.shell && matrix !== body.lastMatrix) { body.shell.style.transform = matrix; body.lastMatrix = matrix; }
           if (body.shell && origin !== body.lastOrigin) { body.shell.style.transformOrigin = origin; body.lastOrigin = origin; }
         }
@@ -628,7 +674,7 @@ export default function MarketBubblePage() {
           </Link>
         </div>
         <div className="bubble-heading">
-          <p>시가총액 TOP 15 · 5초마다 갱신</p>
+          <p>시가총액 TOP 20 · 5초마다 갱신</p>
           <h1>{MARKETS.find((it) => it.key === market)?.title}</h1>
         </div>
         <div className="bubble-live"><i /> LIVE <span>{board ? new Date(board.generated_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--:--:--"}</span></div>
@@ -637,15 +683,15 @@ export default function MarketBubblePage() {
       <section
         ref={stageRef}
         className="bubble-stage"
-        aria-label={`${market} 시가총액 상위 15개 종목 버블`}
+        aria-label={`${market} 시가총액 상위 20개 종목 버블`}
         onPointerMove={movePointer}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
-        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} palette={palette} count={items.length} />}
+        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} />}
         <div className="bubble-stage-hint">버블을 건드려 보세요 <span>마우스 이동 · 클릭</span></div>
         {loading && <div className="bubble-loading"><MarketBubbleIcon /><span>시장 데이터를 불러오는 중</span></div>}
         {!loading && items.map((item, index) => {
-          const colors = PALETTE[palette[index] % PALETTE.length];
+          const colors = bubbleColors[index] ?? ["#a9bfd2", "#58748d"];
           const body = bodiesRef.current[index];
           const diameter = (body?.r ?? 72) * 2;
           const lightAngle = 108 + (index * 17) % 46;
@@ -663,6 +709,7 @@ export default function MarketBubblePage() {
           const secondaryLightOpacity = index % 5 === 2 ? .34 : index % 7 === 4 ? .2 : 0;
           const lightShape = `${34 + (index * 17) % 43}% ${41 + (index * 23) % 47}% ${38 + (index * 31) % 49}% ${45 + (index * 13) % 41}% / ${39 + (index * 19) % 46}% ${46 + (index * 11) % 39}% ${35 + (index * 29) % 48}% ${43 + (index * 7) % 42}%`;
           const positive = item.change_pct > .04, negative = item.change_pct < -.04;
+          const marketCap = formatMarketCap(item, market);
           return (
             <button
               key={`${market}-${item.code}`}
@@ -696,6 +743,7 @@ export default function MarketBubblePage() {
                 event.stopPropagation();
                 if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
                 clickTimerRef.current = window.setTimeout(() => {
+                  focusRef.current = index;
                   setDiscussionIndex(index);
                   reportMarketBubbleEvent({ action: "bubble_click", market, code: item.code, name: item.name });
                   clickTimerRef.current = null;
@@ -711,11 +759,14 @@ export default function MarketBubblePage() {
               onPointerEnter={() => {
                 pinnedRef.current = index;
                 const body = bodiesRef.current[index];
-                if (body) { body.vx = 0; body.vy = 0; }
+                if (body) { body.vx = 0; body.vy = 0; body.vz = 0; }
               }}
               onPointerLeave={() => { if (pinnedRef.current === index) pinnedRef.current = null; }}
               aria-label={`${shortName(item, market)} ${formatPrice(item, market)} ${item.change_pct.toFixed(2)}%, 더블 클릭해 종목 열기`}
             >
+              <span className="stock-bubble-marcap">
+                {marketCap ? <>시총 {marketCap.currency}<b>{marketCap.value}</b>{marketCap.unit}</> : "시총 산정 중"}
+              </span>
               <span className="stock-bubble-shell"><span className="stock-bubble-glass" /></span>
               <span className="stock-bubble-lightfield" aria-hidden="true" />
               <span className="stock-bubble-content">
@@ -726,7 +777,7 @@ export default function MarketBubblePage() {
                     : <BubbleCompanyLogo src={stockIconUrl(item.code)} />}
                 </span>
                 <strong>{shortName(item, market)}</strong>
-                <b>{formatPrice(item, market)}</b>
+                <b className={positive ? "is-up" : negative ? "is-down" : "is-flat"}>{formatPrice(item, market)}</b>
                 <em className={positive ? "is-up" : negative ? "is-down" : "is-flat"}>{item.change_pct > 0 ? "+" : ""}{item.change_pct.toFixed(2)}%</em>
               </span>
             </button>
@@ -740,7 +791,7 @@ export default function MarketBubblePage() {
           <MarketBubbleDiscussion
             item={items[discussionIndex]}
             market={market}
-            colors={PALETTE[palette[discussionIndex] % PALETTE.length] as [string, string]}
+            colors={(bubbleColors[discussionIndex] ?? ["#a9bfd2", "#58748d"]) as [string, string]}
             onClose={() => setDiscussionIndex(null)}
           />
         </>

@@ -68,6 +68,10 @@ export default function MarketBubbleDiscussion({ item, market, colors, onClose }
   };
 
   const selectedPost = selected == null ? null : posts[selected];
+  const positive = item.change_pct > .04, negative = item.change_pct < -.04;
+  const displayPrice = market === "nasdaq"
+    ? `$${item.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `${Math.round(item.close).toLocaleString("ko-KR")}원`;
   const movePost = (direction: -1 | 1) => {
     if (selected == null) return;
     const next = selected + direction;
@@ -81,6 +85,10 @@ export default function MarketBubbleDiscussion({ item, market, colors, onClose }
         <div className="bubble-discussion-identity">
           <StockLogo code={item.code} className="bubble-discussion-logo" />
           <div><span>MARKET CONVERSATION</span><h2>{item.name}</h2><p>종목토론 · 10건씩 보기</p></div>
+        </div>
+        <div className="bubble-discussion-quote">
+          <strong>{displayPrice}</strong>
+          <em className={positive ? "is-up" : negative ? "is-down" : "is-flat"}>{item.change_pct > 0 ? "+" : ""}{item.change_pct.toFixed(2)}%</em>
         </div>
         <button type="button" onClick={onClose} aria-label="종목토론 닫기">×</button>
       </header>
