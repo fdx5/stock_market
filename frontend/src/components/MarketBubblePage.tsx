@@ -30,6 +30,7 @@ const FPS_METER_ENABLED = (() => {
 })();
 
 const BUBBLE_COUNT = 20;
+const WORLD_SCALE = 2;
 
 const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "kospi", label: "코스피", title: "KOSPI 주요종목" },
@@ -186,7 +187,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
     // A close camera clips the front cap of large spheres and makes them look
     // like white-centred rings because the transparent page shows through.
     const cameraDistance = 1200;
-    const camera = new THREE.PerspectiveCamera(42, 1, 20, 2600);
+    const camera = new THREE.PerspectiveCamera(42, 1, 20, 4600);
     camera.position.z = cameraDistance;
     const controls = new OrbitControls(camera, canvas);
     controls.enableDamping = true;
@@ -196,7 +197,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
     controls.rotateSpeed = .48;
     controls.zoomSpeed = .72;
     controls.minDistance = 520;
-    controls.maxDistance = 1900;
+    controls.maxDistance = 2900;
     controls.touches.ONE = THREE.TOUCH.ROTATE;
     controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
     const releaseFocus = () => { focusRef.current = null; };
@@ -377,11 +378,11 @@ export default function MarketBubblePage() {
       const col = i % 5, row = Math.floor(i / 5);
       const r = base * rankRadiusScale(i, rect.width <= 760);
       return {
-        x: ((col + .65 + (row % 2) * .16) / 5.35) * rect.width,
-        y: ((row + .7) / (rows + .45)) * rect.height,
+        x: rect.width * .5 + ((((col + .65 + (row % 2) * .16) / 5.35) * rect.width) - rect.width * .5) * 1.55,
+        y: rect.height * .5 + ((((row + .7) / (rows + .45)) * rect.height) - rect.height * .5) * 1.55,
         vx: (Math.random() - .5) * .44,
         vy: (Math.random() - .5) * .44,
-        z: -210 + (i * 83) % 470,
+        z: (-210 + (i * 83) % 470) * WORLD_SCALE,
         vz: (Math.random() - .5) * .52,
         r,
         impactX: 1,
@@ -428,8 +429,10 @@ export default function MarketBubblePage() {
         body.x = previousSize.width > 0 ? body.x / previousSize.width * nextRect.width : nextRect.width / 2;
         body.y = previousSize.height > 0 ? body.y / previousSize.height * nextRect.height : nextRect.height / 2;
         body.r = nextRadius;
-        body.x = Math.max(nextRadius, Math.min(nextRect.width - nextRadius, body.x));
-        body.y = Math.max(nextRadius, Math.min(nextRect.height - nextRadius, body.y));
+        const halfWorldWidth = nextRect.width * WORLD_SCALE * .5;
+        const halfWorldHeight = nextRect.height * WORLD_SCALE * .5;
+        body.x = Math.max(nextRect.width*.5-halfWorldWidth+nextRadius, Math.min(nextRect.width*.5+halfWorldWidth-nextRadius, body.x));
+        body.y = Math.max(nextRect.height*.5-halfWorldHeight+nextRadius, Math.min(nextRect.height*.5+halfWorldHeight-nextRadius, body.y));
         if (body.el) {
           body.el.style.width = `${nextRadius * 2}px`;
           body.el.style.height = `${nextRadius * 2}px`;
@@ -519,15 +522,15 @@ export default function MarketBubblePage() {
         if (speed > 3.25) { const limit = 3.25 / speed; a.vx *= limit; a.vy *= limit; a.vz *= limit; }
         a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5; a.z += a.vz * dt * 4.5;
         const depthScale = Math.max(.55, (1200 - a.z) / 1200);
-        const halfViewWidth = width * depthScale * .5;
-        const halfViewHeight = height * depthScale * .5;
+        const halfViewWidth = width * depthScale * .5 * WORLD_SCALE;
+        const halfViewHeight = height * depthScale * .5 * WORLD_SCALE;
         const minX = width * .5 - halfViewWidth + a.r, maxX = width * .5 + halfViewWidth - a.r;
         const minY = height * .5 - halfViewHeight + a.r, maxY = height * .5 + halfViewHeight - a.r;
         if (a.x < minX) { const speed = Math.abs(a.vx); a.x = minX; a.vx = speed * .78; a.impactX=-1;a.impactY=0;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 180); }
         if (a.x > maxX) { const speed = Math.abs(a.vx); a.x = maxX; a.vx = -speed * .78; a.impactX=1;a.impactY=0;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 0); }
         if (a.y < minY) { const speed = Math.abs(a.vy); a.y = minY; a.vy = speed * .78; a.impactX=0;a.impactY=-1;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), -90); }
         if (a.y > maxY) { const speed = Math.abs(a.vy); a.y = maxY; a.vy = -speed * .78; a.impactX=0;a.impactY=1;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 90); }
-        const zLimit = width <= 760 ? 280 : 360;
+        const zLimit = (width <= 760 ? 280 : 360) * WORLD_SCALE;
         if (a.z < -zLimit) { const speed=Math.abs(a.vz);a.z=-zLimit;a.vz=speed*.8;a.impactX=0;a.impactY=0;a.impactZ=-1;excite(a,Math.min(.34,.08+speed*.05),0); }
         if (a.z > zLimit) { const speed=Math.abs(a.vz);a.z=zLimit;a.vz=-speed*.8;a.impactX=0;a.impactY=0;a.impactZ=1;excite(a,Math.min(.34,.08+speed*.05),0); }
       }
