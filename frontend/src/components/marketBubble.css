@@ -25,6 +25,18 @@
 .bubble-webgl-surface { position:absolute; z-index:2; inset:0; width:100%; height:100%; pointer-events:none; }
 .bubble-stage.is-webgl .stock-bubble-shell { opacity:0; }
 .bubble-stage.is-webgl .stock-bubble { box-shadow:none; }
+.stock-bubble-lightfield { display:none; }
+.bubble-stage.is-webgl .stock-bubble-lightfield { position:absolute; z-index:2; inset:7%; display:block; overflow:hidden; border-radius:50%; pointer-events:none; mix-blend-mode:screen; opacity:.76; -webkit-mask-image:radial-gradient(circle,#000 0 67%,rgba(0,0,0,.88) 80%,transparent 98%); mask-image:radial-gradient(circle,#000 0 67%,rgba(0,0,0,.88) 80%,transparent 98%); }
+.bubble-stage.is-webgl .stock-bubble-lightfield::before,.bubble-stage.is-webgl .stock-bubble-lightfield::after { content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none; }
+.bubble-stage.is-webgl .stock-bubble-lightfield::before { background:radial-gradient(circle at var(--sphere-highlight-x) var(--sphere-highlight-y),rgba(255,255,255,.82) 0 2%,rgba(230,244,255,.38) 5%,transparent 17%),radial-gradient(ellipse at var(--bubble-light-2-x) var(--bubble-light-2-y),color-mix(in srgb,var(--bubble-light) 48%,white) 0 2%,color-mix(in srgb,var(--bubble-light) 26%,transparent) 9%,transparent 24%); filter:blur(.35px); }
+.bubble-stage.is-webgl .stock-bubble-lightfield::after { background:radial-gradient(ellipse at var(--bubble-light-3-x) var(--bubble-light-3-y),rgba(255,236,210,.42) 0 2%,color-mix(in srgb,var(--bubble-light) 20%,transparent) 10%,transparent 27%); filter:blur(1px); }
+.bubble-stage.is-webgl .light-profile-0::before { background:radial-gradient(ellipse at var(--sphere-highlight-x) var(--sphere-highlight-y),rgba(255,255,255,.88) 0 2%,rgba(224,241,255,.37) 6%,transparent 22%); }
+.bubble-stage.is-webgl .light-profile-0::after { opacity:0; }
+.bubble-stage.is-webgl .light-profile-1::before { background:radial-gradient(circle at var(--sphere-highlight-x) var(--sphere-highlight-y),rgba(255,255,255,.78) 0 2%,transparent 16%),radial-gradient(ellipse at var(--bubble-light-2-x) var(--bubble-light-2-y),color-mix(in srgb,var(--bubble-light) 54%,white) 0 3%,transparent 22%); }
+.bubble-stage.is-webgl .light-profile-1::after { opacity:0; }
+.bubble-stage.is-webgl .light-profile-2::after { opacity:.86; }
+.bubble-stage.is-webgl .light-profile-3::before { background:radial-gradient(ellipse at var(--sphere-highlight-x) var(--sphere-highlight-y),rgba(255,255,255,.74) 0 2%,transparent 15%),radial-gradient(circle at var(--bubble-light-2-x) var(--bubble-light-2-y),rgba(205,230,255,.43) 0 2%,transparent 17%); }
+.bubble-stage.is-webgl .light-profile-3::after { background:radial-gradient(ellipse at var(--bubble-light-3-x) var(--bubble-light-3-y),rgba(255,221,190,.46) 0 2%,transparent 21%); }
 .bubble-stage-hint span { margin-left:8px; color:#c2c9d0; font-weight:600; }
 .stock-bubble { --bubble-light:#afd8f4; --bubble-dark:#5d9bc7; position:absolute; top:0; left:0; z-index:2; display:block; padding:0; border:0; border-radius:50%; color:#1c2631; background:transparent; box-shadow:0 calc(var(--bubble-size,72px) * .16) calc(var(--bubble-size,72px) * .34) rgba(0,5,14,.28),0 0 28px color-mix(in srgb,var(--bubble-light) 13%,transparent); will-change:transform; contain:layout style; cursor:pointer; transition:width .45s ease,height .45s ease,filter .2s ease,box-shadow .25s ease; animation:bubble-enter .7s cubic-bezier(.2,.9,.25,1) both; }
 .stock-bubble-shell { position:absolute; inset:0; z-index:0; border-radius:50%; transform:matrix(1,0,0,1,0,0); transform-origin:50% 50%; will-change:transform; contain:layout style paint; pointer-events:none; }

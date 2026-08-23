@@ -636,6 +636,11 @@ export default function MarketBubblePage() {
           const highlightX = 24 + (index * 13) % 18;
           const highlightY = 17 + (index * 7) % 16;
           const causticX = 58 + (index * 11) % 17;
+          const lightProfile = index % 4;
+          const light2X = 58 + (index * 17) % 27;
+          const light2Y = 19 + (index * 23) % 54;
+          const light3X = 18 + (index * 29) % 62;
+          const light3Y = 56 + (index * 13) % 27;
           const positive = item.change_pct > .04, negative = item.change_pct < -.04;
           return (
             <button
@@ -656,6 +661,10 @@ export default function MarketBubblePage() {
                 "--sphere-highlight-x": `${highlightX}%`,
                 "--sphere-highlight-y": `${highlightY}%`,
                 "--sphere-caustic-x": `${causticX}%`,
+                "--bubble-light-2-x": `${light2X}%`,
+                "--bubble-light-2-y": `${light2Y}%`,
+                "--bubble-light-3-x": `${light3X}%`,
+                "--bubble-light-3-y": `${light3Y}%`,
                 "--sphere-roll-duration": `${12 + (index % 6) * 2}s`,
                 "--sphere-roll-direction": index % 2 ? "reverse" : "normal",
               } as React.CSSProperties}
@@ -684,6 +693,7 @@ export default function MarketBubblePage() {
               aria-label={`${shortName(item, market)} ${formatPrice(item, market)} ${item.change_pct.toFixed(2)}%, 더블 클릭해 종목 열기`}
             >
               <span className="stock-bubble-shell"><span className="stock-bubble-glass" /></span>
+              <span className={`stock-bubble-lightfield light-profile-${lightProfile}`} aria-hidden="true" />
               <span className="stock-bubble-content">
                 <span className="stock-bubble-rank">#{item.rank}</span>
                 <span className="stock-bubble-logo-wrap">
