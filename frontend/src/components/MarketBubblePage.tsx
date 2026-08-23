@@ -214,8 +214,8 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
         emissiveIntensity: .035 + lightVariation * .045,
         transparent: true,
-        opacity: .7 + (i % 4) * .025,
-        depthWrite: false,
+        opacity: .9,
+        depthWrite: true,
       });
       // Rotate the room reflection independently for each sphere. This keeps
       // highlights tied to the curved material without stamping one identical
@@ -251,7 +251,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         shader.uniforms.uAccentDirA = { value: new THREE.Vector3(-.72 + (i * 17 % 31) / 50, .28 + (i * 13 % 29) / 60, .68).normalize() };
         shader.uniforms.uAccentDirB = { value: new THREE.Vector3(.42 + (i * 19 % 27) / 52, -.55 + (i * 7 % 25) / 55, .7).normalize() };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.68+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.32; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=smoothstep(-.08,1.0,facing); contact*=contact; float stickyTip=pow(max(0.0,facing),7.0); float stickyNeck=pow(max(0.0,facing),3.1); float back=pow(max(0.0,-facing),1.9); float shoulder=pow(max(0.0,1.0-abs(facing)),1.7); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; transformed+=n*(-contact*compression*1.22+back*compression*.46+stickyNeck*adhesion*.72+stickyTip*adhesion*2.35-shoulder*adhesion*.08+contact*contactRebound*.1+back*delayedBack*.12);`);
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.68+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.32; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=smoothstep(-.34,1.0,facing); contact*=contact; float stickyTip=pow(max(0.0,facing),7.0); float stickyNeck=pow(max(0.0,facing),3.1); float back=pow(max(0.0,-facing),1.9); float shoulder=pow(max(0.0,1.0-abs(facing)),1.22); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; float axial=dot(transformed,hit); float frontPlate=smoothstep(.4,.97,axial); transformed+=hit*compression*(1.0-axial)*1.08; transformed+=hit*frontPlate*compression*.07; transformed+=n*(-contact*compression*.22+shoulder*compression*.34+stickyNeck*adhesion*.72+stickyTip*adhesion*2.35-shoulder*adhesion*.08);`);
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; varying vec3 vBubbleNormal;")
           .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),pow(1.0-max(bubbleN.z,0.0),2.5)*.14);`);
@@ -440,15 +440,17 @@ export default function MarketBubblePage() {
         // Preserve the actual contact side (not only the collision axis), while
         // still taking the shortest path as that contact direction changes.
         const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
-        if (amount >= body.deformTarget * .92) body.deformAngleTarget += difference;
         if (amount > body.deformTarget + .008) {
-          body.wobbleEnergy = Math.min(.13, Math.max(body.wobbleEnergy, amount * .24));
+          body.deformAngleTarget += difference;
+          body.wobbleEnergy = 0;
           body.wobblePhase = 0;
           // Let impact direction and strength select the material response, so
           // repeated contacts do not replay one recognisable deformation loop.
           body.jellyProfile = Math.abs(Math.floor(angle / 37) + Math.floor(amount * 113)) % 4;
         }
         body.deformTarget = Math.max(body.deformTarget, amount);
+        body.deform = Math.max(body.deform, amount * .46);
+        body.deformVelocity = 0;
       };
       const stretchToward = (body: Body, amount: number, angle: number) => {
         const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
@@ -463,15 +465,11 @@ export default function MarketBubblePage() {
         a.deformTarget *= Math.pow(.935, dt);
         // A short, collision-triggered recoil: one or two gelatin oscillations,
         // then a completely still surface until the next impact.
-        a.wobbleEnergy *= Math.pow(.91, dt);
-        const profile = a.jellyProfile;
-        const springRate = [1, 1.18, .82, 1.08][profile];
-        const damping = [.94, .925, .955, .935][profile];
-        if (a.wobbleEnergy > .0004) a.wobblePhase += (.19 + profile * .018) * dt;
-        else a.wobbleEnergy = 0;
-        a.deformVelocity += (a.deformTarget - a.deform) * .038 * springRate * dt;
-        a.deformVelocity *= Math.pow(damping, dt);
-        a.deform += a.deformVelocity * dt;
+        a.wobbleEnergy = 0;
+        // Monotonic easing prevents the surface from overshooting and
+        // shivering after contact while keeping a soft recovery.
+        a.deform += (a.deformTarget - a.deform) * Math.min(1, .16 * dt);
+        a.deformVelocity = 0;
         const angleDifference = ((a.deformAngleTarget - a.deformAngle + 180) % 360 + 360) % 360 - 180;
         a.deformAngle += angleDifference * Math.min(1, .075 * dt);
         if (a.deformTarget < .0003 && Math.abs(a.deform) < .0003 && Math.abs(a.deformVelocity) < .0003) {
@@ -501,25 +499,30 @@ export default function MarketBubblePage() {
         if (a.y > height - a.r) { const speed = Math.abs(a.vy); a.y = height - a.r; a.vy = -speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 90); }
       }
       for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
-        if (pinnedRef.current === i || pinnedRef.current === j) continue;
         const a = bodies[i], b = bodies[j];
         const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
-        const min = (a.r + b.r) * .9;
+        // Keep the bodies at their real outer boundary. The visible contact is
+        // created by local surface compression, not by intersecting spheres.
+        const min = (a.r + b.r) * .985;
+        const nx = dx / d, ny = dy / d;
+        const aMovable = pinnedRef.current !== i;
+        const bMovable = pinnedRef.current !== j;
         const pairKey = `${i}:${j}`;
         const activeAdhesion = adhesionPairs.get(pairKey);
         if (activeAdhesion) activeAdhesion.life += dt;
         if (d < min) {
-          // Resolve penetration over several frames. The softer separation
-          // avoids a rigid snap while remaining stable under sustained contact.
-          const nx = dx / d, ny = dy / d, overlap = (min - d) * .32;
-          a.x -= nx * overlap; a.y -= ny * overlap; b.x += nx * overlap; b.y += ny * overlap;
+          const penetration = min - d;
+          const aShare = aMovable ? (bMovable ? .505 : 1.01) : 0;
+          const bShare = bMovable ? (aMovable ? .505 : 1.01) : 0;
+          a.x -= nx * penetration * aShare; a.y -= ny * penetration * aShare;
+          b.x += nx * penetration * bShare; b.y += ny * penetration * bShare;
           const impulse = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
           const impactSpeed = Math.max(0, -impulse);
-          const baseSoftness = (.025 + overlap / Math.max(20, Math.min(a.r, b.r)) * .23 + impactSpeed * .018) * 2.8125;
+          const baseSoftness = (.025 + penetration / Math.max(20, Math.min(a.r, b.r)) * .23 + impactSpeed * .018) * 2.8125;
           // Preserve gentle low-speed contacts. Once relative impact speed is
           // meaningful, ramp the jelly deformation from 2x up to 4x.
           const speedBoost = impactSpeed < .45 ? 1 : 2 + Math.min(1, (impactSpeed - .45) / 1.55) * 2;
-          const softness = Math.min(.58, baseSoftness * speedBoost);
+          const softness = Math.min(.36, Math.max(.12, baseSoftness * speedBoost));
           const angle = Math.atan2(ny, nx) * 180 / Math.PI;
           excite(a, softness, angle); excite(b, softness, angle + 180);
           if (!activeAdhesion && (adhesionCooldowns.get(pairKey) ?? 0) <= now) {
@@ -531,11 +534,18 @@ export default function MarketBubblePage() {
             adhesionPairs.delete(pairKey);
             adhesionCooldowns.set(pairKey, now + 1250);
             const forcedSnap = .24 + activeAdhesion.strength * .28;
-            a.vx -= nx * forcedSnap; a.vy -= ny * forcedSnap;
-            b.vx += nx * forcedSnap; b.vy += ny * forcedSnap;
+            if (aMovable) { a.vx -= nx * forcedSnap; a.vy -= ny * forcedSnap; }
+            if (bMovable) { b.vx += nx * forcedSnap; b.vy += ny * forcedSnap; }
             a.deformTarget = 0; b.deformTarget = 0;
           }
-          if (impulse < 0) { a.vx += impulse * nx * .56; a.vy += impulse * ny * .56; b.vx -= impulse * nx * .56; b.vy -= impulse * ny * .56; }
+          if (impulse < 0) {
+            // Equalise normal velocity without a rebound. This prevents a
+            // resting pair from repeatedly separating and re-colliding.
+            const aImpulseShare = aMovable ? (bMovable ? .5 : 1) : 0;
+            const bImpulseShare = bMovable ? (aMovable ? .5 : 1) : 0;
+            a.vx += impulse * nx * aImpulseShare; a.vy += impulse * ny * aImpulseShare;
+            b.vx -= impulse * nx * bImpulseShare; b.vy -= impulse * ny * bImpulseShare;
+          }
         } else {
           const adhesion = adhesionPairs.get(pairKey);
           if (!adhesion) continue;
@@ -543,28 +553,16 @@ export default function MarketBubblePage() {
           if (d >= releaseDistance || adhesion.life > 30) {
             adhesionPairs.delete(pairKey);
             adhesionCooldowns.set(pairKey, now + 1250);
-            const nx = dx / d, ny = dy / d;
-            // Break the sticky neck with enough separation speed to make the
-            // detach readable, then recoil each stretched face toward round.
             const snap = .18 + adhesion.strength * .24;
-            a.vx -= nx * snap; a.vy -= ny * snap;
-            b.vx += nx * snap; b.vy += ny * snap;
+            if (aMovable) { a.vx -= nx * snap; a.vy -= ny * snap; }
+            if (bMovable) { b.vx += nx * snap; b.vy += ny * snap; }
             a.deformTarget = 0; b.deformTarget = 0;
-            a.deformVelocity += .025 + adhesion.strength * .025;
-            b.deformVelocity += .025 + adhesion.strength * .025;
-            a.wobbleEnergy = Math.max(a.wobbleEnergy, .025 + adhesion.strength * .04);
-            b.wobbleEnergy = Math.max(b.wobbleEnergy, .025 + adhesion.strength * .04);
-            a.wobblePhase = 0; b.wobblePhase = 0;
             continue;
           }
-          const nx = dx / d, ny = dy / d;
           const extension = (d - min) / Math.max(1, releaseDistance - min);
           const tension = (.014 + adhesion.strength * .052) * (1 - extension * .42) * dt;
-          a.vx += nx * tension; a.vy += ny * tension;
-          b.vx -= nx * tension; b.vy -= ny * tension;
-          // Build a narrow, readable taffy neck near the end of separation.
-          // Smoothstep-like easing keeps the early contact soft and lets the
-          // final third carry most of the visible stretch before it snaps.
+          if (aMovable) { a.vx += nx * tension; a.vy += ny * tension; }
+          if (bMovable) { b.vx -= nx * tension; b.vy -= ny * tension; }
           const easedExtension = extension * extension * (3 - 2 * extension);
           const stretch = (.09 + easedExtension * .34) * adhesion.strength;
           const angle = Math.atan2(ny, nx) * 180 / Math.PI;
