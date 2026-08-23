@@ -1,6 +1,7 @@
 import { MutableRefObject, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { StockBoard, StockBoardItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
@@ -13,7 +14,8 @@ import "./marketBubble.css";
 
 type Market = "kospi" | "kosdaq" | "nasdaq";
 type Body = {
-  x: number; y: number; vx: number; vy: number; r: number;
+  x: number; y: number; z: number; vx: number; vy: number; vz: number; r: number;
+  impactX: number; impactY: number; impactZ: number;
   deform: number; deformTarget: number; deformVelocity: number;
   deformAngle: number; deformAngleTarget: number;
   wobbleEnergy: number; wobblePhase: number; jellyProfile: number;
@@ -162,8 +164,8 @@ function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
   );
 }
 
-function BubbleWebGLSurface({ bodiesRef, palette, count }: {
-  bodiesRef: MutableRefObject<Body[]>; palette: number[]; count: number;
+function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
+  bodiesRef: MutableRefObject<Body[]>; palette: number[]; count: number; focusRef: MutableRefObject<number | null>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -178,8 +180,22 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     // Keep the camera well outside even the largest rank-scaled sphere.
     // A close camera clips the front cap of large spheres and makes them look
     // like white-centred rings because the transparent page shows through.
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 2400);
-    camera.position.z = 1200;
+    const cameraDistance = 1200;
+    const camera = new THREE.PerspectiveCamera(42, 1, 20, 2600);
+    camera.position.z = cameraDistance;
+    const controls = new OrbitControls(camera, canvas);
+    controls.enableDamping = true;
+    controls.dampingFactor = .065;
+    controls.enablePan = true;
+    controls.panSpeed = .55;
+    controls.rotateSpeed = .48;
+    controls.zoomSpeed = .72;
+    controls.minDistance = 520;
+    controls.maxDistance = 1900;
+    controls.touches.ONE = THREE.TOUCH.ROTATE;
+    controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+    const releaseFocus = () => { focusRef.current = null; };
+    controls.addEventListener("start", releaseFocus);
     const pmrem = new THREE.PMREMGenerator(renderer);
     const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
     scene.environment = environment;
@@ -279,13 +295,14 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
       const shadow = new THREE.Sprite(shadowMaterial); shadow.renderOrder = -1; scene.add(shadow);
       shadows.push(shadow); shadowTextures.push(shadowTexture);
     }
-    const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.left=-w/2;camera.right=w/2;camera.top=h/2;camera.bottom=-h/2;camera.updateProjectionMatrix(); };
+    const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/Math.max(1,h);camera.fov=THREE.MathUtils.radToDeg(2*Math.atan(h/(2*cameraDistance)));camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
     let raf=0;
-    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,-8-i*.02);shadow.scale.set(body.r*(2.12+(i%3)*.09),body.r*(1.76+(i%4)*.07),1);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
+    const projected = new THREE.Vector3();
+    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight;const focused=focusRef.current==null?null:meshes[focusRef.current];if(focused){controls.target.lerp(focused.position,.055);const desired=focused.position.clone().add(new THREE.Vector3(0,0,Math.max(570,focused.scale.x*5.4)));camera.position.lerp(desired,.04);}controls.update();meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,body.z);mesh.scale.setScalar(body.r);mesh.rotation.x+=body.vy*.00018;mesh.rotation.y+=body.vx*.00022;const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,body.z-body.r*.72);shadow.scale.set(body.r*(2.05+(i%3)*.08),body.r*(1.66+(i%4)*.06),1);const shader=shaders[i];if(shader){shader.uniforms.uImpact.value.set(body.impactX,-body.impactY,body.impactZ).normalize();shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}if(body.el){projected.copy(mesh.position).project(camera);const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;const distance=camera.position.distanceTo(mesh.position);const scale=Math.max(.52,Math.min(1.75,cameraDistance/distance));const position=`translate3d(${(px-body.r).toFixed(1)}px,${(py-body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;if(position!==body.lastPosition){body.el.style.transform=position;body.lastPosition=position;}body.el.style.zIndex=`${10+Math.round((1-projected.z)*500)}`;body.el.style.setProperty("--info-compensation",`${Math.min(1.32,Math.max(1,1/scale)).toFixed(3)}`);body.el.style.visibility=projected.z>1||projected.z<-1?"hidden":"visible";}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
-  }, [bodiesRef, count, palette]);
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+  }, [bodiesRef, count, focusRef, palette]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
 
@@ -303,6 +320,7 @@ export default function MarketBubblePage() {
   const stageSizeRef = useRef({ width: 0, height: 0 });
   const pointerRef = useRef({ x: -9999, y: -9999, active: false });
   const pinnedRef = useRef<number | null>(null);
+  const focusRef = useRef<number | null>(null);
   const clickTimerRef = useRef<number | null>(null);
   const firstLoadRef = useRef(true);
   useDocumentTitle("증시버블 · K-Stock Hub");
@@ -356,7 +374,12 @@ export default function MarketBubblePage() {
         y: ((row + .7) / (rows + .45)) * rect.height,
         vx: (Math.random() - .5) * .44,
         vy: (Math.random() - .5) * .44,
+        z: -210 + (i * 83) % 470,
+        vz: (Math.random() - .5) * .52,
         r,
+        impactX: 1,
+        impactY: 0,
+        impactZ: 0,
         deform: 0,
         deformTarget: 0,
         deformVelocity: 0,
@@ -421,8 +444,6 @@ export default function MarketBubblePage() {
 
   useEffect(() => {
     let frame = 0, previous = performance.now();
-    const adhesionPairs = new Map<string, { strength: number; life: number }>();
-    const adhesionCooldowns = new Map<string, number>();
     const tick = (now: number) => {
       const stage = stageRef.current;
       if (!stage) { frame = requestAnimationFrame(tick); return; }
@@ -452,12 +473,6 @@ export default function MarketBubblePage() {
         body.deform = Math.max(body.deform, amount * .46);
         body.deformVelocity = 0;
       };
-      const stretchToward = (body: Body, amount: number, angle: number) => {
-        const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
-        body.deformAngleTarget += difference;
-        body.deformTarget = Math.min(body.deformTarget, -amount);
-        body.deform += (-amount - body.deform) * .24;
-      };
       for (let i = 0; i < bodies.length; i++) {
         const a = bodies[i];
         // Ease toward a decaying target. Sustained contact holds a soft shape;
@@ -478,7 +493,7 @@ export default function MarketBubblePage() {
         }
         a.deform = Math.max(-.3, Math.min(.62, a.deform));
         if (pinnedRef.current === i) {
-          a.vx = 0; a.vy = 0;
+          a.vx = 0; a.vy = 0; a.vz = 0;
           continue;
         }
         if (pointer.active) {
@@ -489,86 +504,49 @@ export default function MarketBubblePage() {
         }
         a.vx += Math.sin(now * .00038 + i * 1.71) * .005;
         a.vy += Math.cos(now * .00031 + i * 1.13) * .005;
-        a.vx *= .994; a.vy *= .994;
-        const speed = Math.hypot(a.vx, a.vy);
-        if (speed > 3.2) { const limit = 3.2 / speed; a.vx *= limit; a.vy *= limit; }
-        a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5;
-        if (a.x < a.r) { const speed = Math.abs(a.vx); a.x = a.r; a.vx = speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 180); }
-        if (a.x > width - a.r) { const speed = Math.abs(a.vx); a.x = width - a.r; a.vx = -speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 0); }
-        if (a.y < a.r) { const speed = Math.abs(a.vy); a.y = a.r; a.vy = speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), -90); }
-        if (a.y > height - a.r) { const speed = Math.abs(a.vy); a.y = height - a.r; a.vy = -speed * .82; excite(a, Math.min(.3825, (.025 + speed * .022) * 2.8125), 90); }
+        a.vz += Math.sin(now * .00027 + i * 2.03) * .0035;
+        a.vx *= .995; a.vy *= .995; a.vz *= .995;
+        const speed = Math.hypot(a.vx, a.vy, a.vz);
+        if (speed > 3.25) { const limit = 3.25 / speed; a.vx *= limit; a.vy *= limit; a.vz *= limit; }
+        a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5; a.z += a.vz * dt * 4.5;
+        const depthScale = Math.max(.55, (1200 - a.z) / 1200);
+        const halfViewWidth = width * depthScale * .5;
+        const halfViewHeight = height * depthScale * .5;
+        const minX = width * .5 - halfViewWidth + a.r, maxX = width * .5 + halfViewWidth - a.r;
+        const minY = height * .5 - halfViewHeight + a.r, maxY = height * .5 + halfViewHeight - a.r;
+        if (a.x < minX) { const speed = Math.abs(a.vx); a.x = minX; a.vx = speed * .78; a.impactX=-1;a.impactY=0;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 180); }
+        if (a.x > maxX) { const speed = Math.abs(a.vx); a.x = maxX; a.vx = -speed * .78; a.impactX=1;a.impactY=0;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 0); }
+        if (a.y < minY) { const speed = Math.abs(a.vy); a.y = minY; a.vy = speed * .78; a.impactX=0;a.impactY=-1;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), -90); }
+        if (a.y > maxY) { const speed = Math.abs(a.vy); a.y = maxY; a.vy = -speed * .78; a.impactX=0;a.impactY=1;a.impactZ=0;excite(a, Math.min(.36, .09+speed*.05), 90); }
+        const zLimit = width <= 760 ? 280 : 360;
+        if (a.z < -zLimit) { const speed=Math.abs(a.vz);a.z=-zLimit;a.vz=speed*.8;a.impactX=0;a.impactY=0;a.impactZ=-1;excite(a,Math.min(.34,.08+speed*.05),0); }
+        if (a.z > zLimit) { const speed=Math.abs(a.vz);a.z=zLimit;a.vz=-speed*.8;a.impactX=0;a.impactY=0;a.impactZ=1;excite(a,Math.min(.34,.08+speed*.05),0); }
       }
       for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
         const a = bodies[i], b = bodies[j];
-        const dx = b.x - a.x, dy = b.y - a.y, d = Math.hypot(dx, dy) || 1;
-        // Keep the bodies at their real outer boundary. The visible contact is
-        // created by local surface compression, not by intersecting spheres.
-        const min = (a.r + b.r) * .985;
-        const nx = dx / d, ny = dy / d;
-        const aMovable = pinnedRef.current !== i;
-        const bMovable = pinnedRef.current !== j;
-        const pairKey = `${i}:${j}`;
-        const activeAdhesion = adhesionPairs.get(pairKey);
-        if (activeAdhesion) activeAdhesion.life += dt;
-        if (d < min) {
-          const penetration = min - d;
-          const aShare = aMovable ? (bMovable ? .505 : 1.01) : 0;
-          const bShare = bMovable ? (aMovable ? .505 : 1.01) : 0;
-          a.x -= nx * penetration * aShare; a.y -= ny * penetration * aShare;
-          b.x += nx * penetration * bShare; b.y += ny * penetration * bShare;
-          const impulse = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny;
-          const impactSpeed = Math.max(0, -impulse);
-          const baseSoftness = (.025 + penetration / Math.max(20, Math.min(a.r, b.r)) * .23 + impactSpeed * .018) * 2.8125;
-          // Preserve gentle low-speed contacts. Once relative impact speed is
-          // meaningful, ramp the jelly deformation from 2x up to 4x.
-          const speedBoost = impactSpeed < .45 ? 1 : 2 + Math.min(1, (impactSpeed - .45) / 1.55) * 2;
-          const softness = Math.min(.36, Math.max(.12, baseSoftness * speedBoost));
-          const angle = Math.atan2(ny, nx) * 180 / Math.PI;
-          excite(a, softness, angle); excite(b, softness, angle + 180);
-          if (!activeAdhesion && (adhesionCooldowns.get(pairKey) ?? 0) <= now) {
-            adhesionPairs.set(pairKey, {
-              strength: Math.min(1, .36 + impactSpeed * .32 + softness * .42),
-              life: 0,
-            });
-          } else if (activeAdhesion && activeAdhesion.life > 30) {
-            adhesionPairs.delete(pairKey);
-            adhesionCooldowns.set(pairKey, now + 1250);
-            const forcedSnap = .24 + activeAdhesion.strength * .28;
-            if (aMovable) { a.vx -= nx * forcedSnap; a.vy -= ny * forcedSnap; }
-            if (bMovable) { b.vx += nx * forcedSnap; b.vy += ny * forcedSnap; }
-            a.deformTarget = 0; b.deformTarget = 0;
-          }
-          if (impulse < 0) {
-            // Equalise normal velocity without a rebound. This prevents a
-            // resting pair from repeatedly separating and re-colliding.
-            const aImpulseShare = aMovable ? (bMovable ? .5 : 1) : 0;
-            const bImpulseShare = bMovable ? (aMovable ? .5 : 1) : 0;
-            a.vx += impulse * nx * aImpulseShare; a.vy += impulse * ny * aImpulseShare;
-            b.vx -= impulse * nx * bImpulseShare; b.vy -= impulse * ny * bImpulseShare;
-          }
-        } else {
-          const adhesion = adhesionPairs.get(pairKey);
-          if (!adhesion) continue;
-          const releaseDistance = min * (1.14 + adhesion.strength * .16);
-          if (d >= releaseDistance || adhesion.life > 30) {
-            adhesionPairs.delete(pairKey);
-            adhesionCooldowns.set(pairKey, now + 1250);
-            const snap = .18 + adhesion.strength * .24;
-            if (aMovable) { a.vx -= nx * snap; a.vy -= ny * snap; }
-            if (bMovable) { b.vx += nx * snap; b.vy += ny * snap; }
-            a.deformTarget = 0; b.deformTarget = 0;
-            continue;
-          }
-          const extension = (d - min) / Math.max(1, releaseDistance - min);
-          const tension = (.014 + adhesion.strength * .052) * (1 - extension * .42) * dt;
-          if (aMovable) { a.vx += nx * tension; a.vy += ny * tension; }
-          if (bMovable) { b.vx -= nx * tension; b.vy -= ny * tension; }
-          const easedExtension = extension * extension * (3 - 2 * extension);
-          const stretch = (.09 + easedExtension * .34) * adhesion.strength;
-          const angle = Math.atan2(ny, nx) * 180 / Math.PI;
-          stretchToward(a, stretch, angle);
-          stretchToward(b, stretch, angle + 180);
+        const dx = b.x-a.x, dy = b.y-a.y, dz = b.z-a.z;
+        const distance = Math.hypot(dx,dy,dz) || 1;
+        const contactDistance = (a.r+b.r)*.94;
+        if (distance >= contactDistance) continue;
+        const nx=dx/distance, ny=dy/distance, nz=dz/distance;
+        const penetration=contactDistance-distance;
+        const aMovable=pinnedRef.current!==i, bMovable=pinnedRef.current!==j;
+        const aShare=aMovable?(bMovable?.5:1):0, bShare=bMovable?(aMovable?.5:1):0;
+        a.x-=nx*penetration*aShare;a.y-=ny*penetration*aShare;a.z-=nz*penetration*aShare;
+        b.x+=nx*penetration*bShare;b.y+=ny*penetration*bShare;b.z+=nz*penetration*bShare;
+        const relativeNormal=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny+(b.vz-a.vz)*nz;
+        const impactSpeed=Math.max(0,-relativeNormal);
+        if(relativeNormal<0){
+          const restitution=.68;
+          const impulse=-(1+restitution)*relativeNormal/(Math.max(.5,aShare+bShare));
+          if(aMovable){a.vx-=nx*impulse*aShare;a.vy-=ny*impulse*aShare;a.vz-=nz*impulse*aShare;}
+          if(bMovable){b.vx+=nx*impulse*bShare;b.vy+=ny*impulse*bShare;b.vz+=nz*impulse*bShare;}
         }
+        const softness=Math.min(.46,Math.max(.1,.1+penetration/Math.max(24,Math.min(a.r,b.r))*.32+impactSpeed*.055));
+        a.impactX=nx;a.impactY=ny;a.impactZ=nz;
+        b.impactX=-nx;b.impactY=-ny;b.impactZ=-nz;
+        const angle=Math.atan2(ny,nx)*180/Math.PI;
+        excite(a,softness,angle);excite(b,softness,angle+180);
       }
       bodies.forEach((body) => {
         if (body.el) {
@@ -598,8 +576,6 @@ export default function MarketBubblePage() {
           const contactX = Math.cos(contactRadians), contactY = Math.sin(contactRadians);
           const anchorDepth = [48, 43, 52, 46][body.jellyProfile];
           const origin = `${(50 - contactX * anchorDepth).toFixed(1)}% ${(50 - contactY * anchorDepth).toFixed(1)}%`;
-          const position = `translate3d(${(body.x - body.r).toFixed(1)}px,${(body.y - body.r).toFixed(1)}px,0)`;
-          if (position !== body.lastPosition) { body.el.style.transform = position; body.lastPosition = position; }
           if (body.shell && matrix !== body.lastMatrix) { body.shell.style.transform = matrix; body.lastMatrix = matrix; }
           if (body.shell && origin !== body.lastOrigin) { body.shell.style.transformOrigin = origin; body.lastOrigin = origin; }
         }
@@ -641,7 +617,7 @@ export default function MarketBubblePage() {
         onPointerMove={movePointer}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
-        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} palette={palette} count={items.length} />}
+        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} palette={palette} count={items.length} focusRef={focusRef} />}
         <div className="bubble-stage-hint">버블을 건드려 보세요 <span>마우스 이동 · 클릭</span></div>
         {loading && <div className="bubble-loading"><MarketBubbleIcon /><span>시장 데이터를 불러오는 중</span></div>}
         {!loading && items.map((item, index) => {
@@ -696,6 +672,7 @@ export default function MarketBubblePage() {
                 event.stopPropagation();
                 if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
                 clickTimerRef.current = window.setTimeout(() => {
+                  focusRef.current = index;
                   setDiscussionIndex(index);
                   reportMarketBubbleEvent({ action: "bubble_click", market, code: item.code, name: item.name });
                   clickTimerRef.current = null;
@@ -711,7 +688,7 @@ export default function MarketBubblePage() {
               onPointerEnter={() => {
                 pinnedRef.current = index;
                 const body = bodiesRef.current[index];
-                if (body) { body.vx = 0; body.vy = 0; }
+                if (body) { body.vx = 0; body.vy = 0; body.vz = 0; }
               }}
               onPointerLeave={() => { if (pinnedRef.current === index) pinnedRef.current = null; }}
               aria-label={`${shortName(item, market)} ${formatPrice(item, market)} ${item.change_pct.toFixed(2)}%, 더블 클릭해 종목 열기`}
