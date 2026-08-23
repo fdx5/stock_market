@@ -27,6 +27,8 @@ const FPS_METER_ENABLED = (() => {
   return !["0", "off", "false", "no"].includes((params.get("fps") ?? "").trim().toLowerCase());
 })();
 
+const BUBBLE_COUNT = 15;
+
 const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "kospi", label: "코스피", title: "KOSPI 주요종목" },
   { key: "kosdaq", label: "코스닥", title: "KOSDAQ 주요종목" },
@@ -86,13 +88,13 @@ function BubbleCompanyLogo({ src }: { src: string }) {
   return <img src={resolved} alt="" onError={(event) => { event.currentTarget.style.display = "none"; }} />;
 }
 
-function rankRadiusScale(index: number) {
-  if (index < 2) return 1.74;  // 1–2: previous 1.16 × 1.5
-  if (index < 5) return 1.38;  // 3–5
-  if (index < 8) return 1.20;  // 6–8
-  if (index < 11) return 1.05; // 9–11
-  if (index < 14) return .94;  // 12–14
-  return .82;                  // 15–20
+function rankRadiusScale(index: number, mobile = false) {
+  if (index < 2) return 1.827;  // 1–2
+  if (index < 5) return 1.449;  // 3–5
+  if (index < 8) return 1.26;   // 6–8
+  if (index < 11) return mobile ? 1.1445 : 1.1025; // 9–11
+  if (index < 14) return mobile ? 1.071 : .987;    // 12–14
+  return mobile ? 1.03 : .90;                 // 15위
 }
 
 function formatPrice(item: StockBoardItem, market: Market) {
@@ -246,7 +248,7 @@ export default function MarketBubblePage() {
   });
   const [board, setBoard] = useState<StockBoard | null>(null);
   const [loading, setLoading] = useState(true);
-  const [palette] = useState(() => Array.from({ length: 20 }, (_, i) => i % PALETTE.length).sort(() => Math.random() - .5));
+  const [palette] = useState(() => Array.from({ length: BUBBLE_COUNT }, (_, i) => i % PALETTE.length).sort(() => Math.random() - .5));
   const [discussionIndex, setDiscussionIndex] = useState<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const bodiesRef = useRef<Body[]>([]);
@@ -257,7 +259,7 @@ export default function MarketBubblePage() {
   const firstLoadRef = useRef(true);
   useDocumentTitle("증시버블 · K-Stock Hub");
 
-  const items = useMemo(() => board?.items.slice().sort((a, b) => a.rank - b.rank).slice(0, 20) ?? [], [board]);
+  const items = useMemo(() => board?.items.slice().sort((a, b) => a.rank - b.rank).slice(0, BUBBLE_COUNT) ?? [], [board]);
 
   useEffect(() => () => {
     if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
@@ -294,15 +296,16 @@ export default function MarketBubblePage() {
       88,
       width / 10,
       height / 9.2,
-      Math.sqrt((width * height) / 20) * .42,
+      Math.sqrt((width * height) / BUBBLE_COUNT) * .42,
     ));
     const base = getBaseRadius(rect.width, rect.height);
+    const rows = Math.ceil(items.length / 5);
     const nextBodies: Body[] = items.map((_, i) => {
       const col = i % 5, row = Math.floor(i / 5);
-      const r = base * rankRadiusScale(i);
+      const r = base * rankRadiusScale(i, rect.width <= 760);
       return {
         x: ((col + .65 + (row % 2) * .16) / 5.35) * rect.width,
-        y: ((row + .7) / 4.45) * rect.height,
+        y: ((row + .7) / (rows + .45)) * rect.height,
         vx: (Math.random() - .5) * .44,
         vy: (Math.random() - .5) * .44,
         r,
@@ -342,7 +345,7 @@ export default function MarketBubblePage() {
 
       const nextBase = getBaseRadius(nextRect.width, nextRect.height);
       bodiesRef.current.forEach((body, i) => {
-        const radiusScale = rankRadiusScale(i);
+        const radiusScale = rankRadiusScale(i, nextRect.width <= 760);
         const nextRadius = nextBase * radiusScale;
         body.x = previousSize.width > 0 ? body.x / previousSize.width * nextRect.width : nextRect.width / 2;
         body.y = previousSize.height > 0 ? body.y / previousSize.height * nextRect.height : nextRect.height / 2;
@@ -579,7 +582,7 @@ export default function MarketBubblePage() {
           </Link>
         </div>
         <div className="bubble-heading">
-          <p>시가총액 TOP 20 · 5초마다 갱신</p>
+          <p>시가총액 TOP 15 · 5초마다 갱신</p>
           <h1>{MARKETS.find((it) => it.key === market)?.title}</h1>
         </div>
         <div className="bubble-live"><i /> LIVE <span>{board ? new Date(board.generated_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--:--:--"}</span></div>
@@ -588,7 +591,7 @@ export default function MarketBubblePage() {
       <section
         ref={stageRef}
         className="bubble-stage"
-        aria-label={`${market} 시가총액 상위 20개 종목 버블`}
+        aria-label={`${market} 시가총액 상위 15개 종목 버블`}
         onPointerMove={movePointer}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
