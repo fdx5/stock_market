@@ -217,8 +217,8 @@ function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
         roughness: .2 + (i % 4) * .018,
         metalness: .035,
         clearcoat: .92,
-        clearcoatRoughness: .12 + (i % 3) * .025,
-        envMapIntensity: .98 + lightVariation * .34,
+        clearcoatRoughness: .075 + (i % 3) * .018,
+        envMapIntensity: 1.18 + lightVariation * .38,
         sheen: .27 + lightVariation * .17,
         sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(i % 2 ? 0xd9e9ff : 0xffead6), .26 + lightVariation * .2),
         sheenRoughness: .42,
@@ -227,6 +227,8 @@ function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
         iridescence: .22 + (i % 3) * .035,
         iridescenceIOR: 1.38,
         iridescenceThicknessRange: [110, 320],
+        ior: 1.46,
+        thickness: 1.25,
         emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
         emissiveIntensity: .035 + lightVariation * .045,
         transparent: true,
@@ -267,7 +269,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count, focusRef }: {
         shader.uniforms.uAccentDirA = { value: new THREE.Vector3(-.72 + (i * 17 % 31) / 50, .28 + (i * 13 % 29) / 60, .68).normalize() };
         shader.uniforms.uAccentDirB = { value: new THREE.Vector3(.42 + (i * 19 % 27) / 52, -.55 + (i * 7 % 25) / 55, .7).normalize() };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.68+sin(azimuth*uMochiDetail.y+uMochiDetail.z)*.32; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=smoothstep(-.34,1.0,facing); contact*=contact; float stickyTip=pow(max(0.0,facing),7.0); float stickyNeck=pow(max(0.0,facing),3.1); float back=pow(max(0.0,-facing),1.9); float shoulder=pow(max(0.0,1.0-abs(facing)),1.22); float compression=max(uDeform,0.0); float adhesion=max(-uDeform,0.0); float contactRebound=sin(uPhase)*uWobble; float delayedBack=sin(uPhase-.72)*uWobble; float axial=dot(transformed,hit); float frontPlate=smoothstep(.4,.97,axial); transformed+=hit*compression*(1.0-axial)*1.08; transformed+=hit*frontPlate*compression*.07; transformed+=n*(-contact*compression*.22+shoulder*compression*.34+stickyNeck*adhesion*.72+stickyTip*adhesion*2.35-shoulder*adhesion*.08);`);
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=pow(smoothstep(-.28,1.0,facing),2.15); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=max(uDeform,0.0); float rebound=sin(uPhase)*uWobble; float axial=max(0.0,dot(transformed,hit)); transformed-=hit*axial*contact*compression*.58; transformed+=n*(-contact*compression*.34+shoulder*compression*.27); transformed+=n*(contact*rebound*.13-shoulder*rebound*.055);`);
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; varying vec3 vBubbleNormal;")
           .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),pow(1.0-max(bubbleN.z,0.0),2.5)*.14);`);
@@ -463,7 +465,7 @@ export default function MarketBubblePage() {
         const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
         if (amount > body.deformTarget + .008) {
           body.deformAngleTarget += difference;
-          body.wobbleEnergy = 0;
+          body.wobbleEnergy = Math.max(body.wobbleEnergy, Math.min(.1, amount * .2));
           body.wobblePhase = 0;
           // Let impact direction and strength select the material response, so
           // repeated contacts do not replay one recognisable deformation loop.
@@ -478,9 +480,11 @@ export default function MarketBubblePage() {
         // Ease toward a decaying target. Sustained contact holds a soft shape;
         // separation releases it gradually with a subtle gelatin overshoot.
         a.deformTarget *= Math.pow(.935, dt);
-        // A short, collision-triggered recoil: one or two gelatin oscillations,
-        // then a completely still surface until the next impact.
-        a.wobbleEnergy = 0;
+        // One short, strongly damped elastic recoil after impact. Sustained
+        // contact cannot restart it, which avoids the old resting jitter.
+        a.wobbleEnergy *= Math.pow(.86, dt);
+        if (a.wobbleEnergy > .0007) a.wobblePhase += .24 * dt;
+        else a.wobbleEnergy = 0;
         // Monotonic easing prevents the surface from overshooting and
         // shivering after contact while keeping a soft recovery.
         a.deform += (a.deformTarget - a.deform) * Math.min(1, .16 * dt);
@@ -526,23 +530,31 @@ export default function MarketBubblePage() {
         const a = bodies[i], b = bodies[j];
         const dx = b.x-a.x, dy = b.y-a.y, dz = b.z-a.z;
         const distance = Math.hypot(dx,dy,dz) || 1;
-        const contactDistance = (a.r+b.r)*.94;
+        const radiusSum=a.r+b.r;
+        const contactDistance=radiusSum*.985;
         if (distance >= contactDistance) continue;
         const nx=dx/distance, ny=dy/distance, nz=dz/distance;
-        const penetration=contactDistance-distance;
+        const overlap=contactDistance-distance;
+        // Let the shells visibly overlap like soft gum. Only the deeper core
+        // receives positional correction; the outer volume is spring-driven.
+        const coreDistance=radiusSum*.86;
+        const penetration=Math.max(0,coreDistance-distance);
         const aMovable=pinnedRef.current!==i, bMovable=pinnedRef.current!==j;
         const aShare=aMovable?(bMovable?.5:1):0, bShare=bMovable?(aMovable?.5:1):0;
-        a.x-=nx*penetration*aShare;a.y-=ny*penetration*aShare;a.z-=nz*penetration*aShare;
-        b.x+=nx*penetration*bShare;b.y+=ny*penetration*bShare;b.z+=nz*penetration*bShare;
+        a.x-=nx*penetration*aShare*.42;a.y-=ny*penetration*aShare*.42;a.z-=nz*penetration*aShare*.42;
+        b.x+=nx*penetration*bShare*.42;b.y+=ny*penetration*bShare*.42;b.z+=nz*penetration*bShare*.42;
         const relativeNormal=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny+(b.vz-a.vz)*nz;
         const impactSpeed=Math.max(0,-relativeNormal);
-        if(relativeNormal<0){
-          const restitution=.68;
+        if(relativeNormal<-.08){
+          const restitution=.76;
           const impulse=-(1+restitution)*relativeNormal/(Math.max(.5,aShare+bShare));
           if(aMovable){a.vx-=nx*impulse*aShare;a.vy-=ny*impulse*aShare;a.vz-=nz*impulse*aShare;}
           if(bMovable){b.vx+=nx*impulse*bShare;b.vy+=ny*impulse*bShare;b.vz+=nz*impulse*bShare;}
         }
-        const softness=Math.min(.46,Math.max(.1,.1+penetration/Math.max(24,Math.min(a.r,b.r))*.32+impactSpeed*.055));
+        const elasticPush=Math.min(.085,(overlap/contactDistance)*.24)*dt;
+        if(aMovable){a.vx-=nx*elasticPush*aShare;a.vy-=ny*elasticPush*aShare;a.vz-=nz*elasticPush*aShare;}
+        if(bMovable){b.vx+=nx*elasticPush*bShare;b.vy+=ny*elasticPush*bShare;b.vz+=nz*elasticPush*bShare;}
+        const softness=Math.min(.52,Math.max(.08,.07+overlap/Math.max(24,Math.min(a.r,b.r))*.72+impactSpeed*.07));
         a.impactX=nx;a.impactY=ny;a.impactZ=nz;
         b.impactX=-nx;b.impactY=-ny;b.impactZ=-nz;
         const angle=Math.atan2(ny,nx)*180/Math.PI;
