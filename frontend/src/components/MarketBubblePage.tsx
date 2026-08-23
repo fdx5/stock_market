@@ -777,7 +777,7 @@ export default function MarketBubblePage() {
                     : <BubbleCompanyLogo src={stockIconUrl(item.code)} />}
                 </span>
                 <strong>{shortName(item, market)}</strong>
-                <b>{formatPrice(item, market)}</b>
+                <b className={positive ? "is-up" : negative ? "is-down" : "is-flat"}>{formatPrice(item, market)}</b>
                 <em className={positive ? "is-up" : negative ? "is-down" : "is-flat"}>{item.change_pct > 0 ? "+" : ""}{item.change_pct.toFixed(2)}%</em>
               </span>
             </button>
