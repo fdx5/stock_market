@@ -128,9 +128,9 @@ function logoPastelPalette(src: string, cacheKey: string) {
           ? new THREE.Color(dominant.r / dominant.weight / 255, dominant.g / dominant.weight / 255, dominant.b / dominant.weight / 255)
           : new THREE.Color((neutralWeight ? neutral / neutralWeight : 112) / 255);
         const hsl = { h: 0, s: 0, l: 0 }; source.getHSL(hsl);
-        const saturation = dominant.weight > 1 ? Math.min(.82, Math.max(.5, hsl.s * .9)) : .16;
-        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .64);
-        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.86, saturation * 1.12), .38);
+        const saturation = dominant.weight > 1 ? Math.min(.92, Math.max(.62, hsl.s)) : .2;
+        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .57);
+        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.94, saturation * 1.06), .32);
         resolve([`#${pastel.getHexString()}`, `#${shade.getHexString()}`]);
       } catch { resolve(["#a9bfd2", "#58748d"]); }
     };
@@ -298,7 +298,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef }: {
         shader.uniforms.uAccentA = { value: accents[0] };
         shader.uniforms.uAccentB = { value: accents[1] };
         const baseCoverage = [.74, .58, .82, .48, .68][i % 5];
-        shader.uniforms.uAccentStrength = { value: new THREE.Vector2((1 - baseCoverage) * 1.12, i % 3 === 0 ? 0 : (1 - baseCoverage) * .76) };
+        shader.uniforms.uAccentStrength = { value: new THREE.Vector2((1 - baseCoverage) * .82, i % 3 === 0 ? 0 : (1 - baseCoverage) * .54) };
         shader.uniforms.uAccentSpread = { value: new THREE.Vector2(1.45 + (i * 7 % 23) * .09, 1.7 + (i * 11 % 19) * .11) };
         shader.uniforms.uAccentDirA = { value: new THREE.Vector3(-.72 + (i * 17 % 31) / 50, .28 + (i * 13 % 29) / 60, .68).normalize() };
         shader.uniforms.uAccentDirB = { value: new THREE.Vector3(.42 + (i * 19 % 27) / 52, -.55 + (i * 7 % 25) / 55, .7).normalize() };
