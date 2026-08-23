@@ -1,6 +1,5 @@
 import { MutableRefObject, PointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { StockBoard, StockBoardItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
@@ -171,13 +170,11 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     // like white-centred rings because the transparent page shows through.
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .1, 2400);
     camera.position.z = 1200;
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
-    scene.environment = environment;
-    scene.add(new THREE.HemisphereLight(0xeef6ff, 0x10182a, .82));
-    const key = new THREE.DirectionalLight(0xfff4dc, 1.55); key.position.set(-4, 6, 9); scene.add(key);
-    const fill = new THREE.DirectionalLight(0x90bfff, .52); fill.position.set(6, 1, 6); scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xa9dfff, .62); rim.position.set(-5, -4, 3); scene.add(rim);
+    // A single physical key light avoids the many white panel reflections that
+    // RoomEnvironment produced. Per-bubble highlight character is layered
+    // separately, so the surface stays calm and readable.
+    scene.add(new THREE.HemisphereLight(0xeef6ff, 0x10182a, 1.05));
+    const key = new THREE.DirectionalLight(0xfff4dc, 1.72); key.position.set(-4, 6, 9); scene.add(key);
     // Extra radial segments keep the frozen organic profile round even on the
     // smallest bubbles.  The previous low-poly silhouette exposed corners.
     const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 40 : 56, window.innerWidth <= 760 ? 28 : 40);
@@ -192,7 +189,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
         metalness: .035,
         clearcoat: .92,
         clearcoatRoughness: .12 + (i % 3) * .025,
-        envMapIntensity: .98 + lightVariation * .34,
+        envMapIntensity: 0,
         sheen: .27 + lightVariation * .17,
         sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(i % 2 ? 0xd9e9ff : 0xffead6), .26 + lightVariation * .2),
         sheenRoughness: .42,
@@ -263,7 +260,7 @@ function BubbleWebGLSurface({ bodiesRef, palette, count }: {
     let raf=0;
     const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight; meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,i*.012);mesh.scale.setScalar(body.r);const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,-8-i*.02);shadow.scale.set(body.r*(2.12+(i%3)*.09),body.r*(1.76+(i%4)*.07),1);const shader=shaders[i];if(shader){const angle=-body.deformAngle*Math.PI/180;shader.uniforms.uImpact.value.set(Math.cos(angle),Math.sin(angle),0);shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();renderer.dispose();};
   }, [bodiesRef, count, palette]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
