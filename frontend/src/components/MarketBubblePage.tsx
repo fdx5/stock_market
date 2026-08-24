@@ -228,9 +228,29 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     // A close camera clips the front cap of large spheres and makes them look
     // like white-centred rings because the transparent page shows through.
     const cameraDistance = 1200;
+    // Start far enough back that the complete 5 x 4 field is visible on desktop.
+    // `cameraDistance` remains the projection-plane distance used by resize() and
+    // the DOM-overlay scale calculation below; only the camera's initial/reset
+    // position is pulled back.
+    const initialCameraDistance = 1750;
     const camera = new THREE.PerspectiveCamera(42, 1, 20, 4600);
-    camera.position.z = cameraDistance;
-    const controls = new OrbitControls(camera, stage);
+    camera.position.z = initialCameraDistance;
+    // OrbitControls listens on the whole stage and normally captures the pointer
+    // on pointerdown. When the target is a moving HTML bubble that capture changes
+    // the eventual click target to the stage, so the discussion panel never opens.
+    // This listener is deliberately registered before OrbitControls' own listener.
+    let controls: OrbitControls;
+    const preserveBubbleClick = (event: globalThis.PointerEvent) => {
+      const target = event.target;
+      // Buttons and links layered over the stage must retain their native click.
+      // Otherwise OrbitControls captures their pointer before React receives it.
+      controls.enabled = !(target instanceof Element && target.closest("button, a"));
+    };
+    const restoreCameraControls = () => { controls.enabled = true; };
+    stage.addEventListener("pointerdown", preserveBubbleClick);
+    stage.addEventListener("pointerup", restoreCameraControls);
+    stage.addEventListener("pointercancel", restoreCameraControls);
+    controls = new OrbitControls(camera, stage);
     controls.enableDamping = true;
     controls.dampingFactor = .065;
     controls.enablePan = true;
@@ -354,9 +374,9 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     let raf=0;
     const projected = new THREE.Vector3();
     let handledCommand = cameraCommandRef.current.nonce;
-    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight;if(cameraCommandRef.current.nonce!==handledCommand){handledCommand=cameraCommandRef.current.nonce;focusRef.current=null;controls.reset();}const focused=focusRef.current==null?null:meshes[focusRef.current];if(focused){controls.target.lerp(focused.position,.055);const desired=focused.position.clone().add(new THREE.Vector3(0,0,Math.max(570,focused.scale.x*5.4)));camera.position.lerp(desired,.04);}controls.update();meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,body.z);mesh.scale.setScalar(body.r);mesh.rotation.x+=body.vy*.00018;mesh.rotation.y+=body.vx*.00022;const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,body.z-body.r*.72);shadow.scale.set(body.r*(2.05+(i%3)*.08),body.r*(1.66+(i%4)*.06),1);const shader=shaders[i];if(shader){shader.uniforms.uImpact.value.set(body.impactX,-body.impactY,body.impactZ).normalize();shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}if(body.el){projected.copy(mesh.position).project(camera);const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;const distance=camera.position.distanceTo(mesh.position);const scale=Math.max(.52,Math.min(1.75,cameraDistance/distance));const position=`translate3d(${(px-body.r).toFixed(1)}px,${(py-body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;if(position!==body.lastPosition){body.el.style.transform=position;body.lastPosition=position;}body.el.style.zIndex=`${10+Math.round((1-projected.z)*500)}`;body.el.style.setProperty("--info-compensation",`${Math.min(1.32,Math.max(1,1/scale)).toFixed(3)}`);body.el.style.visibility=projected.z>1||projected.z<-1?"hidden":"visible";}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
+    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight;if(cameraCommandRef.current.nonce!==handledCommand){handledCommand=cameraCommandRef.current.nonce;focusRef.current=null;controls.target.set(0,0,0);camera.position.set(0,0,initialCameraDistance);camera.up.set(0,1,0);controls.update();}const focused=focusRef.current==null?null:meshes[focusRef.current];if(focused){controls.target.lerp(focused.position,.055);const desired=focused.position.clone().add(new THREE.Vector3(0,0,Math.max(570,focused.scale.x*5.4)));camera.position.lerp(desired,.04);}controls.update();meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,body.z);mesh.scale.setScalar(body.r);mesh.rotation.x+=body.vy*.00018;mesh.rotation.y+=body.vx*.00022;const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,body.z-body.r*.72);shadow.scale.set(body.r*(2.05+(i%3)*.08),body.r*(1.66+(i%4)*.06),1);const shader=shaders[i];if(shader){shader.uniforms.uImpact.value.set(body.impactX,-body.impactY,body.impactZ).normalize();shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}if(body.el){projected.copy(mesh.position).project(camera);const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;const distance=camera.position.distanceTo(mesh.position);const scale=Math.max(.52,Math.min(1.75,cameraDistance/distance));const position=`translate3d(${(px-body.r).toFixed(1)}px,${(py-body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;if(position!==body.lastPosition){body.el.style.transform=position;body.lastPosition=position;}body.el.style.zIndex=`${10+Math.round((1-projected.z)*500)}`;body.el.style.setProperty("--info-compensation",`${Math.min(1.32,Math.max(1,1/scale)).toFixed(3)}`);body.el.style.visibility=projected.z>1||projected.z<-1?"hidden":"visible";}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
   }, [bodiesRef, bubbleColors, cameraCommandRef, count, focusRef]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
