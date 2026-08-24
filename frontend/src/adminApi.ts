@@ -15,11 +15,21 @@ export interface PageCount {
   count: number;
 }
 
+export interface BotAgent {
+  user_agent: string;
+  pageviews: number;
+  sessions: number;
+  last_seen: string;
+}
+
 export interface AdminSummary {
   online_now: number;
   total_visits: number;
   views_last_24h: number;
   top_pages: PageCount[];
+  /** Crawler traffic over the same 24 hours, already excluded from every count
+   *  above. Reported so a crawl surge is visible rather than merely absent. */
+  bots?: { pageviews: number; sessions: number; agents: BotAgent[] };
 }
 
 export interface GrowthOverview {

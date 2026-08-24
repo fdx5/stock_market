@@ -38,10 +38,16 @@ CREATE TABLE IF NOT EXISTS page_views (
     ,stock_code TEXT
     ,stock_name TEXT
     ,object_key TEXT
+    ,user_agent TEXT
+    ,is_bot INTEGER NOT NULL DEFAULT 0
 )
 """
 _INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_created_at ON page_views (created_at)"
 _EVENT_INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_event_created ON page_views (event_type, created_at)"
+# Every admin-facing read carries the HUMAN predicate below, so that column leads
+# the index: without it each of those queries scans the crawler rows too, and
+# crawlers are the majority of the table on a busy crawl day.
+_BOT_INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_human_created ON page_views (is_bot, created_at)"
 _GOAL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS traffic_growth_goal (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -78,6 +84,21 @@ KST = timezone(timedelta(hours=9))
 # than growing forever.
 RETENTION_DAYS = 730
 
+# Every read behind the admin dashboard carries this. The panels answer "how many
+# people came and what did they look at", and a JS-rendering crawler answers that
+# question wrongly in the most misleading direction available: it renders each URL in
+# a fresh browser context, so one crawl of N pages arrives as N first-time sessions
+# rather than as one busy one.
+#
+# Rows written before the column existed take DEFAULT 0 from the ALTER TABLE, so they
+# keep counting as people until something says otherwise — right, because they are a
+# month of genuine history that no User-Agent was ever recorded for, and
+# scripts/backfill_bot_page_views.py is the deliberate, reviewed way to reclassify
+# them rather than a silent default here. `IS NOT 1` rather than `= 0` only so a NULL
+# arriving from anywhere (a hand-written row, a future migration that omits the
+# default) fails toward counting a visitor rather than silently dropping one.
+HUMAN = "is_bot IS NOT 1"
+
 
 def _connect():
     if TURSO_DATABASE_URL:
@@ -102,14 +123,25 @@ def _new_ready_connection():
         "stock_code": "TEXT",
         "stock_name": "TEXT",
         "object_key": "TEXT",
+        "user_agent": "TEXT",
+        "is_bot": "INTEGER NOT NULL DEFAULT 0",
     }
-    for name, definition in migrations.items():
-        if name not in columns:
-            conn.execute(f"ALTER TABLE page_views ADD COLUMN {name} {definition}")
+    added = [name for name in migrations if name not in columns]
+    for name in added:
+        conn.execute(f"ALTER TABLE page_views ADD COLUMN {name} {migrations[name]}")
     conn.execute(_INDEX)
     conn.execute(_EVENT_INDEX)
+    conn.execute(_BOT_INDEX)
     conn.execute(_GOAL_SCHEMA)
     conn.execute(_DAILY_SCHEMA)
+    # page_views_daily caches one row per closed day and is never recomputed once
+    # written - which is right while the definition of a day's totals is stable, and
+    # wrong exactly once: the moment bot rows stop counting toward them. Dropping the
+    # cache when the is_bot column first appears makes every day recompute on next
+    # request under the new definition, instead of leaving the trend chart showing
+    # crawler-inflated history forever beside freshly filtered days.
+    if "is_bot" in added:
+        conn.execute("DELETE FROM page_views_daily")
     conn.commit()
     return conn
 
@@ -148,14 +180,24 @@ def record_page_view(
     stock_code: str | None = None,
     stock_name: str | None = None,
     object_key: str | None = None,
+    user_agent: str | None = None,
+    is_bot: bool = False,
 ) -> None:
+    """Crawler rows are written, not dropped.
+
+    They are excluded from every figure the admin dashboard reports (see HUMAN), but
+    keeping them is what makes "which crawler, how often, over which URLs" answerable
+    at all — the question this column was added to answer. bot_overview() reads them.
+    """
     def _run(conn):
         conn.execute(
             "INSERT INTO page_views (session_id, path, created_at, event_type, referrer, "
-            "source_channel, source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "source_channel, source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key, "
+            "user_agent, is_bot) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, path, created_at, event_type, referrer, source_channel,
-             source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key),
+             source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key,
+             user_agent, 1 if is_bot else 0),
         )
         conn.commit()
 
@@ -167,13 +209,13 @@ def bubble_stats(since_iso: str) -> dict:
     def _run(conn):
         totals = conn.execute(
             "SELECT object_key, COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
-            "WHERE created_at >= ? AND path='/market-bubbles' AND event_type='click' "
+            f"WHERE created_at >= ? AND {HUMAN} AND path='/market-bubbles' AND event_type='click' "
             "AND object_key LIKE 'bubble:%' GROUP BY object_key ORDER BY COUNT(*) DESC",
             (since_iso,),
         ).fetchall()
         stocks = conn.execute(
             "SELECT stock_code, MAX(stock_name), COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
-            "WHERE created_at >= ? AND path='/market-bubbles' AND event_type='click' "
+            f"WHERE created_at >= ? AND {HUMAN} AND path='/market-bubbles' AND event_type='click' "
             "AND stock_code IS NOT NULL GROUP BY stock_code ORDER BY COUNT(*) DESC LIMIT 100",
             (since_iso,),
         ).fetchall()
@@ -203,7 +245,7 @@ def counts_by_page(since_iso: str) -> list[dict]:
 
     def _run(conn):
         return conn.execute(
-            "SELECT path, COUNT(*) FROM page_views WHERE created_at >= ? "
+            f"SELECT path, COUNT(*) FROM page_views WHERE created_at >= ? AND {HUMAN} "
             "GROUP BY path ORDER BY COUNT(*) DESC",
             (since_iso,),
         ).fetchall()
@@ -226,7 +268,7 @@ def counts_by_bucket(since_iso: str, granularity: str) -> list[dict]:
     def _run(conn):
         return conn.execute(
             f"SELECT strftime('{fmt}', created_at, '+9 hours') AS bucket, path, COUNT(*) "
-            "FROM page_views WHERE created_at >= ? GROUP BY bucket, path ORDER BY bucket",
+            f"FROM page_views WHERE created_at >= ? AND {HUMAN} GROUP BY bucket, path ORDER BY bucket",
             (since_iso,),
         ).fetchall()
 
@@ -246,7 +288,7 @@ def unique_visitors_by_bucket(since_iso: str, granularity: str) -> list[dict]:
     def _run(conn):
         return conn.execute(
             f"SELECT strftime('{fmt}', created_at, '+9 hours') AS bucket, COUNT(DISTINCT session_id) "
-            "FROM page_views WHERE created_at >= ? GROUP BY bucket ORDER BY bucket",
+            f"FROM page_views WHERE created_at >= ? AND {HUMAN} GROUP BY bucket ORDER BY bucket",
             (since_iso,),
         ).fetchall()
 
@@ -257,10 +299,46 @@ def unique_visitors_by_bucket(since_iso: str, granularity: str) -> list[dict]:
 def count_today(since_iso: str) -> int:
     def _run(conn):
         return conn.execute(
-            "SELECT COUNT(*) FROM page_views WHERE created_at >= ?", (since_iso,)
+            f"SELECT COUNT(*) FROM page_views WHERE created_at >= ? AND {HUMAN}", (since_iso,)
         ).fetchone()[0]
 
     return _with_connection(_run)
+
+
+def bot_overview(since_iso: str, limit: int = 15) -> dict:
+    """The other side of HUMAN: what the crawlers did, kept visible rather than hidden.
+
+    Filtering bots out of the visitor numbers without showing them anywhere would
+    trade one wrong picture for a blind spot - a crawl surge is worth knowing about
+    (it is how this column came to exist), and the agent breakdown is what names the
+    crawler. `agents` groups by the stored User-Agent; a row whose agent is NULL is
+    one written before this instrumentation existed, or a beacon that sent no
+    User-Agent header at all.
+    """
+
+    def _run(conn):
+        totals = conn.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT session_id) FROM page_views "
+            "WHERE created_at >= ? AND is_bot = 1",
+            (since_iso,),
+        ).fetchone()
+        agents = conn.execute(
+            "SELECT user_agent, COUNT(*), COUNT(DISTINCT session_id), MAX(created_at) "
+            "FROM page_views WHERE created_at >= ? AND is_bot = 1 "
+            "GROUP BY user_agent ORDER BY 2 DESC LIMIT ?",
+            (since_iso, limit),
+        ).fetchall()
+        return totals, agents
+
+    totals, agents = _with_connection(_run)
+    return {
+        "pageviews": (totals[0] if totals else 0) or 0,
+        "sessions": (totals[1] if totals else 0) or 0,
+        "agents": [
+            {"user_agent": row[0] or "(미기록)", "pageviews": row[1], "sessions": row[2], "last_seen": row[3]}
+            for row in agents
+        ],
+    }
 
 
 def purge_older_than(cutoff_iso: str) -> int:
@@ -295,7 +373,7 @@ def _compute_daily_row(conn, day: str) -> dict:
         "SUM(CASE WHEN source_channel='social' THEN 1 ELSE 0 END), "
         "SUM(CASE WHEN source_channel='referral' THEN 1 ELSE 0 END), "
         "SUM(CASE WHEN source_channel='direct' OR source_channel IS NULL THEN 1 ELSE 0 END) "
-        "FROM page_views WHERE created_at >= ? AND created_at < ? AND event_type = 'page_view'",
+        f"FROM page_views WHERE created_at >= ? AND created_at < ? AND event_type = 'page_view' AND {HUMAN}",
         (start_iso, end_iso),
     ).fetchone()
     return {
@@ -363,7 +441,7 @@ def growth_overview(since_iso: str, until_iso: str | None = None) -> dict:
     meaningful as a total over the whole selected range, not per day, so they still
     scan page_views directly.
     """
-    where = "created_at >= ? AND event_type = 'page_view'"
+    where = f"created_at >= ? AND event_type = 'page_view' AND {HUMAN}"
     params: tuple[str, ...] = (since_iso,)
     if until_iso is not None:
         where += " AND created_at < ?"
@@ -415,7 +493,7 @@ def growth_goal(now_iso: str) -> dict:
             # A non-zero baseline keeps the target meaningful on a brand-new install.
             today = now_iso[:10]
             count = conn.execute(
-                "SELECT COUNT(DISTINCT session_id) FROM page_views WHERE event_type='page_view' "
+                f"SELECT COUNT(DISTINCT session_id) FROM page_views WHERE event_type='page_view' AND {HUMAN} "
                 "AND strftime('%Y-%m-%d', created_at, '+9 hours')=?", (today,)
             ).fetchone()[0]
             baseline = float(max(1, count))

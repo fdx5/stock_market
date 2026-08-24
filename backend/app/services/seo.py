@@ -349,11 +349,17 @@ def build_sitemap(kr_stocks: list[dict]) -> str:
         urls.append((f"{SITE}/market-brief/{day}/{market}", "0.8", "never", day))
 
     for stock in kr_stocks:
-        code = re.sub(r"\D", "", str(stock.get("code", "")))[:6]
-        name = str(stock.get("name", "")).strip()[:80]
-        if not code:
+        # Only a bare six-digit code has a page behind it: STOCK_ROUTE/INVESTOR_ROUTE
+        # above and App.tsx both match exactly `\d{6}`, so anything else renders the
+        # generic shell rather than a stock page. Stripping non-digits (what this used
+        # to do) turned KRX's 신형우선주 codes — "00680K", "00088K", "01200K" and ten
+        # others in the top 1,000 by market cap — into five-digit codes like "00680",
+        # which is neither the real code nor a routable one: 26 sitemap URLs answering
+        # 200 with the generic title, i.e. thin content spending crawl budget. Such a
+        # code has no landing page to offer, so it belongs out of the sitemap entirely.
+        code = str(stock.get("code", "")).strip().upper()
+        if not re.fullmatch(r"\d{6}", code):
             continue
-        query = urlencode({"code": code, "name": name})
         urls.append((f"{SITE}/stock/{code}", "0.8", "daily", today))
         urls.append((f"{SITE}/investor/{code}", "0.6", "daily", today))
 
@@ -410,9 +416,13 @@ def build_rss(kr_stocks: list[dict]) -> str:
                      f"<guid isPermaLink=\"true\">{html.escape(url)}</guid><description>{html.escape(description)}</description>"
                      f"<pubDate>{now}</pubDate></item>")
     for stock in kr_stocks[:30]:
-        code = re.sub(r"\D", "", str(stock.get("code", "")))[:6]
+        # Same reason build_sitemap validates rather than strips: /desk only promotes a
+        # code to the stock page when it is exactly six digits (App.tsx), and stripping
+        # the letter off a 신형우선주 code produced a five-digit code that matches
+        # nothing at all.
+        code = str(stock.get("code", "")).strip().upper()
         name = str(stock.get("name", "")).strip()[:80]
-        if not code or not name:
+        if not re.fullmatch(r"\d{6}", code) or not name:
             continue
         url = f"{SITE}/desk?" + urlencode({"code": code, "name": name})
         title = f"{name} 주가·차트·투자자 동향"

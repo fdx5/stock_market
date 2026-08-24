@@ -48,6 +48,8 @@ def record_event(
     utm_source: str | None = None,
     utm_medium: str | None = None,
     utm_campaign: str | None = None,
+    user_agent: str | None = None,
+    is_bot: bool = False,
 ) -> None:
     now = time.time()
     created_at = _now_iso()
@@ -75,32 +77,46 @@ def record_event(
         "value": value,
     }
 
-    with _lock:
-        _tail.append(event)
-        state = _sessions.setdefault(session_id, {"first_seen": now})
-        state["last_seen"] = now
-        state["path"] = path
-        if stock_code:
-            state["stock_code"] = stock_code
-            state["stock_name"] = stock_name
-        # What the live panel shows beside a session on the entrance page: how
-        # much of it they have actually touched, and how long they have been
-        # there. Accumulated here rather than queried per poll — the live panel
-        # refreshes on a timer and this is a dictionary lookup, not a table scan.
-        if event_type == "hub":
-            if action == "dwell" and value:
-                state["hub_seconds"] = state.get("hub_seconds", 0.0) + float(value)
-            elif action:
-                state["hub_actions"] = state.get("hub_actions", 0) + 1
+    # A crawler's page views are still persisted below — page_view_store keeps them
+    # flagged so "which crawler, how often, over which URLs" stays answerable. What it
+    # is kept out of is the *live* panel: a 500-event ring buffer and a "who is on the
+    # site right now" list. A crawl running at 40 pages an hour, each under a session
+    # id it never reuses, fills both with rows nobody can act on and pushes the real
+    # visitors out of the tail entirely — that panel is for watching people use the
+    # site, so a bot never enters it.
+    if not is_bot:
+        with _lock:
+            _tail.append(event)
+            state = _sessions.setdefault(session_id, {"first_seen": now})
+            state["last_seen"] = now
+            state["path"] = path
+            if stock_code:
+                state["stock_code"] = stock_code
+                state["stock_name"] = stock_name
+            # What the live panel shows beside a session on the entrance page: how
+            # much of it they have actually touched, and how long they have been
+            # there. Accumulated here rather than queried per poll — the live panel
+            # refreshes on a timer and this is a dictionary lookup, not a table scan.
+            if event_type == "hub":
+                if action == "dwell" and value:
+                    state["hub_seconds"] = state.get("hub_seconds", 0.0) + float(value)
+                elif action:
+                    state["hub_actions"] = state.get("hub_actions", 0) + 1
 
     if event_type in ("page_view", "click"):
         threading.Thread(
             target=page_view_store.record_page_view,
             args=(session_id, path, created_at, event_type, referrer, source_channel,
                   source_name, utm_source, utm_medium, utm_campaign, label,
-                  stock_code, stock_name, object_key),
+                  stock_code, stock_name, object_key, user_agent, is_bot),
             daemon=True,
         ).start()
+    elif is_bot:
+        # hub_events and stock_search_store have no bot column of their own, because
+        # they are read only as behaviour rankings — what visitors touched on the
+        # entrance page, what they searched for. A crawler row there is never wanted
+        # in any reading, so it is dropped rather than stored and then filtered.
+        return
     elif event_type == "hub" and action:
         threading.Thread(
             target=hub_event_store.record,

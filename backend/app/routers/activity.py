@@ -1,7 +1,7 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field, field_validator
 
-from app.services import activity_log
+from app.services import activity_log, bot_detector
 from app.utils import SESSION_ID_PATTERN
 
 router = APIRouter()
@@ -65,7 +65,14 @@ class ActivityEvent(BaseModel):
 
 
 @router.post("/event")
-def post_event(payload: ActivityEvent):
+def post_event(payload: ActivityEvent, request: Request):
+    # This is where a JS-rendering crawler enters the analytics: it executes
+    # useActivityTracking.ts exactly as a browser does, so the payload alone is
+    # indistinguishable from a person's. The one thing that does distinguish them is a
+    # request header nothing here used to read - Googlebot's beacons carry Googlebot's
+    # User-Agent - so it is read here, at the only point where the header still exists,
+    # and carried down with the event rather than guessed at afterwards.
+    user_agent = bot_detector.normalize_user_agent(request.headers.get("user-agent"))
     activity_log.record_event(
         session_id=payload.session_id,
         event_type=payload.type,
@@ -82,5 +89,7 @@ def post_event(payload: ActivityEvent):
         utm_source=payload.utm_source,
         utm_medium=payload.utm_medium,
         utm_campaign=payload.utm_campaign,
+        user_agent=user_agent,
+        is_bot=bot_detector.is_bot(user_agent),
     )
     return {"ok": True}

@@ -51,11 +51,15 @@ def login(payload: LoginPayload):
 def summary():
     since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
     top_pages = page_view_store.counts_by_page(since_24h)[:5]
+    # Every figure above `bots` counts people only (page_view_store.HUMAN). `bots` is
+    # the same 24 hours seen from the other side, reported rather than dropped: a crawl
+    # surge is worth knowing about, and its agent breakdown is what names the crawler.
     return {
         "online_now": tracker.current_count(),
         "total_visits": visitor_store.total_count(),
         "views_last_24h": page_view_store.count_today(since_24h),
         "top_pages": top_pages,
+        "bots": page_view_store.bot_overview(since_24h),
     }
 
 

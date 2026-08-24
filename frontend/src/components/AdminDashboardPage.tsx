@@ -92,6 +92,28 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(minutes / 60)}시간 ${minutes % 60}분`;
 }
 
+/** The recognisable name inside a crawler's User-Agent, for a one-line label.
+ *
+ * A raw agent string is ~120 characters of version numbers and compatibility
+ * boilerplate — "Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) …
+ * (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" — and the only part
+ * worth a stat tile is "Googlebot". Falls back to the leading product token so an
+ * unrecognised crawler still shows something specific enough to look up. */
+const BOT_AGENT_NAMES = [
+  "Googlebot", "Bingbot", "Yeti", "Daumoa", "YandexBot", "Baiduspider", "DuckDuckBot",
+  "PetalBot", "Applebot", "Amazonbot", "GPTBot", "ClaudeBot", "PerplexityBot", "CCBot",
+  "Bytespider", "AhrefsBot", "SemrushBot", "facebookexternalhit", "Twitterbot",
+  "Slackbot", "Discordbot", "TelegramBot", "UptimeRobot",
+];
+
+function botAgentName(userAgent: string): string {
+  const lowered = userAgent.toLowerCase();
+  const known = BOT_AGENT_NAMES.find((name) => lowered.includes(name.toLowerCase()));
+  if (known) return known;
+  const product = userAgent.trim().split(/[\s/(]/, 1)[0];
+  return product || userAgent.slice(0, 24);
+}
+
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return n.toLocaleString();
@@ -646,6 +668,15 @@ export default function AdminDashboardPage() {
               <div className="admin-stat-body">
                 <span className="admin-stat-label">최근 24시간 조회수</span>
                 {summary ? <span className="admin-stat-value">{summary.views_last_24h.toLocaleString()}</span> : <span className="admin-skeleton admin-skeleton--value" />}
+                {/* The count above is people only. Naming what was taken out, and who
+                    it was, is the difference between a number that dropped for an
+                    unexplained reason and one that dropped for a stated one. */}
+                {summary?.bots && summary.bots.pageviews > 0 && (
+                  <span className="admin-stat-sub">
+                    봇 {summary.bots.pageviews.toLocaleString()}회 제외
+                    {summary.bots.agents[0] ? ` · ${botAgentName(summary.bots.agents[0].user_agent)}` : ""}
+                  </span>
+                )}
               </div>
             </div>
             <div className="admin-stat-tile admin-stat-tile--violet">

@@ -34,8 +34,24 @@ class VisitorTracker:
         # growth this whole mechanism exists to prevent.
         self._new_session_log: dict[str, list[float]] = {}
 
-    def heartbeat(self, session_id: str, client_ip: str | None) -> tuple[int, int]:
+    def heartbeat(self, session_id: str, client_ip: str | None, is_bot: bool = False) -> tuple[int, int]:
+        """`is_bot` short-circuits both counters rather than throttling them.
+
+        NEW_SESSION_LIMIT_PER_IP below was written against a script minting random
+        session ids from one address, and a search crawler defeats it without trying:
+        it renders each URL in a fresh browser context (so every page is a new session
+        id, exactly as a first-time visitor looks) from a large pool of addresses, so
+        no per-IP window ever fills. A 2026-08-22..24 crawl accordingly registered
+        hundreds of "new visitors" a day against a real audience a fraction of that
+        size, and the cumulative total is a permanent row per session - wrong once,
+        wrong forever. The identification is now made from the User-Agent at the route
+        (see routers/visitors.py) instead of inferred from behaviour here.
+        """
         now = time.time()
+        if is_bot:
+            with self._lock:
+                self._prune(now)
+                return len(self._sessions), self._total_cache
         with self._lock:
             self._sessions[session_id] = now
             self._prune(now)
