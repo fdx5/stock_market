@@ -110,3 +110,6 @@
   .bubble-depth-scale { right:12px; bottom:77px; transform:none; }.bubble-depth-scale i { width:48px; }
 }
 @media (prefers-reduced-motion:reduce) { .stock-bubble,.stock-bubble-glass,.bubble-live i,.bubble-loading svg { animation:none!important; transition:none!important; } }
+
+.bubble-neo-chip { flex:0 0 auto; padding:7px 12px; border:1px solid rgba(90,170,255,.45); border-radius:999px; color:#0b2136; background:linear-gradient(135deg,#9be4ff,#48a8ff); font-size:10px; font-weight:900; letter-spacing:.02em; cursor:pointer; box-shadow:0 4px 14px rgba(70,160,255,.35); transition:filter .18s ease, transform .18s ease; }
+.bubble-neo-chip:hover { filter:brightness(1.08); transform:translateY(-1px); }

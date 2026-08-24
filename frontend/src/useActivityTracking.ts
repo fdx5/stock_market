@@ -76,6 +76,7 @@ export function pageLabel(path: string): string {
   if (path === "/etf") return "ETF 마켓";
   if (path === "/discussion-explorer") return "종목토론";
   if (path === "/market-bubbles") return "증시버블";
+  if (path === "/market-bubbles2") return "증시버블 NEO";
   if (path === "/battle") return "줄다리기";
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";

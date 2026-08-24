@@ -63,6 +63,7 @@ const PredictionGradingPage = lazy(() => import("./components/PredictionGradingP
 const DramPriceHistoryPage = lazy(() => import("./components/DramPriceHistoryPage"));
 const DiscussionExplorerPage = lazy(() => import("./components/DiscussionExplorerPage"));
 const MarketBubblePage = lazy(() => import("./components/MarketBubblePage"));
+const MarketBubbleType2 = lazy(() => import("./components/MarketBubbleType2"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
@@ -143,6 +144,10 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
   "/market-bubbles": {
     title: "증시버블 · 시가총액 TOP 20 | K-Stock Hub",
     description: "코스피·코스닥·나스닥 시가총액 상위 20개 종목의 현재가와 등락률을 움직이는 버블로 확인하세요.",
+  },
+  "/market-bubbles2": {
+    title: "증시버블 NEO · 3D 은하 시가총액 | K-Stock Hub",
+    description: "코스피·코스닥·나스닥 시가총액 TOP 20을 심우주 은하에서 탐험하세요. 워프 이동, 시네마 투어, 레이더 탐색과 실시간 버스트 이펙트로 종목 흐름을 확인할 수 있습니다.",
   },
   "/ai-prediction": {
     title: "AI 주가 예측과 종목 분석 | K-Stock Hub",
@@ -309,6 +314,8 @@ export default function App() {
     page = <DiscussionExplorerPage />;
   } else if (path === "/market-bubbles") {
     page = <MarketBubblePage />;
+  } else if (path === "/market-bubbles2") {
+    page = <MarketBubbleType2 />;
   } else if (path === "/admin") {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {
