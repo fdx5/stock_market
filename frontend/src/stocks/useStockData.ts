@@ -61,25 +61,27 @@ export function useStockRoster(
   page: number,
   size: number,
   sector: string,
+  query: string,
 ): RosterState {
   const [state, setState] = useState<RosterState>({ page: null, loading: true, error: "" });
   // What the newest request was for, so a response that arrives after the viewer has
   // moved on is dropped rather than stored.
-  const wanted = useRef({ market, page, sector });
+  const wanted = useRef({ market, page, sector, query });
 
   useEffect(() => {
-    wanted.current = { market, page, sector };
+    wanted.current = { market, page, sector, query };
     let cancelled = false;
 
     const load = (initial: boolean) => {
       api
-        .stockUniverse(market, page, size, sector)
+        .stockUniverse(market, page, size, sector, query)
         .then((result) => {
           if (
             cancelled ||
             wanted.current.market !== market ||
             wanted.current.page !== page ||
-            wanted.current.sector !== sector
+            wanted.current.sector !== sector ||
+            wanted.current.query !== query
           ) {
             return;
           }
@@ -99,12 +101,16 @@ export function useStockRoster(
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [market, page, size, sector]);
+  }, [market, page, size, sector, query]);
 
   // The response carries the market, sector and page it is for, so this is a comparison of
   // what arrived against what is wanted — not a guess from a separate flag.
   const fresh =
-    state.page && state.page.market === market && state.page.page === page && state.page.sector === sector
+    state.page &&
+    state.page.market === market &&
+    state.page.page === page &&
+    state.page.sector === sector &&
+    state.page.query === query
       ? state.page
       : null;
   return { page: fresh, loading: fresh === null && !state.error, error: fresh === null ? state.error : "" };

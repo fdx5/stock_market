@@ -46,18 +46,38 @@ import "./stocksPage.css";
  */
 
 const PAGE_SIZE = 50;
+const SEARCH_DEBOUNCE_MS = 180;
 
 export default function StocksPage() {
   const [market, setMarket] = useState<StockUniverseMarket>(DEFAULT_MARKET);
   const [page, setPage] = useState(1);
   const [sector, setSector] = useState<string>(ALL_SECTORS);
+  // Two values, not one. `search` is what the box shows and updates on every keystroke;
+  // `query` is what the roster is actually fetched with, and lags it by SEARCH_DEBOUNCE_MS.
+  // Fetching on every keystroke would put a request behind each of the four that compose
+  // 삼성 — and a Korean IME emits one per jamo, so it is worse than it looks.
+  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<StockUniverseRow | null>(null);
   // What to select once a roster arrives, when there is no row in hand yet. Starts as
   // the spec's 삼성전자 and becomes null the moment a real row is chosen.
   const [wantedCode, setWantedCode] = useState<string | null>(DEFAULT_CODE);
 
   const spec: MarketSpec = useMemo(() => marketSpec(market), [market]);
-  const roster = useStockRoster(market, page, PAGE_SIZE, sector);
+  const roster = useStockRoster(market, page, PAGE_SIZE, sector, query);
+
+  // Debounce the box into the query. Short enough that it still reads as live typing —
+  // the roster is a slice of a cached snapshot, so the response itself is immediate.
+  useEffect(() => {
+    if (search === query) return;
+    const timer = window.setTimeout(() => {
+      setQuery(search);
+      // A different result set is a different list; staying on page 6 of the old one
+      // would land past the end of almost any search.
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+  }, [search, query]);
   const detail = useStockDetail(selected, spec.currency === "USD");
 
   useDocumentTitle(
@@ -94,6 +114,10 @@ export default function StocksPage() {
     reportStocksEvent({ action: "market_switch", market: next.key, detail: next.label });
     setMarket(next.key);
     setPage(1);
+    // A search is as market-specific as the 업종 labels are: "엔비디아" finds nothing on
+    // KOSPI, and carrying it over would land the reader on an empty rail.
+    setSearch("");
+    setQuery("");
     // 업종 labels are per-market ("반도체/전자" is not an S&P 500 sector), so a filter
     // cannot survive the switch — carrying it over would silently produce an empty rail.
     setSector(ALL_SECTORS);
@@ -192,11 +216,14 @@ export default function StocksPage() {
         error={roster.error}
         page={page}
         sector={sector}
+        search={search}
+        searching={search !== query || (roster.loading && Boolean(query))}
         selectedCode={selected?.code ?? ""}
         onMarketChange={changeMarket}
         onSelect={selectRow}
         onPageChange={changePage}
         onSectorChange={changeSector}
+        onSearchChange={setSearch}
       />
       {detail ? (
         <StockDetailPanel spec={spec} detail={detail} />

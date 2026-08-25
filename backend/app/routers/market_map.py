@@ -141,6 +141,7 @@ def stock_list(
     page: int = Query(1, ge=1),
     size: int = Query(PAGE_SIZE, ge=10, le=100),
     sector: str | None = Query(None, max_length=60),
+    q: str | None = Query(None, max_length=40),
     fresh: bool = Query(False),
 ):
     """One page of a market's 시가총액 ranking, for the 종목정보 page's left rail.
@@ -149,10 +150,14 @@ def stock_list(
     upstream; see services/stock_universe_page for why the three markets are normalised
     into one row shape here rather than in the client.
 
-    `sector` narrows the whole roster before it is paged, so both the rows and the page
-    count reflect the filter. Omit it (or send the ALL_SECTORS sentinel) for everything.
-    The response always carries the full `sectors` list, so the client's dropdown is
-    populated by the same request that fills its list.
+    `sector` and `q` narrow the whole roster before it is paged, so both the rows and the
+    page count reflect them. Omit `sector` (or send the ALL_SECTORS sentinel) for
+    everything. `q` matches name, Korean name or code, and understands 초성 — ㅅㅅㅈㅈ
+    finds 삼성전자.
+
+    The response always carries the full `sectors` list, computed before either filter,
+    so the client's dropdown is populated by the same request that fills its list and
+    does not shrink as the list is narrowed.
 
     `no-store` because the page re-reads this every 10 seconds for live prices — a
     cached response would hand it back its own previous prices.
@@ -160,7 +165,7 @@ def stock_list(
     response.headers["Cache-Control"] = "no-store"
     if market not in UNIVERSE_MARKETS:  # pragma: no cover - the pattern already rejects these
         raise HTTPException(status_code=404, detail=f"지원하지 않는 시장입니다: {market}")
-    return get_page(market, page=page, size=size, sector=sector, fresh=fresh)
+    return get_page(market, page=page, size=size, sector=sector, query=q, fresh=fresh)
 
 
 @router.get("/returns")

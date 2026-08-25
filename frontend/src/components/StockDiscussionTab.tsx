@@ -32,6 +32,15 @@ interface DiscussionPost {
 
 const PAGE_SIZE = 10;
 
+/** A Naver 종목토론실 page this full means another one follows.
+ *
+ * Its pages hold 20, and the panel shows half of one at a time. The line sits well
+ * below 20 because the fetch de-duplicates clustered reposts, so a middle page routinely
+ * arrives with 18 or 19 rows and must not be read as the end of the board; a real last
+ * page comes back with a handful. Naver publishes no page count, so this is the only
+ * signal available short of fetching the next page to find out. */
+const NAVER_MORE_HINT = 15;
+
 function fromNaver(post: BoardPost): DiscussionPost {
   return {
     id: post.nid,
@@ -76,6 +85,10 @@ export default function StockDiscussionTab({ code, name, market, source }: Props
   const [openIndex, setOpenIndex] = useState<number | null>(null);
   const [detail, setDetail] = useState<BoardDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Set when 이전글/다음글 runs off the end of the page being read, and consumed by the
+  // fetch below: it says "when the next page lands, open it at this end" and is what
+  // carries the reader across a page boundary without returning to the list.
+  const [pendingOpen, setPendingOpen] = useState<"first" | "last" | null>(null);
 
   // A new stock is a new board: everything about the previous one, including which
   // page of it was open, is meaningless here.
@@ -84,51 +97,15 @@ export default function StockDiscussionTab({ code, name, market, source }: Props
     setCursors([null]);
     setOpenIndex(null);
     setDetail(null);
+    setPendingOpen(null);
   }, [code, source]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-    setOpenIndex(null);
-    setDetail(null);
-
-    const request =
-      source === "global"
-        ? api.globalDiscussion(code, PAGE_SIZE, cursors[page - 1] ?? null)
-        : // Naver serves 20 posts per page; the panel shows 10, so two panel pages are
-          // carved out of each fetched page rather than fetching twice as often.
-          api.board(code, Math.floor((page - 1) / 2) + 1, page === 1);
-
-    request
-      .then((result) => {
-        if (cancelled) return;
-        if ("next_offset" in result) {
-          setPosts(result.items.map(fromGlobal));
-          setHasNext(Boolean(result.next_offset));
-          if (result.next_offset) {
-            setCursors((old) => (old.length > page ? old : [...old, result.next_offset]));
-          }
-        } else {
-          const start = ((page - 1) % 2) * PAGE_SIZE;
-          setPosts(result.items.slice(start, start + PAGE_SIZE).map(fromNaver));
-          setHasNext(result.items.length > start + PAGE_SIZE);
-        }
-      })
-      .catch(() => !cancelled && setError("종목토론을 불러오지 못했습니다."))
-      .finally(() => !cancelled && setLoading(false));
-
-    return () => {
-      cancelled = true;
-    };
-    // `cursors` is intentionally not a dependency: it is written by this effect, and
-    // reading the entry for the *current* page is what it needs. Including it would
-    // re-run the fetch every time a new cursor was appended.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, source, page]);
-
-  const open = (index: number) => {
-    const post = posts[index];
+  /** Opens a post from an explicit list rather than from `posts` state.
+   *
+   * The list is a parameter because the page-crossing path calls this from inside the
+   * fetch that produced it, where the state setter has not been applied yet. */
+  const openFrom = (list: DiscussionPost[], index: number) => {
+    const post = list[index];
     if (!post) return;
     // Reported for the post itself, not for "a click in the discussion tab": the admin
     // ranking is meant to answer which conversations pull readers in.
@@ -145,10 +122,97 @@ export default function StockDiscussionTab({ code, name, market, source }: Props
       .finally(() => setDetailLoading(false));
   };
 
+  const open = (index: number) => openFrom(posts, index);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError("");
+
+    const request =
+      source === "global"
+        ? api.globalDiscussion(code, PAGE_SIZE, cursors[page - 1] ?? null)
+        : // Naver serves 20 posts per page; the panel shows 10, so two panel pages are
+          // carved out of each fetched page rather than fetching twice as often.
+          api.board(code, Math.floor((page - 1) / 2) + 1, page === 1);
+
+    request
+      .then((result) => {
+        if (cancelled) return;
+        let list: DiscussionPost[];
+        if ("next_offset" in result) {
+          list = result.items.map(fromGlobal);
+          setHasNext(Boolean(result.next_offset));
+          if (result.next_offset) {
+            setCursors((old) => (old.length > page ? old : [...old, result.next_offset]));
+          }
+        } else {
+          const start = ((page - 1) % 2) * PAGE_SIZE;
+          list = result.items.slice(start, start + PAGE_SIZE).map(fromNaver);
+          // Two ways there is more to read: the other half of the page just fetched, or
+          // a further Naver page. The second is what the old `items.length > start + 10`
+          // missed — on the second half that test is always false, so the board looked
+          // twenty posts deep however many pages it really had.
+          setHasNext(
+            result.items.length > start + PAGE_SIZE || result.items.length >= NAVER_MORE_HINT,
+          );
+        }
+        setPosts(list);
+
+        if (pendingOpen && list.length) {
+          // Arrived here by stepping off the end of the previous page: continue reading
+          // at the near end of this one instead of dropping back to the list.
+          openFrom(list, pendingOpen === "first" ? 0 : list.length - 1);
+        } else {
+          // An ordinary page change from the list, or a page that came back empty —
+          // there is nothing to keep open.
+          setOpenIndex(null);
+          setDetail(null);
+        }
+        setPendingOpen(null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError("종목토론을 불러오지 못했습니다.");
+        setPendingOpen(null);
+      })
+      .finally(() => !cancelled && setLoading(false));
+
+    return () => {
+      cancelled = true;
+    };
+    // `cursors` and `pendingOpen` are intentionally not dependencies. Both are written
+    // by this effect and read for the render that triggered it: `cursors[page - 1]` is
+    // the entry for the page being fetched, and `pendingOpen` was set in the same event
+    // that changed `page`, so the closure already sees it. Listing them would re-run the
+    // fetch every time one was updated.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, source, page]);
+
+  const atFirst = openIndex === 0 && page === 1;
+  const atLast = openIndex === posts.length - 1 && !hasNext;
+
+  /** 이전글 / 다음글, across page boundaries.
+   *
+   * Within the page it is a move along `posts`. At either end it turns the page and
+   * hands `pendingOpen` to the fetch, which reopens the reader at the far end of the new
+   * one — so the buttons walk the whole board rather than the ten posts that happen to
+   * be loaded. Blocked while a fetch is in flight, so a second click cannot skip a page.
+   */
   const step = (direction: -1 | 1) => {
-    if (openIndex == null) return;
+    if (openIndex == null || loading) return;
     const next = openIndex + direction;
-    if (next >= 0 && next < posts.length) open(next);
+    if (next >= 0 && next < posts.length) {
+      openFrom(posts, next);
+      return;
+    }
+    if (direction === 1 && hasNext) {
+      setPendingOpen("first");
+      setPage((p) => p + 1);
+    } else if (direction === -1 && page > 1) {
+      setPendingOpen("last");
+      setPage((p) => p - 1);
+    }
   };
 
   const current = openIndex == null ? null : posts[openIndex];
@@ -184,11 +248,17 @@ export default function StockDiscussionTab({ code, name, market, source }: Props
           </div>
         </article>
         <nav className="su-thread-nav" aria-label="게시글 이동">
-          <button type="button" disabled={openIndex === 0} onClick={() => step(-1)}>
+          <button type="button" disabled={atFirst || loading} onClick={() => step(-1)}>
             <small>PREV</small>
             <span>‹ 이전글</span>
           </button>
-          <button type="button" disabled={openIndex === posts.length - 1} onClick={() => step(1)}>
+          {/* Which post of which page is open. Without it, crossing a boundary looks
+              like the counter reset — the reader has no way to tell that 다음글 moved
+              them onto a new page rather than back to the top of this one. */}
+          <span className="su-thread-position">
+            {loading ? "불러오는 중" : `${page}페이지 · ${(openIndex ?? 0) + 1}/${posts.length}`}
+          </span>
+          <button type="button" disabled={atLast || loading} onClick={() => step(1)}>
             <small>NEXT</small>
             <span>다음글 ›</span>
           </button>

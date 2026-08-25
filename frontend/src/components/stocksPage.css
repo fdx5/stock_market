@@ -24,6 +24,17 @@
   height: 100vh;
   height: 100dvh; /* phones: excludes the browser's collapsing toolbars */
   overflow: hidden;
+
+  /* Out of `.app`'s 1280px column, the same way the expanded KOSPI map opts out. This
+     page is two panels side by side and is the one layout on the site that converts
+     extra width directly into more rows and a wider chart — capping it at 1280 on a
+     1920 display leaves a third of the screen empty while the rail scrolls. The
+     children below carry their own horizontal padding, so `.app`'s is dropped rather
+     than fought with. */
+  max-width: none;
+  width: 100%;
+  padding: 0;
+  min-height: 0;
 }
 
 .su-shell-head {
@@ -224,8 +235,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 16px;
-  border-bottom: 1px solid var(--border);
+  padding: 9px 16px 8px;
 }
 
 .su-sector-filter {
@@ -279,6 +289,83 @@
 
 .su-sector-clear:hover {
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
+}
+
+/* Name search. Sits below the 업종 filter because it narrows within it, and directly
+   above the column heads it changes the contents of. */
+.su-rail-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.su-rail-search-icon {
+  position: absolute;
+  left: 25px;
+  font-size: 13px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.su-rail-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px 7px 27px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 12px;
+}
+
+.su-rail-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.su-rail-search input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--text-primary) 34%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+/* The browser's own clear affordance, removed in favour of the button below — it is
+   unstyleable, differs per engine, and would sit beside a second clear control. */
+.su-rail-search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.su-rail-search-spin {
+  position: absolute;
+  right: 44px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--text-primary) 20%, transparent);
+  border-top-color: var(--text-secondary);
+  animation: su-spin 0.7s linear infinite;
+}
+
+.su-rail-search-clear {
+  position: absolute;
+  right: 22px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1;
+}
+
+.su-rail-search-clear:hover {
+  background: color-mix(in srgb, var(--text-primary) 24%, transparent);
   color: var(--text-primary);
 }
 
@@ -1116,10 +1203,24 @@
 
 .su-thread-nav {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* The middle column is the position readout, which is why this is not two equal
+     halves any more. `auto` so it takes only what its text needs and the two buttons
+     stay the same size as each other. */
+  grid-template-columns: 1fr auto 1fr;
   gap: 1px;
   border-top: 1px solid var(--border);
   background: var(--border);
+}
+
+.su-thread-position {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  background: color-mix(in srgb, var(--text-primary) 3%, var(--surface-1));
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .su-thread-nav button {
@@ -1180,6 +1281,13 @@
    detail panel side by side on a phone would be two unusable columns instead of one
    usable page. */
 
+/* Past this width the extra space is worth giving to the rail as well — at 25rem its
+   name column starts truncating 종목명 that a wider rail would show in full. The detail
+   panel still takes everything left over, which is the larger share. */
+@media (min-width: 1700px) {
+  .su-page { --su-rail-width: 28rem; }
+}
+
 @media (max-width: 1180px) {
   .su-page { --su-rail-width: 21rem; }
   .su-detail-names h2 { font-size: 21px; }
@@ -1227,6 +1335,8 @@
   .su-rail-columns { grid-template-columns: 1fr 4.6rem 3.6rem; }
   .su-row-identity small i { display: none; }
   .su-rail-filter { padding: 8px 10px; }
+  .su-rail-search { padding: 0 10px 9px; }
+  .su-rail-search-icon { left: 19px; }
   .su-detail-names h2 { font-size: 19px; }
   .su-detail-quote > strong { font-size: 23px; }
   .su-post-stats { display: none; }

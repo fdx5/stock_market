@@ -379,6 +379,9 @@ export interface StockUniversePage {
   currency: "KRW" | "USD";
   /** The active 업종, or ALL_SECTORS. */
   sector: string;
+  /** The active name search, echoed back so a stale response can be told apart from a
+   *  current one — the same role `sector` and `page` play. */
+  query: string;
   /** Every 업종 in the market, biggest first — computed from the *unfiltered* roster,
    *  so the dropdown holds the same options whichever one is chosen. */
   sectors: StockUniverseSector[];
@@ -1099,10 +1102,11 @@ export const api = {
     getJSON<StockBoardRefresh>(`${BASE}/market/board?market=${market}&slim=true`),
   /** One page of a market's cap ranking for the 종목정보 rail. Always re-fetched:
    *  the page polls it every 10s for live prices. */
-  stockUniverse: (market: StockUniverseMarket, page = 1, size = 50, sector?: string) =>
+  stockUniverse: (market: StockUniverseMarket, page = 1, size = 50, sector?: string, q?: string) =>
     getJSONFresh<StockUniversePage>(
       `${BASE}/market/stock-list?market=${market}&page=${page}&size=${size}` +
-        (sector ? `&sector=${encodeURIComponent(sector)}` : "")
+        (sector ? `&sector=${encodeURIComponent(sector)}` : "") +
+        (q ? `&q=${encodeURIComponent(q)}` : "")
     ),
   /** Korean-language coverage of a US company, from Naver's news search — the S&P 500
    *  counterpart to `news`, which reads finance.naver's per-code tab. */

@@ -24,7 +24,7 @@ from typing import Callable
 
 from app.data.us_company_korean_names import KOREAN_NAMES
 from app.data.us_universe import get_korean_names_ready
-from app.services import logo_tone
+from app.services import korean_search, logo_tone
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.stock_board import US_SECTOR_KO
 from app.services.us_market_map import get_sp500_map
@@ -144,14 +144,19 @@ def get_page(
     page: int = 1,
     size: int = PAGE_SIZE,
     sector: str | None = None,
+    query: str | None = None,
     fresh: bool = False,
 ) -> dict:
-    """One page of `market`'s cap ranking, optionally one 업종 only.
+    """One page of `market`'s cap ranking, optionally narrowed by 업종 and by name.
 
     Filtering happens here and not on the client because the client only ever holds 50
     rows: filtering those would search one page of a ten-page market and call it a
     market. The whole roster is filtered first, and the pages are cut from the result —
-    so 업종 changes both which rows appear and how many pages there are.
+    so 업종 and the search box both change which rows appear *and* how many pages there
+    are.
+
+    `query` matches a name, its Korean rendering, or the code/ticker, and understands
+    초성 — ㅅㅅㅈㅈ finds 삼성전자. See services/korean_search.
 
     Two things deliberately survive the filter:
 
@@ -186,6 +191,17 @@ def get_page(
     if active:
         rows = [row for row in rows if row["sector"] == active]
 
+    # After the sector, so the two compose: a search inside 반도체/전자 searches that
+    # sector. `name_ko` is included because the S&P 500 rail shows it — a reader
+    # looking at 엔비디아 must be able to search for what is on screen, not only for
+    # "NVIDIA Corp".
+    term = (query or "").strip()
+    if term:
+        rows = [
+            row for row in rows
+            if korean_search.matches_any(term, row["name"], row.get("name_ko"), row["code"])
+        ]
+
     total = len(rows)
     total_pages = max(1, -(-total // size))
     page = max(1, min(page, total_pages))
@@ -202,6 +218,7 @@ def get_page(
         "currency": spec.currency,
         "sector": active or ALL_SECTORS,
         "sectors": sectors,
+        "query": term,
         "page": page,
         "page_size": size,
         "total": total,

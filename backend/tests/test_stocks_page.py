@@ -21,6 +21,7 @@ import io  # noqa: E402
 
 from app.data import naver_news_search_fetcher as news_search  # noqa: E402
 from app.data import us_company_korean_names as korean  # noqa: E402
+from app.services import korean_search  # noqa: E402
 from app.services import logo_tone  # noqa: E402
 from app.services import stock_universe_page as universe  # noqa: E402
 
@@ -126,6 +127,91 @@ class TestSectorFilter:
         page = universe.get_page("kospi", 1, sector="존재하지않는업종")
         assert page["items"] == []
         assert page["total_pages"] == 1
+
+
+class TestKoreanSearch:
+    """초성 search. A Korean keyboard produces a query in stages, and the pure-consonant
+    stage is the one people actually search with."""
+
+    @pytest.mark.parametrize(
+        "query, name",
+        [
+            ("ㅅㅅㅈㅈ", "삼성전자"),   # the whole name as initials
+            ("ㅅㅅ", "삼성전자"),       # a prefix of them
+            ("ㅅㅈㅈ", "삼성전자"),     # initials starting mid-name
+            ("삼성", "삼성전자"),       # composed syllables
+            ("전자", "삼성전자"),       # a substring, not a prefix
+            ("ㅎㅇㄴㅅ", "SK하이닉스"),  # initials after a Latin prefix
+            ("하이", "SK하이닉스"),
+            ("ㅇㅋㅍㄹ", "에코프로"),
+            ("ㅇㅌㅇㅈ", "알테오젠"),
+        ],
+    )
+    def test_matches(self, query, name):
+        assert korean_search.matches(query, name)
+
+    @pytest.mark.parametrize(
+        "query, name",
+        [
+            ("ㅋㅋ", "삼성전자"),
+            ("ㅎㄴㅈ", "SK하이닉스"),      # right consonants, wrong order
+            ("삼성전자우선주", "삼성전자"),  # longer than the name
+            ("ㅇㅋㅍㄹㅂㅇ", "에코프로"),
+        ],
+    )
+    def test_does_not_match(self, query, name):
+        assert not korean_search.matches(query, name)
+
+    def test_a_lone_consonant_matches_the_syllable_it_leads(self):
+        assert korean_search.lead_of("삼") == "ㅅ"
+        assert korean_search.lead_of("전") == "ㅈ"
+        assert korean_search.lead_of("A") is None
+
+    def test_mixed_composed_and_initial_input(self):
+        """What the query looks like partway through being typed."""
+        assert korean_search.matches("삼ㅅ", "삼성전자")
+        assert not korean_search.matches("삼ㅈ", "삼성전자")
+
+    def test_latin_is_case_insensitive(self):
+        assert korean_search.matches("nvid", "NVIDIA Corp")
+
+    def test_an_empty_query_matches_everything(self):
+        assert korean_search.matches("", "삼성전자")
+        assert korean_search.matches_any("   ", "삼성전자")
+
+    def test_matches_any_skips_absent_fields(self):
+        assert korean_search.matches_any("NVDA", "NVIDIA Corp", None, "NVDA")
+        assert not korean_search.matches_any("없는이름", "NVIDIA Corp", None, "NVDA")
+
+
+class TestSearchFilter:
+    def test_search_narrows_the_roster(self, fake_markets):
+        page = universe.get_page("kospi", 1, query="ㅅㅅㅈㅈ")
+        assert [row["name"] for row in page["items"]] == ["삼성전자"]
+        assert page["total"] == 1
+        assert page["query"] == "ㅅㅅㅈㅈ"
+
+    def test_search_matches_the_code_too(self, fake_markets):
+        assert universe.get_page("kospi", 1, query="000660")["items"][0]["name"] == "SK하이닉스"
+
+    def test_search_matches_the_korean_name_shown_on_screen(self, fake_markets):
+        """The S&P 500 rail renders 엔비디아, so that is what a reader will search for —
+        matching only the English `name` would fail the one they can actually see."""
+        assert universe.get_page("sp500", 1, query="엔비디아")["items"][0]["code"] == "NVDA"
+        assert universe.get_page("sp500", 1, query="ㅇㅂㄷㅇ")["items"][0]["code"] == "NVDA"
+
+    def test_search_composes_with_the_sector_filter(self, fake_markets):
+        assert universe.get_page("kospi", 1, sector="반도체", query="ㅅㅅ")["total"] == 1
+        assert universe.get_page("kospi", 1, sector="금융", query="ㅅㅅ")["total"] == 0
+
+    def test_sector_options_survive_a_search(self, fake_markets):
+        """Same rule as the sector filter's own: a control that reshapes as it is used
+        is one nobody can navigate back out of."""
+        assert universe.get_page("kospi", 1, query="ㅅㅅㅈㅈ")["sectors"] == universe.get_page("kospi", 1)["sectors"]
+
+    def test_a_blank_query_is_not_a_filter(self, fake_markets):
+        assert universe.get_page("kospi", 1, query="   ")["total"] == 2
+        assert universe.get_page("kospi", 1, query=None)["total"] == 2
 
 
 class TestLogoTone:

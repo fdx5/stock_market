@@ -30,11 +30,16 @@ interface Props {
   error: string;
   page: number;
   sector: string;
+  /** The raw input value, not the debounced term the roster was fetched with — the box
+   *  has to echo every keystroke back immediately whatever the request is doing. */
+  search: string;
+  searching: boolean;
   selectedCode: string;
   onMarketChange: (market: MarketSpec) => void;
   onSelect: (row: StockUniverseRow) => void;
   onPageChange: (page: number) => void;
   onSectorChange: (sector: string) => void;
+  onSearchChange: (value: string) => void;
 }
 
 export default function StockRosterRail({
@@ -44,11 +49,14 @@ export default function StockRosterRail({
   error,
   page,
   sector,
+  search,
+  searching,
   selectedCode,
   onMarketChange,
   onSelect,
   onPageChange,
   onSectorChange,
+  onSearchChange,
 }: Props) {
   const totalPages = data?.total_pages ?? 1;
   const rows = data?.items ?? [];
@@ -60,7 +68,7 @@ export default function StockRosterRail({
         <div className="su-rail-title">
           <h1>종목정보</h1>
           <p>
-            시가총액순
+            {search || sector !== ALL_SECTORS ? "검색 결과" : "시가총액순"}
             {data ? <em>{data.total.toLocaleString()}종목</em> : null}
           </p>
         </div>
@@ -107,6 +115,31 @@ export default function StockRosterRail({
         )}
       </div>
 
+      {/* Name search, under the 업종 filter and narrowing within it. Server-side like the
+          sector, and for the same reason: the client holds 50 of 500 rows, so searching
+          them would search one page and call it the market. */}
+      <div className="su-rail-search" data-track="self">
+        <span className="su-rail-search-icon" aria-hidden="true">⌕</span>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => onSearchChange(e.target.value)}
+          placeholder="종목명 검색 · 초성 가능 (ㅅㅅㅈㅈ)"
+          aria-label="종목명 검색"
+          // Korean IMEs compose a syllable across several keystrokes; the browser fires
+          // `change` on the composed value either way, and letting the field manage its
+          // own composition is what makes 초성 typing work at all.
+          autoComplete="off"
+          spellCheck={false}
+        />
+        {searching && <i className="su-rail-search-spin" aria-hidden="true" />}
+        {search && (
+          <button type="button" className="su-rail-search-clear" aria-label="검색어 지우기" onClick={() => onSearchChange("")}>
+            ×
+          </button>
+        )}
+      </div>
+
       <div className="su-rail-columns" aria-hidden="true">
         <span>종목</span>
         <span>현재가</span>
@@ -128,7 +161,11 @@ export default function StockRosterRail({
         {!loading && error && <p className="su-rail-message">{error}</p>}
         {!loading && !error && rows.length === 0 && (
           <p className="su-rail-message">
-            {sector === ALL_SECTORS ? "표시할 종목이 없습니다." : "이 업종에 해당하는 종목이 없습니다."}
+            {search
+              ? `"${search}" 검색 결과가 없습니다.`
+              : sector === ALL_SECTORS
+                ? "표시할 종목이 없습니다."
+                : "이 업종에 해당하는 종목이 없습니다."}
           </p>
         )}
 
