@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { NewsItem, api } from "../api/client";
-import { reportStocksEvent } from "../useActivityTracking";
+import { reportMarketOrbitEvent, reportStocksEvent } from "../useActivityTracking";
 
 /* 뉴스 for one stock, from Naver.
  *
@@ -28,9 +28,10 @@ interface Props {
   name: string;
   market: string;
   source: "naver-finance" | "naver-search";
+  trackingContext?: "stocks" | "orbit";
 }
 
-export default function StockNewsTab({ code, name, market, source }: Props) {
+export default function StockNewsTab({ code, name, market, source, trackingContext = "stocks" }: Props) {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -72,7 +73,9 @@ export default function StockNewsTab({ code, name, market, source }: Props) {
   const open = (index: number) => {
     const item = items[index];
     if (!item) return;
-    reportStocksEvent({ action: "news_article", market, code, name, detail: item.title });
+    if (trackingContext === "orbit")
+      reportMarketOrbitEvent({ action: "news_article", market, code, name, detail: item.title });
+    else reportStocksEvent({ action: "news_article", market, code, name, detail: item.title });
     bodyRequest.current?.abort();
     const controller = new AbortController();
     bodyRequest.current = controller;

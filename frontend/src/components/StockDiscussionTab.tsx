@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { BoardDetail, BoardPost, GlobalDiscussionPost, api } from "../api/client";
 import { shortDateTime } from "../stocks/market";
-import { reportStocksEvent } from "../useActivityTracking";
+import { reportMarketOrbitEvent, reportStocksEvent } from "../useActivityTracking";
 
 /* 종목토론 for one stock, from whichever board its market has.
  *
@@ -72,9 +72,10 @@ interface Props {
   name: string;
   market: string;
   source: "naver" | "global";
+  trackingContext?: "stocks" | "orbit";
 }
 
-export default function StockDiscussionTab({ code, name, market, source }: Props) {
+export default function StockDiscussionTab({ code, name, market, source, trackingContext = "stocks" }: Props) {
   const [posts, setPosts] = useState<DiscussionPost[]>([]);
   const [page, setPage] = useState(1);
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
@@ -109,7 +110,9 @@ export default function StockDiscussionTab({ code, name, market, source }: Props
     if (!post) return;
     // Reported for the post itself, not for "a click in the discussion tab": the admin
     // ranking is meant to answer which conversations pull readers in.
-    reportStocksEvent({ action: "discussion_post", market, code, name, detail: post.title });
+    if (trackingContext === "orbit")
+      reportMarketOrbitEvent({ action: "discussion_post", market, code, name, detail: post.title });
+    else reportStocksEvent({ action: "discussion_post", market, code, name, detail: post.title });
     setOpenIndex(index);
     setDetail(null);
     // Toss posts arrive whole; only Naver's need the body fetched.

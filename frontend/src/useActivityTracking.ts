@@ -78,6 +78,9 @@ export function pageLabel(path: string): string {
   if (path === "/discussion-explorer") return "종목토론";
   if (path === "/market-bubbles") return "증시버블";
   if (path === "/market-bubbles2") return "증시버블 NEO";
+  if (path === "/kospi-orbit") return "증시궤도 · KOSPI";
+  if (path === "/kosdaq-orbit") return "증시궤도 · KOSDAQ";
+  if (path === "/nasdaq100-orbit" || path === "/sp500-orbit") return "증시궤도 · NASDAQ100";
   if (path === "/battle") return "줄다리기";
   if (path === "/fight") return "시총대결";
   if (path === "/news") return "뉴스";
@@ -206,6 +209,57 @@ export function reportMarketBubbleEvent(options: {
     stock_code: options.code,
     stock_name: options.name,
     object_key: `bubble:${options.action}:${options.market}:${options.code || options.market}`.slice(0, 100),
+  });
+}
+
+export type MarketOrbitAction =
+  | "market_warp"
+  | "sector_warp"
+  | "stock_focus"
+  | "celestial_focus"
+  | "detail_open"
+  | "detail_close"
+  | "tab_switch"
+  | "discussion_post"
+  | "news_article"
+  | "search_select"
+  | "stock_detail";
+
+const MARKET_ORBIT_ACTION_LABELS: Record<MarketOrbitAction, string> = {
+  market_warp: "시장 워프",
+  sector_warp: "업종 워프",
+  stock_focus: "종목 목록 포커스",
+  celestial_focus: "천체 클릭",
+  detail_open: "상세 패널 열기",
+  detail_close: "상세 패널 닫기",
+  tab_switch: "상세 탭 전환",
+  discussion_post: "종목토론 글 클릭",
+  news_article: "NEWS 기사 클릭",
+  search_select: "종목 검색 선택",
+  stock_detail: "종목 상세 페이지 이동",
+};
+
+export function reportMarketOrbitEvent(options: {
+  action: MarketOrbitAction;
+  market: string;
+  sector?: string;
+  code?: string;
+  name?: string;
+  detail?: string;
+}): void {
+  if (isAdminPath(window.location.pathname)) return;
+  const subject = options.name || options.sector || options.detail || options.market;
+  sendEvent({
+    type: "click",
+    path: window.location.pathname,
+    label: `${MARKET_ORBIT_ACTION_LABELS[options.action]} · ${subject}${
+      options.detail && options.detail !== subject ? ` · ${options.detail}` : ""
+    }`.slice(0, 100),
+    stock_code: options.code,
+    stock_name: options.name,
+    object_key: `orbit:${options.action}:${options.market}:${
+      options.code || options.sector || options.detail || "-"
+    }`.slice(0, 100),
   });
 }
 

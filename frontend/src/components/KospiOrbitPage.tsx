@@ -8,6 +8,7 @@ import { api, type MarketMapItem, type MarketMapResponse } from "../api/client";
 import { navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
 import { usCompanyLogoUrl } from "../usLogo";
+import { reportMarketOrbitEvent } from "../useActivityTracking";
 import {
   PLANET_FRAG,
   PLANET_VERT,
@@ -229,6 +230,7 @@ function SpaceScene({
   onSelect,
   onReady,
   logoUrl,
+  trackingMarket,
 }: {
   systems: System[];
   mode: SceneMode;
@@ -237,6 +239,7 @@ function SpaceScene({
   onSelect: (s: MarketMapItem | null) => void;
   onReady: () => void;
   logoUrl: (code: string) => string;
+  trackingMarket: string;
 }) {
   const mount = useRef<HTMLDivElement>(null);
   const colorsRef = useRef(colors);
@@ -997,6 +1000,15 @@ function SpaceScene({
     labels.className = "orbit-label-layer";
     host.appendChild(labels);
     const focusBody = (body: THREE.Object3D, revealDetails = true) => {
+      const stock = body.userData.stock as MarketMapItem;
+      reportMarketOrbitEvent({
+        action: "celestial_focus",
+        market: trackingMarket,
+        sector: stock.sector,
+        code: stock.code,
+        name: stock.name,
+        detail: revealDetails ? "상세 표시" : "포커스만",
+      });
       focusTarget = body;
       flying = true;
       lastFocusPosition.copy(body.position);
@@ -1005,13 +1017,30 @@ function SpaceScene({
       // back toward the preset focus distance after a wheel-in gesture.
       controls.zoomToCursor = false;
       controls.target.copy(body.position);
-      if (revealDetails) onSelect(body.userData.stock as MarketMapItem);
+      if (revealDetails) {
+        reportMarketOrbitEvent({
+          action: "detail_open",
+          market: trackingMarket,
+          sector: stock.sector,
+          code: stock.code,
+          name: stock.name,
+        });
+        onSelect(stock);
+      }
       else onSelect(null);
     };
     const focusStarByTap = (body: THREE.Object3D) => {
       const alreadyFocused = focusTarget === body && !flying;
       if (alreadyFocused) {
-        onSelect(body.userData.stock as MarketMapItem);
+        const stock = body.userData.stock as MarketMapItem;
+        reportMarketOrbitEvent({
+          action: "detail_open",
+          market: trackingMarket,
+          sector: stock.sector,
+          code: stock.code,
+          name: stock.name,
+        });
+        onSelect(stock);
         return;
       }
       focusBody(body, false);
@@ -1202,7 +1231,7 @@ function SpaceScene({
       });
       host.replaceChildren();
     };
-  }, [systems, mode.sector, onSelect, logoUrl]);
+  }, [systems, mode.sector, onSelect, logoUrl, trackingMarket]);
   useEffect(() => {
     if (selected) {
       /* selection is presented by the React inspection deck */
@@ -1262,7 +1291,16 @@ function OrbitDetailPanel({
     <aside className="orbit-detail">
       <button
         className="orbit-close"
-        onClick={onClose}
+        onClick={() => {
+          reportMarketOrbitEvent({
+            action: "detail_close",
+            market: config.label,
+            sector: stock.sector,
+            code: stock.code,
+            name: stock.name,
+          });
+          onClose();
+        }}
         aria-label="상세 패널 닫기"
       >
         ×
@@ -1334,7 +1372,16 @@ function OrbitDetailPanel({
           role="tab"
           aria-selected={tab === "discussion"}
           className={tab === "discussion" ? "active" : ""}
-          onClick={() => setTab("discussion")}
+          onClick={() => {
+            reportMarketOrbitEvent({
+              action: "tab_switch",
+              market: config.label,
+              code: stock.code,
+              name: stock.name,
+              detail: "종목토론",
+            });
+            setTab("discussion");
+          }}
         >
           종목토론
         </button>
@@ -1343,14 +1390,32 @@ function OrbitDetailPanel({
           role="tab"
           aria-selected={tab === "news"}
           className={tab === "news" ? "active" : ""}
-          onClick={() => setTab("news")}
+          onClick={() => {
+            reportMarketOrbitEvent({
+              action: "tab_switch",
+              market: config.label,
+              code: stock.code,
+              name: stock.name,
+              detail: "NEWS",
+            });
+            setTab("news");
+          }}
         >
           NEWS
         </button>
         <button
           type="button"
           className="orbit-detail-link"
-          onClick={() => navigate(`/stock/${stock.code}`)}
+          onClick={() => {
+            reportMarketOrbitEvent({
+              action: "stock_detail",
+              market: config.label,
+              sector: stock.sector,
+              code: stock.code,
+              name: stock.name,
+            });
+            navigate(`/stock/${stock.code}`);
+          }}
         >
           종목 상세 ↗
         </button>
@@ -1363,6 +1428,7 @@ function OrbitDetailPanel({
             name={stock.name}
             market={config.label}
             source={config.discussion}
+            trackingContext="orbit"
           />
         ) : (
           <StockNewsTab
@@ -1371,6 +1437,7 @@ function OrbitDetailPanel({
             name={stock.name}
             market={config.label}
             source={config.news}
+            trackingContext="orbit"
           />
         )}
       </div>
@@ -1495,6 +1562,11 @@ export default function KospiOrbitPage({
       setExpanded((current) => (current === sector ? "" : sector));
       return;
     }
+    reportMarketOrbitEvent({
+      action: "sector_warp",
+      market: config.label,
+      sector,
+    });
     setReady(false);
     setSelected(null);
     setExpanded(sector);
@@ -1506,6 +1578,14 @@ export default function KospiOrbitPage({
     );
   };
   const focusStock = (stock: MarketMapItem, revealDetails = true) => {
+    reportMarketOrbitEvent({
+      action: "stock_focus",
+      market: config.label,
+      sector: stock.sector,
+      code: stock.code,
+      name: stock.name,
+      detail: revealDetails ? "상세 표시" : "포커스만",
+    });
     const closeMobileDrawer = matchMedia("(max-width: 760px)").matches;
     setExpanded(stock.sector || "기타");
     setMode({ kind: "system", sector: stock.sector || "기타" });
@@ -1522,6 +1602,11 @@ export default function KospiOrbitPage({
   };
   const warpTo = (target: OrbitMarket) => {
     if (target === market) return;
+    reportMarketOrbitEvent({
+      action: "market_warp",
+      market: config.label,
+      detail: ORBIT_CONFIGS[target].label,
+    });
     setWarping(target);
     void loadOrbitMarket(ORBIT_CONFIGS[target]);
     window.setTimeout(() => navigate(ORBIT_CONFIGS[target].route), 720);
@@ -1546,6 +1631,13 @@ export default function KospiOrbitPage({
                 <button
                   key={s.code}
                   onClick={() => {
+                    reportMarketOrbitEvent({
+                      action: "search_select",
+                      market: config.label,
+                      sector: s.sector,
+                      code: s.code,
+                      name: s.name,
+                    });
                     setQuery("");
                     openSystem(s.sector || "기타");
                     setTimeout(() => setSelected(s), 180);
@@ -1619,6 +1711,7 @@ export default function KospiOrbitPage({
           onSelect={setSelected}
           onReady={() => setReady(true)}
           logoUrl={config.logoUrl}
+          trackingMarket={config.label}
         />
       )}
       <aside className="orbit-nav">
