@@ -276,7 +276,12 @@
   .neo-rail { width:206px; }
   .neo-holo { width:292px; }
 }
-@media (max-width:920px) {
+/* Keep the full desktop HUD on unfolded foldables in landscape. Their CSS
+   viewport often lands around 720-920px wide, which used to trip this compact
+   layout despite having enough two-dimensional room for the desktop controls. */
+@media (max-width:719px),
+       (max-width:920px) and (orientation:portrait),
+       (max-width:920px) and (max-height:599px) {
   .neo-rail, .neo-radar-wrap, .neo-breadth, .neo-classic-chip { display:none; }
   .neo-brand-copy small { display:none; }
   .neo-header { height:64px; padding:0 14px; }

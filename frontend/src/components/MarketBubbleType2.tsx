@@ -813,7 +813,15 @@ export default function MarketBubbleType2() {
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage || webglBroken) return;
-    const mobile = window.innerWidth <= 820;
+    // An unfolded Galaxy Fold in landscape has a tablet-sized viewport but can
+    // still fall below the old width-only mobile breakpoint. Keep the full
+    // desktop scene/UI quality there; compact only genuinely narrow, portrait,
+    // or short phone viewports. This mirrors the CSS media query below.
+    const foldLandscapeDesktop =
+      window.innerWidth >= 720 &&
+      window.innerHeight >= 600 &&
+      window.innerWidth > window.innerHeight;
+    const mobile = window.innerWidth <= 820 && !foldLandscapeDesktop;
     const baseFov = mobile ? 58 : 50;
     let engine: Engine;
     try {
