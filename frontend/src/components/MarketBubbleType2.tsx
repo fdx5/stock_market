@@ -32,6 +32,7 @@ type Orb = {
   index: number;
   group: THREE.Group;
   core: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
+  atmo: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   halo: THREE.Sprite;
   ring: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial> | null;
   labelSprite: THREE.Sprite;
@@ -75,13 +76,16 @@ type Engine = {
   starMatFar: THREE.ShaderMaterial;
   starMatNear: THREE.ShaderMaterial;
   nebulaMat: THREE.ShaderMaterial;
+  dustMat: THREE.ShaderMaterial;
+  dustGroup: THREE.Group;
+  pixelRatioUniforms: { value: number }[];
   rings: RingSlot[];
   bursts: BurstSlot[];
 };
 
 let CORE_GEO: THREE.SphereGeometry | null = null;
 function coreGeometry() {
-  if (!CORE_GEO) CORE_GEO = new THREE.SphereGeometry(1, 52, 36);
+  if (!CORE_GEO) CORE_GEO = new THREE.SphereGeometry(1, 72, 50);
   return CORE_GEO;
 }
 let RING_GEO: THREE.RingGeometry | null = null;
@@ -97,9 +101,10 @@ function haloTexture() {
   const ctx = canvas.getContext("2d");
   if (ctx) {
     const grad = ctx.createRadialGradient(64, 64, 2, 64, 64, 62);
-    grad.addColorStop(0, "rgba(255,255,255,.9)");
-    grad.addColorStop(.24, "rgba(255,255,255,.34)");
-    grad.addColorStop(.55, "rgba(255,255,255,.09)");
+    grad.addColorStop(0, "rgba(255,255,255,.95)");
+    grad.addColorStop(.12, "rgba(255,255,255,.5)");
+    grad.addColorStop(.34, "rgba(255,255,255,.15)");
+    grad.addColorStop(.68, "rgba(255,255,255,.04)");
     grad.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 128, 128);
@@ -107,10 +112,30 @@ function haloTexture() {
   HALO_TEX = new THREE.CanvasTexture(canvas);
   return HALO_TEX;
 }
+let GLOW_TEX: THREE.CanvasTexture | null = null;
+function glowTexture() {
+  if (GLOW_TEX) return GLOW_TEX;
+  const canvas = document.createElement("canvas");
+  canvas.width = 256; canvas.height = 256;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    const grad = ctx.createRadialGradient(128, 128, 4, 128, 128, 126);
+    grad.addColorStop(0, "rgba(255,255,255,.9)");
+    grad.addColorStop(.18, "rgba(255,255,255,.38)");
+    grad.addColorStop(.45, "rgba(255,255,255,.12)");
+    grad.addColorStop(.75, "rgba(255,255,255,.03)");
+    grad.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 256, 256);
+  }
+  GLOW_TEX = new THREE.CanvasTexture(canvas);
+  return GLOW_TEX;
+}
 
 function disposeOrbs(orbs: Orb[]) {
   orbs.forEach((orb) => {
     orb.core.material.dispose();
+    orb.atmo.material.dispose();
     orb.halo.material.dispose();
     orb.ring?.material.dispose();
     orb.labelTexture.dispose();
@@ -186,8 +211,8 @@ function logoPastelPalette(src: string, cacheKey: string) {
           : new THREE.Color((neutralWeight ? neutral / neutralWeight : 112) / 255);
         const hsl = { h: 0, s: 0, l: 0 }; source.getHSL(hsl);
         const saturation = dominant.weight > 1 ? Math.min(.96, Math.max(.7, hsl.s * 1.06)) : .24;
-        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .58);
-        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.98, saturation * 1.04), .3);
+        const pastel = new THREE.Color().setHSL(hsl.h, saturation, .47);
+        const shade = new THREE.Color().setHSL(hsl.h, Math.min(.98, saturation * 1.04), .21);
         resolve([`#${pastel.getHexString()}`, `#${shade.getHexString()}`]);
       } catch { resolve(["#8fd6ff", "#2b5f8f"]); }
     };
@@ -203,9 +228,21 @@ function formatPrice(item: StockBoardItem, market: Market) {
     ? `$${item.close.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
     : `${Math.round(item.close).toLocaleString("ko-KR")}원`;
 }
-function formatChangeAbs(item: StockBoardItem) {
-  const digits = Math.abs(item.change) >= 100 ? 0 : 2;
-  return `${item.change > 0 ? "+" : ""}${item.change.toLocaleString("ko-KR", { minimumFractionDigits: item.change % 1 === 0 ? 0 : digits, maximumFractionDigits: digits })}`;
+/** Signed change with the currency symbol on the correct side ($ prefix / 원 suffix). */
+function formatChangeWithUnit(item: StockBoardItem, market: Market) {
+  const sign = item.change < 0 ? "-" : "+";
+  const abs = Math.abs(item.change);
+  const digits = abs >= 100 ? 0 : 2;
+  const num = abs.toLocaleString(market === "nasdaq" ? "en-US" : "ko-KR", {
+    minimumFractionDigits: Number.isInteger(abs) ? 0 : digits,
+    maximumFractionDigits: digits,
+  });
+  return market === "nasdaq" ? `${sign}$${num}` : `${sign}${num}원`;
+}
+function formatClock(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "--:--:--";
+  return d.toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 function formatMarketCap(item: StockBoardItem, market: Market): string {
   if (market === "nasdaq") {
@@ -255,7 +292,7 @@ void main(){
 
 const CORE_FRAG = `
 uniform vec3 uColorA; uniform vec3 uColorB; uniform vec3 uTint;
-uniform float uTime; uniform float uSeed; uniform float uPulse; uniform float uDim; uniform float uToneAmt;
+uniform float uTime; uniform float uSeed; uniform float uPulse; uniform float uDim; uniform float uToneAmt; uniform float uType;
 varying vec3 vN; varying vec3 vLocal; varying vec3 vWorld;
 float hash(vec3 p){ return fract(sin(dot(p, vec3(127.1,311.7,74.7)))*43758.5453); }
 float noise(vec3 p){
@@ -263,51 +300,133 @@ float noise(vec3 p){
   return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
              mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
 }
-float fbm(vec3 p){ float v=0.0; float a=0.5; for(int k=0;k<4;k++){ v+=a*noise(p); p=p*2.07+7.31; a*=0.52; } return v; }
+/* Low-octave fbm only: fewer layers = softer, silkier surface gradients. */
+float fbm(vec3 p){ float v=0.0; float a=0.5; for(int k=0;k<3;k++){ v+=a*noise(p); p=p*2.02+11.3; a*=0.55; } return v; }
+/* Smooth-gradient surface model. One low-frequency field per planet type drives
+   a clean A→B colour blend — no bump mapping, no high-frequency grain, so the
+   spheres read as polished gradient worlds instead of rocky lumps.
+   g: pattern value · glo: glossiness · emi: self-glow · cap: polar ice whitening */
+void surf(in vec3 pr, in float t, out float g, out float glo, out float emi, out float cap){
+  g=0.5; glo=0.35; emi=0.0; cap=0.0;
+  if(uType<0.5){
+    /* banded gas giant: soft latitude bands meandering very slowly */
+    float w=fbm(pr*1.15+uSeed*7.7+vec3(t*0.018,0.0,-t*0.012));
+    float band=sin(pr.y*8.6+w*2.4+t*0.05);
+    g=0.5+0.5*band; g=g*g*(3.0-2.0*g);
+    glo=0.36;
+  } else if(uType<1.5){
+    /* ocean world: broad continents with wide soft shorelines + smooth ice caps */
+    float c=fbm(pr*1.30+uSeed*13.1+vec3(t*0.01,0.0,t*0.008));
+    float land=smoothstep(0.44,0.62,c);
+    cap=smoothstep(0.80,0.96,abs(pr.y)+c*0.05-0.02)*0.85;
+    g=clamp(land*0.82+c*0.22+0.06,0.0,1.0);
+    glo=mix(0.55,0.22,land);
+  } else if(uType<2.5){
+    /* marble moon: broad silky patches (former craters, now smooth) */
+    float m=fbm(pr*1.05+uSeed*19.3+vec3(0.0,t*0.006,0.0));
+    g=smoothstep(0.32,0.70,m);
+    glo=0.20;
+  } else if(uType<3.5){
+    /* frost giant: silky streaks flowing around the sphere */
+    vec3 q=vec3(pr.x*1.05,pr.y*2.4,pr.z*1.05);
+    float s=fbm(q+uSeed*29.7+vec3(-t*0.025,t*0.012,0.0));
+    g=smoothstep(0.34,0.68,s);
+    glo=0.66;
+  } else if(uType<4.5){
+    /* ember world: charcoal-smooth body with soft glowing fissures */
+    float v=fbm(pr*1.45+uSeed*23.9+vec3(0.0,t*0.01,0.0));
+    float fissure=pow(max(0.0,1.0-abs(v-0.5)*3.0),3.2);
+    g=0.20+fissure*0.50;
+    emi=fissure*0.85;
+    glo=0.26;
+  } else {
+    /* pale gas world: gentler, wider bands than type 0 */
+    float w=fbm(pr*0.95+uSeed*31.3+vec3(0.0,t*0.014,0.0));
+    float band=sin(pr.y*4.9+w*2.0+t*0.04);
+    g=clamp(0.5+0.44*band,0.0,1.0);
+    glo=0.52;
+  }
+}
+void main(){
+  vec3 N=normalize(vN);
+  vec3 V=normalize(cameraPosition-vWorld);
+  vec3 p=normalize(vLocal);
+  float rot=uTime*0.045+uSeed*6.2831853;
+  float ca=cos(rot), sa=sin(rot);
+  vec3 pr=vec3(ca*p.x-sa*p.z, p.y, sa*p.x+ca*p.z);
+  float t=uTime*0.5;
+  float g,glo,emi,cap;
+  surf(pr,t,g,glo,emi,cap);
+  float ndv=clamp(dot(N,V),0.0,1.0);
+  /* gentle latitude falloff blended under the pattern keeps every planet
+     reading as one smooth two-tone gradient sphere */
+  float lat=0.5+0.5*sin(pr.y*2.6+uSeed*3.0);
+  float m=clamp(g*0.78+lat*0.22,0.0,1.0);
+  vec3 Lk=normalize(vec3(-0.52,0.72,0.46));
+  vec3 Lf=normalize(vec3(0.62,-0.28,0.5));
+  float wrapk=pow(clamp(dot(N,Lk)*0.5+0.5,0.0,1.0),1.5);
+  float difff=clamp(dot(N,Lf),0.0,1.0);
+  vec3 base=mix(uColorB,uColorA,m);
+  base*=0.96+m*0.07;
+  if(cap>0.002){ base=mix(base,vec3(0.88,0.93,0.97),cap); }
+  base=mix(base,uTint,uToneAmt*(0.16+0.28*m));
+  float fr=0.04+0.96*pow(1.0-ndv,5.0);
+  vec3 R=reflect(-V,N);
+  vec3 env=mix(vec3(0.05,0.07,0.12),vec3(0.17,0.24,0.37),clamp(R.y*0.5+0.5,0.0,1.0));
+  env+=vec3(0.95,0.97,1.0)*pow(max(dot(R,Lk),0.0),40.0)*0.55;
+  env+=vec3(0.34,0.52,0.72)*pow(max(dot(R,normalize(vec3(0.30,0.82,-0.42))),0.0),16.0)*0.20;
+  vec3 H=normalize(Lk+V);
+  float ndh=clamp(dot(N,H),0.0,1.0);
+  float sglo=glo*(1.0-cap*0.45);
+  float spec=pow(ndh,mix(110.0,54.0,sglo))*(0.30+sglo*0.45)+pow(ndh,14.0)*0.06;
+  vec3 col=base*(0.38+0.56*wrapk+difff*0.10);
+  col+=env*fr*(0.65+glo*0.5);
+  col+=spec*mix(vec3(1.0),uColorA,0.30)*(0.30+0.55*fr);
+  col+=uColorA*pow(1.0-ndv,3.4)*0.42;
+  col+=mix(uColorA,uTint,0.55)*emi*(1.0+uPulse)*(1.0-wrapk*0.5)*1.15;
+  col+=uTint*uPulse*0.90;
+  col*=0.88+uPulse*0.45;
+  float lg=dot(col,vec3(0.299,0.587,0.114));
+  col=mix(vec3(lg),col,1.10);
+  vec3 scc=col*col*(3.0-2.0*col);
+  col=mix(col,scc,0.22);
+  /* fine dither stays: it hides banding on the now-smooth gradients */
+  col+=(hash(vec3(gl_FragCoord.xy,uTime))-0.5)*0.010;
+  col*=mix(0.30,1.0,uDim);
+  gl_FragColor=vec4(col,1.0);
+}`;
+
+/* Guaranteed-compile fallback for GPUs that reject the heavy core shader —
+   keeps planets looking like shaded worlds instead of flat billiard balls. */
+const FALLBACK_VERT = `
+varying vec3 vN; varying vec3 vLocal; varying vec3 vWorld;
+void main(){
+  vN = normalize(normalMatrix * normal);
+  vLocal = position;
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorld = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+const FALLBACK_FRAG = `
+uniform vec3 uColorA; uniform vec3 uColorB; uniform float uDim; uniform float uSeed;
+varying vec3 vN; varying vec3 vLocal; varying vec3 vWorld;
 void main(){
   vec3 N = normalize(vN);
   vec3 V = normalize(cameraPosition - vWorld);
   vec3 p = normalize(vLocal);
-  float rot = uTime*0.055 + uSeed*6.28318;
+  float rot = uSeed * 6.2831853;
   float ca = cos(rot), sa = sin(rot);
   vec3 pr = vec3(ca*p.x - sa*p.z, p.y, sa*p.x + ca*p.z);
-  float t = uTime*0.15;
-  vec3 q = pr*2.35 + uSeed*13.1;
-  float w1 = fbm(q + vec3(t, -t*0.7, t*0.45));
-  float w2 = fbm(q*1.75 + vec3(-t*0.8, t*0.55, t*0.9) + w1*1.45);
-  float swirl = fbm(q + w2*2.15 + vec3(0.0, t*1.15, 0.0));
-  float bandsRaw = 0.5 + 0.5*sin((pr.y + w2*0.55)*8.5 + uTime*0.32 + uSeed*19.0);
-  float bands = mix(bandsRaw, 0.5, 0.58);
-  float grain = fbm(pr*7.4 + w1*1.85 + uSeed*31.0);
-  float mask = smoothstep(0.33, 0.86, swirl*0.70 + bands*0.30);
-  vec3 base = mix(uColorB, uColorA, mask);
-  base *= 0.92 + grain*0.16;
-  base = mix(base, uTint, uToneAmt*(0.24 + 0.3*mask));
-  vec3 L1 = normalize(vec3(-0.55, 0.78, 0.42));
-  vec3 L2 = normalize(vec3(0.66, -0.22, 0.55));
-  float wrapd = pow(clamp(dot(N,L1)*0.5+0.5, 0.0, 1.0), 1.7);
-  float diff2 = clamp(dot(N,L2), 0.0, 1.0);
-  float ang = clamp(dot(N,V), 0.0, 1.0);
-  float film = cos((1.0-ang)*7.5 + swirl*3.2 + uTime*0.2 + uSeed*17.0)*0.5+0.5;
-  vec3 irid = vec3(
-    0.5+0.5*cos(film*6.28318),
-    0.5+0.5*cos(film*6.28318 + 2.094),
-    0.5+0.5*cos(film*6.28318 + 4.188));
-  vec3 H1 = normalize(L1+V);
-  float spec = pow(clamp(dot(N,H1), 0.0, 1.0), 52.0);
-  vec3 H2 = normalize(L2+V);
-  float spec2 = pow(clamp(dot(N,H2), 0.0, 1.0), 22.0)*0.22;
-  float fres = pow(1.0-ang, 2.6);
-  vec3 col = base*(0.30 + 0.40*wrapd + diff2*0.13);
-  col = mix(col, col*irid, 0.14 + 0.12*fres);
-  col += base*spec*0.26;
-  col += vec3(1.0)*spec2*0.09;
-  col += uColorA*fres*0.55;
-  col += vec3(1.0)*pow(fres, 3.5)*0.26;
-  col += uTint*uPulse*1.0;
-  col *= (0.84 + uPulse*0.55);
-  col *= mix(0.30, 1.0, uDim);
-  gl_FragColor = vec4(col, 0.92);
+  float band = 0.5 + 0.5*sin(pr.y*7.0 + sin(pr.x*3.0 + uSeed*40.0)*1.4);
+  vec3 L = normalize(vec3(-0.52, 0.72, 0.46));
+  float diff = clamp(dot(N, L), 0.0, 1.0);
+  float rim = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 2.6);
+  vec3 col = mix(uColorB, uColorA, band);
+  col *= 0.30 + 0.72*diff;
+  col += uColorA * rim * 0.45;
+  col *= mix(0.35, 1.0, uDim);
+  gl_FragColor = vec4(col, 1.0);
 }`;
 
 const STAR_VERT = `
@@ -345,18 +464,18 @@ float noise(vec3 p){
   return mix(mix(mix(hash(i),hash(i+vec3(1,0,0)),f.x),mix(hash(i+vec3(0,1,0)),hash(i+vec3(1,1,0)),f.x),f.y),
              mix(mix(hash(i+vec3(0,0,1)),hash(i+vec3(1,0,1)),f.x),mix(hash(i+vec3(0,1,1)),hash(i+vec3(1,1,1)),f.x),f.y),f.z);
 }
-float fbm(vec3 p){ float v=0.0; float a=0.5; for(int k=0;k<5;k++){ v+=a*noise(p); p=p*2.02+11.3; a*=0.55; } return v; }
+float fbm(vec3 p){ float v=0.0; float a=0.5; for(int k=0;k<3;k++){ v+=a*noise(p); p=p*2.02+11.3; a*=0.55; } return v; }
 void main(){
   vec3 d = normalize(vDir);
   float n = fbm(d*3.1 + vec3(uTime*0.012, 0.0, uTime*0.008));
-  float n2 = fbm(d*6.4 - vec3(uTime*0.02, uTime*0.01, 0.0));
+  float n2 = fbm(d*5.6 - vec3(uTime*0.02, uTime*0.01, 0.0));
   vec3 deep = vec3(0.012, 0.02, 0.05);
   vec3 violet = vec3(0.062, 0.032, 0.128);
   vec3 col = mix(deep, violet, smoothstep(0.38, 0.86, n));
-  float cyanBand = smoothstep(0.62, 0.95, n2) * smoothstep(0.9, 0.35, abs(d.y));
+  float cyanBand = smoothstep(0.60, 0.92, n2) * smoothstep(0.9, 0.35, abs(d.y));
   col += vec3(0.04, 0.15, 0.21) * cyanBand * 0.42;
-  float magenta = smoothstep(0.70, 0.98, fbm(d*4.4 + 31.7 + uTime*0.006));
-  col += vec3(0.14, 0.036, 0.17) * magenta * 0.26;
+  float magenta = smoothstep(0.72, 0.98, n) * smoothstep(0.55, 0.9, n2);
+  col += vec3(0.14, 0.036, 0.17) * magenta * 0.30;
   float horizon = smoothstep(-0.25, 0.4, d.y);
   col *= 0.5 + 0.5*horizon;
   col += vec3(0.007, 0.012, 0.024);
@@ -382,6 +501,29 @@ void main(){
   float a = smoothstep(0.5, 0.04, d) * vFade;
   vec3 col = mix(vec3(1.0), uColor, 0.55);
   gl_FragColor = vec4(col*a*0.75, a);
+}`;
+
+const ATMO_VERT = `
+varying vec3 vN; varying vec3 vWorld;
+void main(){
+  vN = normalize(normalMatrix * normal);
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorld = wp.xyz;
+  gl_Position = projectionMatrix * viewMatrix * wp;
+}`;
+
+const ATMO_FRAG = `
+uniform vec3 uColor; uniform float uPulse; uniform float uTime;
+varying vec3 vN; varying vec3 vWorld;
+void main(){
+  vec3 N = normalize(vN);
+  vec3 V = normalize(cameraPosition - vWorld);
+  float rim = pow(1.0 - clamp(dot(N,V), 0.0, 1.0), 3.4);
+  vec3 L = normalize(vec3(-0.52, 0.72, 0.46));
+  float day = clamp(dot(N,L)*0.6 + 0.45, 0.0, 1.0);
+  float shimmer = 0.94 + 0.06*sin(uTime*0.9 + N.y*7.0 + N.x*5.0);
+  vec3 col = uColor * rim * day * (1.1 + uPulse*1.5) * shimmer;
+  gl_FragColor = vec4(col, rim*day*0.55);
 }`;
 
 function drawLabel(orb: Orb, item: StockBoardItem, market: Market, palette: [string, string] | null) {
@@ -415,27 +557,57 @@ function drawLabel(orb: Orb, item: StockBoardItem, market: Market, palette: [str
   ctx.globalAlpha = .85;
   ctx.fillRect(x0 + 8 * scale, y0 + 8 * scale, 3.4 * scale, chipH - 16 * scale);
   ctx.globalAlpha = 1;
-  const logoSize = 40 * scale;
+  const plate = 47 * scale;
+  const plateX = -chipW / 2 + 12 * scale;
+  const pr2 = 10 * scale;
+  const py0 = -plate / 2;
+  ctx.beginPath();
+  ctx.moveTo(plateX + pr2, py0);
+  ctx.arcTo(plateX + plate, py0, plateX + plate, py0 + plate, pr2);
+  ctx.arcTo(plateX + plate, py0 + plate, plateX, py0 + plate, pr2);
+  ctx.arcTo(plateX, py0 + plate, plateX, py0, pr2);
+  ctx.arcTo(plateX, py0, plateX + plate, py0, pr2);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(240,245,250,.98)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(150,205,255,.42)";
+  ctx.lineWidth = 1.1 * scale;
+  ctx.stroke();
   if (orb.logoImg && orb.logoImg.complete && orb.logoImg.naturalWidth > 1) {
-    try { ctx.drawImage(orb.logoImg, -chipW / 2 + 17 * scale, -logoSize / 2, logoSize, logoSize); } catch { /* tainted */ }
+    const iw = orb.logoImg.naturalWidth, ih = orb.logoImg.naturalHeight;
+    const box = plate - 9 * scale;
+    const fit = Math.min(box / iw, box / ih);
+    const dw = iw * fit, dh = ih * fit;
+    try {
+      ctx.drawImage(orb.logoImg, plateX + (plate - dw) / 2, -dh / 2, dw, dh);
+    } catch {
+      ctx.fillStyle = "#1c3a5e";
+      ctx.font = `900 ${20 * scale}px Pretendard, sans-serif`;
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(item.name.slice(0, 1), plateX + plate / 2, 0);
+    }
   } else {
-    ctx.fillStyle = accent;
-    ctx.font = `900 ${21 * scale}px Pretendard, "Noto Sans KR", sans-serif`;
+    ctx.fillStyle = "#1c3a5e";
+    ctx.font = `900 ${22 * scale}px Pretendard, "Noto Sans KR", sans-serif`;
     ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.globalAlpha = .8;
-    ctx.fillText(item.name.slice(0, 1), -chipW / 2 + 17 * scale + logoSize / 2, 0);
-    ctx.globalAlpha = 1;
+    ctx.fillText(item.name.slice(0, 1), plateX + plate / 2, 1 * scale);
   }
-  const textX = -chipW / 2 + 17 * scale + logoSize + 11 * scale;
+  const textX = plateX + plate + 10 * scale;
   ctx.textAlign = "left";
   ctx.textBaseline = "alphabetic";
   ctx.font = `800 ${17.5 * scale}px Pretendard, "Noto Sans KR", sans-serif`;
-  ctx.fillStyle = "rgba(238,248,255,.96)";
-  ctx.shadowColor = accent; ctx.shadowBlur = 7 * scale;
-  ctx.fillText(shortName(item, market), textX, -6 * scale);
-  ctx.shadowBlur = 0;
+  const maxNameW = chipW / 2 - textX - 10 * scale;
+  let nameText = shortName(item, market);
+  if (ctx.measureText(nameText).width > maxNameW) {
+    while (nameText.length > 1 && ctx.measureText(nameText + "…").width > maxNameW) {
+      nameText = nameText.slice(0, -1);
+    }
+    nameText += "…";
+  }
+  ctx.fillStyle = "#dfeaf4";
+  ctx.fillText(nameText, textX, -6 * scale);
   const up = item.change_pct > .04, down = item.change_pct < -.04;
-  const priceColor = up ? "#4dffb0" : down ? "#ff6b81" : "#cfdcea";
+  const priceColor = up ? "#43dfa1" : down ? "#ef5a70" : "#c2cfdd";
   ctx.font = `900 ${16 * scale}px Pretendard, "Noto Sans KR", sans-serif`;
   ctx.fillStyle = priceColor;
   ctx.fillText(formatPrice(item, market), textX, 15 * scale);
@@ -447,7 +619,7 @@ function drawLabel(orb: Orb, item: StockBoardItem, market: Market, palette: [str
   ctx.font = `900 ${11.5 * scale}px Pretendard, "Noto Sans KR", sans-serif`;
   const rankW = ctx.measureText(rankLabel).width + 10 * scale;
   ctx.fillStyle = "rgba(10,20,38,.85)";
-  ctx.strokeStyle = item.rank <= 3 ? "rgba(255,208,102,.85)" : "rgba(126,200,255,.4)";
+  ctx.strokeStyle = item.rank <= 3 ? "rgba(230,190,110,.8)" : "rgba(126,200,255,.4)";
   ctx.lineWidth = 1.2 * scale;
   const rx = chipW / 2 - rankW - 7 * scale, ry = y0 + 7 * scale, rh = 16 * scale;
   const rr = 8 * scale;
@@ -459,7 +631,7 @@ function drawLabel(orb: Orb, item: StockBoardItem, market: Market, palette: [str
   ctx.arcTo(rx, ry, rx + rankW, ry, rr);
   ctx.closePath();
   ctx.fill(); ctx.stroke();
-  ctx.fillStyle = item.rank <= 3 ? "#ffd66e" : "#bcdcff";
+  ctx.fillStyle = item.rank <= 3 ? "#eec86a" : "#b3cee6";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText(rankLabel, rx + rankW / 2, ry + rh / 2 + .5 * scale);
   ctx.restore();
@@ -483,6 +655,8 @@ export default function MarketBubbleType2() {
   const [sectorFilter, setSectorFilter] = useState<string | null>(null);
   const [splashGone, setSplashGone] = useState(false);
   const [webglBroken, setWebglBroken] = useState(false);
+  /** Bumped when the GL context is lost & restored so the whole engine rebuilds. */
+  const [glEpoch, setGlEpoch] = useState(0);
 
   const stageRef = useRef<HTMLDivElement>(null);
   const reticleRef = useRef<HTMLDivElement>(null);
@@ -509,6 +683,8 @@ export default function MarketBubbleType2() {
   const prevClosesRef = useRef<Map<string, number>>(new Map());
   const mmAccRef = useRef(1);
   const sectorFilterRef = useRef<string | null>(null);
+  const discussionOpenRef = useRef(false);
+  const coreFallbackRef = useRef(false);
   const selectRef = useRef<(idx: number, fromTour?: boolean) => void>(() => {});
   const eruptionRef = useRef<(orb: Orb) => void>(() => {});
   const applyFilterRef = useRef(() => {});
@@ -521,6 +697,7 @@ export default function MarketBubbleType2() {
   labelsOnRef.current = labelsOn;
   linesOnRef.current = linesOn;
   sectorFilterRef.current = sectorFilter;
+  discussionOpenRef.current = discussionIndex != null;
 
   const codesKey = useMemo(() => itemsRef.current.map((it) => it.code).join(","), [board]);
   const sectorChips = useMemo(() => {
@@ -584,6 +761,17 @@ export default function MarketBubbleType2() {
     });
   };
 
+  const makeFallbackCoreMaterial = (index: number) => new THREE.ShaderMaterial({
+    vertexShader: FALLBACK_VERT,
+    fragmentShader: FALLBACK_FRAG,
+    uniforms: {
+      uColorA: { value: new THREE.Color(colorsRef.current[index]?.[0] ?? "#8fd6ff") },
+      uColorB: { value: new THREE.Color(colorsRef.current[index]?.[1] ?? "#20456e") },
+      uDim: { value: 1 },
+      uSeed: { value: seeded(index, 11) },
+    },
+  });
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -626,19 +814,20 @@ export default function MarketBubbleType2() {
     const stage = stageRef.current;
     if (!stage || webglBroken) return;
     const mobile = window.innerWidth <= 820;
+    const baseFov = mobile ? 58 : 50;
     let engine: Engine;
     try {
       const renderer = new THREE.WebGLRenderer({ antialias: !mobile, powerPreference: "high-performance" });
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobile ? 1.25 : 1.6));
       renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = .72;
+      renderer.toneMappingExposure = .88;
       renderer.setClearColor(0x030512, 1);
       renderer.domElement.className = "neo-canvas";
       stage.appendChild(renderer.domElement);
 
       const scene = new THREE.Scene();
-      const camera = new THREE.PerspectiveCamera(50, 1, 10, 12000);
+      const camera = new THREE.PerspectiveCamera(baseFov, 1, 10, 12000);
       camera.position.set(0, 1750, 2750);
 
       const controls = new OrbitControls(camera, renderer.domElement);
@@ -648,7 +837,7 @@ export default function MarketBubbleType2() {
       controls.rotateSpeed = .55;
       controls.zoomSpeed = .8;
       controls.minDistance = 220;
-      controls.maxDistance = 3200;
+      controls.maxDistance = 4200;
       controls.maxPolarAngle = Math.PI * .88;
       controls.autoRotateSpeed = .45;
       controls.enabled = false;
@@ -660,6 +849,20 @@ export default function MarketBubbleType2() {
         side: THREE.BackSide, depthWrite: false,
       });
       scene.add(new THREE.Mesh(new THREE.SphereGeometry(5200, 40, 26), nebulaMat));
+      renderer.debug.onShaderError = (...args: unknown[]) => {
+        coreFallbackRef.current = true;
+        try {
+          const gl = renderer.getContext();
+          const parts: string[] = [];
+          args.forEach((a) => {
+            if (a != null && typeof a === "object") {
+              try { const s = gl.getShaderInfoLog(a as WebGLShader); if (s) parts.push(s.slice(0, 900)); } catch { /* not a shader */ }
+              try { const s = gl.getProgramInfoLog(a as WebGLProgram); if (s) parts.push("PROG: " + s.slice(0, 500)); } catch { /* not a program */ }
+            }
+          });
+          console.error("[NEO-SHADER-FAIL]", parts.join(" || ") || "no info");
+        } catch { /* noop */ }
+      };
 
       const makeStars = (count: number, rMin: number, rMax: number, sizeMin: number, sizeMax: number) => {
         const geo = new THREE.BufferGeometry();
@@ -686,8 +889,53 @@ export default function MarketBubbleType2() {
         scene.add(points);
         return mat;
       };
-      const starMatFar = makeStars(mobile ? 850 : 1500, 2400, 4300, 1.4, 3.4);
-      const starMatNear = makeStars(mobile ? 260 : 520, 750, 1900, 2.2, 5.2);
+      const starMatFar = makeStars(mobile ? 750 : 1150, 2400, 4300, 1.4, 3.4);
+      const starMatNear = makeStars(mobile ? 260 : 430, 750, 1900, 2.2, 5.2);
+
+      const dustCount = mobile ? 320 : 560;
+      const dustGeo = new THREE.BufferGeometry();
+      const dPos = new Float32Array(dustCount * 3);
+      const dSize = new Float32Array(dustCount);
+      const dSeed = new Float32Array(dustCount);
+      for (let i = 0; i < dustCount; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const rad = 140 + Math.pow(Math.random(), .72) * 680;
+        dPos[i * 3] = Math.cos(ang) * rad;
+        dPos[i * 3 + 1] = (Math.random() - .5) * 42 * (1 - Math.min(1, rad / 1000));
+        dPos[i * 3 + 2] = Math.sin(ang) * rad;
+        dSize[i] = .9 + Math.random() * 2.1;
+        dSeed[i] = Math.random();
+      }
+      dustGeo.setAttribute("position", new THREE.BufferAttribute(dPos, 3));
+      dustGeo.setAttribute("aSize", new THREE.BufferAttribute(dSize, 1));
+      dustGeo.setAttribute("aSeed", new THREE.BufferAttribute(dSeed, 1));
+      const dustMat = new THREE.ShaderMaterial({
+        vertexShader: STAR_VERT, fragmentShader: STAR_FRAG,
+        uniforms: { uTime: { value: 0 }, uWarp: { value: 0 }, uPixelRatio: { value: renderer.getPixelRatio() } },
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      });
+      const dustPoints = new THREE.Points(dustGeo, dustMat);
+      dustPoints.frustumCulled = false;
+      const dustGroup = new THREE.Group();
+      dustGroup.add(dustPoints);
+      scene.add(dustGroup);
+
+      const mkGlowSprite = (color: number, scale: number, opacity: number, pos: [number, number, number], order: number) => {
+        const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: glowTexture(), color, transparent: true, opacity,
+          blending: THREE.AdditiveBlending, depthWrite: false,
+        }));
+        sp.scale.set(scale, scale, 1);
+        sp.position.set(pos[0], pos[1], pos[2]);
+        sp.renderOrder = order;
+        scene.add(sp);
+        return sp;
+      };
+      mkGlowSprite(0x4f8fd9, 1500, .17, [0, -30, 0], -4);
+      mkGlowSprite(0xbfe4ff, 430, .15, [0, -10, 0], -3);
+      mkGlowSprite(0x7a5bd9, 3400, .12, [-1900, 380, -2300], -5);
+      mkGlowSprite(0x2fa8c9, 2900, .1, [2100, -160, -2000], -5);
+      mkGlowSprite(0xc95bb9, 3100, .09, [500, 980, 2400], -5);
 
       const grid = new THREE.PolarGridHelper(900, 12, 7, 108, 0x1e4a7a, 0x143055);
       grid.position.y = -170;
@@ -705,7 +953,7 @@ export default function MarketBubbleType2() {
 
       const composer = new EffectComposer(renderer);
       composer.addPass(new RenderPass(scene, camera));
-      const bloom = new UnrealBloomPass(new THREE.Vector2(stage.clientWidth || 1280, stage.clientHeight || 720), .3, .45, .68);
+      const bloom = new UnrealBloomPass(new THREE.Vector2(stage.clientWidth || 1280, stage.clientHeight || 720), .28, .55, .5);
       composer.addPass(bloom);
       composer.addPass(new OutputPass());
 
@@ -741,8 +989,18 @@ export default function MarketBubbleType2() {
         bursts.push({ points, positions, velocities, ages, sizes, age: 0, life: 1.35, active: false });
       }
 
-      engine = { renderer, scene, camera, controls, composer, bloom, galaxy, constellationGroup, starMatFar, starMatNear, nebulaMat, rings, bursts };
+      engine = { renderer, scene, camera, controls, composer, bloom, galaxy, constellationGroup, starMatFar, starMatNear, nebulaMat, dustMat, dustGroup, pixelRatioUniforms: [starMatFar.uniforms.uPixelRatio, starMatNear.uniforms.uPixelRatio, dustMat.uniforms.uPixelRatio, ...bursts.map((b) => b.points.material.uniforms.uPixelRatio)], rings, bursts };
       engineRef.current = engine;
+      (window as unknown as { __neo?: () => unknown }).__neo = () => ({
+        fallback: coreFallbackRef.current,
+        orbs: orbsRef.current.length,
+        matType: orbsRef.current[0]?.core.material.type ?? "none",
+        colorA: (() => {
+          const u = (orbsRef.current[0]?.core.material as THREE.ShaderMaterial | undefined)?.uniforms?.uColorA?.value;
+          return u && "getHexString" in u ? `#${(u as THREE.Color).getHexString()}` : String(u);
+        })(),
+        toneAmt: (orbsRef.current[0]?.core.material as THREE.ShaderMaterial | undefined)?.uniforms?.uToneAmt?.value,
+      });
     } catch {
       setWebglBroken(true);
       return;
@@ -753,7 +1011,33 @@ export default function MarketBubbleType2() {
     const projected = new THREE.Vector3();
     const worldPos = new THREE.Vector3();
     const tmpTarget = new THREE.Vector3();
-    const overviewPose = { pos: new THREE.Vector3(60, 430, 1180), tgt: new THREE.Vector3(0, -10, 0) };
+
+    /* Dynamic overview framing. The galaxy is a flat disc (anchor clamp 720 +
+       radii/bob ≈ 800 bound) seen at ~20° pitch: its on-screen vertical extent
+       is the foreshortened tilt, its horizontal extent is the full radius. Fit
+       both frustum axes separately so every planet stays framed on any aspect
+       ratio without pushing the camera farther than needed. */
+    const GALAXY_BOUND = 800;
+    const computeOverviewPose = () => {
+      const w = stage?.clientWidth || 16;
+      const h = Math.max(1, stage?.clientHeight || 9);
+      const aspect = Math.max(.55, w / h);
+      const vHalf = THREE.MathUtils.degToRad(baseFov / 2);
+      const hHalf = Math.atan(Math.tan(vHalf) * aspect);
+      const dir = new THREE.Vector3(.06, .34, .94).normalize();
+      const pitch = Math.asin(dir.y);
+      const vertHalf = GALAXY_BOUND * Math.sin(pitch) + 92;
+      const horizHalf = GALAXY_BOUND * 1.08;
+      const dist = THREE.MathUtils.clamp(
+        Math.max(vertHalf / Math.sin(vHalf), horizHalf / Math.sin(hHalf)) * 1.04,
+        900, 3900,
+      );
+      return {
+        pos: dir.multiplyScalar(dist),
+        tgt: new THREE.Vector3(0, -10, 0),
+      };
+    };
+    let overviewPose = computeOverviewPose();
 
     const introStart = performance.now();
     const introFrom = camera.position.clone();
@@ -820,6 +1104,8 @@ export default function MarketBubbleType2() {
       if (hits.length) selectRef.current(hits[0].object.userData.index as number);
     };
     const onWheel = () => { lastInteractRef.current = performance.now(); stopTourRef.current(); };
+    const onContextLost = (event: Event) => { event.preventDefault(); };
+    const onContextRestored = () => setGlEpoch((v) => v + 1);
     const onDblClick = (event: MouseEvent) => {
       ndcFromEvent(event.clientX, event.clientY);
       raycaster.setFromCamera(pointerNdcRef.current, camera);
@@ -839,6 +1125,24 @@ export default function MarketBubbleType2() {
     dom.addEventListener("pointerup", onPointerUp);
     dom.addEventListener("wheel", onWheel, { passive: true });
     dom.addEventListener("dblclick", onDblClick);
+    dom.addEventListener("webglcontextlost", onContextLost);
+    dom.addEventListener("webglcontextrestored", onContextRestored);
+
+    /* Adaptive resolution: step the pixel ratio down when the average frame time
+       blows past ~26fps for a while, and back up when there is headroom. Keeps
+       weak GPUs away from driver timeouts (which black out the whole galaxy). */
+    const basePR = renderer.getPixelRatio();
+    const PR_STEPS = [basePR, basePR * .85, basePR * .72, basePR * .6];
+    let prLevel = 0;
+    let prFrames = 0;
+    let prAccum = 0;
+    let prCooldown = 0;
+    const applyPixelRatio = () => {
+      renderer.setPixelRatio(PR_STEPS[prLevel]);
+      resize();
+      const pr = PR_STEPS[prLevel];
+      engine.pixelRatioUniforms.forEach((u) => { u.value = pr; });
+    };
 
     const resize = () => {
       const w = stage.clientWidth, h = stage.clientHeight;
@@ -847,6 +1151,11 @@ export default function MarketBubbleType2() {
       composer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      overviewPose = computeOverviewPose();
+      if (introDone && !flightRef.current && selectedRef.current == null &&
+          !tourStateRef.current.on && camera.position.distanceTo(controls.target) > 640) {
+        startFlight(overviewPose.pos, overviewPose.tgt, 900);
+      }
     };
     const ro = new ResizeObserver(resize);
     ro.observe(stage);
@@ -918,6 +1227,7 @@ export default function MarketBubbleType2() {
 
     let raf = 0;
     let previous = performance.now();
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const loop = (now: number) => {
       raf = requestAnimationFrame(loop);
       if (document.hidden) { previous = now; return; }
@@ -927,10 +1237,11 @@ export default function MarketBubbleType2() {
       engine.nebulaMat.uniforms.uTime.value = t;
       engine.starMatFar.uniforms.uTime.value = t;
       engine.starMatNear.uniforms.uTime.value = t * 1.3;
+      engine.dustMat.uniforms.uTime.value = t * 1.15;
       consumeNav();
 
       if (!introDone) {
-        const p = easeInOutCubic(Math.min(1, (now - introStart) / 3200));
+        const p = easeInOutCubic(Math.min(1, (now - introStart) / 2600));
         camera.position.lerpVectors(introFrom, introTo, p);
         tmpTarget.set(0, -60, 0).lerp(overviewPose.tgt, p);
         controls.target.copy(tmpTarget);
@@ -948,20 +1259,32 @@ export default function MarketBubbleType2() {
       } else {
         warpEnvRef.current *= Math.pow(.045, dt);
         const idle = now - lastInteractRef.current > 9000 && selectedRef.current == null && !tourStateRef.current.on;
-        controls.autoRotate = idle;
+        controls.autoRotate = idle && !reducedMotion;
         controls.update();
       }
       const warp = THREE.MathUtils.clamp(warpEnvRef.current, 0, 1);
       engine.starMatFar.uniforms.uWarp.value = warp;
       engine.starMatNear.uniforms.uWarp.value = warp;
-      engine.bloom.strength = .2 + warp * .38;
-      camera.fov = 50 + warp * 15;
+      engine.dustMat.uniforms.uWarp.value = warp;
+      engine.bloom.strength = .28 + warp * .38;
+      camera.fov = baseFov + warp * 14;
       camera.updateProjectionMatrix();
       stage.style.setProperty("--neo-warp", String(Math.max(0, warp * 1.08 - .06)));
 
-      engine.galaxy.rotation.y += dt * .012;
+      engine.galaxy.rotation.y = Math.sin(t * .06) * .05;
+      engine.dustGroup.rotation.y -= dt * .028;
 
-      if (tourStateRef.current.on && !flightRef.current && now - introStart > 3400 && now >= (tourNextAtRef.current ?? 0)) {
+      /* Swap in the guaranteed-compile fallback material the moment shader
+         compilation is reported as failed — per-orb palettes preserved. */
+      coreFallbackRef.current && orbsRef.current.forEach((orb) => {
+        if ((orb.core.material as THREE.ShaderMaterial).uniforms?.uType) {
+          orb.core.material.dispose();
+          orb.core.material = makeFallbackCoreMaterial(orb.index);
+          orb.flash = 1;
+        }
+      });
+
+      if (tourStateRef.current.on && !flightRef.current && now - introStart > 2900 && now >= (tourNextAtRef.current ?? 0)) {
         const count = orbsRef.current.length;
         if (count) {
           const next = ((tourStateRef.current.idx ?? selectedRef.current ?? -1) + 1) % count;
@@ -983,11 +1306,19 @@ export default function MarketBubbleType2() {
           orb.base.z + Math.cos(t * .27 + orb.seed * 5.1) * 9,
         );
         const pulse = orb.flash;
-        orb.core.material.uniforms.uTime.value = t;
-        orb.core.material.uniforms.uPulse.value = pulse;
-        orb.core.material.uniforms.uDim.value = orb.dim;
-        orb.halo.material.opacity = (.13 + pulse * .2) * orb.dim;
-        const haloScale = orb.r * (2.55 + Math.sin(t * 1.6 + orb.seed * 6.28) * .1 + pulse * .35);
+        const coreMat = orb.core.material as THREE.ShaderMaterial;
+        if (coreMat.uniforms?.uType) {
+          coreMat.uniforms.uTime.value = t;
+          coreMat.uniforms.uPulse.value = pulse;
+          coreMat.uniforms.uDim.value = orb.dim;
+          orb.atmo.material.uniforms.uTime.value = t;
+          orb.atmo.material.uniforms.uPulse.value = pulse;
+        } else if (coreMat.uniforms?.uDim) {
+          coreMat.uniforms.uDim.value = orb.dim;
+        }
+        orb.atmo.visible = orb.dim > .35;
+        orb.halo.material.opacity = (.13 + pulse * .18) * orb.dim;
+        const haloScale = orb.r * (2.05 + Math.sin(t * 1.6 + orb.seed * 6.28) * .07 + pulse * .2);
         orb.halo.scale.set(haloScale, haloScale, 1);
         orb.labelSprite.visible = labelsOnRef.current && orb.dim > .5;
         if (orb.ring) {
@@ -999,7 +1330,8 @@ export default function MarketBubbleType2() {
       engine.constellationGroup.children.forEach((line) => {
         const target = line.userData.targetOpacity as number;
         const mat = (line as THREE.Line).material as THREE.LineBasicMaterial;
-        mat.opacity += (target - mat.opacity) * Math.min(1, dt * 6);
+        const goal = target * (.7 + .3 * Math.sin(t * .85 + (line.userData.phase as number)));
+        mat.opacity += (goal - mat.opacity) * Math.min(1, dt * 6);
       });
 
       engine.rings.forEach((slot) => {
@@ -1031,7 +1363,7 @@ export default function MarketBubbleType2() {
 
       raycaster.setFromCamera(pointerNdcRef.current, camera);
       const hits = raycaster.intersectObjects(pickMeshesRef.current, false);
-      const hovered = hits.length && !flightRef.current && now - introStart > 3300 ? hits[0].object.userData.index as number : null;
+      const hovered = hits.length && !flightRef.current && now - introStart > 2700 ? hits[0].object.userData.index as number : null;
       if (hovered !== hoverIdxRef.current) {
         hoverIdxRef.current = hovered;
         const reticle = reticleRef.current;
@@ -1066,6 +1398,16 @@ export default function MarketBubbleType2() {
       mmAccRef.current += dt;
       if (mmAccRef.current > .12) { mmAccRef.current = 0; drawMinimap(now); }
 
+      prAccum += dt;
+      prFrames++;
+      if (prCooldown > 0) prCooldown--;
+      else if (prFrames >= 75) {
+        const avg = prAccum / prFrames;
+        if (avg > .026 && prLevel < PR_STEPS.length - 1) { prLevel++; applyPixelRatio(); prCooldown = 240; }
+        else if (avg < .0145 && prLevel > 0) { prLevel--; applyPixelRatio(); prCooldown = 300; }
+        prAccum = 0; prFrames = 0;
+      }
+
       engine.composer.render();
     };
     raf = requestAnimationFrame(loop);
@@ -1079,6 +1421,8 @@ export default function MarketBubbleType2() {
       dom.removeEventListener("pointerup", onPointerUp);
       dom.removeEventListener("wheel", onWheel);
       dom.removeEventListener("dblclick", onDblClick);
+      dom.removeEventListener("webglcontextlost", onContextLost);
+      dom.removeEventListener("webglcontextrestored", onContextRestored);
       controls.dispose();
       disposeOrbs(orbsRef.current);
       orbsRef.current = [];
@@ -1096,7 +1440,7 @@ export default function MarketBubbleType2() {
       if (renderer.domElement.parentElement === stage) stage.removeChild(renderer.domElement);
       engineRef.current = null;
     };
-  }, [webglBroken]);
+  }, [webglBroken, glEpoch]);
 
   useEffect(() => {
     const engine = engineRef.current;
@@ -1126,8 +1470,8 @@ export default function MarketBubbleType2() {
       const half = Math.ceil(count / 2) - 1;
       const tt = half ? k / half : 0;
       const angle = arm * Math.PI + tt * Math.PI * 2.12 + (seeded(i, 3) - .5) * .42;
-      const radius = 190 + tt * 600 + (seeded(i, 5) - .5) * 56;
-      radii.push(i < 2 ? 52 : i < 5 ? 40 : i < 9 ? 31 : i < 15 ? 25 : 20);
+      const radius = 175 + tt * 540 + (seeded(i, 5) - .5) * 52;
+      radii.push(i < 2 ? 56 : i < 5 ? 44 : i < 9 ? 34 : i < 15 ? 27 : 21);
       anchors.push(new THREE.Vector3(
         Math.cos(angle) * radius,
         Math.sin(tt * Math.PI * 1.5 + arm * 1.3) * 30 * (1 - tt * .35) + (seeded(i, 7) - .5) * 30,
@@ -1137,7 +1481,7 @@ export default function MarketBubbleType2() {
     const spread = anchors.map((a) => a.clone());
     {
       const diff = new THREE.Vector3();
-      const maxHoriz = 800, maxY = 78;
+      const maxHoriz = 720, maxY = 84;
       const rotateXZ = (v: THREE.Vector3, ang: number) => {
         const c = Math.cos(ang), s = Math.sin(ang);
         const x = v.x, z = v.z;
@@ -1198,15 +1542,17 @@ export default function MarketBubbleType2() {
       const colorB = new THREE.Color(palette?.[1] ?? "#20456e");
       const chg = items[i].change_pct;
       const tint = new THREE.Color(chg < -.04 ? 0xff4d67 : chg > .04 ? 0x2effb0 : 0xbfd8ee);
-      const mat = new THREE.ShaderMaterial({
+      /* If a previous orb set already proved the heavy shader can't compile on
+         this GPU, build with the lightweight fallback right away. */
+      const mat = coreFallbackRef.current ? makeFallbackCoreMaterial(i) : new THREE.ShaderMaterial({
         vertexShader: CORE_VERT, fragmentShader: CORE_FRAG,
         uniforms: {
           uTime: { value: seeded(i, 11) * 20 }, uSeed: { value: seeded(i, 11) },
           uColorA: { value: colorA }, uColorB: { value: colorB },
           uTint: { value: tint }, uToneAmt: { value: THREE.MathUtils.clamp(Math.abs(chg) / 5, 0, 1) },
           uPulse: { value: 0 }, uDim: { value: 1 },
+          uType: { value: Math.floor(seeded(i, 41) * 6) },
         },
-        transparent: true,
       });
       const core = new THREE.Mesh(coreGeometry(), mat);
       core.userData.index = i;
@@ -1215,11 +1561,19 @@ export default function MarketBubbleType2() {
       group.position.copy(base);
       group.add(core);
       const halo = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: haloTexture(), color: colorA, transparent: true, opacity: .16,
+        map: haloTexture(), color: colorA, transparent: true, opacity: .22,
         blending: THREE.AdditiveBlending, depthWrite: false,
       }));
       halo.renderOrder = -1;
       group.add(halo);
+      const atmoMat = new THREE.ShaderMaterial({
+        vertexShader: ATMO_VERT, fragmentShader: ATMO_FRAG,
+        uniforms: { uColor: { value: colorA.clone() }, uPulse: { value: 0 }, uTime: { value: 0 } },
+        transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
+      });
+      const atmo = new THREE.Mesh(coreGeometry(), atmoMat);
+      atmo.scale.setScalar(r * 1.14);
+      group.add(atmo);
       let ring: Orb["ring"] = null;
       if (i === 0) {
         ring = new THREE.Mesh(ringGeometry(), new THREE.MeshBasicMaterial({
@@ -1236,7 +1590,7 @@ export default function MarketBubbleType2() {
       labelTexture.anisotropy = 8;
       labelTexture.minFilter = THREE.LinearMipmapLinearFilter;
       const labelSprite = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: labelTexture, transparent: true, depthWrite: false,
+        map: labelTexture, transparent: true, depthWrite: false, opacity: .95,
       }));
       const lw = r * 3.0;
       labelSprite.scale.set(lw, lw * (330 / 720), 1);
@@ -1244,7 +1598,7 @@ export default function MarketBubbleType2() {
       group.add(labelSprite);
       engine.galaxy.add(group);
       const orb: Orb = {
-        index: i, group, core, halo, ring,
+        index: i, group, core, atmo, halo, ring,
         labelSprite, labelCanvas, labelTexture, logoImg: null,
         base, r, seed: seeded(i, 11),
         bobAmp: 7 + seeded(i, 15) * 9,
@@ -1252,15 +1606,14 @@ export default function MarketBubbleType2() {
       };
       drawLabel(orb, items[i], marketRef.current, palette ?? null);
       const logoSrc = marketRef.current === "nasdaq" ? usCompanyLogoProxyUrl(items[i].code) : stockIconUrl(items[i].code);
-      transparentBubbleLogo(logoSrc).then((url) => {
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => {
-          orb.logoImg = img;
-          drawLabel(orb, itemsRef.current[i] ?? items[i], marketRef.current, colorsRef.current[i] ?? null);
-        };
-        img.src = url;
-      }).catch(() => undefined);
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      img.onload = () => {
+        orb.logoImg = img;
+        drawLabel(orb, itemsRef.current[i] ?? items[i], marketRef.current, colorsRef.current[i] ?? null);
+      };
+      img.onerror = () => { orb.logoImg = null; drawLabel(orb, itemsRef.current[i] ?? items[i], marketRef.current, colorsRef.current[i] ?? null); };
+      img.src = logoSrc;
       orbits.push(orb);
     }
     const bySector = new Map<string, number[]>();
@@ -1281,6 +1634,7 @@ export default function MarketBubbleType2() {
       line.userData.targetOpacity = sectorFilterRef.current
         ? (sector === sectorFilterRef.current ? .55 : .045)
         : .22;
+      line.userData.phase = seeded(members[0], 31) * 6.2831853;
       engine.constellationGroup.add(line);
     });
     engine.constellationGroup.visible = linesOnRef.current;
@@ -1306,11 +1660,14 @@ export default function MarketBubbleType2() {
     if (!engine) return;
     const items = itemsRef.current;
     orbsRef.current.forEach((orb) => {
+      const coreMat = orb.core.material as THREE.ShaderMaterial;
+      if (!coreMat.uniforms?.uColorA) return;
       const item = items[orb.index];
       if (!item) return;
       const palette = colorsRef.current[orb.index];
-      orb.core.material.uniforms.uColorA.value = new THREE.Color(palette?.[0] ?? "#8fd6ff");
-      orb.core.material.uniforms.uColorB.value = new THREE.Color(palette?.[1] ?? "#20456e");
+      coreMat.uniforms.uColorA.value = new THREE.Color(palette?.[0] ?? "#8fd6ff");
+      coreMat.uniforms.uColorB.value = new THREE.Color(palette?.[1] ?? "#20456e");
+      orb.atmo.material.uniforms.uColor.value = new THREE.Color(palette?.[0] ?? "#8fd6ff");
       orb.halo.material.color = new THREE.Color(palette?.[0] ?? "#8fd6ff");
       drawLabel(orb, item, marketRef.current, palette ?? null);
       const prevClose = prevClosesRef.current.get(item.code);
@@ -1391,6 +1748,19 @@ export default function MarketBubbleType2() {
         if (target.closest("input, textarea")) return;
         event.preventDefault();
         setTourOn((v) => !v);
+      }
+      if ((event.key === "ArrowRight" || event.key === "ArrowLeft") && !discussionOpenRef.current) {
+        const target = event.target as HTMLElement;
+        if (target.closest("input, textarea")) return;
+        const total = itemsRef.current.length;
+        if (!total) return;
+        event.preventDefault();
+        const step = event.key === "ArrowRight" ? 1 : -1;
+        const current = selectedRef.current;
+        const next = current == null
+          ? (step === 1 ? 0 : total - 1)
+          : (current + step + total) % total;
+        selectRef.current(next);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -1476,7 +1846,7 @@ export default function MarketBubbleType2() {
               </span>
             </div>
           )}
-          <div className="neo-live"><i /> LIVE <span>{board ? new Date(board.generated_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "--:--:--"}</span></div>
+          <div className="neo-live"><i /> LIVE <span>{board ? formatClock(board.generated_at) : "--:--:--"}</span></div>
         </div>
       </header>
 
@@ -1516,7 +1886,7 @@ export default function MarketBubbleType2() {
         <button type="button" className={`neo-dock-btn${linesOn ? " is-active" : ""}`} onClick={() => setLinesOn((v) => !v)}><span>✶</span>별자리</button>
       </div>
 
-      <div className="neo-hint">드래그 회전 · 휠 줌 · <b>클릭 = 워프</b> · 더블클릭 = 종목 상세 · ESC 닫기 · SPACE 투어</div>
+      <div className="neo-hint">드래그 회전 · 휠 줌 · <b>클릭 = 워프</b> · 더블클릭 = 종목 상세 · ←/→ 종목 탐색 · SPACE 투어 · ESC 닫기</div>
 
       <div className="neo-radar-wrap">
         <span className="neo-radar-caption">RADAR · 클릭 탐색</span>
@@ -1542,7 +1912,7 @@ export default function MarketBubbleType2() {
           <div className="neo-holo-quote">
             <strong>{formatPrice(selectedItem, market)}</strong>
             <div className="neo-quote-pills">
-              <b className={selectedItem.change_pct > .04 ? "is-up" : selectedItem.change_pct < -.04 ? "is-down" : ""}>{formatChangeAbs(selectedItem)}{market === "nasdaq" ? "$" : "원"}</b>
+              <b className={selectedItem.change_pct > .04 ? "is-up" : selectedItem.change_pct < -.04 ? "is-down" : ""}>{formatChangeWithUnit(selectedItem, market)}</b>
               <b className={selectedItem.change_pct > .04 ? "is-up" : selectedItem.change_pct < -.04 ? "is-down" : ""}>
                 {selectedItem.change_pct > 0 ? "+" : ""}{selectedItem.change_pct.toFixed(2)}%
               </b>
