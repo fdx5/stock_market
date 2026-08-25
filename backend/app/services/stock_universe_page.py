@@ -142,6 +142,12 @@ SORT_CHANGE_ASC = "change_asc"
 SORT_CHANGE_DESC = "change_desc"
 SORT_KEYS = (SORT_DEFAULT, SORT_CHANGE_ASC, SORT_CHANGE_DESC)
 
+# Exchange-traded notes are not company stocks and do not belong in the stock
+# information roster even when Naver's KOSPI market-cap source includes them.
+EXCLUDED_CODES: dict[str, set[str]] = {
+    "kospi": {"570090"},  # 한투 KIS CD금리투자 ETN
+}
+
 
 def get_page(
     market: str,
@@ -178,7 +184,11 @@ def get_page(
     sector's last page, not on an error.
     """
     spec = MARKETS[market]
-    items = spec.loader(spec.depth, fresh)
+    excluded = EXCLUDED_CODES.get(market, set())
+    items = [
+        item for item in spec.loader(spec.depth, fresh)
+        if str(item.get("code") or "") not in excluded
+    ]
     # The upstream maps are cap-ordered already, but rank is rendered on every row and
     # must not depend on that staying true — the same reason stock_board sorts its
     # NASDAQ roster explicitly.

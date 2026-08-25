@@ -156,6 +156,22 @@ class TestChangeSort:
         assert universe.get_page("kospi", 1)["items"][0]["code"] == "005930"
 
 
+class TestExcludedInstruments:
+    def test_kis_cd_rate_etn_is_never_in_the_kospi_roster(self, monkeypatch):
+        rows = [
+            _kr("005930", "삼성전자", 1.4e15, 250000),
+            _kr("570090", "한투 KIS CD금리투자 ETN", 1.3e15, 100000),
+        ]
+        monkeypatch.setitem(
+            universe.MARKETS, "kospi",
+            universe.MarketSpec("kospi", "KOSPI", "KRW", 500, lambda n, fresh: rows),
+        )
+        monkeypatch.setattr(universe, "get_korean_names_ready", lambda: {})
+
+        assert [row["code"] for row in universe.get_page("kospi", 1)["items"]] == ["005930"]
+        assert universe.get_page("kospi", 1, query="570090")["items"] == []
+
+
 class TestKoreanSearch:
     """초성 search. A Korean keyboard produces a query in stages, and the pure-consonant
     stage is the one people actually search with."""
