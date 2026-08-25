@@ -25,6 +25,11 @@ import { useMediaQuery } from "../useMediaQuery";
  * 228px cabinet in. Lives in JS rather than CSS because the two shapes are different
  * trees, not the same tree restyled. */
 const HUD_QUERY = "(max-width: 820px)";
+const FOLD_LANDSCAPE_HUD_QUERY =
+  "(max-width: 719px), " +
+  "(max-width: 820px) and (orientation: portrait), " +
+  "(max-width: 820px) and (max-height: 599px), " +
+  "(max-width: 820px) and (min-aspect-ratio: 5/4)";
 
 function parts(now: Date, tz: string, opts: Intl.DateTimeFormatOptions): Record<string, string> {
   const out: Record<string, string> = {};
@@ -288,9 +293,9 @@ function LedClock({ text }: { text: string }) {
   );
 }
 
-export default function HeaderDateTime() {
+export default function HeaderDateTime({ desktopOnFoldLandscape = false }: { desktopOnFoldLandscape?: boolean }) {
   const { lang } = useLanguage();
-  const isHud = useMediaQuery(HUD_QUERY);
+  const isHud = useMediaQuery(desktopOnFoldLandscape ? FOLD_LANDSCAPE_HUD_QUERY : HUD_QUERY);
   const [now, setNow] = useState(() => new Date());
   const [weather, setWeather] = useState<{ temperature: number; code: number; is_day: boolean } | null>(null);
 
