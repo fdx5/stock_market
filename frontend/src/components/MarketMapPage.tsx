@@ -140,7 +140,7 @@ const ALL_SECTORS = "__all__";
 // Destinations still new enough to wear the "N" badge in the nav row. A set rather than
 // a chain of comparisons, because this list is meant to be edited: a route is added when
 // it ships and removed once it stops being news.
-const NEW_ROUTES = new Set(["/market-bubbles", "/stocks"]);
+const NEW_ROUTES = new Set(["/kospi-orbit", "/stocks"]);
 
 type MapPeriod = "d1" | "w1" | "d20" | "d60" | "d120" | "d240";
 const MAP_PERIODS: { key: MapPeriod; label: string; detail: string }[] = [

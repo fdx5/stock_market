@@ -64,6 +64,7 @@ const DramPriceHistoryPage = lazy(() => import("./components/DramPriceHistoryPag
 const DiscussionExplorerPage = lazy(() => import("./components/DiscussionExplorerPage"));
 const MarketBubblePage = lazy(() => import("./components/MarketBubblePage"));
 const MarketBubbleType2 = lazy(() => import("./components/MarketBubbleType2"));
+const KospiOrbitPage = lazy(() => import("./components/KospiOrbitPage"));
 const StocksPage = lazy(() => import("./components/StocksPage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
@@ -319,6 +320,12 @@ export default function App() {
     page = <MarketBubblePage />;
   } else if (path === "/market-bubbles2") {
     page = <MarketBubbleType2 />;
+  } else if (path === "/kospi-orbit") {
+    page = <KospiOrbitPage key="kospi-orbit" />;
+  } else if (path === "/kosdaq-orbit") {
+    page = <KospiOrbitPage key="kosdaq-orbit" market="kosdaq" />;
+  } else if (path === "/nasdaq100-orbit" || path === "/sp500-orbit") {
+    page = <KospiOrbitPage key="nasdaq100-orbit" market="nasdaq100" />;
   } else if (path === "/admin") {
     page = <AdminLoginPage />;
   } else if (path === "/admin/dashboard") {

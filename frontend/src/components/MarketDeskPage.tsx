@@ -461,15 +461,6 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          <a
-            href="https://chs2147.github.io/mini-apps"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="kospi-map-nav-link"
-          >
-            <img src="/img/mini_app.webp" alt="" className="mini-apps-icon" />
-            Mini Apps
-          </a>
           <VisitorBadge />
         </div>
       </header>

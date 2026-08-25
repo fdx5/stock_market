@@ -723,7 +723,7 @@ export default function MarketBubblePage() {
           <span className="bubble-brand-mark"><MarketBubbleIcon /></span>
           <span><strong>증시버블</strong><small>MARKET BUBBLES</small></span>
           </Link>
-          <button type="button" className="bubble-neo-chip" onClick={() => { reportMarketBubbleEvent({ action: "market_switch", market }); navigate("/market-bubbles2"); }}>NEO ver ✦</button>
+          <button type="button" className="bubble-neo-chip" onClick={() => { reportMarketBubbleEvent({ action: "market_switch", market }); navigate("/kospi-orbit"); }}>증시궤도 ✦</button>
         </div>
         <div className="bubble-heading">
           <p>시가총액 TOP 20 · 5초마다 갱신</p>

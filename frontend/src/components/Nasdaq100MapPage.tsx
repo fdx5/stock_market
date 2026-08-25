@@ -4,6 +4,7 @@ import BattleIcon from "./BattleIcon";
 import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
 import MarketBubbleIcon from "./MarketBubbleIcon";
+import { MarketOrbitIcon } from "./MarketOrbitNavLink";
 import GlobalNewsIcon from "./GlobalNewsIcon";
 import GlobeRankIcon from "./GlobeRankIcon";
 import MarketIcon from "./MarketIcon";
@@ -33,6 +34,7 @@ export default function Nasdaq100MapPage() {
         { to: "/etf", label: "ETF", icon: <EtfIcon />, className: "kospi-map-nav-link--etf" },
         { to: "/market-brief", label: "오늘 브리핑", className: "kospi-map-nav-link--brief" },
         { to: "/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", label: "종목토론", icon: <DiscussionIcon />, className: "kospi-map-nav-link--discussion" },
+        { to: "/kospi-orbit", label: "증시궤도", icon: <MarketOrbitIcon />, className: "kospi-map-nav-link--orbit" },
         { to: "/market-bubbles", label: "증시버블", icon: <MarketBubbleIcon />, className: "kospi-map-nav-link--bubbles" },
         { to: "/kospi-100", label: "TOP 100", icon: <RankIcon />, className: "kospi-map-nav-link--top100" },
         { to: "/ai-prediction", label: "AI 예측", icon: <PredictIcon />, className: "kospi-map-nav-link--predict" },
