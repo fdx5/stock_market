@@ -900,20 +900,40 @@
   vector-effect: non-scaling-stroke;
 }
 
-.su-chart-bound {
+.su-chart-y-axis {
   position: absolute;
+  top: 0;
   right: 0;
-  padding: 1px 5px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
   font-size: 9.5px;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   pointer-events: none;
 }
 
-.su-chart-bound--high { top: 0; }
-.su-chart-bound--low { bottom: 20px; }
+.su-chart-y-axis span {
+  padding: 1px 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface-1) 78%, transparent);
+  white-space: nowrap;
+}
+
+.su-chart-x-axis {
+  position: absolute;
+  right: 10.55%;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  justify-content: space-between;
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  pointer-events: none;
+}
 
 .su-chart-veil {
   position: absolute;

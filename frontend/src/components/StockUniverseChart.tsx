@@ -30,9 +30,10 @@ type RangeKey = (typeof RANGES)[number]["key"];
 // these numbers only set the aspect ratio and the internal geometry.
 const W = 720;
 const H = 260;
-const PAD_X = 8;
+const PAD_LEFT = 8;
+const PAD_RIGHT = 76;
 const PAD_TOP = 18;
-const PAD_BOTTOM = 26;
+const PAD_BOTTOM = 32;
 
 /** Four horizontal guides. Enough to read a level against, few enough not to become
  *  the loudest thing in a panel whose subject is the line. */
@@ -64,9 +65,9 @@ export default function StockUniverseChart({ points, tone, currency, loading }: 
     // A flat series has no range to divide by; give it one so the line lands mid-box
     // instead of on an axis or at Infinity.
     const span = max - min || Math.abs(max) * 0.02 || 1;
-    const innerW = W - PAD_X * 2;
+    const innerW = W - PAD_LEFT - PAD_RIGHT;
     const innerH = H - PAD_TOP - PAD_BOTTOM;
-    const x = (index: number) => PAD_X + (index / (series.length - 1)) * innerW;
+    const x = (index: number) => PAD_LEFT + (index / (series.length - 1)) * innerW;
     const y = (value: number) => PAD_TOP + innerH - ((value - min) / span) * innerH;
     const line = series.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(2)},${y(p.close).toFixed(2)}`).join("");
     return {
@@ -75,7 +76,7 @@ export default function StockUniverseChart({ points, tone, currency, loading }: 
       x,
       y,
       line,
-      area: `${line}L${x(series.length - 1).toFixed(2)},${H - PAD_BOTTOM}L${PAD_X},${H - PAD_BOTTOM}Z`,
+      area: `${line}L${x(series.length - 1).toFixed(2)},${H - PAD_BOTTOM}L${PAD_LEFT},${H - PAD_BOTTOM}Z`,
       // Where the first close sits — the line is above it for a gain over the window
       // and below it for a loss, which is the one reference the eye needs.
       baseY: y(series[0].close),
@@ -86,7 +87,8 @@ export default function StockUniverseChart({ points, tone, currency, loading }: 
     const svg = svgRef.current;
     if (!svg || !geometry || series.length < 2) return;
     const box = svg.getBoundingClientRect();
-    const ratio = (event.clientX - box.left) / box.width;
+    const pointerX = ((event.clientX - box.left) / box.width) * W;
+    const ratio = (pointerX - PAD_LEFT) / (W - PAD_LEFT - PAD_RIGHT);
     const index = Math.round(ratio * (series.length - 1));
     setHover(Math.max(0, Math.min(series.length - 1, index)));
   };
@@ -155,13 +157,13 @@ export default function StockUniverseChart({ points, tone, currency, loading }: 
 
             {Array.from({ length: GRID_LINES + 1 }, (_, i) => {
               const y = PAD_TOP + ((H - PAD_TOP - PAD_BOTTOM) / GRID_LINES) * i;
-              return <line key={i} className="su-chart-grid" x1={PAD_X} x2={W - PAD_X} y1={y} y2={y} />;
+              return <line key={i} className="su-chart-grid" x1={PAD_LEFT} x2={W - PAD_RIGHT} y1={y} y2={y} />;
             })}
 
             <line
               className="su-chart-base"
-              x1={PAD_X}
-              x2={W - PAD_X}
+              x1={PAD_LEFT}
+              x2={W - PAD_RIGHT}
               y1={geometry.baseY}
               y2={geometry.baseY}
             />
@@ -178,8 +180,16 @@ export default function StockUniverseChart({ points, tone, currency, loading }: 
         )}
         {geometry && (
           <>
-            <span className="su-chart-bound su-chart-bound--high">{formatPrice(geometry.max, currency)}</span>
-            <span className="su-chart-bound su-chart-bound--low">{formatPrice(geometry.min, currency)}</span>
+            <div className="su-chart-y-axis" aria-hidden="true">
+              <span>{formatPrice(geometry.max, currency)}</span>
+              <span>{formatPrice((geometry.max + geometry.min) / 2, currency)}</span>
+              <span>{formatPrice(geometry.min, currency)}</span>
+            </div>
+            <div className="su-chart-x-axis" aria-hidden="true">
+              <span>{shortDateTime(series[0].date)}</span>
+              <span>{shortDateTime(series[Math.floor((series.length - 1) / 2)].date)}</span>
+              <span>{shortDateTime(series[series.length - 1].date)}</span>
+            </div>
           </>
         )}
       </div>
