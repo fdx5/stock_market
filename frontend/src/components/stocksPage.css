@@ -1340,7 +1340,7 @@
   }
 
   .su-page {
-    --su-rail-width: 35%;
+    --su-rail-width: 40%;
     grid-template-columns: var(--su-rail-width) minmax(0, 1fr);
     min-height: 0;
   }
