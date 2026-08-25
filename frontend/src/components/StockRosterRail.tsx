@@ -1,4 +1,4 @@
-import type { StockUniversePage, StockUniverseRow } from "../api/client";
+import type { StockUniversePage, StockUniverseRow, StockUniverseSort } from "../api/client";
 import {
   ALL_SECTORS,
   MARKETS,
@@ -34,12 +34,14 @@ interface Props {
    *  has to echo every keystroke back immediately whatever the request is doing. */
   search: string;
   searching: boolean;
+  sort: StockUniverseSort;
   selectedCode: string;
   onMarketChange: (market: MarketSpec) => void;
   onSelect: (row: StockUniverseRow) => void;
   onPageChange: (page: number) => void;
   onSectorChange: (sector: string) => void;
   onSearchChange: (value: string) => void;
+  onSortChange: () => void;
 }
 
 export default function StockRosterRail({
@@ -51,12 +53,14 @@ export default function StockRosterRail({
   sector,
   search,
   searching,
+  sort,
   selectedCode,
   onMarketChange,
   onSelect,
   onPageChange,
   onSectorChange,
   onSearchChange,
+  onSortChange,
 }: Props) {
   const totalPages = data?.total_pages ?? 1;
   const rows = data?.items ?? [];
@@ -140,10 +144,20 @@ export default function StockRosterRail({
         )}
       </div>
 
-      <div className="su-rail-columns" aria-hidden="true">
+      <div className="su-rail-columns">
         <span>종목</span>
         <span>현재가</span>
-        <span>등락률</span>
+        <button
+          type="button"
+          className={`su-change-sort is-${sort}`}
+          onClick={onSortChange}
+          aria-label={sort === "change_asc" ? "등락률 내림차순으로 정렬" : "등락률 오름차순으로 정렬"}
+          aria-pressed={sort !== "default"}
+          title="등락률 전체 종목 정렬"
+        >
+          <span>등락률</span>
+          <i aria-hidden="true">{sort === "change_asc" ? "▲" : sort === "change_desc" ? "▼" : "⇅"}</i>
+        </button>
       </div>
 
       <div className="su-rail-scroll" data-track="self">

@@ -345,6 +345,7 @@ export interface StockBoard {
    per-market branch anywhere in the list. See services/stock_universe_page.py. */
 
 export type StockUniverseMarket = "kospi" | "kosdaq" | "sp500";
+export type StockUniverseSort = "default" | "change_asc" | "change_desc";
 
 export interface StockUniverseRow {
   rank: number;
@@ -382,6 +383,7 @@ export interface StockUniversePage {
   /** The active name search, echoed back so a stale response can be told apart from a
    *  current one — the same role `sector` and `page` play. */
   query: string;
+  sort: StockUniverseSort;
   /** Every 업종 in the market, biggest first — computed from the *unfiltered* roster,
    *  so the dropdown holds the same options whichever one is chosen. */
   sectors: StockUniverseSector[];
@@ -1102,11 +1104,12 @@ export const api = {
     getJSON<StockBoardRefresh>(`${BASE}/market/board?market=${market}&slim=true`),
   /** One page of a market's cap ranking for the 종목정보 rail. Always re-fetched:
    *  the page polls it every 10s for live prices. */
-  stockUniverse: (market: StockUniverseMarket, page = 1, size = 50, sector?: string, q?: string) =>
+  stockUniverse: (market: StockUniverseMarket, page = 1, size = 50, sector?: string, q?: string, sort: StockUniverseSort = "default") =>
     getJSONFresh<StockUniversePage>(
       `${BASE}/market/stock-list?market=${market}&page=${page}&size=${size}` +
         (sector ? `&sector=${encodeURIComponent(sector)}` : "") +
-        (q ? `&q=${encodeURIComponent(q)}` : "")
+        (q ? `&q=${encodeURIComponent(q)}` : "") +
+        (sort !== "default" ? `&sort=${sort}` : "")
     ),
   /** Korean-language coverage of a US company, from Naver's news search — the S&P 500
    *  counterpart to `news`, which reads finance.naver's per-code tab. */

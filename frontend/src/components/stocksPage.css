@@ -382,6 +382,23 @@
 
 .su-rail-columns span:not(:first-child) { text-align: right; }
 
+.su-change-sort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0;
+  color: var(--text-muted);
+  font: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+}
+
+.su-change-sort:hover { color: var(--text-secondary); }
+.su-change-sort i { font-style: normal; font-size: 9px; line-height: 1; }
+.su-change-sort.is-change_asc i { color: var(--up-color); }
+.su-change-sort.is-change_desc i { color: var(--down-color); }
+
 .su-rail-scroll {
   flex: 1;
   min-height: 0;

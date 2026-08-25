@@ -142,6 +142,7 @@ def stock_list(
     size: int = Query(PAGE_SIZE, ge=10, le=100),
     sector: str | None = Query(None, max_length=60),
     q: str | None = Query(None, max_length=40),
+    sort: str = Query("default", pattern="^(default|change_asc|change_desc)$"),
     fresh: bool = Query(False),
 ):
     """One page of a market's 시가총액 ranking, for the 종목정보 page's left rail.
@@ -165,7 +166,7 @@ def stock_list(
     response.headers["Cache-Control"] = "no-store"
     if market not in UNIVERSE_MARKETS:  # pragma: no cover - the pattern already rejects these
         raise HTTPException(status_code=404, detail=f"지원하지 않는 시장입니다: {market}")
-    return get_page(market, page=page, size=size, sector=sector, query=q, fresh=fresh)
+    return get_page(market, page=page, size=size, sector=sector, query=q, sort=sort, fresh=fresh)
 
 
 @router.get("/returns")

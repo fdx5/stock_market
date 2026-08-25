@@ -137,6 +137,10 @@ def _row(spec: MarketSpec, item: dict, rank: int, korean: dict[str, str]) -> dic
 # cannot collide with a real sector label — the same reason and the same shape as
 # MarketMapPage's ALL_SECTORS on the client.
 ALL_SECTORS = "__all__"
+SORT_DEFAULT = "default"
+SORT_CHANGE_ASC = "change_asc"
+SORT_CHANGE_DESC = "change_desc"
+SORT_KEYS = (SORT_DEFAULT, SORT_CHANGE_ASC, SORT_CHANGE_DESC)
 
 
 def get_page(
@@ -145,6 +149,7 @@ def get_page(
     size: int = PAGE_SIZE,
     sector: str | None = None,
     query: str | None = None,
+    sort: str = SORT_DEFAULT,
     fresh: bool = False,
 ) -> dict:
     """One page of `market`'s cap ranking, optionally narrowed by 업종 and by name.
@@ -202,6 +207,21 @@ def get_page(
             if korean_search.matches_any(term, row["name"], row.get("name_ko"), row["code"])
         ]
 
+    # Sort the complete filtered universe before paging. Sorting a rendered page in
+    # the browser would only reorder 50 rows and falsely present that as a market-wide
+    # ranking. Missing moves always stay at the end; rank remains the cap rank assigned
+    # above, because changing display order must not rewrite what "rank" means.
+    active_sort = sort if sort in SORT_KEYS else SORT_DEFAULT
+    if active_sort != SORT_DEFAULT:
+        direction = 1 if active_sort == SORT_CHANGE_ASC else -1
+        rows.sort(
+            key=lambda row: (
+                row["change_pct"] is None,
+                direction * float(row["change_pct"] or 0),
+                row["rank"],
+            )
+        )
+
     total = len(rows)
     total_pages = max(1, -(-total // size))
     page = max(1, min(page, total_pages))
@@ -219,6 +239,7 @@ def get_page(
         "sector": active or ALL_SECTORS,
         "sectors": sectors,
         "query": term,
+        "sort": active_sort,
         "page": page,
         "page_size": size,
         "total": total,

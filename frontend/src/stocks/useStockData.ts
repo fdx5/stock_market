@@ -4,6 +4,7 @@ import {
   StockUniverseMarket,
   StockUniversePage,
   StockUniverseRow,
+  StockUniverseSort,
   api,
 } from "../api/client";
 
@@ -62,19 +63,20 @@ export function useStockRoster(
   size: number,
   sector: string,
   query: string,
+  sort: StockUniverseSort,
 ): RosterState {
   const [state, setState] = useState<RosterState>({ page: null, loading: true, error: "" });
   // What the newest request was for, so a response that arrives after the viewer has
   // moved on is dropped rather than stored.
-  const wanted = useRef({ market, page, sector, query });
+  const wanted = useRef({ market, page, sector, query, sort });
 
   useEffect(() => {
-    wanted.current = { market, page, sector, query };
+    wanted.current = { market, page, sector, query, sort };
     let cancelled = false;
 
     const load = (initial: boolean) => {
       api
-        .stockUniverse(market, page, size, sector, query)
+        .stockUniverse(market, page, size, sector, query, sort)
         .then((result) => {
           if (
             cancelled ||
@@ -82,6 +84,7 @@ export function useStockRoster(
             wanted.current.page !== page ||
             wanted.current.sector !== sector ||
             wanted.current.query !== query
+            || wanted.current.sort !== sort
           ) {
             return;
           }
@@ -101,7 +104,7 @@ export function useStockRoster(
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [market, page, size, sector, query]);
+  }, [market, page, size, sector, query, sort]);
 
   // The response carries the market, sector and page it is for, so this is a comparison of
   // what arrived against what is wanted — not a guess from a separate flag.
@@ -111,6 +114,7 @@ export function useStockRoster(
     state.page.page === page &&
     state.page.sector === sector &&
     state.page.query === query
+    && state.page.sort === sort
       ? state.page
       : null;
   return { page: fresh, loading: fresh === null && !state.error, error: fresh === null ? state.error : "" };

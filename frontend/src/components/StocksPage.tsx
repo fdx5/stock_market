@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { StockUniverseMarket, StockUniverseRow } from "../api/client";
+import type { StockUniverseMarket, StockUniverseRow, StockUniverseSort } from "../api/client";
 import {
   ALL_SECTORS,
   DEFAULT_CODE,
@@ -58,13 +58,14 @@ export default function StocksPage() {
   // 삼성 — and a Korean IME emits one per jamo, so it is worse than it looks.
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<StockUniverseSort>("default");
   const [selected, setSelected] = useState<StockUniverseRow | null>(null);
   // What to select once a roster arrives, when there is no row in hand yet. Starts as
   // the spec's 삼성전자 and becomes null the moment a real row is chosen.
   const [wantedCode, setWantedCode] = useState<string | null>(DEFAULT_CODE);
 
   const spec: MarketSpec = useMemo(() => marketSpec(market), [market]);
-  const roster = useStockRoster(market, page, PAGE_SIZE, sector, query);
+  const roster = useStockRoster(market, page, PAGE_SIZE, sector, query, sort);
 
   // Debounce the box into the query. Short enough that it still reads as live typing —
   // the roster is a slice of a cached snapshot, so the response itself is immediate.
@@ -121,6 +122,7 @@ export default function StocksPage() {
     // 업종 labels are per-market ("반도체/전자" is not an S&P 500 sector), so a filter
     // cannot survive the switch — carrying it over would silently produce an empty rail.
     setSector(ALL_SECTORS);
+    setSort("default");
     // Drop the current row so the effect above adopts the new market's first name.
     // Keeping it would leave a KOSPI panel open under an S&P 500 rail.
     setSelected(null);
@@ -139,6 +141,11 @@ export default function StocksPage() {
   const changePage = (next: number) => {
     reportStocksEvent({ action: "page_change", market, detail: `${next}페이지` });
     setPage(next);
+  };
+
+  const changeSort = () => {
+    setSort((current) => current === "change_asc" ? "change_desc" : "change_asc");
+    setPage(1);
   };
 
   const selectRow = (row: StockUniverseRow) => {
@@ -218,12 +225,14 @@ export default function StocksPage() {
         sector={sector}
         search={search}
         searching={search !== query || (roster.loading && Boolean(query))}
+        sort={sort}
         selectedCode={selected?.code ?? ""}
         onMarketChange={changeMarket}
         onSelect={selectRow}
         onPageChange={changePage}
         onSectorChange={changeSector}
         onSearchChange={setSearch}
+        onSortChange={changeSort}
       />
       {detail ? (
         <StockDetailPanel spec={spec} detail={detail} />

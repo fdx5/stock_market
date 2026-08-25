@@ -129,6 +129,33 @@ class TestSectorFilter:
         assert page["total_pages"] == 1
 
 
+class TestChangeSort:
+    def test_change_sort_is_market_wide_before_paging(self, monkeypatch):
+        rows = []
+        for i in range(60):
+            row = _kr(f"{i:06d}", f"Stock {i}", 1_000_000 - i, 100)
+            row["change_pct"] = float(59 - i)
+            rows.append(row)
+        monkeypatch.setitem(
+            universe.MARKETS, "kospi",
+            universe.MarketSpec("kospi", "KOSPI", "KRW", 500, lambda n, fresh: rows),
+        )
+        monkeypatch.setattr(universe, "get_korean_names_ready", lambda: {})
+
+        first = universe.get_page("kospi", 1, sort="change_asc")
+        second = universe.get_page("kospi", 2, sort="change_asc")
+        assert first["items"][0]["change_pct"] == 0.0
+        assert first["items"][-1]["change_pct"] == 49.0
+        assert second["items"][0]["change_pct"] == 50.0
+        assert first["sort"] == "change_asc"
+
+    def test_descending_and_default_orders(self, fake_markets):
+        low, high = fake_markets[0]
+        low["change_pct"], high["change_pct"] = -3.0, 7.0
+        assert universe.get_page("kospi", 1, sort="change_desc")["items"][0]["code"] == "000660"
+        assert universe.get_page("kospi", 1)["items"][0]["code"] == "005930"
+
+
 class TestKoreanSearch:
     """초성 search. A Korean keyboard produces a query in stages, and the pure-consonant
     stage is the one people actually search with."""
