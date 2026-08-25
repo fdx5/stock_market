@@ -1328,6 +1328,48 @@
   .su-detail-facts { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* Unfolded Galaxy Fold, landscape: retain the page's desktop reading posture.
+   Samsung Internet reports the inner display below the 940px stacking breakpoint,
+   which previously moved the detail panel under the roster and forced a page scroll
+   before it could be seen. Both panels remain side by side and scroll independently. */
+@media (orientation: landscape) and (min-width: 720px) and (min-height: 500px) {
+  .su-shell {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  .su-page {
+    --su-rail-width: clamp(18rem, 38vw, 21rem);
+    grid-template-columns: var(--su-rail-width) minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .su-rail-scroll {
+    max-height: none;
+  }
+
+  .su-detail {
+    min-height: 0;
+  }
+
+  .su-detail-head {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 18px;
+  }
+
+  .su-detail-quote {
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: flex-start;
+  }
+
+  .su-detail-facts {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
 @media (max-width: 560px) {
   .su-page { padding: 0 8px 12px; }
   .su-rail-columns,

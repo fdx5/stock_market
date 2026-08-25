@@ -501,7 +501,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           </div>
           <DeskIndexStrip />
           <div className="desk-command-clock">
-            <HeaderDateTime desktopOnFoldLandscape />
+            <HeaderDateTime />
           </div>
           <MarketSentimentPanel />
           <div className="desk-command-chips">
