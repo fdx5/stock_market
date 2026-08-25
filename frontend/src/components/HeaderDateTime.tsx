@@ -28,8 +28,7 @@ const HUD_QUERY = "(max-width: 820px)";
 const FOLD_LANDSCAPE_HUD_QUERY =
   "(max-width: 719px), " +
   "(max-width: 820px) and (orientation: portrait), " +
-  "(max-width: 820px) and (max-height: 599px), " +
-  "(max-width: 820px) and (min-aspect-ratio: 5/4)";
+  "(max-width: 820px) and (max-height: 499px)";
 
 function parts(now: Date, tz: string, opts: Intl.DateTimeFormatOptions): Record<string, string> {
   const out: Record<string, string> = {};
