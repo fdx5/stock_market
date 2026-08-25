@@ -26,6 +26,7 @@ interface Destination {
 
 const DESTINATIONS: Destination[] = [
   { key: "desk", label: "마켓 데스크", hint: "메인", to: "/desk" },
+  { key: "stocks", label: "종목정보", hint: "메인", to: "/stocks" },
   { key: "dashboard", label: "클래식 대시보드", hint: "메인", to: "/dashboard" },
   { key: "map", label: "KOSPI 지도", hint: "지도", to: "/map" },
   { key: "kosdaq-map", label: "KOSDAQ 지도", hint: "지도", to: "/kosdaq-map" },

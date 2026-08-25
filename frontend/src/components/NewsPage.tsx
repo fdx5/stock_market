@@ -6,6 +6,8 @@ import { useLanguage, useT } from "../i18n/LanguageContext";
 import { useTranslatedText } from "../i18n/useTranslatedTexts";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import NewBadge from "./NewBadge";
+import StockListIcon from "./StockListIcon";
 import BattleIcon from "./BattleIcon";
 import CompanyLogo from "./CompanyLogo";
 import DashboardIcon from "./DashboardIcon";
@@ -187,7 +189,9 @@ export default function NewsPage() {
           <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
-          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
+          <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
+            <StockListIcon /> 종목정보 <NewBadge />
+          </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>

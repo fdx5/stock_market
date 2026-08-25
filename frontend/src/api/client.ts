@@ -47,6 +47,9 @@ export interface NewsItem {
   link: string;
   press: string;
   date: string;
+  /** Naver's search snippet. Only the US path fills it in — finance.naver's per-code
+   * news tab (the KR source) publishes headlines without one. */
+  summary?: string;
 }
 
 export interface StockSummary {
@@ -333,6 +336,58 @@ export interface StockBoard {
   /** Ordered by combined size — the order the page stacks its groups in. */
   sectors: StockBoardSector[];
   items: StockBoardItem[];
+}
+
+/* ────────────────────────── 종목정보 (/stocks) ──────────────────────────
+   The page's left rail is one cap-ranked list rendered three times over, so its rows
+   arrive already normalised: `marcap` is a real capitalisation in `currency` on every
+   market, never the index weight the US snapshot calls by that name, and there is no
+   per-market branch anywhere in the list. See services/stock_universe_page.py. */
+
+export type StockUniverseMarket = "kospi" | "kosdaq" | "sp500";
+
+export interface StockUniverseRow {
+  rank: number;
+  code: string;
+  name: string;
+  /** US only, and null until the translate cache warms — render `name` in that case. */
+  name_ko: string | null;
+  sector: string;
+  close: number | null;
+  change: number | null;
+  change_pct: number | null;
+  marcap: number | null;
+  volume?: number | null;
+  per?: number | null;
+  roe?: number | null;
+  /** This company's mark is dark ink throughout and would disappear on the dark theme,
+   *  so it gets a light plate behind it (see services/logo_tone.py). Arrives false on
+   *  the very first request for a row and true from the next refresh — the server
+   *  measures logos behind the response rather than making the page wait on them. */
+  logo_dark?: boolean;
+}
+
+export interface StockUniverseSector {
+  sector: string;
+  count: number;
+  marcap: number;
+}
+
+export interface StockUniversePage {
+  market: StockUniverseMarket;
+  label: string;
+  currency: "KRW" | "USD";
+  /** The active 업종, or ALL_SECTORS. */
+  sector: string;
+  /** Every 업종 in the market, biggest first — computed from the *unfiltered* roster,
+   *  so the dropdown holds the same options whichever one is chosen. */
+  sectors: StockUniverseSector[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  generated_at: string;
+  items: StockUniverseRow[];
 }
 
 /* ─────────────────────── 글로벌 시가총액 TOP 100 페이지 ─────────────────────── */
@@ -1042,6 +1097,28 @@ export const api = {
    * Pair with `mergeBoardRefresh`. */
   stockBoardRefresh: (market: "kospi" | "kosdaq" | "nasdaq") =>
     getJSON<StockBoardRefresh>(`${BASE}/market/board?market=${market}&slim=true`),
+  /** One page of a market's cap ranking for the 종목정보 rail. Always re-fetched:
+   *  the page polls it every 10s for live prices. */
+  stockUniverse: (market: StockUniverseMarket, page = 1, size = 50, sector?: string) =>
+    getJSONFresh<StockUniversePage>(
+      `${BASE}/market/stock-list?market=${market}&page=${page}&size=${size}` +
+        (sector ? `&sector=${encodeURIComponent(sector)}` : "")
+    ),
+  /** Korean-language coverage of a US company, from Naver's news search — the S&P 500
+   *  counterpart to `news`, which reads finance.naver's per-code tab. */
+  usNews: (code: string, limit = 15) =>
+    getJSON<{ code: string; name: string; query: string; items: NewsItem[] }>(
+      `${BASE}/us-stock/${encodeURIComponent(code)}/news?limit=${limit}`
+    ),
+  /** One news article's body, extracted server-side, for reading it inside the
+   *  종목정보 panel. `paragraphs` is null when the outlet's page cannot be reduced to
+   *  an article — a paywall or a script-built page — and the panel then offers the
+   *  headline and an external link. */
+  newsArticle: (link: string, signal?: AbortSignal) =>
+    getJSON<{ paragraphs: string[] | null }>(
+      `${BASE}/stock/news-article?link=${encodeURIComponent(link)}`,
+      { signal },
+    ),
   sectorMap: (code: string, limit = 40) =>
     getJSON<SectorMap & { generated_at: string }>(`${BASE}/market/sector-map?code=${code}&limit=${limit}`),
   sector: (code: string) => getJSON<SectorName>(`${BASE}/market/sector?code=${code}`),
@@ -1125,6 +1202,10 @@ export const api = {
       `${BASE}/fight/company-comments?code=${encodeURIComponent(code)}&limit=${limit}`
     ),
   usStockQuote: (code: string) => getJSON<UsStockQuote>(`${BASE}/us-stock/${code}/quote`),
+  usHistory: (code: string, years = 3) =>
+    getJSON<{ code: string; name: string; points: OhlcvPoint[] }>(
+      `${BASE}/us-stock/${encodeURIComponent(code)}/history?years=${years}`
+    ),
   usStockIndicators: (code: string, years = 3) =>
     getJSON<{ code: string; name: string; points: IndicatorPoint[]; latest: IndicatorPoint }>(
       `${BASE}/us-stock/${code}/indicators?years=${years}`

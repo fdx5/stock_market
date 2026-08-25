@@ -43,6 +43,8 @@ PAGES: list[dict] = [
     {"id": "page:/etf", "label": "ETF 마켓", "path": "/etf", "group": "etf"},
     {"id": "page:/discussion-explorer", "label": "종목토론", "path": "/discussion-explorer", "group": "stock"},
     {"id": "page:/market-bubbles", "label": "증시버블", "path": "/market-bubbles", "group": "stock"},
+    {"id": "page:/market-bubbles2", "label": "증시버블 NEO", "path": "/market-bubbles2", "group": "stock"},
+    {"id": "page:/stocks", "label": "종목정보", "path": "/stocks", "group": "stock"},
     {"id": "page:/map", "label": "KOSPI MAP", "path": "/map", "group": "map"},
     {"id": "page:/kosdaq-map", "label": "KOSDAQ MAP", "path": "/kosdaq-map", "group": "map"},
     {"id": "page:/sp500-map", "label": "S&P500 MAP", "path": "/sp500-map", "group": "map"},
@@ -204,6 +206,33 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/market/board",
         "/api/stock/{code}/board",
         "/api/stock/{code}/board/{nid}",
+        "/api/global/{code}/discussion",
+    ],
+    # Same component and therefore the same calls as /market-bubbles — it is a second
+    # rendering of that page, not a different feature.
+    "page:/market-bubbles2": [
+        "/api/market/board",
+        "/api/stock/{code}/board",
+        "/api/stock/{code}/board/{nid}",
+        "/api/global/{code}/discussion",
+    ],
+    # 종목정보. The rail's roster, then everything the detail panel asks for the one open
+    # stock — doubled across the KR and US endpoints because the S&P 500 tab is quoted,
+    # charted, discussed and reported on through a different set than the KRX tabs.
+    "page:/stocks": [
+        "/api/market/stock-list",
+        "/api/stock/{code}/quote",
+        "/api/stock/{code}/history",
+        "/api/stock/{code}/board",
+        "/api/stock/{code}/board/{nid}",
+        "/api/stock/{code}/news",
+        # One article's body, for reading it inside the panel. Shared by both markets:
+        # the S&P 500 tab's news is Korean coverage from Naver search, extracted the
+        # same way as the KR tab's.
+        "/api/stock/news-article",
+        "/api/us-stock/{code}/quote",
+        "/api/us-stock/{code}/history",
+        "/api/us-stock/{code}/news",
         "/api/global/{code}/discussion",
     ],
     "page:/map": ["/api/market/map", "/api/market/ticker", "/api/visitors/count", "/api/translate"],

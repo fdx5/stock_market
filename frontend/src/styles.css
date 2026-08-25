@@ -3869,6 +3869,19 @@ thead .weekly-foreign-amount-col {
 /* Yellow-toned nav pill for the NEWS link — --series-yellow already carries a
    theme-tuned value for both dark (#c98500) and light (#9c6a2f) mode, same as every
    other nav pill here, so no extra light/dark override is needed. */
+/* 종목정보. Green is the one series colour the nav row had left unspent, which is the
+   whole requirement for a new pill: distinguishable at a glance from the eight already
+   in the row, in both themes. */
+.kospi-map-nav-link--stocks {
+  color: var(--series-green);
+  border-color: var(--series-green);
+  background: color-mix(in srgb, var(--series-green) 12%, transparent);
+}
+
+.kospi-map-nav-link--stocks:hover {
+  background: color-mix(in srgb, var(--series-green) 22%, transparent);
+}
+
 .kospi-map-nav-link--brief {
   color: var(--series-orange);
   border-color: var(--series-orange);
@@ -4005,7 +4018,10 @@ thead .weekly-foreign-amount-col {
   box-shadow: 0 7px 18px rgba(83, 105, 133, .16), inset 0 1px rgba(255, 255, 255, .8);
 }
 
-.market-bubble-new {
+/* `.nav-new-badge` is the name to use from here on — see NewBadge.tsx. The original
+   is kept as an alias so nothing that already carries it changes. */
+.market-bubble-new,
+.nav-new-badge {
   display: inline-grid;
   place-items: center;
   width: 15px;

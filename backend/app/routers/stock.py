@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.data import (
     balance_fetcher,
     board_fetcher,
+    company_news_fetcher,
     company_overview_fetcher,
     news_fetcher,
     orderbook_fetcher,
@@ -221,6 +222,30 @@ def news(code: str):
     name = _resolve_name(code)
     items = news_fetcher.get_news(code)
     return {"code": code, "name": name, "items": items}
+
+
+@router.get("/news-article")
+def news_article(link: str = Query(..., min_length=1, max_length=2000)):
+    """The body of one news article, for reading it inside the 종목정보 panel.
+
+    Both sources this page draws on publish in Korean — finance.naver's per-code tab
+    and Naver news search — so there is no translation step here, unlike the /fight
+    popup's equivalent, which reads English wire copy and has to translate it.
+
+    Returns `paragraphs: null` rather than an error when extraction fails, which is a
+    real and ordinary outcome: some outlets serve a paywall or a script-built page that
+    Readability cannot make an article out of. The panel then offers the headline and
+    an external link, which is all it could honestly show.
+
+    NOTE: `link` is client-supplied and is the one URL in this app a server-side fetch
+    takes from a caller. fetch_article_content applies the SSRF guard (scheme, resolved
+    address, and every redirect hop) — see its docstring; nothing here may bypass it.
+
+    The literal path is one segment where every /{code}/... route in this file is two,
+    so declaration order does not matter here — but a future single-segment route under
+    /{code} would collide with this one and would have to be declared after it.
+    """
+    return {"paragraphs": company_news_fetcher.fetch_article_content(link)}
 
 
 @router.get("/{code}/board")

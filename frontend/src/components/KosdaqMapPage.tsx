@@ -1,4 +1,5 @@
 import { api } from "../api/client";
+import StockListIcon from "./StockListIcon";
 import BattleIcon from "./BattleIcon";
 import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
@@ -23,10 +24,12 @@ export default function KosdaqMapPage() {
       fullLimit={200}
       enhancedSectorView
       navLinks={[
+        { to: "/stocks", label: "종목정보", icon: <StockListIcon />, className: "kospi-map-nav-link--stocks" },
         { to: "/map", label: "KOSPI", icon: <MarketIcon /> },
         { to: "/sp500-map", label: "S&P500", icon: <MarketIcon />, className: "kospi-map-nav-link--sp500" },
         { to: "/nasdaq100-map", label: "NASDAQ100", icon: <MarketIcon />, className: "kospi-map-nav-link--nasdaq" },
         { to: "/etf", label: "ETF", icon: <EtfIcon />, className: "kospi-map-nav-link--etf" },
+        { to: "/market-brief", label: "오늘 브리핑", className: "kospi-map-nav-link--brief" },
         { to: "/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", label: "종목토론", icon: <DiscussionIcon />, className: "kospi-map-nav-link--discussion" },
         { to: "/market-bubbles", label: "증시버블", icon: <MarketBubbleIcon />, className: "kospi-map-nav-link--bubbles" },
         { to: "/kospi-100", label: "TOP 100", icon: <RankIcon />, className: "kospi-map-nav-link--top100" },

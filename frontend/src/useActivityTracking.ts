@@ -60,6 +60,7 @@ export function pageLabel(path: string): string {
   // main page under "대시보드" and the two were indistinguishable in the stats.
   if (path === "/") return "메인 (태양계)";
   if (path === "/desk") return "마켓 데스크";
+  if (path === "/stocks") return "종목정보";
   if (/^\/stock\/\d{6}$/i.test(path)) return "국내 종목 상세";
   if (path === "/dashboard") return "종목 대시보드 (구)";
   if (/^\/investor\//.test(path)) return "투자자 동향";
@@ -208,11 +209,69 @@ export function reportMarketBubbleEvent(options: {
   });
 }
 
+/* ───────────────────────── 종목정보 (/stocks) ─────────────────────────
+   The generic click handler cannot describe this page usefully. It reads a label off
+   whatever element was clicked, so selecting a stock in the rail would be reported as
+   the row's rendered text — company name, price and percentage run together, a new
+   label every time the price moves, and therefore a ranking that can never group two
+   clicks on the same company. Everything below is reported by the page itself with a
+   stable `object_key`, so the admin's rankings group by company and by action rather
+   than by whatever the row happened to say at that moment. */
+
+export type StocksAction =
+  | "stock_select"
+  | "market_switch"
+  | "sector_filter"
+  | "tab_switch"
+  | "discussion_post"
+  | "news_article"
+  | "page_change";
+
+const STOCKS_ACTION_LABELS: Record<StocksAction, string> = {
+  stock_select: "종목 선택",
+  market_switch: "시장 전환",
+  sector_filter: "업종 필터",
+  tab_switch: "탭 전환",
+  discussion_post: "종목토론 클릭",
+  news_article: "뉴스 클릭",
+  page_change: "페이지 이동",
+};
+
+export function reportStocksEvent(options: {
+  action: StocksAction;
+  market: string;
+  code?: string;
+  name?: string;
+  /** The specific thing acted on — a post title, a headline, a sector, a page number. */
+  detail?: string;
+}): void {
+  if (isAdminPath(window.location.pathname)) return;
+  const subject = options.name || options.detail || options.market;
+  sendEvent({
+    type: "click",
+    path: "/stocks",
+    label: `${STOCKS_ACTION_LABELS[options.action]} · ${subject}${
+      options.name && options.detail ? ` · ${options.detail}` : ""
+    }`.slice(0, 100),
+    stock_code: options.code,
+    stock_name: options.name,
+    // Grouping key for the admin rankings: action, then market, then whichever of
+    // (code, detail) identifies the thing — never the rendered label, which carries a
+    // live price and would split one company across as many rows as it had prices.
+    object_key: `stocks:${options.action}:${options.market}:${options.code || options.detail || "-"}`.slice(0, 100),
+  });
+}
+
 /** Mounted once at the app root. Reports a page_view whenever `path` changes, and a
  * click event (debounced per label+path) for clicks on interactive elements — the
  * data behind the admin dashboard's live tail and per-page trend graph. Events that
  * occur on the admin pages themselves are never sent, so admin usage never pollutes
  * the stats it displays. */
+/** Marks a subtree whose clicks are reported by its own component. Put it on the
+ *  element (or a wrapper) wherever a deliberate `report*` call already covers the
+ *  interaction, so the action produces exactly one event instead of two. */
+const SELF_REPORTING = "[data-track='self']";
+
 export function useActivityTracking(path: string): void {
   const lastClickRef = useRef<{ key: string; ts: number } | null>(null);
 
@@ -245,6 +304,12 @@ export function useActivityTracking(path: string): void {
       if (!target) return;
       const interactive = target.closest("a, button, [role='button'], .search-option");
       if (!interactive) return;
+      // Opted out: this element's own component reports the click with a stable key.
+      // Without it both fire, and the generic one is the worse of the two — it reads
+      // the element's rendered text, so a stock row comes back as
+      // "4SK스퀘어402340지주/서비스1,032,000136조-4.09%", a label that is unique to the
+      // price at that instant and therefore groups with nothing in any ranking.
+      if (interactive.closest(SELF_REPORTING)) return;
       const label =
         interactive.getAttribute("aria-label") ||
         interactive.getAttribute("title") ||
@@ -262,6 +327,7 @@ export function useActivityTracking(path: string): void {
       if (isAdminPath(currentPath)) return;
       const select = event.target instanceof HTMLSelectElement ? event.target : null;
       if (!select) return;
+      if (select.closest(SELF_REPORTING)) return;
       const name = select.getAttribute("aria-label") || select.name || "선택 항목";
       sendEvent({
         type: "click",

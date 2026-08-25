@@ -11,6 +11,7 @@ import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { usCompanyLogoProxyUrl } from "../usLogo";
+import NewBadge from "./NewBadge";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
@@ -135,6 +136,11 @@ const IS_MOBILE_LIKE = typeof navigator !== "undefined" && (/Android/i.test(navi
 // Sentinel for the sector filter's "show everything" option — distinct from any real
 // sector label (including "기타") so it can never collide with backend-assigned data.
 const ALL_SECTORS = "__all__";
+
+// Destinations still new enough to wear the "N" badge in the nav row. A set rather than
+// a chain of comparisons, because this list is meant to be edited: a route is added when
+// it ships and removed once it stops being news.
+const NEW_ROUTES = new Set(["/market-bubbles", "/stocks"]);
 
 type MapPeriod = "d1" | "w1" | "d20" | "d60" | "d120" | "d240";
 const MAP_PERIODS: { key: MapPeriod; label: string; detail: string }[] = [
@@ -1014,7 +1020,6 @@ export default function MarketMapPage({
           <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
-          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
           {navLinks.map((link) => (
             <Link
               key={link.to}
@@ -1023,7 +1028,7 @@ export default function MarketMapPage({
             >
               {link.icon}
               {t(link.label)}
-              {link.to === "/market-bubbles" && <span className="market-bubble-new" aria-label="신규">N</span>}
+              {NEW_ROUTES.has(link.to) && <NewBadge />}
             </Link>
           ))}
           <VisitorBadge />

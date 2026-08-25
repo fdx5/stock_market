@@ -3,6 +3,8 @@ import { GradingMatrixResponse, PredictionItem, api } from "../api/client";
 import { formatChangeRate, formatMoney } from "../prediction";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import NewBadge from "./NewBadge";
+import StockListIcon from "./StockListIcon";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import EtfNavLink from "./EtfNavLink";
@@ -325,7 +327,9 @@ export default function PredictionGradingPage() {
           <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> 홈
           </Link>
-          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
+          <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
+            <StockListIcon /> 종목정보 <NewBadge />
+          </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link">
             ← AI 예측으로
           </Link>

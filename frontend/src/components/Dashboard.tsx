@@ -11,6 +11,8 @@ import { scrollBelowStickyHeader } from "../stickyScroll";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { recordRecent } from "../watchlist";
+import NewBadge from "./NewBadge";
+import StockListIcon from "./StockListIcon";
 import BattleIcon from "./BattleIcon";
 import CommodityPanel from "./CommodityPanel";
 import Footer from "./Footer";
@@ -324,7 +326,9 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="app-nav-row">
-          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
+          <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
+            <StockListIcon /> 종목정보 <NewBadge />
+          </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>

@@ -61,7 +61,9 @@ _LABELS = {"kospi": "KOSPI", "kosdaq": "KOSDAQ", "nasdaq": "NASDAQ 100"}
 # and files semiconductors under 정보기술 alongside software — so the US board keeps
 # the classification its own index actually uses. 금융 and 기타 coincide with the KR
 # labels because they genuinely mean the same thing.
-_US_SECTOR_KO = {
+# Public: stock_universe_page translates the 종목정보 rail with this too, so a GICS
+# sector is spelled the same way everywhere on the site.
+US_SECTOR_KO = {
     "Information Technology": "정보기술",
     "Technology": "정보기술",
     "Communication Services": "커뮤니케이션",
@@ -210,7 +212,7 @@ def _nasdaq_roster(limit: int, fresh: bool) -> list[dict]:
             # for search (see us_universe). Null when it isn't in that map yet, which
             # the frontend renders as the English name rather than as a gap.
             "name_ko": korean.get(it["name"]),
-            "sector": _US_SECTOR_KO.get(it["sector"], "기타"),
+            "sector": US_SECTOR_KO.get(it["sector"], "기타"),
             "close": it["close"],
             "change": it["change"],
             "change_pct": it["change_pct"],

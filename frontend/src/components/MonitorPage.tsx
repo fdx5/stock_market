@@ -15,6 +15,8 @@ import { layoutGraph, type MonitorLayout, type PlacedNode } from "../monitor/lay
 import { MonitorScene, type HoverInfo } from "../monitor/scene";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import NewBadge from "./NewBadge";
+import StockListIcon from "./StockListIcon";
 import BattleIcon from "./BattleIcon";
 import DashboardIcon from "./DashboardIcon";
 import EtfNavLink from "./EtfNavLink";
@@ -364,7 +366,9 @@ export default function MonitorPage() {
         <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
           <DashboardIcon /> 홈
         </Link>
-        <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
+        <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
+          <StockListIcon /> 종목정보 <NewBadge />
+        </Link>
         <Link to="/map" className="kospi-map-nav-link">
           <MarketIcon /> KOSPI
         </Link>

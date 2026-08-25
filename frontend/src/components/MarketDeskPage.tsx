@@ -12,6 +12,8 @@ import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useMarketSnapshot } from "../useMarketSnapshot";
 import { recordRecent } from "../watchlist";
+import NewBadge from "./NewBadge";
+import StockListIcon from "./StockListIcon";
 import BattleIcon from "./BattleIcon";
 import CommandPalette from "./CommandPalette";
 import DeskIndexStrip from "./DeskIndexStrip";
@@ -421,7 +423,9 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           </div>
         </div>
         <div className="app-nav-row">
-          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
+          <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
+            <StockListIcon /> 종목정보 <NewBadge />
+          </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>
@@ -437,6 +441,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           <Link to="/etf" className="kospi-map-nav-link kospi-map-nav-link--etf">
             <EtfIcon /> ETF
           </Link>
+          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
           <Link to="/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK" className="kospi-map-nav-link kospi-map-nav-link--discussion">
             <DiscussionIcon /> 종목토론
           </Link>

@@ -8,6 +8,8 @@ import { Link, navigate } from "../router";
 import { useThemeMode } from "../theme";
 import { changeToRgb, rgbToCss } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
+import NewBadge from "./NewBadge";
+import StockListIcon from "./StockListIcon";
 import DashboardIcon from "./DashboardIcon";
 import Footer from "./Footer";
 import EtfNavLink from "./EtfNavLink";
@@ -901,7 +903,9 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
           <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
             <DashboardIcon /> {t("홈")}
           </Link>
-          <Link to="/market-brief" className="kospi-map-nav-link kospi-map-nav-link--brief">오늘 브리핑</Link>
+          <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
+            <StockListIcon /> 종목정보 <NewBadge />
+          </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> {t("KOSPI MAP")}
           </Link>

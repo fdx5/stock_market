@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException, Query
 
-from app.data import price_fetcher
+from app.data import naver_news_search_fetcher, price_fetcher, us_company_korean_names
 from app.data.us_index_fetcher import get_us_stock_quote
-from app.data.us_universe import get_us_stock_item
+from app.data.us_universe import get_korean_names_ready, get_us_stock_item
 from app.services import fight_comment_store
 from app.services.cache import cache
 from app.services.daily_prices import build_daily_rows
@@ -64,6 +64,27 @@ def indicators(code: str, years: int = Query(3, ge=1, le=10)):
     points = dataframe_to_records(indicator_df)
     latest = points[-1] if points else {}
     return {"code": code, "name": item["name"], "points": points, "latest": latest}
+
+
+@router.get("/{code}/news")
+def news(code: str, limit: int = Query(15, ge=1, le=30)):
+    """Korean-language coverage of a US company, from Naver's news search.
+
+    finance.naver's per-code news tab — what stock.py's own /news reads — only exists
+    for KRX codes, so this asks Naver for the company by name instead. Which name it
+    asks for is the whole difficulty, and us_company_korean_names.news_query decides:
+    Korean articles call NVIDIA "엔비디아", and asking for the English name finds a
+    thinner, noisier slice of the same day's reporting.
+    """
+    item = _resolve_item(code)
+    name = item["name"]
+    query = us_company_korean_names.news_query(code, name, get_korean_names_ready().get(name))
+    return {
+        "code": code,
+        "name": name,
+        "query": query,
+        "items": naver_news_search_fetcher.get_news(query, limit),
+    }
 
 
 @router.get("/{code}/comments")

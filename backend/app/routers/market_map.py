@@ -27,6 +27,8 @@ from app.services.market_map import (
     get_sector_name,
 )
 from app.services.stock_board import BOARD_LIMIT, MARKETS, get_board
+from app.services.stock_universe_page import MARKET_KEYS as UNIVERSE_MARKETS
+from app.services.stock_universe_page import PAGE_SIZE, get_page
 from app.services.us_market_map import (
     US_SECTOR_PEER_LIMIT,
     get_nasdaq100_map_with_skhynix,
@@ -75,7 +77,7 @@ def kospi_map(response: Response, limit: int = Query(500, ge=1, le=800), fresh: 
 
 
 @router.get("/kosdaq-map")
-def kosdaq_map(response: Response, limit: int = Query(200, ge=1, le=200), fresh: bool = Query(False)):
+def kosdaq_map(response: Response, limit: int = Query(200, ge=1, le=500), fresh: bool = Query(False)):
     response.headers["Cache-Control"] = "no-store"
     items = get_kosdaq_map(limit, fresh=fresh)
     return {
@@ -130,6 +132,35 @@ def stock_board(
     if market not in MARKETS:  # pragma: no cover - the pattern above already rejects these
         raise HTTPException(status_code=404, detail=f"지원하지 않는 시장입니다: {market}")
     return get_board(market, limit, fresh=fresh, slim=slim)
+
+
+@router.get("/stock-list")
+def stock_list(
+    response: Response,
+    market: str = Query("kospi", pattern="^(kospi|kosdaq|sp500)$"),
+    page: int = Query(1, ge=1),
+    size: int = Query(PAGE_SIZE, ge=10, le=100),
+    sector: str | None = Query(None, max_length=60),
+    fresh: bool = Query(False),
+):
+    """One page of a market's 시가총액 ranking, for the 종목정보 page's left rail.
+
+    Sliced out of the same cached snapshots the treemaps read, so paging costs nothing
+    upstream; see services/stock_universe_page for why the three markets are normalised
+    into one row shape here rather than in the client.
+
+    `sector` narrows the whole roster before it is paged, so both the rows and the page
+    count reflect the filter. Omit it (or send the ALL_SECTORS sentinel) for everything.
+    The response always carries the full `sectors` list, so the client's dropdown is
+    populated by the same request that fills its list.
+
+    `no-store` because the page re-reads this every 10 seconds for live prices — a
+    cached response would hand it back its own previous prices.
+    """
+    response.headers["Cache-Control"] = "no-store"
+    if market not in UNIVERSE_MARKETS:  # pragma: no cover - the pattern already rejects these
+        raise HTTPException(status_code=404, detail=f"지원하지 않는 시장입니다: {market}")
+    return get_page(market, page=page, size=size, sector=sector, fresh=fresh)
 
 
 @router.get("/returns")
