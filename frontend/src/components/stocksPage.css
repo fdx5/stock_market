@@ -1351,6 +1351,68 @@
 
   .su-detail {
     min-height: 0;
+    display: grid;
+    /* Header + facts + graph consume the upper 40%. The fixed tab bar and the
+       scrollable tab body together consume the lower 60%. */
+    grid-template-rows: auto auto minmax(0, 1fr) auto minmax(0, calc(60% - 40px));
+  }
+
+  /* The upper region never scrolls. Compact its fixed pieces and let only the graph
+     flex down inside the remaining portion of that 40% region. */
+  .su-detail-head {
+    padding: 8px 12px 6px;
+  }
+
+  .su-detail-logo {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+  }
+
+  .su-detail-names h2 {
+    font-size: 17px;
+  }
+
+  .su-detail-quote > strong {
+    font-size: 21px;
+  }
+
+  .su-detail-facts {
+    margin: 0 12px;
+  }
+
+  .su-detail-facts > div {
+    padding: 5px 7px;
+  }
+
+  .su-detail-facts dd {
+    font-size: 11.5px;
+  }
+
+  .su-chart {
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    padding: 6px 12px 2px;
+  }
+
+  .su-chart-canvas {
+    flex: 1;
+    min-height: 3.5rem;
+    height: auto;
+    margin-top: 3px;
+  }
+
+  .su-detail-tabs {
+    margin-top: 0;
+  }
+
+  /* This is only a height-constraining flex wrapper. The actual overflow-y remains
+     on the discussion/news list or article body, so the tab bar and upper 40% stay put. */
+  .su-detail-tabbody {
+    min-height: 0;
+    overflow: hidden;
   }
 
   .su-detail-head {
