@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -816,7 +816,7 @@ function SpaceScene({
           stock.code,
           brandColor,
           renderer.capabilities.getMaxAnisotropy(),
-          256,
+          128,
           planetStyle,
         );
       body.userData.kind =
@@ -873,7 +873,7 @@ function SpaceScene({
             stock.code,
             brandColor,
             renderer.capabilities.getMaxAnisotropy(),
-            256,
+            128,
             planetStyle,
           );
         if (designDisposed) return;
@@ -910,7 +910,7 @@ function SpaceScene({
           cloudLayers.push({ mesh: cloud, speed: maps.cloudSpeed });
         }
         if (pendingDesignBodies.length)
-          designTimer = window.setTimeout(applyNextDesign, 18);
+          designTimer = window.setTimeout(applyNextDesign, 64);
       };
       designTimer = window.setTimeout(applyNextDesign, 0);
       (scene.userData as { disposeDesigns?: () => void }).disposeDesigns =
@@ -1479,7 +1479,11 @@ function OrbitDetailPanel({
               code: stock.code,
               name: stock.name,
             });
-            navigate(`/stock/${stock.code}`);
+            const detailPath =
+              config.key === "nasdaq100"
+                ? `/global?code=${encodeURIComponent(stock.code)}`
+                : `/desk?code=${encodeURIComponent(stock.code)}`;
+            navigate(detailPath);
           }}
         >
           종목 상세 ↗
@@ -1527,6 +1531,7 @@ export default function KospiOrbitPage({
     [sceneSlow, setSceneSlow] = useState(false),
     [warping, setWarping] = useState<OrbitMarket | null>(null),
     [colors, setColors] = useState<Map<string, number>>(new Map());
+  const handleSceneReady = useCallback(() => setReady(true), []);
   const systems = useMemo(() => {
     const map = new Map<string, MarketMapItem[]>();
     items.forEach((x) => {
@@ -1809,7 +1814,7 @@ export default function KospiOrbitPage({
           selected={selected}
           colors={colors}
           onSelect={setSelected}
-          onReady={() => setReady(true)}
+          onReady={handleSceneReady}
           logoUrl={config.logoUrl}
           trackingMarket={config.label}
         />
