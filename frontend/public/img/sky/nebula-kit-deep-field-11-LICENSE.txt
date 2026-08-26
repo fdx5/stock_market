@@ -1,0 +1,13 @@
+NebulaKit Volumetric Skyboxes Vol.1 — FREE SAMPLE
+Asset: deep_field-11
+Source: https://nebulakit.itch.io/nebula-skyboxes-vol1
+Creator: NebulaKit
+
+Royalty-free for commercial and non-commercial use in games, film, print and
+interactive work, including in projects you sell. You may modify the files.
+You may not resell or redistribute the files themselves, or any derivative
+whose primary value is the image data, as stock, an asset pack, or an AI
+training set.
+
+The source states that no generative AI was used to create this asset.
+The original download supplies an 8192x4096 equirectangular PNG and EXR.

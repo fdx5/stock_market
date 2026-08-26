@@ -5,7 +5,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { api, type MarketMapItem, type MarketMapResponse } from "../api/client";
-import { navigate } from "../router";
+import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
 import { usCompanyLogoUrl } from "../usLogo";
 import { reportMarketOrbitEvent } from "../useActivityTracking";
@@ -18,6 +18,10 @@ import {
   SUNGLOW_VERT,
 } from "../hub2/shaders";
 import { createAlienPlanetMaps } from "./alienPlanetTextures";
+import {
+  loadPremiumPlanetMaps,
+  type PremiumPlanetKind,
+} from "./premiumPlanetTextures";
 import StockDiscussionTab from "./StockDiscussionTab";
 import StockNewsTab from "./StockNewsTab";
 import "./stocksPage.css";
@@ -250,23 +254,6 @@ function SpaceScene({
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x030712, 0.0009);
     let backgroundTexture: THREE.Texture | null = null;
-    const backgroundPath =
-      trackingMarket === "KOSPI"
-        ? "/img/sky/carina-nebula-jwst-4k.webp"
-        : trackingMarket === "KOSDAQ"
-          ? "/img/sky/southern-ring-nebula-jwst-4k.webp"
-          : trackingMarket === "NASDAQ100"
-            ? "/img/sky/tarantula-nebula-jwst-4k.webp"
-            : null;
-    if (backgroundPath) {
-      backgroundTexture = new THREE.TextureLoader().load(
-        backgroundPath,
-      );
-      backgroundTexture.colorSpace = THREE.SRGBColorSpace;
-      scene.background = backgroundTexture;
-      scene.backgroundIntensity = 0.34;
-      scene.backgroundBlurriness = 0.035;
-    }
     const camera = new THREE.PerspectiveCamera(
       48,
       host.clientWidth / host.clientHeight,
@@ -280,6 +267,27 @@ function SpaceScene({
       powerPreference: "high-performance",
     });
     const coarseDevice = matchMedia("(pointer: coarse)").matches;
+    const use8kPanorama =
+      !coarseDevice && renderer.capabilities.maxTextureSize >= 8192;
+    const panoramaSize = use8kPanorama ? "8k" : "4k";
+    const backgroundPath =
+      trackingMarket === "KOSPI"
+        ? `/img/sky/nebula-kit-deep-field-11-${panoramaSize}.webp`
+        : trackingMarket === "KOSDAQ"
+          ? `/img/sky/space-spheremaps-blue-nebulae-1-${panoramaSize}.webp`
+          : trackingMarket === "NASDAQ100"
+            ? `/img/sky/space-spheremaps-hazy-nebulae-1-${panoramaSize}.webp`
+            : null;
+    if (backgroundPath) {
+      backgroundTexture = new THREE.TextureLoader().load(backgroundPath);
+      backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+      // Project the 2:1 lat-long image onto the environment sphere so camera
+      // rotation reveals the complete seamless panorama.
+      backgroundTexture.mapping = THREE.EquirectangularReflectionMapping;
+      scene.background = backgroundTexture;
+      scene.backgroundIntensity = trackingMarket === "KOSPI" ? 0.48 : 0.72;
+      scene.backgroundBlurriness = 0;
+    }
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.35));
     renderer.setSize(host.clientWidth, host.clientHeight);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -483,14 +491,57 @@ function SpaceScene({
             vertexShader: PLANET_VERT,
             fragmentShader: PLANET_FRAG.replace(
               "uniform sampler2D uMap;",
-              "uniform sampler2D uMap;\nuniform vec3 uBrandColor;",
+              `uniform sampler2D uMap;
+uniform sampler2D uLandformMap;
+uniform vec3 uBrandColor;
+uniform vec3 uOceanColor;
+uniform vec3 uTerrainTint;
+uniform float uHasOcean;
+uniform float uUvOffset;
+uniform float uBrandMix;
+uniform float uLandformOffset;
+uniform float uSeaLevel;
+uniform float uLandformBlend;
+uniform float uInvertLandform;`,
             ).replace(
-              "vec3 albedo = texel.rgb;",
-              "vec3 albedo = mix(texel.rgb, texel.rgb * uBrandColor * 1.7, 0.46);",
+              "vec4 texel = texture2D(uMap, vUv);\n  vec3 albedo = texel.rgb;",
+              `vec2 surfaceUv = vec2(fract(vUv.x + uUvOffset), vUv.y);
+  vec4 texel = texture2D(uMap, surfaceUv);
+  vec2 landUvA = vec2(fract(vUv.x + uLandformOffset), vUv.y);
+  vec2 landUvB = vec2(fract(1.0 - vUv.x + uLandformOffset * 0.47), 1.0 - vUv.y);
+  vec3 landA = texture2D(uLandformMap, landUvA).rgb;
+  vec3 landB = texture2D(uLandformMap, landUvB).rgb;
+  float heightA = dot(landA, vec3(0.299, 0.587, 0.114));
+  float heightB = dot(landB, vec3(0.299, 0.587, 0.114));
+  float terrainHeight = mix(heightA, heightB, uLandformBlend);
+  terrainHeight = mix(terrainHeight, 1.0 - terrainHeight, uInvertLandform);
+  float land = smoothstep(uSeaLevel - 0.055, uSeaLevel + 0.055, terrainHeight);
+  float ocean = (1.0 - land) * uHasOcean;
+  vec3 terrain = texel.rgb * uTerrainTint;
+  terrain = mix(terrain, terrain * uBrandColor * 1.7, uBrandMix);
+  vec3 albedo = mix(terrain, uOceanColor, ocean);`,
+            ).replace(
+              "vec3 color = mix(night, lit, day);",
+              `vec3 color = mix(night, lit, day);
+  vec3 halfway = normalize(L + V);
+  float oceanGlint = pow(max(dot(N, halfway), 0.0), 72.0) * ocean;
+  float oceanFresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0) * ocean;
+  color += vec3(0.62, 0.83, 1.0) * oceanGlint * 0.92;
+  color += uOceanColor * oceanFresnel * 0.34;`,
             ),
             uniforms: {
               uMap: { value: texture },
+              uLandformMap: { value: texture },
               uBrandColor: { value: brand },
+              uOceanColor: { value: new THREE.Color(0x062b52) },
+              uTerrainTint: { value: new THREE.Color(0xffffff) },
+              uHasOcean: { value: 0 },
+              uUvOffset: { value: 0 },
+              uBrandMix: { value: 0.46 },
+              uLandformOffset: { value: 0 },
+              uSeaLevel: { value: 0.48 },
+              uLandformBlend: { value: 0 },
+              uInvertLandform: { value: 0 },
               uSunPos: { value: new THREE.Vector3(0, 0, 0) },
               uAtmoColor: {
                 value: brand.clone().lerp(new THREE.Color(0xffffff), 0.62),
@@ -746,17 +797,51 @@ function SpaceScene({
         ringHash((a.mesh.userData.stock as MarketMapItem).code) -
         ringHash((b.mesh.userData.stock as MarketMapItem).code),
     );
-    const stormCount = Math.min(
-        featured.length,
-        featured.length >= 8 ? 2 : featured.length ? 1 : 0,
+    const oceanWorldCount = Math.round(featured.length * 0.5),
+      rockWorldCount = Math.round(featured.length * 0.15),
+      premiumKinds = new Map<string, PremiumPlanetKind>();
+    const oceanWorlds = featured.slice(0, oceanWorldCount);
+    oceanWorlds.forEach((planet, index) => {
+      premiumKinds.set(
+        (planet.mesh.userData.stock as MarketMapItem).code,
+        index % 2 === 0 ? "ocean" : "ocean-clouds",
+      );
+    });
+    const whiteAtmosphereCodes = new Set(
+      [...oceanWorlds]
+        .sort((a, b) => {
+          const aCode = (a.mesh.userData.stock as MarketMapItem).code,
+            bCode = (b.mesh.userData.stock as MarketMapItem).code;
+          return ringHash(`${aCode}:atmosphere`) - ringHash(`${bCode}:atmosphere`);
+        })
+        .slice(0, Math.round(oceanWorlds.length * 0.4))
+        .map((planet) => (planet.mesh.userData.stock as MarketMapItem).code),
+    );
+    featured
+      .slice(oceanWorldCount, oceanWorldCount + rockWorldCount)
+      .forEach((planet) => {
+        premiumKinds.set(
+          (planet.mesh.userData.stock as MarketMapItem).code,
+          "rock",
+        );
+      });
+    const lightweightBodies = featured.filter(
+        (planet) =>
+          !premiumKinds.has(
+            (planet.mesh.userData.stock as MarketMapItem).code,
+          ),
+      ),
+      stormCount = Math.min(
+        lightweightBodies.length,
+        lightweightBodies.length >= 8 ? 2 : lightweightBodies.length ? 1 : 0,
       ),
       stormCodes = new Set(
-        featured
+        lightweightBodies
           .slice(0, stormCount)
           .map((x) => (x.mesh.userData.stock as MarketMapItem).code),
       ),
       bandCodes = new Set(
-        featured
+        lightweightBodies
           .slice(
             stormCount,
             stormCount + Math.min(2, Math.max(0, featured.length - stormCount)),
@@ -845,9 +930,6 @@ function SpaceScene({
               toneMapped: true,
             }),
           );
-        cloud.onBeforeRender = () => {
-          cloud.rotation.y -= maps.cloudSpeed * 0.012;
-        };
         body.add(cloud);
         cloudLayers.push({ mesh: cloud, speed: maps.cloudSpeed });
       }
@@ -864,50 +946,149 @@ function SpaceScene({
         const stock = body.userData.stock as MarketMapItem,
           brandColor = await logoColor(stock.code, logoUrl),
           material = (body as THREE.Mesh).material,
+          premiumKind = premiumKinds.get(stock.code),
           planetStyle = stormCodes.has(stock.code)
             ? "storm"
             : bandCodes.has(stock.code)
               ? "complex-bands"
               : "standard",
-          maps = createAlienPlanetMaps(
-            stock.code,
-            brandColor,
-            renderer.capabilities.getMaxAnisotropy(),
-            128,
-            planetStyle,
-          );
+          maps = premiumKind
+            ? await loadPremiumPlanetMaps(
+                stock.code,
+                premiumKind,
+                renderer.capabilities.getMaxAnisotropy(),
+                whiteAtmosphereCodes.has(stock.code),
+              )
+            : createAlienPlanetMaps(
+                stock.code,
+                brandColor,
+                renderer.capabilities.getMaxAnisotropy(),
+                128,
+                planetStyle,
+              );
         if (designDisposed) return;
-        body.userData.kind =
-          planetStyle === "storm"
+        const isPremiumMaps = "kindLabel" in maps;
+        const hasDoubleGasAtmosphere =
+          !isPremiumMaps &&
+          maps.kind === "gas" &&
+          ringHash(`${stock.code}:double-atmosphere`) % 10 < 7;
+        body.userData.kind = isPremiumMaps
+          ? maps.kindLabel
+          : planetStyle === "storm"
             ? `${maps.kind} · 대형 폭풍`
             : planetStyle === "complex-bands"
               ? `${maps.kind} · 다층 구름띠`
-              : maps.kind;
+              : hasDoubleGasAtmosphere
+                ? `${maps.kind} · 이중 회전 대기`
+                : maps.kind;
         if (material instanceof THREE.ShaderMaterial) {
           material.uniforms.uMap.value = maps.surface;
           material.uniforms.uAtmoColor.value = maps.atmosphere;
-          material.uniforms.uAtmoStrength.value = 0.28;
-          material.uniforms.uAmbient.value = 0.54;
-          material.uniforms.uExposure.value = 0.84;
+          material.uniforms.uAtmoStrength.value = isPremiumMaps ? 0.42 : 0.28;
+          material.uniforms.uAmbient.value = isPremiumMaps ? 0.62 : 0.54;
+          material.uniforms.uExposure.value = isPremiumMaps ? 0.94 : 0.84;
+          if (isPremiumMaps) {
+            material.uniforms.uLandformMap.value =
+              maps.landformMap ?? maps.surface;
+            material.uniforms.uOceanColor.value.copy(maps.oceanColor);
+            material.uniforms.uTerrainTint.value.copy(maps.terrainTint);
+            material.uniforms.uHasOcean.value = maps.landformMap ? 1 : 0;
+            material.uniforms.uUvOffset.value = maps.uvOffset;
+            material.uniforms.uBrandMix.value = 0.08;
+            material.uniforms.uLandformOffset.value = maps.landformOffset;
+            material.uniforms.uSeaLevel.value = maps.seaLevel;
+            material.uniforms.uLandformBlend.value = maps.landformBlend;
+            material.uniforms.uInvertLandform.value = maps.invertLandform;
+          }
         }
         if (maps.clouds) {
           const radius = Number(body.userData.radius),
             cloud = new THREE.Mesh(
               cloudGeometry(radius),
+            new THREE.MeshBasicMaterial({
+              map: maps.clouds,
+              alphaMap: isPremiumMaps ? maps.clouds : null,
+              color: isPremiumMaps ? 0xeaf7ff : 0xffffff,
+              transparent: true,
+              opacity: isPremiumMaps
+                ? 0.64
+                : planetStyle === "complex-bands"
+                  ? 0.28
+                  : 0.22,
+              alphaTest: isPremiumMaps ? 0.025 : 0,
+              depthWrite: false,
+                blending: THREE.NormalBlending,
+                toneMapped: true,
+              }),
+            );
+          body.add(cloud);
+          cloudLayers.push({ mesh: cloud, speed: maps.cloudSpeed });
+          if (hasDoubleGasAtmosphere && maps.cloudsSecondary) {
+            const outerTexture = maps.cloudsSecondary;
+            outerTexture.offset.x =
+              (ringHash(`${stock.code}:cloud-offset`) % 1000) / 1000;
+            outerTexture.repeat.set(1.08, 1);
+            outerTexture.needsUpdate = true;
+            const outerCloud = new THREE.Mesh(
+              new THREE.SphereGeometry(radius * 1.038, 48, 32),
               new THREE.MeshBasicMaterial({
-                map: maps.clouds,
+                map: outerTexture,
+                color: maps.atmosphere.clone().lerp(
+                  new THREE.Color(0xffffff),
+                  0.28,
+                ),
                 transparent: true,
-                opacity: planetStyle === "complex-bands" ? 0.28 : 0.22,
+                opacity: 0.14,
+                alphaTest: 0.015,
                 depthWrite: false,
                 blending: THREE.NormalBlending,
                 toneMapped: true,
               }),
             );
-          cloud.onBeforeRender = () => {
-            cloud.rotation.y -= maps.cloudSpeed * 0.012;
-          };
-          body.add(cloud);
-          cloudLayers.push({ mesh: cloud, speed: maps.cloudSpeed });
+            outerCloud.rotation.z =
+              ((ringHash(`${stock.code}:cloud-tilt`) % 13) - 6) * 0.012;
+            body.add(outerCloud);
+            cloudLayers.push({
+              mesh: outerCloud,
+              speed: -(maps.cloudSpeed * 0.46 + 0.018),
+            });
+          }
+        }
+        if (
+          isPremiumMaps &&
+          maps.landformMap &&
+          maps.atmosphereTexture
+        ) {
+          const radius = Number(body.userData.radius),
+            hazeTexture = maps.atmosphereTexture.clone();
+          hazeTexture.offset.x =
+            (ringHash(`${stock.code}:ocean-haze-offset`) % 1000) / 1000;
+          hazeTexture.repeat.set(1.12, 0.96);
+          hazeTexture.needsUpdate = true;
+          const haze = new THREE.Mesh(
+            new THREE.SphereGeometry(radius * 1.052, 48, 32),
+            new THREE.MeshBasicMaterial({
+              map: hazeTexture,
+              alphaMap: hazeTexture,
+              color: maps.atmosphere,
+              transparent: true,
+              opacity: maps.clouds ? 0.095 : 0.14,
+              alphaTest: 0.012,
+              depthWrite: false,
+              blending: THREE.AdditiveBlending,
+              toneMapped: true,
+            }),
+          );
+          haze.rotation.z =
+            ((ringHash(`${stock.code}:ocean-haze-tilt`) % 15) - 7) * 0.01;
+          body.add(haze);
+          cloudLayers.push({
+            mesh: haze,
+            speed:
+              (ringHash(`${stock.code}:ocean-haze-direction`) % 2 ? 1 : -1) *
+              (0.018 +
+                (ringHash(`${stock.code}:ocean-haze-speed`) % 32) / 1000),
+          });
         }
         if (pendingDesignBodies.length)
           designTimer = window.setTimeout(applyNextDesign, 64);
@@ -1192,6 +1373,9 @@ function SpaceScene({
           x.orbit * (ca * sn + sa * ci * cn),
         );
         x.mesh.rotation.y = t * x.spin;
+      });
+      cloudLayers.forEach(({ mesh, speed }) => {
+        mesh.rotation.y = t * speed;
       });
       if (centralStar) centralStar.rotation.y = t * 0.075;
       if (focusTarget) {
@@ -1685,28 +1869,37 @@ export default function KospiOrbitPage({
     <main
       className={`kospi-orbit orbit-market-${market}${selected ? " has-detail" : ""}`}
     >
-      {(
+      {market === "kospi" ? (
         <a
           className="orbit-background-credit"
-          href={
-            market === "kospi"
-              ? "https://science.nasa.gov/asset/webb/cosmic-cliffs-in-the-carina-nebula-nircam-image/"
-              : market === "kosdaq"
-                ? "https://science.nasa.gov/asset/webb/southern-ring-nebula-nircam-image/"
-                : "https://science.nasa.gov/asset/webb/tarantula-nebula-nircam-image/"
-          }
+          href="https://nebulakit.itch.io/nebula-skyboxes-vol1"
           target="_blank"
           rel="noreferrer"
         >
-          {market === "kospi"
-            ? "JWST Carina Nebula"
-            : market === "kosdaq"
-              ? "JWST Southern Ring Nebula"
-              : "JWST Tarantula Nebula"}{" "}
-          · NASA / ESA / CSA / STScI
+          NebulaKit deep_field-11 · 8K 360°
+        </a>
+      ) : (
+        <a
+          className="orbit-background-credit"
+          href="https://space-spheremaps.itch.io/space-spheremaps"
+          target="_blank"
+          rel="noreferrer"
+        >
+          {market === "kosdaq"
+            ? "Space Spheremaps blue_nebulae_1"
+            : "Space Spheremaps hazy_nebulae_1"}{" "}
+          · 8K 360°
         </a>
       )}
       <header className="orbit-top">
+        <Link
+          to="/desk"
+          className="orbit-back-link"
+          aria-label="메인 대시보드로 돌아가기"
+          title="뒤로가기"
+        >
+          <span aria-hidden="true">←</span>
+        </Link>
         <button className="orbit-brand" onClick={() => navigate("/")}>
           <i />
           K-STOCK <strong>ORBIT</strong>

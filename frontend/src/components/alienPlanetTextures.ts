@@ -5,6 +5,7 @@ export type AlienPlanetStyle = "standard" | "storm" | "complex-bands";
 export interface AlienPlanetMaps {
   surface: THREE.CanvasTexture;
   clouds: THREE.CanvasTexture | null;
+  cloudsSecondary: THREE.CanvasTexture | null;
   atmosphere: THREE.Color;
   kind: AlienPlanetKind;
   cloudSpeed: number;
@@ -28,6 +29,7 @@ function storeDesign(key: string, value: AlienPlanetMaps) {
     const oldest = planetDesignCache.get(oldestKey);
     oldest?.surface.dispose();
     oldest?.clouds?.dispose();
+    oldest?.cloudsSecondary?.dispose();
     planetDesignCache.delete(oldestKey);
   }
   return value;
@@ -247,7 +249,7 @@ export function createAlienPlanetMaps(
   style: AlienPlanetStyle = "standard",
 ): AlienPlanetMaps {
   size = Math.min(size, 256);
-  const designKey = `clouds-v2:${key}:${brandHex.toString(16)}:${size}:${style}`;
+  const designKey = `clouds-v3:${key}:${brandHex.toString(16)}:${size}:${style}`;
   const existing = cachedDesign(designKey);
   if (existing) return existing;
   const quality = size <= 128 ? 0.34 : 1,
@@ -427,12 +429,46 @@ export function createAlienPlanetMaps(
     blendHorizontalSeam(cloudCanvas);
     softenPolarCaps(cloudCanvas, true);
   }
+  const secondaryCloudCanvas = document.createElement("canvas");
+  secondaryCloudCanvas.width = secondaryCloudCanvas.height = size;
+  const secondary = secondaryCloudCanvas.getContext("2d")!;
+  if (kind === "gas") {
+    flow(
+      secondary,
+      size,
+      rnd,
+      "#ffffff",
+      count(82 + Math.floor(rnd() * 76)),
+      7 + rnd() * 17,
+      0.12 + rnd() * 0.12,
+    );
+    flow(
+      secondary,
+      size,
+      rnd,
+      `#${accent.getHexString()}`,
+      count(38 + Math.floor(rnd() * 58)),
+      18 + rnd() * 31,
+      0.08 + rnd() * 0.1,
+    );
+    atmosphericBands(
+      secondary,
+      size,
+      rnd,
+      ["#ffffff", `#${white.getHexString()}`, `#${accent.getHexString()}`],
+      rnd() > 0.36,
+    );
+    blendHorizontalSeam(secondaryCloudCanvas);
+    softenPolarCaps(secondaryCloudCanvas, true);
+  }
   const atmosphere = brand
     .clone()
     .lerp(new THREE.Color(0xffffff), kind === "ice" ? 0.62 : 0.38);
   return storeDesign(designKey, {
     surface: asTexture(canvas, aniso),
     clouds: hasCloud ? asTexture(cloudCanvas, aniso) : null,
+    cloudsSecondary:
+      kind === "gas" ? asTexture(secondaryCloudCanvas, aniso) : null,
     atmosphere,
     kind,
     cloudSpeed: 0.045 + rnd() * 0.095,

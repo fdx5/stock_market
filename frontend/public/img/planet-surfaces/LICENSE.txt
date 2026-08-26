@@ -1,0 +1,18 @@
+Planet surface texture attribution
+==================================
+
+Source: Solar System Scope, Solar System Textures
+https://www.solarsystemscope.com/textures/
+
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+Files used: 2k_mercury.jpg, 2k_moon.jpg, 2k_venus_surface.jpg and
+2k_earth_clouds.jpg. Earth geography is not used.
+The application combines the source maps at render time and varies color,
+orientation, ocean shading, atmosphere, and cloud rotation per stock planet.
+
+Mars MOLA global topography (PIA10132)
+Source: NASA/JPL-Caltech, Mars Global Surveyor / Mars Orbiter Laser Altimeter
+https://science.nasa.gov/photojournal/global-view-of-mars-topography/
+File: nasa-mars-mola-topography.jpg

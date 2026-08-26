@@ -1,0 +1,11 @@
+Space Spheremaps
+Assets used: blue_nebulae_1.png, hazy_nebulae_1.png
+Source: https://space-spheremaps.itch.io/space-spheremaps
+Creator: Space Spheremaps
+
+The source permits sharing, copying, redistribution, adaptation and commercial
+use. Attribution is not required, though it is appreciated. The assets may not
+be used for AI scraping.
+
+The source states that no generative AI was used to create these assets.
+The original download supplies 8192x4096 equirectangular PNG files.
