@@ -519,9 +519,12 @@ if STATIC_DIR.exists():
             response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
         if path.startswith("/assets/"):
             response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
-        elif path.startswith("/img/discussion-pillars-"):
-            # Versioned, compressed discussion backgrounds change filename whenever
-            # their pixels change, so browsers/CDNs can safely retain them for a year.
+        elif path.startswith("/img/discussion-pillars-") or (
+            path.startswith("/img/sky/") and path.endswith("-jwst-4k.webp")
+        ):
+            # Versioned, compressed backgrounds change filename whenever their pixels
+            # change, so browsers/CDNs can safely retain them for a year. In particular,
+            # the large JWST orbit backdrops should only be downloaded once per device.
             response.headers["Cache-Control"] = ASSETS_CACHE_CONTROL
         elif path.startswith(("/video/", "/img/", "/favicon", "/apple-touch-icon")):
             response.headers["Cache-Control"] = STATIC_CACHE_CONTROL

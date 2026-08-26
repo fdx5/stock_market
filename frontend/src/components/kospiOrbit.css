@@ -144,6 +144,20 @@
 @media(max-width:760px){.orbit-nav{left:8px;right:8px;top:auto;bottom:48px;width:auto;height:58px;display:flex;box-sizing:border-box;overflow-x:auto;overflow-y:hidden}.orbit-nav-title{position:sticky;left:0;min-width:92px;display:flex;align-items:center;padding:7px;margin:0 5px 0 0;border:0;border-right:1px solid #ffffff12;font-size:8px;line-height:1.35}.orbit-tree{flex:0 0 auto;width:auto}.orbit-tree>button{width:auto;min-width:max-content;height:46px;min-height:46px}.orbit-tree-stocks{display:none}.orbit-context{left:18px}.orbit-footer{left:18px}}
 @media(prefers-reduced-motion:reduce){.orbit-loader div{animation:none}}
 
+/* Market-specific JWST backdrops. The WebGL scene uses the same assets; these
+   declarations avoid a blank flash while its texture is loading. */
+.kospi-orbit{isolation:isolate}
+.kospi-orbit.orbit-market-kospi{background:#01040a url("/img/sky/carina-nebula-jwst-4k.webp") center 56%/cover no-repeat}
+.kospi-orbit.orbit-market-kosdaq{background:#01040a url("/img/sky/southern-ring-nebula-jwst-4k.webp") center/cover no-repeat}
+.kospi-orbit.orbit-market-nasdaq100{background:#01040a url("/img/sky/tarantula-nebula-jwst-4k.webp") center/cover no-repeat}
+.kospi-orbit.orbit-market-kospi:before,.kospi-orbit.orbit-market-kosdaq:before,.kospi-orbit.orbit-market-nasdaq100:before{content:"";position:absolute;z-index:0;inset:0;pointer-events:none;background:radial-gradient(circle at 52% 44%,rgba(2,10,20,.12),rgba(1,5,13,.48) 60%,rgba(0,3,9,.78) 100%),linear-gradient(180deg,rgba(0,4,12,.36),rgba(0,6,15,.08) 45%,rgba(0,3,9,.45));box-shadow:inset 0 0 160px rgba(0,0,0,.64)}
+.kospi-orbit .orbit-stage{z-index:1}
+.orbit-background-credit{position:absolute;z-index:4;right:18px;bottom:43px;padding:4px 7px;border-radius:6px;background:#02071173;color:#8da4b7;font:8px/1.3 ui-monospace;text-decoration:none;letter-spacing:.03em;opacity:.72;transition:opacity .18s}
+.orbit-background-credit:hover{color:#d9f4ff;opacity:1}
+.orbit-view-reset{display:flex;align-items:center;gap:6px;flex:0 0 auto;padding:8px 11px;border:1px solid #4ecdf744;border-radius:10px;background:#0a2031cc;color:#a9dff0;font:800 9px/1 ui-monospace;white-space:nowrap;cursor:pointer;transition:border-color .18s,background .18s,color .18s,transform .18s}.orbit-view-reset:hover{border-color:#66ddff88;background:#12344acc;color:#effcff;transform:translateY(-1px)}.orbit-view-reset span{font-size:17px;line-height:.7}.orbit-view-reset b{font:inherit}
+@media(max-width:760px){.orbit-background-credit{right:9px;bottom:72px;font-size:7px}}
+@media(max-width:760px){.orbit-view-reset{width:34px;height:34px;justify-content:center;padding:0;border-radius:50%}.orbit-view-reset span{font-size:18px}.orbit-view-reset b{display:none}}
+
 /* Compact mobile inspector: reserve the majority of its height for discussion/news. */
 @media(max-width:760px){
   .kospi-orbit .orbit-context h1{font-size:18px}

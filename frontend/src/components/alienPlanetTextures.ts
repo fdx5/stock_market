@@ -186,134 +186,6 @@ function atmosphericBands(
   ctx.restore();
 }
 
-function stormVortex(
-  ctx: CanvasRenderingContext2D,
-  size: number,
-  rnd: () => number,
-  brand: THREE.Color,
-  deep: THREE.Color,
-) {
-  const x = size * (0.2 + rnd() * 0.6),
-    y = size * (0.3 + rnd() * 0.4),
-    rx = size * (0.085 + rnd() * 0.055),
-    ry = rx * (0.38 + rnd() * 0.2),
-    angle = (rnd() - 0.5) * 0.22;
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.rotate(angle);
-  ctx.scale(1, ry / rx);
-  for (let layer = 9; layer >= 1; layer--) {
-    const radius = (rx * layer) / 9,
-      g = ctx.createRadialGradient(
-        -radius * 0.18,
-        0,
-        radius * 0.05,
-        0,
-        0,
-        radius,
-      );
-    const core = brand
-        .clone()
-        .offsetHSL((rnd() - 0.5) * 0.035, 0.04, -0.05 + layer * 0.012),
-      rim = deep.clone().offsetHSL(0, 0.03, 0.07);
-    g.addColorStop(
-      0,
-      `rgba(${Math.round(core.r * 255)},${Math.round(core.g * 255)},${Math.round(core.b * 255)},.88)`,
-    );
-    g.addColorStop(
-      0.62,
-      `rgba(${Math.round(rim.r * 255)},${Math.round(rim.g * 255)},${Math.round(rim.b * 255)},.48)`,
-    );
-    g.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, radius, radius, 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalCompositeOperation = "screen";
-  ctx.strokeStyle = "rgba(255,255,255,.28)";
-  ctx.lineCap = "round";
-  for (let i = 0; i < 12; i++) {
-    ctx.lineWidth = 0.8 + rnd() * 2.2;
-    ctx.beginPath();
-    ctx.ellipse(
-      0,
-      0,
-      rx * (0.24 + i * 0.058),
-      rx * (0.17 + i * 0.045),
-      i * 0.16 + rnd() * 0.08,
-      Math.PI * 0.08,
-      Math.PI * 1.82,
-    );
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-function rockyBasins(
-  ctx: CanvasRenderingContext2D,
-  size: number,
-  rnd: () => number,
-) {
-  ctx.save();
-  ctx.globalCompositeOperation = "multiply";
-  for (let i = 0; i < 38; i++) {
-    const x = rnd() * size,
-      y = rnd() * size,
-      r = size * (0.006 + rnd() * 0.035),
-      g = ctx.createRadialGradient(
-        x - r * 0.25,
-        y - r * 0.3,
-        r * 0.08,
-        x,
-        y,
-        r,
-      );
-    g.addColorStop(0, "rgba(255,255,255,.08)");
-    g.addColorStop(0.52, "rgba(12,16,25,.06)");
-    g.addColorStop(0.78, "rgba(4,7,14,.34)");
-    g.addColorStop(1, "rgba(255,255,255,0)");
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.ellipse(
-      x,
-      y,
-      r,
-      r * (0.55 + rnd() * 0.35),
-      rnd() * Math.PI,
-      0,
-      Math.PI * 2,
-    );
-    ctx.fill();
-  }
-  ctx.restore();
-}
-function oceanContinents(
-  ctx: CanvasRenderingContext2D,
-  size: number,
-  rnd: () => number,
-  land: THREE.Color,
-) {
-  ctx.save();
-  ctx.filter = `blur(${Math.max(2, size * 0.009)}px)`;
-  ctx.globalCompositeOperation = "screen";
-  for (let island = 0; island < 24; island++) {
-    let x = rnd() * size,
-      y = rnd() * size;
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    for (let p = 0; p < 18; p++) {
-      const a = (p / 18) * Math.PI * 2,
-        r = size * (0.008 + rnd() * 0.045);
-      ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r * 0.55);
-    }
-    ctx.closePath();
-    ctx.fillStyle = `#${land.getHexString()}`;
-    ctx.globalAlpha = 0.08 + rnd() * 0.18;
-    ctx.fill();
-  }
-  ctx.restore();
-}
 function iceFissures(
   ctx: CanvasRenderingContext2D,
   size: number,
@@ -375,7 +247,7 @@ export function createAlienPlanetMaps(
   style: AlienPlanetStyle = "standard",
 ): AlienPlanetMaps {
   size = Math.min(size, 256);
-  const designKey = `${key}:${brandHex.toString(16)}:${size}:${style}`;
+  const designKey = `clouds-v2:${key}:${brandHex.toString(16)}:${size}:${style}`;
   const existing = cachedDesign(designKey);
   if (existing) return existing;
   const quality = size <= 128 ? 0.34 : 1,
@@ -439,7 +311,25 @@ export function createAlienPlanetMaps(
       ],
       style === "complex-bands",
     );
-  if (style === "storm") stormVortex(c, size, rnd, brand, deep);
+  /* Broad vortices used to read as pasted-on ellipses once wrapped around a
+     small sphere. Storm worlds now use several irregular flowing cloud bands
+     instead, with every parameter seeded by the stock code. */
+  if (style === "storm") {
+    atmosphericBands(
+      c,
+      size,
+      rnd,
+      [
+        `#${white.getHexString()}`,
+        `#${accent.getHexString()}`,
+        `#${deep.getHexString()}`,
+      ],
+      true,
+    );
+    flow(c, size, rnd, `#${white.getHexString()}`, count(145), 13, 0.2);
+    c.globalCompositeOperation = "multiply";
+    flow(c, size, rnd, `#${deep.getHexString()}`, count(92), 19, 0.16);
+  }
   if (kind === "gas" && style === "standard")
     atmosphericBands(c, size, rnd, [
       `#${white.getHexString()}`,
@@ -447,7 +337,9 @@ export function createAlienPlanetMaps(
       `#${deep.getHexString()}`,
     ]);
   if (kind === "rock") {
-    rockyBasins(c, size, rnd);
+    flow(c, size, rnd, `#${accent.getHexString()}`, count(78), 16, 0.16);
+    c.globalCompositeOperation = "multiply";
+    flow(c, size, rnd, `#${deep.getHexString()}`, count(66), 22, 0.18);
   }
   if (kind === "ice") {
     flow(
@@ -475,20 +367,32 @@ export function createAlienPlanetMaps(
   }
   if (kind === "ocean") {
     flow(c, size, rnd, `#${white.getHexString()}`, count(65), 10, 0.14);
-    oceanContinents(c, size, rnd, accent);
+    atmosphericBands(
+      c,
+      size,
+      rnd,
+      [`#${white.getHexString()}`, `#${accent.getHexString()}`],
+      rnd() > 0.55,
+    );
   }
   const cloudCanvas = document.createElement("canvas");
   cloudCanvas.width = cloudCanvas.height = size;
   const q = cloudCanvas.getContext("2d")!;
   const hasCloud = style !== "standard" || kind !== "rock" || rnd() > 0.42;
   if (hasCloud) {
+    const cloudDensity = 0.78 + rnd() * 0.48,
+      cloudWidth = 0.72 + rnd() * 0.62;
     flow(
       q,
       size,
       rnd,
       "#ffffff",
-      count(style === "complex-bands" ? 155 : kind === "gas" ? 115 : 72),
-      style === "complex-bands" ? 10 : kind === "gas" ? 16 : 24,
+      count(
+        (style === "complex-bands" ? 155 : kind === "gas" ? 115 : 72) *
+          cloudDensity,
+      ),
+      (style === "complex-bands" ? 10 : kind === "gas" ? 16 : 24) *
+        cloudWidth,
       style === "complex-bands" ? 0.18 : kind === "volcanic" ? 0.1 : 0.24,
     );
     flow(
@@ -501,6 +405,14 @@ export function createAlienPlanetMaps(
       0.12,
     );
     if (style === "complex-bands")
+      atmosphericBands(
+        q,
+        size,
+        rnd,
+        ["#ffffff", `#${white.getHexString()}`],
+        true,
+      );
+    if (style === "storm")
       atmosphericBands(
         q,
         size,

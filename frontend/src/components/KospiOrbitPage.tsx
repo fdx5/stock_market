@@ -249,6 +249,24 @@ function SpaceScene({
     if (!host) return;
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x030712, 0.0009);
+    let backgroundTexture: THREE.Texture | null = null;
+    const backgroundPath =
+      trackingMarket === "KOSPI"
+        ? "/img/sky/carina-nebula-jwst-4k.webp"
+        : trackingMarket === "KOSDAQ"
+          ? "/img/sky/southern-ring-nebula-jwst-4k.webp"
+          : trackingMarket === "NASDAQ100"
+            ? "/img/sky/tarantula-nebula-jwst-4k.webp"
+            : null;
+    if (backgroundPath) {
+      backgroundTexture = new THREE.TextureLoader().load(
+        backgroundPath,
+      );
+      backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+      scene.background = backgroundTexture;
+      scene.backgroundIntensity = 0.34;
+      scene.backgroundBlurriness = 0.035;
+    }
     const camera = new THREE.PerspectiveCamera(
       48,
       host.clientWidth / host.clientHeight,
@@ -272,7 +290,7 @@ function SpaceScene({
       composer.addPass(
         new UnrealBloomPass(
           new THREE.Vector2(host.clientWidth, host.clientHeight),
-          0.42,
+          0.56,
           0.52,
           0.58,
         ),
@@ -287,7 +305,7 @@ function SpaceScene({
     controls.enablePan = true;
     controls.screenSpacePanning = true;
     controls.zoomToCursor = true;
-    scene.add(new THREE.AmbientLight(0x7297c5, 0.72));
+    scene.add(new THREE.AmbientLight(0x86add8, 0.92));
     const ray = new THREE.Raycaster(),
       pointer = new THREE.Vector2();
     const hit: THREE.Object3D[] = [];
@@ -323,10 +341,6 @@ function SpaceScene({
         }),
       ),
     );
-    const grid = new THREE.GridHelper(900, 36, 0x174064, 0x0b2138);
-    grid.material.transparent = true;
-    grid.material.opacity = 0.16;
-    scene.add(grid);
     /* Legacy canvas and solar-system image textures were removed here. Every visible
        planet now receives its final generated design directly, avoiding unused image
        downloads and duplicate design work when a sector is revisited. */
@@ -502,10 +516,6 @@ function SpaceScene({
       m.userData.kind = glow ? "항성" : isGas ? "가스형" : "암석형";
       hit.push(m);
       scene.add(m);
-      if (glow) {
-        const light = new THREE.PointLight(color, 720, radius * 28, 1.7);
-        m.add(light);
-      }
       return m;
     };
     let centralStar: THREE.Mesh | null = null;
@@ -711,6 +721,8 @@ function SpaceScene({
       previousRadius = radius;
     });
     controls.maxDistance = Math.max(780, (sys?.stocks.length ?? 1) * 16);
+    const defaultCameraPosition = camera.position.clone(),
+      defaultCameraTarget = controls.target.clone();
     let focusTarget: THREE.Object3D | null = selected
       ? (hit.find(
           (o) =>
@@ -718,7 +730,8 @@ function SpaceScene({
             selected.code,
         ) ?? null)
       : null;
-    let flying = focusTarget !== null;
+    let flying = focusTarget !== null,
+      resettingView = false;
     if (focusTarget) controls.zoomToCursor = false;
     const focusOffset = new THREE.Vector3();
     const desiredCamera = new THREE.Vector3();
@@ -762,7 +775,10 @@ function SpaceScene({
         material.dispose();
         blueStarMaterial = new THREE.ShaderMaterial({
           vertexShader: SUN_VERT,
-          fragmentShader: SUN_FRAG,
+          fragmentShader: SUN_FRAG.replace(
+            "gl_FragColor = vec4(color, 1.0);",
+            "gl_FragColor = vec4(color * 1.5, 1.0);",
+          ),
           uniforms: {
             uTime: { value: 0 },
             uPulse: { value: 0.08 },
@@ -813,8 +829,8 @@ function SpaceScene({
         material.uniforms.uMap.value = maps.surface;
         material.uniforms.uAtmoColor.value = maps.atmosphere;
         material.uniforms.uAtmoStrength.value = 0.28;
-        material.uniforms.uAmbient.value = 0.42;
-        material.uniforms.uExposure.value = 0.72;
+        material.uniforms.uAmbient.value = 0.54;
+        material.uniforms.uExposure.value = 0.84;
       }
       if (maps.clouds) {
         const radius = Number(body.userData.radius),
@@ -871,8 +887,8 @@ function SpaceScene({
           material.uniforms.uMap.value = maps.surface;
           material.uniforms.uAtmoColor.value = maps.atmosphere;
           material.uniforms.uAtmoStrength.value = 0.28;
-          material.uniforms.uAmbient.value = 0.42;
-          material.uniforms.uExposure.value = 0.72;
+          material.uniforms.uAmbient.value = 0.54;
+          material.uniforms.uExposure.value = 0.84;
         }
         if (maps.clouds) {
           const radius = Number(body.userData.radius),
@@ -909,16 +925,24 @@ function SpaceScene({
         material.fragmentShader = material.fragmentShader
           .replace(
             "float day = smoothstep(-0.32, 0.42, ndl);",
-            "float day = smoothstep(-0.72, 0.78, ndl);",
+            "float day = 1.0;",
           )
           .replace(
             "float lambert = max(ndl, 0.0);",
-            "float lambert = smoothstep(-0.38, 0.82, ndl) * 0.72;",
+            "float lambert = 0.0;",
           )
-          .replace("vec3 night = albedo * 0.26;", "vec3 night = albedo * 0.34;")
+          .replace(
+            "vec3 lit = albedo * (uAmbient + lambert * 0.85) * day;",
+            "vec3 lit = albedo * (0.58 + dot(N, V) * 0.22);",
+          )
+          .replace("vec3 night = albedo * 0.26;", "vec3 night = lit;")
+          .replace(
+            "float lit_rim = rim * smoothstep(-0.35, 0.2, ndl);",
+            "float lit_rim = rim * 0.32;",
+          )
           .replace(
             "color += uAtmoColor * term * uAtmoStrength * 0.34;",
-            "color += uAtmoColor * term * uAtmoStrength * 0.07;",
+            "color += uAtmoColor * term * uAtmoStrength * 0.0;",
           );
         material.needsUpdate = true;
       }
@@ -932,7 +956,7 @@ function SpaceScene({
       ) as
         THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
       if (halo) halo.visible = false;
-      const coronaReach = 18,
+      const coronaReach = 20.25,
         coronaMaterial = new THREE.ShaderMaterial({
           vertexShader: SUNGLOW_VERT,
           fragmentShader: SUNGLOW_FRAG,
@@ -941,7 +965,7 @@ function SpaceScene({
             uPulse: { value: 0.08 },
             uColor: { value: new THREE.Color(0x35c5ff) },
             uOuterColor: { value: new THREE.Color(0xbceeff) },
-            uIntensity: { value: 0.92 },
+            uIntensity: { value: 0.828 },
             uUnit: { value: 13.5 / coronaReach },
             uFalloff: { value: 3.8 },
           },
@@ -966,6 +990,24 @@ function SpaceScene({
           blueStarMaterial.uniforms.uTime.value = seconds;
           blueStarMaterial.uniforms.uPulse.value =
             0.09 + Math.sin(seconds * 1.4) * 0.045;
+          const stock = centralStar?.userData.stock as
+              | MarketMapItem
+              | undefined,
+            brand = new THREE.Color(
+              stock
+                ? colorsRef.current.get(stock.code) ?? colorFor(stock.code)
+                : 0x35c5ff,
+            ),
+            cool = brand.clone().offsetHSL(-0.025, 0.12, -0.34),
+            warm = brand.clone().offsetHSL(0, 0.08, 0.04),
+            hot = brand.clone().lerp(new THREE.Color(0xffffff), 0.68);
+          blueStarMaterial.uniforms.uCool.value.copy(cool);
+          blueStarMaterial.uniforms.uWarm.value.copy(warm);
+          blueStarMaterial.uniforms.uHot.value.copy(hot);
+          coronaMaterial.uniforms.uColor.value.copy(
+            warm.clone().lerp(hot, 0.28),
+          );
+          coronaMaterial.uniforms.uOuterColor.value.copy(hot);
         }
       };
     }
@@ -1061,6 +1103,15 @@ function SpaceScene({
       if (body) focusBody(body, revealDetails);
     };
     window.addEventListener("kospi-orbit-focus", externalFocus);
+    const resetView = () => {
+      focusTarget = null;
+      flying = false;
+      resettingView = true;
+      controls.enabled = true;
+      controls.zoomToCursor = true;
+      onSelect(null);
+    };
+    window.addEventListener("kospi-orbit-reset-view", resetView);
     const labelEntries = hit.slice(0, innerWidth < 700 ? 8 : 18).map((o) => {
       const s = o.userData.stock as MarketMapItem,
         isStar = o === centralStar,
@@ -1179,6 +1230,18 @@ function SpaceScene({
           controls.zoomToCursor = true;
         }
       }
+      if (resettingView) {
+        camera.position.lerp(defaultCameraPosition, 0.075);
+        controls.target.lerp(defaultCameraTarget, 0.09);
+        if (
+          camera.position.distanceTo(defaultCameraPosition) < 0.12 &&
+          controls.target.distanceTo(defaultCameraTarget) < 0.05
+        ) {
+          camera.position.copy(defaultCameraPosition);
+          controls.target.copy(defaultCameraTarget);
+          resettingView = false;
+        }
+      }
       controls.update();
       updateLabels();
       if (composer) composer.render();
@@ -1214,6 +1277,7 @@ function SpaceScene({
       window.clearTimeout(designTimer);
       removeEventListener("resize", resize);
       window.removeEventListener("kospi-orbit-focus", externalFocus);
+      window.removeEventListener("kospi-orbit-reset-view", resetView);
       renderer.domElement.removeEventListener("pointerup", click);
       renderer.domElement.removeEventListener(
         "wheel",
@@ -1222,6 +1286,7 @@ function SpaceScene({
       );
       controls.dispose();
       composer?.dispose();
+      backgroundTexture?.dispose();
       renderer.dispose();
       scene.traverse((o) => {
         if (o instanceof THREE.Mesh) {
@@ -1612,7 +1677,30 @@ export default function KospiOrbitPage({
     window.setTimeout(() => navigate(ORBIT_CONFIGS[target].route), 720);
   };
   return (
-    <main className={`kospi-orbit${selected ? " has-detail" : ""}`}>
+    <main
+      className={`kospi-orbit orbit-market-${market}${selected ? " has-detail" : ""}`}
+    >
+      {(
+        <a
+          className="orbit-background-credit"
+          href={
+            market === "kospi"
+              ? "https://science.nasa.gov/asset/webb/cosmic-cliffs-in-the-carina-nebula-nircam-image/"
+              : market === "kosdaq"
+                ? "https://science.nasa.gov/asset/webb/southern-ring-nebula-nircam-image/"
+                : "https://science.nasa.gov/asset/webb/tarantula-nebula-nircam-image/"
+          }
+          target="_blank"
+          rel="noreferrer"
+        >
+          {market === "kospi"
+            ? "JWST Carina Nebula"
+            : market === "kosdaq"
+              ? "JWST Southern Ring Nebula"
+              : "JWST Tarantula Nebula"}{" "}
+          · NASA / ESA / CSA / STScI
+        </a>
+      )}
       <header className="orbit-top">
         <button className="orbit-brand" onClick={() => navigate("/")}>
           <i />
@@ -1675,6 +1763,18 @@ export default function KospiOrbitPage({
         <div className="orbit-live">
           <i /> {config.label} {config.limit} LIVE
         </div>
+        <button
+          type="button"
+          className="orbit-view-reset"
+          onClick={() =>
+            window.dispatchEvent(new Event("kospi-orbit-reset-view"))
+          }
+          aria-label="기본 카메라 시점으로 초기화"
+          title="기본 카메라 시점으로 초기화"
+        >
+          <span aria-hidden="true">↺</span>
+          <b>시점 초기화</b>
+        </button>
       </header>
       {(loadError || sceneSlow) && (
         <div className="orbit-loader orbit-load-error">
