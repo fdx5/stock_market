@@ -33,6 +33,7 @@ from app.services import (
     naver_blog_client,
     naver_brief_charts,
     naver_document_model,
+    naver_map_screenshot,
     naver_publish_store,
     naver_session_store,
 )
@@ -109,7 +110,14 @@ def enqueue_for_date(report_date: str) -> list[str]:
     return queued
 
 
-def publish_one(report_date: str, market: str, cookies: list[dict], *, dry_run: bool = False) -> dict:
+def publish_one(
+    report_date: str,
+    market: str,
+    cookies: list[dict],
+    *,
+    dry_run: bool = False,
+    map_image: bytes | None = None,
+) -> dict:
     """Publishes a single (date, market). Assumes the claim is already held."""
     brief = market_brief_store.get(report_date, market)
     if brief is None:
@@ -133,6 +141,11 @@ def publish_one(report_date: str, market: str, cookies: list[dict], *, dry_run: 
             charts = naver_brief_charts.render_all(brief, meta)
         except Exception:
             log.exception("chart rendering failed for %s; publishing without charts", market)
+
+    # The closing promo image (naver_document_model's "kospimap" slot). Captured once
+    # per run and shared across every market — see naver_map_screenshot and run() below.
+    if map_image:
+        charts.append((f"{report_date}_{market.lower()}_kospimap.png", map_image))
 
     return naver_blog_client.publish(
         brief, meta, title_paragraphs, body, tags, cookies, charts=charts, dry_run=dry_run
@@ -206,6 +219,17 @@ def run(
         cookies = session["cookies"]
         blog_id = session.get("blog_id") or naver_blog_client.BLOG_ID
 
+        # One screenshot for the whole run, not one per post — see naver_map_screenshot.
+        # Best-effort: a failed capture costs every post in this run its map image, never
+        # their publication (naver_document_model's link text is unconditional either way).
+        map_image = None
+        try:
+            map_image = naver_map_screenshot.capture()
+        except Exception:
+            log.exception("kospi map screenshot failed; publishing without it")
+        if map_image is None:
+            log.warning("kospi map screenshot unavailable for this run")
+
         for i, row in enumerate(targets):
             market = row["market"]
 
@@ -226,7 +250,9 @@ def run(
                 time.sleep(gap)
 
             try:
-                outcome = publish_one(report_date, market, cookies, dry_run=dry_run)
+                outcome = publish_one(
+                    report_date, market, cookies, dry_run=dry_run, map_image=map_image
+                )
             except naver_blog_client.NaverSessionExpired as exc:
                 naver_publish_store.mark_failed(report_date, market, f"session expired: {exc}")
                 result["status"] = "session_expired"

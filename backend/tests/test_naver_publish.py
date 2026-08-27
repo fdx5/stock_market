@@ -256,6 +256,32 @@ def test_body_declares_chart_slots():
     )
     assert "sectors" in index_slots
     assert "sectors" not in slots
+    # The closing promo image is unconditional — stock and index reports alike.
+    assert "kospimap" in slots
+    assert "kospimap" in index_slots
+
+
+def test_kospi_map_promo_link_is_always_the_last_thing_in_the_post():
+    """Site-promo closing block: stock and index reports alike, always present,
+    regardless of what else did or didn't land above it."""
+    stock_urls = [n["link"]["url"] for n in _nodes(_body()) if n.get("link")]
+    index_urls = [
+        n["link"]["url"]
+        for n in _nodes(_body(dict(BRIEF, market="KOSPI"), dict(META, type="index")))
+        if n.get("link")
+    ]
+    for urls in (stock_urls, index_urls):
+        assert any(u == "https://example.com/map" for u in urls), urls
+
+    sparse = dict(BRIEF, analysis=[], key_issues=[], checkpoints=[], headlines=[])
+    from app.services import naver_document_model
+
+    body = naver_document_model.resolve_image_slots(
+        naver_document_model.build_body_components(sparse, META, site_url="https://example.com"),
+        {},
+    )
+    sparse_urls = [n["link"]["url"] for n in _nodes(body) if n.get("link")]
+    assert "https://example.com/map" in sparse_urls
 
 
 def test_unresolved_slots_are_dropped_not_published_as_junk():

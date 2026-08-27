@@ -326,6 +326,25 @@ def build_body_components(brief: dict, meta: dict, *, site_url: str) -> list[dic
     )
     components.append(_text_component([_paragraph(""), _paragraph(f"※ {disclaimer}", size="fs13")]))
 
+    # Site-promo closing block. Unconditional — every post ends with this, stock and
+    # index reports alike, regardless of what else landed above. The image is
+    # best-effort like the other chart slots (naver_publisher supplies it, or doesn't,
+    # and resolve_image_slots drops the marker either way); the link text is not, since
+    # a dead marker should never be the only thing standing between a reader and the
+    # promo link SmartEditor can't attach directly to an uploaded image component.
+    components.append(_image_slot("kospimap"))
+    components.append(
+        _text_component(
+            [
+                _paragraph(""),
+                _paragraph("🗺️ 코스피 전체 지도 한눈에 보기", bold=True, size="fs19"),
+                _paragraph_nodes(
+                    [_text_node("K-Stock Hub 코스피 시가총액 MAP 바로가기", url=f"{site_url}/map")]
+                ),
+            ]
+        )
+    )
+
     return components
 
 
