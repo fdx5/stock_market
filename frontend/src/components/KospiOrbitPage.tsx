@@ -288,6 +288,10 @@ function SpaceScene({
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: false,
+      // Nothing here masks, and no composer pass uses a stencil, so the default
+      // framebuffer's stencil channel is allocated and resolved every frame for
+      // nothing. Dropping it changes no pixel.
+      stencil: false,
       powerPreference: "high-performance",
     });
     const coarseDevice = matchMedia("(pointer: coarse)").matches;
@@ -314,6 +318,12 @@ function SpaceScene({
     }
     renderer.setPixelRatio(Math.min(devicePixelRatio, 1.35));
     renderer.setSize(host.clientWidth, host.clientHeight);
+    /* The canvas size, cached. Reading host.clientWidth flushes pending style work,
+       and the per-frame label pass both writes element styles and read this back once
+       per label — a layout recalculation per label per frame. It only ever changes on
+       resize, so it is read there and nowhere else on the frame path. */
+    let viewWidth = host.clientWidth,
+      viewHeight = host.clientHeight;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.appendChild(renderer.domElement);
     const composer = coarseDevice ? null : new EffectComposer(renderer);
@@ -490,6 +500,24 @@ function SpaceScene({
       if (!geometry) {
         geometry = new THREE.SphereGeometry(radius, 48, 36);
         planetGeometryCache.set(radius, geometry);
+      }
+      return geometry;
+    };
+    const shellGeometryCache = new Map<string, THREE.SphereGeometry>();
+    /* The atmosphere and haze shells, shared the way planetGeometry below already
+       shares the bodies themselves. planetRadius buckets into eight sizes, so a
+       hundred planets want a handful of these, not a hundred. Teardown disposes the
+       scene as a whole, so one buffer behind several meshes is safe here. */
+    const shellGeometry = (
+      radius: number,
+      widthSegments: number,
+      heightSegments: number,
+    ) => {
+      const key = `${radius}:${widthSegments}:${heightSegments}`;
+      let geometry = shellGeometryCache.get(key);
+      if (!geometry) {
+        geometry = new THREE.SphereGeometry(radius, widthSegments, heightSegments);
+        shellGeometryCache.set(key, geometry);
       }
       return geometry;
     };
@@ -1167,7 +1195,7 @@ uniform float uInvertLandform;`,
             outerTexture.repeat.set(1.08, 1);
             outerTexture.needsUpdate = true;
             const outerCloud = new THREE.Mesh(
-              new THREE.SphereGeometry(radius * 1.038, 48, 32),
+              shellGeometry(radius * 1.038, 48, 32),
               new THREE.MeshBasicMaterial({
                 map: outerTexture,
                 color: maps.atmosphere.clone().lerp(
@@ -1203,7 +1231,7 @@ uniform float uInvertLandform;`,
           hazeTexture.repeat.set(1.12, 0.96);
           hazeTexture.needsUpdate = true;
           const haze = new THREE.Mesh(
-            new THREE.SphereGeometry(radius * 1.052, 48, 32),
+            shellGeometry(radius * 1.052, 48, 32),
             new THREE.MeshBasicMaterial({
               map: hazeTexture,
               alphaMap: hazeTexture,
@@ -1441,7 +1469,7 @@ uniform float uInvertLandform;`,
         entryPoint = new THREE.Vector3();
       el.type = "button";
       el.className = `orbit-body-label ${isStar ? "orbit-star-label " : "orbit-planet-label "}${s.change_pct >= 0 ? "up" : "down"}${Math.abs(s.change_pct) >= 5 ? " orbit-extreme-move" : ""}`;
-      el.innerHTML = `<span class="orbit-body-name"><em class="orbit-sector-rank rank-${Math.min(sectorRank, 4)}" title="${s.sector} 시가총액 ${sectorRank}위">${sectorRank}</em><img src="${logoUrl(s.code)}" alt=""><b>${s.name}</b></span><span class="orbit-body-change">${pct(s.change_pct)}</span>${host.clientWidth > 900 ? '<span class="orbit-company-browser-trigger">◉ 기업정보 상세 보기</span>' : ""}`;
+      el.innerHTML = `<span class="orbit-body-name"><em class="orbit-sector-rank rank-${Math.min(sectorRank, 4)}" title="${s.sector} 시가총액 ${sectorRank}위">${sectorRank}</em><img src="${logoUrl(s.code)}" alt=""><b>${s.name}</b></span><span class="orbit-body-change">${pct(s.change_pct)}</span>${viewWidth > 900 ? '<span class="orbit-company-browser-trigger">◉ 기업정보 상세 보기</span>' : ""}`;
       const openCompanyBrowser = (event: Event) => {
         event.stopPropagation();
         sphereBrowserActive = true;
@@ -1479,10 +1507,15 @@ uniform float uInvertLandform;`,
       };
     });
     const updateLabels = (motionAlpha = 1) => {
+      // Hoisted out of the loop: all three are constant across one pass, and the
+      // tangent was being recomputed once per label.
+      const wideViewport = viewWidth > 900,
+        selectedCode = selectedRef.current?.code,
+        focalLength =
+          viewHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)));
       for (const entry of labelEntries) {
         const stock = entry.o.userData.stock as MarketMapItem;
-        const hasTrigger =
-          host.clientWidth > 900 && selectedRef.current?.code === stock.code;
+        const hasTrigger = wideViewport && selectedCode === stock.code;
         if (hasTrigger !== entry.hasTrigger) {
           entry.el.classList.toggle("has-company-trigger", hasTrigger);
           entry.hasTrigger = hasTrigger;
@@ -1510,12 +1543,10 @@ uniform float uInvertLandform;`,
         }
         if (!visible) continue;
         const distance = Math.max(0.1, camera.position.distanceTo(entry.o.position)),
-          projectedRadius =
-            (entry.radius * host.clientHeight) /
-            (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * distance),
-          rawX = (entry.p.x * 0.5 + 0.5) * host.clientWidth +
+          projectedRadius = (entry.radius * focalLength) / distance,
+          rawX = (entry.p.x * 0.5 + 0.5) * viewWidth +
             Math.max(7, projectedRadius + 5),
-          rawY = (-entry.p.y * 0.5 + 0.5) * host.clientHeight,
+          rawY = (-entry.p.y * 0.5 + 0.5) * viewHeight,
           isTracked = entry.o === focusTarget || entry.o === tourPlanetTarget,
           alpha = isTracked ? motionAlpha : 1,
           x = Number.isFinite(entry.lastX)
@@ -1572,12 +1603,11 @@ uniform float uInvertLandform;`,
         radius = Number(body.userData.radius) || 2,
         distance = Math.max(radius + 0.01, camera.position.distanceTo(body.position)),
         focalLength =
-          host.clientHeight /
-          (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5))),
+          viewHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5))),
         angularRadius = radius / Math.sqrt(Math.max(0.0001, distance * distance - radius * radius)),
         diameter = Math.max(2, angularRadius * focalLength * 2),
-        x = (browserPoint.x * 0.5 + 0.5) * host.clientWidth,
-        y = (-browserPoint.y * 0.5 + 0.5) * host.clientHeight;
+        x = (browserPoint.x * 0.5 + 0.5) * viewWidth,
+        y = (-browserPoint.y * 0.5 + 0.5) * viewHeight;
       if (visible !== browserVisible) {
         sphereBrowserElement.style.visibility = visible ? "visible" : "hidden";
         browserVisible = visible;
@@ -1727,8 +1757,7 @@ uniform float uInvertLandform;`,
         lastFocusPosition.copy(focusTarget.position);
         const radius = Number(focusTarget.userData.radius) || 2,
           distance = camera.position.distanceTo(focusTarget.position),
-          portraitFocus =
-            coarseDevice && host.clientHeight > host.clientWidth,
+          portraitFocus = coarseDevice && viewHeight > viewWidth,
           focusDistance = portraitFocus
             ? Math.max(radius * 5.8, 8)
             : Math.max(radius * 3.15, 4.2);
@@ -1920,14 +1949,24 @@ uniform float uInvertLandform;`,
       true,
     );
     const resize = () => {
-      camera.aspect = host.clientWidth / host.clientHeight;
+      viewWidth = host.clientWidth;
+      viewHeight = host.clientHeight;
+      camera.aspect = viewWidth / viewHeight;
       camera.updateProjectionMatrix();
-      renderer.setSize(host.clientWidth, host.clientHeight);
-      composer?.setSize(host.clientWidth, host.clientHeight);
+      renderer.setSize(viewWidth, viewHeight);
+      composer?.setSize(viewWidth, viewHeight);
     };
     addEventListener("resize", resize);
+    // The cached size above is only correct for as long as something notices it
+    // changing. The window listener covers every way this element actually resizes
+    // today; the observer means that stays true if the layout around it ever changes.
+    const stageObserver = new ResizeObserver(() => {
+      if (host.clientWidth !== viewWidth || host.clientHeight !== viewHeight) resize();
+    });
+    stageObserver.observe(host);
     return () => {
       cancelAnimationFrame(raf);
+      stageObserver.disconnect();
       (scene.userData as { disposeDesigns?: () => void }).disposeDesigns?.();
       window.clearTimeout(designTimer);
       removeEventListener("resize", resize);
