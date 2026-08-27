@@ -295,6 +295,14 @@ function SpaceScene({
       powerPreference: "high-performance",
     });
     const coarseDevice = matchMedia("(pointer: coarse)").matches;
+    /* Anisotropic filtering earns its cost on grazing surfaces across a large screen.
+       At phone size and pixel ratio there is nothing in a planet's silhouette that 16
+       taps resolve and 4 do not, and it is charged per textured fragment on exactly
+       the hardware that can least afford it. */
+    const textureAnisotropy = () =>
+      coarseDevice
+        ? Math.min(4, renderer.capabilities.getMaxAnisotropy())
+        : renderer.capabilities.getMaxAnisotropy();
     const use8kPanorama =
       !coarseDevice && renderer.capabilities.maxTextureSize >= 8192;
     const panoramaSize = use8kPanorama ? "8k" : "4k";
@@ -326,18 +334,22 @@ function SpaceScene({
       viewHeight = host.clientHeight;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.appendChild(renderer.domElement);
-    const composer = coarseDevice ? null : new EffectComposer(renderer);
-    if (composer) {
-      composer.addPass(new RenderPass(scene, camera));
-      composer.addPass(
-        new UnrealBloomPass(
-          new THREE.Vector2(host.clientWidth, host.clientHeight),
-          0.56,
-          0.52,
-          0.58,
-        ),
-      );
-    }
+    /* Bloom used to be desktop-only, and it is most of what makes a star look lit:
+       without it the corona and the planet highlights never bleed, so touch devices
+       got a visibly darker, flatter scene than everyone else. It runs everywhere now,
+       at the same settings, so a phone sees what a desktop sees. The cost is bounded
+       by the canvas: a phone renders roughly a sixth of a desktop's pixels, which is
+       the same sixth the bloom chain has to blur. */
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    composer.addPass(
+      new UnrealBloomPass(
+        new THREE.Vector2(host.clientWidth, host.clientHeight),
+        0.56,
+        0.52,
+        0.58,
+      ),
+    );
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.055;
@@ -480,7 +492,7 @@ function SpaceScene({
       texture.colorSpace = THREE.SRGBColorSpace;
       texture.anisotropy = Math.min(
         8,
-        renderer.capabilities.getMaxAnisotropy(),
+        textureAnisotropy(),
       );
       texture.wrapS = THREE.RepeatWrapping;
       return texture;
@@ -1065,7 +1077,7 @@ uniform float uInvertLandform;`,
         maps = createAlienPlanetMaps(
           stock.code,
           brandColor,
-          renderer.capabilities.getMaxAnisotropy(),
+          textureAnisotropy(),
           128,
           planetStyle,
         );
@@ -1121,13 +1133,13 @@ uniform float uInvertLandform;`,
             ? await loadPremiumPlanetMaps(
                 stock.code,
                 premiumKind,
-                renderer.capabilities.getMaxAnisotropy(),
+                textureAnisotropy(),
                 whiteAtmosphereCodes.has(stock.code),
               )
             : createAlienPlanetMaps(
                 stock.code,
                 brandColor,
-                renderer.capabilities.getMaxAnisotropy(),
+                textureAnisotropy(),
                 128,
                 planetStyle,
               );
@@ -2923,9 +2935,6 @@ export default function KospiOrbitPage({
       }
     }),
     [compareBase, setCompareBase] = useState<MarketMapItem | null>(null),
-    [showGuide, setShowGuide] = useState(
-      () => localStorage.getItem("orbit-guide-seen") !== "1",
-    ),
     [introLong] = useState(
       () =>
         new URLSearchParams(location.search).get("intro") === "full" ||
@@ -3203,10 +3212,6 @@ export default function KospiOrbitPage({
       setShareNotice("비교 기준 설정 완료 · 다른 행성을 선택하세요");
     }
     window.setTimeout(() => setShareNotice(""), 2200);
-  };
-  const closeGuide = () => {
-    localStorage.setItem("orbit-guide-seen", "1");
-    setShowGuide(false);
   };
   const warpTo = (target: OrbitMarket) => {
     if (target === market) return;
@@ -3700,20 +3705,6 @@ export default function KospiOrbitPage({
         </aside>
       )}
       {shareNotice && <div className="orbit-share-notice">{shareNotice}</div>}
-      {showGuide && (
-        <div className="orbit-guide" role="dialog" aria-modal="true" aria-label="증시궤도 사용 안내">
-          <div>
-            <small>WELCOME TO K-STOCK ORBIT</small>
-            <h2>시장을 탐험하는 세 가지 방법</h2>
-            <ol>
-              <li><b>01</b><span><strong>우주를 회전하세요</strong>드래그로 시점을 돌리고 휠로 확대합니다.</span></li>
-              <li><b>02</b><span><strong>행성을 선택하세요</strong>시세·뉴스·토론을 한 번에 확인합니다.</span></li>
-              <li><b>03</b><span><strong>오늘의 궤도를 따라가세요</strong>자동 탐험이 주요 종목을 시네마틱하게 순회합니다.</span></li>
-            </ol>
-            <button onClick={closeGuide}>우주 탐험 시작</button>
-          </div>
-        </div>
-      )}
       <footer className="orbit-footer">
         <span>
           <i /> 실시간 시세 기반
