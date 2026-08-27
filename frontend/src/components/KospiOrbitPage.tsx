@@ -2262,9 +2262,8 @@ type WarpWisp = {
    stretch happens in a fraction of the time the tunnel afterwards holds for, which is
    what separates a jump from a steady stream of spokes.
 
-   Everything reads off one 0..1 progress. Only the short repeat-visit intro plays it —
-   the full first-visit cinematic runs without a jump. */
-function OrbitWarpCanvas() {
+   Everything reads off one 0..1 progress, so `brief` only has to compress the clock. */
+function OrbitWarpCanvas({ brief }: { brief: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2315,7 +2314,7 @@ function OrbitWarpCanvas() {
       },
       render = (now: number) => {
         const elapsed = (now - startedAt) / 1000,
-          duration = 1.7,
+          duration = brief ? 1.7 : 4.4,
           progress = Math.min(1, elapsed / duration),
           // The snap. Raising it to a fractional power front-loads it hard: half the
           // stretch is spent in the first fifth of the window, so it reads as one
@@ -2457,7 +2456,7 @@ function OrbitWarpCanvas() {
       cancelAnimationFrame(raf);
       removeEventListener("resize", resize);
     };
-  }, []);
+  }, [brief]);
   return <canvas ref={canvasRef} className="orbit-cinematic-warp" aria-hidden="true" />;
 }
 
@@ -3232,7 +3231,7 @@ export default function KospiOrbitPage({
           className={`orbit-cinematic ${introLong ? "is-epic" : "is-brief"}`}
           aria-label={`${config.label} 우주 진입`}
         >
-          {!introLong && <OrbitWarpCanvas />}
+          <OrbitWarpCanvas brief={!introLong} />
           <div className="orbit-cinematic-flare" aria-hidden="true" />
           <div className="orbit-cinematic-title">
             <small>ENTERING MARKET UNIVERSE</small>
@@ -3724,7 +3723,6 @@ export default function KospiOrbitPage({
       </footer>
       {warping && (
         <div className="orbit-warp-overlay" aria-live="polite">
-          <div className="orbit-warp-tunnel" />
           <b>{ORBIT_CONFIGS[warping].label} 항성계로 워프</b>
           <span>공간 좌표를 동기화하는 중</span>
         </div>
