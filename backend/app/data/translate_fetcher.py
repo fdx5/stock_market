@@ -1,8 +1,50 @@
+from html import unescape
+
 import requests
 
 # Unofficial but widely used no-auth endpoint for short, occasional translations —
 # no API key/quota setup needed for a feature this small.
 TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
+FALLBACK_TRANSLATE_URL = "https://api.mymemory.translated.net/get"
+
+
+def _translation_chunks(text: str, limit: int = 450) -> list[str]:
+    """Split long encyclopedia prose without cutting words where possible."""
+    chunks: list[str] = []
+    remaining = text.strip()
+    while len(remaining) > limit:
+        cut = max(
+            remaining.rfind(". ", 0, limit),
+            remaining.rfind("? ", 0, limit),
+            remaining.rfind("! ", 0, limit),
+            remaining.rfind(" ", 0, limit),
+        )
+        if cut < limit // 2:
+            cut = limit
+        else:
+            cut += 1
+        chunks.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
+def _translate_with_fallback(text: str, source_lang: str, target_lang: str) -> str:
+    translated: list[str] = []
+    for chunk in _translation_chunks(text):
+        response = requests.get(
+            FALLBACK_TRANSLATE_URL,
+            params={"q": chunk, "langpair": f"{source_lang}|{target_lang}"},
+            timeout=8,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        result = payload.get("responseData", {}).get("translatedText", "")
+        if not result or payload.get("responseStatus") != 200:
+            return text
+        translated.append(unescape(result))
+    return " ".join(translated)
 
 
 def translate_text(text: str, source_lang: str, target_lang: str) -> str:
@@ -18,7 +60,10 @@ def translate_text(text: str, source_lang: str, target_lang: str) -> str:
         segments = resp.json()[0]
         return "".join(seg[0] for seg in segments if seg[0])
     except Exception:
-        return text
+        try:
+            return _translate_with_fallback(text, source_lang, target_lang)
+        except Exception:
+            return text
 
 
 def translate_to_korean(text: str, source_lang: str = "en") -> str:

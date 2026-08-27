@@ -1186,6 +1186,11 @@ export const api = {
     ),
   translate: (texts: string[]) =>
     postJSON<{ translations: string[] }>(`${BASE}/translate`, { texts }),
+  translateToKorean: (texts: string[]) =>
+    postJSON<{ translations: string[] }>(`${BASE}/translate`, {
+      texts,
+      target_lang: "ko",
+    }),
   fightStatus: (codeA: string, codeB: string) =>
     getJSON<{ a: GlobalTop20Item; b: GlobalTop20Item }>(
       `${BASE}/fight/status?a=${encodeURIComponent(codeA)}&b=${encodeURIComponent(codeB)}`

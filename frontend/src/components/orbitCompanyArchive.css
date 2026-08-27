@@ -1,0 +1,49 @@
+.orbit-sphere-browser-close {
+  position: absolute; z-index: 20; left: 50%; right: auto; top: 5%; display: flex;
+  align-items: center; gap: 6px; min-width: 58px; height: 30px; padding: 0 10px;
+  border: 1px solid #ff82965c; border-radius: 16px; background: #35121be8;
+  color: #ffb0bd; font-size: 13px; font-weight: 900; cursor: pointer;
+  box-shadow: 0 0 14px #ff3e6042; backdrop-filter: blur(10px);
+  transform: translateX(-50%); isolation: isolate;
+}
+.orbit-sphere-browser-close span { font-size: 8px; letter-spacing: .05em; }
+.orbit-sphere-browser-close:hover { border-color: #ff9dae; background: #5a1927; color: #fff; }
+.orbit-sphere-browser > header { left: 18%; right: 18%; top: 12%; padding-right: 11px; }
+.orbit-sphere-browser .orbit-sphere-browser-screen { top: 22%; }
+.orbit-sphere-browser.is-compact .orbit-sphere-browser-close { left: 50%; right: auto; top: 5%; min-width: 30px; width: 30px; height: 30px; padding: 0; justify-content: center; transform: translateX(-50%); }
+.orbit-sphere-browser.is-compact .orbit-sphere-browser-close span { display: none; }
+.orbit-sphere-browser.is-compact > header { left: 20%; right: 20%; top: 12%; }
+.orbit-sphere-browser.is-compact .orbit-sphere-browser-screen { left: 10%; right: 10%; top: 20%; bottom: 12%; border-radius: 30% 30% 34% 34%/10% 10% 16% 16%; }
+.orbit-archive-index { position: sticky !important; z-index: 3; top: -70px; display: flex; gap: 4px; margin: 11px -5px 4px; padding: 7px 5px !important; border: 1px solid #ffffff10; border-radius: 10px; background: #061522ed; backdrop-filter: blur(12px); }
+.orbit-archive-index a { flex: 1; padding: 5px 2px !important; border: 0 !important; background: none !important; color: #668da1 !important; font: 800 6px ui-monospace !important; text-align: center; text-decoration: none; }
+.orbit-archive-index a:hover { color: #68e5ff !important; }
+.orbit-archive-charts { display: grid; grid-template-columns: 1.25fr .75fr; gap: 8px; margin: 8px 0 3px; }
+.orbit-archive-charts figure { min-width: 0; margin: 0; padding: 11px; border: 1px solid #5bdcff1f; border-radius: 12px; background: #061522b8; }
+.orbit-archive-charts figcaption { display: flex; justify-content: space-between; align-items: center; color: #7698aa; font-size: 8px; }
+.orbit-archive-charts figcaption b { font: 900 9px ui-monospace; }
+.orbit-archive-price-chart svg { width: 100%; height: 82px; margin-top: 7px; overflow: visible; }
+.orbit-archive-price-chart path.grid { fill: none; stroke: #8fdfff13; stroke-width: 1; }
+.orbit-archive-price-chart path.line { fill: none; stroke-width: 2.2; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 4px currentColor); }
+.orbit-archive-price-chart path.up-line { stroke: #ff6079; color: #ff6079; }
+.orbit-archive-price-chart path.down-line { stroke: #54aaff; color: #54aaff; }
+.orbit-archive-price-chart > footer { display: flex; justify-content: space-between; color: #52758a; font: 7px ui-monospace; }
+.orbit-rank-orbit { position: relative; height: 5px; margin: 15px 2px 5px; border-radius: 5px; background: linear-gradient(90deg,#263948,#25647e,#55def1); }
+.orbit-rank-orbit span { position: absolute; inset: -5px 0; border: 1px solid #4fcff51f; border-radius: 50%; }
+.orbit-rank-orbit i { position: absolute; z-index: 2; top: 50%; width: 10px; height: 10px; border: 2px solid #fff; border-radius: 50%; background: #5ee6ff; box-shadow: 0 0 10px #5ee6ff; transform: translate(-50%,-50%); }
+.orbit-archive-position-chart > small { display: inline-block; width: 50%; color: #4e7185; font-size: 6px; }
+.orbit-archive-position-chart > small:nth-of-type(2) { text-align: right; }
+.orbit-archive-position-chart .move-caption { margin-top: 17px; }
+.orbit-move-gauge { position: relative; height: 6px; margin-top: 10px; border-radius: 6px; background: linear-gradient(90deg,#288fff,#273746 48%,#273746 52%,#ff3f60); }
+.orbit-move-gauge i { position: absolute; left: 50%; top: -3px; width: 1px; height: 12px; background: #dff7ff55; }
+.orbit-move-gauge span { position: absolute; top: 50%; width: 9px; height: 9px; border: 2px solid #fff; border-radius: 50%; background: #dff8ff; box-shadow: 0 0 9px #fff8; transform: translate(-50%,-50%); }
+.orbit-company-archive section { scroll-margin-top: 12px; }
+.orbit-archive-moat > div, .orbit-archive-watch > div { display: grid; gap: 6px; }
+.orbit-archive-moat > div span, .orbit-archive-watch > div span { display: grid; gap: 4px; padding: 10px; border: 1px solid #ffffff0e; border-radius: 9px; background: #ffffff05; color: #8daaba; font-size: 9px; line-height: 1.55; }
+.orbit-archive-moat > div b, .orbit-archive-watch > div b { color: #d8edf6; font-size: 9px; }
+.orbit-archive-watch > div { grid-template-columns: 1fr 1fr; }
+.orbit-archive-watch .opportunity { border-color: #ff607926; }
+.orbit-archive-watch .opportunity b { color: #ff8297; }
+.orbit-archive-watch .risk { border-color: #55adff2b; }
+.orbit-archive-watch .risk b { color: #78c2ff; }
+.orbit-archive-watch > p { margin-top: 8px !important; color: #527589 !important; font-size: 7px !important; }
+.orbit-company-archive > footer b { color: #74dff8; }

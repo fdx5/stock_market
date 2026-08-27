@@ -58,7 +58,11 @@ def _translate_individually(texts: list[str], target_lang: str) -> list[str]:
     only costs that batch's slice of the speed win instead of corrupting results."""
     translate_one = translate_to_korean if target_lang == "ko" else translate_to_english
     results: list[str] = list(texts)
-    with ThreadPoolExecutor(max_workers=min(20, len(texts))) as pool:
+    # Korean archive copy is made of a handful of concise paragraphs. Translate
+    # these sequentially so the fallback provider is not hit with a burst that it
+    # interprets as rate-limit abuse; English UI translation keeps its wider pool.
+    worker_count = 1 if target_lang == "ko" else min(20, len(texts))
+    with ThreadPoolExecutor(max_workers=worker_count) as pool:
         futures = {pool.submit(translate_one, text): i for i, text in enumerate(texts)}
         for future in as_completed(futures):
             i = futures[future]
@@ -109,7 +113,10 @@ def _translate_batch_cached(texts: list[str], source_lang: str, target_lang: str
             results[i] = _KNOWN_OVERRIDES[stripped]
             continue
         cached = cache.peek(_cache_key(stripped, cache_prefix))
-        if cached is not None:
+        # The upstream deliberately falls back to the source text on failure.
+        # Never treat that passthrough as a successful translation: otherwise a
+        # brief outage leaves English copy pinned in the Korean UI for seven days.
+        if cached is not None and cached.strip() != stripped:
             results[i] = cached
         else:
             to_fetch.append((i, stripped))
@@ -117,9 +124,10 @@ def _translate_batch_cached(texts: list[str], source_lang: str, target_lang: str
     if to_fetch:
         fetched = _translate_many([stripped for _, stripped in to_fetch], source_lang, target_lang)
         for (i, stripped), translated in zip(to_fetch, fetched):
-            cache.get_or_set(
-                _cache_key(stripped, cache_prefix), TTL_TRANSLATION_SECONDS, lambda translated=translated: translated
-            )
+            if translated.strip() != stripped:
+                cache.get_or_set(
+                    _cache_key(stripped, cache_prefix), TTL_TRANSLATION_SECONDS, lambda translated=translated: translated
+                )
             results[i] = translated
 
     return [text if r is None else r for text, r in zip(texts, results)]

@@ -26,6 +26,7 @@ import StockDiscussionTab from "./StockDiscussionTab";
 import StockNewsTab from "./StockNewsTab";
 import "./stocksPage.css";
 import "./kospiOrbit.css";
+import "./orbitCompanyArchive.css";
 
 type System = {
   name: string;
@@ -232,6 +233,7 @@ function SpaceScene({
   selected,
   colors,
   onSelect,
+  onOpenCompanyBrowser,
   onReady,
   logoUrl,
   trackingMarket,
@@ -241,13 +243,16 @@ function SpaceScene({
   selected: MarketMapItem | null;
   colors: Map<string, number>;
   onSelect: (s: MarketMapItem | null) => void;
+  onOpenCompanyBrowser: (s: MarketMapItem) => void;
   onReady: () => void;
   logoUrl: (code: string) => string;
   trackingMarket: string;
 }) {
   const mount = useRef<HTMLDivElement>(null);
   const colorsRef = useRef(colors);
+  const selectedRef = useRef(selected);
   colorsRef.current = colors;
+  selectedRef.current = selected;
   useEffect(() => {
     const host = mount.current;
     if (!host) return;
@@ -335,6 +340,10 @@ function SpaceScene({
       speed: number;
       inclination: number;
       node: number;
+      cosInclination: number;
+      sinInclination: number;
+      cosNode: number;
+      sinNode: number;
       spin: number;
     }[] = [];
     const starGeo = new THREE.BufferGeometry();
@@ -608,6 +617,10 @@ uniform float uInvertLandform;`,
           speed: 0.055 / Math.sqrt(orbit / 20),
           inclination,
           node,
+          cosInclination: Math.cos(inclination),
+          sinInclination: Math.sin(inclination),
+          cosNode: Math.cos(node),
+          sinNode: Math.sin(node),
           spin: 0.22 + (i % 7) * 0.045,
         });
       });
@@ -618,6 +631,20 @@ uniform float uInvertLandform;`,
         Math.max(115, sys.stocks.length * 3.1),
       );
     }
+    let corona: THREE.Mesh | null = null;
+    let coronaMaterial: THREE.ShaderMaterial | null = null;
+    let lastStarBrand = "";
+    const starPalette = (input: THREE.ColorRepresentation) => {
+      const source = new THREE.Color(input),
+        hsl = { h: 0, s: 0, l: 0 };
+      source.getHSL(hsl);
+      const saturation = THREE.MathUtils.clamp(hsl.s, 0.52, 0.86);
+      return {
+        cool: new THREE.Color().setHSL(hsl.h, saturation * 0.9, 0.075),
+        warm: new THREE.Color().setHSL(hsl.h, saturation, 0.29),
+        hot: new THREE.Color().setHSL(hsl.h, saturation * 0.42, 0.61),
+      };
+    };
     if (centralStar) {
       centralStar.scale.setScalar(1.5);
       centralStar.userData.radius = 13.5;
@@ -816,7 +843,7 @@ uniform float uInvertLandform;`,
       new THREE.Vector3(0.12, 0.46, 1).normalize(),
     ];
     const distanceMultipliers = [1, 1.34, 0.86, 1.62, 1.18, 1.48, 1.08, 0.78];
-    const approachRates = [1.7, 1.4, 1.9, 1.15, 1.58, 1.27, 1.83, 2.08];
+    const approachRates = [0.88, 0.82, 0.94, 0.76, 0.86, 0.8, 0.92, 0.98];
     const rotationAxes = [
       new THREE.Vector3(0, 1, 0),
       new THREE.Vector3(0, 1, 0),
@@ -905,10 +932,7 @@ uniform float uInvertLandform;`,
         material.dispose();
         blueStarMaterial = new THREE.ShaderMaterial({
           vertexShader: SUN_VERT,
-          fragmentShader: SUN_FRAG.replace(
-            "gl_FragColor = vec4(color, 1.0);",
-            "gl_FragColor = vec4(color * 1.5, 1.0);",
-          ),
+          fragmentShader: SUN_FRAG,
           uniforms: {
             uTime: { value: 0 },
             uPulse: { value: 0.08 },
@@ -1214,69 +1238,36 @@ uniform float uInvertLandform;`,
       ) as
         THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> | undefined;
       if (halo) halo.visible = false;
-      const coronaReach = 20.25,
-        coronaMaterial = new THREE.ShaderMaterial({
+      const coronaReach = 20.25;
+      coronaMaterial = new THREE.ShaderMaterial({
           vertexShader: SUNGLOW_VERT,
-          fragmentShader: SUNGLOW_FRAG,
+          fragmentShader: SUNGLOW_FRAG.replace(
+            "if (r > 1.0) discard;",
+            "if (r > 1.0 || r < uUnit * 0.985) discard;",
+          ),
           uniforms: {
             uTime: { value: 0 },
-            uPulse: { value: 0.08 },
+            uPulse: { value: 0.025 },
             uColor: { value: new THREE.Color(0x35c5ff) },
             uOuterColor: { value: new THREE.Color(0xbceeff) },
-            uIntensity: { value: 0.828 },
+            uIntensity: { value: 0.38 },
             uUnit: { value: 13.5 / coronaReach },
-            uFalloff: { value: 3.8 },
+            uFalloff: { value: 4.6 },
           },
           transparent: true,
           depthWrite: false,
           blending: THREE.AdditiveBlending,
-        }),
-        corona = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), coronaMaterial);
+        });
+      corona = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), coronaMaterial);
       corona.scale.setScalar(coronaReach);
       corona.renderOrder = 3;
       scene.add(corona);
-      corona.onBeforeRender = () => {
-        const seconds = performance.now() * 0.001;
-        corona.quaternion.copy(camera.quaternion);
-        coronaMaterial.uniforms.uTime.value = seconds;
-        coronaMaterial.uniforms.uPulse.value =
-          0.08 + Math.sin(seconds * 1.35) * 0.035;
-      };
-      centralStar.onBeforeRender = () => {
-        if (blueStarMaterial) {
-          const seconds = performance.now() * 0.001;
-          blueStarMaterial.uniforms.uTime.value = seconds;
-          blueStarMaterial.uniforms.uPulse.value =
-            0.09 + Math.sin(seconds * 1.4) * 0.045;
-          const stock = centralStar?.userData.stock as
-              | MarketMapItem
-              | undefined,
-            brand = new THREE.Color(
-              stock
-                ? colorsRef.current.get(stock.code) ?? colorFor(stock.code)
-                : 0x35c5ff,
-            ),
-            cool = brand.clone().offsetHSL(-0.025, 0.12, -0.34),
-            warm = brand.clone().offsetHSL(0, 0.08, 0.04),
-            hot = brand.clone().lerp(new THREE.Color(0xffffff), 0.68);
-          blueStarMaterial.uniforms.uCool.value.copy(cool);
-          blueStarMaterial.uniforms.uWarm.value.copy(warm);
-          blueStarMaterial.uniforms.uHot.value.copy(hot);
-          coronaMaterial.uniforms.uColor.value.copy(
-            warm.clone().lerp(hot, 0.28),
-          );
-          coronaMaterial.uniforms.uOuterColor.value.copy(hot);
-        }
-      };
     }
     if (centralStar) {
       const starStock = centralStar.userData.stock as MarketMapItem,
-        brand = new THREE.Color(
+        { cool, warm, hot } = starPalette(
           colorsRef.current.get(starStock.code) ?? colorFor(starStock.code),
         ),
-        cool = brand.clone().offsetHSL(-0.025, 0.12, -0.34),
-        warm = brand.clone().offsetHSL(0, 0.08, 0.04),
-        hot = brand.clone().lerp(new THREE.Color(0xffffff), 0.68),
         starMat = blueStarMaterial as THREE.ShaderMaterial | null;
       if (starMat) {
         starMat.uniforms.uCool.value = cool;
@@ -1328,16 +1319,11 @@ uniform float uInvertLandform;`,
       controls.zoomToCursor = false;
       controls.target.copy(body.position);
       if (revealDetails) {
-        reportMarketOrbitEvent({
-          action: "detail_open",
-          market: trackingMarket,
-          sector: stock.sector,
-          code: stock.code,
-          name: stock.name,
-        });
+        // A direct selection belongs to the user, so keep its inspection deck open
+        // throughout the camera move. Closing and remounting it on arrival made a
+        // normal click look like a failed selection and discarded panel context.
         onSelect(stock);
       }
-      else onSelect(null);
     };
     const focusStarByTap = (body: THREE.Object3D) => {
       const alreadyFocused = focusTarget === body && !flying;
@@ -1403,27 +1389,172 @@ uniform float uInvertLandform;`,
       onSelect(null);
     };
     window.addEventListener("kospi-orbit-reset-view", resetView);
-    const labelEntries = hit.slice(0, innerWidth < 700 ? 8 : 18).map((o) => {
+    let sphereBrowserActive = false,
+      sphereBrowserRequestedAt = 0,
+      sphereBrowserBody: THREE.Object3D | null = null,
+      sphereBrowserElement: HTMLElement | null = null;
+    const browserPoint = new THREE.Vector3();
+    const labelEntries = hit.map((o) => {
       const s = o.userData.stock as MarketMapItem,
         isStar = o === centralStar,
-        el = document.createElement("button");
+        sectorRank = Math.max(
+          1,
+          (sys?.stocks.findIndex((stock) => stock.code === s.code) ?? 0) + 1,
+        ),
+        el = document.createElement("button"),
+        entryPoint = new THREE.Vector3();
       el.type = "button";
-      el.className = `orbit-body-label ${isStar ? "orbit-star-label " : "orbit-planet-label "}${s.change_pct >= 0 ? "up" : "down"}`;
-      el.innerHTML = `<span class="orbit-body-name"><img src="${logoUrl(s.code)}" alt=""><b>${s.name}</b></span><span class="orbit-body-change">${pct(s.change_pct)}</span>`;
+      el.className = `orbit-body-label ${isStar ? "orbit-star-label " : "orbit-planet-label "}${s.change_pct >= 0 ? "up" : "down"}${Math.abs(s.change_pct) >= 5 ? " orbit-extreme-move" : ""}`;
+      el.innerHTML = `<span class="orbit-body-name"><em class="orbit-sector-rank rank-${Math.min(sectorRank, 4)}" title="${s.sector} 시가총액 ${sectorRank}위">${sectorRank}</em><img src="${logoUrl(s.code)}" alt=""><b>${s.name}</b></span><span class="orbit-body-change">${pct(s.change_pct)}</span>${host.clientWidth > 900 ? '<span class="orbit-company-browser-trigger">◉ 기업정보 상세 보기</span>' : ""}`;
+      const openCompanyBrowser = (event: Event) => {
+        event.stopPropagation();
+        sphereBrowserActive = true;
+        sphereBrowserRequestedAt = performance.now();
+        sphereBrowserBody = o;
+        onOpenCompanyBrowser(s);
+      };
+      el.onpointerdown = (event) => {
+        if ((event.target as HTMLElement).closest(".orbit-company-browser-trigger")) {
+          event.preventDefault();
+          openCompanyBrowser(event);
+        }
+      };
       el.onclick = (event) => {
         event.stopPropagation();
+        if ((event.target as HTMLElement).closest(".orbit-company-browser-trigger")) {
+          // Keyboard activation has no pointerdown, so retain an accessible click
+          // path. Pointer activation was already handled immediately above.
+          if (event.detail === 0) openCompanyBrowser(event);
+          return;
+        }
         if (o === centralStar) focusStarByTap(o);
         else focusBody(o);
       };
       labels.appendChild(el);
-      return { o, el, p: new THREE.Vector3() };
+      return {
+        o,
+        el,
+        p: entryPoint,
+        radius: Number(o.userData.radius) || 2,
+        visible: true,
+        hasTrigger: false,
+        lastX: Number.NaN,
+        lastY: Number.NaN,
+      };
     });
-    const updateLabels = () => {
+    const updateLabels = (motionAlpha = 1) => {
       for (const entry of labelEntries) {
+        const stock = entry.o.userData.stock as MarketMapItem;
+        const hasTrigger =
+          host.clientWidth > 900 && selectedRef.current?.code === stock.code;
+        if (hasTrigger !== entry.hasTrigger) {
+          entry.el.classList.toggle("has-company-trigger", hasTrigger);
+          entry.hasTrigger = hasTrigger;
+        }
+        const relevantDuringFlight =
+          !flying || entry.o === focusTarget || entry.o === tourPlanetTarget;
+        if (!relevantDuringFlight) {
+          if (entry.visible) {
+            entry.el.style.visibility = "hidden";
+            entry.visible = false;
+          }
+          continue;
+        }
         entry.p.copy(entry.o.position).project(camera);
-        entry.el.style.visibility = entry.p.z < 1 ? "visible" : "hidden";
-        if (entry.p.z < 1)
-          entry.el.style.transform = `translate3d(${(entry.p.x * 0.5 + 0.5) * host.clientWidth}px,${(-entry.p.y * 0.5 + 0.5) * host.clientHeight}px,0)`;
+        const visible =
+          entry.p.z > -1 &&
+          entry.p.z < 1 &&
+          entry.p.x > -1.12 &&
+          entry.p.x < 1.12 &&
+          entry.p.y > -1.12 &&
+          entry.p.y < 1.12;
+        if (visible !== entry.visible) {
+          entry.el.style.visibility = visible ? "visible" : "hidden";
+          entry.visible = visible;
+        }
+        if (!visible) continue;
+        const distance = Math.max(0.1, camera.position.distanceTo(entry.o.position)),
+          projectedRadius =
+            (entry.radius * host.clientHeight) /
+            (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * distance),
+          rawX = (entry.p.x * 0.5 + 0.5) * host.clientWidth +
+            Math.max(7, projectedRadius + 5),
+          rawY = (-entry.p.y * 0.5 + 0.5) * host.clientHeight,
+          isTracked = entry.o === focusTarget || entry.o === tourPlanetTarget,
+          alpha = isTracked ? motionAlpha : 1,
+          x = Number.isFinite(entry.lastX)
+            ? entry.lastX + (rawX - entry.lastX) * alpha
+            : rawX,
+          y = Number.isFinite(entry.lastY)
+            ? entry.lastY + (rawY - entry.lastY) * alpha
+            : rawY;
+        // A tiny screen-space dead zone absorbs sub-pixel camera/planet floating
+        // point noise without introducing visible lag behind the celestial body.
+        if (
+          !Number.isFinite(entry.lastX) ||
+          Math.abs(x - entry.lastX) >= 0.12 ||
+          Math.abs(y - entry.lastY) >= 0.12
+        ) {
+          const renderedX = Math.round(x * 10) / 10,
+            renderedY = Math.round(y * 10) / 10;
+          entry.el.style.transform = `translate3d(${renderedX}px,${renderedY}px,0) translateY(-50%)`;
+          entry.lastX = x;
+          entry.lastY = y;
+        }
+      }
+    };
+    let browserVisible: boolean | null = null,
+      browserCompact: boolean | null = null,
+      browserTransform = "";
+    const syncSphereBrowser = () => {
+      if (!sphereBrowserActive || !sphereBrowserBody) return;
+      if (!sphereBrowserElement?.isConnected) {
+        const nextBrowserElement = host.parentElement?.querySelector<HTMLElement>(
+          ".orbit-sphere-browser",
+        ) ?? null;
+        if (!nextBrowserElement) {
+          if (performance.now() - sphereBrowserRequestedAt < 1000) return;
+          sphereBrowserActive = false;
+          sphereBrowserBody = null;
+          return;
+        }
+        // A reopened archive is a new DOM node even when it occupies exactly the
+        // same projected coordinates. Invalidate all write caches so its CSS
+        // default `visibility:hidden` cannot survive the first sync frame.
+        sphereBrowserElement = nextBrowserElement;
+        browserVisible = null;
+        browserCompact = null;
+        browserTransform = "";
+      }
+      const body = sphereBrowserBody;
+      browserPoint.copy(body.position).project(camera);
+      const visible =
+          browserPoint.z > -1 &&
+          browserPoint.z < 1 &&
+          Math.abs(browserPoint.x) < 1.2 &&
+          Math.abs(browserPoint.y) < 1.2,
+        radius = Number(body.userData.radius) || 2,
+        distance = Math.max(radius + 0.01, camera.position.distanceTo(body.position)),
+        focalLength =
+          host.clientHeight /
+          (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5))),
+        angularRadius = radius / Math.sqrt(Math.max(0.0001, distance * distance - radius * radius)),
+        diameter = Math.max(2, angularRadius * focalLength * 2),
+        x = (browserPoint.x * 0.5 + 0.5) * host.clientWidth,
+        y = (-browserPoint.y * 0.5 + 0.5) * host.clientHeight;
+      if (visible !== browserVisible) {
+        sphereBrowserElement.style.visibility = visible ? "visible" : "hidden";
+        browserVisible = visible;
+      }
+      const nextTransform = `translate3d(${Math.round((x - 280) * 10) / 10}px,${Math.round((y - 280) * 10) / 10}px,0) scale(${Math.round((diameter / 560) * 10000) / 10000})`;
+      if (nextTransform !== browserTransform) {
+        sphereBrowserElement.style.transform = nextTransform;
+        browserTransform = nextTransform;
+      }
+      const compact = diameter < 240;
+      if (compact !== browserCompact) {
+        sphereBrowserElement.classList.toggle("is-compact", compact);
+        browserCompact = compact;
       }
     };
     const click = (e: PointerEvent) => {
@@ -1466,41 +1597,88 @@ uniform float uInvertLandform;`,
     renderer.domElement.addEventListener("pointerup", click);
     let raf = 0;
     const clock = new THREE.Clock();
-    let lastLabelUpdate = 0;
+    let lastLabelUpdate = 0,
+      previousFlightState = false;
     const animate = () => {
       raf = requestAnimationFrame(animate);
-      const frameDelta = Math.min(clock.getDelta(), 0.05),
+      if (document.hidden) {
+        clock.getDelta();
+        return;
+      }
+      const frameDelta = Math.min(clock.getDelta(), 0.075),
         t = clock.elapsedTime,
         nowMs = performance.now();
-      movers.forEach((x) => {
+      if (flying !== previousFlightState) {
+        labels.classList.toggle("is-flight", flying);
+        previousFlightState = flying;
+        lastLabelUpdate = 0;
+        if (flying) {
+          for (const entry of labelEntries) {
+            const relevant =
+              entry.o === focusTarget || entry.o === tourPlanetTarget;
+            entry.el.style.visibility = relevant ? "visible" : "hidden";
+            entry.visible = relevant;
+          }
+        }
+      }
+      for (let i = 0; i < movers.length; i++) {
+        const x = movers[i];
         const a = x.angle + t * x.speed,
           ca = Math.cos(a),
           sa = Math.sin(a),
-          cn = Math.cos(x.node),
-          sn = Math.sin(x.node),
-          ci = Math.cos(x.inclination),
-          si = Math.sin(x.inclination);
+          cn = x.cosNode,
+          sn = x.sinNode,
+          ci = x.cosInclination,
+          si = x.sinInclination;
         x.mesh.position.set(
           x.orbit * (ca * cn - sa * ci * sn),
           x.orbit * sa * si,
           x.orbit * (ca * sn + sa * ci * cn),
         );
         x.mesh.rotation.y = t * x.spin;
-      });
-      cloudLayers.forEach(({ mesh, speed }) => {
-        mesh.rotation.y = t * speed;
-      });
-      pulseLayers.forEach(
-        ({ mesh, material, baseScale, movement, highlyActive, phase }) => {
+      }
+      for (let i = 0; i < cloudLayers.length; i++) {
+        const layer = cloudLayers[i];
+        layer.mesh.rotation.y = t * layer.speed;
+      }
+      for (let i = 0; i < pulseLayers.length; i++) {
+          const { mesh, material, baseScale, movement, highlyActive, phase } = pulseLayers[i];
           const wave = Math.sin(t * 2.2 + phase) * 0.5 + 0.5;
           mesh.scale.setScalar(
             baseScale * (1 + wave * (highlyActive ? 0.09 : 0.045)),
           );
           material.opacity =
             0.025 + movement * 0.045 + wave * (highlyActive ? 0.055 : 0.02);
-        },
-      );
-      if (centralStar) centralStar.rotation.y = t * 0.075;
+      }
+      if (centralStar) {
+        centralStar.rotation.y = t * 0.075;
+        if (blueStarMaterial) {
+          blueStarMaterial.uniforms.uTime.value = t;
+          blueStarMaterial.uniforms.uPulse.value =
+            0.04 + Math.sin(t * 1.4) * 0.015;
+          const starStock = centralStar.userData.stock as MarketMapItem,
+            nextBrand = String(
+              colorsRef.current.get(starStock.code) ?? colorFor(starStock.code),
+            );
+          if (nextBrand !== lastStarBrand) {
+            const { cool, warm, hot } = starPalette(nextBrand);
+            blueStarMaterial.uniforms.uCool.value.copy(cool);
+            blueStarMaterial.uniforms.uWarm.value.copy(warm);
+            blueStarMaterial.uniforms.uHot.value.copy(hot);
+            if (coronaMaterial) {
+              coronaMaterial.uniforms.uColor.value.copy(warm).lerp(hot, 0.28);
+              coronaMaterial.uniforms.uOuterColor.value.copy(hot);
+            }
+            lastStarBrand = nextBrand;
+          }
+        }
+        if (corona && coronaMaterial) {
+          corona.quaternion.copy(camera.quaternion);
+          coronaMaterial.uniforms.uTime.value = t;
+          coronaMaterial.uniforms.uPulse.value =
+            0.025 + Math.sin(t * 1.35) * 0.012;
+        }
+      }
       if (focusTarget) {
         // Once the automatic flight has finished, keep the camera in the moving
         // body's local frame. The planet continues orbiting in world space; moving
@@ -1527,10 +1705,10 @@ uniform float uInvertLandform;`,
               journeyAge = nowMs - tourJourneyStartedAt,
               stageProgress = tourStage === "star"
                 ? THREE.MathUtils.smoothstep(journeyAge, 0, 4000)
-                : THREE.MathUtils.smoothstep(journeyAge, 4000, 10000),
+                : THREE.MathUtils.smoothstep(journeyAge, 4000, 12000),
               approachRemaining = 1 - (tourStage ? stageProgress : THREE.MathUtils.smoothstep(flightAge, 0, 4200)),
               approachSwing = approachRemaining *
-                (0.48 + (focusViewStyle % 3) * 0.22);
+                (0.12 + (focusViewStyle % 3) * 0.055);
             focusOffset
               .copy(cinematicOffsets[focusViewStyle % cinematicOffsets.length])
               .multiplyScalar(
@@ -1551,7 +1729,7 @@ uniform float uInvertLandform;`,
               desiredCamera,
               dampAlpha(
                 tourStage === "star"
-                  ? 1.64
+                  ? 0.82
                   : approachRates[focusViewStyle % approachRates.length],
                 frameDelta,
               ),
@@ -1563,16 +1741,19 @@ uniform float uInvertLandform;`,
             desiredCamera.copy(focusTarget.position).add(focusOffset);
             camera.position.lerp(desiredCamera, dampAlpha(1.95, frameDelta));
           }
-          controls.target.lerp(desiredTarget, dampAlpha(3.08, frameDelta));
+          controls.target.lerp(
+            desiredTarget,
+            dampAlpha(tourStage ? 0.9 : 3.08, frameDelta),
+          );
           const starFlybyComplete =
             tourStage === "star" &&
-            ((nowMs - tourJourneyStartedAt > 2800 &&
+            ((nowMs - tourJourneyStartedAt > 3600 &&
               camera.position.distanceTo(focusTarget.position) <
                 Math.max(radius * 5.2, 58)) ||
               nowMs - tourJourneyStartedAt >= 4000),
             tourArrivalComplete =
               (tourStage === "planet" || tourStage === "target") &&
-              nowMs - tourJourneyStartedAt >= 10000;
+              nowMs - tourJourneyStartedAt >= 12000;
           if (starFlybyComplete || tourArrivalComplete ||
               (tourStage === null && camera.position.distanceTo(desiredCamera) < 0.18)) {
             if (tourStage === "star" && tourPlanetTarget) {
@@ -1621,12 +1802,21 @@ uniform float uInvertLandform;`,
           resettingView = false;
         }
       }
-      controls.update();
-      if (nowMs - lastLabelUpdate >= 33) {
-        updateLabels();
+      controls.update(frameDelta);
+      syncSphereBrowser();
+      const labelInterval = flying ? 0 : labelEntries.length > 35 ? 50 : 33;
+      if (nowMs - lastLabelUpdate >= labelInterval) {
+        updateLabels(
+          flying
+            ? dampAlpha(13.5, frameDelta)
+            : focusTarget
+              ? dampAlpha(18, Math.max(frameDelta, labelInterval / 1000))
+              : 1,
+        );
         lastLabelUpdate = nowMs;
       }
-      if (composer) composer.render();
+      if (composer && !sphereBrowserActive && !flying && !resettingView)
+        composer.render();
       else renderer.render(scene, camera);
     };
     animate();
@@ -1678,7 +1868,7 @@ uniform float uInvertLandform;`,
       });
       host.replaceChildren();
     };
-  }, [systems, mode.sector, onSelect, logoUrl, trackingMarket]);
+  }, [systems, mode.sector, onSelect, onOpenCompanyBrowser, logoUrl, trackingMarket]);
   useEffect(() => {
     if (selected) {
       /* selection is presented by the React inspection deck */
@@ -1920,6 +2110,370 @@ function OrbitDetailPanel({
   );
 }
 
+function OrbitWarpCanvas({ brief }: { brief: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const context = canvas.getContext("2d", { alpha: true });
+    if (!context) return;
+    const coarse = matchMedia("(pointer: coarse)").matches,
+      particleCount = coarse ? 170 : 420,
+      colors = ["#ffffff", "#bfeaff", "#7fd8ff", "#c9c3ff"],
+      particles = Array.from({ length: particleCount }, (_, index) => ({
+        x: (Math.random() - 0.5) * 2.5,
+        y: (Math.random() - 0.5) * 2.5,
+        z: Math.random() * 0.92 + 0.08,
+        previousZ: 1,
+        color: colors[index % colors.length],
+        width: Math.random() * 1.15 + 0.35,
+      }));
+    let width = 1,
+      height = 1,
+      raf = 0;
+    const startedAt = performance.now(),
+      resize = () => {
+        const ratio = Math.min(devicePixelRatio, coarse ? 1 : 1.5);
+        width = canvas.clientWidth;
+        height = canvas.clientHeight;
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+      },
+      reset = (particle: (typeof particles)[number]) => {
+        particle.x = (Math.random() - 0.5) * 2.5;
+        particle.y = (Math.random() - 0.5) * 2.5;
+        particle.z = 1;
+        particle.previousZ = 1;
+      },
+      render = (now: number) => {
+        const elapsed = (now - startedAt) / 1000,
+          duration = brief ? 1.65 : 4.1,
+          progress = Math.min(1, elapsed / duration),
+          acceleration = THREE.MathUtils.smoothstep(progress, 0.04, 0.58),
+          deceleration = 1 - THREE.MathUtils.smoothstep(progress, 0.72, 1),
+          speed = (0.0025 + acceleration * 0.024) * deceleration,
+          focal = Math.min(width, height) * 0.72,
+          vanishingX = width * 0.5 + Math.sin(elapsed * 0.72) * width * 0.012,
+          vanishingY = height * 0.49 + Math.cos(elapsed * 0.53) * height * 0.009;
+        context.clearRect(0, 0, width, height);
+        context.globalCompositeOperation = "lighter";
+        for (const particle of particles) {
+          particle.previousZ = particle.z;
+          particle.z -= speed;
+          if (particle.z < 0.025) reset(particle);
+          const currentX = vanishingX + (particle.x / particle.z) * focal,
+            currentY = vanishingY + (particle.y / particle.z) * focal,
+            tailDepth = Math.min(1.15, particle.previousZ + speed * (8 + acceleration * 28)),
+            previousX = vanishingX + (particle.x / tailDepth) * focal,
+            previousY = vanishingY + (particle.y / tailDepth) * focal,
+            proximity = 1 - particle.z,
+            alpha = Math.min(0.92, (0.12 + proximity * 0.9) * deceleration);
+          if (
+            currentX < -80 || currentX > width + 80 ||
+            currentY < -80 || currentY > height + 80
+          ) {
+            reset(particle);
+            continue;
+          }
+          const gradient = context.createLinearGradient(previousX, previousY, currentX, currentY);
+          gradient.addColorStop(0, "transparent");
+          gradient.addColorStop(0.7, `${particle.color}55`);
+          gradient.addColorStop(1, particle.color);
+          context.strokeStyle = gradient;
+          context.globalAlpha = alpha;
+          context.lineWidth = particle.width + proximity * 1.7;
+          context.beginPath();
+          context.moveTo(previousX, previousY);
+          context.lineTo(currentX, currentY);
+          context.stroke();
+        }
+        context.globalAlpha = 1;
+        context.globalCompositeOperation = "source-over";
+        if (progress < 1) raf = requestAnimationFrame(render);
+      };
+    resize();
+    addEventListener("resize", resize);
+    raf = requestAnimationFrame(render);
+    return () => {
+      cancelAnimationFrame(raf);
+      removeEventListener("resize", resize);
+    };
+  }, [brief]);
+  return <canvas ref={canvasRef} className="orbit-cinematic-warp" aria-hidden="true" />;
+}
+
+type CompanyArchiveData = {
+  title: string;
+  overview: string;
+  history: string;
+  business: string;
+  values: string;
+  founded: string;
+  sourceUrl: string;
+  officialUrl: string;
+};
+
+const archiveSection = (extract: string, keywords: string[]) => {
+  const lines = extract.split("\n").map((part) => part.trim()),
+    headingIndex = lines.findIndex(
+    (line) =>
+      line.length > 0 &&
+      line.length < 80 &&
+      keywords.some((keyword) => line.toLowerCase().includes(keyword.toLowerCase())),
+  );
+  if (headingIndex < 0) return "";
+  const content: string[] = [];
+  for (let index = headingIndex + 1; index < lines.length; index++) {
+    const line = lines[index];
+    if (!line) continue;
+    const looksLikeNextHeading =
+      content.length > 0 &&
+      line.length < 55 &&
+      !/[.!?。]$/.test(line) &&
+      !/(이다|한다|있다|였다|된다)$/.test(line);
+    if (looksLikeNextHeading) break;
+    content.push(line);
+    if (content.join("\n\n").length >= 1800) break;
+  }
+  return content.join("\n\n").slice(0, 1800);
+};
+
+const conciseArchiveText = (text: string, limit = 1050) => {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= limit) return normalized;
+  const candidate = normalized.slice(0, limit),
+    sentenceEnd = Math.max(
+      candidate.lastIndexOf(". "),
+      candidate.lastIndexOf("? "),
+      candidate.lastIndexOf("! "),
+    );
+  return candidate
+    .slice(0, sentenceEnd > limit * 0.55 ? sentenceEnd + 1 : limit)
+    .trim();
+};
+
+function OrbitCompanyArchive({
+  stock,
+  config,
+  peers,
+}: {
+  stock: MarketMapItem;
+  config: OrbitConfig;
+  peers: MarketMapItem[];
+}) {
+  const [archive, setArchive] = useState<CompanyArchiveData | null>(null),
+    [failed, setFailed] = useState(false),
+    [pricePoints, setPricePoints] = useState<number[]>([]);
+  useEffect(() => {
+    let active = true;
+    setArchive(null);
+    setFailed(false);
+    setPricePoints([]);
+    const language = config.key === "nasdaq100" ? "en" : "ko",
+      wikiApi = `https://${language}.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(stock.name)}&gsrlimit=1&prop=extracts%7Cinfo%7Cpageprops&explaintext=1&exsectionformat=plain&inprop=url&format=json&origin=*`;
+    Promise.all([
+      fetch(wikiApi).then((response) => {
+        if (!response.ok) throw new Error("Wikipedia request failed");
+        return response.json() as Promise<{
+          query?: { pages?: Record<string, { title: string; extract?: string; fullurl?: string; pageprops?: { wikibase_item?: string } }> };
+        }>;
+      }),
+      config.key === "nasdaq100"
+        ? Promise.resolve({ overview: [] as string[] })
+        : api.overview(stock.code).catch(() => ({ overview: [] as string[] })),
+      api.history(stock.code, 1).catch(() => ({ points: [] })),
+    ])
+      .then(async ([wiki, localOverview, history]) => {
+        const page = Object.values(wiki.query?.pages ?? {})[0];
+        if (!page?.extract) throw new Error("No company article");
+        const extract = page.extract,
+          blocks = extract.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean),
+          wikidataId = page.pageprops?.wikibase_item;
+        let officialUrl = "",
+          founded = "";
+        if (wikidataId) {
+          try {
+            const entityResponse = await fetch(
+              `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`,
+            );
+            const entityJson = (await entityResponse.json()) as {
+              entities?: Record<string, { claims?: Record<string, Array<{ mainsnak?: { datavalue?: { value?: unknown } } }>> }>;
+            };
+            const claims = entityJson.entities?.[wikidataId]?.claims ?? {},
+              websiteValue = claims.P856?.[0]?.mainsnak?.datavalue?.value,
+              foundedValue = claims.P571?.[0]?.mainsnak?.datavalue?.value as
+                | { time?: string }
+                | undefined;
+            if (typeof websiteValue === "string") officialUrl = websiteValue;
+            if (foundedValue?.time) {
+              const match = foundedValue.time.match(/\+?(\d{4})-(\d{2})-(\d{2})/);
+              if (match)
+                founded = `${match[1]}년${match[2] !== "00" ? ` ${Number(match[2])}월` : ""}${match[3] !== "00" ? ` ${Number(match[3])}일` : ""}`;
+            }
+          } catch {
+            // The article itself remains useful when Wikidata is temporarily unavailable.
+          }
+        }
+        const localBusiness = localOverview.overview.filter(Boolean).join(" "),
+          rawArchive = {
+            title: page.title,
+            overview: conciseArchiveText(blocks[0] || localBusiness),
+            history: conciseArchiveText(archiveSection(extract, ["역사", "연혁", "창립", "history", "founding", "origins"])),
+            business:
+              conciseArchiveText(
+                localBusiness ||
+                archiveSection(extract, ["사업 분야", "사업", "제품", "operations", "business", "products", "services"]),
+              ),
+            values: conciseArchiveText(archiveSection(extract, ["기업 철학", "경영 철학", "사회 공헌", "culture", "mission", "corporate affairs", "sustainability"])),
+          };
+        if (config.key === "nasdaq100") {
+          try {
+            const koreanWikiApi =
+                `https://ko.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(page.title)}&gsrlimit=1&prop=extracts%7Cinfo&explaintext=1&exsectionformat=plain&inprop=url&format=json&origin=*`,
+              koreanWikiResponse = await fetch(koreanWikiApi),
+              koreanWiki = (await koreanWikiResponse.json()) as {
+                query?: { pages?: Record<string, { title: string; extract?: string }> };
+              },
+              koreanPage = Object.values(koreanWiki.query?.pages ?? {})[0],
+              koreanExtract = koreanPage?.extract?.trim() ?? "";
+            if (koreanExtract && /[가-힣]/.test(koreanExtract)) {
+              const koreanBlocks = koreanExtract
+                .split(/\n{2,}/)
+                .map((part) => part.trim())
+                .filter(Boolean);
+              rawArchive.title = koreanPage?.title || rawArchive.title;
+              rawArchive.overview = conciseArchiveText(koreanBlocks[0] || "");
+              rawArchive.history = conciseArchiveText(
+                archiveSection(koreanExtract, ["역사", "연혁", "창립", "설립"]),
+              ) || rawArchive.history;
+              rawArchive.business = conciseArchiveText(
+                archiveSection(koreanExtract, ["사업", "제품", "서비스", "사업 분야"]),
+              ) || rawArchive.business;
+              rawArchive.values = conciseArchiveText(
+                archiveSection(koreanExtract, ["기업 문화", "경영", "사회 공헌", "환경", "철학"]),
+              ) || rawArchive.values;
+            }
+          } catch {
+            // The shortened English excerpts below remain available for translation.
+          }
+          try {
+            const archiveKeys = ["title", "overview", "history", "business", "values"] as const,
+              untranslatedKeys = archiveKeys.filter(
+                (key) => rawArchive[key] && !/[가-힣]/.test(rawArchive[key]),
+              ),
+              sourceTexts = untranslatedKeys.map((key) => rawArchive[key]),
+              translated = sourceTexts.length
+                ? await api.translateToKorean(sourceTexts)
+                : { translations: [] as string[] };
+            sourceTexts.forEach((_, index) => {
+              const korean = translated.translations[index]?.trim();
+              if (korean && /[가-힣]/.test(korean)) {
+                rawArchive[untranslatedKeys[index]] = korean;
+              }
+            });
+          } catch {
+            // Korean fallbacks below prevent raw English paragraphs from leaking out.
+          }
+          if (!/[가-힣]/.test(rawArchive.overview))
+            rawArchive.overview = `${stock.name}은(는) ${stock.sector} 분야에서 사업을 전개하는 나스닥 상장 기업입니다.`;
+          if (!/[가-힣]/.test(rawArchive.history)) rawArchive.history = "";
+          if (!/[가-힣]/.test(rawArchive.business)) rawArchive.business = "";
+          if (!/[가-힣]/.test(rawArchive.values)) rawArchive.values = "";
+        }
+        const data: CompanyArchiveData = {
+          ...rawArchive,
+          founded,
+          sourceUrl: page.fullurl || `https://${language}.wikipedia.org/wiki/${encodeURIComponent(page.title)}`,
+          officialUrl,
+        };
+        if (active) {
+          setArchive(data);
+          setPricePoints(history.points.slice(-90).map((point) => point.close));
+        }
+      })
+      .catch(() => active && setFailed(true));
+    return () => {
+      active = false;
+    };
+  }, [stock.code, stock.name, config.key]);
+  if (failed)
+    return (
+      <div className="orbit-company-archive is-error">
+        <b>기업 아카이브를 불러오지 못했습니다.</b>
+        <span>잠시 후 다시 시도하거나 원문 보기를 이용해 주세요.</span>
+      </div>
+    );
+  if (!archive)
+    return (
+      <div className="orbit-company-archive is-loading">
+        <i />
+        <b>{stock.name} 기업 아카이브 구성 중</b>
+        <span>설립·역사·사업·가치 자료를 정리하고 있습니다.</span>
+      </div>
+    );
+  const peerRanking = [...peers].sort(
+      (a, b) => config.capOf(b) - config.capOf(a),
+    ),
+    peerRank = Math.max(1, peerRanking.findIndex((item) => item.code === stock.code) + 1),
+    peerPercentile = peers.length > 1
+      ? ((peers.length - peerRank) / (peers.length - 1)) * 100
+      : 100,
+    prices = pricePoints.length > 1 ? pricePoints : [stock.close, stock.close],
+    priceMin = Math.min(...prices),
+    priceMax = Math.max(...prices),
+    priceSpan = Math.max(1, priceMax - priceMin),
+    pricePath = prices
+      .map(
+        (price, index) =>
+          `${index ? "L" : "M"}${(index / (prices.length - 1)) * 300},${86 - ((price - priceMin) / priceSpan) * 72}`,
+      )
+      .join(" "),
+    periodChange = prices[0]
+      ? ((prices[prices.length - 1] / prices[0]) - 1) * 100
+      : 0,
+    moveGauge = THREE.MathUtils.clamp((stock.change_pct + 10) * 5, 0, 100);
+  return (
+    <article className="orbit-company-archive">
+      <div className="orbit-archive-hero">
+        <img src={config.logoUrl(stock.code)} alt="" />
+        <div><small>COMPANY ARCHIVE</small><h2>{stock.name}</h2><span>{archive.title} · {stock.sector}</span></div>
+      </div>
+      <div className="orbit-archive-facts">
+        <span><small>설립</small><b>{archive.founded || "공개 자료 확인"}</b></span>
+        <span><small>시장</small><b>{config.label}</b></span>
+        <span><small>종목코드</small><b>{stock.code}</b></span>
+      </div>
+      <nav className="orbit-archive-index"><a href="#identity">IDENTITY</a><a href="#history">HISTORY</a><a href="#business">BUSINESS</a><a href="#future">FUTURE</a><a href="#watch">WATCH</a></nav>
+      <div className="orbit-archive-charts">
+        <figure className="orbit-archive-price-chart">
+          <figcaption><span>최근 1년 가격 궤적</span><b className={periodChange >= 0 ? "up" : "down"}>{periodChange >= 0 ? "+" : ""}{periodChange.toFixed(1)}%</b></figcaption>
+          <svg viewBox="0 0 300 100" preserveAspectRatio="none" aria-label="최근 가격 추이"><path className="grid" d="M0 25H300M0 50H300M0 75H300"/><path className={periodChange >= 0 ? "line up-line" : "line down-line"} d={pricePath}/></svg>
+          <footer><span>{priceMin.toLocaleString()}</span><span>{priceMax.toLocaleString()}</span></footer>
+        </figure>
+        <figure className="orbit-archive-position-chart">
+          <figcaption><span>업종 시총 위치</span><b>{peerRank} / {peers.length}</b></figcaption>
+          <div className="orbit-rank-orbit"><i style={{ left: `${peerPercentile}%` }} /><span /></div>
+          <small>하위권</small><small>업종 리더</small>
+          <figcaption className="move-caption"><span>오늘의 변동 강도</span><b className={stock.change_pct >= 0 ? "up" : "down"}>{pct(stock.change_pct)}</b></figcaption>
+          <div className="orbit-move-gauge"><i /><span style={{ left: `${moveGauge}%` }} /></div>
+        </figure>
+      </div>
+      <section id="identity"><small>01 · 기업 정체성</small><h3>이 기업을 한 문장으로 이해하기</h3><p>{archive.overview}</p></section>
+      <section id="history"><small>02 · 설립과 진화</small><h3>현재의 기업을 만든 결정적 과정</h3><p>{archive.history || `${stock.name}의 설립 및 주요 연혁은 공개 기업 문서 원문에서 추가로 확인할 수 있습니다.`}</p></section>
+      <section id="business"><small>03 · 비즈니스 엔진</small><h3>무엇을 만들고 어떻게 성장하는가</h3><p>{archive.business || `${stock.name}은(는) ${stock.sector} 분야를 중심으로 사업을 영위하고 있습니다.`}</p></section>
+      <section className="orbit-archive-moat"><small>04 · 경쟁 기반</small><h3>기업을 평가할 때 확인할 힘</h3><div><span><b>시장 지위</b>업종 내 시가총액 {peerRank}위로 자본시장의 상대적 평가를 확인합니다.</span><span><b>사업 지속성</b>핵심 제품·고객·기술이 반복적인 수익으로 연결되는지 살펴봅니다.</span><span><b>차별화 근거</b>브랜드·특허·생산력·전환비용을 공식 자료에서 확인해야 합니다.</span></div></section>
+      <section id="future"><small>05 · 가치와 미래</small><h3>회사가 향하려는 방향</h3><p>{archive.values || "공개 백과 자료에 별도의 기업 철학 항목이 없어 공식 기업 소개에서 최신 가치와 목적을 확인하는 것이 정확합니다."}</p></section>
+      <section id="watch" className="orbit-archive-watch"><small>06 · 투자자 관찰 포인트</small><h3>기회와 위험을 함께 보기</h3><div><span className="opportunity"><b>성장 질문</b>{stock.sector} 시장의 확장이 실제 매출과 수익성 개선으로 연결되는가?</span><span className="risk"><b>위험 질문</b>경쟁 심화·기술 변화·고객 의존도가 현재 사업 기반을 약화시키는가?</span></div><p>위 질문은 투자 권유가 아닌 기업 분석을 위한 점검 항목입니다.</p></section>
+      <nav>
+        {archive.officialUrl && <a href={archive.officialUrl} target="_blank" rel="noreferrer">공식 기업 사이트 ↗</a>}
+        <a href={archive.sourceUrl} target="_blank" rel="noreferrer">기업 문서 원문 ↗</a>
+      </nav>
+      <footer><b>자료 신뢰도</b> 설립·공식 사이트는 Wikidata, 기업 설명과 역사는 Wikipedia, 국내 사업 개요는 기업 공개자료 기반 데이터에서 가져왔습니다. 사실·기업 주장·분석 질문을 구분해 표시합니다.</footer>
+    </article>
+  );
+}
+
 export default function KospiOrbitPage({
   market = "kospi",
 }: {
@@ -1936,7 +2490,9 @@ export default function KospiOrbitPage({
     [loadError, setLoadError] = useState(""),
     [sceneSlow, setSceneSlow] = useState(false),
     [warping, setWarping] = useState<OrbitMarket | null>(null),
-    [briefingOpen, setBriefingOpen] = useState(true),
+    [briefingOpen, setBriefingOpen] = useState(
+      () => !matchMedia("(max-width: 760px)").matches,
+    ),
     [autoTour, setAutoTour] = useState(false),
     [tourSectorText, setTourSectorText] = useState(""),
     [shareNotice, setShareNotice] = useState(""),
@@ -1951,8 +2507,45 @@ export default function KospiOrbitPage({
     [showGuide, setShowGuide] = useState(
       () => localStorage.getItem("orbit-guide-seen") !== "1",
     ),
+    [introLong] = useState(
+      () =>
+        new URLSearchParams(location.search).get("intro") === "full" ||
+        localStorage.getItem(`orbit-cinematic-seen-${market}`) !== "1",
+    ),
+    [introVisible, setIntroVisible] = useState(true),
+    [companyBrowser, setCompanyBrowser] = useState<{
+      code: string;
+      x: number;
+      y: number;
+    } | null>(null),
     [colors, setColors] = useState<Map<string, number>>(new Map());
   const handleSceneReady = useCallback(() => setReady(true), []);
+  const handleOpenCompanyBrowser = useCallback((stock: MarketMapItem) => {
+    if (innerWidth <= 900) return;
+    setSelected(stock);
+    setCompanyBrowser({ code: stock.code, x: 0, y: 0 });
+  }, []);
+  useEffect(() => {
+    if (!ready || loading || loadError) return;
+    const finish = () => {
+      localStorage.setItem(`orbit-cinematic-seen-${market}`, "1");
+      setIntroVisible(false);
+    };
+    const timer = window.setTimeout(finish, introLong ? 9000 : 2800);
+    return () => window.clearTimeout(timer);
+  }, [ready, loading, loadError, introLong, market]);
+  useEffect(() => {
+    if (companyBrowser && selected?.code !== companyBrowser.code)
+      setCompanyBrowser(null);
+  }, [companyBrowser, selected?.code, mode.sector]);
+  useEffect(() => {
+    if (!companyBrowser) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCompanyBrowser(null);
+    };
+    addEventListener("keydown", closeOnEscape);
+    return () => removeEventListener("keydown", closeOnEscape);
+  }, [companyBrowser]);
   const systems = useMemo(() => {
     const map = new Map<string, MarketMapItem[]>();
     items.forEach((x) => {
@@ -2138,7 +2731,7 @@ export default function KospiOrbitPage({
       );
     };
     visit();
-    const timer = window.setInterval(visit, 33000);
+    const timer = window.setInterval(visit, 35000);
     return () => {
       window.clearInterval(timer);
       window.clearTimeout(resetTimer);
@@ -2207,10 +2800,38 @@ export default function KospiOrbitPage({
     void loadOrbitMarket(ORBIT_CONFIGS[target]);
     window.setTimeout(() => navigate(ORBIT_CONFIGS[target].route), 720);
   };
+  const companyInfoUrl = selected
+    ? `https://${market === "nasdaq100" ? "en" : "ko"}.wikipedia.org/w/index.php?search=${encodeURIComponent(selected.name)}`
+    : "";
   return (
     <main
       className={`kospi-orbit orbit-market-${market}${selected ? " has-detail" : ""}`}
     >
+      {introVisible && ready && !loading && !loadError && (
+        <section
+          className={`orbit-cinematic ${introLong ? "is-epic" : "is-brief"}`}
+          aria-label={`${config.label} 우주 진입`}
+        >
+          <OrbitWarpCanvas brief={!introLong} />
+          <div className="orbit-cinematic-flare" aria-hidden="true" />
+          <div className="orbit-cinematic-rings" aria-hidden="true"><i /><i /><i /></div>
+          <div className="orbit-cinematic-title">
+            <small>ENTERING MARKET UNIVERSE</small>
+            <strong>{config.label}</strong>
+            <span>수많은 기업이 하나의 항성계를 이룹니다</span>
+          </div>
+          <div className="orbit-cinematic-progress"><i /></div>
+          <button
+            type="button"
+            onClick={() => {
+              localStorage.setItem(`orbit-cinematic-seen-${market}`, "1");
+              setIntroVisible(false);
+            }}
+          >
+            건너뛰기
+          </button>
+        </section>
+      )}
       {market === "kospi" ? (
         <a
           className="orbit-background-credit"
@@ -2349,10 +2970,46 @@ export default function KospiOrbitPage({
           selected={selected}
           colors={colors}
           onSelect={setSelected}
+          onOpenCompanyBrowser={handleOpenCompanyBrowser}
           onReady={handleSceneReady}
           logoUrl={config.logoUrl}
           trackingMarket={config.label}
         />
+      )}
+      {selected && companyBrowser && (
+        <aside
+          className="orbit-sphere-browser"
+          style={{ left: 0, top: 0 }}
+          aria-label={`${selected.name} 기업정보 구형 브라우저`}
+        >
+          <div className="orbit-sphere-browser-glow" aria-hidden="true" />
+          <button
+            type="button"
+            className="orbit-sphere-browser-close"
+            onClick={() => setCompanyBrowser(null)}
+            aria-label="기업 아카이브 닫기"
+          >
+            <span>닫기</span> ×
+          </button>
+          <header>
+            <span><i /> CELESTIAL WEB</span>
+            <b>{selected.name}</b>
+            <div>
+              <a href={companyInfoUrl} target="_blank" rel="noreferrer" title="새 창에서 열기">↗</a>
+            </div>
+          </header>
+          <div className="orbit-sphere-browser-screen">
+            <OrbitCompanyArchive
+              stock={selected}
+              config={config}
+              peers={systems.find((system) => system.name === selected.sector)?.stocks ?? [selected]}
+            />
+          </div>
+          <footer>
+            <span>COMPANY ARCHIVE</span>
+            <span>SCROLL TO EXPLORE</span>
+          </footer>
+        </aside>
       )}
       <aside className="orbit-nav">
         <div className="orbit-nav-title">다른 업종으로 워프</div>
@@ -2378,7 +3035,7 @@ export default function KospiOrbitPage({
                 {s.stocks.map((stock, index) => (
                   <button
                     key={stock.code}
-                    className={selected?.code === stock.code ? "selected" : ""}
+                    className={`${selected?.code === stock.code ? "selected " : ""}${Math.abs(stock.change_pct) >= 5 ? `orbit-list-extreme ${stock.change_pct >= 0 ? "extreme-up" : "extreme-down"}` : ""}`}
                     onClick={() => focusStock(stock)}
                   >
                     <em>{index === 0 ? "★" : index + 1}</em>
@@ -2429,7 +3086,7 @@ export default function KospiOrbitPage({
                   <button
                     type="button"
                     key={stock.code}
-                    className={selected?.code === stock.code ? "selected" : ""}
+                    className={`${selected?.code === stock.code ? "selected " : ""}${Math.abs(stock.change_pct) >= 5 ? `orbit-list-extreme ${stock.change_pct >= 0 ? "extreme-up" : "extreme-down"}` : ""}`}
                     onClick={() => focusStock(stock, false)}
                   >
                     <em>{index === 0 ? "★" : index + 1}</em>
@@ -2505,8 +3162,8 @@ export default function KospiOrbitPage({
             >
               <span>{autoTour ? "■" : "▶"}</span>
               {autoTour
-                ? "자동 탐험 멈추기 · 3초 + 10초 + 20초"
-                : "자동 탐험 · 항성계 3초 / 비행 10초 / 관찰 20초"}
+                ? "자동 탐험 멈추기 · 3초 + 12초 + 20초"
+                : "자동 탐험 · 항성계 3초 / 비행 12초 / 관찰 20초"}
             </button>
             {favorites.size > 0 && (
               <div className="orbit-favorites">
