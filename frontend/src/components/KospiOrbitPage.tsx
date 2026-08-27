@@ -7,7 +7,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { api, type MarketMapItem, type MarketMapResponse } from "../api/client";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
-import { usCompanyLogoUrl } from "../usLogo";
+import { usCompanyLogoProxyUrl, usCompanyLogoUrl } from "../usLogo";
 import { reportMarketOrbitEvent } from "../useActivityTracking";
 import {
   PLANET_FRAG,
@@ -44,6 +44,11 @@ type OrbitConfig = {
   currency: "KRW" | "USD";
   fetchMap: (limit: number) => Promise<MarketMapResponse>;
   logoUrl: (code: string) => string;
+  /** The same logo, from wherever it can be read back out of a canvas. Sampling a
+   *  brand colour means drawing the image and calling getImageData, which needs the
+   *  bytes to arrive CORS-clean — so this is not always the URL the <img> tags use.
+   *  See the note on nasdaq100 below. */
+  colorUrl: (code: string) => string;
   capOf: (stock: MarketMapItem) => number;
   discussion: "naver" | "global";
   news: "naver-finance" | "naver-search";
@@ -57,6 +62,9 @@ const ORBIT_CONFIGS: Record<OrbitMarket, OrbitConfig> = {
     currency: "KRW",
     fetchMap: (limit) => api.marketMap(limit),
     logoUrl: stockIconUrl,
+    // Naver's icon host sends `access-control-allow-origin: *`, so the displayed
+    // image is also the one the colour is sampled from.
+    colorUrl: stockIconUrl,
     capOf: (stock) => stock.marcap,
     discussion: "naver",
     news: "naver-finance",
@@ -69,6 +77,9 @@ const ORBIT_CONFIGS: Record<OrbitMarket, OrbitConfig> = {
     currency: "KRW",
     fetchMap: (limit) => api.kosdaqMap(limit),
     logoUrl: stockIconUrl,
+    // Naver's icon host sends `access-control-allow-origin: *`, so the displayed
+    // image is also the one the colour is sampled from.
+    colorUrl: stockIconUrl,
     capOf: (stock) => stock.marcap,
     discussion: "naver",
     news: "naver-finance",
@@ -81,6 +92,12 @@ const ORBIT_CONFIGS: Record<OrbitMarket, OrbitConfig> = {
     currency: "USD",
     fetchMap: (limit) => api.nasdaq100Map(limit),
     logoUrl: usCompanyLogoUrl,
+    // companiesmarketcap sends no `Access-Control-Allow-Origin` at all, so an
+    // `img.crossOrigin = "anonymous"` load of it fails outright and every US body fell
+    // back to `colorFor`'s hash palette — which is why NVIDIA's star was violet rather
+    // than its own green. Sampling goes through our same-origin proxy instead; the
+    // tiles on screen keep loading straight from the CDN, which costs this app nothing.
+    colorUrl: usCompanyLogoProxyUrl,
     capOf: (stock) => stock.market_cap ?? 0,
     discussion: "global",
     news: "naver-search",
@@ -236,6 +253,7 @@ function SpaceScene({
   onOpenCompanyBrowser,
   onReady,
   logoUrl,
+  colorUrl,
   trackingMarket,
 }: {
   systems: System[];
@@ -246,6 +264,7 @@ function SpaceScene({
   onOpenCompanyBrowser: (s: MarketMapItem) => void;
   onReady: () => void;
   logoUrl: (code: string) => string;
+  colorUrl: (code: string) => string;
   trackingMarket: string;
 }) {
   const mount = useRef<HTMLDivElement>(null);
@@ -1057,7 +1076,7 @@ uniform float uInvertLandform;`,
         const body = pendingDesignBodies.shift();
         if (!body) return;
         const stock = body.userData.stock as MarketMapItem,
-          brandColor = await logoColor(stock.code, logoUrl),
+          brandColor = await logoColor(stock.code, colorUrl),
           material = (body as THREE.Mesh).material,
           premiumKind = premiumKinds.get(stock.code),
           planetStyle = stormCodes.has(stock.code)
@@ -1928,7 +1947,7 @@ uniform float uInvertLandform;`,
       });
       host.replaceChildren();
     };
-  }, [systems, mode.sector, onSelect, onOpenCompanyBrowser, logoUrl, trackingMarket]);
+  }, [systems, mode.sector, onSelect, onOpenCompanyBrowser, logoUrl, colorUrl, trackingMarket]);
   useEffect(() => {
     if (selected) {
       /* selection is presented by the React inspection deck */
@@ -2978,7 +2997,7 @@ export default function KospiOrbitPage({
         const stock = targets[index];
         entries.push([
           stock.code,
-          await logoColor(stock.code, config.logoUrl),
+          await logoColor(stock.code, config.colorUrl),
         ] as const);
       }
     };
@@ -3329,6 +3348,7 @@ export default function KospiOrbitPage({
           onOpenCompanyBrowser={handleOpenCompanyBrowser}
           onReady={handleSceneReady}
           logoUrl={config.logoUrl}
+          colorUrl={config.colorUrl}
           trackingMarket={config.label}
         />
       )}

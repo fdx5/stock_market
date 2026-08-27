@@ -2,8 +2,10 @@
 
 The map pages and the NASDAQ board load these logos straight from companiesmarketcap in
 the browser, which costs this app nothing and is where they should keep coming from.
-This module exists for exactly one caller: the maps' "MAP 다운로드" button, which redraws
-the treemap onto a canvas and then calls `toBlob()` on it.
+This module exists for the two callers that need the bytes back out of a canvas: the
+maps' "MAP 다운로드" button, which redraws the treemap onto a canvas and then calls
+`toBlob()` on it, and the market orbit, which samples a company's brand colour by
+drawing its logo and reading getImageData.
 
 That host sends no `Access-Control-Allow-Origin` at all — not even in response to a
 preflight — and an image fetched from such an origin taints the canvas it is drawn into.
@@ -11,10 +13,12 @@ A tainted canvas makes `toBlob()` throw SecurityError, so including the logos th
 way wouldn't just skip them, it would break the download outright. Bytes served from our
 own origin don't taint, so the export asks for them here.
 
-That keeps this off the page-view path and on an explicit, occasional click: roughly the
-40 tiles per map large enough to show an icon, about 100KB a click, against a bandwidth
-budget the rest of this app works to protect. Logos are cached in-process afterwards, so
-repeat exports of the same map cost the upstream nothing.
+The export keeps this on an explicit, occasional click: roughly the 40 tiles per map
+large enough to show an icon, about 100KB a click, against a bandwidth budget the rest of
+this app works to protect. The orbit does put it on a page view, but a bounded one — only
+the sector currently on screen, only codes whose colour is not already known, and the
+result is kept in localStorage per URL, so a reader pays for a sector once. Logos are
+cached in-process afterwards, so repeats cost the upstream nothing either way.
 """
 
 import re
