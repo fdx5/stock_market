@@ -824,6 +824,7 @@ uniform float uInvertLandform;`,
       tourStage: "star" | "planet" | "target" | "dwell" | null = null,
       tourPlanetTarget: THREE.Object3D | null = null,
       tourPlanetViewStyle = -1,
+      tourLegStartedAt = 0,
       resettingView = false;
     if (focusTarget) controls.zoomToCursor = false;
     const focusOffset = new THREE.Vector3();
@@ -832,6 +833,17 @@ uniform float uInvertLandform;`,
     const lastFocusPosition = new THREE.Vector3();
     const focusMotion = new THREE.Vector3();
     const tourDwellOffset = new THREE.Vector3();
+    /* The star-to-planet leg of the tour. It is flown on a clock rather than chased
+       with a damped lerp: an exponential approach spends more than half the gap in its
+       first second, so the planet went from invisible to filling the frame before the
+       viewer could register the trip. Five seconds, eased at both ends, along a bowed
+       path — the planet is framed early and grows the whole way in. */
+    const TOUR_APPROACH_MS = 5000;
+    const tourLegFrom = new THREE.Vector3();
+    const tourLegLookFrom = new THREE.Vector3();
+    const tourLegControl = new THREE.Vector3();
+    const tourLegSpan = new THREE.Vector3();
+    const tourLegBow = new THREE.Vector3();
     const cinematicOffsets = [
       new THREE.Vector3(0.8, 0.34, 1).normalize(),
       new THREE.Vector3(-1, 0.18, 0.52).normalize(),
@@ -1700,12 +1712,23 @@ uniform float uInvertLandform;`,
         desiredTarget.copy(focusTarget.position);
         if (portraitFocus) desiredTarget.y -= radius * 1.55;
         if (flying) {
+          const approachLeg = tourStage === "planet",
+            approachAge = approachLeg ? nowMs - tourLegStartedAt : 0,
+            approachT = approachLeg
+              ? Math.min(1, approachAge / TOUR_APPROACH_MS)
+              : 0,
+            // Smootherstep: unsticks from the star gently, crosses the gap, settles
+            // into the framing position instead of slamming into it.
+            approachEase =
+              approachT * approachT * approachT * (approachT * (approachT * 6 - 15) + 10);
           if (focusViewStyle >= 0) {
             const flightAge = nowMs - focusFlightStartedAt,
               journeyAge = nowMs - tourJourneyStartedAt,
-              stageProgress = tourStage === "star"
-                ? THREE.MathUtils.smoothstep(journeyAge, 0, 4000)
-                : THREE.MathUtils.smoothstep(journeyAge, 4000, 12000),
+              stageProgress = approachLeg
+                ? approachEase
+                : tourStage === "star"
+                  ? THREE.MathUtils.smoothstep(journeyAge, 0, 4000)
+                  : THREE.MathUtils.smoothstep(journeyAge, 4000, 12000),
               approachRemaining = 1 - (tourStage ? stageProgress : THREE.MathUtils.smoothstep(flightAge, 0, 4200)),
               approachSwing = approachRemaining *
                 (0.12 + (focusViewStyle % 3) * 0.055);
@@ -1725,15 +1748,37 @@ uniform float uInvertLandform;`,
                   : approachSwing;
             focusOffset.applyAxisAngle(rotationAxes[axisStyle], signedSwing);
             desiredCamera.copy(focusTarget.position).add(focusOffset);
-            camera.position.lerp(
-              desiredCamera,
-              dampAlpha(
-                tourStage === "star"
-                  ? 0.82
-                  : approachRates[focusViewStyle % approachRates.length],
-                frameDelta,
-              ),
-            );
+            if (approachLeg) {
+              // Bow the path off the straight line so the crossing reads as a flight
+              // through the system rather than a slide down a wire. The control point
+              // is rebuilt each frame because the planet keeps moving along its orbit.
+              tourLegSpan.subVectors(desiredCamera, tourLegFrom);
+              const span = tourLegSpan.length();
+              tourLegBow.copy(tourLegSpan).cross(camera.up);
+              if (tourLegBow.lengthSq() < 1e-6) tourLegBow.set(0, 1, 0);
+              tourLegBow.normalize();
+              tourLegControl
+                .addVectors(tourLegFrom, desiredCamera)
+                .multiplyScalar(0.5)
+                .addScaledVector(tourLegBow, span * 0.2)
+                .addScaledVector(camera.up, span * 0.12);
+              const inverse = 1 - approachEase;
+              camera.position
+                .set(0, 0, 0)
+                .addScaledVector(tourLegFrom, inverse * inverse)
+                .addScaledVector(tourLegControl, 2 * inverse * approachEase)
+                .addScaledVector(desiredCamera, approachEase * approachEase);
+            } else {
+              camera.position.lerp(
+                desiredCamera,
+                dampAlpha(
+                  tourStage === "star"
+                    ? 0.82
+                    : approachRates[focusViewStyle % approachRates.length],
+                  frameDelta,
+                ),
+              );
+            }
           } else {
             focusOffset.copy(camera.position).sub(controls.target);
             if (focusOffset.lengthSq() < 0.01) focusOffset.set(0.7, 0.3, 1);
@@ -1741,19 +1786,29 @@ uniform float uInvertLandform;`,
             desiredCamera.copy(focusTarget.position).add(focusOffset);
             camera.position.lerp(desiredCamera, dampAlpha(1.95, frameDelta));
           }
-          controls.target.lerp(
-            desiredTarget,
-            dampAlpha(tourStage ? 0.9 : 3.08, frameDelta),
-          );
+          if (approachLeg) {
+            // The planet is centred well before arrival, so the back half of the leg
+            // is spent watching it grow. That is the shot the tour is here for.
+            controls.target.lerpVectors(
+              tourLegLookFrom,
+              desiredTarget,
+              THREE.MathUtils.smoothstep(approachT, 0, 0.45),
+            );
+          } else {
+            controls.target.lerp(
+              desiredTarget,
+              dampAlpha(tourStage ? 0.9 : 3.08, frameDelta),
+            );
+          }
           const starFlybyComplete =
             tourStage === "star" &&
             ((nowMs - tourJourneyStartedAt > 3600 &&
               camera.position.distanceTo(focusTarget.position) <
                 Math.max(radius * 5.2, 58)) ||
               nowMs - tourJourneyStartedAt >= 4000),
-            tourArrivalComplete =
-              (tourStage === "planet" || tourStage === "target") &&
-              nowMs - tourJourneyStartedAt >= 12000;
+            tourArrivalComplete = approachLeg
+              ? approachT >= 1
+              : tourStage === "target" && nowMs - tourJourneyStartedAt >= 12000;
           if (starFlybyComplete || tourArrivalComplete ||
               (tourStage === null && camera.position.distanceTo(desiredCamera) < 0.18)) {
             if (tourStage === "star" && tourPlanetTarget) {
@@ -1762,6 +1817,11 @@ uniform float uInvertLandform;`,
               focusFlightStartedAt = nowMs;
               lastFocusPosition.copy(tourPlanetTarget.position);
               tourStage = "planet";
+              // Where the five seconds start from, captured once so the curve below
+              // has fixed endpoints to interpolate between.
+              tourLegStartedAt = nowMs;
+              tourLegFrom.copy(camera.position);
+              tourLegLookFrom.copy(controls.target);
               flying = true;
             } else if (tourArrivalComplete && focusTarget) {
               camera.position.copy(desiredCamera);
@@ -2110,6 +2170,37 @@ function OrbitDetailPanel({
   );
 }
 
+type WarpStar = {
+  /** Distance from the tunnel axis, in focal units — fixed, so travel is pure z. */
+  offset: number;
+  theta: number;
+  z: number;
+  tone: string;
+  width: number;
+  /** Per-star trail scale. Without it every tail bottoms out at the same depth and
+      their inner ends line up into a visible ring around the core. */
+  trail: number;
+};
+
+type WarpWisp = {
+  /** Radius of the tunnel wall this streak lies on. */
+  wall: number;
+  theta: number;
+  z: number;
+  /** How far back along z the streak smears, and how wide it is in radians. */
+  depth: number;
+  span: number;
+  tone: string;
+  weight: number;
+};
+
+/* The hyperspace jump in the order Star Wars does it: a still field of points, a hard
+   snap where every star stretches into a line at once, and then the mottled blue tunnel
+   it settles into. The snap is the shot — `punch` is deliberately front-loaded so the
+   stretch happens in a fraction of the time the tunnel afterwards holds for, which is
+   what separates a jump from a steady stream of spokes.
+
+   Everything reads off one 0..1 progress, so `brief` only has to compress the clock. */
 function OrbitWarpCanvas({ brief }: { brief: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -2117,16 +2208,29 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
     if (!canvas) return;
     const context = canvas.getContext("2d", { alpha: true });
     if (!context) return;
-    const coarse = matchMedia("(pointer: coarse)").matches,
-      particleCount = coarse ? 170 : 420,
-      colors = ["#ffffff", "#bfeaff", "#7fd8ff", "#c9c3ff"],
-      particles = Array.from({ length: particleCount }, (_, index) => ({
-        x: (Math.random() - 0.5) * 2.5,
-        y: (Math.random() - 0.5) * 2.5,
-        z: Math.random() * 0.92 + 0.08,
-        previousZ: 1,
-        color: colors[index % colors.length],
-        width: Math.random() * 1.15 + 0.35,
+    const TAU = Math.PI * 2,
+      coarse = matchMedia("(pointer: coarse)").matches,
+      random = (min: number, max: number) => min + Math.random() * (max - min),
+      pick = (list: string[]) => list[(Math.random() * list.length) | 0],
+      // Blue-white only. Warm tones turn this into Star Trek's rainbow tunnel.
+      starTones = ["#ffffff", "#e6f6ff", "#a8dcff", "#79beff", "#d8deff"],
+      wispTones = ["#f2fbff", "#b6e3ff", "#69b6ff", "#c9d8ff"],
+      stars: WarpStar[] = Array.from({ length: coarse ? 260 : 640 }, () => ({
+        offset: random(0.04, 1.35),
+        theta: Math.random() * TAU,
+        z: random(0.07, 1),
+        tone: pick(starTones),
+        width: random(0.4, 1.35),
+        trail: random(0.55, 1.4),
+      })),
+      wisps: WarpWisp[] = Array.from({ length: coarse ? 30 : 62 }, () => ({
+        wall: random(0.4, 1.7),
+        theta: Math.random() * TAU,
+        z: random(0.06, 1.15),
+        depth: random(0.3, 1.5),
+        span: random(0.03, 0.15),
+        tone: pick(wispTones),
+        weight: random(0.3, 1),
       }));
     let width = 1,
       height = 1,
@@ -2140,54 +2244,145 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
         canvas.height = Math.round(height * ratio);
         context.setTransform(ratio, 0, 0, ratio, 0, 0);
       },
-      reset = (particle: (typeof particles)[number]) => {
-        particle.x = (Math.random() - 0.5) * 2.5;
-        particle.y = (Math.random() - 0.5) * 2.5;
-        particle.z = 1;
-        particle.previousZ = 1;
+      respawn = (star: WarpStar) => {
+        star.offset = random(0.04, 1.35);
+        star.theta = Math.random() * TAU;
+        star.z = 1;
+        star.trail = random(0.55, 1.4);
       },
       render = (now: number) => {
         const elapsed = (now - startedAt) / 1000,
-          duration = brief ? 1.65 : 4.1,
+          duration = brief ? 1.7 : 4.4,
           progress = Math.min(1, elapsed / duration),
-          acceleration = THREE.MathUtils.smoothstep(progress, 0.04, 0.58),
-          deceleration = 1 - THREE.MathUtils.smoothstep(progress, 0.72, 1),
-          speed = (0.0025 + acceleration * 0.024) * deceleration,
+          // The snap. Raising it to a fractional power front-loads it hard: half the
+          // stretch is spent in the first fifth of the window, so it reads as one
+          // event rather than a ramp.
+          punch = Math.pow(THREE.MathUtils.smoothstep(progress, 0.13, 0.29), 0.4),
+          tunnel = THREE.MathUtils.smoothstep(progress, 0.25, 0.52),
+          deceleration = 1 - THREE.MathUtils.smoothstep(progress, 0.82, 1),
+          // A triangular spike at the instant of the snap — the light the jump throws,
+          // not a fade.
+          flash = Math.max(0, 1 - Math.abs(progress - 0.21) / 0.07),
+          // 0.0009 is the near-still creep before the jump: enough that the field is
+          // alive, far too slow to leave a trail.
+          speed = (0.0009 + punch * 0.052) * deceleration,
+          tailReach = speed * (1.6 + punch * 130),
+          // A slow roll around the axis. The tunnel drifts; it does not spin.
+          roll = elapsed * 0.11,
           focal = Math.min(width, height) * 0.72,
-          vanishingX = width * 0.5 + Math.sin(elapsed * 0.72) * width * 0.012,
-          vanishingY = height * 0.49 + Math.cos(elapsed * 0.53) * height * 0.009;
+          axisX = width * 0.5 + Math.sin(elapsed * 0.7) * width * 0.009,
+          axisY = height * 0.49 + Math.cos(elapsed * 0.52) * height * 0.007;
         context.clearRect(0, 0, width, height);
         context.globalCompositeOperation = "lighter";
-        for (const particle of particles) {
-          particle.previousZ = particle.z;
-          particle.z -= speed;
-          if (particle.z < 0.025) reset(particle);
-          const currentX = vanishingX + (particle.x / particle.z) * focal,
-            currentY = vanishingY + (particle.y / particle.z) * focal,
-            tailDepth = Math.min(1.15, particle.previousZ + speed * (8 + acceleration * 28)),
-            previousX = vanishingX + (particle.x / tailDepth) * focal,
-            previousY = vanishingY + (particle.y / tailDepth) * focal,
-            proximity = 1 - particle.z,
-            alpha = Math.min(0.92, (0.12 + proximity * 0.9) * deceleration);
-          if (
-            currentX < -80 || currentX > width + 80 ||
-            currentY < -80 || currentY > height + 80
-          ) {
-            reset(particle);
+
+        // ── the tunnel wall: soft radial smears at assorted depths and widths, which
+        // is what makes it read as mottled cloud rather than a clean gradient ──
+        if (tunnel > 0.01) {
+          context.lineCap = "butt";
+          for (const wisp of wisps) {
+            wisp.z -= speed * 0.82;
+            if (wisp.z < 0.05) {
+              wisp.z = random(0.95, 1.3);
+              wisp.theta = Math.random() * TAU;
+              wisp.wall = random(0.4, 1.7);
+            }
+            const farZ = wisp.z + wisp.depth,
+              angle = wisp.theta + roll,
+              cos = Math.cos(angle),
+              sin = Math.sin(angle),
+              outer = (wisp.wall / wisp.z) * focal,
+              inner = (wisp.wall / farZ) * focal;
+            if (inner > Math.hypot(width, height)) continue;
+            const outerX = axisX + cos * outer,
+              outerY = axisY + sin * outer,
+              innerX = axisX + cos * inner,
+              innerY = axisY + sin * inner,
+              gradient = context.createLinearGradient(innerX, innerY, outerX, outerY);
+            gradient.addColorStop(0, "transparent");
+            gradient.addColorStop(0.45, `${wisp.tone}3a`);
+            gradient.addColorStop(1, "transparent");
+            context.strokeStyle = gradient;
+            context.globalAlpha = tunnel * deceleration * wisp.weight * 0.5;
+            context.lineWidth = Math.max(1, wisp.span * (inner + outer) * 0.5);
+            context.beginPath();
+            context.moveTo(innerX, innerY);
+            context.lineTo(outerX, outerY);
+            context.stroke();
+          }
+        }
+
+        // ── the stars: points until the snap, lines after it ──
+        context.lineCap = "round";
+        for (const star of stars) {
+          star.z -= speed;
+          if (star.z < 0.028) {
+            respawn(star);
             continue;
           }
-          const gradient = context.createLinearGradient(previousX, previousY, currentX, currentY);
-          gradient.addColorStop(0, "transparent");
-          gradient.addColorStop(0.7, `${particle.color}55`);
-          gradient.addColorStop(1, particle.color);
-          context.strokeStyle = gradient;
+          const tailZ = Math.min(2.6, star.z + tailReach * star.trail),
+            angle = star.theta + roll,
+            cos = Math.cos(angle),
+            sin = Math.sin(angle),
+            headScale = (star.offset / star.z) * focal,
+            tailScale = (star.offset / tailZ) * focal,
+            headX = axisX + cos * headScale,
+            headY = axisY + sin * headScale,
+            proximity = 1 - Math.min(1, star.z),
+            alpha = Math.min(0.95, (0.14 + proximity * 0.86) * deceleration);
+          if (
+            headX < -140 || headX > width + 140 ||
+            headY < -140 || headY > height + 140
+          ) {
+            respawn(star);
+            continue;
+          }
           context.globalAlpha = alpha;
-          context.lineWidth = particle.width + proximity * 1.7;
+          // Before the snap there is no trail to draw, and a zero-length gradient is
+          // undefined anyway, so the field is genuinely a field of points.
+          if (headScale - tailScale < 1.4) {
+            context.fillStyle = star.tone;
+            context.beginPath();
+            context.arc(headX, headY, star.width * 0.7 + proximity * 0.5, 0, TAU);
+            context.fill();
+            continue;
+          }
+          const tailX = axisX + cos * tailScale,
+            tailY = axisY + sin * tailScale,
+            gradient = context.createLinearGradient(tailX, tailY, headX, headY);
+          gradient.addColorStop(0, "transparent");
+          gradient.addColorStop(0.62, `${star.tone}66`);
+          gradient.addColorStop(1, star.tone);
+          context.strokeStyle = gradient;
+          context.lineWidth = star.width + proximity * (1.1 + punch * 0.8);
           context.beginPath();
-          context.moveTo(previousX, previousY);
-          context.lineTo(currentX, currentY);
+          context.moveTo(tailX, tailY);
+          context.lineTo(headX, headY);
           context.stroke();
         }
+
+        // ── the core everything converges on ──
+        if (tunnel > 0.01) {
+          const coreRadius =
+              Math.min(width, height) *
+              (0.045 + tunnel * 0.17 + Math.sin(elapsed * 6.2) * 0.005),
+            core = context.createRadialGradient(axisX, axisY, 0, axisX, axisY, coreRadius);
+          core.addColorStop(0, "#ffffff");
+          core.addColorStop(0.24, "#dff2ffcc");
+          core.addColorStop(0.55, "#59a8ff4d");
+          core.addColorStop(1, "transparent");
+          context.globalAlpha = tunnel * deceleration;
+          context.fillStyle = core;
+          context.beginPath();
+          context.arc(axisX, axisY, coreRadius, 0, TAU);
+          context.fill();
+        }
+
+        if (flash > 0) {
+          context.globalAlpha = flash * flash * 0.24;
+          context.fillStyle = "#eaf6ff";
+          context.fillRect(0, 0, width, height);
+        }
+
         context.globalAlpha = 1;
         context.globalCompositeOperation = "source-over";
         if (progress < 1) raf = requestAnimationFrame(render);
@@ -2253,6 +2448,180 @@ const conciseArchiveText = (text: string, limit = 1050) => {
     .trim();
 };
 
+type WikiPage = {
+  title: string;
+  extract?: string;
+  fullurl?: string;
+  missing?: string;
+  pageprops?: { wikibase_item?: string };
+  langlinks?: Array<{ "*": string }>;
+};
+
+type WikiResponse = {
+  query?: {
+    pages?: Record<string, WikiPage>;
+    redirects?: Array<{ from: string; to: string }>;
+    normalized?: Array<{ from: string; to: string }>;
+  };
+};
+
+const wikiQuery = async (language: string, params: Record<string, string>) => {
+  const query = new URLSearchParams({ action: "query", format: "json", origin: "*", ...params }),
+    response = await fetch(`https://${language}.wikipedia.org/w/api.php?${query}`);
+  if (!response.ok) throw new Error("Wikipedia request failed");
+  return (await response.json()) as WikiResponse;
+};
+
+const ARCHIVE_EXTRACT_PARAMS = {
+  prop: "extracts|info|pageprops",
+  explaintext: "1",
+  exsectionformat: "plain",
+  inprop: "url",
+};
+
+/* The roster carries exchange listing descriptions, not company names — "Sandisk
+ * Corporation Common Stock", "Alphabet Inc. Class C Capital Stock". Handed to a
+ * full-text search, those trailing security terms outweigh the company itself and the
+ * top hit comes back as an article *about stock*: "Sandisk Corporation Common Stock"
+ * resolved to "List of S&P 500 companies", whose Korean counterpart is 네슬레 — which
+ * is how a SanDisk page ended up describing a Swiss food company. Strip the security
+ * type before anything is looked up. */
+const companySearchName = (raw: string) => {
+  let name = raw.trim();
+  for (let pass = 0; pass < 4; pass += 1) {
+    const stripped = name
+      .replace(/\s*[-–—]\s*$/, "")
+      .replace(/\b(american\s+)?depositary\s+(shares?|receipts?)\s*$/i, "")
+      .replace(/\b(common|capital|ordinary|preferred|voting)\s+(stock|shares?)\s*$/i, "")
+      .replace(/\bclass\s+[a-z]\s*$/i, "")
+      .replace(/[,\s]+$/, "")
+      .trim();
+    if (stripped === name || !stripped) break;
+    name = stripped;
+  }
+  return name || raw.trim();
+};
+
+/** The same name without its corporate suffix — "Astera Labs, Inc." → "Astera Labs",
+ *  "ASML Holding NV" → "ASML". Wikipedia titles companies both ways, so both forms
+ *  are worth asking for by title. */
+const bareCompanyName = (name: string) => {
+  let bare = name.trim();
+  for (let pass = 0; pass < 3; pass += 1) {
+    const stripped = bare
+      .replace(
+        /[,.]?\s*\b(incorporated|inc|corporation|corp|company|co|holdings?|group|plc|ltd|limited|ag|nv|n\.v|sa|s\.a|se|ab|asa|oyj|kgaa)\b\.?\s*$/i,
+        "",
+      )
+      .replace(/[,\s]+$/, "")
+      .trim();
+    if (stripped === bare || !stripped) break;
+    bare = stripped;
+  }
+  return bare || name;
+};
+
+/** Articles that a company search plausibly surfaces and that are never the company. */
+const ARCHIVE_TITLE_BLOCKLIST =
+  /^(list|history|timeline|index|outline|glossary|comparison)\s+of\b|\(disambiguation\)|^share class$/i;
+
+const archiveToken = (value: string) => value.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "");
+
+/** How well an article answers "is this that company?", or -1 to reject it outright.
+ *  Rejecting is the point: a confidently wrong company is worse than no article. */
+const archiveArticleScore = (page: WikiPage, rawName: string, viaRedirect: boolean) => {
+  const extract = page.extract?.trim() ?? "";
+  if (extract.length < 80) return -1;
+  if (ARCHIVE_TITLE_BLOCKLIST.test(page.title.trim())) return -1;
+  // A redirect from the name we asked for is Wikipedia itself asserting the two are
+  // the same subject (현대차 → 현대자동차, 신한지주 → 신한금융지주). Nothing textual
+  // beats that, and the short trading names never match their article title.
+  if (viaRedirect) return 4;
+  const target = archiveToken(bareCompanyName(companySearchName(rawName)));
+  if (target.length < 2) return -1;
+  const title = archiveToken(page.title);
+  if (title === target) return 3;
+  if (title.includes(target) || target.includes(title)) return 2;
+  // A company's article names it in the opening sentence. An article that only
+  // mentions it further down is an article about something else.
+  return archiveToken(extract.slice(0, 300)).includes(target) ? 1 : -1;
+};
+
+const bestArchiveArticle = (
+  response: WikiResponse,
+  rawName: string,
+  requested: string[],
+) => {
+  const asked = new Set(requested.map((name) => name.toLowerCase())),
+    redirected = new Set(
+      (response.query?.redirects ?? [])
+        .filter((hop) => asked.has(hop.from.toLowerCase()))
+        .map((hop) => hop.to.toLowerCase()),
+    ),
+    ranked = Object.values(response.query?.pages ?? {})
+      .filter((page) => page.missing === undefined)
+      .map((page) => ({
+        page,
+        score: archiveArticleScore(page, rawName, redirected.has(page.title.toLowerCase())),
+      }))
+      .filter((entry) => entry.score >= 1)
+      .sort(
+        (a, b) => b.score - a.score || (b.page.extract?.length ?? 0) - (a.page.extract?.length ?? 0),
+      );
+  return ranked[0]?.page ?? null;
+};
+
+/** Resolves a roster name to the article that is actually about that company, by
+ *  exact title first (which follows Wikipedia's own redirects) and only then by
+ *  search — every candidate verified either way. Returns null rather than a guess. */
+const resolveCompanyArticle = async (language: string, rawName: string) => {
+  const searchName = companySearchName(rawName),
+    bare = bareCompanyName(searchName),
+    candidates = Array.from(
+      new Set([searchName, bare, `${bare} (company)`, `${bare} (기업)`].filter(Boolean)),
+    ),
+    byTitle = await wikiQuery(language, {
+      ...ARCHIVE_EXTRACT_PARAMS,
+      titles: candidates.join("|"),
+      redirects: "1",
+    }),
+    titled = bestArchiveArticle(byTitle, rawName, candidates);
+  if (titled) return titled;
+  const searched = await wikiQuery(language, {
+    ...ARCHIVE_EXTRACT_PARAMS,
+    generator: "search",
+    gsrsearch: searchName,
+    gsrlimit: "5",
+  });
+  return bestArchiveArticle(searched, rawName, []);
+};
+
+/** The Korean article for an English one, via Wikipedia's own language link. The
+ *  NASDAQ path used to re-run a full-text search on ko.wikipedia with the English
+ *  title, which is where "List of S&P 500 companies" became 네슬레. A langlink cannot
+ *  drift: it is the same subject by definition. */
+const koreanCompanyArticle = async (englishTitle: string) => {
+  const linked = await wikiQuery("en", {
+      titles: englishTitle,
+      redirects: "1",
+      prop: "langlinks",
+      lllang: "ko",
+      lllimit: "1",
+    }),
+    koreanTitle = Object.values(linked.query?.pages ?? {})[0]?.langlinks?.[0]?.["*"];
+  if (!koreanTitle) return null;
+  const korean = await wikiQuery("ko", {
+      prop: "extracts|info",
+      explaintext: "1",
+      exsectionformat: "plain",
+      inprop: "url",
+      titles: koreanTitle,
+      redirects: "1",
+    }),
+    page = Object.values(korean.query?.pages ?? {})[0];
+  return page && page.missing === undefined && page.extract ? page : null;
+};
+
 function OrbitCompanyArchive({
   stock,
   config,
@@ -2270,129 +2639,117 @@ function OrbitCompanyArchive({
     setArchive(null);
     setFailed(false);
     setPricePoints([]);
-    const language = config.key === "nasdaq100" ? "en" : "ko",
-      wikiApi = `https://${language}.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(stock.name)}&gsrlimit=1&prop=extracts%7Cinfo%7Cpageprops&explaintext=1&exsectionformat=plain&inprop=url&format=json&origin=*`;
-    Promise.all([
-      fetch(wikiApi).then((response) => {
-        if (!response.ok) throw new Error("Wikipedia request failed");
-        return response.json() as Promise<{
-          query?: { pages?: Record<string, { title: string; extract?: string; fullurl?: string; pageprops?: { wikibase_item?: string } }> };
-        }>;
-      }),
-      config.key === "nasdaq100"
-        ? Promise.resolve({ overview: [] as string[] })
-        : api.overview(stock.code).catch(() => ({ overview: [] as string[] })),
-      api.history(stock.code, 1).catch(() => ({ points: [] })),
-    ])
-      .then(async ([wiki, localOverview, history]) => {
-        const page = Object.values(wiki.query?.pages ?? {})[0];
-        if (!page?.extract) throw new Error("No company article");
-        const extract = page.extract,
-          blocks = extract.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean),
-          wikidataId = page.pageprops?.wikibase_item;
-        let officialUrl = "",
-          founded = "";
-        if (wikidataId) {
-          try {
-            const entityResponse = await fetch(
-              `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`,
-            );
-            const entityJson = (await entityResponse.json()) as {
-              entities?: Record<string, { claims?: Record<string, Array<{ mainsnak?: { datavalue?: { value?: unknown } } }>> }>;
-            };
-            const claims = entityJson.entities?.[wikidataId]?.claims ?? {},
-              websiteValue = claims.P856?.[0]?.mainsnak?.datavalue?.value,
-              foundedValue = claims.P571?.[0]?.mainsnak?.datavalue?.value as
-                | { time?: string }
-                | undefined;
-            if (typeof websiteValue === "string") officialUrl = websiteValue;
-            if (foundedValue?.time) {
-              const match = foundedValue.time.match(/\+?(\d{4})-(\d{2})-(\d{2})/);
-              if (match)
-                founded = `${match[1]}년${match[2] !== "00" ? ` ${Number(match[2])}월` : ""}${match[3] !== "00" ? ` ${Number(match[3])}일` : ""}`;
-            }
-          } catch {
-            // The article itself remains useful when Wikidata is temporarily unavailable.
-          }
-        }
-        const localBusiness = localOverview.overview.filter(Boolean).join(" "),
-          rawArchive = {
-            title: page.title,
-            overview: conciseArchiveText(blocks[0] || localBusiness),
-            history: conciseArchiveText(archiveSection(extract, ["역사", "연혁", "창립", "history", "founding", "origins"])),
-            business:
-              conciseArchiveText(
-                localBusiness ||
-                archiveSection(extract, ["사업 분야", "사업", "제품", "operations", "business", "products", "services"]),
-              ),
-            values: conciseArchiveText(archiveSection(extract, ["기업 철학", "경영 철학", "사회 공헌", "culture", "mission", "corporate affairs", "sustainability"])),
+    const language = config.key === "nasdaq100" ? "en" : "ko";
+    void (async () => {
+      const [page, localOverview, history] = await Promise.all([
+        resolveCompanyArticle(language, stock.name),
+        config.key === "nasdaq100"
+          ? Promise.resolve({ overview: [] as string[] })
+          : api.overview(stock.code).catch(() => ({ overview: [] as string[] })),
+        api.history(stock.code, 1).catch(() => ({ points: [] })),
+      ]);
+      if (!page?.extract) throw new Error("No company article");
+      const extract = page.extract,
+        blocks = extract.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean),
+        wikidataId = page.pageprops?.wikibase_item;
+      let officialUrl = "",
+        founded = "";
+      if (wikidataId) {
+        try {
+          const entityResponse = await fetch(
+            `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`,
+          );
+          const entityJson = (await entityResponse.json()) as {
+            entities?: Record<string, { claims?: Record<string, Array<{ mainsnak?: { datavalue?: { value?: unknown } } }>> }>;
           };
-        if (config.key === "nasdaq100") {
-          try {
-            const koreanWikiApi =
-                `https://ko.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(page.title)}&gsrlimit=1&prop=extracts%7Cinfo&explaintext=1&exsectionformat=plain&inprop=url&format=json&origin=*`,
-              koreanWikiResponse = await fetch(koreanWikiApi),
-              koreanWiki = (await koreanWikiResponse.json()) as {
-                query?: { pages?: Record<string, { title: string; extract?: string }> };
-              },
-              koreanPage = Object.values(koreanWiki.query?.pages ?? {})[0],
-              koreanExtract = koreanPage?.extract?.trim() ?? "";
-            if (koreanExtract && /[가-힣]/.test(koreanExtract)) {
-              const koreanBlocks = koreanExtract
-                .split(/\n{2,}/)
-                .map((part) => part.trim())
-                .filter(Boolean);
-              rawArchive.title = koreanPage?.title || rawArchive.title;
-              rawArchive.overview = conciseArchiveText(koreanBlocks[0] || "");
-              rawArchive.history = conciseArchiveText(
-                archiveSection(koreanExtract, ["역사", "연혁", "창립", "설립"]),
-              ) || rawArchive.history;
-              rawArchive.business = conciseArchiveText(
-                archiveSection(koreanExtract, ["사업", "제품", "서비스", "사업 분야"]),
-              ) || rawArchive.business;
-              rawArchive.values = conciseArchiveText(
-                archiveSection(koreanExtract, ["기업 문화", "경영", "사회 공헌", "환경", "철학"]),
-              ) || rawArchive.values;
-            }
-          } catch {
-            // The shortened English excerpts below remain available for translation.
+          const claims = entityJson.entities?.[wikidataId]?.claims ?? {},
+            websiteValue = claims.P856?.[0]?.mainsnak?.datavalue?.value,
+            foundedValue = claims.P571?.[0]?.mainsnak?.datavalue?.value as
+              | { time?: string }
+              | undefined;
+          if (typeof websiteValue === "string") officialUrl = websiteValue;
+          if (foundedValue?.time) {
+            const match = foundedValue.time.match(/\+?(\d{4})-(\d{2})-(\d{2})/);
+            if (match)
+              founded = `${match[1]}년${match[2] !== "00" ? ` ${Number(match[2])}월` : ""}${match[3] !== "00" ? ` ${Number(match[3])}일` : ""}`;
           }
-          try {
-            const archiveKeys = ["title", "overview", "history", "business", "values"] as const,
-              untranslatedKeys = archiveKeys.filter(
-                (key) => rawArchive[key] && !/[가-힣]/.test(rawArchive[key]),
-              ),
-              sourceTexts = untranslatedKeys.map((key) => rawArchive[key]),
-              translated = sourceTexts.length
-                ? await api.translateToKorean(sourceTexts)
-                : { translations: [] as string[] };
-            sourceTexts.forEach((_, index) => {
-              const korean = translated.translations[index]?.trim();
-              if (korean && /[가-힣]/.test(korean)) {
-                rawArchive[untranslatedKeys[index]] = korean;
-              }
-            });
-          } catch {
-            // Korean fallbacks below prevent raw English paragraphs from leaking out.
-          }
-          if (!/[가-힣]/.test(rawArchive.overview))
-            rawArchive.overview = `${stock.name}은(는) ${stock.sector} 분야에서 사업을 전개하는 나스닥 상장 기업입니다.`;
-          if (!/[가-힣]/.test(rawArchive.history)) rawArchive.history = "";
-          if (!/[가-힣]/.test(rawArchive.business)) rawArchive.business = "";
-          if (!/[가-힣]/.test(rawArchive.values)) rawArchive.values = "";
+        } catch {
+          // The article itself remains useful when Wikidata is temporarily unavailable.
         }
-        const data: CompanyArchiveData = {
-          ...rawArchive,
-          founded,
-          sourceUrl: page.fullurl || `https://${language}.wikipedia.org/wiki/${encodeURIComponent(page.title)}`,
-          officialUrl,
+      }
+      const localBusiness = localOverview.overview.filter(Boolean).join(" "),
+        rawArchive = {
+          title: page.title,
+          overview: conciseArchiveText(blocks[0] || localBusiness),
+          history: conciseArchiveText(archiveSection(extract, ["역사", "연혁", "창립", "history", "founding", "origins"])),
+          business:
+            conciseArchiveText(
+              localBusiness ||
+              archiveSection(extract, ["사업 분야", "사업", "제품", "operations", "business", "products", "services"]),
+            ),
+          values: conciseArchiveText(archiveSection(extract, ["기업 철학", "경영 철학", "사회 공헌", "culture", "mission", "corporate affairs", "sustainability"])),
         };
-        if (active) {
-          setArchive(data);
-          setPricePoints(history.points.slice(-90).map((point) => point.close));
+      if (config.key === "nasdaq100") {
+        try {
+          const koreanPage = await koreanCompanyArticle(page.title),
+            koreanExtract = koreanPage?.extract?.trim() ?? "";
+          if (koreanExtract && /[가-힣]/.test(koreanExtract)) {
+            const koreanBlocks = koreanExtract
+              .split(/\n{2,}/)
+              .map((part) => part.trim())
+              .filter(Boolean);
+            rawArchive.title = koreanPage?.title || rawArchive.title;
+            rawArchive.overview = conciseArchiveText(koreanBlocks[0] || "");
+            rawArchive.history = conciseArchiveText(
+              archiveSection(koreanExtract, ["역사", "연혁", "창립", "설립"]),
+            ) || rawArchive.history;
+            rawArchive.business = conciseArchiveText(
+              archiveSection(koreanExtract, ["사업", "제품", "서비스", "사업 분야"]),
+            ) || rawArchive.business;
+            rawArchive.values = conciseArchiveText(
+              archiveSection(koreanExtract, ["기업 문화", "경영", "사회 공헌", "환경", "철학"]),
+            ) || rawArchive.values;
+          }
+        } catch {
+          // The shortened English excerpts below remain available for translation.
         }
-      })
-      .catch(() => active && setFailed(true));
+        try {
+          const archiveKeys = ["title", "overview", "history", "business", "values"] as const,
+            untranslatedKeys = archiveKeys.filter(
+              (key) => rawArchive[key] && !/[가-힣]/.test(rawArchive[key]),
+            ),
+            sourceTexts = untranslatedKeys.map((key) => rawArchive[key]),
+            translated = sourceTexts.length
+              ? await api.translateToKorean(sourceTexts)
+              : { translations: [] as string[] };
+          sourceTexts.forEach((_, index) => {
+            const korean = translated.translations[index]?.trim();
+            if (korean && /[가-힣]/.test(korean)) {
+              rawArchive[untranslatedKeys[index]] = korean;
+            }
+          });
+        } catch {
+          // Korean fallbacks below prevent raw English paragraphs from leaking out.
+        }
+        if (!/[가-힣]/.test(rawArchive.overview))
+          rawArchive.overview = `${stock.name}은(는) ${stock.sector} 분야에서 사업을 전개하는 나스닥 상장 기업입니다.`;
+        if (!/[가-힣]/.test(rawArchive.history)) rawArchive.history = "";
+        if (!/[가-힣]/.test(rawArchive.business)) rawArchive.business = "";
+        if (!/[가-힣]/.test(rawArchive.values)) rawArchive.values = "";
+      }
+      const data: CompanyArchiveData = {
+        ...rawArchive,
+        founded,
+        sourceUrl: page.fullurl || `https://${language}.wikipedia.org/wiki/${encodeURIComponent(page.title)}`,
+        officialUrl,
+      };
+      if (active) {
+        setArchive(data);
+        setPricePoints(history.points.slice(-90).map((point) => point.close));
+      }
+    })().catch(() => {
+      if (active) setFailed(true);
+    });
     return () => {
       active = false;
     };
@@ -2801,7 +3158,7 @@ export default function KospiOrbitPage({
     window.setTimeout(() => navigate(ORBIT_CONFIGS[target].route), 720);
   };
   const companyInfoUrl = selected
-    ? `https://${market === "nasdaq100" ? "en" : "ko"}.wikipedia.org/w/index.php?search=${encodeURIComponent(selected.name)}`
+    ? `https://${market === "nasdaq100" ? "en" : "ko"}.wikipedia.org/w/index.php?search=${encodeURIComponent(companySearchName(selected.name))}`
     : "";
   return (
     <main
@@ -2814,7 +3171,6 @@ export default function KospiOrbitPage({
         >
           <OrbitWarpCanvas brief={!introLong} />
           <div className="orbit-cinematic-flare" aria-hidden="true" />
-          <div className="orbit-cinematic-rings" aria-hidden="true"><i /><i /><i /></div>
           <div className="orbit-cinematic-title">
             <small>ENTERING MARKET UNIVERSE</small>
             <strong>{config.label}</strong>
@@ -3161,9 +3517,7 @@ export default function KospiOrbitPage({
               onClick={() => setAutoTour((value) => !value)}
             >
               <span>{autoTour ? "■" : "▶"}</span>
-              {autoTour
-                ? "자동 탐험 멈추기 · 3초 + 12초 + 20초"
-                : "자동 탐험 · 항성계 3초 / 비행 12초 / 관찰 20초"}
+              {autoTour ? "자동 탐험 멈추기" : "자동 탐험"}
             </button>
             {favorites.size > 0 && (
               <div className="orbit-favorites">
