@@ -30,6 +30,8 @@ def _require_notify_token(authorization: str | None) -> None:
 def run_kakao_notify(authorization: str | None = Header(None)):
     """Hourly cron trigger: computes visitor stats, compares against ~24h ago, and
     sends the result via KakaoTalk "나에게 보내기" — the '사이트 방문자 현황' message.
+    Fires every hour but only actually sends in the four KST hours listed in
+    kakao_notify._SEND_HOURS_KST; the rest return "skipped_off_schedule".
     See kakao_notify.run_visitor_stats() for the actual logic and
     services/kakao_token_store.py for how the OAuth token is kept fresh between
     calls. The separate 'AI 예측 배치 실행결과' notification has no cron endpoint of

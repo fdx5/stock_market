@@ -571,7 +571,7 @@ export default function AdminOpsPanel() {
                 : !configured
                   ? "neutral"
                   : last
-                    ? last.status === "sent" || last.status === "skipped_recent" || last.status === "skipped_quiet_hours"
+                    ? last.status === "sent" || last.status === "skipped_recent" || last.status === "skipped_off_schedule"
                       ? "ok"
                       : "fail"
                     : "neutral";
@@ -584,8 +584,8 @@ export default function AdminOpsPanel() {
                       ? "성공"
                       : last.status === "skipped_recent"
                         ? "스킵"
-                        : last.status === "skipped_quiet_hours"
-                          ? "스킵(새벽)"
+                        : last.status === "skipped_off_schedule"
+                          ? "스킵(발송 시간 외)"
                           : last.status === "error"
                             ? "실패"
                             : "미설정"
@@ -598,7 +598,7 @@ export default function AdminOpsPanel() {
                   ? `${triggeredLabel ? `${triggeredLabel} · ` : ""}${formatDateTime(last.finished_at)}` +
                     (last.status === "error" && last.error ? ` · ${last.error}` : "") +
                     (last.status === "skipped_recent" && last.last_sent_at ? ` · 최근 발송 ${formatDateTime(last.last_sent_at)}` : "") +
-                    (last.status === "skipped_quiet_hours" ? " · 새벽 1~5시는 발송하지 않습니다" : "")
+                    (last.status === "skipped_off_schedule" ? " · 오전 9시 · 정오 · 오후 3시 · 오후 6시에만 발송합니다" : "")
                   : "아직 실행 이력이 없습니다.";
               return (
                 <OperationCard

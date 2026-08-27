@@ -43,13 +43,15 @@ _REFRESH_MARGIN = timedelta(minutes=10)
 # back to back instead of one.
 _MIN_INTERVAL = timedelta(minutes=50)
 
-# Quiet hours (KST): the hourly cron/in-process triggers still fire during this window,
-# they just skip the actual send — a "나에게 보내기" ping between 새벽 1시~5시 would land
-# on the admin's phone while they're asleep. Range is half-open [1, 5), i.e. 01:00 up to
-# (not including) 05:00 KST. Does not apply when force=True — the admin dashboard's
-# manual "지금 발송" button is a deliberate click and should always actually send, same
-# as it already bypasses _MIN_INTERVAL above.
-_QUIET_HOURS_KST = range(1, 5)
+# Send hours (KST): the hourly cron/in-process triggers still fire every hour, they just
+# skip the actual send outside these four. An hourly "나에게 보내기" ping was more phone
+# traffic than the numbers warrant — 오전 9시 / 정오 / 오후 3시 / 오후 6시 covers 장 시작,
+# 장중, 장 마감, 그리고 퇴근 무렵 without the other twenty. Keeping the triggers hourly and
+# gating here (rather than narrowing every trigger) leaves one place that decides when a
+# message goes out. Does not apply when force=True — the admin dashboard's manual
+# "지금 발송" button is a deliberate click and should always actually send, same as it
+# already bypasses _MIN_INTERVAL above.
+_SEND_HOURS_KST = (9, 12, 15, 18)
 
 # The admin dashboard's manual "지금 발송" button (see routers/admin.py) and its
 # polling read of "what happened last" both need the *same* record regardless of
@@ -347,7 +349,8 @@ def run_visitor_stats(force: bool = False, triggered_by: str = "cron") -> dict:
     admin dashboard's manual "지금 발송" button (routers/admin.py) — the last of which
     passes force=True so a deliberate click always actually sends, bypassing the
     _MIN_INTERVAL de-dupe guard meant only to stop the first two triggers from
-    double-sending within the same hour.
+    double-sending within the same hour — and the _SEND_HOURS_KST window, so the button
+    works at any hour of the day.
 
     Every outcome — sent, skipped, not configured, or errored — is recorded via
     _record_last_visitor_run so the dashboard can show "what happened last" regardless
@@ -367,10 +370,10 @@ def run_visitor_stats(force: bool = False, triggered_by: str = "cron") -> dict:
                     "finished_at": finished_at,
                 }
             )
-        if _kst_now().hour in _QUIET_HOURS_KST:
+        if _kst_now().hour not in _SEND_HOURS_KST:
             return _record_last_visitor_run(
                 {
-                    "status": "skipped_quiet_hours",
+                    "status": "skipped_off_schedule",
                     "triggered_by": triggered_by,
                     "finished_at": finished_at,
                 }

@@ -341,12 +341,12 @@ export interface PredictionStatus {
 
 export type BatchRegion = "KR" | "US";
 
-/** One outcome of the hourly "사이트 방문자 현황" KakaoTalk notification (see
+/** One outcome of the "사이트 방문자 현황" KakaoTalk notification (see
  * backend/app/services/kakao_notify.py's run_visitor_stats), regardless of which of
  * the three triggers (cron, in-process fallback, or this panel's own button)
  * produced it. */
 export interface KakaoVisitorRun {
-  status: "sent" | "not_configured" | "error" | "skipped_recent" | "skipped_quiet_hours";
+  status: "sent" | "not_configured" | "error" | "skipped_recent" | "skipped_off_schedule";
   message?: string;
   stats?: { online_now: number; total_visits: number; views_24h: number };
   error?: string;

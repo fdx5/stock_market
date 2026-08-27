@@ -8,6 +8,12 @@ name: Kakao 방문자 통계 알림
 # same endpoint, which is safe to double-fire — kakao_notify's own _MIN_INTERVAL guard
 # skips a run that lands within 50 minutes of the last one instead of sending twice.
 #
+# The trigger stays hourly even though a message only goes out four times a day (오전
+# 9시 / 정오 / 오후 3시 / 오후 6시 KST). kakao_notify._SEND_HOURS_KST is what decides
+# that, so the window lives in one place instead of being split across this cron, the
+# in-process fallback, and the service. Firing hourly also means a GitHub-side delay of
+# a few minutes cannot push a run out of its window and lose that slot entirely.
+#
 # Fired 5 minutes past the hour rather than exactly on it, just to avoid piling onto
 # keep-alive.yml's own */10 top-of-hour tick.
 #
