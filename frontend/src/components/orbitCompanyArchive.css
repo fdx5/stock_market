@@ -47,3 +47,39 @@
 .orbit-archive-watch .risk b { color: #78c2ff; }
 .orbit-archive-watch > p { margin-top: 8px !important; color: #527589 !important; font-size: 7px !important; }
 .orbit-company-archive > footer b { color: #74dff8; }
+
+/* The face beside the company name. The hero used to be logo + name with the rest of
+   the row left empty; the portrait fills it from the right, so the name block has to
+   claim the space between them rather than sitting flush against the logo. */
+.orbit-archive-hero > div { flex: 1 1 auto; }
+.orbit-archive-portrait {
+  flex: 0 0 auto; display: grid; gap: 5px; justify-items: center; width: 88px; margin: 0;
+}
+.orbit-archive-portrait img {
+  width: 74px; height: 74px; box-sizing: border-box; border: 1px solid #6fdcff45;
+  border-radius: 14px; background: #0a2334;
+  box-shadow: 0 0 18px #4fd0ff2e, 0 6px 16px #0007;
+}
+/* A portrait is cropped to the square and biased upward, because a head sits in the top
+   half of the frame and centring it cuts the face. */
+.orbit-archive-portrait.is-person img { object-fit: cover; object-position: center top; }
+/* A headquarters, a ship, or a logo is framed art — cropping it to fill the square cuts
+   the subject in half, so it is fitted whole against a lighter panel instead. It also
+   gets a bigger box than a portrait does: a face reads fine at 74px, while a tower
+   photographed from the street is mostly sky and glass and turns into a smudge. There
+   is no caption competing for the width here, so the extra size costs nothing. */
+.orbit-archive-portrait.is-company { width: 126px; }
+.orbit-archive-portrait.is-company img {
+  width: 126px; height: 114px; padding: 7px; border-radius: 16px;
+  background: #ffffff0a; object-fit: contain; object-position: center;
+}
+.orbit-archive-portrait figcaption { display: grid; gap: 2px; justify-items: center; text-align: center; }
+/* keep-all is what stops a Korean name breaking mid-word, but on its own it lets a long
+   one spill past the frame and into the company name. Pairing it with overflow-wrap
+   keeps the break at a space and only breaks inside a name that alone is wider. */
+.orbit-archive-portrait figcaption b {
+  display: -webkit-box; overflow: hidden; width: 100%; color: #e9f8ff; font-size: 9px;
+  line-height: 1.25; word-break: keep-all; overflow-wrap: anywhere;
+  -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.orbit-archive-portrait figcaption small { color: #5be2ff; font: 800 6px ui-monospace; letter-spacing: .09em; }

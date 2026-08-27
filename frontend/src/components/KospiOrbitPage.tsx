@@ -2483,6 +2483,23 @@ type CompanyArchiveData = {
   officialUrl: string;
 };
 
+/** The image beside the company name in the archive hero. A CEO portrait where one
+ *  exists — Wikidata records a photographed chief executive for only about 4% of the
+ *  KOSPI, so that is the exception — and otherwise the company's own headquarters,
+ *  product, or brand mark.
+ *
+ *  Only a person gets a caption. The company images are a mix of buildings, ships,
+ *  vehicles and logos, and nothing in the data says which one a given file is; an
+ *  earlier version guessed, labelled 삼성에스디에스's stock photo "브랜드", and made the
+ *  reader decode it. An uncaptioned picture next to the company's own name claims
+ *  nothing it cannot support. */
+type CompanyPortrait = {
+  url: string;
+  /** The CEO's name. Empty for a company image, which is shown without a caption. */
+  name: string;
+  kind: "person" | "company";
+};
+
 const archiveSection = (extract: string, keywords: string[]) => {
   const lines = extract.split("\n").map((part) => part.trim()),
     headingIndex = lines.findIndex(
@@ -2529,6 +2546,8 @@ type WikiPage = {
   missing?: string;
   pageprops?: { wikibase_item?: string };
   langlinks?: Array<{ "*": string }>;
+  /** The article's lead image, when pageimages is requested. */
+  thumbnail?: { source: string };
 };
 
 type WikiResponse = {
@@ -2547,10 +2566,16 @@ const wikiQuery = async (language: string, params: Record<string, string>) => {
 };
 
 const ARCHIVE_EXTRACT_PARAMS = {
-  prop: "extracts|info|pageprops",
+  // pageimages rides along on the request the archive text already makes, so the hero's
+  // fallback image costs no extra round trip. It is also the better-covered source: of
+  // the top 80 KOSPI issuers, Wikidata holds a company image for a minority, while
+  // nearly every one of them has an article with a lead image.
+  prop: "extracts|info|pageprops|pageimages",
   explaintext: "1",
   exsectionformat: "plain",
   inprop: "url",
+  piprop: "thumbnail",
+  pithumbsize: "320",
 };
 
 /* The roster carries exchange listing descriptions, not company names — "Sandisk
@@ -2696,6 +2721,173 @@ const koreanCompanyArticle = async (englishTitle: string) => {
   return page && page.missing === undefined && page.extract ? page : null;
 };
 
+/* Wikidata statement shapes, kept to the parts this file reads. A statement is
+ * mainsnak (the value) plus qualifiers (when it applied, in what capacity) — the
+ * qualifiers are what separate a sitting officer from a retired one. */
+type WikidataStatement = {
+  mainsnak?: { datavalue?: { value?: unknown } };
+  qualifiers?: Record<string, unknown[]>;
+  rank?: string;
+};
+type WikidataClaims = Record<string, WikidataStatement[]>;
+type WikidataEntity = {
+  claims?: WikidataClaims;
+  labels?: Record<string, { value?: string }>;
+  aliases?: Record<string, Array<{ value?: string }>>;
+};
+
+const wikidataEntity = async (id: string): Promise<WikidataEntity | null> => {
+  try {
+    const response = await fetch(
+      `https://www.wikidata.org/wiki/Special:EntityData/${id}.json`,
+    );
+    if (!response.ok) return null;
+    const json = (await response.json()) as {
+      entities?: Record<string, WikidataEntity>;
+    };
+    return json.entities?.[id] ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/** Wikidata stores an image as a bare Commons filename ("Jay Y. Lee 2019.jpg"), not a
+ *  URL. Special:FilePath resolves one to the file itself and takes a width, so the hero
+ *  frame is not handed a 4000px original to downscale in the browser. */
+const commonsImageUrl = (file: unknown, width: number) =>
+  typeof file === "string" && file.trim()
+    ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(file.trim())}?width=${width}`
+    : "";
+
+const wikidataLabel = (entity: WikidataEntity | null) =>
+  entity?.labels?.ko?.value?.trim() || entity?.labels?.en?.value?.trim() || "";
+
+const statementEntityId = (statement?: WikidataStatement) =>
+  (statement?.mainsnak?.datavalue?.value as { id?: string } | undefined)?.id ?? "";
+
+const PORTRAIT_WIDTH = 320;
+
+const statementImageUrl = (claims: WikidataClaims | undefined, property: string) =>
+  commonsImageUrl(claims?.[property]?.[0]?.mainsnak?.datavalue?.value, PORTRAIT_WIDTH);
+
+/** The person currently holding an office, not everyone who has ever held it.
+ *  Wikidata keeps former officers on the company item and marks their departure with an
+ *  end-time qualifier (P582) rather than deleting the statement, so reading [0] returns
+ *  whoever was appointed first — for 삼성전자 that is 이건희, who died in 2020. Filter the
+ *  ones that have ended, then take the most recently added of what is left. */
+const sittingOfficerId = (claims: WikidataClaims | undefined, property: string) => {
+  const statements = (claims?.[property] ?? []).filter(
+      (statement) => statement.rank !== "deprecated",
+    ),
+    serving = statements.filter((statement) => !statement.qualifiers?.P582);
+  return statementEntityId(serving[serving.length - 1] ?? statements[statements.length - 1]);
+};
+
+/** Words that identify no company in particular. A token drawn from one of these
+ *  matches half of Commons: "Korea" let 한국통신's item accept a photo of a flag on a
+ *  building, and "Display" let 삼성SDI accept a stock photo of an OLED panel. */
+const GENERIC_NAME_WORDS = new Set([
+  "group", "holdings", "holding", "corporation", "corp", "company", "co", "inc",
+  "limited", "ltd", "financial", "finance", "industries", "industry", "international",
+  "global", "logo", "the", "and", "of", "new", "korea", "korean", "south", "north",
+  "seoul", "republic", "national", "flag", "building", "tower", "display", "center",
+  "centre",
+]);
+
+const imageToken = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9가-힣]+/g, "");
+
+/** Every way this company writes its own name, as tokens to match a filename against. */
+const companyNameTokens = (entity: WikidataEntity | null, koreanName: string, articleTitle: string) => {
+  const tokens = new Set<string>(),
+    bare = koreanName.replace(/(홀딩스|지주)$/, "").trim();
+  if (bare.length >= 2) {
+    tokens.add(imageToken(bare));
+    // Korean corporate names are compounds — 삼성전자, 삼성물산, 삼성생명 all lead with the
+    // group name, which is what appears in the filename.
+    if (bare.length >= 4) tokens.add(imageToken(bare.slice(0, 2)));
+  }
+  const aliases = [...(entity?.aliases?.en ?? []), ...(entity?.aliases?.ko ?? [])]
+      .map((alias) => alias.value?.trim() ?? "")
+      // Single-word aliases only. An acronym is exactly what the label is missing —
+      // 한국전력's files are all named KEPCO — while a multi-word alias contributes its
+      // generic half ("Samsung Display") and then matches anything.
+      .filter((alias) => alias.length > 0 && !/\s/.test(alias)),
+    sources = [
+      entity?.labels?.en?.value ?? "",
+      entity?.labels?.ko?.value ?? "",
+      articleTitle,
+      ...aliases,
+    ].filter(Boolean);
+  for (const source of sources) {
+    for (const word of source.split(/[^A-Za-z0-9가-힣]+/)) {
+      const token = imageToken(word);
+      if (token.length >= 2 && !GENERIC_NAME_WORDS.has(token)) tokens.add(token);
+    }
+  }
+  return [...tokens].filter(Boolean);
+};
+
+/** Does this file actually depict this company? Commons filenames are descriptive
+ *  ("Samsung SDS Tower.jpg", "Glovis Sunrise, Fremantle, 2015.JPG"), so requiring the
+ *  company's own name in the filename is a cheap and surprisingly sharp test. It is
+ *  what keeps 신한지주 from showing 숭례문 and SK하이닉스 from showing a photograph of
+ *  anti-static packaging — both of which are the images those Wikidata items carry. */
+const imageDepictsCompany = (file: string, tokens: string[]) => {
+  const name = imageToken(decodeURIComponent(file));
+  return tokens.some((token) => name.includes(token));
+};
+
+/** Properties every listed company carries at least one of: stock exchange, industry,
+ *  legal form, headquarters, CEO, founder, employee count. A cacao pod carries none —
+ *  which is the guard that stops 카카오's article, when it resolves to the plant,
+ *  putting a photograph of fruit beside a bank-sized market cap. */
+const COMPANY_PROPERTIES = ["P414", "P452", "P1454", "P159", "P169", "P112", "P1128"];
+
+const looksLikeCompany = (claims: WikidataClaims | undefined) =>
+  COMPANY_PROPERTIES.some((property) => (claims?.[property]?.length ?? 0) > 0);
+
+/** The image for the archive hero, or null when nothing trustworthy is available.
+ *
+ *  Null is a normal answer. Across the top 80 KOSPI issuers this resolves an image for
+ *  about two thirds; the rest either have no picture on Wikipedia or have one that
+ *  fails the filename test, and for those the hero keeps its plain layout. Showing
+ *  nothing is the correct outcome there — the whole point of the check is that a
+ *  confidently wrong picture is worse than an empty frame.
+ *
+ *  Deliberately not awaited by the archive load: this is one extra round trip at most,
+ *  and the article text should not wait behind a picture. */
+const resolveCompanyPortrait = async (
+  entity: WikidataEntity | null,
+  page: WikiPage,
+  koreanName: string,
+): Promise<CompanyPortrait | null> => {
+  const claims = entity?.claims;
+  if (!looksLikeCompany(claims)) return null;
+  // P169 chief executive officer, then P1037 director/manager — the smaller issuers
+  // that record an officer at all often use only the latter.
+  const officerId =
+    sittingOfficerId(claims, "P169") || sittingOfficerId(claims, "P1037");
+  if (officerId) {
+    const person = await wikidataEntity(officerId),
+      url = statementImageUrl(person?.claims, "P18"),
+      name = wikidataLabel(person);
+    if (url && name) return { url, name, kind: "person" };
+  }
+  const tokens = companyNameTokens(entity, koreanName, page.title),
+    // The article's lead image first: it is the picture Wikipedia's own editors chose
+    // to represent the company, and it is the best-covered of the three. Then the
+    // Wikidata image, then the logo — the logo last because the same mark already sits
+    // at the left of this hero as the ticker icon.
+    candidates = [
+      page.thumbnail?.source ?? "",
+      commonsImageUrl(claims?.P18?.[0]?.mainsnak?.datavalue?.value, PORTRAIT_WIDTH),
+      commonsImageUrl(claims?.P154?.[0]?.mainsnak?.datavalue?.value, PORTRAIT_WIDTH),
+    ].filter(Boolean),
+    depicting = candidates.find((url) => imageDepictsCompany(url, tokens));
+  return depicting ? { url: depicting, name: "", kind: "company" } : null;
+};
+
 function OrbitCompanyArchive({
   stock,
   config,
@@ -2707,11 +2899,13 @@ function OrbitCompanyArchive({
 }) {
   const [archive, setArchive] = useState<CompanyArchiveData | null>(null),
     [failed, setFailed] = useState(false),
+    [portrait, setPortrait] = useState<CompanyPortrait | null>(null),
     [pricePoints, setPricePoints] = useState<number[]>([]);
   useEffect(() => {
     let active = true;
     setArchive(null);
     setFailed(false);
+    setPortrait(null);
     setPricePoints([]);
     const language = config.key === "nasdaq100" ? "en" : "ko";
     void (async () => {
@@ -2734,9 +2928,10 @@ function OrbitCompanyArchive({
             `https://www.wikidata.org/wiki/Special:EntityData/${wikidataId}.json`,
           );
           const entityJson = (await entityResponse.json()) as {
-            entities?: Record<string, { claims?: Record<string, Array<{ mainsnak?: { datavalue?: { value?: unknown } } }>> }>;
+            entities?: Record<string, WikidataEntity>;
           };
-          const claims = entityJson.entities?.[wikidataId]?.claims ?? {},
+          const entity = entityJson.entities?.[wikidataId] ?? null,
+            claims = entity?.claims ?? {},
             websiteValue = claims.P856?.[0]?.mainsnak?.datavalue?.value,
             foundedValue = claims.P571?.[0]?.mainsnak?.datavalue?.value as
               | { time?: string }
@@ -2747,6 +2942,9 @@ function OrbitCompanyArchive({
             if (match)
               founded = `${match[1]}년${match[2] !== "00" ? ` ${Number(match[2])}월` : ""}${match[3] !== "00" ? ` ${Number(match[3])}일` : ""}`;
           }
+          void resolveCompanyPortrait(entity, page, stock.name).then((found) => {
+            if (active) setPortrait(found);
+          });
         } catch {
           // The article itself remains useful when Wikidata is temporarily unavailable.
         }
@@ -2869,6 +3067,28 @@ function OrbitCompanyArchive({
       <div className="orbit-archive-hero">
         <img src={config.logoUrl(stock.code)} alt="" />
         <div><small>COMPANY ARCHIVE</small><h2>{stock.name}</h2><span>{archive.title} · {stock.sector}</span></div>
+        {portrait && (
+          <figure
+            className={`orbit-archive-portrait is-${portrait.kind}`}
+            title={portrait.kind === "person" ? `${portrait.name} · 대표이사` : stock.name}
+          >
+            <img
+              src={portrait.url}
+              alt={portrait.kind === "person" ? `${portrait.name} 사진` : `${stock.name} 이미지`}
+              loading="lazy"
+              /* A Commons filename can outlive the file it names, and a thumbnail URL
+                 can 404 on its own. Dropping the whole figure is better than leaving a
+                 broken frame beside the company name. */
+              onError={() => setPortrait(null)}
+            />
+            {portrait.kind === "person" && (
+              <figcaption>
+                <b>{portrait.name}</b>
+                <small>대표이사 · CEO</small>
+              </figcaption>
+            )}
+          </figure>
+        )}
       </div>
       <div className="orbit-archive-facts">
         <span><small>설립</small><b>{archive.founded || "공개 자료 확인"}</b></span>
