@@ -652,7 +652,12 @@ uniform float uInvertLandform;`,
     }
     let corona: THREE.Mesh | null = null;
     let coronaMaterial: THREE.ShaderMaterial | null = null;
-    let lastStarBrand = "";
+    // The brand colour the star's palette was last built from, as the 0xRRGGBB number
+    // it actually is. It used to be kept as String(colour) — a decimal string like
+    // "13077247", which THREE.Color parses as a CSS colour name, fails to match, and
+    // leaves white. starPalette then read white's hue, so the first animation frame
+    // repainted every star red no matter whose logo it was.
+    let lastStarBrand = -1;
     const starPalette = (input: THREE.ColorRepresentation) => {
       const source = new THREE.Color(input),
         hsl = { h: 0, s: 0, l: 0 };
@@ -1688,9 +1693,8 @@ uniform float uInvertLandform;`,
           blueStarMaterial.uniforms.uPulse.value =
             0.04 + Math.sin(t * 1.4) * 0.015;
           const starStock = centralStar.userData.stock as MarketMapItem,
-            nextBrand = String(
-              colorsRef.current.get(starStock.code) ?? colorFor(starStock.code),
-            );
+            nextBrand =
+              colorsRef.current.get(starStock.code) ?? colorFor(starStock.code);
           if (nextBrand !== lastStarBrand) {
             const { cool, warm, hot } = starPalette(nextBrand);
             blueStarMaterial.uniforms.uCool.value.copy(cool);
@@ -2219,8 +2223,9 @@ type WarpWisp = {
    stretch happens in a fraction of the time the tunnel afterwards holds for, which is
    what separates a jump from a steady stream of spokes.
 
-   Everything reads off one 0..1 progress, so `brief` only has to compress the clock. */
-function OrbitWarpCanvas({ brief }: { brief: boolean }) {
+   Everything reads off one 0..1 progress. Only the short repeat-visit intro plays it —
+   the full first-visit cinematic runs without a jump. */
+function OrbitWarpCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -2271,7 +2276,7 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
       },
       render = (now: number) => {
         const elapsed = (now - startedAt) / 1000,
-          duration = brief ? 1.7 : 4.4,
+          duration = 1.7,
           progress = Math.min(1, elapsed / duration),
           // The snap. Raising it to a fractional power front-loads it hard: half the
           // stretch is spent in the first fifth of the window, so it reads as one
@@ -2413,7 +2418,7 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
       cancelAnimationFrame(raf);
       removeEventListener("resize", resize);
     };
-  }, [brief]);
+  }, []);
   return <canvas ref={canvasRef} className="orbit-cinematic-warp" aria-hidden="true" />;
 }
 
@@ -3188,7 +3193,7 @@ export default function KospiOrbitPage({
           className={`orbit-cinematic ${introLong ? "is-epic" : "is-brief"}`}
           aria-label={`${config.label} 우주 진입`}
         >
-          <OrbitWarpCanvas brief={!introLong} />
+          {!introLong && <OrbitWarpCanvas />}
           <div className="orbit-cinematic-flare" aria-hidden="true" />
           <div className="orbit-cinematic-title">
             <small>ENTERING MARKET UNIVERSE</small>
