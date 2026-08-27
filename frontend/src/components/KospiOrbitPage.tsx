@@ -318,6 +318,15 @@ function SpaceScene({
       pointer = new THREE.Vector2();
     const hit: THREE.Object3D[] = [];
     const cloudLayers: { mesh: THREE.Mesh; speed: number }[] = [];
+    const pulseGeometry = new THREE.SphereGeometry(1, 24, 14);
+    const pulseLayers: {
+      mesh: THREE.Mesh;
+      material: THREE.MeshBasicMaterial;
+      baseScale: number;
+      movement: number;
+      highlyActive: boolean;
+      phase: number;
+    }[] = [];
     let blueStarMaterial: THREE.ShaderMaterial | null = null;
     const movers: {
       mesh: THREE.Mesh;
@@ -796,6 +805,25 @@ uniform float uInvertLandform;`,
     const lastFocusPosition = new THREE.Vector3();
     const focusMotion = new THREE.Vector3();
     const tourDwellOffset = new THREE.Vector3();
+    const cinematicOffsets = [
+      new THREE.Vector3(0.8, 0.34, 1).normalize(),
+      new THREE.Vector3(-1, 0.18, 0.52).normalize(),
+      new THREE.Vector3(0.26, 1, 0.72).normalize(),
+      new THREE.Vector3(0.92, -0.42, -0.48).normalize(),
+      new THREE.Vector3(-0.35, 0.72, -1).normalize(),
+      new THREE.Vector3(1, 0.06, -0.18).normalize(),
+      new THREE.Vector3(-0.58, -0.76, 0.82).normalize(),
+      new THREE.Vector3(0.12, 0.46, 1).normalize(),
+    ];
+    const distanceMultipliers = [1, 1.34, 0.86, 1.62, 1.18, 1.48, 1.08, 0.78];
+    const approachRates = [1.7, 1.4, 1.9, 1.15, 1.58, 1.27, 1.83, 2.08];
+    const rotationAxes = [
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(0, 1, 0),
+      new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(0, 0, 1),
+    ];
+    const dampAlpha = (rate: number, delta: number) => 1 - Math.exp(-rate * delta);
     if (focusTarget) lastFocusPosition.copy(focusTarget.position);
     // The main solar-system maps are never displayed here. Each stock receives a
     // unique, logo-tinted alien surface generated from its own stable code seed.
@@ -924,17 +952,17 @@ uniform float uInvertLandform;`,
             depthWrite: false,
             blending: THREE.AdditiveBlending,
           }),
-          pulse = new THREE.Mesh(
-            new THREE.SphereGeometry(radius * 1.1, 32, 20),
-            pulseMaterial,
-          ),
+          pulse = new THREE.Mesh(pulseGeometry, pulseMaterial),
           phase = (ringHash(stock.code) % 628) / 100;
-        pulse.onBeforeRender = () => {
-          const wave = Math.sin(performance.now() * 0.0022 + phase) * 0.5 + 0.5;
-          pulse.scale.setScalar(1 + wave * (isHighlyActive ? 0.09 : 0.045));
-          pulseMaterial.opacity =
-            0.025 + movement * 0.045 + wave * (isHighlyActive ? 0.055 : 0.02);
-        };
+        pulse.scale.setScalar(radius * 1.1);
+        pulseLayers.push({
+          mesh: pulse,
+          material: pulseMaterial,
+          baseScale: radius * 1.1,
+          movement,
+          highlyActive: isHighlyActive,
+          phase,
+        });
         body.add(pulse);
       }
       if (progressiveDesign) {
@@ -1438,9 +1466,12 @@ uniform float uInvertLandform;`,
     renderer.domElement.addEventListener("pointerup", click);
     let raf = 0;
     const clock = new THREE.Clock();
+    let lastLabelUpdate = 0;
     const animate = () => {
       raf = requestAnimationFrame(animate);
-      const t = clock.getElapsedTime();
+      const frameDelta = Math.min(clock.getDelta(), 0.05),
+        t = clock.elapsedTime,
+        nowMs = performance.now();
       movers.forEach((x) => {
         const a = x.angle + t * x.speed,
           ca = Math.cos(a),
@@ -1459,6 +1490,16 @@ uniform float uInvertLandform;`,
       cloudLayers.forEach(({ mesh, speed }) => {
         mesh.rotation.y = t * speed;
       });
+      pulseLayers.forEach(
+        ({ mesh, material, baseScale, movement, highlyActive, phase }) => {
+          const wave = Math.sin(t * 2.2 + phase) * 0.5 + 0.5;
+          mesh.scale.setScalar(
+            baseScale * (1 + wave * (highlyActive ? 0.09 : 0.045)),
+          );
+          material.opacity =
+            0.025 + movement * 0.045 + wave * (highlyActive ? 0.055 : 0.02);
+        },
+      );
       if (centralStar) centralStar.rotation.y = t * 0.075;
       if (focusTarget) {
         // Once the automatic flight has finished, keep the camera in the moving
@@ -1474,8 +1515,7 @@ uniform float uInvertLandform;`,
         const radius = Number(focusTarget.userData.radius) || 2,
           distance = camera.position.distanceTo(focusTarget.position),
           portraitFocus =
-            matchMedia("(pointer: coarse)").matches &&
-            host.clientHeight > host.clientWidth,
+            coarseDevice && host.clientHeight > host.clientWidth,
           focusDistance = portraitFocus
             ? Math.max(radius * 5.8, 8)
             : Math.max(radius * 3.15, 4.2);
@@ -1483,67 +1523,62 @@ uniform float uInvertLandform;`,
         if (portraitFocus) desiredTarget.y -= radius * 1.55;
         if (flying) {
           if (focusViewStyle >= 0) {
-            const cinematicOffsets = [
-                new THREE.Vector3(0.8, 0.34, 1),
-                new THREE.Vector3(-1, 0.18, 0.52),
-                new THREE.Vector3(0.26, 1, 0.72),
-                new THREE.Vector3(0.92, -0.42, -0.48),
-                new THREE.Vector3(-0.35, 0.72, -1),
-                new THREE.Vector3(1, 0.06, -0.18),
-                new THREE.Vector3(-0.58, -0.76, 0.82),
-                new THREE.Vector3(0.12, 0.46, 1),
-              ],
-              distanceMultipliers = [1, 1.34, 0.86, 1.62, 1.18, 1.48, 1.08, 0.78],
-              approachSpeeds = [0.028, 0.023, 0.031, 0.019, 0.026, 0.021, 0.03, 0.034],
-              flightAge = performance.now() - focusFlightStartedAt,
-              approachRemaining = 1 - THREE.MathUtils.smoothstep(flightAge, 0, 4200),
+            const flightAge = nowMs - focusFlightStartedAt,
+              journeyAge = nowMs - tourJourneyStartedAt,
+              stageProgress = tourStage === "star"
+                ? THREE.MathUtils.smoothstep(journeyAge, 0, 4000)
+                : THREE.MathUtils.smoothstep(journeyAge, 4000, 10000),
+              approachRemaining = 1 - (tourStage ? stageProgress : THREE.MathUtils.smoothstep(flightAge, 0, 4200)),
               approachSwing = approachRemaining *
                 (0.48 + (focusViewStyle % 3) * 0.22);
             focusOffset
               .copy(cinematicOffsets[focusViewStyle % cinematicOffsets.length])
-              .normalize()
               .multiplyScalar(
                 focusDistance *
                   distanceMultipliers[focusViewStyle % distanceMultipliers.length],
               );
-            if (focusViewStyle % 4 === 0)
-              focusOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), approachSwing);
-            else if (focusViewStyle % 4 === 1)
-              focusOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), -approachSwing);
-            else if (focusViewStyle % 4 === 2)
-              focusOffset.applyAxisAngle(new THREE.Vector3(1, 0, 0), approachSwing * 0.72);
-            else
-              focusOffset.applyAxisAngle(new THREE.Vector3(0, 0, 1), -approachSwing * 0.68);
+            const axisStyle = focusViewStyle % 4;
+            const signedSwing = axisStyle === 1
+              ? -approachSwing
+              : axisStyle === 2
+                ? approachSwing * 0.72
+                : axisStyle === 3
+                  ? -approachSwing * 0.68
+                  : approachSwing;
+            focusOffset.applyAxisAngle(rotationAxes[axisStyle], signedSwing);
             desiredCamera.copy(focusTarget.position).add(focusOffset);
             camera.position.lerp(
               desiredCamera,
-              tourStage === "star"
-                ? 0.027
-                : approachSpeeds[focusViewStyle % approachSpeeds.length],
+              dampAlpha(
+                tourStage === "star"
+                  ? 1.64
+                  : approachRates[focusViewStyle % approachRates.length],
+                frameDelta,
+              ),
             );
           } else {
             focusOffset.copy(camera.position).sub(controls.target);
             if (focusOffset.lengthSq() < 0.01) focusOffset.set(0.7, 0.3, 1);
             focusOffset.normalize().multiplyScalar(focusDistance);
             desiredCamera.copy(focusTarget.position).add(focusOffset);
-            camera.position.lerp(desiredCamera, 0.032);
+            camera.position.lerp(desiredCamera, dampAlpha(1.95, frameDelta));
           }
-          controls.target.lerp(desiredTarget, 0.05);
+          controls.target.lerp(desiredTarget, dampAlpha(3.08, frameDelta));
           const starFlybyComplete =
             tourStage === "star" &&
-            ((performance.now() - tourJourneyStartedAt > 2800 &&
+            ((nowMs - tourJourneyStartedAt > 2800 &&
               camera.position.distanceTo(focusTarget.position) <
                 Math.max(radius * 5.2, 58)) ||
-              performance.now() - tourJourneyStartedAt >= 4000),
+              nowMs - tourJourneyStartedAt >= 4000),
             tourArrivalComplete =
               (tourStage === "planet" || tourStage === "target") &&
-              performance.now() - tourJourneyStartedAt >= 10000;
+              nowMs - tourJourneyStartedAt >= 10000;
           if (starFlybyComplete || tourArrivalComplete ||
               (tourStage === null && camera.position.distanceTo(desiredCamera) < 0.18)) {
             if (tourStage === "star" && tourPlanetTarget) {
               focusTarget = tourPlanetTarget;
               focusViewStyle = tourPlanetViewStyle;
-              focusFlightStartedAt = performance.now();
+              focusFlightStartedAt = nowMs;
               lastFocusPosition.copy(tourPlanetTarget.position);
               tourStage = "planet";
               flying = true;
@@ -1575,8 +1610,8 @@ uniform float uInvertLandform;`,
         }
       }
       if (resettingView) {
-        camera.position.lerp(defaultCameraPosition, 0.075);
-        controls.target.lerp(defaultCameraTarget, 0.09);
+        camera.position.lerp(defaultCameraPosition, dampAlpha(4.68, frameDelta));
+        controls.target.lerp(defaultCameraTarget, dampAlpha(5.65, frameDelta));
         if (
           camera.position.distanceTo(defaultCameraPosition) < 0.12 &&
           controls.target.distanceTo(defaultCameraTarget) < 0.05
@@ -1587,7 +1622,10 @@ uniform float uInvertLandform;`,
         }
       }
       controls.update();
-      updateLabels();
+      if (nowMs - lastLabelUpdate >= 33) {
+        updateLabels();
+        lastLabelUpdate = nowMs;
+      }
       if (composer) composer.render();
       else renderer.render(scene, camera);
     };
