@@ -782,6 +782,12 @@ uniform float uInvertLandform;`,
         ) ?? null)
       : null;
     let flying = focusTarget !== null,
+      focusViewStyle = -1,
+      focusFlightStartedAt = performance.now(),
+      tourJourneyStartedAt = performance.now(),
+      tourStage: "star" | "planet" | "target" | "dwell" | null = null,
+      tourPlanetTarget: THREE.Object3D | null = null,
+      tourPlanetViewStyle = -1,
       resettingView = false;
     if (focusTarget) controls.zoomToCursor = false;
     const focusOffset = new THREE.Vector3();
@@ -789,6 +795,7 @@ uniform float uInvertLandform;`,
     const desiredTarget = new THREE.Vector3();
     const lastFocusPosition = new THREE.Vector3();
     const focusMotion = new THREE.Vector3();
+    const tourDwellOffset = new THREE.Vector3();
     if (focusTarget) lastFocusPosition.copy(focusTarget.position);
     // The main solar-system maps are never displayed here. Each stock receives a
     // unique, logo-tinted alien surface generated from its own stable code seed.
@@ -850,6 +857,16 @@ uniform float uInvertLandform;`,
       );
     const progressiveDesign = true;
     const pendingDesignBodies: THREE.Object3D[] = [];
+    const activityCodes = new Set(
+      [...(sys?.stocks.slice(1) ?? [])]
+        .sort(
+          (a, b) =>
+            (b.close || 0) * (b.volume || 0) -
+            (a.close || 0) * (a.volume || 0),
+        )
+        .slice(0, Math.max(1, Math.round(movers.length * 0.2)))
+        .map((stock) => stock.code),
+    );
     hit.forEach((body) => {
       const stock = body.userData.stock as MarketMapItem | undefined;
       if (!stock) return;
@@ -887,6 +904,38 @@ uniform float uInvertLandform;`,
         );
         body.add(halo);
         return;
+      }
+      if (material instanceof THREE.ShaderMaterial) {
+        material.uniforms.uTrend.value = THREE.MathUtils.clamp(
+          stock.change_pct / 6,
+          -1,
+          1,
+        );
+      }
+      const movement = Math.min(1, Math.abs(stock.change_pct) / 6),
+        isHighlyActive = activityCodes.has(stock.code);
+      if (movement > 0.18 || isHighlyActive) {
+        const radius = Number(body.userData.radius),
+          pulseMaterial = new THREE.MeshBasicMaterial({
+            color: stock.change_pct >= 0 ? 0xff536b : 0x4b9dff,
+            transparent: true,
+            opacity: 0.035 + movement * 0.055,
+            side: THREE.BackSide,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+          }),
+          pulse = new THREE.Mesh(
+            new THREE.SphereGeometry(radius * 1.1, 32, 20),
+            pulseMaterial,
+          ),
+          phase = (ringHash(stock.code) % 628) / 100;
+        pulse.onBeforeRender = () => {
+          const wave = Math.sin(performance.now() * 0.0022 + phase) * 0.5 + 0.5;
+          pulse.scale.setScalar(1 + wave * (isHighlyActive ? 0.09 : 0.045));
+          pulseMaterial.opacity =
+            0.025 + movement * 0.045 + wave * (isHighlyActive ? 0.055 : 0.02);
+        };
+        body.add(pulse);
       }
       if (progressiveDesign) {
         pendingDesignBodies.push(body);
@@ -1222,7 +1271,11 @@ uniform float uInvertLandform;`,
     const labels = document.createElement("div");
     labels.className = "orbit-label-layer";
     host.appendChild(labels);
-    const focusBody = (body: THREE.Object3D, revealDetails = true) => {
+    const focusBody = (
+      body: THREE.Object3D,
+      revealDetails = true,
+      viewStyle = -1,
+    ) => {
       const stock = body.userData.stock as MarketMapItem;
       reportMarketOrbitEvent({
         action: "celestial_focus",
@@ -1233,6 +1286,12 @@ uniform float uInvertLandform;`,
         detail: revealDetails ? "상세 표시" : "포커스만",
       });
       focusTarget = body;
+      if (viewStyle < 0) {
+        tourStage = null;
+        tourPlanetTarget = null;
+      }
+      focusViewStyle = viewStyle;
+      focusFlightStartedAt = performance.now();
       flying = true;
       lastFocusPosition.copy(body.position);
       // While inspecting a body, zoom around that body's centre. Combining
@@ -1271,22 +1330,45 @@ uniform float uInvertLandform;`,
     const externalFocus = (event: Event) => {
       const detail = (
           event as CustomEvent<
-            string | { code: string; revealDetails?: boolean }
+            string | { code: string; revealDetails?: boolean; viewStyle?: number }
           >
         ).detail,
         code = typeof detail === "string" ? detail : detail.code,
         revealDetails =
           typeof detail === "string" ? true : detail.revealDetails !== false,
+        viewStyle = typeof detail === "string" ? -1 : (detail.viewStyle ?? -1),
         body = hit.find(
           (item) =>
             (item.userData.stock as MarketMapItem | undefined)?.code === code,
         );
-      if (body) focusBody(body, revealDetails);
+      if (
+        body &&
+        viewStyle >= 0 &&
+        centralStar
+      ) {
+        tourStage = body === centralStar ? "target" : "star";
+        tourPlanetTarget = body === centralStar ? null : body;
+        tourPlanetViewStyle = viewStyle;
+        focusTarget = centralStar;
+        focusViewStyle = (viewStyle + 3) % 8;
+        focusFlightStartedAt = performance.now();
+        tourJourneyStartedAt = focusFlightStartedAt;
+        flying = true;
+        controls.zoomToCursor = false;
+        controls.target.copy(centralStar.position);
+        lastFocusPosition.copy(centralStar.position);
+      } else if (body) {
+        tourStage = null;
+        tourPlanetTarget = null;
+        focusBody(body, revealDetails, viewStyle);
+      }
     };
     window.addEventListener("kospi-orbit-focus", externalFocus);
     const resetView = () => {
       focusTarget = null;
       flying = false;
+      tourStage = null;
+      tourPlanetTarget = null;
       resettingView = true;
       controls.enabled = true;
       controls.zoomToCursor = true;
@@ -1400,13 +1482,91 @@ uniform float uInvertLandform;`,
         desiredTarget.copy(focusTarget.position);
         if (portraitFocus) desiredTarget.y -= radius * 1.55;
         if (flying) {
-          focusOffset.copy(camera.position).sub(controls.target);
-          if (focusOffset.lengthSq() < 0.01) focusOffset.set(0.7, 0.3, 1);
-          focusOffset.normalize().multiplyScalar(focusDistance);
-          desiredCamera.copy(focusTarget.position).add(focusOffset);
-          camera.position.lerp(desiredCamera, 0.032);
+          if (focusViewStyle >= 0) {
+            const cinematicOffsets = [
+                new THREE.Vector3(0.8, 0.34, 1),
+                new THREE.Vector3(-1, 0.18, 0.52),
+                new THREE.Vector3(0.26, 1, 0.72),
+                new THREE.Vector3(0.92, -0.42, -0.48),
+                new THREE.Vector3(-0.35, 0.72, -1),
+                new THREE.Vector3(1, 0.06, -0.18),
+                new THREE.Vector3(-0.58, -0.76, 0.82),
+                new THREE.Vector3(0.12, 0.46, 1),
+              ],
+              distanceMultipliers = [1, 1.34, 0.86, 1.62, 1.18, 1.48, 1.08, 0.78],
+              approachSpeeds = [0.028, 0.023, 0.031, 0.019, 0.026, 0.021, 0.03, 0.034],
+              flightAge = performance.now() - focusFlightStartedAt,
+              approachRemaining = 1 - THREE.MathUtils.smoothstep(flightAge, 0, 4200),
+              approachSwing = approachRemaining *
+                (0.48 + (focusViewStyle % 3) * 0.22);
+            focusOffset
+              .copy(cinematicOffsets[focusViewStyle % cinematicOffsets.length])
+              .normalize()
+              .multiplyScalar(
+                focusDistance *
+                  distanceMultipliers[focusViewStyle % distanceMultipliers.length],
+              );
+            if (focusViewStyle % 4 === 0)
+              focusOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), approachSwing);
+            else if (focusViewStyle % 4 === 1)
+              focusOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), -approachSwing);
+            else if (focusViewStyle % 4 === 2)
+              focusOffset.applyAxisAngle(new THREE.Vector3(1, 0, 0), approachSwing * 0.72);
+            else
+              focusOffset.applyAxisAngle(new THREE.Vector3(0, 0, 1), -approachSwing * 0.68);
+            desiredCamera.copy(focusTarget.position).add(focusOffset);
+            camera.position.lerp(
+              desiredCamera,
+              tourStage === "star"
+                ? 0.027
+                : approachSpeeds[focusViewStyle % approachSpeeds.length],
+            );
+          } else {
+            focusOffset.copy(camera.position).sub(controls.target);
+            if (focusOffset.lengthSq() < 0.01) focusOffset.set(0.7, 0.3, 1);
+            focusOffset.normalize().multiplyScalar(focusDistance);
+            desiredCamera.copy(focusTarget.position).add(focusOffset);
+            camera.position.lerp(desiredCamera, 0.032);
+          }
           controls.target.lerp(desiredTarget, 0.05);
-          if (camera.position.distanceTo(desiredCamera) < 0.18) flying = false;
+          const starFlybyComplete =
+            tourStage === "star" &&
+            ((performance.now() - tourJourneyStartedAt > 2800 &&
+              camera.position.distanceTo(focusTarget.position) <
+                Math.max(radius * 5.2, 58)) ||
+              performance.now() - tourJourneyStartedAt >= 4000),
+            tourArrivalComplete =
+              (tourStage === "planet" || tourStage === "target") &&
+              performance.now() - tourJourneyStartedAt >= 10000;
+          if (starFlybyComplete || tourArrivalComplete ||
+              (tourStage === null && camera.position.distanceTo(desiredCamera) < 0.18)) {
+            if (tourStage === "star" && tourPlanetTarget) {
+              focusTarget = tourPlanetTarget;
+              focusViewStyle = tourPlanetViewStyle;
+              focusFlightStartedAt = performance.now();
+              lastFocusPosition.copy(tourPlanetTarget.position);
+              tourStage = "planet";
+              flying = true;
+            } else if (tourArrivalComplete && focusTarget) {
+              camera.position.copy(desiredCamera);
+              controls.target.copy(focusTarget.position);
+              flying = false;
+              tourStage = "dwell";
+              tourDwellOffset.copy(camera.position).sub(focusTarget.position);
+            } else {
+              flying = false;
+              if (tourStage === "planet" && focusTarget) {
+                tourStage = "dwell";
+                tourDwellOffset.copy(camera.position).sub(focusTarget.position);
+              } else {
+                tourStage = null;
+                tourPlanetTarget = null;
+              }
+            }
+          }
+        } else if (tourStage === "dwell") {
+          camera.position.copy(focusTarget.position).add(tourDwellOffset);
+          controls.target.copy(focusTarget.position);
         } else if (distance <= Math.max(110, radius * 18)) {
           controls.target.copy(desiredTarget);
         } else {
@@ -1495,12 +1655,22 @@ function OrbitDetailPanel({
   rank,
   onClose,
   config,
+  isFavorite,
+  onToggleFavorite,
+  isCompareBase,
+  onToggleCompare,
+  onShare,
 }: {
   stock: MarketMapItem;
   comparisonStock: MarketMapItem;
   rank: number;
   onClose: () => void;
   config: OrbitConfig;
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
+  isCompareBase: boolean;
+  onToggleCompare: () => void;
+  onShare: () => void;
 }) {
   const [tab, setTab] = useState<"discussion" | "news">("discussion"),
     [intro, setIntro] = useState<string[]>([]),
@@ -1572,6 +1742,20 @@ function OrbitDetailPanel({
                 : fallback}
           </p>
         </div>
+      </div>
+      <div className="orbit-detail-actions">
+        <button type="button" className={isFavorite ? "active" : ""} onClick={onToggleFavorite}>
+          <span aria-hidden="true">{isFavorite ? "★" : "☆"}</span>
+          {isFavorite ? "관심 행성" : "관심 추가"}
+        </button>
+        <button type="button" className={isCompareBase ? "active" : ""} onClick={onToggleCompare}>
+          <span aria-hidden="true">⇄</span>
+          {isCompareBase ? "비교 해제" : "비교 기준"}
+        </button>
+        <button type="button" onClick={onShare}>
+          <span aria-hidden="true">↗</span>
+          행성 공유
+        </button>
       </div>
       <div className="orbit-price">
         <strong>
@@ -1714,6 +1898,21 @@ export default function KospiOrbitPage({
     [loadError, setLoadError] = useState(""),
     [sceneSlow, setSceneSlow] = useState(false),
     [warping, setWarping] = useState<OrbitMarket | null>(null),
+    [briefingOpen, setBriefingOpen] = useState(true),
+    [autoTour, setAutoTour] = useState(false),
+    [tourSectorText, setTourSectorText] = useState(""),
+    [shareNotice, setShareNotice] = useState(""),
+    [favorites, setFavorites] = useState<Set<string>>(() => {
+      try {
+        return new Set(JSON.parse(localStorage.getItem("orbit-favorites") || "[]"));
+      } catch {
+        return new Set();
+      }
+    }),
+    [compareBase, setCompareBase] = useState<MarketMapItem | null>(null),
+    [showGuide, setShowGuide] = useState(
+      () => localStorage.getItem("orbit-guide-seen") !== "1",
+    ),
     [colors, setColors] = useState<Map<string, number>>(new Map());
   const handleSceneReady = useCallback(() => setReady(true), []);
   const systems = useMemo(() => {
@@ -1740,11 +1939,14 @@ export default function KospiOrbitPage({
   useEffect(() => {
     loadOrbitMarket(config)
       .then((r) => {
-        setItems(r.items);
+        const visibleItems = r.items.filter(
+          (item) => item.name.trim() !== "N2 KIS CD금리투자 ETN",
+        );
+        setItems(visibleItems);
         const p = new URLSearchParams(location.search),
           code = p.get("code"),
           sector = p.get("sector");
-        const first = [...r.items].sort(
+        const first = [...visibleItems].sort(
             (a, b) => config.capOf(b) - config.capOf(a),
           )[0],
           initialSector = sector || first?.sector || "기타";
@@ -1753,7 +1955,7 @@ export default function KospiOrbitPage({
           matchMedia("(pointer: coarse)").matches ? "" : initialSector,
         );
         if (code) {
-          const s = r.items.find((x) => x.code === code);
+          const s = visibleItems.find((x) => x.code === code);
           if (s) {
             const mobileViewing = matchMedia("(max-width: 760px)").matches;
             setMode({ kind: "system", sector: s.sector || "기타" });
@@ -1811,6 +2013,18 @@ export default function KospiOrbitPage({
         .filter((x) => x.name.includes(query) || x.code.includes(query))
         .slice(0, 7)
     : [];
+  const briefing = useMemo(() => {
+    const ranked = [...items],
+      strongest = [...ranked].sort((a, b) => b.change_pct - a.change_pct)[0],
+      weakest = [...ranked].sort((a, b) => a.change_pct - b.change_pct)[0],
+      active = [...ranked].sort(
+        (a, b) =>
+          (b.close || 0) * (b.volume || 0) -
+          (a.close || 0) * (a.volume || 0),
+      )[0],
+      hotSector = [...systems].sort((a, b) => b.change - a.change)[0];
+    return { strongest, weakest, active, hotSector };
+  }, [items, systems]);
   const openSystem = (sector: string) => {
     if (mode.sector === sector) {
       setExpanded((current) => (current === sector ? "" : sector));
@@ -1853,6 +2067,96 @@ export default function KospiOrbitPage({
         }),
       ),
     );
+  };
+  useEffect(() => {
+    if (!autoTour || !items.length) return;
+    const tour = [...items]
+      .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct))
+      .slice(0, 8);
+    let cursor = 0,
+      resetTimer = 0,
+      focusTimer = 0;
+    const visit = () => {
+      const viewStyle = cursor % 8,
+        stock = tour[cursor++ % tour.length];
+      setExpanded(stock.sector || "기타");
+      setMode({ kind: "system", sector: stock.sector || "기타" });
+      setSelected(null);
+      resetTimer = window.setTimeout(
+        () => window.dispatchEvent(new Event("kospi-orbit-reset-view")),
+        160,
+      );
+      history.replaceState({}, "", `${config.route}?code=${stock.code}`);
+      focusTimer = window.setTimeout(
+        () => {
+          setSelected(stock);
+          window.dispatchEvent(
+            new CustomEvent("kospi-orbit-focus", {
+              detail: { code: stock.code, revealDetails: true, viewStyle },
+            }),
+          );
+        },
+        3000,
+      );
+    };
+    visit();
+    const timer = window.setInterval(visit, 33000);
+    return () => {
+      window.clearInterval(timer);
+      window.clearTimeout(resetTimer);
+      window.clearTimeout(focusTimer);
+    };
+  }, [autoTour, items, config.route]);
+  useEffect(() => {
+    if (!autoTour) {
+      setTourSectorText("");
+      return;
+    }
+    setTourSectorText("");
+    let character = 0;
+    const timer = window.setInterval(() => {
+      character += 1;
+      setTourSectorText(mode.sector.slice(0, character));
+      if (character >= mode.sector.length) window.clearInterval(timer);
+    }, 75);
+    return () => window.clearInterval(timer);
+  }, [autoTour, mode.sector]);
+  const shareSelected = async () => {
+    if (!selected) return;
+    const url = `${location.origin}${config.route}?code=${encodeURIComponent(selected.code)}`,
+      text = `${config.label} 증시궤도 · ${selected.name} ${pct(selected.change_pct)}`;
+    try {
+      const canNativeShare = typeof navigator.share === "function";
+      if (canNativeShare) await navigator.share({ title: text, text, url });
+      else await navigator.clipboard.writeText(url);
+      setShareNotice(canNativeShare ? "공유했습니다" : "링크를 복사했습니다");
+    } catch {
+      return;
+    }
+    window.setTimeout(() => setShareNotice(""), 1800);
+  };
+  const toggleFavorite = (stock: MarketMapItem) => {
+    setFavorites((current) => {
+      const next = new Set(current);
+      if (next.has(stock.code)) next.delete(stock.code);
+      else next.add(stock.code);
+      localStorage.setItem("orbit-favorites", JSON.stringify([...next]));
+      return next;
+    });
+  };
+  const toggleCompareBase = (stock: MarketMapItem) => {
+    if (compareBase?.code === stock.code) {
+      setCompareBase(null);
+      setShareNotice("비교 기준을 해제했습니다");
+    } else {
+      setCompareBase(stock);
+      setShareNotice("비교 기준 설정 완료 · 다른 행성을 선택하세요");
+    }
+    window.setTimeout(() => setShareNotice(""), 2200);
+  };
+  const closeGuide = () => {
+    localStorage.setItem("orbit-guide-seen", "1");
+    setShowGuide(false);
   };
   const warpTo = (target: OrbitMarket) => {
     if (target === market) return;
@@ -2111,12 +2415,110 @@ export default function KospiOrbitPage({
         })()}
       <section className="orbit-context">
         <span>SECTOR SYSTEM</span>
-        <h1>{mode.sector}</h1>
+        <h1 className={autoTour ? "orbit-sector-typing" : ""}>
+          {autoTour ? tourSectorText : mode.sector}
+        </h1>
         <p>시가총액 순위가 궤도와 행성의 크기를 결정합니다</p>
         <div className="orbit-hint">
           드래그 회전 · 스크롤 확대 · 오브젝트 클릭
         </div>
       </section>
+      <section className={`orbit-briefing${briefingOpen ? " open" : ""}`}>
+        <button
+          type="button"
+          className="orbit-briefing-toggle"
+          onClick={() => setBriefingOpen((value) => !value)}
+          aria-expanded={briefingOpen}
+        >
+          <span><i /> TODAY'S ORBIT</span>
+          <b>{briefingOpen ? "브리핑 닫기" : "오늘의 우주 브리핑"}</b>
+        </button>
+        {briefingOpen && briefing.strongest && briefing.weakest && (
+          <div className="orbit-briefing-body">
+            <div className="orbit-briefing-sector">
+              <small>가장 강한 항성계</small>
+              <button onClick={() => openSystem(briefing.hotSector.name)}>
+                <b>{briefing.hotSector.name}</b>
+                <em className={briefing.hotSector.change >= 0 ? "up" : "down"}>
+                  {pct(briefing.hotSector.change)}
+                </em>
+              </button>
+            </div>
+            <div className="orbit-briefing-grid">
+              {[
+                ["급상승", briefing.strongest],
+                ["급하강", briefing.weakest],
+                ["거래 집중", briefing.active],
+              ].map(([label, stock]) => {
+                const item = stock as MarketMapItem;
+                return (
+                  <button key={label as string} onClick={() => focusStock(item)}>
+                    <small>{label as string}</small>
+                    <span><img src={config.logoUrl(item.code)} alt="" /><b>{item.name}</b></span>
+                    <em className={item.change_pct >= 0 ? "up" : "down"}>{pct(item.change_pct)}</em>
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              className={`orbit-tour-button${autoTour ? " active" : ""}`}
+              onClick={() => setAutoTour((value) => !value)}
+            >
+              <span>{autoTour ? "■" : "▶"}</span>
+              {autoTour
+                ? "자동 탐험 멈추기 · 3초 + 10초 + 20초"
+                : "자동 탐험 · 항성계 3초 / 비행 10초 / 관찰 20초"}
+            </button>
+            {favorites.size > 0 && (
+              <div className="orbit-favorites">
+                <small>나의 관심 은하</small>
+                <div>
+                  {items
+                    .filter((item) => favorites.has(item.code))
+                    .slice(0, 5)
+                    .map((item) => (
+                      <button key={item.code} onClick={() => focusStock(item)}>
+                        <img src={config.logoUrl(item.code)} alt="" />
+                        {item.name}
+                      </button>
+                    ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+      <aside className="orbit-radar" aria-label="업종 시장 레이더">
+        <div><b>MARKET RADAR</b><span>{systems.length} SYSTEMS</span></div>
+        <div className="orbit-radar-field">
+          <i className="orbit-radar-sweep" />
+          {systems.slice(0, 16).map((system, index, visible) => {
+            const angle = (index / visible.length) * Math.PI * 2 - Math.PI / 2,
+              distance = 27 + (index % 3) * 8;
+            return (
+              <button
+                key={system.name}
+                className={`${mode.sector === system.name ? "active " : ""}${system.change >= 0 ? "up" : "down"}`}
+                style={{
+                  left: `${50 + Math.cos(angle) * distance}%`,
+                  top: `${50 + Math.sin(angle) * distance}%`,
+                }}
+                title={`${system.name} ${pct(system.change)}`}
+                onClick={() => openSystem(system.name)}
+              />
+            );
+          })}
+          <span>{config.label}</span>
+        </div>
+        <small><i className="up" /> 상승 <i className="down" /> 하락</small>
+      </aside>
+      <aside className="orbit-effect-legend">
+        <b>MARKET SIGNAL</b>
+        <span><i className="up" /> 상승 오라</span>
+        <span><i className="down" /> 하락 오라</span>
+        <span><i className="active" /> 거래 집중 맥동</span>
+      </aside>
       {selected &&
         (() => {
           const sectorStocks = systems.find(
@@ -2134,10 +2536,72 @@ export default function KospiOrbitPage({
               comparisonStock={comparisonStock}
               rank={rank}
               config={config}
+              isFavorite={favorites.has(selected.code)}
+              onToggleFavorite={() => toggleFavorite(selected)}
+              isCompareBase={compareBase?.code === selected.code}
+              onToggleCompare={() => toggleCompareBase(selected)}
+              onShare={shareSelected}
               onClose={() => setSelected(null)}
             />
           );
         })()}
+      {compareBase && selected && (
+        <aside className="orbit-compare-panel">
+          <header><b>쌍성 비교</b><button onClick={() => setCompareBase(null)}>×</button></header>
+          {compareBase.code === selected.code ? (
+            <div className="orbit-compare-empty">
+              <img src={config.logoUrl(compareBase.code)} alt="" />
+              <p><b>{compareBase.name}</b><span>비교 기준으로 설정되었습니다.<br />다른 행성을 선택하거나 아래 후보를 선택하세요.</span></p>
+              <div>
+                {items
+                  .filter(
+                    (item) =>
+                      item.code !== compareBase.code &&
+                      item.sector === compareBase.sector,
+                  )
+                  .slice(0, 3)
+                  .map((item) => (
+                    <button key={item.code} onClick={() => focusStock(item)}>
+                      {item.name}
+                    </button>
+                  ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              <div>
+                {[compareBase, selected].map((stock) => (
+                  <article key={stock.code}>
+                    <img src={config.logoUrl(stock.code)} alt="" />
+                    <b>{stock.name}</b>
+                    <em className={stock.change_pct >= 0 ? "up" : "down"}>{pct(stock.change_pct)}</em>
+                    <span>시총 {config.capOf(stock).toLocaleString()}</span>
+                    <span>거래량 {(stock.volume || 0).toLocaleString()}</span>
+                  </article>
+                ))}
+              </div>
+              <p>
+                시총 차이 <b>{Math.abs(config.capOf(compareBase) - config.capOf(selected)).toLocaleString()} {config.currency}</b>
+              </p>
+            </>
+          )}
+        </aside>
+      )}
+      {shareNotice && <div className="orbit-share-notice">{shareNotice}</div>}
+      {showGuide && (
+        <div className="orbit-guide" role="dialog" aria-modal="true" aria-label="증시궤도 사용 안내">
+          <div>
+            <small>WELCOME TO K-STOCK ORBIT</small>
+            <h2>시장을 탐험하는 세 가지 방법</h2>
+            <ol>
+              <li><b>01</b><span><strong>우주를 회전하세요</strong>드래그로 시점을 돌리고 휠로 확대합니다.</span></li>
+              <li><b>02</b><span><strong>행성을 선택하세요</strong>시세·뉴스·토론을 한 번에 확인합니다.</span></li>
+              <li><b>03</b><span><strong>오늘의 궤도를 따라가세요</strong>자동 탐험이 주요 종목을 시네마틱하게 순회합니다.</span></li>
+            </ol>
+            <button onClick={closeGuide}>우주 탐험 시작</button>
+          </div>
+        </div>
+      )}
       <footer className="orbit-footer">
         <span>
           <i /> 실시간 시세 기반
