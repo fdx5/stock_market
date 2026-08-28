@@ -26,6 +26,7 @@ import StockDiscussionTab from "./StockDiscussionTab";
 import StockNewsTab from "./StockNewsTab";
 import "./stocksPage.css";
 import "./kospiOrbit.css";
+import "./kospiOrbitRefresh.css";
 import "./orbitCompanyArchive.css";
 
 type System = {
@@ -3264,7 +3265,7 @@ export default function KospiOrbitPage({
       localStorage.setItem(`orbit-cinematic-seen-${market}`, "1");
       setIntroVisible(false);
     };
-    const timer = window.setTimeout(finish, introLong ? 9000 : 2800);
+    const timer = window.setTimeout(finish, introLong ? 1800 : 900);
     return () => window.clearTimeout(timer);
   }, [ready, loading, loadError, introLong, market]);
   useEffect(() => {
@@ -3389,6 +3390,17 @@ export default function KospiOrbitPage({
       hotSector = [...systems].sort((a, b) => b.change - a.change)[0];
     return { strongest, weakest, active, hotSector };
   }, [items, systems]);
+  const marketPulse = useMemo(() => {
+    const rising = items.filter((item) => item.change_pct > 0).length,
+      falling = items.filter((item) => item.change_pct < 0).length,
+      unchanged = Math.max(0, items.length - rising - falling),
+      breadth = items.length ? Math.round((rising / items.length) * 100) : 0,
+      weightedChange = items.length
+        ? items.reduce((sum, item) => sum + item.change_pct * config.capOf(item), 0) /
+          items.reduce((sum, item) => sum + config.capOf(item), 0)
+        : 0;
+    return { rising, falling, unchanged, breadth, weightedChange };
+  }, [items, config]);
   const openSystem = (sector: string) => {
     if (mode.sector === sector) {
       setExpanded((current) => (current === sector ? "" : sector));
@@ -3838,11 +3850,29 @@ export default function KospiOrbitPage({
           );
         })()}
       <section className="orbit-context">
-        <span>SECTOR SYSTEM</span>
+        <span><i /> LIVE MARKET SIGNAL</span>
         <h1 className={autoTour ? "orbit-sector-typing" : ""}>
-          {autoTour ? tourSectorText : mode.sector}
+          {autoTour
+            ? tourSectorText
+            : briefing.hotSector
+              ? `${briefing.hotSector.name}가 오늘의 시장을 이끌고 있습니다`
+              : `${config.label} 시장 궤도를 탐색하세요`}
         </h1>
-        <p>시가총액 순위가 궤도와 행성의 크기를 결정합니다</p>
+        <p>
+          {briefing.hotSector
+            ? `업종 평균 ${pct(briefing.hotSector.change)} · 상승 종목 ${marketPulse.rising} · 하락 종목 ${marketPulse.falling}`
+            : "시가총액 순위가 궤도와 행성의 크기를 결정합니다"}
+        </p>
+        <div className="orbit-context-actions">
+          {briefing.strongest && (
+            <button type="button" onClick={() => focusStock(briefing.strongest)}>
+              <span>↗</span> 오늘의 주도주 <b>{briefing.strongest.name}</b>
+            </button>
+          )}
+          <button type="button" className="secondary" onClick={() => setAutoTour((value) => !value)}>
+            <span>{autoTour ? "■" : "▶"}</span> {autoTour ? "탐험 멈추기" : "30초 시장 탐험"}
+          </button>
+        </div>
         <div className="orbit-hint">
           드래그 회전 · 스크롤 확대 · 오브젝트 클릭
         </div>
@@ -4010,12 +4040,21 @@ export default function KospiOrbitPage({
         </aside>
       )}
       {shareNotice && <div className="orbit-share-notice">{shareNotice}</div>}
-      <footer className="orbit-footer">
-        <span>
-          <i /> 실시간 시세 기반
-        </span>
-        <span>업종 {systems.length}</span>
-        <span>천체 {items.length}</span>
+      <footer className="orbit-footer orbit-pulse-bar" aria-label="오늘의 시장 펄스">
+        <div className="orbit-pulse-title"><i /><span>MARKET PULSE</span><b>{config.label}</b></div>
+        <button type="button" onClick={() => briefing.hotSector && openSystem(briefing.hotSector.name)}>
+          <small>주도 항성계</small><b>{briefing.hotSector?.name || "분석 중"}</b>
+          {briefing.hotSector && <em className={briefing.hotSector.change >= 0 ? "up" : "down"}>{pct(briefing.hotSector.change)}</em>}
+        </button>
+        <button type="button" onClick={() => briefing.strongest && focusStock(briefing.strongest)}>
+          <small>가장 밝은 행성</small><b>{briefing.strongest?.name || "분석 중"}</b>
+          {briefing.strongest && <em className="up">{pct(briefing.strongest.change_pct)}</em>}
+        </button>
+        <div className="orbit-breadth">
+          <span><small>상승 비중</small><b>{marketPulse.breadth}%</b></span>
+          <div><i style={{ width: `${marketPulse.breadth}%` }} /></div>
+          <small>상승 {marketPulse.rising} · 보합 {marketPulse.unchanged} · 하락 {marketPulse.falling}</small>
+        </div>
       </footer>
       {warping && (
         <div className="orbit-warp-overlay" aria-live="polite">

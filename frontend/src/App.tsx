@@ -151,6 +151,18 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
     title: "증시버블 NEO · 3D 은하 시가총액 | K-Stock Hub",
     description: "코스피·코스닥·나스닥 시가총액 TOP 20을 심우주 은하에서 탐험하세요. 워프 이동, 시네마 투어, 레이더 탐색과 실시간 버스트 이펙트로 종목 흐름을 확인할 수 있습니다.",
   },
+  "/kospi-orbit": {
+    title: "코스피 증시궤도 · 업종과 주도주 3D 시각화 | K-Stock Hub",
+    description: "코스피 시가총액과 등락률을 3D 항성계로 탐색하고 오늘의 주도 업종, 급등주와 거래 집중 종목을 한눈에 확인하세요.",
+  },
+  "/kosdaq-orbit": {
+    title: "코스닥 증시궤도 · 업종과 주도주 3D 시각화 | K-Stock Hub",
+    description: "코스닥 주요 종목의 시가총액과 등락률을 3D 궤도로 비교하고 강한 업종과 오늘의 주도주를 빠르게 확인하세요.",
+  },
+  "/nasdaq100-orbit": {
+    title: "나스닥100 증시궤도 · 미국 주식 3D 시각화 | K-Stock Hub",
+    description: "나스닥100 시가총액과 등락률을 3D 우주에서 탐색하고 미국 증시 주도 업종과 강한 종목을 한눈에 확인하세요.",
+  },
   "/ai-prediction": {
     title: "AI 주가 예측과 종목 분석 | K-Stock Hub",
     description: "국내 주식과 미국 주식의 AI 예측 결과, 근거 지표와 과거 예측 채점 결과를 확인하세요.",
