@@ -36,6 +36,34 @@ type System = {
 };
 type SceneMode = { kind: "system"; sector: string };
 type OrbitMarket = "kospi" | "kosdaq" | "nasdaq100";
+
+/* Market-system orbit trails. The geometry remains one thin line per planet;
+   visibility, colour falloff and the moving head all happen in this shader. */
+const MARKET_ORBIT_VERT = /* glsl */ `
+attribute float aAngle;
+varying float vAngle;
+void main(){
+  vAngle=aAngle;
+  gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+}`;
+const MARKET_ORBIT_FRAG = /* glsl */ `
+uniform vec3 uColor;
+uniform float uHead;
+uniform float uArcLength;
+uniform float uFocus;
+varying float vAngle;
+void main(){
+  float delta=mod(uHead-vAngle+6.28318530718,6.28318530718);
+  float arcEnd=uArcLength+uFocus*.72;
+  float tail=1.0-smoothstep(arcEnd*.52,arcEnd,delta);
+  float wake=exp(-delta*2.55);
+  float energy=.94+.06*sin(vAngle*7.0+uArcLength*3.7);
+  float alpha=(tail*energy*(.34+uFocus*.18)+wake*.66)*.82;
+  if(alpha<.008) discard;
+  vec3 hot=mix(uColor,vec3(1.0),.38);
+  vec3 color=mix(uColor*.76,hot,clamp(wake*1.4,0.0,1.0));
+  gl_FragColor=vec4(color*(.95+wake*1.15),alpha);
+}`;
 type OrbitConfig = {
   key: OrbitMarket;
   label: string;
@@ -386,6 +414,7 @@ function SpaceScene({
       cosNode: number;
       sinNode: number;
       spin: number;
+      orbitMaterial?: THREE.ShaderMaterial;
     }[] = [];
     const starGeo = new THREE.BufferGeometry();
     const points = matchMedia("(pointer: coarse)").matches ? 3500 : 8500;
@@ -870,6 +899,52 @@ uniform float uInvertLandform;`,
       if (index > 0) orbitCursor += (previousRadius + radius) * 1.5 + 10;
       planet.orbit = orbitCursor;
       previousRadius = radius;
+    });
+    /* Main-solar-system style partial tracks, now on the market system where
+       they belong. Each path uses the planet's actual inclined orbit and brand
+       colour. No extra animation geometry is rebuilt per frame. */
+    movers.forEach((planet, index) => {
+      const segments = 192,
+        positions = new Float32Array((segments + 1) * 3),
+        angles = new Float32Array(segments + 1),
+        stock = planet.mesh.userData.stock as MarketMapItem;
+      for (let i = 0; i <= segments; i++) {
+        const a = (i / segments) * Math.PI * 2,
+          ca = Math.cos(a),
+          sa = Math.sin(a);
+        positions[i * 3] =
+          planet.orbit * (ca * planet.cosNode - sa * planet.cosInclination * planet.sinNode);
+        positions[i * 3 + 1] = planet.orbit * sa * planet.sinInclination;
+        positions[i * 3 + 2] =
+          planet.orbit * (ca * planet.sinNode + sa * planet.cosInclination * planet.cosNode);
+        angles[i] = a;
+      }
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute("aAngle", new THREE.BufferAttribute(angles, 1));
+      const material = new THREE.ShaderMaterial({
+        vertexShader: MARKET_ORBIT_VERT,
+        fragmentShader: MARKET_ORBIT_FRAG,
+        uniforms: {
+          uColor: {
+            value: new THREE.Color(
+              colorsRef.current.get(stock.code) ?? colorFor(stock.code),
+            ),
+          },
+          uHead: { value: planet.angle },
+          uArcLength: {
+            value: 2.25 + ((index * 0.61803398875) % 1) * 1.05,
+          },
+          uFocus: { value: 0 },
+        },
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const trail = new THREE.Line(geometry, material);
+      trail.renderOrder = 1;
+      scene.add(trail);
+      planet.orbitMaterial = material;
     });
     controls.maxDistance = Math.max(780, (sys?.stocks.length ?? 1) * 16);
     const defaultCameraPosition = camera.position.clone(),
@@ -1688,6 +1763,7 @@ uniform float uInvertLandform;`,
         nowMs = performance.now();
       if (flying !== previousFlightState) {
         labels.classList.toggle("is-flight", flying);
+        host.classList.toggle("is-warping", flying);
         previousFlightState = flying;
         lastLabelUpdate = 0;
         if (flying) {
@@ -1714,6 +1790,15 @@ uniform float uInvertLandform;`,
           x.orbit * (ca * sn + sa * ci * cn),
         );
         x.mesh.rotation.y = t * x.spin;
+        if (x.orbitMaterial) {
+          x.orbitMaterial.uniforms.uHead.value = a;
+          const focused = x.mesh === focusTarget || x.mesh === tourPlanetTarget;
+          x.orbitMaterial.uniforms.uFocus.value = THREE.MathUtils.lerp(
+            x.orbitMaterial.uniforms.uFocus.value,
+            focused ? 1 : 0,
+            Math.min(1, frameDelta * 7),
+          );
+        }
       }
       for (let i = 0; i < cloudLayers.length; i++) {
         const layer = cloudLayers[i];
