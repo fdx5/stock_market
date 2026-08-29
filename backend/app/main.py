@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 import re
 import threading
@@ -85,6 +87,70 @@ async def _store_unavailable_handler(request: Request, exc: StoreUnavailable) ->
 # Compresses JS/CSS bundles and JSON API responses on the wire — same bytes served,
 # fewer bytes billed against Render's free-tier bandwidth cap.
 app.add_middleware(GZipMiddleware, minimum_size=500)
+
+# Public JSON endpoints are polled frequently. Most polls see the same cached market
+# snapshot, but used to download the complete JSON again. A validator turns an
+# unchanged response into a header-only 304. `no-cache` means "validate before reuse";
+# unlike `no-store`, it does not forbid the browser from retaining the bytes.
+_VALIDATED_API_EXCLUSIONS = (
+    "/api/admin",
+    "/api/activity",
+    "/api/notify",
+    "/api/visitors",
+)
+
+
+@app.middleware("http")
+async def _validate_public_json(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    content_type = response.headers.get("content-type", "")
+    if (
+        request.method != "GET"
+        or not path.startswith("/api/")
+        or path.startswith(_VALIDATED_API_EXCLUSIONS)
+        or response.status_code != 200
+        or not content_type.startswith("application/json")
+        or response.headers.get("set-cookie")
+    ):
+        return response
+
+    body = b"".join([chunk async for chunk in response.body_iterator])
+    # Several snapshot routes stamp the response assembly time into `generated_at`.
+    # That display-only second changes even when every market value is identical and
+    # would defeat validation. Exclude only that top-level field from the validator;
+    # any real payload change still produces a new tag.
+    validator_body = body
+    try:
+        payload = json.loads(body)
+        if isinstance(payload, dict) and "generated_at" in payload:
+            payload = {key: value for key, value in payload.items() if key != "generated_at"}
+            validator_body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        pass
+    etag = '"' + hashlib.blake2b(validator_body, digest_size=16).hexdigest() + '"'
+    headers = dict(response.headers)
+    headers["etag"] = etag
+    if headers.get("cache-control", "").startswith("no-store"):
+        headers["cache-control"] = "public, no-cache"
+    headers["content-length"] = str(len(body))
+
+    if request.headers.get("if-none-match") == etag:
+        return Response(
+            status_code=304,
+            headers={
+                key: value
+                for key, value in headers.items()
+                if key in {"etag", "cache-control", "vary", "date"}
+            },
+        )
+    return Response(
+        content=body,
+        status_code=response.status_code,
+        headers=headers,
+        media_type=None,
+        background=response.background,
+    )
 
 # The monitor's own polling, which must not be recorded — it fires once a second per
 # open viewer, and feeding that back into the buffer it is reading would drown the real

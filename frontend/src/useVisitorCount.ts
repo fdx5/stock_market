@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getSessionId } from "./session";
+import { startVisibilityAwareInterval } from "./pollVisibility";
 
 const HEARTBEAT_MS = 20_000;
 
@@ -29,11 +30,11 @@ export function useVisitorCount(): VisitorCounts {
     };
 
     ping();
-    const interval = setInterval(ping, HEARTBEAT_MS);
+    const stopHeartbeat = startVisibilityAwareInterval(ping, HEARTBEAT_MS);
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stopHeartbeat();
     };
   }, []);
 

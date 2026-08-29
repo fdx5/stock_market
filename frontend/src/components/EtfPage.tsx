@@ -2,6 +2,7 @@ import { CSSProperties, useEffect, useMemo, useState } from "react";
 import { BoardPost, EtfItem, GlobalDiscussionPost, api } from "../api/client";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import NewBadge from "./NewBadge";
 import StockListIcon from "./StockListIcon";
 import BattleIcon from "./BattleIcon";
@@ -460,10 +461,10 @@ export default function EtfPage() {
         });
     };
     load(true);
-    const timer = window.setInterval(() => load(), 10_000);
+    const stopPolling = startVisibilityAwareInterval(() => load(), 10_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [region]);
 
@@ -479,10 +480,10 @@ export default function EtfPage() {
         })
         .catch(() => {});
     load();
-    const timer = window.setInterval(load, 180_000);
+    const stopPolling = startVisibilityAwareInterval(load, 180_000);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, []);
 

@@ -7,6 +7,7 @@ import {
   StockUniverseSort,
   api,
 } from "../api/client";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 
 /** The slice of a quote this panel actually renders.
  *
@@ -99,10 +100,10 @@ export function useStockRoster(
     };
 
     load(true);
-    const timer = window.setInterval(() => load(false), REFRESH_MS);
+    const stopPolling = startVisibilityAwareInterval(() => load(false), REFRESH_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [market, page, size, sector, query, sort]);
 
@@ -161,10 +162,10 @@ export function useStockDetail(row: StockUniverseRow | null, isUs: boolean): Det
         });
     };
     load();
-    const timer = window.setInterval(load, REFRESH_MS);
+    const stopPolling = startVisibilityAwareInterval(load, REFRESH_MS);
     return () => {
       cancelled = true;
-      window.clearInterval(timer);
+      stopPolling();
     };
   }, [code, fetchQuote]);
 

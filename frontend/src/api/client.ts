@@ -1010,12 +1010,14 @@ async function getJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/** Like getJSON but bypasses the HTTP cache. For realtime reads (the live quote) that
+/** Like getJSON but requires HTTP revalidation. For realtime reads (the live quote) that
  * must reflect the server's current value on every call — including an immediate re-entry
  * into a detail view (KOSPI map tile / search) where the browser could otherwise serve a
  * previously cached response and flash a stale price. */
 async function getJSONFresh<T>(url: string): Promise<T> {
-  const res = await fetch(url, { cache: "no-store" });
+  // Revalidate live reads instead of discarding their previous bytes. The backend's
+  // ETag makes an unchanged poll a header-only 304; changed data still arrives now.
+  const res = await fetch(url, { cache: "no-cache" });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { detail?: string });
     throw new Error(body.detail || `요청 실패 (${res.status})`);
