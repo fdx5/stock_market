@@ -8587,10 +8587,36 @@ thead .weekly-foreign-amount-col {
 }
 
 .app-footer-copy {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
   margin: 0;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* Each credit fragment stays intact; only the gaps between them wrap. */
+.app-footer-copy-line {
   white-space: nowrap;
+}
+
+.app-footer-copy-sep {
+  opacity: 0.5;
+}
+
+.app-footer-contact-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px solid currentcolor;
+  opacity: 0.85;
+  transition: color 0.15s ease, opacity 0.15s ease;
+}
+
+.app-footer-contact-link:hover,
+.app-footer-contact-link:focus-visible {
+  color: var(--text-secondary);
+  opacity: 1;
 }
 
 /* Deliberately tiny and low-contrast — a discoverable-if-you-look admin entry

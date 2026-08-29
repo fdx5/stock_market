@@ -84,7 +84,16 @@ export default function Footer() {
           )}
         </p>
         <p className="app-footer-copy">
-          © {year} K-Stock Hub
+          <span className="app-footer-copy-line">© {year} K-Stock Hub</span>
+          <span className="app-footer-copy-sep" aria-hidden="true">·</span>
+          <span className="app-footer-copy-line">Developed by TJ Choi</span>
+          <span className="app-footer-copy-sep" aria-hidden="true">·</span>
+          <span className="app-footer-copy-line">
+            Contact:{" "}
+            <a href="mailto:fdx5555@naver.com" className="app-footer-contact-link">
+              fdx5555@naver.com
+            </a>
+          </span>
           <Link to="/admin" className="app-footer-admin-link" aria-label="Admin" title="Admin">
             ⚙
           </Link>
