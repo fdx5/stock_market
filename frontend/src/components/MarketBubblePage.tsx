@@ -20,7 +20,7 @@ type Body = {
   deform: number; deformTarget: number; deformVelocity: number;
   deformAngle: number; deformAngleTarget: number;
   wobbleEnergy: number; wobblePhase: number; shockAge: number; jellyProfile: number;
-  lastMatrix: string; lastOrigin: string; lastPosition: string;
+  lastMatrix: string; lastOrigin: string; lastPosition: string; lastDepthPresence: string;
   screenX: number; screenY: number;
   el: HTMLButtonElement | null; shell: HTMLSpanElement | null;
 };
@@ -230,9 +230,10 @@ function BubbleCollisionSparks({ particlesRef }: { particlesRef: MutableRefObjec
     if (!canvas || !stage) return;
     const context = canvas.getContext("2d");
     if (!context) return;
+    const mobilePerformance = window.matchMedia("(max-width: 760px), (pointer: coarse)").matches;
     let frame = 0;
     const resize = () => {
-      const ratio = Math.min(2, devicePixelRatio || 1);
+      const ratio = mobilePerformance ? 1 : Math.min(2, devicePixelRatio || 1);
       canvas.width = Math.round(stage.clientWidth * ratio);
       canvas.height = Math.round(stage.clientHeight * ratio);
       canvas.style.width = `${stage.clientWidth}px`;
@@ -244,6 +245,7 @@ function BubbleCollisionSparks({ particlesRef }: { particlesRef: MutableRefObjec
     resize();
     let previous = performance.now();
     const render = (now: number) => {
+      if (mobilePerformance && now - previous < 30) { frame = requestAnimationFrame(render); return; }
       const dt = Math.min(2.2, (now - previous) / 16.667);
       previous = now;
       context.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
@@ -276,7 +278,7 @@ function BubbleCollisionSparks({ particlesRef }: { particlesRef: MutableRefObjec
           context.shadowBlur = 14;
           context.beginPath();
           context.moveTo(-length * .5, 0);
-          const segments = 11;
+          const segments = mobilePerformance ? 6 : 11;
           for (let segment = 1; segment <= segments; segment++) {
             const ratio = segment / segments,
               jitter = Math.sin(seed * 11.3 + segment * 9.71) * particle.size * .11 * (1 - Math.abs(ratio - .5));
@@ -298,7 +300,7 @@ function BubbleCollisionSparks({ particlesRef }: { particlesRef: MutableRefObjec
           context.shadowBlur = 22 * alpha;
           context.fillStyle = `hsla(${particle.hue},${particle.saturation ?? 72}%,96%,${alpha})`;
           context.beginPath();
-          const points = 18;
+          const points = mobilePerformance ? 10 : 18;
           for (let point = 0; point < points; point++) {
             const theta = point / points * Math.PI * 2,
               jag = .48 + ((Math.sin(seed * 17 + point * 8.73) + 1) * .5) * .72,
@@ -352,8 +354,9 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
   useEffect(() => {
     const canvas = canvasRef.current, stage = canvas?.parentElement;
     if (!canvas || !stage || count === 0) return;
+    const mobilePerformance = window.matchMedia("(max-width: 760px), (pointer: coarse)").matches;
     const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, window.innerWidth <= 760 ? 1.15 : 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobilePerformance ? 1 : 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = .96;
@@ -406,7 +409,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     const fill = new THREE.DirectionalLight(0x90bfff, .52); fill.position.set(6, 1, 6); scene.add(fill);
     const rim = new THREE.DirectionalLight(0xa9dfff, .62); rim.position.set(-5, -4, 3); scene.add(rim);
     const dustGeometry = new THREE.BufferGeometry();
-    const dustPositions = new Float32Array(210 * 3);
+    const dustPositions = new Float32Array((mobilePerformance ? 64 : 210) * 3);
     for (let i = 0; i < dustPositions.length; i += 3) {
       dustPositions[i] = (Math.random() - .5) * 2500;
       dustPositions[i + 1] = (Math.random() - .5) * 1500;
@@ -417,7 +420,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     const dust = new THREE.Points(dustGeometry, dustMaterial); scene.add(dust);
     // Extra radial segments keep the frozen organic profile round even on the
     // smallest bubbles.  The previous low-poly silhouette exposed corners.
-    const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 40 : 56, window.innerWidth <= 760 ? 28 : 40);
+    const geometry = new THREE.SphereGeometry(1, mobilePerformance ? 24 : 56, mobilePerformance ? 18 : 40);
     const meshes: THREE.Mesh[] = [], shadows: THREE.Sprite[] = [], shadowTextures: THREE.CanvasTexture[] = [], shaders: any[] = [];
     for (let i = 0; i < count; i++) {
       const colors = bubbleColors[i] ?? ["#a9bfd2", "#58748d"];
@@ -429,20 +432,20 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
         color: baseColor,
         roughness: .2 + (i % 4) * .018,
         metalness: .035,
-        clearcoat: .92,
+        clearcoat: mobilePerformance ? .54 : .92,
         clearcoatRoughness: .075 + (i % 3) * .018,
         envMapIntensity: 1.18 + lightVariation * .38,
-        sheen: .27 + lightVariation * .17,
+        sheen: mobilePerformance ? 0 : .27 + lightVariation * .17,
         sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(i % 2 ? 0xd9e9ff : 0xffead6), .26 + lightVariation * .2),
         sheenRoughness: .42,
         specularIntensity: .96,
         specularColor: new THREE.Color(colors[0]).lerp(new THREE.Color(0xffffff), .72),
-        iridescence: .22 + (i % 3) * .035,
+        iridescence: mobilePerformance ? 0 : .22 + (i % 3) * .035,
         iridescenceIOR: 1.38,
         iridescenceThicknessRange: [110, 320],
         ior: 1.46,
         thickness: 1.25,
-        transmission: window.innerWidth <= 760 ? 0 : .055 + (i % 3) * .012,
+        transmission: mobilePerformance ? 0 : .055 + (i % 3) * .012,
         attenuationColor: new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .18),
         attenuationDistance: 1.7 + (i % 4) * .22,
         emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
@@ -516,10 +519,13 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     }
     const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/Math.max(1,h);camera.fov=THREE.MathUtils.radToDeg(2*Math.atan(h/(2*cameraDistance)));camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
-    let raf=0;
+    let raf=0, previousRender=0;
     const projected = new THREE.Vector3();
     let handledCommand = cameraCommandRef.current.nonce;
     const render = () => {
+      const renderNow = performance.now();
+      if (mobilePerformance && renderNow - previousRender < 30) { raf=requestAnimationFrame(render); return; }
+      previousRender = renderNow;
       const bodies = bodiesRef.current, w = stage.clientWidth, h = stage.clientHeight;
       if (cameraCommandRef.current.nonce !== handledCommand) {
         handledCommand = cameraCommandRef.current.nonce;
@@ -568,7 +574,11 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
           if (position !== body.lastPosition) { body.el.style.transform = position; body.lastPosition = position; }
           body.el.style.zIndex = `${10 + Math.round((1 - projected.z) * 500)}`;
           body.el.style.setProperty("--info-compensation", `${Math.min(1.32, Math.max(1, 1 / scale)).toFixed(3)}`);
-          body.el.style.setProperty("--depth-presence", `${THREE.MathUtils.clamp(.58 + scale * .34, .62, 1).toFixed(3)}`);
+          const depthPresence = THREE.MathUtils.clamp(.58 + scale * .34, .62, 1).toFixed(2);
+          if (depthPresence !== body.lastDepthPresence) {
+            body.el.style.setProperty("--depth-presence", depthPresence);
+            body.lastDepthPresence = depthPresence;
+          }
           body.el.style.visibility = projected.z > 1 || projected.z < -1 ? "hidden" : "visible";
         }
       });
@@ -694,6 +704,7 @@ export default function MarketBubblePage() {
         lastMatrix: "",
         lastOrigin: "",
         lastPosition: "",
+        lastDepthPresence: "",
         screenX: rect.width * .5,
         screenY: rect.height * .5,
         el: null,
@@ -750,6 +761,7 @@ export default function MarketBubblePage() {
   }, [market, items.map((it) => it.code).join(",")]);
 
   useEffect(() => {
+    const mobilePerformance = window.matchMedia("(max-width: 760px), (pointer: coarse)").matches;
     let frame = 0, previous = performance.now();
     const tick = (now: number) => {
       const stage = stageRef.current;
@@ -923,7 +935,7 @@ export default function MarketBubblePage() {
             // energy source: top pairs throw a huge shower; tail pairs stay precise.
             energy = THREE.MathUtils.clamp(Math.sqrt((a.r + b.r) / 105), .55, 1.85) * sparkScale,
             burstCase = Math.floor(Math.random() * 5),
-            count = Math.round((16 + energy * 42) * (isMaximumCollision ? 1.35 : 1)),
+            count = Math.round((16 + energy * 42) * (isMaximumCollision ? 1.35 : 1) * (mobilePerformance ? .46 : 1)),
             impactAngle = Math.atan2(b.screenY - a.screenY, b.screenX - a.screenX),
             seed = Math.random() * 1000,
             palettes = [
@@ -947,7 +959,7 @@ export default function MarketBubblePage() {
           }
           // Electrical arcs bridge the contact at different angles. Their count and
           // orientation vary per collision, so the silhouette never repeats.
-          const arcCount = Math.round(1 + energy * 2.35);
+          const arcCount = Math.round((1 + energy * 2.35) * (mobilePerformance ? .52 : 1));
           for (let arc = 0; arc < arcCount; arc++) {
             sparkParticlesRef.current.push({
               x, y, vx: 0, vy: 0,
@@ -963,7 +975,7 @@ export default function MarketBubblePage() {
           }
           // Tiny delayed fractures bloom where fast fragments tear away from the
           // contact. These staggered secondary events make the shower feel layered.
-          const microBursts = Math.round(2 + energy * 2.2);
+          const microBursts = Math.round((2 + energy * 2.2) * (mobilePerformance ? .45 : 1));
           for (let micro = 0; micro < microBursts; micro++) {
             const direction = impactAngle + (Math.random() - .5) * Math.PI * 1.7,
               distanceFromContact = (9 + Math.random() * 35) * energy,
@@ -1014,8 +1026,9 @@ export default function MarketBubblePage() {
               seed: Math.random() * 1000,
             });
           }
-          if (sparkParticlesRef.current.length > 520) {
-            sparkParticlesRef.current.splice(0, sparkParticlesRef.current.length - 520);
+          const particleLimit = mobilePerformance ? 220 : 520;
+          if (sparkParticlesRef.current.length > particleLimit) {
+            sparkParticlesRef.current.splice(0, sparkParticlesRef.current.length - particleLimit);
           }
         }
       }

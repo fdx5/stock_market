@@ -181,6 +181,9 @@
 .bubble-post-copy strong { line-height:1.35; }.bubble-post-copy small { line-height:1.45; }
 @media (max-width:760px) {
   .stock-bubble-content strong { font-size:clamp(7px,calc(var(--bubble-size) * .088),14px); }
+  .bubble-market-console,.bubble-camera-reset,.bubble-explorer-guide,.stock-bubble-marcap,.stock-bubble-rank,.stock-bubble-content em { backdrop-filter:none; -webkit-backdrop-filter:none; }
+  .bubble-spark-layer { filter:saturate(1.16); }
+  .stock-bubble { transition:width .3s ease,height .3s ease; }
   .bubble-discussion-head { align-items:center; }
   .bubble-discussion-head h2 { max-width:none; overflow:visible; font-size:clamp(15px,4.6vw,19px); line-height:1.18; white-space:normal; text-overflow:clip; word-break:keep-all; }
   .bubble-discussion-identity { align-items:center; }
