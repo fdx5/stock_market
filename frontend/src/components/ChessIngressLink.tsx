@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { reportChessIngress } from "../useActivityTracking";
-import VisitorBadge from "./VisitorBadge";
 
 const CHESS_URL = "https://threedchess-mpjo.onrender.com";
 const HEADER_TARGETS = [
@@ -60,7 +59,6 @@ export default function ChessIngressLink({ path }: { path: string }) {
 
   if (!target) return null;
   return createPortal(
-    <span className="chess-ingress-group">
     <a
       className="chess-ingress-link"
       href={CHESS_URL}
@@ -72,9 +70,7 @@ export default function ChessIngressLink({ path }: { path: string }) {
     >
       <ChessKnightIcon />
       <span>3D Chess</span>
-    </a>
-    <VisitorBadge />
-    </span>,
+    </a>,
     target,
   );
 }

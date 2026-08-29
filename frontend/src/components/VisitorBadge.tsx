@@ -1,18 +1,20 @@
 import { useLanguage } from "../i18n/LanguageContext";
 import { useVisitorCount } from "../useVisitorCount";
 
-export default function VisitorBadge() {
+export default function VisitorBadge({ compact = false }: { compact?: boolean }) {
   const { lang } = useLanguage();
   const { current, total } = useVisitorCount();
   const currentText = current === null ? "-" : current.toLocaleString();
   const totalText = total === null ? "-" : total.toLocaleString();
-
+  const label = lang === "en" ? `${currentText} online, ${totalText} visits` : `접속 ${currentText}명, 방문 ${totalText}명`;
   return (
-    <span className="visitor-badge">
+    <span className={`visitor-badge${compact ? " visitor-badge--compact" : ""}`} aria-label={label} title={label}>
       <span className="visitor-badge-dot" />
-      {lang === "en" ? `${currentText} online` : `접속 ${currentText}명`}
+      {compact && <span className="visitor-badge-person" aria-hidden="true">♟</span>}
+      {compact ? currentText : lang === "en" ? `${currentText} online` : `접속 ${currentText}명`}
       <span className="visitor-badge-sep">·</span>
-      {lang === "en" ? `${totalText} visits` : `방문 ${totalText}명`}
+      {compact && <span className="visitor-badge-eye" aria-hidden="true">◉</span>}
+      {compact ? totalText : lang === "en" ? `${totalText} visits` : `방문 ${totalText}명`}
     </span>
   );
 }
