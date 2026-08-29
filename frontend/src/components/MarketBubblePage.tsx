@@ -15,12 +15,20 @@ import "./marketBubble.css";
 type Market = "kospi" | "kosdaq" | "nasdaq";
 type Body = {
   x: number; y: number; z: number; vx: number; vy: number; vz: number; r: number;
+  marketCap: number;
   impactX: number; impactY: number; impactZ: number;
   deform: number; deformTarget: number; deformVelocity: number;
   deformAngle: number; deformAngleTarget: number;
-  wobbleEnergy: number; wobblePhase: number; jellyProfile: number;
+  wobbleEnergy: number; wobblePhase: number; shockAge: number; jellyProfile: number;
   lastMatrix: string; lastOrigin: string; lastPosition: string;
+  screenX: number; screenY: number;
   el: HTMLButtonElement | null; shell: HTMLSpanElement | null;
+};
+type SparkParticle = {
+  x: number; y: number; vx: number; vy: number; born: number;
+  life: number; size: number; hue: number; flash?: boolean;
+  seed?: number; angle?: number; aspect?: number; saturation?: number;
+  arc?: boolean; screenFlash?: boolean;
 };
 type GestureState = { pointers: Map<number, { x: number; y: number }>; suppressUntil: number };
 type CameraCommand = { nonce: number; type: "reset" };
@@ -88,13 +96,12 @@ function BubbleCompanyLogo({ src }: { src: string }) {
 }
 
 function rankRadiusScale(index: number, mobile = false) {
-  void mobile;
-  const leaderScale = 1.827 * 2;
-  if (index < 2) return leaderScale;       // 1–2위: 기존 대비 2배
-  if (index < 5) return leaderScale * .7;  // 3–5위: 선두의 70%
-  if (index < 9) return leaderScale * .525; // 6–9위: 기존 대비 5% 확대
-  if (index < 15) return leaderScale * .44; // 10–15위: 기존 대비 10% 확대
-  return leaderScale * .345;                // 16–20위: 기존 대비 15% 확대
+  const compact = mobile ? .9 : 1;
+  if (index < 2) return 1.62 * compact;
+  if (index < 5) return 1.36 * compact;
+  if (index < 9) return 1.14 * compact;
+  if (index < 15) return .98 * compact;
+  return .84 * compact;
 }
 
 function logoPastelPalette(src: string, cacheKey: string) {
@@ -163,7 +170,7 @@ function formatMarketCap(item: StockBoardItem, market: Market) {
 
 function shortName(item: StockBoardItem, market: Market) {
   const name = market === "nasdaq" ? item.name_ko || item.name : item.name;
-  return name.replace(/\s+(Inc\.?|Corporation|Corp\.?|Common Stock).*$/i, "").slice(0, 18);
+  return name.replace(/\s+(Inc\.?|Corporation|Corp\.?|Common Stock).*$/i, "");
 }
 
 function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
@@ -209,6 +216,133 @@ function BubbleFpsMeter({ bubbles }: { bubbles: number }) {
       <small>BUBBLES <span>{bubbles}</span></small>
     </div>
   );
+}
+
+function numericMarketCap(item: StockBoardItem) {
+  return Math.max(0, item.market_cap || item.marcap || 0);
+}
+
+function BubbleCollisionSparks({ particlesRef }: { particlesRef: MutableRefObject<SparkParticle[]> }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const stage = canvas?.parentElement;
+    if (!canvas || !stage) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    let frame = 0;
+    const resize = () => {
+      const ratio = Math.min(2, devicePixelRatio || 1);
+      canvas.width = Math.round(stage.clientWidth * ratio);
+      canvas.height = Math.round(stage.clientHeight * ratio);
+      canvas.style.width = `${stage.clientWidth}px`;
+      canvas.style.height = `${stage.clientHeight}px`;
+      context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    };
+    const observer = new ResizeObserver(resize);
+    observer.observe(stage);
+    resize();
+    let previous = performance.now();
+    const render = (now: number) => {
+      const dt = Math.min(2.2, (now - previous) / 16.667);
+      previous = now;
+      context.clearRect(0, 0, stage.clientWidth, stage.clientHeight);
+      context.globalCompositeOperation = "lighter";
+      particlesRef.current = particlesRef.current.filter((particle) => {
+        const age = now - particle.born;
+        if (age < 0) return true;
+        if (age >= particle.life) return false;
+        const progress = age / particle.life;
+        const alpha = (1 - progress) ** 1.7;
+        if (particle.screenFlash) {
+          const wash = context.createLinearGradient(0, particle.y, stage.clientWidth, particle.y);
+          wash.addColorStop(0, "rgba(75,155,255,0)");
+          wash.addColorStop(.36, `hsla(${particle.hue},100%,82%,${alpha * .16})`);
+          wash.addColorStop(.5, `rgba(255,255,255,${alpha * .32})`);
+          wash.addColorStop(.64, `hsla(42,100%,65%,${alpha * .18})`);
+          wash.addColorStop(1, "rgba(255,100,20,0)");
+          context.fillStyle = wash;
+          context.fillRect(0, 0, stage.clientWidth, stage.clientHeight);
+        } else if (particle.arc) {
+          const angle = particle.angle || 0,
+            length = particle.size * (1 + progress * .45),
+            seed = particle.seed || 0;
+          context.save();
+          context.translate(particle.x, particle.y);
+          context.rotate(angle);
+          context.strokeStyle = `hsla(${particle.hue},${particle.saturation ?? 70}%,91%,${alpha})`;
+          context.lineWidth = Math.max(.55, 2.8 * (1 - progress));
+          context.shadowColor = `hsla(${particle.hue},100%,64%,${alpha})`;
+          context.shadowBlur = 14;
+          context.beginPath();
+          context.moveTo(-length * .5, 0);
+          const segments = 11;
+          for (let segment = 1; segment <= segments; segment++) {
+            const ratio = segment / segments,
+              jitter = Math.sin(seed * 11.3 + segment * 9.71) * particle.size * .11 * (1 - Math.abs(ratio - .5));
+            context.lineTo(-length * .5 + length * ratio, jitter);
+          }
+          context.stroke();
+          context.restore();
+        } else if (particle.flash) {
+          // A metal strike is a torn, directional white core rather than a round
+          // explosion. Build an irregular blade-shaped polygon along the impact axis.
+          const radius = particle.size * (.34 + progress * .82),
+            impactAngle = particle.angle || 0,
+            aspect = particle.aspect || 2.5,
+            seed = particle.seed || 0;
+          context.save();
+          context.translate(particle.x, particle.y);
+          context.rotate(impactAngle);
+          context.shadowColor = `hsla(${particle.hue},100%,72%,${alpha})`;
+          context.shadowBlur = 22 * alpha;
+          context.fillStyle = `hsla(${particle.hue},${particle.saturation ?? 72}%,96%,${alpha})`;
+          context.beginPath();
+          const points = 18;
+          for (let point = 0; point < points; point++) {
+            const theta = point / points * Math.PI * 2,
+              jag = .48 + ((Math.sin(seed * 17 + point * 8.73) + 1) * .5) * .72,
+              blade = point % 2 ? .52 : 1,
+              px = Math.cos(theta) * radius * aspect * jag * blade,
+              py = Math.sin(theta) * radius * .3 * jag;
+            if (point === 0) context.moveTo(px, py); else context.lineTo(px, py);
+          }
+          context.closePath();
+          context.fill();
+          // Hot blue-white contact slit and two asymmetric lens streaks.
+          context.shadowBlur = 12;
+          context.strokeStyle = `rgba(235,250,255,${alpha})`;
+          context.lineWidth = Math.max(1, 5 * (1 - progress));
+          context.beginPath(); context.moveTo(-radius * aspect * 1.35, 0); context.lineTo(radius * aspect * 1.1, 0); context.stroke();
+          context.strokeStyle = `hsla(47,100%,83%,${alpha * .8})`;
+          context.lineWidth = Math.max(.7, 2.4 * (1 - progress));
+          context.beginPath(); context.moveTo(-radius * .58, -radius * .72); context.lineTo(radius * .84, radius * .56); context.stroke();
+          context.restore();
+        } else {
+          const oldX = particle.x;
+          const oldY = particle.y;
+          particle.x += particle.vx * dt;
+          particle.y += particle.vy * dt;
+          particle.vx *= .975 ** dt;
+          particle.vy = particle.vy * (.975 ** dt) + .018 * dt;
+          const flicker = .62 + Math.sin((particle.seed || 0) * 91 + age * .052) * .24;
+          context.shadowColor = `hsla(${particle.hue},100%,58%,${alpha})`;
+          context.shadowBlur = particle.size * 2.4;
+          context.strokeStyle = `hsla(${particle.hue},${particle.saturation ?? 100}%,${64 + progress * 25}%,${alpha * flicker})`;
+          context.lineWidth = Math.max(.7, particle.size * (1 - progress));
+          context.beginPath();
+          context.moveTo(oldX, oldY);
+          context.lineTo(particle.x, particle.y);
+          context.stroke();
+        }
+        return true;
+      });
+      frame = requestAnimationFrame(render);
+    };
+    frame = requestAnimationFrame(render);
+    return () => { cancelAnimationFrame(frame); observer.disconnect(); };
+  }, [particlesRef]);
+  return <canvas ref={canvasRef} className="bubble-spark-layer" aria-hidden="true" />;
 }
 
 function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCommandRef }: {
@@ -271,6 +405,16 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     const key = new THREE.DirectionalLight(0xfff4dc, 1.55); key.position.set(-4, 6, 9); scene.add(key);
     const fill = new THREE.DirectionalLight(0x90bfff, .52); fill.position.set(6, 1, 6); scene.add(fill);
     const rim = new THREE.DirectionalLight(0xa9dfff, .62); rim.position.set(-5, -4, 3); scene.add(rim);
+    const dustGeometry = new THREE.BufferGeometry();
+    const dustPositions = new Float32Array(210 * 3);
+    for (let i = 0; i < dustPositions.length; i += 3) {
+      dustPositions[i] = (Math.random() - .5) * 2500;
+      dustPositions[i + 1] = (Math.random() - .5) * 1500;
+      dustPositions[i + 2] = (Math.random() - .5) * 1500;
+    }
+    dustGeometry.setAttribute("position", new THREE.BufferAttribute(dustPositions, 3));
+    const dustMaterial = new THREE.PointsMaterial({ color: 0x8ccfff, size: 2.1, transparent: true, opacity: .2, depthWrite: false, blending: THREE.AdditiveBlending });
+    const dust = new THREE.Points(dustGeometry, dustMaterial); scene.add(dust);
     // Extra radial segments keep the frozen organic profile round even on the
     // smallest bubbles.  The previous low-poly silhouette exposed corners.
     const geometry = new THREE.SphereGeometry(1, window.innerWidth <= 760 ? 40 : 56, window.innerWidth <= 760 ? 28 : 40);
@@ -341,10 +485,11 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
         shader.uniforms.uAccentDirA = { value: new THREE.Vector3(-.72 + (i * 17 % 31) / 50, .28 + (i * 13 % 29) / 60, .68).normalize() };
         shader.uniforms.uAccentDirB = { value: new THREE.Vector3(.42 + (i * 19 % 27) / 52, -.55 + (i * 7 % 25) / 55, .7).normalize() };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; varying vec3 vBubbleNormal;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*mochi*uOrganic.y; vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); float contact=pow(smoothstep(-.28,1.0,facing),2.15); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=max(uDeform,0.0); float rebound=sin(uPhase)*uWobble; float axial=max(0.0,dot(transformed,hit)); transformed-=hit*axial*contact*compression*.58; transformed+=n*(-contact*compression*.34+shoulder*compression*.27); transformed+=n*(contact*rebound*.13-shoulder*rebound*.055);`);
+        shader.uniforms.uShockAge = { value: 2 }; shader.uniforms.uMaterialWeight = { value: 0 };
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying float vImpactFacing;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float micro=sin(azimuth*11.0+uOrganic.x*3.1)*sin(latitude*9.0-uOrganic.x)*.004; float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*(mochi*uOrganic.y+micro); vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); vImpactFacing=facing; float contact=pow(smoothstep(.05,1.0,facing),3.1); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=max(uDeform,0.0); float rebound=sin(uPhase)*uWobble; float axial=max(0.0,dot(transformed,hit)); float shockRadius=uShockAge*1.55; float surfaceDistance=acos(clamp(facing,-1.0,1.0)); float shock=exp(-pow((surfaceDistance-shockRadius)/.105,2.0))*(1.0-smoothstep(.0,1.7,uShockAge))*uWobble; transformed-=hit*axial*contact*compression*(.68-uMaterialWeight*.16); transformed+=n*(-contact*compression*.4+shoulder*compression*.24); transformed+=n*(contact*rebound*(.18-uMaterialWeight*.07)-shoulder*rebound*.055+shock*(.32-uMaterialWeight*.11));`);
         shader.fragmentShader = shader.fragmentShader
-          .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; varying vec3 vBubbleNormal;")
-          .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); float dome=max(bubbleN.z,0.0); float opticalRim=pow(1.0-dome,2.8); diffuseColor.rgb*=.94+dome*.08; diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),opticalRim*.16);`);
+          .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; uniform float uDeform; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying float vImpactFacing;")
+          .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); float dome=max(bubbleN.z,0.0); float opticalRim=pow(1.0-dome,2.8); float microGrain=(sin(bubbleN.x*83.0)+sin(bubbleN.y*107.0)+sin(bubbleN.z*71.0))*.008; float surfaceDistance=acos(clamp(vImpactFacing,-1.0,1.0)); float shockRadius=uShockAge*1.55; float shockRing=exp(-pow((surfaceDistance-shockRadius)/.075,2.0))*(1.0-smoothstep(.0,1.65,uShockAge)); float contactGlow=pow(max(vImpactFacing,0.0),16.0)*smoothstep(.015,.12,uDeform); vec3 rimTint=mix(vec3(.45,.82,1.0),vec3(1.0,.65,.24),contactGlow); diffuseColor.rgb*=.94+dome*.08+microGrain; diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),opticalRim*(.13+uMaterialWeight*.1)); diffuseColor.rgb+=rimTint*(shockRing*.38+contactGlow*.82);`);
         shaders[i] = shader;
       };
       const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
@@ -374,9 +519,64 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     let raf=0;
     const projected = new THREE.Vector3();
     let handledCommand = cameraCommandRef.current.nonce;
-    const render=()=>{ const bodies=bodiesRef.current,w=stage.clientWidth,h=stage.clientHeight;if(cameraCommandRef.current.nonce!==handledCommand){handledCommand=cameraCommandRef.current.nonce;focusRef.current=null;controls.target.set(0,0,0);camera.position.set(0,0,initialCameraDistance);camera.up.set(0,1,0);controls.update();}const focused=focusRef.current==null?null:meshes[focusRef.current];if(focused){controls.target.lerp(focused.position,.055);const desired=focused.position.clone().add(new THREE.Vector3(0,0,Math.max(570,focused.scale.x*5.4)));camera.position.lerp(desired,.04);}controls.update();meshes.forEach((mesh,i)=>{const body=bodies[i],shadow=shadows[i];mesh.visible=Boolean(body);shadow.visible=Boolean(body);if(!body)return;mesh.position.set(body.x-w/2,h/2-body.y,body.z);mesh.scale.setScalar(body.r);mesh.rotation.x+=body.vy*.00018;mesh.rotation.y+=body.vx*.00022;const shadowAngle=((i*53)%360)*Math.PI/180;const shadowOffset=body.r*(.055+(i%4)*.014);shadow.position.set(body.x-w/2+Math.cos(shadowAngle)*shadowOffset,h/2-body.y+Math.sin(shadowAngle)*shadowOffset,body.z-body.r*.72);shadow.scale.set(body.r*(2.05+(i%3)*.08),body.r*(1.66+(i%4)*.06),1);const shader=shaders[i];if(shader){shader.uniforms.uImpact.value.set(body.impactX,-body.impactY,body.impactZ).normalize();shader.uniforms.uDeform.value=body.deform;shader.uniforms.uWobble.value=body.wobbleEnergy;shader.uniforms.uPhase.value=body.wobblePhase;}if(body.el){projected.copy(mesh.position).project(camera);const px=(projected.x*.5+.5)*w,py=(-projected.y*.5+.5)*h;const distance=camera.position.distanceTo(mesh.position);const scale=Math.max(.52,Math.min(1.75,cameraDistance/distance));const position=`translate3d(${(px-body.r).toFixed(1)}px,${(py-body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;if(position!==body.lastPosition){body.el.style.transform=position;body.lastPosition=position;}body.el.style.zIndex=`${10+Math.round((1-projected.z)*500)}`;body.el.style.setProperty("--info-compensation",`${Math.min(1.32,Math.max(1,1/scale)).toFixed(3)}`);body.el.style.visibility=projected.z>1||projected.z<-1?"hidden":"visible";}});renderer.render(scene,camera);raf=requestAnimationFrame(render);};
+    const render = () => {
+      const bodies = bodiesRef.current, w = stage.clientWidth, h = stage.clientHeight;
+      if (cameraCommandRef.current.nonce !== handledCommand) {
+        handledCommand = cameraCommandRef.current.nonce;
+        focusRef.current = null;
+        controls.target.set(0, 0, 0);
+        camera.position.set(0, 0, initialCameraDistance);
+        camera.up.set(0, 1, 0);
+        controls.update();
+      }
+      const focused = focusRef.current == null ? null : meshes[focusRef.current];
+      if (focused) {
+        controls.target.lerp(focused.position, .055);
+        const desired = focused.position.clone().add(new THREE.Vector3(0, 0, Math.max(570, focused.scale.x * 5.4)));
+        camera.position.lerp(desired, .04);
+      }
+      controls.update();
+      dust.rotation.y += .000035;
+      meshes.forEach((mesh, i) => {
+        const body = bodies[i], shadow = shadows[i];
+        mesh.visible = Boolean(body); shadow.visible = Boolean(body);
+        if (!body) return;
+        mesh.position.set(body.x - w / 2, h / 2 - body.y, body.z);
+        mesh.scale.setScalar(body.r);
+        mesh.rotation.x += body.vy * .00018; mesh.rotation.y += body.vx * .00022;
+        const shadowAngle = ((i * 53) % 360) * Math.PI / 180,
+          shadowOffset = body.r * (.055 + (i % 4) * .014);
+        shadow.position.set(body.x - w / 2 + Math.cos(shadowAngle) * shadowOffset, h / 2 - body.y + Math.sin(shadowAngle) * shadowOffset, body.z - body.r * .72);
+        shadow.scale.set(body.r * (2.05 + (i % 3) * .08), body.r * (1.66 + (i % 4) * .06), 1);
+        const shader = shaders[i];
+        if (shader) {
+          shader.uniforms.uImpact.value.set(body.impactX, -body.impactY, body.impactZ).normalize();
+          shader.uniforms.uDeform.value = body.deform;
+          shader.uniforms.uWobble.value = body.wobbleEnergy;
+          shader.uniforms.uPhase.value = body.wobblePhase;
+          shader.uniforms.uShockAge.value = body.shockAge;
+          shader.uniforms.uMaterialWeight.value = Math.sqrt(body.marketCap / Math.max(1, bodies[0]?.marketCap || body.marketCap));
+        }
+        if (body.el) {
+          projected.copy(mesh.position).project(camera);
+          const px = (projected.x * .5 + .5) * w,
+            py = (-projected.y * .5 + .5) * h,
+            distance = camera.position.distanceTo(mesh.position),
+            scale = Math.max(.52, Math.min(1.75, cameraDistance / distance)),
+            position = `translate3d(${(px - body.r).toFixed(1)}px,${(py - body.r).toFixed(1)}px,0) scale(${scale.toFixed(4)})`;
+          body.screenX = px; body.screenY = py;
+          if (position !== body.lastPosition) { body.el.style.transform = position; body.lastPosition = position; }
+          body.el.style.zIndex = `${10 + Math.round((1 - projected.z) * 500)}`;
+          body.el.style.setProperty("--info-compensation", `${Math.min(1.32, Math.max(1, 1 / scale)).toFixed(3)}`);
+          body.el.style.setProperty("--depth-presence", `${THREE.MathUtils.clamp(.58 + scale * .34, .62, 1).toFixed(3)}`);
+          body.el.style.visibility = projected.z > 1 || projected.z < -1 ? "hidden" : "visible";
+        }
+      });
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(render);
+    };
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());dustGeometry.dispose();dustMaterial.dispose();geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
   }, [bodiesRef, bubbleColors, cameraCommandRef, count, focusRef]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
@@ -397,12 +597,26 @@ export default function MarketBubblePage() {
   const pinnedRef = useRef<number | null>(null);
   const focusRef = useRef<number | null>(null);
   const cameraCommandRef = useRef<CameraCommand>({ nonce: 0, type: "reset" });
+  const sparkParticlesRef = useRef<SparkParticle[]>([]);
+  const pairSparkedAtRef = useRef<Record<string, number>>({});
   const gestureRef = useRef<GestureState>({ pointers: new Map(), suppressUntil: 0 });
   const clickTimerRef = useRef<number | null>(null);
   const firstLoadRef = useRef(true);
   useDocumentTitle("증시버블 · K-Stock Hub");
 
   const items = useMemo(() => board?.items.slice().sort((a, b) => a.rank - b.rank).slice(0, BUBBLE_COUNT) ?? [], [board]);
+  const marketPulse = useMemo(() => {
+    const rising = items.filter((item) => item.change_pct > .04).length;
+    const falling = items.filter((item) => item.change_pct < -.04).length;
+    const flat = Math.max(0, items.length - rising - falling);
+    const average = items.length
+      ? items.reduce((sum, item) => sum + item.change_pct, 0) / items.length
+      : 0;
+    const movers = [...items]
+      .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct))
+      .slice(0, 3);
+    return { rising, falling, flat, average, movers };
+  }, [items]);
 
   useEffect(() => {
     let alive = true;
@@ -445,15 +659,15 @@ export default function MarketBubblePage() {
     const stage = stageRef.current;
     if (!stage || items.length === 0) return;
     const rect = stage.getBoundingClientRect();
-    const getBaseRadius = (width: number, height: number) => Math.max(22, Math.min(
-      88,
-      width / 10,
-      height / 9.2,
-      Math.sqrt((width * height) / BUBBLE_COUNT) * .42,
+    const getBaseRadius = (width: number, height: number) => Math.max(25, Math.min(
+      72,
+      width / 13,
+      height / 10.5,
+      Math.sqrt((width * height) / BUBBLE_COUNT) * .36,
     ));
     const base = getBaseRadius(rect.width, rect.height);
     const rows = Math.ceil(items.length / 5);
-    const nextBodies: Body[] = items.map((_, i) => {
+    const nextBodies: Body[] = items.map((item, i) => {
       const col = i % 5, row = Math.floor(i / 5);
       const r = base * rankRadiusScale(i, rect.width <= 760);
       return {
@@ -464,6 +678,7 @@ export default function MarketBubblePage() {
         z: (-210 + (i * 83) % 470) * WORLD_SCALE,
         vz: (Math.random() - .5) * .52,
         r,
+        marketCap: numericMarketCap(item),
         impactX: 1,
         impactY: 0,
         impactZ: 0,
@@ -474,10 +689,13 @@ export default function MarketBubblePage() {
         deformAngleTarget: 0,
         wobbleEnergy: 0,
         wobblePhase: Math.random() * Math.PI * 2,
+        shockAge: 2,
         jellyProfile: i % 4,
         lastMatrix: "",
         lastOrigin: "",
         lastPosition: "",
+        screenX: rect.width * .5,
+        screenY: rect.height * .5,
         el: null,
         shell: null,
       };
@@ -554,6 +772,7 @@ export default function MarketBubblePage() {
           body.deformAngleTarget += difference;
           body.wobbleEnergy = Math.max(body.wobbleEnergy, Math.min(.1, amount * .2));
           body.wobblePhase = 0;
+          body.shockAge = 0;
           // Let impact direction and strength select the material response, so
           // repeated contacts do not replay one recognisable deformation loop.
           body.jellyProfile = Math.abs(Math.floor(angle / 37) + Math.floor(amount * 113)) % 4;
@@ -564,14 +783,17 @@ export default function MarketBubblePage() {
       };
       for (let i = 0; i < bodies.length; i++) {
         const a = bodies[i];
+        const largestCap = Math.max(1, bodies[0]?.marketCap || a.marketCap || 1);
+        const materialWeight = Math.sqrt(Math.max(0, a.marketCap) / largestCap);
         // Ease toward a decaying target. Sustained contact holds a soft shape;
         // separation releases it gradually with a subtle gelatin overshoot.
         a.deformTarget *= Math.pow(.935, dt);
         // One short, strongly damped elastic recoil after impact. Sustained
         // contact cannot restart it, which avoids the old resting jitter.
         a.wobbleEnergy *= Math.pow(.86, dt);
-        if (a.wobbleEnergy > .0007) a.wobblePhase += .24 * dt;
+        if (a.wobbleEnergy > .0007) a.wobblePhase += (.31 - materialWeight * .13) * dt;
         else a.wobbleEnergy = 0;
+        a.shockAge = Math.min(2, a.shockAge + (.022 + materialWeight * .006) * dt);
         // Monotonic easing prevents the surface from overshooting and
         // shivering after contact while keeping a soft recovery.
         a.deform += (a.deformTarget - a.deform) * Math.min(1, .16 * dt);
@@ -596,9 +818,11 @@ export default function MarketBubblePage() {
         a.vx += Math.sin(now * .00038 + i * 1.71) * .005;
         a.vy += Math.cos(now * .00031 + i * 1.13) * .005;
         a.vz += Math.sin(now * .00027 + i * 2.03) * .0035;
-        a.vx *= .995; a.vy *= .995; a.vz *= .995;
+        a.vx *= .988; a.vy *= .988; a.vz *= .988;
         const speed = Math.hypot(a.vx, a.vy, a.vz);
-        if (speed > 3.25) { const limit = 3.25 / speed; a.vx *= limit; a.vy *= limit; a.vz *= limit; }
+        // Leave enough headroom for a small-cap bubble's high-speed recoil. Drag
+        // still settles it quickly, while ordinary ambient motion stays unchanged.
+        if (speed > 4.2) { const limit = 4.2 / speed; a.vx *= limit; a.vy *= limit; a.vz *= limit; }
         a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5; a.z += a.vz * dt * 4.5;
         const depthScale = Math.max(.55, (1200 - a.z) / 1200);
         const halfViewWidth = width * depthScale * .5 * WORLD_SCALE;
@@ -612,6 +836,33 @@ export default function MarketBubblePage() {
         const zLimit = (width <= 760 ? 280 : 360) * WORLD_SCALE;
         if (a.z < -zLimit) { const speed=Math.abs(a.vz);a.z=-zLimit;a.vz=speed*.8;a.impactX=0;a.impactY=0;a.impactZ=-1;excite(a,Math.min(.34,.08+speed*.05),0); }
         if (a.z > zLimit) { const speed=Math.abs(a.vz);a.z=zLimit;a.vz=-speed*.8;a.impactX=0;a.impactY=0;a.impactZ=1;excite(a,Math.min(.34,.08+speed*.05),0); }
+      }
+      // Market-cap neighbours perform a repeating approach / impact / separation
+      // cycle: 1↔2, 3↔4 and so on. A moving target distance keeps the motion organic
+      // while the existing soft-body collision solver still owns the actual impact.
+      // Periodically remix partners so the choreography is not locked to
+      // (1,2), (3,4) and the same stocks do not repeatedly meet.
+      const pairingCycle = Math.floor(now / 9200);
+      const collisionOrder = bodies.map((_, index) => index).sort((left, right) => {
+        const hash = (index: number) => Math.sin((index + 1) * 91.73 + pairingCycle * 47.11) * 43758.5453 % 1;
+        return hash(left) - hash(right);
+      });
+      for (let pair = 0; pair * 2 + 1 < collisionOrder.length; pair++) {
+        const aIndex = collisionOrder[pair * 2], bIndex = collisionOrder[pair * 2 + 1];
+        const a = bodies[aIndex], b = bodies[bIndex];
+        const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+        const distance = Math.hypot(dx, dy, dz) || 1;
+        const nx = dx / distance, ny = dy / distance, nz = dz / distance;
+        const phase = (Math.sin(now * .00092 + pair * .42) + 1) * .5;
+        const radiusSum = a.r + b.r;
+        const targetDistance = radiusSum * (.76 + (1 - phase) * 2.15);
+        const force = Math.max(-.09, Math.min(.09, (distance - targetDistance) / Math.max(80, radiusSum) * .038)) * dt;
+        if (pinnedRef.current !== aIndex) {
+          a.vx += nx * force; a.vy += ny * force; a.vz += nz * force;
+        }
+        if (pinnedRef.current !== bIndex) {
+          b.vx -= nx * force; b.vy -= ny * force; b.vz -= nz * force;
+        }
       }
       for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
         const a = bodies[i], b = bodies[j];
@@ -627,16 +878,25 @@ export default function MarketBubblePage() {
         const coreDistance=radiusSum*.86;
         const penetration=Math.max(0,coreDistance-distance);
         const aMovable=pinnedRef.current!==i, bMovable=pinnedRef.current!==j;
-        const aShare=aMovable?(bMovable?.5:1):0, bShare=bMovable?(aMovable?.5:1):0;
+        const capFloor=Math.max(1,Math.min(a.marketCap||1,b.marketCap||1));
+        const aMass=Math.sqrt(Math.max(capFloor,a.marketCap||capFloor)/capFloor);
+        const bMass=Math.sqrt(Math.max(capFloor,b.marketCap||capFloor)/capFloor);
+        const inverseMassA=aMovable?1/aMass:0, inverseMassB=bMovable?1/bMass:0;
+        const inverseMassTotal=Math.max(.0001,inverseMassA+inverseMassB);
+        const aShare=inverseMassA/inverseMassTotal, bShare=inverseMassB/inverseMassTotal;
         a.x-=nx*penetration*aShare*.42;a.y-=ny*penetration*aShare*.42;a.z-=nz*penetration*aShare*.42;
         b.x+=nx*penetration*bShare*.42;b.y+=ny*penetration*bShare*.42;b.z+=nz*penetration*bShare*.42;
         const relativeNormal=(b.vx-a.vx)*nx+(b.vy-a.vy)*ny+(b.vz-a.vz)*nz;
         const impactSpeed=Math.max(0,-relativeNormal);
         if(relativeNormal<-.08){
-          const restitution=.76;
-          const impulse=-(1+restitution)*relativeNormal/(Math.max(.5,aShare+bShare));
-          if(aMovable){a.vx-=nx*impulse*aShare;a.vy-=ny*impulse*aShare;a.vz-=nz*impulse*aShare;}
-          if(bMovable){b.vx+=nx*impulse*bShare;b.vy+=ny*impulse*bShare;b.vz+=nz*impulse*bShare;}
+          const capRatio=Math.min(a.marketCap||capFloor,b.marketCap||capFloor)/Math.max(a.marketCap||capFloor,b.marketCap||capFloor);
+          const imbalance=1-Math.sqrt(capRatio);
+          // Similar caps absorb the encounter; a severe mismatch converts much
+          // more of the impact into recoil on the smaller-cap bubble.
+          const restitution=.18+imbalance*.78;
+          const impulse=-(1+restitution)*relativeNormal/inverseMassTotal;
+          if(aMovable){a.vx-=nx*impulse*inverseMassA;a.vy-=ny*impulse*inverseMassA;a.vz-=nz*impulse*inverseMassA;}
+          if(bMovable){b.vx+=nx*impulse*inverseMassB;b.vy+=ny*impulse*inverseMassB;b.vz+=nz*impulse*inverseMassB;}
         }
         const elasticPush=Math.min(.085,(overlap/contactDistance)*.24)*dt;
         if(aMovable){a.vx-=nx*elasticPush*aShare;a.vy-=ny*elasticPush*aShare;a.vz-=nz*elasticPush*aShare;}
@@ -646,6 +906,118 @@ export default function MarketBubblePage() {
         b.impactX=-nx;b.impactY=-ny;b.impactZ=-nz;
         const angle=Math.atan2(ny,nx)*180/Math.PI;
         excite(a,softness,angle);excite(b,softness,angle+180);
+        const pairKey = `${i}:${j}`;
+        if (now - (pairSparkedAtRef.current[pairKey] || 0) > 1050) {
+          pairSparkedAtRef.current[pairKey] = now;
+          const largestCaps = bodies.map((body) => body.marketCap).sort((left, right) => right - left),
+            maximumCapSum = Math.max(1, (largestCaps[0] || 0) + (largestCaps[1] || 0)),
+            capSumRatio = THREE.MathUtils.clamp((a.marketCap + b.marketCap) / maximumCapSum, 0, 1),
+            // Combined market cap controls every dimension of the effect. The
+            // maximum collision reaches 2x the previous hero scale.
+            sparkScale = .22 + 1.78 * Math.pow(capSumRatio, .68),
+            isMaximumCollision = capSumRatio > .995;
+          const contactRatio = a.r / Math.max(1, a.r + b.r),
+            x = a.screenX + (b.screenX - a.screenX) * contactRatio,
+            y = a.screenY + (b.screenY - a.screenY) * contactRatio,
+            // Radius is already derived from market-cap rank, so it is the visual
+            // energy source: top pairs throw a huge shower; tail pairs stay precise.
+            energy = THREE.MathUtils.clamp(Math.sqrt((a.r + b.r) / 105), .55, 1.85) * sparkScale,
+            burstCase = Math.floor(Math.random() * 5),
+            count = Math.round((16 + energy * 42) * (isMaximumCollision ? 1.35 : 1)),
+            impactAngle = Math.atan2(b.screenY - a.screenY, b.screenX - a.screenX),
+            seed = Math.random() * 1000,
+            palettes = [
+              [198, 48, 30, 10], // blue-white steel / gold / orange / ember
+              [52, 38, 20, 4],   // welding gold / amber / copper / red
+              [188, 212, 44, 16],// electric cyan / blue / yellow / hot orange
+              [285, 205, 52, 25],// ion violet / ice blue / white gold / copper
+              [120, 184, 46, 8], // exotic green-white / cyan / gold / red
+            ][burstCase];
+          sparkParticlesRef.current.push(
+            { x, y, vx: 0, vy: 0, born: now, life: 150 + energy * 65, size: 15 + energy * 18, hue: palettes[0], saturation: 58, flash: true, seed, angle: impactAngle + Math.PI / 2, aspect: 2.8 + energy * .7 },
+            { x, y, vx: 0, vy: 0, born: now, life: 230 + energy * 80, size: 12 + energy * 15, hue: palettes[1], saturation: 100, flash: true, seed: seed + 9, angle: impactAngle - .22, aspect: 2.1 + energy * .5 },
+          );
+          if (isMaximumCollision) {
+            // The market leaders get a unique third arc: a razor-thin blue-white
+            // electrical tear crossing the two material flashes.
+            sparkParticlesRef.current.push(
+              { x, y, vx: 0, vy: 0, born: now, life: 340, size: 48 * energy, hue: 205, saturation: 34, flash: true, seed: seed + 31, angle: impactAngle + 2.2, aspect: 4.8 },
+              { x, y, vx: 0, vy: 0, born: now, life: 145, size: 1, hue: 205, screenFlash: true },
+            );
+          }
+          // Electrical arcs bridge the contact at different angles. Their count and
+          // orientation vary per collision, so the silhouette never repeats.
+          const arcCount = Math.round(1 + energy * 2.35);
+          for (let arc = 0; arc < arcCount; arc++) {
+            sparkParticlesRef.current.push({
+              x, y, vx: 0, vy: 0,
+              born: now + arc * 18,
+              life: 120 + Math.random() * 170,
+              size: (24 + Math.random() * 42) * energy,
+              hue: arc % 2 ? palettes[0] : palettes[1],
+              saturation: arc % 2 ? 48 : 100,
+              seed: seed + arc * 17,
+              angle: impactAngle + (Math.random() - .5) * 2.8,
+              arc: true,
+            });
+          }
+          // Tiny delayed fractures bloom where fast fragments tear away from the
+          // contact. These staggered secondary events make the shower feel layered.
+          const microBursts = Math.round(2 + energy * 2.2);
+          for (let micro = 0; micro < microBursts; micro++) {
+            const direction = impactAngle + (Math.random() - .5) * Math.PI * 1.7,
+              distanceFromContact = (9 + Math.random() * 35) * energy,
+              microX = x + Math.cos(direction) * distanceFromContact,
+              microY = y + Math.sin(direction) * distanceFromContact,
+              delay = 65 + Math.random() * 190;
+            sparkParticlesRef.current.push({
+              x: microX, y: microY, vx: 0, vy: 0,
+              born: now + delay,
+              life: 130 + Math.random() * 100,
+              size: (5 + Math.random() * 8) * energy,
+              hue: palettes[(micro % 3) + 1],
+              saturation: 100,
+              flash: true,
+              seed: seed + micro * 23,
+              angle: direction,
+              aspect: 2 + Math.random() * 1.8,
+            });
+          }
+          for (let spark = 0; spark < count; spark++) {
+            const family = Math.random(),
+              fanSide = spark % 2 ? 1 : -1,
+              // Five burst families: twin fan, forward cone, backward ricochet,
+              // grazing sheet and chaotic fracture. The pattern is picked anew on
+              // every impact, not tied to rank or pair.
+              spread = burstCase === 0
+                ? impactAngle + Math.PI / 2 * fanSide + (Math.random() - .5) * 1.05
+                : burstCase === 1
+                  ? impactAngle + (Math.random() - .5) * 1.35
+                  : burstCase === 2
+                    ? impactAngle + Math.PI + (Math.random() - .5) * 1.7
+                    : burstCase === 3
+                      ? impactAngle + Math.PI / 2 * fanSide + (Math.random() - .5) * .38
+                      : Math.random() * Math.PI * 2 + Math.sin(spark * 2.4) * .32,
+              speed = (2.2 + Math.random() ** .42 * 9.6) * energy,
+              hot = family < .18,
+              ember = family > .82,
+              hue = hot ? palettes[0] + (Math.random() - .5) * 10 : ember ? palettes[3] + Math.random() * 8 : (family < .56 ? palettes[1] : palettes[2]) + (Math.random() - .5) * 10;
+            sparkParticlesRef.current.push({
+              x, y,
+              vx: Math.cos(spread) * speed,
+              vy: Math.sin(spread) * speed,
+              born: now,
+              life: (ember ? 780 : 360) + Math.random() * (430 + energy * 220),
+              size: (hot ? 2.4 + Math.random() * 2.6 : ember ? 1.1 + Math.random() * 1.8 : 1.4 + Math.random() * 2.5) * Math.min(1.35, energy),
+              hue,
+              saturation: hot ? 48 : 100,
+              seed: Math.random() * 1000,
+            });
+          }
+          if (sparkParticlesRef.current.length > 520) {
+            sparkParticlesRef.current.splice(0, sparkParticlesRef.current.length - 520);
+          }
+        }
       }
       bodies.forEach((body) => {
         if (body.el) {
@@ -744,7 +1116,51 @@ export default function MarketBubblePage() {
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
         {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} cameraCommandRef={cameraCommandRef} />}
-        <div className="bubble-stage-hint">버블을 건드려 보세요 <span>마우스 이동 · 클릭</span></div>
+        {!loading && <BubbleCollisionSparks particlesRef={sparkParticlesRef} />}
+        {!loading && items.length > 0 && (
+          <aside className="bubble-market-console" aria-label="시장 온도 요약">
+            <div className="bubble-console-kicker"><i /> MARKET PULSE</div>
+            <div className="bubble-console-score">
+              <span>상위 20 평균</span>
+              <strong className={marketPulse.average > .04 ? "is-up" : marketPulse.average < -.04 ? "is-down" : "is-flat"}>
+                {marketPulse.average > 0 ? "+" : ""}{marketPulse.average.toFixed(2)}<small>%</small>
+              </strong>
+            </div>
+            <div className="bubble-breadth-bar" aria-label={`상승 ${marketPulse.rising}, 보합 ${marketPulse.flat}, 하락 ${marketPulse.falling}`}>
+              <i className="rise" style={{ flex: marketPulse.rising }} />
+              <i className="flat" style={{ flex: marketPulse.flat || .25 }} />
+              <i className="fall" style={{ flex: marketPulse.falling }} />
+            </div>
+            <div className="bubble-breadth-labels">
+              <span><i className="rise" />상승 <b>{marketPulse.rising}</b></span>
+              <span><i className="flat" />보합 <b>{marketPulse.flat}</b></span>
+              <span><i className="fall" />하락 <b>{marketPulse.falling}</b></span>
+            </div>
+            <div className="bubble-movers-title"><span>AMPLITUDE</span><b>변동성 상위</b></div>
+            <div className="bubble-movers">
+              {marketPulse.movers.map((item) => {
+                const index = items.findIndex((candidate) => candidate.code === item.code);
+                return (
+                  <button
+                    type="button"
+                    key={item.code}
+                    onClick={() => {
+                      focusRef.current = index;
+                      setDiscussionIndex(index);
+                    }}
+                  >
+                    <span><small>#{item.rank}</small><b>{shortName(item, market)}</b></span>
+                    <em className={item.change_pct >= 0 ? "is-up" : "is-down"}>
+                      {item.change_pct > 0 ? "+" : ""}{item.change_pct.toFixed(2)}%
+                    </em>
+                  </button>
+                );
+              })}
+            </div>
+            <p>원의 크기는 시총 순위, 깊이는 시장 공간을 뜻합니다.</p>
+          </aside>
+        )}
+        <div className="bubble-stage-hint"><b>MARKET CONSTELLATION</b><span>움직이고, 부딪히고, 반응하는 실시간 시총 지도</span></div>
         <div className="bubble-explorer-guide" aria-hidden="true">
           <span><i>↻</i><b>회전</b><small>한 손가락 · 드래그</small></span>
           <span><i>⌁</i><b>확대·이동</b><small>두 손가락 · 휠</small></span>
@@ -775,12 +1191,13 @@ export default function MarketBubblePage() {
           const lightShape = `${34 + (index * 17) % 43}% ${41 + (index * 23) % 47}% ${38 + (index * 31) % 49}% ${45 + (index * 13) % 41}% / ${39 + (index * 19) % 46}% ${46 + (index * 11) % 39}% ${35 + (index * 29) % 48}% ${43 + (index * 7) % 42}%`;
           const positive = item.change_pct > .04, negative = item.change_pct < -.04;
           const marketCap = formatMarketCap(item, market);
+          const sizeTier = index < 2 ? 1 : index < 5 ? 2 : index < 9 ? 3 : index < 15 ? 4 : 5;
           return (
             <button
               key={`${market}-${item.code}`}
               ref={(el) => { if (bodiesRef.current[index]) bodiesRef.current[index].el = el; }}
               type="button"
-              className="stock-bubble"
+              className={`stock-bubble bubble-size-tier-${sizeTier}`}
               style={{
                 width: diameter,
                 height: diameter,
