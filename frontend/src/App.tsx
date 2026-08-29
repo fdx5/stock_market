@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import LoadingState from "./components/LoadingState";
+import ChessIngressLink from "./components/ChessIngressLink";
 import { useActivityTracking } from "./useActivityTracking";
 import { navigate, useRoute } from "./router";
 import "./components/marketBriefPrint.css";
@@ -368,6 +369,7 @@ export default function App() {
   return (
     <>
       <Suspense fallback={<LoadingState />}>{page}</Suspense>
+      <ChessIngressLink path={path} />
       {showRecentDock && (
         <Suspense fallback={null}>
           <RecentStocksDock />

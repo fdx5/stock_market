@@ -111,6 +111,25 @@ function sendEvent(body: Record<string, unknown>) {
   });
 }
 
+/** Records both the deliberate CTA click and the external game's virtual entrance.
+ * keepalive on sendEvent preserves both requests while the new tab is opening. */
+export function reportChessIngress(sourcePath: string): void {
+  sendEvent({
+    type: "click",
+    path: sourcePath,
+    label: "3D Chess 게임 이동",
+    object_key: "external:3d-chess:click",
+  });
+  sendEvent({
+    type: "page_view",
+    path: "/external/3d-chess",
+    label: "3D Chess 게임 유입",
+    referrer: `${window.location.origin}${sourcePath}`,
+    source_channel: "referral",
+    source_name: "k-stock-hub",
+  });
+}
+
 /* ─────────────────────── the entrance page's own trail ───────────────────────
    The generic click handler below cannot describe the front page. It reads a
    label off whatever DOM element was clicked, and most of that page is a WebGL

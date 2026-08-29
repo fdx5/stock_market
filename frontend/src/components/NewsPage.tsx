@@ -21,7 +21,6 @@ import RankIcon from "./RankIcon";
 import Logo from "./Logo";
 import MarketIcon from "./MarketIcon";
 import ThemeToggle from "./ThemeToggle";
-import VisitorBadge from "./VisitorBadge";
 
 // A full page gets more room than the fight page's popup (limit=6) — 12 items fills
 // out a proper grid (an even 4x3/3x4 on most viewports) without the last row
@@ -217,7 +216,6 @@ export default function NewsPage() {
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

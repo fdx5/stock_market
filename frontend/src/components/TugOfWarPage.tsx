@@ -25,7 +25,6 @@ import MarketIcon from "./MarketIcon";
 import RollingValue from "./RollingValue";
 import SlotMachineValue from "./SlotMachineValue";
 import ThemeToggle from "./ThemeToggle";
-import VisitorBadge from "./VisitorBadge";
 
 const POLL_MS = 3000;
 const REFILL_MS = 9000;
@@ -206,7 +205,6 @@ export default function TugOfWarPage() {
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

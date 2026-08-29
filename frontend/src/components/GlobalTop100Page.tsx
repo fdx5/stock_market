@@ -22,7 +22,6 @@ import MarketIcon from "./MarketIcon";
 import PredictIcon from "./PredictIcon";
 import RankIcon from "./RankIcon";
 import ThemeToggle from "./ThemeToggle";
-import VisitorBadge from "./VisitorBadge";
 import "../globalTop100.css";
 
 const POLL_INTERVAL_MS = 20_000;
@@ -390,7 +389,6 @@ export default function GlobalTop100Page() {
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

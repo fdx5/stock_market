@@ -25,7 +25,6 @@ import SessionSplit from "./SessionSplit";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
 import UsStockIcon from "./UsStockIcon";
-import VisitorBadge from "./VisitorBadge";
 import "./stockBoard.css";
 
 /* ─────────────────────────── what this page is ───────────────────────────
@@ -922,7 +921,6 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> {t("NEWS")}
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

@@ -30,7 +30,6 @@ import MarketIcon from "./MarketIcon";
 import RollingValue from "./RollingValue";
 import SlotMachineValue from "./SlotMachineValue";
 import ThemeToggle from "./ThemeToggle";
-import VisitorBadge from "./VisitorBadge";
 
 const STATUS_POLL_MS = 3000;
 // Tuned to the info card's actual width/font-size so a 2-3 sentence description
@@ -585,7 +584,6 @@ export default function MarketCapFightPage() {
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

@@ -51,7 +51,6 @@ import StockIcon from "./StockIcon";
 import StockQuickAccess from "./StockQuickAccess";
 import StockRadarBoard from "./StockRadarBoard";
 import ThemeToggle from "./ThemeToggle";
-import VisitorBadge from "./VisitorBadge";
 import "./marketDesk.css";
 
 /* The market desk.
@@ -461,7 +460,6 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

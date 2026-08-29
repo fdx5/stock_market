@@ -26,7 +26,6 @@ import StockListIcon from "./StockListIcon";
 import StockDetailPanel from "./StockDetailPanel";
 import StockRosterRail from "./StockRosterRail";
 import ThemeToggle from "./ThemeToggle";
-import VisitorBadge from "./VisitorBadge";
 import "./stocksPage.css";
 
 /* 종목정보 — a cap-ranked list of a market beside everything about one of its names.
@@ -211,7 +210,6 @@ export default function StocksPage() {
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

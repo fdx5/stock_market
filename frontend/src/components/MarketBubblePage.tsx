@@ -32,6 +32,7 @@ type SparkParticle = {
 };
 type GestureState = { pointers: Map<number, { x: number; y: number }>; suppressUntil: number };
 type CameraCommand = { nonce: number; type: "reset" };
+type CollisionWave = { x: number; y: number; z: number; born: number; energy: number; color: string; visualized?: boolean };
 
 const FPS_METER_ENABLED = (() => {
   const params = new URLSearchParams(window.location.search);
@@ -41,6 +42,7 @@ const FPS_METER_ENABLED = (() => {
 
 const BUBBLE_COUNT = 20;
 const WORLD_SCALE = 2;
+const BUBBLE_TRAVEL_SPEED = .5;
 
 const MARKETS: { key: Market; label: string; title: string }[] = [
   { key: "kospi", label: "코스피", title: "KOSPI 주요종목" },
@@ -347,8 +349,8 @@ function BubbleCollisionSparks({ particlesRef }: { particlesRef: MutableRefObjec
   return <canvas ref={canvasRef} className="bubble-spark-layer" aria-hidden="true" />;
 }
 
-function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCommandRef }: {
-  bodiesRef: MutableRefObject<Body[]>; bubbleColors: [string, string][]; count: number; focusRef: MutableRefObject<number | null>; cameraCommandRef: MutableRefObject<CameraCommand>;
+function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCommandRef, collisionWavesRef }: {
+  bodiesRef: MutableRefObject<Body[]>; bubbleColors: [string, string][]; count: number; focusRef: MutableRefObject<number | null>; cameraCommandRef: MutableRefObject<CameraCommand>; collisionWavesRef: MutableRefObject<CollisionWave[]>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -439,6 +441,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     // smallest bubbles.  The previous low-poly silhouette exposed corners.
     const geometry = new THREE.SphereGeometry(1, mobilePerformance ? 24 : 56, mobilePerformance ? 18 : 40);
     const meshes: THREE.Mesh[] = [], shadows: THREE.Sprite[] = [], shadowTextures: THREE.CanvasTexture[] = [], shaders: any[] = [];
+    const trails: THREE.Line[] = [], trailHistories: THREE.Vector3[][] = [];
     for (let i = 0; i < count; i++) {
       const colors = bubbleColors[i] ?? ["#a9bfd2", "#58748d"];
       const logoColor = new THREE.Color(colors[0]);
@@ -447,22 +450,22 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
       const lightVariation = ((i * 37) % 11) / 10;
       const material = new THREE.MeshPhysicalMaterial({
         color: baseColor,
-        roughness: .2 + (i % 4) * .018,
-        metalness: .035,
-        clearcoat: mobilePerformance ? .54 : .92,
-        clearcoatRoughness: .075 + (i % 3) * .018,
-        envMapIntensity: 1.18 + lightVariation * .38,
-        sheen: mobilePerformance ? 0 : .27 + lightVariation * .17,
+        roughness: .39 + (i % 4) * .025,
+        metalness: 0,
+        clearcoat: mobilePerformance ? .18 : .34,
+        clearcoatRoughness: .34 + (i % 3) * .025,
+        envMapIntensity: .72 + lightVariation * .18,
+        sheen: mobilePerformance ? 0 : .18 + lightVariation * .1,
         sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(i % 2 ? 0xd9e9ff : 0xffead6), .26 + lightVariation * .2),
         sheenRoughness: .42,
-        specularIntensity: .96,
+        specularIntensity: .58,
         specularColor: new THREE.Color(colors[0]).lerp(new THREE.Color(0xffffff), .72),
         iridescence: mobilePerformance ? 0 : .22 + (i % 3) * .035,
         iridescenceIOR: 1.38,
         iridescenceThicknessRange: [110, 320],
         ior: 1.46,
         thickness: 1.25,
-        transmission: mobilePerformance ? 0 : .055 + (i % 3) * .012,
+        transmission: 0,
         attenuationColor: new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .18),
         attenuationDistance: 1.7 + (i % 4) * .22,
         emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
@@ -484,9 +487,9 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
       const organicSeed = Math.random() * Math.PI * 2;
       const organicShape = new THREE.Vector4(
         organicSeed,
-        .022 + Math.random() * .025,
-        (Math.random() - .5) * .075,
-        (Math.random() - .5) * .06,
+        .04 + Math.random() * .035,
+        (Math.random() - .5) * .095,
+        (Math.random() - .5) * .08,
       );
       const mochiDetail = new THREE.Vector3(
         2 + Math.floor(Math.random() * 2),
@@ -506,13 +509,16 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
         shader.uniforms.uAccentDirB = { value: new THREE.Vector3(.42 + (i * 19 % 27) / 52, -.55 + (i * 7 % 25) / 55, .7).normalize() };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
         shader.uniforms.uShockAge = { value: 2 }; shader.uniforms.uMaterialWeight = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying float vImpactFacing;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float micro=sin(azimuth*11.0+uOrganic.x*3.1)*sin(latitude*9.0-uOrganic.x)*.004; float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*(mochi*uOrganic.y+micro); vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); vImpactFacing=facing; float contact=pow(smoothstep(.05,1.0,facing),3.1); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=max(uDeform,0.0); float rebound=sin(uPhase)*uWobble; float axial=max(0.0,dot(transformed,hit)); float shockRadius=uShockAge*1.55; float surfaceDistance=acos(clamp(facing,-1.0,1.0)); float shock=exp(-pow((surfaceDistance-shockRadius)/.105,2.0))*(1.0-smoothstep(.0,1.7,uShockAge))*uWobble; transformed-=hit*axial*contact*compression*(.68-uMaterialWeight*.16); transformed+=n*(-contact*compression*.4+shoulder*compression*.24); transformed+=n*(contact*rebound*(.18-uMaterialWeight*.07)-shoulder*rebound*.055+shock*(.32-uMaterialWeight*.11));`);
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying float vImpactFacing;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float micro=sin(azimuth*11.0+uOrganic.x*3.1)*sin(latitude*9.0-uOrganic.x)*.004; float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*(mochi*uOrganic.y+micro); vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); vBubbleNormal=n; vImpactFacing=facing; float contact=pow(smoothstep(.05,1.0,facing),3.1); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=clamp(uDeform,-.09,.35); float rebound=sin(uPhase)*uWobble; float axialDot=dot(transformed,hit); vec3 axialPart=hit*axialDot; vec3 tangentPart=transformed-axialPart; float volumeBulge=max(compression,0.0)*(.16-uMaterialWeight*.035); float wholeBodyRipple=rebound*(.3-uMaterialWeight*.07); transformed=axialPart*(1.0-compression-wholeBodyRipple)+tangentPart*(1.0+volumeBulge+wholeBodyRipple*.48); float axial=max(0.0,dot(transformed,hit)); float shockRadius=uShockAge*1.55; float surfaceDistance=acos(clamp(facing,-1.0,1.0)); float shock=exp(-pow((surfaceDistance-shockRadius)/.105,2.0))*(1.0-smoothstep(.0,1.7,uShockAge))*uWobble; transformed-=hit*axial*contact*max(compression,0.0)*(.24-uMaterialWeight*.05); transformed+=n*(-contact*max(compression,0.0)*.16+shoulder*max(compression,0.0)*.12); transformed+=n*(contact*rebound*(.22-uMaterialWeight*.07)-shoulder*rebound*.08+shock*(.38-uMaterialWeight*.11));`);
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; uniform float uDeform; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying float vImpactFacing;")
           .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); float dome=max(bubbleN.z,0.0); float opticalRim=pow(1.0-dome,2.8); float microGrain=(sin(bubbleN.x*83.0)+sin(bubbleN.y*107.0)+sin(bubbleN.z*71.0))*.008; float surfaceDistance=acos(clamp(vImpactFacing,-1.0,1.0)); float shockRadius=uShockAge*1.55; float shockRing=exp(-pow((surfaceDistance-shockRadius)/.075,2.0))*(1.0-smoothstep(.0,1.65,uShockAge)); float contactGlow=pow(max(vImpactFacing,0.0),16.0)*smoothstep(.015,.12,uDeform); vec3 rimTint=mix(vec3(.45,.82,1.0),vec3(1.0,.65,.24),contactGlow); diffuseColor.rgb*=.94+dome*.08+microGrain; diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),opticalRim*(.13+uMaterialWeight*.1)); diffuseColor.rgb+=rimTint*(shockRing*.38+contactGlow*.82);`);
         shaders[i] = shader;
       };
       const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
+      const trailGeometry = new THREE.BufferGeometry().setFromPoints(Array.from({ length: 12 }, () => new THREE.Vector3()));
+      const trailMaterial = new THREE.LineBasicMaterial({ color: colors[0], transparent: true, opacity: mobilePerformance ? .1 : .2, depthWrite: false, blending: THREE.AdditiveBlending });
+      const trail = new THREE.Line(trailGeometry, trailMaterial); trail.frustumCulled = false; trail.renderOrder = -2; scene.add(trail); trails.push(trail); trailHistories.push([]);
 
       // Each bubble gets a subtly different, palette-tinted pool of shadow.
       // Keeping this in WebGL makes the shadow follow the organic body without
@@ -536,7 +542,8 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     }
     const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/Math.max(1,h);camera.fov=THREE.MathUtils.radToDeg(2*Math.atan(h/(2*cameraDistance)));camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
-    let raf=0, previousRender=0;
+    const activeWaves: { mesh: THREE.Mesh; born: number; energy: number }[] = [];
+    let raf=0, previousRender=0, trailFrame=0;
     const projected = new THREE.Vector3();
     let handledCommand = cameraCommandRef.current.nonce;
     const render = () => {
@@ -560,6 +567,9 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
       }
       controls.update();
       dust.rotation.y += .000035;
+      dust.position.x = camera.position.x * .035;
+      dust.position.y = camera.position.y * .025;
+      trailFrame += 1;
       meshes.forEach((mesh, i) => {
         const body = bodies[i], shadow = shadows[i];
         mesh.visible = Boolean(body); shadow.visible = Boolean(body);
@@ -567,6 +577,17 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
         mesh.position.set(body.x - w / 2, h / 2 - body.y, body.z);
         mesh.scale.setScalar(body.r);
         mesh.rotation.x += body.vy * .00018; mesh.rotation.y += body.vx * .00022;
+        if (trailFrame % (mobilePerformance ? 4 : 2) === 0) {
+          const history = trailHistories[i];
+          history.unshift(mesh.position.clone());
+          if (history.length > 12) history.pop();
+          const positions = trails[i].geometry.getAttribute("position") as THREE.BufferAttribute;
+          for (let point = 0; point < 12; point++) {
+            const sample = history[Math.min(point, history.length - 1)] ?? mesh.position;
+            positions.setXYZ(point, sample.x, sample.y, sample.z);
+          }
+          positions.needsUpdate = true;
+        }
         const shadowAngle = ((i * 53) % 360) * Math.PI / 180,
           shadowOffset = body.r * (.055 + (i % 4) * .014);
         shadow.position.set(body.x - w / 2 + Math.cos(shadowAngle) * shadowOffset, h / 2 - body.y + Math.sin(shadowAngle) * shadowOffset, body.z - body.r * .72);
@@ -599,12 +620,31 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
           body.el.style.visibility = projected.z > 1 || projected.z < -1 ? "hidden" : "visible";
         }
       });
+      collisionWavesRef.current.forEach((wave) => {
+        if (wave.visualized) return;
+        wave.visualized = true;
+        const waveGeometry = new THREE.RingGeometry(.72, 1, mobilePerformance ? 28 : 52);
+        const waveMaterial = new THREE.MeshBasicMaterial({ color: wave.color, transparent: true, opacity: .82, side: THREE.DoubleSide, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending });
+        const waveMesh = new THREE.Mesh(waveGeometry, waveMaterial);
+        waveMesh.position.set(wave.x, wave.y, wave.z); waveMesh.lookAt(camera.position); scene.add(waveMesh);
+        activeWaves.push({ mesh: waveMesh, born: wave.born, energy: wave.energy });
+      });
+      for (let index = activeWaves.length - 1; index >= 0; index--) {
+        const wave = activeWaves[index], age = renderNow - wave.born, progress = age / 720;
+        if (progress >= 1) {
+          scene.remove(wave.mesh); wave.mesh.geometry.dispose(); (wave.mesh.material as THREE.Material).dispose(); activeWaves.splice(index, 1); continue;
+        }
+        const radius = (12 + wave.energy * 20) * (.45 + progress * 3.2);
+        wave.mesh.scale.setScalar(radius); wave.mesh.lookAt(camera.position);
+        (wave.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - progress) ** 1.7 * .78;
+      }
+      collisionWavesRef.current = collisionWavesRef.current.filter((wave) => renderNow - wave.born < 1000);
       renderer.render(scene, camera);
       raf = requestAnimationFrame(render);
     };
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());floorGrid.geometry.dispose();floorMaterials.forEach(material=>material.dispose());dustGeometry.dispose();dustMaterial.dispose();geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
-  }, [bodiesRef, bubbleColors, cameraCommandRef, count, focusRef]);
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());trails.forEach(t=>{t.geometry.dispose();(t.material as THREE.Material).dispose();});activeWaves.forEach(w=>{w.mesh.geometry.dispose();(w.mesh.material as THREE.Material).dispose();});floorGrid.geometry.dispose();floorMaterials.forEach(material=>material.dispose());dustGeometry.dispose();dustMaterial.dispose();geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+  }, [bodiesRef, bubbleColors, cameraCommandRef, collisionWavesRef, count, focusRef]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
 
@@ -626,6 +666,7 @@ export default function MarketBubblePage() {
   const cameraCommandRef = useRef<CameraCommand>({ nonce: 0, type: "reset" });
   const sparkParticlesRef = useRef<SparkParticle[]>([]);
   const pairSparkedAtRef = useRef<Record<string, number>>({});
+  const collisionWavesRef = useRef<CollisionWave[]>([]);
   const gestureRef = useRef<GestureState>({ pointers: new Map(), suppressUntil: 0 });
   const clickTimerRef = useRef<number | null>(null);
   const firstLoadRef = useRef(true);
@@ -801,41 +842,42 @@ export default function MarketBubblePage() {
         const difference = ((angle - body.deformAngleTarget + 180) % 360 + 360) % 360 - 180;
         if (amount > body.deformTarget + .008) {
           body.deformAngleTarget += difference;
-          body.wobbleEnergy = Math.max(body.wobbleEnergy, Math.min(.1, amount * .2));
+          body.wobbleEnergy = Math.max(body.wobbleEnergy, Math.min(.135, amount * .37));
           body.wobblePhase = 0;
           body.shockAge = 0;
           // Let impact direction and strength select the material response, so
           // repeated contacts do not replay one recognisable deformation loop.
           body.jellyProfile = Math.abs(Math.floor(angle / 37) + Math.floor(amount * 113)) % 4;
         }
-        body.deformTarget = Math.max(body.deformTarget, amount);
-        body.deform = Math.max(body.deform, amount * .46);
-        body.deformVelocity = 0;
+        const jellyCompression = THREE.MathUtils.clamp(amount, .1, .35);
+        body.deformTarget = Math.max(body.deformTarget, jellyCompression);
+        body.deformVelocity += Math.max(.013, jellyCompression * .085);
       };
       for (let i = 0; i < bodies.length; i++) {
         const a = bodies[i];
         const largestCap = Math.max(1, bodies[0]?.marketCap || a.marketCap || 1);
         const materialWeight = Math.sqrt(Math.max(0, a.marketCap) / largestCap);
-        // Ease toward a decaying target. Sustained contact holds a soft shape;
-        // separation releases it gradually with a subtle gelatin overshoot.
-        a.deformTarget *= Math.pow(.935, dt);
+        // Underdamped spring: the whole mass compresses, overshoots slightly and
+        // settles in two or three soft oscillations instead of easing linearly.
+        a.deformTarget *= Math.pow(.915, dt);
         // One short, strongly damped elastic recoil after impact. Sustained
         // contact cannot restart it, which avoids the old resting jitter.
-        a.wobbleEnergy *= Math.pow(.86, dt);
-        if (a.wobbleEnergy > .0007) a.wobblePhase += (.31 - materialWeight * .13) * dt;
+        a.wobbleEnergy *= Math.pow(.9, dt);
+        if (a.wobbleEnergy > .0007) a.wobblePhase += (.19 - materialWeight * .055) * dt;
         else a.wobbleEnergy = 0;
         a.shockAge = Math.min(2, a.shockAge + (.022 + materialWeight * .006) * dt);
-        // Monotonic easing prevents the surface from overshooting and
-        // shivering after contact while keeping a soft recovery.
-        a.deform += (a.deformTarget - a.deform) * Math.min(1, .16 * dt);
-        a.deformVelocity = 0;
+        const springStrength = .072 - materialWeight * .01;
+        const springDamping = .82 + materialWeight * .035;
+        a.deformVelocity += (a.deformTarget - a.deform) * springStrength * dt;
+        a.deformVelocity *= Math.pow(springDamping, dt);
+        a.deform += a.deformVelocity * dt;
         const angleDifference = ((a.deformAngleTarget - a.deformAngle + 180) % 360 + 360) % 360 - 180;
         a.deformAngle += angleDifference * Math.min(1, .075 * dt);
         if (a.deformTarget < .0003 && Math.abs(a.deform) < .0003 && Math.abs(a.deformVelocity) < .0003) {
           a.deform = 0;
           a.deformVelocity = 0;
         }
-        a.deform = Math.max(-.3, Math.min(.62, a.deform));
+        a.deform = Math.max(-.09, Math.min(.35, a.deform));
         if (pinnedRef.current === i) {
           a.vx = 0; a.vy = 0; a.vz = 0;
           continue;
@@ -854,7 +896,9 @@ export default function MarketBubblePage() {
         // Leave enough headroom for a small-cap bubble's high-speed recoil. Drag
         // still settles it quickly, while ordinary ambient motion stays unchanged.
         if (speed > 4.2) { const limit = 4.2 / speed; a.vx *= limit; a.vy *= limit; a.vz *= limit; }
-        a.x += a.vx * dt * 4.5; a.y += a.vy * dt * 4.5; a.z += a.vz * dt * 4.5;
+        a.x += a.vx * dt * 4.5 * BUBBLE_TRAVEL_SPEED;
+        a.y += a.vy * dt * 4.5 * BUBBLE_TRAVEL_SPEED;
+        a.z += a.vz * dt * 4.5 * BUBBLE_TRAVEL_SPEED;
         const depthScale = Math.max(.55, (1200 - a.z) / 1200);
         const halfViewWidth = width * depthScale * .5 * WORLD_SCALE;
         const halfViewHeight = height * depthScale * .5 * WORLD_SCALE;
@@ -888,11 +932,16 @@ export default function MarketBubblePage() {
         const radiusSum = a.r + b.r;
         const targetDistance = radiusSum * (.76 + (1 - phase) * 2.15);
         const force = Math.max(-.09, Math.min(.09, (distance - targetDistance) / Math.max(80, radiusSum) * .038)) * dt;
+        // A small 3D corkscrew component makes the approach visibly pass through
+        // depth instead of tracing a straight line on the screen plane.
+        const orbitDirection = pair % 2 ? 1 : -1;
+        const tx = ny * orbitDirection, ty = (-nx + nz * .45) * orbitDirection, tz = (-ny * .55 + nx * .35) * orbitDirection;
+        const orbitForce = Math.sin(Math.PI * phase) * .018 * dt;
         if (pinnedRef.current !== aIndex) {
-          a.vx += nx * force; a.vy += ny * force; a.vz += nz * force;
+          a.vx += nx * force + tx * orbitForce; a.vy += ny * force + ty * orbitForce; a.vz += nz * force + tz * orbitForce;
         }
         if (pinnedRef.current !== bIndex) {
-          b.vx -= nx * force; b.vy -= ny * force; b.vz -= nz * force;
+          b.vx -= nx * force + tx * orbitForce; b.vy -= ny * force + ty * orbitForce; b.vz -= nz * force + tz * orbitForce;
         }
       }
       for (let i = 0; i < bodies.length; i++) for (let j = i + 1; j < bodies.length; j++) {
@@ -932,7 +981,7 @@ export default function MarketBubblePage() {
         const elasticPush=Math.min(.085,(overlap/contactDistance)*.24)*dt;
         if(aMovable){a.vx-=nx*elasticPush*aShare;a.vy-=ny*elasticPush*aShare;a.vz-=nz*elasticPush*aShare;}
         if(bMovable){b.vx+=nx*elasticPush*bShare;b.vy+=ny*elasticPush*bShare;b.vz+=nz*elasticPush*bShare;}
-        const softness=Math.min(.52,Math.max(.08,.07+overlap/Math.max(24,Math.min(a.r,b.r))*.72+impactSpeed*.07));
+        const softness=Math.min(.35,Math.max(.1,.1+overlap/Math.max(24,Math.min(a.r,b.r))*.42+impactSpeed*.055));
         a.impactX=nx;a.impactY=ny;a.impactZ=nz;
         b.impactX=-nx;b.impactY=-ny;b.impactZ=-nz;
         const angle=Math.atan2(ny,nx)*180/Math.PI;
@@ -964,6 +1013,14 @@ export default function MarketBubblePage() {
               [285, 205, 52, 25],// ion violet / ice blue / white gold / copper
               [120, 184, 46, 8], // exotic green-white / cyan / gold / red
             ][burstCase];
+          collisionWavesRef.current.push({
+            x: a.x - width / 2 + dx * contactRatio,
+            y: height / 2 - (a.y + dy * contactRatio),
+            z: a.z + dz * contactRatio,
+            born: now,
+            energy,
+            color: burstCase % 2 ? "#ffd27a" : "#8adfff",
+          });
           sparkParticlesRef.current.push(
             { x, y, vx: 0, vy: 0, born: now, life: 150 + energy * 65, size: 15 + energy * 18, hue: palettes[0], saturation: 58, flash: true, seed, angle: impactAngle + Math.PI / 2, aspect: 2.8 + energy * .7 },
             { x, y, vx: 0, vy: 0, born: now, life: 230 + energy * 80, size: 12 + energy * 15, hue: palettes[1], saturation: 100, flash: true, seed: seed + 9, angle: impactAngle - .22, aspect: 2.1 + energy * .5 },
@@ -1147,7 +1204,7 @@ export default function MarketBubblePage() {
         onPointerCancelCapture={endGesture}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
-        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} cameraCommandRef={cameraCommandRef} />}
+        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} cameraCommandRef={cameraCommandRef} collisionWavesRef={collisionWavesRef} />}
         {!loading && <BubbleCollisionSparks particlesRef={sparkParticlesRef} />}
         {!loading && items.length > 0 && (
           <aside className="bubble-market-console" aria-label="시장 온도 요약">

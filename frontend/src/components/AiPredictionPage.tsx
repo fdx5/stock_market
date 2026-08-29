@@ -38,7 +38,6 @@ import PredictionCard from "./PredictionCard";
 import PredictionDetailModal from "./PredictionDetailModal";
 import RankIcon from "./RankIcon";
 import ThemeToggle from "./ThemeToggle";
-import VisitorBadge from "./VisitorBadge";
 
 type SortKey =
   | "marketcap"
@@ -883,7 +882,6 @@ export default function AiPredictionPage() {
           <Link to="/ai-prediction/grading" className="kospi-map-nav-link">
             채점 결과 매트릭스
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

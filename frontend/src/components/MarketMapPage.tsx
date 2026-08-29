@@ -24,7 +24,6 @@ import SessionSplit from "./SessionSplit";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
 import UsStockIcon from "./UsStockIcon";
-import VisitorBadge from "./VisitorBadge";
 
 interface SectorZone {
   sector: string;
@@ -1031,7 +1030,6 @@ export default function MarketMapPage({
               {NEW_ROUTES.has(link.to) && <NewBadge />}
             </Link>
           ))}
-          <VisitorBadge />
         </div>
       </header>
 

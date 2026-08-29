@@ -40,7 +40,6 @@ import SidePanel from "./SidePanel";
 import StockIcon from "./StockIcon";
 import StockQuickAccess from "./StockQuickAccess";
 import ThemeToggle from "./ThemeToggle";
-import VisitorBadge from "./VisitorBadge";
 
 const QUOTE_POLL_MS = 10_000;
 const DEFAULT_STOCK_CODE = "005930"; // Samsung Electronics
@@ -357,7 +356,6 @@ export default function Dashboard() {
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 

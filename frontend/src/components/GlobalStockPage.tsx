@@ -46,7 +46,6 @@ import StockRadarBoard from "./StockRadarBoard";
 import UsIndexStrip from "./UsIndexStrip";
 import UsRankBoard from "./UsRankBoard";
 import UsSectorMapPanel from "./UsSectorMapPanel";
-import VisitorBadge from "./VisitorBadge";
 import { useUsMarketSnapshot } from "../useUsMarketSnapshot";
 import "./marketDesk.css";
 
@@ -401,7 +400,6 @@ export default function GlobalStockPage() {
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> NEWS
           </Link>
-          <VisitorBadge />
         </div>
       </header>
 
