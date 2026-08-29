@@ -361,6 +361,10 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = .96;
     const scene = new THREE.Scene();
+    // Atmospheric falloff and a receding floor give the eye stable distance cues.
+    // Without them, differently-sized spheres can still read as flat circles because
+    // the transparent background offers no reference plane for their z positions.
+    scene.fog = new THREE.FogExp2(0x06101d, mobilePerformance ? .00034 : .00027);
     // Keep the camera well outside even the largest rank-scaled sphere.
     // A close camera clips the front cap of large spheres and makes them look
     // like white-centred rings because the transparent page shows through.
@@ -371,7 +375,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     // position is pulled back.
     const initialCameraDistance = 1750;
     const camera = new THREE.PerspectiveCamera(42, 1, 20, 4600);
-    camera.position.z = initialCameraDistance;
+    camera.position.set(0, mobilePerformance ? 72 : 145, initialCameraDistance);
     // OrbitControls listens on the whole stage and normally captures the pointer
     // on pointerdown. When the target is a moving HTML bubble that capture changes
     // the eventual click target to the stage, so the discussion panel never opens.
@@ -399,6 +403,8 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     controls.touches.ONE = THREE.TOUCH.ROTATE;
     controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
     controls.saveState();
+    controls.target.set(0, -35, 0);
+    controls.update();
     const releaseFocus = () => { focusRef.current = null; };
     controls.addEventListener("start", releaseFocus);
     const pmrem = new THREE.PMREMGenerator(renderer);
@@ -408,15 +414,26 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     const key = new THREE.DirectionalLight(0xfff4dc, 1.55); key.position.set(-4, 6, 9); scene.add(key);
     const fill = new THREE.DirectionalLight(0x90bfff, .52); fill.position.set(6, 1, 6); scene.add(fill);
     const rim = new THREE.DirectionalLight(0xa9dfff, .62); rim.position.set(-5, -4, 3); scene.add(rim);
+    const floorGrid = new THREE.GridHelper(3600, mobilePerformance ? 22 : 36, 0x4ca7d8, 0x173d5b);
+    const floorMaterials = Array.isArray(floorGrid.material) ? floorGrid.material : [floorGrid.material];
+    floorMaterials.forEach((material) => {
+      material.transparent = true;
+      material.opacity = mobilePerformance ? .11 : .16;
+      material.depthWrite = false;
+      material.fog = true;
+    });
+    floorGrid.position.set(0, -690, -280);
+    floorGrid.scale.z = 1.35;
+    scene.add(floorGrid);
     const dustGeometry = new THREE.BufferGeometry();
     const dustPositions = new Float32Array((mobilePerformance ? 64 : 210) * 3);
     for (let i = 0; i < dustPositions.length; i += 3) {
       dustPositions[i] = (Math.random() - .5) * 2500;
       dustPositions[i + 1] = (Math.random() - .5) * 1500;
-      dustPositions[i + 2] = (Math.random() - .5) * 1500;
+      dustPositions[i + 2] = (Math.random() - .5) * 2600;
     }
     dustGeometry.setAttribute("position", new THREE.BufferAttribute(dustPositions, 3));
-    const dustMaterial = new THREE.PointsMaterial({ color: 0x8ccfff, size: 2.1, transparent: true, opacity: .2, depthWrite: false, blending: THREE.AdditiveBlending });
+    const dustMaterial = new THREE.PointsMaterial({ color: 0x8ccfff, size: mobilePerformance ? 2.4 : 3.1, transparent: true, opacity: .28, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
     const dust = new THREE.Points(dustGeometry, dustMaterial); scene.add(dust);
     // Extra radial segments keep the frozen organic profile round even on the
     // smallest bubbles.  The previous low-poly silhouette exposed corners.
@@ -530,15 +547,15 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
       if (cameraCommandRef.current.nonce !== handledCommand) {
         handledCommand = cameraCommandRef.current.nonce;
         focusRef.current = null;
-        controls.target.set(0, 0, 0);
-        camera.position.set(0, 0, initialCameraDistance);
+        controls.target.set(0, -35, 0);
+        camera.position.set(0, mobilePerformance ? 72 : 145, initialCameraDistance);
         camera.up.set(0, 1, 0);
         controls.update();
       }
       const focused = focusRef.current == null ? null : meshes[focusRef.current];
       if (focused) {
         controls.target.lerp(focused.position, .055);
-        const desired = focused.position.clone().add(new THREE.Vector3(0, 0, Math.max(570, focused.scale.x * 5.4)));
+        const desired = focused.position.clone().add(new THREE.Vector3(0, Math.max(55, focused.scale.y * .55), Math.max(570, focused.scale.x * 5.4)));
         camera.position.lerp(desired, .04);
       }
       controls.update();
@@ -586,7 +603,7 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
       raf = requestAnimationFrame(render);
     };
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());dustGeometry.dispose();dustMaterial.dispose();geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());floorGrid.geometry.dispose();floorMaterials.forEach(material=>material.dispose());dustGeometry.dispose();dustMaterial.dispose();geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
   }, [bodiesRef, bubbleColors, cameraCommandRef, count, focusRef]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
@@ -685,7 +702,9 @@ export default function MarketBubblePage() {
         y: rect.height * .5 + ((((row + .7) / (rows + .45)) * rect.height) - rect.height * .5) * 1.55,
         vx: (Math.random() - .5) * .44,
         vy: (Math.random() - .5) * .44,
-        z: (-210 + (i * 83) % 470) * WORLD_SCALE,
+        // A broad, deterministic front/back spread makes perspective apparent on
+        // first paint instead of requiring the viewer to orbit the camera to notice it.
+        z: (-470 + (i * 173) % 980) * WORLD_SCALE,
         vz: (Math.random() - .5) * .52,
         r,
         marketCap: numericMarketCap(item),
