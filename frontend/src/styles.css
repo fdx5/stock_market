@@ -23,6 +23,16 @@
   --series-amber: #d9a441;
   --series-green: #3fae64;
 
+  /* Nav-pill accents for 증시궤도 / 증시버블 / TOP 100. Not part of the series set —
+     they never appear beside chart series, and every --series-* hue was already spent
+     elsewhere in the same nav row (blue KOSPI, aqua KOSDAQ, red 종목토론·시총대결,
+     violet AI 예측, yellow NEWS, pink S&P500, orange NASDAQ·브리핑, green 종목정보).
+     These three sit in the row's remaining gaps — cyan ~190°, orchid ~290°, lime ~80° —
+     so the three pills stay separable from each other and from their neighbours. */
+  --nav-orbit: #35b6d6;
+  --nav-bubble: #b578e0;
+  --nav-rank: #9dc23c;
+
   --status-good: #0ca30c;
   --status-warning: #fab219;
   --status-critical: #d03b3b;
@@ -70,6 +80,13 @@
   --series-orange: #b06a35;
   --series-amber: #a37a2e;
   --series-green: #3f8656;
+
+  /* Light-theme counterparts — darkened to roughly the same lightness as the
+     --series-* values above, since the pill paints its accent as text on a
+     near-white page. */
+  --nav-orbit: #2a7f99;
+  --nav-bubble: #8a55b1;
+  --nav-rank: #67882a;
 
   --status-good: #3f8656;
   --status-warning: #a37a2e;
@@ -4039,30 +4056,39 @@ thead .weekly-foreign-amount-col {
   background: color-mix(in srgb, var(--series-red) 22%, transparent);
 }
 
-.kospi-map-nav-link--bubbles {
-  position: relative;
-  color: #52677d;
-  background: linear-gradient(145deg, rgba(228, 241, 250, .94), rgba(242, 232, 250, .9));
-  border-color: rgba(112, 132, 158, .2);
-}
-
-.kospi-map-nav-link--bubbles:hover {
-  color: #293e55;
-  border-color: rgba(90, 116, 148, .35);
-  box-shadow: 0 7px 18px rgba(83, 105, 133, .16), inset 0 1px rgba(255, 255, 255, .8);
-}
-
+/* 증시궤도 · 증시버블 · TOP 100 now share the 종목토론 pill's flat single-tone
+   treatment, each on its own accent chip (see --nav-orbit/--nav-bubble/--nav-rank).
+   They used to be one-off styles — two pale light-mode-only gradients that stayed pale
+   on the dark page, and one inverted solid pill — which broke the row into three
+   visual families. */
 .kospi-map-nav-link--orbit {
-  position: relative;
-  color: #5578dc;
-  border-color: rgba(75, 116, 225, .3);
-  background: linear-gradient(145deg, rgba(224, 235, 255, .96), rgba(231, 225, 255, .9));
+  color: var(--nav-orbit);
+  border-color: var(--nav-orbit);
+  background: color-mix(in srgb, var(--nav-orbit) 12%, transparent);
+  animation-delay: 2.7s;
+}
+
+.kospi-map-nav-link--orbit::after {
+  animation-delay: 2.7s;
 }
 
 .kospi-map-nav-link--orbit:hover {
-  color: #2949a8;
-  border-color: rgba(65, 103, 215, .48);
-  box-shadow: 0 7px 18px rgba(61, 96, 203, .18), inset 0 1px rgba(255, 255, 255, .85);
+  background: color-mix(in srgb, var(--nav-orbit) 22%, transparent);
+}
+
+.kospi-map-nav-link--bubbles {
+  color: var(--nav-bubble);
+  border-color: var(--nav-bubble);
+  background: color-mix(in srgb, var(--nav-bubble) 12%, transparent);
+  animation-delay: 3s;
+}
+
+.kospi-map-nav-link--bubbles::after {
+  animation-delay: 3s;
+}
+
+.kospi-map-nav-link--bubbles:hover {
+  background: color-mix(in srgb, var(--nav-bubble) 22%, transparent);
 }
 
 .market-orbit-nav-icon {
@@ -4134,44 +4160,27 @@ thead .weekly-foreign-amount-col {
 
 }
 
-/* TOP 100's pill is the one filled shape in a row of outlined neon ones.
-   Every --series-* hue was already spoken for (blue/aqua/red/violet/yellow/pink/
-   orange) and green is the live badge sitting a few pixels away on the map pages,
-   so an eighth outlined pill in a near-duplicate hue would have been the least
-   findable thing in the row rather than the most. Inverting it instead makes it read
-   as the row's primary destination at a glance, and matches the filled active tab of
-   the segmented switcher on the board it opens.
-
-   currentColor is the page surface here, so the base rule's currentColor-derived
-   glow and shimmer would both paint dark-on-dark — each is restated below against
-   --text-primary explicitly. */
+/* TOP 100 used to be the one filled shape in a row of outlined neon ones. It now
+   joins the same outlined family as 종목토론, on the lime chip (--nav-rank) — the last
+   hue gap left in the row, and far enough from --series-green (종목정보) and
+   --series-yellow (NEWS) to stay separable. */
 .kospi-map-nav-link--top100 {
-  color: var(--surface-1);
-  border-color: var(--text-primary);
-  background: var(--text-primary);
+  color: var(--nav-rank);
+  border-color: var(--nav-rank);
+  background: color-mix(in srgb, var(--nav-rank) 12%, transparent);
   animation-delay: 2.4s;
-  text-shadow: none;
-  box-shadow:
-    0 0 12px color-mix(in srgb, var(--text-primary) 40%, transparent),
-    0 0 26px color-mix(in srgb, var(--text-primary) 22%, transparent);
 }
 
 .kospi-map-nav-link--top100::after {
-  background: linear-gradient(
-    100deg,
-    transparent 30%,
-    color-mix(in srgb, var(--page-plane) 55%, transparent) 50%,
-    transparent 70%
-  );
   animation-delay: 2.4s;
 }
 
 .kospi-map-nav-link--top100:hover {
-  background: color-mix(in srgb, var(--text-primary) 82%, var(--series-blue));
+  background: color-mix(in srgb, var(--nav-rank) 22%, transparent);
 }
 
 .app-footer-links a.app-footer-market-link--top100 {
-  color: var(--text-primary);
+  color: var(--nav-rank);
   animation-delay: 2.4s;
 }
 
