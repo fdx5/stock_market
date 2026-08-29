@@ -947,7 +947,25 @@ uniform float uInvertLandform;`,
       scene.add(trail);
       planet.orbitMaterial = material;
     });
-    controls.maxDistance = Math.max(780, (sys?.stocks.length ?? 1) * 16);
+    const outermostPlanet = movers[movers.length - 1],
+      systemRadius = Math.max(
+        70,
+        (outermostPlanet?.orbit ?? 45) +
+          (Number(outermostPlanet?.mesh.userData.radius) || 1) * 3,
+      ),
+      verticalHalfFov = THREE.MathUtils.degToRad(camera.fov * 0.5),
+      horizontalHalfFov = Math.atan(Math.tan(verticalHalfFov) * camera.aspect),
+      overviewDistance =
+        (systemRadius / Math.tan(Math.min(verticalHalfFov, horizontalHalfFov))) *
+        1.12;
+    // The automatic tour starts far enough away to contain the complete system.
+    // OrbitControls must permit that distance or its update step clamps the camera
+    // back inward and crops the outer planets.
+    controls.maxDistance = Math.max(
+      780,
+      (sys?.stocks.length ?? 1) * 16,
+      overviewDistance * 1.08,
+    );
     const defaultCameraPosition = camera.position.clone(),
       defaultCameraTarget = controls.target.clone();
     let focusTarget: THREE.Object3D | null = selected
@@ -961,7 +979,7 @@ uniform float uInvertLandform;`,
       focusViewStyle = -1,
       focusFlightStartedAt = performance.now(),
       tourJourneyStartedAt = performance.now(),
-      tourStage: "star" | "planet" | "target" | "dwell" | null = null,
+      tourStage: "overview" | "planet" | "target" | "dwell" | null = null,
       tourPlanetTarget: THREE.Object3D | null = null,
       tourPlanetViewStyle = -1,
       tourLegStartedAt = 0,
@@ -973,17 +991,23 @@ uniform float uInvertLandform;`,
     const lastFocusPosition = new THREE.Vector3();
     const focusMotion = new THREE.Vector3();
     const tourDwellOffset = new THREE.Vector3();
-    /* The star-to-planet leg of the tour. It is flown on a clock rather than chased
+    /* The system-to-planet leg of the tour. It is flown on a clock rather than chased
        with a damped lerp: an exponential approach spends more than half the gap in its
        first second, so the planet went from invisible to filling the frame before the
-       viewer could register the trip. Five seconds, eased at both ends, along a bowed
-       path — the planet is framed early and grows the whole way in. */
-    const TOUR_APPROACH_MS = 5000;
+       viewer could register the trip. A distance-scaled six to eight-and-a-half
+       seconds, eased at both ends along a bowed path, keeps the planet framed early
+       while it grows naturally through the approach. */
+    const TOUR_OVERVIEW_MS = 4800;
+    let tourApproachMs = 6000;
     const tourLegFrom = new THREE.Vector3();
     const tourLegLookFrom = new THREE.Vector3();
     const tourLegControl = new THREE.Vector3();
     const tourLegSpan = new THREE.Vector3();
     const tourLegBow = new THREE.Vector3();
+    const tourOverviewDirection = new THREE.Vector3(0.58, 0.72, 1).normalize();
+    const tourOverviewPosition = tourOverviewDirection
+      .clone()
+      .multiplyScalar(overviewDistance);
     const cinematicOffsets = [
       new THREE.Vector3(0.8, 0.34, 1).normalize(),
       new THREE.Vector3(-1, 0.18, 0.52).normalize(),
@@ -1478,6 +1502,14 @@ uniform float uInvertLandform;`,
       }
     };
     const focusStarByTap = (body: THREE.Object3D) => {
+      // A second tap is awkward on touch screens and makes the first tap look
+      // unresponsive. Match the other planets on mobile by opening the detail
+      // panel as soon as the central body is selected, while keeping the wider
+      // desktop inspection flow unchanged.
+      if (matchMedia("(max-width: 760px)").matches) {
+        focusBody(body);
+        return;
+      }
       const alreadyFocused = focusTarget === body && !flying;
       if (alreadyFocused) {
         const stock = body.userData.stock as MarketMapItem;
@@ -1512,7 +1544,7 @@ uniform float uInvertLandform;`,
         viewStyle >= 0 &&
         centralStar
       ) {
-        tourStage = body === centralStar ? "target" : "star";
+        tourStage = body === centralStar ? "target" : "overview";
         tourPlanetTarget = body === centralStar ? null : body;
         tourPlanetViewStyle = viewStyle;
         focusTarget = centralStar;
@@ -1865,7 +1897,7 @@ uniform float uInvertLandform;`,
           const approachLeg = tourStage === "planet",
             approachAge = approachLeg ? nowMs - tourLegStartedAt : 0,
             approachT = approachLeg
-              ? Math.min(1, approachAge / TOUR_APPROACH_MS)
+              ? Math.min(1, approachAge / tourApproachMs)
               : 0,
             // Smootherstep: unsticks from the star gently, crosses the gap, settles
             // into the framing position instead of slamming into it.
@@ -1876,8 +1908,8 @@ uniform float uInvertLandform;`,
               journeyAge = nowMs - tourJourneyStartedAt,
               stageProgress = approachLeg
                 ? approachEase
-                : tourStage === "star"
-                  ? THREE.MathUtils.smoothstep(journeyAge, 0, 4000)
+                : tourStage === "overview"
+                  ? THREE.MathUtils.smoothstep(journeyAge, 0, TOUR_OVERVIEW_MS)
                   : THREE.MathUtils.smoothstep(journeyAge, 4000, 12000),
               approachRemaining = 1 - (tourStage ? stageProgress : THREE.MathUtils.smoothstep(flightAge, 0, 4200)),
               approachSwing = approachRemaining *
@@ -1898,7 +1930,17 @@ uniform float uInvertLandform;`,
                   : approachSwing;
             focusOffset.applyAxisAngle(rotationAxes[axisStyle], signedSwing);
             desiredCamera.copy(focusTarget.position).add(focusOffset);
-            if (approachLeg) {
+            if (tourStage === "overview") {
+              // Establish the geography before visiting one member of it. The
+              // camera pulls to a diagonal view that fits the outermost orbit on
+              // both portrait and landscape screens and looks at the system core.
+              desiredCamera.copy(tourOverviewPosition);
+              desiredTarget.set(0, 0, 0);
+              camera.position.lerp(
+                desiredCamera,
+                dampAlpha(0.92, frameDelta),
+              );
+            } else if (approachLeg) {
               // Bow the path off the straight line so the crossing reads as a flight
               // through the system rather than a slide down a wire. The control point
               // is rebuilt each frame because the planet keeps moving along its orbit.
@@ -1922,9 +1964,7 @@ uniform float uInvertLandform;`,
               camera.position.lerp(
                 desiredCamera,
                 dampAlpha(
-                  tourStage === "star"
-                    ? 0.82
-                    : approachRates[focusViewStyle % approachRates.length],
+                  approachRates[focusViewStyle % approachRates.length],
                   frameDelta,
                 ),
               );
@@ -1947,21 +1987,21 @@ uniform float uInvertLandform;`,
           } else {
             controls.target.lerp(
               desiredTarget,
-              dampAlpha(tourStage ? 0.9 : 3.08, frameDelta),
+              dampAlpha(
+                tourStage === "overview" ? 0.78 : tourStage ? 0.9 : 3.08,
+                frameDelta,
+              ),
             );
           }
-          const starFlybyComplete =
-            tourStage === "star" &&
-            ((nowMs - tourJourneyStartedAt > 3600 &&
-              camera.position.distanceTo(focusTarget.position) <
-                Math.max(radius * 5.2, 58)) ||
-              nowMs - tourJourneyStartedAt >= 4000),
+          const overviewComplete =
+            tourStage === "overview" &&
+            nowMs - tourJourneyStartedAt >= TOUR_OVERVIEW_MS,
             tourArrivalComplete = approachLeg
               ? approachT >= 1
               : tourStage === "target" && nowMs - tourJourneyStartedAt >= 12000;
-          if (starFlybyComplete || tourArrivalComplete ||
+          if (overviewComplete || tourArrivalComplete ||
               (tourStage === null && camera.position.distanceTo(desiredCamera) < 0.18)) {
-            if (tourStage === "star" && tourPlanetTarget) {
+            if (tourStage === "overview" && tourPlanetTarget) {
               focusTarget = tourPlanetTarget;
               focusViewStyle = tourPlanetViewStyle;
               focusFlightStartedAt = nowMs;
@@ -1972,6 +2012,14 @@ uniform float uInvertLandform;`,
               tourLegStartedAt = nowMs;
               tourLegFrom.copy(camera.position);
               tourLegLookFrom.copy(controls.target);
+              // Give distant outer planets longer without making short inner-system
+              // trips feel sluggish. This is evaluated from the actual overview
+              // shot, so it stays proportional if the system layout changes.
+              tourApproachMs = THREE.MathUtils.clamp(
+                5200 + tourLegFrom.distanceTo(tourPlanetTarget.position) * 3.2,
+                6000,
+                8500,
+              );
               flying = true;
             } else if (tourArrivalComplete && focusTarget) {
               camera.position.copy(desiredCamera);
@@ -3253,7 +3301,30 @@ export default function KospiOrbitPage({
       y: number;
     } | null>(null),
     [colors, setColors] = useState<Map<string, number>>(new Map());
-  const handleSceneReady = useCallback(() => setReady(true), []);
+  const activeSectorRef = useRef(mode.sector);
+  activeSectorRef.current = mode.sector;
+  const pendingTourFocusRef = useRef<{
+    stock: MarketMapItem;
+    viewStyle: number;
+  } | null>(null);
+  const launchTourFocus = useCallback(
+    ({ stock, viewStyle }: { stock: MarketMapItem; viewStyle: number }) => {
+      setSelected(stock);
+      window.dispatchEvent(
+        new CustomEvent("kospi-orbit-focus", {
+          detail: { code: stock.code, revealDetails: true, viewStyle },
+        }),
+      );
+    },
+    [],
+  );
+  const handleSceneReady = useCallback(() => {
+    setReady(true);
+    const pending = pendingTourFocusRef.current;
+    if (!pending) return;
+    pendingTourFocusRef.current = null;
+    launchTourFocus(pending);
+  }, [launchTourFocus]);
   const handleOpenCompanyBrowser = useCallback((stock: MarketMapItem) => {
     if (innerWidth <= 900) return;
     setSelected(stock);
@@ -3450,39 +3521,40 @@ export default function KospiOrbitPage({
       .sort((a, b) => Math.abs(b.change_pct) - Math.abs(a.change_pct))
       .slice(0, 8);
     let cursor = 0,
-      resetTimer = 0,
-      focusTimer = 0;
+      focusFrame = 0;
     const visit = () => {
       const viewStyle = cursor % 8,
-        stock = tour[cursor++ % tour.length];
-      setExpanded(stock.sector || "기타");
-      setMode({ kind: "system", sector: stock.sector || "기타" });
+        stock = tour[cursor++ % tour.length],
+        sector = stock.sector || "기타",
+        changingSystem = activeSectorRef.current !== sector;
+      pendingTourFocusRef.current = { stock, viewStyle };
+      setExpanded(sector);
+      setMode({ kind: "system", sector });
       setSelected(null);
-      resetTimer = window.setTimeout(
-        () => window.dispatchEvent(new Event("kospi-orbit-reset-view")),
-        160,
-      );
       history.replaceState({}, "", `${config.route}?code=${stock.code}`);
-      focusTimer = window.setTimeout(
-        () => {
-          setSelected(stock);
-          window.dispatchEvent(
-            new CustomEvent("kospi-orbit-focus", {
-              detail: { code: stock.code, revealDetails: true, viewStyle },
-            }),
-          );
-        },
-        3000,
-      );
+      if (changingSystem) {
+        // The replacement scene launches from onReady. This targets the new system
+        // without retaining the former three-second pause.
+        setReady(false);
+      } else {
+        // The system is already mounted; start on the very next paint.
+        window.cancelAnimationFrame(focusFrame);
+        focusFrame = window.requestAnimationFrame(() => {
+          const pending = pendingTourFocusRef.current;
+          if (!pending || pending.stock.code !== stock.code) return;
+          pendingTourFocusRef.current = null;
+          launchTourFocus(pending);
+        });
+      }
     };
     visit();
     const timer = window.setInterval(visit, 35000);
     return () => {
       window.clearInterval(timer);
-      window.clearTimeout(resetTimer);
-      window.clearTimeout(focusTimer);
+      window.cancelAnimationFrame(focusFrame);
+      pendingTourFocusRef.current = null;
     };
-  }, [autoTour, items, config.route]);
+  }, [autoTour, items, config.route, launchTourFocus]);
   useEffect(() => {
     if (!autoTour) {
       setTourSectorText("");
