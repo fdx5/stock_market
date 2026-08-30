@@ -17,7 +17,9 @@ from app.data import investor_fetcher
 from app.data.universe import get_stock_name
 from app.services import market_brief_store
 
-SITE = "https://kospi-predictor.onrender.com"
+from app.site import PRIMARY_SITE_URL
+
+SITE = PRIMARY_SITE_URL
 IMAGE = f"{SITE}/img/kospi-map-preview.png"
 MARKET_BRIEF_ROUTE = re.compile(r"^/market-brief/(\d{4}-\d{2}-\d{2})/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})$", re.I)
 STOCK_ROUTE = re.compile(r"^/stock/(\d{6})$", re.I)

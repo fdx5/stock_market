@@ -26,7 +26,9 @@ KAKAO_SEND_URL = "https://kapi.kakao.com/v2/api/talk/memo/default/send"
 # Same production URL the existing cron workflows (ai-prediction.yml, keep-alive.yml)
 # already hit — kept as a plain constant here for the same reason: this app runs as a
 # single deployed instance, not something with multiple environments to parameterize.
-SITE_URL = "https://kospi-predictor.onrender.com"
+from app.site import PRIMARY_SITE_URL
+
+SITE_URL = PRIMARY_SITE_URL
 
 # Refresh proactively once the access token has less than this long left, so a
 # borderline-expired token from a slow request never gets used. Kakao's access tokens

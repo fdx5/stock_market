@@ -10,11 +10,12 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.staticfiles import NotModifiedResponse
 
 from app.services.libsql_gate import StoreUnavailable
+from app.site import LEGACY_RENDER_HOST, PRIMARY_SITE_URL
 
 from app.data.global_discussion_fetcher import warm_nasdaq_symbols
 from app.data.universe import get_top_market_cap, get_top_market_cap_all, warm_english_names
@@ -64,6 +65,18 @@ from app.services.stock_board import warm_boards
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
 
 app = FastAPI(title="KOSPI 종목 예측")
+
+
+@app.middleware("http")
+async def _redirect_legacy_render_domain(request: Request, call_next):
+    """Move every legacy Render URL to the same path/query on the canonical domain."""
+    host = request.headers.get("host", "").split(":", 1)[0].lower()
+    if host == LEGACY_RENDER_HOST:
+        target = f"{PRIMARY_SITE_URL}{request.url.path}"
+        if request.url.query:
+            target += f"?{request.url.query}"
+        return RedirectResponse(target, status_code=301)
+    return await call_next(request)
 
 app.add_middleware(
     CORSMiddleware,

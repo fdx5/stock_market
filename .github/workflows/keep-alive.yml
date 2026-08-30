@@ -47,20 +47,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping health endpoint
-        run: curl -fsS --compressed --max-time 20 https://kospi-predictor.onrender.com/api/health
+        run: curl -fsS --compressed --max-time 20 https://kospimap.com/api/health
       - name: Warm KOSPI map cache (tier1/tier2/full)
         run: |
           for limit in 20 50 500; do
-            curl -fsS --compressed --max-time 90 "https://kospi-predictor.onrender.com/api/market/map?limit=${limit}" -o /dev/null
+            curl -fsS --compressed --max-time 90 "https://kospimap.com/api/market/map?limit=${limit}" -o /dev/null
           done
       - name: Warm KOSDAQ map cache (tier1/tier2/full)
         run: |
           for limit in 20 50 200; do
-            curl -fsS --compressed --max-time 90 "https://kospi-predictor.onrender.com/api/market/kosdaq-map?limit=${limit}" -o /dev/null
+            curl -fsS --compressed --max-time 90 "https://kospimap.com/api/market/kosdaq-map?limit=${limit}" -o /dev/null
           done
       - name: Warm dashboard default-stock cache (Samsung Electronics, 005930)
         run: |
           for path in summary indicators quote news overview; do
-            curl -fsS --compressed --max-time 30 "https://kospi-predictor.onrender.com/api/stock/005930/${path}" -o /dev/null
+            curl -fsS --compressed --max-time 30 "https://kospimap.com/api/stock/005930/${path}" -o /dev/null
           done
-          curl -fsS --compressed --max-time 30 "https://kospi-predictor.onrender.com/api/investor/indices" -o /dev/null
+          curl -fsS --compressed --max-time 30 "https://kospimap.com/api/investor/indices" -o /dev/null

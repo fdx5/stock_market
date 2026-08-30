@@ -148,7 +148,9 @@ def use_ssl() -> bool:
     on a second flag keeps one setting instead of two that can contradict each other."""
     return smtp_port() == 465
 
-SITE_URL = "https://kospi-predictor.onrender.com"
+from app.site import PRIMARY_SITE_URL
+
+SITE_URL = PRIMARY_SITE_URL
 
 # The default watchlist. Codes, not names — a name is a display label that changes
 # (mergers, renames) while the code is what every table here is keyed by.

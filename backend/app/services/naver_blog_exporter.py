@@ -226,7 +226,7 @@ NAVER BLOG POST (SEO Optimized)
   <div style="background: #f1f5f9; border-radius: 12px; padding: 20px; text-align: center; margin-top: 32px;">
     <p style="font-size: 13.5px; font-weight: 700; color: #0284c7; margin: 0 0 12px 0; word-break: break-all;">{hashtags_str}</p>
     <p style="font-size: 12px; color: #64748b; margin: 0 0 6px 0;">※ 본 포스팅은 시장 공개 데이터와 수급 통계를 기반으로 자동 집계된 투자 참고 자료입니다.</p>
-    <p style="font-size: 12px; color: #334155; margin: 0;">🌐 실시간 차트 및 인터랙티브 맵 보기: <a href="https://kospi-predictor.onrender.com/market-brief/{date}/{market_key.lower()}" target="_blank" style="color: #2563eb; font-weight: 700; text-decoration: underline;">K-Stock Hub 바로가기</a></p>
+    <p style="font-size: 12px; color: #334155; margin: 0;">🌐 실시간 차트 및 인터랙티브 맵 보기: <a href="https://kospimap.com/market-brief/{date}/{market_key.lower()}" target="_blank" style="color: #2563eb; font-weight: 700; text-decoration: underline;">K-Stock Hub 바로가기</a></p>
   </div>
 </div>
 """

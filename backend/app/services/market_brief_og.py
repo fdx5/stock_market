@@ -132,7 +132,7 @@ def render(day: str, market: str) -> bytes | None:
     sector_change = _signed(top_sector.get("change_pct")) if top_sector else ""
     draw.text((66, 551), "강세 업종", font=f_label, fill="#8096b1")
     draw.text((185, 547), f"{sector_name}  {sector_change}", font=f_sector, fill="#d9e7f8")
-    draw.text((1135, 551), "kospi-predictor.onrender.com", font=f_label, fill="#7188a5", anchor="ra")
+    draw.text((1135, 551), "kospimap.com", font=f_label, fill="#7188a5", anchor="ra")
 
     output = BytesIO()
     image.save(output, "PNG", optimize=True)

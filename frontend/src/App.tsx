@@ -213,7 +213,7 @@ export default function App() {
     const canonicalQuery = keepsStockCode && !canonicalPath.startsWith("/stock/")
       ? `?code=${encodeURIComponent(code)}${canonicalName ? `&name=${encodeURIComponent(canonicalName)}` : ""}`
       : "";
-    const canonicalUrl = `https://kospi-predictor.onrender.com${canonicalPath}${canonicalQuery}`;
+    const canonicalUrl = `https://kospimap.com${canonicalPath}${canonicalQuery}`;
     document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", canonicalUrl);
     document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl);
 
@@ -250,8 +250,8 @@ export default function App() {
     document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute("content", title);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute("content", description);
     const image = briefMatch
-      ? `https://kospi-predictor.onrender.com/market-brief/og/${briefMatch[1]}/${briefMatch[2].toLowerCase()}.png`
-      : "https://kospi-predictor.onrender.com/img/kospi-map-preview.png";
+      ? `https://kospimap.com/market-brief/og/${briefMatch[1]}/${briefMatch[2].toLowerCase()}.png`
+      : "https://kospimap.com/img/kospi-map-preview.png";
     document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.setAttribute("content", image);
     document.querySelector<HTMLMetaElement>('meta[property="og:image:secure_url"]')?.setAttribute("content", image);
     document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')?.setAttribute("content", image);

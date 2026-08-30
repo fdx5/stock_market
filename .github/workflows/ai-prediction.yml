@@ -68,7 +68,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASE_URL: https://kospi-predictor.onrender.com
+  BASE_URL: https://kospimap.com
 
 jobs:
   predict:

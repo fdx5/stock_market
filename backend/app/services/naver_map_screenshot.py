@@ -18,7 +18,9 @@ import logging
 
 log = logging.getLogger(__name__)
 
-SITE_URL = "https://kospi-predictor.onrender.com"
+from app.site import PRIMARY_SITE_URL
+
+SITE_URL = PRIMARY_SITE_URL
 MAP_URL = f"{SITE_URL}/map"
 
 # The treemap grid itself (frontend/src/components/MarketMapPage.tsx), not the page

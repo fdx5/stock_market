@@ -455,7 +455,7 @@ const EARTH_MOONS: MoonSpec[] = [
 // "/global?code=SPCX" rather than the full production URL — GlobalStockPage
 // (App.tsx's "/global" route) already reads ?code= itself, and a relative
 // path keeps this working through the SPA's own navigate() in local dev too;
-// a hardcoded https://kospi-predictor.onrender.com/... would send local
+// a hardcoded https://kospimap.com/... would send local
 // testing off to the live site instead of whatever's actually running here.
 const MARS_MOONS: MoonSpec[] = [
   { key: "spacex", to: "/global?code=SPCX", ko: "SpaceX", en: "SpaceX", offsetPx: 14, durationSeconds: 9, phase: 0.25, kind: "rocket" },

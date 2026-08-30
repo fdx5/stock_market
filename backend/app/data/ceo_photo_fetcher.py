@@ -28,7 +28,7 @@ WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; KStockHub/1.0; +https://kospi-predictor.onrender.com) "
+        "Mozilla/5.0 (compatible; KStockHub/1.0; +https://kospimap.com) "
         "python-requests"
     ),
 }

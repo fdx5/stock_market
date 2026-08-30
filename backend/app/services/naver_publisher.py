@@ -52,7 +52,9 @@ PUBLISH_GAP = (
     int(os.environ.get("NAVER_PUBLISH_GAP_MAX", "180")),
 )
 
-SITE_URL = "https://kospi-predictor.onrender.com"
+from app.site import PRIMARY_SITE_URL
+
+SITE_URL = PRIMARY_SITE_URL
 
 # Chart images in the post body (app/services/naver_brief_charts.py). Set
 # NAVER_PUBLISH_CHARTS=0 to publish text-only.

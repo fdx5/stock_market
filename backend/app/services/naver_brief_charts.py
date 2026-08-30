@@ -2,7 +2,7 @@
 
 The blog post carries the same numbers the web report does, and until now carried them
 as plain text only. These renders give the post the site's visual language so a reader
-landing from Naver search sees the same thing a reader on kospi-predictor.onrender.com
+landing from Naver search sees the same thing a reader on kospimap.com
 sees.
 
 Design parameters are taken from frontend/src/components/marketBrief.css rather than
@@ -205,7 +205,7 @@ def render_summary(brief: dict, meta: dict) -> bytes:
 
     _text(
         draw, (28, height - 26),
-        "kospi-predictor.onrender.com · 공개 시장 데이터 자동 집계",
+        "kospimap.com · 공개 시장 데이터 자동 집계",
         _font(9), INK_MUTED,
     )
     return _finish(image)

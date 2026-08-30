@@ -40,7 +40,9 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 BLOG_ID = os.environ.get("NAVER_BLOG_ID", "kospi-predictor")
-SITE_URL = "https://kospi-predictor.onrender.com"
+from app.site import PRIMARY_SITE_URL
+
+SITE_URL = PRIMARY_SITE_URL
 
 # Headless is required on Render (no display). Set NAVER_PUBLISH_HEADLESS=0 locally to
 # watch a run — the only reliable way to diagnose a selector change.
