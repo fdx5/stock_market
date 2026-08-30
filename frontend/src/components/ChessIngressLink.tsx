@@ -10,7 +10,6 @@ const HEADER_TARGETS = [
   ".orbit-top",
   ".brief-site-head",
   ".discussion-hud",
-  ".h2-lockup",
 ].join(",");
 
 function ChessKnightIcon() {

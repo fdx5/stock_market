@@ -1059,7 +1059,7 @@ a.app-brand:hover .app-logo-wide {
 @keyframes chess-silver-shine { 0%,58% { left:-45%; opacity:0; } 66% { opacity:1; } 82%,100% { left:125%; opacity:0; } }
 
 /* Custom full-screen headers do not use the shared nav's auto margin. */
-.bubble-header>.chess-ingress-link,.neo-header>.chess-ingress-link,.orbit-top>.chess-ingress-link,.brief-site-head>.chess-ingress-link,.discussion-hud>.chess-ingress-link,.h2-lockup>.chess-ingress-link { margin-left:auto; }
+.bubble-header>.chess-ingress-link,.neo-header>.chess-ingress-link,.orbit-top>.chess-ingress-link,.brief-site-head>.chess-ingress-link,.discussion-hud>.chess-ingress-link { margin-left:auto; }
 @media (max-width:640px) { .chess-ingress-link { min-height:31px; padding:0 9px; font-size:10px; }.chess-ingress-link svg { width:16px; height:16px; } }
 @media (prefers-reduced-motion:reduce) { .chess-ingress-link::after { animation:none; } }
 
