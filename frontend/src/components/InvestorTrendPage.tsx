@@ -6,6 +6,7 @@ import { Link } from "../router";
 import Footer from "./Footer";
 import LanguageToggle from "./LanguageToggle";
 import ThemeToggle from "./ThemeToggle";
+import { useDocumentTitle } from "../useDocumentTitle";
 
 function formatAmount(value: number, lang: Lang): string {
   const abs = Math.abs(value);
@@ -58,6 +59,7 @@ export default function InvestorTrendPage({ code }: { code: string }) {
   }, [code]);
 
   const translatedName = useTranslatedText(name);
+  useDocumentTitle(name ? `${name} 외국인·기관 수급 | K-Stock Hub` : "외국인·기관 수급 | K-Stock Hub");
 
   return (
     <div className="app">

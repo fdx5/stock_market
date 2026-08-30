@@ -60,6 +60,15 @@ export function pageLabel(path: string): string {
   if (path === "/desk") return "마켓 데스크";
   if (path === "/stocks") return "종목정보";
   if (/^\/stock\/\d{6}$/i.test(path)) return "국내 종목 상세";
+  if (/^\/stock\/\d{6}\/investor$/i.test(path)) return "종목 수급 랜딩";
+  if (/^\/stock\/\d{6}\/outlook$/i.test(path)) return "종목 전망 랜딩";
+  if (/^\/stock\/\d{6}\/news$/i.test(path)) return "종목 뉴스 랜딩";
+  if (path === "/sector/semiconductor") return "반도체 관련주";
+  if (path === "/ranking/trading-value") return "거래대금 순위";
+  if (path === "/market/kospi/foreign-buying") return "외국인 순매수";
+  if (path === "/ranking/us-etf") return "미국 ETF 순위";
+  if (path === "/ranking/sp500-market-cap") return "S&P500 시가총액";
+  if (/^\/etf\/compare\//i.test(path)) return "ETF 비교";
   if (path === "/dashboard") return "종목 대시보드 (구)";
   if (/^\/investor\//.test(path)) return "투자자 동향";
   if (/^\/index\/(kospi|kosdaq)/i.test(path)) return "지수 차트";

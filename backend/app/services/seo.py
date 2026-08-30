@@ -23,6 +23,7 @@ SITE = PRIMARY_SITE_URL
 IMAGE = f"{SITE}/img/kospi-map-preview.png"
 MARKET_BRIEF_ROUTE = re.compile(r"^/market-brief/(\d{4}-\d{2}-\d{2})/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})$", re.I)
 STOCK_ROUTE = re.compile(r"^/stock/(\d{6})$", re.I)
+STOCK_LANDING_ROUTE = re.compile(r"^/stock/(\d{6})/(investor|outlook|news)$", re.I)
 INVESTOR_ROUTE = re.compile(r"^/investor/(\d{6})$", re.I)
 
 
@@ -72,6 +73,12 @@ def _investor_identity(path: str) -> tuple[str, str]:
     return code, name
 
 PAGES: dict[str, tuple[str, str]] = {
+    "/sector/semiconductor": ("반도체 관련주·등락률 | K-Stock Hub", "코스피·코스닥 반도체 관련주의 현재가, 등락률과 거래대금을 비교합니다."),
+    "/ranking/trading-value": ("오늘 거래대금 순위 | K-Stock Hub", "코스피·코스닥 종목을 오늘 거래대금 기준으로 비교합니다."),
+    "/market/kospi/foreign-buying": ("코스피 외국인 순매수 종목 | K-Stock Hub", "코스피 주요 종목의 외국인·기관·개인 순매수 금액을 비교합니다."),
+    "/ranking/us-etf": ("미국 ETF 거래대금 순위 | K-Stock Hub", "미국 주요 ETF의 현재가, 거래대금과 기간 수익률 순위입니다."),
+    "/ranking/sp500-market-cap": ("S&P500 시가총액 순위 | K-Stock Hub", "S&P500 주요 기업을 시가총액 기준으로 비교합니다."),
+    "/etf/compare/069500/102110": ("KODEX 200·TIGER 200 비교 | K-Stock Hub", "대표 코스피200 ETF의 가격, 거래대금과 기간 수익률을 나란히 비교합니다."),
     "/hub": ("K-Stock Hub 태양계 시장 탐험", "K-Stock Hub의 태양계 인터페이스에서 국내외 주식 시장과 주요 서비스를 탐험하세요."),
     "/": ("K-Stock Hub | 코스피·코스닥·미국 주식 시세와 ETF", "코스피·코스닥·미국 증시 시세, 시가총액 맵, 거래대금 순위, ETF와 종목토론을 한곳에서 확인하세요."),
     "/desk": ("국내 주식 시세와 오늘의 시장 현황 | K-Stock Hub", "코스피·코스닥 지수, 국내 주식 현재가, 거래대금, 외국인·기관 수급과 오늘의 주목 종목을 확인하세요."),
@@ -107,6 +114,12 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
     brief, brief_day, brief_market = _market_brief(canonical_path)
     stock_code, stock_name = _stock_identity(canonical_path)
+    stock_landing = STOCK_LANDING_ROUTE.fullmatch(canonical_path)
+    stock_landing_kind = ""
+    if stock_landing:
+        stock_code = stock_landing.group(1)
+        stock_landing_kind = stock_landing.group(2).lower()
+        _, stock_name = _stock_identity(f"/stock/{stock_code}")
     investor_code, investor_name = _investor_identity(canonical_path)
     page_lookup = "/market-brief" if brief_day else canonical_path
     title, description = PAGES.get(page_lookup, PAGES["/"])
@@ -116,8 +129,18 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         description = _brief_description(brief, brief_day, brief_market)
         page_image = f"{SITE}/market-brief/og/{brief_day}/{brief_market}.png"
     elif stock_code:
-        title = f"{stock_name} 주가·차트·외국인 기관 수급 | K-Stock Hub"
-        description = f"{stock_name}({stock_code}) 주가, 등락률, 거래량, 차트, 기술적 지표, 외국인·기관 수급과 최신 뉴스를 한 페이지에서 확인하세요."
+        if stock_landing_kind == "investor":
+            title = f"{stock_name} 외국인·기관 수급 | K-Stock Hub"
+            description = f"{stock_name}({stock_code})의 날짜별 외국인·기관·개인 순매수와 주가 흐름을 확인하세요."
+        elif stock_landing_kind == "outlook":
+            title = f"{stock_name} 주가 전망·기술적 분석 | K-Stock Hub"
+            description = f"{stock_name}({stock_code})의 RSI, MACD, 이동평균과 데이터 기반 다음 거래일 전망을 확인하세요."
+        elif stock_landing_kind == "news":
+            title = f"{stock_name} 관련 뉴스·주가 | K-Stock Hub"
+            description = f"{stock_name}({stock_code}) 주가와 최신 관련 뉴스를 날짜순으로 확인하세요."
+        else:
+            title = f"{stock_name} 주가·차트·외국인 기관 수급 | K-Stock Hub"
+            description = f"{stock_name}({stock_code}) 주가, 등락률, 거래량, 차트, 기술적 지표, 외국인·기관 수급과 최신 뉴스를 한 페이지에서 확인하세요."
 
     code = re.sub(r"[^A-Za-z0-9.-]", "", query.get("code", ""))[:16]
     supplied_name = re.sub(r"[<>\r\n]", "", query.get("name", "")).strip()[:80]
@@ -366,6 +389,9 @@ def build_sitemap(kr_stocks: list[dict]) -> str:
             continue
         urls.append((f"{SITE}/stock/{code}", "0.8", "daily", today))
         urls.append((f"{SITE}/investor/{code}", "0.6", "daily", today))
+        urls.append((f"{SITE}/stock/{code}/investor", "0.7", "daily", today))
+        urls.append((f"{SITE}/stock/{code}/outlook", "0.7", "daily", today))
+        urls.append((f"{SITE}/stock/{code}/news", "0.7", "daily", today))
 
     for ticker, name in (
         ("AAPL", "Apple"), ("MSFT", "Microsoft"), ("NVDA", "NVIDIA"),

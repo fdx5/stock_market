@@ -42,6 +42,7 @@ const MarketDeskPage = lazy(() => import("./components/MarketDeskPage"));
    this chunk pulls in three.js and its post-processing stack. */
 const HubType2 = lazy(() => import("./components/HubType2"));
 const InvestorTrendPage = lazy(() => import("./components/InvestorTrendPage"));
+const SearchLandingPage = lazy(() => import("./components/SearchLandingPage"));
 const IndexChartPage = lazy(() => import("./components/IndexChartPage"));
 // The three sibling card boards — top 100 by size, grouped by 업종. All three render
 // the same component, so they share a chunk rather than shipping three copies of it.
@@ -201,6 +202,8 @@ export default function App() {
   const path = useRoute();
   const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})\/?$/i);
   const stockMatch = path.match(/^\/stock\/(\d{6})\/?$/);
+  const stockLandingMatch = path.match(/^\/stock\/(\d{6})\/(investor|outlook|news)\/?$/);
+  const etfCompareMatch = path.match(/^\/etf\/compare\/([A-Za-z0-9.-]+)\/([A-Za-z0-9.-]+)\/?$/);
   useActivityTracking(path);
 
   useEffect(() => {
@@ -267,6 +270,22 @@ export default function App() {
   const indexMatch = path.match(/^\/index\/(kospi|kosdaq)\/?$/i);
   if (investorMatch) {
     page = <InvestorTrendPage code={investorMatch[1]} />;
+  } else if (stockLandingMatch?.[2] === "investor") {
+    page = <InvestorTrendPage code={stockLandingMatch[1]} />;
+  } else if (stockLandingMatch?.[2] === "outlook" || stockLandingMatch?.[2] === "news") {
+    page = <SearchLandingPage kind={stockLandingMatch[2]} code={stockLandingMatch[1]} />;
+  } else if (path === "/sector/semiconductor") {
+    page = <SearchLandingPage kind="sector" slug="semiconductor" />;
+  } else if (path === "/ranking/trading-value") {
+    page = <SearchLandingPage kind="trading" />;
+  } else if (path === "/market/kospi/foreign-buying") {
+    page = <SearchLandingPage kind="investor-ranking" />;
+  } else if (path === "/ranking/us-etf") {
+    page = <SearchLandingPage kind="us-etf" />;
+  } else if (path === "/ranking/sp500-market-cap") {
+    page = <SearchLandingPage kind="sp500" />;
+  } else if (etfCompareMatch) {
+    page = <SearchLandingPage kind="etf-compare" codes={[etfCompareMatch[1], etfCompareMatch[2]]} />;
   } else if (indexMatch) {
     page = <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
   } else if (path === "/dashboard") {
