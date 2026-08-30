@@ -4,6 +4,7 @@ import { Link } from "../router";
 import Footer from "./Footer";
 import Logo from "./Logo";
 import "./searchLanding.css";
+import "./searchLandingLogoFix.css";
 
 type Kind = "outlook" | "news" | "sector" | "trading" | "investor-ranking" | "etf-compare" | "us-etf" | "sp500";
 
