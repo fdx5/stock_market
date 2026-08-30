@@ -72,6 +72,7 @@ def _investor_identity(path: str) -> tuple[str, str]:
     return code, name
 
 PAGES: dict[str, tuple[str, str]] = {
+    "/hub": ("K-Stock Hub 태양계 시장 탐험", "K-Stock Hub의 태양계 인터페이스에서 국내외 주식 시장과 주요 서비스를 탐험하세요."),
     "/": ("K-Stock Hub | 코스피·코스닥·미국 주식 시세와 ETF", "코스피·코스닥·미국 증시 시세, 시가총액 맵, 거래대금 순위, ETF와 종목토론을 한곳에서 확인하세요."),
     "/desk": ("국내 주식 시세와 오늘의 시장 현황 | K-Stock Hub", "코스피·코스닥 지수, 국내 주식 현재가, 거래대금, 외국인·기관 수급과 오늘의 주목 종목을 확인하세요."),
     "/stocks": ("종목정보 | 코스피·코스닥·S&P500 종목 시세와 토론 | K-Stock Hub", "코스피·코스닥·S&P 500 종목을 시가총액순으로 보고, 종목별 시세와 차트, 종목토론과 최신 뉴스를 한 화면에서 확인하세요."),
@@ -103,7 +104,7 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 
 
 def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
-    canonical_path = "/" if path == "/type2" else path.rstrip("/") or "/"
+    canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
     brief, brief_day, brief_market = _market_brief(canonical_path)
     stock_code, stock_name = _stock_identity(canonical_path)
     investor_code, investor_name = _investor_identity(canonical_path)

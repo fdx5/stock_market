@@ -341,7 +341,7 @@ export default function MonitorPage() {
     <div className="app monitor-page">
       <header className="app-header monitor-header">
         <div className="app-title-row">
-          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+          <Link to="/hub" className="app-brand" aria-label="K-Stock Hub 태양계 홈">
             <Logo className="app-logo-wide" />
           </Link>
           <div className="monitor-headline">

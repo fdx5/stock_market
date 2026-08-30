@@ -315,7 +315,7 @@ export default function Dashboard() {
               already behaves this way. */}
           <div className="app-brand">
             <h1 className="sr-only">K-Stock Hub</h1>
-            <Link to="/" aria-label="K-Stock Hub">
+            <Link to="/hub" aria-label="K-Stock Hub 태양계 홈">
               <Logo className="app-logo-wide" />
             </Link>
           </div>

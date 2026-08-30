@@ -537,7 +537,7 @@ export default function MarketCapFightPage() {
     <div className="app fight-page">
       <header className="app-header">
         <div className="app-title-row">
-          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+          <Link to="/hub" className="app-brand" aria-label="K-Stock Hub 태양계 홈">
             <Logo className="app-logo-wide" />
           </Link>
           <div className="app-header-meta">

@@ -167,7 +167,7 @@ export default function StocksPage() {
     <div className="app su-shell">
       <header className="app-header su-shell-head">
         <div className="app-title-row">
-          <Link to="/" className="app-brand" aria-label="K-Stock Hub">
+          <Link to="/hub" className="app-brand" aria-label="K-Stock Hub 태양계 홈">
             <Logo className="app-logo-wide" />
           </Link>
           <div className="app-header-meta">

@@ -17,7 +17,7 @@ export default function Footer() {
   return (
     <footer className="app-footer">
       <div className="app-footer-top">
-        <Link to="/" className="app-brand app-footer-brand" aria-label="K-Stock Hub">
+        <Link to="/hub" className="app-brand app-footer-brand" aria-label="K-Stock Hub 태양계 홈">
           <Logo className="app-footer-logo" />
         </Link>
         <p className="app-footer-tagline">

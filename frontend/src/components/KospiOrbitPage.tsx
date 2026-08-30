@@ -3675,7 +3675,7 @@ export default function KospiOrbitPage({
         >
           <span aria-hidden="true">←</span>
         </Link>
-        <button className="orbit-brand" onClick={() => navigate("/")}>
+        <button className="orbit-brand" onClick={() => navigate("/hub")}>
           <i />
           K-STOCK <strong>ORBIT</strong>
         </button>

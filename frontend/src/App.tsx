@@ -193,7 +193,7 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
 // page with an .app column": that would also cover the map pages, /battle,
 // /ai-prediction/grading and friends, none of which were asked for.
 const RECENT_DOCK_PATHS = new Set([
-  "/desk", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
+  "/", "/desk", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
   "/ai-prediction", "/global-top100", "/fight", "/news",
 ]);
 
@@ -204,7 +204,7 @@ export default function App() {
   useActivityTracking(path);
 
   useEffect(() => {
-    let canonicalPath = path === "/type2" ? "/" : path;
+    let canonicalPath = path === "/type2" ? "/hub" : path;
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code")?.replace(/[^A-Za-z0-9.-]/g, "").slice(0, 16) || "";
     const keepsStockCode = code && ["/desk", "/global", "/discussion-explorer"].includes(canonicalPath);
@@ -271,7 +271,7 @@ export default function App() {
     page = <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
   } else if (path === "/dashboard") {
     page = <DashboardRedirect />;
-  } else if (path === "/desk") {
+  } else if (path === "/" || path === "/desk") {
     page = <MarketDeskPage />;
   } else if (stockMatch) {
     page = <MarketDeskPage key={stockMatch[1]} initialCode={stockMatch[1]} />;
@@ -357,7 +357,7 @@ export default function App() {
     // straight into the stock desk. "/type2" lands here too — it was this
     // page's address while it was being built alongside the old entrance, and
     // is kept working so that any link made in the meantime still resolves.
-    page = <HubType2 />;
+    page = path === "/hub" || path === "/type2" ? <HubType2 /> : <MarketDeskPage />;
   }
 
   // /stock/:code is the canonical URL for the market desk (see the canonicalPath
