@@ -2423,7 +2423,10 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
       // Blue-white only. Warm tones turn this into Star Trek's rainbow tunnel.
       starTones = ["#ffffff", "#e6f6ff", "#a8dcff", "#79beff", "#d8deff"],
       wispTones = ["#f2fbff", "#b6e3ff", "#69b6ff", "#c9d8ff"],
-      stars: WarpStar[] = Array.from({ length: coarse ? 260 : 640 }, () => ({
+      // Keep enough streaks to sell the jump without spending the entire frame on
+      // hundreds of CanvasGradient allocations. The old 640/62 split could create
+      // more than 700 gradients every frame on a high-DPI display.
+      stars: WarpStar[] = Array.from({ length: coarse ? 170 : 340 }, () => ({
         offset: random(0.04, 1.35),
         theta: Math.random() * TAU,
         z: random(0.07, 1),
@@ -2431,7 +2434,7 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
         width: random(0.4, 1.35),
         trail: random(0.55, 1.4),
       })),
-      wisps: WarpWisp[] = Array.from({ length: coarse ? 30 : 62 }, () => ({
+      wisps: WarpWisp[] = Array.from({ length: coarse ? 14 : 26 }, () => ({
         wall: random(0.4, 1.7),
         theta: Math.random() * TAU,
         z: random(0.06, 1.15),
@@ -2445,7 +2448,9 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
       raf = 0;
     const startedAt = performance.now(),
       resize = () => {
-        const ratio = Math.min(devicePixelRatio, coarse ? 1 : 1.5);
+        // This is a fast-moving full-screen effect, so native high-DPI rendering is
+        // visually indistinguishable but substantially more expensive.
+        const ratio = 1;
         width = canvas.clientWidth;
         height = canvas.clientHeight;
         canvas.width = Math.round(width * ratio);
@@ -2504,13 +2509,9 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
             const outerX = axisX + cos * outer,
               outerY = axisY + sin * outer,
               innerX = axisX + cos * inner,
-              innerY = axisY + sin * inner,
-              gradient = context.createLinearGradient(innerX, innerY, outerX, outerY);
-            gradient.addColorStop(0, "transparent");
-            gradient.addColorStop(0.45, `${wisp.tone}3a`);
-            gradient.addColorStop(1, "transparent");
-            context.strokeStyle = gradient;
-            context.globalAlpha = tunnel * deceleration * wisp.weight * 0.5;
+              innerY = axisY + sin * inner;
+            context.strokeStyle = wisp.tone;
+            context.globalAlpha = tunnel * deceleration * wisp.weight * 0.12;
             context.lineWidth = Math.max(1, wisp.span * (inner + outer) * 0.5);
             context.beginPath();
             context.moveTo(innerX, innerY);
@@ -2555,12 +2556,11 @@ function OrbitWarpCanvas({ brief }: { brief: boolean }) {
             continue;
           }
           const tailX = axisX + cos * tailScale,
-            tailY = axisY + sin * tailScale,
-            gradient = context.createLinearGradient(tailX, tailY, headX, headY);
-          gradient.addColorStop(0, "transparent");
-          gradient.addColorStop(0.62, `${star.tone}66`);
-          gradient.addColorStop(1, star.tone);
-          context.strokeStyle = gradient;
+            tailY = axisY + sin * tailScale;
+          // A solid streak with additive blending reads like the former gradient in
+          // motion, while avoiding one gradient object allocation per star per frame.
+          context.strokeStyle = star.tone;
+          context.globalAlpha = alpha * 0.72;
           context.lineWidth = star.width + proximity * (1.1 + punch * 0.8);
           context.beginPath();
           context.moveTo(tailX, tailY);
