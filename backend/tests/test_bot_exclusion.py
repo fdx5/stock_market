@@ -98,7 +98,9 @@ class TestAdminReadsExcludeBots:
 
         since = "2026-08-22T00:00:00+00:00"
         assert store.count_today(since) == 1
-        assert store.counts_by_page(since) == [{"path": "/stock/005930", "count": 1}]
+        # Reported per route, not per URL: counts_by_page folds /stock/005930 into the
+        # detail page it belongs to (see page_view_store._ROUTE_TEMPLATE_SQL).
+        assert store.counts_by_page(since) == [{"path": "/stock/{code}", "count": 1}]
         assert [p["count"] for p in store.unique_visitors_by_bucket(since, "day")] == [1]
         assert sum(p["count"] for p in store.counts_by_bucket(since, "day")) == 1
 

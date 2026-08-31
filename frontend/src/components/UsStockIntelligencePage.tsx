@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { CompanyNewsItem, GlobalEnrichment, IndicatorPoint, UsStockQuote } from "../api/client";
 import { api } from "../api/client";
 import { Link, navigate } from "../router";
+import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useStockDetailSeo } from "../useStockDetailSeo";
+import { recordRecent } from "../watchlist";
 import CommodityPanel from "./CommodityPanel";
 import DailyPricePanel from "./DailyPricePanel";
 import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
@@ -52,6 +54,14 @@ export default function UsStockIntelligencePage({ code }: { code: string }) {
     }).finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [ticker]);
+
+  // Mirrors the KR page: stock_view for the 인기 종목 ranking, recordRecent for the
+  // 최근 본 종목 dock this route already shows.
+  useEffect(() => {
+    if (!quote) return;
+    reportStockView(ticker, quote.name);
+    recordRecent({ code: ticker, name: quote.name, market: "US" });
+  }, [ticker, quote]);
 
   const latest = points[points.length - 1];
   const old20 = points[points.length - 21]?.close;

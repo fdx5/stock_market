@@ -80,13 +80,17 @@ function clockOf(ms: number): string {
 }
 
 /** The visitor's route as activity_log reports it, reduced to the path the graph knows.
- * Query strings carry the stock code and would never match a node, and the two routes
- * that take a path parameter arrive as a real code (/investor/005930, /index/kospi)
- * while the graph holds them as the template App.tsx matches — without collapsing them
- * back, those two nodes could never light for anyone. */
+ * Query strings carry the stock code and would never match a node, and the routes that
+ * take a path parameter arrive as a real code (/stock/005930, /stock/AAPL,
+ * /investor/005930, /index/kospi) while the graph holds them as the template App.tsx
+ * matches — without collapsing them back, those nodes could never light for anyone.
+ * /stock/:code splits in two because the app does: a six-digit code is the KR detail
+ * page, anything else is the US one, and they call different APIs. */
 function routeOf(path: string): string {
   const clean = path.split("?")[0].replace(/\/+$/, "");
   if (clean === "") return "/";
+  if (/^\/stock\/\d{6}$/.test(clean)) return "/stock/{code}";
+  if (/^\/stock\/[^/]+$/.test(clean)) return "/stock/{ticker}";
   if (/^\/investor\/[^/]+$/.test(clean)) return "/investor/{code}";
   if (/^\/index\/[^/]+$/i.test(clean)) return "/index/{symbol}";
   return clean;

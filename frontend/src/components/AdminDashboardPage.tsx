@@ -17,7 +17,7 @@ import {
   getStoredSession,
 } from "../adminApi";
 import { Link, navigate } from "../router";
-import { pageLabel } from "../useActivityTracking";
+import { pageLabel, routeTemplate } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import AdminCommentsPanel from "./AdminCommentsPanel";
 import AdminOpsPanel from "./AdminOpsPanel";
@@ -489,14 +489,23 @@ export default function AdminDashboardPage() {
       return { series: seriesData, categories: buckets, maxCount };
     }
 
+    // Grouped by route, not by raw path: /stock/005930 and /stock/000660 are the same
+    // page, and counting them apart split the detail page's traffic into thousands of
+    // rows too small to ever reach the chart.
     const totals = new Map<string, number>();
-    for (const p of trendPoints) totals.set(p.path, (totals.get(p.path) ?? 0) + p.count);
+    for (const p of trendPoints) {
+      const route = routeTemplate(p.path);
+      totals.set(route, (totals.get(route) ?? 0) + p.count);
+    }
     const orderedPaths = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([path]) => path);
     const topPaths = orderedPaths.slice(0, SERIES_VARS.length);
     const otherPaths = orderedPaths.slice(SERIES_VARS.length);
 
     const valueMap = new Map<string, number>();
-    for (const p of trendPoints) valueMap.set(`${p.path}${p.bucket}`, p.count);
+    for (const p of trendPoints) {
+      const key = `${routeTemplate(p.path)}${p.bucket}`;
+      valueMap.set(key, (valueMap.get(key) ?? 0) + p.count);
+    }
     const valueOf = (path: string, bucket: string) => valueMap.get(`${path}${bucket}`) ?? 0;
 
     const seriesData: Series[] = topPaths.map((path, i) => ({
@@ -590,12 +599,20 @@ export default function AdminDashboardPage() {
   const gradId = (colorVar: string) => `admtg-${colorVar.replace(/[^a-z0-9]/gi, "")}`;
   const peakTotal = chartGeom.totals[chartGeom.peakIdx] ?? 0;
 
-  const rankedPages = (pagesTop ?? []).map((p, i) => ({
-    key: p.path,
-    label: pageLabel(p.path),
-    colorVar: SERIES_VARS[i % SERIES_VARS.length],
-    count: p.count,
-  }));
+  // Same grouping as the trend above: one row per page, not one per stock code.
+  const rankedPageTotals = new Map<string, number>();
+  for (const p of pagesTop ?? []) {
+    const route = routeTemplate(p.path);
+    rankedPageTotals.set(route, (rankedPageTotals.get(route) ?? 0) + p.count);
+  }
+  const rankedPages = [...rankedPageTotals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([route, count], i) => ({
+      key: route,
+      label: pageLabel(route),
+      colorVar: SERIES_VARS[i % SERIES_VARS.length],
+      count,
+    }));
   const topPageCount = rankedPages[0]?.count ?? 0;
 
   const rankedStocks = (stocksTop ?? []).filter((s) => s.count >= STOCK_RANK_MIN_COUNT);

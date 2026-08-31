@@ -55,8 +55,13 @@ PAGES: list[dict] = [
     {"id": "page:/kospi-100", "label": "KOSPI TOP100", "path": "/kospi-100", "group": "board"},
     {"id": "page:/kosdaq-100", "label": "KOSDAQ TOP100", "path": "/kosdaq-100", "group": "board"},
     {"id": "page:/nasdaq-100", "label": "NASDAQ TOP100", "path": "/nasdaq-100", "group": "board"},
-    # The two parameterised routes. Written as templates because that is what the
-    # monitor reduces /investor/005930 and /index/kospi to before matching.
+    # The parameterised routes. Written as templates because that is what the monitor
+    # reduces /stock/005930, /stock/AAPL, /investor/005930 and /index/kospi to before
+    # matching. /stock/:code is one route in App.tsx but two pages behind it — a
+    # six-digit code renders StockIntelligencePage, anything else renders the US one —
+    # and they call almost disjoint API sets, so the diagram carries both.
+    {"id": "page:/stock/{code}", "label": "국내 종목 상세", "path": "/stock/{code}", "group": "stock"},
+    {"id": "page:/stock/{ticker}", "label": "해외 종목 상세", "path": "/stock/{ticker}", "group": "stock"},
     {"id": "page:/investor/{code}", "label": "투자자 동향", "path": "/investor/{code}", "group": "market"},
     {"id": "page:/index/{symbol}", "label": "지수 차트", "path": "/index/{symbol}", "group": "market"},
     {"id": "page:/dram-price", "label": "D램 현물가", "path": "/dram-price", "group": "market"},
@@ -100,6 +105,35 @@ PAGE_CALLS: dict[str, list[str]] = {
     # The entrance reads the four index numbers on its rail and nothing else — the
     # planets are geometry, not data.
     "page:/": ["/api/investor/indices", "/api/global/indices"],
+    "page:/stock/{code}": [
+        "/api/stock/{code}/summary",
+        "/api/stock/{code}/quote",
+        "/api/stock/{code}/indicators",
+        "/api/stock/{code}/overview",
+        "/api/stock/{code}/news",
+        "/api/stock/{code}/orderbook",
+        "/api/stock/{code}/balance",
+        "/api/stock/{code}/daily",
+        "/api/stock/{code}/board",
+        "/api/stock/{code}/board/{nid}",
+        "/api/stock/{code}/board/{nid}/comments",
+        "/api/investor/{code}",
+        "/api/market/board",
+        "/api/search",
+    ],
+    "page:/stock/{ticker}": [
+        "/api/us-stock/{code}/quote",
+        "/api/us-stock/{code}/indicators",
+        "/api/us-stock/{code}/daily",
+        "/api/global/{code}/enrichment",
+        "/api/global/{code}/discussion",
+        "/api/fight/news",
+        "/api/market/us-sector-map",
+        "/api/market/dram-price",
+        "/api/market/futures",
+        "/api/market/board",
+        "/api/search",
+    ],
     "page:/desk": [
         "/api/search",
         "/api/search/popular",

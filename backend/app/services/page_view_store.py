@@ -252,13 +252,36 @@ def bubble_stats(since_iso: str) -> dict:
     }
 
 
+# Routes that carry a code in the path. Grouping them is what makes the admin's page
+# ranking readable: /stock/005930 and /stock/000660 are one page with a few thousand
+# possible URLs, and counted apart the 종목 상세 page never appears in a top-5 at all —
+# every row is a single stock with a handful of views. The KR and US detail pages stay
+# apart because they are genuinely different pages behind one route (see App.tsx), and
+# the same templates are spelled out in useActivityTracking.routeTemplate for the
+# client side and in site_graph.PAGES for the monitor.
+_ROUTE_TEMPLATE_SQL = (
+    "CASE "
+    "WHEN path GLOB '/stock/[0-9][0-9][0-9][0-9][0-9][0-9]' THEN '/stock/{code}' "
+    "WHEN path GLOB '/stock/[0-9][0-9][0-9][0-9][0-9][0-9]/*' "
+    "THEN '/stock/{code}/' || substr(path, 15) "
+    "WHEN path LIKE '/stock/%' AND path NOT LIKE '/stock/%/%' THEN '/stock/{ticker}' "
+    "WHEN path LIKE '/investor/%' THEN '/investor/{code}' "
+    "WHEN path LIKE '/index/%' THEN '/index/{symbol}' "
+    "WHEN path LIKE '/market-brief/%' THEN '/market-brief/{day}' "
+    "WHEN path LIKE '/etf/compare/%' THEN '/etf/compare/{codes}' "
+    "ELSE path END"
+)
+
+
 def counts_by_page(since_iso: str) -> list[dict]:
-    """Total views per page since `since_iso`, most-viewed first."""
+    """Total views per route since `since_iso`, most-viewed first — per-code paths are
+    folded into their route template (see _ROUTE_TEMPLATE_SQL)."""
 
     def _run(conn):
         return conn.execute(
-            f"SELECT path, COUNT(*) FROM page_views WHERE created_at >= ? AND {HUMAN} "
-            "GROUP BY path ORDER BY COUNT(*) DESC",
+            f"SELECT {_ROUTE_TEMPLATE_SQL} AS route, COUNT(*) FROM page_views "
+            f"WHERE created_at >= ? AND {HUMAN} "
+            "GROUP BY route ORDER BY COUNT(*) DESC",
             (since_iso,),
         ).fetchall()
 

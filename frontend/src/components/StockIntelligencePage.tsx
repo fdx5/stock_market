@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { CompanyOverview, IndicatorPoint, InvestorTrendRecord, NewsItem, StockQuote, StockSummary } from "../api/client";
 import { api } from "../api/client";
 import { Link, navigate } from "../router";
+import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useStockDetailSeo } from "../useStockDetailSeo";
+import { recordRecent } from "../watchlist";
 import BoardPanel from "./BoardPanel";
 import DailyPricePanel from "./DailyPricePanel";
 import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
@@ -73,6 +75,16 @@ export default function StockIntelligencePage({ code }: { code: string }) {
       }).finally(() => alive && setLoading(false));
     return () => { alive = false; };
   }, [code]);
+
+  // The same two records every other stock-detail surface writes when a name opens:
+  // stock_view feeds the site-wide 인기 종목 ranking (the page_view alone says a URL
+  // was visited, not which company was read), and recordRecent feeds the 최근 본 종목
+  // dock, which App.tsx already shows on this route.
+  useEffect(() => {
+    if (!summary) return;
+    reportStockView(code, summary.name);
+    recordRecent({ code, name: summary.name, market: "KOSPI" });
+  }, [code, summary]);
 
   useEffect(() => {
     const sections = sectionNav

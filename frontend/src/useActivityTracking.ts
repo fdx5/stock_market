@@ -55,10 +55,23 @@ export function pageLabel(path: string): string {
   // trailing slash. Classify the canonical route instead of falling through to 기타.
   const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
   path = cleanPath;
+  // The admin dashboard groups per-code paths with routeTemplate before labelling, so
+  // the templates themselves have to resolve to the page they stand for.
+  if (path === "/stock/{code}") return "국내 종목 상세";
+  if (path === "/stock/{ticker}") return "해외 종목 상세";
+  if (path === "/stock/{code}/investor") return "종목 수급 랜딩";
+  if (path === "/stock/{code}/outlook") return "종목 전망 랜딩";
+  if (path === "/stock/{code}/news") return "종목 뉴스 랜딩";
+  if (path === "/index/{symbol}") return "지수 차트";
+  if (path === "/market-brief/{day}") return "날짜별 오늘 브리핑";
+  if (path === "/etf/compare/{codes}") return "ETF 비교";
   if (path === "/" || path === "/hub" || path === "/type2") return "메인 (태양계)";
   if (path === "/desk") return "마켓 데스크";
   if (path === "/stocks") return "종목정보";
   if (/^\/stock\/\d{6}$/i.test(path)) return "국내 종목 상세";
+  // Same route as above, US side: /stock/AAPL renders UsStockIntelligencePage. Without
+  // its own case every foreign detail view landed in 기타.
+  if (/^\/stock\/[A-Za-z][A-Za-z0-9.-]{0,15}$/.test(path)) return "해외 종목 상세";
   if (/^\/stock\/\d{6}\/investor$/i.test(path)) return "종목 수급 랜딩";
   if (/^\/stock\/\d{6}\/outlook$/i.test(path)) return "종목 전망 랜딩";
   if (/^\/stock\/\d{6}\/news$/i.test(path)) return "종목 뉴스 랜딩";
@@ -100,6 +113,25 @@ export function pageLabel(path: string): string {
   if (path === "/admin/monitor") return "관리자 모니터";
   if (path === "/admin/growth") return "성장 통계";
   return "기타";
+}
+
+/** The path reduced to the route it belongs to, for grouping in the admin dashboard.
+ * /stock/005930 and /stock/000660 are one page with 2,800 possible URLs; left ungrouped
+ * they split the detail page's traffic into thousands of one-view rows that never reach
+ * the ranking, and its trend line never appears at all. Mirrors MonitorPage's routeOf —
+ * the KR and US detail pages stay apart because they are different pages. */
+export function routeTemplate(path: string): string {
+  const clean = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
+  const stock = clean.match(/^\/stock\/([A-Za-z0-9.-]{1,16})(\/(investor|outlook|news))?$/);
+  if (stock) {
+    const tail = stock[2] ?? "";
+    return /^\d{6}$/.test(stock[1]) ? `/stock/{code}${tail}` : "/stock/{ticker}";
+  }
+  if (/^\/investor\/[^/]+$/.test(clean)) return "/investor/{code}";
+  if (/^\/index\/[^/]+$/i.test(clean)) return "/index/{symbol}";
+  if (/^\/market-brief\/\d{4}-\d{2}-\d{2}\/[^/]+$/.test(clean)) return "/market-brief/{day}";
+  if (/^\/etf\/compare\//.test(clean)) return "/etf/compare/{codes}";
+  return clean;
 }
 
 function isAdminPath(path: string): boolean {
