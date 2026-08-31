@@ -40,7 +40,12 @@ def _translate_many_cached(texts: list[str]) -> list[str]:
         if translated is None:
             translated = [translate_to_korean(t) for t in to_fetch]
         for idx, text, result in zip(to_fetch_idx, to_fetch, translated):
-            cache.get_or_set(f"news_ko:{_sha1(text)}", TTL_TRANSLATION_SECONDS, lambda result=result: result)
+            # A result identical to its input means every transport failed and the
+            # English came back unchanged (see translate_fetcher.translate_text).
+            # Caching that for a week would freeze the headline in English long
+            # after the endpoint recovered, so it is used now but not stored.
+            if result != text:
+                cache.get_or_set(f"news_ko:{_sha1(text)}", TTL_TRANSLATION_SECONDS, lambda result=result: result)
             results[idx] = result
 
     return results

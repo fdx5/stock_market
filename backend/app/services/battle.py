@@ -100,11 +100,13 @@ def get_company_detail_cached(detail_path: str, lang: str = "ko") -> dict | None
     if lang != "ko":
         return raw
 
-    description_ko = cache.get_or_set(
-        f"company_detail_ko:{detail_path}",
-        TTL_COMPANY_DETAIL_SECONDS,
-        lambda: translate_to_korean(raw["description"]),
-    )
+    key = f"company_detail_ko:{detail_path}"
+    description_ko = cache.get_or_set(key, TTL_COMPANY_DETAIL_SECONDS, lambda: translate_to_korean(raw["description"]))
+    # translate_to_korean hands back its input when every transport failed; keeping
+    # that under the ko key would serve English company copy for the rest of the TTL,
+    # so the entry is dropped and the next reader retries the translation.
+    if description_ko == raw["description"]:
+        cache.invalidate(key)
     return {"description": description_ko}
 
 

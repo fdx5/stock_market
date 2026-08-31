@@ -15,6 +15,7 @@ import MarketBubbleStockLink from "./MarketBubbleStockLink";
 import PriceChart from "./PriceChart";
 import SearchBar from "./SearchBar";
 import StockDetailDeskHeader from "./StockDetailDeskHeader";
+import StockIntelligenceSkeleton from "./StockIntelligenceSkeleton";
 import UsSectorMapPanel from "./UsSectorMapPanel";
 import "./stockIntelligence.css";
 
@@ -64,7 +65,7 @@ export default function UsStockIntelligencePage({ code }: { code: string }) {
   return <div className="si-page si-page--us">
     <StockDetailDeskHeader market="US" />
     <div className="si-detail-search-deck"><div><span>GLOBAL STOCK LOOKUP</span><strong>해외·국내 종목 통합검색</strong><small>기업명 또는 티커를 검색하면 종합정보로 이동합니다.</small></div><div className="si-search"><SearchBar onSelect={stock => navigate(`/stock/${stock.code.toUpperCase()}`)} /></div></div>
-    {loading && !quote && <div className="si-loading">해외 시장 데이터를 정리하고 있습니다…</div>}
+    {loading && !quote && <StockIntelligenceSkeleton signals={6} brief={false} label="해외 시장 데이터를 정리하고 있습니다…" />}
     {error && !quote && <div className="si-loading is-error">{error}</div>}
     {quote && <main>
       <section className="si-hero">
@@ -81,7 +82,7 @@ export default function UsStockIntelligencePage({ code }: { code: string }) {
         <article><span>거래량 강도</span><strong>{volumeRatio == null ? "—" : `${volumeRatio.toFixed(0)}%`}</strong><small>20일 평균 대비</small></article>
         <article><span>변동성 20</span><strong>{latest?.volatility20 == null ? "—" : `${latest.volatility20.toFixed(1)}%`}</strong><small>최근 가격 위험</small></article>
       </section>
-      <section className="si-section si-chart-section" id="si-chart"><header><div><span>PRICE ACTION</span><h2>추세와 기술지표</h2></div><p>3년 가격·거래량·이동평균을 동일 시간축에서 확인합니다.</p></header><div className="si-chart-grid"><div className="si-panel si-price-chart"><PriceChart points={points} /></div><div className="si-panel"><IndicatorPanel points={points} latest={latest ?? null} /></div></div></section>
+      <section className="si-section si-chart-section" id="si-chart"><header><div><span>PRICE ACTION</span><h2>추세와 기술지표</h2></div><p>3년 가격·거래량·이동평균을 동일 시간축에서 확인합니다.</p></header><div className="si-chart-grid"><div className="si-panel si-price-chart"><PriceChart points={points} /></div><div className="si-panel"><IndicatorPanel points={points} latest={latest ?? null} defaultExpanded /></div></div></section>
       <section className="si-section"><header><div><span>MARKET CONTEXT</span><h2>글로벌 원자재·메모리 지표</h2></div><p>주요 선물과 메모리 현물 가격</p></header><CommodityPanel /></section>
       <section className="si-section"><header><div><span>COMPANY PROFILE</span><h2>기업 개요</h2></div></header><div className="si-company-grid"><div className="si-panel si-company-copy">{description.length ? description.map((line, index) => <p key={index}>{line}</p>) : <p>기업 설명 데이터를 준비하고 있습니다.</p>}</div><div className="si-company-facts"><div><span>티커</span><strong>{ticker}</strong></div><div><span>시가총액</span><strong>{cap(enrichment?.marcap_usd)}</strong></div><div><span>MACD</span><strong className={tone(latest?.macd_hist)}>{latest?.macd_hist?.toFixed(2) ?? "—"}</strong></div><div><span>ATR 14</span><strong>{latest?.atr14?.toFixed(2) ?? "—"}</strong></div></div></div></section>
       <div className="si-two-col si-content-pair"><section className="si-section"><header><div><span>CATALYSTS</span><h2>관련 뉴스</h2></div><p>한국어 번역 · 최신 5건</p></header><div className="si-panel"><GlobalNewsList code={ticker} name={quote.name} items={news} loading={loading} language="ko" /></div></section><section className="si-section"><header><div><span>MARKET VOICE</span><h2>해외 종목 토론</h2></div></header><div className="si-panel"><GlobalBoardPanel code={ticker} name={quote.name} /></div></section></div>

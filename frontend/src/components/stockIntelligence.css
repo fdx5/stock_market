@@ -119,3 +119,26 @@
 .si-page .si-section-nav{position:relative;z-index:1;top:auto}
 .si-page .si-section{scroll-margin-top:18px}
 :root[data-theme="dark"] .si-common-header{background:#0b1519;box-shadow:0 10px 28px rgba(0,0,0,.3)}
+
+
+/* Loading silhouette for the 종목 종합정보 pages (StockIntelligenceSkeleton). Every
+   block reuses the real layout containers, so this only has to describe the grey
+   bars that stand in for text — the boxes around them are already the page's own. */
+.si-skeleton{width:min(var(--si-shell),calc(100% - 40px));margin:auto;padding:28px 0 70px}
+.si-skeleton .skeleton{background:color-mix(in srgb,var(--si-muted) 30%,transparent)}
+.si-skel-line{display:block;width:100%;height:11px;border-radius:5px}
+.si-skel-stack{display:grid;align-content:start;gap:9px;min-width:0}
+.si-skeleton .si-quote{justify-items:end}
+.si-skel-logo{width:56px;height:56px;border-radius:16px;flex:0 0 auto}
+.si-skel-name{width:190px;height:26px}
+.si-skel-price{display:block;width:180px;height:32px;border-radius:8px}
+.si-skel-button{display:block;width:100%;min-width:154px;height:38px;border-radius:10px}
+.si-skel-ticker{display:block;width:100%;height:38px;border-radius:12px}
+.si-skel-value{height:19px;width:74%}
+.si-skel-heading{width:150px;height:20px}
+.si-skeleton .si-signal-grid article,.si-skeleton .si-brief-grid article{display:grid;align-content:start;gap:8px}
+.si-skel-nav{gap:6px}
+.si-skel-pill{flex:1;min-width:78px;height:29px;border-radius:8px}
+.si-skeleton .si-section>header{align-items:center}
+.si-skel-chart{position:relative}
+@media(max-width:700px){.si-skeleton{width:calc(100% - 20px);padding-top:12px}.si-skel-name{width:150px}.si-skel-price{width:140px}}

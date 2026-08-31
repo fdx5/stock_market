@@ -17,6 +17,7 @@ import SearchBar from "./SearchBar";
 import ShortSellPanel from "./ShortSellPanel";
 import StockIcon from "./StockIcon";
 import StockDetailDeskHeader from "./StockDetailDeskHeader";
+import StockIntelligenceSkeleton from "./StockIntelligenceSkeleton";
 import "./stockIntelligence.css";
 
 type Section = "chart" | "flow" | "orderbook" | "short" | "company" | "news" | "board" | "daily";
@@ -118,7 +119,7 @@ export default function StockIntelligencePage({ code }: { code: string }) {
 
     <div className="si-detail-search-deck"><div><span>STOCK LOOKUP</span><strong>종목 통합검색</strong><small>국내·해외 종목명 또는 코드를 검색하세요.</small></div><div className="si-search"><SearchBar onSelect={stock => navigate(`/stock/${stock.code.toUpperCase()}`)} /></div></div>
 
-    {loading && !summary && <div className="si-loading">시장 데이터를 정리하고 있습니다…</div>}
+    {loading && !summary && <StockIntelligenceSkeleton signals={10} />}
     {error && !summary && <div className="si-loading is-error">{error}</div>}
     {summary && <main>
       <section className="si-hero">
@@ -152,7 +153,7 @@ export default function StockIntelligencePage({ code }: { code: string }) {
 
       <nav className="si-section-nav" aria-label="종목 상세 섹션">{sectionNav.map(item => <button key={item.id} className={activeSection === item.id ? "is-active" : ""} aria-current={activeSection === item.id ? "location" : undefined} onClick={() => scroll(item.id)}>{item.label}</button>)}</nav>
 
-      <section className="si-section si-chart-section" id="si-chart"><header><div><span>PRICE ACTION</span><h2>추세와 기술지표</h2></div><p>가격·거래량·이동평균과 모멘텀을 같은 시간축에서 읽습니다.</p></header><div className="si-chart-grid"><div className="si-panel si-price-chart"><PriceChart points={points} /></div><div className="si-panel"><IndicatorPanel points={points} latest={latest ?? null} /></div></div></section>
+      <section className="si-section si-chart-section" id="si-chart"><header><div><span>PRICE ACTION</span><h2>추세와 기술지표</h2></div><p>가격·거래량·이동평균과 모멘텀을 같은 시간축에서 읽습니다.</p></header><div className="si-chart-grid"><div className="si-panel si-price-chart"><PriceChart points={points} /></div><div className="si-panel"><IndicatorPanel points={points} latest={latest ?? null} defaultExpanded /></div></div></section>
 
       <div className="si-two-col">
         <section className="si-section" id="si-flow"><header><div><span>OWNERSHIP FLOW</span><h2>투자자별 수급</h2></div><p>최근 30거래일 순매수 금액</p></header><div className="si-panel"><FlowTable rows={flows} /></div></section>
