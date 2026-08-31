@@ -174,10 +174,11 @@ class TestVisitorTracker:
         from app.services import visitor_tracker
 
         recorded: list[str] = []
-        monkeypatch.setattr(
-            visitor_tracker.visitor_store, "record_and_total",
-            lambda session_id, seen_at: recorded.append(session_id) or len(recorded),
-        )
+        monkeypatch.setattr(visitor_tracker.visitor_store, "heartbeat_and_counts",
+                            lambda session_id, seen_at, active_since, register_session=True:
+                            (1, recorded.append(session_id) or len(recorded)))
+        monkeypatch.setattr(visitor_tracker.visitor_store, "active_count", lambda active_since: 1)
+        monkeypatch.setattr(visitor_tracker.visitor_store, "total_count", lambda: len(recorded))
         tracker = visitor_tracker.VisitorTracker()
 
         current, total = tracker.heartbeat("11111111-1111-1111-1111-111111111111", "1.2.3.4")

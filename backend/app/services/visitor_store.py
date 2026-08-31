@@ -27,6 +27,13 @@ CREATE TABLE IF NOT EXISTS visitor_sessions (
 )
 """
 
+_ACTIVE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS active_visitor_sessions (
+    session_id TEXT PRIMARY KEY,
+    last_seen TEXT NOT NULL
+)
+"""
+
 
 def _connect():
     if TURSO_DATABASE_URL:
@@ -38,6 +45,7 @@ def _connect():
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
+    conn.execute(_ACTIVE_SCHEMA)
     conn.commit()
     return conn
 
@@ -85,5 +93,50 @@ def total_count() -> int:
 
     def _run(conn):
         return conn.execute("SELECT COUNT(*) FROM visitor_sessions").fetchone()[0]
+
+    return _with_connection(_run)
+
+
+def heartbeat_and_counts(
+    session_id: str,
+    seen_at: str,
+    active_since: str,
+    register_session: bool = True,
+) -> tuple[int, int]:
+    """Persist presence and return site-wide active/cumulative counts.
+
+    Active presence must live in the shared store: an in-process dictionary is
+    emptied by every deploy and sees only one instance during a rolling restart.
+    """
+
+    def _run(conn):
+        if register_session:
+            conn.execute(
+                "INSERT OR IGNORE INTO visitor_sessions (session_id, first_seen) VALUES (?, ?)",
+                (session_id, seen_at),
+            )
+        conn.execute(
+            "INSERT INTO active_visitor_sessions (session_id, last_seen) VALUES (?, ?) "
+            "ON CONFLICT(session_id) DO UPDATE SET last_seen = excluded.last_seen",
+            (session_id, seen_at),
+        )
+        conn.execute("DELETE FROM active_visitor_sessions WHERE last_seen < ?", (active_since,))
+        conn.commit()
+        current = conn.execute(
+            "SELECT COUNT(*) FROM active_visitor_sessions WHERE last_seen >= ?", (active_since,)
+        ).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM visitor_sessions").fetchone()[0]
+        return current, total
+
+    return _with_connection(_run)
+
+
+def active_count(active_since: str) -> int:
+    """Read the shared active-session count without registering the caller."""
+
+    def _run(conn):
+        return conn.execute(
+            "SELECT COUNT(*) FROM active_visitor_sessions WHERE last_seen >= ?", (active_since,)
+        ).fetchone()[0]
 
     return _with_connection(_run)

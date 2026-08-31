@@ -1,12 +1,13 @@
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from app.services import visitor_store
 
 # A session counts as "currently on the site" if its last heartbeat was within this
-# window. Single-process in-memory tracking is fine here since this app runs as one
-# instance (see cache.py's TTLCache for the same assumption).
+# window. The authoritative set is persisted in Turso so deploys, restarts and
+# overlapping instances do not reset or split the number. The local set is a
+# failure fallback only.
 HEARTBEAT_TTL_SECONDS = 60
 
 # Caps how many *new* (never-seen-before) sessions a single IP can register toward
@@ -49,9 +50,7 @@ class VisitorTracker:
         """
         now = time.time()
         if is_bot:
-            with self._lock:
-                self._prune(now)
-                return len(self._sessions), self._total_cache
+            return self.current_count(), self._persistent_total()
         with self._lock:
             self._sessions[session_id] = now
             self._prune(now)
@@ -59,10 +58,20 @@ class VisitorTracker:
             is_new = session_id not in self._known_sessions
             total = self._total_cache
 
-        if is_new and self._allow_new_session(client_ip, now):
-            # Hits the persistent store outside the lock so a first-time visit doesn't
-            # block every other session's heartbeat for the duration of the DB round-trip.
-            total = visitor_store.record_and_total(session_id, datetime.now(timezone.utc).isoformat())
+        register_session = is_new and self._allow_new_session(client_ip, now)
+        seen_at = datetime.now(timezone.utc)
+        try:
+            current, total = visitor_store.heartbeat_and_counts(
+                session_id,
+                seen_at.isoformat(),
+                (seen_at - timedelta(seconds=HEARTBEAT_TTL_SECONDS)).isoformat(),
+                register_session=register_session,
+            )
+        except Exception:
+            # Presence is useful but must never make a reader's page fail merely
+            # because the analytics store is temporarily unavailable.
+            pass
+        if register_session:
             with self._lock:
                 self._known_sessions.add(session_id)
                 self._total_cache = total
@@ -78,9 +87,23 @@ class VisitorTracker:
         """Read-only peek at how many sessions are currently online, for the admin
         dashboard — unlike heartbeat(), doesn't register a session of its own."""
         now = time.time()
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=HEARTBEAT_TTL_SECONDS)
+        try:
+            return visitor_store.active_count(cutoff.isoformat())
+        except Exception:
+            pass
         with self._lock:
             self._prune(now)
             return len(self._sessions)
+
+    def _persistent_total(self) -> int:
+        try:
+            total = visitor_store.total_count()
+            with self._lock:
+                self._total_cache = total
+            return total
+        except Exception:
+            return self._total_cache
 
     def _allow_new_session(self, client_ip: str | None, now: float) -> bool:
         if not client_ip:
