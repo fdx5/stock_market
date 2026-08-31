@@ -194,7 +194,7 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
 // page with an .app column": that would also cover the map pages, /battle,
 // /ai-prediction/grading and friends, none of which were asked for.
 const RECENT_DOCK_PATHS = new Set([
-  "/", "/desk", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
+  "/desk", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
   "/ai-prediction", "/global-top100", "/fight", "/news",
 ]);
 
@@ -290,7 +290,7 @@ export default function App() {
     page = <IndexChartPage symbol={indexMatch[1].toUpperCase() as "KOSPI" | "KOSDAQ"} />;
   } else if (path === "/dashboard") {
     page = <DashboardRedirect />;
-  } else if (path === "/" || path === "/desk") {
+  } else if (path === "/desk") {
     page = <MarketDeskPage />;
   } else if (stockMatch) {
     page = <MarketDeskPage key={stockMatch[1]} initialCode={stockMatch[1]} />;
@@ -372,11 +372,9 @@ export default function App() {
   } else if (path === "/admin/live") {
     page = <AdminLivePage />;
   } else {
-    // "/" and anything unrecognised land on the entrance rather than dropping
-    // straight into the stock desk. "/type2" lands here too — it was this
-    // page's address while it was being built alongside the old entrance, and
-    // is kept working so that any link made in the meantime still resolves.
-    page = path === "/hub" || path === "/type2" ? <HubType2 /> : <MarketDeskPage />;
+    // "/" is the entrance; "/hub" and legacy "/type2" land here too. Unknown
+    // paths keep the market desk fallback rather than masquerading as the home page.
+    page = path === "/" || path === "/hub" || path === "/type2" ? <HubType2 /> : <MarketDeskPage />;
   }
 
   // /stock/:code is the canonical URL for the market desk (see the canonicalPath

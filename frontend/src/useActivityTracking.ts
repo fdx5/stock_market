@@ -55,8 +55,7 @@ export function pageLabel(path: string): string {
   // trailing slash. Classify the canonical route instead of falling through to 기타.
   const cleanPath = path.split(/[?#]/, 1)[0].replace(/\/+$/, "") || "/";
   path = cleanPath;
-  if (path === "/") return "마켓 데스크";
-  if (path === "/hub" || path === "/type2") return "메인 (태양계)";
+  if (path === "/" || path === "/hub" || path === "/type2") return "메인 (태양계)";
   if (path === "/desk") return "마켓 데스크";
   if (path === "/stocks") return "종목정보";
   if (/^\/stock\/\d{6}$/i.test(path)) return "국내 종목 상세";
