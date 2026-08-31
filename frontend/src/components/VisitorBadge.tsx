@@ -1,11 +1,9 @@
 import { useLanguage } from "../i18n/LanguageContext";
 import { useVisitorCount } from "../useVisitorCount";
-import type { VisitorCounts } from "../useVisitorCount";
 
-export default function VisitorBadge({ compact = false, counts }: { compact?: boolean; counts?: VisitorCounts }) {
+export default function VisitorBadge({ compact = false }: { compact?: boolean }) {
   const { lang } = useLanguage();
-  const fallbackCounts = useVisitorCount(counts === undefined);
-  const { current, total } = counts ?? fallbackCounts;
+  const { current, total } = useVisitorCount();
   const currentText = current === null ? "-" : current.toLocaleString();
   const totalText = total === null ? "-" : total.toLocaleString();
   const label = lang === "en" ? `${currentText} online, ${totalText} visits` : `접속 ${currentText}명, 방문 ${totalText}명`;

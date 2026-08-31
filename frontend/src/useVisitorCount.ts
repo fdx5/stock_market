@@ -11,11 +11,10 @@ export interface VisitorCounts {
   total: number | null;
 }
 
-export function useVisitorCount(enabled = true): VisitorCounts {
+export function useVisitorCount(): VisitorCounts {
   const [counts, setCounts] = useState<VisitorCounts>({ current: null, total: null });
 
   useEffect(() => {
-    if (!enabled) return;
     let cancelled = false;
     const sessionId = getSessionId();
 
@@ -37,7 +36,7 @@ export function useVisitorCount(enabled = true): VisitorCounts {
       cancelled = true;
       stopHeartbeat();
     };
-  }, [enabled]);
+  }, []);
 
   return counts;
 }
