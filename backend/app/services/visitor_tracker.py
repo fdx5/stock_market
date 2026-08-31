@@ -8,7 +8,10 @@ from app.services import visitor_store
 # window. The authoritative set is persisted in Turso so deploys, restarts and
 # overlapping instances do not reset or split the number. The local set is a
 # failure fallback only.
-HEARTBEAT_TTL_SECONDS = 60
+# Background browser timers are commonly throttled to roughly one-minute cadence.
+# Two minutes retains an open tab across that jitter without treating abandoned tabs
+# as online for long; the client still schedules a heartbeat every 20 seconds.
+HEARTBEAT_TTL_SECONDS = 120
 
 # Caps how many *new* (never-seen-before) sessions a single IP can register toward
 # the cumulative visitor total per rolling window. A real visitor only ever mints one
