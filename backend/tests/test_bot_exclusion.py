@@ -109,6 +109,9 @@ class TestAdminReadsExcludeBots:
             _record(store, f"crawl-{i}", f"/investor/00000{i % 10}", "2026-08-22T03:00:00+00:00",
                     is_bot=True, user_agent=GOOGLEBOT)
 
+        # Closed days are materialized by maintenance; dashboard reads never scan raw
+        # historical page_views themselves.
+        store.aggregate_closed_days()
         data = store.growth_overview("2026-08-22T00:00:00+00:00")
         day = next(row for row in data["daily"] if row["date"] == "2026-08-22")
         assert day["visitors"] == 2

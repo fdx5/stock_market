@@ -2343,10 +2343,7 @@ function OrbitDetailPanel({
               code: stock.code,
               name: stock.name,
             });
-            const detailPath =
-              config.key === "nasdaq100"
-                ? `/global?code=${encodeURIComponent(stock.code)}`
-                : `/desk?code=${encodeURIComponent(stock.code)}`;
+            const detailPath = `/stock/${encodeURIComponent(stock.code)}`;
             navigate(detailPath);
           }}
         >

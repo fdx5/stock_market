@@ -1327,7 +1327,7 @@ export default function MarketBubblePage() {
                 if (clickTimerRef.current != null) window.clearTimeout(clickTimerRef.current);
                 clickTimerRef.current = null;
                 reportMarketBubbleEvent({ action: "stock_detail", market, code: item.code, name: item.name });
-                navigate(market === "nasdaq" ? `/global?code=${item.code}` : `/stock/${item.code}`);
+                navigate(`/stock/${item.code}`);
               }}
               onPointerEnter={() => {
                 pinnedRef.current = index;

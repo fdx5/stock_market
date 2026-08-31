@@ -55,6 +55,7 @@ const Sp500MapPage = lazy(() => import("./components/Sp500MapPage"));
 const Nasdaq100MapPage = lazy(() => import("./components/Nasdaq100MapPage"));
 const TugOfWarPage = lazy(() => import("./components/TugOfWarPage"));
 const GlobalStockPage = lazy(() => import("./components/GlobalStockPage"));
+const UsStockIntelligencePage = lazy(() => import("./components/UsStockIntelligencePage"));
 const MarketCapFightPage = lazy(() => import("./components/MarketCapFightPage"));
 const GlobalTop100Page = lazy(() => import("./components/GlobalTop100Page"));
 const EtfPage = lazy(() => import("./components/EtfPage"));
@@ -69,6 +70,7 @@ const MarketBubblePage = lazy(() => import("./components/MarketBubblePage"));
 const MarketBubbleType2 = lazy(() => import("./components/MarketBubbleType2"));
 const KospiOrbitPage = lazy(() => import("./components/KospiOrbitPage"));
 const StocksPage = lazy(() => import("./components/StocksPage"));
+const StockIntelligencePage = lazy(() => import("./components/StockIntelligencePage"));
 const AdminLoginPage = lazy(() => import("./components/AdminLoginPage"));
 const AdminDashboardPage = lazy(() => import("./components/AdminDashboardPage"));
 const AdminDbPage = lazy(() => import("./components/AdminDbPage"));
@@ -201,7 +203,7 @@ const RECENT_DOCK_PATHS = new Set([
 export default function App() {
   const path = useRoute();
   const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})\/?$/i);
-  const stockMatch = path.match(/^\/stock\/(\d{6})\/?$/);
+  const stockMatch = path.match(/^\/stock\/([A-Za-z0-9.-]{1,16})\/?$/);
   const stockLandingMatch = path.match(/^\/stock\/(\d{6})\/(investor|outlook|news)\/?$/);
   const etfCompareMatch = path.match(/^\/etf\/compare\/([A-Za-z0-9.-]+)\/([A-Za-z0-9.-]+)\/?$/);
   useActivityTracking(path);
@@ -293,7 +295,10 @@ export default function App() {
   } else if (path === "/desk") {
     page = <MarketDeskPage />;
   } else if (stockMatch) {
-    page = <MarketDeskPage key={stockMatch[1]} initialCode={stockMatch[1]} />;
+    const detailCode = stockMatch[1].toUpperCase();
+    page = /^\d{6}$/.test(detailCode)
+      ? <StockIntelligencePage key={detailCode} code={detailCode} />
+      : <UsStockIntelligencePage key={detailCode} code={detailCode} />;
   } else if (path === "/stocks") {
     page = <StocksPage />;
   } else if (path === "/kospi-100") {

@@ -40,7 +40,7 @@ export default function Footer() {
             <MarketIcon /> S&P500
           </Link>
           <Link to="/nasdaq100-map" className="app-footer-market-link app-footer-market-link--nasdaq">
-            <MarketIcon /> NASDAQ100
+            <MarketIcon /> NASDAQ
           </Link>
           <Link to="/etf" className="app-footer-market-link app-footer-market-link--etf">
             <EtfIcon /> ETF
@@ -52,13 +52,13 @@ export default function Footer() {
             <span className="discussion-nav-n" aria-hidden="true">N</span> 종목토론
           </Link>
           <Link to="/kospi-100" className="app-footer-market-link app-footer-market-link--top100">
-            <RankIcon /> TOP 100
+            <RankIcon /> TOP100
           </Link>
           <Link to="/ai-prediction" className="app-footer-market-link app-footer-market-link--predict">
-            <PredictIcon /> {t("AI 예측")}
+            <PredictIcon /> {t("AI예측")}
           </Link>
           <Link to="/global-top100" className="app-footer-market-link app-footer-market-link--globaltop100">
-            <GlobeRankIcon /> {t("글로벌 시총")}
+            <GlobeRankIcon /> {t("글로벌시총")}
           </Link>
           <Link to="/fight" className="app-footer-market-link app-footer-market-link--battle">
             <BattleIcon /> {t("시총대결")}

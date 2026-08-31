@@ -301,7 +301,7 @@ export default function CommodityPanel() {
               setExpanded(true);
             }}
           >
-            {t("선물가격")}
+            {t("글로벌 선물 동향")}
           </button>
           <button
             type="button"
@@ -313,7 +313,7 @@ export default function CommodityPanel() {
               setExpanded(true);
             }}
           >
-            {t("D램 현물가격")}
+            {t("메모리 현물 시세")}
           </button>
         </div>
         <button

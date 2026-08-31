@@ -379,7 +379,7 @@ function StockCard({ item, ctx, compact }: { item: StockBoardItem; ctx: CardCont
   const { board, lang, displayName } = ctx;
   const dir = direction(item.change_pct);
   const isUs = board.market === "nasdaq";
-  const href = isUs ? `/global?code=${item.code}` : `/stock/${item.code}`;
+  const href = `/stock/${item.code}`;
   // A 3-month sparkline is colored by what it actually shows — its own start-to-end
   // direction — not by today's tick, which the badge beside it already carries.
   const trend =
@@ -903,7 +903,7 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
             <DashboardIcon /> {t("홈")}
           </Link>
           <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
-            <StockListIcon /> 종목정보 <NewBadge />
+            <StockListIcon /> 종목정보
           </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> {t("KOSPI MAP")}
@@ -913,10 +913,10 @@ export default function StockBoardPage({ market, pageTitle, subtitle, loadingLab
           </Link>
           <EtfNavLink />
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
-            <PredictIcon /> {t("AI 예측")}
+            <PredictIcon /> {t("AI예측")}
           </Link>
           <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
-            <GlobeRankIcon /> {t("글로벌 시총")}
+            <GlobeRankIcon /> {t("글로벌시총")}
           </Link>
           <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
             <GlobalNewsIcon /> {t("NEWS")}

@@ -117,7 +117,7 @@ def pages_top(limit: int = Query(7, ge=1, le=200)):
 
 @router.get("/growth/overview", dependencies=[Depends(require_admin)])
 def growth_overview(
-    days: int = Query(90, ge=1, le=730),
+    days: int = Query(5, ge=1, le=730),
     start_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ):

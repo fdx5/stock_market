@@ -306,6 +306,12 @@ def _warm_nasdaq_symbols() -> None:
 def _admin_retention_loop() -> None:
     while True:
         try:
+            # Materialize yesterday before any retention work. Growth-dashboard reads
+            # never COUNT historical page_views; they consume these daily aggregates.
+            page_view_store.aggregate_closed_days()
+        except Exception:
+            pass
+        try:
             page_cutoff = (datetime.now(timezone.utc) - timedelta(days=page_view_store.RETENTION_DAYS)).isoformat()
             page_view_store.purge_older_than(page_cutoff)
         except Exception:

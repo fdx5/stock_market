@@ -187,7 +187,7 @@ export const DICTIONARY: Record<string, string> = {
   // Battle page (TugOfWarPage)
   "시총 줄다리기 (삼성전자 VS SK하이닉스)": "Market Cap Tug-of-War (Samsung Electronics VS SK Hynix)",
   "시총대결": "Market Cap Battle",
-  "AI 예측": "AI Forecast",
+  "AI예측": "AI Forecast",
   "시가총액 데이터를 불러오지 못했습니다.": "Failed to load market cap data.",
   "2위": "#2",
   "차이": "difference",
@@ -234,7 +234,7 @@ export const DICTIONARY: Record<string, string> = {
   "회사 정보를 불러오지 못했습니다.": "Failed to load company information.",
 
   // GlobalTop100Page
-  "글로벌 시총": "Global Cap",
+  "글로벌시총": "Global Cap",
   "글로벌 시가총액 TOP 100": "Global Market Cap TOP 100",
   "전 세계 시가총액 상위 100개 기업의 순위·주가·재무지표를 제공합니다.":
     "Ranking, prices, and fundamentals for the world's 100 largest companies by market cap.",

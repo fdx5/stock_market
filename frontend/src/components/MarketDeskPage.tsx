@@ -115,7 +115,6 @@ const SECTIONS = [
   { id: "desk-spotlight", label: "주목 종목" },
   { id: "desk-global", label: "글로벌" },
   { id: "desk-flow", label: "수급 · 순위" },
-  { id: "desk-focus", label: "종목" },
 ];
 
 export default function MarketDeskPage({ initialCode }: { initialCode?: string }) {
@@ -385,7 +384,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
 
   const selectStock = (stock: StockSearchResult) => {
     if (stock.market === "US") {
-      navigate(`/global?code=${stock.code}`);
+      navigate(`/stock/${stock.code}`);
       return;
     }
     navigate(`/stock/${stock.code}`);
@@ -423,8 +422,9 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
         </div>
         <div className="app-nav-row">
           <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
-            <StockListIcon /> 종목정보 <NewBadge />
+            <StockListIcon /> 종목정보
           </Link>
+          <Link to="/stock/005930" className="kospi-map-nav-link kospi-map-nav-link--stock-detail"><span aria-hidden="true">⌕</span> 종목상세</Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>
@@ -435,7 +435,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
             <MarketIcon /> S&P500
           </Link>
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
-            <MarketIcon /> NASDAQ100
+            <MarketIcon /> NASDAQ
           </Link>
           <Link to="/etf" className="kospi-map-nav-link kospi-map-nav-link--etf">
             <EtfIcon /> ETF
@@ -446,13 +446,13 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           </Link>
           <MarketBubbleNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
-            <RankIcon /> TOP 100
+            <RankIcon /> TOP100
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
-            <PredictIcon /> AI 예측
+            <PredictIcon /> AI예측
           </Link>
           <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
-            <GlobeRankIcon /> {t("글로벌 시총")}
+            <GlobeRankIcon /> {t("글로벌시총")}
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}
@@ -597,136 +597,14 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
                carries, in the same two-column shape, with the header made
                sticky so the name and price stay on screen while the reader is
                down in the chart or the discussion. ── */}
-        <section className="desk-band desk-band--focus" id="desk-focus" aria-labelledby="desk-focus-title">
+        <section className="desk-band desk-band--market-reference" aria-labelledby="desk-reference-title">
           <div className="desk-band-head">
-            <h2 id="desk-focus-title">{t("종목 상세")}</h2>
+            <h2 id="desk-reference-title">시장 원자재·산업 지표</h2>
             <span className="desk-band-rule" aria-hidden="true" />
           </div>
-
-          {!selected && <div className="empty-state">{t("종목을 검색해 주세요. (예: 삼성전자, 005930)")}</div>}
-          {loading && (
-            <span className="sr-only" role="status">
-              {t("데이터를 불러오는 중...")}
-            </span>
-          )}
-          {error && <div className="error-state">{t(error)}</div>}
-
-          {selected && !error && (
-            <>
-              <CommodityPanel />
-
-              <div className="desk-focus-grid">
-                <div className="desk-focus-main">
-                  {!summary ? (
-                    <div className="card stock-header stock-header-skeleton" ref={stockHeaderRef} aria-hidden="true">
-                      <span className="name">
-                        <span className="skeleton" style={{ width: 22, height: 22, borderRadius: 5 }} />
-                        <span className="skeleton" style={{ width: 120, height: 20 }} />
-                      </span>
-                      <span className="code">
-                        <span className="skeleton" style={{ width: 56, height: 14 }} />
-                      </span>
-                      <span className="price">
-                        <span className="skeleton" style={{ width: 150, height: 22 }} />
-                      </span>
-                      <span className="marcap">
-                        <span className="skeleton" style={{ width: 220, height: 14 }} />
-                      </span>
-                    </div>
-                  ) : (
-                    (() => {
-                      const marcap = liveQuote?.marcap;
-                      // Naver's live-quote endpoint reports the current cap but not
-                      // its delta, so the change is derived from the same
-                      // day-over-day ratio as the price change — consistent with the
-                      // header above it and refreshed on the same poll.
-                      const marcapChange =
-                        marcap !== undefined && changePct !== undefined
-                          ? marcap - marcap / (1 + changePct / 100)
-                          : undefined;
-                      return (
-                        <div
-                          className={`card stock-header desk-stock-header is-${headerTone} ${
-                            flash ? `is-flash-${flash}` : ""
-                          }`}
-                          ref={stockHeaderRef}
-                        >
-                          <span className="name">
-                            <StockIcon className="stock-header-logo" code={summary.code} />
-                            {summaryName}
-                          </span>
-                          <span className="code">{summary.code}</span>
-                          <MarketBubbleStockLink code={summary.code} market="kr" />
-                          <div className="discussion-explorer-row">
-                            <Link
-                              to={`/discussion-explorer?code=${encodeURIComponent(summary.code)}&name=${encodeURIComponent(summaryName)}&market=KR`}
-                              className="discussion-explorer-link"
-                            >
-                              <span aria-hidden="true">✦</span> 종목토론 <i aria-hidden="true">→</i>
-                            </Link>
-                            <DiscussionHeadlineTicker code={summary.code} />
-                          </div>
-                          {awaitingQuote || close === undefined ? (
-                            <span className="price">
-                              <span className="skeleton" style={{ width: 150, height: 22 }} />
-                            </span>
-                          ) : (
-                            <span className={`price change-${headerTone}`}>
-                              {close.toLocaleString()}
-                              {wonSuffix(lang)} ({(change ?? 0) >= 0 ? "+" : ""}
-                              {(change ?? 0).toLocaleString()}, {(changePct ?? 0).toFixed(2)}%)
-                            </span>
-                          )}
-                          {marcap !== undefined && marcapChange !== undefined && (
-                            <span
-                              className={`marcap ${
-                                marcapChange > 0 ? "change-up" : marcapChange < 0 ? "change-down" : "change-flat"
-                              }`}
-                            >
-                              {t("시가총액")} {formatMarcap(marcap, lang)}
-                              {wonSuffix(lang)} ({formatMarcapChange(marcapChange, lang)}
-                              {wonSuffix(lang)})
-                            </span>
-                          )}
-                          {(perEstimate || sharesOutstanding !== null) && (
-                            <span className="fundamentals">
-                              {perEstimate && `${t("추정PER")} ${formatPerEstimate(perEstimate, lang)}`}
-                              {perEstimate && sharesOutstanding !== null && " · "}
-                              {sharesOutstanding !== null &&
-                                `${t("상장주식수")} ${formatShares(sharesOutstanding, lang)}`}
-                            </span>
-                          )}
-                          <IndicatorBadges points={indicatorPoints} />
-                          <OrderBookBalance code={summary.code} />
-                          {translatedOverview.length > 0 && (
-                            <div className="overview">
-                              {translatedOverview.map((line, idx) => (
-                                <p key={idx}>{line}</p>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()
-                  )}
-
-                  <RecentNewsDigest items={news} name={summaryName} loading={newsLoading} />
-                  <PriceChart points={indicatorPoints} ref={priceChartRef} />
-                  <IndicatorPanel
-                    points={indicatorPoints}
-                    latest={indicatorPoints[indicatorPoints.length - 1] ?? null}
-                    ref={indicatorPanelRef}
-                  />
-                </div>
-
-                <div className="desk-focus-side">
-                  <SidePanel code={selected.code} name={summaryName} news={news} />
-                  <SectorMapPanel code={selected.code} onSelectStock={selectStock} />
-                </div>
-              </div>
-            </>
-          )}
+          <CommodityPanel />
         </section>
+
       </main>
 
       {summary && (

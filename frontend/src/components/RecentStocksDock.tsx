@@ -225,9 +225,7 @@ export default function RecentStocksDock() {
                 ? `${arrow} $${Math.abs(quote.change).toFixed(2)}`
                 : `${arrow} ${Math.abs(quote.change).toLocaleString("ko-KR")}`
               : null;
-            const href = isUs
-              ? `/global?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`
-              : `/desk?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`;
+            const href = `/stock/${encodeURIComponent(item.code)}`;
             const discussHref = `/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${isUs ? "US" : "KR"}`;
             const displayName = names[idx] ?? item.name;
 

@@ -359,7 +359,7 @@ export default function GlobalTop100Page() {
             <DashboardIcon /> {t("홈")}
           </Link>
           <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
-            <StockListIcon /> 종목정보 <NewBadge />
+            <StockListIcon /> 종목정보
           </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
@@ -371,17 +371,17 @@ export default function GlobalTop100Page() {
             <MarketIcon /> S&P500
           </Link>
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
-            <MarketIcon /> NASDAQ100
+            <MarketIcon /> NASDAQ
           </Link>
           <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
-            <RankIcon /> TOP 100
+            <RankIcon /> TOP100
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
-            <PredictIcon /> {t("AI 예측")}
+            <PredictIcon /> {t("AI예측")}
           </Link>
           <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100 is-active">
-            <GlobeRankIcon /> {t("글로벌 시총")}
+            <GlobeRankIcon /> {t("글로벌시총")}
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}

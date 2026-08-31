@@ -98,7 +98,7 @@ function splitDescriptionLines(text: string, maxLines = 5): string[] {
   return sentences.slice(0, maxLines);
 }
 
-export default function GlobalStockPage() {
+export default function GlobalStockPage({ initialCode }: { initialCode?: string } = {}) {
   const t = useT();
   const { lang } = useLanguage();
   // Read as state, not straight off `window.location`: the app's router keys only on
@@ -106,13 +106,13 @@ export default function GlobalStockPage() {
   // below) changes nothing it watches and would leave this page showing the previous
   // ticker. popstate is what navigate() fires, so listening to it covers both that
   // hop and the browser's own back/forward.
-  const [code, setCode] = useState(() => new URLSearchParams(window.location.search).get("code") ?? "");
+  const [code, setCode] = useState(() => initialCode?.toUpperCase() ?? new URLSearchParams(window.location.search).get("code") ?? "");
 
   useEffect(() => {
-    const syncCode = () => setCode(new URLSearchParams(window.location.search).get("code") ?? "");
+    const syncCode = () => setCode(initialCode?.toUpperCase() ?? new URLSearchParams(window.location.search).get("code") ?? "");
     window.addEventListener("popstate", syncCode);
     return () => window.removeEventListener("popstate", syncCode);
-  }, []);
+  }, [initialCode]);
 
   const [quote, setQuote] = useState<UsStockQuote | null>(null);
   const [enrichment, setEnrichment] = useState<GlobalEnrichment | null>(null);
@@ -140,7 +140,7 @@ export default function GlobalStockPage() {
   // the dashboard, which owns the KR pipeline — the inverse of Dashboard's own
   // handler, so the two pages hand off to each other in both directions.
   const selectStock = (stock: { code: string; market: string }) => {
-    navigate(stock.market === "US" ? `/global?code=${stock.code}` : `/stock/${stock.code}`);
+    navigate(`/stock/${stock.code.toUpperCase()}`);
   };
 
   useEffect(() => {
@@ -352,13 +352,17 @@ export default function GlobalStockPage() {
 
 
   return (
-    <div className="app app--desk app--gdesk" ref={pageRef}>
+    <div className={`app app--desk app--gdesk ${initialCode ? "is-stock-detail" : ""}`} ref={pageRef}>
       <header className="app-header" ref={headerRef}>
         <div className="app-title-row">
           <div className="app-brand">
-            <Link to="/">
-              <Logo className="app-logo-wide" />
-            </Link>
+            {initialCode ? (
+              <Link to="/global" className="gdesk-intelligence-brand">K-STOCK <b>INTELLIGENCE</b></Link>
+            ) : (
+              <Link to="/">
+                <Logo className="app-logo-wide" />
+              </Link>
+            )}
           </div>
           <div className="app-header-meta">
             <LanguageToggle />
@@ -366,12 +370,13 @@ export default function GlobalStockPage() {
           </div>
         </div>
         <div className="app-nav-row">
-          <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
-            <DashboardIcon /> {t("홈")}
+          <Link to={initialCode ? "/global" : "/desk"} className="kospi-map-nav-link kospi-map-nav-link--home">
+            <DashboardIcon /> {initialCode ? "글로벌 메인" : t("홈")}
           </Link>
           <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
-            <StockListIcon /> 종목정보 <NewBadge />
+            <StockListIcon /> 종목정보
           </Link>
+          <Link to="/stock/AAPL" className="kospi-map-nav-link kospi-map-nav-link--stock-detail"><span aria-hidden="true">⌕</span> 종목상세</Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
           </Link>
@@ -382,17 +387,17 @@ export default function GlobalStockPage() {
             <MarketIcon /> S&P500
           </Link>
           <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
-            <MarketIcon /> NASDAQ100
+            <MarketIcon /> NASDAQ
           </Link>
           <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
-            <RankIcon /> TOP 100
+            <RankIcon /> TOP100
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
-            <PredictIcon /> AI 예측
+            <PredictIcon /> AI예측
           </Link>
           <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
-            <GlobeRankIcon /> {t("글로벌 시총")}
+            <GlobeRankIcon /> {t("글로벌시총")}
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}
@@ -507,141 +512,14 @@ export default function GlobalStockPage() {
 
         {/* ── Band 5: the workspace — this page's original stock detail, whole and
                unchanged, inside the desk's own band. ── */}
-        <section className="desk-band desk-band--focus" id="gdesk-focus" aria-labelledby="gdesk-focus-title">
+        <section className="desk-band desk-band--market-reference" aria-labelledby="gdesk-reference-title">
           <div className="desk-band-head">
-            <h2 id="gdesk-focus-title">{t("종목 상세")}</h2>
+            <h2 id="gdesk-reference-title">글로벌 원자재·메모리 지표</h2>
             <span className="desk-band-rule" aria-hidden="true" />
           </div>
-
-      {loading && (
-        <span className="sr-only" role="status">
-          {t("데이터를 불러오는 중...")}
-        </span>
-      )}
-      {error && <div className="error-state">{t(error)}</div>}
-
-      {!error && code && <CommodityPanel />}
-
-      {!error && (
-        <div className="layout">
-          <div className="main-col">
-            {!quote ? (
-              <div className="card stock-header stock-header-skeleton" ref={stockHeaderRef} aria-hidden="true">
-                <span className="name">
-                  <span className="skeleton" style={{ width: 22, height: 22, borderRadius: 5 }} />
-                  <span className="skeleton" style={{ width: 120, height: 20 }} />
-                </span>
-                <span className="code">
-                  <span className="skeleton" style={{ width: 56, height: 14 }} />
-                </span>
-                <span className="price">
-                  <span className="skeleton" style={{ width: 150, height: 22 }} />
-                </span>
-              </div>
-            ) : (
-              <div className="card stock-header" ref={stockHeaderRef}>
-                <span className="name">
-                  {enrichment && !logoFailed ? (
-                    <img
-                      src={enrichment.logo_url}
-                      alt=""
-                      className="stock-header-logo"
-                      onError={() => setLogoFailed(true)}
-                    />
-                  ) : (
-                    <span className="fight-logo-fallback stock-header-logo">{quote.name.slice(0, 2)}</span>
-                  )}
-                  {quote.name}
-                </span>
-                <span className="code">{quote.code}</span>
-                <MarketBubbleStockLink code={quote.code} market="nasdaq" />
-                <div className="discussion-explorer-row">
-                  <Link
-                    to={`/discussion-explorer?code=${encodeURIComponent(quote.code)}&name=${encodeURIComponent(quote.name)}&market=US`}
-                    className="discussion-explorer-link"
-                  >
-                    <span aria-hidden="true">✦</span> 종목토론 <i aria-hidden="true">→</i>
-                  </Link>
-                  <DiscussionHeadlineTicker code={quote.code} market="US" />
-                </div>
-                <span
-                  className={`price ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}
-                >
-                  <SessionBadge session={quote.session} />
-                  {formatUsd(quote.close)} ({formatUsdChange(quote.change)}, {quote.change_pct.toFixed(2)}%)
-                </span>
-                {/* The figure above is measured from the previous regular close, so
-                    after the bell it already carries the after-hours leg — this breaks
-                    the two apart. Renders nothing during regular hours. */}
-                <SessionSplit quote={quote} className="stock-header-session" />
-                {enrichment?.marcap_krw != null && (
-                  <span
-                    className={`marcap ${quote.change > 0 ? "change-up" : quote.change < 0 ? "change-down" : "change-flat"}`}
-                  >
-                    {t("시가총액")} {formatMarcapKrw(enrichment.marcap_krw, lang)}
-                    {enrichment.marcap_usd != null && ` (${formatMarcapUsd(enrichment.marcap_usd)})`}
-                  </span>
-                )}
-                {enrichment?.description && (
-                  <div className="overview">
-                    {splitDescriptionLines(enrichment.description).map((line, idx) => (
-                      <p key={idx}>{line}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <PriceChart points={indicatorPoints} ref={priceChartRef} />
-            <IndicatorPanel
-              points={indicatorPoints}
-              latest={indicatorPoints[indicatorPoints.length - 1] ?? null}
-              ref={indicatorPanelRef}
-              defaultExpanded
-            />
-          </div>
-
-          {/* Stretched to the chart column's height (see .side-col in styles.css) so
-              the sector map below can absorb whatever height the news/discussion panel
-              leaves over — on desktop that gap was most of the column. */}
-          <div className="side-col">
-            <div className="card side-panel">
-              <div className="market-overview-tab-bar">
-                <button
-                  type="button"
-                  className={`market-overview-tab ${tab === "news" ? "active" : ""}`}
-                  onClick={() => setTab("news")}
-                >
-                  {t("관련 뉴스")}
-                </button>
-                <button
-                  type="button"
-                  className={`market-overview-tab ${tab === "board" ? "active" : ""}`}
-                  onClick={() => setTab("board")}
-                >
-                  {t("종목토론방")}
-                </button>
-                <button
-                  type="button"
-                  className={`market-overview-tab ${tab === "daily" ? "active" : ""}`}
-                  onClick={() => setTab("daily")}
-                >
-                  {t("일별")}
-                </button>
-              </div>
-
-              {tab === "news" && (
-                <GlobalNewsList code={code} name={quote?.name ?? code} items={news} loading={newsLoading} />
-              )}
-              {tab === "board" && <GlobalBoardPanel code={code} name={quote?.name ?? code} />}
-              {tab === "daily" && <DailyPricePanel code={code} market="US" />}
-            </div>
-
-            <UsSectorMapPanel code={code} onSelectStock={selectStock} />
-          </div>
-        </div>
-      )}
+          <CommodityPanel />
         </section>
+
       </main>
 
       <Footer />

@@ -613,6 +613,7 @@ export default function AdminDashboardPage() {
           K-Stock Hub Admin
         </Link>
         <nav className="admin-dash-subnav">
+          <Link to="/desk" aria-label="마켓데스크 홈으로 이동">🏠 마켓데스크</Link>
           <Link to="/admin/growth">📈 성장 통계</Link>
           <Link to="/admin/db">
             <DbIcon /> DB 조회

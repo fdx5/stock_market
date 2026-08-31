@@ -24,7 +24,7 @@ export default function ChessIngressLink({ path }: { path: string }) {
   const [target, setTarget] = useState<Element | null>(null);
 
   useEffect(() => {
-    if (path === "/admin" || path.startsWith("/admin/")) {
+    if (path === "/admin" || path.startsWith("/admin/") || path === "/discussion-explorer") {
       setTarget(null);
       return;
     }
@@ -65,10 +65,10 @@ export default function ChessIngressLink({ path }: { path: string }) {
       rel="noopener noreferrer"
       data-track="self"
       onClick={() => reportChessIngress(path)}
-      aria-label="3D Chess 게임으로 이동"
+      aria-label="체스게임으로 이동"
     >
       <ChessKnightIcon />
-      <span>3D Chess</span>
+      <span>체스게임</span>
     </a>,
     target,
   );

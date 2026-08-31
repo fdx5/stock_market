@@ -1,5 +1,4 @@
 import { Link } from "../router";
-import NewBadge from "./NewBadge";
 
 export function MarketOrbitIcon() {
   return (
@@ -16,7 +15,7 @@ export default function MarketOrbitNavLink() {
       className="kospi-map-nav-link kospi-map-nav-link--orbit"
     >
       <MarketOrbitIcon />
-      증시궤도 <NewBadge />
+      증시궤도
     </Link>
   );
 }

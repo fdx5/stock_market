@@ -2161,3 +2161,15 @@
     padding-top: 6vh;
   }
 }
+.app--desk .mobile-stock-bar { display: none !important; }
+
+/* /stock/{ticker} reuses the mature US data workspace without repeating the
+   global landing-page bands. The global main keeps those bands and hides only
+   its former embedded stock detail. */
+.app--gdesk.is-stock-detail .desk-rail,
+.app--gdesk.is-stock-detail #gdesk-pulse,
+.app--gdesk.is-stock-detail #gdesk-spotlight,
+.app--gdesk.is-stock-detail #gdesk-index,
+.app--gdesk.is-stock-detail #gdesk-rank { display:none; }
+.app--gdesk .gdesk-intelligence-brand{color:var(--text-primary);font-size:14px;font-weight:900;letter-spacing:.1em;text-decoration:none;white-space:nowrap}
+.app--gdesk .gdesk-intelligence-brand b{color:#27a982}

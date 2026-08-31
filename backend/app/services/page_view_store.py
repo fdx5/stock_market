@@ -75,6 +75,17 @@ CREATE TABLE IF NOT EXISTS page_views_daily (
     computed_at TEXT NOT NULL
 )
 """
+_DAILY_BREAKDOWN_SCHEMA = """
+CREATE TABLE IF NOT EXISTS page_views_daily_breakdowns (
+    day TEXT NOT NULL,
+    dimension TEXT NOT NULL,
+    key1 TEXT NOT NULL,
+    key2 TEXT NOT NULL DEFAULT '',
+    pageviews INTEGER NOT NULL,
+    visitors INTEGER NOT NULL,
+    PRIMARY KEY (day, dimension, key1, key2)
+)
+"""
 
 KST = timezone(timedelta(hours=9))
 
@@ -134,6 +145,7 @@ def _new_ready_connection():
     conn.execute(_BOT_INDEX)
     conn.execute(_GOAL_SCHEMA)
     conn.execute(_DAILY_SCHEMA)
+    conn.execute(_DAILY_BREAKDOWN_SCHEMA)
     # page_views_daily caches one row per closed day and is never recomputed once
     # written - which is right while the definition of a day's totals is stable, and
     # wrong exactly once: the moment bot rows stop counting toward them. Dropping the
@@ -394,6 +406,124 @@ def _cache_daily_row(conn, row: dict) -> None:
     conn.commit()
 
 
+def _compute_daily_breakdowns(conn, day: str) -> list[tuple]:
+    """Build the compact acquisition dimensions for one KST day."""
+    start_iso, end_iso = _kst_day_bounds(day)
+    where = f"created_at >= ? AND created_at < ? AND event_type='page_view' AND {HUMAN}"
+    params = (start_iso, end_iso)
+    specs = (
+        ("channel", "COALESCE(source_channel, 'direct')", "''", ""),
+        ("page", "path", "''", ""),
+        ("search_source", "COALESCE(source_name, 'unknown')", "''", "AND source_channel='search'"),
+        ("campaign", "COALESCE(utm_campaign, '(unknown)')", "COALESCE(utm_source, source_name, 'unknown')",
+         "AND (utm_campaign IS NOT NULL OR source_channel='email')"),
+    )
+    result: list[tuple] = []
+    for dimension, key1, key2, extra in specs:
+        rows = conn.execute(
+            f"SELECT {key1}, {key2}, COUNT(*), COUNT(DISTINCT session_id) "
+            f"FROM page_views WHERE {where} {extra} GROUP BY 1, 2",
+            params,
+        ).fetchall()
+        result.extend(
+            (day, dimension, row[0] or "unknown", row[1] or "", row[2] or 0, row[3] or 0)
+            for row in rows
+        )
+    return result
+
+
+def _ensure_daily_breakdowns(conn, day: str) -> None:
+    if conn.execute(
+        "SELECT 1 FROM page_views_daily_breakdowns WHERE day=? LIMIT 1", (day,)
+    ).fetchone():
+        return
+    rows = _compute_daily_breakdowns(conn, day)
+    # The marker also memoizes a genuinely empty day; without it that day would scan
+    # the raw table again on every historical request.
+    rows.append((day, "_complete", "_complete", "", 0, 0))
+    conn.executemany(
+        "INSERT OR REPLACE INTO page_views_daily_breakdowns "
+        "(day, dimension, key1, key2, pageviews, visitors) VALUES (?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    conn.commit()
+
+
+def _growth_breakdowns(conn, since_date, until_date_exclusive, today):
+    """Past days come only from aggregates; only today may touch raw page_views."""
+    closed_end = min(today, until_date_exclusive)
+    totals: dict[tuple[str, str, str], list[int]] = {}
+    if since_date < closed_end:
+        rows = conn.execute(
+            "SELECT dimension, key1, key2, SUM(pageviews), SUM(visitors) "
+            "FROM page_views_daily_breakdowns WHERE day >= ? AND day < ? GROUP BY 1, 2, 3",
+            (since_date.isoformat(), closed_end.isoformat()),
+        ).fetchall()
+        for dimension, key1, key2, pageviews, visitors in rows:
+            totals[(dimension, key1, key2)] = [pageviews or 0, visitors or 0]
+
+    if since_date <= today < until_date_exclusive:
+        for _, dimension, key1, key2, pageviews, visitors in _compute_daily_breakdowns(conn, today.isoformat()):
+            values = totals.setdefault((dimension, key1, key2), [0, 0])
+            values[0] += pageviews
+            values[1] += visitors
+
+    def dimension_rows(name: str):
+        return [(key1, key2, values[0], values[1])
+                for (dimension, key1, key2), values in totals.items() if dimension == name]
+
+    return tuple(dimension_rows(name) for name in ("channel", "page", "search_source", "campaign"))
+
+
+def _aggregated_daily_rows(conn, since_date, until_date_exclusive, today) -> list[dict]:
+    """Dashboard read path: closed days are SELECTed only from page_views_daily."""
+    closed_end = min(today, until_date_exclusive)
+    result: dict[str, dict] = {}
+    if since_date < closed_end:
+        rows = conn.execute(
+            "SELECT day, pageviews, visitors, search, email, social, referral, direct "
+            "FROM page_views_daily WHERE day >= ? AND day < ? ORDER BY day",
+            (since_date.isoformat(), closed_end.isoformat()),
+        ).fetchall()
+        for row in rows:
+            result[row[0]] = {
+                "date": row[0], "pageviews": row[1], "visitors": row[2], "search": row[3] or 0,
+                "email": row[4] or 0, "social": row[5] or 0, "referral": row[6] or 0,
+                "direct": row[7] or 0,
+            }
+    if since_date <= today < until_date_exclusive:
+        result[today.isoformat()] = _compute_daily_row(conn, today.isoformat())
+    return [result[key] for key in sorted(result)]
+
+
+def aggregate_closed_days() -> int:
+    """Maintenance job that materializes every completed KST day exactly once."""
+    today = datetime.now(timezone.utc).astimezone(KST).date()
+
+    def _run(conn):
+        bounds = conn.execute(
+            f"SELECT MIN(created_at), MAX(created_at) FROM page_views WHERE event_type='page_view' AND {HUMAN}"
+        ).fetchone()
+        if not bounds or not bounds[0]:
+            return 0
+        day = _to_kst_date(bounds[0])
+        completed = 0
+        while day < today:
+            day_str = day.isoformat()
+            if not conn.execute("SELECT 1 FROM page_views_daily WHERE day=?", (day_str,)).fetchone():
+                _cache_daily_row(conn, _compute_daily_row(conn, day_str))
+            before = conn.execute(
+                "SELECT 1 FROM page_views_daily_breakdowns WHERE day=? LIMIT 1", (day_str,)
+            ).fetchone()
+            _ensure_daily_breakdowns(conn, day_str)
+            if not before:
+                completed += 1
+            day += timedelta(days=1)
+        return completed
+
+    return _with_connection(_run)
+
+
 def _daily_rows(conn, since_date, until_date_exclusive, today) -> list[dict]:
     """The trend series for [since_date, until_date_exclusive) in KST days.
 
@@ -431,7 +561,7 @@ def _daily_rows(conn, since_date, until_date_exclusive, today) -> list[dict]:
     return [result[k] for k in sorted(result)]
 
 
-def growth_overview(since_iso: str, until_iso: str | None = None) -> dict:
+def _growth_overview_raw_legacy(since_iso: str, until_iso: str | None = None) -> dict:
     """Acquisition and growth metrics based only on real navigations.
 
     The day-by-day trend (`daily`) is requested on every load - twice per load, once
@@ -452,7 +582,7 @@ def growth_overview(since_iso: str, until_iso: str | None = None) -> dict:
     until_date_exclusive = _to_kst_date(until_iso) if until_iso is not None else today + timedelta(days=1)
 
     def _run(conn):
-        daily = _daily_rows(conn, since_date, until_date_exclusive, today)
+        daily = _aggregated_daily_rows(conn, since_date, until_date_exclusive, today)
         channels = conn.execute(
             "SELECT COALESCE(source_channel, 'direct'), COUNT(*), COUNT(DISTINCT session_id) "
             f"FROM page_views WHERE {where} GROUP BY 1 ORDER BY 2 DESC", params
@@ -480,6 +610,38 @@ def growth_overview(since_iso: str, until_iso: str | None = None) -> dict:
         "pages": [{"path": r[0], "pageviews": r[1], "visitors": r[2]} for r in pages],
         "search_sources": [{"source": r[0], "pageviews": r[1], "visitors": r[2]} for r in sources],
         "campaigns": [{"campaign": r[0], "source": r[1], "pageviews": r[2], "visitors": r[3]} for r in campaigns],
+    }
+
+
+def growth_overview(since_iso: str, until_iso: str | None = None) -> dict:
+    """Serve closed KST days exclusively from daily aggregate tables.
+
+    The current day remains live and may group raw page_views. Historical requests do
+    not touch raw rows after their aggregate has been materialized once.
+    """
+    since_date = _to_kst_date(since_iso)
+    today = datetime.now(timezone.utc).astimezone(KST).date()
+    until_date_exclusive = _to_kst_date(until_iso) if until_iso is not None else today + timedelta(days=1)
+
+    def _run(conn):
+        daily = _aggregated_daily_rows(conn, since_date, until_date_exclusive, today)
+        channels, pages, sources, campaigns = _growth_breakdowns(
+            conn, since_date, until_date_exclusive, today
+        )
+        channels.sort(key=lambda row: row[2], reverse=True)
+        pages.sort(key=lambda row: (row[3], row[2]), reverse=True)
+        sources.sort(key=lambda row: row[2], reverse=True)
+        campaigns.sort(key=lambda row: row[2], reverse=True)
+        return daily, channels, pages, sources, campaigns
+
+    daily, channels, pages, sources, campaigns = _with_connection(_run)
+    return {
+        "daily": daily,
+        "channels": [{"channel": r[0], "pageviews": r[2], "visitors": r[3]} for r in channels],
+        "pages": [{"path": r[0], "pageviews": r[2], "visitors": r[3]} for r in pages[:50]],
+        "search_sources": [{"source": r[0], "pageviews": r[2], "visitors": r[3]} for r in sources],
+        "campaigns": [{"campaign": r[0], "source": r[1], "pageviews": r[2], "visitors": r[3]}
+                      for r in campaigns[:30]],
     }
 
 

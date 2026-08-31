@@ -105,6 +105,55 @@ function formatDate(date: string): string {
   return date.replace(/-/g, ".").slice(2);
 }
 
+type ExtraColumn = { label: string; value: (row: BalanceHistory["items"][number]) => string };
+
+function raw(row: BalanceHistory["items"][number], key: BalanceSeriesKey): number | null {
+  return row[key]?.value ?? null;
+}
+
+function extraColumns(active: BalanceSeriesKey | null, lang: Lang): ExtraColumn[] {
+  const totalVolume = (row: BalanceHistory["items"][number]) => {
+    const volume = raw(row, "short_volume");
+    const weight = raw(row, "short_weight");
+    return volume != null && weight ? volume / (weight / 100) : null;
+  };
+  const avgShortPrice = (row: BalanceHistory["items"][number]) => {
+    const value = raw(row, "short_value");
+    const volume = raw(row, "short_volume");
+    return value != null && volume ? value / volume : null;
+  };
+  const exceptionShare = (row: BalanceHistory["items"][number]) => {
+    const exempt = raw(row, "uptick_exempt");
+    const volume = raw(row, "short_volume");
+    return exempt != null && volume ? (exempt / volume) * 100 : null;
+  };
+  const loanTurnover = (row: BalanceHistory["items"][number]) => {
+    const volume = raw(row, "short_volume");
+    const loan = raw(row, "loan");
+    return volume != null && loan ? (volume / loan) * 100 : null;
+  };
+  const count = (value: number | null) => value == null ? "—" : Math.round(value).toLocaleString();
+  const won = (value: number | null) => value == null ? "—" : `${Math.round(value).toLocaleString()}원`;
+  const ratio = (value: number | null) => value == null ? "—" : `${value.toFixed(2)}%`;
+
+  if (active === "short_volume" || active === "short_weight" || active === "short_value") return [
+    { label: "전체 거래량", value: row => count(totalVolume(row)) },
+    { label: "공매도 평균가", value: row => won(avgShortPrice(row)) },
+    { label: "업틱 예외 비중", value: row => ratio(exceptionShare(row)) },
+  ];
+  if (active === "uptick_applied" || active === "uptick_exempt") return [
+    { label: "공매도 거래량", value: row => count(raw(row, "short_volume")) },
+    { label: "예외 비중", value: row => ratio(exceptionShare(row)) },
+    { label: "공매도 거래대금", value: row => formatQty(raw(row, "short_value"), "원", lang) },
+  ];
+  if (active === "loan") return [
+    { label: "당일 공매도", value: row => count(raw(row, "short_volume")) },
+    { label: "잔고 대비 공매도", value: row => ratio(loanTurnover(row)) },
+    { label: "공매도 비중", value: row => ratio(raw(row, "short_weight")) },
+  ];
+  return [];
+}
+
 export default function ShortSellPanel({ code }: { code: string }) {
   const t = useT();
   const { lang } = useLanguage();
@@ -139,6 +188,7 @@ export default function ShortSellPanel({ code }: { code: string }) {
   if (!history) return <div className="orderbook-status">{t("불러오는 중...")}</div>;
 
   const { series, items: rows, units } = history;
+  const extras = extraColumns(active, lang);
   if (rows.length === 0) {
     return <div className="balance-empty">{t("공시된 공매도 데이터가 없습니다.")}</div>;
   }
@@ -176,6 +226,7 @@ export default function ShortSellPanel({ code }: { code: string }) {
               <th scope="col">{active ? t(SERIES_LABEL[active]) : t("수량")}</th>
               <th scope="col">{t("전일 대비")}</th>
               <th scope="col">{t("증감률")}</th>
+              {extras.map((column) => <th scope="col" key={column.label}>{column.label}</th>)}
             </tr>
           </thead>
           {active && (
@@ -193,6 +244,7 @@ export default function ShortSellPanel({ code }: { code: string }) {
                     <td className={`balance-change ${dirClass(figure?.change ?? null)}`}>
                       {formatPct(figure?.change_pct ?? null)}
                     </td>
+                    {extras.map((column) => <td className="balance-context" key={column.label}>{column.value(row)}</td>)}
                   </tr>
                 );
               })}

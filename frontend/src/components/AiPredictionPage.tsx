@@ -856,7 +856,7 @@ export default function AiPredictionPage() {
             <DashboardIcon /> {t("홈")}
           </Link>
           <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
-            <StockListIcon /> 종목정보 <NewBadge />
+            <StockListIcon /> 종목정보
           </Link>
           <Link to="/map" className="kospi-map-nav-link">
             <MarketIcon /> KOSPI
@@ -868,10 +868,10 @@ export default function AiPredictionPage() {
               rows), so TOP 100 closes the market-destination block instead. */}
           <EtfNavLink />
           <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
-            <RankIcon /> TOP 100
+            <RankIcon /> TOP100
           </Link>
           <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
-            <GlobeRankIcon /> {t("글로벌 시총")}
+            <GlobeRankIcon /> {t("글로벌시총")}
           </Link>
           <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
             <BattleIcon /> {t("시총대결")}

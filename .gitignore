@@ -11,6 +11,13 @@ node_modules/
 frontend/dist/
 npm-debug.log*
 
+# Local Android toolchain and generated build intermediates
+.android-local/
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+
 # Local dev logs
 *.log
 

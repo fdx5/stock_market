@@ -1124,7 +1124,7 @@ export default function MarketBubbleType2() {
       const m = marketRef.current;
       if (item) {
         reportMarketBubbleEvent({ action: "stock_detail", market: m, code: item.code, name: item.name });
-        navigate(m === "nasdaq" ? `/global?code=${item.code}` : `/stock/${item.code}`);
+        navigate(`/stock/${item.code}`);
       }
     };
     dom.addEventListener("pointermove", onPointerMove);
@@ -1786,7 +1786,7 @@ export default function MarketBubbleType2() {
     const item = itemsRef.current[index];
     if (!item) return;
     reportMarketBubbleEvent({ action: "stock_detail", market, code: item.code, name: item.name });
-    navigate(market === "nasdaq" ? `/global?code=${item.code}` : `/stock/${item.code}`);
+    navigate(`/stock/${item.code}`);
   }, [market]);
 
   const resetView = useCallback(() => {

@@ -328,7 +328,7 @@ export default function PredictionGradingPage() {
             <DashboardIcon /> 홈
           </Link>
           <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
-            <StockListIcon /> 종목정보 <NewBadge />
+            <StockListIcon /> 종목정보
           </Link>
           <Link to="/ai-prediction" className="kospi-map-nav-link">
             ← AI 예측으로

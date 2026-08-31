@@ -14,14 +14,17 @@ export default function GlobalNewsList({
   name,
   items,
   loading,
+  language,
 }: {
   code: string;
   name: string;
   items: CompanyNewsItem[];
   loading: boolean;
+  language?: "ko" | "en";
 }) {
   const t = useT();
   const { lang } = useLanguage();
+  const contentLanguage = language ?? lang;
   const [selected, setSelected] = useState<CompanyNewsItem | null>(null);
   const [paragraphs, setParagraphs] = useState<string[] | null>(null);
   const [articleLoading, setArticleLoading] = useState(false);
@@ -31,7 +34,7 @@ export default function GlobalNewsList({
     setParagraphs(null);
     setArticleLoading(true);
     api
-      .fightArticle(item.link, code, lang)
+      .fightArticle(item.link, code, contentLanguage)
       .then((res) => setParagraphs(res.paragraphs))
       .catch(() => setParagraphs(null))
       .finally(() => setArticleLoading(false));
@@ -49,7 +52,7 @@ export default function GlobalNewsList({
         <div className="fight-news-card-meta">
           <span className="fight-news-card-source">{selected.source}</span>
           {selected.published && (
-            <span className="fight-news-card-date">{formatNewsDate(selected.published, lang)}</span>
+            <span className="fight-news-card-date">{formatNewsDate(selected.published, contentLanguage)}</span>
           )}
         </div>
 
@@ -88,7 +91,7 @@ export default function GlobalNewsList({
       {loading && <div className="loading-state">{t("불러오는 중...")}</div>}
       {!loading && items.length === 0 && (
         <div className="empty-state">
-          {lang === "en" ? `No recent news for ${name}.` : `${name} 관련 최근 뉴스가 없습니다.`}
+          {contentLanguage === "en" ? `No recent news for ${name}.` : `${name} 관련 최근 뉴스가 없습니다.`}
         </div>
       )}
       {items.map((item, idx) => (
@@ -100,7 +103,7 @@ export default function GlobalNewsList({
             <div className="fight-news-card-meta">
               <span className="fight-news-card-source">{item.source}</span>
               {item.published && (
-                <span className="fight-news-card-date">{formatNewsDate(item.published, lang)}</span>
+                <span className="fight-news-card-date">{formatNewsDate(item.published, contentLanguage)}</span>
               )}
             </div>
           </div>

@@ -667,7 +667,7 @@ export default function DiscussionExplorerPage() {
   const name = params.get("name") || code;
   const market = params.get("market") === "US" ? "US" : "KR";
   const assetKind: AssetKind = params.get("asset") === "ETF" ? "ETF" : "STOCK";
-  const backPath = assetKind === "ETF" ? "/etf" : market === "US" ? `/global?code=${encodeURIComponent(code)}` : `/stock/${encodeURIComponent(code)}`;
+  const backPath = assetKind === "ETF" ? "/etf" : `/stock/${encodeURIComponent(code)}`;
 
   useDocumentTitle(`${name} 종목토론 · K-Stock Hub`);
   const [viewportWidth, setViewportWidth] = useState(window.innerWidth);

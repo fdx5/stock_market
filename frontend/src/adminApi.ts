@@ -723,7 +723,7 @@ function sourceParam(source: string | null, separator: "?" | "&" = "?"): string 
 
 export const adminApi = {
   summary: () => authedGet<AdminSummary>("/summary"),
-  growthOverview: (days = 90, startDate?: string, endDate?: string) => {
+  growthOverview: (days = 5, startDate?: string, endDate?: string) => {
     const params = new URLSearchParams({ days: String(days) });
     if (startDate && endDate) {
       params.set("start_date", startDate);
