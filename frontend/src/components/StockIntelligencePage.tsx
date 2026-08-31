@@ -26,6 +26,7 @@ type Section = "chart" | "flow" | "orderbook" | "short" | "company" | "news" | "
 
 const nf = new Intl.NumberFormat("ko-KR");
 const compact = new Intl.NumberFormat("ko-KR", { notation: "compact", maximumFractionDigits: 1 });
+const DOMESTIC_NEWS_LIMIT = 7;
 const sectionNav: { id: Section; label: string }[] = [
   { id: "chart", label: "차트·기술지표" }, { id: "flow", label: "투자자 수급" },
   { id: "orderbook", label: "호가" }, { id: "short", label: "공매도·대차" },
@@ -96,7 +97,9 @@ export default function StockIntelligencePage({ code }: { code: string }) {
         if (s.status === "fulfilled") setSummary(s.value); else setError("종목 정보를 불러오지 못했습니다.");
         if (p.status === "fulfilled") setPoints(p.value.points);
         if (o.status === "fulfilled") setOverview(o.value);
-        if (n.status === "fulfilled") setNews(n.value.items);
+        // The shared endpoint serves other, longer news surfaces. The domestic
+        // detail page itself deliberately exposes only its seven leading items.
+        if (n.status === "fulfilled") setNews(n.value.items.slice(0, DOMESTIC_NEWS_LIMIT));
         if (f.status === "fulfilled") setFlows(f.value.records);
         if (q.status === "fulfilled") setQuote(q.value);
       }).finally(() => alive && setLoading(false));

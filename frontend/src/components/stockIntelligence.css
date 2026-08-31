@@ -85,6 +85,12 @@
   .si-content-pair>.si-section{width:100%;overflow:hidden}
   .si-content-pair .si-panel{width:100%;overflow:hidden;padding:10px}
   .si-page .news-list,.si-page .board-list{width:100%;max-height:none;overflow-x:hidden;overflow-y:visible}
+  /* News and discussion are consecutive grid rows on phones. Explicit spacing and
+     paint containment prevent either long, asynchronously populated list from
+     drawing into the neighbouring section while its height is being recalculated. */
+  .si-content-pair{row-gap:34px}
+  .si-content-pair>.si-section{contain:layout paint;isolation:isolate;margin-top:34px}
+  .si-content-pair>.si-section+ .si-section{margin-top:0}
   .si-page .news-item .meta,.si-page .board-row-meta{flex-wrap:wrap;min-width:0}
   .si-page .board-detail-body{min-width:0;padding:10px}
   .si-page .board-detail-image{width:auto;max-width:100%;height:auto}
@@ -96,7 +102,7 @@
 /* Market-desk navigation is shared with detail pages; search belongs to the page
    workspace so the link rail remains readable and crawlable. */
 .si-common-header{isolation:isolate;width:100%;box-sizing:border-box;margin:0;padding-left:max(20px,calc((100vw - var(--si-shell))/2));padding-right:max(20px,calc((100vw - var(--si-shell))/2));border-bottom:1px solid var(--si-line);background:var(--si-paper);box-shadow:0 8px 24px rgba(22,42,34,.08)}
-.si-common-header .app-nav-row{display:flex;flex-wrap:wrap!important;overflow:visible!important;max-width:100%;max-height:none;padding-bottom:2px;-ms-overflow-style:auto;scrollbar-width:auto}
+.si-common-header .app-nav-row{display:flex;flex-wrap:wrap;overflow:visible;max-width:100%;max-height:none;padding-bottom:2px;-ms-overflow-style:auto;scrollbar-width:auto}
 .si-common-header .app-nav-row::-webkit-scrollbar{display:none}
 .si-common-header .kospi-map-nav-link{flex:0 0 auto;white-space:nowrap}
 .kospi-map-nav-link--nasdaq,.kospi-map-nav-link--orbit,.kospi-map-nav-link--stocks{gap:3px;padding:4px 9px;font-size:11px}
@@ -111,7 +117,7 @@
 .si-detail-search-deck>div:first-child small{margin-top:4px;color:var(--si-muted);font-size:10px}
 .si-detail-search-deck .search-wrap,.si-detail-search-deck .search-input{width:100%;box-sizing:border-box}
 :root[data-theme="dark"] .si-detail-search-deck{border-color:#294147;background:linear-gradient(135deg,rgba(18,34,39,.96),rgba(10,24,29,.96));box-shadow:0 14px 38px rgba(0,0,0,.24)}
-@media(max-width:700px){.si-common-header{width:100%;padding-left:12px;padding-right:12px}.si-common-header .app-title-row{padding-left:2px;padding-right:2px}.si-detail-search-deck{grid-template-columns:1fr;gap:12px;width:calc(100% - 20px);margin-top:10px;padding:14px;border-radius:14px}.si-detail-search-deck>div:first-child small{display:none}}
+@media(max-width:700px){.si-common-header{width:100%;padding-left:12px;padding-right:12px}.si-common-header .app-title-row{padding-left:2px;padding-right:2px}.si-common-header .app-nav-row{flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;scrollbar-width:none}.si-common-header .app-nav-row::-webkit-scrollbar{display:none}.si-detail-search-deck{grid-template-columns:1fr;gap:12px;width:calc(100% - 20px);margin-top:10px;padding:14px;border-radius:14px}.si-detail-search-deck>div:first-child small{display:none}}
 
 /* The shared header has a variable wrapped height. Keeping a second sticky bar at a
    guessed pixel offset caused it to slide under the header, so section navigation
