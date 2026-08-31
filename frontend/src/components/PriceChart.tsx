@@ -13,6 +13,7 @@ import {
 } from "lightweight-charts";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { IndicatorPoint } from "../api/client";
+import { PAGE_SCROLL_SAFE_CHART_OPTIONS, attachChartZoomGuard } from "../chartScrollGuard";
 import { useT } from "../i18n/LanguageContext";
 import { getThemeColors, watchTheme } from "../theme";
 import ChartSkeleton from "./ChartSkeleton";
@@ -93,10 +94,12 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
       localization: { dateFormat: "MM.dd" },
       height: 380,
       autoSize: true,
-      // Let a vertical touch drag fall through to page scroll instead of being
-      // captured as a chart gesture; horizontal drag still pans the time axis.
-      handleScroll: { vertTouchDrag: false },
+      // Wheel and vertical touch drag stay with the page; zoom is Ctrl/⌘ + wheel
+      // (or a trackpad pinch) via the guard attached below.
+      ...PAGE_SCROLL_SAFE_CHART_OPTIONS,
     });
+
+    const detachZoomGuard = attachChartZoomGuard(containerRef.current, chart);
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: colors.up,
@@ -208,6 +211,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
 
     return () => {
       stopWatching();
+      detachZoomGuard();
       chart.remove();
     };
   }, []);

@@ -3,14 +3,24 @@ import { createPortal } from "react-dom";
 import { reportChessIngress } from "../useActivityTracking";
 
 const CHESS_URL = "https://threedchess-mpjo.onrender.com";
+// `.orbit-top` is deliberately absent: the 증시궤도 pages drop the chess link (see
+// EXCLUDED_PATHS), and that header carries nothing else this component would hook.
 const HEADER_TARGETS = [
   ".app-nav-row",
   ".bubble-header",
   ".neo-header",
-  ".orbit-top",
   ".brief-site-head",
   ".discussion-hud",
 ].join(",");
+
+/** Routes that never show the chess link. */
+const EXCLUDED_PATHS = new Set([
+  "/discussion-explorer",
+  "/kospi-orbit",
+  "/kosdaq-orbit",
+  "/nasdaq100-orbit",
+  "/sp500-orbit",
+]);
 
 function ChessKnightIcon() {
   return (
@@ -24,7 +34,7 @@ export default function ChessIngressLink({ path }: { path: string }) {
   const [target, setTarget] = useState<Element | null>(null);
 
   useEffect(() => {
-    if (path === "/admin" || path.startsWith("/admin/") || path === "/discussion-explorer") {
+    if (path === "/admin" || path.startsWith("/admin/") || EXCLUDED_PATHS.has(path)) {
       setTarget(null);
       return;
     }

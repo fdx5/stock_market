@@ -11,6 +11,7 @@ import {
 } from "lightweight-charts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DramHistoryResponse, api } from "../api/client";
+import { PAGE_SCROLL_SAFE_CHART_OPTIONS, attachChartZoomGuard } from "../chartScrollGuard";
 import { useT } from "../i18n/LanguageContext";
 import { Link } from "../router";
 import { getThemeColors, useThemeMode } from "../theme";
@@ -174,8 +175,11 @@ export default function DramPriceHistoryPage() {
       localization: {
         priceFormatter: (v: number) => (mode === "index" ? v.toFixed(1) : formatUsd(v)),
       },
+      // Wheel and vertical touch drag belong to the page; see chartScrollGuard.
+      ...PAGE_SCROLL_SAFE_CHART_OPTIONS,
     });
     chartRef.current = chart;
+    const detachZoomGuard = attachChartZoomGuard(containerRef.current, chart);
 
     const handles: ISeriesApi<"Line">[] = [];
     for (const s of plotted) {
@@ -295,6 +299,7 @@ export default function DramPriceHistoryPage() {
 
     return () => {
       ro.disconnect();
+      detachZoomGuard();
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       chart.remove();
       chartRef.current = null;

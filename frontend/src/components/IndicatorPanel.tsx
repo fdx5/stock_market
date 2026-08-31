@@ -12,6 +12,7 @@ import {
 } from "lightweight-charts";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { IndicatorPoint } from "../api/client";
+import { PAGE_SCROLL_SAFE_CHART_OPTIONS, attachChartZoomGuard } from "../chartScrollGuard";
 import { useT } from "../i18n/LanguageContext";
 import { ThemeColors, getThemeColors, watchTheme } from "../theme";
 import ChartSkeleton from "./ChartSkeleton";
@@ -92,6 +93,8 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
       crosshair: { mode: CrosshairMode.Normal },
       height: 130,
       autoSize: true,
+      // Wheel and vertical touch drag belong to the page; see chartScrollGuard.
+      ...PAGE_SCROLL_SAFE_CHART_OPTIONS,
     };
 
     const rsiChart = createChart(rsiContainerRef.current, baseOptions);
@@ -125,6 +128,13 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
     macdSignalRef.current = macdSignal;
     macdHistRef.current = macdHist;
 
+    // No hint badge here: these panels are 130px tall, so the badge would sit on
+    // top of the plot. The reader meets the hint on the price chart above.
+    const detachZoomGuards = [
+      attachChartZoomGuard(rsiContainerRef.current, rsiChart, { showHint: false }),
+      attachChartZoomGuard(macdContainerRef.current, macdChart, { showHint: false }),
+    ];
+
     const stopWatching = watchTheme((next) => {
       [rsiChart, macdChart].forEach((chart) => {
         chart.applyOptions({
@@ -144,6 +154,7 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
 
     return () => {
       stopWatching();
+      detachZoomGuards.forEach((detach) => detach());
       rsiChart.remove();
       macdChart.remove();
     };

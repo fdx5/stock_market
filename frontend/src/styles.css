@@ -1059,7 +1059,7 @@ a.app-brand:hover .app-logo-wide {
 @keyframes chess-silver-shine { 0%,58% { left:-45%; opacity:0; } 66% { opacity:1; } 82%,100% { left:125%; opacity:0; } }
 
 /* Custom full-screen headers do not use the shared nav's auto margin. */
-.bubble-header>.chess-ingress-link,.neo-header>.chess-ingress-link,.orbit-top>.chess-ingress-link,.brief-site-head>.chess-ingress-link,.discussion-hud>.chess-ingress-link { margin-left:auto; }
+.bubble-header>.chess-ingress-link,.neo-header>.chess-ingress-link,.brief-site-head>.chess-ingress-link,.discussion-hud>.chess-ingress-link { margin-left:auto; }
 @media (max-width:640px) { .chess-ingress-link { min-height:31px; padding:0 9px; font-size:10px; }.chess-ingress-link svg { width:16px; height:16px; } }
 @media (prefers-reduced-motion:reduce) { .chess-ingress-link::after { animation:none; } }
 .stock-intel-shortcut{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 11px;border:1px solid rgba(35,85,66,.25);border-radius:9px;color:#173e31;background:linear-gradient(180deg,#fff,#eaf3ee);box-shadow:0 3px 12px rgba(22,62,48,.1);font-size:10px;font-weight:800;letter-spacing:-.02em;text-decoration:none;white-space:nowrap}.stock-intel-shortcut span{color:#087052;font-size:15px}.stock-intel-shortcut:hover{border-color:#0b6b4f;transform:translateY(-1px)}.stock-intel-shortcut.is-floating{position:fixed;z-index:90;top:14px;right:18px}.app-nav-row>.stock-intel-shortcut,.bubble-header>.stock-intel-shortcut,.neo-header>.stock-intel-shortcut,.orbit-top>.stock-intel-shortcut,.brief-site-head>.stock-intel-shortcut,.discussion-hud>.stock-intel-shortcut,.kospi-map-header>.stock-intel-shortcut{margin-left:auto}.si-site-header>.stock-intel-shortcut{grid-column:3;grid-row:1}
@@ -1924,6 +1924,41 @@ a.app-brand:hover .app-logo-wide {
 .chart-sub {
   width: 100%;
   height: 130px;
+}
+
+/* Wheel over a chart scrolls the page (see chartScrollGuard.ts); this badge is the
+   only place the reader is told where the zoom went. It fades in on the first
+   unmodified wheel over the chart and back out ~1.6s later, and never takes the
+   pointer, so it cannot block the crosshair underneath. */
+.chart-zoom-hint {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 3;
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.chart-zoom-hint.is-visible {
+  opacity: 0.95;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-zoom-hint {
+    transition: none;
+    transform: none;
+  }
 }
 
 .range-toggle button.active {
@@ -3817,6 +3852,14 @@ thead .weekly-foreign-amount-col {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  /* The label is one flex item next to a fixed-width icon, and a flex item's default
+     flex-shrink: 1 lets the browser squeeze the pill down to the label's min-content
+     width instead of wrapping the row — which is how 증시궤도 (and any other
+     multi-syllable label) ended up broken across two lines inside its own pill. Hold
+     the pill at its content width and never break the label; the row wraps, or on
+     mobile scrolls horizontally, which is what the layout already expects. */
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: 12px;
   font-weight: 700;
   color: var(--series-blue);
