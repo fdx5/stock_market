@@ -382,9 +382,10 @@ export default function App() {
     page = path === "/" || path === "/hub" || path === "/type2" ? <HubType2 /> : <MarketDeskPage />;
   }
 
-  // /stock/:code is the canonical URL for the market desk (see the canonicalPath
-  // rewrite above), so it counts as "/desk" for the dock's allowlist too.
-  const showRecentDock = RECENT_DOCK_PATHS.has(path) || !!stockMatch;
+  // Keep the floating recent-stocks rail on browsing/ranking workspaces only.
+  // A stock detail page records the visit for use elsewhere, but must not render
+  // the desk's rail itself (regardless of viewport size or navigation history).
+  const showRecentDock = RECENT_DOCK_PATHS.has(path);
 
   // The fallback stays silent for its first 2.5s (see LoadingState): a cached route
   // chunk resolves in milliseconds, and the old fallback made every navigation flash a
