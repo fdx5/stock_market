@@ -1175,7 +1175,12 @@ uniform float uDetailLevel;`,
         const body = pendingDesignBodies.shift();
         if (!body) return;
         designLoading = true;
-        const fullDesign = Boolean(body.userData.designRequestedFull);
+        // A focused planet must never wait on the multi-map 2K material set while
+        // showing the procedural placeholder. Apply its lightweight real surface
+        // first, then upgrade that same body during the camera flight.
+        const fullDesign =
+          Boolean(body.userData.designRequestedFull) &&
+          Number(body.userData.designLevel ?? 0) >= 1;
         const stock = body.userData.stock as MarketMapItem,
           material = (body as THREE.Mesh).material;
         let maps;

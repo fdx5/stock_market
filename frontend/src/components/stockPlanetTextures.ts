@@ -186,7 +186,7 @@ export async function loadStockPlanetPreview(
 ): Promise<StockPlanetMaps> {
   const spec = orderedCases(systemKey)[slot % CASES.length],
     path = `${ROOT}/${spec.id}`,
-    surface = await texture(`${path}/surface.webp`, anisotropy, true);
+    surface = await texture(`${path}/surface-preview.webp`, anisotropy, true);
   return baseMaps(code, spec, surface);
 }
 

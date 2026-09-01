@@ -6,6 +6,7 @@ from PIL import Image, ImageChops
 SOURCE = Path(r"I:\ai_root\textures_planets\result3")
 DESTINATION = Path(__file__).resolve().parents[1] / "planet-assets/stock-planets-v3"
 TARGET_SIZE = (2048, 1024)
+PREVIEW_SIZE = (512, 256)
 MATERIAL_SIZE = (2048, 1024)
 SEAM_WIDTH = 12
 SKIP_FOLDERS = {"Desert+03(1) (1)", "textures"}
@@ -75,7 +76,12 @@ def main() -> None:
         roughness = pick(paths, "roughness") or pick(paths, "specular") or pick(paths, "metallic")
         emissions = [p for p in paths if any(t in p.name.lower() for t in ("lights", "lava", "emissive")) and readable(p)]
         case_id = slug(folder.name); target = DESTINATION / case_id; target.mkdir(parents=True, exist_ok=True)
-        save_color(open_map(diffuse, "RGB", TARGET_SIZE), target / "surface.webp", 90)
+        surface = open_map(diffuse, "RGB", TARGET_SIZE)
+        save_color(surface, target / "surface.webp", 90)
+        # The overview only renders planets a few pixels wide on phones. Shipping
+        # the 2K source there delays first texture paint; the full map is still loaded
+        # when the user focuses a planet.
+        save_color(surface.resize(PREVIEW_SIZE, Image.Resampling.LANCZOS), target / "surface-preview.webp", 82)
         if height: save_mask(open_map(height, "L", MATERIAL_SIZE), target / "height.webp", 88)
         if cloud:
             cloud_image = open_map(cloud, "RGBA", MATERIAL_SIZE)
