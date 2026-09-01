@@ -82,13 +82,35 @@ export function scrollToSection(id: string): void {
  * Returns a teardown for the caller's effect.
  */
 export function trackStickyHeight(target: HTMLElement): () => void {
-  const apply = () =>
-    target.style.setProperty("--desk-sticky-h", `${stickyHeaderOffset(0)}px`);
-  apply();
+  /* Dragging a window edge fires both sources below on nearly every frame, and
+     the write is the expensive part: setting a custom property on the page root
+     invalidates style for everything under it, which on a desk is the whole page.
+     The measured height, meanwhile, only changes at the two or three widths where
+     the header's nav row wraps — every other write recalculates the page to
+     restate a number CSS already had.
+
+     So the measurement is coalesced to one animation frame per burst, and the
+     property is written only when the figure actually moved. */
+  let published = Number.NaN,
+    frame = 0;
+  const publish = () => {
+    frame = 0;
+    const height = stickyHeaderOffset(0);
+    if (height === published) return;
+    published = height;
+    target.style.setProperty("--desk-sticky-h", `${height}px`);
+  };
+  const apply = () => {
+    if (!frame) frame = requestAnimationFrame(publish);
+  };
+  publish();
 
   if (typeof ResizeObserver === "undefined") {
     window.addEventListener("resize", apply);
-    return () => window.removeEventListener("resize", apply);
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("resize", apply);
+    };
   }
 
   const observer = new ResizeObserver(apply);
@@ -101,6 +123,7 @@ export function trackStickyHeight(target: HTMLElement): () => void {
      into the phone layout would leave the old figure in place. */
   window.addEventListener("resize", apply);
   return () => {
+    if (frame) cancelAnimationFrame(frame);
     observer.disconnect();
     window.removeEventListener("resize", apply);
   };

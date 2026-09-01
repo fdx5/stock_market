@@ -82,7 +82,15 @@ export default function UsSectorMapPanel({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setSize({ w: el.clientWidth, h: el.clientHeight });
+    // Compared before it is stored: the observer fires on every frame of a window
+    // drag, and an unguarded object would re-render the treemap for each one even
+    // where this panel's own box never moved.
+    const update = () =>
+      setSize((current) =>
+        current.w === el.clientWidth && current.h === el.clientHeight
+          ? current
+          : { w: el.clientWidth, h: el.clientHeight },
+      );
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);

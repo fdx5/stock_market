@@ -17486,3 +17486,11 @@ thead .pred-matrix-ratehead {
     max-width: 220px;
   }
 }
+
+/* Set on <html> for the length of a window drag by resizeQuiet.ts. Percentage
+   gauges carry `transition: width` so the bar glides when its value moves; a
+   resize changes the same computed width, so without this every frame of a drag
+   restarts a sub-second animation on every bar on the page. */
+html.is-window-resizing *,
+html.is-window-resizing *::before,
+html.is-window-resizing *::after{transition:none!important}

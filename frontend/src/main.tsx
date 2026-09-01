@@ -2,7 +2,10 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { LanguageProvider } from "./i18n/LanguageContext";
+import { installResizeQuiet } from "./resizeQuiet";
 import "./styles.css";
+
+installResizeQuiet();
 
 const bootWindow = window as typeof window & { __KSTOCK_APP_BOOTED__?: boolean };
 bootWindow.__KSTOCK_APP_BOOTED__ = true;

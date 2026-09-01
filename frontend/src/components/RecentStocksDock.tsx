@@ -85,26 +85,47 @@ export default function RecentStocksDock() {
   // route swap remounts a differently-shaped `.app`, and its final width can
   // still be settling a frame later while fonts/images land).
   useEffect(() => {
-    const measure = () => {
+    /* A window drag fires this on nearly every frame from two sources at once,
+       and it used to hand React a fresh object each time — a re-render, and with
+       it a DOM mutation the site-wide observers all wake up for, to move the rail
+       to the position it was already in. The position is compared before it is
+       stored, and the measuring is coalesced to one animation frame per burst. */
+    let frame = 0;
+    const clear = () =>
+      setDock((current) => (current === null ? current : null));
+    const publish = () => {
+      frame = 0;
       const app = document.querySelector<HTMLElement>(".app");
       if (!app) {
-        setDock(null);
+        clear();
         return;
       }
       const rect = app.getBoundingClientRect();
       const gutter = window.innerWidth - rect.right;
       if (gutter < COMPACT_MIN_GUTTER) {
-        setDock(null);
+        clear();
         return;
       }
       const compact = gutter < FULL_MIN_GUTTER;
       const header = document.querySelector<HTMLElement>(".app-header");
       const headerH = header ? header.getBoundingClientRect().height : 72;
       const gapContent = compact ? COMPACT_GAP_CONTENT : FULL_GAP_CONTENT;
-      setDock({ left: rect.right + gapContent, top: Math.max(24, headerH + 24), compact });
+      const left = rect.right + gapContent,
+        top = Math.max(24, headerH + 24);
+      setDock((current) =>
+        current &&
+        current.left === left &&
+        current.top === top &&
+        current.compact === compact
+          ? current
+          : { left, top, compact },
+      );
+    };
+    const measure = () => {
+      if (!frame) frame = requestAnimationFrame(publish);
     };
 
-    measure();
+    publish();
     const settleId = window.setTimeout(measure, 300);
     window.addEventListener("resize", measure);
 
@@ -113,6 +134,7 @@ export default function RecentStocksDock() {
     if (app && ro) ro.observe(app);
 
     return () => {
+      if (frame) cancelAnimationFrame(frame);
       window.clearTimeout(settleId);
       window.removeEventListener("resize", measure);
       ro?.disconnect();

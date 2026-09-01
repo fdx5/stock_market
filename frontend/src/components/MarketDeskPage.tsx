@@ -159,15 +159,36 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
     const header = headerRef.current;
     const page = pageRef.current;
     if (!header || !page) return;
-    const apply = () => page.style.setProperty("--desk-header-h", `${header.offsetHeight}px`);
-    apply();
+    /* Written on the page root, so every write invalidates style for the whole
+       page. A horizontal drag fires this on nearly every frame while the height
+       changes only where the nav row wraps, so the write is skipped unless the
+       figure actually moved, and the measuring is coalesced to one frame. */
+    let published = Number.NaN,
+      frame = 0;
+    const publish = () => {
+      frame = 0;
+      const height = header.offsetHeight;
+      if (height === published) return;
+      published = height;
+      page.style.setProperty("--desk-header-h", `${height}px`);
+    };
+    const apply = () => {
+      if (!frame) frame = requestAnimationFrame(publish);
+    };
+    publish();
     if (typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", apply);
-      return () => window.removeEventListener("resize", apply);
+      return () => {
+        if (frame) cancelAnimationFrame(frame);
+        window.removeEventListener("resize", apply);
+      };
     }
     const observer = new ResizeObserver(apply);
     observer.observe(header);
-    return () => observer.disconnect();
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, []);
 
   /* And the whole pinned stack's height, for CSS. See trackStickyHeight — the
