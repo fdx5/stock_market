@@ -100,6 +100,14 @@ def test_concurrent_claims_yield_exactly_one_winner(store):
     assert sum(1 for r in results if r) == 1
 
 
+def test_batch_lock_allows_only_one_process(store):
+    first = store.acquire_batch_lock()
+    assert first
+    assert store.acquire_batch_lock() is None
+    store.release_batch_lock(first)
+    assert store.acquire_batch_lock()
+
+
 def test_failed_row_is_retryable_until_max_attempts(store):
     store.enqueue("2026-08-17", "SKSQUARE")
     for i in range(store.MAX_ATTEMPTS):

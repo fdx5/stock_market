@@ -22,6 +22,7 @@ status values
 import datetime as dt
 import logging
 import os
+import uuid
 from pathlib import Path
 
 from app.services import libsql_gate, turso
@@ -57,6 +58,15 @@ CREATE TABLE IF NOT EXISTS naver_blog_posts (
 )
 """
 
+_LOCK_SCHEMA = """
+CREATE TABLE IF NOT EXISTS naver_blog_publish_lock (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    owner TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)
+"""
+
 
 def _connect():
     if TURSO_DATABASE_URL:
@@ -68,6 +78,7 @@ def _connect():
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
+    conn.execute(_LOCK_SCHEMA)
     conn.commit()
     return conn
 
@@ -90,6 +101,41 @@ def _with_connection(fn):
 
 def _now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+
+
+def acquire_batch_lock(lease_minutes: int = 45) -> str | None:
+    """Acquire the cross-process publisher lease and return its opaque owner token."""
+    owner = uuid.uuid4().hex
+    now = _now()
+    expires = (
+        dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=lease_minutes)
+    ).isoformat(timespec="seconds")
+
+    def _run(conn):
+        cur = conn.execute(
+            """
+            INSERT INTO naver_blog_publish_lock (id, owner, expires_at, updated_at)
+            VALUES (1, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                owner = excluded.owner,
+                expires_at = excluded.expires_at,
+                updated_at = excluded.updated_at
+            WHERE naver_blog_publish_lock.expires_at < ?
+            """,
+            (owner, expires, now, now),
+        )
+        conn.commit()
+        return owner if getattr(cur, "rowcount", 0) == 1 else None
+
+    return _with_connection(_run)
+
+
+def release_batch_lock(owner: str) -> None:
+    def _run(conn):
+        conn.execute("DELETE FROM naver_blog_publish_lock WHERE id = 1 AND owner = ?", (owner,))
+        conn.commit()
+
+    _with_connection(_run)
 
 
 def enqueue(report_date: str, market: str) -> bool:

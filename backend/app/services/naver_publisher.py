@@ -171,6 +171,11 @@ def run(
     if not _lock.acquire(blocking=False):
         return {"status": "already_running"}
 
+    batch_owner = naver_publish_store.acquire_batch_lock()
+    if not batch_owner:
+        _lock.release()
+        return {"status": "already_running_elsewhere"}
+
     try:
         report_date = report_date or dt.datetime.now(KST).date().isoformat()
         started = dt.datetime.now(KST)
@@ -314,6 +319,7 @@ def run(
         _last_run = result
         return result
     finally:
+        naver_publish_store.release_batch_lock(batch_owner)
         _lock.release()
 
 
