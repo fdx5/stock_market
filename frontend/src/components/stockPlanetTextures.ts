@@ -24,7 +24,7 @@ export interface StockPlanetMaps {
 const LOCAL_ROOT = "/planet-assets/stock-planets-v3";
 const CDN_ROOT =
   import.meta.env.VITE_PLANET_TEXTURE_CDN ||
-  "https://cdn.jsdelivr.net/gh/fdx5/stock_market@main/planet-assets/stock-planets-v3";
+  "https://cdn.jsdelivr.net/gh/fdx5/stock_market@fbf59bc/planet-assets/stock-planets-v3";
 const ROOT = (import.meta.env.DEV ? LOCAL_ROOT : CDN_ROOT).replace(/\/$/, "");
 const ASSET_VERSION = "20260901-2k-v1";
 const C = (id: string, label: string, height: boolean, cloud: boolean, roughness: boolean, invertRoughness: boolean, emissive: boolean, atmosphere: number): PlanetCase =>
