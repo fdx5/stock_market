@@ -78,6 +78,13 @@ class NaverPublishError(RuntimeError):
     """This post failed but the session is fine — safe to retry."""
 
 
+def _rabbit_error_is_session_expired(data: dict) -> bool:
+    """RabbitWrite can reject an invalid login without redirecting to nidlogin."""
+    result = data.get("result") or {}
+    code = result.get("errorCode") or data.get("errorCode")
+    return str(code or "").strip().lower() == "no privilege"
+
+
 def _dump_debug(page, tag: str) -> str | None:
     """Screenshot + HTML on failure. Without this a headless selector change is
     undiagnosable from logs alone."""
@@ -176,7 +183,13 @@ def publish(
     from app.services import naver_document_model
 
     expected_components = 1 + len(body_components)
-    captured: dict = {"log_no": None, "request_seen": False, "response_body": None}
+    captured: dict = {
+        "log_no": None,
+        "request_seen": False,
+        "response_body": None,
+        "error_code": None,
+        "error_message": None,
+    }
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -214,9 +227,13 @@ def publish(
                     body = response.text()
                     captured["response_body"] = body[:2000]
                     data = json.loads(body)
+                    result = data.get("result") or {}
+                    captured["error_code"] = result.get("errorCode") or data.get("errorCode")
+                    captured["error_message"] = result.get("errorMessage") or data.get("errorMessage")
+                    captured["session_expired"] = _rabbit_error_is_session_expired(data)
                     log_no = (
                         data.get("logNo")
-                        or (data.get("result") or {}).get("logNo")
+                        or result.get("logNo")
                         or (data.get("data") or {}).get("logNo")
                     )
                     if log_no:
@@ -353,6 +370,10 @@ def publish(
             log_no = None
             deadline = time.time() + 90
             while time.time() < deadline:
+                if captured.get("session_expired"):
+                    raise NaverSessionExpired(
+                        "Naver rejected blog write privilege; the stored login session must be renewed"
+                    )
                 if captured["log_no"]:
                     log_no = captured["log_no"]
                     break

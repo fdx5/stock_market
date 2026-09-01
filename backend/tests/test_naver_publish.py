@@ -128,6 +128,17 @@ def test_release_stale_returns_claims(store):
     assert store.claim("2026-08-17", "KOSDAQ") is True
 
 
+def test_rabbit_no_privilege_is_treated_as_expired_session():
+    from app.services.naver_blog_client import _rabbit_error_is_session_expired
+
+    assert _rabbit_error_is_session_expired(
+        {"isSuccess": False, "result": {"errorCode": "no privilege"}}
+    )
+    assert not _rabbit_error_is_session_expired(
+        {"isSuccess": False, "result": {"errorCode": "temporary failure"}}
+    )
+
+
 # --- document model -----------------------------------------------------------------
 
 BRIEF = {
