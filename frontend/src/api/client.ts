@@ -1215,7 +1215,7 @@ export const api = {
     getJSON<{ items: FightComment[]; count: number }>(
       `${BASE}/fight/company-comments?code=${encodeURIComponent(code)}&limit=${limit}`
     ),
-  usStockQuote: (code: string) => getJSON<UsStockQuote>(`${BASE}/us-stock/${code}/quote`),
+  usStockQuote: (code: string) => getJSONFresh<UsStockQuote>(`${BASE}/us-stock/${code}/quote`),
   usHistory: (code: string, years = 3) =>
     getJSON<{ code: string; name: string; points: OhlcvPoint[] }>(
       `${BASE}/us-stock/${encodeURIComponent(code)}/history?years=${years}`

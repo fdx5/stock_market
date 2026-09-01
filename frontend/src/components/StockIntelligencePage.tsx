@@ -6,6 +6,7 @@ import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useStockDetailSeo } from "../useStockDetailSeo";
 import { recordRecent } from "../watchlist";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import BoardPanel from "./BoardPanel";
 import DailyPricePanel from "./DailyPricePanel";
 import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
@@ -27,6 +28,7 @@ type Section = "chart" | "flow" | "orderbook" | "short" | "company" | "news" | "
 const nf = new Intl.NumberFormat("ko-KR");
 const compact = new Intl.NumberFormat("ko-KR", { notation: "compact", maximumFractionDigits: 1 });
 const DOMESTIC_NEWS_LIMIT = 7;
+const QUOTE_POLL_MS = 10_000;
 const sectionNav: { id: Section; label: string }[] = [
   { id: "chart", label: "차트·기술지표" }, { id: "flow", label: "투자자 수급" },
   { id: "orderbook", label: "호가" }, { id: "short", label: "공매도·대차" },
@@ -106,6 +108,17 @@ export default function StockIntelligencePage({ code }: { code: string }) {
     return () => { alive = false; };
   }, [code]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const poll = () => {
+      api.quote(code)
+        .then(value => { if (!cancelled) setQuote(value); })
+        .catch(() => { /* Keep the last successful quote on a transient failure. */ });
+    };
+    const stopPolling = startVisibilityAwareInterval(poll, QUOTE_POLL_MS);
+    return () => { cancelled = true; stopPolling(); };
+  }, [code]);
+
   // The same two records every other stock-detail surface writes when a name opens:
   // stock_view feeds the site-wide 인기 종목 ranking (the page_view alone says a URL
   // was visited, not which company was read), and recordRecent feeds the 최근 본 종목
@@ -114,7 +127,7 @@ export default function StockIntelligencePage({ code }: { code: string }) {
     if (!summary) return;
     reportStockView(code, summary.name);
     recordRecent({ code, name: summary.name, market: "KOSPI" });
-  }, [code, summary]);
+  }, [code, summary?.name]);
 
   useEffect(() => {
     const sections = sectionNav
@@ -139,7 +152,10 @@ export default function StockIntelligencePage({ code }: { code: string }) {
   const return20 = latest && previous20 ? ((latest.close / previous20) - 1) * 100 : null;
   const high52 = points.slice(-252).reduce((m, p) => Math.max(m, p.high), 0);
   const low52 = points.slice(-252).reduce((m, p) => Math.min(m, p.low), Number.POSITIVE_INFINITY);
-  const rangePos = summary && high52 > low52 ? ((summary.close - low52) / (high52 - low52)) * 100 : null;
+  const currentPrice = quote?.close ?? summary?.close;
+  const currentChange = quote?.change ?? summary?.change;
+  const currentChangePct = quote?.change_pct ?? summary?.change_pct;
+  const rangePos = currentPrice != null && high52 > low52 ? ((currentPrice - low52) / (high52 - low52)) * 100 : null;
   const flow20 = flows.slice(0, 20).reduce((a, r) => a + r.foreign_amount + r.institution_amount, 0);
   const volumeRatio = latest?.volume_ma20 ? (latest.volume / latest.volume_ma20) * 100 : null;
   const trendAlignment = latest?.sma5 != null && latest?.sma20 != null && latest?.sma60 != null
@@ -170,7 +186,7 @@ export default function StockIntelligencePage({ code }: { code: string }) {
     {summary && <main>
       <section className="si-hero">
         <div className="si-identity"><StockIcon code={code} className="si-logo" /><div><span className="si-market">KRX · {summary.date}</span><h1>{summary.name}</h1><p>{code}</p></div></div>
-        <div className="si-quote"><strong>{nf.format(summary.close)}<small>원</small></strong><span className={tone(summary.change)}>{summary.change > 0 ? "+" : ""}{nf.format(summary.change)} · {pct(summary.change_pct)}</span></div>
+        <div className="si-quote"><strong>{nf.format(currentPrice ?? 0)}<small>원</small></strong><span className={tone(currentChange)}>{(currentChange ?? 0) > 0 ? "+" : ""}{nf.format(currentChange ?? 0)} · {pct(currentChangePct)}</span></div>
         <div className="si-hero-action"><button onClick={() => scroll("chart")}>종합 분석 보기 ↓</button><Link to={`/discussion-explorer?code=${code}&name=${encodeURIComponent(summary.name)}&market=KR&asset=STOCK`}>토론 바로가기</Link><MarketBubbleStockLink code={code} market="kr" /></div>
       </section>
       <div className="si-talk-ticker"><DiscussionHeadlineTicker code={code} limit={30} /></div>
