@@ -89,8 +89,11 @@ export function trackStickyHeight(target: HTMLElement): () => void {
      the header's nav row wraps — every other write recalculates the page to
      restate a number CSS already had.
 
-     So the measurement is coalesced to one animation frame per burst, and the
-     property is written only when the figure actually moved. */
+     The page holds its width for the length of a drag (see resizeQuiet), so this
+     figure cannot change until the drag ends. Measuring is deferred to then --
+     each measurement reads computed styles, which forces the style recalculation
+     it was costing a page-worth of per frame -- and the property is written only
+     when the number actually moved. */
   let published = Number.NaN,
     frame = 0;
   const publish = () => {
@@ -101,14 +104,14 @@ export function trackStickyHeight(target: HTMLElement): () => void {
     target.style.setProperty("--desk-sticky-h", `${height}px`);
   };
   const apply = () => {
-    if (!frame) frame = requestAnimationFrame(publish);
+    if (!frame) frame = window.setTimeout(publish, 170);
   };
   publish();
 
   if (typeof ResizeObserver === "undefined") {
     window.addEventListener("resize", apply);
     return () => {
-      if (frame) cancelAnimationFrame(frame);
+      if (frame) window.clearTimeout(frame);
       window.removeEventListener("resize", apply);
     };
   }
@@ -123,7 +126,7 @@ export function trackStickyHeight(target: HTMLElement): () => void {
      into the phone layout would leave the old figure in place. */
   window.addEventListener("resize", apply);
   return () => {
-    if (frame) cancelAnimationFrame(frame);
+    if (frame) window.clearTimeout(frame);
     observer.disconnect();
     window.removeEventListener("resize", apply);
   };

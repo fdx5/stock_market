@@ -2181,6 +2181,10 @@
    height so the scrollbar stays honest while it is skipped.
 
    A band holding a chart is exempt: the chart measures its own container, and a
-   container that is skipped measures zero. */
-.desk-band{content-visibility:auto;contain-intrinsic-size:auto 620px}
+   container that is skipped measures zero.
+
+   The block axis only: the shorthand would also pin an intrinsic width, and a
+   skipped band would keep the width it last rendered at rather than following
+   its container. */
+.desk-band{content-visibility:auto;contain-intrinsic-block-size:auto 620px}
 .desk-band:has(canvas){content-visibility:visible}

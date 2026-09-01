@@ -312,9 +312,9 @@ export default function GlobalStockPage({ initialCode }: { initialCode?: string 
     const page = pageRef.current;
     if (!header || !page) return;
     /* Written on the page root, so every write invalidates style for the whole
-       page. A horizontal drag fires this on nearly every frame while the height
-       changes only where the nav row wraps, so the write is skipped unless the
-       figure actually moved, and the measuring is coalesced to one frame. */
+       page. The page holds its width for the length of a drag (see resizeQuiet),
+       so the header cannot rewrap until the drag ends: measuring is deferred to
+       then, and the property is written only when the figure actually moved. */
     let published = Number.NaN,
       frame = 0;
     const publish = () => {
@@ -325,20 +325,20 @@ export default function GlobalStockPage({ initialCode }: { initialCode?: string 
       page.style.setProperty("--desk-header-h", `${height}px`);
     };
     const apply = () => {
-      if (!frame) frame = requestAnimationFrame(publish);
+      if (!frame) frame = window.setTimeout(publish, 170);
     };
     publish();
     if (typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", apply);
       return () => {
-        if (frame) cancelAnimationFrame(frame);
+        if (frame) window.clearTimeout(frame);
         window.removeEventListener("resize", apply);
       };
     }
     const observer = new ResizeObserver(apply);
     observer.observe(header);
     return () => {
-      if (frame) cancelAnimationFrame(frame);
+      if (frame) window.clearTimeout(frame);
       observer.disconnect();
     };
   }, []);
