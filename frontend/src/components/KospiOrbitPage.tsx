@@ -2195,8 +2195,6 @@ function OrbitDetailPanel({
   rank,
   onClose,
   config,
-  isFavorite,
-  onToggleFavorite,
   isCompareBase,
   onToggleCompare,
   onShare,
@@ -2206,8 +2204,6 @@ function OrbitDetailPanel({
   rank: number;
   onClose: () => void;
   config: OrbitConfig;
-  isFavorite: boolean;
-  onToggleFavorite: () => void;
   isCompareBase: boolean;
   onToggleCompare: () => void;
   onShare: () => void;
@@ -2284,10 +2280,6 @@ function OrbitDetailPanel({
         </div>
       </div>
       <div className="orbit-detail-actions">
-        <button type="button" className={isFavorite ? "active" : ""} onClick={onToggleFavorite}>
-          <span aria-hidden="true">{isFavorite ? "★" : "☆"}</span>
-          {isFavorite ? "관심 행성" : "관심 추가"}
-        </button>
         <button type="button" className={isCompareBase ? "active" : ""} onClick={onToggleCompare}>
           <span aria-hidden="true">⇄</span>
           {isCompareBase ? "비교 해제" : "비교 기준"}
@@ -3329,13 +3321,6 @@ export default function KospiOrbitPage({
     [autoTour, setAutoTour] = useState(false),
     [tourSectorText, setTourSectorText] = useState(""),
     [shareNotice, setShareNotice] = useState(""),
-    [favorites, setFavorites] = useState<Set<string>>(() => {
-      try {
-        return new Set(JSON.parse(localStorage.getItem("orbit-favorites") || "[]"));
-      } catch {
-        return new Set();
-      }
-    }),
     [compareBase, setCompareBase] = useState<MarketMapItem | null>(null),
     [introLong] = useState(
       () =>
@@ -3641,15 +3626,6 @@ export default function KospiOrbitPage({
     } catch {
       /* private mode: the panel simply reopens on the next visit */
     }
-  };
-  const toggleFavorite = (stock: MarketMapItem) => {
-    setFavorites((current) => {
-      const next = new Set(current);
-      if (next.has(stock.code)) next.delete(stock.code);
-      else next.add(stock.code);
-      localStorage.setItem("orbit-favorites", JSON.stringify([...next]));
-      return next;
-    });
   };
   const toggleCompareBase = (stock: MarketMapItem) => {
     if (compareBase?.code === stock.code) {
@@ -4071,22 +4047,6 @@ export default function KospiOrbitPage({
               <span>{autoTour ? "■" : "▶"}</span>
               {autoTour ? "자동 탐험 멈추기" : "자동 탐험"}
             </button>
-            {favorites.size > 0 && (
-              <div className="orbit-favorites">
-                <small>나의 관심 은하</small>
-                <div>
-                  {items
-                    .filter((item) => favorites.has(item.code))
-                    .slice(0, 5)
-                    .map((item) => (
-                      <button key={item.code} onClick={() => focusStock(item)}>
-                        <img src={config.logoUrl(item.code)} alt="" />
-                        {item.name}
-                      </button>
-                    ))}
-                </div>
-              </div>
-            )}
           </div>
         )}
       </section>
@@ -4137,8 +4097,6 @@ export default function KospiOrbitPage({
               comparisonStock={comparisonStock}
               rank={rank}
               config={config}
-              isFavorite={favorites.has(selected.code)}
-              onToggleFavorite={() => toggleFavorite(selected)}
               isCompareBase={compareBase?.code === selected.code}
               onToggleCompare={() => toggleCompareBase(selected)}
               onShare={shareSelected}
