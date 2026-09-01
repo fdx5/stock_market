@@ -303,4 +303,133 @@
 @media(max-width:900px){.orbit-company-browser-trigger,.orbit-sphere-browser{display:none!important}}@media(prefers-reduced-motion:reduce){.orbit-sphere-browser,.orbit-sphere-browser-glow{animation:none;transform:translate(-50%,-50%)}}
 .orbit-sphere-browser{box-sizing:border-box;width:560px;height:560px;aspect-ratio:auto;visibility:hidden;transform-origin:center;animation:none;will-change:transform}.orbit-sphere-browser.is-compact>header{left:14%;right:14%;top:5%;height:28px;display:flex;justify-content:center;padding:0;background:#04111de8}.orbit-sphere-browser.is-compact>header>span,.orbit-sphere-browser.is-compact>header>b{display:none}.orbit-sphere-browser.is-compact>header>div{margin:auto}.orbit-sphere-browser.is-compact>header a{display:none}.orbit-sphere-browser.is-compact>header button{width:21px;height:21px;font-size:12px}.orbit-sphere-browser.is-compact .orbit-sphere-browser-screen{inset:3%;border-radius:50%}.orbit-sphere-browser.is-compact>footer{display:none}@keyframes orbitSphereBrowserAttach{from{opacity:0;filter:brightness(2)}to{opacity:1;filter:brightness(1)}}
 .orbit-company-browser-trigger{display:none!important}.orbit-body-label.has-company-trigger .orbit-company-browser-trigger{display:flex!important}
+
+/* Mobile observatory layout -------------------------------------------------
+   The celestial scene is the primary interface. HUD elements stay on the outer
+   rails and expand over the scene only after an explicit tap. */
+@media(max-width:760px){
+  .kospi-orbit .orbit-top{
+    height:56px;
+    padding:0 9px;
+    gap:6px;
+    background:linear-gradient(180deg,#020712f2,#020712b8 72%,transparent);
+    backdrop-filter:blur(10px);
+  }
+  .kospi-orbit .orbit-back-link{width:30px;height:30px}
+  .kospi-orbit .orbit-brand{display:none}
+  .kospi-orbit .orbit-search input{height:34px;padding:7px 10px 7px 33px;font-size:11px;background:#071524d9}
+  .kospi-orbit .orbit-search>.orbit-search-icon{left:11px}
+  .kospi-orbit .orbit-view-reset{width:30px;height:30px}
+
+  .kospi-orbit .orbit-market-warp{top:58px;padding:2px;background:#04111bc7;backdrop-filter:blur(7px)}
+  .kospi-orbit .orbit-market-warp button{min-height:27px;padding:4px 7px;font-size:7px}
+
+  /* LIVE MARKET SIGNAL becomes a quiet, single-line ticker instead of a large
+     headline block covering the star and its closest planetary systems. */
+  .kospi-orbit .orbit-context{
+    z-index:4;
+    left:50%;
+    right:auto;
+    top:91px;
+    width:min(76vw,330px);
+    min-height:0;
+    padding:0;
+    border:0;
+    background:transparent;
+    transform:translateX(-50%);
+    text-align:center;
+  }
+  .kospi-orbit .orbit-context>span,
+  .kospi-orbit .orbit-context>p,
+  .kospi-orbit .orbit-context-actions,
+  .kospi-orbit .orbit-hint{display:none}
+  .kospi-orbit .orbit-context h1{
+    overflow:hidden;
+    max-width:none;
+    margin:0;
+    padding:6px 11px;
+    border:1px solid #63dfff24;
+    border-radius:999px;
+    background:#04111b8f;
+    color:#a9c9da;
+    box-shadow:0 7px 22px #0005;
+    font:750 10px/1.2 Pretendard,sans-serif;
+    letter-spacing:-.02em;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    backdrop-filter:blur(7px);
+  }
+
+  /* The briefing is now a bottom utility sheet. Its collapsed control occupies
+     only one thumb-sized pill; the larger panel appears only when requested. */
+  .kospi-orbit .orbit-briefing{
+    top:auto;
+    left:auto;
+    right:8px;
+    bottom:calc(70px + env(safe-area-inset-bottom));
+    width:calc(100vw - 16px);
+    max-height:min(48dvh,420px);
+    overflow-y:auto;
+    border-radius:15px;
+    transform-origin:right bottom;
+  }
+  .kospi-orbit .orbit-briefing:not(.open){
+    left:auto;
+    right:8px;
+    width:142px;
+    max-height:34px;
+    overflow:hidden;
+    border-radius:18px;
+  }
+  .kospi-orbit .orbit-briefing-toggle{min-height:34px;padding:7px 9px}
+  .kospi-orbit .orbit-briefing-toggle>span{font-size:7px;letter-spacing:.08em}
+  .kospi-orbit .orbit-briefing:not(.open) .orbit-briefing-toggle>b{display:none}
+  .kospi-orbit .orbit-briefing-body{padding:0 9px 9px}
+
+  .kospi-orbit .orbit-nav{
+    left:7px;
+    right:7px;
+    bottom:max(7px,env(safe-area-inset-bottom));
+    height:54px;
+    padding:4px 5px;
+    border-radius:14px;
+    background:#04101be8;
+    backdrop-filter:blur(10px);
+  }
+  .kospi-orbit .orbit-nav>.orbit-tree{height:44px}
+  .kospi-orbit .orbit-tree>button{height:44px;min-height:44px;padding:6px 10px;font-size:10px}
+  .kospi-orbit .orbit-tree>button i{width:7px;height:7px}
+  .kospi-orbit .orbit-mobile-stocks{bottom:calc(68px + env(safe-area-inset-bottom));max-height:min(38dvh,330px)}
+
+  /* Compact labels preserve identification but expose substantially more of each
+     orbit and the central star. */
+  .kospi-orbit .orbit-body-label{gap:1px;padding:4px 6px;border-radius:7px;background:#04101ca3;box-shadow:0 5px 16px #0006;backdrop-filter:blur(5px)}
+  .kospi-orbit .orbit-planet-label{padding:4px 6px}
+  .kospi-orbit .orbit-body-name{gap:4px}
+  .kospi-orbit .orbit-body-name img{width:15px;height:15px;flex-basis:15px;padding:1px;border-radius:4px}
+  .kospi-orbit .orbit-body-name b{max-width:84px;font-size:9px}
+  .kospi-orbit .orbit-body-change{font-size:8px}
+  .kospi-orbit .orbit-star-label .orbit-body-name img{width:18px;height:18px;flex-basis:18px}
+  .kospi-orbit .orbit-star-label .orbit-body-name b{font-size:10px}
+  .kospi-orbit .orbit-sector-rank,.kospi-orbit .orbit-star-label .orbit-sector-rank{width:17px;height:17px;flex-basis:17px;font-size:7px!important}
+
+  .kospi-orbit .orbit-selection-tools{top:59px;left:auto;right:7px;gap:3px}
+  .kospi-orbit .orbit-selection-tools button{width:29px;height:29px;justify-content:center;overflow:hidden;padding:0;font-size:0;border-radius:50%}
+  .kospi-orbit .orbit-selection-tools button span{font-size:11px}
+  .kospi-orbit .orbit-share{top:59px;right:7px;width:29px;height:29px;justify-content:center;overflow:hidden;padding:0;border-radius:50%;font-size:0}
+  .kospi-orbit .orbit-share span{font-size:12px}
+  .kospi-orbit .orbit-background-credit{display:none}
+
+  .kospi-orbit.has-detail .orbit-context,
+  .kospi-orbit.has-detail .orbit-briefing,
+  .kospi-orbit.has-detail .orbit-market-warp{display:none}
+  .kospi-orbit.has-detail .orbit-detail{bottom:8px;height:min(62dvh,500px);max-height:calc(100dvh - 66px)}
+}
+
+@media(max-width:380px), (max-width:760px) and (max-height:620px){
+  .kospi-orbit .orbit-context{top:88px;width:70vw}
+  .kospi-orbit .orbit-context h1{padding:5px 9px;font-size:9px}
+  .kospi-orbit .orbit-market-warp button{padding-inline:5px}
+  .kospi-orbit .orbit-briefing.open{max-height:42dvh}
+}
 .orbit-sphere-browser-screen{overflow:auto;background:linear-gradient(160deg,#071725,#020810);scrollbar-width:thin;scrollbar-color:#47cfee55 transparent}.orbit-company-archive{min-height:100%;box-sizing:border-box;padding:70px 42px 48px;background:radial-gradient(circle at 75% 5%,#194b6852,transparent 27%),linear-gradient(160deg,#0a2131,#020912 72%);color:#c9dde8;font-family:Inter,Pretendard,"Noto Sans KR",sans-serif}.orbit-archive-hero{display:flex;align-items:center;gap:16px;padding-bottom:20px;border-bottom:1px solid #75dcff25}.orbit-archive-hero>img{width:58px;height:58px;padding:7px;box-sizing:border-box;border-radius:17px;background:#fff;object-fit:contain;box-shadow:0 0 22px #5bdcff38}.orbit-archive-hero>div{min-width:0}.orbit-archive-hero small,.orbit-company-archive section>small{color:#5be2ff;font:800 8px ui-monospace;letter-spacing:.13em}.orbit-archive-hero h2{overflow:hidden;margin:5px 0 3px;color:#f2fbff;font-size:22px;text-overflow:ellipsis;white-space:nowrap}.orbit-archive-hero span{color:#6d91a5;font-size:9px}.orbit-archive-facts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:13px 0 5px}.orbit-archive-facts>span{display:grid;gap:4px;padding:10px;border:1px solid #ffffff10;border-radius:10px;background:#ffffff06}.orbit-archive-facts small{color:#62869b;font-size:7px}.orbit-archive-facts b{overflow:hidden;color:#d7edf7;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.orbit-company-archive section{padding:19px 2px;border-bottom:1px solid #ffffff0d}.orbit-company-archive section h3{margin:6px 0 10px;color:#edfaff;font-size:15px}.orbit-company-archive section p{margin:0;color:#a8c0cd;font-size:11px;line-height:1.85;white-space:pre-line}.orbit-company-archive nav{display:flex;gap:7px;padding:18px 0}.orbit-company-archive nav a{flex:1;padding:10px;border:1px solid #58dfff42;border-radius:9px;background:#103247;color:#8ce7ff;font-size:9px;font-weight:800;text-align:center;text-decoration:none}.orbit-company-archive nav a:hover{border-color:#7de9ff9c;background:#16455f;color:#fff}.orbit-company-archive>footer{color:#55788d;font-size:7px;line-height:1.5}.orbit-company-archive.is-loading,.orbit-company-archive.is-error{display:grid;place-content:center;justify-items:center;gap:10px;text-align:center}.orbit-company-archive.is-loading i{width:34px;height:34px;border:1px solid #275a73;border-top-color:#60e5ff;border-radius:50%;animation:orbitSpin .8s linear infinite}.orbit-company-archive.is-loading b,.orbit-company-archive.is-error b{color:#e5f7ff;font-size:12px}.orbit-company-archive.is-loading span,.orbit-company-archive.is-error span{color:#6f91a5;font-size:9px}
