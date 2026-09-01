@@ -190,12 +190,21 @@ export async function loadStockPlanetPreview(
   return baseMaps(code, spec, surface);
 }
 
-export async function loadStockPlanetMaps(code: string, anisotropy: number, slot = 0, systemKey = "market"): Promise<StockPlanetMaps> {
+export async function loadStockPlanetMaps(
+  code: string,
+  anisotropy: number,
+  slot = 0,
+  systemKey = "market",
+  onSurfaceReady?: (surface: THREE.Texture) => void,
+): Promise<StockPlanetMaps> {
   const spec = orderedCases(systemKey)[slot % CASES.length];
   const path = `${ROOT}/${spec.id}`;
   // Decode material maps serially. Parallel decoding is faster in wall-clock time
   // but causes a visible main-thread/GPU upload spike exactly during camera flight.
-  const surface = await texture(`${path}/surface.webp`, anisotropy, true),
+  const surface = await texture(`${path}/surface.webp`, anisotropy, true);
+  onSurfaceReady?.(surface);
+
+  const
     height = spec.height ? await texture(`${path}/height.webp`, anisotropy, false) : null,
     roughness = spec.roughness ? await texture(`${path}/roughness.webp`, anisotropy, false) : null,
     emissive = spec.emissive ? await texture(`${path}/emissive.webp`, anisotropy, true) : null,

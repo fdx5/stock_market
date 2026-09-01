@@ -1185,14 +1185,24 @@ uniform float uDetailLevel;`,
           material = (body as THREE.Mesh).material;
         let maps;
         try {
-          maps = await (fullDesign
-            ? loadStockPlanetMaps
-            : loadStockPlanetPreview)(
-            stock.code,
-            textureAnisotropy(),
-            Number(body.userData.textureSlot ?? 0),
-            String(body.userData.textureSystem ?? mode.sector),
-          );
+          const anisotropy = textureAnisotropy();
+          const textureSlot = Number(body.userData.textureSlot ?? 0);
+          const textureSystem = String(body.userData.textureSystem ?? mode.sector);
+          maps = fullDesign
+            ? await loadStockPlanetMaps(
+                stock.code,
+                anisotropy,
+                textureSlot,
+                textureSystem,
+                (surface) => {
+                  if (designDisposed || !(material instanceof THREE.ShaderMaterial)) return;
+                  // Upgrade the visible surface as soon as its 2K image is decoded;
+                  // the remaining material maps can finish in the background.
+                  material.uniforms.uMap.value = surface;
+                  body.userData.designSurfaceLevel = 2;
+                },
+              )
+            : await loadStockPlanetPreview(stock.code, anisotropy, textureSlot, textureSystem);
         } catch {
           body.userData.designQueued = false;
           designLoading = false;
