@@ -63,3 +63,31 @@
   .kospi-orbit .orbit-briefing{bottom:var(--orbit-dock-nav)}
   .kospi-orbit .orbit-mobile-stocks{bottom:var(--orbit-dock-nav)}
 }
+.orbit-fps {
+  position: absolute;
+  z-index: 7;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 48px;
+  display: grid;
+  min-width: 92px;
+  padding: 7px 10px;
+  border: 1px solid #55dfff35;
+  border-radius: 9px;
+  background: #03101cce;
+  box-shadow: 0 8px 24px #0008;
+  color: #91aabd;
+  font: 9px ui-monospace, SFMono-Regular, Consolas, monospace;
+  line-height: 1.25;
+  pointer-events: none;
+  backdrop-filter: blur(10px);
+}
+.orbit-fps b { color: #57e8b3; font-size: 12px; }
+.orbit-fps[data-level="fair"] b { color: #ffd36a; }
+.orbit-fps[data-level="low"] b { color: #ff7488; }
+.orbit-fps span { margin-top: 2px; white-space: nowrap; }
+@media (max-width: 760px), (max-width: 1024px) and (orientation: portrait) and (pointer: coarse) {
+  .orbit-fps { right: auto; left: 50%; bottom: 44px; min-width: 78px; padding: 5px 7px; }
+  .orbit-fps b { font-size: 10px; }
+  .orbit-fps span { font-size: 7px; }
+}

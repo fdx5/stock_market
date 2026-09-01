@@ -17,11 +17,10 @@ import {
   SUNGLOW_FRAG,
   SUNGLOW_VERT,
 } from "../hub2/shaders";
-import { createAlienPlanetMaps } from "./alienPlanetTextures";
 import {
-  loadPremiumPlanetMaps,
-  type PremiumPlanetKind,
-} from "./premiumPlanetTextures";
+  loadStockPlanetMaps,
+  loadStockPlanetPreview,
+} from "./stockPlanetTextures";
 import StockDiscussionTab from "./StockDiscussionTab";
 import StockNewsTab from "./StockNewsTab";
 import "./stocksPage.css";
@@ -360,7 +359,9 @@ function SpaceScene({
       scene.backgroundIntensity = trackingMarket === "KOSPI" ? 0.48 : 0.72;
       scene.backgroundBlurriness = 0;
     }
-    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.35));
+    // Preserve texture detail on desktop/Retina displays; mobile keeps a lower cap
+    // to avoid turning the orbit scene into an excessive fill-rate workload.
+    renderer.setPixelRatio(Math.min(devicePixelRatio, coarseDevice ? 1.4 : 1.75));
     renderer.setSize(host.clientWidth, host.clientHeight);
     /* The canvas size, cached. Reading host.clientWidth flushes pending style work,
        and the per-frame label pass both writes element styles and read this back once
@@ -370,6 +371,13 @@ function SpaceScene({
       viewHeight = host.clientHeight;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.appendChild(renderer.domElement);
+    const performanceHud = document.createElement("div");
+    performanceHud.className = "orbit-fps";
+    performanceHud.setAttribute("aria-label", "실시간 렌더링 성능");
+    performanceHud.innerHTML = "<b>-- FPS</b><span>측정 중</span>";
+    const showPerformanceHud =
+      new URLSearchParams(window.location.search).get("fps") === "1";
+    if (showPerformanceHud) host.appendChild(performanceHud);
     /* Bloom used to be desktop-only, and it is most of what makes a star look lit:
        without it the corona and the planet highlights never bleed, so touch devices
        got a visibly darker, flatter scene than everyone else. It runs everywhere now,
@@ -423,6 +431,7 @@ function SpaceScene({
       sinNode: number;
       spin: number;
       orbitMaterial?: THREE.ShaderMaterial;
+      planetMaterial?: THREE.ShaderMaterial;
     }[] = [];
     const starGeo = new THREE.BufferGeometry();
     const points = matchMedia("(pointer: coarse)").matches ? 3500 : 8500;
@@ -607,6 +616,9 @@ function SpaceScene({
               "uniform sampler2D uMap;",
               `uniform sampler2D uMap;
 uniform sampler2D uLandformMap;
+uniform sampler2D uBumpMap;
+uniform sampler2D uRoughnessMap;
+uniform sampler2D uEmissiveMap;
 uniform vec3 uBrandColor;
 uniform vec3 uOceanColor;
 uniform vec3 uTerrainTint;
@@ -616,21 +628,24 @@ uniform float uBrandMix;
 uniform float uLandformOffset;
 uniform float uSeaLevel;
 uniform float uLandformBlend;
-uniform float uInvertLandform;`,
+uniform float uInvertLandform;
+uniform float uHasBump;
+uniform float uHasRoughness;
+uniform float uInvertRoughness;
+uniform float uHasEmissive;
+uniform float uDetailLevel;`,
             ).replace(
               "vec4 texel = texture2D(uMap, vUv);\n  vec3 albedo = texel.rgb;",
               `vec2 surfaceUv = vec2(fract(vUv.x + uUvOffset), vUv.y);
   vec4 texel = texture2D(uMap, surfaceUv);
-  vec2 landUvA = vec2(fract(vUv.x + uLandformOffset), vUv.y);
-  vec2 landUvB = vec2(fract(1.0 - vUv.x + uLandformOffset * 0.47), 1.0 - vUv.y);
-  vec3 landA = texture2D(uLandformMap, landUvA).rgb;
-  vec3 landB = texture2D(uLandformMap, landUvB).rgb;
-  float heightA = dot(landA, vec3(0.299, 0.587, 0.114));
-  float heightB = dot(landB, vec3(0.299, 0.587, 0.114));
-  float terrainHeight = mix(heightA, heightB, uLandformBlend);
-  terrainHeight = mix(terrainHeight, 1.0 - terrainHeight, uInvertLandform);
-  float land = smoothstep(uSeaLevel - 0.055, uSeaLevel + 0.055, terrainHeight);
-  float ocean = (1.0 - land) * uHasOcean;
+  if (uHasBump > 0.5 && uDetailLevel > 0.35) {
+    float bumpHeight = texture2D(uBumpMap, surfaceUv).r;
+    vec3 axis = abs(N.y) > 0.96 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+    vec3 tangent = normalize(cross(axis, N));
+    vec3 bitangent = normalize(cross(N, tangent));
+    N = normalize(N - tangent * dFdx(bumpHeight) * 3.2 + bitangent * dFdy(bumpHeight) * 3.2);
+  }
+  float ocean = 0.0;
   vec3 terrain = texel.rgb * uTerrainTint;
   terrain = mix(terrain, terrain * uBrandColor * 1.7, uBrandMix);
   vec3 albedo = mix(terrain, uOceanColor, ocean);`,
@@ -641,11 +656,26 @@ uniform float uInvertLandform;`,
   float oceanGlint = pow(max(dot(N, halfway), 0.0), 72.0) * ocean;
   float oceanFresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0) * ocean;
   color += vec3(0.62, 0.83, 1.0) * oceanGlint * 0.92;
-  color += uOceanColor * oceanFresnel * 0.34;`,
+  color += uOceanColor * oceanFresnel * 0.34;
+  float roughness = 0.72;
+  if (uHasRoughness > 0.5 && uDetailLevel > 0.15) {
+    float roughSample = texture2D(uRoughnessMap, surfaceUv).r;
+    roughSample = mix(roughSample, 1.0 - roughSample, uInvertRoughness);
+    roughness = clamp(roughSample, 0.08, 0.98);
+  }
+  float materialSpec = pow(max(dot(N, halfway), 0.0), mix(96.0, 10.0, roughness));
+  color += vec3(1.0, 0.93, 0.82) * materialSpec * (1.0 - roughness) * day * 0.34;
+  if (uHasEmissive > 0.5) {
+    vec3 emission = texture2D(uEmissiveMap, surfaceUv).rgb;
+    color += emission * (1.0 - day) * 1.35;
+  }`,
             ),
             uniforms: {
               uMap: { value: texture },
               uLandformMap: { value: texture },
+              uBumpMap: { value: texture },
+              uRoughnessMap: { value: texture },
+              uEmissiveMap: { value: texture },
               uBrandColor: { value: brand },
               uOceanColor: { value: new THREE.Color(0x062b52) },
               uTerrainTint: { value: new THREE.Color(0xffffff) },
@@ -656,6 +686,11 @@ uniform float uInvertLandform;`,
               uSeaLevel: { value: 0.48 },
               uLandformBlend: { value: 0 },
               uInvertLandform: { value: 0 },
+              uHasBump: { value: 0 },
+              uHasRoughness: { value: 0 },
+              uInvertRoughness: { value: 0 },
+              uHasEmissive: { value: 0 },
+              uDetailLevel: { value: 0 },
               uSunPos: { value: new THREE.Vector3(0, 0, 0) },
               uAtmoColor: {
                 value: brand.clone().lerp(new THREE.Color(0xffffff), 0.62),
@@ -704,10 +739,14 @@ uniform float uInvertLandform;`,
           s.code,
         );
         m.userData.stock = s;
+        m.userData.textureSlot = i;
+        m.userData.textureSystem = sys.name;
         const inclination = THREE.MathUtils.degToRad(-60 + ((i * 47) % 121));
         const node = (i * 2.399) % (Math.PI * 2);
         movers.push({
           mesh: m,
+          planetMaterial:
+            m.material instanceof THREE.ShaderMaterial ? m.material : undefined,
           orbit,
           angle: i * 2.399,
           speed: 0.055 / Math.sqrt(orbit / 20),
@@ -1035,65 +1074,8 @@ uniform float uInvertLandform;`,
     ];
     const dampAlpha = (rate: number, delta: number) => 1 - Math.exp(-rate * delta);
     if (focusTarget) lastFocusPosition.copy(focusTarget.position);
-    // The main solar-system maps are never displayed here. Each stock receives a
-    // unique, logo-tinted alien surface generated from its own stable code seed.
-    const featured = [...movers].sort(
-      (a, b) =>
-        ringHash((a.mesh.userData.stock as MarketMapItem).code) -
-        ringHash((b.mesh.userData.stock as MarketMapItem).code),
-    );
-    const oceanWorldCount = Math.round(featured.length * 0.5),
-      rockWorldCount = Math.round(featured.length * 0.15),
-      premiumKinds = new Map<string, PremiumPlanetKind>();
-    const oceanWorlds = featured.slice(0, oceanWorldCount);
-    oceanWorlds.forEach((planet, index) => {
-      premiumKinds.set(
-        (planet.mesh.userData.stock as MarketMapItem).code,
-        index % 2 === 0 ? "ocean" : "ocean-clouds",
-      );
-    });
-    const whiteAtmosphereCodes = new Set(
-      [...oceanWorlds]
-        .sort((a, b) => {
-          const aCode = (a.mesh.userData.stock as MarketMapItem).code,
-            bCode = (b.mesh.userData.stock as MarketMapItem).code;
-          return ringHash(`${aCode}:atmosphere`) - ringHash(`${bCode}:atmosphere`);
-        })
-        .slice(0, Math.round(oceanWorlds.length * 0.4))
-        .map((planet) => (planet.mesh.userData.stock as MarketMapItem).code),
-    );
-    featured
-      .slice(oceanWorldCount, oceanWorldCount + rockWorldCount)
-      .forEach((planet) => {
-        premiumKinds.set(
-          (planet.mesh.userData.stock as MarketMapItem).code,
-          "rock",
-        );
-      });
-    const lightweightBodies = featured.filter(
-        (planet) =>
-          !premiumKinds.has(
-            (planet.mesh.userData.stock as MarketMapItem).code,
-          ),
-      ),
-      stormCount = Math.min(
-        lightweightBodies.length,
-        lightweightBodies.length >= 8 ? 2 : lightweightBodies.length ? 1 : 0,
-      ),
-      stormCodes = new Set(
-        lightweightBodies
-          .slice(0, stormCount)
-          .map((x) => (x.mesh.userData.stock as MarketMapItem).code),
-      ),
-      bandCodes = new Set(
-        lightweightBodies
-          .slice(
-            stormCount,
-            stormCount + Math.min(2, Math.max(0, featured.length - stormCount)),
-          )
-          .map((x) => (x.mesh.userData.stock as MarketMapItem).code),
-      );
-    const progressiveDesign = true;
+    // Every stock planet now comes from the supplied 2:1 world-texture catalogue.
+    // Selection is derived from the stock code, so revisiting never changes its body.
     const pendingDesignBodies: THREE.Object3D[] = [];
     const activityCodes = new Set(
       [...(sys?.stocks.slice(1) ?? [])]
@@ -1109,7 +1091,6 @@ uniform float uInvertLandform;`,
       const stock = body.userData.stock as MarketMapItem | undefined;
       if (!stock) return;
       const isStar = body === centralStar,
-        brandColor = colorsRef.current.get(stock.code) ?? colorFor(stock.code),
         material = (body as THREE.Mesh).material as THREE.Material;
       if (isStar) {
         material.dispose();
@@ -1172,118 +1153,72 @@ uniform float uInvertLandform;`,
         });
         body.add(pulse);
       }
-      if (progressiveDesign) {
-        pendingDesignBodies.push(body);
-        return;
-      }
-      const planetStyle = stormCodes.has(stock.code)
-          ? "storm"
-          : bandCodes.has(stock.code)
-            ? "complex-bands"
-            : "standard",
-        maps = createAlienPlanetMaps(
-          stock.code,
-          brandColor,
-          textureAnisotropy(),
-          128,
-          planetStyle,
-        );
-      body.userData.kind =
-        planetStyle === "storm"
-          ? `${maps.kind} · 대형 폭풍`
-          : planetStyle === "complex-bands"
-            ? `${maps.kind} · 다층 구름띠`
-            : maps.kind;
-      if (material instanceof THREE.ShaderMaterial) {
-        material.uniforms.uMap.value = maps.surface;
-        material.uniforms.uAtmoColor.value = maps.atmosphere;
-        material.uniforms.uAtmoStrength.value = 0.28;
-        material.uniforms.uAmbient.value = 0.54;
-        material.uniforms.uExposure.value = 0.84;
-      }
-      if (maps.clouds) {
-        const radius = Number(body.userData.radius),
-          cloud = new THREE.Mesh(
-            cloudGeometry(radius),
-            new THREE.MeshBasicMaterial({
-              map: maps.clouds,
-              transparent: true,
-              opacity: planetStyle === "complex-bands" ? 0.28 : 0.22,
-              depthWrite: false,
-              blending: THREE.NormalBlending,
-              toneMapped: true,
-            }),
-          );
-        body.add(cloud);
-        cloudLayers.push({ mesh: cloud, speed: maps.cloudSpeed });
-      }
+      pendingDesignBodies.push(body);
     });
-    let designTimer = 0;
-    if (progressiveDesign && pendingDesignBodies.length) {
-      pendingDesignBodies.sort(
+    const designCandidates = pendingDesignBodies.splice(0);
+    let designTimer = 0,
+      designLoading = false,
+      automaticDesignLoads = 0,
+      loadedPlanetDesigns = 0;
+    let requestPlanetDesign = (
+      _body: THREE.Object3D,
+      _priority = false,
+      _full = _priority,
+    ) => {};
+    if (designCandidates.length) {
+      designCandidates.sort(
         (a, b) => Number(b.userData.radius) - Number(a.userData.radius),
       );
       let designDisposed = false;
       const applyNextDesign = async () => {
+        designTimer = 0;
         const body = pendingDesignBodies.shift();
         if (!body) return;
+        designLoading = true;
+        const fullDesign = Boolean(body.userData.designRequestedFull);
         const stock = body.userData.stock as MarketMapItem,
-          brandColor = await logoColor(stock.code, colorUrl),
-          material = (body as THREE.Mesh).material,
-          premiumKind = premiumKinds.get(stock.code),
-          planetStyle = stormCodes.has(stock.code)
-            ? "storm"
-            : bandCodes.has(stock.code)
-              ? "complex-bands"
-              : "standard",
-          maps = premiumKind
-            ? await loadPremiumPlanetMaps(
-                stock.code,
-                premiumKind,
-                textureAnisotropy(),
-                whiteAtmosphereCodes.has(stock.code),
-              )
-            : createAlienPlanetMaps(
-                stock.code,
-                brandColor,
-                textureAnisotropy(),
-                128,
-                planetStyle,
-              );
+          material = (body as THREE.Mesh).material;
+        let maps;
+        try {
+          maps = await (fullDesign
+            ? loadStockPlanetMaps
+            : loadStockPlanetPreview)(
+            stock.code,
+            textureAnisotropy(),
+            Number(body.userData.textureSlot ?? 0),
+            String(body.userData.textureSystem ?? mode.sector),
+          );
+        } catch {
+          body.userData.designQueued = false;
+          designLoading = false;
+          if (pendingDesignBodies.length)
+            designTimer = window.setTimeout(applyNextDesign, 250);
+          return;
+        }
         if (designDisposed) return;
-        const isPremiumMaps = "kindLabel" in maps;
-        const hasDoubleGasAtmosphere =
-          !isPremiumMaps &&
-          maps.kind === "gas" &&
-          ringHash(`${stock.code}:double-atmosphere`) % 10 < 7;
-        body.userData.kind = isPremiumMaps
-          ? maps.kindLabel
-          : planetStyle === "storm"
-            ? `${maps.kind} · 대형 폭풍`
-            : planetStyle === "complex-bands"
-              ? `${maps.kind} · 다층 구름띠`
-              : hasDoubleGasAtmosphere
-                ? `${maps.kind} · 이중 회전 대기`
-                : maps.kind;
+        if (!body.userData.designLoaded) loadedPlanetDesigns += 1;
+        body.userData.designLoaded = true;
+        body.userData.designLevel = fullDesign ? 2 : 1;
+        body.userData.designQueued = false;
+        body.userData.kind = maps.kindLabel;
         if (material instanceof THREE.ShaderMaterial) {
           material.uniforms.uMap.value = maps.surface;
           material.uniforms.uAtmoColor.value = maps.atmosphere;
-          material.uniforms.uAtmoStrength.value = isPremiumMaps ? 0.42 : 0.28;
-          material.uniforms.uAmbient.value = isPremiumMaps ? 0.62 : 0.54;
-          material.uniforms.uExposure.value = isPremiumMaps ? 0.94 : 0.84;
-          if (isPremiumMaps) {
-            material.uniforms.uLandformMap.value =
-              maps.landformMap ?? maps.surface;
-            material.uniforms.uOceanColor.value.copy(maps.oceanColor);
-            material.uniforms.uTerrainTint.value.copy(maps.terrainTint);
-            material.uniforms.uHasOcean.value = maps.landformMap ? 1 : 0;
-            material.uniforms.uUvOffset.value = maps.uvOffset;
-            material.uniforms.uBrandMix.value = 0.08;
-            material.uniforms.uLandformOffset.value = maps.landformOffset;
-            material.uniforms.uSeaLevel.value = maps.seaLevel;
-            material.uniforms.uLandformBlend.value = maps.landformBlend;
-            material.uniforms.uInvertLandform.value = maps.invertLandform;
-          }
+          material.uniforms.uAtmoStrength.value = 0.42;
+          material.uniforms.uAmbient.value = 0.62;
+          material.uniforms.uExposure.value = 0.94;
+          material.uniforms.uLandformMap.value = maps.surface;
+          material.uniforms.uBumpMap.value = maps.landformMap ?? maps.surface;
+          material.uniforms.uRoughnessMap.value = maps.roughnessMap ?? maps.surface;
+          material.uniforms.uEmissiveMap.value = maps.emissiveMap ?? maps.surface;
+          material.uniforms.uHasBump.value = maps.landformMap ? 1 : 0;
+          material.uniforms.uHasRoughness.value = maps.roughnessMap ? 1 : 0;
+          material.uniforms.uInvertRoughness.value = maps.invertRoughness;
+          material.uniforms.uHasEmissive.value = maps.emissiveMap ? 1 : 0;
+          material.uniforms.uTerrainTint.value.set(0xffffff);
+          material.uniforms.uHasOcean.value = 0;
+          material.uniforms.uUvOffset.value = maps.uvOffset;
+          material.uniforms.uBrandMix.value = 0.03;
         }
         if (maps.clouds) {
           const radius = Number(body.userData.radius),
@@ -1291,15 +1226,11 @@ uniform float uInvertLandform;`,
               cloudGeometry(radius),
             new THREE.MeshBasicMaterial({
               map: maps.clouds,
-              alphaMap: isPremiumMaps ? maps.clouds : null,
-              color: isPremiumMaps ? 0xeaf7ff : 0xffffff,
+              alphaMap: maps.cloudAlpha ?? maps.clouds,
+              color: 0xeaf7ff,
               transparent: true,
-              opacity: isPremiumMaps
-                ? 0.64
-                : planetStyle === "complex-bands"
-                  ? 0.28
-                  : 0.22,
-              alphaTest: isPremiumMaps ? 0.025 : 0,
+              opacity: maps.cloudOpacity,
+              alphaTest: 0.025,
               depthWrite: false,
                 blending: THREE.NormalBlending,
                 toneMapped: true,
@@ -1307,7 +1238,7 @@ uniform float uInvertLandform;`,
             );
           body.add(cloud);
           cloudLayers.push({ mesh: cloud, speed: maps.cloudSpeed });
-          if (hasDoubleGasAtmosphere && maps.cloudsSecondary) {
+          if (maps.cloudsSecondary) {
             const outerTexture = maps.cloudsSecondary;
             outerTexture.offset.x =
               (ringHash(`${stock.code}:cloud-offset`) % 1000) / 1000;
@@ -1317,12 +1248,13 @@ uniform float uInvertLandform;`,
               shellGeometry(radius * 1.038, 48, 32),
               new THREE.MeshBasicMaterial({
                 map: outerTexture,
+                alphaMap: outerTexture,
                 color: maps.atmosphere.clone().lerp(
                   new THREE.Color(0xffffff),
                   0.28,
                 ),
                 transparent: true,
-                opacity: 0.14,
+                opacity: 0.2,
                 alphaTest: 0.015,
                 depthWrite: false,
                 blending: THREE.NormalBlending,
@@ -1338,11 +1270,7 @@ uniform float uInvertLandform;`,
             });
           }
         }
-        if (
-          isPremiumMaps &&
-          maps.landformMap &&
-          maps.atmosphereTexture
-        ) {
+        if (maps.landformMap && maps.atmosphereTexture) {
           const radius = Number(body.userData.radius),
             hazeTexture = maps.atmosphereTexture.clone();
           hazeTexture.offset.x =
@@ -1374,15 +1302,52 @@ uniform float uInvertLandform;`,
                 (ringHash(`${stock.code}:ocean-haze-speed`) % 32) / 1000),
           });
         }
+        designLoading = false;
+        if (!fullDesign && body.userData.designRequestedFull)
+          requestPlanetDesign(body, true, true);
         if (pendingDesignBodies.length)
           designTimer = window.setTimeout(applyNextDesign, 64);
       };
-      designTimer = window.setTimeout(applyNextDesign, 0);
+      requestPlanetDesign = (body, priority = false, full = priority) => {
+        const requestedLevel = full ? 2 : 1;
+        if (
+          body === centralStar ||
+          Number(body.userData.designLevel ?? 0) >= requestedLevel ||
+          designDisposed
+        ) return;
+        if (full) body.userData.designRequestedFull = true;
+        if (body.userData.designQueued) return;
+        body.userData.designQueued = true;
+        if (priority) pendingDesignBodies.unshift(body);
+        else pendingDesignBodies.push(body);
+        if (!designLoading && !designTimer)
+          designTimer = window.setTimeout(applyNextDesign, 0);
+      };
       (scene.userData as { disposeDesigns?: () => void }).disposeDesigns =
         () => {
           designDisposed = true;
         };
     }
+    const requestNearbyPlanetDesigns = (
+      center: THREE.Object3D,
+      limit = 5,
+    ) => {
+      const nearby = movers
+        .map(({ mesh }) => ({
+          body: mesh,
+          distance: mesh.position.distanceToSquared(center.position),
+        }))
+        .filter(
+          ({ body }) =>
+            body !== center &&
+            !body.userData.designLoaded &&
+            !body.userData.designQueued,
+        )
+        .sort((a, b) => a.distance - b.distance)
+        .slice(0, limit);
+      for (const { body } of nearby.reverse())
+        requestPlanetDesign(body, true, false);
+    };
     hit.forEach((body) => {
       if (body === centralStar) return;
       const material = (body as THREE.Mesh).material;
@@ -1479,6 +1444,8 @@ uniform float uInvertLandform;`,
       viewStyle = -1,
     ) => {
       const stock = body.userData.stock as MarketMapItem;
+      requestNearbyPlanetDesigns(body);
+      requestPlanetDesign(body, true);
       reportMarketOrbitEvent({
         action: "celestial_focus",
         market: trackingMarket,
@@ -1551,6 +1518,8 @@ uniform float uInvertLandform;`,
         viewStyle >= 0 &&
         centralStar
       ) {
+        requestNearbyPlanetDesigns(body);
+        requestPlanetDesign(body, true);
         tourStage = body === centralStar ? "target" : "overview";
         tourPlanetTarget = body === centralStar ? null : body;
         tourPlanetViewStyle = viewStyle;
@@ -1791,11 +1760,17 @@ uniform float uInvertLandform;`,
     let raf = 0;
     const clock = new THREE.Clock();
     let lastLabelUpdate = 0,
-      previousFlightState = false;
+      previousFlightState = false,
+      fpsWindowStarted = performance.now(),
+      fpsWindowFrames = 0,
+      lastDesignScan = -Infinity;
+    const designProjection = new THREE.Vector3();
     const animate = () => {
       raf = requestAnimationFrame(animate);
       if (document.hidden) {
         clock.getDelta();
+        fpsWindowStarted = performance.now();
+        fpsWindowFrames = 0;
         return;
       }
       const frameDelta = Math.min(clock.getDelta(), 0.075),
@@ -1830,6 +1805,18 @@ uniform float uInvertLandform;`,
           x.orbit * (ca * sn + sa * ci * cn),
         );
         x.mesh.rotation.y = t * x.spin;
+        if (x.planetMaterial) {
+          const distanceSq = camera.position.distanceToSquared(x.mesh.position),
+            detail =
+              x.mesh === focusTarget ||
+              x.mesh === tourPlanetTarget ||
+              distanceSq < 4900
+                ? 1
+                : distanceSq < 19600
+                  ? 0.2
+                  : 0;
+          x.planetMaterial.uniforms.uDetailLevel.value = detail;
+        }
         if (x.orbitMaterial) {
           x.orbitMaterial.uniforms.uHead.value = a;
           const focused = x.mesh === focusTarget || x.mesh === tourPlanetTarget;
@@ -1839,6 +1826,40 @@ uniform float uInvertLandform;`,
             Math.min(1, frameDelta * 7),
           );
         }
+      }
+      // Establish the ten most visible bodies on entry. Every remaining material set
+      // is fetched when that stock is focused/clicked/searched, never as a full
+      // background download of the system.
+      const automaticDesignLimit = 10;
+      if (
+        automaticDesignLoads < automaticDesignLimit &&
+        nowMs - lastDesignScan >= 500
+      ) {
+        const focalPixels =
+            viewHeight /
+            (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5)),
+          visibleCandidates: { body: THREE.Object3D; pixels: number }[] = [];
+        for (const mover of movers) {
+          const body = mover.mesh;
+          if (body.userData.designLoaded || body.userData.designQueued) continue;
+          designProjection.copy(body.position).project(camera);
+          if (
+            designProjection.z < -1 ||
+            designProjection.z > 1 ||
+            Math.abs(designProjection.x) > 1.08 ||
+            Math.abs(designProjection.y) > 1.08
+          ) continue;
+          const distance = camera.position.distanceTo(body.position),
+            pixels = ((Number(body.userData.radius) || 1) / distance) * focalPixels;
+          if (pixels >= 3) visibleCandidates.push({ body, pixels });
+        }
+        visibleCandidates.sort((a, b) => b.pixels - a.pixels);
+        const available = automaticDesignLimit - automaticDesignLoads;
+        for (const candidate of visibleCandidates.slice(0, available)) {
+          requestPlanetDesign(candidate.body);
+          automaticDesignLoads += 1;
+        }
+        lastDesignScan = nowMs;
       }
       for (let i = 0; i < cloudLayers.length; i++) {
         const layer = cloudLayers[i];
@@ -2083,6 +2104,17 @@ uniform float uInvertLandform;`,
       if (composer && !sphereBrowserActive && !flying && !resettingView)
         composer.render();
       else renderer.render(scene, camera);
+      if (showPerformanceHud) fpsWindowFrames += 1;
+      const fpsElapsed = nowMs - fpsWindowStarted;
+      if (showPerformanceHud && fpsElapsed >= 500) {
+        const fps = (fpsWindowFrames * 1000) / fpsElapsed,
+          frameMs = 1000 / Math.max(fps, 0.01);
+        performanceHud.dataset.level =
+          fps >= 55 ? "good" : fps >= 40 ? "fair" : "low";
+        performanceHud.innerHTML = `<b>${Math.round(fps)} FPS</b><span>${frameMs.toFixed(1)} ms · ${renderer.info.render.calls} draw · ${loadedPlanetDesigns} loaded</span>`;
+        fpsWindowStarted = nowMs;
+        fpsWindowFrames = 0;
+      }
     };
     animate();
     onReady();

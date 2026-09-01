@@ -4,6 +4,7 @@
 venv
 frontend/node_modules
 frontend/dist
+planet-assets
 .git
 .gitignore
 README.md
