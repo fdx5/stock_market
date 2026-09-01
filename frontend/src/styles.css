@@ -1065,12 +1065,12 @@ a.app-brand:hover .app-logo-wide {
 .stock-intel-shortcut{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:0 11px;border:1px solid rgba(35,85,66,.25);border-radius:9px;color:#173e31;background:linear-gradient(180deg,#fff,#eaf3ee);box-shadow:0 3px 12px rgba(22,62,48,.1);font-size:10px;font-weight:800;letter-spacing:-.02em;text-decoration:none;white-space:nowrap}.stock-intel-shortcut span{color:#087052;font-size:15px}.stock-intel-shortcut:hover{border-color:#0b6b4f;transform:translateY(-1px)}.stock-intel-shortcut.is-floating{position:fixed;z-index:90;top:14px;right:18px}.app-nav-row>.stock-intel-shortcut,.bubble-header>.stock-intel-shortcut,.neo-header>.stock-intel-shortcut,.orbit-top>.stock-intel-shortcut,.brief-site-head>.stock-intel-shortcut,.discussion-hud>.stock-intel-shortcut,.kospi-map-header>.stock-intel-shortcut{margin-left:auto}.si-site-header>.stock-intel-shortcut{grid-column:3;grid-row:1}
 @media(max-width:700px){.stock-intel-shortcut b{display:none}.stock-intel-shortcut{padding:0 9px}.stock-intel-shortcut.is-floating{top:10px;right:10px}}
 
-/* A foldable's unfolded inner screen (roughly 641-900px, either orientation) is
+/* A foldable's unfolded inner screen (roughly 641-1100px, either orientation) is
    wider than a phone but still too narrow for ~10 nav pills on one line, and it
    sits above the 640px breakpoint where the phone layout below switches the row
    to horizontal scroll. Give it the same single-line scroll treatment here so the
-   row doesn't wrap to a second line in that band. */
-@media (min-width: 641px) and (max-width: 900px) {
+   row never wraps on large fold inner displays either. */
+@media (min-width: 641px) and (max-width: 1100px) {
   .app-nav-row {
     flex-wrap: nowrap;
     overflow-x: auto;
