@@ -636,7 +636,7 @@ uniform float uHasEmissive;
 uniform float uDetailLevel;`,
             ).replace(
               "vec4 texel = texture2D(uMap, vUv);\n  vec3 albedo = texel.rgb;",
-              `vec2 surfaceUv = vec2(fract(vUv.x + uUvOffset), vUv.y);
+              `vec2 surfaceUv = vec2(vUv.x + uUvOffset, vUv.y);
   vec4 texel = texture2D(uMap, surfaceUv);
   if (uHasBump > 0.5 && uDetailLevel > 0.35) {
     float bumpHeight = texture2D(uBumpMap, surfaceUv).r;
