@@ -38,6 +38,13 @@ type System = {
 type SceneMode = { kind: "system"; sector: string };
 type OrbitMarket = "kospi" | "kosdaq" | "nasdaq100";
 
+/* Compact HUD viewport. Phones match on width alone, but a foldable opened into
+   portrait reports a tablet-sized width while still being a one-handed touch
+   device, so it takes the same mobile layout instead of the desktop rails. */
+const ORBIT_COMPACT_MEDIA =
+  "(max-width: 760px), (max-width: 1024px) and (orientation: portrait) and (pointer: coarse)";
+const SIGNAL_HIDDEN_KEY = "orbit-signal-hidden";
+
 /* Market-system orbit trails. The geometry remains one thin line per planet;
    visibility, colour falloff and the moving head all happen in this shader. */
 const MARKET_ORBIT_VERT = /* glsl */ `
@@ -1506,7 +1513,7 @@ uniform float uInvertLandform;`,
       // unresponsive. Match the other planets on mobile by opening the detail
       // panel as soon as the central body is selected, while keeping the wider
       // desktop inspection flow unchanged.
-      if (matchMedia("(max-width: 760px)").matches) {
+      if (matchMedia(ORBIT_COMPACT_MEDIA).matches) {
         focusBody(body);
         return;
       }
@@ -3273,8 +3280,15 @@ export default function KospiOrbitPage({
     [sceneSlow, setSceneSlow] = useState(false),
     [warping, setWarping] = useState<OrbitMarket | null>(null),
     [briefingOpen, setBriefingOpen] = useState(
-      () => !matchMedia("(max-width: 760px)").matches,
+      () => !matchMedia(ORBIT_COMPACT_MEDIA).matches,
     ),
+    [signalOpen, setSignalOpen] = useState(() => {
+      try {
+        return localStorage.getItem(SIGNAL_HIDDEN_KEY) !== "1";
+      } catch {
+        return true;
+      }
+    }),
     [autoTour, setAutoTour] = useState(false),
     [tourSectorText, setTourSectorText] = useState(""),
     [shareNotice, setShareNotice] = useState(""),
@@ -3390,7 +3404,7 @@ export default function KospiOrbitPage({
         if (code) {
           const s = visibleItems.find((x) => x.code === code);
           if (s) {
-            const mobileViewing = matchMedia("(max-width: 760px)").matches;
+            const mobileViewing = matchMedia(ORBIT_COMPACT_MEDIA).matches;
             setMode({ kind: "system", sector: s.sector || "기타" });
             setExpanded(mobileViewing ? "" : s.sector || "기타");
             if (!mobileViewing) setSelected(s);
@@ -3498,7 +3512,7 @@ export default function KospiOrbitPage({
       name: stock.name,
       detail: revealDetails ? "상세 표시" : "포커스만",
     });
-    const closeMobileDrawer = matchMedia("(max-width: 760px)").matches;
+    const closeMobileDrawer = matchMedia(ORBIT_COMPACT_MEDIA).matches;
     setExpanded(stock.sector || "기타");
     setMode({ kind: "system", sector: stock.sector || "기타" });
     setSelected(revealDetails ? stock : null);
@@ -3579,6 +3593,17 @@ export default function KospiOrbitPage({
       return;
     }
     window.setTimeout(() => setShareNotice(""), 1800);
+  };
+  /* The signal banner sits over the star field, so keeping it dismissed between
+     visits matters more than re-announcing it on every load. */
+  const toggleSignal = (open: boolean) => {
+    setSignalOpen(open);
+    try {
+      if (open) localStorage.removeItem(SIGNAL_HIDDEN_KEY);
+      else localStorage.setItem(SIGNAL_HIDDEN_KEY, "1");
+    } catch {
+      /* private mode: the panel simply reopens on the next visit */
+    }
   };
   const toggleFavorite = (stock: MarketMapItem) => {
     setFavorites((current) => {
@@ -3918,7 +3943,25 @@ export default function KospiOrbitPage({
             </div>
           );
         })()}
-      <section className="orbit-context">
+      {!signalOpen && (
+        <button
+          type="button"
+          className="orbit-context-reopen"
+          onClick={() => toggleSignal(true)}
+          aria-label="라이브 마켓 시그널 열기"
+        >
+          <i /> <b>SIGNAL</b>
+        </button>
+      )}
+      <section className={`orbit-context${signalOpen ? "" : " is-hidden"}`}>
+        <button
+          type="button"
+          className="orbit-context-close"
+          onClick={() => toggleSignal(false)}
+          aria-label="라이브 마켓 시그널 닫기"
+        >
+          ×
+        </button>
         <span><i /> LIVE MARKET SIGNAL</span>
         <h1 className={autoTour ? "orbit-sector-typing" : ""}>
           {autoTour
