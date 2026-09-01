@@ -78,6 +78,22 @@ const bitmapLoader =
     : null;
 const textureCache = new Map<string, Promise<THREE.Texture>>();
 
+function loadTexture(path: string) {
+  if (!bitmapLoader) return loader.loadAsync(path);
+  // Some mobile WebKit/Chromium builds expose createImageBitmap but intermittently
+  // reject large cross-origin WebP decodes. Fall back to the broadly supported image
+  // element path instead of leaving the planet on its placeholder forever.
+  return bitmapLoader.loadAsync(path).then(
+    (image) => {
+      const map = new THREE.Texture(image);
+      map.flipY = false;
+      map.needsUpdate = true;
+      return map;
+    },
+    () => loader.loadAsync(path),
+  );
+}
+
 function hash(value: string) {
   let result = stablePlanetHash(value); result ^= result >>> 16;
   result = Math.imul(result, 0x7feb352d); result ^= result >>> 15;
@@ -89,19 +105,15 @@ function texture(path: string, anisotropy: number, color: boolean) {
   const key = `${path}:${color ? "color" : "data"}`;
   let pending = textureCache.get(key);
   if (!pending) {
-    const decoded = bitmapLoader
-      ? bitmapLoader.loadAsync(path).then((image) => {
-          const map = new THREE.Texture(image);
-          map.flipY = false;
-          map.needsUpdate = true;
-          return map;
-        })
-      : loader.loadAsync(path);
-    pending = decoded.then((map) => {
+    pending = loadTexture(path).then((map) => {
       map.colorSpace = color ? THREE.SRGBColorSpace : THREE.NoColorSpace;
       map.wrapS = THREE.RepeatWrapping; map.wrapT = THREE.ClampToEdgeWrapping;
       map.minFilter = THREE.LinearMipmapLinearFilter; map.magFilter = THREE.LinearFilter;
       map.anisotropy = Math.min(16, anisotropy); return map;
+    }).catch((error) => {
+      // A rejected promise must not poison later focus/visibility retries.
+      textureCache.delete(key);
+      throw error;
     });
     textureCache.set(key, pending);
   }

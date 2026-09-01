@@ -1191,6 +1191,8 @@ uniform float uDetailLevel;`,
         } catch {
           body.userData.designQueued = false;
           designLoading = false;
+          if (!body.userData.designLoaded && automaticDesignLoads > 0)
+            automaticDesignLoads -= 1;
           if (pendingDesignBodies.length)
             designTimer = window.setTimeout(applyNextDesign, 250);
           return;
@@ -1851,7 +1853,10 @@ uniform float uDetailLevel;`,
           ) continue;
           const distance = camera.position.distanceTo(body.position),
             pixels = ((Number(body.userData.radius) || 1) / distance) * focalPixels;
-          if (pixels >= 3) visibleCandidates.push({ body, pixels });
+          // Mobile portrait/foldable views can project every overview planet below
+          // three pixels. They still need a surface before the user focuses them, so
+          // visibility (the frustum checks above), not apparent diameter, is the gate.
+          visibleCandidates.push({ body, pixels });
         }
         visibleCandidates.sort((a, b) => b.pixels - a.pixels);
         const available = automaticDesignLimit - automaticDesignLoads;
