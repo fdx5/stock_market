@@ -3374,6 +3374,7 @@ export default function KospiOrbitPage({
     [briefingOpen, setBriefingOpen] = useState(
       () => !matchMedia(ORBIT_COMPACT_MEDIA).matches,
     ),
+    [risersOpen, setRisersOpen] = useState(false),
     [signalOpen, setSignalOpen] = useState(() => {
       try {
         return localStorage.getItem(SIGNAL_HIDDEN_KEY) !== "1";
@@ -3468,6 +3469,49 @@ export default function KospiOrbitPage({
       })
       .sort((a, b) => b.cap - a.cap);
   }, [items, config]);
+  const orbitRisers = useMemo(() => {
+    const results: Array<{
+      item: MarketMapItem;
+      sector: string;
+      previousRank: number;
+      currentRank: number;
+      climb: number;
+    }> = [];
+    for (const system of systems) {
+      if (system.stocks.length < 2) continue;
+      const previous = [...system.stocks].sort((a, b) => {
+        const previousCap = (item: MarketMapItem) => {
+          const denominator = 1 + item.change_pct / 100;
+          return denominator > 0 ? config.capOf(item) / denominator : 0;
+        };
+        return previousCap(b) - previousCap(a);
+      });
+      const previousRanks = new Map(
+        previous.map((item, index) => [item.code, index + 1]),
+      );
+      system.stocks.forEach((item, index) => {
+        const currentRank = index + 1,
+          previousRank = previousRanks.get(item.code) ?? currentRank,
+          climb = previousRank - currentRank;
+        if (climb > 0)
+          results.push({
+            item,
+            sector: system.name,
+            previousRank,
+            currentRank,
+            climb,
+          });
+      });
+    }
+    return results
+      .sort(
+        (a, b) =>
+          b.climb - a.climb ||
+          b.item.change_pct - a.item.change_pct ||
+          config.capOf(b.item) - config.capOf(a.item),
+      )
+      .slice(0, 8);
+  }, [systems, config]);
   useEffect(() => {
     loadOrbitMarket(config)
       .then((r) => {
@@ -4113,6 +4157,43 @@ export default function KospiOrbitPage({
           </div>
         )}
       </section>
+      {orbitRisers.length > 0 && (
+        <section className={`orbit-risers${risersOpen ? " open" : ""}`}>
+          <button
+            type="button"
+            className="orbit-risers-toggle"
+            aria-expanded={risersOpen}
+            onClick={() => setRisersOpen((value) => !value)}
+          >
+            <span><i /> ORBIT RISERS</span>
+            <b>궤도 상승 {orbitRisers.length}</b>
+            <em>{risersOpen ? "닫기" : "보기"}</em>
+          </button>
+          {risersOpen && (
+            <div className="orbit-risers-list">
+              <header>
+                <b>오늘 단계가 상승한 행성</b>
+                <small>전일 종가 기준 추정 순위</small>
+              </header>
+              {orbitRisers.map(({ item, sector, previousRank, currentRank, climb }) => (
+                <button
+                  type="button"
+                  key={item.code}
+                  onClick={() => {
+                    setRisersOpen(false);
+                    focusStock(item);
+                  }}
+                >
+                  <img src={config.logoUrl(item.code)} alt="" />
+                  <span><b>{item.name}</b><small>{sector}</small></span>
+                  <strong>{previousRank}위 <i>→</i> {currentRank}위</strong>
+                  <em>▲{climb}</em>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
       <aside className="orbit-radar" aria-label="업종 시장 레이더">
         <div><b>MARKET RADAR</b><span>{systems.length} SYSTEMS</span></div>
         <div className="orbit-radar-field">
