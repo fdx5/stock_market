@@ -1025,6 +1025,29 @@ a.app-brand:hover .app-logo-wide {
   margin: 7px 0 11px;
 }
 
+/* Stock detail exposes the longest shared navigation (15 links). Fold inner
+   displays can report a desktop-like CSS width, so width breakpoints are not a
+   reliable way to identify them. Keep this specific header on one scrollable row
+   at every viewport size; wide desktops simply have no overflow to scroll. */
+.si-common-header .app-nav-row {
+  flex-wrap: nowrap;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.si-common-header .app-nav-row > * {
+  flex: 0 0 auto;
+}
+
+.si-common-header .app-nav-row::-webkit-scrollbar {
+  display: none;
+}
+
 /* Shared external-game CTA: portalled into each page's real header so it is always
    the final header link, including full-screen WebGL pages with custom headers. */
 .chess-ingress-link {
