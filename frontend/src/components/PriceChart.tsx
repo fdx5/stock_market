@@ -14,6 +14,7 @@ import {
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { IndicatorPoint } from "../api/client";
 import { PAGE_SCROLL_SAFE_CHART_OPTIONS, attachChartZoomGuard } from "../chartScrollGuard";
+import { holdChartSizeDuringResize } from "../chartResizeHold";
 import { useT } from "../i18n/LanguageContext";
 import { getThemeColors, watchTheme } from "../theme";
 import ChartSkeleton from "./ChartSkeleton";
@@ -98,6 +99,8 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
       // (or a trackpad pinch) via the guard attached below.
       ...PAGE_SCROLL_SAFE_CHART_OPTIONS,
     });
+
+    const releaseSizeHold = holdChartSizeDuringResize(chart);
 
     const detachZoomGuard = attachChartZoomGuard(containerRef.current, chart);
 
@@ -212,6 +215,7 @@ const PriceChart = forwardRef<PriceChartHandle, Props>(({ points }, ref) => {
     return () => {
       stopWatching();
       detachZoomGuard();
+      releaseSizeHold();
       chart.remove();
     };
   }, []);

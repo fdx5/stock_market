@@ -13,6 +13,7 @@ import {
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { IndicatorPoint } from "../api/client";
 import { PAGE_SCROLL_SAFE_CHART_OPTIONS, attachChartZoomGuard } from "../chartScrollGuard";
+import { holdChartSizeDuringResize } from "../chartResizeHold";
 import { useT } from "../i18n/LanguageContext";
 import { ThemeColors, getThemeColors, watchTheme } from "../theme";
 import ChartSkeleton from "./ChartSkeleton";
@@ -115,6 +116,7 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
     });
 
     const macdChart = createChart(macdContainerRef.current, baseOptions);
+    const releaseSizeHold = holdChartSizeDuringResize(rsiChart, macdChart);
     const macdHist = macdChart.addSeries(HistogramSeries, { priceLineVisible: false });
     const macdLine = macdChart.addSeries(LineSeries, { color: colors.blue, lineWidth: 2, priceLineVisible: false });
     const macdSignal = macdChart.addSeries(LineSeries, { color: colors.yellow, lineWidth: 2, priceLineVisible: false });
@@ -155,6 +157,7 @@ const IndicatorPanel = forwardRef<IndicatorPanelHandle, Props>(({ points, latest
     return () => {
       stopWatching();
       detachZoomGuards.forEach((detach) => detach());
+      releaseSizeHold();
       rsiChart.remove();
       macdChart.remove();
     };

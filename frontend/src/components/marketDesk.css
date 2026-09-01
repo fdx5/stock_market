@@ -2173,3 +2173,14 @@
 .app--gdesk.is-stock-detail #gdesk-rank { display:none; }
 .app--gdesk .gdesk-intelligence-brand{color:var(--text-primary);font-size:14px;font-weight:900;letter-spacing:.1em;text-decoration:none;white-space:nowrap}
 .app--gdesk .gdesk-intelligence-brand b{color:#27a982}
+
+/* Off-screen bands are skipped for layout, paint and raster. Both desks are long
+   pages -- pulse, spotlight, global, flow, reference -- and a window resize was
+   re-laying-out and repainting every band, nearly all of them far from the
+   viewport. `auto` in contain-intrinsic-size remembers each band's last rendered
+   height so the scrollbar stays honest while it is skipped.
+
+   A band holding a chart is exempt: the chart measures its own container, and a
+   container that is skipped measures zero. */
+.desk-band{content-visibility:auto;contain-intrinsic-size:auto 620px}
+.desk-band:has(canvas){content-visibility:visible}

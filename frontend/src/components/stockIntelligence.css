@@ -148,3 +148,10 @@
 .si-skeleton .si-section>header{align-items:center}
 .si-skel-chart{position:relative}
 @media(max-width:700px){.si-skeleton{width:calc(100% - 20px);padding-top:12px}.si-skel-name{width:150px}.si-skel-price{width:140px}}
+
+/* Same treatment as the desk's bands, and this page has further to fall: 수급,
+   호가, 공매도, 기업정보, 뉴스, 토론, 일별시세 all sit below the fold and were
+   all being re-laid-out and repainted on every frame of a window drag. The price
+   chart is exempt -- it measures its own container. */
+.si-section{content-visibility:auto;contain-intrinsic-size:auto 560px}
+.si-section:has(canvas){content-visibility:visible}

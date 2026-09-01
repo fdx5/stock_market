@@ -17490,7 +17490,12 @@ thead .pred-matrix-ratehead {
 /* Set on <html> for the length of a window drag by resizeQuiet.ts. Percentage
    gauges carry `transition: width` so the bar glides when its value moves; a
    resize changes the same computed width, so without this every frame of a drag
-   restarts a sub-second animation on every bar on the page. */
+   restarts a sub-second animation on every bar on the page.
+
+   Running keyframe animations are frozen for the same window. Each one holds a
+   compositing layer that is re-layerized and re-rastered on every step of the
+   drag, and measured on the desk that was a third of the main-thread work left
+   after the layout fixes. Paused rather than removed, so nothing jumps. */
 html.is-window-resizing *,
 html.is-window-resizing *::before,
-html.is-window-resizing *::after{transition:none!important}
+html.is-window-resizing *::after{transition:none!important;animation-play-state:paused!important}
