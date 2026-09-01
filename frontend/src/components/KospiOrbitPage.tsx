@@ -1763,7 +1763,45 @@ uniform float uDetailLevel;`,
         .find((entry) => entry.object === centralStar)?.object;
       if (found) focusStarByTap(found);
     };
-    renderer.domElement.addEventListener("pointerup", click);
+    // OrbitControls also consumes these pointer events. A bare pointerup handler
+    // cannot distinguish a tap from the end of a drag or pinch, so mobile camera
+    // gestures used to select whichever body happened to sit under the last finger.
+    const pointerStarts = new Map<number, { x: number; y: number }>();
+    let pointerGesture = false;
+    const pointerDown = (event: PointerEvent) => {
+      if (event.pointerType === "mouse" && event.button !== 0) return;
+      pointerStarts.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (pointerStarts.size > 1) pointerGesture = true;
+    };
+    const pointerMove = (event: PointerEvent) => {
+      const start = pointerStarts.get(event.pointerId);
+      if (!start) return;
+      const slop = event.pointerType === "touch" ? 10 : 5;
+      if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > slop)
+        pointerGesture = true;
+    };
+    const pointerCancel = (event: PointerEvent) => {
+      if (pointerStarts.has(event.pointerId)) pointerGesture = true;
+      pointerStarts.delete(event.pointerId);
+      if (!pointerStarts.size) pointerGesture = false;
+    };
+    const pointerUp = (event: PointerEvent) => {
+      const start = pointerStarts.get(event.pointerId),
+        slop = event.pointerType === "touch" ? 10 : 5,
+        moved = Boolean(
+          start &&
+          Math.hypot(event.clientX - start.x, event.clientY - start.y) > slop,
+        ),
+        isGesture =
+          pointerGesture || pointerStarts.size > 1 || !start || moved;
+      pointerStarts.delete(event.pointerId);
+      if (!pointerStarts.size) pointerGesture = false;
+      if (!isGesture) click(event);
+    };
+    renderer.domElement.addEventListener("pointerdown", pointerDown);
+    renderer.domElement.addEventListener("pointermove", pointerMove);
+    renderer.domElement.addEventListener("pointercancel", pointerCancel);
+    renderer.domElement.addEventListener("pointerup", pointerUp);
     let raf = 0;
     const clock = new THREE.Clock();
     let lastLabelUpdate = 0,
@@ -2167,7 +2205,10 @@ uniform float uDetailLevel;`,
       removeEventListener("resize", resize);
       window.removeEventListener("kospi-orbit-focus", externalFocus);
       window.removeEventListener("kospi-orbit-reset-view", resetView);
-      renderer.domElement.removeEventListener("pointerup", click);
+      renderer.domElement.removeEventListener("pointerdown", pointerDown);
+      renderer.domElement.removeEventListener("pointermove", pointerMove);
+      renderer.domElement.removeEventListener("pointercancel", pointerCancel);
+      renderer.domElement.removeEventListener("pointerup", pointerUp);
       renderer.domElement.removeEventListener(
         "wheel",
         releaseAutoFocusFromWheel,
