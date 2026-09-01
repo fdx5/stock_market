@@ -16,6 +16,7 @@ const HEADER_TARGETS = [
 /** Routes that never show the chess link. */
 const EXCLUDED_PATHS = new Set([
   "/discussion-explorer",
+  "/market-bubbles",
   "/kospi-orbit",
   "/kosdaq-orbit",
   "/nasdaq100-orbit",

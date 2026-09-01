@@ -2,6 +2,11 @@ import { MutableRefObject, PointerEvent, useEffect, useMemo, useRef, useState } 
 import * as THREE from "three";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { StockBoard, StockBoardItem, api } from "../api/client";
 import { Link, navigate } from "../router";
 import { stockIconUrl } from "../stockIcon";
@@ -99,7 +104,9 @@ function BubbleCompanyLogo({ src }: { src: string }) {
 
 function rankRadiusScale(index: number, mobile = false) {
   const compact = mobile ? .9 : 1;
-  if (index < 2) return 1.62 * compact;
+  // Give the two market-cap leaders substantially more visual weight. Keeping
+  // this in the shared radius function also scales physics and resize behavior.
+  if (index < 2) return 1.62 * 1.5 * compact;
   if (index < 5) return 1.36 * compact;
   if (index < 9) return 1.14 * compact;
   if (index < 15) return .98 * compact;
@@ -349,8 +356,8 @@ function BubbleCollisionSparks({ particlesRef }: { particlesRef: MutableRefObjec
   return <canvas ref={canvasRef} className="bubble-spark-layer" aria-hidden="true" />;
 }
 
-function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCommandRef, collisionWavesRef }: {
-  bodiesRef: MutableRefObject<Body[]>; bubbleColors: [string, string][]; count: number; focusRef: MutableRefObject<number | null>; cameraCommandRef: MutableRefObject<CameraCommand>; collisionWavesRef: MutableRefObject<CollisionWave[]>;
+function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCommandRef }: {
+  bodiesRef: MutableRefObject<Body[]>; bubbleColors: [string, string][]; count: number; focusRef: MutableRefObject<number | null>; cameraCommandRef: MutableRefObject<CameraCommand>;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   useEffect(() => {
@@ -361,12 +368,9 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobilePerformance ? 1 : 1.5));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = .96;
+    renderer.toneMappingExposure = .76;
     const scene = new THREE.Scene();
-    // Atmospheric falloff and a receding floor give the eye stable distance cues.
-    // Without them, differently-sized spheres can still read as flat circles because
-    // the transparent background offers no reference plane for their z positions.
-    scene.fog = new THREE.FogExp2(0x06101d, mobilePerformance ? .00034 : .00027);
+    scene.fog = new THREE.FogExp2(0x07101c, mobilePerformance ? .00028 : .00021);
     // Keep the camera well outside even the largest rank-scaled sphere.
     // A close camera clips the front cap of large spheres and makes them look
     // like white-centred rings because the transparent page shows through.
@@ -375,9 +379,20 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     // `cameraDistance` remains the projection-plane distance used by resize() and
     // the DOM-overlay scale calculation below; only the camera's initial/reset
     // position is pulled back.
-    const initialCameraDistance = 1750;
+    const initialCameraDistance = 1500;
     const camera = new THREE.PerspectiveCamera(42, 1, 20, 4600);
     camera.position.set(0, mobilePerformance ? 72 : 145, initialCameraDistance);
+    const composer = new EffectComposer(renderer);
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+    // The reference uses temporal reprojection to hide SSR/SSGI sampling. Without
+    // that history buffer those passes form visible square cells on moving spheres.
+    // Preserve the smooth physical-material response and use only restrained bloom.
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(Math.max(1, stage.clientWidth), Math.max(1, stage.clientHeight)), mobilePerformance ? .018 : .035, .34, 1.18);
+    composer.addPass(bloomPass);
+    const smaaPass = new SMAAPass();
+    composer.addPass(smaaPass);
+    composer.addPass(new OutputPass());
     // OrbitControls listens on the whole stage and normally captures the pointer
     // on pointerdown. When the target is a moving HTML bubble that capture changes
     // the eventual click target to the stage, so the discussion panel never opens.
@@ -396,12 +411,11 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     controls = new OrbitControls(camera, stage);
     controls.enableDamping = true;
     controls.dampingFactor = .065;
-    controls.enablePan = true;
-    controls.panSpeed = .55;
+    controls.enablePan = false;
     controls.rotateSpeed = .48;
     controls.zoomSpeed = .72;
     controls.minDistance = 520;
-    controls.maxDistance = 2900;
+    controls.maxDistance = 1700;
     controls.touches.ONE = THREE.TOUCH.ROTATE;
     controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
     controls.saveState();
@@ -412,10 +426,129 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     const pmrem = new THREE.PMREMGenerator(renderer);
     const environment = pmrem.fromScene(new RoomEnvironment(), .04).texture;
     scene.environment = environment;
-    scene.add(new THREE.HemisphereLight(0xeef6ff, 0x10182a, .82));
-    const key = new THREE.DirectionalLight(0xfff4dc, 1.55); key.position.set(-4, 6, 9); scene.add(key);
-    const fill = new THREE.DirectionalLight(0x90bfff, .52); fill.position.set(6, 1, 6); scene.add(fill);
-    const rim = new THREE.DirectionalLight(0xa9dfff, .62); rim.position.set(-5, -4, 3); scene.add(rim);
+    scene.add(new THREE.HemisphereLight(0xeef6ff, 0x10182a, .42));
+    const key = new THREE.DirectionalLight(0xfff2dd, 1.05); key.position.set(-6, 8, 10); scene.add(key);
+    const fill = new THREE.DirectionalLight(0x80b9ff, .34); fill.position.set(8, 2, 5); scene.add(fill);
+    const rim = new THREE.DirectionalLight(0x9adfff, .4); rim.position.set(-7, -5, 2); scene.add(rim);
+    const studioGlow = new THREE.PointLight(0xbde8ff, 13, 3200, 1.45);
+    studioGlow.position.set(-780, 620, 1050); scene.add(studioGlow);
+    const colorBounce = new THREE.PointLight(0x728bff, 8, 2700, 1.6);
+    colorBounce.position.set(940, -520, 280); scene.add(colorBounce);
+
+    // A real six-sided room replaces the flat atmospheric backdrop. BackSide keeps
+    // the camera and bubbles visibly enclosed, while luminous edges and the floor
+    // grid make depth readable as the camera orbits inside the cube.
+    const roomGeometry = new THREE.BoxGeometry(3600, 1900, 4000);
+    const roomMaterial = new THREE.MeshPhysicalMaterial({
+      color: 0x10243a,
+      side: THREE.BackSide,
+      transparent: true,
+      opacity: .3,
+      roughness: .72,
+      metalness: .08,
+      envMapIntensity: .32,
+      depthWrite: false,
+    });
+    const room = new THREE.Mesh(roomGeometry, roomMaterial);
+    room.position.set(0, 0, -260);
+    scene.add(room);
+    const roomEdgesGeometry = new THREE.EdgesGeometry(roomGeometry);
+    const roomEdgesMaterial = new THREE.LineBasicMaterial({ color: 0x78bde8, transparent: true, opacity: mobilePerformance ? .2 : .34 });
+    const roomEdges = new THREE.LineSegments(roomEdgesGeometry, roomEdgesMaterial);
+    roomEdges.position.copy(room.position);
+    scene.add(roomEdges);
+
+    // Repeating cross-sections make the chamber's depth measurable while the
+    // four converging rails pull the eye toward the rear portal.
+    const depthFrameGroup = new THREE.Group();
+    const depthFrameGeometries: THREE.BufferGeometry[] = [];
+    const depthFrameMaterials: THREE.LineBasicMaterial[] = [];
+    const frameDepths = mobilePerformance ? [760, -180, -1120, -2040] : [980, 500, 20, -460, -940, -1420, -1900, -2200];
+    frameDepths.forEach((frameZ, frameIndex) => {
+      const halfWidth = 1720;
+      const halfHeight = 880;
+      const frameGeometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-halfWidth, -halfHeight, frameZ),
+        new THREE.Vector3(halfWidth, -halfHeight, frameZ),
+        new THREE.Vector3(halfWidth, halfHeight, frameZ),
+        new THREE.Vector3(-halfWidth, halfHeight, frameZ),
+        new THREE.Vector3(-halfWidth, -halfHeight, frameZ),
+      ]);
+      const frameMaterial = new THREE.LineBasicMaterial({
+        color: frameIndex % 3 === 1 ? 0x6386c8 : 0x4fb9df,
+        transparent: true,
+        opacity: (mobilePerformance ? .07 : .105) * (1 - frameIndex / (frameDepths.length * 1.8)),
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      depthFrameGroup.add(new THREE.Line(frameGeometry, frameMaterial));
+      depthFrameGeometries.push(frameGeometry);
+      depthFrameMaterials.push(frameMaterial);
+    });
+    scene.add(depthFrameGroup);
+
+    const perspectiveRailGeometry = new THREE.BufferGeometry();
+    const railPositions: number[] = [];
+    [[-1720, -880], [1720, -880], [1720, 880], [-1720, 880]].forEach(([railX, railY]) => {
+      railPositions.push(railX, railY, 1380, railX, railY, -2240);
+    });
+    perspectiveRailGeometry.setAttribute("position", new THREE.Float32BufferAttribute(railPositions, 3));
+    const perspectiveRailMaterial = new THREE.LineBasicMaterial({
+      color: 0x5cbce0,
+      transparent: true,
+      opacity: mobilePerformance ? .075 : .13,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const perspectiveRails = new THREE.LineSegments(perspectiveRailGeometry, perspectiveRailMaterial);
+    scene.add(perspectiveRails);
+    const chamberGrids: THREE.GridHelper[] = [];
+    const addChamberGrid = (size: number, divisions: number, position: THREE.Vector3, rotation: THREE.Euler, opacity: number, scale = new THREE.Vector3(1, 1, 1)) => {
+      const grid = new THREE.GridHelper(size, divisions, 0x65cfff, 0x1e658d);
+      grid.position.copy(position);
+      grid.rotation.copy(rotation);
+      grid.scale.copy(scale);
+      const materials = Array.isArray(grid.material) ? grid.material : [grid.material];
+      materials.forEach((gridMaterial) => {
+        gridMaterial.transparent = true;
+        gridMaterial.opacity = opacity;
+        gridMaterial.depthWrite = false;
+        gridMaterial.blending = THREE.AdditiveBlending;
+      });
+      scene.add(grid);
+      chamberGrids.push(grid);
+    };
+    const chamberGridOpacity = mobilePerformance ? .055 : .1;
+    addChamberGrid(3600, mobilePerformance ? 18 : 30, new THREE.Vector3(0, 0, -2248), new THREE.Euler(Math.PI / 2, 0, 0), chamberGridOpacity * 1.18, new THREE.Vector3(1, 1, .52));
+    addChamberGrid(4000, mobilePerformance ? 18 : 32, new THREE.Vector3(-1788, 0, -260), new THREE.Euler(0, 0, Math.PI / 2), chamberGridOpacity * .72, new THREE.Vector3(.475, 1, 1));
+    addChamberGrid(4000, mobilePerformance ? 18 : 32, new THREE.Vector3(1788, 0, -260), new THREE.Euler(0, 0, Math.PI / 2), chamberGridOpacity * .72, new THREE.Vector3(.475, 1, 1));
+    addChamberGrid(3600, mobilePerformance ? 18 : 30, new THREE.Vector3(0, 938, -260), new THREE.Euler(0, 0, 0), chamberGridOpacity * .5);
+
+    // Concentric back-wall apertures establish a strong vanishing point without
+    // becoming a collision effect. Their light is architectural and always present.
+    const portalGroup = new THREE.Group();
+    portalGroup.position.set(0, 0, -2218);
+    const portalMaterials: THREE.MeshBasicMaterial[] = [];
+    const portalGeometries: THREE.TorusGeometry[] = [];
+    [310, 470, 670].forEach((radius, portalIndex) => {
+      const portalGeometry = new THREE.TorusGeometry(radius, portalIndex === 0 ? 4.8 : 3.2, 10, mobilePerformance ? 64 : 112);
+      const portalMaterial = new THREE.MeshBasicMaterial({
+        color: portalIndex === 1 ? 0x7d8cff : 0x69d9ff,
+        transparent: true,
+        opacity: (mobilePerformance ? .1 : .17) - portalIndex * .025,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const portal = new THREE.Mesh(portalGeometry, portalMaterial);
+      portal.rotation.z = portalIndex * .37;
+      portalGroup.add(portal);
+      portalGeometries.push(portalGeometry);
+      portalMaterials.push(portalMaterial);
+    });
+    const portalCoreGeometry = new THREE.CircleGeometry(250, mobilePerformance ? 40 : 72);
+    const portalCoreMaterial = new THREE.MeshBasicMaterial({ color: 0x2c8fbd, transparent: true, opacity: mobilePerformance ? .035 : .065, depthWrite: false, blending: THREE.AdditiveBlending });
+    portalGroup.add(new THREE.Mesh(portalCoreGeometry, portalCoreMaterial));
+    scene.add(portalGroup);
     const floorGrid = new THREE.GridHelper(3600, mobilePerformance ? 22 : 36, 0x4ca7d8, 0x173d5b);
     const floorMaterials = Array.isArray(floorGrid.material) ? floorGrid.material : [floorGrid.material];
     floorMaterials.forEach((material) => {
@@ -439,39 +572,39 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
     const dust = new THREE.Points(dustGeometry, dustMaterial); scene.add(dust);
     // Extra radial segments keep the frozen organic profile round even on the
     // smallest bubbles.  The previous low-poly silhouette exposed corners.
-    const geometry = new THREE.SphereGeometry(1, mobilePerformance ? 24 : 56, mobilePerformance ? 18 : 40);
+    const geometry = new THREE.SphereGeometry(1, mobilePerformance ? 36 : 64, mobilePerformance ? 28 : 48);
     const meshes: THREE.Mesh[] = [], shadows: THREE.Sprite[] = [], shadowTextures: THREE.CanvasTexture[] = [], shaders: any[] = [];
     const trails: THREE.Line[] = [], trailHistories: THREE.Vector3[][] = [];
     for (let i = 0; i < count; i++) {
       const colors = bubbleColors[i] ?? ["#a9bfd2", "#58748d"];
       const logoColor = new THREE.Color(colors[0]);
-      const accents = [logoColor.clone().lerp(new THREE.Color(0xffffff), .52), logoColor.clone().lerp(new THREE.Color(colors[1]), .24)];
-      const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .41);
+      const accents = [logoColor.clone().lerp(new THREE.Color(0xffffff), .7), logoColor.clone().lerp(new THREE.Color(colors[1]), .16)];
+      const baseColor = new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .28).lerp(new THREE.Color(0xfff9f5), .18);
       const lightVariation = ((i * 37) % 11) / 10;
       const material = new THREE.MeshPhysicalMaterial({
         color: baseColor,
-        roughness: .39 + (i % 4) * .025,
-        metalness: 0,
-        clearcoat: mobilePerformance ? .18 : .34,
-        clearcoatRoughness: .34 + (i % 3) * .025,
-        envMapIntensity: .72 + lightVariation * .18,
-        sheen: mobilePerformance ? 0 : .18 + lightVariation * .1,
+        roughness: .32 + (i % 5) * .035,
+        metalness: .06 + (i % 4) * .018,
+        clearcoat: mobilePerformance ? .38 : .56 + (i % 3) * .055,
+        clearcoatRoughness: .2 + (i % 4) * .035,
+        envMapIntensity: .38 + lightVariation * .18,
+        sheen: mobilePerformance ? .14 : .36 + lightVariation * .18,
         sheenColor: new THREE.Color(colors[0]).lerp(new THREE.Color(i % 2 ? 0xd9e9ff : 0xffead6), .26 + lightVariation * .2),
         sheenRoughness: .42,
-        specularIntensity: .58,
+        specularIntensity: .42 + (i % 4) * .04,
         specularColor: new THREE.Color(colors[0]).lerp(new THREE.Color(0xffffff), .72),
-        iridescence: mobilePerformance ? 0 : .22 + (i % 3) * .035,
+        iridescence: mobilePerformance ? 0 : .06 + (i % 3) * .018,
         iridescenceIOR: 1.38,
         iridescenceThicknessRange: [110, 320],
         ior: 1.46,
-        thickness: 1.25,
-        transmission: 0,
+        thickness: 1.1 + (i % 4) * .32,
+        transmission: mobilePerformance ? 0 : .025 + (i % 3) * .012,
         attenuationColor: new THREE.Color(colors[0]).lerp(new THREE.Color(colors[1]), .18),
         attenuationDistance: 1.7 + (i % 4) * .22,
         emissive: new THREE.Color(colors[1]).lerp(new THREE.Color(colors[0]), .42),
-        emissiveIntensity: .035 + lightVariation * .045,
+        emissiveIntensity: .008 + lightVariation * .012,
         transparent: true,
-        opacity: .9,
+        opacity: 1,
         depthWrite: true,
       });
       // Rotate the room reflection independently for each sphere. This keeps
@@ -482,20 +615,15 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
         (i * 137.508) * Math.PI / 180,
         ((i * 61) % 23 - 11) * Math.PI / 180,
       );
-      // Re-roll a hand-shaped mochi silhouette on every page entry. The
-      // profile stays frozen afterwards, so only an actual collision moves it.
-      const organicSeed = Math.random() * Math.PI * 2;
+      // Every company shares one recognisable wagashi/mochi silhouette. Individual
+      // identity comes from material response below, never from a different shape.
       const organicShape = new THREE.Vector4(
-        organicSeed,
-        .04 + Math.random() * .035,
-        (Math.random() - .5) * .095,
-        (Math.random() - .5) * .08,
+        .82,
+        .018,
+        .018,
+        -.034,
       );
-      const mochiDetail = new THREE.Vector3(
-        2 + Math.floor(Math.random() * 2),
-        3 + Math.floor(Math.random() * 3),
-        Math.random() * Math.PI * 2,
-      );
+      const mochiDetail = new THREE.Vector3(2, 4, 1.18);
       material.onBeforeCompile = (shader) => {
         shader.uniforms.uImpact = { value: new THREE.Vector3(1, 0, 0) };
         shader.uniforms.uOrganic = { value: organicShape };
@@ -507,12 +635,31 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
         shader.uniforms.uAccentSpread = { value: new THREE.Vector2(1.45 + (i * 7 % 23) * .09, 1.7 + (i * 11 % 19) * .11) };
         shader.uniforms.uAccentDirA = { value: new THREE.Vector3(-.72 + (i * 17 % 31) / 50, .28 + (i * 13 % 29) / 60, .68).normalize() };
         shader.uniforms.uAccentDirB = { value: new THREE.Vector3(.42 + (i * 19 % 27) / 52, -.55 + (i * 7 % 25) / 55, .7).normalize() };
+        shader.uniforms.uOpticDir = { value: new THREE.Vector3(-.7 + (i * 29 % 70) / 100, .36 - (i * 17 % 48) / 100, .74).normalize() };
+        shader.uniforms.uOpticProfile = { value: new THREE.Vector3(24 + (i % 5) * 7, .24 + (i % 4) * .055, .15 + lightVariation * .14) };
+        // The reference's pearl-like finish comes from lighting and temporal
+        // post-processing rather than a literal dot texture. Keep the procedural
+        // grain path disabled while retaining the shader layout for cache stability.
+        shader.uniforms.uPearlProfile = { value: new THREE.Vector3(320, 0, i * 17.31) };
         shader.uniforms.uDeform = { value: 0 }; shader.uniforms.uWobble = { value: 0 }; shader.uniforms.uPhase = { value: 0 };
         shader.uniforms.uShockAge = { value: 2 }; shader.uniforms.uMaterialWeight = { value: 0 };
-        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying float vImpactFacing;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float micro=sin(azimuth*11.0+uOrganic.x*3.1)*sin(latitude*9.0-uOrganic.x)*.004; float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*(mochi*uOrganic.y+micro); vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); vBubbleNormal=n; vImpactFacing=facing; float contact=pow(smoothstep(.05,1.0,facing),3.1); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=clamp(uDeform,-.09,.35); float rebound=sin(uPhase)*uWobble; float axialDot=dot(transformed,hit); vec3 axialPart=hit*axialDot; vec3 tangentPart=transformed-axialPart; float volumeBulge=max(compression,0.0)*(.16-uMaterialWeight*.035); float wholeBodyRipple=rebound*(.3-uMaterialWeight*.07); transformed=axialPart*(1.0-compression-wholeBodyRipple)+tangentPart*(1.0+volumeBulge+wholeBodyRipple*.48); float axial=max(0.0,dot(transformed,hit)); float shockRadius=uShockAge*1.55; float surfaceDistance=acos(clamp(facing,-1.0,1.0)); float shock=exp(-pow((surfaceDistance-shockRadius)/.105,2.0))*(1.0-smoothstep(.0,1.7,uShockAge))*uWobble; transformed-=hit*axial*contact*max(compression,0.0)*(.24-uMaterialWeight*.05); transformed+=n*(-contact*max(compression,0.0)*.16+shoulder*max(compression,0.0)*.12); transformed+=n*(contact*rebound*(.22-uMaterialWeight*.07)-shoulder*rebound*.08+shock*(.38-uMaterialWeight*.11));`);
+        shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform vec3 uImpact; uniform vec4 uOrganic; uniform vec3 uMochiDetail; uniform float uDeform; uniform float uWobble; uniform float uPhase; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying float vImpactFacing;").replace("#include <begin_vertex>", `vec3 transformed=vec3(position); vec3 n=normalize(objectNormal); vBubbleNormal=n; float azimuth=atan(n.y,n.x); float latitude=asin(clamp(n.z,-1.0,1.0)); float micro=sin(azimuth*11.0+uOrganic.x*3.1)*sin(latitude*9.0-uOrganic.x)*.0012; float mochi=sin(azimuth*uMochiDetail.x+uOrganic.x)*.62+sin((azimuth+latitude)*uMochiDetail.y+uMochiDetail.z)*.38; transformed*=vec3(1.0+uOrganic.z,1.0+uOrganic.w,1.0-(uOrganic.z+uOrganic.w)*.22); transformed+=n*(mochi*uOrganic.y+micro); vec3 hit=normalize(uImpact); float facing=clamp(dot(n,hit),-1.0,1.0); vBubbleNormal=n; vImpactFacing=facing; float contact=pow(smoothstep(.05,1.0,facing),3.1); float shoulder=pow(max(0.0,1.0-abs(facing-.08)),1.35); float compression=clamp(uDeform,-.09,.35); float rebound=sin(uPhase)*uWobble; float axialDot=dot(transformed,hit); vec3 axialPart=hit*axialDot; vec3 tangentPart=transformed-axialPart; float volumeBulge=max(compression,0.0)*(.16-uMaterialWeight*.035); float wholeBodyRipple=rebound*(.3-uMaterialWeight*.07); transformed=axialPart*(1.0-compression-wholeBodyRipple)+tangentPart*(1.0+volumeBulge+wholeBodyRipple*.48); float axial=max(0.0,dot(transformed,hit)); float shockRadius=uShockAge*1.55; float surfaceDistance=acos(clamp(facing,-1.0,1.0)); float shock=exp(-pow((surfaceDistance-shockRadius)/.105,2.0))*(1.0-smoothstep(.0,1.7,uShockAge))*uWobble; transformed-=hit*axial*contact*max(compression,0.0)*(.24-uMaterialWeight*.05); transformed+=n*(-contact*max(compression,0.0)*.16+shoulder*max(compression,0.0)*.12); transformed+=n*(contact*rebound*(.22-uMaterialWeight*.07)-shoulder*rebound*.08+shock*(.38-uMaterialWeight*.11));`);
+        shader.vertexShader = shader.vertexShader
+          .replace("varying vec3 vBubbleNormal; varying float", "varying vec3 vBubbleNormal; varying vec3 vBubbleViewNormal; varying float")
+          .replace("vBubbleNormal=n; float azimuth", "vBubbleNormal=n; vBubbleViewNormal=normalize(normalMatrix*n); float azimuth");
         shader.fragmentShader = shader.fragmentShader
-          .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; uniform float uDeform; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying float vImpactFacing;")
-          .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); float dome=max(bubbleN.z,0.0); float opticalRim=pow(1.0-dome,2.8); float microGrain=(sin(bubbleN.x*83.0)+sin(bubbleN.y*107.0)+sin(bubbleN.z*71.0))*.008; float surfaceDistance=acos(clamp(vImpactFacing,-1.0,1.0)); float shockRadius=uShockAge*1.55; float shockRing=exp(-pow((surfaceDistance-shockRadius)/.075,2.0))*(1.0-smoothstep(.0,1.65,uShockAge)); float contactGlow=pow(max(vImpactFacing,0.0),16.0)*smoothstep(.015,.12,uDeform); vec3 rimTint=mix(vec3(.45,.82,1.0),vec3(1.0,.65,.24),contactGlow); diffuseColor.rgb*=.94+dome*.08+microGrain; diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0),opticalRim*(.13+uMaterialWeight*.1)); diffuseColor.rgb+=rimTint*(shockRing*.38+contactGlow*.82);`);
+          .replace("#include <common>", "#include <common>\nuniform vec3 uAccentA; uniform vec3 uAccentB; uniform vec2 uAccentStrength; uniform vec2 uAccentSpread; uniform vec3 uAccentDirA; uniform vec3 uAccentDirB; uniform vec3 uOpticDir; uniform vec3 uOpticProfile; uniform vec3 uPearlProfile; uniform float uDeform; uniform float uShockAge; uniform float uMaterialWeight; varying vec3 vBubbleNormal; varying vec3 vBubbleViewNormal; varying float vImpactFacing; float pearlHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453123);}")
+          .replace("#include <color_fragment>", `#include <color_fragment>\nvec3 bubbleN=normalize(vBubbleNormal); float accentA=pow(max(dot(bubbleN,uAccentDirA),0.0),uAccentSpread.x); float accentB=pow(max(dot(bubbleN,uAccentDirB),0.0),uAccentSpread.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentA,accentA*uAccentStrength.x); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,accentB*uAccentStrength.y); float facing=clamp(bubbleN.z,0.0,1.0); float silhouette=pow(1.0-facing,1.8); float keyLight=max(dot(bubbleN,uOpticDir),0.0); float broadLight=pow(keyLight,2.4); float hardGloss=pow(keyLight,uOpticProfile.x); float lowerShade=1.0-smoothstep(-.82,.18,bubbleN.y); float sideShade=(1.0-smoothstep(-.78,.82,bubbleN.x))*uOpticProfile.z; float volume=.54+pow(facing,.68)*.34+broadLight*uOpticProfile.y*.26-lowerShade*.15-sideShade*.08; diffuseColor.rgb*=volume; diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,silhouette*(.16+uMaterialWeight*.035)); diffuseColor.rgb+=mix(vec3(1.0),uAccentA,.12)*hardGloss*(.1+uOpticProfile.y*.09); float cheekY=exp(-pow((bubbleN.y+.1)*6.5,2.0)); float cheekSides=exp(-pow((abs(bubbleN.x)-.62)*8.0,2.0)); float cheek=cheekY*cheekSides*pow(facing,1.8); diffuseColor.rgb=mix(diffuseColor.rgb,vec3(1.0,.58,.67),cheek*.075); float surfaceDistance=acos(clamp(vImpactFacing,-1.0,1.0)); float shockRadius=uShockAge*1.55; float shockRing=exp(-pow((surfaceDistance-shockRadius)/.075,2.0))*(1.0-smoothstep(.0,1.65,uShockAge)); float contactGlow=pow(max(vImpactFacing,0.0),16.0)*smoothstep(.015,.12,uDeform); vec3 rimTint=mix(vec3(.45,.82,1.0),vec3(1.0,.65,.24),contactGlow); diffuseColor.rgb+=rimTint*(shockRing*.06+contactGlow*.09);`);
+        shader.fragmentShader = shader.fragmentShader
+          .replace("vec3 bubbleN=normalize(vBubbleNormal);", "vec3 bubbleN=normalize(vBubbleViewNormal);")
+          .replace(
+            "float volume=.54+pow(facing,.68)*.34+broadLight*uOpticProfile.y*.26-lowerShade*.15-sideShade*.08;",
+            "float lightWrap=smoothstep(-.38,.9,dot(bubbleN,normalize(vec3(-.46,.58,.72)))); float underCurve=pow(clamp(1.0-(bubbleN.y*.5+.5),0.0,1.0),1.7); float volume=.44+pow(facing,.64)*.38+lightWrap*.22+broadLight*uOpticProfile.y*.2-lowerShade*.17-sideShade*.08-underCurve*.08;",
+          )
+          .replace(
+            "diffuseColor.rgb*=volume;",
+            "diffuseColor.rgb*=volume; float softRim=pow(1.0-facing,2.6); float oppositeGlow=softRim*smoothstep(-.7,.25,bubbleN.y); diffuseColor.rgb=mix(diffuseColor.rgb,uAccentB,softRim*.12); diffuseColor.rgb+=mix(uAccentA,vec3(1.0,.84,.9),.34)*oppositeGlow*.035;",
+          );
         shaders[i] = shader;
       };
       const mesh = new THREE.Mesh(geometry, material); mesh.frustumCulled = false; scene.add(mesh); meshes.push(mesh); shaders.push(null);
@@ -540,9 +687,8 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
       const shadow = new THREE.Sprite(shadowMaterial); shadow.renderOrder = -1; scene.add(shadow);
       shadows.push(shadow); shadowTextures.push(shadowTexture);
     }
-    const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false); camera.aspect=w/Math.max(1,h);camera.fov=THREE.MathUtils.radToDeg(2*Math.atan(h/(2*cameraDistance)));camera.updateProjectionMatrix(); };
+    const resize = () => { const w=stage.clientWidth,h=stage.clientHeight; renderer.setSize(w,h,false);composer.setSize(w,h);smaaPass.setSize(w*renderer.getPixelRatio(),h*renderer.getPixelRatio());camera.aspect=w/Math.max(1,h);camera.fov=THREE.MathUtils.radToDeg(2*Math.atan(h/(2*cameraDistance)));camera.updateProjectionMatrix(); };
     const observer = new ResizeObserver(resize); observer.observe(stage); resize(); stage.classList.add("is-webgl");
-    const activeWaves: { mesh: THREE.Mesh; born: number; energy: number }[] = [];
     let raf=0, previousRender=0, trailFrame=0;
     const projected = new THREE.Vector3();
     let handledCommand = cameraCommandRef.current.nonce;
@@ -566,6 +712,20 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
         camera.position.lerp(desired, .04);
       }
       controls.update();
+      portalGroup.rotation.z += .00008;
+      const portalPulse = .82 + Math.sin(renderNow * .00035) * .18;
+      portalMaterials.forEach((portalMaterial, portalIndex) => {
+        portalMaterial.opacity = ((mobilePerformance ? .1 : .17) - portalIndex * .025) * portalPulse;
+      });
+      const depthPulse = .78 + Math.sin(renderNow * .00042) * .22;
+      depthFrameMaterials.forEach((frameMaterial, frameIndex) => {
+        const depthFade = 1 - frameIndex / (depthFrameMaterials.length * 1.8);
+        const travellingLight = .72 + Math.sin(renderNow * .0011 - frameIndex * .72) * .28;
+        frameMaterial.opacity = (mobilePerformance ? .07 : .105) * depthFade * travellingLight * depthPulse;
+      });
+      perspectiveRailMaterial.opacity = (mobilePerformance ? .075 : .13) * (.88 + Math.sin(renderNow * .0003) * .12);
+      depthFrameGroup.position.x = camera.position.x * .012;
+      depthFrameGroup.position.y = camera.position.y * .008;
       dust.rotation.y += .000035;
       dust.position.x = camera.position.x * .035;
       dust.position.y = camera.position.y * .025;
@@ -620,31 +780,12 @@ function BubbleWebGLSurface({ bodiesRef, bubbleColors, count, focusRef, cameraCo
           body.el.style.visibility = projected.z > 1 || projected.z < -1 ? "hidden" : "visible";
         }
       });
-      collisionWavesRef.current.forEach((wave) => {
-        if (wave.visualized) return;
-        wave.visualized = true;
-        const waveGeometry = new THREE.RingGeometry(.72, 1, mobilePerformance ? 28 : 52);
-        const waveMaterial = new THREE.MeshBasicMaterial({ color: wave.color, transparent: true, opacity: .82, side: THREE.DoubleSide, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending });
-        const waveMesh = new THREE.Mesh(waveGeometry, waveMaterial);
-        waveMesh.position.set(wave.x, wave.y, wave.z); waveMesh.lookAt(camera.position); scene.add(waveMesh);
-        activeWaves.push({ mesh: waveMesh, born: wave.born, energy: wave.energy });
-      });
-      for (let index = activeWaves.length - 1; index >= 0; index--) {
-        const wave = activeWaves[index], age = renderNow - wave.born, progress = age / 720;
-        if (progress >= 1) {
-          scene.remove(wave.mesh); wave.mesh.geometry.dispose(); (wave.mesh.material as THREE.Material).dispose(); activeWaves.splice(index, 1); continue;
-        }
-        const radius = (12 + wave.energy * 20) * (.45 + progress * 3.2);
-        wave.mesh.scale.setScalar(radius); wave.mesh.lookAt(camera.position);
-        (wave.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - progress) ** 1.7 * .78;
-      }
-      collisionWavesRef.current = collisionWavesRef.current.filter((wave) => renderNow - wave.born < 1000);
-      renderer.render(scene, camera);
+      composer.render();
       raf = requestAnimationFrame(render);
     };
     raf=requestAnimationFrame(render);
-    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());trails.forEach(t=>{t.geometry.dispose();(t.material as THREE.Material).dispose();});activeWaves.forEach(w=>{w.mesh.geometry.dispose();(w.mesh.material as THREE.Material).dispose();});floorGrid.geometry.dispose();floorMaterials.forEach(material=>material.dispose());dustGeometry.dispose();dustMaterial.dispose();geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
-  }, [bodiesRef, bubbleColors, cameraCommandRef, collisionWavesRef, count, focusRef]);
+    return()=>{cancelAnimationFrame(raf);observer.disconnect();stage.removeEventListener("pointerdown",preserveBubbleClick);stage.removeEventListener("pointerup",restoreCameraControls);stage.removeEventListener("pointercancel",restoreCameraControls);controls.removeEventListener("start",releaseFocus);controls.dispose();stage.classList.remove("is-webgl");composer.dispose();meshes.forEach(m=>(m.material as THREE.Material).dispose());shadows.forEach(s=>(s.material as THREE.Material).dispose());shadowTextures.forEach(t=>t.dispose());trails.forEach(t=>{t.geometry.dispose();(t.material as THREE.Material).dispose();});floorGrid.geometry.dispose();floorMaterials.forEach(material=>material.dispose());chamberGrids.forEach(grid=>{grid.geometry.dispose();(Array.isArray(grid.material)?grid.material:[grid.material]).forEach(material=>material.dispose());});depthFrameGeometries.forEach(frameGeometry=>frameGeometry.dispose());depthFrameMaterials.forEach(frameMaterial=>frameMaterial.dispose());perspectiveRailGeometry.dispose();perspectiveRailMaterial.dispose();portalGeometries.forEach(portalGeometry=>portalGeometry.dispose());portalMaterials.forEach(portalMaterial=>portalMaterial.dispose());portalCoreGeometry.dispose();portalCoreMaterial.dispose();dustGeometry.dispose();dustMaterial.dispose();roomGeometry.dispose();roomMaterial.dispose();roomEdgesGeometry.dispose();roomEdgesMaterial.dispose();geometry.dispose();environment.dispose();pmrem.dispose();renderer.dispose();};
+  }, [bodiesRef, bubbleColors, cameraCommandRef, count, focusRef]);
   return <canvas ref={canvasRef} className="bubble-webgl-surface" aria-hidden="true" />;
 }
 
@@ -664,9 +805,6 @@ export default function MarketBubblePage() {
   const pinnedRef = useRef<number | null>(null);
   const focusRef = useRef<number | null>(null);
   const cameraCommandRef = useRef<CameraCommand>({ nonce: 0, type: "reset" });
-  const sparkParticlesRef = useRef<SparkParticle[]>([]);
-  const pairSparkedAtRef = useRef<Record<string, number>>({});
-  const collisionWavesRef = useRef<CollisionWave[]>([]);
   const gestureRef = useRef<GestureState>({ pointers: new Map(), suppressUntil: 0 });
   const clickTimerRef = useRef<number | null>(null);
   const firstLoadRef = useRef(true);
@@ -986,127 +1124,8 @@ export default function MarketBubblePage() {
         b.impactX=-nx;b.impactY=-ny;b.impactZ=-nz;
         const angle=Math.atan2(ny,nx)*180/Math.PI;
         excite(a,softness,angle);excite(b,softness,angle+180);
-        const pairKey = `${i}:${j}`;
-        if (now - (pairSparkedAtRef.current[pairKey] || 0) > 1050) {
-          pairSparkedAtRef.current[pairKey] = now;
-          const largestCaps = bodies.map((body) => body.marketCap).sort((left, right) => right - left),
-            maximumCapSum = Math.max(1, (largestCaps[0] || 0) + (largestCaps[1] || 0)),
-            capSumRatio = THREE.MathUtils.clamp((a.marketCap + b.marketCap) / maximumCapSum, 0, 1),
-            // Combined market cap controls every dimension of the effect. The
-            // maximum collision reaches 2x the previous hero scale.
-            sparkScale = .22 + 1.78 * Math.pow(capSumRatio, .68),
-            isMaximumCollision = capSumRatio > .995;
-          const contactRatio = a.r / Math.max(1, a.r + b.r),
-            x = a.screenX + (b.screenX - a.screenX) * contactRatio,
-            y = a.screenY + (b.screenY - a.screenY) * contactRatio,
-            // Radius is already derived from market-cap rank, so it is the visual
-            // energy source: top pairs throw a huge shower; tail pairs stay precise.
-            energy = THREE.MathUtils.clamp(Math.sqrt((a.r + b.r) / 105), .55, 1.85) * sparkScale,
-            burstCase = Math.floor(Math.random() * 5),
-            count = Math.round((16 + energy * 42) * (isMaximumCollision ? 1.35 : 1) * (mobilePerformance ? .46 : 1)),
-            impactAngle = Math.atan2(b.screenY - a.screenY, b.screenX - a.screenX),
-            seed = Math.random() * 1000,
-            palettes = [
-              [198, 48, 30, 10], // blue-white steel / gold / orange / ember
-              [52, 38, 20, 4],   // welding gold / amber / copper / red
-              [188, 212, 44, 16],// electric cyan / blue / yellow / hot orange
-              [285, 205, 52, 25],// ion violet / ice blue / white gold / copper
-              [120, 184, 46, 8], // exotic green-white / cyan / gold / red
-            ][burstCase];
-          collisionWavesRef.current.push({
-            x: a.x - width / 2 + dx * contactRatio,
-            y: height / 2 - (a.y + dy * contactRatio),
-            z: a.z + dz * contactRatio,
-            born: now,
-            energy,
-            color: burstCase % 2 ? "#ffd27a" : "#8adfff",
-          });
-          sparkParticlesRef.current.push(
-            { x, y, vx: 0, vy: 0, born: now, life: 150 + energy * 65, size: 15 + energy * 18, hue: palettes[0], saturation: 58, flash: true, seed, angle: impactAngle + Math.PI / 2, aspect: 2.8 + energy * .7 },
-            { x, y, vx: 0, vy: 0, born: now, life: 230 + energy * 80, size: 12 + energy * 15, hue: palettes[1], saturation: 100, flash: true, seed: seed + 9, angle: impactAngle - .22, aspect: 2.1 + energy * .5 },
-          );
-          if (isMaximumCollision) {
-            // The market leaders get a unique third arc: a razor-thin blue-white
-            // electrical tear crossing the two material flashes.
-            sparkParticlesRef.current.push(
-              { x, y, vx: 0, vy: 0, born: now, life: 340, size: 48 * energy, hue: 205, saturation: 34, flash: true, seed: seed + 31, angle: impactAngle + 2.2, aspect: 4.8 },
-              { x, y, vx: 0, vy: 0, born: now, life: 145, size: 1, hue: 205, screenFlash: true },
-            );
-          }
-          // Electrical arcs bridge the contact at different angles. Their count and
-          // orientation vary per collision, so the silhouette never repeats.
-          const arcCount = Math.round((1 + energy * 2.35) * (mobilePerformance ? .52 : 1));
-          for (let arc = 0; arc < arcCount; arc++) {
-            sparkParticlesRef.current.push({
-              x, y, vx: 0, vy: 0,
-              born: now + arc * 18,
-              life: 120 + Math.random() * 170,
-              size: (24 + Math.random() * 42) * energy,
-              hue: arc % 2 ? palettes[0] : palettes[1],
-              saturation: arc % 2 ? 48 : 100,
-              seed: seed + arc * 17,
-              angle: impactAngle + (Math.random() - .5) * 2.8,
-              arc: true,
-            });
-          }
-          // Tiny delayed fractures bloom where fast fragments tear away from the
-          // contact. These staggered secondary events make the shower feel layered.
-          const microBursts = Math.round((2 + energy * 2.2) * (mobilePerformance ? .45 : 1));
-          for (let micro = 0; micro < microBursts; micro++) {
-            const direction = impactAngle + (Math.random() - .5) * Math.PI * 1.7,
-              distanceFromContact = (9 + Math.random() * 35) * energy,
-              microX = x + Math.cos(direction) * distanceFromContact,
-              microY = y + Math.sin(direction) * distanceFromContact,
-              delay = 65 + Math.random() * 190;
-            sparkParticlesRef.current.push({
-              x: microX, y: microY, vx: 0, vy: 0,
-              born: now + delay,
-              life: 130 + Math.random() * 100,
-              size: (5 + Math.random() * 8) * energy,
-              hue: palettes[(micro % 3) + 1],
-              saturation: 100,
-              flash: true,
-              seed: seed + micro * 23,
-              angle: direction,
-              aspect: 2 + Math.random() * 1.8,
-            });
-          }
-          for (let spark = 0; spark < count; spark++) {
-            const family = Math.random(),
-              fanSide = spark % 2 ? 1 : -1,
-              // Five burst families: twin fan, forward cone, backward ricochet,
-              // grazing sheet and chaotic fracture. The pattern is picked anew on
-              // every impact, not tied to rank or pair.
-              spread = burstCase === 0
-                ? impactAngle + Math.PI / 2 * fanSide + (Math.random() - .5) * 1.05
-                : burstCase === 1
-                  ? impactAngle + (Math.random() - .5) * 1.35
-                  : burstCase === 2
-                    ? impactAngle + Math.PI + (Math.random() - .5) * 1.7
-                    : burstCase === 3
-                      ? impactAngle + Math.PI / 2 * fanSide + (Math.random() - .5) * .38
-                      : Math.random() * Math.PI * 2 + Math.sin(spark * 2.4) * .32,
-              speed = (2.2 + Math.random() ** .42 * 9.6) * energy,
-              hot = family < .18,
-              ember = family > .82,
-              hue = hot ? palettes[0] + (Math.random() - .5) * 10 : ember ? palettes[3] + Math.random() * 8 : (family < .56 ? palettes[1] : palettes[2]) + (Math.random() - .5) * 10;
-            sparkParticlesRef.current.push({
-              x, y,
-              vx: Math.cos(spread) * speed,
-              vy: Math.sin(spread) * speed,
-              born: now,
-              life: (ember ? 780 : 360) + Math.random() * (430 + energy * 220),
-              size: (hot ? 2.4 + Math.random() * 2.6 : ember ? 1.1 + Math.random() * 1.8 : 1.4 + Math.random() * 2.5) * Math.min(1.35, energy),
-              hue,
-              saturation: hot ? 48 : 100,
-              seed: Math.random() * 1000,
-            });
-          }
-          const particleLimit = mobilePerformance ? 220 : 520;
-          if (sparkParticlesRef.current.length > particleLimit) {
-            sparkParticlesRef.current.splice(0, sparkParticlesRef.current.length - particleLimit);
-          }
-        }
+        // Collision feedback is expressed only through soft-body compression and
+        // wobble. Sparks, flashes, arcs and expanding rings are intentionally absent.
       }
       bodies.forEach((body) => {
         if (body.el) {
@@ -1204,8 +1223,7 @@ export default function MarketBubblePage() {
         onPointerCancelCapture={endGesture}
         onPointerLeave={() => { pointerRef.current.active = false; }}
       >
-        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} cameraCommandRef={cameraCommandRef} collisionWavesRef={collisionWavesRef} />}
-        {!loading && <BubbleCollisionSparks particlesRef={sparkParticlesRef} />}
+        {!loading && <BubbleWebGLSurface bodiesRef={bodiesRef} bubbleColors={bubbleColors} count={items.length} focusRef={focusRef} cameraCommandRef={cameraCommandRef} />}
         {!loading && items.length > 0 && (
           <aside className="bubble-market-console" aria-label="시장 온도 요약">
             <div className="bubble-console-kicker"><i /> MARKET PULSE</div>
