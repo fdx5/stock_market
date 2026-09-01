@@ -102,7 +102,7 @@
 /* Market-desk navigation is shared with detail pages; search belongs to the page
    workspace so the link rail remains readable and crawlable. */
 .si-common-header{isolation:isolate;width:100%;box-sizing:border-box;margin:0;padding-left:max(20px,calc((100vw - var(--si-shell))/2));padding-right:max(20px,calc((100vw - var(--si-shell))/2));border-bottom:1px solid var(--si-line);background:var(--si-paper);box-shadow:0 8px 24px rgba(22,42,34,.08)}
-.si-common-header .app-nav-row{display:flex;flex-wrap:wrap;overflow:visible;max-width:100%;max-height:none;padding-bottom:2px;-ms-overflow-style:auto;scrollbar-width:auto}
+.si-common-header .app-nav-row{display:flex;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;min-width:0;max-width:100%;max-height:none;padding-bottom:2px;overscroll-behavior-x:contain;-webkit-overflow-scrolling:touch;-ms-overflow-style:none;scrollbar-width:none}
 .si-common-header .app-nav-row::-webkit-scrollbar{display:none}
 .si-common-header .kospi-map-nav-link{flex:0 0 auto;white-space:nowrap}
 .kospi-map-nav-link--nasdaq,.kospi-map-nav-link--orbit,.kospi-map-nav-link--stocks{gap:3px;padding:4px 9px;font-size:11px}
