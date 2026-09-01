@@ -1963,12 +1963,15 @@ uniform float uDetailLevel;`,
         lastFocusPosition.copy(focusTarget.position);
         const radius = Number(focusTarget.userData.radius) || 2,
           distance = camera.position.distanceTo(focusTarget.position),
-          portraitFocus = coarseDevice && viewHeight > viewWidth,
-          focusDistance = portraitFocus
-            ? Math.max(radius * 5.8, 8)
+          mobileFocus = coarseDevice && matchMedia(ORBIT_COMPACT_MEDIA).matches,
+          focusDistance = mobileFocus
+            // At 4.2 radii the body plus its atmosphere fills the mobile viewing
+            // area while preserving a safe silhouette margin around every size.
+            // The scale follows each body's real radius, so neither small planets
+            // nor the central star can overshoot and lose their silhouette.
+            ? Math.max(radius * 4.2, 6)
             : Math.max(radius * 3.15, 4.2);
         desiredTarget.copy(focusTarget.position);
-        if (portraitFocus) desiredTarget.y -= radius * 1.55;
         if (flying) {
           const approachLeg = tourStage === "planet",
             approachAge = approachLeg ? nowMs - tourLegStartedAt : 0,
@@ -2254,11 +2257,14 @@ function OrbitDetailPanel({
   onToggleCompare: () => void;
   onShare: () => void;
 }) {
-  const [tab, setTab] = useState<"discussion" | "news">("discussion"),
+  const compactDetail = matchMedia(ORBIT_COMPACT_MEDIA).matches;
+  const [expanded, setExpanded] = useState(() => !compactDetail),
+    [tab, setTab] = useState<"discussion" | "news">("discussion"),
     [intro, setIntro] = useState<string[]>([]),
     [introLoading, setIntroLoading] = useState(true);
   useEffect(() => {
     let active = true;
+    setExpanded(!compactDetail);
     setTab("discussion");
     setIntro([]);
     setIntroLoading(true);
@@ -2276,7 +2282,7 @@ function OrbitDetailPanel({
     return () => {
       active = false;
     };
-  }, [stock.code]);
+  }, [stock.code, compactDetail]);
   const fallback = `${stock.name}은(는) ${stock.sector} 업종에 속한 ${config.label} 상장기업입니다. 주요 사업과 시장 현황은 종목 상세정보에서 확인할 수 있습니다.`;
   const stockCap = config.capOf(stock),
     comparisonCap = config.capOf(comparisonStock),
@@ -2289,7 +2295,16 @@ function OrbitDetailPanel({
         : `$${(value / 1e9).toFixed(1)}B`
       : money(value);
   return (
-    <aside className="orbit-detail">
+    <aside className={`orbit-detail ${expanded ? "is-expanded" : "is-peek"}`}>
+      <button
+        type="button"
+        className="orbit-detail-toggle"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((value) => !value)}
+      >
+        <i aria-hidden="true" />
+        <span>{expanded ? "궤도로 돌아가기" : "상세 보기"}</span>
+      </button>
       <button
         className="orbit-close"
         onClick={() => {
@@ -2325,7 +2340,7 @@ function OrbitDetailPanel({
           </p>
         </div>
       </div>
-      <div className="orbit-detail-actions">
+      {expanded && <div className="orbit-detail-actions">
         <button type="button" className={isCompareBase ? "active" : ""} onClick={onToggleCompare}>
           <span aria-hidden="true">⇄</span>
           {isCompareBase ? "비교 해제" : "비교 기준"}
@@ -2334,7 +2349,7 @@ function OrbitDetailPanel({
           <span aria-hidden="true">↗</span>
           행성 공유
         </button>
-      </div>
+      </div>}
       <div className="orbit-price">
         <strong>
           {stock.close.toLocaleString()}
@@ -2344,6 +2359,7 @@ function OrbitDetailPanel({
           {pct(stock.change_pct)}
         </em>
       </div>
+      {expanded && <>
       <div className="orbit-stats">
         <div>
           <span>시가총액</span>
@@ -2453,6 +2469,7 @@ function OrbitDetailPanel({
           />
         )}
       </div>
+      </>}
     </aside>
   );
 }

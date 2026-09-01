@@ -224,6 +224,34 @@
 .kospi-orbit.has-detail .orbit-radar,.kospi-orbit.has-detail .orbit-effect-legend{opacity:.18;pointer-events:none}
 .orbit-selection-tools{position:absolute;z-index:8;top:102px;right:62px;display:flex;gap:5px}.orbit-selection-tools button{display:flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid #5cd9ff32;border-radius:9px;background:#092235e8;color:#9fcbda;font:800 8px ui-monospace;cursor:pointer;box-shadow:0 8px 24px #0006}.orbit-selection-tools button:hover,.orbit-selection-tools button.active{border-color:#65e1ff88;color:#fff}.orbit-selection-tools button span{color:#65dfff;font-size:13px}
 .orbit-detail-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));flex:0 0 auto;gap:5px;padding:7px 0;border-bottom:1px solid #ffffff0d}.orbit-detail-actions button{display:flex;align-items:center;justify-content:center;gap:5px;min-width:0;padding:7px 5px;border:1px solid #4dcff72d;border-radius:8px;background:#0a2132a8;color:#83aabd;font:800 8px ui-monospace;white-space:nowrap;cursor:pointer;transition:border-color .16s,background .16s,color .16s}.orbit-detail-actions button:hover,.orbit-detail-actions button.active{border-color:#57ddff77;background:#10334a;color:#e9faff}.orbit-detail-actions button span{color:#59dfff;font-size:12px;line-height:1}
+.orbit-detail-toggle{display:none}
+
+/* Mobile progressive disclosure: selection keeps the observatory visible. The
+   expensive reading surfaces only mount after an explicit expansion. */
+@media(max-width:760px),(max-width:1024px) and (orientation:portrait) and (pointer:coarse){
+  .kospi-orbit.has-detail .orbit-detail{left:8px;right:8px;bottom:8px;top:auto;width:auto;transition:height .28s cubic-bezier(.2,.8,.2,1),border-radius .28s ease,background .28s ease}
+  .kospi-orbit.has-detail .orbit-detail.is-peek{height:108px!important;min-height:108px;max-height:108px!important;padding:20px 12px 8px;border-color:#67ddff48;border-radius:17px;background:linear-gradient(145deg,#092033df,#04101be8);box-shadow:0 -10px 36px #0008,0 0 24px #28cfff10;backdrop-filter:blur(14px)}
+  .kospi-orbit.has-detail .orbit-detail.is-expanded{height:min(68dvh,560px)!important;max-height:calc(100dvh - 76px)!important;padding-top:25px}
+  .orbit-detail-toggle{position:absolute;z-index:2;left:50%;top:4px;display:grid;justify-items:center;gap:2px;min-width:126px;padding:2px 12px 4px;border:0;background:transparent;color:#7295a9;font:750 7px/1.2 ui-monospace;transform:translateX(-50%);cursor:pointer}
+  .orbit-detail-toggle i{display:block;width:34px;height:3px;border-radius:999px;background:#62dfff80;box-shadow:0 0 9px #45d8ff35}
+  .orbit-detail-toggle span{opacity:0;transition:opacity .16s ease}
+  .orbit-detail-toggle:focus-visible span,.orbit-detail-toggle:hover span{opacity:1}
+  .orbit-detail.is-peek .orbit-detail-toggle{inset:0;width:100%;height:100%;min-width:0;padding:0;transform:none}
+  .orbit-detail.is-peek .orbit-detail-toggle i{position:absolute;left:50%;top:6px;transform:translateX(-50%)}
+  .orbit-detail.is-peek .orbit-detail-toggle span{position:absolute;right:42px;top:17px;padding:5px 8px;border:1px solid #62dfff35;border-radius:999px;background:#0b2a3dc9;color:#89cfe1;opacity:1}
+  .orbit-detail.is-peek .orbit-close{z-index:3;top:13px}
+  .orbit-detail.is-peek .orbit-hero{height:38px;box-sizing:border-box;padding:0 94px 3px 0;border-bottom:0}
+  .orbit-detail.is-peek .orbit-hero>img{width:34px;height:34px}
+  .orbit-detail.is-peek .orbit-hero-title h2{font-size:15px}
+  .orbit-detail.is-peek .orbit-hero-copy p{display:none}
+  .orbit-detail.is-peek .orbit-price{margin-top:3px;padding:7px 3px 0;border-top:1px solid #ffffff0c}
+  .orbit-detail.is-peek .orbit-price strong{font-size:19px}
+  .orbit-detail.is-peek .orbit-price em{padding:4px 8px;border-radius:999px;background:#ffffff08;font-size:11px}
+  .kospi-orbit.has-detail .orbit-top{height:48px;padding:0 10px;border-bottom-color:#ffffff08;background:linear-gradient(#020712c9,transparent);backdrop-filter:blur(8px)}
+  .kospi-orbit.has-detail .orbit-brand,.kospi-orbit.has-detail .orbit-search,.kospi-orbit.has-detail .orbit-market-warp,.kospi-orbit.has-detail .orbit-live{display:none}
+  .kospi-orbit.has-detail .orbit-view-reset{margin-left:auto}
+  .kospi-orbit.has-detail .orbit-background-credit{display:none}
+}
 .orbit-compare-panel{position:absolute;z-index:9;left:50%;bottom:50px;width:min(430px,calc(100vw - 540px));padding:12px;border:1px solid #63dfff45;border-radius:15px;background:linear-gradient(145deg,#071826f2,#030a12f5);box-shadow:0 20px 65px #000c;transform:translateX(-50%);backdrop-filter:blur(18px)}.orbit-compare-panel header{display:flex;justify-content:space-between;align-items:center;margin-bottom:9px;color:#6fddff;font:800 9px ui-monospace;letter-spacing:.1em}.orbit-compare-panel header button{border:0;background:none;color:#7694a7;font-size:18px;cursor:pointer}.orbit-compare-panel>div{display:grid;grid-template-columns:1fr 1fr;gap:8px}.orbit-compare-panel article{display:grid;grid-template-columns:30px 1fr auto;align-items:center;gap:5px;padding:8px;border:1px solid #ffffff0d;border-radius:10px;background:#ffffff05}.orbit-compare-panel img{grid-row:1/3;width:28px;height:28px;padding:3px;box-sizing:border-box;border-radius:7px;background:#fff;object-fit:contain}.orbit-compare-panel article>b{overflow:hidden;font-size:9px;text-overflow:ellipsis;white-space:nowrap}.orbit-compare-panel article em{font:800 8px ui-monospace;font-style:normal}.orbit-compare-panel article span{color:#66859a;font-size:7px}.orbit-compare-panel>p{display:flex;justify-content:space-between;margin:9px 2px 0;color:#6e899b;font-size:8px}.orbit-compare-panel>p b{color:#cceeff}
 @media(max-width:760px),(max-width:1024px) and (orientation:portrait) and (pointer:coarse){.orbit-radar,.orbit-effect-legend{display:none}.orbit-selection-tools{top:78px;left:8px;right:8px;justify-content:flex-end}.orbit-selection-tools button{padding:6px 7px;font-size:7px}.orbit-selection-tools button span{font-size:11px}.orbit-compare-panel{left:8px;right:8px;bottom:68px;width:auto;transform:none}}
 @media(max-width:760px),(max-width:1024px) and (orientation:portrait) and (pointer:coarse){.orbit-detail-actions{gap:4px;padding:5px 0}.orbit-detail-actions button{padding:6px 3px;font-size:7px}.orbit-detail-actions button span{font-size:10px}}
