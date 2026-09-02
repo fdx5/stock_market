@@ -127,6 +127,21 @@ def test_different_dates_are_independent(store):
     assert store.claim("2026-08-18", "KOSPI") is True
 
 
+def test_release_claim_refunds_the_attempt(store):
+    """A dead session must not cost the post one of its three retries — the run aborts
+    on whichever market sorts first, so that one would otherwise be retired after three
+    session expiries for a reason that was never about it."""
+    store.enqueue("2026-09-02", "KOSPI")
+    assert store.claim("2026-09-02", "KOSPI") is True
+    store.release_claim("2026-09-02", "KOSPI", "session expired: no privilege")
+
+    row = store.get("2026-09-02", "KOSPI")
+    assert row["status"] == "pending"
+    assert row["attempts"] == 0
+    assert "no privilege" in row["last_error"]
+    assert store.claim("2026-09-02", "KOSPI") is True
+
+
 def test_release_stale_returns_claims(store):
     store.enqueue("2026-08-17", "KOSDAQ")
     store.claim("2026-08-17", "KOSDAQ")

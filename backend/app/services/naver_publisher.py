@@ -261,14 +261,22 @@ def run(
                     report_date, market, cookies, dry_run=dry_run, map_image=map_image
                 )
             except naver_blog_client.NaverSessionExpired as exc:
-                naver_publish_store.mark_failed(report_date, market, f"session expired: {exc}")
+                # Not this post's fault — see naver_publish_store.release_claim. The run
+                # stops either way; the row stays retryable so the recovery is a
+                # re-login, not a re-login plus a ledger reset.
+                naver_publish_store.release_claim(
+                    report_date, market, f"session expired: {exc}"
+                )
                 result["status"] = "session_expired"
                 result["failed"].append({"market": market, "error": str(exc)})
                 _alert(
-                    "📕 네이버 블로그 자동발행 중단 (세션 만료)\n\n"
+                    "📕 네이버 블로그 자동발행 중단 (세션 거부)\n\n"
                     f"날짜: {report_date}\n"
-                    f"중단 지점: {market}\n\n"
-                    "scripts/naver_login_setup.py 를 1회 실행해 재로그인해주세요.\n"
+                    f"중단 지점: {market}\n"
+                    f"사유: {str(exc)[:200]}\n\n"
+                    "먼저 scripts/naver_login_setup.py --check 로 세션 상태를 확인하세요.\n"
+                    "세션이 정상인데도 이 알림이 왔다면 로그인이 풀린 것이 아니라 "
+                    "이 서버에서의 글쓰기만 거부된 것입니다.\n"
                     "미발행 건은 큐에 남아 다음 실행 때 자동으로 이어서 발행됩니다."
                 )
                 # Stop the whole run — see module docstring, point 2.

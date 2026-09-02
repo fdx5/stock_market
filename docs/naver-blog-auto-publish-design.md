@@ -410,6 +410,43 @@ python scripts/naver_publish_now.py --status
 
 업로드는 순차적으로 한 장씩 한다. 여러 장을 한 번에 넘기면 네이버가 배치(개별/콜라주/슬라이드) 선택을 요구한다.
 
+## 8.9 `no privilege` — 서버에서만 글쓰기가 거부되는 증상 (2026-09-02 확인)
+
+§9의 리스크 1이 실제로 발생한 형태다. **로그인이 풀린 것이 아니다.**
+
+관측된 사실:
+
+- 16:12 브리핑 7건 정상 생성 → 16:22 발행 체인이 첫 타깃(KOSPI)에서 RabbitWrite
+  `{"result": {"errorCode": "no privilege"}}` 응답을 받고 런 전체를 중단
+- 같은 시각 `naver_login_setup.py --check` 는 **통과**한다. 세션은 살아 있고 읽기도 된다
+- 로컬에서 쿠키를 새로 회전시킨 직후 Render의 catch-up 이 그 최신 쿠키로 다시 시도해도
+  동일하게 `no privilege`
+- **2분 뒤 같은 쿠키로 로컬에서 발행하면 성공한다**
+
+쿠키 신선도가 아니라 실행 환경이 변수라는 뜻이다. 남는 차이는 (a) 출발지 IP —
+한국 가정용 vs Render 데이터센터, (b) 브라우저 플랫폼 — Windows vs Linux.
+
+(b)는 코드에서 제거했다: `USER_AGENT` 는 Windows Chrome 으로 고정돼 있었는데
+Sec-CH-UA-Platform 과 `navigator.userAgentData.platform` 은 Playwright 가 호스트에서
+가져오므로 Render 에서만 "Windows UA + Linux 플랫폼" 이라는, 실제 브라우저는 만들지
+않는 조합이 나가고 있었다. 로컬에서는 둘이 원래 일치해서 수동 실행으로는 재현되지
+않는다. `CLIENT_HINT_HEADERS` 와 `_PLATFORM_INIT_SCRIPT` 가 이를 맞춘다.
+
+(a)가 남으면 계정 쪽 설정을 먼저 본다 — 네이버 로그인 > 보안설정의 **IP 보안**과
+**해외 로그인 차단**. IP 보안이 켜져 있으면 세션이 발급 IP에 묶여 이 증상과 정확히
+같은 모양(읽기는 되고 쓰기는 거부)이 된다. 그래도 남으면 §9의 (a) 리전 이전 또는
+(b) 발행 워커 로컬 이전으로 간다.
+
+진단을 위해 바꾼 것:
+
+- `NaverSessionExpired` 메시지에 네이버가 준 `errorCode`/`errorMessage`/본문 앞부분을
+  실어서 원장(`naver_blog_posts.last_error`)에 남긴다. 이전에는 모든 거절이 똑같은
+  문장으로 기록돼 서버 로그를 실시간으로 보고 있지 않으면 구분할 수 없었다
+- 카톡 알림도 같은 사유를 싣고, "재로그인" 대신 `--check` 를 먼저 하도록 안내한다
+- 세션 거절로 런이 중단될 때 그 종목의 재시도 횟수를 돌려준다
+  (`naver_publish_store.release_claim`). 중단은 항상 정렬상 첫 종목에서 일어나므로,
+  이전 구조에서는 3일 연속 거절되면 그 종목만 영구히 발행 불가가 됐다
+
 ## 9. 남은 리스크
 
 1. **세션 수명** — 최대 미지수. 한국 가정용 IP에서 발급한 쿠키를 Render(기본 Oregon 리전)에서 재생하는 구조라 네이버 리스크 엔진에 걸릴 여지가 있습니다. 실제 만료 주기는 운영하며 관측해야 합니다. 잦으면 (a) Render 리전을 Singapore로 이전(서비스 재생성 필요) 또는 (b) 발행 워커만 로컬로 이전을 검토하세요.

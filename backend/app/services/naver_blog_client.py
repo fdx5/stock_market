@@ -56,6 +56,32 @@ USER_AGENT = os.environ.get(
     "(KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
 )
 
+# Chrome also states its platform out of band, in the Sec-CH-UA-* client hints and in
+# navigator.userAgentData — and Playwright derives those from the host, not from
+# `user_agent`. On Render that made every request carry a Windows UA string next to a
+# "Linux" platform hint, a contradiction no real browser produces. Locally the two
+# already agreed, which is why this never showed up in a manual run.
+UA_PLATFORM = "Windows"
+
+CLIENT_HINT_HEADERS = {
+    "sec-ch-ua": '"Chromium";v="140", "Not=A?Brand";v="24", "Google Chrome";v="140"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": f'"{UA_PLATFORM}"',
+}
+
+# navigator.userAgentData is the JS-side half of the same statement; Naver's login and
+# editor scripts read it directly.
+_PLATFORM_INIT_SCRIPT = (
+    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+    "try {"
+    "  Object.defineProperty(navigator, 'platform', {get: () => 'Win32'});"
+    "  if (navigator.userAgentData) {"
+    "    Object.defineProperty(navigator.userAgentData, 'platform',"
+    f"      {{get: () => '{UA_PLATFORM}'}});"
+    "  }"
+    "} catch (e) {}"
+)
+
 # Failure artifacts (screenshot + page HTML) land here, never in exports/ — that path is
 # gitignored specifically because it held live session cookies, and debug dumps of a
 # logged-in page belong under the same treatment.
@@ -205,6 +231,7 @@ def publish(
             user_agent=USER_AGENT,
             locale="ko-KR",
             timezone_id="Asia/Seoul",
+            extra_http_headers=CLIENT_HINT_HEADERS,
         )
         try:
             context.add_cookies(cookies)
@@ -216,9 +243,7 @@ def publish(
 
         # navigator.webdriver is the single cheapest automation tell; strip it before any
         # Naver script runs.
-        page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-        )
+        page.add_init_script(_PLATFORM_INIT_SCRIPT)
 
         def _on_response(response):
             if "RabbitWrite.naver" in response.url or "RabbitTempPostWrite.naver" in response.url:
@@ -371,8 +396,16 @@ def publish(
             deadline = time.time() + 90
             while time.time() < deadline:
                 if captured.get("session_expired"):
+                    # Carry Naver's own words into the ledger. The generic sentence that
+                    # used to be raised here made every rejection look identical, so the
+                    # only way to tell "cookies are stale" from "this IP may not write"
+                    # was to be watching the server's logs at 16:22.
                     raise NaverSessionExpired(
-                        "Naver rejected blog write privilege; the stored login session must be renewed"
+                        "Naver rejected blog write privilege; the stored login session "
+                        "must be renewed "
+                        f"(errorCode={captured.get('error_code')!r}, "
+                        f"errorMessage={captured.get('error_message')!r}, "
+                        f"body={(captured.get('response_body') or '')[:300]})"
                     )
                 if captured["log_no"]:
                     log_no = captured["log_no"]
@@ -755,10 +788,15 @@ def keep_alive(cookies: list[dict]) -> list[dict]:
             headless=HEADLESS,
             args=["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
         )
-        context = browser.new_context(user_agent=USER_AGENT, locale="ko-KR", timezone_id="Asia/Seoul")
+        context = browser.new_context(
+            user_agent=USER_AGENT,
+            locale="ko-KR",
+            timezone_id="Asia/Seoul",
+            extra_http_headers=CLIENT_HINT_HEADERS,
+        )
         context.add_cookies(cookies)
         page = context.new_page()
-        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
+        page.add_init_script(_PLATFORM_INIT_SCRIPT)
         try:
             page.goto(f"https://blog.naver.com/{BLOG_ID}", wait_until="domcontentloaded", timeout=30000)
             _assert_logged_in(page)

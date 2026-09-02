@@ -242,6 +242,36 @@ def mark_failed(report_date: str, market: str, error: str) -> None:
     _with_connection(_run)
 
 
+def release_claim(report_date: str, market: str, error: str) -> None:
+    """Hands a claim back to 'pending' and gives back the attempt it consumed.
+
+    For failures that say nothing about this particular post. A dead session is the
+    case: the run aborts on the first target, so the same market — KOSPI, always, since
+    it sorts first — was the one paying an attempt every time. Three such days in a row
+    and the ledger had permanently retired the headline post of the daily report, for a
+    reason that was never about that post.
+
+    mark_failed() stays the right call for a post that genuinely failed to publish.
+    """
+    now = _now()
+
+    def _run(conn):
+        conn.execute(
+            """
+            UPDATE naver_blog_posts
+               SET status = 'pending',
+                   attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END,
+                   last_error = ?,
+                   updated_at = ?
+             WHERE report_date = ? AND market = ? AND status = 'publishing'
+            """,
+            (error[:500], now, report_date, market),
+        )
+        conn.commit()
+
+    _with_connection(_run)
+
+
 def reset(report_date: str, market: str | None = None) -> int:
     """Clears the attempt counter and puts rows back to 'pending'.
 
