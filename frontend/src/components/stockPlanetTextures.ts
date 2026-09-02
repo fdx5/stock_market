@@ -167,7 +167,13 @@ function baseMaps(
   spec: PlanetCase,
   surface: THREE.Texture,
 ): StockPlanetMaps {
-  const alienCloudPalette = [0xffd45f, 0x66c8ff, 0xff9854, 0xbe82ff];
+  // Bright, lightly desaturated hues remain readable after multiplication with
+  // the cloud texture. The stock hash keeps the broad variation stable per planet.
+  const alienCloudPalette = [
+    0xf4fbff, 0xffd45f, 0x66c8ff, 0xff9854, 0xbe82ff,
+    0x78edc4, 0xff82b5, 0xa8ed69, 0xff6f70, 0x5be5e1,
+    0xf3a9ff, 0x8fa7ff, 0xffc49a, 0xc7f0ff, 0xe7e879,
+  ];
   const cloudColor = spec.id.startsWith("terran-")
     ? new THREE.Color(0xeaf7ff)
     : new THREE.Color(alienCloudPalette[hash(`${code}:cloud-color`) % alienCloudPalette.length]);
