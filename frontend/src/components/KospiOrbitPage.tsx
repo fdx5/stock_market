@@ -1975,11 +1975,10 @@ uniform float uDetailLevel;`,
           distance = camera.position.distanceTo(focusTarget.position),
           mobileFocus = coarseDevice && matchMedia(ORBIT_COMPACT_MEDIA).matches,
           focusDistance = mobileFocus
-            // At 4.2 radii the body plus its atmosphere fills the mobile viewing
-            // area while preserving a safe silhouette margin around every size.
-            // The scale follows each body's real radius, so neither small planets
-            // nor the central star can overshoot and lose their silhouette.
-            ? Math.max(radius * 4.2, 6)
+            // At 3.35 radii a spherical body occupies roughly 75% of the viewport
+            // height. Keep this purely proportional: the former minimum distance
+            // left smaller planets looking much farther away on mobile.
+            ? radius * 3.35
             : Math.max(radius * 3.15, 4.2);
         desiredTarget.copy(focusTarget.position);
         if (flying) {
