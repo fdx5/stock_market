@@ -16,6 +16,7 @@ export interface StockPlanetMaps {
   cloudsSecondary: THREE.Texture | null;
   atmosphereTexture: THREE.Texture | null;
   oceanColor: THREE.Color; terrainTint: THREE.Color; atmosphere: THREE.Color;
+  cloudColor: THREE.Color;
   kind: string; kindLabel: string; cloudOpacity: number; cloudSpeed: number;
   uvOffset: number; landformOffset: number; seaLevel: number; landformBlend: number;
   invertLandform: number; invertRoughness: number;
@@ -166,11 +167,16 @@ function baseMaps(
   spec: PlanetCase,
   surface: THREE.Texture,
 ): StockPlanetMaps {
+  const alienCloudPalette = [0xffd45f, 0x66c8ff, 0xff9854, 0xbe82ff];
+  const cloudColor = spec.id.startsWith("terran-")
+    ? new THREE.Color(0xeaf7ff)
+    : new THREE.Color(alienCloudPalette[hash(`${code}:cloud-color`) % alienCloudPalette.length]);
   return {
     surface, landformMap: null, roughnessMap: null, emissiveMap: null,
     clouds: null, cloudAlpha: null, cloudsSecondary: null, atmosphereTexture: null,
     oceanColor: new THREE.Color(0x062b52), terrainTint: new THREE.Color(0xffffff),
-    atmosphere: new THREE.Color(spec.atmosphere), kind: spec.id, kindLabel: spec.label,
+    atmosphere: new THREE.Color(spec.atmosphere), cloudColor,
+    kind: spec.id, kindLabel: spec.label,
     cloudOpacity: 0.72, cloudSpeed: 0.014 + (hash(`${code}:cloud-speed`) % 24) / 1000,
     uvOffset: (hash(`${code}:surface-offset`) % 1000) / 1000, landformOffset: 0,
     seaLevel: 0.5, landformBlend: 0, invertLandform: 0,

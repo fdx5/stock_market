@@ -1244,7 +1244,7 @@ uniform float uDetailLevel;`,
             new THREE.MeshBasicMaterial({
               map: maps.clouds,
               alphaMap: maps.cloudAlpha ?? maps.clouds,
-              color: 0xeaf7ff,
+              color: maps.cloudColor,
               transparent: true,
               opacity: maps.cloudOpacity,
               alphaTest: 0.025,
