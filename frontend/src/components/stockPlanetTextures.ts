@@ -176,7 +176,8 @@ function baseMaps(
   ];
   const cloudColor = spec.id.startsWith("terran-")
     ? new THREE.Color(0xeaf7ff)
-    : new THREE.Color(alienCloudPalette[hash(`${code}:cloud-color`) % alienCloudPalette.length]);
+    : new THREE.Color(alienCloudPalette[hash(`${code}:cloud-color`) % alienCloudPalette.length])
+        .lerp(new THREE.Color(0xffffff), 0.6);
   return {
     surface, landformMap: null, roughnessMap: null, emissiveMap: null,
     clouds: null, cloudAlpha: null, cloudsSecondary: null, atmosphereTexture: null,
