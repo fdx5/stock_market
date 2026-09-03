@@ -33,6 +33,10 @@ Thumbs.db
 # Env
 .env
 .env.local
+# A stray double-dot spelling that exists in this working tree and holds a real
+# API key. `.env` does not match it, so without this line `git add -A` would
+# commit the key.
+..env
 
 # Local libSQL fallback DB (used when Turso credentials aren't set)
 backend/app/data/store/
