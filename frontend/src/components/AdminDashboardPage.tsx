@@ -16,6 +16,7 @@ import {
   clearStoredSession,
   getStoredSession,
 } from "../adminApi";
+import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { pageLabel, routeTemplate } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
@@ -402,10 +403,12 @@ export default function AdminDashboardPage() {
       adminApi.summary().then((s) => !cancelled && setSummary(s)).catch(handleAuthError);
     };
     load();
-    const id = setInterval(load, 30_000);
+    // DB-backed counters do not need live-log cadence.  Besides avoiding reads from
+    // background tabs, one-minute refreshes align with the chart's finest bucket.
+    const stop = startVisibilityAwareInterval(load, 60_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
@@ -426,10 +429,13 @@ export default function AdminDashboardPage() {
         .catch(handleAuthError);
     };
     load();
-    const id = setInterval(load, 60_000);
+    // These four endpoints aggregate potentially large event windows. Their smallest
+    // visible unit is a minute, and a five-minute refresh keeps the operational view
+    // current without re-reading the same rows sixty times per hour.
+    const stop = startVisibilityAwareInterval(load, 300_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed, range]);
@@ -449,10 +455,12 @@ export default function AdminDashboardPage() {
         .catch(handleAuthError);
     };
     load();
-    const id = setInterval(load, 60_000);
+    // Seven-day rankings move slowly; refreshing them every minute was almost always
+    // an identical set of full-window GROUP BY scans.
+    const stop = startVisibilityAwareInterval(load, 300_000);
     return () => {
       cancelled = true;
-      clearInterval(id);
+      stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);

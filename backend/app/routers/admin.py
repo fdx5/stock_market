@@ -21,6 +21,7 @@ from app.services import (
     visitor_store,
 )
 from app.services.admin_auth import require_admin
+from app.services.admin_query_cache import ttl_cache
 from app.services.visitor_tracker import tracker
 from app.services import admin_auth
 
@@ -48,9 +49,10 @@ def login(payload: LoginPayload):
 
 
 @router.get("/summary", dependencies=[Depends(require_admin)])
+@ttl_cache(55)
 def summary():
     since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    top_pages = page_view_store.counts_by_page(since_24h)[:5]
+    top_pages = page_view_store.counts_by_page(since_24h, 5)
     # Every figure above `bots` counts people only (page_view_store.HUMAN). `bots` is
     # the same 24 hours seen from the other side, reported rather than dropped: a crawl
     # surge is worth knowing about, and its agent breakdown is what names the crawler.
@@ -79,6 +81,7 @@ _RANGE_CONFIG: dict[str, tuple[timedelta, str]] = {
 
 
 @router.get("/pages/trend", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
     delta, granularity = _RANGE_CONFIG[range]
     since = datetime.now(timezone.utc) - delta
@@ -87,6 +90,7 @@ def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)
 
 
 @router.get("/pages/visitor-trend", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def pages_visitor_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
     """Same range/bucketing as /pages/trend (the admin dashboard's trend panel can
     toggle between the two without changing any of its other query controls), one
@@ -109,13 +113,15 @@ _RANKING_WINDOW = timedelta(days=7)
 # has a couple of dozen distinct routes, and a stock ranking is filtered client
 # side to searches with double-digit counts before it is drawn.
 @router.get("/pages/top", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def pages_top(limit: int = Query(7, ge=1, le=200)):
     since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
-    items = page_view_store.counts_by_page(since)[:limit]
+    items = page_view_store.counts_by_page(since, limit)
     return {"items": items}
 
 
 @router.get("/growth/overview", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def growth_overview(
     days: int = Query(5, ge=1, le=730),
     start_date: str | None = Query(None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
@@ -163,6 +169,7 @@ def growth_overview(
 
 
 @router.get("/stocks/top", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def stocks_top(limit: int = Query(10, ge=1, le=500)):
     since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
     items = stock_search_store.top_searches(since, limit)
@@ -170,6 +177,7 @@ def stocks_top(limit: int = Query(10, ge=1, le=500)):
 
 
 @router.get("/bubbles/stats", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def bubbles_stats():
     since = (datetime.now(timezone.utc) - _RANKING_WINDOW).isoformat()
     return page_view_store.bubble_stats(since)
@@ -186,6 +194,7 @@ def bubbles_stats():
 
 
 @router.get("/hub/summary", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def hub_summary(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
     """The tiles: how many sessions, how long they stayed, how much they touched.
 
@@ -212,6 +221,7 @@ def hub_summary(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)
 
 
 @router.get("/hub/trend", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def hub_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
     """Entrance-page events per action per bucket — the same ranges and the same
     KST bucketing the page trend uses, so one set of range buttons drives both."""
@@ -221,6 +231,7 @@ def hub_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$"
 
 
 @router.get("/hub/objects/top", dependencies=[Depends(require_admin)])
+@ttl_cache(285)
 def hub_objects_top(
     limit: int = Query(200, ge=1, le=500),
     action: str | None = Query(None, pattern="^(object_click|control|bgm|focus|exit)$"),

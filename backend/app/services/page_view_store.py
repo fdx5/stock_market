@@ -48,6 +48,16 @@ _EVENT_INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_event_created ON page_
 # the index: without it each of those queries scans the crawler rows too, and
 # crawlers are the majority of the table on a busy crawl day.
 _BOT_INDEX = "CREATE INDEX IF NOT EXISTS idx_page_views_human_created ON page_views (is_bot, created_at)"
+# The bubbles panel used to enter through the broad human/date index and then inspect
+# every human event in the seven-day window.  Put its equality predicates first so
+# SQLite jumps directly to the small slice the panel can actually display.
+_PATH_EVENT_INDEX = (
+    "CREATE INDEX IF NOT EXISTS idx_page_views_human_path_event_created "
+    # Partial index matches HUMAN verbatim. `is_bot IS NOT 1` is an inequality, so
+    # making is_bot the first ordinary index column would prevent SQLite from using
+    # the following path/event/date columns as a tight lookup.
+    "ON page_views (path, event_type, created_at) WHERE is_bot IS NOT 1"
+)
 _GOAL_SCHEMA = """
 CREATE TABLE IF NOT EXISTS traffic_growth_goal (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -143,6 +153,7 @@ def _new_ready_connection():
     conn.execute(_INDEX)
     conn.execute(_EVENT_INDEX)
     conn.execute(_BOT_INDEX)
+    conn.execute(_PATH_EVENT_INDEX)
     conn.execute(_GOAL_SCHEMA)
     conn.execute(_DAILY_SCHEMA)
     conn.execute(_DAILY_BREAKDOWN_SCHEMA)
@@ -273,17 +284,21 @@ _ROUTE_TEMPLATE_SQL = (
 )
 
 
-def counts_by_page(since_iso: str) -> list[dict]:
+def counts_by_page(since_iso: str, limit: int | None = None) -> list[dict]:
     """Total views per route since `since_iso`, most-viewed first — per-code paths are
     folded into their route template (see _ROUTE_TEMPLATE_SQL)."""
 
     def _run(conn):
-        return conn.execute(
+        sql = (
             f"SELECT {_ROUTE_TEMPLATE_SQL} AS route, COUNT(*) FROM page_views "
             f"WHERE created_at >= ? AND {HUMAN} "
-            "GROUP BY route ORDER BY COUNT(*) DESC",
-            (since_iso,),
-        ).fetchall()
+            "GROUP BY route ORDER BY COUNT(*) DESC"
+        )
+        params: tuple = (since_iso,)
+        if limit is not None:
+            sql += " LIMIT ?"
+            params += (limit,)
+        return conn.execute(sql, params).fetchall()
 
     rows = _with_connection(_run)
     return [{"path": path, "count": count} for path, count in rows]

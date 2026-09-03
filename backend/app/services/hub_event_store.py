@@ -45,6 +45,12 @@ CREATE TABLE IF NOT EXISTS hub_events (
 _INDEXES = (
     "CREATE INDEX IF NOT EXISTS idx_hub_events_created_at ON hub_events (created_at)",
     "CREATE INDEX IF NOT EXISTS idx_hub_events_action ON hub_events (action, created_at)",
+    # Session trails are point lookups from the live panel. Without this index every
+    # expansion scans the entire 30-day event table to return at most 200 rows.
+    "CREATE INDEX IF NOT EXISTS idx_hub_events_session_created ON hub_events (session_id, created_at)",
+    # Seven-day object rankings can discard dwell/focus rows and null objects directly
+    # from the index rather than walking the general timestamp index.
+    "CREATE INDEX IF NOT EXISTS idx_hub_events_object_created ON hub_events (object_key, created_at)",
 )
 
 # Matches page_view_store's window: the trend chart never looks further back
