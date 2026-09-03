@@ -61,6 +61,24 @@ US_ETFS = [
 ]
 
 
+def search_etfs(query: str, limit: int = 30) -> list[dict]:
+    """Search both curated ETF catalogs in the shared stock lookup shape."""
+    needle = query.strip().casefold()
+    if not needle or limit <= 0:
+        return []
+
+    matches = []
+    for region, roster in (("KR", KR_ETFS), ("US", US_ETFS)):
+        for code, name, benchmark, category in roster:
+            searchable = (code, name, benchmark, category)
+            if any(needle in str(value).casefold() for value in searchable):
+                matches.append({"code": code, "name": name, "market": region, "asset_type": "ETF"})
+
+    # Exact ticker/code matches should always lead the autocomplete.
+    matches.sort(key=lambda item: (item["code"].casefold() != needle, item["market"] != "KR", item["name"]))
+    return matches[:limit]
+
+
 def _history(region: str, codes: list[str]):
     key = f"etf_history:{region}"
     return cache.get_or_set(

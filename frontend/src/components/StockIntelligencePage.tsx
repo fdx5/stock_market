@@ -17,23 +17,25 @@ import NewsPanel from "./NewsPanel";
 import OrderBookPanel from "./OrderBookPanel";
 import PriceChart from "./PriceChart";
 import SearchBar from "./SearchBar";
+import SectorMapPanel from "./SectorMapPanel";
 import ShortSellPanel from "./ShortSellPanel";
 import StockIcon from "./StockIcon";
 import StockDetailDeskHeader from "./StockDetailDeskHeader";
 import StockIntelligenceSkeleton from "./StockIntelligenceSkeleton";
 import "./stockIntelligence.css";
 
-type Section = "chart" | "flow" | "orderbook" | "short" | "company" | "news" | "board" | "daily";
+type Section = "chart" | "flow" | "orderbook" | "short" | "company" | "news" | "board" | "sector" | "daily";
 
 const nf = new Intl.NumberFormat("ko-KR");
 const compact = new Intl.NumberFormat("ko-KR", { notation: "compact", maximumFractionDigits: 1 });
 const DOMESTIC_NEWS_LIMIT = 7;
 const QUOTE_POLL_MS = 10_000;
-const sectionNav: { id: Section; label: string }[] = [
+const stockSectionNav: { id: Section; label: string }[] = [
   { id: "chart", label: "차트·기술지표" }, { id: "flow", label: "투자자 수급" },
   { id: "orderbook", label: "호가" }, { id: "short", label: "공매도·대차" },
   { id: "company", label: "기업정보" }, { id: "news", label: "관련뉴스" },
-  { id: "board", label: "종목토론" }, { id: "daily", label: "일별시세" },
+  { id: "board", label: "종목토론" }, { id: "sector", label: "동일업종" },
+  { id: "daily", label: "일별시세" },
 ];
 
 function tone(value: number | null | undefined) { return (value ?? 0) > 0 ? "is-up" : (value ?? 0) < 0 ? "is-down" : ""; }
@@ -77,7 +79,10 @@ function FlowTable({ rows }: { rows: InvestorTrendRecord[] }) {
   </>;
 }
 
-export default function StockIntelligencePage({ code }: { code: string }) {
+export default function StockIntelligencePage({ code, isEtf = false }: { code: string; isEtf?: boolean }) {
+  const sectionNav = isEtf
+    ? stockSectionNav.filter(item => !["orderbook", "short", "company", "sector"].includes(item.id))
+    : stockSectionNav;
   const [summary, setSummary] = useState<StockSummary | null>(null);
   const [quote, setQuote] = useState<StockQuote | null>(null);
   const [points, setPoints] = useState<IndicatorPoint[]>([]);
@@ -92,7 +97,7 @@ export default function StockIntelligencePage({ code }: { code: string }) {
 
   useEffect(() => {
     let alive = true; setLoading(true); setError(""); window.scrollTo({ top: 0 });
-    Promise.allSettled([api.summary(code), api.indicators(code, 3), api.overview(code), api.news(code), api.investorTrend(code, 30), api.quote(code)])
+    Promise.allSettled([api.summary(code), api.indicators(code, 3), isEtf ? Promise.resolve(null) : api.overview(code), api.news(code), api.investorTrend(code, 30), api.quote(code)])
       .then(results => {
         if (!alive) return;
         const [s, p, o, n, f, q] = results;
@@ -106,7 +111,7 @@ export default function StockIntelligencePage({ code }: { code: string }) {
         if (q.status === "fulfilled") setQuote(q.value);
       }).finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [code]);
+  }, [code, isEtf]);
 
   useEffect(() => {
     let cancelled = false;
@@ -145,7 +150,7 @@ export default function StockIntelligencePage({ code }: { code: string }) {
     );
     sections.forEach(section => observer.observe(section));
     return () => observer.disconnect();
-  }, [summary]);
+  }, [summary, isEtf]);
 
   const latest = points[points.length - 1];
   const previous20 = points[points.length - 21]?.close;
@@ -179,17 +184,17 @@ export default function StockIntelligencePage({ code }: { code: string }) {
   return <div className="si-page">
     <StockDetailDeskHeader market="KR" />
 
-    <div className="si-detail-search-deck"><div><span>STOCK LOOKUP</span><strong>종목 통합검색</strong><small>국내·해외 종목명 또는 코드를 검색하세요.</small></div><div className="si-search"><SearchBar onSelect={stock => navigate(`/stock/${stock.code.toUpperCase()}`)} /></div></div>
+    <div className="si-detail-search-deck"><div><span>{isEtf ? "ETF DETAIL" : "STOCK LOOKUP"}</span><strong>{isEtf ? "ETF 종합정보" : "종목 통합검색"}</strong><small>국내·해외 주식과 ETF의 종목명 또는 코드를 검색하세요.</small></div><div className="si-search"><SearchBar includeEtf onSelect={stock => navigate(`/stock/${stock.code.toUpperCase()}${stock.asset_type === "ETF" ? "?asset=ETF" : ""}`)} /></div></div>
 
     {loading && !summary && <StockIntelligenceSkeleton signals={10} />}
     {error && !summary && <div className="si-loading is-error">{error}</div>}
     {summary && <main>
       <section className="si-hero">
-        <div className="si-identity"><StockIcon code={code} className="si-logo" /><div><span className="si-market">KRX · {summary.date}</span><h1>{summary.name}</h1><p>{code}</p></div></div>
+        <div className="si-identity"><StockIcon code={code} className="si-logo" /><div><span className="si-market">KRX {isEtf ? "ETF" : "STOCK"} · {summary.date}</span><h1>{summary.name}</h1><p>{code}</p></div></div>
         <div className="si-quote"><strong>{nf.format(currentPrice ?? 0)}<small>원</small></strong><span className={tone(currentChange)}>{(currentChange ?? 0) > 0 ? "+" : ""}{nf.format(currentChange ?? 0)} · {pct(currentChangePct)}</span></div>
-        <div className="si-hero-action"><button onClick={() => scroll("chart")}>종합 분석 보기 ↓</button><Link to={`/discussion-explorer?code=${code}&name=${encodeURIComponent(summary.name)}&market=KR&asset=STOCK`}>토론 바로가기</Link><MarketBubbleStockLink code={code} market="kr" /></div>
+        <div className="si-hero-action"><button onClick={() => scroll("chart")}>종합 분석 보기 ↓</button><Link to={`/discussion-explorer?code=${code}&name=${encodeURIComponent(summary.name)}&market=KR&asset=${isEtf ? "ETF" : "STOCK"}`}>토론 바로가기</Link><MarketBubbleStockLink code={code} market="kr" /></div>
       </section>
-      <div className="si-talk-ticker"><DiscussionHeadlineTicker code={code} limit={30} /></div>
+      <div className="si-talk-ticker"><DiscussionHeadlineTicker code={code} limit={30} asset={isEtf ? "ETF" : "STOCK"} /></div>
 
       <section className="si-signal-grid" aria-label="핵심 투자 지표">
         <article><span>20거래일 추세</span><strong className={tone(return20)}>{pct(return20)}</strong><small>단기 가격 모멘텀</small></article>
@@ -219,17 +224,19 @@ export default function StockIntelligencePage({ code }: { code: string }) {
 
       <div className="si-two-col">
         <section className="si-section" id="si-flow"><header><div><span>OWNERSHIP FLOW</span><h2>투자자별 수급</h2></div><p>최근 30거래일 순매수 금액 (억원)</p></header><div className="si-panel"><FlowTable rows={flows} /></div></section>
-        <section className="si-section" id="si-orderbook"><header><div><span>MARKET DEPTH</span><h2>호가와 잔량</h2></div><p>매수·매도 대기 물량의 균형</p></header><div className="si-panel"><OrderBookPanel code={code} /></div></section>
+        {!isEtf && <section className="si-section" id="si-orderbook"><header><div><span>MARKET DEPTH</span><h2>호가와 잔량</h2></div><p>매수·매도 대기 물량의 균형</p></header><div className="si-panel"><OrderBookPanel code={code} /></div></section>}
       </div>
 
-      <section className="si-section" id="si-short"><header><div><span>POSITIONING RISK</span><h2>공매도·대차·신용</h2></div><p>실제 공개된 계열만 제공하며 없는 수치는 추정하지 않습니다.</p></header><div className="si-panel"><ShortSellPanel code={code} /></div></section>
+      {!isEtf && <section className="si-section" id="si-short"><header><div><span>POSITIONING RISK</span><h2>공매도·대차·신용</h2></div><p>실제 공개된 계열만 제공하며 없는 수치는 추정하지 않습니다.</p></header><div className="si-panel"><ShortSellPanel code={code} /></div></section>}
 
-      <section className="si-section" id="si-company"><header><div><span>COMPANY PROFILE</span><h2>기업 정보와 밸류에이션</h2></div></header><div className="si-company-grid"><div className="si-panel si-company-copy">{overview?.overview?.length ? overview.overview.map((line, i) => <p key={i}>{line}</p>) : <p>기업 개요를 준비하고 있습니다.</p>}</div><div className="si-company-facts"><div><span>예상 PER</span><strong>{overview?.per_estimate ? `${overview.per_estimate}배` : "—"}</strong></div><div><span>발행주식수</span><strong>{overview?.shares_outstanding ? `${compact.format(overview.shares_outstanding)}주` : "—"}</strong></div><div><span>MACD</span><strong className={tone(latest?.macd_hist)}>{latest?.macd_hist?.toFixed(2) ?? "—"}</strong></div><div><span>ATR 14</span><strong>{latest?.atr14 == null ? "—" : `${nf.format(Math.round(latest.atr14))}원`}</strong></div></div></div></section>
+      {!isEtf && <section className="si-section" id="si-company"><header><div><span>COMPANY PROFILE</span><h2>기업 정보와 밸류에이션</h2></div></header><div className="si-company-grid"><div className="si-panel si-company-copy">{overview?.overview?.length ? overview.overview.map((line, i) => <p key={i}>{line}</p>) : <p>기업 개요를 준비하고 있습니다.</p>}</div><div className="si-company-facts"><div><span>예상 PER</span><strong>{overview?.per_estimate ? `${overview.per_estimate}배` : "—"}</strong></div><div><span>발행주식수</span><strong>{overview?.shares_outstanding ? `${compact.format(overview.shares_outstanding)}주` : "—"}</strong></div><div><span>MACD</span><strong className={tone(latest?.macd_hist)}>{latest?.macd_hist?.toFixed(2) ?? "—"}</strong></div><div><span>ATR 14</span><strong>{latest?.atr14 == null ? "—" : `${nf.format(Math.round(latest.atr14))}원`}</strong></div></div></div></section>}
 
       <div className="si-two-col si-content-pair">
         <section className="si-section" id="si-news"><header><div><span>CATALYSTS</span><h2>관련 뉴스</h2></div></header><div className="si-panel"><NewsPanel items={news} name={summary.name} /></div></section>
         <section className="si-section" id="si-board"><header><div><span>MARKET VOICE</span><h2>종목 토론</h2></div></header><div className="si-panel"><BoardPanel code={code} name={summary.name} /></div></section>
       </div>
+
+      {!isEtf && <section className="si-section" id="si-sector"><header><div><span>SECTOR CONTEXT</span><h2>동일 업종 비교</h2></div><p>같은 업종 상장 종목을 시가총액 크기·등락률 색으로 비교합니다.</p></header><div className="si-panel si-panel--map"><SectorMapPanel code={code} onSelectStock={stock => navigate(`/stock/${stock.code.toUpperCase()}`)} /></div></section>}
 
       <section className="si-section" id="si-daily"><header><div><span>RAW MARKET DATA</span><h2>일별 시세</h2></div><p>시가·고가·저가·종가·거래량·거래대금</p></header><div className="si-panel"><DailyPricePanel code={code} /></div></section>
       <p className="si-disclaimer">본 페이지는 공개 시장 데이터를 구조화한 정보 서비스이며 투자 권유가 아닙니다. 지연·정정 가능성을 확인하고 최종 판단은 거래소 및 공시 원문을 기준으로 하세요.</p>

@@ -288,6 +288,9 @@ function EtfCard({
           )}
         </div>
         <div className="etf-card-actions">
+          <Link className="etf-detail-button" to={`/stock/${encodeURIComponent(item.code)}?asset=ETF`}>
+            종목상세 <span>→</span>
+          </Link>
           <button
             className="etf-board-button"
             type="button"
@@ -403,6 +406,9 @@ function EtfTable({
                   </div>
                 </td>
                 <td className="etf-table-actions">
+                  <Link to={`/stock/${encodeURIComponent(item.code)}?asset=ETF`} title={`${item.name} 종목상세`}>
+                    상세
+                  </Link>
                   <button type="button" onClick={() => onBoard(item)} title={`${item.name} 토론방`}>
                     토론 {discussionCount > 0 && <b>{discussionCount}</b>}
                   </button>

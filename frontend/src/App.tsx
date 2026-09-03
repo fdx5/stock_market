@@ -296,9 +296,10 @@ export default function App() {
     page = <MarketDeskPage />;
   } else if (stockMatch) {
     const detailCode = stockMatch[1].toUpperCase();
+    const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
     page = /^\d{6}$/.test(detailCode)
-      ? <StockIntelligencePage key={detailCode} code={detailCode} />
-      : <UsStockIntelligencePage key={detailCode} code={detailCode} />;
+      ? <StockIntelligencePage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />
+      : <UsStockIntelligencePage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
   } else if (path === "/stocks") {
     page = <StocksPage />;
   } else if (path === "/kospi-100") {

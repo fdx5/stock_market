@@ -86,7 +86,7 @@ export default function StockRosterRail({
               className={market.key === spec.key ? "is-active" : ""}
               onClick={() => onMarketChange(market)}
             >
-              <strong>{market.label}</strong>
+              <strong>{market.label}<img src={`/img/flag/${market.flag}.svg`} alt={market.flag === "kr" ? "대한민국" : "미국"} /></strong>
               <small>{market.caption}</small>
             </button>
           ))}
@@ -201,6 +201,7 @@ export default function StockRosterRail({
                       code={row.code}
                       name={displayName(row)}
                       className={`su-row-logo${row.logo_dark ? " su-logo-plate" : ""}`}
+                      assetType={spec.assetType}
                     />
                     <span className="su-row-identity">
                       <strong>{displayName(row)}</strong>

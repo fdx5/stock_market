@@ -387,7 +387,7 @@ function EtfRankGroup({ region, sort }: { region: RankMarket; sort: RankSort }) 
               : sort === "volume" ? `${volumeText(item.volume, lang)}${lang === "en" ? "" : "주"}` : "";
             return (
               <li key={item.code}>
-                <button type="button" className={`desk-rank-row is-${tone}`} onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${region}&asset=ETF`)}>
+                <button type="button" className={`desk-rank-row is-${tone}`} onClick={() => navigate(`/stock/${encodeURIComponent(item.code)}?asset=ETF`)}>
                   <span className={`desk-rank-no ${index < 3 ? "is-top" : ""}`}>{index + 1}</span>
                   <StockLogo code={item.code} name={item.name} className="desk-rank-logo" assetType="etf" />
                   <span className="desk-rank-id"><b>{item.name}</b>{metric && <small>{metric}</small>}</span>
@@ -405,8 +405,10 @@ function EtfRankGroup({ region, sort }: { region: RankMarket; sort: RankSort }) 
 
 export default function DeskRealtimeRanking({
   onSelectStock,
+  order = "domestic-first",
 }: {
   onSelectStock: (stock: StockSearchResult) => void;
+  order?: "domestic-first" | "global-first";
 }) {
   const t = useT();
   /* Null until the reader picks one — see `sort` below. The KR snapshot is read here
@@ -458,10 +460,21 @@ export default function DeskRealtimeRanking({
       </div>
 
       <div className="desk-rank-groups is-quad">
-        <KrRankGroup sort={sort} onSelectStock={onSelectStock} showHeader />
-        <EtfRankGroup region="KR" sort={sort} />
-        <UsRankGroup sort={sort} onSelectStock={onSelectStock} showHeader />
-        <EtfRankGroup region="US" sort={sort} />
+        {order === "domestic-first" ? (
+          <>
+            <KrRankGroup sort={sort} onSelectStock={onSelectStock} showHeader />
+            <EtfRankGroup region="KR" sort={sort} />
+            <UsRankGroup sort={sort} onSelectStock={onSelectStock} showHeader />
+            <EtfRankGroup region="US" sort={sort} />
+          </>
+        ) : (
+          <>
+            <UsRankGroup sort={sort} onSelectStock={onSelectStock} showHeader />
+            <EtfRankGroup region="US" sort={sort} />
+            <KrRankGroup sort={sort} onSelectStock={onSelectStock} showHeader />
+            <EtfRankGroup region="KR" sort={sort} />
+          </>
+        )}
       </div>
     </div>
   );

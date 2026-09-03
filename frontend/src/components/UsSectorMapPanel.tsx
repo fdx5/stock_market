@@ -5,15 +5,13 @@ import { pct, tileDisplayInfo } from "../mapTile";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
-import { useMediaQuery } from "../useMediaQuery";
 import SessionBadge from "./SessionBadge";
 
 const REFRESH_MS = 60_000;
 
-// Same gate as SectorMapPanel, for the same reason: below 920px .layout stacks the two
-// columns and there is no leftover height for this to fill, so the panel is not merely
-// hidden there but never mounted, and never spends a request.
-const DESKTOP_QUERY = "(min-width: 921px)";
+// Mounts at every width, same as SectorMapPanel: where a stacked layout leaves no
+// column height to fill, the card's own min-height gives the map a box (see
+// .card.sector-map-card in styles.css).
 
 /** The /global page's version of the dashboard's 업종 맵 — a Finviz-style treemap of the
  * S&P 500 names sharing the current US ticker's GICS sector, sized by index weight and
@@ -33,7 +31,6 @@ export default function UsSectorMapPanel({
 }) {
   const t = useT();
   const themeMode = useThemeMode();
-  const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [sector, setSector] = useState<string | null>(null);
@@ -45,7 +42,7 @@ export default function UsSectorMapPanel({
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    if (!isDesktop || !code) return;
+    if (!code) return;
     let cancelled = false;
     setLoading(true);
     // Not cleared on a ticker switch, same as the KR panel: a peer within the same
@@ -77,7 +74,7 @@ export default function UsSectorMapPanel({
       cancelled = true;
       stopPolling();
     };
-  }, [code, isDesktop]);
+  }, [code]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -98,7 +95,7 @@ export default function UsSectorMapPanel({
     // Re-run on mount only; the observer covers every later size change, including the
     // one that matters most here — the chart column growing as its data lands and
     // handing this panel more height.
-  }, [isDesktop]);
+  }, []);
 
   const tiles = useMemo<(TreemapRect & { item: MarketMapItem })[]>(() => {
     if (items.length === 0 || size.w === 0 || size.h === 0) return [];
@@ -113,8 +110,6 @@ export default function UsSectorMapPanel({
     const byCode = new Map(sorted.map((it) => [it.code, it]));
     return rects.map((rect) => ({ ...rect, item: byCode.get(rect.id)! }));
   }, [items, size]);
-
-  if (!isDesktop) return null;
 
   return (
     <div className="card sector-map-card">

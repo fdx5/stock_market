@@ -137,7 +137,7 @@ def stock_board(
 @router.get("/stock-list")
 def stock_list(
     response: Response,
-    market: str = Query("kospi", pattern="^(kospi|kosdaq|sp500)$"),
+    market: str = Query("kospi", pattern="^(kospi|kosdaq|kr_etf|sp500|us_etf)$"),
     page: int = Query(1, ge=1),
     size: int = Query(PAGE_SIZE, ge=10, le=100),
     sector: str | None = Query(None, max_length=60),

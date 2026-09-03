@@ -27,6 +27,7 @@ from app.data.us_universe import get_korean_names_ready
 from app.services import korean_search, logo_tone
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.stock_board import US_SECTOR_KO
+from app.services.etf_market import get_etfs
 from app.services.us_market_map import get_sp500_map
 
 KST = dt.timezone(dt.timedelta(hours=9))
@@ -55,6 +56,7 @@ class MarketSpec:
         loader: Callable[[int, bool], list[dict]],
         *,
         cap_field: str = "marcap",
+        asset_type: str = "STOCK",
     ) -> None:
         self.key = key
         self.label = label
@@ -65,13 +67,37 @@ class MarketSpec:
         # snapshot `marcap` is the index weight in per cent, so reading it as a cap
         # would sort and label every US row wrongly.
         self.cap_field = cap_field
+        self.asset_type = asset_type
+
+
+def _etf_rows(region: str) -> list[dict]:
+    """Adapt the ETF market feed to the normalised 종목정보 roster input."""
+    return [
+        {
+            **item,
+            "sector": item.get("category") or "ETF",
+            # Funds do not have a company market cap. Turnover is the useful ranking
+            # measure available across both ETF markets and is labelled as such by
+            # the ETF detail case in the client.
+            "turnover_rank": item.get("turnover"),
+        }
+        for item in get_etfs(region)["items"]
+    ]
 
 
 MARKETS: dict[str, MarketSpec] = {
     "kospi": MarketSpec("kospi", "KOSPI", "KRW", 500, lambda n, fresh: get_kospi_map(n, fresh=fresh)),
     "kosdaq": MarketSpec("kosdaq", "KOSDAQ", "KRW", 500, lambda n, fresh: get_kosdaq_map(n, fresh=fresh)),
+    "kr_etf": MarketSpec(
+        "kr_etf", "국내 ETF", "KRW", 500, lambda n, fresh: _etf_rows("KR"),
+        cap_field="turnover_rank", asset_type="ETF",
+    ),
     "sp500": MarketSpec(
         "sp500", "S&P 500", "USD", 500, lambda n, fresh: get_sp500_map(n, fresh=fresh), cap_field="market_cap"
+    ),
+    "us_etf": MarketSpec(
+        "us_etf", "해외 ETF", "USD", 500, lambda n, fresh: _etf_rows("US"),
+        cap_field="turnover_rank", asset_type="ETF",
     ),
 }
 
@@ -130,6 +156,7 @@ def _row(spec: MarketSpec, item: dict, rank: int, korean: dict[str, str]) -> dic
         # against the dark theme — the client puts a light plate behind those and
         # leaves every other logo alone. See services/logo_tone.
         "logo_dark": logo_tone.known_dark(code),
+        "asset_type": spec.asset_type,
     }
 
 

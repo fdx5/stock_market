@@ -6,25 +6,26 @@ import { pct, tileDisplayInfo } from "../mapTile";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
-import { useMediaQuery } from "../useMediaQuery";
 import StockIcon from "./StockIcon";
 
 const REFRESH_MS = 60_000;
 
-// The dashboard's two columns only diverge in height on a wide screen — below the
-// 920px breakpoint .layout stacks them and there is no leftover space for this to
-// fill, so the panel is not merely hidden there but never mounted, and never spends
-// a request. Matches the same breakpoint styles.css stacks at.
-const DESKTOP_QUERY = "(min-width: 921px)";
+// This used to refuse to mount below 921px, on the reasoning that a stacked layout has
+// no leftover column height for the map to fill. It does have height — the card's own
+// min-height gives it one (see .card.sector-map-card's mobile rule in styles.css) — and
+// the sector cohort is as worth reading on a phone as on a desktop, so the map now
+// draws at every width.
 
 /** A Finviz-style treemap of the stocks sharing the selected stock's sector, sized by
  * market cap and colored by change — the same squarify layout and diverging palette
  * the full KOSPI/KOSDAQ maps use (see MarketMapPage), minus the per-sector zoning that
  * a single-sector map has no use for.
  *
- * It lives under the discussion/news panel and stretches into whatever height the
- * chart column has that the side column does not, which is why it measures itself
- * rather than taking a fixed height the way the full-page maps can.
+ * On the dashboard it lives under the discussion/news panel and stretches into whatever
+ * height the chart column has that the side column does not; on the stock detail page
+ * and on a stacked phone layout there is no such leftover and the card's min-height
+ * sets the box instead. Either way it measures itself rather than taking a fixed height
+ * the way the full-page maps can.
  */
 export default function SectorMapPanel({
   code,
@@ -35,7 +36,6 @@ export default function SectorMapPanel({
 }) {
   const t = useT();
   const themeMode = useThemeMode();
-  const isDesktop = useMediaQuery(DESKTOP_QUERY);
 
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [sector, setSector] = useState<string | null>(null);
@@ -47,7 +47,7 @@ export default function SectorMapPanel({
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   useEffect(() => {
-    if (!isDesktop || !code) return;
+    if (!code) return;
     let cancelled = false;
     setLoading(true);
     // Not cleared on a stock switch: a peer within the same sector returns the very
@@ -79,7 +79,7 @@ export default function SectorMapPanel({
       cancelled = true;
       stopPolling();
     };
-  }, [code, isDesktop]);
+  }, [code]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -100,7 +100,7 @@ export default function SectorMapPanel({
     // Re-run on mount only; the observer covers every later size change, including the
     // one that matters most here — the chart column growing as its data lands and
     // handing this panel more height.
-  }, [isDesktop]);
+  }, []);
 
   const translatedNames = useTranslatedTexts(items.map((it) => it.name));
   const nameByCode = useMemo(() => {
@@ -122,8 +122,6 @@ export default function SectorMapPanel({
     const byCode = new Map(sorted.map((it) => [it.code, it]));
     return rects.map((rect) => ({ ...rect, item: byCode.get(rect.id)! }));
   }, [items, size]);
-
-  if (!isDesktop) return null;
 
   return (
     <div className="card sector-map-card">

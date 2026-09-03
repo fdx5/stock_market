@@ -5,6 +5,7 @@ class StockSearchResult(BaseModel):
     code: str
     name: str
     market: str
+    asset_type: str = "STOCK"
 
 
 class NewsItem(BaseModel):

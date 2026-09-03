@@ -101,6 +101,15 @@
   .si-hero-action{grid-column:1/-1;width:100%;justify-self:stretch}
   .si-hero-action>a{display:block;box-sizing:border-box;width:100%}
   .si-hero-action .stock-bubble-detail-link{min-width:auto;padding:10px 12px}
+  /* 동일 업종 비교 wraps a .card of its own, so on a phone the panel frame is a second
+     border and ~26px of drawing width the treemap cannot spare. The card is the frame
+     here; the wrapper only carries the grid slot. The themed selectors are repeated
+     rather than relying on order: the :root[data-theme] rules above outrank a bare
+     class, and without a match at their own specificity the panel would keep painting
+     its background under the card in both explicit themes. */
+  .si-panel--map,
+  :root[data-theme="light"] .si-panel--map,
+  :root[data-theme="dark"] .si-panel--map{padding:0;border:0;background:none;box-shadow:none}
 }
 
 /* Market-desk navigation is shared with detail pages; search belongs to the page

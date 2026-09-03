@@ -8,6 +8,7 @@ import StockIcon from "./StockIcon";
 
 interface Props {
   onSelect: (stock: StockSearchResult) => void;
+  includeEtf?: boolean;
 }
 
 const SUGGESTION_LIMIT = 6;
@@ -19,7 +20,7 @@ interface SuggestionGroup {
   items: StockSearchResult[];
 }
 
-export default function SearchBar({ onSelect }: Props) {
+export default function SearchBar({ onSelect, includeEtf = false }: Props) {
   const t = useT();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<StockSearchResult[]>([]);
@@ -65,7 +66,7 @@ export default function SearchBar({ onSelect }: Props) {
     }
     const handle = setTimeout(() => {
       api
-        .search(trimmed)
+        .search(trimmed, undefined, includeEtf)
         .then((data) => {
           setResults(data);
           setOpen(data.length > 0);
@@ -77,7 +78,7 @@ export default function SearchBar({ onSelect }: Props) {
         });
     }, 250);
     return () => clearTimeout(handle);
-  }, [query]);
+  }, [query, includeEtf]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -190,7 +191,7 @@ export default function SearchBar({ onSelect }: Props) {
                           <StockIcon className="search-option-logo" code={item.code} />
                           {translatedNames[idx] ?? item.name}
                         </span>
-                        <span className="code">{item.code}</span>
+                        <span className="code">{item.asset_type === "ETF" ? "ETF · " : ""}{item.code}</span>
                       </div>
                     );
                   })}
@@ -206,7 +207,7 @@ export default function SearchBar({ onSelect }: Props) {
                     <StockIcon className="search-option-logo" code={r.code} />
                     {translatedNames[idx] ?? r.name}
                   </span>
-                  <span className="code">{r.code}</span>
+                  <span className="code">{r.asset_type === "ETF" ? "ETF · " : ""}{r.code}</span>
                 </div>
               ))}
         </div>

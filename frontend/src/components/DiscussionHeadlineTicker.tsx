@@ -4,7 +4,7 @@ import { navigate } from "../router";
 
 type HeadlinePost = { id: string; title: string };
 
-export default function DiscussionHeadlineTicker({ code, market = "KR", limit = 10 }: { code: string; market?: "KR" | "US"; limit?: number }) {
+export default function DiscussionHeadlineTicker({ code, market = "KR", limit = 10, asset = "STOCK" }: { code: string; market?: "KR" | "US"; limit?: number; asset?: "STOCK" | "ETF" }) {
   const [posts, setPosts] = useState<HeadlinePost[]>([]);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export default function DiscussionHeadlineTicker({ code, market = "KR", limit = 
   if (posts.length === 0) return null;
 
   const renderSet = (copy: number) => posts.map((post, index) => (
-    <button type="button" className="discussion-headline-item" key={`${copy}-${post.id}`} onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(code)}&market=${market}&asset=STOCK`)}>
+    <button type="button" className="discussion-headline-item" key={`${copy}-${post.id}`} onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(code)}&market=${market}&asset=${asset}`)}>
       <i>{String(index + 1).padStart(2, "0")}</i>
       {post.title}
     </button>

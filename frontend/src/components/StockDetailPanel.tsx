@@ -75,6 +75,7 @@ export default function StockDetailPanel({ spec, detail }: Props) {
             code={row.code}
             name={name}
             className={`su-detail-logo${row.logo_dark ? " su-logo-plate" : ""}`}
+            assetType={spec.assetType}
           />
           <div className="su-detail-names">
             <span className="su-detail-eyebrow">
@@ -82,7 +83,7 @@ export default function StockDetailPanel({ spec, detail }: Props) {
               <i>·</i>
               {row.sector || "기타"}
               <i>·</i>
-              시총 {row.rank}위
+              {spec.assetType === "etf" ? "거래대금" : "시총"} {row.rank}위
             </span>
             <h2>{name}</h2>
             <span className="su-detail-code">{row.code}</span>
@@ -103,7 +104,7 @@ export default function StockDetailPanel({ spec, detail }: Props) {
 
       <dl className="su-detail-facts">
         <div>
-          <dt>시가총액</dt>
+          <dt>{spec.assetType === "etf" ? "거래대금" : "시가총액"}</dt>
           <dd>{formatMarketCap(row.marcap, spec.currency)}</dd>
         </div>
         <div>
@@ -111,12 +112,12 @@ export default function StockDetailPanel({ spec, detail }: Props) {
           <dd>{formatVolume(row.volume)}</dd>
         </div>
         <div>
-          <dt>PER</dt>
-          <dd>{row.per != null && Number.isFinite(row.per) ? row.per.toFixed(2) : "—"}</dd>
+          <dt>{spec.assetType === "etf" ? "자산 유형" : "PER"}</dt>
+          <dd>{spec.assetType === "etf" ? "ETF" : row.per != null && Number.isFinite(row.per) ? row.per.toFixed(2) : "—"}</dd>
         </div>
         <div>
-          <dt>ROE</dt>
-          <dd>{row.roe != null && Number.isFinite(row.roe) ? `${row.roe.toFixed(2)}%` : "—"}</dd>
+          <dt>{spec.assetType === "etf" ? "시장" : "ROE"}</dt>
+          <dd>{spec.assetType === "etf" ? spec.caption : row.roe != null && Number.isFinite(row.roe) ? `${row.roe.toFixed(2)}%` : "—"}</dd>
         </div>
       </dl>
 

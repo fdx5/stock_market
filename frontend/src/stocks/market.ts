@@ -22,12 +22,16 @@ export interface MarketSpec {
   discussion: "naver" | "global";
   /** finance.naver's per-code news tab, or Naver news search by company name. */
   news: "naver-finance" | "naver-search";
+  assetType: "stock" | "etf";
+  flag: "kr" | "us";
 }
 
 export const MARKETS: readonly MarketSpec[] = [
-  { key: "kospi", label: "KOSPI", caption: "코스피", currency: "KRW", discussion: "naver", news: "naver-finance" },
-  { key: "kosdaq", label: "KOSDAQ", caption: "코스닥", currency: "KRW", discussion: "naver", news: "naver-finance" },
-  { key: "sp500", label: "S&P 500", caption: "미국 대형주", currency: "USD", discussion: "global", news: "naver-search" },
+  { key: "kospi", label: "코스피", caption: "KOSPI", currency: "KRW", discussion: "naver", news: "naver-finance", assetType: "stock", flag: "kr" },
+  { key: "kosdaq", label: "코스닥", caption: "KOSDAQ", currency: "KRW", discussion: "naver", news: "naver-finance", assetType: "stock", flag: "kr" },
+  { key: "kr_etf", label: "국내 ETF", caption: "KRX ETF", currency: "KRW", discussion: "naver", news: "naver-finance", assetType: "etf", flag: "kr" },
+  { key: "sp500", label: "S&P 500", caption: "미국 대형주", currency: "USD", discussion: "global", news: "naver-search", assetType: "stock", flag: "us" },
+  { key: "us_etf", label: "해외 ETF", caption: "US ETF", currency: "USD", discussion: "global", news: "naver-search", assetType: "etf", flag: "us" },
 ];
 
 /** The 업종 filter's "전체" option. A sentinel rather than "" so it can never collide

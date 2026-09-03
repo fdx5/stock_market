@@ -4,6 +4,7 @@ export interface StockSearchResult {
   code: string;
   name: string;
   market: string;
+  asset_type?: "STOCK" | "ETF";
 }
 
 export interface PopularStock {
@@ -347,7 +348,7 @@ export interface StockBoard {
    market, never the index weight the US snapshot calls by that name, and there is no
    per-market branch anywhere in the list. See services/stock_universe_page.py. */
 
-export type StockUniverseMarket = "kospi" | "kosdaq" | "sp500";
+export type StockUniverseMarket = "kospi" | "kosdaq" | "kr_etf" | "sp500" | "us_etf";
 export type StockUniverseSort = "default" | "change_asc" | "change_desc";
 
 export interface StockUniverseRow {
@@ -369,6 +370,7 @@ export interface StockUniverseRow {
    *  the very first request for a row and true from the next refresh — the server
    *  measures logos behind the response rather than making the page wait on them. */
   logo_dark?: boolean;
+  asset_type?: "STOCK" | "ETF";
 }
 
 export interface StockUniverseSector {
@@ -1061,7 +1063,7 @@ export const api = {
     getJSONFresh<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
       `${BASE}/etfs/${encodeURIComponent(code)}/toss-discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
     ),
-  search: (q: string, signal?: AbortSignal) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}`, { signal }),
+  search: (q: string, signal?: AbortSignal, includeEtf = false) => getJSON<StockSearchResult[]>(`${BASE}/search?q=${encodeURIComponent(q)}${includeEtf ? "&include_etf=true" : ""}`, { signal }),
   /* `market` narrows the ranking to one side. The log is overwhelmingly KR, so a
      US-only strip taken from the combined top 20 is empty most days — the backend
      ranks a deeper pool and filters it, which is the only way the global page can

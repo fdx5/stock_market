@@ -16,7 +16,19 @@ TTL_QUOTE_SECONDS = 5
 
 
 def _resolve_item(code: str) -> dict:
-    item = get_us_stock_item(code)
+    normalized = code.strip().upper()
+    item = get_us_stock_item(normalized)
+    if item is None:
+        # The stock universe intentionally contains index constituents only. ETF
+        # detail pages share these quote/history/indicator endpoints, so resolve the
+        # curated ETF universe as a second asset-type case.
+        from app.services.etf_market import US_ETFS
+
+        etf = next((row for row in US_ETFS if row[0] == normalized), None)
+        if etf is not None:
+            # Zero values are only the final fallback if both live Yahoo sources are
+            # unavailable; get_us_stock_quote expects snapshot keys to be present.
+            item = {"code": etf[0], "name": etf[1], "close": 0.0, "change": 0.0, "change_pct": 0.0}
     if item is None:
         raise HTTPException(status_code=404, detail=f"종목 코드 '{code}'를 찾을 수 없습니다.")
     return item

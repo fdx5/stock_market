@@ -342,7 +342,7 @@ function EtfRow({ items, region }: { items: EtfItem[]; region: "KR" | "US" }) {
               type="button"
               key={item.code}
               className={`desk-spot-card is-${tone}`}
-              onClick={() => navigate(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${region}&asset=ETF`)}
+              onClick={() => navigate(`/stock/${encodeURIComponent(item.code)}?asset=ETF`)}
             >
               <span className="desk-spot-top" title={item.name}>
                 <EtfIssuerLogo code={item.code} />

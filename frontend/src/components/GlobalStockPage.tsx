@@ -27,6 +27,7 @@ import PredictIcon from "./PredictIcon";
 import RankIcon from "./RankIcon";
 import DashboardIcon from "./DashboardIcon";
 import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
+import DeskRealtimeRanking from "./DeskRealtimeRanking";
 import Logo from "./Logo";
 import MacroRatesStrip from "./MacroRatesStrip";
 import MarketIcon from "./MarketIcon";
@@ -44,7 +45,6 @@ import ThemeToggle from "./ThemeToggle";
 import SpotlightBoard from "./SpotlightBoard";
 import StockRadarBoard from "./StockRadarBoard";
 import UsIndexStrip from "./UsIndexStrip";
-import UsRankBoard from "./UsRankBoard";
 import UsSectorMapPanel from "./UsSectorMapPanel";
 import { useUsMarketSnapshot } from "../useUsMarketSnapshot";
 import "./marketDesk.css";
@@ -55,13 +55,12 @@ const QUOTE_POLL_MS = 10_000;
  *
  * There is no 수급 band here and there cannot be: no free US feed breaks volume
  * out by participant, so the KR desk's 개인/외국인/기관 board has no counterpart.
- * Its slot is taken by the rankings the constituent snapshots do support — see
- * UsRankBoard. */
+ * Its slot is taken by cross-market stock and ETF rankings. */
 const SECTIONS = [
   { id: "gdesk-pulse", label: "마켓 펄스" },
   { id: "gdesk-spotlight", label: "주목 종목" },
   { id: "gdesk-index", label: "글로벌 지수" },
-  { id: "gdesk-rank", label: "순위" },
+  { id: "gdesk-rank", label: "수급 · 순위" },
   { id: "gdesk-focus", label: "종목" },
 ];
 
@@ -520,14 +519,15 @@ export default function GlobalStockPage({ initialCode }: { initialCode?: string 
           <MacroRatesStrip variant="card" />
         </section>
 
-        {/* ── Band 4: the rankings that stand in for the KR desk's 수급 board. ── */}
+        {/* ── Band 4: stocks and ETFs across both markets, ordered for the global
+               desk: US stocks, overseas ETFs, KR stocks, domestic ETFs. ── */}
         <section className="desk-band" id="gdesk-rank" aria-labelledby="gdesk-rank-title">
           <div className="desk-band-head">
-            <h2 id="gdesk-rank-title">{t("순위")}</h2>
+            <h2 id="gdesk-rank-title">{t("수급 · 순위")}</h2>
             <span className="desk-band-rule" aria-hidden="true" />
           </div>
           <div className="desk-card desk-card--flow">
-            <UsRankBoard onSelect={selectStock} activeCode={code} />
+            <DeskRealtimeRanking onSelectStock={selectStock} order="global-first" />
           </div>
         </section>
 

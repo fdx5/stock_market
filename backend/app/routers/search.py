@@ -7,6 +7,7 @@ from app.data.us_universe import get_us_stock_item, search_us_stocks
 from app.schemas import StockSearchResult
 from app.services import stock_search_store
 from app.services.cache import cache
+from app.services.etf_market import search_etfs
 
 router = APIRouter()
 
@@ -19,14 +20,16 @@ TTL_POPULAR_SECONDS = 60
 
 
 @router.get("/search", response_model=list[StockSearchResult])
-def search(q: str = Query(..., min_length=1), limit: int = 30):
-    # KR results first (this app's primary market) — US results fill the remaining
-    # slots up to `limit` rather than getting their own separate budget, so a KR-heavy
-    # query still returns a full page instead of `limit` KR + `limit` US.
-    kr_results = search_stocks(q, limit=limit)
-    remaining = limit - len(kr_results)
+def search(q: str = Query(..., min_length=1), limit: int = 30, include_etf: bool = False):
+    # ETF matches lead when present so an exact code such as SPY or 069500 cannot be
+    # crowded out by a large stock result set. The asset marker lets /stock/:code
+    # select the ETF-specific detail case after the user chooses the result.
+    etf_results = search_etfs(q, limit=limit) if include_etf else []
+    remaining = limit - len(etf_results)
+    kr_results = search_stocks(q, limit=remaining) if remaining > 0 else []
+    remaining -= len(kr_results)
     us_results = search_us_stocks(q, limit=remaining) if remaining > 0 else []
-    return kr_results + us_results
+    return etf_results + kr_results + us_results
 
 
 def _resolve_market(code: str) -> str:

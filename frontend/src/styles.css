@@ -7073,6 +7073,16 @@ thead .weekly-foreign-amount-col {
     max-height: none;
     overflow-y: visible;
   }
+
+  /* Stacked, the sector map has no leftover column height to grow into — `flex: 1 1 0`
+     resolves against nothing and the card falls back to the 260px floor meant only for
+     the brief moments the desktop columns are near-equal. That is too flat for a
+     treemap of ~40 tiles to say anything, so the phone gets an explicitly taller box.
+     Qualified with .card for the same reason the base rule is: .card sits later in the
+     file and would otherwise win at equal specificity. */
+  .card.sector-map-card {
+    min-height: 380px;
+  }
 }
 
 @media (max-width: 640px) {
