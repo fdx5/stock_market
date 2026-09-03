@@ -354,7 +354,10 @@ function EtfRankGroup({ region, sort }: { region: RankMarket; sort: RankSort }) 
     let cancelled = false;
     const load = () => {
       api.etfs(region).then((result) => {
-        if (!cancelled) setItems(result.items);
+        // A transient upstream outage must not erase a ranking that was already on
+        // screen. The backend also has a quote fallback, but retaining the last good
+        // payload covers a deploy restart or both upstream paths failing together.
+        if (!cancelled && result.items.length > 0) setItems(result.items);
       }).catch(() => {}).finally(() => {
         if (!cancelled) setLoading(false);
       });

@@ -3,16 +3,22 @@
 import datetime as dt
 from concurrent.futures import ThreadPoolExecutor
 
+import requests
+
 from app.data.board_fetcher import get_board_posts
 from app.data.global_discussion_fetcher import resolve_naver_suffix
 from app.data.toss_discussion_fetcher import get_toss_discussion
 from app.data.sparkline_fetcher import get_kr_sparklines, get_us_sparklines
 from app.data.stock_quote_fetcher import get_stock_quotes_bulk
 from app.data.yahoo_bulk_quote import get_quotes
+from app.data.yahoo_quote import BASE_PARAMS as YAHOO_CHART_PARAMS, extract_quote
+from app.data.yahoo_session import HEADERS as YAHOO_HEADERS
 from app.services.cache import cache
 
 ETF_TTL_SECONDS = 9
 HISTORY_TTL_SECONDS = 60 * 60 * 6
+US_CHART_FALLBACK_TTL_SECONDS = 60
+US_CHART_FALLBACK_TIMEOUT_SECONDS = 8
 
 KR_ETFS = [
     ("069500", "KODEX 200", "코스피200", "국내 대표"),
@@ -61,6 +67,54 @@ US_ETFS = [
 ]
 
 
+def _fetch_us_chart_quote(code: str) -> tuple[str, dict | None]:
+    """Unauthenticated v8 fallback when Yahoo's crumb-gated batch API is blocked.
+
+    Render egress can be throttled independently from a developer machine.  The v7
+    batch then returns no rows at all, while the v8 chart endpoint used elsewhere in
+    this app remains available.  One minute of caching bounds this recovery path to
+    twenty small requests per minute, regardless of the UI's ten-second refresh.
+    """
+    try:
+        response = requests.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{code}",
+            params={**YAHOO_CHART_PARAMS, "interval": "1m", "range": "1d"},
+            headers=YAHOO_HEADERS,
+            timeout=US_CHART_FALLBACK_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        result = response.json()["chart"]["result"][0]
+        parsed = extract_quote(result)
+        if parsed is None:
+            return code, None
+        price = float(parsed["price"])
+        previous = float(parsed["previous_close"])
+        quote_rows = (result.get("indicators", {}).get("quote") or [{}])[0]
+        volume = sum(int(value or 0) for value in quote_rows.get("volume") or [])
+        return code, {
+            "close": round(price, 4),
+            "change": round(price - previous, 4),
+            "change_pct": round((price / previous - 1) * 100, 2) if previous else 0.0,
+            "volume": volume,
+            "average_volume": 0,
+            "currency": (result.get("meta") or {}).get("currency") or "USD",
+            "session": parsed["session"],
+        }
+    except Exception:  # noqa: BLE001 - one unavailable ETF must not sink the board
+        return code, None
+
+
+def _us_chart_fallback_quotes(codes: list[str]) -> dict[str, dict]:
+    def load() -> dict[str, dict]:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            rows = pool.map(_fetch_us_chart_quote, codes)
+            return {code: quote for code, quote in rows if quote is not None}
+
+    return cache.get_or_set(
+        "us_etf_chart_quotes", US_CHART_FALLBACK_TTL_SECONDS, load, allow_stale=False
+    )
+
+
 def search_etfs(query: str, limit: int = 30) -> list[dict]:
     """Search both curated ETF catalogs in the shared stock lookup shape."""
     needle = query.strip().casefold()
@@ -92,6 +146,12 @@ def _build(region: str) -> dict:
     roster = KR_ETFS if region == "KR" else US_ETFS
     codes = [row[0] for row in roster]
     quotes = get_stock_quotes_bulk(codes) if region == "KR" else get_quotes(codes)
+    if region == "US" and len(quotes) < len(codes):
+        # Fill only missing v7 rows. A total crumb/egress failure no longer turns the
+        # overseas ETF ranking into an empty panel, and a partial response keeps every
+        # healthy batch quote untouched.
+        fallback = _us_chart_fallback_quotes(codes)
+        quotes = {**fallback, **quotes}
     history = _history(region, codes)
     items = []
     for code, name, benchmark, category in roster:
