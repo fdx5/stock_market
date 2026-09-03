@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
@@ -21,6 +28,7 @@ import {
   loadStockPlanetMaps,
   loadStockPlanetPreview,
 } from "./stockPlanetTextures";
+import OrbitGalaxyIntro from "./OrbitGalaxyIntro";
 import StockDiscussionTab from "./StockDiscussionTab";
 import StockNewsTab from "./StockNewsTab";
 import "./stocksPage.css";
@@ -2483,234 +2491,6 @@ function OrbitDetailPanel({
   );
 }
 
-type WarpStar = {
-  /** Distance from the tunnel axis, in focal units — fixed, so travel is pure z. */
-  offset: number;
-  theta: number;
-  z: number;
-  tone: string;
-  width: number;
-  /** Per-star trail scale. Without it every tail bottoms out at the same depth and
-      their inner ends line up into a visible ring around the core. */
-  trail: number;
-};
-
-type WarpWisp = {
-  /** Radius of the tunnel wall this streak lies on. */
-  wall: number;
-  theta: number;
-  z: number;
-  /** How far back along z the streak smears, and how wide it is in radians. */
-  depth: number;
-  span: number;
-  tone: string;
-  weight: number;
-};
-
-/* The hyperspace jump in the order Star Wars does it: a still field of points, a hard
-   snap where every star stretches into a line at once, and then the mottled blue tunnel
-   it settles into. The snap is the shot — `punch` is deliberately front-loaded so the
-   stretch happens in a fraction of the time the tunnel afterwards holds for, which is
-   what separates a jump from a steady stream of spokes.
-
-   Everything reads off one 0..1 progress, so `brief` only has to compress the clock. */
-function OrbitWarpCanvas({ brief }: { brief: boolean }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const context = canvas.getContext("2d", { alpha: true });
-    if (!context) return;
-    const TAU = Math.PI * 2,
-      coarse = matchMedia("(pointer: coarse)").matches,
-      random = (min: number, max: number) => min + Math.random() * (max - min),
-      pick = (list: string[]) => list[(Math.random() * list.length) | 0],
-      // Blue-white only. Warm tones turn this into Star Trek's rainbow tunnel.
-      starTones = ["#ffffff", "#e6f6ff", "#a8dcff", "#79beff", "#d8deff"],
-      wispTones = ["#f2fbff", "#b6e3ff", "#69b6ff", "#c9d8ff"],
-      stars: WarpStar[] = Array.from({ length: coarse ? 260 : 640 }, () => ({
-        offset: random(0.04, 1.35),
-        theta: Math.random() * TAU,
-        z: random(0.07, 1),
-        tone: pick(starTones),
-        width: random(0.4, 1.35),
-        trail: random(0.55, 1.4),
-      })),
-      wisps: WarpWisp[] = Array.from({ length: coarse ? 30 : 62 }, () => ({
-        wall: random(0.4, 1.7),
-        theta: Math.random() * TAU,
-        z: random(0.06, 1.15),
-        depth: random(0.3, 1.5),
-        span: random(0.03, 0.15),
-        tone: pick(wispTones),
-        weight: random(0.3, 1),
-      }));
-    let width = 1,
-      height = 1,
-      raf = 0;
-    const startedAt = performance.now(),
-      resize = () => {
-        const ratio = Math.min(devicePixelRatio, coarse ? 1 : 1.5);
-        width = canvas.clientWidth;
-        height = canvas.clientHeight;
-        canvas.width = Math.round(width * ratio);
-        canvas.height = Math.round(height * ratio);
-        context.setTransform(ratio, 0, 0, ratio, 0, 0);
-      },
-      respawn = (star: WarpStar) => {
-        star.offset = random(0.04, 1.35);
-        star.theta = Math.random() * TAU;
-        star.z = 1;
-        star.trail = random(0.55, 1.4);
-      },
-      render = (now: number) => {
-        const elapsed = (now - startedAt) / 1000,
-          duration = brief ? 1.7 : 4.4,
-          progress = Math.min(1, elapsed / duration),
-          // The snap. Raising it to a fractional power front-loads it hard: half the
-          // stretch is spent in the first fifth of the window, so it reads as one
-          // event rather than a ramp.
-          punch = Math.pow(THREE.MathUtils.smoothstep(progress, 0.13, 0.29), 0.4),
-          tunnel = THREE.MathUtils.smoothstep(progress, 0.25, 0.52),
-          deceleration = 1 - THREE.MathUtils.smoothstep(progress, 0.82, 1),
-          // A triangular spike at the instant of the snap — the light the jump throws,
-          // not a fade.
-          flash = Math.max(0, 1 - Math.abs(progress - 0.21) / 0.07),
-          // 0.0009 is the near-still creep before the jump: enough that the field is
-          // alive, far too slow to leave a trail.
-          speed = (0.0009 + punch * 0.052) * deceleration,
-          tailReach = speed * (1.6 + punch * 130),
-          // A slow roll around the axis. The tunnel drifts; it does not spin.
-          roll = elapsed * 0.11,
-          focal = Math.min(width, height) * 0.72,
-          axisX = width * 0.5 + Math.sin(elapsed * 0.7) * width * 0.009,
-          axisY = height * 0.49 + Math.cos(elapsed * 0.52) * height * 0.007;
-        context.clearRect(0, 0, width, height);
-        context.globalCompositeOperation = "lighter";
-
-        // ── the tunnel wall: soft radial smears at assorted depths and widths, which
-        // is what makes it read as mottled cloud rather than a clean gradient ──
-        if (tunnel > 0.01) {
-          context.lineCap = "butt";
-          for (const wisp of wisps) {
-            wisp.z -= speed * 0.82;
-            if (wisp.z < 0.05) {
-              wisp.z = random(0.95, 1.3);
-              wisp.theta = Math.random() * TAU;
-              wisp.wall = random(0.4, 1.7);
-            }
-            const farZ = wisp.z + wisp.depth,
-              angle = wisp.theta + roll,
-              cos = Math.cos(angle),
-              sin = Math.sin(angle),
-              outer = (wisp.wall / wisp.z) * focal,
-              inner = (wisp.wall / farZ) * focal;
-            if (inner > Math.hypot(width, height)) continue;
-            const outerX = axisX + cos * outer,
-              outerY = axisY + sin * outer,
-              innerX = axisX + cos * inner,
-              innerY = axisY + sin * inner,
-              gradient = context.createLinearGradient(innerX, innerY, outerX, outerY);
-            gradient.addColorStop(0, "transparent");
-            gradient.addColorStop(0.45, `${wisp.tone}3a`);
-            gradient.addColorStop(1, "transparent");
-            context.strokeStyle = gradient;
-            context.globalAlpha = tunnel * deceleration * wisp.weight * 0.5;
-            context.lineWidth = Math.max(1, wisp.span * (inner + outer) * 0.5);
-            context.beginPath();
-            context.moveTo(innerX, innerY);
-            context.lineTo(outerX, outerY);
-            context.stroke();
-          }
-        }
-
-        // ── the stars: points until the snap, lines after it ──
-        context.lineCap = "round";
-        for (const star of stars) {
-          star.z -= speed;
-          if (star.z < 0.028) {
-            respawn(star);
-            continue;
-          }
-          const tailZ = Math.min(2.6, star.z + tailReach * star.trail),
-            angle = star.theta + roll,
-            cos = Math.cos(angle),
-            sin = Math.sin(angle),
-            headScale = (star.offset / star.z) * focal,
-            tailScale = (star.offset / tailZ) * focal,
-            headX = axisX + cos * headScale,
-            headY = axisY + sin * headScale,
-            proximity = 1 - Math.min(1, star.z),
-            alpha = Math.min(0.95, (0.14 + proximity * 0.86) * deceleration);
-          if (
-            headX < -140 || headX > width + 140 ||
-            headY < -140 || headY > height + 140
-          ) {
-            respawn(star);
-            continue;
-          }
-          context.globalAlpha = alpha;
-          // Before the snap there is no trail to draw, and a zero-length gradient is
-          // undefined anyway, so the field is genuinely a field of points.
-          if (headScale - tailScale < 1.4) {
-            context.fillStyle = star.tone;
-            context.beginPath();
-            context.arc(headX, headY, star.width * 0.7 + proximity * 0.5, 0, TAU);
-            context.fill();
-            continue;
-          }
-          const tailX = axisX + cos * tailScale,
-            tailY = axisY + sin * tailScale,
-            gradient = context.createLinearGradient(tailX, tailY, headX, headY);
-          gradient.addColorStop(0, "transparent");
-          gradient.addColorStop(0.62, `${star.tone}66`);
-          gradient.addColorStop(1, star.tone);
-          context.strokeStyle = gradient;
-          context.lineWidth = star.width + proximity * (1.1 + punch * 0.8);
-          context.beginPath();
-          context.moveTo(tailX, tailY);
-          context.lineTo(headX, headY);
-          context.stroke();
-        }
-
-        // ── the core everything converges on ──
-        if (tunnel > 0.01) {
-          const coreRadius =
-              Math.min(width, height) *
-              (0.045 + tunnel * 0.17 + Math.sin(elapsed * 6.2) * 0.005),
-            core = context.createRadialGradient(axisX, axisY, 0, axisX, axisY, coreRadius);
-          core.addColorStop(0, "#ffffff");
-          core.addColorStop(0.24, "#dff2ffcc");
-          core.addColorStop(0.55, "#59a8ff4d");
-          core.addColorStop(1, "transparent");
-          context.globalAlpha = tunnel * deceleration;
-          context.fillStyle = core;
-          context.beginPath();
-          context.arc(axisX, axisY, coreRadius, 0, TAU);
-          context.fill();
-        }
-
-        if (flash > 0) {
-          context.globalAlpha = flash * flash * 0.24;
-          context.fillStyle = "#eaf6ff";
-          context.fillRect(0, 0, width, height);
-        }
-
-        context.globalAlpha = 1;
-        context.globalCompositeOperation = "source-over";
-        if (progress < 1) raf = requestAnimationFrame(render);
-      };
-    resize();
-    addEventListener("resize", resize);
-    raf = requestAnimationFrame(render);
-    return () => {
-      cancelAnimationFrame(raf);
-      removeEventListener("resize", resize);
-    };
-  }, [brief]);
-  return <canvas ref={canvasRef} className="orbit-cinematic-warp" aria-hidden="true" />;
-}
-
 type CompanyArchiveData = {
   title: string;
   overview: string;
@@ -3395,11 +3175,6 @@ export default function KospiOrbitPage({
     [tourSectorText, setTourSectorText] = useState(""),
     [shareNotice, setShareNotice] = useState(""),
     [compareBase, setCompareBase] = useState<MarketMapItem | null>(null),
-    [introLong] = useState(
-      () =>
-        new URLSearchParams(location.search).get("intro") === "full" ||
-        localStorage.getItem(`orbit-cinematic-seen-${market}`) !== "1",
-    ),
     [introVisible, setIntroVisible] = useState(true),
     [companyBrowser, setCompanyBrowser] = useState<{
       code: string;
@@ -3436,15 +3211,10 @@ export default function KospiOrbitPage({
     setSelected(stock);
     setCompanyBrowser({ code: stock.code, x: 0, y: 0 });
   }, []);
-  useEffect(() => {
-    if (!ready || loading || loadError) return;
-    const finish = () => {
-      localStorage.setItem(`orbit-cinematic-seen-${market}`, "1");
-      setIntroVisible(false);
-    };
-    const timer = window.setTimeout(finish, introLong ? 1800 : 900);
-    return () => window.clearTimeout(timer);
-  }, [ready, loading, loadError, introLong, market]);
+  /* The intro runs its own clock and ends itself: the approach has to land on the
+     star system, so the moment the overlay leaves is a beat in the shot rather than
+     a timer racing it. */
+  const dismissIntro = useCallback(() => setIntroVisible(false), []);
   useEffect(() => {
     if (companyBrowser && selected?.code !== companyBrowser.code)
       setCompanyBrowser(null);
@@ -3771,29 +3541,17 @@ export default function KospiOrbitPage({
     <main
       className={`kospi-orbit orbit-market-${market}${selected ? " has-detail" : ""}`}
     >
-      {introVisible && ready && !loading && !loadError && (
-        <section
-          className={`orbit-cinematic ${introLong ? "is-epic" : "is-brief"}`}
-          aria-label={`${config.label} 우주 진입`}
-        >
-          <OrbitWarpCanvas brief={!introLong} />
-          <div className="orbit-cinematic-flare" aria-hidden="true" />
-          <div className="orbit-cinematic-title">
-            <small>ENTERING MARKET UNIVERSE</small>
-            <strong>{config.label}</strong>
-            <span>수많은 기업이 하나의 항성계를 이룹니다</span>
-          </div>
-          <div className="orbit-cinematic-progress"><i /></div>
-          <button
-            type="button"
-            onClick={() => {
-              localStorage.setItem(`orbit-cinematic-seen-${market}`, "1");
-              setIntroVisible(false);
-            }}
-          >
-            건너뛰기
-          </button>
-        </section>
+      {/* Mounted from the first frame, not after the scene is built: the entry
+          sequence is what the load happens behind, and it holds its own last act
+          until the market scene underneath is ready to be cut to. */}
+      {introVisible && (
+        <OrbitGalaxyIntro
+          market={market}
+          label={config.label}
+          sceneReady={ready && !loading}
+          abort={Boolean(loadError)}
+          onFinish={dismissIntro}
+        />
       )}
       {market === "kospi" ? (
         <a
