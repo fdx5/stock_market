@@ -53,3 +53,21 @@ def test_discussions_keeps_a_quiet_or_failed_board_empty(monkeypatch):
         "name": "005930",
         "posts": [],
     }
+
+
+def test_discussions_fills_thirty_posts_from_successive_pages(monkeypatch):
+    calls: list[int] = []
+
+    def board_page(_code: str, page: int):
+        calls.append(page)
+        start = (page - 1) * 20
+        return [{"nid": str(index)} for index in range(start, start + 20)]
+
+    monkeypatch.setattr(stock.board_fetcher, "get_board_posts", board_page)
+    monkeypatch.setattr(stock, "get_stock_name", lambda code: code)
+
+    posts = stock.discussions("005930", limit=30)["items"]["005930"]["posts"]
+
+    assert len(posts) == 30
+    assert posts[-1]["nid"] == "29"
+    assert calls == [1, 2]

@@ -33,7 +33,7 @@ TTL_ORDERBOOK_SECONDS = 15
 # worker count is the etf equivalent's, and is what keeps a cold fan-out near the
 # latency of one board fetch rather than the sum of twelve.
 DISCUSSIONS_MAX_CODES = 12
-DISCUSSIONS_POST_LIMIT = 10
+DISCUSSIONS_POST_LIMIT = 30
 DISCUSSIONS_MAX_WORKERS = 6
 # Six characters starting with a digit — the same rule the frontend's StockLogo uses to
 # tell a KRX code from a US ticker, and wide enough for the 신형우선주 codes (00088K,
@@ -300,7 +300,27 @@ def discussions(
         raise HTTPException(status_code=400, detail="KRX 종목 코드만 조회할 수 있습니다.")
 
     def load(code: str) -> list[dict]:
-        return board_fetcher.get_board_posts(code, 1)[:limit]
+        # Naver's classic board exposes fewer than 30 real post rows per page, so a
+        # one-page slice can never honour the desk's 30-item request. Read successive
+        # cached pages until the requested count is filled, deduplicating by nid at a
+        # page boundary in case a newly written post shifted the listing meanwhile.
+        posts: list[dict] = []
+        seen: set[str] = set()
+        page = 1
+        while len(posts) < limit and page <= 3:
+            rows = board_fetcher.get_board_posts(code, page)
+            if not rows:
+                break
+            for post in rows:
+                nid = str(post.get("nid") or "")
+                if not nid or nid in seen:
+                    continue
+                seen.add(nid)
+                posts.append(post)
+                if len(posts) >= limit:
+                    break
+            page += 1
+        return posts
 
     with ThreadPoolExecutor(max_workers=DISCUSSIONS_MAX_WORKERS) as pool:
         rows = list(pool.map(load, wanted))

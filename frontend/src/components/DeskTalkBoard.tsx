@@ -30,9 +30,8 @@ import StockLogo from "./StockLogo";
 /** Chips beyond this stop being a row a thumb can flick through and start being a
  * list. Also the endpoint's own ceiling. */
 const CHIPS = 8;
-/** Ten rows provide enough runway for the rolling list while keeping the batched
- * endpoint at its documented per-stock ceiling. */
-const POSTS = 10;
+/** Keep a substantial scrollable history behind the rolling list for each stock. */
+const POSTS = 30;
 /** The board fetcher caches each code for three minutes upstream, so polling faster
  * than that only re-serves the same posts. */
 const REFRESH_MS = 180_000;
