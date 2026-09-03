@@ -1,5 +1,6 @@
 import StockIcon from "./StockIcon";
 import UsStockIcon from "./UsStockIcon";
+import EtfStockLogo from "./EtfStockLogo";
 
 /** Is this a KRX code rather than a US ticker?
  *
@@ -48,13 +49,26 @@ export default function StockLogo({
   code,
   className,
   name,
+  assetType = "stock",
 }: {
   code: string;
   className: string;
   /** The company name, used for the fallback monogram when the host has no logo. */
   name?: string;
+  assetType?: "stock" | "etf";
 }) {
   const mark = <span className={`${className} stock-logo--mono`}>{monogram(code, name)}</span>;
+
+  if (assetType === "etf") {
+    return (
+      <EtfStockLogo
+        code={code}
+        name={name}
+        className={`${className} stock-logo--etf`}
+        fallback={mark}
+      />
+    );
+  }
 
   if (isKrxCode(code)) return <StockIcon code={code} className={className} fallback={mark} />;
   // One shared modifier rather than one derived per caller: every US logo needs the same

@@ -10,6 +10,7 @@ import BoardPanel from "./BoardPanel";
 import DashboardIcon from "./DashboardIcon";
 import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
+import StockLogo from "./StockLogo";
 import MarketBubbleNavLink from "./MarketBubbleNavLink";
 import Footer from "./Footer";
 import GlobalNewsIcon from "./GlobalNewsIcon";
@@ -180,6 +181,7 @@ function EtfCard({
     <article className="etf-card" data-tone={tone(item.change_pct)}>
       <div className="etf-card-head">
         <span className="etf-rank">{rank}</span>
+        <StockLogo code={item.code} name={item.name} className="etf-stock-logo" assetType="etf" />
         <div className="etf-identity">
           <strong>{item.name}</strong>
           <span>
@@ -370,11 +372,14 @@ function EtfTable({
               <tr key={item.code} data-tone={tone(item.change_pct)}>
                 <td className="etf-table-rank">{index + 1}</td>
                 <td className="etf-table-name">
-                  <div>
+                  <div className="etf-table-identity">
+                    <StockLogo code={item.code} name={item.name} className="etf-table-logo" assetType="etf" />
+                    <div>
                     <strong>{item.name}</strong>
                     <span>
                       {item.code} · {item.benchmark}
                     </span>
+                    </div>
                   </div>
                   <span className="etf-table-category">{item.category}</span>
                 </td>
@@ -905,13 +910,16 @@ export default function EtfPage() {
             aria-label={`${boardItem.name} 종목 토론방`}
           >
             <header>
-              <div>
+              <div className="etf-board-heading">
+                <StockLogo code={boardItem.code} name={boardItem.name} className="etf-board-logo" assetType="etf" />
+                <div>
                 <span>
                   {boardItem.region === "KR"
                     ? "네이버 종목 토론방"
                     : "토스증권 커뮤니티"}
                 </span>
                 <h2>{boardItem.name}</h2>
+                </div>
               </div>
               <button onClick={() => setBoardItem(null)} aria-label="닫기">
                 ×

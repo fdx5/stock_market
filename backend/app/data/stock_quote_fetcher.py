@@ -35,6 +35,9 @@ def _quote_from_data(data: dict) -> dict:
     marcap = float(data["marketValueFullRaw"])
     shares = marcap / close_price if close_price else 0.0
 
+    volume = int(data.get("accumulatedTradingVolumeRaw") or 0)
+    turnover = int(data.get("accumulatedTradingValueRaw") or 0)
+
     over = data.get("overMarketPriceInfo")
     if over and data.get("marketStatus") != "OPEN":
         over_price = _parse_signed(over["overPrice"])
@@ -42,6 +45,13 @@ def _quote_from_data(data: dict) -> dict:
         change_pct = _parse_signed(over["fluctuationsRatio"])
         close_price = over_price
         marcap = shares * over_price
+        # Naver carries a separate accumulated tape for NXT. Pairing the NXT price
+        # above with the regular KRX volume below produced a fictitious turnover — and
+        # before 09:00 the regular fields are empty, so every pre-market name had zero
+        # volume. Once we choose the over-market quote, all session-dependent fields
+        # must come from that same object.
+        volume = int(over.get("accumulatedTradingVolumeRaw") or 0)
+        turnover = int(over.get("accumulatedTradingValueRaw") or 0)
 
     return {
         "code": data["itemCode"],
@@ -50,8 +60,8 @@ def _quote_from_data(data: dict) -> dict:
         "change": change,
         "change_pct": change_pct,
         "marcap": marcap,
-        "volume": int(data.get("accumulatedTradingVolumeRaw") or 0),
-        "turnover": int(data.get("accumulatedTradingValueRaw") or 0),
+        "volume": volume,
+        "turnover": turnover,
         "open": float(data.get("openPriceRaw") or 0),
         "high": float(data.get("highPriceRaw") or 0),
         "low": float(data.get("lowPriceRaw") or 0),
@@ -90,10 +100,23 @@ def get_stock_quotes_bulk(codes: list[str]) -> dict[str, dict]:
 
     quotes: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as pool:
-        futures = [pool.submit(_fetch_quotes_chunk, chunk) for chunk in chunks]
+        futures = {pool.submit(_fetch_quotes_chunk, chunk): chunk for chunk in chunks}
+        failed_chunks: list[list[str]] = []
         for future in as_completed(futures):
             try:
                 quotes.update(future.result())
             except Exception:
-                continue
+                failed_chunks.append(futures[future])
+
+    # One immediate retry is enough to recover a transient chunk timeout without
+    # multiplying normal traffic. Partial success is still useful to a top-ten rank;
+    # total failure raises so TTLCache keeps the last known-good quote set instead of
+    # replacing it with an empty dictionary for the full cache window.
+    for chunk in failed_chunks:
+        try:
+            quotes.update(_fetch_quotes_chunk(chunk))
+        except Exception:
+            continue
+    if unique_codes and not quotes:
+        raise RuntimeError("Naver bulk quote returned no rows")
     return quotes

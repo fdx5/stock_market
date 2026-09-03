@@ -240,7 +240,10 @@ def _get_market_map(market: str, sosok: int, limit: int, fresh: bool = False) ->
     # TTL window share one round-trip instead of each triggering their own.
     ttl = _realtime_quotes_ttl(limit)
     quotes = cache.get_or_set(
-        f"realtime_quotes:{market}:{limit}",
+        # v2 invalidates quote objects cached before NXT volume/value were selected
+        # from overMarketPriceInfo. Without the version bump a hot-reloaded server can
+        # keep serving the old zero-volume pre-market rows until the long-tail TTL ends.
+        f"realtime_quotes:v2:{market}:{limit}",
         ttl,
         lambda: get_stock_quotes_bulk([it["code"] for it in items]),
         allow_stale=not fresh,
@@ -252,6 +255,11 @@ def _get_market_map(market: str, sosok: int, limit: int, fresh: bool = False) ->
             it["change"] = quote["change"]
             it["change_pct"] = quote["change_pct"]
             it["marcap"] = quote["marcap"]
+            # Volume and value belong to the same tape as the price. In NXT pre/after
+            # hours these are the over-market counters; during KRX regular hours they
+            # are the regular counters (stock_quote_fetcher makes that selection).
+            it["volume"] = quote["volume"]
+            it["turnover"] = quote["turnover"]
 
     return items
 

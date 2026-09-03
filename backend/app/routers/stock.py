@@ -1,3 +1,6 @@
+import re
+from concurrent.futures import ThreadPoolExecutor
+
 import pandas as pd
 from fastapi import APIRouter, HTTPException, Query
 
@@ -25,6 +28,17 @@ TTL_QUOTE_SECONDS = 5
 # The underlying Naver page is itself 20-minutes delayed, so there's no benefit to
 # polling our own cache faster than this - it just re-fetches the same ladder.
 TTL_ORDERBOOK_SECONDS = 15
+
+# /discussions bounds. Twelve codes is the widest chip row the desk band draws; the
+# worker count is the etf equivalent's, and is what keeps a cold fan-out near the
+# latency of one board fetch rather than the sum of twelve.
+DISCUSSIONS_MAX_CODES = 12
+DISCUSSIONS_POST_LIMIT = 10
+DISCUSSIONS_MAX_WORKERS = 6
+# Six characters starting with a digit — the same rule the frontend's StockLogo uses to
+# tell a KRX code from a US ticker, and wide enough for the 신형우선주 codes (00088K,
+# 0126Z0) that a digits-only test wrongly excludes.
+KRX_CODE_PATTERN = re.compile(r"\d[0-9A-Z]{5}")
 
 
 def _resolve_name(code: str) -> str:
@@ -246,6 +260,56 @@ def news_article(link: str = Query(..., min_length=1, max_length=2000)):
     /{code} would collide with this one and would have to be declared after it.
     """
     return {"paragraphs": company_news_fetcher.fetch_article_content(link)}
+
+
+@router.get("/discussions")
+def discussions(
+    codes: str = Query(..., min_length=1, max_length=200),
+    limit: int = Query(DISCUSSIONS_POST_LIMIT, ge=1, le=DISCUSSIONS_POST_LIMIT),
+):
+    """The latest board posts for several stocks at once — what the desk's 오늘의 종목
+    토론 band is built from.
+
+    Same shape and the same reason as /etfs/discussions: the band shows one chip per
+    issue stock and has to have every chip's posts in hand before the first chip is
+    clicked, and doing that as one browser request per code is eight round trips for
+    eight small responses. board_fetcher's own three-minute per-code cache still
+    controls upstream traffic; this only collapses the fan-out.
+
+    A code that has no board, or whose fetch fails, comes back with an empty `posts`
+    rather than failing the whole response — one quiet stock must not empty the band.
+    Codes that aren't KRX codes are rejected outright: `code` reaches an upstream URL,
+    and the only codes this endpoint is for are six-character KRX ones.
+
+    Single-segment path, so it is declared after /news-article and before the
+    /{code}/... routes for the same reason that one documents.
+    """
+    wanted: list[str] = []
+    for raw in codes.split(","):
+        code = raw.strip().upper()
+        if code and code not in wanted:
+            wanted.append(code)
+    if not wanted:
+        return {"items": {}}
+    if len(wanted) > DISCUSSIONS_MAX_CODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"한 번에 최대 {DISCUSSIONS_MAX_CODES}개 종목까지 조회할 수 있습니다.",
+        )
+    if any(not KRX_CODE_PATTERN.fullmatch(code) for code in wanted):
+        raise HTTPException(status_code=400, detail="KRX 종목 코드만 조회할 수 있습니다.")
+
+    def load(code: str) -> list[dict]:
+        return board_fetcher.get_board_posts(code, 1)[:limit]
+
+    with ThreadPoolExecutor(max_workers=DISCUSSIONS_MAX_WORKERS) as pool:
+        rows = list(pool.map(load, wanted))
+    return {
+        "items": {
+            code: {"name": get_stock_name(code) or code, "posts": posts}
+            for code, posts in zip(wanted, rows)
+        }
+    }
 
 
 @router.get("/{code}/board")

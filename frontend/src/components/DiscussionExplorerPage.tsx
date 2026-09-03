@@ -600,7 +600,7 @@ function DiscussionInsightPanel({
       <>
       <div className="discussion-insight-price">
         <div className="discussion-insight-identity">
-          <StockLogo code={code} className="discussion-insight-logo" />
+          <StockLogo code={code} name={name} className="discussion-insight-logo" assetType={assetKind === "ETF" ? "etf" : "stock"} />
           <span>{name}</span>
         </div>
         <div className="discussion-insight-quote">
@@ -667,6 +667,7 @@ export default function DiscussionExplorerPage() {
   const name = params.get("name") || code;
   const market = params.get("market") === "US" ? "US" : "KR";
   const assetKind: AssetKind = params.get("asset") === "ETF" ? "ETF" : "STOCK";
+  const initialPostId = params.get("nid");
   const backPath = assetKind === "ETF" ? "/etf" : `/stock/${encodeURIComponent(code)}`;
 
   useDocumentTitle(`${name} 종목토론 · K-Stock Hub`);
@@ -983,6 +984,7 @@ export default function DiscussionExplorerPage() {
       .then((result) => {
         if (cancelled) return;
         setPosts(result.items);
+        setSelected(initialPostId ? result.items.find((post) => post.id === initialPostId) ?? null : null);
         nextGlobalOffset.current = result.nextOffset;
       })
       .catch((reason: Error) => {
@@ -992,7 +994,7 @@ export default function DiscussionExplorerPage() {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [assetKind, code, market]);
+  }, [assetKind, code, initialPostId, market]);
 
   useEffect(() => {
     scheduleSceneTransform();
@@ -1274,7 +1276,7 @@ export default function DiscussionExplorerPage() {
           <span>LIVE DISCUSSION UNIVERSE</span>
           <h1>
             <Link to={backPath} className="discussion-heading-asset" aria-label={`${name} 종목 상세로 이동`}>
-              <StockLogo code={code} className="discussion-heading-logo" />
+              <StockLogo code={code} name={name} className="discussion-heading-logo" assetType={assetKind === "ETF" ? "etf" : "stock"} />
               <span>{name}</span>
               <b>{code}</b>
             </Link>
@@ -1347,7 +1349,12 @@ export default function DiscussionExplorerPage() {
                   window.location.assign(`/discussion-explorer?code=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}&market=${item.market}&asset=${item.kind}`);
                 }}
               >
-                <span className={`asset-${item.kind.toLowerCase()}`}>{item.kind}</span>
+                <StockLogo
+                  code={item.code}
+                  name={item.name}
+                  className="discussion-search-logo"
+                  assetType={item.kind === "ETF" ? "etf" : "stock"}
+                />
                 <strong>{item.name}</strong>
                 <small>{item.code}</small>
                 <em>{item.market === "KR" ? "국내" : "해외"}</em>

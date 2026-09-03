@@ -135,6 +135,9 @@ export interface MarketMapItem extends ExtendedHours {
    * few dozen names even on the KR side — a company with no earnings has no
    * ratio, which is a fact about the company and not a gap in the data. */
   volume?: number;
+  /** Session-consistent accumulated trading value. On KR maps this is Naver's
+   * reported value rather than the less accurate close × volume estimate. */
+  turnover?: number;
   shares?: number;
   foreign_ratio?: number;
   per?: number | null;
@@ -515,6 +518,16 @@ export interface BoardPost {
   views: number;
   likes: number;
   dislikes: number;
+}
+
+/** One stock's board, as served by the batched /stock/discussions endpoint the desk's
+ * 오늘의 종목 토론 band reads. `posts` is empty for a stock whose board is quiet or
+ * whose upstream fetch failed — the band draws that as "아직 글이 없습니다", not as an
+ * error, because the two are indistinguishable from here and neither is worth an
+ * error state. */
+export interface StockDiscussionGroup {
+  name: string;
+  posts: BoardPost[];
 }
 
 export interface BoardBlock {
@@ -1150,6 +1163,12 @@ export const api = {
   board: (code: string, page = 1, fresh = false) =>
     getJSON<{ code: string; name: string; page: number; items: BoardPost[] }>(
       `${BASE}/stock/${code}/board?page=${page}&fresh=${fresh}`
+    ),
+  /** Several stocks' boards in one request — see the endpoint's docstring for why the
+   *  desk band cannot do this one code at a time. */
+  stockDiscussions: (codes: string[], limit = 5) =>
+    getJSONFresh<{ items: Record<string, StockDiscussionGroup> }>(
+      `${BASE}/stock/discussions?codes=${encodeURIComponent(codes.join(","))}&limit=${limit}`
     ),
   boardDetail: (code: string, nid: string, signal?: AbortSignal) => getJSON<BoardDetail>(`${BASE}/stock/${code}/board/${nid}`, { signal }),
   boardComments: (code: string, nid: string, signal?: AbortSignal) =>

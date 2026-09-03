@@ -11921,6 +11921,15 @@ thead .weekly-foreign-amount-col {
   padding: 1px;
 }
 
+/* ETF marks are issuer wordmarks (KODEX, TIGER, iShares, Vanguard...) and need the
+   same uncropped treatment as overseas company logos. */
+.stock-logo--etf {
+  object-fit: contain !important;
+  background: #fff;
+  padding: 3px;
+  box-sizing: border-box;
+}
+
 /* What stands in when the logo host has no image for a ticker — see StockLogo.
    It inherits whatever size class the caller gave the <img>, so it lands in the
    same box at the same dimensions rather than collapsing the row it sits in. */

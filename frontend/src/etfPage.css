@@ -63,8 +63,9 @@
 .etf-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; }
 .etf-card { --card-signal:var(--etf-gold); position:relative; overflow:hidden; padding:19px; border:1px solid var(--border); border-radius:21px; background:linear-gradient(155deg,var(--surface-1),color-mix(in srgb,var(--surface-1) 94%,var(--card-signal))); box-shadow:0 8px 28px rgb(0 0 0 / 8%); transition:transform .2s ease,border-color .2s ease,box-shadow .2s ease; }.etf-card[data-tone="up"] { --card-signal:var(--up-color); }.etf-card[data-tone="down"] { --card-signal:var(--down-color); }.etf-card::before { content:""; position:absolute; left:0; top:25px; width:2px; height:70px; background:var(--card-signal); box-shadow:0 0 15px var(--card-signal); }
 .etf-card:hover { transform:translateY(-3px); border-color:color-mix(in srgb,var(--etf-gold) 55%,var(--border)); box-shadow:0 17px 42px rgb(0 0 0 / 14%); }
-.etf-card-head { display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; }
+.etf-card-head { display:grid; grid-template-columns:auto auto 1fr auto; gap:10px; align-items:center; }
 .etf-rank { display:grid; place-items:center; width:28px; height:28px; border-radius:9px; color:#4a3000; background:linear-gradient(135deg,#ffec9b,#edb000); font:900 12px inherit; }
+.etf-stock-logo { width:34px; height:34px; flex:none; border:1px solid color-mix(in srgb,var(--border) 72%,transparent); border-radius:10px; }
 .etf-identity { min-width:0; display:grid; gap:3px; }
 .etf-identity strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:14px; }
 .etf-identity span,.etf-tags { color:var(--text-muted); font-size:10px; }
@@ -117,6 +118,9 @@
 .etf-table-name { position:relative; min-width:200px; padding-left:20px !important; }
 .etf-table-name::before { content:""; position:absolute; left:14px; top:50%; width:3px; height:60%; transform:translateY(-50%); border-radius:99px; background:var(--row-tone); box-shadow:0 0 8px var(--row-tone); }
 .etf-table-name > div { display:flex; flex-direction:column; gap:2px; }
+.etf-table-name > .etf-table-identity { flex-direction:row; align-items:center; gap:9px; }
+.etf-table-identity > div { display:flex; min-width:0; flex-direction:column; gap:2px; }
+.etf-table-logo { width:30px; height:30px; flex:none; border:1px solid color-mix(in srgb,var(--border) 72%,transparent); border-radius:8px; }
 .etf-table-name strong { overflow:hidden; max-width:220px; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
 .etf-table-name span { overflow:hidden; max-width:220px; color:var(--text-muted); font-size:10px; text-overflow:ellipsis; white-space:nowrap; }
 .etf-table-category { display:inline-block; margin-top:5px; padding:3px 8px; border-radius:999px; background:color-mix(in srgb,var(--text-muted) 9%,transparent); color:var(--text-muted); font-size:9px; white-space:nowrap; }
@@ -140,6 +144,8 @@
 .etf-board-backdrop { position:fixed; z-index:1000; inset:0; display:grid; place-items:center; padding:20px; background:rgb(4 7 14 / 72%); backdrop-filter:blur(9px); }
 .etf-board-modal { overflow:auto; width:min(880px,100%); max-height:min(850px,92vh); padding:20px; border:1px solid color-mix(in srgb,var(--etf-gold) 40%,var(--border)); border-radius:24px; background:var(--surface-1); box-shadow:0 30px 100px rgb(0 0 0 / 50%); }
 .etf-board-modal > header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }.etf-board-modal header span { color:#bd8000; font-size:10px; font-weight:900; letter-spacing:.12em; }.etf-board-modal h2 { margin:4px 0 0; font-size:21px; }.etf-board-modal header button { border:0; background:none; color:var(--text-primary); font-size:30px; cursor:pointer; }
+.etf-board-heading { display:flex; align-items:center; gap:11px; min-width:0; }
+.etf-board-logo { width:42px; height:42px; flex:none; border:1px solid color-mix(in srgb,var(--border) 72%,transparent); border-radius:11px; }
 .etf-board-naver { display:block; margin-top:13px; padding:11px; border-radius:11px; background:rgb(247 181 0 / 10%); color:#b67b00; font-size:11px; font-weight:800; text-align:center; text-decoration:none; }
 .etf-board-modal .global-board-focused { border-color:var(--etf-gold); background:color-mix(in srgb,var(--etf-gold) 12%,transparent); box-shadow:0 0 0 2px color-mix(in srgb,var(--etf-gold) 12%,transparent); }
 .app-footer-links a.app-footer-market-link--etf { color:#d89a00; }

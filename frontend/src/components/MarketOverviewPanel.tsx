@@ -16,9 +16,8 @@ import { Link } from "../router";
 import { useMarketIndices } from "../useMarketIndices";
 import MacroRatesStrip from "./MacroRatesStrip";
 import StockIcon from "./StockIcon";
-import TabBeacon from "./TabBeacon";
 
-type Tab = "top50" | "kosdaq50" | "gainers" | "losers" | "investor" | "foreignBuyTop20" | "foreignSellTop20";
+type Tab = "top50" | "kosdaq50" | "investor" | "foreignBuyTop20" | "foreignSellTop20";
 
 // How deep into each market's cap ranking the gain/loss ranking looks. Deep enough
 // that a real mover isn't missed for sitting outside the mega caps, shallow enough
@@ -681,22 +680,6 @@ export function MarketFlowBoard({
           </button>
           <button
             type="button"
-            className={`market-overview-tab market-overview-tab--beacon ${tab === "gainers" ? "active" : ""}`}
-            onClick={() => setTab("gainers")}
-          >
-            <TabBeacon tone="up" />
-            {t("급등 TOP")}
-          </button>
-          <button
-            type="button"
-            className={`market-overview-tab market-overview-tab--beacon ${tab === "losers" ? "active" : ""}`}
-            onClick={() => setTab("losers")}
-          >
-            <TabBeacon tone="down" />
-            {t("급락 TOP")}
-          </button>
-          <button
-            type="button"
             className={`market-overview-tab ${tab === "investor" ? "active" : ""}`}
             onClick={() => setTab("investor")}
           >
@@ -721,15 +704,6 @@ export function MarketFlowBoard({
         {tab === "top50" && <Top50PriceList onSelectStock={onSelectStock} market="KOSPI" />}
 
         {tab === "kosdaq50" && <Top50PriceList onSelectStock={onSelectStock} market="KOSDAQ" />}
-
-        {(tab === "gainers" || tab === "losers") && (
-          <>
-            <p className="market-overview-subtitle">
-              {t("코스피·코스닥 시총 200위 이내 종목의 당일 등락률 순위입니다. · KP=코스피, KQ=코스닥")}
-            </p>
-            <MoversList onSelectStock={onSelectStock} direction={tab === "gainers" ? "up" : "down"} />
-          </>
-        )}
 
         {(tab === "foreignBuyTop20" || tab === "foreignSellTop20") && (
           <>

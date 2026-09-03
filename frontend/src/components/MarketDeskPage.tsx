@@ -17,6 +17,8 @@ import StockListIcon from "./StockListIcon";
 import BattleIcon from "./BattleIcon";
 import CommandPalette from "./CommandPalette";
 import DeskIndexStrip from "./DeskIndexStrip";
+import DeskRealtimeRanking from "./DeskRealtimeRanking";
+import DeskTalkBoard from "./DeskTalkBoard";
 import DiscussionHeadlineTicker from "./DiscussionHeadlineTicker";
 import DiscussionIcon from "./DiscussionIcon";
 import EtfIcon from "./EtfIcon";
@@ -71,12 +73,13 @@ import "./marketDesk.css";
  *   2. a pulse row — the index, the breadth under it, and what the room is
  *      looking at — three different answers to "how is it going" side by side
  *      rather than stacked;
- *   3. 오늘의 주목 종목 — the same question one level down, four names per
- *      board with a line saying what stood around them;
- *   4. the global band, unchanged;
- *   5. the flow board, which is the classic panel's seven tabs given a section
- *      of their own and the full width to be read in;
- *   6. the focus workspace, which is the stock detail, whole.
+ *   3. the global band, unchanged;
+ *   4. 수급 · 순위 — 실시간 랭킹 over the five orderings a ranking is read for,
+ *      and under it the flow board, which is the classic panel's seven tabs given
+ *      a section of their own and the full width to be read in;
+ *   5. 종목 토론 — the same names again with what is being said about them;
+ *   6. 오늘의 주목 종목 — four names per board after the live discussion;
+ *   7. the focus workspace, which is the stock detail, whole.
  *
  * Nothing was dropped to do it. Every panel the classic desk renders is
  * rendered here, by the same component, with the same props — this file
@@ -112,9 +115,10 @@ function formatShares(shares: number, lang: "ko" | "en"): string {
 /** The bands the rail knows about. Ids are the scroll targets. */
 const SECTIONS = [
   { id: "desk-pulse", label: "마켓 펄스" },
-  { id: "desk-spotlight", label: "주목 종목" },
   { id: "desk-global", label: "글로벌" },
   { id: "desk-flow", label: "수급 · 순위" },
+  { id: "desk-talk", label: "종목 토론" },
+  { id: "desk-spotlight", label: "주목 종목" },
 ];
 
 export default function MarketDeskPage({ initialCode }: { initialCode?: string }) {
@@ -572,24 +576,7 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           </div>
         </section>
 
-        {/* ── Band 2: the six. Sits directly under the pulse because it is the
-               same question one level down — the pulse says how the market
-               went, this says which names carried it, and the reader who wants
-               a specific stock out of "코스피 +0.7%" has to be given one
-               somewhere. Three per board, picked on the move and the money
-               together, held still for the session window they belong to.
-
-               See spotlight.ts for the selection, the commentary, and why none
-               of the commentary is generated. ── */}
-        <section className="desk-band" id="desk-spotlight" aria-labelledby="desk-spotlight-title">
-          <div className="desk-band-head">
-            <h2 id="desk-spotlight-title">{t("오늘의 주목 종목")}</h2>
-            <span className="desk-band-rule" aria-hidden="true" />
-          </div>
-          <SpotlightBoard onSelect={selectStock} activeCode={selected?.code} />
-        </section>
-
-        {/* ── Band 3: the world. Unchanged from the classic desk, moved out from
+        {/* ── Band 2: the world. Unchanged from the classic desk, moved out from
                under the KR index so the two are peers rather than one being a
                footnote to the other. ── */}
         <section className="desk-band" id="desk-global" aria-labelledby="desk-global-title">
@@ -600,21 +587,57 @@ export default function MarketDeskPage({ initialCode }: { initialCode?: string }
           <GlobalIndexGrid />
         </section>
 
-        {/* ── Band 4: the flow board — the classic panel's seven rankings, given
-               the full width instead of a half column. Same component, same
-               tabs, same data; what changes is that the table is now wide
-               enough to read without its own horizontal scroll on a laptop. ── */}
+        {/* ── Band 4: 순위 and 수급, in that order. 실시간 랭킹 is the ranking a
+               market page is opened for — ten names over 거래대금 / 거래량 /
+               상승 / 하락 / 시가총액, both markets, sorted out of snapshots the
+               page already holds. Under it, the flow board: the classic panel's
+               seven rankings given the full width instead of a half column. Same
+               component, same tabs, same data; what changes is that the table is
+               now wide enough to read without its own horizontal scroll. ── */}
         <section className="desk-band" id="desk-flow" aria-labelledby="desk-flow-title">
           <div className="desk-band-head">
             <h2 id="desk-flow-title">{t("수급 · 순위")}</h2>
             <span className="desk-band-rule" aria-hidden="true" />
+          </div>
+          {/* 순위 leads, 수급 follows. A ranking is what the band is opened for —
+              which names the money went to today — and it is the half that reads at
+              a glance; the flow board underneath is the same question answered in
+              tables, and is where a reader goes once a name has caught their eye. */}
+          <div className="desk-card desk-card--rank">
+            <DeskRealtimeRanking onSelectStock={selectStock} />
           </div>
           <div className="desk-card desk-card--flow">
             <MarketFlowBoard onSelectStock={selectStock} />
           </div>
         </section>
 
-        {/* ── Band 5: the workspace. Everything the classic desk's stock zone
+        {/* ── Band 5: the room. Directly under 수급 · 순위 because it is the same
+               names again with the argument attached — a reader who has just seen
+               what moved is one scroll from what is being said about it. ── */}
+        <section className="desk-band" id="desk-talk" aria-labelledby="desk-talk-title">
+          <div className="desk-band-head">
+            <h2 id="desk-talk-title">{t("종목 토론")}</h2>
+            <span className="desk-band-rule" aria-hidden="true" />
+          </div>
+          <div className="desk-card desk-card--talk">
+            <DeskTalkBoard onSelectStock={selectStock} />
+          </div>
+        </section>
+
+        {/* ── Band 5: the six. Placed immediately after live discussion so the
+               conversation leads naturally into the stocks carrying today's market.
+               Three per board, picked on the move and the money together and held
+               still for the session window they belong to. See spotlight.ts for the
+               selection and commentary rules. ── */}
+        <section className="desk-band" id="desk-spotlight" aria-labelledby="desk-spotlight-title">
+          <div className="desk-band-head">
+            <h2 id="desk-spotlight-title">{t("오늘의 주목 종목")}</h2>
+            <span className="desk-band-rule" aria-hidden="true" />
+          </div>
+          <SpotlightBoard onSelect={selectStock} activeCode={selected?.code} />
+        </section>
+
+        {/* ── Band 6: the workspace. Everything the classic desk's stock zone
                carries, in the same two-column shape, with the header made
                sticky so the name and price stay on screen while the reader is
                down in the chart or the discussion. ── */}

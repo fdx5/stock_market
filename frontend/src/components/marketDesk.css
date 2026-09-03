@@ -2188,3 +2188,671 @@
    its container. */
 .desk-band{content-visibility:auto;contain-intrinsic-block-size:auto 620px}
 .desk-band:has(canvas){content-visibility:visible}
+
+/* ── band 4a: 실시간 랭킹 ─────────────────────────────────────────────────
+   The ranking half of 수급 · 순위. Ten names, five orderings, two markets —
+   side by side above 900px and one at a time under it, which is a structural
+   switch made in DeskRealtimeRanking rather than here: the unselected market is
+   unmounted on a phone so its snapshot poll never starts. */
+
+.desk-rank {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.desk-rank-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desk-rank-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* Scrolls rather than wraps. Five chips wrap to a second line at exactly the
+   widths a phone is held at, and that second line is enough to push the ranking
+   itself below the fold on the screen where it matters most. The scrollbar is
+   hidden the same way the site header's nav row hides its own. */
+.desk-rank-chips,
+.desk-talk-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding-bottom: 2px;
+}
+
+.desk-rank-chips::-webkit-scrollbar,
+.desk-talk-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.desk-rank-chips button {
+  position: relative;
+  flex: 0 0 auto;
+  padding: 6px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.16s ease, color 0.16s ease, border-color 0.16s ease;
+}
+
+.desk-rank-chips button:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+.desk-rank-chips button.is-on {
+  border-color: transparent;
+  background: var(--text-primary);
+  color: var(--surface-1);
+}
+
+.desk-rank-groups {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+/* The divider is drawn on the second column's leading edge rather than as an
+   element, so the two groups stay one grid and keep equal widths. */
+.desk-rank-groups.is-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 26px;
+}
+
+.desk-rank-groups.is-split > .desk-rank-group + .desk-rank-group {
+  border-left: 1px solid var(--gridline);
+  padding-left: 26px;
+}
+
+.desk-rank-groups.is-quad {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.desk-rank-groups.is-quad > .desk-rank-group + .desk-rank-group {
+  border-left: 1px solid var(--gridline);
+  padding-left: 18px;
+}
+
+.desk-rank-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.desk-rank-group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.desk-rank-group-head h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.desk-rank-group-head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.desk-rank-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.desk-rank-row {
+  display: grid;
+  /* rank · logo · name+metric · price+move. The name column is the only flexible
+     one; everything else is sized to its content so ten rows line up as a table
+     without being one. */
+  grid-template-columns: 20px 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.desk-rank-row:hover {
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+}
+
+.desk-rank-row.is-skeleton {
+  cursor: default;
+  padding: 10px 8px;
+}
+
+.desk-rank-no {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-muted);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The top three are the only ranks anybody reads as a position rather than as an
+   index, so they are the only ones given weight. */
+.desk-rank-no.is-top {
+  color: var(--series-violet, var(--text-primary));
+}
+
+.desk-rank-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.desk-rank-id,
+.desk-rank-figures {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.desk-rank-figures {
+  align-items: flex-end;
+}
+
+.desk-rank-id b {
+  font-size: 12.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The ranking's own metric, printed under the name: a 거래대금 ranking that does
+   not show 거래대금 asks the reader to take the order on trust. */
+.desk-rank-id small {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-rank-figures b {
+  font-size: 12.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.desk-rank-figures small {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-rank-more {
+  align-self: flex-start;
+  margin-top: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.desk-rank-more:hover {
+  color: var(--text-primary);
+}
+
+.desk-rank-empty,
+.desk-talk-empty {
+  margin: 0;
+  padding: 26px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── band 5: 실시간 인기 종목 토론 ─────────────────────────────────────── */
+
+.desk-talk {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.desk-talk-head h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.desk-talk-chip {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px 6px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: none;
+  font: inherit;
+  color: var(--text-muted);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
+}
+
+.desk-talk-chip b {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.desk-talk-chip small {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-talk-chip:hover {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+}
+
+/* The selected chip keeps its up/down colour on the percentage — the selection is
+   carried by the border and the fill, and recolouring the move would make a
+   falling stock look like a rising one the moment it is chosen. */
+.desk-talk-chip.is-on {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--series-violet, var(--text-primary)) 55%, transparent);
+  background: color-mix(in srgb, var(--series-violet, var(--text-primary)) 12%, transparent);
+}
+
+.desk-talk-chip.is-skeleton {
+  cursor: default;
+}
+
+.desk-talk-chip-logo {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.desk-talk-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--desk-radius);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+.desk-talk-stock {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.desk-talk-stock-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--text-primary);
+  cursor: pointer;
+  min-width: 0;
+}
+
+.desk-talk-stock-id > span {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+}
+
+.desk-talk-stock-id b {
+  font-size: 14px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-talk-stock-id small {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-talk-stock-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.desk-talk-stock-quote {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.desk-talk-stock-quote b {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.desk-talk-stock-quote small {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Pushed to the trailing edge on a wide row; on a narrow one the row above is
+   already wrapping, so it simply takes the next line. */
+.desk-talk-more {
+  margin-left: auto;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.desk-talk-more:hover {
+  color: var(--text-primary);
+}
+
+.desk-rank-chips button.has-beacon {
+  padding-left: 35px;
+}
+
+.desk-rank-chips button.has-beacon .tab-beacon {
+  top: 5px;
+  left: 8px;
+}
+
+.desk-rank-chips button.is-on .tab-beacon {
+  --beacon: var(--surface-1);
+}
+
+.desk-talk-scroll-controls {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.desk-talk-scroll-controls button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0 0 2px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 19px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.16s ease, background 0.16s ease;
+}
+
+.desk-talk-scroll-controls button:hover {
+  border-color: color-mix(in srgb, var(--text-primary) 32%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 7%, var(--surface-1));
+}
+
+.desk-talk-list-shell {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* A fixed veil over the partially visible next row. It gives the rail depth and
+   makes the automatic upward movement discoverable without hiding the title above
+   it. pointer-events:none keeps the list's scrollbar and rows fully interactive. */
+.desk-talk-list-fade {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 42px;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    transparent 0%,
+    color-mix(in srgb, var(--surface-1) 42%, transparent) 45%,
+    color-mix(in srgb, var(--surface-1) 92%, transparent) 100%
+  );
+  -webkit-backdrop-filter: blur(2.5px);
+  backdrop-filter: blur(2.5px);
+  mask-image: linear-gradient(to bottom, transparent, #000 38%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 38%);
+}
+
+.desk-talk-posts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  /* Four complete 68px rows plus most of the fifth: the clipped remainder under the
+     fade is the visual promise that another post is already moving up. */
+  max-height: 326px;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scroll-snap-type: y proximity;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--text-muted) 35%, transparent) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+
+.desk-talk-post {
+  scroll-snap-align: start;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--gridline);
+}
+
+.desk-talk-post:first-child {
+  border-top: 1px solid var(--gridline);
+}
+
+.desk-talk-post > button,
+.desk-talk-post.is-skeleton {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(92px, auto);
+  grid-template-areas:
+    "title meta"
+    "title stats";
+  align-items: center;
+  gap: 3px 18px;
+  width: 100%;
+  min-height: 68px;
+  padding: 10px 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.16s ease, transform 0.16s ease;
+}
+
+.desk-talk-post.is-skeleton {
+  cursor: default;
+}
+
+.desk-talk-post > button:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+/* Two lines, then an ellipsis. A board title runs to any length and a card that
+   grows to fit one breaks the row it is in. */
+.desk-talk-post strong {
+  grid-area: title;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.desk-talk-post-meta,
+.desk-talk-post-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+  min-width: 0;
+}
+
+.desk-talk-post-meta {
+  grid-area: meta;
+  justify-content: flex-end;
+}
+
+.desk-talk-post-stats {
+  grid-area: stats;
+  justify-content: flex-end;
+}
+
+.desk-talk-post-meta i {
+  font-style: normal;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desk-talk-post-meta time,
+.desk-talk-post-stats em {
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.desk-talk-post-stats em.is-like {
+  color: color-mix(in srgb, var(--up-color) 80%, var(--text-muted));
+}
+
+@media (max-width: 900px) {
+  .desk-rank-groups.is-quad {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 22px 12px;
+  }
+
+  .desk-rank-groups.is-quad > .desk-rank-group {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .desk-rank-groups.is-quad > .desk-rank-group:nth-child(even) {
+    border-left: 1px solid var(--gridline);
+    padding-left: 12px;
+  }
+}
+
+@media (max-width: 620px) {
+  .desk-rank-row {
+    grid-template-columns: 18px 20px minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 7px 4px;
+  }
+
+  .desk-rank-id b,
+  .desk-rank-figures b {
+    font-size: 12px;
+  }
+
+  .desk-rank-groups.is-quad .desk-rank-row {
+    grid-template-columns: 16px minmax(0, 1fr);
+    gap: 2px 6px;
+    min-height: 58px;
+  }
+
+  .desk-rank-groups.is-quad .desk-rank-logo {
+    display: none;
+  }
+
+  .desk-rank-groups.is-quad .desk-rank-figures {
+    grid-column: 2;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 5px;
+  }
+
+  .desk-rank-groups.is-quad .desk-rank-group-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .desk-talk-panel {
+    padding: 11px;
+  }
+
+  .desk-talk-stock-id b {
+    font-size: 13px;
+  }
+
+  /* The link drops under the name and price rather than squeezing them: three
+     items on one line at 360px leaves the name two characters of room. */
+  .desk-talk-more {
+    margin-left: auto;
+  }
+
+  .desk-talk-scroll-controls {
+    margin-left: auto;
+  }
+
+  .desk-talk-post > button,
+  .desk-talk-post.is-skeleton {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 10px;
+    padding-inline: 5px;
+  }
+
+  .desk-talk-post-meta,
+  .desk-talk-post-stats {
+    font-size: 10px;
+  }
+}

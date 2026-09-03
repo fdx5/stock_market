@@ -13,11 +13,14 @@ import { startVisibilityAwareInterval } from "./pollVisibility";
  *
  * Two things differ from the KR side and both matter to callers:
  *
- *  - There is no `volume`, so no turnover. The KR maps carry it and the US ones
- *    do not, which is why anything ranking US names has to weigh size and move
- *    rather than money. `market_cap` is the real figure here; the `marcap` field
- *    on a US item is the constituent's index *weight* in per cent, which is a
- *    different quantity wearing the same name.
+ *  - `marcap` does not mean here what it means on the KR maps: on a US item it is
+ *    the constituent's index *weight* in per cent, not a capitalisation.
+ *    `market_cap` is the real figure, in dollars. Anything ranking or weighting US
+ *    names by size has to read that one.
+ *
+ *    (`volume` is present on both sides — the Yahoo overlay in us_index_fetcher
+ *    carries it onto every constituent, so turnover is computable here too. This
+ *    note used to say it was not, which was true before that overlay existed.)
  *  - There is a session. US quotes can be pre-market or after-hours, and the
  *    payload says which, so a reader can be told that a move happened after the
  *    bell instead of being shown it as though the market were open.
