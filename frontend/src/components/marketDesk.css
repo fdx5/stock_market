@@ -2305,9 +2305,22 @@
 }
 
 .desk-rank-group-head h4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   margin: 0;
   font-size: 13px;
   font-weight: 800;
+}
+
+.desk-rank-market-flag {
+  display: block;
+  width: 21px;
+  height: 14px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  object-fit: cover;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 78%, transparent), 0 2px 5px rgb(0 0 0 / 13%);
 }
 
 .desk-rank-group-head span {

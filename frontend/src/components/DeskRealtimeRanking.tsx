@@ -50,6 +50,18 @@ const SORTS: { id: RankSort; label: string }[] = [
 
 type RankMarket = "KR" | "US";
 
+function MarketFlag({ market }: { market: RankMarket }) {
+  return (
+    <img
+      className="desk-rank-market-flag"
+      src={`/img/flag/${market === "KR" ? "kr" : "us"}.svg`}
+      alt=""
+      loading="lazy"
+      decoding="async"
+    />
+  );
+}
+
 /** A snapshot row plus the board it came from. The two KR maps are separate responses
  * and the merged ranking has to remember which is which — selecting a KOSDAQ name with
  * market "KOSPI" sends the workspace to the wrong roster, and `sector` already means
@@ -253,7 +265,7 @@ function KrRankGroup({
     <section className="desk-rank-group" aria-label={t("국내 실시간 랭킹")}>
       {showHeader && (
         <header className="desk-rank-group-head">
-          <h4>{t("국내")}</h4>
+          <h4>{t("국내")}<MarketFlag market="KR" /></h4>
           <span>{t("코스피 500 · 코스닥 200")}</span>
         </header>
       )}
@@ -293,7 +305,7 @@ function UsRankGroup({
     <section className="desk-rank-group" aria-label={t("미국 실시간 랭킹")}>
       {showHeader && (
         <header className="desk-rank-group-head">
-          <h4>{t("미국")}</h4>
+          <h4>{t("미국")}<MarketFlag market="US" /></h4>
           <span>
             {t("S&P 500 · 나스닥 100")}
             <SessionBadge session={snapshot.session ?? undefined} compact />
@@ -356,7 +368,10 @@ function EtfRankGroup({ region, sort }: { region: RankMarket; sort: RankSort }) 
   return (
     <section className="desk-rank-group" aria-label={t(region === "KR" ? "국내 ETF 랭킹" : "해외 ETF 랭킹")}>
       <header className="desk-rank-group-head">
-        <h4>{t(region === "KR" ? "국내 ETF" : "해외 ETF")}</h4>
+        <h4>
+          {t(region === "KR" ? "국내 ETF" : "해외 ETF")}
+          <MarketFlag market={region} />
+        </h4>
         <span>{sort === "marcap" ? t("ETF는 거래대금 기준") : region === "KR" ? "KRX ETF" : "US ETF"}</span>
       </header>
       {loading ? (
