@@ -1,49 +1,11 @@
 """Read-only access to publicly visible Toss Securities stock communities."""
 
-import requests
-
+from app.data.toss_session import INFO_API, resolve_product_code, session
 from app.services.cache import cache
 
 TTL_DISCUSSION_SECONDS = 3 * 60
-TTL_PRODUCT_SECONDS = 24 * 60 * 60
-INFO_API = "https://wts-info-api.tossinvest.com"
 
-_session = requests.Session()
-_session.headers.update(
-    {
-        "User-Agent": "Mozilla/5.0 (compatible; KStockHub/1.0)",
-        "Accept": "application/json",
-        "Origin": "https://www.tossinvest.com",
-        "Referer": "https://www.tossinvest.com/",
-    }
-)
-_session.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
-)
-
-
-def _resolve_product_code(symbol: str) -> str | None:
-    response = _session.post(
-        f"{INFO_API}/api/v3/search-all/wts-auto-complete",
-        json={"query": symbol, "sections": [{"type": "PRODUCT"}]},
-        timeout=4,
-    )
-    response.raise_for_status()
-    sections = response.json().get("result") or []
-    for section in sections:
-        for item in (section.get("data") or {}).get("items") or []:
-            if str(item.get("symbol") or "").upper() == symbol.upper():
-                return item.get("productCode") or item.get("code")
-    return None
-
-
-def resolve_product_code(symbol: str) -> str | None:
-    return cache.get_or_set(
-        f"toss_product:{symbol.upper()}",
-        TTL_PRODUCT_SECONDS,
-        lambda: _resolve_product_code(symbol.upper()),
-    )
+__all__ = ["get_toss_discussion", "resolve_product_code"]
 
 
 def _message(comment: dict) -> tuple[str, str]:
@@ -69,7 +31,7 @@ def _fetch_discussion(symbol: str, limit: int, offset: str | None) -> dict:
     }
     if offset:
         params["lastCommentId"] = offset
-    response = _session.get(f"{INFO_API}/api/v4/comments", params=params, timeout=4)
+    response = session.get(f"{INFO_API}/api/v4/comments", params=params, timeout=4)
     response.raise_for_status()
     result = response.json().get("result") or {}
     comments = result.get("results") or []

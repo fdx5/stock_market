@@ -17,11 +17,15 @@ export interface MarketSpec {
   /** Read under the label, to say what the list actually is. */
   caption: string;
   currency: "KRW" | "USD";
-  /** Naver's 종목토론실 only exists for KRX codes; US names read Toss's global board
-   *  instead (the same source the 증시버블 NASDAQ tab uses). */
-  discussion: "naver" | "global";
-  /** finance.naver's per-code news tab, or Naver news search by company name. */
-  news: "naver-finance" | "naver-search";
+  /** Naver's 종목토론실 only exists for KRX codes. US names read Toss Securities'
+   *  community board, which is where Korean retail actually discusses them; "global"
+   *  is Naver's 해외종목 토론방, kept as the backend's fallback for a ticker Toss does
+   *  not list and still used by the 증시버블 NASDAQ tab. */
+  discussion: "naver" | "global" | "toss";
+  /** finance.naver's per-code news tab, Naver news search by company name, or Toss's
+   *  per-company feed — the last being the only one of the three that is a real feed
+   *  for a US listing rather than a keyword search over one. */
+  news: "naver-finance" | "naver-search" | "toss";
   assetType: "stock" | "etf";
   flag: "kr" | "us";
 }
@@ -30,8 +34,8 @@ export const MARKETS: readonly MarketSpec[] = [
   { key: "kospi", label: "코스피", caption: "KOSPI", currency: "KRW", discussion: "naver", news: "naver-finance", assetType: "stock", flag: "kr" },
   { key: "kosdaq", label: "코스닥", caption: "KOSDAQ", currency: "KRW", discussion: "naver", news: "naver-finance", assetType: "stock", flag: "kr" },
   { key: "kr_etf", label: "국내 ETF", caption: "KRX ETF", currency: "KRW", discussion: "naver", news: "naver-finance", assetType: "etf", flag: "kr" },
-  { key: "sp500", label: "S&P 500", caption: "미국 대형주", currency: "USD", discussion: "global", news: "naver-search", assetType: "stock", flag: "us" },
-  { key: "us_etf", label: "해외 ETF", caption: "US ETF", currency: "USD", discussion: "global", news: "naver-search", assetType: "etf", flag: "us" },
+  { key: "sp500", label: "S&P 500", caption: "미국 대형주", currency: "USD", discussion: "toss", news: "toss", assetType: "stock", flag: "us" },
+  { key: "us_etf", label: "해외 ETF", caption: "US ETF", currency: "USD", discussion: "toss", news: "toss", assetType: "etf", flag: "us" },
 ];
 
 /** The 업종 filter's "전체" option. A sentinel rather than "" so it can never collide

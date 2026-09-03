@@ -840,6 +840,33 @@ export interface GlobalDiscussionPost {
   is_reply: boolean;
 }
 
+/** One article in Toss's per-company news feed.
+ *
+ * Deliberately close to `NewsItem` — the news tab renders both through one list — but
+ * addressed by `id` rather than by URL, because Toss serves the body itself and only
+ * discloses the outlet's own link on the detail response. */
+export interface TossNewsItem {
+  id: string;
+  title: string;
+  press: string;
+  press_logo: string;
+  date: string;
+  summary: string;
+  image_url: string | null;
+}
+
+export interface TossNewsArticle {
+  title: string;
+  press: string;
+  date: string;
+  /** Toss's own digest of the article, three sentences or so. Shown above the body. */
+  summary_sentences: string[];
+  /** Null only when the article could not be read at all; Toss supplies the body as
+   *  data, so unlike the Naver path this is not the common case. */
+  paragraphs: string[] | null;
+  link: string;
+}
+
 export type PredictionDirection = "상승" | "하락" | "보합";
 
 /** One input the call was actually computed from. Categories with no data are absent
@@ -1253,6 +1280,24 @@ export const api = {
   globalDiscussion: (code: string, limit = 10, offset?: string | null, discussionType: "foreignStock" | "foreignEtf" = "foreignStock") =>
     getJSON<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
       `${BASE}/global/${code}/discussion?limit=${limit}&discussion_type=${discussionType}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
+    ),
+  /** A US listing's 종목토론 from Toss's board. Same response shape as
+   *  `globalDiscussion`, which is what lets the backend fall back to Naver's 해외종목
+   *  토론방 for a ticker Toss does not list without the caller noticing. */
+  tossDiscussion: (code: string, limit = 10, offset?: string | null) =>
+    getJSON<{ items: GlobalDiscussionPost[]; next_offset: string | null }>(
+      `${BASE}/global/${encodeURIComponent(code)}/toss-discussion?limit=${limit}${offset ? `&offset=${encodeURIComponent(offset)}` : ""}`
+    ),
+  /** Korean-language news for a US listing, from Toss. Paged at the source, so `page`
+   *  really does advance — unlike the Naver-search path, which answers one block. */
+  tossNews: (code: string, limit = 12, page = 1) =>
+    getJSON<{ items: TossNewsItem[]; has_next: boolean }>(
+      `${BASE}/global/${encodeURIComponent(code)}/toss-news?limit=${limit}&page=${page}`
+    ),
+  tossNewsArticle: (id: string, signal?: AbortSignal) =>
+    getJSON<TossNewsArticle>(
+      `${BASE}/global/toss-news-article?id=${encodeURIComponent(id)}`,
+      { signal },
     ),
   predictionDates: (limit = 30) =>
     getJSON<{ items: PredictionDateOption[] }>(`${BASE}/prediction/dates?limit=${limit}`),

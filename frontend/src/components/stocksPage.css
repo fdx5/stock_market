@@ -1239,6 +1239,28 @@
   margin: 4px 0 12px;
 }
 
+/* Toss's three-sentence digest, above the article body it summarises. Set apart with a
+   rule rather than a filled card: it sits at the top of a reading column, and a block
+   of tinted background there reads as a callout interrupting the article rather than as
+   the article's own opening. */
+.su-thread-digest {
+  margin: 0 0 14px;
+  padding: 0 0 0 12px;
+  list-style: none;
+  border-left: 2px solid var(--su-tone);
+}
+
+.su-thread-digest li {
+  position: relative;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.su-thread-digest li:last-child { margin-bottom: 0; }
+
 .su-thread-empty {
   color: var(--text-muted) !important;
   font-size: 12px !important;

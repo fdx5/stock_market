@@ -6,6 +6,9 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Query
 
 from app.data import global_discussion_fetcher, kospi_futures_fetcher, price_fetcher
+from app.data.toss_discussion_fetcher import get_toss_discussion
+from app.data.toss_news_fetcher import get_toss_news, get_toss_news_article
+from app.data.toss_session import resolve_product_code
 from app.data.us_universe import get_us_stock_item
 from app.services.battle import get_global_enrichment
 from app.utils import dataframe_to_records
@@ -182,3 +185,53 @@ def discussion(
     discussion_type: str = Query("foreignStock", pattern="^(foreignStock|foreignEtf)$"),
 ):
     return global_discussion_fetcher.get_discussion(code, limit, offset, discussion_type)
+
+
+@router.get("/{code}/toss-discussion")
+def toss_discussion(
+    code: str,
+    limit: int = Query(10, ge=1, le=30),
+    offset: str | None = Query(None, max_length=64),
+    discussion_type: str = Query("foreignStock", pattern="^(foreignStock|foreignEtf)$"),
+):
+    """A US listing's 종목토론, from Toss's community board.
+
+    Same response shape as /{code}/discussion above — items plus an opaque
+    `next_offset` — so one client list can be fed by either. That is not a
+    coincidence worth relying on quietly, it is the reason the fallback below can
+    exist: when Toss does not list a ticker at all, Naver's 해외종목 토론방 answers
+    in its place and the caller cannot tell the difference.
+
+    The fallback triggers on an unresolvable symbol, not on an empty board. A
+    thinly traded ETF with no posts today is answering correctly, and quietly
+    swapping in a different board's posts would misattribute them.
+    """
+    if resolve_product_code(code):
+        return get_toss_discussion(code, limit, offset)
+    return global_discussion_fetcher.get_discussion(code, limit, offset, discussion_type)
+
+
+@router.get("/{code}/toss-news")
+def toss_news(
+    code: str,
+    limit: int = Query(12, ge=1, le=30),
+    page: int = Query(1, ge=1, le=50),
+):
+    """Korean-language news for a US listing, from Toss's per-company feed.
+
+    Paged at the source rather than client-side (as the Naver-search path is), because
+    this feed really is addressable by page number — asking for page 2 returns the next
+    block rather than the same one again.
+    """
+    return get_toss_news(code, limit, page)
+
+
+@router.get("/toss-news-article")
+def toss_news_article(id: str = Query(..., min_length=1, max_length=128)):
+    """One Toss article's body, already segmented into paragraphs at the source.
+
+    A query parameter rather than a path segment because Toss's article ids carry
+    outlet-specific punctuation (`hankyung_X20260903.104227`), and a dotted final
+    segment is exactly the shape a path router is most likely to mangle.
+    """
+    return get_toss_news_article(id)

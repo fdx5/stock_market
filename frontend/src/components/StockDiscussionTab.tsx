@@ -5,9 +5,11 @@ import { reportMarketOrbitEvent, reportStocksEvent } from "../useActivityTrackin
 
 /* 종목토론 for one stock, from whichever board its market has.
  *
- * KRX names read Naver's 종목토론실; US names read the global (Toss) board, because
- * Naver has no 종목토론실 for AAPL. The two paginate on different principles — Naver by
- * page number, Toss by an opaque cursor — and the shape below is what lets one list,
+ * KRX names read Naver's 종목토론실; US names read Toss Securities' board, because
+ * Naver has no 종목토론실 for AAPL and its 해외종목 토론방 ("global") is far quieter
+ * than where Korean retail actually discusses these names. The two paginate on
+ * different principles — Naver by page number, Toss by an opaque cursor — and the
+ * shape below is what lets one list,
  * one detail view and one prev/next control serve both: posts are normalised to
  * `DiscussionPost`, and paging state is a stack of cursors where entry N is what to
  * send to reach page N+1. For Naver the cursor is unused and the page number is
@@ -71,11 +73,15 @@ interface Props {
   code: string;
   name: string;
   market: string;
-  source: "naver" | "global";
+  source: "naver" | "global" | "toss";
   trackingContext?: "stocks" | "orbit";
 }
 
 export default function StockDiscussionTab({ code, name, market, source, trackingContext = "stocks" }: Props) {
+  // Both overseas boards return the post body inline; only Naver's needs a second
+  // fetch to read one. Everything that used to branch on "is this the global board"
+  // was really asking this.
+  const bodyArrivesWithList = source !== "naver";
   const [posts, setPosts] = useState<DiscussionPost[]>([]);
   const [page, setPage] = useState(1);
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
@@ -115,8 +121,8 @@ export default function StockDiscussionTab({ code, name, market, source, trackin
     else reportStocksEvent({ action: "discussion_post", market, code, name, detail: post.title });
     setOpenIndex(index);
     setDetail(null);
-    // Toss posts arrive whole; only Naver's need the body fetched.
-    if (source === "global") return;
+    // Toss and Naver-global posts arrive whole; only Naver's 종목토론실 needs a fetch.
+    if (bodyArrivesWithList) return;
     setDetailLoading(true);
     api
       .boardDetail(code, post.id)
@@ -132,12 +138,15 @@ export default function StockDiscussionTab({ code, name, market, source, trackin
     setLoading(true);
     setError("");
 
+    const cursor = cursors[page - 1] ?? null;
     const request =
-      source === "global"
-        ? api.globalDiscussion(code, PAGE_SIZE, cursors[page - 1] ?? null)
-        : // Naver serves 20 posts per page; the panel shows 10, so two panel pages are
-          // carved out of each fetched page rather than fetching twice as often.
-          api.board(code, Math.floor((page - 1) / 2) + 1, page === 1);
+      source === "toss"
+        ? api.tossDiscussion(code, PAGE_SIZE, cursor)
+        : source === "global"
+          ? api.globalDiscussion(code, PAGE_SIZE, cursor)
+          : // Naver serves 20 posts per page; the panel shows 10, so two panel pages are
+            // carved out of each fetched page rather than fetching twice as often.
+            api.board(code, Math.floor((page - 1) / 2) + 1, page === 1);
 
     request
       .then((result) => {
@@ -237,7 +246,7 @@ export default function StockDiscussionTab({ code, name, market, source, trackin
           </div>
           <div className="su-thread-body">
             {detailLoading && <p className="su-inline-loading"><i />본문을 불러오는 중</p>}
-            {source === "global" && <p>{current.preview}</p>}
+            {bodyArrivesWithList && <p>{current.preview}</p>}
             {body.map((block, index) =>
               block.type === "image" && block.src ? (
                 <img key={index} src={block.src} alt="" loading="lazy" />
@@ -245,7 +254,7 @@ export default function StockDiscussionTab({ code, name, market, source, trackin
                 <p key={index}>{block.text}</p>
               ),
             )}
-            {!detailLoading && source === "naver" && body.length === 0 && (
+            {!detailLoading && !bodyArrivesWithList && body.length === 0 && (
               <p className="su-thread-empty">본문을 불러오지 못했습니다.</p>
             )}
           </div>
