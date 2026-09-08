@@ -1,8 +1,8 @@
 import threading
 
-import FinanceDataReader as fdr
 import pandas as pd
 
+from app.data import krx_listing
 from app.services.cache import cache
 from app.services.translation import translate_batch_to_english
 
@@ -20,7 +20,7 @@ _english_names_rebuilding = False
 
 
 def _load_market(market: str) -> pd.DataFrame:
-    df = fdr.StockListing(market)
+    df = krx_listing.stock_listing(market)
     code_col = "Code" if "Code" in df.columns else "Symbol"
     df = df.rename(columns={code_col: "Code"})
     df = df[["Code", "Name", "Marcap"]].dropna()

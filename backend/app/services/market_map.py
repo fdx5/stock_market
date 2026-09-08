@@ -1,13 +1,16 @@
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import FinanceDataReader as fdr
 import pandas as pd
 
+from app.data import krx_listing
 from app.data.naver_price_fetcher import NAVER_PAGE_SIZE, fetch_market_cap_page
 from app.data.sparkline_fetcher import get_kr_sparklines, get_us_sparklines
 from app.data.stock_quote_fetcher import get_stock_quotes_bulk
 from app.data.universe import get_stock_market
 from app.services.cache import cache
+
+logger = logging.getLogger(__name__)
 
 # Ranks by market cap refresh on three cadences — the top of the board is what carries
 # most of the map's visual weight, the tail barely matters moment-to-moment. This is
@@ -189,23 +192,47 @@ def _get_price_snapshot(market: str, sosok: int, pages: int, fresh: bool = False
 
 
 def _load_industry_map() -> dict[str, str]:
-    desc = fdr.StockListing("KRX-DESC")[["Code", "Industry"]]
+    desc = krx_listing.stock_listing("KRX-DESC")[["Code", "Industry"]]
     return dict(zip(desc["Code"].astype(str), desc["Industry"]))
 
 
 def _get_industry_map() -> dict[str, str]:
-    return cache.get_or_set("krx_industry_map", TTL_INDUSTRY_SECONDS, _load_industry_map)
+    """Sector lookup, or an empty one if the listing cannot be read at all.
+
+    The map is a price picture; the sector is how it is grouped and tinted. Losing the
+    grouping is a visibly worse map, but it is still a map — and it used to be a 500,
+    because this is the first call `_get_market_map` makes and any failure in it took
+    the whole KOSPI/KOSDAQ page down (see data/krx_listing.py for the upstream lag that
+    caused exactly that).
+
+    Deliberately not cached in the failure case: `cache.get_or_set` stores nothing when
+    the factory raises, so the next request retries instead of being pinned to a
+    degraded map for the entry's 24 hours. Once the entry has ever been populated,
+    stale-while-revalidate keeps serving the last good sectors and this path is never
+    reached at all.
+    """
+    try:
+        return cache.get_or_set("krx_industry_map", TTL_INDUSTRY_SECONDS, _load_industry_map)
+    except Exception as exc:  # noqa: BLE001 - degraded sectors beat no map
+        logger.warning("market_map: industry map unavailable (%s); sectors fall back to 기타", exc)
+        return {}
 
 
 def _load_etf_codes() -> set[str]:
     # The Naver market-cap listing mixes ETFs/ETNs into the KOSPI ranking; a Finviz-style
     # company map should only show operating companies, so cross-reference and exclude them.
-    etf = fdr.StockListing("ETF/KR")
+    etf = krx_listing.stock_listing("ETF/KR")
     return set(etf["Symbol"].astype(str))
 
 
 def _get_etf_codes() -> set[str]:
-    return cache.get_or_set("etf_codes", TTL_INDUSTRY_SECONDS, _load_etf_codes)
+    """As `_get_industry_map`: an unreadable ETF list leaves ETFs mixed into the ranking
+    rather than taking the map down. Same no-caching-the-failure reasoning."""
+    try:
+        return cache.get_or_set("etf_codes", TTL_INDUSTRY_SECONDS, _load_etf_codes)
+    except Exception as exc:  # noqa: BLE001 - an unfiltered map beats no map
+        logger.warning("market_map: ETF list unavailable (%s); ETFs stay in the ranking", exc)
+        return set()
 
 
 MAX_NAVER_PAGES = 45  # safety cap; the KOSPI board (incl. ETFs) tops out around here

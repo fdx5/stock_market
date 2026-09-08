@@ -25,9 +25,9 @@ day. Anything a reader is subscribed to therefore has to be here.
 
 import re
 
-import FinanceDataReader as fdr
 import pandas as pd
 
+from app.data import krx_listing
 from app.data.us_index_fetcher import get_nasdaq100_constituents
 from app.services.cache import cache
 
@@ -101,7 +101,7 @@ def _is_common_stock(code: str) -> bool:
 
 
 def _load_krx_top(market: str) -> list[dict]:
-    df = fdr.StockListing(market)
+    df = krx_listing.stock_listing(market)
     code_col = "Code" if "Code" in df.columns else "Symbol"
     df = df.rename(columns={code_col: "Code"})
     df = df[["Code", "Name", "Marcap"]].dropna()
