@@ -23,10 +23,12 @@ This module bounds it, with two guards:
   * **A bounded wait.** The lock is acquired with a timeout. A caller that
     cannot get in gives up and releases its worker thread instead of parking on
     a stalled remote call, so the pool cannot be drained.
-  * **A breaker.** After repeated failures the gate opens and short-circuits
+  * **A breaker.** After repeated *errors* the gate opens and short-circuits
     for a cooldown. A database that is down then costs one fast rejection per
     request rather than a full connection handshake, which is both what was
-    hammering the upstream and what was making each request expensive.
+    hammering the upstream and what was making each request expensive. Only
+    calls that actually raise count here — a timed-out wait means the queue was
+    long, which is a load signal and not an outage.
 
 Callers see `StoreUnavailable`. Treat it as "no data right now": it is a
 normal, expected outcome, not a bug. Everything reachable without the database
@@ -90,9 +92,18 @@ class Gate:
                 raise StoreUnavailable(f"{self.name}: unavailable (cooling down)")
 
         if not self._lock.acquire(timeout=self._lock_timeout):
-            # Busy for longer than any healthy call takes: treat it as the
-            # store being in trouble rather than waiting it out.
-            self._record_failure()
+            # Give up rather than wait it out: the point of the bounded wait is that
+            # this worker thread goes back to the pool instead of parking on a call it
+            # cannot join.
+            #
+            # Deliberately NOT counted as a breaker failure. A full queue says the store
+            # is *busy*, which is a statement about how much work arrived at once, not
+            # about the store's health — prediction_store's reads pull thousands of rows
+            # and legitimately take seconds each, so a few honest readers arriving
+            # together can exhaust this timeout with nothing wrong anywhere. Counting
+            # those as failures opened the breaker on the fourth one and turned a burst
+            # into a 25-second blackout of every endpoint backed by that store. Real
+            # trouble still trips it: an exception raised out of the call below does.
             raise StoreUnavailable(f"{self.name}: busy for over {self._lock_timeout}s")
 
         try:

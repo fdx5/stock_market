@@ -7,8 +7,30 @@ from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query
 from app.data.prediction_universe import MARKET_KOSDAQ, MARKET_KOSPI, MARKET_NASDAQ
 from app.services import prediction_batch, prediction_grader, prediction_store
 from app.services import trading_calendar as cal
+from app.services.cache import cache
 
 router = APIRouter()
+
+# Every read below is served from the in-process cache rather than from Turso on each
+# request. This is not a latency nicety — it is what keeps the page up.
+#
+# prediction_store serializes all of its remote calls behind one process-wide lock with
+# a bounded acquire timeout (see services/libsql_gate.py), and a single /api/prediction
+# call takes that lock three or four times: the day's rows, the accuracy summary (which
+# pulls the whole graded history — up to 12,000 rows over the network), and the session
+# scoreboard. That is seconds of lock-held time per request. A handful of concurrent
+# readers, or one reader arrowing through the date navigator, was enough to push the
+# queue past the 4s timeout, and those requests came back as
+# `503 prediction_store: busy for over 4.0s`.
+#
+# Caching fixes the cause rather than the symptom: TTLCache is single-flight, so a
+# burst of concurrent readers on the same key shares one database read instead of
+# queueing behind each other, and stale-while-revalidate means an expired entry is
+# served immediately while one background thread refreshes it. The store is read far
+# more often than it is written — the batch writes a region once a day and the grader
+# once more — so a couple of minutes of lag costs nothing a reader can perceive.
+TTL_PREDICTION_DAY_SECONDS = 120
+TTL_PREDICTION_META_SECONDS = 300
 
 # Shared secret for the cron trigger. No default: an unset token disables the endpoint
 # outright rather than leaving a publicly-callable batch trigger behind a guessable
@@ -66,13 +88,17 @@ def dates(limit: int = Query(30, ge=1, le=120)):
     arrives the following morning KST), so without this the page can only show one
     region at a time with no way to say where the other one went.
     """
-    by_date = prediction_store.predict_date_markets(limit)
-    return {
-        "items": [
-            {**_decorate(key), "markets": [m for m in MARKET_ORDER if m in markets]}
-            for key, markets in by_date.items()
-        ]
-    }
+
+    def _build():
+        by_date = prediction_store.predict_date_markets(limit)
+        return {
+            "items": [
+                {**_decorate(key), "markets": [m for m in MARKET_ORDER if m in markets]}
+                for key, markets in by_date.items()
+            ]
+        }
+
+    return cache.get_or_set(f"prediction:dates:{limit}", TTL_PREDICTION_META_SECONDS, _build)
 
 
 @router.get("")
@@ -86,6 +112,14 @@ def predictions(
     date the page's navigator moves through, since a reader is choosing which
     session's forecast to look at.
     """
+    # Keyed on the request's own `date`, not on the resolved one: an omitted date means
+    # "whatever is latest", and that has to keep re-resolving as the batch publishes a
+    # new session rather than being pinned to the day the entry was first built.
+    key = f"prediction:day:{date or 'latest'}:{market or 'ALL'}"
+    return cache.get_or_set(key, TTL_PREDICTION_DAY_SECONDS, lambda: _predictions_payload(date, market))
+
+
+def _predictions_payload(date: str | None, market: str | None) -> dict:
     target = date or prediction_store.latest_predict_date()
     if not target:
         return {"date": None, "groups": [], "count": 0, "generated_at": None}
@@ -174,12 +208,16 @@ def accuracy():
     """Hit rates over the recent 20 sessions, the recent 60, and everything on record —
     per market and per graded session. Only graded rows count: a prediction whose
     session hasn't closed yet is not a miss."""
-    return {
-        "markets": prediction_grader.market_accuracy(),
-        "sessions": prediction_store.session_scoreboard(limit=60),
-        "sessions_by_market": prediction_store.session_scoreboard_by_market(limit=20),
-        "windows": {"short": prediction_grader.WINDOW_SHORT, "long": prediction_grader.WINDOW_LONG},
-    }
+
+    def _build():
+        return {
+            "markets": prediction_grader.market_accuracy(),
+            "sessions": prediction_store.session_scoreboard(limit=60),
+            "sessions_by_market": prediction_store.session_scoreboard_by_market(limit=20),
+            "windows": {"short": prediction_grader.WINDOW_SHORT, "long": prediction_grader.WINDOW_LONG},
+        }
+
+    return cache.get_or_set("prediction:accuracy", TTL_PREDICTION_META_SECONDS, _build)
 
 
 @router.get("/grading-matrix")
@@ -193,27 +231,40 @@ def grading_matrix(
     `market` narrows to one region's roster; omitted returns every market's stocks
     together, sorted by market then code so the three rosters stay visually grouped.
     """
-    markets = (market,) if market else None
-    data = prediction_store.grading_matrix(markets, limit)
-    return {
-        "dates": [_decorate(d) for d in data["dates"]],
-        "rows": data["rows"],
-    }
+
+    def _build():
+        markets = (market,) if market else None
+        data = prediction_store.grading_matrix(markets, limit)
+        return {
+            "dates": [_decorate(d) for d in data["dates"]],
+            "rows": data["rows"],
+        }
+
+    key = f"prediction:grading-matrix:{market or 'ALL'}:{limit}"
+    return cache.get_or_set(key, TTL_PREDICTION_META_SECONDS, _build)
 
 
 @router.get("/stock/{code}")
 def stock_history(code: str, limit: int = Query(20, ge=1, le=90)):
     """One stock's past predictions, newest first — the per-card track record, with
     the graded outcome attached to each row so 예측 vs 실제 reads off one table."""
-    items = prediction_store.list_by_code(code, limit)
-    if not items:
-        raise HTTPException(status_code=404, detail=f"'{code}' 종목의 예측 이력이 없습니다.")
-    return {
-        "code": code,
-        "name": items[0]["name"],
-        "items": items,
-        "accuracy": prediction_grader.accuracy_summary((code,)).get(code),
-    }
+
+    def _build():
+        items = prediction_store.list_by_code(code, limit)
+        if not items:
+            # Raised out of the factory, so nothing is cached: a code with no history
+            # today is usually one that has just joined the roster and will have rows
+            # after the next batch.
+            raise HTTPException(status_code=404, detail=f"'{code}' 종목의 예측 이력이 없습니다.")
+        return {
+            "code": code,
+            "name": items[0]["name"],
+            "items": items,
+            "accuracy": prediction_grader.accuracy_summary((code,)).get(code),
+        }
+
+    key = f"prediction:stock:{code}:{limit}"
+    return cache.get_or_set(key, TTL_PREDICTION_META_SECONDS, _build)
 
 
 @router.get("/run/status")
