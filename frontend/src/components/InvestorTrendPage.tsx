@@ -59,7 +59,11 @@ export default function InvestorTrendPage({ code }: { code: string }) {
   }, [code]);
 
   const translatedName = useTranslatedText(name);
-  useDocumentTitle(name ? `${name} 외국인·기관 수급 | K-Stock Hub` : "외국인·기관 수급 | K-Stock Hub");
+  // Must match the server shell's <title> in services/seo.py: when the two disagree,
+  // the crawler indexes one string and every share card shows the other.
+  useDocumentTitle(
+    name ? `${name} 외국인·기관 매매동향 (${code}) | K-Stock Hub` : "외국인·기관 매매동향 | K-Stock Hub",
+  );
 
   return (
     <div className="app">

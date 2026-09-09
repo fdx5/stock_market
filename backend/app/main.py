@@ -59,7 +59,15 @@ from app.services import (
 )
 from app.services import global_top100 as global_top100_service
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
-from app.services.seo import build_rss, build_sitemap, render_spa_shell
+from app.services.seo import (
+    build_investor_sitemap,
+    build_pages_sitemap,
+    build_rss,
+    build_sitemap_index,
+    build_stocks_sitemap,
+    is_unknown_kr_code,
+    render_spa_shell,
+)
 from app.services.market_map import get_kosdaq_map, get_kospi_map
 from app.services.stock_board import warm_boards
 from app.services.us_market_map import get_nasdaq100_map, get_sp500_map
@@ -638,13 +646,44 @@ if STATIC_DIR.exists():
     _build_id = re.sub(r"[^A-Za-z0-9._-]", "", os.environ.get("RENDER_GIT_COMMIT", "dev"))[:16] or "dev"
     _spa_template = (STATIC_DIR / "index.html").read_text(encoding="utf-8").replace("__KSTOCK_BUILD_ID__", _build_id)
 
+    SITEMAP_HEADERS = {"Cache-Control": "public, max-age=3600"}
+
     @app.get("/sitemap.xml", include_in_schema=False)
     def dynamic_sitemap():
+        return Response(content=build_sitemap_index(), media_type="application/xml", headers=SITEMAP_HEADERS)
+
+    @app.get("/sitemap-pages.xml", include_in_schema=False)
+    def pages_sitemap():
+        return Response(content=build_pages_sitemap(), media_type="application/xml", headers=SITEMAP_HEADERS)
+
+    @app.get("/sitemap-stocks.xml", include_in_schema=False)
+    def stocks_sitemap():
         # Cover the searchable large/mid-cap universe, not only the same 100 names
         # shown in the ranking UI. The universe is cached for a day, so the wider
         # sitemap does not add per-request upstream traffic.
-        xml = build_sitemap(get_top_market_cap_all(1000))
-        return Response(content=xml, media_type="application/xml", headers={"Cache-Control": "public, max-age=3600"})
+        xml = build_stocks_sitemap(get_top_market_cap_all(1000))
+        return Response(content=xml, media_type="application/xml", headers=SITEMAP_HEADERS)
+
+    @app.get("/sitemap-investor.xml", include_in_schema=False)
+    def investor_sitemap():
+        # Unlike the stock landing pages, every listed KR name has real per-day data
+        # behind /investor/<code>, and Search Console was already reporting thousands
+        # of these URLs as discovered-but-not-indexed. Listing the full board (rather
+        # than the top 1,000) is what puts the rest of them in front of Google at all.
+        xml = build_investor_sitemap(get_top_market_cap_all(10000))
+        return Response(content=xml, media_type="application/xml", headers=SITEMAP_HEADERS)
+
+    @app.get("/stock/{code}/investor", include_in_schema=False)
+    def legacy_stock_investor(code: str):
+        # /stock/<code>/investor and /investor/<code> mounted the same React component
+        # and rendered the same server shell, so Google saw ~1,000 duplicate pairs and
+        # dropped one side of each. Consolidating onto /investor/<code> also hands that
+        # URL whatever ranking signals the /stock/ variant had accumulated.
+        if re.fullmatch(r"\d{6}", code):
+            return RedirectResponse(f"/investor/{code}", status_code=301)
+        return HTMLResponse(
+            render_spa_shell(_spa_template, f"/stock/{code}/investor", {}), status_code=404
+        )
 
     @app.get("/rss.xml", include_in_schema=False)
     def discovery_rss():
@@ -681,7 +720,11 @@ if STATIC_DIR.exists():
             target = candidate
         else:
             query = {key: value for key, value in request.query_params.items()}
-            return HTMLResponse(render_spa_shell(_spa_template, "/" + full_path, query))
+            path = "/" + full_path
+            shell = render_spa_shell(_spa_template, path, query)
+            if is_unknown_kr_code(path.rstrip("/") or "/"):
+                return HTMLResponse(shell, status_code=404)
+            return HTMLResponse(shell)
 
         # stat_result is passed in so FileResponse fills in etag/last-modified during
         # construction instead of lazily while streaming the body — they have to

@@ -222,11 +222,15 @@ export default function App() {
     document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute("href", canonicalUrl);
     document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute("content", canonicalUrl);
 
-    const seo = briefMatch
-      ? PUBLIC_PAGE_SEO["/market-brief"]
-      : stockMatch || canonicalPath.startsWith("/stock/")
-        ? PUBLIC_PAGE_SEO["/desk"]
-        : PUBLIC_PAGE_SEO[canonicalPath];
+    // /stock/<code>, /stock/<code>/outlook|news and /investor/<code> already arrive
+    // with per-URL title/description rendered by services/seo.py, using the company
+    // name this effect does not have. Falling back to the generic /desk copy here is
+    // what left every one of those ~3,000 pages advertising the same title and
+    // description to a crawler that renders JavaScript. The page components refine
+    // the title themselves once the name has loaded.
+    if (/^\/(stock|investor)\//.test(canonicalPath)) return;
+
+    const seo = briefMatch ? PUBLIC_PAGE_SEO["/market-brief"] : PUBLIC_PAGE_SEO[canonicalPath];
     if (!seo) return;
     const name = canonicalName || code;
     const briefRaw = briefMatch ? briefMatch[2].toUpperCase() : "";
@@ -241,11 +245,9 @@ export default function App() {
     const briefTitle = briefMatch
       ? `${briefMatch[1]} ${displayMarketName} 오늘 브리핑 | K-Stock Hub`
       : "";
-    const stockPageCode = stockMatch?.[1] || (canonicalPath.startsWith("/stock/") ? code : "");
-    const title = briefTitle || (stockPageCode ? `${name || stockPageCode} 주가·차트·종목정보 | K-Stock Hub` : keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title);
+    const title = briefTitle || (keepsStockCode && name ? `${name} 주가·차트·종목정보 | K-Stock Hub` : seo.title);
     const description = briefMatch
       ? `${briefMatch[1]} ${displayMarketName} 종가, 외국인·기관 수급, 거래대금과 핵심 이슈 및 확인할 사항을 분석한 오늘 브리핑입니다.`
-      : stockPageCode ? `${name || stockPageCode}(${stockPageCode}) 현재가, 등락률, 차트, 외국인·기관 수급과 최신 종목 정보를 확인하세요.`
       : keepsStockCode && name ? `${name}(${code}) 현재가, 등락률, 차트와 최신 종목 정보를 확인하세요.` : seo.description;
     document.title = title;
     document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute("content", description);

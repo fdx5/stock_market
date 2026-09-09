@@ -237,15 +237,26 @@ class TestSitemapCodes:
     def test_preferred_share_codes_are_dropped_not_mangled(self):
         from app.services import seo
 
-        xml = seo.build_sitemap([
+        stocks = [
             {"code": "005930", "name": "삼성전자"},
             # KRX 신형우선주. Stripping the letter produced "/stock/00680", which is
             # neither this stock nor any routable page - 200 with the generic shell.
             {"code": "00680K", "name": "LS 3우B"},
-        ])
+        ]
+        xml = seo.build_stocks_sitemap(stocks) + seo.build_investor_sitemap(stocks)
         assert "/stock/005930<" in xml
         assert "/investor/005930<" in xml
         assert "00680" not in xml
+        # /stock/<code>/investor now 301s to /investor/<code>; a sitemap must not
+        # list a URL that redirects.
+        assert "/stock/005930/investor<" not in xml
+
+    def test_sitemap_index_lists_every_section(self):
+        from app.services import seo
+
+        xml = seo.build_sitemap_index()
+        for section in seo.SITEMAP_SECTIONS:
+            assert f"/sitemap-{section}.xml" in xml
 
     def test_rss_applies_the_same_rule(self):
         from app.services import seo
@@ -256,3 +267,107 @@ class TestSitemapCodes:
         ])
         assert "005930" in xml
         assert "00680" not in xml
+
+
+class TestCrawlableInvestorPages:
+    """The /investor/<code> pages Search Console reported as discovered-or-crawled
+    but not indexed. Every assertion here is one of the reasons it gave."""
+
+    TEMPLATE = (
+        "<html><head><title>t</title>"
+        '<meta name="description" content="d" />'
+        '<meta name="keywords" content="k" />'
+        '<meta property="og:title" content="t" />'
+        '<meta property="og:description" content="d" />'
+        '<meta property="og:url" content="u" />'
+        '<meta property="og:type" content="website" />'
+        '<meta property="og:image" content="i" />'
+        '<meta property="og:image:secure_url" content="i" />'
+        '<meta property="og:image:alt" content="a" />'
+        '<meta name="twitter:title" content="t" />'
+        '<meta name="twitter:description" content="d" />'
+        '<meta name="twitter:image" content="i" />'
+        '<meta name="twitter:image:alt" content="a" />'
+        '<link rel="canonical" href="c" />'
+        '</head><body><div id="root"></div></body></html>'
+    )
+
+    UNIVERSE = [
+        {"code": "005930", "name": "삼성전자", "market": "KOSPI"},
+        {"code": "001200", "name": "유진투자증권", "market": "KOSPI"},
+    ]
+
+    def _seo(self, monkeypatch, records):
+        from app.services import seo
+
+        monkeypatch.setattr(seo, "get_top_market_cap_all", lambda limit=1000: self.UNIVERSE)
+        monkeypatch.setattr(seo, "get_stock_name",
+                            lambda code: next((row["name"] for row in self.UNIVERSE if row["code"] == code), None))
+        monkeypatch.setattr(seo.investor_fetcher, "get_investor_trend",
+                            lambda code, days=20: records.get(code, []))
+        seo.cache._store.clear()
+        return seo
+
+    @staticmethod
+    def _rows(base):
+        return [
+            {"date": f"2026-09-{8 - i:02d}", "close": base + i, "change": -10.0,
+             "individual_amount": 1.0, "institution_amount": 2.0, "foreign_amount": -3.0}
+            for i in range(5)
+        ]
+
+    def _meta(self, html_text):
+        import re
+        return (re.search(r"<title>(.*?)</title>", html_text, re.S).group(1),
+                re.search(r'name="description" content="(.*?)"', html_text).group(1))
+
+    def test_two_investor_pages_do_not_share_one_description(self, monkeypatch):
+        # Both pages used to ship the same sentence with the name swapped, which is
+        # the duplicate-template shape Google files under "크롤링됨 - 색인 생성되지 않음".
+        seo = self._seo(monkeypatch, {"005930": self._rows(70000), "001200": self._rows(4300)})
+        first = self._meta(seo.render_spa_shell(self.TEMPLATE, "/investor/005930", {}))
+        second = self._meta(seo.render_spa_shell(self.TEMPLATE, "/investor/001200", {}))
+        assert first[0] != second[0]
+        assert first[1] != second[1]
+        assert "70,000원" in first[1] and "4,300원" in second[1]
+
+    def test_investor_page_links_to_other_investor_pages(self, monkeypatch):
+        # Without these it is reachable only from its own stock page and the sitemap.
+        seo = self._seo(monkeypatch, {"001200": self._rows(4300)})
+        shell = seo.render_spa_shell(self.TEMPLATE, "/investor/001200", {})
+        assert '<a href="/investor/005930">' in shell
+        assert f'<a href="{seo.INVESTOR_HUB}">' in shell
+
+    def test_hub_lists_every_investor_page(self, monkeypatch):
+        seo = self._seo(monkeypatch, {})
+        shell = seo.render_spa_shell(self.TEMPLATE, seo.INVESTOR_HUB, {})
+        for row in self.UNIVERSE:
+            assert f'<a href="/investor/{row["code"]}">' in shell
+
+    def test_stock_landing_siblings_stopped_being_identical(self, monkeypatch):
+        seo = self._seo(monkeypatch, {})
+        outlook = seo.render_spa_shell(self.TEMPLATE, "/stock/001200/outlook", {})
+        news = seo.render_spa_shell(self.TEMPLATE, "/stock/001200/news", {})
+        assert self._meta(outlook) != self._meta(news)
+        body = lambda page: page.split('<div id="root">')[1]
+        assert body(outlook) != body(news)
+
+    def test_delisted_code_is_a_hard_404_not_a_populated_page(self, monkeypatch):
+        seo = self._seo(monkeypatch, {})
+        assert seo.is_unknown_kr_code("/investor/999999") is True
+        assert seo.is_unknown_kr_code("/stock/999999") is True
+        assert seo.is_unknown_kr_code("/investor/005930") is False
+        # A US ticker is not a KR code and must never be 404'd by this check.
+        assert seo.is_unknown_kr_code("/stock/AAPL") is False
+
+    def test_an_unreachable_krx_snapshot_never_404s_the_kr_pages(self, monkeypatch):
+        from app.services import seo
+
+        monkeypatch.setattr(seo, "get_top_market_cap_all", lambda limit=1000: [])
+        seo.cache._store.clear()
+        assert seo.is_unknown_kr_code("/investor/005930") is False
+
+    def test_heading_drops_the_site_name(self, monkeypatch):
+        seo = self._seo(monkeypatch, {"001200": self._rows(4300)})
+        shell = seo.render_spa_shell(self.TEMPLATE, "/investor/001200", {})
+        assert "<h1 style=\"font-size:32px\">유진투자증권 외국인·기관 매매동향 (001200)</h1>" in shell
