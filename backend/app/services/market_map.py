@@ -235,6 +235,45 @@ def _get_etf_codes() -> set[str]:
         return set()
 
 
+def _get_krx_snapshot(market: str, industry_by_code: dict[str, str], etf_codes: set[str]) -> list[dict]:
+    """Build a domestic price roster from the KRX listing snapshot.
+
+    Naver's old market-cap HTML page now redirects to the new stock.naver.com app,
+    whose server response contains no ``table.type_2`` rows.  Keep the KRX snapshot as
+    a source-level fallback so a presentation change at Naver cannot turn every
+    domestic market into an empty list.  The quote overlay below still supplies the
+    live price when it is available.
+    """
+    listing_market = "KOSPI" if market == "kospi" else "KOSDAQ"
+    df = krx_listing.stock_listing(listing_market)
+    if df.empty:
+        return []
+    market_id = "STK" if market == "kospi" else "KSQ"
+    rows: list[dict] = []
+    for raw in df.to_dict("records"):
+        code = str(raw.get("Code") or "").strip()
+        if not code or code in etf_codes or str(raw.get("MarketId") or "") != market_id:
+            continue
+        def number(name: str, default: float = 0.0) -> float:
+            try:
+                value = float(raw.get(name))
+                return value if pd.notna(value) else default
+            except (TypeError, ValueError):
+                return default
+        rows.append({
+            "code": code,
+            "name": str(raw.get("Name") or ""),
+            "close": number("Close"),
+            "change": number("Changes"),
+            "change_pct": number("ChagesRatio"),
+            "marcap": number("Marcap"),
+            "volume": number("Volume"),
+            "sector": _resolve_sector(code, industry_by_code),
+        })
+    rows.sort(key=lambda item: item["marcap"], reverse=True)
+    return rows
+
+
 MAX_NAVER_PAGES = 45  # safety cap; the KOSPI board (incl. ETFs) tops out around here
 
 
@@ -256,6 +295,10 @@ def _get_market_map(market: str, sosok: int, limit: int, fresh: bool = False) ->
         if len(items) >= limit or pages >= MAX_NAVER_PAGES:
             break
         pages = min(pages + 10, MAX_NAVER_PAGES)
+
+    if not items and market in {"kospi", "kosdaq"}:
+        logger.warning("market_map: Naver returned no %s rows; using KRX listing snapshot", market)
+        items = _get_krx_snapshot(market, industry_by_code, etf_codes)[:limit]
 
     items.sort(key=lambda it: it["marcap"], reverse=True)
     items = items[:limit]

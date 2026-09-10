@@ -96,3 +96,33 @@ def test_an_unreadable_industry_map_degrades_instead_of_failing(monkeypatch):
     )
     assert market_map._get_industry_map() == {"005930": "반도체 제조업"}
     market_map.cache.invalidate("krx_industry_map")
+
+
+@pytest.mark.parametrize("market,market_id,code", [("kospi", "STK", "005930"), ("kosdaq", "KSQ", "247540")])
+def test_market_map_falls_back_to_krx_when_naver_returns_no_rows(monkeypatch, market, market_id, code):
+    """Naver's legacy market-cap HTML can become an empty page after a redirect."""
+    monkeypatch.setattr(market_map, "_get_price_snapshot", lambda *args, **kwargs: [])
+    monkeypatch.setattr(market_map, "_get_industry_map", lambda: {code: "반도체 제조업"})
+    monkeypatch.setattr(market_map, "_get_etf_codes", lambda: set())
+    monkeypatch.setattr(market_map, "get_stock_quotes_bulk", lambda codes: {})
+    monkeypatch.setattr(
+        market_map.krx_listing,
+        "stock_listing",
+        lambda requested: pd.DataFrame(
+            {
+                "Code": [code, "999999"],
+                "Name": ["테스트 종목", "다른 시장"],
+                "MarketId": [market_id, "KSQ" if market_id == "STK" else "STK"],
+                "Close": [1000, 2000],
+                "Changes": [10, 20],
+                "ChagesRatio": [1.0, 2.0],
+                "Marcap": [1000000, 2000000],
+                "Volume": [100, 200],
+            }
+        ),
+    )
+
+    rows = market_map._get_market_map(market, 0 if market == "kospi" else 1, 50)
+
+    assert [row["code"] for row in rows] == [code]
+    assert rows[0]["close"] == 1000
