@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from app.services.cache import cache
 
 TTL_BOARD_SECONDS = 3 * 60
+MOBILE_BOARD_URL = "https://m.stock.naver.com/front-api/discussion/list"
 
 HEADERS = {
     "User-Agent": (
@@ -32,6 +33,36 @@ _session.mount(
 
 
 def _fetch_board_page(code: str, page: int) -> list[dict]:
+    # finance.naver.com's legacy board URL now redirects to stock.naver.com's
+    # client-rendered app, so the old table parser sees a valid 200 response with no
+    # rows. The mobile JSON endpoint is the data source used by that app and remains
+    # server-readable. One page contains the desk's full 30-post window.
+    if page == 1:
+        response = _session.get(
+            MOBILE_BOARD_URL,
+            params={"discussionType": "domesticStock", "itemCode": code, "pageSize": 30},
+            timeout=4,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        result = payload.get("result") or {}
+        if payload.get("isSuccess") and isinstance(result.get("posts"), list):
+            posts = []
+            for row in result["posts"]:
+                writer = row.get("writer") or {}
+                posts.append(
+                    {
+                        "nid": str(row.get("id") or ""),
+                        "title": row.get("title") or "",
+                        "date": row.get("writtenAt") or "",
+                        "author": writer.get("nickname") or "",
+                        "views": int(row.get("viewCount") or 0),
+                        "likes": int(row.get("recommendCount") or 0),
+                        "dislikes": int(row.get("notRecommendCount") or 0),
+                    }
+                )
+            return [post for post in posts if post["nid"]]
+
     url = f"https://finance.naver.com/item/board.naver?code={code}&page={page}"
     resp = _session.get(url, timeout=4)
     resp.raise_for_status()

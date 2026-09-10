@@ -9,6 +9,7 @@ from fastapi import HTTPException
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.routers import stock  # noqa: E402
+from app.data import board_fetcher  # noqa: E402
 
 
 def test_discussions_deduplicates_codes_and_preserves_first_seen_order(monkeypatch):
@@ -71,3 +72,50 @@ def test_discussions_fills_thirty_posts_from_successive_pages(monkeypatch):
     assert len(posts) == 30
     assert posts[-1]["nid"] == "29"
     assert calls == [1, 2]
+
+
+def test_board_fetcher_reads_naver_mobile_json_board(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "isSuccess": True,
+                "result": {
+                    "posts": [
+                        {
+                            "id": "429246424",
+                            "title": "삼성전자 토론",
+                            "writtenAt": "2026-09-10T21:01:22",
+                            "writer": {"nickname": "투자자"},
+                            "viewCount": 12,
+                            "recommendCount": 3,
+                            "notRecommendCount": 1,
+                        }
+                    ]
+                },
+            }
+
+    seen = {}
+
+    def fake_get(url, **kwargs):
+        seen["url"] = url
+        seen["params"] = kwargs["params"]
+        return Response()
+
+    monkeypatch.setattr(board_fetcher._session, "get", fake_get)
+
+    assert board_fetcher._fetch_board_page("005930", 1) == [
+        {
+            "nid": "429246424",
+            "title": "삼성전자 토론",
+            "date": "2026-09-10T21:01:22",
+            "author": "투자자",
+            "views": 12,
+            "likes": 3,
+            "dislikes": 1,
+        }
+    ]
+    assert seen["url"] == board_fetcher.MOBILE_BOARD_URL
+    assert seen["params"] == {"discussionType": "domesticStock", "itemCode": "005930", "pageSize": 30}
