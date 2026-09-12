@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { reportChessIngress } from "../useActivityTracking";
+import { reportVoltarisIngress } from "../useActivityTracking";
 
-const CHESS_URL = "https://threedchess-mpjo.onrender.com";
-// `.orbit-top` is deliberately absent: the 증시궤도 pages drop the chess link (see
+const VOLTARIS_URL = "https://voltaris-nyyo.onrender.com/";
+// `.orbit-top` is deliberately absent: the 증시궤도 pages drop the VOLTARIS link (see
 // EXCLUDED_PATHS), and that header carries nothing else this component would hook.
 const HEADER_TARGETS = [
   ".app-nav-row",
@@ -13,7 +13,7 @@ const HEADER_TARGETS = [
   ".discussion-hud",
 ].join(",");
 
-/** Routes that never show the chess link. */
+/** Routes that never show the VOLTARIS link. */
 const EXCLUDED_PATHS = new Set([
   "/discussion-explorer",
   "/market-bubbles",
@@ -23,15 +23,15 @@ const EXCLUDED_PATHS = new Set([
   "/sp500-orbit",
 ]);
 
-function ChessKnightIcon() {
+function AirplaneIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M7.2 18.2h10.6l1.1 2.2H5.8l1.4-2.2Zm1-1.5c.1-2.2.7-3.8 2-5.2L8.8 9.8 6.5 11l.7-4.2L13 3.2l-.2 2c3.1.8 5 3 5 6.2 0 2.1-.7 3.8-1.8 5.3H8.2Zm3.2-8.9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
+      <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5Z" />
     </svg>
   );
 }
 
-export default function ChessIngressLink({ path }: { path: string }) {
+export default function VoltarisIngressLink({ path }: { path: string }) {
   const [target, setTarget] = useState<Element | null>(null);
 
   useEffect(() => {
@@ -49,7 +49,7 @@ export default function ChessIngressLink({ path }: { path: string }) {
         if (newsLink) {
           if (!portalSlot?.isConnected) {
             portalSlot = document.createElement("span");
-            portalSlot.className = "chess-ingress-slot";
+            portalSlot.className = "voltaris-ingress-slot";
             newsLink.insertAdjacentElement("afterend", portalSlot);
           }
           setTarget(portalSlot);
@@ -70,16 +70,16 @@ export default function ChessIngressLink({ path }: { path: string }) {
   if (!target) return null;
   return createPortal(
     <a
-      className="chess-ingress-link"
-      href={CHESS_URL}
+      className="voltaris-ingress-link"
+      href={VOLTARIS_URL}
       target="_blank"
       rel="noopener noreferrer"
       data-track="self"
-      onClick={() => reportChessIngress(path)}
-      aria-label="체스게임으로 이동"
+      onClick={() => reportVoltarisIngress(path)}
+      aria-label="VOLTARIS로 이동"
     >
-      <ChessKnightIcon />
-      <span>체스게임</span>
+      <AirplaneIcon />
+      <span>VOLTARIS</span>
     </a>,
     target,
   );
