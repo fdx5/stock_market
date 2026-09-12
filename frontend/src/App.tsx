@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from "react";
 import LoadingState from "./components/LoadingState";
-import ChessIngressLink from "./components/ChessIngressLink";
+import VoltarisIngressLink from "./components/VoltarisIngressLink";
 import HeaderVisitorBadge from "./components/HeaderVisitorBadge";
 import { useActivityTracking } from "./useActivityTracking";
 import { navigate, useRoute } from "./router";
@@ -396,7 +396,7 @@ export default function App() {
   return (
     <>
       <Suspense fallback={<LoadingState />}>{page}</Suspense>
-      <ChessIngressLink path={path} />
+      <VoltarisIngressLink path={path} />
       <HeaderVisitorBadge path={path} />
       {showRecentDock && (
         <Suspense fallback={null}>
