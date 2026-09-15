@@ -23,7 +23,15 @@ def _load_market(market: str) -> pd.DataFrame:
     df = krx_listing.stock_listing(market)
     code_col = "Code" if "Code" in df.columns else "Symbol"
     df = df.rename(columns={code_col: "Code"})
-    df = df[["Code", "Name", "Marcap"]].dropna()
+    df = df[["Code", "Name", "Marcap"]].dropna(subset=["Code", "Name"])
+    # Marcap is blank on the KRX snapshot's own stub file — the one published before a
+    # session's closing data lands, and the only kind published at all on a non-trading
+    # day (see krx_listing). Dropping the whole row for a blank Marcap used to take
+    # search, name resolution and every /stock/:code detail view down market-wide
+    # whenever the day's snapshot was still a stub: this is a search/lookup universe,
+    # not a market-cap ranking (get_top_market_cap* is), so a name is worth keeping
+    # even before today's cap is known.
+    df["Marcap"] = df["Marcap"].fillna(0)
     df["Market"] = market
     return df
 
