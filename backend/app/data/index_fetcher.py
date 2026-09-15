@@ -1,7 +1,4 @@
-import re
-
 import requests
-from bs4 import BeautifulSoup
 
 from app.services.cache import cache
 
@@ -43,37 +40,40 @@ def get_index(symbol: str, fresh: bool = False) -> dict | None:
         return None
 
 
+def _parse_signed_amount(value) -> float | None:
+    if value in (None, "", "N/A"):
+        return None
+    try:
+        return float(str(value).replace(",", "").replace("+", ""))
+    except ValueError:
+        return None
+
+
 def _fetch_market_investor(symbol: str) -> dict | None:
     # Unlike per-stock investor breakdowns (only finalized after each session closes),
     # KRX publishes a running market-wide net buy/sell estimate while the session is
-    # open, and Naver renders it server-side on the classic index page — no separate
-    # API needed.
-    url = f"https://finance.naver.com/sise/sise_index.naver?code={symbol}"
+    # open. This used to come from finance.naver.com/sise/sise_index.naver's
+    # server-rendered "투자자별 매매동향" box, but that URL now 302s to the
+    # stock.naver.com Next.js app, whose HTML no longer carries it (the same
+    # redirect that broke the market-cap scrape — see naver_price_fetcher.py). The
+    # replacement is the JSON API that app itself loads from.
+    url = f"https://m.stock.naver.com/api/index/{symbol}/integration"
     resp = requests.get(url, headers=HEADERS, timeout=4)
     resp.raise_for_status()
-    resp.encoding = "euc-kr"
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    heading = soup.find(string=lambda s: s and s.strip() == "투자자별 매매동향")
-    if heading is None:
-        return None
-    dl = heading.find_parent("dl")
-    if dl is None:
+    trend = resp.json().get("dealTrendInfo")
+    if not trend:
         return None
 
-    amounts: dict[str, float] = {}
-    for label, dd in zip(["individual", "foreign", "institution"], dl.select("dd.dd")[:3]):
-        match = re.search(r"([+-]?[\d,]+)\s*억", dd.get_text(" ", strip=True))
-        if match:
-            amounts[label] = float(match.group(1).replace(",", ""))
-
-    if len(amounts) < 3:
+    individual = _parse_signed_amount(trend.get("personalValue"))
+    foreign = _parse_signed_amount(trend.get("foreignValue"))
+    institution = _parse_signed_amount(trend.get("institutionalValue"))
+    if individual is None or foreign is None or institution is None:
         return None
 
     return {
-        "individual_amount": amounts["individual"],
-        "foreign_amount": amounts["foreign"],
-        "institution_amount": amounts["institution"],
+        "individual_amount": individual,
+        "foreign_amount": foreign,
+        "institution_amount": institution,
     }
 
 
