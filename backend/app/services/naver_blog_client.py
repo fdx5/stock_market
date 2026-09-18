@@ -401,8 +401,8 @@ def publish(
                     # only way to tell "cookies are stale" from "this IP may not write"
                     # was to be watching the server's logs at 16:22.
                     raise NaverSessionExpired(
-                        "Naver rejected blog write privilege; the stored login session "
-                        "must be renewed "
+                        "Naver rejected blog write privilege; verify the login session "
+                        "and publishing environment "
                         f"(errorCode={captured.get('error_code')!r}, "
                         f"errorMessage={captured.get('error_message')!r}, "
                         f"body={(captured.get('response_body') or '')[:300]})"
@@ -798,8 +798,13 @@ def keep_alive(cookies: list[dict]) -> list[dict]:
         page = context.new_page()
         page.add_init_script(_PLATFORM_INIT_SCRIPT)
         try:
-            page.goto(f"https://blog.naver.com/{BLOG_ID}", wait_until="domcontentloaded", timeout=30000)
+            # Public blog pages load even with expired cookies. Require access to
+            # the authenticated editor before reporting the session as healthy.
+            page.goto(WRITE_URLS[0], wait_until="domcontentloaded", timeout=30000)
             _assert_logged_in(page)
+            if _find_editor_frame(page, timeout_s=25) is None:
+                _assert_logged_in(page)
+                raise NaverPublishError("session check could not access the blog editor")
             page.wait_for_timeout(random.randint(1500, 3500))
             return context.cookies()
         finally:

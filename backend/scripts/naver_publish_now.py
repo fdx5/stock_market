@@ -42,6 +42,7 @@ def main() -> int:
     parser.add_argument("--date", help="리포트 날짜 (YYYY-MM-DD). 기본값: 오늘 KST")
     parser.add_argument("--dry-run", action="store_true", help="발행 직전까지만 수행")
     parser.add_argument("--status", action="store_true", help="발행 이력 출력")
+    parser.add_argument("--catch-up", action="store_true", help="평일 저녁 미발행 건 복구 (로컬 예약 작업용)")
     parser.add_argument("--market", action="append", help="특정 종목만 (반복 지정 가능)")
     parser.add_argument("--reset", action="store_true", help="재시도 횟수 초기화 (발행완료 건은 제외)")
     parser.add_argument("--limit", type=int, default=30)
@@ -49,6 +50,16 @@ def main() -> int:
 
     if args.status:
         return show_status(args.limit)
+
+    if args.catch_up:
+        # The desktop fallback must not send account messages. Publication and
+        # failure details remain in the shared ledger for the server to inspect.
+        naver_publisher._alert = lambda text: None
+        result = naver_publisher.catch_up_if_needed()
+        print(result or {"status": "outside_window_or_empty"})
+        return 0 if not result or result["status"] in (
+            "ok", "nothing_to_do", "already_running", "already_running_elsewhere"
+        ) else 1
 
     report_date = args.date or dt.datetime.now(KST).date().isoformat()
 
