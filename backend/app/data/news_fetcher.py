@@ -1,36 +1,24 @@
 import datetime as dt
+import html
 import re
-from urllib.parse import parse_qs, urlparse
 
 import requests
-from bs4 import BeautifulSoup
 
 from app.services.cache import cache
 
 TTL_NEWS_SECONDS = 15 * 60
 
+# finance.naver.com/item/news_news.naver (the old HTML scrape target) now 410s —
+# Naver retired it the same way it retired sise_market_sum.naver (see
+# naver_price_fetcher.py). The mobile Next.js app it replaced loads its per-code news
+# tab from this JSON API instead.
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
     ),
-    "Referer": "https://finance.naver.com/",
+    "Referer": "https://m.stock.naver.com/",
 }
-
-
-def _resolve_article_link(href: str) -> str:
-    """news_read.naver is just a client-side redirect stub (`top.location.href = ...`)
-    that only works when the browser sends a finance.naver.com Referer — it breaks
-    (blank/broken page) for rel="noreferrer" links or in-app browsers. Link straight
-    to the stable n.news.naver.com article URL instead, using the office/article id
-    from the query string.
-    """
-    query = parse_qs(urlparse(href).query)
-    office_id = query.get("office_id", [None])[0]
-    article_id = query.get("article_id", [None])[0]
-    if office_id and article_id:
-        return f"https://n.news.naver.com/mnews/article/{office_id}/{article_id}"
-    return f"https://finance.naver.com{href}" if href.startswith("/") else href
 
 
 def _normalize_title(title: str) -> str:
@@ -48,62 +36,59 @@ def _normalize_title(title: str) -> str:
 _OLDEST_DATE = dt.datetime.min
 
 
-def _parse_naver_date(date_str: str) -> dt.datetime:
-    """Parse finance.naver's 'YYYY.MM.DD HH:MM' (occasionally date-only) timestamp for
-    recency sorting. Anything unparseable sorts as oldest so it never displaces a
-    genuinely dated article at the top of the list."""
-    text = (date_str or "").strip()
-    for fmt in ("%Y.%m.%d %H:%M", "%Y.%m.%d"):
-        try:
-            return dt.datetime.strptime(text, fmt)
-        except ValueError:
-            continue
-    return _OLDEST_DATE
+def _parse_api_datetime(raw: str) -> dt.datetime:
+    """Parse the JSON API's 'YYYYMMDDHHMM' timestamp for recency sorting. Anything
+    unparseable sorts as oldest so it never displaces a genuinely dated article at the
+    top of the list."""
+    try:
+        return dt.datetime.strptime((raw or "").strip(), "%Y%m%d%H%M")
+    except ValueError:
+        return _OLDEST_DATE
 
 
 def _fetch_news(code: str, limit: int) -> list[dict]:
-    url = f"https://finance.naver.com/item/news_news.naver?code={code}&page=1"
-    resp = requests.get(url, headers=HEADERS, timeout=5)
-    resp.encoding = "euc-kr"
-    soup = BeautifulSoup(resp.text, "html.parser")
+    # pageSize asks for more than `limit`: the feed repeats the same wire story under
+    # several article ids as it gets updated through the afternoon (see dedup below),
+    # so a request capped at exactly `limit` can come back with fewer distinct stories
+    # than asked for.
+    url = f"https://m.stock.naver.com/api/news/stock/{code}"
+    resp = requests.get(url, headers=HEADERS, params={"pageSize": max(limit * 2, 20), "page": 1}, timeout=5)
+    resp.raise_for_status()
+    groups = resp.json()
 
     items: list[dict] = []
     seen_links: set[str] = set()
     seen_titles: set[str] = set()
-    # Collect the whole first page before truncating: Naver groups related articles
-    # into clusters ("연관뉴스 묶기"), so the raw row order isn't strictly newest-first —
-    # a fresh headline can sit several rows below an older one it's clustered with.
-    # Breaking at `limit` in raw order could therefore drop a more recent article than
-    # the ones kept, so every row is gathered here and the newest `limit` are chosen
-    # after the date sort below.
-    for row in soup.select("table.type5 tr"):
-        title_tag = row.select_one("td.title a")
-        if not title_tag:
-            continue
+    for group in groups:
+        for entry in group.get("items", []):
+            link = entry.get("mobileNewsUrl") or ""
+            title = html.unescape(entry.get("titleFull") or entry.get("title") or "")
+            if not link or not title:
+                continue
+            title_key = _normalize_title(title)
+            if link in seen_links or (title_key and title_key in seen_titles):
+                continue
+            seen_links.add(link)
+            if title_key:
+                seen_titles.add(title_key)
 
-        href = title_tag.get("href", "")
-        link = _resolve_article_link(href)
-        title = title_tag.get_text(strip=True)
-        title_key = _normalize_title(title)
-        if link in seen_links or (title_key and title_key in seen_titles):
-            continue
-        seen_links.add(link)
-        if title_key:
-            seen_titles.add(title_key)
+            raw_dt = entry.get("datetime") or ""
+            parsed = _parse_api_datetime(raw_dt)
+            date_text = parsed.strftime("%Y.%m.%d %H:%M") if parsed != _OLDEST_DATE else ""
 
-        press_tag = row.select_one("td.info")
-        date_tag = row.select_one("td.date")
+            items.append(
+                {
+                    "title": title,
+                    "link": link,
+                    "press": entry.get("officeName") or "",
+                    "date": date_text,
+                    "_sort": parsed,
+                }
+            )
 
-        items.append(
-            {
-                "title": title,
-                "link": link,
-                "press": press_tag.get_text(strip=True) if press_tag else "",
-                "date": date_tag.get_text(strip=True) if date_tag else "",
-            }
-        )
-
-    items.sort(key=lambda it: _parse_naver_date(it["date"]), reverse=True)
+    items.sort(key=lambda it: it["_sort"], reverse=True)
+    for it in items:
+        del it["_sort"]
     return items[:limit]
 
 

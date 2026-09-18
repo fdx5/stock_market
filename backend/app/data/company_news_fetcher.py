@@ -347,8 +347,8 @@ def enrich_with_og_image(item: dict) -> dict:
     so this opens the article's own page and reads its Open Graph tags — the same
     lightweight, best-effort scrape pattern used elsewhere in this codebase
     (global_marketcap_fetcher's get_company_detail). Naver's links are direct,
-    stable article URLs (see news_fetcher._resolve_article_link), so — unlike a
-    Google News RSS wrapper link — this reaches the real page with a plain GET.
+    stable article URLs (n.news.naver.com, already resolved by news_fetcher), so —
+    unlike a Google News RSS wrapper link — this reaches the real page with a plain GET.
     Any failure here (timeout, non-HTML response, no og tags) just leaves the item
     without an image/snippet rather than breaking the whole list."""
     try:
