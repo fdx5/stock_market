@@ -31,15 +31,25 @@ def _fetch_investor_trend(code: str, page_size: int) -> list[dict]:
     if not payload.get("isSuccess"):
         return []
 
+    # Naver nested each day's figures under a per-venue ("krx"/"nxt") object when it
+    # added the NXT alternative exchange, and renamed most fields in the process. The
+    # old flat-row shape this used to parse (row["closePrice"], row["bizdate"], ...)
+    # no longer exists, so every lookup raised KeyError and was silently swallowed by
+    # the except below — every /investor page rendered with empty data regardless of
+    # code, which is also why they were duplicate-content, un-indexable pages.
+    items = ((payload.get("result") or {}).get("items")) or []
     records = []
-    for row in payload.get("result") or []:
+    for item in items:
+        venue = item.get("krx") or item.get("nxt")
+        if not venue:
+            continue
         try:
-            close = _parse_num(row["closePrice"])
-            foreigner_qty = _parse_num(row["foreignerPureBuyQuant"])
-            organ_qty = _parse_num(row["organPureBuyQuant"])
-            individual_qty = _parse_num(row["individualPureBuyQuant"])
-            bizdate = row["bizdate"]
-        except (KeyError, ValueError):
+            close = _parse_num(venue["closingPrice"])
+            foreigner_qty = _parse_num(venue["foreignNetVolume"])
+            organ_qty = _parse_num(venue["organizationNetVolume"])
+            individual_qty = _parse_num(venue["individualNetVolume"])
+            traded_at = str(item["localTradedAt"])
+        except (KeyError, ValueError, TypeError):
             continue
 
         # Naver only publishes net *quantity* by investor type, not net amount — the
@@ -47,9 +57,9 @@ def _fetch_investor_trend(code: str, page_size: int) -> list[dict]:
         # when the true volume-weighted trade price isn't available.
         records.append(
             {
-                "date": f"{bizdate[:4]}-{bizdate[4:6]}-{bizdate[6:]}",
+                "date": traded_at,
                 "close": close,
-                "change": _parse_num(row.get("compareToPreviousClosePrice", "0")),
+                "change": _parse_num(venue.get("changePrice", "0")),
                 "individual_amount": round(individual_qty * close / 100_000_000, 1),
                 "institution_amount": round(organ_qty * close / 100_000_000, 1),
                 "foreign_amount": round(foreigner_qty * close / 100_000_000, 1),
