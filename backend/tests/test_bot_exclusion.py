@@ -234,7 +234,7 @@ class TestActivityLog:
 
 
 class TestSitemapCodes:
-    def test_preferred_share_codes_are_dropped_not_mangled(self):
+    def test_preferred_share_codes_are_dropped_not_mangled(self, monkeypatch):
         from app.services import seo
 
         stocks = [
@@ -243,13 +243,33 @@ class TestSitemapCodes:
             # neither this stock nor any routable page - 200 with the generic shell.
             {"code": "00680K", "name": "LS 3우B"},
         ]
-        xml = seo.build_stocks_sitemap(stocks) + seo.build_investor_sitemap(stocks)
+        monkeypatch.setattr(seo, "_kr_etf_names", lambda: {"069500": "KODEX 200"})
+        xml = seo.build_stocks_sitemap(stocks + [{"code": "069500", "name": "KODEX 200"}])
         assert "/stock/005930<" in xml
-        assert "/investor/005930<" in xml
         assert "00680" not in xml
-        # /stock/<code>/investor now 301s to /investor/<code>; a sitemap must not
-        # list a URL that redirects.
-        assert "/stock/005930/investor<" not in xml
+        # One canonical URL per company: no /investor, /outlook or /news pages, and
+        # ETFs live in their own section.
+        assert "/investor/" not in xml
+        assert "/stock/005930/" not in xml
+        assert "069500" not in xml
+
+    def test_investor_section_is_withdrawn(self):
+        from app.services import seo
+
+        assert "investor" not in seo.SITEMAP_SECTIONS
+        assert "sitemap-investor" not in seo.build_sitemap_index()
+
+    def test_etf_and_us_sections_list_detail_pages(self, monkeypatch):
+        from app.services import seo
+
+        monkeypatch.setattr(seo, "_kr_etf_names", lambda: {"069500": "KODEX 200"})
+        monkeypatch.setattr(seo, "_us_catalog", lambda: {
+            "NVDA": ("엔비디아", "us_stock"), "BRK.B": ("버크셔", "us_stock"), "QQQ": ("Invesco QQQ", "us_etf"),
+        })
+        etf = seo.build_etf_sitemap()
+        us = seo.build_us_sitemap()
+        assert "/stock/069500<" in etf and "/stock/QQQ<" in etf and "NVDA" not in etf
+        assert "/stock/NVDA<" in us and "/stock/BRK.B<" in us and "QQQ" not in us
 
     def test_sitemap_index_lists_every_section(self):
         from app.services import seo
@@ -305,6 +325,8 @@ class TestCrawlableInvestorPages:
                             lambda code: next((row["name"] for row in self.UNIVERSE if row["code"] == code), None))
         monkeypatch.setattr(seo.investor_fetcher, "get_investor_trend",
                             lambda code, days=20: records.get(code, []))
+        monkeypatch.setattr(seo, "_kr_etf_names", lambda: {})
+        monkeypatch.setattr(seo, "_us_catalog", lambda: {})
         seo.cache._store.clear()
         return seo
 
@@ -364,6 +386,7 @@ class TestCrawlableInvestorPages:
         from app.services import seo
 
         monkeypatch.setattr(seo, "get_top_market_cap_all", lambda limit=1000: [])
+        monkeypatch.setattr(seo, "_kr_etf_names", lambda: {})
         seo.cache._store.clear()
         assert seo.is_unknown_kr_code("/investor/005930") is False
 

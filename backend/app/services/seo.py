@@ -23,7 +23,9 @@ from app.site import PRIMARY_SITE_URL
 SITE = PRIMARY_SITE_URL
 IMAGE = f"{SITE}/img/kospi-map-preview.png"
 MARKET_BRIEF_ROUTE = re.compile(r"^/market-brief/(\d{4}-\d{2}-\d{2})/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})$", re.I)
-STOCK_ROUTE = re.compile(r"^/stock/(\d{6})$", re.I)
+# Any detail page: a KRX code, a KRX ETF code or a US ticker (BRK.B has a dot).
+STOCK_ROUTE = re.compile(r"^/stock/([A-Za-z0-9.\-]{1,16})$", re.I)
+KRX_CODE = re.compile(r"^\d{6}$")
 STOCK_LANDING_ROUTE = re.compile(r"^/stock/(\d{6})/(investor|outlook|news)$", re.I)
 INVESTOR_ROUTE = re.compile(r"^/investor/(\d{6})$", re.I)
 
@@ -50,16 +52,132 @@ def _brief_description(report: dict, day: str, market: str) -> str:
     return f"{day} {market.upper()} 종가, 등락률, 투자자 수급과 업종 흐름을 정리한 데이터 기반 오늘 브리핑입니다."
 
 
-def _stock_identity(path: str) -> tuple[str, str]:
+def _kr_etf_names() -> dict[str, str]:
+    """Every KRX-listed ETF, code → name. /stock/<etf code> used to answer 404 because
+    only the stock universe counted as "known", so none of ~1,200 ETF pages could be
+    indexed at all."""
+
+    def build() -> dict[str, str]:
+        from app.data import krx_listing
+
+        df = krx_listing.stock_listing("ETF/KR")
+        rows = {str(row["Symbol"]).strip().upper(): str(row["Name"]) for _, row in df.iterrows()}
+        rows = {code: name for code, name in rows.items() if KRX_CODE.fullmatch(code)}
+        if not rows:
+            raise RuntimeError("ETF listing unavailable")
+        return rows
+
+    try:
+        return cache.get_or_set("seo_kr_etf_names", 6 * 3600, build)
+    except Exception:
+        return {}
+
+
+def _us_catalog() -> dict[str, tuple[str, str]]:
+    """US tickers with a detail page, ticker → (name, "us_stock" | "us_etf"), in
+    market-cap order for the stocks. Names are Korean where the translation cache
+    already has them — a Korean reader searches 엔비디아, not Nvidia Corp."""
+
+    def build() -> dict[str, tuple[str, str]]:
+        from app.data.us_universe import get_us_universe
+        from app.services.etf_market import get_etfs
+
+        stocks = sorted(get_us_universe(), key=lambda it: -(it.get("market_cap") or 0))
+        rows: dict[str, tuple[str, str]] = {}
+        for it in stocks:
+            code = str(it.get("code", "")).strip().upper()
+            name = str(it.get("name", "")).strip()
+            if code:
+                rows[code] = (name, "us_stock")
+        rows.setdefault("SKHY", ("SK하이닉스 ADR", "us_stock"))
+        try:
+            for it in get_etfs("US").get("items", []):
+                code = str(it.get("code", "")).strip().upper()
+                if code:
+                    rows.setdefault(code, (str(it.get("name", "")).strip() or code, "us_etf"))
+        except Exception:
+            pass
+        if not rows:
+            raise RuntimeError("US universe unavailable")
+        return rows
+
+    try:
+        return cache.get_or_set("seo_us_catalog", 6 * 3600, build)
+    except Exception:
+        return {}
+
+
+_LEGAL_TAIL = re.compile(
+    r",?\s+(Class [A-Z]\b.*|Common Stock.*|Capital Stock.*|Ordinary Shares.*|American Depositary.*"
+    r"|Inc\.?|Corp\.?|Corporation|Co\.|Ltd\.?|plc|N\.V\.)$",
+    re.I,
+)
+
+
+def _us_display_name(name: str) -> str:
+    """The name a Korean reader searches for: the translated one where the (warm)
+    translation cache has it — looked up per render, so a cold cache at startup never
+    pins English titles for hours — else the English name without its legal tail."""
+    try:
+        from app.data.us_universe import get_korean_names_ready
+
+        korean = get_korean_names_ready().get(name)
+    except Exception:
+        korean = None
+    if korean:
+        return korean
+    clean = name
+    for _ in range(3):
+        clean = _LEGAL_TAIL.sub("", clean).strip()
+    return clean or name
+
+
+def _stock_entry(path: str) -> tuple[str, str, str]:
+    """(code, name, kind) for a detail URL, kind being kr_stock / kr_etf / us_stock /
+    us_etf; empty strings when the URL names nothing this site has a page for."""
     match = STOCK_ROUTE.fullmatch(path)
     if not match:
-        return "", ""
-    code = match.group(1)
-    try:
-        name = get_stock_name(code) or code
-    except Exception:
-        name = code
+        return "", "", ""
+    code = match.group(1).upper()
+    if KRX_CODE.fullmatch(code):
+        etf_name = _kr_etf_names().get(code)
+        if etf_name:
+            return code, etf_name, "kr_etf"
+        try:
+            name = get_stock_name(code) or code
+        except Exception:
+            name = code
+        return code, name, "kr_stock"
+    us = _us_catalog().get(code)
+    if us:
+        return code, _us_display_name(us[0]) if us[1] == "us_stock" else us[0], us[1]
+    return "", "", ""
+
+
+def _stock_identity(path: str) -> tuple[str, str]:
+    code, name, _ = _stock_entry(path)
     return code, name
+
+
+def _detail_neighbours(code: str, kind: str) -> list[tuple[str, str]]:
+    """Adjacent names of the same kind (by market value where there is one), so every
+    detail page links on to others instead of being reachable only from the sitemap."""
+    if kind == "kr_stock":
+        rows = [
+            (str(item.get("code", "")).upper(), str(item.get("name", "")))
+            for item in kr_universe()
+            if KRX_CODE.fullmatch(str(item.get("code", "")).strip().upper())
+        ]
+    elif kind == "kr_etf":
+        rows = list(_kr_etf_names().items())
+    else:
+        rows = [(c, _us_display_name(n) if k == "us_stock" else n) for c, (n, k) in _us_catalog().items() if k == kind]
+    codes = [c for c, _ in rows]
+    if code not in codes:
+        return rows[:8]
+    at = codes.index(code)
+    start = max(0, at - 4)
+    return [row for row in rows[start:at + 5] if row[0] != code][:8]
 
 
 def _investor_identity(path: str) -> tuple[str, str]:
@@ -180,13 +298,19 @@ def is_unknown_kr_code(path: str) -> bool:
             raise RuntimeError("KR universe unavailable")
         return codes
 
+    code = match.group(1).upper()
+    if not KRX_CODE.fullmatch(code):
+        # A ticker, not a KRX code: whether it has a page is _stock_entry's call.
+        return False
     try:
         # Cached, so the six-digit check costs a set lookup rather than a re-sort of
         # the whole KRX board on every stock and investor page view.
         known = cache.get_or_set("seo_known_kr_codes", 6 * 3600, build)
     except Exception:
         return False
-    return bool(known) and match.group(1) not in known
+    if code in _kr_etf_names():
+        return False
+    return bool(known) and code not in known
 
 
 def _investor_faq(name: str, code: str, digest: dict) -> list[tuple[str, str]]:
@@ -262,13 +386,17 @@ def _replace_meta(document: str, selector: str, value: str) -> str:
 def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical_path = "/hub" if path == "/type2" else path.rstrip("/") or "/"
     brief, brief_day, brief_market = _market_brief(canonical_path)
-    stock_code, stock_name = _stock_identity(canonical_path)
+    stock_code, stock_name, stock_kind = _stock_entry(canonical_path)
+    if stock_code:
+        # /stock/aapl and /stock/AAPL are one page; say which is canonical.
+        canonical_path = f"/stock/{stock_code}"
     stock_landing = STOCK_LANDING_ROUTE.fullmatch(canonical_path)
     stock_landing_kind = ""
     if stock_landing:
         stock_code = stock_landing.group(1)
         stock_landing_kind = stock_landing.group(2).lower()
         _, stock_name = _stock_identity(f"/stock/{stock_code}")
+        stock_kind = "kr_stock"
     investor_code, investor_name = _investor_identity(canonical_path)
     page_lookup = "/market-brief" if brief_day else canonical_path
     title, description = PAGES.get(page_lookup, PAGES["/"])
@@ -287,6 +415,15 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         elif stock_landing_kind == "news":
             title = f"{stock_name} 관련 뉴스·주가 | K-Stock Hub"
             description = f"{stock_name}({stock_code}) 주가와 최신 관련 뉴스를 날짜순으로 확인하세요."
+        elif stock_kind == "kr_etf":
+            title = f"{stock_name} ETF 시세·차트·수익률 ({stock_code}) | K-Stock Hub"
+            description = f"{stock_name}({stock_code}) ETF의 현재가, 등락률, 거래량, 기간별 수익률과 차트, 기술적 지표, 종목토론을 한 페이지에서 확인하세요."
+        elif stock_kind == "us_stock":
+            title = f"{stock_name}({stock_code}) 주가·차트 — 미국 주식 | K-Stock Hub"
+            description = f"미국 주식 {stock_name}({stock_code})의 현재가와 프리마켓·애프터마켓 시세, 차트, 기술적 지표, 관련 뉴스와 종목토론을 원화 환산과 함께 확인하세요."
+        elif stock_kind == "us_etf":
+            title = f"{stock_name}({stock_code}) 시세·차트 — 미국 ETF | K-Stock Hub"
+            description = f"미국 ETF {stock_name}({stock_code})의 현재가, 등락률, 차트, 기술적 지표와 종목토론을 확인하세요."
         else:
             title = f"{stock_name} 주가·차트·외국인 기관 수급 | K-Stock Hub"
             description = f"{stock_name}({stock_code}) 주가, 등락률, 거래량, 차트, 기술적 지표, 외국인·기관 수급과 최신 뉴스를 한 페이지에서 확인하세요."
@@ -397,14 +534,23 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
                     "description": description,
                     "url": canonical,
                     "isPartOf": {"@type": "WebSite", "name": "K-Stock Hub", "url": SITE},
-                    "about": {"@type": "Corporation", "name": stock_name, "identifier": stock_code},
+                    "about": {
+                        "@type": "InvestmentFund" if stock_kind in {"kr_etf", "us_etf"} else "Corporation",
+                        "name": stock_name,
+                        "identifier": stock_code,
+                    },
                     "inLanguage": "ko-KR",
                 },
                 {
                     "@type": "BreadcrumbList",
                     "itemListElement": [
                         {"@type": "ListItem", "position": 1, "name": "K-Stock Hub", "item": SITE},
-                        {"@type": "ListItem", "position": 2, "name": "국내 주식", "item": f"{SITE}/desk"},
+                        {
+                            "@type": "ListItem",
+                            "position": 2,
+                            "name": {"kr_etf": "국내 ETF", "us_etf": "미국 ETF", "us_stock": "해외 주식"}.get(stock_kind, "국내 주식"),
+                            "item": f"{SITE}{ {'kr_etf': '/etf', 'us_etf': '/etf?region=US', 'us_stock': '/global'}.get(stock_kind, '/desk') }",
+                        },
                         {"@type": "ListItem", "position": 3, "name": stock_name, "item": canonical},
                     ],
                 },
@@ -495,6 +641,36 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             if item.get("date") and item.get("market") in {"KOSPI", "KOSDAQ"}
         )
         report_content += f'<nav aria-label="최근 오늘 브리핑" style="display:flex;flex-wrap:wrap;gap:12px">{archive_links}</nav>'
+    elif stock_code and stock_kind != "kr_stock":
+        is_us = stock_kind.startswith("us")
+        asset = "ETF" if stock_kind.endswith("etf") else "STOCK"
+        intro = (
+            f'<p>{html.escape(stock_name)}({stock_code})의 현재가와 기간별 차트, 거래량, '
+            + ("프리마켓·애프터마켓 시세, " if stock_kind == "us_stock" else "")
+            + '이동평균·RSI·MACD 등 기술적 지표, 관련 뉴스와 종목토론을 제공합니다.'
+            + (" 원화 환산 가격과 원화 기준 수익률도 함께 볼 수 있습니다." if is_us else "")
+            + '</p>'
+        )
+        neighbours = "".join(
+            f'<a href="/stock/{html.escape(other)}">{html.escape(other_name)} 시세</a>'
+            for other, other_name in _detail_neighbours(stock_code, stock_kind)
+        )
+        hub = {"kr_etf": ("/etf", "국내 ETF 순위"), "us_etf": ("/etf?region=US", "미국 ETF 순위"), "us_stock": ("/global", "해외 증시")}[stock_kind]
+        report_content = (
+            f'{intro}'
+            '<nav aria-label="종목 관련 정보" style="display:flex;flex-wrap:wrap;gap:12px">'
+            f'<a href="/discussion-explorer?code={html.escape(stock_code)}&amp;name={html.escape(stock_name, quote=True)}'
+            f'&amp;market={"US" if is_us else "KR"}&amp;asset={asset}">{html.escape(stock_name)} 종목토론</a>'
+            f'<a href="{hub[0]}">{hub[1]}</a>'
+            + ('<a href="/sp500-map">S&amp;P 500 맵</a>' if stock_kind == "us_stock" else "")
+            + '</nav>'
+            + (
+                '<nav aria-label="비슷한 종목" style="display:flex;flex-wrap:wrap;gap:12px">'
+                f'{neighbours}</nav>'
+                if neighbours
+                else ""
+            )
+        )
     elif stock_code:
         # /stock/<code>, /outlook and /news used to emit byte-identical bodies, so the
         # only thing separating them was a <title> the client then overwrote with the
@@ -524,12 +700,22 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
             )
             if href != canonical_path
         )
+        neighbours = "".join(
+            f'<a href="/stock/{other}">{html.escape(other_name)} 주가</a>'
+            for other, other_name in _detail_neighbours(stock_code, "kr_stock")
+        )
         report_content = (
             f'{intro}'
             '<nav aria-label="종목 관련 분석" style="display:flex;flex-wrap:wrap;gap:12px">'
             f'{siblings}'
             f'<a href="/discussion-explorer?code={stock_code}&amp;name={html.escape(stock_name, quote=True)}">{html.escape(stock_name)} 종목토론</a>'
             '<a href="/market-brief">오늘 브리핑</a></nav>'
+            + (
+                '<nav aria-label="비슷한 시가총액 종목" style="display:flex;flex-wrap:wrap;gap:12px">'
+                f'{neighbours}</nav>'
+                if neighbours and not stock_landing_kind
+                else ""
+            )
         )
     elif investor_code:
         records = investor_records
@@ -639,7 +825,10 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     return document.replace('<div id="root"></div>', f'<div id="root">{shell}</div>', 1)
 
 
-SITEMAP_SECTIONS = ("pages", "stocks", "investor")
+# One section per kind of page, so Search Console reports coverage separately for
+# Korean stocks, ETFs and US stocks. /investor/<code> is deliberately not listed any
+# more: the stock detail page is the one URL per company Google should index.
+SITEMAP_SECTIONS = ("pages", "stocks", "etf", "us")
 
 
 def _urlset(urls: list[tuple[str, str, str, str]]) -> str:
@@ -732,36 +921,42 @@ def build_pages_sitemap() -> str:
             continue
         urls.append((f"{SITE}/market-brief/{day}/{market}", "0.8", "never", day))
 
-    for ticker, name in (
-        ("AAPL", "Apple"), ("MSFT", "Microsoft"), ("NVDA", "NVIDIA"),
-        ("AMZN", "Amazon"), ("GOOGL", "Alphabet"), ("META", "Meta"),
-        ("TSLA", "Tesla"), ("AVGO", "Broadcom"), ("AMD", "AMD"),
-        ("MU", "Micron Technology"), ("SKHY", "SK Hynix ADR"),
-    ):
-        query = urlencode({"code": ticker, "name": name})
-        urls.append((f"{SITE}/global?{query}", "0.7", "daily", today))
+    # US names are in sitemap-us.xml as /stock/<ticker>; the old /global?code= URLs
+    # now forward there, and a redirecting URL has no place in a sitemap.
     return _urlset(urls)
 
 
 def build_stocks_sitemap(kr_stocks: list[dict]) -> str:
+    """Every listed KOSPI/KOSDAQ company's detail page, /stock/<code>, and nothing
+    else: one canonical URL per company. The /outlook and /news sub-pages and the
+    /investor pages stay reachable by link but are not offered for indexing, so the
+    crawl budget goes to the page that answers "<회사> 주가"."""
     lastmod = latest_trading_day()
+    etfs = _kr_etf_names()
     urls: list[tuple[str, str, str, str]] = []
-    for code in _valid_codes(kr_stocks):
-        urls.append((f"{SITE}/stock/{code}", "0.8", "daily", lastmod))
-        # /stock/<code>/investor is gone: it 301s to /investor/<code>. Listing a URL
-        # that redirects is exactly what Search Console reports as "페이지에 리디렉션이
-        # 있음", and it was competing with /investor/<code> for the same query.
-        urls.append((f"{SITE}/stock/{code}/outlook", "0.6", "daily", lastmod))
-        urls.append((f"{SITE}/stock/{code}/news", "0.6", "daily", lastmod))
+    for rank, code in enumerate(c for c in _valid_codes(kr_stocks) if c not in etfs):
+        urls.append((f"{SITE}/stock/{code}", "0.8" if rank < 300 else "0.6", "daily", lastmod))
     return _urlset(urls)
 
 
-def build_investor_sitemap(kr_stocks: list[dict]) -> str:
+def build_etf_sitemap() -> str:
+    """Every KRX-listed ETF and the US ETFs the site covers, as /stock/<code>."""
     lastmod = latest_trading_day()
-    urls = [(f"{SITE}{INVESTOR_HUB}", "0.9", "daily", lastmod)]
-    for code in _valid_codes(kr_stocks):
-        urls.append((f"{SITE}/investor/{code}", "0.7", "daily", lastmod))
+    urls = [(f"{SITE}/stock/{code}", "0.6", "daily", lastmod) for code in _kr_etf_names()]
+    today = date.today().isoformat()
+    urls += [(f"{SITE}/stock/{code}", "0.6", "daily", today) for code, (_, kind) in _us_catalog().items() if kind == "us_etf"]
     return _urlset(urls)
+
+
+def build_us_sitemap() -> str:
+    """The S&P 500 and NASDAQ 100 (plus SK hynix's ADR), as /stock/<ticker>."""
+    today = date.today().isoformat()
+    urls = [
+        (f"{SITE}/stock/{code}", "0.8" if rank < 100 else "0.6", "daily", today)
+        for rank, code in enumerate(c for c, (_, kind) in _us_catalog().items() if kind == "us_stock")
+    ]
+    return _urlset(urls)
+
 
 
 def build_rss(kr_stocks: list[dict]) -> str:

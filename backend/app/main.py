@@ -60,11 +60,12 @@ from app.services import (
 from app.services import global_top100 as global_top100_service
 from app.services.investor_summary import get_investor_summary, get_weekly_foreign_top
 from app.services.seo import (
-    build_investor_sitemap,
+    build_etf_sitemap,
     build_pages_sitemap,
     build_rss,
     build_sitemap_index,
     build_stocks_sitemap,
+    build_us_sitemap,
     is_unknown_kr_code,
     render_spa_shell,
 )
@@ -661,17 +662,23 @@ if STATIC_DIR.exists():
         # Cover the searchable large/mid-cap universe, not only the same 100 names
         # shown in the ranking UI. The universe is cached for a day, so the wider
         # sitemap does not add per-request upstream traffic.
-        xml = build_stocks_sitemap(get_top_market_cap_all(1000))
+        xml = build_stocks_sitemap(get_top_market_cap_all(10000))
         return Response(content=xml, media_type="application/xml", headers=SITEMAP_HEADERS)
+
+    @app.get("/sitemap-etf.xml", include_in_schema=False)
+    def etf_sitemap():
+        return Response(content=build_etf_sitemap(), media_type="application/xml", headers=SITEMAP_HEADERS)
+
+    @app.get("/sitemap-us.xml", include_in_schema=False)
+    def us_sitemap():
+        return Response(content=build_us_sitemap(), media_type="application/xml", headers=SITEMAP_HEADERS)
 
     @app.get("/sitemap-investor.xml", include_in_schema=False)
     def investor_sitemap():
-        # Unlike the stock landing pages, every listed KR name has real per-day data
-        # behind /investor/<code>, and Search Console was already reporting thousands
-        # of these URLs as discovered-but-not-indexed. Listing the full board (rather
-        # than the top 1,000) is what puts the rest of them in front of Google at all.
-        xml = build_investor_sitemap(get_top_market_cap_all(10000))
-        return Response(content=xml, media_type="application/xml", headers=SITEMAP_HEADERS)
+        # Withdrawn: /investor/<code> is no longer offered for indexing (see
+        # SITEMAP_SECTIONS). 410 tells Search Console the file is gone on purpose,
+        # rather than a 404 it keeps retrying as an error.
+        return Response(status_code=410)
 
     @app.get("/stock/{code}/investor", include_in_schema=False)
     def legacy_stock_investor(code: str):
