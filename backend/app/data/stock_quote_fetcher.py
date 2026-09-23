@@ -39,7 +39,11 @@ def _quote_from_data(data: dict) -> dict:
     turnover = int(data.get("accumulatedTradingValueRaw") or 0)
 
     over = data.get("overMarketPriceInfo")
-    if over and data.get("marketStatus") != "OPEN":
+    # A name NXT does not trade that day still carries an over-market block, with
+    # overPrice "0" and a "+100%" change Naver derives from that zero. Taking it would
+    # print a 0-won price at the top of every gainers list, so an NXT quote with no
+    # price is ignored and the regular-session close stands.
+    if over and data.get("marketStatus") != "OPEN" and _parse_signed(over.get("overPrice") or "0") > 0:
         over_price = _parse_signed(over["overPrice"])
         change = _parse_signed(over["compareToPreviousClosePrice"])
         change_pct = _parse_signed(over["fluctuationsRatio"])

@@ -2222,6 +2222,17 @@ tr.is-alert-cool .d2-macro-alert {
   font-size: 10.5px;
   color: var(--ink-3);
 }
+.d2-rank-id .d2-rank-tag {
+  justify-self: start;
+  margin-top: 2px;
+  padding: 0 5px;
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--mark);
+  white-space: nowrap;
+}
 .d2-rank-fig {
   display: grid;
   justify-items: end;

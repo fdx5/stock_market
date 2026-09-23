@@ -38,7 +38,9 @@ function capOf(item: MarketMapItem, us: boolean): number {
   return us ? item.market_cap ?? 0 : item.marcap;
 }
 
-function rankStocks(items: (MarketMapItem & { board: string })[], sort: Sort, us: boolean, lang: Lang): Row[] {
+function rankStocks(all: (MarketMapItem & { board: string })[], sort: Sort, us: boolean, lang: Lang): Row[] {
+  // A row without a price is a feed gap, not a quote; it must never rank.
+  const items = all.filter((it) => it.close > 0);
   const metricOf = (it: MarketMapItem) =>
     sort === "amount" ? turnoverOf(it) : sort === "volume" ? it.volume ?? 0 : sort === "marcap" ? capOf(it, us) : it.change_pct;
   let ranked: (MarketMapItem & { board: string })[];
@@ -113,6 +115,10 @@ function List({ rows, loading, us, translate }: { rows: Row[]; loading: boolean;
               <span className="d2-rank-id">
                 <b>{names[i] ?? r.name}</b>
                 {r.metric && <small>{r.metric}</small>}
+                {/* KRX caps a day's move at ±30%; only a first trading day, priced
+                    against the offer price, goes beyond it. Say so, so it does not
+                    read as a bad number. */}
+                {!us && !r.etf && Math.abs(r.change_pct) > 30 && <em className="d2-rank-tag">{L("신규상장 · 공모가 대비", "New listing · vs offer")}</em>}
               </span>
               <span className="d2-rank-fig">
                 <b>{us ? usdPrice(r.close) : krwPrice(r.close, lang)}</b>
