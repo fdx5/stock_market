@@ -226,8 +226,18 @@ export default function StocksPage() {
               {L("위", "")}
             </span>
           </p>
-          <h2>{displayName(selected)}</h2>
-          <p className="st-pane-code">{selected.code}</p>
+          <h2>
+            {displayName(selected)} <small className="st-pane-code">{selected.code}</small>
+          </h2>
+        </div>
+        <div className={`st-pane-price is-${tone}`}>
+          <b>
+            {formatPrice(close, spec.currency)}
+            <small>{spec.currency === "KRW" ? L("원", "KRW") : "USD"}</small>
+          </b>
+          <span>
+            {formatChange(change, spec.currency)} <em>{formatPercent(changePct)}</em>
+          </span>
         </div>
         {sheet && (
           <button type="button" className="st-sheet-close" onClick={() => setSheet(false)} aria-label={L("닫기", "Close")}>
@@ -235,15 +245,6 @@ export default function StocksPage() {
           </button>
         )}
       </header>
-      <div className={`st-pane-price is-${tone}`}>
-        <b>
-          {formatPrice(close, spec.currency)}
-          <small>{spec.currency === "KRW" ? L("원", "KRW") : "USD"}</small>
-        </b>
-        <span>
-          {formatChange(change, spec.currency)} <em>{formatPercent(changePct)}</em>
-        </span>
-      </div>
       <dl className="st-pane-facts">
         <div>
           <dt>{etf ? L("거래대금", "Turnover") : L("시가총액", "Market cap")}</dt>
@@ -262,7 +263,9 @@ export default function StocksPage() {
           <dd>{etf ? spec.caption : selected.roe != null && Number.isFinite(selected.roe) ? `${selected.roe.toFixed(2)}%` : "—"}</dd>
         </div>
       </dl>
-      <PreviewChart points={withLiveClose(detail?.history ?? [], close)} tone={tone} currency={spec.currency} loading={detail?.historyLoading ?? true} />
+      {/* The chart is a glance here — the reading below is what the pane is for;
+          the full chart is one click away on the company page. */}
+      <PreviewChart compact points={withLiveClose(detail?.history ?? [], close)} tone={tone} currency={spec.currency} loading={detail?.historyLoading ?? true} />
       <Link to={detailHref(selected)} className="st-pane-cta">
         <span>{L("종목면 전체 보기", "Open the full company page")}</span>
         <small>{L("차트 · 지표 · 수급 · 호가 · 뉴스 · 토론", "Chart · indicators · flows · depth · news · talk")}</small>
@@ -283,7 +286,7 @@ export default function StocksPage() {
       />
       <div className="st-pane-body">
         {tab === "talk" ? (
-          <Discussion key={`d-${selected.code}`} code={selected.code} name={displayName(selected)} source={spec.discussion} track={market} />
+          <Discussion key={`d-${selected.code}`} code={selected.code} name={displayName(selected)} source={spec.discussion} track={market} sheet />
         ) : (
           <News key={`n-${selected.code}`} code={selected.code} name={displayName(selected)} source={spec.news} track={market} />
         )}

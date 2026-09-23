@@ -20,7 +20,20 @@ const W = 640;
 const H = 220;
 const PAD = { l: 4, r: 64, t: 12, b: 22 };
 
-export default function PreviewChart({ points, tone, currency, loading }: { points: OhlcvPoint[]; tone: Tone; currency: "KRW" | "USD"; loading: boolean }) {
+export default function PreviewChart({
+  points,
+  tone,
+  currency,
+  loading,
+  compact = false,
+}: {
+  points: OhlcvPoint[];
+  tone: Tone;
+  currency: "KRW" | "USD";
+  loading: boolean;
+  /** A short strip for a pane where the chart is a glance, not the subject. */
+  compact?: boolean;
+}) {
   const L = useL();
   const [range, setRange] = useState<RangeKey>("3M");
   const [hover, setHover] = useState<number | null>(null);
@@ -57,7 +70,7 @@ export default function PreviewChart({ points, tone, currency, loading }: { poin
   const windowChg = series.length >= 2 ? (series[series.length - 1].close / series[0].close - 1) * 100 : null;
 
   return (
-    <figure className={`st-chart is-${tone}`}>
+    <figure className={`st-chart is-${tone}${compact ? " is-compact" : ""}`}>
       <div className="st-chart-head">
         <span className="st-chart-read">
           {at ? (
@@ -83,7 +96,7 @@ export default function PreviewChart({ points, tone, currency, loading }: { poin
         </span>
       </div>
       <div className="st-chart-canvas">
-        {loading && <Skel h={200} />}
+        {loading && <Skel h={compact ? 80 : 200} />}
         {!loading && !g && <p className="d2-empty">{L("차트 데이터가 없습니다.", "No chart data.")}</p>}
         {g && (
           <svg ref={svg} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={L("기간별 종가 추이", "Closing prices")} onPointerMove={onMove} onPointerLeave={() => setHover(null)}>

@@ -198,7 +198,18 @@ export interface MastSection {
  * paper's name set small above, the section's name set large — the way a newspaper
  * heads its 경제면 or 증권면 — with the same dateline, rail and site index above and
  * below it, so a reader moving between pages never loses the furniture. */
-export default function Masthead({ onPrint, section }: { onPrint: () => void; section?: MastSection }) {
+export default function Masthead({
+  onPrint,
+  section,
+  rail = true,
+}: {
+  onPrint: () => void;
+  section?: MastSection;
+  /** The 24-hour session rail. Pages that are not read against the bell — the
+   * forecast, the league tables, the news — leave it out so the site index sits
+   * directly under the nameplate. */
+  rail?: boolean;
+}) {
   const { lang, setLang } = useLanguage();
   const L = useL();
   const now = useNow(1000);
@@ -317,13 +328,14 @@ export default function Masthead({ onPrint, section }: { onPrint: () => void; se
         </div>
       </div>
 
-      <SessionRail now={now} krStatus={krStatus} />
+      {rail && <SessionRail now={now} krStatus={krStatus} />}
 
       <nav className="d2-mast-nav" aria-label={L("사이트 메뉴", "Site sections")}>
         <ul>
           {SITE_NAV.map((item) => {
             const base = item.to.split("?")[0];
-            const here = path === base || (base === "/stock/005930" && path.startsWith("/stock/"));
+            const here =
+              path === base || (base === "/stock/005930" && path.startsWith("/stock/")) || (base === "/ai-prediction" && path.startsWith("/ai-prediction/"));
             return (
               <li key={item.to}>
                 <Link to={item.to} className={here ? "is-here" : undefined} aria-current={here ? "page" : undefined}>

@@ -33,6 +33,11 @@ const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
 /* The three TOP 100 boards; one component, so switching boards keeps it mounted.
    The classic StockBoardPage stays in the tree, unrouted. */
 const BroadsheetBoardPage = lazy(() => import("./desk2/board/BoardPage"));
+const BroadsheetForecastPage = lazy(() => import("./desk2/forecast/ForecastPage"));
+const BroadsheetGradingPage = lazy(() => import("./desk2/forecast/GradingPage"));
+const BroadsheetGlobalCapPage = lazy(() => import("./desk2/globalcap/GlobalCapPage"));
+const BroadsheetNewsPage = lazy(() => import("./desk2/news/NewsPage"));
+const BroadsheetCapFightPage = lazy(() => import("./desk2/capfight/CapFightPage"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
    used to be is reached from the star at the centre of the page, and anything
    that means "open a stock" targets /desk?code=.
@@ -356,13 +361,13 @@ export default function App() {
   } else if (path === "/battle") {
     page = <TugOfWarPage />;
   } else if (path === "/fight") {
-    page = <MarketCapFightPage />;
+    page = <BroadsheetCapFightPage />;
   } else if (path === "/global-top100") {
-    page = <GlobalTop100Page />;
+    page = <BroadsheetGlobalCapPage />;
   } else if (path === "/etf") {
     page = <BroadsheetEtfPage />;
   } else if (path === "/news") {
-    page = <NewsPage />;
+    page = <BroadsheetNewsPage />;
   } else if (path === "/market-brief") {
     page = <BroadsheetBriefPage />;
   } else if (briefLatestMatch) {
@@ -382,9 +387,9 @@ export default function App() {
     const normalized = codeMap[raw] || raw;
     page = <BroadsheetBriefPage key={`${briefMatch[1]}-${normalized}`} initialDate={briefMatch[1]} initialMarket={normalized} />;
   } else if (path === "/ai-prediction") {
-    page = <AiPredictionPage />;
+    page = <BroadsheetForecastPage />;
   } else if (path === "/ai-prediction/grading") {
-    page = <PredictionGradingPage />;
+    page = <BroadsheetGradingPage />;
   } else if (path === "/dram-price") {
     page = <DramPriceHistoryPage />;
   } else if (path === "/discussion-explorer") {
