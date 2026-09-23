@@ -90,8 +90,8 @@ export default function Footer() {
           <span className="app-footer-copy-sep" aria-hidden="true">·</span>
           <span className="app-footer-copy-line">
             Contact:{" "}
-            <a href="mailto:fdx5555@naver.com" className="app-footer-contact-link">
-              fdx5555@naver.com
+            <a href="mailto:fdx5555@gmail.com" className="app-footer-contact-link">
+              fdx5555@gmail.com
             </a>
           </span>
           <Link to="/admin" className="app-footer-admin-link" aria-label="Admin" title="Admin">

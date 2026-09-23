@@ -115,7 +115,7 @@ export default function Colophon() {
           <span>© {year} K-Stock Hub</span>
           <span>Developed by TJ Choi</span>
           <span>
-            Contact <a href="mailto:fdx5555@naver.com">fdx5555@naver.com</a>
+            Contact <a href="mailto:fdx5555@gmail.com">fdx5555@gmail.com</a>
           </span>
           <Link to="/admin" className="d2-colophon-admin" aria-label="Admin" title="Admin">
             ⚙
