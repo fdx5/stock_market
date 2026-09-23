@@ -1,0 +1,338 @@
+/* 지도면 — the four market maps (코스피 · 코스닥 · S&P500 · 나스닥) on the broadsheet.
+ *
+ * The map page keeps its own layout and treemap; what changes is everything around
+ * and on top of it. Its rules read the classic palette variables, so while a map is
+ * mounted (html.is-desk2.is-mm) those variables are pointed at the paper's tokens —
+ * which also reaches the PNG export, since it resolves the same variables. The rest
+ * of this file resets the classic chrome (rounded pills, neon borders) into the
+ * paper's rules and type. */
+
+:root.is-desk2.is-mm {
+  --surface-1: var(--p1);
+  --page-plane: var(--p0);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-2);
+  --text-muted: var(--ink-3);
+  --gridline: var(--rule);
+  --border: var(--rule-2);
+  --series-blue: var(--brass);
+  --series-violet: var(--brass);
+  --up-color: var(--up);
+  --down-color: var(--down);
+  --status-good: var(--live);
+  --status-warning: var(--warn);
+  --status-critical: var(--danger);
+  --status-neutral: var(--ink-3);
+  --map-gap: var(--p0);
+}
+
+/* the page frame: the masthead and colophon bring their own measure */
+.d2.mm.app,
+.d2.mm.kospi-map-page--expanded {
+  max-width: none;
+  width: 100%;
+  padding: 0;
+  display: block;
+  min-height: 100vh;
+}
+.d2 .mm-main {
+  padding-top: 26px;
+}
+.d2.mm.kospi-map-page--expanded .mm-main {
+  max-width: none;
+}
+
+.d2.mm :is(
+    button,
+    select,
+    .kospi-map-view-toggle button,
+    .kospi-map-board-link,
+    .kospi-map-live-badge,
+    .kospi-map-period-rail,
+    .kospi-map-period-options label,
+    .kospi-map-table-wrap,
+    .kospi-map-tooltip,
+    .kospi-sector-layer,
+    .kospi-map-preview-modal,
+    .kospi-map-share-popover,
+    .kospi-map-sector-filter select
+  ) {
+  border-radius: 0;
+}
+
+/* the title bar, set as the page's lead line */
+.d2.mm .app-header-trailing {
+  margin-bottom: 18px;
+  padding-bottom: 16px;
+  border-bottom: 3px double var(--rule-ink);
+}
+.d2.mm .kospi-map-titlebar {
+  align-items: flex-end;
+}
+.d2.mm .app-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.d2.mm .app-title {
+  font-family: var(--f-type);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--brass);
+  margin: 0;
+}
+.d2.mm .app-subtitle {
+  margin: 8px 0 0;
+  font-family: var(--f-text);
+  font-size: 16px;
+  color: var(--ink-2);
+}
+.d2.mm .kospi-map-updated {
+  font-family: var(--f-sans);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.d2.mm .kospi-map-live-badge {
+  border: 0;
+  padding: 0;
+  font-size: 12.5px;
+  color: var(--live);
+}
+.d2.mm .kospi-map-live-dot {
+  background: var(--live);
+}
+.d2.mm .kospi-map-board-link {
+  background: transparent;
+  border: 1px solid var(--rule-2);
+  color: var(--ink-2);
+  font-size: 12px;
+  padding: 3px 9px;
+}
+.d2.mm .kospi-map-board-link:hover {
+  border-color: var(--ink);
+  color: var(--ink);
+  background: transparent;
+}
+.d2.mm .kospi-map-board-icon {
+  display: none;
+}
+
+/* controls: the paper's segmented rule boxes */
+.d2.mm .kospi-map-view-toggle {
+  gap: 0;
+  border: 1px solid var(--rule-ink);
+}
+.d2.mm .kospi-map-view-toggle > button,
+.d2.mm .kospi-map-view-toggle .kospi-map-download-btn {
+  border: 0;
+  border-left: 1px solid var(--rule-2);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--f-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 7px 13px;
+  box-shadow: none;
+}
+.d2.mm .kospi-map-view-toggle > button:first-child {
+  border-left: 0;
+}
+.d2.mm .kospi-map-view-toggle > button.active {
+  background: var(--ink);
+  color: var(--p0);
+}
+.d2.mm .kospi-map-view-toggle button:hover:not(:disabled):not(.active) {
+  color: var(--ink);
+  background: var(--p1);
+}
+.d2.mm .kospi-map-share-wrap {
+  border-left: 1px solid var(--rule-2);
+}
+.d2.mm .kospi-map-share-btn {
+  border-left: 0 !important;
+}
+.d2.mm .kospi-map-share-popover {
+  background: var(--p1);
+  border: 1px solid var(--rule-ink);
+  color: var(--ink);
+}
+
+.d2.mm .kospi-map-sector-filter {
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.d2.mm .kospi-map-sector-filter select {
+  background: transparent;
+  color: var(--ink);
+  border: 0;
+  border-bottom: 2px solid var(--rule-ink);
+  padding: 4px 22px 4px 2px;
+  font-family: var(--f-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.d2.mm .kospi-map-sector-filter select option {
+  color: #111;
+}
+.d2.mm .kospi-map-legend-info {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+/* the period rail, set as a narrow column with a rule down its side */
+.d2.mm .kospi-map-period-rail {
+  background: transparent;
+  border: 0;
+  border-top: 2px solid var(--rule-ink);
+  border-right: 1px solid var(--rule);
+  padding: 12px 12px 12px 0;
+}
+.d2.mm .kospi-map-period-head {
+  border-bottom-color: var(--rule);
+}
+.d2.mm .kospi-map-period-head small {
+  color: var(--brass);
+  font-family: var(--f-type);
+  font-weight: 500;
+}
+.d2.mm .kospi-map-period-head strong {
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: 18px;
+}
+.d2.mm .kospi-map-period-options label {
+  font-family: var(--f-sans);
+}
+.d2.mm .kospi-map-period-options label:hover {
+  background: var(--p1);
+}
+.d2.mm .kospi-map-period-options label:has(input:checked) {
+  background: var(--mark);
+  border-color: transparent;
+  color: var(--ink);
+}
+.d2.mm .kospi-map-period-note {
+  color: var(--ink-3);
+  font-family: var(--f-text);
+}
+
+/* the map itself: a hairline frame, no card */
+.d2.mm .kospi-map-canvas {
+  border-radius: 0;
+  border: 1px solid var(--rule-ink);
+  background: var(--p0);
+}
+.d2.mm .kospi-map-sector-name {
+  font-family: var(--f-sans);
+  letter-spacing: 0;
+}
+
+/* the table view */
+.d2.mm .kospi-map-table-wrap {
+  border: 0;
+  border-top: 2px solid var(--rule-ink);
+  background: transparent;
+}
+.d2.mm .kospi-map-table {
+  font-size: 13.5px;
+}
+.d2.mm .kospi-map-table th {
+  background: var(--p0);
+  color: var(--ink-3);
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 700;
+  border-bottom: 1px solid var(--rule-ink);
+}
+.d2.mm .kospi-map-table td {
+  font-family: var(--f-num);
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--rule);
+}
+.d2.mm .kospi-map-table td.kospi-map-table-name,
+.d2.mm .kospi-map-table-name {
+  font-family: var(--f-sans);
+  font-weight: 600;
+}
+.d2.mm .kospi-map-table tbody tr:hover td {
+  background: var(--p1);
+}
+
+/* hover cards */
+.d2.mm .kospi-map-tooltip {
+  background: var(--p1);
+  border: 1px solid var(--rule-ink);
+  color: var(--ink);
+  box-shadow: 0 14px 40px -12px rgba(0, 0, 0, 0.5);
+}
+.d2.mm .kospi-map-tooltip-title {
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: 16px;
+}
+.d2.mm .kospi-map-tooltip-row {
+  font-family: var(--f-num);
+}
+.d2.mm .kospi-sector-layer {
+  background: var(--p1);
+  border: 1px solid var(--rule-ink);
+  box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.55);
+  color: var(--ink);
+}
+.d2.mm .kospi-sector-layer header small {
+  font-family: var(--f-type);
+  color: var(--brass);
+}
+.d2.mm .kospi-sector-layer h2 {
+  font-family: var(--f-display);
+  font-weight: 900;
+}
+.d2.mm .kospi-sector-layer-summary {
+  font-family: var(--f-text);
+  color: var(--ink-2);
+}
+.d2.mm .kospi-sector-layer .up {
+  color: var(--up);
+}
+.d2.mm .kospi-sector-layer .down {
+  color: var(--down);
+}
+
+/* the image preview */
+.d2.mm .kospi-map-preview-overlay {
+  background: var(--scrim);
+}
+.d2.mm .kospi-map-preview-modal {
+  background: var(--p1);
+  border: 1px solid var(--rule-ink);
+  color: var(--ink);
+}
+.d2.mm .kospi-map-preview-header {
+  font-family: var(--f-display);
+  font-weight: 800;
+  border-bottom: 2px solid var(--rule-ink);
+}
+.d2.mm :is(.kospi-map-preview-share, .kospi-map-preview-download) {
+  border-radius: 0;
+  background: var(--ink);
+  color: var(--p0);
+  border: 0;
+  font-weight: 700;
+}
+
+.d2.mm .error-state {
+  font-size: 14px;
+  color: var(--danger);
+  padding: 20px 0;
+}
+
+@media (max-width: 760px) {
+  .d2 .mm-main {
+    padding-top: 18px;
+  }
+  .d2.mm .kospi-map-view-toggle {
+    flex-wrap: wrap;
+  }
+}

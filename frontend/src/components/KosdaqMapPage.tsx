@@ -15,6 +15,7 @@ import RankIcon from "./RankIcon";
 export default function KosdaqMapPage() {
   return (
     <MarketMapPage
+      section={{ ko: "코스닥 지도", en: "KOSDAQ Map", taglineKo: "코스닥 시가총액 상위 200종목 — 면적은 몸집, 색은 오늘의 등락", taglineEn: "The KOSDAQ top 200 — area is size, colour is today's move" }}
       pageTitle="KOSDAQ MAP"
       loadingLabel="코스닥 시총 200개 종목 데이터를 불러오는 중..."
       subtitlePrefix="코스닥 시가총액 상위 200개"

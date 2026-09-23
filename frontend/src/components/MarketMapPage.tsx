@@ -11,18 +11,17 @@ import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { usCompanyLogoProxyUrl } from "../usLogo";
-import NewBadge from "./NewBadge";
-import DashboardIcon from "./DashboardIcon";
-import Footer from "./Footer";
-import LanguageToggle from "./LanguageToggle";
-import Logo from "./Logo";
-import MarketTickerBar from "./MarketTickerBar";
+import Colophon from "../desk2/Colophon";
+import Finder from "../desk2/Finder";
+import Masthead, { MastSection } from "../desk2/Masthead";
+import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
+import "../desk2/maps.css";
+import Tape from "../desk2/Tape";
 import KakaoIcon from "./KakaoIcon";
 import RankIcon from "./RankIcon";
 import SessionBadge from "./SessionBadge";
 import SessionSplit from "./SessionSplit";
 import StockIcon from "./StockIcon";
-import ThemeToggle from "./ThemeToggle";
 import UsStockIcon from "./UsStockIcon";
 
 interface SectorZone {
@@ -136,10 +135,6 @@ const IS_MOBILE_LIKE = typeof navigator !== "undefined" && (/Android/i.test(navi
 // sector label (including "기타") so it can never collide with backend-assigned data.
 const ALL_SECTORS = "__all__";
 
-// Destinations still new enough to wear the "N" badge in the nav row. A set rather than
-// a chain of comparisons, because this list is meant to be edited: a route is added when
-// it ships and removed once it stops being news.
-const NEW_ROUTES = new Set<string>();
 
 type MapPeriod = "d1" | "w1" | "d20" | "d60" | "d120" | "d240";
 const MAP_PERIODS: { key: MapPeriod; label: string; detail: string }[] = [
@@ -311,8 +306,12 @@ export interface MarketMapPageProps {
   tier1Limit: number;
   tier2Limit: number;
   fullLimit: number;
-  /** Extra nav links shown next to the live badge (besides the back-link and visitor badge). */
-  navLinks: { to: string; label: string; icon?: ReactNode; className?: string }[];
+  /** The classic header's nav row. Unused since the maps moved onto the broadsheet's
+   * masthead, whose site index is the same for every page; kept so the four map
+   * wrappers need not change shape. */
+  navLinks?: { to: string; label: string; icon?: ReactNode; className?: string }[];
+  /** The masthead's section flag for this map. */
+  section?: MastSection;
   /** "us" switches currency formatting to USD, shows the ticker (not the translated
    * company name) as each tile/table row's primary label, drops the KR-only company
    * logo and Dashboard-search-on-click behaviors, and skips the Korean-name
@@ -338,7 +337,7 @@ export default function MarketMapPage({
   tier1Limit,
   tier2Limit,
   fullLimit,
-  navLinks,
+  section,
   market = "kr",
   marcapLabel = "시가총액",
   enhancedSectorView = false,
@@ -347,6 +346,15 @@ export default function MarketMapPage({
   const t = useT();
   const themeMode = useThemeMode();
   useDocumentTitle("K-Stock Hub");
+  // The maps sit on the broadsheet: its type, its masthead and colophon, and its
+  // palette, which maps.css feeds into the variables this page's own rules read.
+  useBroadsheet();
+  const [finderOpen, setFinderOpen] = useState(false);
+  useFinderHotkey(setFinderOpen);
+  useEffect(() => {
+    document.documentElement.classList.add("is-mm");
+    return () => document.documentElement.classList.remove("is-mm");
+  }, []);
 
   const [items, setItems] = useState<MarketMapItem[]>([]);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
@@ -424,7 +432,7 @@ export default function MarketMapPage({
         // device-specific pixel correction. Foldable orientation, browser chrome,
         // and the sticky header can all change that boundary at runtime.
         const visualTop = window.visualViewport?.offsetTop ?? 0;
-        const headerBottom = document.querySelector<HTMLElement>(".app-header")?.getBoundingClientRect().bottom ?? 0;
+        const headerBottom = document.querySelector<HTMLElement>("[data-d2-sticky]")?.getBoundingClientRect().bottom ?? 0;
         const usableTop = Math.max(visualTop, headerBottom, 0);
         const filterTop = filter.getBoundingClientRect().top;
         if (Math.abs(filterTop - usableTop) < 8) return;
@@ -1004,40 +1012,19 @@ export default function MarketMapPage({
   };
 
   return (
-    <div className={`app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}`}>
-      <header className="app-header">
-        <div className="app-title-row">
-          <Link to="/hub" className="app-brand" aria-label="K-Stock Hub 태양계 홈">
-            <Logo className="app-logo-wide" />
-          </Link>
-          <div className="app-header-meta">
-            <LanguageToggle />
-            <ThemeToggle />
-          </div>
-        </div>
-        <div className="app-nav-row">
-          <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
-            <DashboardIcon /> {t("홈")}
-          </Link>
-          {navLinks.map((link) => (
-            <Link
-              key={link.to}
-              to={link.to}
-              className={`kospi-map-nav-link${link.className ? ` ${link.className}` : ""}`}
-            >
-              {link.icon}
-              {t(link.label)}
-              {NEW_ROUTES.has(link.to) && <NewBadge />}
-            </Link>
-          ))}
-        </div>
-      </header>
+    <div className={`d2 mm app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}`} lang={lang}>
+      <Masthead
+        onPrint={() => window.print()}
+        section={section ?? { ko: pageTitle, en: pageTitle, taglineKo: subtitlePrefix, taglineEn: pageTitle }}
+      />
+      <Tape />
 
+      <main className="d2-main mm-main">
       <div className="app-header-trailing">
         <div className="kospi-map-titlebar">
           <div>
             <div className="app-title-row">
-              <h1 className="app-title">{pageTitle}</h1>
+              <h2 className="app-title">{pageTitle}</h2>
               <span className="kospi-map-live-badge">
                 <span className="kospi-map-live-dot" />
                 {liveBadgeText}
@@ -1129,7 +1116,6 @@ export default function MarketMapPage({
         </div>
       </div>
 
-      <MarketTickerBar />
 
       {error && <div className="error-state">{t(error)}</div>}
       {loading && (
@@ -1508,7 +1494,10 @@ export default function MarketMapPage({
         </div>
       )}
 
-      <Footer />
+      </main>
+
+      <Colophon />
+      <Finder open={finderOpen} onClose={() => setFinderOpen(false)} />
     </div>
   );
 }

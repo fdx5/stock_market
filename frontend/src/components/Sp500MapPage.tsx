@@ -15,6 +15,7 @@ import RankIcon from "./RankIcon";
 export default function Sp500MapPage() {
   return (
     <MarketMapPage
+      section={{ ko: "S&P500 지도", en: "S&P 500 Map", taglineKo: "S&P500 구성 종목 — 면적은 지수 비중, 색은 등락", taglineEn: "The S&P 500 — area is index weight, colour is the move" }}
       pageTitle="S&P500 MAP"
       loadingLabel="S&P500 종목 데이터를 불러오는 중..."
       subtitlePrefix="S&P500 지수 구성 500개"

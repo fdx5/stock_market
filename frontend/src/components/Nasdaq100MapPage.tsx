@@ -15,6 +15,7 @@ import RankIcon from "./RankIcon";
 export default function Nasdaq100MapPage() {
   return (
     <MarketMapPage
+      section={{ ko: "나스닥 지도", en: "NASDAQ Map", taglineKo: "나스닥100 구성 종목 — 면적은 지수 비중, 색은 등락", taglineEn: "The NASDAQ-100 — area is index weight, colour is the move" }}
       pageTitle="NASDAQ100 MAP"
       loadingLabel="나스닥100 종목 데이터를 불러오는 중..."
       subtitlePrefix="나스닥100 지수 구성 100개"
