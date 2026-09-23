@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
-import { setPageDefaultTheme } from "../theme";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useMarketSnapshot } from "../useMarketSnapshot";
@@ -23,7 +22,7 @@ import SpotlightDesk from "./SpotlightDesk";
 import Tape from "./Tape";
 import { SectionHead } from "./parts";
 import { measureBreadth, useL } from "./lib";
-import "./desk2.css";
+import { jumpTo, useBroadsheet, useFinderHotkey, useScrollSpy } from "./shell";
 
 /* /desk — the market desk, reset as a live broadsheet. (The widget desk it
  * replaced lives on at /desk2.)
@@ -54,54 +53,10 @@ const SECTIONS: DeskSection[] = [
   { id: "d2-cmdty", no: "08", ko: "원자재", en: "Commodities" },
 ];
 
-const FONT_LINKS = [
-  "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
-  "https://fonts.googleapis.com/css2?family=Hahmlet:wght@500..900&family=Noto+Serif+KR:wght@400;500;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400..700;1,8..60,400..600&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=UnifrakturMaguntia&display=swap",
-];
-
-/** Loads the desk's type families once, only on this route. */
-function useDeskFonts() {
-  useEffect(() => {
-    const added: HTMLLinkElement[] = [];
-    for (const href of FONT_LINKS) {
-      if (document.querySelector(`link[href="${href}"]`)) continue;
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = href;
-      document.head.appendChild(link);
-      added.push(link);
-    }
-    // Left in place on unmount: a reader flipping back to the desk should not
-    // re-download three font files, and nothing else references these names.
-  }, []);
-}
-
-/** The page chrome that lives outside React's tree: the <html> class the theme
- * tokens hang off, and the light edition as this page's default theme. */
-function useDocumentShell() {
-  useEffect(() => {
-    const root = document.documentElement;
-    root.classList.add("is-desk2");
-    setPageDefaultTheme("light");
-    return () => {
-      root.classList.remove("is-desk2");
-      setPageDefaultTheme(null);
-    };
-  }, []);
-}
-
-function stickyOffset(): number {
-  const bar = document.querySelector<HTMLElement>("[data-d2-sticky]");
-  if (!bar) return 12;
-  const pos = window.getComputedStyle(bar).position;
-  return (pos === "sticky" || pos === "fixed" ? bar.getBoundingClientRect().height : 0) + 12;
-}
-
 export default function Desk2Page() {
   const L = useL();
   const { lang } = useLanguage();
-  useDeskFonts();
-  useDocumentShell();
+  useBroadsheet({ lightByDefault: true });
   useDocumentTitle("마켓 데스크 · K-Stock Hub");
 
   const [finderOpen, setFinderOpen] = useState(false);
@@ -130,42 +85,12 @@ export default function Desk2Page() {
     };
   }, [code]);
 
-  /* ⌘K / Ctrl-K anywhere, "/" when nothing is being typed into. */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const typing = !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setFinderOpen((v) => !v);
-      } else if (e.key === "/" && !typing) {
-        e.preventDefault();
-        setFinderOpen(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  useFinderHotkey(setFinderOpen);
 
-  /* Scrollspy on a band a third of the way down the screen. */
-  useEffect(() => {
-    const els = SECTIONS.map((s) => document.getElementById(s.id)).filter((el): el is HTMLElement => el !== null);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        if (hit) setActive(hit.target.id);
-      },
-      { rootMargin: "-30% 0px -60% 0px" }
-    );
-    els.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-  }, []);
+  useScrollSpy(SECTIONS.map((sec) => sec.id), setActive);
 
   const jump = useCallback((id: string) => {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    window.scrollTo({ top: window.scrollY + el.getBoundingClientRect().top - stickyOffset(), behavior: reduce ? "auto" : "smooth" });
+    jumpTo(id);
     setActive(id);
   }, []);
 

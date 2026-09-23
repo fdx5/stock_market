@@ -169,6 +169,7 @@ function SessionRail({ now, krStatus }: { now: Date; krStatus: string | null }) 
 }
 
 const SITE_NAV: { to: string; ko: string; en: string; tag?: string }[] = [
+  { to: "/desk", ko: "1면", en: "Front page" },
   { to: "/stocks", ko: "종목정보", en: "Stocks" },
   { to: "/stock/005930", ko: "종목상세", en: "Stock detail" },
   { to: "/map", ko: "코스피 지도", en: "KOSPI map" },
@@ -186,7 +187,18 @@ const SITE_NAV: { to: string; ko: string; en: string; tag?: string }[] = [
   { to: "/news", ko: "뉴스", en: "News" },
 ];
 
-export default function Masthead({ onPrint }: { onPrint: () => void }) {
+export interface MastSection {
+  ko: string;
+  en: string;
+  taglineKo: string;
+  taglineEn: string;
+}
+
+/** `section` turns the front-page nameplate into an inner page's section flag: the
+ * paper's name set small above, the section's name set large — the way a newspaper
+ * heads its 경제면 or 증권면 — with the same dateline, rail and site index above and
+ * below it, so a reader moving between pages never loses the furniture. */
+export default function Masthead({ onPrint, section }: { onPrint: () => void; section?: MastSection }) {
   const { lang, setLang } = useLanguage();
   const L = useL();
   const now = useNow(1000);
@@ -221,6 +233,7 @@ export default function Masthead({ onPrint }: { onPrint: () => void }) {
   const startOfYear = Date.UTC(seoul.y, 0, 1);
   const dayOfYear = Math.floor((Date.UTC(seoul.y, seoul.m - 1, seoul.d) - startOfYear) / 86400000) + 1;
   const krStatus = kospi?.market_status ?? kosdaq?.market_status ?? null;
+  const path = typeof window === "undefined" ? "" : window.location.pathname;
 
   return (
     <header className="d2-mast">
@@ -272,16 +285,26 @@ export default function Masthead({ onPrint }: { onPrint: () => void }) {
         <Link to="/hub" className="d2-mast-brand" aria-label="K-Stock Hub">
           <Logo className="d2-mast-logo" />
         </Link>
-        <div className="d2-mast-name">
-          {/* The English edition gets a blackletter nameplate, the way English-
-              language papers have always set theirs; the Korean one is set in
-              the display serif, as a 제호 would be. */}
-          <h1 className={lang === "en" ? "is-blackletter" : ""}>
-            {L("마켓", "The Market")}
-            <span>{L("데스크", "Desk")}</span>
-          </h1>
-          <p>{L("숫자로 조판하는 오늘의 시장 — 실시간 개정판", "Today's market, typeset from the numbers — live edition")}</p>
-        </div>
+        {section ? (
+          <div className="d2-mast-name d2-mast-name--section">
+            <Link to="/desk" className="d2-mast-paper">
+              {L("마켓 데스크", "The Market Desk")}
+            </Link>
+            <h1>{lang === "ko" ? section.ko : section.en}</h1>
+            <p>{lang === "ko" ? section.taglineKo : section.taglineEn}</p>
+          </div>
+        ) : (
+          <div className="d2-mast-name">
+            {/* The English edition gets a blackletter nameplate, the way English-
+                language papers have always set theirs; the Korean one is set in
+                the display serif, as a 제호 would be. */}
+            <h1 className={lang === "en" ? "is-blackletter" : ""}>
+              {L("마켓", "The Market")}
+              <span>{L("데스크", "Desk")}</span>
+            </h1>
+            <p>{L("숫자로 조판하는 오늘의 시장 — 실시간 개정판", "Today's market, typeset from the numbers — live edition")}</p>
+          </div>
+        )}
         <div className="d2-mast-clocks" data-ear={L("현지 시각", "LOCAL TIME")}>
           <span className="d2-mast-clock">
             <small>{L("서울", "SEOUL")}</small>
@@ -298,13 +321,19 @@ export default function Masthead({ onPrint }: { onPrint: () => void }) {
 
       <nav className="d2-mast-nav" aria-label={L("사이트 메뉴", "Site sections")}>
         <ul>
-          {SITE_NAV.map((item) => (
-            <li key={item.to}>
-              <Link to={item.to}>{lang === "ko" ? item.ko : item.en}</Link>
-            </li>
-          ))}
+          {SITE_NAV.map((item) => {
+            const base = item.to.split("?")[0];
+            const here = path === base || (base === "/stock/005930" && path.startsWith("/stock/"));
+            return (
+              <li key={item.to}>
+                <Link to={item.to} className={here ? "is-here" : undefined} aria-current={here ? "page" : undefined}>
+                  {lang === "ko" ? item.ko : item.en}
+                </Link>
+              </li>
+            );
+          })}
           <li>
-            <a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer" onClick={() => reportVoltarisIngress("/desk")} className="is-ext">
+            <a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer" onClick={() => reportVoltarisIngress(path)} className="is-ext">
               VOLTARIS ↗
             </a>
           </li>

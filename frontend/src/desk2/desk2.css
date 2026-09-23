@@ -4191,6 +4191,43 @@ tr.is-alert-cool .d2-macro-alert {
   }
 }
 
+
+/* ── masthead: an inner page's section flag, and "you are here" in the index ── */
+.d2 .d2-mast-name--section {
+  display: grid;
+  gap: 2px;
+}
+.d2 .d2-mast-paper {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+  color: var(--ink-2);
+}
+.d2 .d2-mast-paper::after {
+  content: "  ·  ";
+  color: var(--ink-3);
+}
+.d2 .d2-mast-name--section h1 {
+  font-family: var(--f-display);
+  font-weight: 900;
+  font-size: clamp(38px, 4.6vw, 64px);
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+.d2 .d2-mast-name--section p {
+  margin-top: 8px;
+}
+.d2 .d2-mast-nav a.is-here {
+  color: var(--ink);
+  background: linear-gradient(transparent 62%, var(--mark) 62% 88%, transparent 88%);
+}
+@media (max-width: 760px) {
+  .d2 .d2-mast-name--section h1 {
+    font-size: 40px;
+  }
+}
+
 /* ═════════════════════════ print — 오늘 지면 ════════════════════════════ */
 
 @media print {

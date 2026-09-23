@@ -21,6 +21,11 @@ const MarketDeskPage = lazy(() => import("./components/MarketDeskPage"));
    for anyone who still wants that arrangement. Each has its own scoped
    stylesheet, so neither can affect the other. */
 const Desk2Page = lazy(() => import("./desk2/Desk2Page"));
+/* 종목면 and 종목정보 in the same broadsheet as the desk. The classic
+   StockIntelligencePage / UsStockIntelligencePage / StocksPage stay in the tree,
+   unrouted, so either can be put back with one line here. */
+const BroadsheetStockPage = lazy(() => import("./desk2/stock/StockPage"));
+const BroadsheetStocksPage = lazy(() => import("./desk2/stocks/StocksPage"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
    used to be is reached from the star at the centre of the page, and anything
    that means "open a stock" targets /desk?code=.
@@ -321,11 +326,9 @@ export default function App() {
   } else if (stockMatch) {
     const detailCode = stockMatch[1].toUpperCase();
     const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
-    page = /^\d{6}$/.test(detailCode)
-      ? <StockIntelligencePage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />
-      : <UsStockIntelligencePage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
+    page = <BroadsheetStockPage key={`${detailCode}-${isEtf}`} code={detailCode} isEtf={isEtf} />;
   } else if (path === "/stocks") {
-    page = <StocksPage />;
+    page = <BroadsheetStocksPage />;
   } else if (path === "/kospi-100") {
     page = <KospiBoardPage />;
   } else if (path === "/kosdaq-100") {
