@@ -16,6 +16,10 @@ import "./components/marketBriefPrint.css";
    the same information in two arrangements rather than two codebases; what
    differs is the order, the grouping and what is on screen at once. */
 const MarketDeskPage = lazy(() => import("./components/MarketDeskPage"));
+/* /desk2 — the market desk rebuilt as a live broadsheet (see src/desk2). A
+   preview route beside /desk: same data, new page, its own scoped stylesheet
+   and fonts, so neither can affect the other while the two run side by side. */
+const Desk2Page = lazy(() => import("./desk2/Desk2Page"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
    used to be is reached from the star at the centre of the page, and anything
    that means "open a stock" targets /desk?code=.
@@ -296,6 +300,8 @@ export default function App() {
     page = <DashboardRedirect />;
   } else if (path === "/desk") {
     page = <MarketDeskPage />;
+  } else if (path === "/desk2") {
+    page = <Desk2Page />;
   } else if (stockMatch) {
     const detailCode = stockMatch[1].toUpperCase();
     const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
