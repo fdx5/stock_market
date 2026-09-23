@@ -13,10 +13,10 @@ import "./bubble/observatory.css";
 
 /* 증시버블 — the market as an observatory.
  *
- * The top twenty names of a market float as glass spheres in a slow galactic disc:
+ * The top twenty names of a market float freely as glass spheres:
  * size is market value, the rim and the light inside are the day's move (red up,
  * blue down, brighter the further it went), the logo sits inside each sphere like a
- * medallion, and names in the same sector are joined by faint constellation lines.
+ * medallion, and each drifts on its own path, only ever bumped by its neighbours.
  * The rendering lives in bubble/engine.ts; this file is the data and the instruments
  * around the glass — the pulse panel, sector focus, the hover card, the controls. */
 
@@ -376,7 +376,7 @@ export default function MarketBubblePage() {
             })}
           </ol>
           <h3>
-            섹터 성좌 <small>누르면 그 섹터만 밝힙니다</small>
+            섹터 <small>누르면 그 섹터만 밝힙니다</small>
           </h3>
           <ul className="ob-sectors">
             {pulse.sectors.slice(0, 7).map((s) => (
@@ -404,7 +404,7 @@ export default function MarketBubblePage() {
         <span className="ob-legend-size">
           <i />
           <i />
-          <i /> 크기 = 시가총액 · 선 = 같은 섹터
+          <i /> 크기 = 시가총액
         </span>
       </div>
 

@@ -105,8 +105,6 @@ export class BubbleEngine {
   private sky: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private stars: THREE.Points<THREE.BufferGeometry, THREE.ShaderMaterial>;
   private floor: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  private links: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
-  private linkPairs: [number, number][] = [];
   private raf = 0;
   private last = performance.now();
   private start = performance.now();
@@ -163,8 +161,8 @@ export class BubbleEngine {
     this.camera = new THREE.PerspectiveCamera(38, 1, 10, 9000);
     // On a wide screen the view is aimed a little left of the cluster, so it sits
     // right of centre, clear of the pulse panel; on a phone it sits above the strip.
-    this.homeTarget = narrow ? new THREE.Vector3(0, -170, 0) : new THREE.Vector3(-170, -20, 0);
-    this.homePos = narrow ? new THREE.Vector3(0, 40, 2050) : new THREE.Vector3(-170, 520, 1500);
+    this.homeTarget = narrow ? new THREE.Vector3(0, -60, -120) : new THREE.Vector3(-170, -20, -120);
+    this.homePos = narrow ? new THREE.Vector3(0, 60, 1750) : new THREE.Vector3(-170, 480, 1560);
     this.camera.position.copy(this.homePos).multiplyScalar(2.3).add(new THREE.Vector3(narrow ? 0 : -900, 500, 0));
 
     this.controls = new OrbitControls(this.camera, stage);
@@ -251,17 +249,6 @@ export class BubbleEngine {
     this.floor.position.y = -470;
     this.scene.add(this.floor);
 
-    // sector constellation lines
-    const linkGeo = new THREE.BufferGeometry();
-    linkGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(60 * 6), 3));
-    linkGeo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(60 * 6), 3));
-    linkGeo.setDrawRange(0, 0);
-    this.links = new THREE.LineSegments(
-      linkGeo,
-      new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending })
-    );
-    this.links.frustumCulled = false;
-    this.scene.add(this.links);
 
     this.buildPipeline();
 
@@ -432,7 +419,7 @@ export class BubbleEngine {
 
       // A spiral disc for the first frame, largest names nearest the middle.
       const ang = i * 2.39996;
-      const rad = 120 + Math.sqrt(i) * 230;
+      const rad = 140 + Math.random() * 520;
       const o: Orb = {
         mesh,
         halo,
@@ -440,7 +427,7 @@ export class BubbleEngine {
         labelCanvas,
         labelTex,
         logoTex: null,
-        p: new THREE.Vector3(Math.cos(ang) * rad, (Math.random() - 0.5) * 160, Math.sin(ang) * rad),
+        p: new THREE.Vector3(Math.cos(ang) * rad, (Math.random() - 0.5) * 420, Math.sin(ang) * rad * 0.7),
         v: new THREE.Vector3((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 1, (Math.random() - 0.5) * 2),
         r: 1,
         targetR: 60,
@@ -488,12 +475,6 @@ export class BubbleEngine {
         o.labelTex.needsUpdate = true;
       }
     });
-    // Sector constellations: each sector's names chained in rank order.
-    this.linkPairs = [];
-    const bySector = new Map<string, number[]>();
-    data.forEach((d, i) => bySector.set(d.sector, [...(bySector.get(d.sector) ?? []), i]));
-    for (const ids of bySector.values()) for (let k = 1; k < ids.length; k++) this.linkPairs.push([ids[k - 1], ids[k]]);
-    this.links.geometry.setDrawRange(0, this.linkPairs.length * 2);
   }
 
   private clearOrbs() {
@@ -618,18 +599,27 @@ export class BubbleEngine {
     for (let i = 0; i < orbs.length; i++) {
       const o = orbs[i];
       o.r += (o.targetR - o.r) * Math.min(1, 0.06 * dt);
-      // The cloud takes the screen's shape: a wide disc on a landscape screen, a
-      // tall column on an upright phone. Larger names are pulled harder, so they
-      // settle toward the middle.
-      const k = 0.00032 + 0.00052 * (o.r / rMax);
-      const ky = k * (this.aspect > 1 ? 2.4 : 0.55);
-      const kz = k * (this.aspect > 1 ? 0.75 : 1.6);
-      o.v.x += (-o.p.x * k - o.p.z * 0.00024) * dt;
-      o.v.z += (-o.p.z * kz + o.p.x * 0.00024) * dt;
-      o.v.y += -o.p.y * ky * dt;
-      o.v.x += Math.sin(t * 0.00037 + o.seed * 9) * 0.0045 * dt;
-      o.v.z += Math.cos(t * 0.00029 + o.seed * 7) * 0.0045 * dt;
-      o.v.y += Math.sin(t * 0.00041 + o.seed * 5) * 0.0028 * dt;
+      // Free flight. Each sphere steers toward its own slowly turning heading (two
+      // incommensurate sines per axis, so no two paths repeat), bigger names drift
+      // more slowly, and soft walls shaped like the screen keep everyone in view.
+      // There is no pull toward a centre and no shared rotation: nothing is tied to
+      // anything else, only bumped by it.
+      const heavy = 1 - 0.55 * (o.r / rMax);
+      const cruise = 1.1 * heavy;
+      const hx = Math.sin(t * 0.00011 + o.seed * 3.1) + Math.sin(t * 0.000047 + o.seed * 7.7) * 0.6;
+      const hy = Math.sin(t * 0.00009 + o.seed * 5.3) * 0.7 + Math.sin(t * 0.000061 + o.seed * 2.2) * 0.4;
+      const hz = Math.cos(t * 0.0001 + o.seed * 4.4) + Math.cos(t * 0.000053 + o.seed * 9.1) * 0.6;
+      o.v.x += (hx * cruise - o.v.x) * 0.012 * dt;
+      o.v.y += (hy * cruise * 0.7 - o.v.y) * 0.012 * dt;
+      o.v.z += (hz * cruise - o.v.z) * 0.012 * dt;
+      // The room: wide and shallow on a landscape screen, tall on a phone, and
+      // deeper behind than in front, so nothing sails up to the lens.
+      const wide = this.aspect > 1;
+      const box = wide ? { x: 780, y: 270, back: 620, front: 230 } : { x: 330, y: 560, back: 460, front: 180 };
+      const wall = (pos: number, lo: number, hi: number) => (pos > hi ? -(pos - hi) * 0.004 : pos < lo ? (lo - pos) * 0.004 : 0);
+      o.v.x += wall(o.p.x, -box.x + o.r, box.x - o.r) * dt;
+      o.v.y += wall(o.p.y, -box.y + o.r, box.y - o.r) * dt;
+      o.v.z += wall(o.p.z, -box.back + o.r, box.front - o.r) * dt;
       const damp = Math.pow(i === this.hover ? 0.9 : 0.982, dt);
       o.v.multiplyScalar(damp);
       const sp = o.v.length();
@@ -643,13 +633,13 @@ export class BubbleEngine {
         this.tmp.subVectors(b.p, a.p);
         const dist = this.tmp.length() || 0.001;
         const min = a.r + b.r + 10;
-        const room = (a.r + b.r) * 1.7 + 40;
+        const room = (a.r + b.r) * 1.35 + 30;
         if (dist >= room) continue;
         const n = this.tmp.divideScalar(dist);
         const ia = 1 / (a.r * a.r), ib = 1 / (b.r * b.r), is = ia + ib;
         // Personal space: a soft push well before contact keeps the cloud evenly
         // spread, so spheres and their captions do not pile up in the middle.
-        const push = (room - dist) * 0.0016 * dt;
+        const push = (room - dist) * 0.0009 * dt;
         a.v.addScaledVector(n, (-push * ia) / is);
         b.v.addScaledVector(n, (push * ib) / is);
         if (dist >= min) continue;
@@ -762,20 +752,6 @@ export class BubbleEngine {
       (o.label.material as THREE.SpriteMaterial).opacity = 1 - o.dim * 0.85;
     }
 
-    // constellation lines
-    const lp = this.links.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const lc = this.links.geometry.getAttribute("color") as THREE.BufferAttribute;
-    this.linkPairs.forEach(([a, b], k) => {
-      const A = this.orbs[a], B = this.orbs[b];
-      if (!A || !B) return;
-      lp.setXYZ(k * 2, A.p.x, A.p.y, A.p.z);
-      lp.setXYZ(k * 2 + 1, B.p.x, B.p.y, B.p.z);
-      const fade = (1 - Math.max(A.dim, B.dim) * 0.9) * (0.35 + Math.max(A.hover, B.hover) * 0.65);
-      lc.setXYZ(k * 2, 0.35 * fade, 0.62 * fade, 1.0 * fade);
-      lc.setXYZ(k * 2 + 1, 0.35 * fade, 0.62 * fade, 1.0 * fade);
-    });
-    lp.needsUpdate = true;
-    lc.needsUpdate = true;
 
     this.mood.lerp(this.moodTarget, 0.02);
     this.sky.material.uniforms.uTime.value = time;
@@ -843,8 +819,6 @@ export class BubbleEngine {
     this.stars.material.dispose();
     this.floor.geometry.dispose();
     this.floor.material.dispose();
-    this.links.geometry.dispose();
-    this.links.material.dispose();
     this.composer?.dispose();
     this.renderer.dispose();
   }
