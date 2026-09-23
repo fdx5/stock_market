@@ -126,7 +126,10 @@ def _us_display_name(name: str) -> str:
         korean = None
     if korean:
         # "애플 주식회사" → "애플": nobody searches the translated legal form.
-        korean = re.sub(r"^(주식회사|\(주\))\s*|\s*(주식회사|\(주\)|코퍼레이션|인코포레이티드)$", "", korean.strip()).strip()
+        korean = re.sub(r"^(주식회사|\(주\))\s*|\s*(주식회사|\(주\)|코퍼레이션|인코포레이티드|보통주)$", "", korean.strip()).strip()
+        # Some cached translations kept the English form ("Tesla, Inc. 보통주").
+        for _ in range(3):
+            korean = _LEGAL_TAIL.sub("", korean).strip()
         if korean:
             return korean
     clean = name
