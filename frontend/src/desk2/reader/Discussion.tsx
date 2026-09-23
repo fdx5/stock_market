@@ -53,10 +53,13 @@ export default function Discussion({
   source,
   track,
   explorerHref,
+  initialId,
 }: {
   code: string;
   name: string;
-  source: "naver" | "global" | "toss";
+  source: "naver" | "global" | "toss" | "toss-etf";
+  /** Opens this post as soon as the first page containing it arrives. */
+  initialId?: string | null;
   /** When set, reads are reported to the 종목정보 action log under this market. */
   track?: string;
   explorerHref?: string;
@@ -74,6 +77,7 @@ export default function Discussion({
   const [detailLoading, setDetailLoading] = useState(false);
   const [comments, setComments] = useState<BoardComment[] | null>(null);
   const [pendingOpen, setPendingOpen] = useState<"first" | "last" | null>(null);
+  const [wantId, setWantId] = useState<string | null>(initialId ?? null);
 
   useEffect(() => {
     setPage(1);
@@ -112,6 +116,8 @@ export default function Discussion({
     const request =
       source === "toss"
         ? api.tossDiscussion(code, PAGE_SIZE, cursor)
+        : source === "toss-etf"
+          ? api.tossEtfDiscussion(code, PAGE_SIZE, cursor)
         : source === "global"
           ? api.globalDiscussion(code, PAGE_SIZE, cursor)
           : api.board(code, Math.floor((page - 1) / 2) + 1, page === 1);
@@ -129,7 +135,10 @@ export default function Discussion({
           setHasNext(result.items.length > start + PAGE_SIZE || result.items.length >= NAVER_MORE_HINT);
         }
         setPosts(list);
-        if (pendingOpen && list.length) openFrom(list, pendingOpen === "first" ? 0 : list.length - 1);
+        const wanted = wantId ? list.findIndex((p) => p.id === wantId) : -1;
+        if (wantId) setWantId(null);
+        if (wanted >= 0) openFrom(list, wanted);
+        else if (pendingOpen && list.length) openFrom(list, pendingOpen === "first" ? 0 : list.length - 1);
         else {
           setOpenIndex(null);
           setDetail(null);

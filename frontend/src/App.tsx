@@ -26,6 +26,10 @@ const Desk2Page = lazy(() => import("./desk2/Desk2Page"));
    unrouted, so either can be put back with one line here. */
 const BroadsheetStockPage = lazy(() => import("./desk2/stock/StockPage"));
 const BroadsheetStocksPage = lazy(() => import("./desk2/stocks/StocksPage"));
+/* ETF and 오늘 브리핑 in the same broadsheet; the classic EtfPage and
+   MarketBriefPage stay in the tree, unrouted. */
+const BroadsheetEtfPage = lazy(() => import("./desk2/etf/EtfPage"));
+const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
    used to be is reached from the star at the centre of the page, and anything
    that means "open a stock" targets /desk?code=.
@@ -227,6 +231,7 @@ function useNoindexOn(path: string, target: string) {
 export default function App() {
   const path = useRoute();
   const briefMatch = path.match(/^\/market-brief\/(\d{4}-\d{2}-\d{2})\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco|\d{6})\/?$/i);
+  const briefLatestMatch = path.match(/^\/market-brief\/latest\/(kospi|kosdaq|samsung|hynix|hyundai|sksquare|semco)\/?$/i);
   const stockMatch = path.match(/^\/stock\/([A-Za-z0-9.-]{1,16})\/?$/);
   const stockLandingMatch = path.match(/^\/stock\/(\d{6})\/(investor|outlook|news)\/?$/);
   const etfCompareMatch = path.match(/^\/etf\/compare\/([A-Za-z0-9.-]+)\/([A-Za-z0-9.-]+)\/?$/);
@@ -352,11 +357,15 @@ export default function App() {
   } else if (path === "/global-top100") {
     page = <GlobalTop100Page />;
   } else if (path === "/etf") {
-    page = <EtfPage />;
+    page = <BroadsheetEtfPage />;
   } else if (path === "/news") {
     page = <NewsPage />;
   } else if (path === "/market-brief") {
-    page = <MarketBriefPage />;
+    page = <BroadsheetBriefPage />;
+  } else if (briefLatestMatch) {
+    // "Latest" for a subject — the date picker's first option. Was unrouted, so it
+    // fell through to the desk.
+    page = <BroadsheetBriefPage key={`latest-${briefLatestMatch[1]}`} initialMarket={briefLatestMatch[1]} />;
   } else if (briefMatch) {
     const raw = briefMatch[2].toUpperCase();
     const codeMap: Record<string, string> = {
@@ -368,12 +377,7 @@ export default function App() {
       "KOSPI": "KOSPI", "KOSDAQ": "KOSDAQ",
     };
     const normalized = codeMap[raw] || raw;
-    page = (
-      <MarketBriefPage
-        initialDate={briefMatch[1]}
-        initialMarket={normalized}
-      />
-    );
+    page = <BroadsheetBriefPage key={`${briefMatch[1]}-${normalized}`} initialDate={briefMatch[1]} initialMarket={normalized} />;
   } else if (path === "/ai-prediction") {
     page = <AiPredictionPage />;
   } else if (path === "/ai-prediction/grading") {

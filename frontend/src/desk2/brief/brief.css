@@ -1,0 +1,519 @@
+/* 오늘 브리핑 — the closing report as a newspaper market column. Prefix bf-. */
+
+.d2 .bf-bar-inner {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.d2 .bf-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.d2 .bf-date select {
+  font: inherit;
+  font-family: var(--f-num);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--p1);
+  border: 1px solid var(--rule-ink);
+  padding: 4px 8px;
+}
+.d2 .bf-date select option {
+  color: #111;
+}
+.d2 .bf-tools {
+  display: inline-flex;
+  gap: 6px;
+}
+.d2 .bf-tools button {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border: 1px solid var(--rule-ink);
+}
+.d2 .bf-tools button:hover {
+  background: var(--ink);
+  color: var(--p0);
+}
+
+.d2 .bf-archive {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 16px 0 12px;
+  border-bottom: 1px solid var(--rule);
+  font-family: var(--f-num);
+  font-size: 13.5px;
+}
+.d2 .bf-archive > span {
+  font-family: var(--f-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+}
+.d2 .bf-archive a {
+  color: var(--ink-2);
+  padding: 1px 4px;
+}
+.d2 .bf-archive a:hover {
+  color: var(--ink);
+}
+.d2 .bf-archive a.is-on {
+  color: var(--ink);
+  font-weight: 600;
+  background: var(--mark);
+}
+.d2 .bf-archive small {
+  margin-left: auto;
+  font-family: var(--f-sans);
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.d2 .bf-sheet {
+  padding-top: 30px;
+  display: grid;
+  gap: 32px;
+}
+.d2 .bf-code {
+  font-family: var(--f-type);
+  color: var(--ink-2);
+}
+.d2 .bf-head-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: var(--col-gap);
+  align-items: end;
+}
+.d2 .bf-head h2 {
+  font-family: var(--f-display);
+  font-weight: 900;
+  font-size: clamp(34px, 4.6vw, 62px);
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
+.d2 .bf-head h2 em {
+  font-style: normal;
+  font-family: var(--f-fig);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.d2 .bf-lede {
+  margin-top: 16px;
+  font-family: var(--f-text);
+  font-weight: 500;
+  font-size: 19px;
+  line-height: 1.7;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+  max-width: 60ch;
+  padding-top: 14px;
+  border-top: 1px solid var(--rule);
+}
+.d2 .bf-stamp {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 3px double var(--rule-ink);
+  text-align: center;
+  transform: rotate(-1.5deg);
+}
+.d2 .bf-stamp small {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--ink-3);
+}
+.d2 .bf-stamp b {
+  font-family: var(--f-display);
+  font-weight: 900;
+  font-size: 26px;
+  line-height: 1.15;
+}
+.d2 .bf-stamp.is-up {
+  border-color: var(--up);
+}
+.d2 .bf-stamp.is-up b {
+  color: var(--up);
+}
+.d2 .bf-stamp.is-down {
+  border-color: var(--down);
+}
+.d2 .bf-stamp.is-down b {
+  color: var(--down);
+}
+
+.d2 .bf-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 3px solid var(--rule-ink);
+  border-bottom: 1px solid var(--rule-ink);
+}
+.d2 .bf-kpis > div {
+  display: grid;
+  gap: 2px;
+  padding: 14px 18px;
+}
+.d2 .bf-kpis > div:first-child {
+  padding-left: 0;
+}
+.d2 .bf-kpis > div + div {
+  border-left: 1px solid var(--rule);
+}
+.d2 .bf-kpis span {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+.d2 .bf-kpis b {
+  font-family: var(--f-fig);
+  font-weight: 600;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.d2 .bf-kpis b small {
+  font-family: var(--f-sans);
+  font-size: 14px;
+  margin-left: 2px;
+}
+.d2 .bf-kpis em {
+  font-style: normal;
+  font-family: var(--f-num);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.d2 .bf-compare h3 {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.d2 .bf-compare h3 small {
+  font-family: var(--f-num);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--ink-3);
+  margin-left: 6px;
+}
+.d2 .bf-compare table {
+  width: 100%;
+  max-width: 720px;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.d2 .bf-compare th,
+.d2 .bf-compare td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule);
+  text-align: right;
+}
+.d2 .bf-compare thead th {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  border-bottom: 2px solid var(--rule-ink);
+}
+.d2 .bf-compare tbody th {
+  text-align: left;
+  font-weight: 600;
+  padding-left: 0;
+}
+.d2 .bf-compare td:last-child {
+  font-weight: 600;
+}
+
+.d2 .bf-columns {
+  columns: 2;
+  column-gap: var(--col-gap);
+  column-rule: 1px solid var(--rule);
+}
+.d2 .bf-columns p {
+  font-family: var(--f-text);
+  font-size: 16.5px;
+  line-height: 1.9;
+  letter-spacing: -0.015em;
+  margin-bottom: 0.8em;
+  break-inside: avoid-column;
+}
+.d2:lang(ko) .bf-columns p {
+  text-align: justify;
+  word-break: normal;
+  line-break: strict;
+}
+
+.d2 .bf-boxes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--col-gap);
+}
+.d2 .bf-box {
+  border: 1px solid var(--rule-ink);
+  border-top: 4px solid var(--ink);
+  padding: 14px 18px 16px;
+  background: var(--p1);
+}
+.d2 .bf-box.is-watch {
+  border-top-color: var(--brass);
+}
+.d2 .bf-box h4 {
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+.d2 .bf-box ol {
+  counter-reset: bx;
+  display: grid;
+  gap: 8px;
+}
+.d2 .bf-box li {
+  counter-increment: bx;
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  font-family: var(--f-text);
+  font-size: 15px;
+  line-height: 1.65;
+}
+.d2 .bf-box li::before {
+  content: counter(bx);
+  font-family: var(--f-fig);
+  font-style: italic;
+  font-weight: 700;
+  color: var(--brass);
+}
+
+.d2 .bf-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--col-gap);
+}
+.d2 .bf-two > section {
+  min-width: 0;
+}
+.d2 .bf-two > section + section {
+  border-left: 1px solid var(--rule);
+  padding-left: var(--col-gap);
+}
+.d2 .bf-bars li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40% 70px;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px dotted var(--rule);
+  font-size: 14px;
+}
+.d2 .bf-bars li span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .bf-bar-track {
+  position: relative;
+  height: 12px;
+  display: block;
+}
+.d2 .bf-bars b {
+  font-weight: 600;
+  text-align: right;
+}
+.d2 .bf-breadth {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 6px 0 12px;
+}
+.d2 .bf-breadth b {
+  font-family: var(--f-fig);
+  font-weight: 700;
+  font-size: 64px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+.d2 .bf-breadth b small {
+  font-size: 0.4em;
+  color: var(--ink-3);
+}
+.d2 .bf-breadth span {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.d2 .bf-flows {
+  font-size: 15px;
+}
+.d2 .bf-flows b {
+  font-family: var(--f-num);
+}
+.d2 .bf-sub {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.d2 .bf-two .d2-table td.is-name a {
+  font-weight: 600;
+}
+.d2 .bf-two .d2-table td.is-name a:hover {
+  text-decoration: underline;
+}
+
+.d2 .bf-news ol {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--col-gap);
+}
+.d2 .bf-news li {
+  border-bottom: 1px solid var(--rule);
+}
+.d2 .bf-news a {
+  display: grid;
+  gap: 2px;
+  padding: 10px 0;
+}
+.d2 .bf-news small {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--brass);
+}
+.d2 .bf-news b {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.d2 .bf-news a:hover b {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.d2 .bf-news span {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.d2 .bf-foot {
+  border-top: 1px solid var(--rule-ink);
+  padding-top: 12px;
+  display: grid;
+  gap: 6px;
+  font-family: var(--f-text);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.d2 .bf-foot b {
+  font-family: var(--f-sans);
+  color: var(--ink-2);
+  margin-right: 6px;
+}
+.d2 .bf-next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 14px 18px;
+  background: var(--ink);
+}
+.d2 .bf-next a {
+  color: var(--p0) !important;
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 15px;
+}
+.d2 .bf-next a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.d2 .bf-pager {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 2px solid var(--rule-ink);
+  font-family: var(--f-num);
+  font-size: 14px;
+  font-weight: 600;
+}
+.d2 .bf-pager a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 1179px) {
+  .d2 .bf-bar-inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "tabs tabs"
+      "date tools";
+    padding-top: 4px;
+    padding-bottom: 6px;
+  }
+  .d2 .bf-tabs {
+    grid-area: tabs;
+  }
+  .d2 .bf-date {
+    grid-area: date;
+  }
+  .d2 .bf-tools {
+    grid-area: tools;
+  }
+  .d2 .bf-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .d2 .bf-kpis > div:nth-child(3) {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .d2 .bf-kpis > div:nth-child(n + 3) {
+    border-top: 1px solid var(--rule);
+  }
+}
+
+@media (max-width: 760px) {
+  .d2 .bf-head-grid,
+  .d2 .bf-boxes,
+  .d2 .bf-two,
+  .d2 .bf-news ol {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .d2 .bf-two > section + section {
+    border-left: 0;
+    padding-left: 0;
+  }
+  .d2 .bf-stamp {
+    justify-self: start;
+    transform: none;
+  }
+  .d2 .bf-columns {
+    columns: 1;
+  }
+  .d2:lang(ko) .bf-columns p {
+    text-align: left;
+  }
+  .d2 .bf-lede {
+    font-size: 17px;
+  }
+  .d2 .bf-kpis b {
+    font-size: 24px;
+  }
+  .d2 .bf-kpis > div {
+    padding: 12px 10px;
+  }
+  .d2 .bf-archive small {
+    display: none;
+  }
+}
+
+@media print {
+  .d2 .bf-bar,
+  .d2 .bf-archive,
+  .d2 .bf-next,
+  .d2 .bf-pager {
+    display: none !important;
+  }
+  .d2 .bf-stamp {
+    transform: none;
+  }
+}

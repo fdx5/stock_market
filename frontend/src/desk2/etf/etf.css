@@ -1,0 +1,510 @@
+/* ETF면 — fund cards set as newspaper quote boxes. Tokens and type roles from
+   desk2.css; shared parts (sk-, st-) from pages.css. Prefix ef-. */
+
+.d2 .ef-card.is-up,
+.d2 .ef-card.is-down,
+.d2 .ef-card.is-flat {
+  color: var(--ink);
+}
+
+.d2 .ef-bar-inner {
+  grid-template-columns: auto minmax(220px, 1fr) auto;
+}
+.d2 .ef-search {
+  position: relative;
+}
+.d2 .ef-suggest {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: var(--p1);
+  border: 1px solid var(--rule-ink);
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.45);
+  display: grid;
+}
+.d2 .ef-suggest a {
+  display: grid;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+.d2 .ef-suggest a:hover {
+  background: var(--mark);
+}
+.d2 .ef-suggest b {
+  font-weight: 600;
+  font-size: 14px;
+}
+.d2 .ef-suggest small {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.d2 .ef-front {
+  padding-top: 34px;
+}
+.d2 .ef-head {
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: clamp(28px, 3.6vw, 48px);
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  max-width: 28ch;
+  text-wrap: balance;
+}
+.d2 .ef-front-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: var(--col-gap);
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 3px double var(--rule-ink);
+}
+.d2 .ef-stats {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+.d2 .ef-ad small {
+  display: block;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.d2 .ef-ad small b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.d2 .ef-leaders > div {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.d2 .ef-leaders dt {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  padding-top: 2px;
+}
+.d2 .ef-leaders dd {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+.d2 .ef-leaders dd a {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 15.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .ef-leaders dd a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.d2 .ef-leaders dd b {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.d2 .ef-cats .d2-table td,
+.d2 .ef-cats .d2-table th {
+  padding: 7px 8px;
+}
+.d2 .ef-share {
+  position: relative;
+  min-width: 120px;
+}
+.d2 .ef-share i {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  height: 8px;
+  margin-top: -4px;
+  max-width: calc(100% - 60px);
+  background: var(--brass);
+  opacity: 0.55;
+}
+.d2 .ef-share b {
+  position: relative;
+  font-weight: 600;
+}
+
+.d2 .ef-controls {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.d2 .ef-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0;
+  border-top: 2px solid var(--rule-ink);
+  border-left: 1px solid var(--rule);
+}
+.d2 .ef-card {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  padding: 16px 18px 14px;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  min-width: 0;
+}
+.d2 .ef-card header {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.d2 .ef-rank {
+  font-family: var(--f-fig);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--brass);
+  min-width: 18px;
+}
+.d2 .ef-logo {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  object-fit: contain;
+  background: var(--p2);
+  display: inline-grid;
+  place-items: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  overflow: hidden;
+  flex: none;
+}
+.d2 .ef-id {
+  display: grid;
+  min-width: 0;
+}
+.d2 .ef-id h3 {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 16.5px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .ef-id a:hover h3 {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.d2 .ef-id small {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .ef-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.d2 .ef-tags span {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border: 1px solid var(--rule-2);
+  color: var(--ink-2);
+}
+.d2 .ef-tags .is-geared {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.d2 .ef-tags .is-session {
+  background: var(--mark);
+  border-color: transparent;
+  color: var(--ink);
+}
+.d2 .ef-tags .is-surge {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--p0);
+}
+.d2 .ef-price {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-ink);
+}
+.d2 .ef-price b {
+  font-family: var(--f-fig);
+  font-weight: 600;
+  font-size: 28px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.d2 .ef-price span {
+  font-family: var(--f-num);
+  font-size: 14px;
+  font-weight: 600;
+}
+.d2 .ef-price em {
+  font-style: normal;
+  margin-left: 4px;
+}
+.d2 .ef-spark {
+  height: 46px;
+}
+.d2 .ef-returns,
+.d2 .ef-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px dotted var(--rule-2);
+  padding-top: 6px;
+}
+.d2 .ef-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.d2 .ef-returns dt,
+.d2 .ef-facts dt {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.d2 .ef-returns dd,
+.d2 .ef-facts dd {
+  font-family: var(--f-num);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.d2 .ef-52 {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 8px;
+  align-items: center;
+  font-family: var(--f-num);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.d2 .ef-52 > i,
+.d2 .ef-t52 > i {
+  position: relative;
+  height: 4px;
+  background: linear-gradient(90deg, var(--down), color-mix(in srgb, var(--ink-3) 40%, transparent) 50%, var(--up));
+  opacity: 0.8;
+}
+.d2 .ef-52 > i > i,
+.d2 .ef-t52 > i > i {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 12px;
+  margin-left: -1.5px;
+  background: var(--ink);
+}
+.d2 .ef-t52 {
+  min-width: 80px;
+}
+.d2 .ef-t52 > i {
+  display: block;
+}
+.d2 .ef-talk {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  font-size: 12.5px;
+  border-top: 1px solid var(--rule);
+  padding-top: 8px;
+}
+.d2 .ef-talk.is-empty {
+  display: block;
+  color: var(--ink-3);
+}
+.d2 .ef-talk > span {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--brass);
+}
+.d2 .ef-talk-window {
+  height: 20px;
+  overflow: hidden;
+}
+.d2 .ef-talk-track {
+  display: grid;
+  animation: ef-roll linear infinite;
+}
+.d2 .ef-talk-track button {
+  height: 20px;
+  line-height: 20px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-2);
+}
+.d2 .ef-talk-track button:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+.d2 .ef-talk:hover .ef-talk-track {
+  animation-play-state: paused;
+}
+@keyframes ef-roll {
+  to {
+    transform: translateY(calc(-20px * var(--n)));
+  }
+}
+.d2 .ef-actions {
+  display: flex;
+  gap: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-ink);
+}
+.d2 .ef-actions a,
+.d2 .ef-actions button {
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--rule-2);
+}
+.d2 .ef-actions a:hover,
+.d2 .ef-actions button:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+.d2 .ef-actions a:first-child {
+  margin-right: auto;
+  color: var(--ink);
+}
+
+.d2 .ef-table {
+  max-height: none;
+}
+.d2 .ef-tname {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.d2 .ef-tname span {
+  display: grid;
+}
+.d2 .ef-tname b {
+  font-weight: 600;
+  font-size: 13.5px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .ef-tname small {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.d2 .ef-tname:hover b {
+  text-decoration: underline;
+}
+.d2 .ef-tspark {
+  width: 90px;
+  min-width: 90px;
+}
+.d2 .ef-tspark .d2-spark {
+  height: 26px;
+}
+.d2 .ef-tboard {
+  font-family: var(--f-sans);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border: 1px solid var(--rule-2);
+}
+.d2 .ef-tboard b {
+  margin-left: 4px;
+  color: var(--brass);
+}
+
+.d2 .ef-board {
+  width: min(760px, 100%);
+}
+.d2 .ef-board-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  border-bottom: 2px solid var(--rule-ink);
+}
+.d2 .ef-board-head small {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--brass);
+  letter-spacing: 0.06em;
+}
+.d2 .ef-board-head h2 {
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+.d2 .ef-board-body {
+  overflow-y: auto;
+  padding: 6px 16px 16px;
+}
+.d2 .ef-naver {
+  display: inline-block;
+  margin-top: 12px;
+}
+
+@media (max-width: 1179px) {
+  .d2 .ef-bar-inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "markets view"
+      "search search";
+    padding-top: 4px;
+    padding-bottom: 6px;
+  }
+  .d2 .ef-bar-inner .st-markets {
+    grid-area: markets;
+  }
+  .d2 .ef-bar-inner .ef-search {
+    grid-area: search;
+  }
+  .d2 .ef-bar-inner .ef-view {
+    grid-area: view;
+  }
+  .d2 .ef-front-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .d2 .ef-grid {
+    grid-template-columns: minmax(0, 1fr);
+    border-left: 0;
+  }
+  .d2 .ef-card {
+    border-right: 0;
+    padding: 14px 0;
+  }
+  .d2 .ef-head {
+    font-size: 26px;
+  }
+  .d2 .ef-cats .d2-table-wrap,
+  .d2 .ef-cats {
+    overflow-x: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .d2 .ef-talk-track {
+    animation: none;
+  }
+}
