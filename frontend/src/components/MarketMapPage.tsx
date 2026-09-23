@@ -1013,7 +1013,10 @@ export default function MarketMapPage({
 
   return (
     <div className={`d2 mm app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}`} lang={lang}>
+      {/* No session rail here: the site index sits straight under the nameplate, and
+          maps.css runs the masthead, tape and colophon the full width of the map. */}
       <Masthead
+        rail={false}
         onPrint={() => window.print()}
         section={section ?? { ko: pageTitle, en: pageTitle, taglineKo: subtitlePrefix, taglineEn: pageTitle }}
       />

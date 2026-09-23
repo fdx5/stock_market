@@ -38,8 +38,17 @@
 .d2 .mm-main {
   padding-top: 26px;
 }
-.d2.mm.kospi-map-page--expanded .mm-main {
+/* The map runs edge to edge, so the paper's furniture does too: masthead, site
+   index, tape, the map and the colophon all share one measure — the page width
+   less the gutter — instead of the broadsheet's centred column. */
+.d2.mm .mm-main,
+.d2.mm .d2-mast,
+.d2.mm .d2-colophon {
   max-width: none;
+}
+.d2.mm .d2-tape {
+  max-width: none;
+  margin: 0 var(--gutter);
 }
 
 .d2.mm :is(
