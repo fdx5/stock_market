@@ -148,6 +148,8 @@ export interface MarketMapItem extends ExtendedHours {
    * capitalisation, so the two names mean different quantities on the two sides.
    * This is the real one, in dollars. */
   market_cap?: number | null;
+  /** US maps only: the stock's usual daily volume, for "trading far above normal". */
+  average_volume?: number | null;
 }
 
 export interface MarketMapResponse {

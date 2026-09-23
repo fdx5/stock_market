@@ -1,3 +1,4 @@
+import { ReactNode } from "react";
 import { IndexQuote, MarketInvestorSummary } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Link } from "../router";
@@ -53,11 +54,14 @@ export default function CommandBar({
   active,
   onJump,
   onFind,
+  market,
 }: {
   sections: DeskSection[];
   active: string;
   onJump: (id: string) => void;
   onFind: () => void;
+  /** Replaces the two KR index readings, for a page about another market. */
+  market?: ReactNode;
 }) {
   const { lang } = useLanguage();
   const L = useL();
@@ -82,8 +86,12 @@ export default function CommandBar({
           ))}
         </nav>
         <div className="d2-cmd-market">
-          <MiniIndex quote={kospi} investor={kospiInvestor} label={L("코스피", "KOSPI")} to="/index/kospi" />
-          <MiniIndex quote={kosdaq} investor={kosdaqInvestor} label={L("코스닥", "KOSDAQ")} to="/index/kosdaq" />
+          {market ?? (
+            <>
+              <MiniIndex quote={kospi} investor={kospiInvestor} label={L("코스피", "KOSPI")} to="/index/kospi" />
+              <MiniIndex quote={kosdaq} investor={kosdaqInvestor} label={L("코스닥", "KOSDAQ")} to="/index/kosdaq" />
+            </>
+          )}
         </div>
         <button type="button" className="d2-cmd-find" onClick={onFind} aria-label={L("종목·메뉴 찾기", "Find a stock or page")}>
           <span className="d2-cmd-find-glyph" aria-hidden="true">

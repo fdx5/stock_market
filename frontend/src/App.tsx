@@ -38,6 +38,7 @@ const BroadsheetGradingPage = lazy(() => import("./desk2/forecast/GradingPage"))
 const BroadsheetGlobalCapPage = lazy(() => import("./desk2/globalcap/GlobalCapPage"));
 const BroadsheetNewsPage = lazy(() => import("./desk2/news/NewsPage"));
 const BroadsheetCapFightPage = lazy(() => import("./desk2/capfight/CapFightPage"));
+const BroadsheetWorldPage = lazy(() => import("./desk2/world/WorldPage"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
    used to be is reached from the star at the centre of the page, and anything
    that means "open a stock" targets /desk?code=.
@@ -357,7 +358,7 @@ export default function App() {
   } else if (path === "/nasdaq100-map") {
     page = <Nasdaq100MapPage />;
   } else if (path === "/global") {
-    page = <GlobalStockPage />;
+    page = <BroadsheetWorldPage />;
   } else if (path === "/battle") {
     page = <TugOfWarPage />;
   } else if (path === "/fight") {
