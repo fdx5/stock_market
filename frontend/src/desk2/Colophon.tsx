@@ -54,7 +54,7 @@ const DIRECTORY: { ko: string; en: string; links: { to: string; ko: string; en: 
     links: [
       { to: "/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", ko: "종목 토론", en: "Discussions" },
       { to: "/news", ko: "글로벌 뉴스", en: "Global news" },
-      { to: "/desk", ko: "클래식 마켓 데스크", en: "Classic desk" },
+      { to: "/desk2", ko: "클래식 마켓 데스크", en: "Classic desk" },
       { to: "/", ko: "태양계 입구", en: "Entrance" },
       { to: "https://chs2147.github.io/mini-apps", ko: "Mini Apps ↗", en: "Mini Apps ↗", ext: true },
     ],

@@ -37,9 +37,26 @@
   --danger: #ef5b4b;
   --scrim: rgba(6, 6, 5, 0.72);
 
-  --f-serif: "Noto Serif KR", "Nanum Myeongjo", "Batang", Georgia, serif;
+  /* The type is set the way a Korean broadsheet sets it, one family per job:
+       display  Hahmlet            — 제호, 표제, 섹션 제목 (견출 명조의 자리)
+       text     Noto Serif KR      — 기사 본문, 부제, 사진설명, 해설 (본문 명조)
+       fig      Source Serif 4     — 크게 싣는 숫자: 지수, 체온, 시계 (라이닝 숫자)
+       num      Plex Sans Cond.    — 시세표의 숫자: 가격, 등락률, 표 (신문 시세면의 압축 고딕)
+       sans     Pretendard         — 단추, 탭, 라벨 같은 지면의 부속물
+       type     Plex Mono          — 시세 테이프와 키 안내뿐 (텔레타이프)
+       black    UnifrakturMaguntia — 영문판 제호 */
+  --f-display: "Hahmlet", "Noto Serif KR", "Nanum Myeongjo", "Batang", Georgia, serif;
+  --f-text: "Noto Serif KR", "Nanum Myeongjo", "Batang", Georgia, serif;
+  --f-fig: "Source Serif 4", "Noto Serif KR", Georgia, serif;
+  --f-num: "IBM Plex Sans Condensed", "Pretendard Variable", Pretendard, "Arial Narrow", sans-serif;
   --f-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
-  --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --f-type: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --f-black: "UnifrakturMaguntia", "Old English Text MT", var(--f-display);
+  /* The two names the stylesheet was first written against, now pointing at
+     the families that do those jobs: every heading is display, every figure
+     is set in the table face. */
+  --f-serif: var(--f-display);
+  --f-mono: var(--f-num);
 
   --gutter: 28px;
   --col-gap: 32px;
@@ -3837,6 +3854,340 @@ tr.is-alert-cool .d2-macro-alert {
   .d2 * {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* ═════════════════════════ typography — the broadsheet's type ═════════════
+   Set after every component block so each rule here is the one that wins:
+   figures in lining, tabular numerals; prose in the text serif; headings in
+   the display serif; the big numbers in a Latin serif with real figures. */
+
+/* every table figure: condensed, lining, tabular — a stock page's numbers */
+.d2 :is(
+    .d2-num,
+    .d2-delta,
+    .d2-cmd-idx b,
+    .d2-cmd-idx-ch,
+    .d2-cmd-idx-flow,
+    .d2-lead-sub,
+    .d2-lead-points b,
+    .d2-lead-points em,
+    .d2-flow-val,
+    .d2-macro-val,
+    .d2-macro-ch,
+    .d2-hist-col b,
+    .d2-hist-col small,
+    .d2-tilt-counts b,
+    .d2-strip-cell b,
+    .d2-sectors li b,
+    .d2-limits button b,
+    .d2-gl-val span,
+    .d2-gl dd,
+    .d2-rank-no,
+    .d2-rank-id small,
+    .d2-rank-fig,
+    .d2-table td,
+    .d2-radar-fig,
+    .d2-talk-chips button small,
+    .d2-talk-quote,
+    .d2-spot-quote span,
+    .d2-since li em,
+    .d2-adbar,
+    .d2-follow-body span,
+    .d2-follow-body em
+  ) {
+  font-family: var(--f-num);
+  font-variant-numeric: lining-nums tabular-nums;
+  letter-spacing: 0;
+}
+.d2 .d2-table td.is-name {
+  font-family: var(--f-sans);
+}
+
+/* the big numbers: a Latin text serif at display size, figures lining */
+.d2 :is(
+    .d2-idx-value,
+    .d2-temp-read > b,
+    .d2-dial figcaption b,
+    .d2-tilt dd,
+    .d2-gl-val b,
+    .d2-mast-clock b,
+    .d2-rail-bell b,
+    .d2-spot-quote b,
+    .d2-since li b,
+    .d2-talk-quote b,
+    .d2-radar-fig b,
+    .d2-rank-fig b
+  ) {
+  font-family: var(--f-fig);
+  font-variant-numeric: lining-nums tabular-nums;
+  font-optical-sizing: auto;
+}
+.d2 .d2-idx-value {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  font-size: clamp(40px, 3.8vw, 54px);
+}
+.d2 .d2-temp-read > b {
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-size: 84px;
+}
+.d2 .d2-mast-clock b,
+.d2 .d2-rail-bell b {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.d2 :is(.d2-gl-val b, .d2-tilt dd, .d2-dial figcaption b) {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.d2 :is(.d2-rank-fig b, .d2-radar-fig b, .d2-talk-quote b) {
+  font-weight: 600;
+}
+
+/* ordinal numbers the paper prints itself — section flags, list counters */
+.d2 .d2-sec-no {
+  font-family: var(--f-fig);
+  font-style: italic;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.d2 .d2-lead-points li::before,
+.d2 .d2-rank-no.is-top,
+.d2 .d2-radar-rank,
+.d2 .d2-find-rank {
+  font-family: var(--f-fig);
+  font-style: italic;
+  font-weight: 700;
+}
+
+/* headings — the display serif, heavy for the front, lighter as they shrink */
+.d2 .d2-lead-head {
+  font-family: var(--f-display);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
+}
+.d2 .d2-sec-titles h2 {
+  font-family: var(--f-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+.d2 :is(.d2-block-head h3, .d2-idx h3, .d2-rank-board h3, .d2-temp h3, .d2-fg h3, .d2-since h3, .d2-sectors h4, .d2-limits h4, .d2-spot-rowname, .d2-sheet h3) {
+  font-family: var(--f-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.d2 :is(.d2-spot-card h4, .d2-talk-id b) {
+  font-family: var(--f-display);
+  font-weight: 700;
+}
+
+/* prose — the text serif, as a paper sets its body copy */
+.d2 :is(
+    .d2-sec-note,
+    .d2-lead-deck p,
+    .d2-hist figcaption,
+    .d2-flow-note,
+    .d2-spot-body li,
+    .d2-since p,
+    .d2-colophon-brand p,
+    .d2-colophon-sources p,
+    .d2-colophon-disclaimer,
+    .d2-mast-name p,
+    .d2-temp-read small,
+    .d2-empty
+  ) {
+  font-family: var(--f-text);
+  letter-spacing: -0.015em;
+}
+.d2 .d2-sec-note {
+  font-size: 14px;
+  color: var(--ink-2);
+}
+.d2 .d2-spot-body li {
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+/* kickers and labels — small, tracked, set like a section slug */
+.d2 :is(.d2-sec-kicker, .d2-gl-group, .d2-colophon-dir h3, .d2-find-body h3, .d2-lead-points li > span, .d2-mast-clock small) {
+  font-family: var(--f-sans);
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  font-size: 11px;
+}
+
+/* teletype: the tape and the keys, and nothing else */
+.d2 .d2-tape,
+.d2 kbd,
+.d2 .d2-mast-issue,
+.d2 .d2-rail-hours,
+.d2 .d2-tape-px,
+.d2 .d2-tape-ch {
+  font-family: var(--f-type);
+  font-variant-numeric: tabular-nums;
+}
+
+/* the nameplate */
+.d2 .d2-mast-name h1 {
+  font-family: var(--f-display);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+}
+.d2 .d2-mast-name h1 span {
+  font-weight: 600;
+}
+.d2 .d2-mast-name h1.is-blackletter {
+  font-family: var(--f-black);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  font-size: clamp(44px, 5.8vw, 84px);
+  line-height: 1;
+}
+.d2 .d2-mast-name h1.is-blackletter span {
+  font-weight: 400;
+  margin-left: 0.22em;
+}
+.d2 .d2-mast-name p {
+  font-weight: 500;
+  font-size: 14.5px;
+}
+
+/* the ear: the box that flanks a nameplate carries the clocks */
+.d2 .d2-mast-clocks {
+  border: 1px solid var(--rule-ink);
+  padding: 10px 14px 9px;
+  position: relative;
+}
+.d2 .d2-mast-clocks::before {
+  content: attr(data-ear);
+  position: absolute;
+  top: -8px;
+  left: 10px;
+  padding: 0 6px;
+  background: var(--p0);
+  font-family: var(--f-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--ink-3);
+}
+
+/* the front page: headline, byline, wire dateline, body in columns */
+.d2 .d2-lead-byline {
+  margin-top: 14px;
+  font-family: var(--f-text);
+  font-size: 13px;
+  color: var(--ink-3);
+  letter-spacing: -0.01em;
+}
+.d2 .d2-lead-byline b {
+  font-family: var(--f-sans);
+  font-weight: 700;
+  color: var(--ink-2);
+  margin-right: 6px;
+}
+.d2 .d2-lead-body {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+}
+.d2 .d2-lead-deck {
+  display: block;
+  columns: 2;
+  column-gap: var(--col-gap);
+  column-rule: 1px solid var(--rule);
+}
+.d2 .d2-lead-deck p {
+  font-size: 17px;
+  line-height: 1.85;
+  margin-bottom: 0.7em;
+  break-inside: avoid-column;
+}
+/* Justified the way a Korean paper justifies: a line may break between any two
+   syllables, so the spacing stays even instead of opening gaps between words
+   (keep-all plus justify is what produced those). English stays ragged-right —
+   without hyphenation a justified English column is all rivers. */
+.d2:lang(ko) .d2-lead-deck p {
+  text-align: justify;
+  word-break: normal;
+  line-break: strict;
+}
+.d2 .d2-lead-byline {
+  margin-bottom: 4px;
+}
+.d2 .d2-lead-dateline {
+  font-family: var(--f-display);
+  font-weight: 800;
+  margin-right: 0.35em;
+  color: var(--ink);
+}
+.d2 .d2-lead-points {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-left: 0;
+  padding: 12px 0 0;
+  border-top: 2px solid var(--rule-ink);
+}
+.d2 .d2-lead-points li {
+  border-bottom: 0;
+  padding: 2px 16px 2px 0;
+}
+.d2 .d2-lead-points li + li {
+  border-left: 1px solid var(--rule);
+  padding-left: 16px;
+}
+
+/* captions, Korean-paper style: a solid triangle leads the line */
+.d2 .d2-hist figcaption::before {
+  content: "▲ ";
+  font-size: 0.8em;
+}
+
+@media (max-width: 960px) {
+  .d2 .d2-lead-points {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 12px;
+  }
+  .d2 .d2-lead-points li:nth-child(3) {
+    border-left: 0;
+    padding-left: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .d2 .d2-lead-deck {
+    columns: 1;
+  }
+  .d2 .d2-lead-deck p {
+    font-size: 16px;
+    text-align: left;
+  }
+  .d2 .d2-lead-points {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .d2 .d2-lead-points li,
+  .d2 .d2-lead-points li + li {
+    border-left: 0;
+    padding: 8px 0;
+    border-bottom: 1px dotted var(--rule-2);
+  }
+  .d2 .d2-idx-value {
+    font-size: 44px;
+  }
+  .d2 .d2-temp-read > b {
+    font-size: 68px;
+  }
+  .d2 .d2-mast-clocks {
+    border: 0;
+    padding: 0;
+  }
+  .d2 .d2-mast-clocks::before {
+    display: none;
+  }
+  .d2 .d2-mast-name h1.is-blackletter {
+    font-size: 44px;
   }
 }
 

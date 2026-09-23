@@ -273,13 +273,16 @@ export default function Masthead({ onPrint }: { onPrint: () => void }) {
           <Logo className="d2-mast-logo" />
         </Link>
         <div className="d2-mast-name">
-          <h1>
+          {/* The English edition gets a blackletter nameplate, the way English-
+              language papers have always set theirs; the Korean one is set in
+              the display serif, as a 제호 would be. */}
+          <h1 className={lang === "en" ? "is-blackletter" : ""}>
             {L("마켓", "The Market")}
             <span>{L("데스크", "Desk")}</span>
           </h1>
           <p>{L("숫자로 조판하는 오늘의 시장 — 실시간 개정판", "Today's market, typeset from the numbers — live edition")}</p>
         </div>
-        <div className="d2-mast-clocks">
+        <div className="d2-mast-clocks" data-ear={L("현지 시각", "LOCAL TIME")}>
           <span className="d2-mast-clock">
             <small>{L("서울", "SEOUL")}</small>
             <b>{clockText(now, SEOUL)}</b>
@@ -301,7 +304,7 @@ export default function Masthead({ onPrint }: { onPrint: () => void }) {
             </li>
           ))}
           <li>
-            <a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer" onClick={() => reportVoltarisIngress("/desk2")} className="is-ext">
+            <a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer" onClick={() => reportVoltarisIngress("/desk")} className="is-ext">
               VOLTARIS ↗
             </a>
           </li>

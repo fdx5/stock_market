@@ -16,9 +16,10 @@ import "./components/marketBriefPrint.css";
    the same information in two arrangements rather than two codebases; what
    differs is the order, the grouping and what is on screen at once. */
 const MarketDeskPage = lazy(() => import("./components/MarketDeskPage"));
-/* /desk2 — the market desk rebuilt as a live broadsheet (see src/desk2). A
-   preview route beside /desk: same data, new page, its own scoped stylesheet
-   and fonts, so neither can affect the other while the two run side by side. */
+/* The market desk as a live broadsheet (see src/desk2) — what /desk serves now.
+   The widget desk above it moved to /desk2 and is kept reachable, unindexed,
+   for anyone who still wants that arrangement. Each has its own scoped
+   stylesheet, so neither can affect the other. */
 const Desk2Page = lazy(() => import("./desk2/Desk2Page"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
    used to be is reached from the star at the centre of the page, and anything
@@ -200,9 +201,23 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
 // page with an .app column": that would also cover the map pages, /battle,
 // /ai-prediction/grading and friends, none of which were asked for.
 const RECENT_DOCK_PATHS = new Set([
-  "/desk", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
+  "/desk", "/desk2", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
   "/ai-prediction", "/global-top100", "/fight", "/news",
 ]);
+
+/** The previous desk at /desk2 is the same content as /desk in another
+ * arrangement, so it stays out of the index rather than competing with it. */
+function useNoindexOn(path: string, target: string) {
+  useEffect(() => {
+    if (path !== target) return;
+    const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
+    const previous = robots?.getAttribute("content") ?? null;
+    robots?.setAttribute("content", "noindex,follow");
+    return () => {
+      if (robots && previous !== null) robots.setAttribute("content", previous);
+    };
+  }, [path, target]);
+}
 
 export default function App() {
   const path = useRoute();
@@ -211,6 +226,7 @@ export default function App() {
   const stockLandingMatch = path.match(/^\/stock\/(\d{6})\/(investor|outlook|news)\/?$/);
   const etfCompareMatch = path.match(/^\/etf\/compare\/([A-Za-z0-9.-]+)\/([A-Za-z0-9.-]+)\/?$/);
   useActivityTracking(path);
+  useNoindexOn(path, "/desk2");
 
   useEffect(() => {
     let canonicalPath = path === "/type2" ? "/hub" : path;
@@ -299,9 +315,9 @@ export default function App() {
   } else if (path === "/dashboard") {
     page = <DashboardRedirect />;
   } else if (path === "/desk") {
-    page = <MarketDeskPage />;
-  } else if (path === "/desk2") {
     page = <Desk2Page />;
+  } else if (path === "/desk2") {
+    page = <MarketDeskPage />;
   } else if (stockMatch) {
     const detailCode = stockMatch[1].toUpperCase();
     const isEtf = new URLSearchParams(window.location.search).get("asset")?.toUpperCase() === "ETF";
@@ -388,7 +404,7 @@ export default function App() {
   } else {
     // "/" is the entrance; "/hub" and legacy "/type2" land here too. Unknown
     // paths keep the market desk fallback rather than masquerading as the home page.
-    page = path === "/" || path === "/hub" || path === "/type2" ? <HubType2 /> : <MarketDeskPage />;
+    page = path === "/" || path === "/hub" || path === "/type2" ? <HubType2 /> : <Desk2Page />;
   }
 
   // Keep the floating recent-stocks rail on browsing/ranking workspaces only.

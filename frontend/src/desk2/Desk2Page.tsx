@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
+import { useLanguage } from "../i18n/LanguageContext";
+import { setPageDefaultTheme } from "../theme";
 import { reportStockView } from "../useActivityTracking";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { useMarketSnapshot } from "../useMarketSnapshot";
@@ -23,19 +25,22 @@ import { SectionHead } from "./parts";
 import { measureBreadth, useL } from "./lib";
 import "./desk2.css";
 
-/* /desk2 — the market desk, reset as a live broadsheet.
+/* /desk — the market desk, reset as a live broadsheet. (The widget desk it
+ * replaced lives on at /desk2.)
  *
  * Every panel the classic desk renders has a place here, fed by the same hooks
  * and endpoints (see the report for the one-to-one map). What changed is the
  * page itself: a masthead with a live dateline and session rail instead of a
  * header strip, a front page written from the numbers instead of a row of
  * widgets, numbered sections with a sticky index instead of a side rail, one
- * finder instead of a search box plus a palette, and a type system — serif for
- * headlines, Pretendard for reading, a mono for every figure — instead of the
- * system font.
+ * finder instead of a search box plus a palette, and a newspaper's type —
+ * display serif for headings, text serif for prose, a Latin serif for the big
+ * figures and a condensed face for the tables (see the tokens in desk2.css).
  *
- * It is its own route and its own stylesheet, scoped under `.d2` and a class on
- * <html>, so nothing here can leak into the classic desk or any other page. */
+ * It opens in the light 주간판 unless the visitor has chosen a theme.
+ *
+ * Its own stylesheet is scoped under `.d2` and a class on <html>, so nothing
+ * here can leak into the classic desk or any other page. */
 
 const SECTIONS: DeskSection[] = [
   { id: "d2-front", no: "00", ko: "1면", en: "Front" },
@@ -51,10 +56,10 @@ const SECTIONS: DeskSection[] = [
 
 const FONT_LINKS = [
   "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
-  "https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap",
+  "https://fonts.googleapis.com/css2?family=Hahmlet:wght@500..900&family=Noto+Serif+KR:wght@400;500;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400..700;1,8..60,400..600&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=UnifrakturMaguntia&display=swap",
 ];
 
-/** Loads the desk's three families once, only on this route. */
+/** Loads the desk's type families once, only on this route. */
 function useDeskFonts() {
   useEffect(() => {
     const added: HTMLLinkElement[] = [];
@@ -72,17 +77,15 @@ function useDeskFonts() {
 }
 
 /** The page chrome that lives outside React's tree: the <html> class the theme
- * tokens hang off, and a noindex while this is a preview route beside /desk. */
+ * tokens hang off, and the light edition as this page's default theme. */
 function useDocumentShell() {
   useEffect(() => {
     const root = document.documentElement;
     root.classList.add("is-desk2");
-    const robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
-    const previous = robots?.getAttribute("content") ?? null;
-    robots?.setAttribute("content", "noindex,follow");
+    setPageDefaultTheme("light");
     return () => {
       root.classList.remove("is-desk2");
-      if (robots && previous !== null) robots.setAttribute("content", previous);
+      setPageDefaultTheme(null);
     };
   }, []);
 }
@@ -96,9 +99,10 @@ function stickyOffset(): number {
 
 export default function Desk2Page() {
   const L = useL();
+  const { lang } = useLanguage();
   useDeskFonts();
   useDocumentShell();
-  useDocumentTitle("마켓 데스크 · 시장일보 | K-Stock Hub");
+  useDocumentTitle("마켓 데스크 · K-Stock Hub");
 
   const [finderOpen, setFinderOpen] = useState(false);
   const [active, setActive] = useState(SECTIONS[0].id);
@@ -172,7 +176,7 @@ export default function Desk2Page() {
     : null;
 
   return (
-    <div className="d2">
+    <div className="d2" lang={lang}>
       <a className="d2-skip" href="#d2-front">
         {L("본문 바로가기", "Skip to content")}
       </a>

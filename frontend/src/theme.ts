@@ -92,7 +92,19 @@ function getStoredMode(): ThemeMode | null {
   return stored === "light" || stored === "dark" ? stored : null;
 }
 
-let currentMode: ThemeMode = getStoredMode() ?? "dark";
+/* A page may ask for a different default than the site's dark one — the market
+ * desk opens in its light "주간판". It is only a default: a visitor who has ever
+ * picked a theme keeps theirs everywhere, and the page's wish is never written to
+ * storage, so leaving the page returns every other route to dark.
+ *
+ * The desk's path is also read here at load, not only when the page mounts, so
+ * the first render already agrees with the attribute index.html's inline script
+ * put on <html> before paint — otherwise the page would paint dark and flip. */
+const PAGE_DEFAULTS: Record<string, ThemeMode> = { "/desk": "light" };
+let pageDefault: ThemeMode | null =
+  typeof window === "undefined" ? null : PAGE_DEFAULTS[window.location.pathname] ?? null;
+
+let currentMode: ThemeMode = getStoredMode() ?? pageDefault ?? "dark";
 
 function applyDomAttribute(mode: ThemeMode) {
   if (typeof document === "undefined") return;
@@ -112,6 +124,18 @@ export function setThemeMode(mode: ThemeMode): void {
   currentMode = mode;
   window.localStorage.setItem(STORAGE_KEY, mode);
   applyDomAttribute(mode);
+  listeners.forEach((listener) => listener());
+}
+
+/** Sets (or, with null, clears) the current page's default theme. Applies only
+ * while the visitor has no stored choice of their own. */
+export function setPageDefaultTheme(mode: ThemeMode | null): void {
+  pageDefault = mode;
+  if (getStoredMode()) return;
+  const next = pageDefault ?? "dark";
+  if (next === currentMode) return;
+  currentMode = next;
+  applyDomAttribute(next);
   listeners.forEach((listener) => listener());
 }
 

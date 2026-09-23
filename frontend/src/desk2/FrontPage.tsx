@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { GlobalIndexWidget, IndexQuote, MarketInvestorSummary } from "../api/client";
 import { Lang, useLanguage } from "../i18n/LanguageContext";
-import { useTranslatedText } from "../i18n/useTranslatedTexts";
+import { useTranslatedTexts } from "../i18n/useTranslatedTexts";
 import { useMarketIndices } from "../useMarketIndices";
 import { useMarketTicker } from "../useMarketTicker";
 import StockLogo from "../components/StockLogo";
@@ -16,6 +16,7 @@ import {
   pct,
   sentimentLabel,
   signed,
+  turnoverOf,
   useGlobalIndices,
   useL,
   useSentiment,
@@ -304,9 +305,24 @@ export default function FrontPage({ breadth, asOf }: { breadth: Breadth | null; 
     }
   }
 
+  /* Where the money went — the day's three heaviest turnover names, which is
+     the paragraph a market report closes on. */
+  const heavy = breadth?.topTurnover.slice(0, 3) ?? [];
+  const heavyNames = useTranslatedTexts(heavy.map((item) => item.name));
+  if (heavy.length === 3) {
+    // Name and amount are separate words on purpose: a justified Korean line
+    // only stretches at spaces, and a line made of a few long runs gapes.
+    const bits = heavy.map((item, i) => `${heavyNames[i] ?? item.name} ${won(turnoverOf(item), lang)}(${pct(item.change_pct)})`);
+    deck.push(
+      lang === "ko"
+        ? `거래대금은 ${bits.join(", ")} 순으로 많았다.`
+        : `Turnover was heaviest in ${bits[0]}, followed by ${bits[1]} and ${bits[2]}.`
+    );
+  }
+
   const flow = kospiInvestor ? flowLine(kospiInvestor, lang) : null;
-  const top = breadth?.topTurnover[0];
-  const topName = useTranslatedText(top?.name ?? "");
+  const top = heavy[0];
+  const topName = heavyNames[0] ?? top?.name ?? "";
 
   return (
     <div className="d2-front">
@@ -324,6 +340,10 @@ export default function FrontPage({ breadth, asOf }: { breadth: Breadth | null; 
         {ready ? (
           <>
             <h2 className="d2-lead-head">{headline(kospi, kosdaq, lang)}</h2>
+            <p className="d2-lead-byline">
+              <b>{L("마켓데스크 자동조판", "Market Desk, typeset automatically")}</b>
+              {stamp && L(`최종수정 ${stamp}`, `Updated ${stamp} KST`)}
+            </p>
             <p className="d2-lead-sub">
               <span className={`is-${kospi.change >= 0 ? "up" : "down"}`}>
                 {L("코스피", "KOSPI")} {kospi.close.toLocaleString("en-US", { minimumFractionDigits: 2 })} ({pct(kospi.change_pct)})
@@ -345,7 +365,13 @@ export default function FrontPage({ breadth, asOf }: { breadth: Breadth | null; 
         <div className="d2-lead-body">
           <div className="d2-lead-deck">
             {deck.length > 0 ? (
-              deck.map((line, i) => <p key={i}>{line}</p>)
+              deck.map((line, i) => (
+                <p key={i}>
+                  {/* A wire story's dateline — 【서울=○○】 — opens the first paragraph. */}
+                  {i === 0 && <b className="d2-lead-dateline">{L("【서울=마켓데스크】", "SEOUL —")}</b>}
+                  {line}
+                </p>
+              ))
             ) : (
               <>
                 <Skel h={14} />
@@ -387,7 +413,7 @@ export default function FrontPage({ breadth, asOf }: { breadth: Breadth | null; 
               {top ? (
                 <button type="button" onClick={() => openStock({ code: top.code, name: top.name, market: "KOSPI" })}>
                   <StockLogo code={top.code} name={top.name} className="d2-lead-logo" />
-                  {topName || top.name} <b>{won(top.turnover ?? top.close * (top.volume ?? 0), lang)}</b>{" "}
+                  {topName || top.name} <b>{won(turnoverOf(top), lang)}</b>{" "}
                   <em className={top.change_pct >= 0 ? "is-up" : "is-down"}>{pct(top.change_pct)}</em>
                 </button>
               ) : (

@@ -31,7 +31,7 @@ interface Destination {
 }
 
 const DESTINATIONS: Destination[] = [
-  { key: "desk", ko: "마켓 데스크 (클래식)", en: "Market desk (classic)", group: "메인", to: "/desk" },
+  { key: "desk2", ko: "클래식 마켓 데스크", en: "Classic market desk", group: "메인", to: "/desk2" },
   { key: "stocks", ko: "종목정보", en: "Stocks", group: "메인", to: "/stocks" },
   { key: "brief", ko: "오늘 브리핑", en: "Daily brief", group: "메인", to: "/market-brief" },
   { key: "map", ko: "코스피 지도", en: "KOSPI map", group: "지도", to: "/map" },
