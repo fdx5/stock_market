@@ -1,0 +1,807 @@
+/* 증시버블 — the observatory's instruments. Prefix ob-.
+ *
+ * No backdrop-filter anywhere: over a canvas that redraws every frame, a blurred
+ * backdrop has to be re-blurred every frame too, which was a large part of what made
+ * the old page stutter. Panels are tinted glass drawn with plain gradients instead. */
+
+.ob {
+  --ob-ink: #eaf2ff;
+  --ob-ink-2: #a9bdd6;
+  --ob-ink-3: #6f84a0;
+  --ob-line: rgba(150, 190, 255, 0.14);
+  --ob-panel: linear-gradient(160deg, rgba(14, 24, 44, 0.84), rgba(6, 10, 20, 0.78));
+  --ob-up: #ff5a68;
+  --ob-down: #4d95ff;
+  --ob-flat: #9aa6b8;
+  --ob-gold: #e8b95a;
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  background: #02040a;
+  color: var(--ob-ink);
+  font-family: "Pretendard Variable", Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  font-feature-settings: "tnum";
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+.ob button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.ob a {
+  color: inherit;
+  text-decoration: none;
+}
+.ob .is-up {
+  color: var(--ob-up);
+}
+.ob .is-down {
+  color: var(--ob-down);
+}
+.ob .is-flat {
+  color: var(--ob-flat);
+}
+
+.ob-stage {
+  position: absolute;
+  inset: 0;
+}
+.ob-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── the top bar ────────────────────────────────────────────────────────── */
+
+.ob-top {
+  position: absolute;
+  z-index: 10;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 22px 34px;
+  background: linear-gradient(180deg, rgba(2, 4, 10, 0.86), rgba(2, 4, 10, 0));
+  pointer-events: none;
+}
+.ob-top > * {
+  pointer-events: auto;
+}
+.ob-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ob-back {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ob-line);
+  border-radius: 50%;
+  font-size: 16px;
+  color: var(--ob-ink-2);
+  transition: color 0.2s, border-color 0.2s;
+}
+.ob-back:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.ob-brand b {
+  display: block;
+  font-size: 21px;
+  font-weight: 850;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  background: linear-gradient(100deg, #fff 30%, #9fd4ff 70%, #f3c979);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.ob-brand small {
+  display: block;
+  margin-top: 4px;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.34em;
+  color: var(--ob-ink-3);
+}
+.ob-markets {
+  display: flex;
+  padding: 4px;
+  border: 1px solid var(--ob-line);
+  border-radius: 999px;
+  background: rgba(8, 14, 28, 0.72);
+}
+.ob-markets button {
+  min-width: 78px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ob-ink-2);
+  transition: color 0.2s, background 0.25s, box-shadow 0.25s;
+}
+.ob-markets button:hover {
+  color: #fff;
+}
+.ob-markets button.is-on {
+  color: #04101f;
+  background: linear-gradient(180deg, #f4f8ff, #b9d7ff);
+  box-shadow: 0 0 22px rgba(140, 200, 255, 0.45);
+}
+.ob-live {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.18em;
+  color: #6fe3a6;
+}
+.ob-live time {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ob-ink-2);
+}
+.ob-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4fe39a;
+  box-shadow: 0 0 0 0 rgba(79, 227, 154, 0.6);
+  animation: ob-ping 1.8s ease-out infinite;
+}
+@keyframes ob-ping {
+  70% {
+    box-shadow: 0 0 0 9px rgba(79, 227, 154, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(79, 227, 154, 0);
+  }
+}
+.ob-orbit {
+  margin-left: 8px;
+  padding: 7px 12px;
+  border: 1px solid rgba(232, 185, 90, 0.4);
+  border-radius: 999px;
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--ob-gold);
+  transition: background 0.2s;
+}
+.ob-orbit:hover {
+  background: rgba(232, 185, 90, 0.12);
+}
+
+/* ── the pulse panel ────────────────────────────────────────────────────── */
+
+.ob-pulse {
+  position: absolute;
+  z-index: 9;
+  top: 88px;
+  left: 22px;
+  width: 262px;
+  max-height: calc(100% - 196px);
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 18px 18px 14px;
+  border: 1px solid var(--ob-line);
+  border-radius: 20px;
+  background: var(--ob-panel);
+  box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.8), inset 0 1px rgba(255, 255, 255, 0.06);
+  animation: ob-rise 0.7s cubic-bezier(0.2, 0.85, 0.2, 1) both;
+}
+.ob-pulse::-webkit-scrollbar {
+  display: none;
+}
+@keyframes ob-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+.ob-kicker {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 800;
+  letter-spacing: 0.26em;
+  color: var(--ob-ink-3);
+}
+.ob-big {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 6px 0 12px;
+  font-size: 44px;
+  font-weight: 850;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  text-shadow: 0 0 30px currentColor;
+}
+.ob-big small {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ob-ink-3);
+  text-shadow: none;
+}
+.ob-breadth {
+  display: flex;
+  gap: 2px;
+  height: 6px;
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ob-breadth i {
+  display: block;
+}
+.ob-breadth .is-up {
+  background: var(--ob-up);
+  box-shadow: 0 0 12px var(--ob-up);
+}
+.ob-breadth .is-flat {
+  background: #4a5568;
+}
+.ob-breadth .is-down {
+  background: var(--ob-down);
+  box-shadow: 0 0 12px var(--ob-down);
+}
+.ob-breadth-read {
+  display: flex;
+  justify-content: space-between;
+  margin: 7px 0 0;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ob-ink-3);
+}
+.ob-pulse h3 {
+  margin: 18px 0 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ob-line);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ob-ink-2);
+}
+.ob-pulse h3 small {
+  display: block;
+  margin-top: 2px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--ob-ink-3);
+}
+.ob-movers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.ob-movers button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  font-weight: 700;
+  transition: background 0.2s;
+}
+.ob-movers button:hover {
+  background: rgba(150, 190, 255, 0.09);
+}
+.ob-movers span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ob-sectors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 3px;
+}
+.ob-sectors button {
+  position: relative;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 7px 10px 9px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  font-weight: 650;
+  text-align: left;
+  color: var(--ob-ink-2);
+  transition: background 0.2s, color 0.2s;
+  overflow: hidden;
+}
+.ob-sectors button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ob-sectors button i {
+  position: absolute;
+  left: 10px;
+  bottom: 4px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #6fb9ff, rgba(111, 185, 255, 0));
+  max-width: calc(100% - 20px);
+}
+.ob-sectors button b {
+  font-weight: 800;
+  font-size: 12px;
+}
+.ob-sectors button:hover {
+  background: rgba(150, 190, 255, 0.08);
+  color: #fff;
+}
+.ob-sectors button.is-on {
+  background: rgba(150, 200, 255, 0.16);
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(160, 210, 255, 0.4);
+}
+
+/* ── legend, tools, hint ────────────────────────────────────────────────── */
+
+.ob-legend {
+  position: absolute;
+  z-index: 9;
+  left: 22px;
+  bottom: 22px;
+  display: grid;
+  gap: 6px;
+  width: 262px;
+  pointer-events: none;
+}
+.ob-scale {
+  display: block;
+  height: 6px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #2a6fff, #6fa8ff 30%, #8d98ab 50%, #ff7a86 70%, #ff3347);
+  box-shadow: 0 0 18px rgba(120, 150, 255, 0.25);
+}
+.ob-scale-read {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10.5px;
+  color: var(--ob-ink-3);
+}
+.ob-scale-read b {
+  font-weight: 800;
+  color: var(--ob-ink-2);
+}
+.ob-scale-read em {
+  font-style: normal;
+}
+.ob-legend-size {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--ob-ink-3);
+}
+.ob-legend-size i {
+  display: inline-block;
+  border-radius: 50%;
+  border: 1px solid rgba(170, 205, 255, 0.55);
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.45), rgba(120, 170, 255, 0.08));
+}
+.ob-legend-size i:nth-child(1) {
+  width: 8px;
+  height: 8px;
+}
+.ob-legend-size i:nth-child(2) {
+  width: 12px;
+  height: 12px;
+}
+.ob-legend-size i:nth-child(3) {
+  width: 17px;
+  height: 17px;
+  margin-right: 6px;
+}
+
+.ob-tools {
+  position: absolute;
+  z-index: 9;
+  right: 22px;
+  bottom: 22px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ob-tools button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1px solid var(--ob-line);
+  border-radius: 999px;
+  background: rgba(8, 14, 28, 0.78);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ob-ink-2);
+  transition: color 0.2s, border-color 0.2s, background 0.2s;
+}
+.ob-tools button:hover {
+  color: #fff;
+  border-color: rgba(200, 225, 255, 0.4);
+}
+.ob-tools button.is-on {
+  color: #fff;
+  border-color: rgba(140, 200, 255, 0.55);
+  background: rgba(40, 80, 140, 0.45);
+}
+.ob-tools em {
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--ob-ink-3);
+  padding: 0 4px;
+}
+.ob-hint {
+  position: absolute;
+  z-index: 8;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--ob-ink-3);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ob-hint b {
+  color: var(--ob-ink-2);
+  font-weight: 700;
+}
+
+/* ── the hover card ─────────────────────────────────────────────────────── */
+
+.ob-card {
+  position: absolute;
+  z-index: 11;
+  top: 0;
+  left: 0;
+  width: 272px;
+  padding: 14px 16px 12px;
+  border: 1px solid rgba(170, 210, 255, 0.22);
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(18, 30, 54, 0.95), rgba(7, 12, 24, 0.94));
+  box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+  pointer-events: none;
+  will-change: transform;
+  animation: ob-pop 0.18s ease-out;
+}
+@keyframes ob-pop {
+  from {
+    opacity: 0;
+  }
+}
+.ob-card p {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+.ob-card-rank {
+  min-width: 22px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--ob-gold);
+  color: #1a1206;
+  font-size: 11px;
+  font-weight: 850;
+  text-align: center;
+}
+.ob-card-sector {
+  font-size: 11.5px;
+  color: var(--ob-ink-3);
+}
+.ob-card h4 {
+  margin: 8px 0 4px;
+  font-size: 22px;
+  font-weight: 850;
+  letter-spacing: -0.03em;
+}
+.ob-card-price {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.ob-card-price b {
+  font-size: 17px;
+  font-weight: 700;
+}
+.ob-card-price em {
+  font-style: normal;
+  font-size: 15px;
+  font-weight: 800;
+}
+.ob-spark {
+  display: block;
+  width: 100%;
+  height: 46px;
+  margin: 10px 0 6px;
+}
+.ob-spark-line {
+  fill: none;
+  stroke-width: 1.8;
+  stroke: var(--ob-flat);
+}
+.ob-spark-area {
+  fill: var(--ob-flat);
+  opacity: 0.12;
+}
+.ob-spark.is-up .ob-spark-line {
+  stroke: var(--ob-up);
+}
+.ob-spark.is-up .ob-spark-area {
+  fill: var(--ob-up);
+}
+.ob-spark.is-down .ob-spark-line {
+  stroke: var(--ob-down);
+}
+.ob-spark.is-down .ob-spark-area {
+  fill: var(--ob-down);
+}
+.ob-card dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.ob-card dl div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+.ob-card dt {
+  color: var(--ob-ink-3);
+}
+.ob-card dd {
+  margin: 0;
+  font-weight: 700;
+}
+.ob-52 {
+  position: relative;
+  display: block;
+  width: 110px;
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--ob-down), #3a4556, var(--ob-up));
+}
+.ob-52 i {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 10px;
+  margin-left: -1px;
+  background: #fff;
+  box-shadow: 0 0 8px #fff;
+}
+.ob-card small {
+  display: block;
+  margin-top: 10px;
+  font-size: 10.5px;
+  color: var(--ob-ink-3);
+}
+
+/* ── states ─────────────────────────────────────────────────────────────── */
+
+.ob-loading,
+.ob-error {
+  position: absolute;
+  z-index: 12;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ob-ink-2);
+  pointer-events: none;
+}
+.ob-error {
+  color: #ff9aa4;
+}
+.ob-loading-orb {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff, #8fc8ff 25%, #1b3c7a 70%, #050a18);
+  box-shadow: 0 0 40px rgba(120, 180, 255, 0.55);
+  animation: ob-breathe 1.6s ease-in-out infinite;
+}
+@keyframes ob-breathe {
+  50% {
+    transform: scale(1.12);
+    box-shadow: 0 0 70px rgba(120, 180, 255, 0.8);
+  }
+}
+.ob-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.ob-sr button:focus {
+  position: fixed;
+  z-index: 50;
+  left: 22px;
+  top: 88px;
+  width: auto;
+  height: auto;
+  padding: 10px 14px;
+  background: #fff;
+  color: #000;
+  clip: auto;
+}
+.ob-fps {
+  position: absolute;
+  z-index: 60;
+  right: 22px;
+  top: 72px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.7);
+  font: 600 12px ui-monospace, monospace;
+  color: #6fe3a6;
+}
+.ob-fps[data-tone="fair"] {
+  color: #f3c979;
+}
+.ob-fps[data-tone="bad"] {
+  color: #ff7a86;
+}
+
+/* the discussion panel sits under the top bar */
+.ob .bubble-panel-scrim,
+.ob-scrim {
+  inset: 0;
+  z-index: 39;
+  background: rgba(2, 4, 10, 0.35);
+  backdrop-filter: none;
+}
+.ob ~ .bubble-discussion,
+.ob .bubble-discussion {
+  top: 76px;
+}
+
+/* ── narrow screens ─────────────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+  .ob-hint {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .ob-top {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "brand live" "markets markets";
+    gap: 10px;
+    padding: 12px 14px 26px;
+  }
+  .ob-brand {
+    grid-area: brand;
+  }
+  .ob-live {
+    grid-area: live;
+  }
+  .ob-live time,
+  .ob-brand small {
+    display: none;
+  }
+  .ob-markets {
+    grid-area: markets;
+    justify-self: center;
+  }
+  .ob-markets button {
+    min-width: 72px;
+    padding: 7px 12px;
+    font-size: 13px;
+  }
+  /* The pulse panel becomes a strip: the number, the breadth and the sectors
+     scrolling sideways; movers live in the hover card and the panel. */
+  .ob-pulse {
+    top: auto;
+    bottom: 64px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-height: none;
+    padding: 10px 12px;
+    border-radius: 16px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 4px 12px;
+  }
+  .ob-kicker,
+  .ob-pulse h3,
+  .ob-movers,
+  .ob-breadth-read {
+    display: none;
+  }
+  .ob-big {
+    margin: 0;
+    font-size: 26px;
+  }
+  .ob-big small {
+    display: none;
+  }
+  .ob-sectors {
+    grid-column: 1 / -1;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .ob-sectors::-webkit-scrollbar {
+    display: none;
+  }
+  .ob-sectors button {
+    width: auto;
+    display: inline-flex;
+    gap: 6px;
+    white-space: nowrap;
+    padding: 5px 11px;
+    border: 1px solid var(--ob-line);
+    border-radius: 999px;
+  }
+  .ob-sectors button span {
+    overflow: visible;
+  }
+  .ob-sectors button i {
+    display: none;
+  }
+  .ob-legend {
+    display: none;
+  }
+  .ob-tools {
+    left: 10px;
+    right: 10px;
+    bottom: 12px;
+    justify-content: space-between;
+  }
+  .ob-tools button {
+    padding: 8px 12px;
+  }
+  .ob-card {
+    display: none;
+  }
+  .ob .bubble-discussion {
+    top: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-live-dot,
+  .ob-loading-orb,
+  .ob-pulse,
+  .ob-card {
+    animation: none;
+  }
+}
