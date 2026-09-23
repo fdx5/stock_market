@@ -4204,10 +4204,6 @@ tr.is-alert-cool .d2-macro-alert {
   letter-spacing: -0.01em;
   color: var(--ink-2);
 }
-.d2 .d2-mast-paper::after {
-  content: "  ·  ";
-  color: var(--ink-3);
-}
 .d2 .d2-mast-name--section h1 {
   font-family: var(--f-display);
   font-weight: 900;
