@@ -30,6 +30,9 @@ const BroadsheetStocksPage = lazy(() => import("./desk2/stocks/StocksPage"));
    MarketBriefPage stay in the tree, unrouted. */
 const BroadsheetEtfPage = lazy(() => import("./desk2/etf/EtfPage"));
 const BroadsheetBriefPage = lazy(() => import("./desk2/brief/BriefPage"));
+/* The three TOP 100 boards; one component, so switching boards keeps it mounted.
+   The classic StockBoardPage stays in the tree, unrouted. */
+const BroadsheetBoardPage = lazy(() => import("./desk2/board/BoardPage"));
 /* The entrance. "/" is a gateway rather than a dashboard — the stock desk it
    used to be is reached from the star at the centre of the page, and anything
    that means "open a stock" targets /desk?code=.
@@ -335,11 +338,11 @@ export default function App() {
   } else if (path === "/stocks") {
     page = <BroadsheetStocksPage />;
   } else if (path === "/kospi-100") {
-    page = <KospiBoardPage />;
+    page = <BroadsheetBoardPage market="kospi" />;
   } else if (path === "/kosdaq-100") {
-    page = <KosdaqBoardPage />;
+    page = <BroadsheetBoardPage market="kosdaq" />;
   } else if (path === "/nasdaq-100") {
-    page = <NasdaqBoardPage />;
+    page = <BroadsheetBoardPage market="nasdaq" />;
   } else if (path === "/map") {
     page = <KospiMapPage />;
   } else if (path === "/kosdaq-map") {

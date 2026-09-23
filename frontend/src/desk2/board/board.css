@@ -1,0 +1,539 @@
+/* TOP 100면 — big-cap boards as newspaper quote boxes. Prefix bd-. Shares
+   st-/sk-/ef- parts from pages.css and etf.css. */
+
+.d2 .bd-card.is-up,
+.d2 .bd-card.is-down,
+.d2 .bd-card.is-flat {
+  color: var(--ink);
+}
+
+.d2 .bd-bar-inner {
+  grid-template-columns: auto minmax(200px, 1fr) auto;
+}
+.d2 .bd-front {
+  padding-top: 30px;
+}
+.d2 .bd-head {
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: clamp(28px, 3.6vw, 48px);
+  line-height: 1.15;
+  letter-spacing: -0.035em;
+  max-width: 30ch;
+  text-wrap: balance;
+}
+.d2 .bd-front-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr);
+  gap: var(--col-gap);
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 3px double var(--rule-ink);
+}
+.d2 .bd-front-grid > * {
+  min-width: 0;
+}
+.d2 .bd-front-note {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.d2 .bd-front-note b {
+  font-weight: 600;
+}
+.d2 .bd-leaders {
+  margin-top: 10px;
+}
+.d2 .bd-leaders dd button {
+  font-size: 13px;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--rule-2);
+}
+.d2 .bd-strip {
+  display: flex;
+  height: 90px;
+  gap: 2px;
+}
+.d2 .bd-strip button {
+  --heat: 0.3;
+  flex-basis: 0;
+  min-width: 3px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 7px 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.2;
+  text-align: left;
+  color: #fff;
+  transition: filter 0.15s;
+}
+.d2 .bd-strip button span,
+.d2 .bd-strip button b {
+  padding: 0 7px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .bd-strip button span {
+  font-weight: 700;
+}
+.d2 .bd-strip button b {
+  font-family: var(--f-num);
+  font-weight: 500;
+}
+.d2 .bd-strip button[data-narrow] span,
+.d2 .bd-strip button[data-narrow] b {
+  display: none;
+}
+.d2 .bd-strip .is-up {
+  background: color-mix(in srgb, var(--up) calc(22% + var(--heat) * 78%), var(--p1));
+}
+.d2 .bd-strip .is-down {
+  background: color-mix(in srgb, var(--down) calc(22% + var(--heat) * 78%), var(--p1));
+}
+.d2 .bd-strip .is-flat {
+  background: var(--p2);
+  color: var(--ink-2);
+}
+.d2 .bd-strip button:hover {
+  filter: brightness(1.12);
+}
+.d2 .bd-strip button.is-me {
+  outline: 3px solid var(--ink);
+  outline-offset: -3px;
+}
+
+.d2 .bd-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 20px;
+}
+.d2 .st-chips button em {
+  font-style: normal;
+  font-family: var(--f-num);
+  font-size: 11px;
+  font-weight: 600;
+}
+.d2 .st-chips button.is-on em {
+  color: inherit;
+}
+
+.d2 .bd-group + .bd-group {
+  margin-top: 26px;
+}
+.d2 .bd-group-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  padding: 10px 0 8px;
+  border-top: 3px solid var(--rule-ink);
+  position: sticky;
+  top: var(--bd-stick, 56px);
+  z-index: 5;
+  background: var(--p0);
+}
+.d2 .bd-group-head h3 {
+  font-family: var(--f-display);
+  font-weight: 800;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+.d2 .bd-group-head > span {
+  font-size: 12.5px;
+  color: var(--ink-3);
+}
+.d2 .bd-group-head b {
+  font-size: 15px;
+  font-weight: 600;
+}
+.d2 .bd-group-head b small {
+  font-family: var(--f-sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.d2 .bd-mini {
+  display: flex;
+  width: 120px;
+  height: 6px;
+  gap: 1px;
+  margin-left: auto;
+  align-self: center;
+}
+.d2 .bd-mini i {
+  display: block;
+  min-width: 0;
+}
+.d2 .bd-mini .is-up {
+  background: var(--up);
+}
+.d2 .bd-mini .is-down {
+  background: var(--down);
+}
+.d2 .bd-mini .is-flat {
+  background: var(--ink-3);
+  opacity: 0.4;
+}
+
+.d2 .bd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+  border-top: 1px solid var(--rule-ink);
+  border-left: 1px solid var(--rule);
+}
+.d2 .bd-grid.is-compact {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+.d2 .bd-card {
+  position: relative;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 14px 16px;
+  border-right: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+  min-width: 0;
+  transition: background-color 0.12s;
+}
+.d2 .bd-card:hover {
+  background: var(--p1);
+}
+.d2 .bd-hit {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+.d2 .bd-spark {
+  position: relative;
+  z-index: 2;
+}
+.d2 .bd-card header {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+.d2 .bd-rank {
+  font-family: var(--f-fig);
+  font-style: italic;
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--brass);
+  min-width: 20px;
+}
+.d2 .bd-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--p2);
+  display: inline-grid;
+  place-items: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  overflow: hidden;
+  flex: none;
+}
+.d2 .bd-id {
+  display: grid;
+  min-width: 0;
+}
+.d2 .bd-id h3 {
+  font-family: var(--f-display);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .bd-card:hover .bd-id h3 {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.d2 .bd-id small {
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .bd-price {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule-ink);
+}
+.d2 .bd-price b {
+  font-family: var(--f-fig);
+  font-weight: 600;
+  font-size: 22px;
+  letter-spacing: -0.02em;
+  font-variant-numeric: lining-nums tabular-nums;
+}
+.d2 .bd-price span {
+  font-family: var(--f-num);
+  font-weight: 600;
+  font-size: 14px;
+  text-align: right;
+}
+.d2 .bd-price span small {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.d2 .bd-session {
+  font-style: normal;
+  font-family: var(--f-sans);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 4px;
+  margin-left: 6px;
+  vertical-align: 4px;
+  background: var(--mark);
+  color: var(--ink);
+}
+.d2 .bd-split {
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.d2 .bd-rel {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.d2 .bd-rel b {
+  font-family: var(--f-num);
+  font-weight: 600;
+}
+.d2 .bd-rel .is-up b {
+  color: var(--up);
+}
+.d2 .bd-rel .is-down b {
+  color: var(--down);
+}
+.d2 .bd-rel span.is-up,
+.d2 .bd-rel span.is-down,
+.d2 .bd-rel span.is-flat {
+  color: var(--ink-3);
+}
+
+.d2 .bd-spark {
+  height: 64px;
+}
+.d2 .bd-card.is-compact .bd-spark {
+  height: 44px;
+}
+.d2 .bd-spark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+.d2 .bd-spark-line {
+  fill: none;
+  stroke: var(--ink-2);
+  stroke-width: 1.6;
+}
+.d2 .bd-spark-area {
+  fill: var(--ink-3);
+  opacity: 0.08;
+  stroke: none;
+}
+.d2 .bd-spark.is-up .bd-spark-line {
+  stroke: var(--up);
+}
+.d2 .bd-spark.is-up .bd-spark-area {
+  fill: var(--up);
+}
+.d2 .bd-spark.is-down .bd-spark-line {
+  stroke: var(--down);
+}
+.d2 .bd-spark.is-down .bd-spark-area {
+  fill: var(--down);
+}
+.d2 .bd-spark-base {
+  stroke: var(--ink-3);
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+}
+.d2 .bd-spark-cross {
+  stroke: var(--ink-3);
+}
+.d2 .bd-spark-dot {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: var(--ink);
+  pointer-events: none;
+}
+.d2 .bd-spark-read {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+  font-family: var(--f-num);
+  font-size: 11px;
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity 0.12s;
+  pointer-events: none;
+  background: var(--p0);
+  padding: 0 3px;
+}
+.d2 .bd-spark-read b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.d2 .bd-spark-read i {
+  font-style: normal;
+}
+.d2 .bd-spark-read.is-on {
+  opacity: 1;
+}
+.d2 .bd-spark.is-empty {
+  height: 44px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.d2 .bd-52 {
+  display: grid;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.d2 .bd-52 > span:first-child {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+}
+.d2 .bd-52 > span small {
+  font-family: var(--f-num);
+  font-weight: 500;
+}
+.d2 .bd-52 > i {
+  position: relative;
+  height: 4px;
+  background: linear-gradient(90deg, var(--down), color-mix(in srgb, var(--ink-3) 40%, transparent) 50%, var(--up));
+  opacity: 0.8;
+}
+.d2 .bd-52 > i > i {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 12px;
+  margin-left: -1.5px;
+  background: var(--ink);
+}
+.d2 .bd-52-ends {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--f-num);
+}
+.d2 .bd-returns,
+.d2 .bd-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px dotted var(--rule-2);
+  padding-top: 6px;
+}
+.d2 .bd-stats {
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+}
+.d2 .bd-returns dt,
+.d2 .bd-stats dt {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-3);
+}
+.d2 .bd-returns dd,
+.d2 .bd-stats dd {
+  font-family: var(--f-num);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.d2 .bd-table {
+  max-height: none;
+}
+
+@media (max-width: 1179px) {
+  .d2 .bd-bar-inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "boards view"
+      "search search";
+    padding-top: 4px;
+    padding-bottom: 6px;
+  }
+  .d2 .bd-bar-inner .bd-boards {
+    grid-area: boards;
+  }
+  .d2 .bd-bar-inner .st-search {
+    grid-area: search;
+  }
+  .d2 .bd-bar-inner .sk-seg {
+    grid-area: view;
+  }
+  .d2 .bd-front-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .d2 .bd-group-head {
+    top: var(--bd-stick, 96px);
+  }
+}
+
+@media (max-width: 760px) {
+  .d2 .bd-grid,
+  .d2 .bd-grid.is-compact {
+    grid-template-columns: minmax(0, 1fr);
+    border-left: 0;
+  }
+  .d2 .bd-grid.is-compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .d2 .bd-card {
+    border-right: 0;
+    padding: 12px 0;
+  }
+  .d2 .bd-grid.is-compact .bd-card {
+    padding: 10px 8px;
+    border-right: 1px solid var(--rule);
+  }
+  .d2 .bd-head {
+    font-size: 26px;
+  }
+  .d2 .bd-strip {
+    height: 70px;
+  }
+  .d2 .bd-group-head {
+    position: static;
+  }
+  .d2 .bd-mini {
+    margin-left: 0;
+  }
+}
+
+/* The sort row scrolls sideways on a phone; it must be allowed to shrink for that
+   to happen instead of widening the page. */
+.d2 .ef-controls {
+  grid-template-columns: minmax(0, 1fr);
+}
+.d2 .bd-controls > * {
+  min-width: 0;
+  max-width: 100%;
+}
