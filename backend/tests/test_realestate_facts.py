@@ -5,23 +5,62 @@ import pytest
 from app.services import realestate_facts as rf
 from app.services import realestate_map as rm
 
-LIST = [
-    {"code": "A1", "name": "은마아파트", "dong": "대치동", "ri": ""},
-    {"code": "A2", "name": "래미안대치팰리스1단지", "dong": "대치동", "ri": ""},
-    {"code": "A3", "name": "래미안대치팰리스2단지", "dong": "대치동", "ri": ""},
-    {"code": "A4", "name": "개포우성1차", "dong": "대치동", "ri": ""},
-    {"code": "B1", "name": "은마", "dong": "개포동", "ri": ""},
-    {"code": "C1", "name": "도곡렉슬", "dong": "도곡동", "ri": ""},
-]
+def _dong(dong, *names):
+    return [{"code": f"{dong}{i}", "name": n, "dong": dong, "ri": ""} for i, n in enumerate(names)]
 
 
-def test_match_prefers_own_dong_and_refuses_ambiguity():
-    assert rf.match("은마", "대치동", LIST)["code"] == "A1"
-    assert rf.match("은마", "개포동", LIST)["code"] == "B1"
-    assert rf.match("개포우성1", "대치동", LIST)["code"] == "A4"
-    assert rf.match("도곡렉슬(도곡1차)", "대치동", LIST)["code"] == "C1"  # not in its 동 → whole 시군구
-    assert rf.match("래미안대치팰리스", "대치동", LIST) is None  # 1단지 or 2단지?
-    assert rf.match("없는단지", "대치동", LIST) is None
+# K-apt's own names, as its list answered for these 동 (2026-09).
+APGUJEONG = _dong("압구정동", "압구정미성1차", "압구정미성2차", "압구정신현대", "압구정 현대(10,13,14차)", "압구정현대8차",
+                  "압구정한양아파트제1단지", "압구정현대아파트", "압구정한양아파트제2단지", "압구정한양3단지")
+DAECHI = _dong("대치동", "래미안 대치 팰리스", "개포1차2차우성", "대치우성1차아파트", "은마", "대치현대")
+DOGOK = _dong("도곡동", "타워팰리스1차", "타워팰리스2차", "타워팰리스G동", "도곡렉슬")
+MAPO = (
+    _dong("용강동", "마포대림2차e-편한세상아파트 ", "마포대림1차", "e편한세상마포리버파크", "래미안마포리버웰")
+    + _dong("상수동", "래미안밤섬리베뉴 Ⅰ", "래미안밤섬리베뉴 2", "상수두산위브")
+    + _dong("아현동", "마포트라팰리스2", "공덕자이 아파트", "공덕자이(임대)", "마포래미안푸르지오")
+    + _dong("공덕동", "공덕SK리더스뷰 1단지", "공덕SK리더스뷰 2단지", "공덕파크자이 아파트")
+)
+BUNDANG = (
+    _dong("삼평동", "봇들마을3단지아파트", "봇들마을7단지", "봇들마을휴먼시아8단지", "판교봇들마을9단지금호어울림아파트")
+    + _dong("이매동", "이매아름마을효성", "이매아름마을풍림", "아름마을 두산삼호")
+    + _dong("정자동", "정자상록마을라이프", "정자상록마을우성", "아이파크분당")
+    + _dong("서현동", "분당시범삼성한신아파트", "서현시범우성", "시범현대아파트")
+)
+JAMSIL = _dong("신천동", "신천장미1차2차", "장미3차", "잠실파크리오")
+
+
+def _name(name, dong, pool):
+    found = rf.match(name, dong, pool)
+    return found and found["name"]
+
+
+@pytest.mark.parametrize(
+    "name,dong,pool,expected",
+    [
+        ("은마", "대치동", DAECHI, "은마"),
+        ("개포우성2", "대치동", DAECHI, "개포1차2차우성"),
+        ("래미안대치팰리스", "대치동", DAECHI, "래미안 대치 팰리스"),
+        ("신현대11차", "압구정동", APGUJEONG, "압구정신현대"),
+        ("현대2차(10,11,20,23,24,25동)", "압구정동", APGUJEONG, "압구정현대아파트"),
+        ("현대13차(208~211동)", "압구정동", APGUJEONG, "압구정 현대(10,13,14차)"),
+        ("한양3", "압구정동", APGUJEONG, "압구정한양3단지"),
+        ("한양4", "압구정동", APGUJEONG, None),  # K-apt has no 한양4
+        ("타워팰리스3", "도곡동", DOGOK, None),  # not 타워팰리스G동
+        ("도곡렉슬", "대치동", DAECHI + DOGOK, "도곡렉슬"),  # another 동, exact name
+        ("이편한세상마포리버파크", "용강동", MAPO, "e편한세상마포리버파크"),
+        ("래미안밤섬리베뉴Ⅱ", "상수동", MAPO, "래미안밤섬리베뉴 2"),
+        ("공덕자이", "아현동", MAPO, "공덕자이 아파트"),
+        ("공덕SK리더스뷰", "공덕동", MAPO, None),  # 1단지 or 2단지?
+        ("봇들마을8단지(주공)", "삼평동", BUNDANG, "봇들마을휴먼시아8단지"),
+        ("아름마을(효성)", "이매동", BUNDANG, "이매아름마을효성"),
+        ("상록마을(우성)1", "정자동", BUNDANG, "정자상록마을우성"),
+        ("시범한신", "서현동", BUNDANG, "분당시범삼성한신아파트"),
+        ("장미2", "신천동", JAMSIL, "신천장미1차2차"),
+        ("에테르노청담", "청담동", _dong("청담동", "청담르엘", "청담자이"), None),
+    ],
+)
+def test_match_against_real_kapt_names(name, dong, pool, expected):
+    assert _name(name, dong, pool) == expected
 
 
 class FakeResponse:

@@ -192,34 +192,78 @@ def _info(kapt_code: str) -> dict:
     return _stored(f"kapt:{kapt_code}", INFO_FRESH, fetch)
 
 
-_NOISE = re.compile(r"\(.*?\)|\[.*?\]|아파트|apt|[\s\-_.,·&']")
+# Spellings the trade data and K-apt write differently, folded to one.
+_ALIASES = (
+    ("이편한세상", "e편한세상"),
+    ("e-편한세상", "e편한세상"),
+    ("i-park", "아이파크"),
+    ("ipark", "아이파크"),
+)
+_ROMAN = str.maketrans({"Ⅰ": "1", "Ⅱ": "2", "Ⅲ": "3", "Ⅳ": "4", "Ⅴ": "5", "Ⅵ": "6", "Ⅶ": "7", "Ⅷ": "8", "Ⅸ": "9"})
+# Words one side adds and the other leaves out: builder brands of public housing,
+# "아파트" itself, and the 차/단지 after a number.
+_FILLER = re.compile(r"\d+(?:차|단지)?|아파트|apt|주공|휴먼시아|lh|[\s\-_.,·&'~()\[\]]")
 
 
-def _norm(name: str) -> str:
-    return _NOISE.sub("", name.lower())
+def _parts(name: str) -> tuple[str, frozenset[str]]:
+    """A name as (its letters without numbers or filler, its numbers). Parentheses
+    listing 동 numbers are dropped; any other parenthesised word — 아름마을(효성),
+    공덕자이(임대) — is part of the name."""
+    s = name.translate(_ROMAN).lower()
+    for a, b in _ALIASES:
+        s = s.replace(a, b)
+    s = re.sub(r"\([^)]*동\)", "", s)
+    s = re.sub(r"제(?=\d)", "", s)
+    numbers = frozenset(n.lstrip("0") or "0" for n in re.findall(r"\d+", s))
+    return _FILLER.sub("", s), numbers
+
+
+def _lcs(a: str, b: str) -> int:
+    prev = [0] * (len(b) + 1)
+    for ch in a:
+        cur = [0]
+        for j, bj in enumerate(b):
+            cur.append(prev[j] + 1 if ch == bj else max(prev[j + 1], cur[j]))
+        prev = cur
+    return prev[-1]
+
+
+def _score(target: tuple[str, frozenset[str]], candidate: dict) -> tuple | None:
+    """How well a K-apt 단지 fits a trade-data name, or None when it cannot be it.
+
+    Numbers decide: 한양4 is never 한양3단지, though 장미2 may be 장미1차2차. Letters
+    are compared in order, so K-apt's added place names (정자상록마을우성 for
+    상록마을(우성)) cost nothing, but the candidate must end where the name does —
+    타워팰리스3 is not 타워팰리스G동."""
+    core, nums = target
+    c_core, c_nums = _parts(candidate["name"])
+    if not c_core or not c_core.endswith(core[-1]):
+        return None
+    if nums and c_nums and not nums <= c_nums:
+        return None
+    ratio = _lcs(core, c_core) / len(core)
+    number_fit = 1 if nums and c_nums else 0 if not nums and not c_nums else -1
+    return ratio, number_fit, -abs(len(c_core) - len(core))
 
 
 def match(name: str, dong: str, candidates: list[dict]) -> dict | None:
-    """The K-apt 단지 a trade-data complex is, by name — exact first, then one name
-    inside the other — among its own 동's 단지 before the whole 시군구's. Ambiguous
-    containment (two 단지 fit equally) matches nothing rather than the wrong one."""
-    target = _norm(name)
-    if not target:
+    """The K-apt 단지 a trade-data complex is: the best fit among its own 동's 단지,
+    else an all-but-exact one elsewhere in the 시군구. Two equally good fits match
+    nothing — no figures beat another 단지's."""
+    target = _parts(name)
+    if len(target[0]) < 2:
         return None
     local = [c for c in candidates if dong and dong in (c["dong"], c["ri"])]
-    for pool in (local, candidates):
-        exact = [c for c in pool if _norm(c["name"]) == target]
-        if len(exact) == 1:
-            return exact[0]
-        if exact:
-            return None
-        partial = [c for c in pool if (n := _norm(c["name"])) and len(n) >= 2 and (n in target or target in n)]
-        if partial:
-            partial.sort(key=lambda c: abs(len(_norm(c["name"])) - len(target)))
-            best = abs(len(_norm(partial[0]["name"])) - len(target))
-            if len(partial) == 1 or abs(len(_norm(partial[1]["name"])) - len(target)) > best:
-                return partial[0]
-            return None
+    for pool, floor in ((local, 0.8), (candidates, 1.0)):
+        scored = sorted(
+            ((sc, c) for c in pool if (sc := _score(target, c)) and sc[0] >= floor),
+            key=lambda x: x[0],
+            reverse=True,
+        )
+        if scored:
+            if len(scored) > 1 and scored[1][0] == scored[0][0]:
+                return None
+            return scored[0][1]
     return None
 
 
