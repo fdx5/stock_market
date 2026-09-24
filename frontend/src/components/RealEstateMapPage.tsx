@@ -92,12 +92,17 @@ function colourFor(change: number | null, mode: "dark" | "light") {
   return changeToRgb((change / SATURATION_PCT) * 5, mode);
 }
 
+const DEFAULT_SIDO = "11"; // 서울특별시
+const DEFAULT_SGG = "11680"; // 강남구
+
 function readQuery() {
   const q = new URLSearchParams(window.location.search);
   const period = q.get("period") as RealEstatePeriod | null;
   return {
-    sido: q.get("sido") ?? "11",
-    sgg: q.get("sgg") ?? "",
+    // A bare /realestate-map opens on 서울 강남구. A link that names its own region —
+    // including 시·도 전체, which carries sido and no sgg — is taken as it is.
+    sido: q.get("sido") ?? DEFAULT_SIDO,
+    sgg: q.get("sgg") ?? (q.has("sido") ? "" : DEFAULT_SGG),
     dong: q.get("dong") ?? "",
     period: PERIODS.some((p) => p.key === period) ? (period as RealEstatePeriod) : "3m",
   };
@@ -257,7 +262,7 @@ export default function RealEstateMapPage() {
   };
 
   const levelLabel = dong || sggNode?.name || sidoNode?.name || "";
-  const topN = data?.top_n ?? (dong ? 100 : sgg ? 100 : 500);
+  const topN = data?.top_n ?? (sgg ? 100 : 500);
   const periodInfo = PERIODS.find((p) => p.key === period) ?? PERIODS[0];
 
   /** The map as a PNG, drawn from the same zones the page renders — the market maps'
