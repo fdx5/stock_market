@@ -190,7 +190,7 @@ def _info(kapt_code: str) -> dict:
             "parking_under": _num(d.get("kaptdPcntu")),
         }
 
-    return _stored(f"kapt:{kapt_code}", INFO_FRESH, fetch)
+    return _stored(f"kapt2:{kapt_code}", INFO_FRESH, fetch)  # kapt2: read with the 호수 fallback
 
 
 # Spellings the trade data and K-apt write differently, folded to one.
