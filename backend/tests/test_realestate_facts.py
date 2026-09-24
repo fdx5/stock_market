@@ -75,7 +75,7 @@ def test_facts_count_households_and_parking_and_are_stored(world):
 
 
 def test_unregistered_key_reports_error_once(world, monkeypatch):
-    err = {"response": {"header": {"resultCode": "30", "resultMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR"}}}
+    err = {"OpenAPI_ServiceResponse": {"cmmMsgHeader": {"errMsg": "SERVICE_KEY_IS_NOT_REGISTERED_ERROR", "returnReasonCode": "30"}}}
     monkeypatch.setattr(rf.requests, "get", lambda *a, **k: world.append(1) or FakeResponse(err))
     assert "NOT_REGISTERED" in rf.complex_facts("11680:S1")["error"]
     assert "NOT_REGISTERED" in rf.complex_facts("11680:S1")["error"]

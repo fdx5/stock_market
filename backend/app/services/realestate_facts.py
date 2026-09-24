@@ -55,6 +55,10 @@ def _items(res: requests.Response) -> tuple[list[dict], int]:
     text = res.text.strip()
     if text.startswith("{"):
         payload = res.json()
+        gateway = payload.get("OpenAPI_ServiceResponse")
+        if isinstance(gateway, dict):  # key or service refused before reaching the API
+            head = gateway.get("cmmMsgHeader") or {}
+            raise FactsError(f"{head.get('errMsg') or 'OpenAPI error'} ({head.get('returnReasonCode') or res.status_code})")
         # Most services wrap header and body in "response"; some answer them bare.
         envelope = payload.get("response") if isinstance(payload.get("response"), dict) else payload
         header = envelope.get("header") or {}

@@ -90,7 +90,16 @@ function TradeChart({ item }: { item: RealEstateItem }) {
 /** 세대수, 주차대수 and 세대당 주차 (to one decimal), from K-apt. */
 function FactsRow({ facts }: { facts: RealEstateFacts | null }) {
   const missing = facts === null ? "…" : "—";
-  const note = facts === null ? null : facts.error ? "불러오지 못함" : !facts.matched ? "K-apt 미등록" : null;
+  const note =
+    facts === null
+      ? null
+      : facts.error
+        ? facts.error.includes("NOT_REGISTERED")
+          ? "정보 준비 중"
+          : "불러오지 못함"
+        : !facts.matched
+          ? "K-apt 미등록"
+          : null;
   const under = facts?.parking_under ?? null;
   return (
     <div className="re-pop-kpis re-pop-facts">
