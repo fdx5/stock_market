@@ -111,6 +111,11 @@ export default function RealEstateMapPage() {
 
   const sidoNode = regions.find((r) => r.code === sido);
   const sggNode = sidoNode?.sgg.find((g) => g.code === sgg);
+  // The selectors list 시·군·구 and 읍·면·동 in 가나다 order; the region table itself
+  // arrives in 법정동코드 order.
+  const byName = (a: string, b: string) => a.localeCompare(b, "ko");
+  const sggOptions = useMemo(() => [...(sidoNode?.sgg ?? [])].sort((a, b) => byName(a.name, b.name)), [sidoNode]);
+  const dongOptions = useMemo(() => [...(sggNode?.dongs ?? [])].sort(byName), [sggNode]);
 
   // The address bar carries the selection, so a map can be shared or bookmarked.
   useEffect(() => {
@@ -227,7 +232,7 @@ export default function RealEstateMapPage() {
   };
 
   const levelLabel = dong || sggNode?.name || sidoNode?.name || "";
-  const topN = data?.top_n ?? (dong ? 30 : sgg ? 50 : 500);
+  const topN = data?.top_n ?? (dong ? 100 : sgg ? 50 : 500);
   const periodInfo = PERIODS.find((p) => p.key === period)!;
   const status = data?.status;
 
@@ -257,7 +262,7 @@ export default function RealEstateMapPage() {
                 </span>
               </div>
               <p className="app-subtitle">
-                {levelLabel} 가격 상위 {topN.toLocaleString()}개 아파트 단지 MAP
+                {levelLabel} {data && items.length < topN ? `전체 ${items.length.toLocaleString()}개` : `가격 상위 ${topN.toLocaleString()}개`} 아파트 단지 MAP
                 {data?.latest_deal_date && <span className="kospi-map-updated"> · 최근 계약일 {dateDots(data.latest_deal_date)}</span>}
               </p>
             </div>
@@ -349,7 +354,7 @@ export default function RealEstateMapPage() {
                     aria-label="시·군·구"
                   >
                     <option value="">전체</option>
-                    {sidoNode?.sgg.map((g) => (
+                    {sggOptions.map((g) => (
                       <option key={g.code} value={g.code}>
                         {g.name}
                       </option>
@@ -360,7 +365,7 @@ export default function RealEstateMapPage() {
                   <span className="kospi-map-sector-filter-label">읍·면·동</span>
                   <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sgg} aria-label="읍·면·동">
                     <option value="">전체</option>
-                    {sggNode?.dongs.map((d) => (
+                    {dongOptions.map((d) => (
                       <option key={d} value={d}>
                         {d}
                       </option>

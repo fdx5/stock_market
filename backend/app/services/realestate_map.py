@@ -68,7 +68,11 @@ ROWS_PER_PAGE = 1000
 DAILY_CALL_LIMIT = int(os.environ.get("MOLIT_DAILY_LIMIT", "9000"))
 CALL_SPACING_SECONDS = 0.15
 
-TOP_N = {"sido": 500, "sgg": 50, "dong": 30}
+# A 동 shows up to 100 complexes, counting any that traded in the two years kept —
+# which for most 동 is every one of them.
+TOP_N: dict[str, int | None] = {"sido": 500, "sgg": 50, "dong": 100}
+# Months stored before the 거래구분 (중개/직거래) field was kept are re-read once.
+REFETCH_STORED_BEFORE = dt.datetime(2026, 9, 24, 18, 0, tzinfo=ZoneInfo("Asia/Seoul"))
 PERIODS = {"today": None, "7d": 7, "3m": 91, "6m": 182, "1y": 365}
 WARM_ORDER = ("11", "41", "28")  # 서울, 경기, 인천 first; everything else after
 
@@ -259,7 +263,8 @@ def _get_page(endpoint: str, lawd_cd: str, deal_ym: str, page: int) -> tuple[lis
 
 def fetch_month(lawd_cd: str, deal_ym: str) -> list[list]:
     """One 시군구-month of apartment sales, cancelled contracts removed, as compact
-    rows: [yyyymmdd, 단지일련번호, 단지명, 법정동, 지번, 전용면적, 거래금액(만원), 층, 건축년도]."""
+    rows: [yyyymmdd, 단지일련번호, 단지명, 법정동, 지번, 전용면적, 거래금액(만원), 층, 건축년도,
+    직거래 여부]."""
     global _endpoint_choice
     endpoints = [_endpoint_choice] if _endpoint_choice else list(TRADE_ENDPOINTS)
     last_exc: Exception | None = None
@@ -305,6 +310,7 @@ def fetch_month(lawd_cd: str, deal_ym: str) -> list[list]:
                 price,
                 _int(_text(it, "floor")),
                 _int(_text(it, "buildYear")),
+                1 if "직거래" in _text(it, "dealingGbn") else 0,
             ]
         )
     return out
@@ -343,6 +349,8 @@ def _needs_fetch(lawd_cd: str, deal_ym: str, index: dict, months: list[str]) -> 
     try:
         at = dt.datetime.fromisoformat(fetched)
     except ValueError:
+        return True
+    if at < REFETCH_STORED_BEFORE:
         return True
     return dt.datetime.now(KST) - at > _stale_after(deal_ym, months)
 
@@ -515,14 +523,14 @@ BRANDS: list[tuple[str, tuple[str, ...]]] = [
     ("lerl", ("르엘",)),
     ("ohtier", ("오티에르",)),
     ("raemian", ("래미안",)),
-    ("xi", ("자이", "XI", "Xi")),
-    ("hillstate", ("힐스테이트",)),
-    ("prugio", ("푸르지오",)),
-    ("ipark", ("아이파크",)),
-    ("eplus", ("e편한세상", "E편한세상", "이편한세상")),
+    ("xi", ("자이", "XI")),
+    ("hillstate", ("힐스테이트", "HILLSTATE")),
+    ("prugio", ("푸르지오", "PRUGIO")),
+    ("ipark", ("아이파크", "IPARK", "I-PARK", "아이-파크")),
+    ("eplus", ("E편한세상", "E-편한세상", "이편한세상")),
     ("lottecastle", ("롯데캐슬",)),
     ("thesharp", ("더샵",)),
-    ("skview", ("SK뷰", "sk뷰", "에스케이뷰", "SKVIEW")),
+    ("skview", ("SK뷰", "에스케이뷰", "SKVIEW", "SK VIEW")),
     ("hoban", ("호반써밋", "호반베르디움", "호반")),
     ("centreville", ("센트레빌",)),
     ("sujain", ("수자인",)),
@@ -544,8 +552,9 @@ BRANDS: list[tuple[str, tuple[str, ...]]] = [
 
 
 def brand_of(name: str) -> str | None:
+    upper = name.upper()  # needles are upper-case; Hangul is unaffected
     for key, needles in BRANDS:
-        if any(n in name for n in needles):
+        if any(n in upper for n in needles):
             return key
     return None
 
@@ -571,7 +580,9 @@ def _complexes(lawd_codes: list[str]) -> dict[str, dict]:
     for lawd in lawd_codes:
         # A snapshot: the collector may add a month to this dict while we read it.
         for deals in list(_district(lawd).values()):
-            for day, seq, name, umd, jibun, area, price, floor, built in deals:
+            for row in deals:
+                day, seq, name, umd, jibun, area, price, floor, built = row[:9]
+                direct = row[9] if len(row) > 9 else 0
                 key = f"{lawd}:{seq}" if seq else f"{lawd}:{umd}:{jibun}:{name}"
                 c = out.get(key)
                 if c is None:
@@ -586,7 +597,7 @@ def _complexes(lawd_codes: list[str]) -> dict[str, dict]:
                     }
                 if day >= c["last"]:
                     c["last"], c["name"], c["dong"] = day, name or c["name"], _dong_of(umd) or c["dong"]
-                c["types"][round(area)].append((day, price, floor, area))
+                c["types"][round(area)].append((day, price, floor, area, direct))
     return out
 
 
@@ -638,10 +649,16 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
     for c in complexes.values():
         recent = {t: [x for x in trades if x[0] >= year_ago] for t, trades in c["types"].items()}
         recent = {t: v for t, v in recent.items() if v}
+        if not recent and level == "dong":
+            recent = {t: v for t, v in c["types"].items() if v}
         if not recent:
             continue
         rep = max(recent, key=lambda t: (len(recent[t]), t))
+        # 직거래 (unbrokered, often between relatives) is priced off-market often
+        # enough that one of them as the reference swings a complex by 30%. Brokered
+        # trades set the price whenever the 평형 has any.
         trades = sorted(c["types"][rep])
+        trades = [x for x in trades if not x[4]] or trades
         last_day = trades[-1][0]
         price = _mean_on(trades, last_day)
         in_window = [x for x in trades if x[0] >= window_start] if window_start else []
@@ -679,7 +696,8 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
         )
 
     rows.sort(key=lambda r: r["price"], reverse=True)
-    rows = rows[: TOP_N[level]]
+    if TOP_N[level]:
+        rows = rows[: TOP_N[level]]
     for r in rows:
         r["group"] = r["sgg"] if level == "sido" else (r["dong"] or dong or "기타")
 

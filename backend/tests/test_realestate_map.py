@@ -48,7 +48,7 @@ def test_encoded_key_is_decoded_once():
 def test_fetch_month_parses_and_drops_cancelled(monkeypatch):
     monkeypatch.setattr(rm.requests, "get", lambda *a, **k: FakeResponse(SAMPLE_XML))
     rows = rm.fetch_month("11650", "202609")
-    assert rows == [[20260905, "11650-2345", "래미안원베일리", "반포동", "1", 84.97, 720000, 21, 2023]]
+    assert rows == [[20260905, "11650-2345", "래미안원베일리", "반포동", "1", 84.97, 720000, 21, 2023, 0]]
 
 
 def test_unregistered_key_is_an_error(monkeypatch):
@@ -62,6 +62,8 @@ def test_brands():
     assert rm.brand_of("아크로리버파크") == "acro"
     assert rm.brand_of("디에이치아너힐즈") == "dh"
     assert rm.brand_of("압구정현대") == "hyundai"
+    assert rm.brand_of("I-PARK") == "ipark"
+    assert rm.brand_of("e편한세상") == "eplus"
     assert rm.brand_of("은마") is None
 
 
@@ -127,3 +129,32 @@ def test_newest_request_is_collected_first(monkeypatch):
     rm.request_districts(["11140"], priority=10)  # a warm pass must not demote a viewed district
     order = [rm._next_district() for _ in range(4)]
     assert order == ["41150", "11110", "11140", "26110"]
+
+
+def test_dong_shows_every_complex_and_ignores_direct_trades(monkeypatch):
+    today = dt.datetime.now(rm.KST).date()
+    d = lambda days: int((today - dt.timedelta(days=days)).strftime("%Y%m%d"))  # noqa: E731
+    deals = [[d(5), f"C{j}", f"단지{j}", "호원동", str(j), 84.9, 50000 + j, 3, 2000, 0] for j in range(45)]
+    deals += [
+        # 우성1: 3.15억 직거래가 비교 기준이 되면 +35%로 튄다
+        [d(400), "W1", "우성1", "호원동", "9", 84.97, 41000, 5, 1995, 0],
+        [d(40), "W1", "우성1", "호원동", "9", 84.97, 31500, 2, 1995, 1],
+        [d(10), "W1", "우성1", "호원동", "9", 84.97, 42500, 7, 1995, 0],
+        # 1년 넘게 거래가 없어도 동 단위에는 나온다
+        [d(500), "Q1", "조용한단지", "호원동", "8", 59.9, 30000, 4, 1990, 0],
+    ]
+    _seed(monkeypatch, {"41150": {"x": deals}})
+    result = rm.build_map(None, "41150", "호원동", "3m")
+    assert result["count"] == 47 and result["top_n"] == 100
+    w = next(r for r in result["items"] if r["name"] == "우성1")
+    assert w["base_price"] == 41000 and w["change_pct"] == pytest.approx(3.66, abs=0.01)
+    assert rm.build_map(None, "41150", None, "3m")["count"] == 46  # 시·군·구는 1년 거래 단지만, 50개 한도
+
+
+def test_dong_caps_at_100(monkeypatch):
+    today = dt.datetime.now(rm.KST).date()
+    day = int((today - dt.timedelta(days=5)).strftime("%Y%m%d"))
+    deals = [[day, f"C{j}", f"단지{j}", "호원동", str(j), 84.9, 50000 + j, 3, 2000, 0] for j in range(130)]
+    _seed(monkeypatch, {"41150": {"x": deals}})
+    result = rm.build_map(None, "41150", "호원동", "7d")
+    assert result["count"] == 100 and result["items"][0]["price"] == 50129
