@@ -100,7 +100,7 @@ def _get(url: str, params: dict) -> tuple[list[dict], int]:
         raise FactsError("daily call budget exhausted")
     global _last_raw
     res = requests.get(url, params={"serviceKey": key, "_type": "json", **params}, timeout=20)
-    _last_raw = res.text[:200]
+    _last_raw = res.text[:400]
     return _items(res)
 
 
@@ -162,6 +162,8 @@ def _sgg_list(lawd: str) -> list[dict]:
             page += 1
         if not out:  # never store "this 시군구 has no 단지" — it is an API hiccup
             raise FactsError(f"단지 목록이 비어 있습니다: {_last_raw!r}")
+        if not any(c["name"] for c in out):
+            raise FactsError(f"단지 이름 필드가 없습니다: {_last_raw!r}")
         return out
 
     return _stored(f"list:{lawd}", LIST_FRESH, fetch)
@@ -235,7 +237,8 @@ def complex_facts(complex_id: str) -> dict:
         listed = _sgg_list(lawd)
         found = match(c["name"], c["dong"], listed)
         if found is None:
-            return {**out, "listed": len(listed)}
+            nearby = [x["name"] for x in listed if c["dong"] and c["dong"] in (x["dong"], x["ri"])]
+            return {**out, "listed": len(listed), "nearby": nearby[:40]}
         info = _info(found["code"])
     except FactsError as exc:
         log.info("realestate facts %s: %s", complex_id, exc)
