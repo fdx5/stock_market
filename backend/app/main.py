@@ -490,9 +490,13 @@ def _start_dram_price_scheduler() -> None:
 def _start_realestate_collector() -> None:
     # 부동산 맵의 국토부 실거래가 수집기. No-ops until MOLIT_API_KEY is set; the map
     # endpoint then reports configured=false and the page says what is missing.
-    from app.services import realestate_map
+    from app.services import realestate_map, realestate_summary
 
     realestate_map.start_collector()
+    # The region map's country-wide colours take a couple of minutes to summarise;
+    # start the page's default period now rather than on the first visitor.
+    if realestate_map.is_configured():
+        realestate_summary.warm("3m")
 
 
 @app.on_event("startup")

@@ -133,6 +133,13 @@ def _request(keys: list[tuple[str, str]], first: bool = False) -> None:
         _lock.notify()
 
 
+def warm(period: str) -> None:
+    """Queues every district for one period, 서울·경기·인천 first."""
+    order = list(rm.WARM_ORDER) + [s["code"] for s in rm.regions()["sido"] if s["code"] not in rm.WARM_ORDER]
+    by_code = {s["code"]: s for s in rm.regions()["sido"]}
+    _request([(g["code"], period) for code in order if code in by_code for g in by_code[code]["sgg"]])
+
+
 def _merge(aggs: list[dict]) -> dict:
     out = _empty()
     for a in aggs:
