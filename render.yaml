@@ -103,5 +103,12 @@ services:
       # The cookies themselves are NOT an env var — like the Kakao refresh token above,
       # they live in Turso, seeded once by scripts/naver_login_setup.py and rewritten on
       # every keep-alive and every publish as Naver rotates NID_SES.
+      # 부동산 맵 (/realestate-map, app/services/realestate_map.py).
+      # 공공데이터포털(data.go.kr) 일반 인증키. "국토교통부_아파트 매매 실거래가 자료"에
+      # 활용신청한 키여야 하며, 같은 키로 "행정안전부_법정동코드"도 신청해 두면 2024년
+      # 이후 신설된 구(인천·화성 등)가 지역 목록에 자동 반영된다. 비워 두면 수집기는
+      # 동작하지 않고 페이지가 키 미설정 안내를 띄운다. Encoding/Decoding 키 모두 가능.
+      - key: MOLIT_API_KEY
+        sync: false
       - key: NAVER_BLOG_ID
         value: kospi-predictor

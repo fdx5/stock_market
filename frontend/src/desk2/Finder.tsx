@@ -38,6 +38,7 @@ const DESTINATIONS: Destination[] = [
   { key: "kosdaq-map", ko: "코스닥 지도", en: "KOSDAQ map", group: "지도", to: "/kosdaq-map" },
   { key: "sp500-map", ko: "S&P 500 지도", en: "S&P 500 map", group: "지도", to: "/sp500-map" },
   { key: "nasdaq100-map", ko: "나스닥 100 지도", en: "NASDAQ 100 map", group: "지도", to: "/nasdaq100-map" },
+  { key: "realestate-map", ko: "부동산 지도 · 아파트 실거래가", en: "Real estate map", group: "지도", to: "/realestate-map" },
   { key: "kospi-orbit", ko: "증시 궤도", en: "Market orbit", group: "지도", to: "/kospi-orbit" },
   { key: "bubbles", ko: "증시 버블", en: "Market bubbles", group: "지도", to: "/market-bubbles" },
   { key: "kospi-100", ko: "코스피 TOP 100", en: "KOSPI TOP 100", group: "순위", to: "/kospi-100" },

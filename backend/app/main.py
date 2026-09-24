@@ -37,6 +37,7 @@ from app.routers import (
     monitor,
     notify,
     prediction,
+    realestate,
     search,
     stock,
     translate,
@@ -230,6 +231,7 @@ app.include_router(admin_db.router, prefix="/api/admin")
 app.include_router(monitor.router, prefix="/api/admin/monitor")
 app.include_router(notify.router, prefix="/api/notify")
 app.include_router(global_top100.router, prefix="/api/global-top100")
+app.include_router(realestate.router, prefix="/api/realestate")
 
 
 @app.on_event("startup")
@@ -483,6 +485,15 @@ def _start_dram_price_scheduler() -> None:
     # free-tier instance is asleep when that cron fires. Both paths call the same
     # idempotent run_batch, so whichever fires first does the work.
     dram_price.start_scheduler()
+
+@app.on_event("startup")
+def _start_realestate_collector() -> None:
+    # 부동산 맵의 국토부 실거래가 수집기. No-ops until MOLIT_API_KEY is set; the map
+    # endpoint then reports configured=false and the page says what is missing.
+    from app.services import realestate_map
+
+    realestate_map.start_collector()
+
 
 @app.on_event("startup")
 def _start_market_brief_scheduler() -> None:

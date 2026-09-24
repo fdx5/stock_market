@@ -52,6 +52,7 @@ PAGES: list[dict] = [
     {"id": "page:/kosdaq-map", "label": "KOSDAQ MAP", "path": "/kosdaq-map", "group": "map"},
     {"id": "page:/sp500-map", "label": "S&P500 MAP", "path": "/sp500-map", "group": "map"},
     {"id": "page:/nasdaq100-map", "label": "NASDAQ100 MAP", "path": "/nasdaq100-map", "group": "map"},
+    {"id": "page:/realestate-map", "label": "부동산 MAP", "path": "/realestate-map", "group": "map"},
     {"id": "page:/kospi-100", "label": "KOSPI TOP100", "path": "/kospi-100", "group": "board"},
     {"id": "page:/kosdaq-100", "label": "KOSDAQ TOP100", "path": "/kosdaq-100", "group": "board"},
     {"id": "page:/nasdaq-100", "label": "NASDAQ TOP100", "path": "/nasdaq-100", "group": "board"},
@@ -292,6 +293,12 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/market/ticker",
         "/api/visitors/count",
         "/api/translate",
+    ],
+    "page:/realestate-map": [
+        "/api/realestate/regions",
+        "/api/realestate/map",
+        "/api/market/ticker",
+        "/api/visitors/count",
     ],
     "page:/kospi-orbit": [
         "/api/market/map",

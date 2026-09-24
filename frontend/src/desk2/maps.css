@@ -345,3 +345,96 @@
     flex-wrap: wrap;
   }
 }
+
+/* ── 부동산 맵 (/realestate-map) ─────────────────────────────────────────────
+   Everything else on that page is the market maps' own markup and rules; these are
+   only what apartments need that listed companies do not. */
+
+.re-map-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.re-map-filters .kospi-map-sector-filter select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+@media (max-width: 760px) {
+  .re-map-filters {
+    width: 100%;
+    flex-direction: column;
+  }
+}
+
+/* The group strip doubles as a drill-down button, and `.d2 button` resets every
+   button's background — this puts the market maps' tint back. */
+.d2 .re-map-group-head {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  background: color-mix(in srgb, var(--baseline) 35%, var(--surface-1));
+  text-align: left;
+}
+.d2 .re-map-group-head:not(:disabled):hover .kospi-map-sector-name {
+  text-decoration: underline;
+}
+.d2 .re-map-group-head:disabled {
+  cursor: default;
+}
+
+/* No trade of the complex's 평형 inside the period: nothing to colour by, and it must
+   not read as 0%. */
+.d2 .re-map-tile--idle {
+  background: repeating-linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--baseline) 70%, transparent) 0 4px,
+      color-mix(in srgb, var(--baseline) 45%, transparent) 4px 8px
+    ),
+    var(--surface-1);
+  color: var(--text-secondary);
+}
+
+.re-map-tile-price {
+  font-weight: 600;
+  opacity: 0.88;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.re-map-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  text-align: center;
+}
+
+.re-map-notice code {
+  font-family: var(--f-mono, monospace);
+}
+.re-map-status-error {
+  margin-top: 4px;
+  color: var(--warn, #a86b00);
+  word-break: break-all;
+}
+
+.re-map-table-name,
+.re-map-tooltip-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.re-map-source {
+  margin: 10px 2px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.re-map-page .kospi-map-tile-pct,
+.re-map-page .kospi-map-legend-label {
+  white-space: nowrap;
+}

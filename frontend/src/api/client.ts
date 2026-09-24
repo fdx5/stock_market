@@ -1045,6 +1045,54 @@ export interface GradingMatrixResponse {
   rows: GradingMatrixRow[];
 }
 
+export type RealEstatePeriod = "today" | "7d" | "3m" | "6m" | "1y";
+
+export interface RealEstateSgg {
+  code: string;
+  name: string;
+  dongs: string[];
+}
+
+export interface RealEstateSido {
+  code: string;
+  name: string;
+  sgg: RealEstateSgg[];
+}
+
+export interface RealEstateItem {
+  id: string;
+  name: string;
+  brand: string | null;
+  sgg: string;
+  dong: string;
+  group: string;
+  /** 대표 평형의 최신 실거래가, 만원 */
+  price: number;
+  area: number;
+  pyeong: number;
+  deal_date: string;
+  floor: number | null;
+  built: number | null;
+  base_price: number | null;
+  base_date: string | null;
+  /** null: 기간 안에 대표 평형 거래가 없거나 비교할 이전 거래가 없음 */
+  change_pct: number | null;
+  trades: number;
+  trades_all: number;
+}
+
+export interface RealEstateMapResponse {
+  generated_at: string;
+  level: "sido" | "sgg" | "dong";
+  period: RealEstatePeriod;
+  top_n: number;
+  latest_deal_date: string | null;
+  window_start: string | null;
+  status: { configured: boolean; coverage: number; collecting: boolean; error: string | null; calls_today: number };
+  count: number;
+  items: RealEstateItem[];
+}
+
 async function getJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
@@ -1083,6 +1131,14 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 }
 
 export const api = {
+  realEstateRegions: () => getJSON<{ source: string; sido: RealEstateSido[] }>(`${BASE}/realestate/regions`),
+  realEstateMap: (q: { sido?: string; sgg?: string; dong?: string; period: RealEstatePeriod }) => {
+    const params = new URLSearchParams({ period: q.period });
+    if (q.sgg) params.set("sgg", q.sgg);
+    else if (q.sido) params.set("sido", q.sido);
+    if (q.dong) params.set("dong", q.dong);
+    return getJSONFresh<RealEstateMapResponse>(`${BASE}/realestate/map?${params}`);
+  },
   etfs: (region: "KR" | "US") => getJSONFresh<EtfMarketResponse>(`${BASE}/etfs?region=${region}`),
   etfQuote: (code: string, region: "KR" | "US") =>
     getJSONFresh<EtfItem>(`${BASE}/etfs/${encodeURIComponent(code)}/quote?region=${region}`),

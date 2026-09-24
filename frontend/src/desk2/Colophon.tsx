@@ -20,6 +20,7 @@ const DIRECTORY: { ko: string; en: string; links: { to: string; ko: string; en: 
       { to: "/kosdaq-map", ko: "코스닥 시가총액 맵", en: "KOSDAQ map" },
       { to: "/sp500-map", ko: "S&P 500 맵", en: "S&P 500 map" },
       { to: "/nasdaq100-map", ko: "나스닥 100 맵", en: "NASDAQ 100 map" },
+      { to: "/realestate-map", ko: "부동산 맵 (아파트 실거래가)", en: "Real estate map" },
       { to: "/market-bubbles", ko: "증시 버블", en: "Market bubbles" },
       { to: "/kospi-orbit", ko: "증시 궤도", en: "Market orbit" },
     ],
