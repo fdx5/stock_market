@@ -1115,6 +1115,30 @@ export interface RealEstateComplexResponse {
   types: RealEstateTypeView[];
 }
 
+export type RealEstateRegionLevel = "sido" | "sgg" | "dong";
+
+/** How one region moved: the price-weighted mean move of its complexes. */
+export interface RealEstateRegionMove {
+  /** 시·도 or 시·군·구 code; a 읍·면·동's name. */
+  code: string;
+  name: string;
+  change: number | null;
+  complexes: number;
+  moved: number;
+  up: number;
+  down: number;
+  /** Share of the region's districts already summarised (시·도 and 시·군·구 levels). */
+  ready?: number;
+}
+
+export interface RealEstateSummaryResponse {
+  level: RealEstateRegionLevel;
+  period: RealEstatePeriod;
+  /** Districts still being summarised; ask again while this is above zero. */
+  pending: number;
+  items: RealEstateRegionMove[];
+}
+
 /** 세대수·주차대수 of a complex, from 공동주택관리정보 (K-apt). */
 export interface RealEstateFacts {
   id: string;
@@ -1192,6 +1216,12 @@ export const api = {
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
   realEstateFacts: (id: string) =>
     getJSONFresh<RealEstateFacts>(`${BASE}/realestate/facts?id=${encodeURIComponent(id)}`),
+  realEstateSummary: (q: { level: RealEstateRegionLevel; sido?: string; sgg?: string; period: RealEstatePeriod }) => {
+    const params = new URLSearchParams({ level: q.level, period: q.period });
+    if (q.sido) params.set("sido", q.sido);
+    if (q.sgg) params.set("sgg", q.sgg);
+    return getJSONFresh<RealEstateSummaryResponse>(`${BASE}/realestate/summary?${params}`);
+  },
   realEstateMap: (q: { sido?: string; sgg?: string; dong?: string; period: RealEstatePeriod; top?: number }) => {
     const params = new URLSearchParams({ period: q.period });
     if (q.sgg) params.set("sgg", q.sgg);

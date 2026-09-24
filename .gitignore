@@ -51,3 +51,6 @@ exports/
 # Diagnostic dump from scripts/naver_probe_editor.py — a snapshot of SmartEditor
 # internals, regenerated on demand and not source.
 backend/scripts/_probe_documentmodel.json
+
+# scripts/build_realestate_geo.py downloads
+.geo-work/

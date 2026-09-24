@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { api, RealEstateItem, RealEstateMapResponse, RealEstatePeriod, RealEstateSido } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { TILE_FONT_FAMILY, measureTextWidth, pct, tileDisplayInfo } from "../mapTile";
@@ -9,6 +9,7 @@ import Finder from "../desk2/Finder";
 import Masthead from "../desk2/Masthead";
 import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
+import "../desk2/realestate-region.css";
 import Tape from "../desk2/Tape";
 import FloatingTip from "./FloatingTip";
 import RealEstateSheet from "./RealEstateSheet";
@@ -30,6 +31,9 @@ import {
  * narrows the region, tiles are sized by each complex's latest 실거래가 and coloured
  * by how that price moved over the chosen period (see backend
  * app/services/realestate_map.py for exactly how both are derived). */
+
+// The region map pulls in three.js; it loads after the treemap, never ahead of it.
+const RegionMap3D = lazy(() => import("./RegionMap3D"));
 
 const PERIODS: { key: RealEstatePeriod; label: string; detail: string }[] = [
   { key: "3m", label: "3개월", detail: "최근 3개월 실거래" },
@@ -351,6 +355,22 @@ export default function RealEstateMapPage() {
    * a desktop), where its 평형 can be switched and moving into its region is a
    * button. On a desktop the hover card still previews it. */
   const touchUi = useMediaQuery("(hover: none), (pointer: coarse)");
+  // The region map folds away on a phone, where it sits above the treemap; the choice
+  // is remembered.
+  const [regionMapOpen, setRegionMapOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem("re_region_map") !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("re_region_map", regionMapOpen ? "open" : "closed");
+    } catch {
+      /* private mode: the choice lasts this visit */
+    }
+  }, [regionMapOpen]);
   const [sheetItem, setSheetItem] = useState<RealEstateItem | null>(null);
   useEffect(() => setSheetItem(null), [sido, sgg, dong, period]);
 
@@ -618,11 +638,10 @@ export default function RealEstateMapPage() {
         )}
 
         <div className="kospi-map-workspace">
-          <aside className="kospi-map-period-rail" aria-label="조회 기간">
+          <aside className="kospi-map-period-rail re-map-rail" aria-label="조회 기간과 지역 지도">
             <div className="kospi-map-period-head">
               <small>REAL TRADES</small>
               <strong>조회 기간</strong>
-              <p>대표 평형의 현재 시세를 기간 시작 직전 시세와 비교합니다. 시세는 최근 거래 최대 3건(90일 이내)의 중간값입니다.</p>
             </div>
             <div className="kospi-map-period-options">
               {PERIODS.map((option) => (
@@ -635,6 +654,35 @@ export default function RealEstateMapPage() {
                 </label>
               ))}
             </div>
+            <div className={`re-map-region${regionMapOpen ? "" : " is-collapsed"}`}>
+              <button
+                type="button"
+                className="re-map-region-toggle"
+                aria-expanded={regionMapOpen}
+                onClick={() => setRegionMapOpen((v) => !v)}
+              >
+                <span>지역별 등락 지도</span>
+                <small>{regionMapOpen ? "접기" : "펼치기"}</small>
+              </button>
+              {regionMapOpen && regions.length > 0 && (
+                <Suspense fallback={<div className="rm3 rm3--placeholder" />}>
+                  <RegionMap3D
+                    regions={regions}
+                    sido={sido}
+                    sgg={sgg}
+                    dong={dong}
+                    period={period}
+                    periodLabel={periodInfo.label}
+                    touch={touchUi}
+                    onSelect={(next) => {
+                      setSido(next.sido);
+                      setSgg(next.sgg);
+                      setDong(next.dong);
+                    }}
+                  />
+                </Suspense>
+              )}
+            </div>
             <div className="kospi-map-period-status" aria-live="polite">
               {loading
                 ? "실거래 데이터를 불러오는 중…"
@@ -644,7 +692,9 @@ export default function RealEstateMapPage() {
               {status?.error && status.collecting && <div className="re-map-status-error">최근 오류: {status.error}</div>}
             </div>
             <p className="kospi-map-period-note">
-              실거래는 계약 후 30일 안에 신고되므로 최근 며칠은 거래가 적게 보일 수 있습니다. 해제된 계약은 제외합니다.
+              대표 평형의 현재 시세를 기간 시작 직전 시세와 비교합니다. 시세는 최근 거래 최대 3건(90일 이내)의 중간값이고, 지역 색은 그
+              지역 단지들의 시세 가중 평균 등락입니다. 실거래는 계약 후 30일 안에 신고되므로 최근 며칠은 거래가 적게 보일 수 있으며, 해제된
+              계약은 제외합니다.
             </p>
           </aside>
 
