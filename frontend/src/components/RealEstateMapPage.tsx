@@ -342,8 +342,9 @@ export default function RealEstateMapPage() {
   const total = useMemo(() => items.reduce((s, it) => s + it.price, 0), [items]);
   const movedCount = items.filter((it) => it.change_pct !== null).length;
 
-  /** Touch screens have no hover: a tap opens the complex's card in a sheet, and
-   * moving into its region is a button there, instead of the tap itself. */
+  /** A click or tap on a complex pins its card (a sheet on touch screens, a dialog on
+   * a desktop), where its 평형 can be switched and moving into its region is a
+   * button. On a desktop the hover card still previews it. */
   const touchUi = useMediaQuery("(hover: none), (pointer: coarse)");
   const [sheetItem, setSheetItem] = useState<RealEstateItem | null>(null);
   useEffect(() => setSheetItem(null), [sido, sgg, dong, period]);
@@ -353,12 +354,8 @@ export default function RealEstateMapPage() {
     !sgg ? `${item.sgg} 지도로 이동` : !dong && item.dong ? `${item.dong} 지도로 이동` : null;
 
   const openItem = (item: RealEstateItem) => {
-    if (touchUi) {
-      setHovered(null);
-      setSheetItem(item);
-    } else {
-      drill(item);
-    }
+    setHovered(null);
+    setSheetItem(item);
   };
 
   /** A tile or a group drills one level down: 시·도 → 시·군·구 → 읍·면·동. */
@@ -393,7 +390,7 @@ export default function RealEstateMapPage() {
       groupRank: inGroup.indexOf(item) + 1,
       groupCount: inGroup.length,
       share: total > 0 ? (item.price / total) * 100 : 0,
-      clickHint: drillLabel(item) ? `클릭하면 ${drillLabel(item)}` : null,
+      clickHint: "클릭하면 평형별 상세 보기",
     };
   };
 
@@ -763,7 +760,7 @@ export default function RealEstateMapPage() {
                             }}
                             onClick={() => openItem(it)}
                             onMouseEnter={(e) => {
-                              if (touchUi) return;
+                              if (touchUi || sheetItem) return;
                               setHovered(it);
                               setHoverPos({ x: e.clientX, y: e.clientY });
                             }}
@@ -868,6 +865,7 @@ export default function RealEstateMapPage() {
           <RealEstateSheet
             item={sheetItem}
             ctx={popupContext(sheetItem)}
+            period={period}
             goLabel={drillLabel(sheetItem)}
             onGo={() => {
               const item = sheetItem;
@@ -877,7 +875,7 @@ export default function RealEstateMapPage() {
             onClose={() => setSheetItem(null)}
           />
         )}
-        {hovered && !touchUi && (
+        {hovered && !touchUi && !sheetItem && (
           <FloatingTip className="kospi-map-tooltip re-pop-tip" x={hoverPos.x} y={hoverPos.y}>
             <RealEstatePopup item={hovered} ctx={popupContext(hovered)} />
           </FloatingTip>

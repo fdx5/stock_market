@@ -645,13 +645,57 @@ def _trade(x: tuple) -> dict:
     return {"date": _ymd(x[0]).isoformat(), "price": x[1], "floor": x[2], "direct": bool(x[4])}
 
 
-def _detail(c: dict, rep: int, every: list[tuple], priced: list[tuple], year_ago: int) -> dict:
-    """What the map's popup shows beyond the tile: the 대표 평형's trades (every one,
-    직거래 marked, for the chart and the recent list), its range over the past year,
-    how busy the complex is, and what its other 평형 last sold for."""
-    year = [x for x in priced if x[0] >= year_ago]
+def _type_view(rows: list[tuple], window_start: int, year_ago: int) -> dict:
+    """One 평형 of a complex as the map and its popup show it: its price now and
+    before the period, the change between them, its trades (every one, 직거래
+    marked, for the chart and the recent list) and its range over the past year.
+
+    직거래 (unbrokered, often between relatives) is priced off-market often enough
+    that one of them as the reference swings a complex by 30%, so brokered trades
+    set the price whenever the 평형 has any."""
+    every = sorted(rows)
+    trades = [x for x in every if not x[4]] or every
+    last_day = trades[-1][0]
+    price, _ = _robust_price(trades, last_day)
+    in_window = [x for x in trades if x[0] >= window_start] if window_start else []
+    change = base = base_day = None
+    if in_window:
+        before = _robust_price(trades, window_start - 1) if any(x[0] < window_start for x in trades) else None
+        if before:
+            base, base_day = before
+        else:
+            # Nothing before the period: compare with its own first trade day, if the
+            # period holds more than one.
+            window_days = sorted({x[0] for x in in_window})
+            if len(window_days) > 1:
+                base_day = window_days[0]
+                base = _mean_on(trades, base_day)
+        if base:
+            change = (price - base) / base * 100
+    on_last = [x for x in trades if x[0] == last_day]
+    area = sum(x[3] for x in on_last) / len(on_last)
+    year = [x for x in trades if x[0] >= year_ago]
     high = max(year, key=lambda x: (x[1], x[0])) if year else None
     low = min(year, key=lambda x: (x[1], -x[0])) if year else None
+    return {
+        "price": round(price),
+        "area": round(area, 2),
+        "pyeong": round(area / 3.3058, 1),
+        "deal_date": _ymd(last_day).isoformat(),
+        "floor": on_last[-1][2],
+        "base_price": round(base) if base else None,
+        "base_date": _ymd(base_day).isoformat() if base_day else None,
+        "change_pct": round(change, 2) if change is not None else None,
+        "trades": len(in_window),
+        "history": [[x[0], x[1], x[2], x[4]] for x in every[-HISTORY_POINTS:]],
+        "high_1y": _trade(high) if high else None,
+        "low_1y": _trade(low) if low else None,
+    }
+
+
+def _detail(c: dict, rep: int, year_ago: int) -> dict:
+    """What the popup shows about the complex as a whole: how busy it is and what its
+    other 평형 last sold for."""
     others = []
     for area_key, rows in c["types"].items():
         if area_key == rep:
@@ -669,9 +713,6 @@ def _detail(c: dict, rep: int, every: list[tuple], priced: list[tuple], year_ago
         )
     others.sort(key=lambda o: (o["trades_1y"], o["date"]), reverse=True)
     return {
-        "history": [[x[0], x[1], x[2], x[4]] for x in every[-HISTORY_POINTS:]],
-        "high_1y": _trade(high) if high else None,
-        "low_1y": _trade(low) if low else None,
         "trades_1y": sum(1 for rows in c["types"].values() for x in rows if x[0] >= year_ago),
         "types": others[:OTHER_TYPES],
     }
@@ -725,29 +766,6 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
         if not recent:
             continue
         rep = max(recent, key=lambda t: (len(recent[t]), t))
-        # 직거래 (unbrokered, often between relatives) is priced off-market often
-        # enough that one of them as the reference swings a complex by 30%. Brokered
-        # trades set the price whenever the 평형 has any.
-        every = sorted(c["types"][rep])
-        trades = [x for x in every if not x[4]] or every
-        last_day = trades[-1][0]
-        price, _ = _robust_price(trades, last_day)
-        in_window = [x for x in trades if x[0] >= window_start] if window_start else []
-        change = base = base_day = None
-        if in_window:
-            before = _robust_price(trades, window_start - 1) if any(x[0] < window_start for x in trades) else None
-            if before:
-                base, base_day = before
-            else:
-                # Nothing before the period: compare with its own first trade day,
-                # if the period holds more than one.
-                window_days = sorted({x[0] for x in in_window})
-                if len(window_days) > 1:
-                    base_day = window_days[0]
-                    base = _mean_on(trades, base_day)
-            if base:
-                change = (price - base) / base * 100
-        area = sum(x[3] for x in trades if x[0] == last_day) / max(1, sum(1 for x in trades if x[0] == last_day))
         rows.append(
             {
                 "id": c["id"],
@@ -755,18 +773,10 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
                 "brand": brand_of(c["name"]),
                 "sgg": index[c["lawd"]]["name"],
                 "dong": c["dong"],
-                "price": round(price),
-                "area": round(area, 2),
-                "pyeong": round(area / 3.3058, 1),
-                "deal_date": _ymd(last_day).isoformat(),
-                "floor": next((x[2] for x in reversed(trades) if x[0] == last_day), None),
                 "built": c["built"] or None,
-                "base_price": round(base) if base else None,
-                "base_date": _ymd(base_day).isoformat() if base_day else None,
-                "change_pct": round(change, 2) if change is not None else None,
-                "trades": len(in_window),
                 "trades_all": sum(1 for t in c["types"].values() for x in t if window_start and x[0] >= window_start),
-                **_detail(c, rep, every, trades, year_ago),
+                **_type_view(c["types"][rep], window_start, year_ago),
+                **_detail(c, rep, year_ago),
             }
         )
 
@@ -794,6 +804,44 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
         "items": rows,
     }
 
+
+
+def _window(period: str, latest_day: int) -> tuple[int, int]:
+    today = dt.datetime.now(KST).date()
+    days = PERIODS[period]
+    start = latest_day if days is None else _as_int(today - dt.timedelta(days=days))
+    return start, _as_int(today - dt.timedelta(days=365))
+
+
+def complex_detail(complex_id: str, period: str) -> dict:
+    """Every 평형 of one complex, each laid out the way the map lays out its 대표 평형
+    — what the popup's 평형 selector switches between. The id is the map item's."""
+    if period not in PERIODS:
+        raise ValueError("unknown period")
+    lawd = complex_id.split(":", 1)[0]
+    index = _sgg_index()
+    if lawd not in index:
+        raise ValueError("unknown 시군구")
+    c = _complexes([lawd]).get(complex_id)
+    if c is None:
+        raise LookupError("no such complex")
+    window_start, year_ago = _window(period, c["last"])
+    # Period windows are the same ones the map used: its "오늘" is the region's latest
+    # contract day, which a single complex does not know, so it falls back to its own.
+    views = []
+    for key, rows in c["types"].items():
+        view = _type_view(rows, window_start, year_ago)
+        view["key"] = key
+        view["trades_1y"] = sum(1 for x in rows if x[0] >= year_ago)
+        view["trades_total"] = len(rows)
+        views.append(view)
+    views.sort(key=lambda v: (v["trades_1y"], v["trades_total"], v["key"]), reverse=True)
+    return {
+        "id": c["id"],
+        "name": c["name"],
+        "period": period,
+        "types": views,
+    }
 
 _map_cache_lock = threading.Lock()
 _map_cache: OrderedDict[tuple, tuple[float, int, dict]] = OrderedDict()

@@ -1,3 +1,4 @@
+import { ReactNode } from "react";
 import { RealEstateItem } from "../api/client";
 import { pct } from "../mapTile";
 import AptBrandIcon, { brandLabel } from "./AptBrandIcon";
@@ -99,12 +100,43 @@ export interface PopupContext {
   clickHint: string | null;
 }
 
-export default function RealEstatePopup({ item, ctx }: { item: RealEstateItem; ctx: PopupContext }) {
+/** A 평형 chip in the 다른 평형 row. `key` is set when the chip can switch the card to
+ * that 평형 (the pinned card); the hover preview only lists them. */
+export interface OtherType {
+  key?: number;
+  area: number;
+  price: number;
+  date: string;
+  trades_1y: number;
+}
+
+export default function RealEstatePopup({
+  item,
+  ctx,
+  selector,
+  others,
+  onPickType,
+}: {
+  item: RealEstateItem;
+  ctx: PopupContext;
+  /** The 평형 select box, shown under the name when the card is pinned. */
+  selector?: ReactNode;
+  /** Overrides item.types: the 평형 other than the one shown. */
+  others?: OtherType[];
+  onPickType?: (key: number) => void;
+}) {
+  const otherTypes: OtherType[] = others ?? item.types;
   const brand = brandLabel(item.brand);
   const age = item.built ? new Date().getFullYear() - item.built + 1 : null;
   const perPyeong = Math.round((item.price / item.area) * PYEONG);
   const fromHigh = item.high_1y ? ((item.price - item.high_1y.price) / item.high_1y.price) * 100 : null;
   const recent = item.history.slice(-4).reverse();
+  // This 평형's trades in the past year, counted from its own history (the item's
+  // trades_1y is the whole complex's).
+  const yearAgo = new Date();
+  yearAgo.setFullYear(yearAgo.getFullYear() - 1);
+  const yearAgoN = yearAgo.getFullYear() * 10000 + (yearAgo.getMonth() + 1) * 100 + yearAgo.getDate();
+  const typeYear = item.history.filter((h) => h[0] >= yearAgoN).length;
   const move = item.base_price ? item.price - item.base_price : null;
 
   return (
@@ -120,6 +152,8 @@ export default function RealEstatePopup({ item, ctx }: { item: RealEstateItem; c
           </small>
         </div>
       </header>
+
+      {selector}
 
       <div className="re-pop-hero">
         <div className="re-pop-hero-price">
@@ -172,11 +206,9 @@ export default function RealEstatePopup({ item, ctx }: { item: RealEstateItem; c
           {item.low_1y && <span>{dots(item.low_1y.date).slice(2)}</span>}
         </div>
         <div>
-          <small>거래량 (전 평형)</small>
-          <b>1년 {item.trades_1y}건</b>
-          <span>
-            {ctx.periodLabel} {item.trades_all}건
-          </span>
+          <small>1년 거래</small>
+          <b>이 평형 {typeYear}건</b>
+          <span>전 평형 {item.trades_1y}건</span>
         </div>
       </div>
 
@@ -198,16 +230,29 @@ export default function RealEstatePopup({ item, ctx }: { item: RealEstateItem; c
         </div>
       )}
 
-      {item.types.length > 0 && (
+      {otherTypes.length > 0 && (
         <div className="re-pop-section">
-          <h4>다른 평형</h4>
+          <h4>다른 평형{onPickType && " · 눌러서 전환"}</h4>
           <div className="re-pop-types">
-            {item.types.map((t) => (
-              <span key={t.area} title={`${dots(t.date)} 계약 · 최근 1년 ${t.trades_1y}건`}>
-                {Math.round(t.area)}㎡ <b>{shortPrice(t.price)}</b>
-                <small>{t.trades_1y}건</small>
-              </span>
-            ))}
+            {otherTypes.map((t) =>
+              onPickType && t.key !== undefined ? (
+                <button
+                  type="button"
+                  key={t.area}
+                  className="re-pop-type-chip"
+                  onClick={() => onPickType(t.key as number)}
+                  title={`${dots(t.date)} 계약 · 최근 1년 ${t.trades_1y}건`}
+                >
+                  {Math.round(t.area)}㎡ <b>{shortPrice(t.price)}</b>
+                  <small>{t.trades_1y}건</small>
+                </button>
+              ) : (
+                <span key={t.area} title={`${dots(t.date)} 계약 · 최근 1년 ${t.trades_1y}건`}>
+                  {Math.round(t.area)}㎡ <b>{shortPrice(t.price)}</b>
+                  <small>{t.trades_1y}건</small>
+                </span>
+              )
+            )}
           </div>
         </div>
       )}

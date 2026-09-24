@@ -1089,6 +1089,32 @@ export interface RealEstateItem {
   types: { area: number; price: number; date: string; trades_1y: number }[];
 }
 
+/** One 평형 of a complex, laid out as the map lays out its 대표 평형. */
+export interface RealEstateTypeView {
+  key: number;
+  price: number;
+  area: number;
+  pyeong: number;
+  deal_date: string;
+  floor: number | null;
+  base_price: number | null;
+  base_date: string | null;
+  change_pct: number | null;
+  trades: number;
+  history: [number, number, number, number][];
+  high_1y: RealEstateTrade | null;
+  low_1y: RealEstateTrade | null;
+  trades_1y: number;
+  trades_total: number;
+}
+
+export interface RealEstateComplexResponse {
+  id: string;
+  name: string;
+  period: RealEstatePeriod;
+  types: RealEstateTypeView[];
+}
+
 export interface RealEstateTrade {
   date: string;
   price: number;
@@ -1147,6 +1173,8 @@ async function postJSON<T>(url: string, payload: unknown): Promise<T> {
 
 export const api = {
   realEstateRegions: () => getJSON<{ source: string; sido: RealEstateSido[] }>(`${BASE}/realestate/regions`),
+  realEstateComplex: (id: string, period: RealEstatePeriod) =>
+    getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
   realEstateMap: (q: { sido?: string; sgg?: string; dong?: string; period: RealEstatePeriod }) => {
     const params = new URLSearchParams({ period: q.period });
     if (q.sgg) params.set("sgg", q.sgg);

@@ -28,3 +28,19 @@ def realestate_heatmap(
         return realestate_map.get_map(sido, sgg, dong or None, period)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/complex")
+def realestate_complex(
+    response: Response,
+    id: str = Query(..., min_length=7, max_length=200),
+    period: str = Query("3m", pattern=r"^(today|7d|3m|6m|1y)$"),
+):
+    """Every 평형 of one complex, for the popup's 평형 selector."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return realestate_map.complex_detail(id, period)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

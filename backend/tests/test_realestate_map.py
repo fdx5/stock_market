@@ -216,3 +216,26 @@ def test_items_carry_popup_detail(monkeypatch):
     assert item["high_1y"]["price"] == 240000 and item["low_1y"]["price"] == 200000  # 직거래는 범위에서 뺀다
     assert item["trades_1y"] == 5
     assert item["types"] == [{"area": 59.8, "price": 160000, "date": item["types"][0]["date"], "trades_1y": 1}]
+
+
+def test_complex_detail_lays_out_every_pyeong(monkeypatch):
+    today = dt.datetime.now(rm.KST).date()
+    d = lambda days: int((today - dt.timedelta(days=days)).strftime("%Y%m%d"))  # noqa: E731
+    deals = [
+        [d(200), "A", "래미안A", "반포동", "1", 84.9, 200000, 10, 2010, 0],
+        [d(20), "A", "래미안A", "반포동", "1", 84.9, 220000, 12, 2010, 0],
+        [d(30), "A", "래미안A", "반포동", "1", 84.8, 215000, 7, 2010, 0],
+        [d(150), "A", "래미안A", "반포동", "1", 59.9, 150000, 3, 2010, 0],
+        [d(10), "A", "래미안A", "반포동", "1", 59.9, 165000, 5, 2010, 0],
+        [d(400), "A", "래미안A", "반포동", "1", 114.5, 300000, 9, 2010, 0],
+    ]
+    _seed(monkeypatch, {"11650": {"x": deals}})
+    item = rm.build_map(None, "11650", None, "3m")["items"][0]
+    detail = rm.complex_detail(item["id"], "3m")
+    assert [t["key"] for t in detail["types"]] == [85, 60, 114]  # 1년 거래 많은 순
+    t85, t60, t114 = detail["types"]
+    assert t85["price"] == item["price"] and t85["change_pct"] == item["change_pct"]
+    assert t60["price"] == 165000 and t60["base_price"] == 150000
+    assert t114["trades_1y"] == 0 and t114["change_pct"] is None
+    with pytest.raises(LookupError):
+        rm.complex_detail("11650:없는단지", "3m")
