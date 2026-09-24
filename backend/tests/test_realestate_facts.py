@@ -54,9 +54,9 @@ def world(monkeypatch):
 
     def get(url, params, timeout):
         calls.append(url.rsplit("/", 1)[-1])
-        if "getSigunguAptList3" in url:
+        if "getSigunguAptList4" in url:
             return FakeResponse(_ok([{"kaptCode": "A1", "kaptName": "은마아파트", "as3": "대치동"}]))
-        if "getAphusBassInfoV4" in url:
+        if "getAphusBassInfoV5" in url:
             return FakeResponse(_ok({"item": {"kaptCode": "A1", "kaptdaCnt": "4424"}}))
         return FakeResponse(_ok({"item": {"kaptCode": "A1", "kaptdPcnt": "1000", "kaptdPcntu": "2500"}}))
 
@@ -68,7 +68,7 @@ def test_facts_count_households_and_parking_and_are_stored(world):
     got = rf.complex_facts("11680:S1")
     assert got["matched"] and got["households"] == 4424 and got["parking"] == 3500
     assert got["parking_per_household"] == 0.8
-    assert world == ["getSigunguAptList3", "getAphusBassInfoV4", "getAphusDtlInfoV4"]
+    assert world == ["getSigunguAptList4", "getAphusBassInfoV5", "getAphusDtlInfoV5"]
     rf._memo.clear()
     assert rf.complex_facts("11680:S1")["parking"] == 3500
     assert len(world) == 3  # the second read came from the store

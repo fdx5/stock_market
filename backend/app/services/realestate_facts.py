@@ -1,10 +1,10 @@
 """세대수 and 주차대수 for the 부동산 맵's complex card, from 공동주택관리정보 (K-apt).
 
 Source
-    국토교통부_공동주택 단지 목록제공 서비스 (AptListService3) lists a 시군구's 단지 with
-    their K-apt code; 국토교통부_공동주택 기본 정보제공 서비스 (AptBasisInfoServiceV4)
-    gives one 단지's 세대수 (getAphusBassInfoV4) and 지상·지하 주차대수
-    (getAphusDtlInfoV4). Both take the same data.go.kr key as the trade API, once the
+    국토교통부_공동주택 단지 목록제공 서비스 (AptListService4) lists a 시군구's 단지 with
+    their K-apt code; 국토교통부_공동주택 기본 정보제공 서비스 (AptBasisInfoServiceV5)
+    gives one 단지's 세대수 (getAphusBassInfoV5) and 지상·지하 주차대수
+    (getAphusDtlInfoV5). Both take the same data.go.kr key as the trade API, once the
     key is registered for them.
 
 Matching
@@ -33,8 +33,8 @@ from app.services import realestate_store
 
 log = logging.getLogger(__name__)
 
-LIST_ENDPOINT = "https://apis.data.go.kr/1613000/AptListService3/getSigunguAptList3"
-BASIS_ENDPOINT = "https://apis.data.go.kr/1613000/AptBasisInfoServiceV4"
+LIST_ENDPOINT = "https://apis.data.go.kr/1613000/AptListService4/getSigunguAptList4"
+BASIS_ENDPOINT = "https://apis.data.go.kr/1613000/AptBasisInfoServiceV5"
 LIST_ROWS = 1000
 LIST_FRESH = dt.timedelta(days=30)
 INFO_FRESH = dt.timedelta(days=90)
@@ -173,8 +173,8 @@ def _num(value) -> int | None:
 
 def _info(kapt_code: str) -> dict:
     def fetch():
-        basic, _ = _get(f"{BASIS_ENDPOINT}/getAphusBassInfoV4", {"kaptCode": kapt_code})
-        detail, _ = _get(f"{BASIS_ENDPOINT}/getAphusDtlInfoV4", {"kaptCode": kapt_code})
+        basic, _ = _get(f"{BASIS_ENDPOINT}/getAphusBassInfoV5", {"kaptCode": kapt_code})
+        detail, _ = _get(f"{BASIS_ENDPOINT}/getAphusDtlInfoV5", {"kaptCode": kapt_code})
         b = basic[0] if basic else {}
         d = detail[0] if detail else {}
         return {
