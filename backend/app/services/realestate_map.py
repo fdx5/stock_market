@@ -370,6 +370,7 @@ MAX_DISTRICTS_IN_MEMORY = 90
 _index: dict[tuple[str, str], str] = {}
 _index_loaded = False
 _version = 0  # bumped whenever stored data changes, to invalidate computed maps
+_lawd_versions: dict[str, int] = {}  # the same, per district, for region summaries
 
 
 def _ensure_index() -> None:
@@ -417,6 +418,7 @@ def _store_month(lawd_cd: str, deal_ym: str, deals: list) -> None:
         if lawd_cd in _districts:
             _districts[lawd_cd][deal_ym] = deals
         _version += 1
+        _lawd_versions[lawd_cd] = _lawd_versions.get(lawd_cd, 0) + 1
 
 
 # ── collector ───────────────────────────────────────────────────────────────
@@ -588,12 +590,13 @@ def _dong_of(umd: str) -> str:
     return umd.split()[0] if umd else ""
 
 
-def _complexes(lawd_codes: list[str]) -> dict[str, dict]:
-    """Every complex in these districts, with its trades grouped by 평형."""
+def _complexes(lawd_codes: list[str], months: dict[str, list] | None = None) -> dict[str, dict]:
+    """Every complex in these districts, with its trades grouped by 평형. `months`
+    reads one district from an already loaded copy instead of the cache."""
     out: dict[str, dict] = {}
     for lawd in lawd_codes:
         # A snapshot: the collector may add a month to this dict while we read it.
-        for deals in list(_district(lawd).values()):
+        for deals in list((months if months is not None else _district(lawd)).values()):
             for row in deals:
                 day, seq, name, umd, jibun, area, price, floor, built = row[:9]
                 direct = row[9] if len(row) > 9 else 0
