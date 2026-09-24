@@ -11,6 +11,8 @@ import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
 import Tape from "../desk2/Tape";
 import FloatingTip from "./FloatingTip";
+import RealEstateSheet from "./RealEstateSheet";
+import { useMediaQuery } from "../useMediaQuery";
 import RealEstatePopup, { PopupContext, fullPrice, shortPrice } from "./RealEstatePopup";
 import AptBrandIcon, { APT_BRANDS, brandIconWidth, brandImage } from "./AptBrandIcon";
 import {
@@ -340,6 +342,25 @@ export default function RealEstateMapPage() {
   const total = useMemo(() => items.reduce((s, it) => s + it.price, 0), [items]);
   const movedCount = items.filter((it) => it.change_pct !== null).length;
 
+  /** Touch screens have no hover: a tap opens the complex's card in a sheet, and
+   * moving into its region is a button there, instead of the tap itself. */
+  const touchUi = useMediaQuery("(hover: none), (pointer: coarse)");
+  const [sheetItem, setSheetItem] = useState<RealEstateItem | null>(null);
+  useEffect(() => setSheetItem(null), [sido, sgg, dong, period]);
+
+  /** Where a click on this complex leads, as a button label — null at 동 level. */
+  const drillLabel = (item: RealEstateItem): string | null =>
+    !sgg ? `${item.sgg} 지도로 이동` : !dong && item.dong ? `${item.dong} 지도로 이동` : null;
+
+  const openItem = (item: RealEstateItem) => {
+    if (touchUi) {
+      setHovered(null);
+      setSheetItem(item);
+    } else {
+      drill(item);
+    }
+  };
+
   /** A tile or a group drills one level down: 시·도 → 시·군·구 → 읍·면·동. */
   const drill = (item: RealEstateItem | null, group?: string) => {
     if (!sidoNode) return;
@@ -372,7 +393,7 @@ export default function RealEstateMapPage() {
       groupRank: inGroup.indexOf(item) + 1,
       groupCount: inGroup.length,
       share: total > 0 ? (item.price / total) * 100 : 0,
-      clickHint: !sgg ? `클릭하면 ${item.sgg} 지도로 이동` : !dong && item.dong ? `클릭하면 ${item.dong} 지도로 이동` : null,
+      clickHint: drillLabel(item) ? `클릭하면 ${drillLabel(item)}` : null,
     };
   };
 
@@ -740,8 +761,9 @@ export default function RealEstateMapPage() {
                               color: text,
                               fontFamily: TILE_FONT_FAMILY,
                             }}
-                            onClick={() => drill(it)}
+                            onClick={() => openItem(it)}
                             onMouseEnter={(e) => {
+                              if (touchUi) return;
                               setHovered(it);
                               setHoverPos({ x: e.clientX, y: e.clientY });
                             }}
@@ -804,7 +826,7 @@ export default function RealEstateMapPage() {
                   </thead>
                   <tbody>
                     {items.map((it, i) => (
-                      <tr key={it.id} onClick={() => drill(it)}>
+                      <tr key={it.id} onClick={() => openItem(it)}>
                         <td>{i + 1}</td>
                         <td className="kospi-map-table-name">
                           <span className="re-map-table-name">
@@ -842,7 +864,20 @@ export default function RealEstateMapPage() {
           </div>
         </div>
 
-        {hovered && (
+        {sheetItem && (
+          <RealEstateSheet
+            item={sheetItem}
+            ctx={popupContext(sheetItem)}
+            goLabel={drillLabel(sheetItem)}
+            onGo={() => {
+              const item = sheetItem;
+              setSheetItem(null);
+              drill(item);
+            }}
+            onClose={() => setSheetItem(null)}
+          />
+        )}
+        {hovered && !touchUi && (
           <FloatingTip className="kospi-map-tooltip re-pop-tip" x={hoverPos.x} y={hoverPos.y}>
             <RealEstatePopup item={hovered} ctx={popupContext(hovered)} />
           </FloatingTip>

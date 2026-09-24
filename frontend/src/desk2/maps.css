@@ -783,3 +783,123 @@
   color: var(--series-blue);
   font-weight: 700;
 }
+
+/* ── 부동산 맵 touch sheet (components/RealEstateSheet.tsx) ─────────────────── */
+
+.d2 .re-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  animation: re-sheet-fade 0.18s ease-out;
+}
+.d2 .re-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: 88vh;
+  max-height: 88dvh;
+  border-radius: 14px 14px 0 0;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.35);
+  animation: re-sheet-rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.re-sheet-grip {
+  width: 38px;
+  height: 4px;
+  margin: 8px auto 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
+  flex-shrink: 0;
+}
+.d2 .re-sheet-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 24px;
+  line-height: 36px;
+  text-align: center;
+}
+/* The card itself, unframed: the sheet is its frame. */
+.d2 .re-sheet-body.re-pop-tip {
+  width: auto;
+  max-width: none;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  font-size: 13px;
+}
+.re-sheet-body .re-pop-head {
+  padding-right: 48px;
+}
+.re-sheet-body .re-pop-title strong {
+  font-size: 17px;
+}
+.re-sheet-body .re-pop-trades td {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  font-size: 12.5px;
+}
+.re-sheet-body .re-pop-chart svg {
+  height: 72px;
+}
+.re-sheet-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--gridline);
+  background: var(--surface-1);
+}
+.d2 .re-sheet-go,
+.d2 .re-sheet-dismiss {
+  min-height: 46px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+}
+.d2 .re-sheet-go {
+  flex: 1;
+  background: var(--text-primary);
+  color: var(--surface-1);
+}
+.d2 .re-sheet-dismiss {
+  flex: 0 0 96px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+.re-sheet-actions .re-sheet-dismiss:only-child {
+  flex: 1;
+}
+@keyframes re-sheet-rise {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+@keyframes re-sheet-fade {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .d2 .re-sheet,
+  .d2 .re-sheet-scrim {
+    animation: none;
+  }
+}
