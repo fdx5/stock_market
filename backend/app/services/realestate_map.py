@@ -71,6 +71,12 @@ CALL_SPACING_SECONDS = 0.15
 # A 동 shows up to 100 complexes, counting any that traded in the two years kept —
 # which for most 동 is every one of them.
 TOP_N: dict[str, int | None] = {"sido": 500, "sgg": 100, "dong": 100}
+# A phone asks a 시·도 map for fewer complexes (its screen fits about 100 tiles); any
+# other request size is clamped into this range.
+SIDO_TOP_RANGE = (50, 500)
+# Whatever the cut, every 시·군·구 on a 시·도 map keeps its own 10 priciest complexes,
+# so a cheaper district never drops off the map because richer ones filled the top.
+SGG_FLOOR = 10
 # Months stored before the 거래구분 (중개/직거래) field was kept are re-read once.
 REFETCH_STORED_BEFORE = dt.datetime(2026, 9, 24, 17, 37, tzinfo=ZoneInfo("Asia/Seoul"))
 PERIODS = {"today": None, "7d": 7, "3m": 91, "6m": 182, "1y": 365}
@@ -718,7 +724,27 @@ def _detail(c: dict, rep: int, year_ago: int) -> dict:
     }
 
 
-def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) -> dict:
+def _sido_top(top: int | None) -> int:
+    if top is None:
+        return TOP_N["sido"]
+    lo, hi = SIDO_TOP_RANGE
+    return max(lo, min(hi, top))
+
+
+def _with_floor(rows: list[dict], limit: int) -> list[dict]:
+    """The `limit` priciest rows, plus each 시·군·구's own priciest SGG_FLOOR that the
+    cut left out. Rows arrive sorted by price and leave in that order."""
+    per_sgg: dict[str, int] = {}
+    kept = []
+    for i, r in enumerate(rows):
+        n = per_sgg.get(r["sgg"], 0)
+        if i < limit or n < SGG_FLOOR:
+            kept.append(r)
+            per_sgg[r["sgg"]] = n + 1
+    return kept
+
+
+def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None) -> dict:
     if period not in PERIODS:
         raise ValueError("unknown period")
     index = _sgg_index()
@@ -781,8 +807,11 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
         )
 
     rows.sort(key=lambda r: r["price"], reverse=True)
-    if TOP_N[level]:
-        rows = rows[: TOP_N[level]]
+    top_n = _sido_top(top) if level == "sido" else TOP_N[level]
+    if level == "sido":
+        rows = _with_floor(rows, top_n)
+    elif top_n:
+        rows = rows[:top_n]
     for r in rows:
         r["group"] = r["sgg"] if level == "sido" else (r["dong"] or dong or "기타")
 
@@ -790,7 +819,8 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
         "generated_at": dt.datetime.now(KST).isoformat(timespec="seconds"),
         "level": level,
         "period": period,
-        "top_n": TOP_N[level],
+        "top_n": top_n,
+        "group_floor": SGG_FLOOR if level == "sido" else None,
         "latest_deal_date": _ymd(latest_day).isoformat() if latest_day else None,
         "window_start": _ymd(window_start).isoformat() if window_start else None,
         "status": {
@@ -848,15 +878,16 @@ _map_cache: OrderedDict[tuple, tuple[float, int, dict]] = OrderedDict()
 MAP_CACHE_SECONDS = 120
 
 
-def get_map(sido: str | None, sgg: str | None, dong: str | None, period: str) -> dict:
+def get_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None) -> dict:
     """build_map, remembered until the data under it changes or two minutes pass."""
-    key = (sido, sgg, dong, period)
+    top = _sido_top(top) if not sgg else None
+    key = (sido, sgg, dong, period, top)
     now = time.time()
     with _map_cache_lock:
         hit = _map_cache.get(key)
         if hit and hit[1] == _version and now - hit[0] < MAP_CACHE_SECONDS:
             return hit[2]
-    result = build_map(sido, sgg, dong, period)
+    result = build_map(sido, sgg, dong, period, top)
     with _map_cache_lock:
         _map_cache[key] = (now, _version, result)
         while len(_map_cache) > 400:

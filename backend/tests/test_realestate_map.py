@@ -104,7 +104,7 @@ def test_map_change_is_latest_versus_last_price_before_window(monkeypatch):
     assert only["level"] == "dong"
 
 
-def test_sido_map_groups_by_district_and_caps_at_500(monkeypatch):
+def test_sido_map_caps_at_top_n_and_keeps_ten_per_district(monkeypatch):
     today = dt.datetime.now(rm.KST).date()
     day = int((today - dt.timedelta(days=3)).strftime("%Y%m%d"))
     districts = {}
@@ -115,9 +115,29 @@ def test_sido_map_groups_by_district_and_caps_at_500(monkeypatch):
         }
     _seed(monkeypatch, districts)
     result = rm.build_map("11", None, None, "7d")
-    assert result["count"] == 500
-    assert {r["group"] for r in result["items"]} <= {s["name"] for s in seoul["sgg"]}
-    assert result["items"][0]["price"] >= result["items"][-1]["price"]
+    items = result["items"]
+    assert result["top_n"] == 500 and result["group_floor"] == 10
+    assert {r["group"] for r in items} <= {s["name"] for s in seoul["sgg"]}
+    assert all(a["price"] >= b["price"] for a, b in zip(items, items[1:]))
+    # The 500 priciest, then each 구 topped up to its own 10 priciest.
+    all_prices = sorted((100000 + i * 1000 + j for i in range(len(seoul["sgg"])) for j in range(30)), reverse=True)
+    assert [r["price"] for r in items[:500]] == all_prices[:500]
+    per_gu = {}
+    for r in items:
+        per_gu[r["sgg"]] = per_gu.get(r["sgg"], 0) + 1
+    assert set(per_gu) == {s["name"] for s in seoul["sgg"]}
+    assert min(per_gu.values()) == 10
+    assert result["count"] == len(items)
+
+    phone = rm.build_map("11", None, None, "7d", top=100)
+    assert phone["top_n"] == 100
+    counts = {}
+    for r in phone["items"]:
+        counts[r["sgg"]] = counts.get(r["sgg"], 0) + 1
+    assert set(counts) == {s["name"] for s in seoul["sgg"]} and min(counts.values()) == 10
+    assert [r["price"] for r in phone["items"][:100]] == all_prices[:100]
+    # 100 priciest come from the top 4 구 (30 each → 3 full + 10), the other 21 keep 10.
+    assert phone["count"] == 100 + 10 * (len(seoul["sgg"]) - 4)
 
 
 def test_newest_request_is_collected_first(monkeypatch):

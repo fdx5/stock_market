@@ -255,13 +255,18 @@ export default function RealEstateMapPage() {
     window.history.replaceState(window.history.state, "", `${window.location.pathname}?${q}`);
   }, [sido, sgg, dong, period]);
 
+  /** A phone's screen fits about 100 tiles, so its 시·도 map asks for the top 100
+   * (every 시·군·구 still keeps its own top 10); a desktop gets 500. */
+  const smallScreen = useMediaQuery("(max-width: 760px)");
+  const sidoTop = smallScreen ? 100 : 500;
+
   useEffect(() => {
     let cancelled = false;
     let timer = 0;
     const load = (first: boolean) => {
       if (first) setLoading(true);
       api
-        .realEstateMap({ sido, sgg: sgg || undefined, dong: (sgg && dong) || undefined, period })
+        .realEstateMap({ sido, sgg: sgg || undefined, dong: (sgg && dong) || undefined, period, top: sidoTop })
         .then((res) => {
           if (cancelled) return;
           setData(res);
@@ -282,7 +287,7 @@ export default function RealEstateMapPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [sido, sgg, dong, period]);
+  }, [sido, sgg, dong, period, sidoTop]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -376,7 +381,8 @@ export default function RealEstateMapPage() {
   };
 
   const levelLabel = dong || sggNode?.name || sidoNode?.name || "";
-  const topN = data?.top_n ?? (sgg ? 100 : 500);
+  const topN = data?.top_n ?? (sgg ? 100 : sidoTop);
+  const groupFloor = data?.group_floor ?? null;
   const periodInfo = PERIODS.find((p) => p.key === period) ?? PERIODS[0];
 
   /** Where the hovered complex stands on this map, and what clicking it does. */
@@ -581,7 +587,13 @@ export default function RealEstateMapPage() {
                 </span>
               </div>
               <p className="app-subtitle">
-                {levelLabel} {data && items.length < topN ? `전체 ${items.length.toLocaleString()}개` : `가격 상위 ${topN.toLocaleString()}개`} 아파트 단지 MAP
+                {levelLabel}{" "}
+                {data && items.length < topN
+                  ? `전체 ${items.length.toLocaleString()}개`
+                  : groupFloor
+                    ? `가격 상위 ${topN.toLocaleString()}개 + 구별 상위 ${groupFloor}개`
+                    : `가격 상위 ${topN.toLocaleString()}개`}{" "}
+                아파트 단지 MAP
                 {data?.latest_deal_date && <span className="kospi-map-updated"> · 최근 계약일 {dateDots(data.latest_deal_date)}</span>}
               </p>
             </div>

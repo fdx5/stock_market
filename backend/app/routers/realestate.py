@@ -20,12 +20,14 @@ def realestate_heatmap(
     sgg: str | None = Query(None, pattern=r"^\d{5}$"),
     dong: str | None = Query(None, max_length=40),
     period: str = Query("3m", pattern=r"^(today|7d|3m|6m|1y)$"),
+    top: int | None = Query(None, ge=1, le=1000),
 ):
+    """`top` sizes a 시·도 map (a phone asks for 100); every 시·군·구 still keeps its 10."""
     response.headers["Cache-Control"] = "no-store"
     if not sido and not sgg:
         sido = "11"
     try:
-        return realestate_map.get_map(sido, sgg, dong or None, period)
+        return realestate_map.get_map(sido, sgg, dong or None, period, top)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

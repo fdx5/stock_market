@@ -1127,6 +1127,8 @@ export interface RealEstateMapResponse {
   level: "sido" | "sgg" | "dong";
   period: RealEstatePeriod;
   top_n: number;
+  /** On a 시·도 map, how many of its own priciest complexes each 시·군·구 always keeps. */
+  group_floor: number | null;
   latest_deal_date: string | null;
   window_start: string | null;
   status: { configured: boolean; coverage: number; collecting: boolean; error: string | null; calls_today: number };
@@ -1175,10 +1177,11 @@ export const api = {
   realEstateRegions: () => getJSON<{ source: string; sido: RealEstateSido[] }>(`${BASE}/realestate/regions`),
   realEstateComplex: (id: string, period: RealEstatePeriod) =>
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
-  realEstateMap: (q: { sido?: string; sgg?: string; dong?: string; period: RealEstatePeriod }) => {
+  realEstateMap: (q: { sido?: string; sgg?: string; dong?: string; period: RealEstatePeriod; top?: number }) => {
     const params = new URLSearchParams({ period: q.period });
     if (q.sgg) params.set("sgg", q.sgg);
     else if (q.sido) params.set("sido", q.sido);
+    if (!q.sgg && q.top) params.set("top", String(q.top));
     if (q.dong) params.set("dong", q.dong);
     return getJSONFresh<RealEstateMapResponse>(`${BASE}/realestate/map?${params}`);
   },
