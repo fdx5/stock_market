@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, RealEstateItem, RealEstateMapResponse, RealEstatePeriod, RealEstateSido } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
-import { TILE_FONT_FAMILY, pct, tileDisplayInfo } from "../mapTile";
+import { TILE_FONT_FAMILY, measureTextWidth, pct, tileDisplayInfo } from "../mapTile";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
 import Colophon from "../desk2/Colophon";
@@ -51,6 +51,115 @@ function drawInBox(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: numb
   const dw = img.width * scale;
   const dh = img.height * scale;
   ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
+interface TileLayout {
+  showName: boolean;
+  showPctOnly: boolean;
+  /** The name as it is drawn, one entry per line. */
+  lines: string[];
+  nameSize: number;
+  /** Where the brand mark goes: before the first line, on a row of its own above
+   * the name, or nowhere (the tooltip still names the brand). */
+  icon: "inline" | "above" | null;
+  iconSize: number;
+  iconWidth: number;
+  showPrice: boolean;
+  priceSize: number;
+  pctSize: number;
+}
+
+const TILE_PAD_X = 5;
+const LINE = 1.2;
+
+/** The name split into two lines that each fit `avail`, breaking at a space or
+ * bracket when one falls where it can, anywhere otherwise — Korean complex names
+ * rarely have spaces. null when no split fits. */
+function splitName(name: string, size: number, avail: number): [string, string] | null {
+  const fits = (t: string) => measureTextWidth(t, size) <= avail;
+  if (name.length < 2) return null;
+  let cut = name.length - 1;
+  while (cut > 0 && !fits(name.slice(0, cut))) cut -= 1;
+  if (cut === 0) return null;
+  for (let k = cut; k > Math.max(0, cut - 5); k -= 1) {
+    if (/[\s(\[·-]/.test(name[k]) || /[)\]]/.test(name[k - 1])) {
+      const a = name.slice(0, k).trimEnd();
+      const b = name.slice(k).trimStart();
+      if (a && fits(b)) return [a, b];
+    }
+  }
+  const rest = name.slice(cut);
+  return fits(rest) ? [name.slice(0, cut), rest] : null;
+}
+
+/** How a tile shows its complex's name. The name is the point of the map, so it is
+ * given room first: a smaller type size before an ellipsis, the brand mark moved
+ * above the name or dropped before the name is cut, two lines before one cut line,
+ * and the price line only when all of that still leaves space for it. */
+function tileLayout(item: RealEstateItem, w: number, h: number): TileLayout {
+  const base = tileDisplayInfo(w, h, item.name);
+  const pctSize = base.fontSizes.pct;
+  const iconSize = base.iconSize;
+  const iconWidth = brandIconWidth(item.brand, iconSize);
+  const priceSize = Math.max(10, pctSize * 0.85);
+  const result: TileLayout = {
+    showName: base.showName,
+    showPctOnly: base.showPctOnly,
+    lines: [item.name],
+    nameSize: base.fontSizes.name,
+    icon: null,
+    iconSize,
+    iconWidth,
+    showPrice: false,
+    priceSize,
+    pctSize,
+  };
+  if (!base.showName) return result;
+
+  const avail = w - TILE_PAD_X * 2;
+  // The tile's own padding and the 1px gaps between its rows come out of the height.
+  const room = h - 8;
+  const pctH = pctSize * LINE;
+  const height = (lines: number, size: number, above: boolean) =>
+    lines * size * LINE + (above ? iconSize + 2 : 0) + pctH;
+  const width = (t: string, size: number) => measureTextWidth(t, size);
+  const hasIcon = !!item.brand && iconWidth > 0 && iconWidth <= avail;
+  const minSize = Math.max(10, base.fontSizes.name * 0.72);
+  const sizes: number[] = [];
+  for (let size = base.fontSizes.name; size >= minSize; size -= 0.5) sizes.push(size);
+
+  const finish = (lines: string[], size: number, icon: TileLayout["icon"]) => {
+    const used = height(lines.length, size, icon === "above");
+    return {
+      ...result,
+      lines,
+      nameSize: size,
+      icon,
+      showPrice: w >= 70 && used + priceSize * 1.25 <= room,
+    };
+  };
+
+  // One line: with the mark in front, then with the mark above, then without it.
+  for (const size of sizes) {
+    const nameW = width(item.name, size);
+    if (height(1, size, false) > room) continue;
+    if (hasIcon && nameW + iconWidth + 4 <= avail) return finish([item.name], size, "inline");
+    if (nameW <= avail) {
+      if (hasIcon && height(1, size, true) <= room) return finish([item.name], size, "above");
+      return finish([item.name], size, null);
+    }
+  }
+  // Two lines.
+  for (const size of sizes) {
+    if (height(2, size, false) > room) continue;
+    const split = splitName(item.name, size, avail);
+    if (!split) continue;
+    if (hasIcon && height(2, size, true) <= room) return finish(split, size, "above");
+    return finish(split, size, null);
+  }
+  // Nothing fits whole: one line, cut with an ellipsis, as the market maps do.
+  const inline = hasIcon && w >= iconWidth + iconSize * 2.5;
+  return finish([item.name], base.fontSizes.name, inline ? "inline" : null);
 }
 
 /** 거래없음 for a tile with nothing to compare, the change otherwise. */
@@ -339,55 +448,73 @@ export default function RealEstateMapPage() {
         ctx.strokeStyle = gapColor;
         ctx.strokeRect(tile.x + 0.5, tile.y + 0.5, Math.max(tile.w - 1, 0), Math.max(tile.h - 1, 0));
 
-        const { showName, showPctOnly, fontSizes, iconSize } = tileDisplayInfo(tile.w, tile.h, it.name);
+        const layout = tileLayout(it, tile.w, tile.h);
+        const { showName, showPctOnly, iconSize, iconWidth } = layout;
         if (!showName && !showPctOnly) continue;
         const textColor = rgb ? textColorForRgb(rgb, MAP_MODE) : IDLE_TEXT;
-        const padX = 5;
+        const padX = TILE_PAD_X;
         if (showName) {
-          let textX = tile.x + padX;
-          const iconW = brandIconWidth(it.brand, iconSize);
-          if (it.brand && tile.w >= iconW + iconSize * 2.5) {
+          const drawMark = (x: number, y: number) => {
+            if (!it.brand) return;
             const logo = logos.get(it.brand);
             if (logo) {
               ctx.fillStyle = "#fff";
-              ctx.fillRect(textX, tile.y + 2, iconW, iconSize);
-              drawInBox(ctx, logo, textX + 1, tile.y + 3, iconW - 2, iconSize - 2);
+              ctx.fillRect(x, y, iconWidth, iconSize);
+              drawInBox(ctx, logo, x + 1, y + 1, iconWidth - 2, iconSize - 2);
             } else {
               const b = APT_BRANDS[it.brand];
               ctx.fillStyle = b.color;
-              ctx.fillRect(textX, tile.y + 2, iconSize, iconSize);
+              ctx.fillRect(x, y, iconSize, iconSize);
               ctx.fillStyle = "#fff";
               ctx.font = `800 ${Math.round(iconSize * (b.mark.length > 1 ? 0.5 : 0.65))}px ${TILE_FONT_FAMILY}`;
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
-              ctx.fillText(b.mark, textX + iconSize / 2, tile.y + 2 + iconSize / 2);
+              ctx.fillText(b.mark, x + iconSize / 2, y + iconSize / 2);
               ctx.textAlign = "left";
             }
-            textX += iconW + 4;
+          };
+          // Stacked from the top, the way the tile's flex column lays it out, then
+          // centred vertically as that column is.
+          const blockH =
+            (layout.icon === "above" ? iconSize + 2 : 0) +
+            layout.lines.length * layout.nameSize * LINE +
+            (layout.showPrice ? layout.priceSize * 1.25 : 0) +
+            layout.pctSize * LINE;
+          let y = tile.y + Math.max(2, (tile.h - blockH) / 2);
+          if (layout.icon === "above") {
+            drawMark(tile.x + padX, y);
+            y += iconSize + 2;
           }
-          ctx.fillStyle = textColor;
-          ctx.font = `700 ${fontSizes.name}px ${TILE_FONT_FAMILY}`;
           ctx.textBaseline = "top";
-          ctx.fillText(truncateToWidth(ctx, it.name, tile.x + tile.w - padX - textX), textX, tile.y + 2);
-          let y = tile.y + 2 + fontSizes.name * 1.2 + 1;
-          if (tile.h >= 64 && tile.w >= 70) {
-            const priceSize = Math.max(10, fontSizes.pct * 0.85);
-            ctx.font = `600 ${priceSize}px ${TILE_FONT_FAMILY}`;
+          layout.lines.forEach((line, i) => {
+            let textX = tile.x + padX;
+            if (i === 0 && layout.icon === "inline") {
+              drawMark(textX, y + (layout.nameSize * LINE - iconSize) / 2);
+              textX += iconWidth + 4;
+            }
+            ctx.fillStyle = textColor;
+            ctx.font = `700 ${layout.nameSize}px ${TILE_FONT_FAMILY}`;
+            ctx.textBaseline = "top";
+            ctx.fillText(truncateToWidth(ctx, line, tile.x + tile.w - padX - textX), textX, y + 1);
+            y += layout.nameSize * LINE;
+          });
+          if (layout.showPrice) {
+            ctx.font = `600 ${layout.priceSize}px ${TILE_FONT_FAMILY}`;
             ctx.globalAlpha = 0.88;
             ctx.fillText(
               truncateToWidth(ctx, `${shortPrice(it.price)} · ${Math.round(it.area)}㎡`, tile.w - padX * 2),
               tile.x + padX,
-              y
+              y + 1
             );
             ctx.globalAlpha = 1;
-            y += priceSize * 1.25;
+            y += layout.priceSize * 1.25;
           }
-          ctx.font = `600 ${fontSizes.pct}px ${TILE_FONT_FAMILY}`;
+          ctx.font = `600 ${layout.pctSize}px ${TILE_FONT_FAMILY}`;
           ctx.fillStyle = rgb ? textColor : IDLE_PCT;
-          ctx.fillText(tileLabelText(it), tile.x + padX, y);
+          ctx.fillText(tileLabelText(it), tile.x + padX, y + 1);
         } else {
           ctx.fillStyle = rgb ? textColor : IDLE_PCT;
-          ctx.font = `600 ${fontSizes.pct}px ${TILE_FONT_FAMILY}`;
+          ctx.font = `600 ${layout.pctSize}px ${TILE_FONT_FAMILY}`;
           ctx.textBaseline = "middle";
           ctx.fillText(it.change_pct === null ? "—" : pct(it.change_pct), tile.x + padX, tile.y + tile.h / 2);
         }
@@ -594,12 +721,8 @@ export default function RealEstateMapPage() {
                         const rgb = colourFor(it.change_pct, MAP_MODE);
                         const idle = rgb === null;
                         const text = rgb ? textColorForRgb(rgb, MAP_MODE) : undefined;
-                        const { showName, showPctOnly, fontSizes, iconSize } = tileDisplayInfo(tile.w, tile.h, it.name);
-                        // The brand mark goes in front of the name whenever the tile is wide
-                        // enough to keep a few letters beside it, even if the name then
-                        // truncates — on this map the brand is often the most telling word.
-                        const showIcon = showName && !!it.brand && tile.w >= brandIconWidth(it.brand, iconSize) + iconSize * 2.5;
-                        const showPrice = showName && tile.h >= 64 && tile.w >= 70;
+                        const layout = tileLayout(it, tile.w, tile.h);
+                        const { showName, showPctOnly, iconSize } = layout;
                         const label = tileLabelText(it);
                         return (
                           <button
@@ -625,24 +748,31 @@ export default function RealEstateMapPage() {
                           >
                             {showName && (
                               <>
-                                <span className="kospi-map-tile-name-row">
-                                  {showIcon && it.brand && <AptBrandIcon brand={it.brand} size={iconSize} className="kospi-map-tile-icon" />}
-                                  <span className="kospi-map-tile-name" style={{ fontSize: fontSizes.name }}>
-                                    {it.name}
+                                {layout.icon === "above" && it.brand && (
+                                  <AptBrandIcon brand={it.brand} size={iconSize} className="kospi-map-tile-icon re-map-tile-icon-above" />
+                                )}
+                                {layout.lines.map((line, i) => (
+                                  <span className="kospi-map-tile-name-row" key={i}>
+                                    {i === 0 && layout.icon === "inline" && it.brand && (
+                                      <AptBrandIcon brand={it.brand} size={iconSize} className="kospi-map-tile-icon" />
+                                    )}
+                                    <span className="kospi-map-tile-name" style={{ fontSize: layout.nameSize }}>
+                                      {line}
+                                    </span>
                                   </span>
-                                </span>
-                                {showPrice && (
-                                  <span className="re-map-tile-price" style={{ fontSize: Math.max(10, fontSizes.pct * 0.85) }}>
+                                ))}
+                                {layout.showPrice && (
+                                  <span className="re-map-tile-price" style={{ fontSize: layout.priceSize }}>
                                     {shortPrice(it.price)} · {Math.round(it.area)}㎡
                                   </span>
                                 )}
-                                <span className="kospi-map-tile-pct" style={{ fontSize: fontSizes.pct }}>
+                                <span className="kospi-map-tile-pct" style={{ fontSize: layout.pctSize }}>
                                   {label}
                                 </span>
                               </>
                             )}
                             {showPctOnly && (
-                              <span className="kospi-map-tile-pct" style={{ fontSize: fontSizes.pct }}>
+                              <span className="kospi-map-tile-pct" style={{ fontSize: layout.pctSize }}>
                                 {it.change_pct === null ? "—" : pct(it.change_pct)}
                               </span>
                             )}

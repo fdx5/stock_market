@@ -180,3 +180,20 @@ def test_one_low_trade_does_not_set_the_reference(monkeypatch):
     item = rm.build_map(None, "41150", "호원동", "1y")["items"][0]
     assert item["price"] == 30700 and item["base_price"] == 29000
     assert item["change_pct"] == pytest.approx(5.86, abs=0.01)
+
+
+def test_failed_store_read_is_not_cached(monkeypatch):
+    monkeypatch.setattr(rm, "_districts", rm.OrderedDict())
+    monkeypatch.setattr(rm.time, "sleep", lambda s: None)
+    calls = {"n": 0}
+
+    def flaky(code):
+        calls["n"] += 1
+        if calls["n"] <= 3:
+            raise RuntimeError("gate timeout")
+        return {"202609": ("t", [[20260905, "A", "단지", "동", "1", 84.0, 100000, 3, 2000, 0]])}
+
+    monkeypatch.setattr(rm.realestate_store, "load_district", flaky)
+    assert rm._district("11680") == {}
+    assert "11680" not in rm._districts
+    assert list(rm._district("11680")) == ["202609"]

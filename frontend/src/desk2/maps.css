@@ -485,3 +485,6 @@
   background: #0f0f0d;
   color: #ece6d6;
 }
+.re-map-page .re-map-tile-icon-above {
+  margin-bottom: 1px;
+}

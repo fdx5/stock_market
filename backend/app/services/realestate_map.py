@@ -382,11 +382,19 @@ def _district(lawd_cd: str) -> dict[str, list]:
         if lawd_cd in _districts:
             _districts.move_to_end(lawd_cd)
             return _districts[lawd_cd]
-    try:
-        loaded = {ym: deals for ym, (_, deals) in realestate_store.load_district(lawd_cd).items()}
-    except Exception as exc:  # noqa: BLE001
-        log.warning("realestate: load %s failed (%s)", lawd_cd, exc)
-        loaded = {}
+    loaded = None
+    for attempt in range(3):
+        try:
+            loaded = {ym: deals for ym, (_, deals) in realestate_store.load_district(lawd_cd).items()}
+            break
+        except Exception as exc:  # noqa: BLE001
+            log.warning("realestate: load %s failed (%s), attempt %d", lawd_cd, exc, attempt + 1)
+            time.sleep(0.5 * (attempt + 1))
+    if loaded is None:
+        # Not cached: a failed read remembered as "no trades" left a fully collected
+        # district empty on the map until the process restarted. The next request
+        # tries the store again.
+        return {}
     with _district_lock:
         _districts[lawd_cd] = loaded
         while len(_districts) > MAX_DISTRICTS_IN_MEMORY:
