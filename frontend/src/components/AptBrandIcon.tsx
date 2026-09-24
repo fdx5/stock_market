@@ -82,6 +82,12 @@ export function brandIconWidth(brand: string | null | undefined, size: number): 
   return image ? Math.round(Math.min(image.ratio, MAX_RATIO) * size) + PLATE_PAD * 2 : size;
 }
 
+/** The logo file for `brand`, if there is one — for the map's PNG export, which draws
+ * the same mark onto a canvas. */
+export function brandImage(brand: string | null | undefined): { src: string; ratio: number } | null {
+  return (brand && BRAND_IMAGES[brand]) || null;
+}
+
 export function brandLabel(key: string | null | undefined): string | null {
   return key && APT_BRANDS[key] ? APT_BRANDS[key].ko : null;
 }

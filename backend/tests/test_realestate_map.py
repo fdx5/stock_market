@@ -148,7 +148,7 @@ def test_dong_shows_every_complex_and_ignores_direct_trades(monkeypatch):
     assert result["count"] == 47 and result["top_n"] == 100
     w = next(r for r in result["items"] if r["name"] == "우성1")
     assert w["base_price"] == 41000 and w["change_pct"] == pytest.approx(3.66, abs=0.01)
-    assert rm.build_map(None, "41150", None, "3m")["count"] == 46  # 시·군·구는 1년 거래 단지만, 50개 한도
+    assert rm.build_map(None, "41150", None, "3m")["count"] == 46  # 시·군·구는 1년 거래 단지만, 100개 한도
 
 
 def test_dong_caps_at_100(monkeypatch):

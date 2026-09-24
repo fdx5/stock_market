@@ -10,7 +10,16 @@ import Masthead from "../desk2/Masthead";
 import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
 import Tape from "../desk2/Tape";
-import AptBrandIcon, { brandIconWidth, brandLabel } from "./AptBrandIcon";
+import AptBrandIcon, { APT_BRANDS, brandIconWidth, brandImage, brandLabel } from "./AptBrandIcon";
+import {
+  MapExportButtons,
+  MapPreviewModal,
+  TILE_NIGHT_MODE,
+  loadImage,
+  resolveCssColor,
+  truncateToWidth,
+  useMapExport,
+} from "./mapExport";
 
 /* /realestate-map — 부동산 맵. The same broadsheet treemap as the four market maps,
  * over apartment complexes instead of listed companies: 시·도 → 시·군·구 → 읍·면·동
@@ -19,8 +28,6 @@ import AptBrandIcon, { brandIconWidth, brandLabel } from "./AptBrandIcon";
  * app/services/realestate_map.py for exactly how both are derived). */
 
 const PERIODS: { key: RealEstatePeriod; label: string; detail: string }[] = [
-  { key: "today", label: "오늘", detail: "최근 계약일" },
-  { key: "7d", label: "7일", detail: "최근 1주 실거래" },
   { key: "3m", label: "3개월", detail: "최근 3개월 실거래" },
   { key: "6m", label: "6개월", detail: "최근 6개월 실거래" },
   { key: "1y", label: "1년", detail: "최근 1년 실거래" },
@@ -30,11 +37,26 @@ const PERIODS: { key: RealEstatePeriod; label: string; detail: string }[] = [
  * scale saturates at ±10% rather than the stock maps' ±5%. */
 const SATURATION_PCT = 10;
 const SKELETON_WEIGHTS = [30, 22, 16, 12, 10, 6, 4];
-/** The map area is always drawn in the 야간판 palette, even in the 주간판: on the
- * near-black ground the blue-to-red tiles and the hatched no-trade tiles separate far
- * better than on newsprint. Only the canvas — the page around it follows the theme
- * (see .re-map-canvas-night in maps.css). */
-const MAP_MODE = "dark" as const;
+/** The map area keeps the 야간판 palette in both editions (see TILE_NIGHT_MODE). */
+const MAP_MODE = TILE_NIGHT_MODE;
+/** The no-trade tile, as .re-map-tile--idle draws it (desk2/maps.css). */
+const IDLE_FILL = "#22221e";
+const IDLE_RING = "rgba(236, 230, 214, 0.1)";
+const IDLE_TEXT = "#bdb6a4";
+const IDLE_PCT = "#8a8475";
+
+/** Draws `img` inside a w×h box the way CSS object-fit: contain does. */
+function drawInBox(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y: number, w: number, h: number) {
+  const scale = Math.min(w / img.width, h / img.height) || 0;
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+}
+
+/** 거래없음 for a tile with nothing to compare, the change otherwise. */
+function tileLabelText(item: RealEstateItem): string {
+  return item.change_pct === null ? "거래없음" : pct(item.change_pct);
+}
 
 interface Zone {
   group: string;
@@ -235,8 +257,150 @@ export default function RealEstateMapPage() {
   };
 
   const levelLabel = dong || sggNode?.name || sidoNode?.name || "";
-  const topN = data?.top_n ?? (dong ? 100 : sgg ? 50 : 500);
-  const periodInfo = PERIODS.find((p) => p.key === period)!;
+  const topN = data?.top_n ?? (dong ? 100 : sgg ? 100 : 500);
+  const periodInfo = PERIODS.find((p) => p.key === period) ?? PERIODS[0];
+
+  /** The map as a PNG, drawn from the same zones the page renders — the market maps'
+   * export, with brand marks, the price line and the no-trade tiles added. */
+  const renderMapPng = async (): Promise<Blob | null> => {
+    if (zones.length === 0 || size.w === 0 || size.h === 0) return null;
+    const host = containerRef.current ?? document.body;
+    const cardBg = resolveCssColor("var(--surface-1)", host);
+    const gapColor = resolveCssColor("var(--map-gap)", host);
+    const headerBg = resolveCssColor("color-mix(in srgb, var(--baseline) 35%, var(--surface-1))", host);
+    const headerBorder = resolveCssColor("var(--gridline)", host);
+    const textPrimary = resolveCssColor("var(--text-primary)", host);
+    const upColor = resolveCssColor("var(--up-color)", host);
+    const downColor = resolveCssColor("var(--down-color)", host);
+
+    const logos = new Map<string, HTMLImageElement>();
+    await Promise.all(
+      Array.from(new Set(items.map((it) => it.brand).filter((b): b is string => !!b))).map(async (brand) => {
+        const image = brandImage(brand);
+        const img = image ? await loadImage(image.src) : null;
+        if (img) logos.set(brand, img);
+      })
+    );
+
+    const scale = Math.min(window.devicePixelRatio || 1, 2);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(size.w * scale);
+    canvas.height = Math.round(size.h * scale);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.scale(scale, scale);
+    ctx.fillStyle = cardBg;
+    ctx.fillRect(0, 0, size.w, size.h);
+
+    for (const zone of zones) {
+      if (zone.headerH > 0) {
+        ctx.fillStyle = headerBg;
+        ctx.fillRect(zone.rect.x, zone.rect.y, zone.rect.w, zone.headerH);
+        ctx.strokeStyle = headerBorder;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(zone.rect.x, zone.rect.y + zone.headerH);
+        ctx.lineTo(zone.rect.x + zone.rect.w, zone.rect.y + zone.headerH);
+        ctx.stroke();
+        ctx.font = `700 11px ${TILE_FONT_FAMILY}`;
+        ctx.textBaseline = "middle";
+        const avgText = zone.avg === null ? "" : pct(zone.avg);
+        const avgWidth = avgText ? ctx.measureText(avgText).width : 0;
+        ctx.fillStyle = textPrimary;
+        ctx.textAlign = "left";
+        ctx.fillText(
+          truncateToWidth(ctx, zone.group, Math.max(0, zone.rect.w - 14 - avgWidth - 6)),
+          zone.rect.x + 7,
+          zone.rect.y + zone.headerH / 2 + 1
+        );
+        if (zone.avg !== null) {
+          ctx.fillStyle = zone.avg >= 0 ? upColor : downColor;
+          ctx.textAlign = "right";
+          ctx.fillText(avgText, zone.rect.x + zone.rect.w - 7, zone.rect.y + zone.headerH / 2 + 1);
+          ctx.textAlign = "left";
+        }
+      }
+
+      for (const tile of zone.tiles) {
+        const it = tile.item;
+        const rgb = colourFor(it.change_pct, MAP_MODE);
+        ctx.fillStyle = rgb ? rgbToCss(rgb) : IDLE_FILL;
+        ctx.fillRect(tile.x, tile.y, tile.w, tile.h);
+        ctx.lineWidth = 1;
+        if (!rgb && tile.w > 4 && tile.h > 4) {
+          ctx.strokeStyle = IDLE_RING;
+          ctx.strokeRect(tile.x + 1.5, tile.y + 1.5, tile.w - 3, tile.h - 3);
+        }
+        ctx.strokeStyle = gapColor;
+        ctx.strokeRect(tile.x + 0.5, tile.y + 0.5, Math.max(tile.w - 1, 0), Math.max(tile.h - 1, 0));
+
+        const { showName, showPctOnly, fontSizes, iconSize } = tileDisplayInfo(tile.w, tile.h, it.name);
+        if (!showName && !showPctOnly) continue;
+        const textColor = rgb ? textColorForRgb(rgb, MAP_MODE) : IDLE_TEXT;
+        const padX = 5;
+        if (showName) {
+          let textX = tile.x + padX;
+          const iconW = brandIconWidth(it.brand, iconSize);
+          if (it.brand && tile.w >= iconW + iconSize * 2.5) {
+            const logo = logos.get(it.brand);
+            if (logo) {
+              ctx.fillStyle = "#fff";
+              ctx.fillRect(textX, tile.y + 2, iconW, iconSize);
+              drawInBox(ctx, logo, textX + 1, tile.y + 3, iconW - 2, iconSize - 2);
+            } else {
+              const b = APT_BRANDS[it.brand];
+              ctx.fillStyle = b.color;
+              ctx.fillRect(textX, tile.y + 2, iconSize, iconSize);
+              ctx.fillStyle = "#fff";
+              ctx.font = `800 ${Math.round(iconSize * (b.mark.length > 1 ? 0.5 : 0.65))}px ${TILE_FONT_FAMILY}`;
+              ctx.textAlign = "center";
+              ctx.textBaseline = "middle";
+              ctx.fillText(b.mark, textX + iconSize / 2, tile.y + 2 + iconSize / 2);
+              ctx.textAlign = "left";
+            }
+            textX += iconW + 4;
+          }
+          ctx.fillStyle = textColor;
+          ctx.font = `700 ${fontSizes.name}px ${TILE_FONT_FAMILY}`;
+          ctx.textBaseline = "top";
+          ctx.fillText(truncateToWidth(ctx, it.name, tile.x + tile.w - padX - textX), textX, tile.y + 2);
+          let y = tile.y + 2 + fontSizes.name * 1.2 + 1;
+          if (tile.h >= 64 && tile.w >= 70) {
+            const priceSize = Math.max(10, fontSizes.pct * 0.85);
+            ctx.font = `600 ${priceSize}px ${TILE_FONT_FAMILY}`;
+            ctx.globalAlpha = 0.88;
+            ctx.fillText(
+              truncateToWidth(ctx, `${shortPrice(it.price)} · ${Math.round(it.area)}㎡`, tile.w - padX * 2),
+              tile.x + padX,
+              y
+            );
+            ctx.globalAlpha = 1;
+            y += priceSize * 1.25;
+          }
+          ctx.font = `600 ${fontSizes.pct}px ${TILE_FONT_FAMILY}`;
+          ctx.fillStyle = rgb ? textColor : IDLE_PCT;
+          ctx.fillText(tileLabelText(it), tile.x + padX, y);
+        } else {
+          ctx.fillStyle = rgb ? textColor : IDLE_PCT;
+          ctx.font = `600 ${fontSizes.pct}px ${TILE_FONT_FAMILY}`;
+          ctx.textBaseline = "middle";
+          ctx.fillText(it.change_pct === null ? "—" : pct(it.change_pct), tile.x + padX, tile.y + tile.h / 2);
+        }
+      }
+
+      ctx.strokeStyle = gapColor;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(zone.rect.x + 1, zone.rect.y + 1, Math.max(zone.rect.w - 2, 0), Math.max(zone.rect.h - 2, 0));
+    }
+    return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  };
+
+  const mapExport = useMapExport({
+    render: renderMapPng,
+    filePrefix: `realestate_${sgg || sido}${dong ? "_" + dong : ""}`,
+    shareTitle: `부동산 MAP · ${levelLabel} | K-Stock Hub`,
+    shareText: `${levelLabel} 아파트 실거래가 히트맵 (${periodInfo.label})`,
+  });
   const status = data?.status;
 
   return (
@@ -276,6 +440,7 @@ export default function RealEstateMapPage() {
               <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
                 표로 보기
               </button>
+              <MapExportButtons exp={mapExport} disabled={zones.length === 0} />
             </div>
           </div>
         </div>
@@ -379,7 +544,7 @@ export default function RealEstateMapPage() {
             </div>
 
             {view === "map" && (
-              <div className="card kospi-map-canvas re-map-canvas-night" ref={containerRef}>
+              <div className="card kospi-map-canvas map-canvas-night" ref={containerRef}>
                 {loading &&
                   skeleton.map((rect, i) => (
                     <div
@@ -430,7 +595,7 @@ export default function RealEstateMapPage() {
                         // truncates — on this map the brand is often the most telling word.
                         const showIcon = showName && !!it.brand && tile.w >= brandIconWidth(it.brand, iconSize) + iconSize * 2.5;
                         const showPrice = showName && tile.h >= 64 && tile.w >= 70;
-                        const label = it.change_pct === null ? "거래없음" : pct(it.change_pct);
+                        const label = tileLabelText(it);
                         return (
                           <button
                             key={tile.id}
@@ -580,6 +745,7 @@ export default function RealEstateMapPage() {
             </div>
           </div>
         )}
+        <MapPreviewModal exp={mapExport} />
       </main>
 
       <Colophon />

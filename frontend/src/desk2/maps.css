@@ -452,11 +452,13 @@
   white-space: nowrap;
 }
 
-/* 부동산 맵's map area is always the 야간판, whichever edition the page is in: the
-   tile palette (see MAP_MODE in RealEstateMapPage.tsx) is built against a near-black
-   ground, and that is where it reads best. The page's own variables are resolved on
-   <html>, so each one the canvas and its tiles read is set again here. */
-.d2.re-map-page .re-map-canvas-night {
+/* Every map's map area is the 야간판, whichever edition the page is in: the tile
+   palette (TILE_NIGHT_MODE in components/mapExport.tsx) is built against a
+   near-black ground, and that is where it reads best. Only the canvas — the page
+   around it follows the theme. The page's variables are resolved on <html>, so each
+   one the canvas and its tiles read is set again here; the PNG export resolves its
+   colours inside the canvas and picks these up too. */
+.d2.mm .map-canvas-night {
   --p0: #0f0f0d;
   --p1: #161613;
   --p2: #1d1c18;

@@ -7,7 +7,6 @@ import { TILE_FONT_FAMILY, pct, tileDisplayInfo } from "../mapTile";
 import { startVisibilityAwareInterval } from "../pollVisibility";
 import { Link, navigate } from "../router";
 import { loadStockIconUrl } from "../stockIcon";
-import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
 import { usCompanyLogoProxyUrl } from "../usLogo";
@@ -17,11 +16,20 @@ import Masthead, { MastSection } from "../desk2/Masthead";
 import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
 import Tape from "../desk2/Tape";
-import KakaoIcon from "./KakaoIcon";
 import RankIcon from "./RankIcon";
 import SessionBadge from "./SessionBadge";
 import SessionSplit from "./SessionSplit";
 import StockIcon from "./StockIcon";
+import {
+  MapExportButtons,
+  MapPreviewModal,
+  TILE_NIGHT_MODE,
+  drawContained,
+  loadImage,
+  resolveCssColor,
+  truncateToWidth,
+  useMapExport,
+} from "./mapExport";
 import UsStockIcon from "./UsStockIcon";
 
 interface SectorZone {
@@ -70,66 +78,6 @@ function formatMarcapOrWeight(marcap: number, market: "kr" | "us", lang: Lang): 
   if (market === "us") return `${marcap.toFixed(2)}%`;
   return formatMarcap(marcap, lang);
 }
-
-// Resolves any CSS color expression (var(), color-mix(), etc.) to its rendered
-// rgb/rgba string by letting the browser compute it on a throwaway element —
-// avoids hand-duplicating the theme's color formulas for the PNG export below.
-function resolveCssColor(value: string): string {
-  const probe = document.createElement("div");
-  probe.style.cssText = "position:fixed;left:-9999px;top:-9999px;";
-  probe.style.color = value;
-  document.body.appendChild(probe);
-  const resolved = getComputedStyle(probe).color;
-  document.body.removeChild(probe);
-  return resolved;
-}
-
-// Binary-searches the longest text-plus-ellipsis that still fits maxWidth, mirroring
-// the CSS text-overflow:ellipsis the on-screen tiles get for free — canvas text has
-// no such primitive, so the map PNG export needs it done by hand.
-function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
-  if (maxWidth <= 0) return "";
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  const ellipsis = "…";
-  let lo = 0;
-  let hi = text.length;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    const candidate = text.slice(0, mid) + ellipsis;
-    if (ctx.measureText(candidate).width <= maxWidth) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo > 0 ? text.slice(0, lo) + ellipsis : "";
-}
-
-function downloadTimestamp(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${pad(d.getMonth() + 1)}${pad(d.getDate())}${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-}
-
-/** iOS-family browsers, where `<a download>` opens the image in a viewer instead of
- * saving it — the one platform that genuinely needs the share sheet to get a file into
- * Photos/Files.
- *
- * A user-agent test, which is normally the wrong tool, because the thing that has to
- * be known here is not detectable: `download` is present on the anchor prototype in
- * iOS Safari and simply does not do what it says. There is nothing to feature-detect.
- *
- * iPadOS reports itself as a Mac, so it is identified by a Mac that has a touchscreen.
- */
-const IS_IOS_LIKE =
-  typeof navigator !== "undefined" &&
-  (/iP(hone|ad|od)/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
-
-/** Android or iOS — the platforms whose OS share sheet actually lists the KakaoTalk
- * app as a file-share target. Desktop Windows/macOS route navigator.share(files) to
- * a generic system share flyout instead; that flyout's own "copy" action was tested
- * against the real KakaoTalk PC client and does not put a pasteable image on the
- * clipboard, so desktop gets its own path (see handleShareMap) rather than trusting
- * canShare() there. */
-const IS_MOBILE_LIKE = typeof navigator !== "undefined" && (/Android/i.test(navigator.userAgent) || IS_IOS_LIKE);
 
 // Sentinel for the sector filter's "show everything" option — distinct from any real
 // sector label (including "기타") so it can never collide with backend-assigned data.
@@ -251,18 +199,6 @@ const SKELETON_TABLE_ROWS = Array.from({ length: 12 }, (_, i) => i);
 //   usCompanyLogoProxyUrl, which is only ever called from here.
 const iconImageCache = new Map<string, Promise<HTMLImageElement | null>>();
 
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise<HTMLImageElement | null>((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    // A ticker this host has no logo for resolves to null, exactly like a KR code whose
-    // icon 404s — the tile just draws its text, which is what it did before logos.
-    img.onerror = () => resolve(null);
-    img.src = src;
-  });
-}
-
 function loadIconImage(code: string, market: "kr" | "us"): Promise<HTMLImageElement | null> {
   // Keyed by market as well as code: the two resolve through different hosts, and a
   // 6-digit KR code and a US ticker sharing this map would otherwise be one entry.
@@ -273,25 +209,6 @@ function loadIconImage(code: string, market: "kr" | "us"): Promise<HTMLImageElem
     iconImageCache.set(key, cached);
   }
   return cached;
-}
-
-/** Draws `icon` into an `size`x`size` box the way CSS `object-fit: contain` would —
- * scaled to fit, centered, aspect preserved. Canvas has no such primitive: drawImage
- * with an explicit width and height stretches. That never showed on the KR maps because
- * Naver's icons are square, but the US logos are frequently wide wordmarks (FOX, Intel,
- * ASML), and stretching those into a square is both ugly and visibly different from the
- * tile the export is supposed to be reproducing. */
-function drawContained(
-  ctx: CanvasRenderingContext2D,
-  icon: HTMLImageElement,
-  x: number,
-  y: number,
-  size: number
-): void {
-  const scale = Math.min(size / icon.width, size / icon.height) || 0;
-  const w = icon.width * scale;
-  const h = icon.height * scale;
-  ctx.drawImage(icon, x + (size - w) / 2, y + (size - h) / 2, w, h);
 }
 
 export interface MarketMapPageProps {
@@ -344,7 +261,6 @@ export default function MarketMapPage({
 }: MarketMapPageProps) {
   const { lang } = useLanguage();
   const t = useT();
-  const themeMode = useThemeMode();
   useDocumentTitle("K-Stock Hub");
   // The maps sit on the broadsheet: its type, its masthead and colophon, and its
   // palette, which maps.css feeds into the variables this page's own rules read.
@@ -375,18 +291,6 @@ export default function MarketMapPage({
   const [sectorSparklines, setSectorSparklines] = useState<Record<string, MarketSparkline>>({});
   const [hovered, setHovered] = useState<MarketMapItem | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [mapPreview, setMapPreview] = useState<{ blob: Blob; url: string; filename: string } | null>(null);
-  // A share in flight. The ref is the one the handlers read — see confirmMapDownload
-  // for why the state alone cannot close the double-tap window — and the state exists
-  // only to re-render the button into its busy form.
-  const sharingRef = useRef(false);
-  const [sharing, setSharing] = useState(false);
-  const [mapDownloadError, setMapDownloadError] = useState<string | null>(null);
-  // Navigating away with the preview open otherwise leaks the PNG for the tab's
-  // lifetime. Tracked through a ref and released only on unmount: a cleanup keyed on
-  // `mapPreview` would revoke the live URL on StrictMode's double-invoke in dev and
-  // blank the image.
-  const previewUrlRef = useRef<string | null>(null);
   useEffect(() => {
     const query = window.matchMedia("(min-width: 701px) and (hover: hover) and (pointer: fine)");
     const syncDesktopHover = () => {
@@ -400,16 +304,6 @@ export default function MarketMapPage({
     query.addEventListener("change", syncDesktopHover);
     return () => query.removeEventListener("change", syncDesktopHover);
   }, []);
-  useEffect(() => {
-    previewUrlRef.current = mapPreview?.url ?? null;
-  }, [mapPreview]);
-  useEffect(
-    () => () => {
-      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-    },
-    []
-  );
-
   const containerRef = useRef<HTMLDivElement>(null);
   const mapSectorFilterRef = useRef<HTMLLabelElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -715,14 +609,16 @@ export default function MarketMapPage({
   const renderMapPng = async (): Promise<Blob | null> => {
     if (sectorZones.length === 0 || size.w === 0 || size.h === 0) return null;
 
-    const cardBg = resolveCssColor("var(--surface-1)");
-    const gapColor = resolveCssColor("var(--map-gap)");
-    const headerBg = resolveCssColor("color-mix(in srgb, var(--baseline) 35%, var(--surface-1))");
-    const headerBorder = resolveCssColor("var(--gridline)");
-    const textPrimary = resolveCssColor("var(--text-primary)");
-    const upColor = resolveCssColor("var(--up-color)");
-    const downColor = resolveCssColor("var(--down-color)");
-    const sectorBorderW = themeMode === "light" ? 1 : 2;
+    // Resolved inside the canvas, which keeps the 야간판 palette in both editions.
+    const host = containerRef.current ?? document.body;
+    const cardBg = resolveCssColor("var(--surface-1)", host);
+    const gapColor = resolveCssColor("var(--map-gap)", host);
+    const headerBg = resolveCssColor("color-mix(in srgb, var(--baseline) 35%, var(--surface-1))", host);
+    const headerBorder = resolveCssColor("var(--gridline)", host);
+    const textPrimary = resolveCssColor("var(--text-primary)", host);
+    const upColor = resolveCssColor("var(--up-color)", host);
+    const downColor = resolveCssColor("var(--down-color)", host);
+    const sectorBorderW = 2;
 
     // Preload every tile's logo up front (same eligibility rule as the on-screen
     // render) so the draw pass below can stay synchronous once it starts.
@@ -784,7 +680,7 @@ export default function MarketMapPage({
       }
 
       for (const tile of zone.tiles) {
-        const rgb = changeToRgb(tile.item.change_pct, themeMode);
+        const rgb = changeToRgb(tile.item.change_pct, TILE_NIGHT_MODE);
         ctx.fillStyle = rgbToCss(rgb);
         ctx.fillRect(tile.x, tile.y, tile.w, tile.h);
         ctx.strokeStyle = gapColor;
@@ -801,7 +697,7 @@ export default function MarketMapPage({
 
         const pctText = pct(tile.item.change_pct);
         const padX = 5;
-        const tileTextColor = textColorForRgb(rgb, themeMode);
+        const tileTextColor = textColorForRgb(rgb, TILE_NIGHT_MODE);
         ctx.fillStyle = tileTextColor;
 
         if (showName) {
@@ -865,151 +761,12 @@ export default function MarketMapPage({
     return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   };
 
-  const handleDownloadMap = async () => {
-    const blob = await renderMapPng();
-    if (!blob) return;
-    setMapPreview((prev) => {
-      if (prev) URL.revokeObjectURL(prev.url);
-      return { blob, url: URL.createObjectURL(blob), filename: `${filePrefix}_${downloadTimestamp()}.png` };
-    });
-  };
-
-  // Kakao share: on Android/iOS, hands the map PNG + link to the OS share sheet in
-  // one call, and KakaoTalk's own app in that sheet takes both together. Desktop has
-  // no such integration — Windows' system share flyout lists no KakaoTalk target for
-  // the PC client, and its own "복사" action was tested against the real client and
-  // does not leave a pasteable image on the clipboard — so desktop instead writes the
-  // PNG straight to the clipboard itself (the same mechanism a screenshot paste
-  // uses) and opens an anchored panel with an explicit "링크도 복사" button for the link.
-  //
-  // A single paste can only ever deliver one clipboard representation to the target
-  // app — that's the platform's model, not something a web page can get around — so
-  // the link can't ride along in the same Ctrl+V as the image. Sequencing both writes
-  // automatically and leaning on Windows' clipboard history (Win+V) to recover the
-  // first one was tried and dropped: that history is off by default for most visitors,
-  // so the link would simply be unrecoverable for them. An explicit second click has
-  // no such dependency — it copies the link only when the user asks for it, which is
-  // also what avoids the earlier bug where an automatic second write silently clobbered
-  // the image before it had been pasted.
-  const [kakaoSharing, setKakaoSharing] = useState(false);
-  const [kakaoShareCopied, setKakaoShareCopied] = useState(false);
-  const [kakaoShareStage, setKakaoShareStage] = useState<"idle" | "image-copied" | "link-copied">("idle");
-  const kakaoShareUrlRef = useRef("");
-  const handleCopyShareLink = async () => {
-    try {
-      await navigator.clipboard.writeText(kakaoShareUrlRef.current);
-      setKakaoShareStage("link-copied");
-      setTimeout(() => setKakaoShareStage("idle"), 4000);
-    } catch {
-      /* clipboard denied — leave the image-copied panel up so the user can retry */
-    }
-  };
-  const handleShareMap = async () => {
-    if (kakaoSharing) return;
-    setKakaoSharing(true);
-    setKakaoShareStage("idle");
-    try {
-      const sharedUrl = new URL(location.href);
-      sharedUrl.searchParams.set("utm_source", "kakaotalk");
-      sharedUrl.searchParams.set("utm_medium", "social");
-      sharedUrl.searchParams.set("utm_campaign", `${filePrefix}_map`);
-      const url = sharedUrl.toString();
-      kakaoShareUrlRef.current = url;
-      const title = `${pageTitle} | K-Stock Hub`;
-      const text = `${t(subtitlePrefix)} ${t("종목 MAP")}`;
-
-      const blob = await renderMapPng();
-      const file = blob ? new File([blob], `${filePrefix}_${downloadTimestamp()}.png`, { type: "image/png" }) : null;
-
-      if (IS_MOBILE_LIKE && file && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title, text, url });
-        return;
-      }
-
-      if (blob && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-        setKakaoShareStage("image-copied");
-        return;
-      }
-
-      if (navigator.share) {
-        await navigator.share({ title, text, url });
-        return;
-      }
-
-      await navigator.clipboard.writeText(url);
-      setKakaoShareCopied(true);
-      setTimeout(() => setKakaoShareCopied(false), 2000);
-    } catch {
-      /* user cancelled the share sheet, or clipboard was denied — no error UI for either */
-    } finally {
-      setKakaoSharing(false);
-    }
-  };
-
-  const closeMapPreview = () => {
-    // Refused while a share sheet is up. The sheet is system UI drawn over the page,
-    // so a tap meant for it can land on the overlay behind — and closing here revokes
-    // the object URL the share target is still reading from, which turns a working
-    // save into a failure the user never asked for.
-    if (sharingRef.current) return;
-    setMapPreview((prev) => {
-      if (prev) URL.revokeObjectURL(prev.url);
-      return null;
-    });
-    setMapDownloadError(null);
-  };
-
-  // Whether to offer the share sheet at all. Computed at render rather than inside the
-  // handler so the modal can decide what control to draw — the user should see which
-  // save affordance they get, not discover it after a tap.
-  //
-  // Restricted to iOS-family browsers, which is narrower than "the platform can share".
-  // Android can share too, but the download link beside it already saves the file
-  // there, so the sheet is a redundant second path — and on at least one device (a
-  // Galaxy Fold's inner display) invoking it leaves the share UI flickering and
-  // unusable. A redundant control that breaks on real hardware is worth removing;
-  // on iOS it is not redundant, it is the only way to save.
-  const canShareMapFile = useMemo(() => {
-    if (!mapPreview || !IS_IOS_LIKE) return false;
-    if (typeof navigator.canShare !== "function" || typeof navigator.share !== "function") {
-      return false;
-    }
-    try {
-      const file = new File([mapPreview.blob], mapPreview.filename, { type: "image/png" });
-      return navigator.canShare({ files: [file] });
-    } catch {
-      return false;
-    }
-  }, [mapPreview]);
-
-  /** Hands the PNG to the native share sheet, where the user can save it to
-   * Photos/Files. Share only — it never falls back to a download, because summoning a
-   * second save UI on top of the sheet is what made this unusable on Android. */
-  const shareMapImage = async () => {
-    // A ref rather than the state flag alone: two taps can land in the same render and
-    // `sharing` would still read false in the second handler's closure.
-    if (!mapPreview || sharingRef.current) return;
-    sharingRef.current = true;
-    setSharing(true);
-    setMapDownloadError(null);
-    try {
-      const file = new File([mapPreview.blob], mapPreview.filename, { type: "image/png" });
-      await navigator.share({ files: [file] });
-      sharingRef.current = false;
-      // The sheet already confirmed the save; leaving the preview up makes the user
-      // dismiss the same thing twice.
-      closeMapPreview();
-    } catch (err) {
-      // A dismissed sheet is not a failure and needs no message.
-      if ((err as Error)?.name !== "AbortError") {
-        setMapDownloadError(t("저장에 실패했습니다. 이미지를 길게 눌러 저장해 주세요."));
-      }
-    } finally {
-      sharingRef.current = false;
-      setSharing(false);
-    }
-  };
+  const mapExport = useMapExport({
+    render: renderMapPng,
+    filePrefix,
+    shareTitle: `${pageTitle} | K-Stock Hub`,
+    shareText: `${t(subtitlePrefix)} ${t("종목 MAP")}`,
+  });
 
   return (
     <div className={`d2 mm app kospi-map-page${enhancedSectorView ? " kospi-map-page--expanded" : ""}`} lang={lang}>
@@ -1074,47 +831,7 @@ export default function MarketMapPage({
             <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
               {t("표로 보기")}
             </button>
-            <button
-              type="button"
-              className="kospi-map-download-btn"
-              onClick={handleDownloadMap}
-              disabled={sectorZones.length === 0}
-            >
-              {t("MAP 다운로드")}
-            </button>
-            <div className="kospi-map-share-wrap">
-              <button
-                type="button"
-                className="kospi-map-download-btn kospi-map-share-btn"
-                onClick={handleShareMap}
-                disabled={sectorZones.length === 0 || kakaoSharing}
-              >
-                <KakaoIcon />
-                {kakaoShareCopied ? t("링크 복사됨") : kakaoSharing ? t("공유 준비 중...") : t("카카오톡 공유")}
-              </button>
-              {kakaoShareStage !== "idle" && (
-                <div className="kospi-map-share-popover" role="status">
-                  <button
-                    type="button"
-                    className="kospi-map-share-popover-close"
-                    onClick={() => setKakaoShareStage("idle")}
-                    aria-label={t("닫기")}
-                  >
-                    ×
-                  </button>
-                  {kakaoShareStage === "image-copied" ? (
-                    <>
-                      <p>{t("MAP 이미지가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.")}</p>
-                      <button type="button" className="kospi-map-share-popover-link" onClick={handleCopyShareLink}>
-                        {t("링크도 복사하기")}
-                      </button>
-                    </>
-                  ) : (
-                    <p>{t("링크가 복사되었습니다. 채팅창에 이어서 붙여넣어 주세요.")}</p>
-                  )}
-                </div>
-              )}
-            </div>
+            <MapExportButtons exp={mapExport} disabled={sectorZones.length === 0} />
           </div>
         </div>
       </div>
@@ -1180,7 +897,7 @@ export default function MarketMapPage({
             </div>
 
           {view === "map" && (
-            <div className="card kospi-map-canvas" ref={containerRef}>
+            <div className="card kospi-map-canvas map-canvas-night" ref={containerRef}>
               {loading &&
                 skeletonRects.map((rect, i) => (
                   <div
@@ -1224,9 +941,9 @@ export default function MarketMapPage({
                     </div>
                   )}
                   {zone.tiles.map((tile) => {
-                    const rgb = changeToRgb(tile.item.change_pct, themeMode);
+                    const rgb = changeToRgb(tile.item.change_pct, TILE_NIGHT_MODE);
                     const bg = rgbToCss(rgb);
-                    const textColor = textColorForRgb(rgb, themeMode);
+                    const textColor = textColorForRgb(rgb, TILE_NIGHT_MODE);
                     const localX = tile.x - zone.rect.x;
                     const localY = tile.y - zone.rect.y;
                     const name = tileLabel(tile.item.code, tile.item.name);
@@ -1432,70 +1149,7 @@ export default function MarketMapPage({
         </div>
       )}
 
-      {mapPreview && (
-        <div className="kospi-map-preview-overlay" onClick={closeMapPreview}>
-          <div
-            className="kospi-map-preview-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("맵 이미지 미리보기")}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="kospi-map-preview-header">
-              <span>{t("맵 이미지 미리보기")}</span>
-              <button
-                type="button"
-                className="kospi-map-preview-close"
-                onClick={closeMapPreview}
-                disabled={sharing}
-                aria-label={t("닫기")}
-              >
-                ×
-              </button>
-            </div>
-            <div className="kospi-map-preview-body">
-              <img src={mapPreview.url} alt={mapPreview.filename} className="kospi-map-preview-image" />
-            </div>
-            <div className="kospi-map-preview-footer">
-              {mapDownloadError && (
-                <span className="kospi-map-preview-error" role="alert">
-                  {mapDownloadError}
-                </span>
-              )}
-              {/* One control, whichever one actually saves on this platform. Both were
-                  shown at once briefly and that is worse than either alone: on iOS the
-                  download link navigates the page to the image instead of saving it,
-                  and on Android the share sheet is a redundant second path that
-                  misbehaves on some hardware. */}
-              {canShareMapFile ? (
-                <button
-                  type="button"
-                  className="kospi-map-preview-share"
-                  onClick={shareMapImage}
-                  disabled={sharing}
-                  aria-busy={sharing}
-                >
-                  {sharing ? t("저장 중...") : t("저장")}
-                </button>
-              ) : (
-                /* A real anchor the user taps, not a <button> that builds a hidden one
-                   and fires a synthetic .click() at it. That synthetic click was the
-                   only thing here that could summon Android's system "실행" chooser,
-                   and a genuine tap on a genuine link is what the browser's own
-                   download path is built for. */
-                <a
-                  className="kospi-map-preview-download"
-                  href={mapPreview.url}
-                  download={mapPreview.filename}
-                  onClick={() => setMapDownloadError(null)}
-                >
-                  {t("다운로드")}
-                </a>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <MapPreviewModal exp={mapExport} />
 
       </main>
 
