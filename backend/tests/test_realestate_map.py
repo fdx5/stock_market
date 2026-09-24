@@ -116,3 +116,14 @@ def test_sido_map_groups_by_district_and_caps_at_500(monkeypatch):
     assert result["count"] == 500
     assert {r["group"] for r in result["items"]} <= {s["name"] for s in seoul["sgg"]}
     assert result["items"][0]["price"] >= result["items"][-1]["price"]
+
+
+def test_newest_request_is_collected_first(monkeypatch):
+    monkeypatch.setattr(rm, "_queue", [])
+    monkeypatch.setattr(rm, "_queued", {})
+    rm.request_districts(["11110", "11140"], priority=0)
+    rm.request_districts(["41150"], priority=0)
+    rm.request_districts(["26110"], priority=10)
+    rm.request_districts(["11140"], priority=10)  # a warm pass must not demote a viewed district
+    order = [rm._next_district() for _ in range(4)]
+    assert order == ["41150", "11110", "11140", "26110"]

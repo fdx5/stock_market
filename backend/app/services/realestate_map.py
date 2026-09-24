@@ -401,26 +401,30 @@ def _store_month(lawd_cd: str, deal_ym: str, deals: list) -> None:
 
 
 _queue_lock = threading.Condition()
-_queue: list[tuple[int, int, str]] = []  # (priority, seq, lawd_cd)
-_queued: dict[str, int] = {}
-_seq = 0
+# (priority, -batch, position, lawd_cd). Lower priority first; within a priority the
+# most recent request first, so whoever is looking at the page *now* is served before
+# a region someone opened a few minutes ago; within one request, in the order given.
+_queue: list[tuple[int, int, int, str]] = []
+_queued: dict[str, tuple[int, int]] = {}  # lawd_cd -> (priority, batch) of its live entry
+_batch = 0
 _in_flight: str | None = None
 _worker_started = False
 
 
 def request_districts(codes: list[str], priority: int = 0) -> None:
-    """Asks the worker for these districts, ahead of anything queued at a lower
-    priority. Lower number = sooner; a page someone is looking at is 0."""
-    global _seq
+    """Asks the worker for these districts. Lower number = sooner; a page someone is
+    looking at is 0. A newer request at the same priority goes ahead of older ones."""
+    global _batch
     with _queue_lock:
-        for code in codes:
+        _batch += 1
+        for position, code in enumerate(codes):
             if code == _in_flight:
                 continue
-            if code in _queued and _queued[code] <= priority:
-                continue
-            _seq += 1
-            _queued[code] = priority
-            heapq.heappush(_queue, (priority, _seq, code))
+            live = _queued.get(code)
+            if live and live[0] < priority:
+                continue  # already waiting at a more urgent priority
+            _queued[code] = (priority, _batch)
+            heapq.heappush(_queue, (priority, -_batch, position, code))
         _queue_lock.notify()
 
 
@@ -430,9 +434,9 @@ def _next_district() -> str:
         while True:
             while not _queue:
                 _queue_lock.wait()
-            priority, _, code = heapq.heappop(_queue)
-            if _queued.get(code) != priority:
-                continue  # superseded by a higher-priority entry
+            priority, neg_batch, _, code = heapq.heappop(_queue)
+            if _queued.get(code) != (priority, -neg_batch):
+                continue  # superseded by a newer entry for the same district
             del _queued[code]
             _in_flight = code
             return code
