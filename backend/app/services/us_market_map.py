@@ -3,7 +3,12 @@ from concurrent.futures import ThreadPoolExecutor
 from app.data import yahoo_bulk_quote
 from app.data.exchange_fetcher import get_usd_krw
 from app.data.stock_quote_fetcher import get_stock_quote
-from app.data.us_index_fetcher import get_nasdaq100_constituents, get_sp500_constituents, market_session
+from app.data.us_index_fetcher import (
+    get_nasdaq100_constituents,
+    get_sp500_constituents,
+    get_us_stock_quote,
+    market_session,
+)
 from app.services.cache import cache
 
 
@@ -45,8 +50,13 @@ SKHYNIX_LISTED_ADS = 177_900_000
 # divided by each index's rough aggregate market cap to land in the same "percent of
 # the index" units real constituents' weights are already in. There's no true index
 # weight for a non-member, so the denominator is an order-of-magnitude estimate.
-_SP500_TOTAL_MARKETCAP_USD = 48_000_000_000_000
-_NASDAQ100_TOTAL_MARKETCAP_USD = 26_000_000_000_000
+# Last re-derived 2026-09-24 from MU's live market cap over its map weight.
+_SP500_TOTAL_MARKETCAP_USD = 71_000_000_000_000
+_NASDAQ100_TOTAL_MARKETCAP_USD = 43_000_000_000_000
+
+# MU's market cap only arrives on the crumbed v7 batch. When Yahoo refuses that
+# handshake the tile must still render, so the last cap seen stands in for it.
+_last_benchmark_marketcap_usd: float | None = None
 
 
 def _fetch_skhynix_quote() -> dict | None:
@@ -64,6 +74,22 @@ def _fetch_skhynix_quote() -> dict | None:
         krx_quote = krx_future.result()
         fx = fx_future.result()
 
+    # The v7 batch needs a crumb, and a refused handshake used to drop the whole tile
+    # from both maps. get_us_stock_quote falls through to the crumb-free v8 chart
+    # endpoint, the same path the SKHY detail page stays live on.
+    if not quote or not quote.get("close"):
+        try:
+            quote = get_us_stock_quote(SKHYNIX_TICKER, "SK Hynix")
+        except Exception:
+            quote = None
+
+    global _last_benchmark_marketcap_usd
+    benchmark_marketcap_usd = (benchmark_quote or {}).get("market_cap")
+    if benchmark_marketcap_usd:
+        _last_benchmark_marketcap_usd = benchmark_marketcap_usd
+    else:
+        benchmark_marketcap_usd = _last_benchmark_marketcap_usd
+
     if (
         not quote
         or not quote.get("close")
@@ -71,15 +97,13 @@ def _fetch_skhynix_quote() -> dict | None:
         or not krx_quote.get("marcap")
         or not fx
         or not fx.get("rate")
-        or not benchmark_quote
-        or not benchmark_quote.get("market_cap")
     ):
         return None
     return {
         **quote,
         "krx_marcap_krw": krx_quote["marcap"],
         "usd_krw": fx["rate"],
-        "benchmark_marketcap_usd": benchmark_quote["market_cap"],
+        "benchmark_marketcap_usd": benchmark_marketcap_usd,
         "code": SKHYNIX_TICKER,
         # Plain text — the flag marking this as the one Korean name on the map is drawn
         # as an actual /img/flag/kr.svg image on the frontend instead (see
@@ -116,7 +140,7 @@ def _skhynix_tile(total_marketcap_usd: float, benchmark_weight: float | None = N
     # The hard-coded aggregate is only a fallback. Index totals move substantially,
     # so infer today's denominator from MU's live market cap and the same index weight
     # already used to size its tile. This keeps SKHY and MU on one comparable scale.
-    if benchmark_weight and benchmark_weight > 0:
+    if benchmark_weight and benchmark_weight > 0 and base["benchmark_marketcap_usd"]:
         total_marketcap_usd = base["benchmark_marketcap_usd"] / (benchmark_weight / 100)
     tile["marcap"] = (domestic_marketcap_usd + adr_marketcap_usd) / total_marketcap_usd * 100
     return tile
