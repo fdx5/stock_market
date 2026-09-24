@@ -72,7 +72,7 @@ CALL_SPACING_SECONDS = 0.15
 # which for most 동 is every one of them.
 TOP_N: dict[str, int | None] = {"sido": 500, "sgg": 50, "dong": 100}
 # Months stored before the 거래구분 (중개/직거래) field was kept are re-read once.
-REFETCH_STORED_BEFORE = dt.datetime(2026, 9, 24, 18, 0, tzinfo=ZoneInfo("Asia/Seoul"))
+REFETCH_STORED_BEFORE = dt.datetime(2026, 9, 24, 17, 37, tzinfo=ZoneInfo("Asia/Seoul"))
 PERIODS = {"today": None, "7d": 7, "3m": 91, "6m": 182, "1y": 365}
 WARM_ORDER = ("11", "41", "28")  # 서울, 경기, 인천 first; everything else after
 
