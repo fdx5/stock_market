@@ -197,3 +197,22 @@ def test_failed_store_read_is_not_cached(monkeypatch):
     assert rm._district("11680") == {}
     assert "11680" not in rm._districts
     assert list(rm._district("11680")) == ["202609"]
+
+
+def test_items_carry_popup_detail(monkeypatch):
+    today = dt.datetime.now(rm.KST).date()
+    d = lambda days: int((today - dt.timedelta(days=days)).strftime("%Y%m%d"))  # noqa: E731
+    deals = [
+        [d(300), "A", "래미안A", "반포동", "1", 84.9, 200000, 10, 2010, 0],
+        [d(200), "A", "래미안A", "반포동", "1", 84.9, 150000, 2, 2010, 1],  # 직거래
+        [d(100), "A", "래미안A", "반포동", "1", 84.9, 240000, 20, 2010, 0],
+        [d(10), "A", "래미안A", "반포동", "1", 84.9, 230000, 12, 2010, 0],
+        [d(50), "A", "래미안A", "반포동", "1", 59.8, 160000, 5, 2010, 0],
+    ]
+    _seed(monkeypatch, {"11650": {"x": deals}})
+    item = rm.build_map(None, "11650", None, "3m")["items"][0]
+    assert [h[1] for h in item["history"]] == [200000, 150000, 240000, 230000]
+    assert item["history"][1][3] == 1
+    assert item["high_1y"]["price"] == 240000 and item["low_1y"]["price"] == 200000  # 직거래는 범위에서 뺀다
+    assert item["trades_1y"] == 5
+    assert item["types"] == [{"area": 59.8, "price": 160000, "date": item["types"][0]["date"], "trades_1y": 1}]

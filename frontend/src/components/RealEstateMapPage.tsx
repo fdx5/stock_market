@@ -10,7 +10,9 @@ import Masthead from "../desk2/Masthead";
 import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
 import Tape from "../desk2/Tape";
-import AptBrandIcon, { APT_BRANDS, brandIconWidth, brandImage, brandLabel } from "./AptBrandIcon";
+import FloatingTip from "./FloatingTip";
+import RealEstatePopup, { PopupContext, fullPrice, shortPrice } from "./RealEstatePopup";
+import AptBrandIcon, { APT_BRANDS, brandIconWidth, brandImage } from "./AptBrandIcon";
 import {
   MapExportButtons,
   MapPreviewModal,
@@ -175,22 +177,7 @@ interface Zone {
   tiles: (TreemapRect & { item: RealEstateItem })[];
 }
 
-/** 만원 → "23.5억" / "8,500만". */
-function shortPrice(manwon: number): string {
-  if (manwon >= 10_000) {
-    const eok = manwon / 10_000;
-    return `${eok >= 100 ? Math.round(eok) : eok.toFixed(1).replace(/\.0$/, "")}억`;
-  }
-  return `${manwon.toLocaleString()}만`;
-}
 
-/** 만원 → "23억 5,000만원". */
-function fullPrice(manwon: number): string {
-  const eok = Math.floor(manwon / 10_000);
-  const rest = manwon % 10_000;
-  if (!eok) return `${rest.toLocaleString()}만원`;
-  return rest ? `${eok}억 ${rest.toLocaleString()}만원` : `${eok}억원`;
-}
 
 function dateDots(iso: string | null): string {
   return iso ? iso.replace(/-/g, ".") : "—";
@@ -373,6 +360,21 @@ export default function RealEstateMapPage() {
   const levelLabel = dong || sggNode?.name || sidoNode?.name || "";
   const topN = data?.top_n ?? (sgg ? 100 : 500);
   const periodInfo = PERIODS.find((p) => p.key === period) ?? PERIODS[0];
+
+  /** Where the hovered complex stands on this map, and what clicking it does. */
+  const popupContext = (item: RealEstateItem): PopupContext => {
+    const inGroup = items.filter((it) => it.group === item.group);
+    return {
+      periodLabel: periodInfo.label,
+      regionLabel: levelLabel,
+      regionRank: items.indexOf(item) + 1,
+      regionCount: items.length,
+      groupRank: inGroup.indexOf(item) + 1,
+      groupCount: inGroup.length,
+      share: total > 0 ? (item.price / total) * 100 : 0,
+      clickHint: !sgg ? `클릭하면 ${item.sgg} 지도로 이동` : !dong && item.dong ? `클릭하면 ${item.dong} 지도로 이동` : null,
+    };
+  };
 
   /** The map as a PNG, drawn from the same zones the page renders — the market maps'
    * export, with brand marks, the price line and the no-trade tiles added. */
@@ -841,44 +843,9 @@ export default function RealEstateMapPage() {
         </div>
 
         {hovered && (
-          <div className="kospi-map-tooltip" style={{ left: hoverPos.x + 16, top: hoverPos.y + 16 }}>
-            <div className="kospi-map-tooltip-title re-map-tooltip-title">
-              {hovered.brand && <AptBrandIcon brand={hovered.brand} size={18} />}
-              {hovered.name}
-            </div>
-            <div className="kospi-map-tooltip-row">
-              {hovered.sgg} {hovered.dong}
-              {brandLabel(hovered.brand) && ` · ${brandLabel(hovered.brand)}`}
-              {hovered.built && ` · ${hovered.built}년 준공`}
-            </div>
-            <div className="kospi-map-tooltip-row">
-              대표 평형 전용 {hovered.area}㎡ (전용 {hovered.pyeong}평)
-            </div>
-            <div className="kospi-map-tooltip-row">
-              시세 {fullPrice(hovered.price)} · 최근 계약 {dateDots(hovered.deal_date)}
-              {hovered.floor !== null && ` · ${hovered.floor}층`}
-            </div>
-            <div className="kospi-map-tooltip-row">
-              기간 전 시세 {hovered.base_price ? `${fullPrice(hovered.base_price)} · ${dateDots(hovered.base_date)}` : "없음"}
-            </div>
-            <div
-              className="kospi-map-tooltip-row"
-              style={{ color: hovered.change_pct === null ? undefined : hovered.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)" }}
-            >
-              {periodInfo.label} 등락{" "}
-              {hovered.change_pct === null
-                ? hovered.trades
-                  ? "비교할 이전 거래 없음"
-                  : "기간 내 거래 없음"
-                : `${pct(hovered.change_pct)} (${hovered.base_price ? shortPrice(Math.abs(hovered.price - hovered.base_price)) : ""} ${
-                    hovered.change_pct >= 0 ? "▲" : "▼"
-                  })`}
-            </div>
-            <div className="kospi-map-tooltip-row">
-              기간 내 거래 {hovered.trades}건 (전체 평형 {hovered.trades_all}건) · 맵 면적 비중{" "}
-              {total > 0 ? ((hovered.price / total) * 100).toFixed(2) : "0.00"}%
-            </div>
-          </div>
+          <FloatingTip className="kospi-map-tooltip re-pop-tip" x={hoverPos.x} y={hoverPos.y}>
+            <RealEstatePopup item={hovered} ctx={popupContext(hovered)} />
+          </FloatingTip>
         )}
         <MapPreviewModal exp={mapExport} />
       </main>

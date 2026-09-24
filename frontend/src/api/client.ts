@@ -1079,6 +1079,21 @@ export interface RealEstateItem {
   change_pct: number | null;
   trades: number;
   trades_all: number;
+  /** 대표 평형의 거래, 오래된 순 (최근 40건): [yyyymmdd, 만원, 층, 직거래 1/0] */
+  history: [number, number, number, number][];
+  high_1y: RealEstateTrade | null;
+  low_1y: RealEstateTrade | null;
+  /** 모든 평형의 최근 1년 거래 건수 */
+  trades_1y: number;
+  /** 대표 평형 외 평형, 1년 거래 많은 순 최대 4개 */
+  types: { area: number; price: number; date: string; trades_1y: number }[];
+}
+
+export interface RealEstateTrade {
+  date: string;
+  price: number;
+  floor: number;
+  direct: boolean;
 }
 
 export interface RealEstateMapResponse {

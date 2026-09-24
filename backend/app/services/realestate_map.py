@@ -637,6 +637,46 @@ def _robust_price(trades: list[tuple], until: int) -> tuple[float, int] | None:
     return median, last
 
 
+HISTORY_POINTS = 40
+OTHER_TYPES = 4
+
+
+def _trade(x: tuple) -> dict:
+    return {"date": _ymd(x[0]).isoformat(), "price": x[1], "floor": x[2], "direct": bool(x[4])}
+
+
+def _detail(c: dict, rep: int, every: list[tuple], priced: list[tuple], year_ago: int) -> dict:
+    """What the map's popup shows beyond the tile: the 대표 평형's trades (every one,
+    직거래 marked, for the chart and the recent list), its range over the past year,
+    how busy the complex is, and what its other 평형 last sold for."""
+    year = [x for x in priced if x[0] >= year_ago]
+    high = max(year, key=lambda x: (x[1], x[0])) if year else None
+    low = min(year, key=lambda x: (x[1], -x[0])) if year else None
+    others = []
+    for area_key, rows in c["types"].items():
+        if area_key == rep:
+            continue
+        rows = sorted(rows)
+        pool = [x for x in rows if not x[4]] or rows
+        last = pool[-1]
+        others.append(
+            {
+                "area": round(sum(x[3] for x in rows) / len(rows), 2),
+                "price": last[1],
+                "date": _ymd(last[0]).isoformat(),
+                "trades_1y": sum(1 for x in rows if x[0] >= year_ago),
+            }
+        )
+    others.sort(key=lambda o: (o["trades_1y"], o["date"]), reverse=True)
+    return {
+        "history": [[x[0], x[1], x[2], x[4]] for x in every[-HISTORY_POINTS:]],
+        "high_1y": _trade(high) if high else None,
+        "low_1y": _trade(low) if low else None,
+        "trades_1y": sum(1 for rows in c["types"].values() for x in rows if x[0] >= year_ago),
+        "types": others[:OTHER_TYPES],
+    }
+
+
 def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) -> dict:
     if period not in PERIODS:
         raise ValueError("unknown period")
@@ -688,8 +728,8 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
         # 직거래 (unbrokered, often between relatives) is priced off-market often
         # enough that one of them as the reference swings a complex by 30%. Brokered
         # trades set the price whenever the 평형 has any.
-        trades = sorted(c["types"][rep])
-        trades = [x for x in trades if not x[4]] or trades
+        every = sorted(c["types"][rep])
+        trades = [x for x in every if not x[4]] or every
         last_day = trades[-1][0]
         price, _ = _robust_price(trades, last_day)
         in_window = [x for x in trades if x[0] >= window_start] if window_start else []
@@ -726,6 +766,7 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
                 "change_pct": round(change, 2) if change is not None else None,
                 "trades": len(in_window),
                 "trades_all": sum(1 for t in c["types"].values() for x in t if window_start and x[0] >= window_start),
+                **_detail(c, rep, every, trades, year_ago),
             }
         )
 

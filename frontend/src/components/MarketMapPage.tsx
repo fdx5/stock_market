@@ -1,4 +1,4 @@
-import { CSSProperties, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { CSSProperties, ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, MarketMapItem, MarketMapResponse, MarketReturns, MarketSession, MarketSparkline } from "../api/client";
 import { wonSuffix } from "../i18n/format";
 import { Lang, useLanguage, useT } from "../i18n/LanguageContext";
@@ -19,6 +19,7 @@ import Tape from "../desk2/Tape";
 import RankIcon from "./RankIcon";
 import SessionBadge from "./SessionBadge";
 import SessionSplit from "./SessionSplit";
+import FloatingTip from "./FloatingTip";
 import StockIcon from "./StockIcon";
 import {
   MapExportButtons,
@@ -761,6 +762,21 @@ export default function MarketMapPage({
     return new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   };
 
+  // sectorLayerPosition places the layer from an estimated height, before it exists.
+  // Once it has rendered, its real box is known: pull it back inside the viewport if
+  // the sector it describes sits near the bottom or right edge.
+  const sectorLayerRef = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = sectorLayerRef.current;
+    if (!el) return;
+    const edge = 10;
+    const r = el.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    if (r.bottom > vh - edge) el.style.top = `${Math.max(edge, vh - edge - r.height)}px`;
+    if (r.right > vw - edge) el.style.left = `${Math.max(edge, vw - edge - r.width)}px`;
+  });
+
   const mapExport = useMapExport({
     render: renderMapPng,
     filePrefix,
@@ -1079,6 +1095,7 @@ export default function MarketMapPage({
 
       {enhancedSectorView && desktopHoverEnabled && hoveredSector && (
         <section
+          ref={sectorLayerRef}
           className="kospi-sector-layer"
           aria-live="polite"
           style={sectorLayerPosition(hoverPos, hoveredSectorRect)}
@@ -1119,7 +1136,7 @@ export default function MarketMapPage({
       )}
 
       {hovered && (
-        <div className="kospi-map-tooltip" style={{ left: hoverPos.x + 16, top: hoverPos.y + 16 }}>
+        <FloatingTip className="kospi-map-tooltip" x={hoverPos.x} y={hoverPos.y}>
           <div className="kospi-map-tooltip-title">
             {nameByCode.get(hovered.code) ?? hovered.name}
             {hovered.code === "SKHY" && (
@@ -1146,7 +1163,7 @@ export default function MarketMapPage({
           <div className="kospi-map-tooltip-row">
             {t("맵 면적 비중")} {totalMarcap > 0 ? ((hovered.marcap / totalMarcap) * 100).toFixed(2) : "0.00"}%
           </div>
-        </div>
+        </FloatingTip>
       )}
 
       <MapPreviewModal exp={mapExport} />
