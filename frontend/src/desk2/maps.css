@@ -438,3 +438,35 @@
 .re-map-page .kospi-map-legend-label {
   white-space: nowrap;
 }
+
+/* 부동산 맵's map area is always the 야간판, whichever edition the page is in: the
+   tile palette (see MAP_MODE in RealEstateMapPage.tsx) is built against a near-black
+   ground, and that is where it reads best. The page's own variables are resolved on
+   <html>, so each one the canvas and its tiles read is set again here. */
+.d2.re-map-page .re-map-canvas-night {
+  --p0: #0f0f0d;
+  --p1: #161613;
+  --p2: #1d1c18;
+  --ink: #ece6d6;
+  --ink-2: #bdb6a4;
+  --ink-3: #8a8475;
+  --rule: rgba(236, 230, 214, 0.12);
+  --rule-2: rgba(236, 230, 214, 0.22);
+  --rule-ink: rgba(236, 230, 214, 0.78);
+  --up: #f0654f;
+  --down: #5b9bf0;
+  --surface-1: #161613;
+  --page-plane: #0f0f0d;
+  --text-primary: #ece6d6;
+  --text-secondary: #bdb6a4;
+  --text-muted: #8a8475;
+  --gridline: rgba(236, 230, 214, 0.12);
+  --border: rgba(236, 230, 214, 0.22);
+  --baseline: #383835;
+  --up-color: #f0654f;
+  --down-color: #5b9bf0;
+  --map-gap: #0f0f0d;
+  color-scheme: dark;
+  background: #0f0f0d;
+  color: #ece6d6;
+}

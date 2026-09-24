@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, RealEstateItem, RealEstateMapResponse, RealEstatePeriod, RealEstateSido } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { TILE_FONT_FAMILY, pct, tileDisplayInfo } from "../mapTile";
-import { useThemeMode } from "../theme";
 import { TreemapRect, changeToRgb, rgbToCss, squarify, textColorForRgb } from "../treemap";
 import { useDocumentTitle } from "../useDocumentTitle";
 import Colophon from "../desk2/Colophon";
@@ -31,6 +30,11 @@ const PERIODS: { key: RealEstatePeriod; label: string; detail: string }[] = [
  * scale saturates at ±10% rather than the stock maps' ±5%. */
 const SATURATION_PCT = 10;
 const SKELETON_WEIGHTS = [30, 22, 16, 12, 10, 6, 4];
+/** The map area is always drawn in the 야간판 palette, even in the 주간판: on the
+ * near-black ground the blue-to-red tiles and the hatched no-trade tiles separate far
+ * better than on newsprint. Only the canvas — the page around it follows the theme
+ * (see .re-map-canvas-night in maps.css). */
+const MAP_MODE = "dark" as const;
 
 interface Zone {
   group: string;
@@ -79,7 +83,6 @@ function readQuery() {
 
 export default function RealEstateMapPage() {
   const { lang } = useLanguage();
-  const themeMode = useThemeMode();
   useDocumentTitle("부동산 맵 · 아파트 실거래가 히트맵 · K-Stock Hub");
   useBroadsheet();
   const [finderOpen, setFinderOpen] = useState(false);
@@ -290,7 +293,7 @@ export default function RealEstateMapPage() {
             <div className="kospi-map-period-head">
               <small>REAL TRADES</small>
               <strong>조회 기간</strong>
-              <p>대표 평형의 최신 실거래가를 기간 시작 전 마지막 거래가와 비교합니다.</p>
+              <p>대표 평형의 현재 시세를 기간 시작 직전 시세와 비교합니다. 시세는 최근 거래 최대 3건(90일 이내)의 중간값입니다.</p>
             </div>
             <div className="kospi-map-period-options">
               {PERIODS.map((option) => (
@@ -376,7 +379,7 @@ export default function RealEstateMapPage() {
             </div>
 
             {view === "map" && (
-              <div className="card kospi-map-canvas" ref={containerRef}>
+              <div className="card kospi-map-canvas re-map-canvas-night" ref={containerRef}>
                 {loading &&
                   skeleton.map((rect, i) => (
                     <div
@@ -418,9 +421,9 @@ export default function RealEstateMapPage() {
                       )}
                       {zone.tiles.map((tile) => {
                         const it = tile.item;
-                        const rgb = colourFor(it.change_pct, themeMode);
+                        const rgb = colourFor(it.change_pct, MAP_MODE);
                         const idle = rgb === null;
-                        const text = rgb ? textColorForRgb(rgb, themeMode) : undefined;
+                        const text = rgb ? textColorForRgb(rgb, MAP_MODE) : undefined;
                         const { showName, showPctOnly, fontSizes, iconSize } = tileDisplayInfo(tile.w, tile.h, it.name);
                         // The brand mark goes in front of the name whenever the tile is wide
                         // enough to keep a few letters beside it, even if the name then
@@ -490,9 +493,9 @@ export default function RealEstateMapPage() {
                       <th>단지명</th>
                       <th>지역</th>
                       <th>대표 평형</th>
-                      <th>최근 실거래가</th>
-                      <th>계약일</th>
-                      <th>비교 거래가</th>
+                      <th>시세</th>
+                      <th>최근 계약</th>
+                      <th>기간 전 시세</th>
                       <th>등락률</th>
                       <th>기간 거래</th>
                     </tr>
@@ -531,7 +534,7 @@ export default function RealEstateMapPage() {
               </div>
             )}
             <p className="re-map-source">
-              자료: 국토교통부 아파트 매매 실거래가 (공공데이터포털). 면적은 단지 대표 평형(최근 1년 최다 거래 전용면적)의 최신 실거래가, 그룹 면적은
+              자료: 국토교통부 아파트 매매 실거래가 (공공데이터포털). 면적은 단지 대표 평형(최근 1년 최다 거래 전용면적)의 시세(최근 거래 최대 3건 중간값, 직거래 제외), 그룹 면적은
               지역 내 시세 합계 비중입니다. 브랜드 표시는 단지명 기준 자동 분류입니다.
             </p>
           </div>
@@ -552,11 +555,11 @@ export default function RealEstateMapPage() {
               대표 평형 전용 {hovered.area}㎡ (전용 {hovered.pyeong}평)
             </div>
             <div className="kospi-map-tooltip-row">
-              최근 실거래 {fullPrice(hovered.price)} · {dateDots(hovered.deal_date)}
+              시세 {fullPrice(hovered.price)} · 최근 계약 {dateDots(hovered.deal_date)}
               {hovered.floor !== null && ` · ${hovered.floor}층`}
             </div>
             <div className="kospi-map-tooltip-row">
-              비교 거래 {hovered.base_price ? `${fullPrice(hovered.base_price)} · ${dateDots(hovered.base_date)}` : "없음"}
+              기간 전 시세 {hovered.base_price ? `${fullPrice(hovered.base_price)} · ${dateDots(hovered.base_date)}` : "없음"}
             </div>
             <div
               className="kospi-map-tooltip-row"

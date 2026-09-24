@@ -606,6 +606,29 @@ def _mean_on(trades: list[tuple], day: int) -> float:
     return sum(prices) / len(prices)
 
 
+ROBUST_TRADES = 3
+ROBUST_SPAN_DAYS = 90
+
+
+def _robust_price(trades: list[tuple], until: int) -> tuple[float, int] | None:
+    """The price of a 평형 as of `until`: the median of its last few trades on or
+    before that day, taken from the 90 days before the latest of them.
+
+    One trade is a poor price — a 4th-floor unit and a 24th-floor one in the same
+    complex can sit 15% apart in the same week — and comparing one trade with one
+    trade made a quiet complex read +35% on a floor difference. Returns (price, day of
+    the latest trade used), or None when nothing traded by `until`."""
+    upto = [x for x in trades if x[0] <= until]
+    if not upto:
+        return None
+    last = upto[-1][0]
+    floor_day = _as_int(_ymd(last) - dt.timedelta(days=ROBUST_SPAN_DAYS))
+    picked = sorted(p for d, p, *_ in upto[-ROBUST_TRADES:] if d >= floor_day)
+    mid = len(picked) // 2
+    median = picked[mid] if len(picked) % 2 else (picked[mid - 1] + picked[mid]) / 2
+    return median, last
+
+
 def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) -> dict:
     if period not in PERIODS:
         raise ValueError("unknown period")
@@ -660,19 +683,22 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str) 
         trades = sorted(c["types"][rep])
         trades = [x for x in trades if not x[4]] or trades
         last_day = trades[-1][0]
-        price = _mean_on(trades, last_day)
+        price, _ = _robust_price(trades, last_day)
         in_window = [x for x in trades if x[0] >= window_start] if window_start else []
         change = base = base_day = None
         if in_window:
-            before = [x for x in trades if x[0] < window_start]
+            before = _robust_price(trades, window_start - 1) if any(x[0] < window_start for x in trades) else None
             if before:
-                base_day = before[-1][0]
+                base, base_day = before
             else:
+                # Nothing before the period: compare with its own first trade day,
+                # if the period holds more than one.
                 window_days = sorted({x[0] for x in in_window})
-                base_day = window_days[0] if len(window_days) > 1 else None
-            if base_day:
-                base = _mean_on(trades, base_day)
-                change = (price - base) / base * 100 if base else None
+                if len(window_days) > 1:
+                    base_day = window_days[0]
+                    base = _mean_on(trades, base_day)
+            if base:
+                change = (price - base) / base * 100
         area = sum(x[3] for x in trades if x[0] == last_day) / max(1, sum(1 for x in trades if x[0] == last_day))
         rows.append(
             {

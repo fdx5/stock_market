@@ -76,9 +76,9 @@ def test_map_change_is_latest_versus_last_price_before_window(monkeypatch):
     today = dt.datetime.now(rm.KST).date()
     d = lambda days: int((today - dt.timedelta(days=days)).strftime("%Y%m%d"))  # noqa: E731
     deals = [
-        # 대표 평형 84㎡: 200일 전 20억, 100일 전 21억, 10일 전 23억
-        [d(200), "A1", "래미안A", "반포동", "1", 84.9, 200000, 10, 2010],
-        [d(100), "A1", "래미안A", "반포동", "1", 84.9, 210000, 11, 2010],
+        # 대표 평형 84㎡: 250일 전 20억, 120일 전 21억, 10일 전 23억 (서로 90일 넘게 떨어져 있다)
+        [d(250), "A1", "래미안A", "반포동", "1", 84.9, 200000, 10, 2010],
+        [d(120), "A1", "래미안A", "반포동", "1", 84.9, 210000, 11, 2010],
         [d(10), "A1", "래미안A", "반포동", "1", 84.8, 230000, 12, 2010],
         # 한 번 거래된 59㎡는 대표 평형이 아니다
         [d(5), "A1", "래미안A", "반포동", "1", 59.9, 150000, 3, 2010],
@@ -158,3 +158,25 @@ def test_dong_caps_at_100(monkeypatch):
     _seed(monkeypatch, {"41150": {"x": deals}})
     result = rm.build_map(None, "41150", "호원동", "7d")
     assert result["count"] == 100 and result["items"][0]["price"] == 50129
+
+
+def test_one_low_trade_does_not_set_the_reference(monkeypatch):
+    # 한주3 59㎡ 실제 거래: 기간 직전 24층 2.55억 한 건이 주변 거래(2.9~3.0억)보다 낮았다.
+    rows = [
+        ("20250828", 29000), ("20250830", 29800), ("20250923", 25500),
+        ("20260531", 28000), ("20260531", 30700), ("20260817", 31500),
+    ]
+    deals = [[int(d), "H3", "한주3", "호원동", "436", 59.82, p, 10, 1995, 0] for d, p in rows]
+    _seed(monkeypatch, {"41150": {"x": deals}})
+    monkeypatch.setattr(rm, "_as_int", rm._as_int)
+    real_now = rm.dt.datetime.now
+
+    class FakeDateTime(rm.dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_now(tz).replace(year=2026, month=9, day=24)
+
+    monkeypatch.setattr(rm.dt, "datetime", FakeDateTime)
+    item = rm.build_map(None, "41150", "호원동", "1y")["items"][0]
+    assert item["price"] == 30700 and item["base_price"] == 29000
+    assert item["change_pct"] == pytest.approx(5.86, abs=0.01)
