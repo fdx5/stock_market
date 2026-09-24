@@ -184,7 +184,8 @@ def _info(kapt_code: str) -> dict:
         b = basic[0] if basic else {}
         d = detail[0] if detail else {}
         return {
-            "households": _num(b.get("kaptdaCnt")),
+            # 세대수; a few 단지 leave it blank and fill 호수 (ho) instead.
+            "households": _num(b.get("kaptdaCnt")) or _num(b.get("hoCnt")),
             "parking_ground": _num(d.get("kaptdPcnt")),
             "parking_under": _num(d.get("kaptdPcntu")),
         }
@@ -205,11 +206,13 @@ _ROMAN = str.maketrans({"Ⅰ": "1", "Ⅱ": "2", "Ⅲ": "3", "Ⅳ": "4", "Ⅴ": "
 _FILLER = re.compile(r"\d+(?:차|단지)?|아파트|apt|주공|휴먼시아|lh|[\s\-_.,·&'~()\[\]]")
 
 
-def _parts(name: str) -> tuple[str, frozenset[str]]:
+def _parts(name: str, dong: str = "") -> tuple[str, frozenset[str]]:
     """A name as (its letters without numbers or filler, its numbers). Parentheses
     listing 동 numbers are dropped; any other parenthesised word — 아름마을(효성),
-    공덕자이(임대) — is part of the name."""
+    공덕자이(임대) — is part of the name. The 동's own name (대흥동태영) is dropped."""
     s = name.translate(_ROMAN).lower()
+    if dong and len(dong) > 1:
+        s = s.replace(dong, "")
     for a, b in _ALIASES:
         s = s.replace(a, b)
     s = re.sub(r"\([^)]*동\)", "", s)
@@ -228,7 +231,7 @@ def _lcs(a: str, b: str) -> int:
     return prev[-1]
 
 
-def _score(target: tuple[str, frozenset[str]], candidate: dict) -> tuple | None:
+def _score(target: tuple[str, frozenset[str]], candidate: dict, dong: str = "") -> tuple | None:
     """How well a K-apt 단지 fits a trade-data name, or None when it cannot be it.
 
     Numbers decide: 한양4 is never 한양3단지, though 장미2 may be 장미1차2차. Letters
@@ -236,7 +239,7 @@ def _score(target: tuple[str, frozenset[str]], candidate: dict) -> tuple | None:
     상록마을(우성)) cost nothing, but the candidate must end where the name does —
     타워팰리스3 is not 타워팰리스G동."""
     core, nums = target
-    c_core, c_nums = _parts(candidate["name"])
+    c_core, c_nums = _parts(candidate["name"], dong)
     if not c_core or not c_core.endswith(core[-1]):
         return None
     if nums and c_nums and not nums <= c_nums:
@@ -250,16 +253,19 @@ def match(name: str, dong: str, candidates: list[dict]) -> dict | None:
     """The K-apt 단지 a trade-data complex is: the best fit among its own 동's 단지,
     else an all-but-exact one elsewhere in the 시군구. Two equally good fits match
     nothing — no figures beat another 단지's."""
-    target = _parts(name)
-    if len(target[0]) < 2:
+    # The name as written, then without its parenthesised words: 백현마을8단지(대림)
+    # is K-apt's 판교백현마을8단지, where 아름마을(효성) needs its 효성.
+    variants = [v for v in {_parts(name, dong), _parts(re.sub(r"\(.*?\)", "", name), dong)} if len(v[0]) >= 2]
+    if not variants:
         return None
     local = [c for c in candidates if dong and dong in (c["dong"], c["ri"])]
     for pool, floor in ((local, 0.8), (candidates, 1.0)):
-        scored = sorted(
-            ((sc, c) for c in pool if (sc := _score(target, c)) and sc[0] >= floor),
-            key=lambda x: x[0],
-            reverse=True,
-        )
+        scored = []
+        for c in pool:
+            fits = [sc for v in variants if (sc := _score(v, c, dong))]
+            if fits and max(fits)[0] >= floor:
+                scored.append((max(fits), c))
+        scored.sort(key=lambda x: x[0], reverse=True)
         if scored:
             if len(scored) > 1 and scored[1][0] == scored[0][0]:
                 return None
