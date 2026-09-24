@@ -1115,6 +1115,19 @@ export interface RealEstateComplexResponse {
   types: RealEstateTypeView[];
 }
 
+/** 세대수·주차대수 of a complex, from 공동주택관리정보 (K-apt). */
+export interface RealEstateFacts {
+  id: string;
+  matched: boolean;
+  households: number | null;
+  parking: number | null;
+  parking_ground?: number | null;
+  parking_under?: number | null;
+  parking_per_household: number | null;
+  kapt_name?: string;
+  error?: string;
+}
+
 export interface RealEstateTrade {
   date: string;
   price: number;
@@ -1177,6 +1190,8 @@ export const api = {
   realEstateRegions: () => getJSON<{ source: string; sido: RealEstateSido[] }>(`${BASE}/realestate/regions`),
   realEstateComplex: (id: string, period: RealEstatePeriod) =>
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
+  realEstateFacts: (id: string) =>
+    getJSONFresh<RealEstateFacts>(`${BASE}/realestate/facts?id=${encodeURIComponent(id)}`),
   realEstateMap: (q: { sido?: string; sgg?: string; dong?: string; period: RealEstatePeriod; top?: number }) => {
     const params = new URLSearchParams({ period: q.period });
     if (q.sgg) params.set("sgg", q.sgg);

@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { RealEstateItem } from "../api/client";
+import { RealEstateFacts, RealEstateItem } from "../api/client";
 import { pct } from "../mapTile";
 import AptBrandIcon, { brandLabel } from "./AptBrandIcon";
 
@@ -87,6 +87,31 @@ function TradeChart({ item }: { item: RealEstateItem }) {
   );
 }
 
+/** 세대수, 주차대수 and 세대당 주차 (to one decimal), from K-apt. */
+function FactsRow({ facts }: { facts: RealEstateFacts | null }) {
+  const missing = facts === null ? "…" : "—";
+  const note = facts === null ? null : facts.error ? "불러오지 못함" : !facts.matched ? "K-apt 미등록" : null;
+  const under = facts?.parking_under ?? null;
+  return (
+    <div className="re-pop-kpis re-pop-facts">
+      <div>
+        <small>세대수</small>
+        <b>{facts?.households ? `${facts.households.toLocaleString()}세대` : missing}</b>
+        {note && <span>{note}</span>}
+      </div>
+      <div>
+        <small>주차 가능</small>
+        <b>{facts?.parking !== null && facts?.parking !== undefined ? `${facts.parking.toLocaleString()}대` : missing}</b>
+        {under !== null && facts?.parking ? <span>지하 {under.toLocaleString()}대</span> : null}
+      </div>
+      <div>
+        <small>세대당 주차</small>
+        <b>{facts?.parking_per_household !== null && facts?.parking_per_household !== undefined ? `${facts.parking_per_household.toFixed(1)}대` : missing}</b>
+      </div>
+    </div>
+  );
+}
+
 export interface PopupContext {
   periodLabel: string;
   /** e.g. "서울특별시" / "강남구" — the region the map is showing. */
@@ -116,6 +141,7 @@ export default function RealEstatePopup({
   selector,
   others,
   onPickType,
+  facts,
 }: {
   item: RealEstateItem;
   ctx: PopupContext;
@@ -124,6 +150,8 @@ export default function RealEstatePopup({
   /** Overrides item.types: the 평형 other than the one shown. */
   others?: OtherType[];
   onPickType?: (key: number) => void;
+  /** 세대수·주차 — null while loading; left out (the hover preview) hides the row. */
+  facts?: RealEstateFacts | null;
 }) {
   const otherTypes: OtherType[] = others ?? item.types;
   const brand = brandLabel(item.brand);
@@ -211,6 +239,8 @@ export default function RealEstatePopup({
           <span>전 평형 {item.trades_1y}건</span>
         </div>
       </div>
+
+      {facts !== undefined && <FactsRow facts={facts} />}
 
       {recent.length > 0 && (
         <div className="re-pop-section">

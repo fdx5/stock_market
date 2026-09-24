@@ -37,6 +37,15 @@ CREATE TABLE IF NOT EXISTS re_trade_months (
 )
 """
 
+# 공동주택관리정보 lookups (a 시군구's 단지 list, one 단지's 세대수·주차), JSON as fetched.
+_FACTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS re_complex_facts (
+    key TEXT PRIMARY KEY,
+    fetched_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+)
+"""
+
 
 def _connect():
     if TURSO_DATABASE_URL:
@@ -48,6 +57,7 @@ def _connect():
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
+    conn.execute(_FACTS_SCHEMA)
     conn.commit()
     return conn
 
@@ -118,3 +128,31 @@ def fetched_index() -> dict[tuple[str, str], str]:
         return conn.execute("SELECT lawd_cd, deal_ym, fetched_at FROM re_trade_months").fetchall()
 
     return {(str(a), str(b)): str(c) for a, b, c in _with_connection(_run)}
+
+
+def save_facts(key: str, payload, fetched_at: str) -> None:
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+    def _run(conn):
+        conn.execute(
+            "INSERT OR REPLACE INTO re_complex_facts (key, fetched_at, payload) VALUES (?, ?, ?)",
+            (key, fetched_at, body),
+        )
+        conn.commit()
+
+    _with_connection(_run)
+
+
+def load_facts(key: str) -> tuple[str, object] | None:
+    """(fetched_at, payload) of one stored lookup, or None."""
+
+    def _run(conn):
+        return conn.execute("SELECT fetched_at, payload FROM re_complex_facts WHERE key = ?", (key,)).fetchall()
+
+    rows = _with_connection(_run)
+    if not rows:
+        return None
+    try:
+        return str(rows[0][0]), json.loads(rows[0][1])
+    except Exception:
+        return None

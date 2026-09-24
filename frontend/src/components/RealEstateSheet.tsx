@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, RealEstateItem, RealEstatePeriod, RealEstateTypeView } from "../api/client";
+import { api, RealEstateFacts, RealEstateItem, RealEstatePeriod, RealEstateTypeView } from "../api/client";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import RealEstatePopup, { OtherType, PopupContext } from "./RealEstatePopup";
 
@@ -73,6 +73,25 @@ export default function RealEstateSheet({
     };
   }, [item, period]);
 
+  // 세대수·주차 come from K-apt through their own request, so a slow or missing
+  // lookup never holds up the 평형 data.
+  const [facts, setFacts] = useState<RealEstateFacts | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setFacts(null);
+    api
+      .realEstateFacts(item.id)
+      .then((res) => {
+        if (!cancelled) setFacts(res);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setFacts({ id: item.id, matched: false, households: null, parking: null, parking_per_household: null, error: e.message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id]);
+
   const view = views.find((v) => v.key === selected) ?? null;
   const repKey = useMemo(() => representativeKey(item, views), [item, views]);
 
@@ -130,6 +149,7 @@ export default function RealEstateSheet({
             selector={selector}
             others={others}
             onPickType={views.length ? setSelected : undefined}
+            facts={facts}
           />
         </div>
         <footer className="re-sheet-actions">
