@@ -98,6 +98,10 @@ html.is-desk2 body {
 /* ── base ────────────────────────────────────────────────────────────────── */
 
 .d2 {
+  /* Headline sizes scale with this box (cqi), not the viewport (vw). While a
+     window is dragged resizeQuiet holds this box's width, so they stay put and
+     the text is not re-laid-out on every frame; with vw they followed the edge. */
+  container-type: inline-size;
   min-height: 100vh;
   background: var(--p0);
   color: var(--ink);
@@ -452,11 +456,21 @@ html.is-desk2 body {
   gap: 6px;
 }
 .d2-mast-readers i {
+  position: relative;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: var(--live);
-  box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 60%, transparent);
+}
+/* The ring grows by transform and fades by opacity, both of which the compositor
+   runs on its own. Animating box-shadow instead repainted the masthead on the main
+   thread every frame, forever, on every broadsheet page. */
+.d2-mast-readers i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--live) 55%, transparent);
   animation: d2-beat 2.4s ease-out infinite;
 }
 .d2-mast-readers b {
@@ -469,13 +483,13 @@ html.is-desk2 body {
 }
 @keyframes d2-beat {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--live) 55%, transparent);
+    transform: scale(1);
+    opacity: 1;
   }
-  70% {
-    box-shadow: 0 0 0 7px transparent;
-  }
+  70%,
   100% {
-    box-shadow: 0 0 0 0 transparent;
+    transform: scale(3);
+    opacity: 0;
   }
 }
 .d2-mast-tool {
@@ -539,7 +553,7 @@ html.is-desk2 body {
 .d2-mast-name h1 {
   font-family: var(--f-serif);
   font-weight: 900;
-  font-size: clamp(40px, 5.4vw, 76px);
+  font-size: clamp(40px, 5.4cqi, 76px);
   line-height: 0.95;
   letter-spacing: -0.045em;
 }
@@ -827,9 +841,10 @@ html.is-desk2 body {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: color-mix(in srgb, var(--p0) 92%, transparent);
-  backdrop-filter: saturate(1.2) blur(10px);
-  -webkit-backdrop-filter: saturate(1.2) blur(10px);
+  /* Solid, not a frosted backdrop-filter: a blurred sticky bar re-rasters what is
+     under it on every scroll and resize frame, for a see-through the 92% paper
+     tint barely showed. */
+  background: var(--p0);
   border-bottom: 1px solid var(--rule-2);
 }
 .d2-cmd-inner {
@@ -1013,7 +1028,7 @@ html.is-desk2 body {
   text-wrap: balance;
   font-family: var(--f-serif);
   font-weight: 800;
-  font-size: clamp(24px, 2.6vw, 34px);
+  font-size: clamp(24px, 2.6cqi, 34px);
   line-height: 1.18;
   letter-spacing: -0.035em;
 }
@@ -1070,7 +1085,7 @@ html.is-desk2 body {
 .d2-lead-head {
   font-family: var(--f-serif);
   font-weight: 900;
-  font-size: clamp(36px, 5vw, 68px);
+  font-size: clamp(36px, 5cqi, 68px);
   line-height: 1.07;
   letter-spacing: -0.045em;
   max-width: 18ch;
@@ -1468,7 +1483,7 @@ html.is-desk2 body {
 }
 .d2-idx-value {
   font-family: var(--f-mono);
-  font-size: clamp(36px, 3.4vw, 48px);
+  font-size: clamp(36px, 3.4cqi, 48px);
   font-weight: 500;
   letter-spacing: -0.05em;
   line-height: 1.05;
@@ -3937,7 +3952,7 @@ tr.is-alert-cool .d2-macro-alert {
 .d2 .d2-idx-value {
   font-weight: 600;
   letter-spacing: -0.025em;
-  font-size: clamp(40px, 3.8vw, 54px);
+  font-size: clamp(40px, 3.8cqi, 54px);
 }
 .d2 .d2-temp-read > b {
   font-weight: 700;
@@ -4054,7 +4069,7 @@ tr.is-alert-cool .d2-macro-alert {
   font-family: var(--f-black);
   font-weight: 400;
   letter-spacing: -0.01em;
-  font-size: clamp(44px, 5.8vw, 84px);
+  font-size: clamp(44px, 5.8cqi, 84px);
   line-height: 1;
 }
 .d2 .d2-mast-name h1.is-blackletter span {
@@ -4218,7 +4233,7 @@ tr.is-alert-cool .d2-macro-alert {
 .d2 .d2-mast-name--section h1 {
   font-family: var(--f-display);
   font-weight: 900;
-  font-size: clamp(38px, 4.6vw, 64px);
+  font-size: clamp(38px, 4.6cqi, 64px);
   line-height: 1;
   letter-spacing: -0.045em;
 }

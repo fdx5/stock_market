@@ -17506,15 +17506,9 @@ thead .pred-matrix-ratehead {
   }
 }
 
-/* Set on <html> for the length of a window drag by resizeQuiet.ts. Percentage
-   gauges carry `transition: width` so the bar glides when its value moves; a
-   resize changes the same computed width, so without this every frame of a drag
-   restarts a sub-second animation on every bar on the page.
-
-   Running keyframe animations are frozen for the same window. Each one holds a
-   compositing layer that is re-layerized and re-rastered on every step of the
-   drag, and measured on the desk that was a third of the main-thread work left
-   after the layout fixes. Paused rather than removed, so nothing jumps. */
-html.is-window-resizing *,
-html.is-window-resizing *::before,
-html.is-window-resizing *::after{transition:none!important;animation-play-state:paused!important}
+/* resizeQuiet.ts used to set a class on <html> here that switched off every
+   transition and animation on the page through `html.is-window-resizing *`. Keyed
+   on the root with a universal descendant, every toggle restyled the whole
+   document -- the single most expensive thing a window drag did. Holding the
+   page's width (see resizeQuiet.ts) already keeps gauges from changing size
+   mid-drag, so the rule is gone; do not reintroduce a selector of that shape. */

@@ -1,57 +1,83 @@
 /** Holds a page still while a window edge is being dragged.
  *
- * Two things happen for the length of the drag: the page keeps the width it had
- * when the drag started, and it stops animating itself. Both are released a beat
- * after the last resize event, and the page reflows once.
+ * Dragging a window edge reflows the whole page on every frame, and traced
+ * against the live site that reflow -- not script, not the charts -- was what was
+ * left after everything else had been cut. So the page keeps the width it had
+ * when the drag started and reflows once, a beat after the last resize event.
  *
- * Percentage-width gauges are everywhere on this site — breadth bars, flow bars,
- * sector meters, score meters — and most of them carry `transition: width` so the
- * bar glides when its *value* changes. CSS cannot tell the two apart: widening the
- * window changes the same computed px width, so every frame of a drag starts a
- * fresh sub-second width animation on every bar on the page, and the layout keeps
- * animating for another beat after the drag stops.
+ * The cost is visible and deliberate: content does not follow the edge while it
+ * is moving, leaving a gap when widening and clipping when narrowing, and snaps
+ * into place on release.
  *
- * Transitions are suppressed for the duration of the drag instead, which costs two
- * style recalculations — one when the class goes on, one when it comes off —
- * rather than a continuous animation per bar. Nothing is lost: a transition exists
- * to show a value moving, and no value moves because a window got wider.
+ * Two things this used to do made a drag *slower*, and must not come back:
+ *
+ * - It toggled a class on <html> matched by `html.is-window-resizing *` to switch
+ *   off transitions and animations. A universal descendant selector keyed on the
+ *   root invalidates every element's style, so each toggle cost a full-document
+ *   style recalc -- 50-90ms on the broadsheet pages (8-12k elements), twice per
+ *   drag. Nothing needs it: with the width held, no percentage gauge changes size
+ *   mid-drag, so no width transition starts.
+ * - It read `offsetWidth` inside the resize event, right after that class write,
+ *   forcing that recalc and a full layout synchronously. The width is now kept
+ *   current by a ResizeObserver, which reports after layout and forces nothing.
+ *
+ * Those two together fed on themselves: a frame slower than the settle delay
+ * released the hold mid-drag, and the next event paid for all of it again.
  */
-const QUIET_CLASS = "is-window-resizing";
 /** How long after the last resize event the page is considered settled. */
-const SETTLE_MS = 150;
-/** The element that owns a page's layout width, in document order. */
-const PAGE_ROOT = ".app, .si-page";
+const SETTLE_MS = 200;
+/** The element that owns a page's layout width, in document order. Every page has
+ * to be named here or it silently reflows on every frame of a drag -- the
+ * broadsheet pages (`.d2`) were missing, and they are the heaviest on the site. */
+const PAGE_ROOT = ".app, .si-page, .d2";
 
 export function installResizeQuiet(): void {
   if (typeof window === "undefined") return;
   let settleTimer = 0,
     frozen: HTMLElement | null = null,
-    lastWidth = window.innerWidth;
+    lastWidth = window.innerWidth,
+    observed: HTMLElement | null = null,
+    observedWidth = 0;
+
+  const observer =
+    typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver((entries) => {
+          const entry = entries[entries.length - 1];
+          const box = entry.borderBoxSize?.[0];
+          observedWidth = box ? box.inlineSize : (entry.target as HTMLElement).offsetWidth;
+        });
+
+  /** Starts watching the current page root, so its width is on hand before a drag. */
+  const watch = () => {
+    const el = document.querySelector<HTMLElement>(PAGE_ROOT);
+    if (!el || el === observed || !observer) return el;
+    if (observed) observer.unobserve(observed);
+    observed = el;
+    observedWidth = 0;
+    observer.observe(el);
+    return el;
+  };
 
   const release = () => {
     settleTimer = 0;
-    document.documentElement.classList.remove(QUIET_CLASS);
     document.documentElement.style.overflowX = "";
     if (frozen) {
       frozen.style.width = "";
       frozen = null;
     }
+    // A route change swaps the root; pick up the new one while the page is idle.
+    watch();
   };
 
-  /* Dragging a window edge reflows the whole page on every frame, and traced
-     against the live site that reflow -- not script, not the charts -- was what
-     was left after everything else had been cut. So the page keeps the width it
-     had when the drag started and reflows once, when the drag ends.
-
-     The cost is visible and deliberate: content does not follow the edge while
-     it is moving, leaving a gap when widening and clipping when narrowing, and
-     snaps into place on release. Measured on a stock detail page that trade
-     removes 95% of the layout and 83% of the rasterisation a drag costs. */
   const freeze = () => {
-    const el = document.querySelector<HTMLElement>(PAGE_ROOT);
+    const el = watch();
     if (!el) return;
+    // The observed width is the one from before this event -- exactly the width
+    // to hold. Only a root that appeared since the last check has to be measured.
+    const width = el === observed && observedWidth > 0 ? observedWidth : el.offsetWidth;
     frozen = el;
-    el.style.width = `${el.offsetWidth}px`;
+    el.style.width = `${width}px`;
     document.documentElement.style.overflowX = "hidden";
   };
 
@@ -65,12 +91,15 @@ export function installResizeQuiet(): void {
       if (width === lastWidth) return;
       lastWidth = width;
       if (settleTimer) window.clearTimeout(settleTimer);
-      else {
-        document.documentElement.classList.add(QUIET_CLASS);
-        freeze();
-      }
+      else freeze();
       settleTimer = window.setTimeout(release, SETTLE_MS);
     },
     { passive: true },
   );
+
+  // Pages mount after this runs; catch the root once it exists.
+  const prime = () => {
+    if (!watch()) window.setTimeout(prime, 500);
+  };
+  window.setTimeout(prime, 0);
 }

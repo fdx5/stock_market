@@ -127,7 +127,7 @@
 .d2 .cf-corner h3 {
   font-family: var(--f-display);
   font-weight: 900;
-  font-size: clamp(26px, 3vw, 40px);
+  font-size: clamp(26px, 3cqi, 40px);
   letter-spacing: -0.035em;
   line-height: 1.1;
 }
@@ -305,7 +305,7 @@
 .d2 .cf-head {
   font-family: var(--f-display);
   font-weight: 900;
-  font-size: clamp(30px, 4.4vw, 60px);
+  font-size: clamp(30px, 4.4cqi, 60px);
   line-height: 1.1;
   letter-spacing: -0.045em;
   max-width: 22ch;
@@ -438,7 +438,7 @@
 .d2 .cf-side h3 {
   font-family: var(--f-display);
   font-weight: 900;
-  font-size: clamp(26px, 2.8vw, 38px);
+  font-size: clamp(26px, 2.8cqi, 38px);
   letter-spacing: -0.035em;
   line-height: 1.12;
   margin-top: 4px;

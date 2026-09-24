@@ -75,7 +75,7 @@
 .d2 .nw-company h2 {
   font-family: var(--f-display);
   font-weight: 900;
-  font-size: clamp(34px, 4.6vw, 62px);
+  font-size: clamp(34px, 4.6cqi, 62px);
   letter-spacing: -0.045em;
   line-height: 1.05;
 }
@@ -170,7 +170,7 @@
 .d2 .nw-lead-head {
   font-family: var(--f-display);
   font-weight: 900;
-  font-size: clamp(26px, 3vw, 40px);
+  font-size: clamp(26px, 3cqi, 40px);
   line-height: 1.2;
   letter-spacing: -0.035em;
   text-wrap: balance;
@@ -324,7 +324,7 @@
 .d2 .nw-article-head {
   font-family: var(--f-display);
   font-weight: 900;
-  font-size: clamp(26px, 3.4vw, 42px);
+  font-size: clamp(26px, 3.4cqi, 42px);
   line-height: 1.22;
   letter-spacing: -0.035em;
   margin-top: 8px;

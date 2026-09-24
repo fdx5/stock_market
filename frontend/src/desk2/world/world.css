@@ -9,7 +9,7 @@
 .d2 .wd-head {
   font-family: var(--f-display);
   font-weight: 900;
-  font-size: clamp(30px, 4.3vw, 58px);
+  font-size: clamp(30px, 4.3cqi, 58px);
   line-height: 1.12;
   letter-spacing: -0.045em;
   max-width: 24ch;
