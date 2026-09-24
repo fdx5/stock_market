@@ -104,6 +104,8 @@ def _stored(key: str, fresh: dt.timedelta, fetch):
         if failed and now - failed[0] < FAILURE_RETRY_SECONDS:
             raise FactsError(failed[1])
     row = realestate_store.load_facts(key)
+    if row and not row[1]:  # an empty 단지 list stored before those were refused
+        row = None
     if row:
         fetched_at, payload = row
         try:
@@ -145,8 +147,11 @@ def _sgg_list(lawd: str) -> list[dict]:
                 if it.get("kaptCode")
             )
             if not items or page * LIST_ROWS >= total:
-                return out
+                break
             page += 1
+        if not out:  # never store "this 시군구 has no 단지" — it is an API hiccup
+            raise FactsError(f"단지 목록이 비어 있습니다 (totalCount {total})")
+        return out
 
     return _stored(f"list:{lawd}", LIST_FRESH, fetch)
 
@@ -216,9 +221,10 @@ def complex_facts(complex_id: str) -> dict:
         raise LookupError("no such complex")
     out = {"id": complex_id, "matched": False, "households": None, "parking": None, "parking_per_household": None}
     try:
-        found = match(c["name"], c["dong"], _sgg_list(lawd))
+        listed = _sgg_list(lawd)
+        found = match(c["name"], c["dong"], listed)
         if found is None:
-            return out
+            return {**out, "listed": len(listed)}
         info = _info(found["code"])
     except FactsError as exc:
         log.info("realestate facts %s: %s", complex_id, exc)
