@@ -10,7 +10,7 @@ import Masthead from "../desk2/Masthead";
 import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
 import Tape from "../desk2/Tape";
-import AptBrandIcon, { brandLabel } from "./AptBrandIcon";
+import AptBrandIcon, { brandIconWidth, brandLabel } from "./AptBrandIcon";
 
 /* /realestate-map — 부동산 맵. The same broadsheet treemap as the four market maps,
  * over apartment complexes instead of listed companies: 시·도 → 시·군·구 → 읍·면·동
@@ -428,7 +428,7 @@ export default function RealEstateMapPage() {
                         // The brand mark goes in front of the name whenever the tile is wide
                         // enough to keep a few letters beside it, even if the name then
                         // truncates — on this map the brand is often the most telling word.
-                        const showIcon = showName && !!it.brand && tile.w >= iconSize * 4;
+                        const showIcon = showName && !!it.brand && tile.w >= brandIconWidth(it.brand, iconSize) + iconSize * 2.5;
                         const showPrice = showName && tile.h >= 64 && tile.w >= 70;
                         const label = it.change_pct === null ? "거래없음" : pct(it.change_pct);
                         return (
@@ -535,7 +535,7 @@ export default function RealEstateMapPage() {
             )}
             <p className="re-map-source">
               자료: 국토교통부 아파트 매매 실거래가 (공공데이터포털). 면적은 단지 대표 평형(최근 1년 최다 거래 전용면적)의 시세(최근 거래 최대 3건 중간값, 직거래 제외), 그룹 면적은
-              지역 내 시세 합계 비중입니다. 브랜드 표시는 단지명 기준 자동 분류입니다.
+              지역 내 시세 합계 비중입니다. 브랜드 표시는 단지명 기준 자동 분류이며, 로고는 Wikimedia Commons(힐스테이트·우미린 CC BY-SA)와 각 사 공식 사이트에서 가져왔습니다. 로고가 없는 브랜드는 약식 표지로 표시합니다.
             </p>
           </div>
         </div>

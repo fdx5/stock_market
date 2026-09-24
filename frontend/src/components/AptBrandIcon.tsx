@@ -1,12 +1,14 @@
 import { CSSProperties } from "react";
 
-/** Apartment brand marks for the 부동산 맵's tiles.
+/** Apartment brand marks for the 부동산 맵's tiles, table and tooltip.
  *
- * The backend names the brand (realestate_map.BRANDS); this draws it. What it draws by
- * default is a monogram in the brand's colour — not the builders' registered logos,
- * which this site has no licence to redistribute. Dropping an official logo file into
- * public/img/apt-brands/ and naming it in BRAND_IMAGES swaps that brand's monogram for
- * the image everywhere it appears, tiles and table alike. */
+ * The backend names the brand (realestate_map.BRANDS); this draws it — the brand's
+ * logo where public/img/apt-brands/ has one, otherwise a monogram in its colour.
+ *
+ * Logo sources: Wikimedia Commons (public domain / CC0 text logos; 힐스테이트 and
+ * 우미린 are CC BY-SA, credited on the page), Korean Wikipedia (롯데캐슬, 현대건설),
+ * and the builders' own sites (센트레빌, 데시앙, 한화 포레나, LH, 중흥 S-클래스).
+ * The e편한세상 file on Commons is the cloud alone; its wordmark was set over it. */
 
 interface Brand {
   ko: string;
@@ -47,8 +49,38 @@ export const APT_BRANDS: Record<string, Brand> = {
   hyundai: { ko: "현대", mark: "HD", color: "#002c5f" },
 };
 
-/** brand key -> image path under public/, for brands with an official logo on hand. */
-const BRAND_IMAGES: Partial<Record<string, string>> = {};
+/** brand key -> logo under public/, with its width:height, so a caller can tell how
+ * much of a tile the mark will take before drawing it. */
+const BRAND_IMAGES: Partial<Record<string, { src: string; ratio: number }>> = {
+  centreville: { src: "/img/apt-brands/centreville.png", ratio: 2.43 },
+  desian: { src: "/img/apt-brands/desian.png", ratio: 1.67 },
+  eplus: { src: "/img/apt-brands/eplus.png", ratio: 1.51 },
+  hanwha: { src: "/img/apt-brands/hanwha.png", ratio: 3.46 },
+  hillstate: { src: "/img/apt-brands/hillstate.png", ratio: 1.31 },
+  humansia: { src: "/img/apt-brands/humansia.png", ratio: 2.66 },
+  hyundai: { src: "/img/apt-brands/hyundai.svg", ratio: 5.62 },
+  ipark: { src: "/img/apt-brands/ipark.png", ratio: 4.85 },
+  lottecastle: { src: "/img/apt-brands/lottecastle.png", ratio: 1.9 },
+  prugio: { src: "/img/apt-brands/prugio.png", ratio: 5.71 },
+  raemian: { src: "/img/apt-brands/raemian.png", ratio: 1.46 },
+  sclass: { src: "/img/apt-brands/sclass.png", ratio: 4.8 },
+  skview: { src: "/img/apt-brands/skview.png", ratio: 5.27 },
+  sujain: { src: "/img/apt-brands/sujain.svg", ratio: 3.68 },
+  thesharp: { src: "/img/apt-brands/thesharp.png", ratio: 1.18 },
+  woomi: { src: "/img/apt-brands/woomi.png", ratio: 2.82 },
+  xi: { src: "/img/apt-brands/xi.png", ratio: 1.88 },
+};
+
+/** A wide wordmark is capped at this many heights and shrinks inside that box. */
+const MAX_RATIO = 3.2;
+const PLATE_PAD = 1;
+
+/** How wide the mark for `brand` is drawn at height `size`, plate included. */
+export function brandIconWidth(brand: string | null | undefined, size: number): number {
+  if (!brand || !APT_BRANDS[brand]) return 0;
+  const image = BRAND_IMAGES[brand];
+  return image ? Math.round(Math.min(image.ratio, MAX_RATIO) * size) + PLATE_PAD * 2 : size;
+}
 
 export function brandLabel(key: string | null | undefined): string | null {
   return key && APT_BRANDS[key] ? APT_BRANDS[key].ko : null;
@@ -69,15 +101,30 @@ export default function AptBrandIcon({
   if (!b) return null;
   const image = BRAND_IMAGES[brand];
   if (image) {
+    // Logos are drawn for a white page; on a coloured tile they sit on a white plate,
+    // the way the US maps' company logos do.
+    const width = brandIconWidth(brand, size);
     return (
       <img
         className={className}
-        src={image}
+        src={image.src}
         alt={b.ko}
-        width={size}
+        title={b.ko}
+        width={width}
         height={size}
         loading="lazy"
-        style={{ background: "#fff", borderRadius: 3, objectFit: "contain", ...style }}
+        decoding="async"
+        style={{
+          width,
+          height: size,
+          flexShrink: 0,
+          boxSizing: "border-box",
+          padding: PLATE_PAD,
+          background: "#fff",
+          borderRadius: 2,
+          objectFit: "contain",
+          ...style,
+        }}
       />
     );
   }
