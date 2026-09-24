@@ -43,6 +43,7 @@ FAILURE_RETRY_SECONDS = 600
 _lock = threading.Lock()
 _memo: dict[str, tuple[float, object]] = {}
 _failures: dict[str, tuple[float, str]] = {}
+_last_raw = ""  # the latest response's head, quoted when a list comes back empty
 
 
 class FactsError(RuntimeError):
@@ -54,11 +55,15 @@ def _items(res: requests.Response) -> tuple[list[dict], int]:
     text = res.text.strip()
     if text.startswith("{"):
         payload = res.json()
-        header = payload.get("response", {}).get("header", {})
+        # Most services wrap header and body in "response"; some answer them bare.
+        envelope = payload.get("response") if isinstance(payload.get("response"), dict) else payload
+        header = envelope.get("header") or {}
         code = str(header.get("resultCode") or "00")
         if code not in ("00", "000"):
             raise FactsError(f"{code} {header.get('resultMsg') or ''}".strip())
-        body = payload.get("response", {}).get("body") or {}
+        body = envelope.get("body") or {}
+        if not body and "items" not in envelope:
+            raise FactsError(f"알 수 없는 응답: {text[:160]!r}")
         items = body.get("items")
         if isinstance(items, dict):
             items = items.get("item")
@@ -89,7 +94,9 @@ def _get(url: str, params: dict) -> tuple[list[dict], int]:
         raise FactsError("MOLIT_API_KEY 미설정")
     if not rm._count_call():
         raise FactsError("daily call budget exhausted")
+    global _last_raw
     res = requests.get(url, params={"serviceKey": key, "_type": "json", **params}, timeout=20)
+    _last_raw = res.text[:200]
     return _items(res)
 
 
@@ -150,7 +157,7 @@ def _sgg_list(lawd: str) -> list[dict]:
                 break
             page += 1
         if not out:  # never store "this 시군구 has no 단지" — it is an API hiccup
-            raise FactsError(f"단지 목록이 비어 있습니다 (totalCount {total})")
+            raise FactsError(f"단지 목록이 비어 있습니다: {_last_raw!r}")
         return out
 
     return _stored(f"list:{lawd}", LIST_FRESH, fetch)

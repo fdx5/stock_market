@@ -80,3 +80,9 @@ def test_unregistered_key_reports_error_once(world, monkeypatch):
     assert "NOT_REGISTERED" in rf.complex_facts("11680:S1")["error"]
     assert "NOT_REGISTERED" in rf.complex_facts("11680:S1")["error"]
     assert len(world) == 1  # the failure is remembered, not retried per card
+
+
+def test_bare_envelope_is_read():
+    res = FakeResponse({"header": {"resultCode": "00"}, "body": {"items": [{"kaptCode": "A1", "kaptName": "은마"}], "totalCount": 1}})
+    items, total = rf._items(res)
+    assert items[0]["kaptCode"] == "A1" and total == 1
