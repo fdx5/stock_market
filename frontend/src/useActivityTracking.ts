@@ -67,6 +67,8 @@ export function pageLabel(path: string): string {
   if (path === "/etf/compare/{codes}") return "ETF 비교";
   if (path === "/" || path === "/hub" || path === "/type2") return "메인 (태양계)";
   if (path === "/desk") return "마켓 데스크";
+  if (path === "/desk2") return "마켓 데스크 (위젯판)";
+  if (path === "/dram-price") return "D램 현물가격";
   if (path === "/stocks") return "종목정보";
   if (/^\/stock\/\d{6}$/i.test(path)) return "국내 종목 상세";
   // Same route as above, US side: /stock/AAPL renders UsStockIntelligencePage. Without
@@ -91,6 +93,7 @@ export function pageLabel(path: string): string {
   if (path === "/kosdaq-map") return "KOSDAQ 맵";
   if (path === "/sp500-map") return "S&P500 맵";
   if (path === "/nasdaq100-map") return "NASDAQ100 맵";
+  if (path === "/realestate-map") return "부동산 지도";
   if (path === "/global") return "해외 종목";
   if (path === "/global-top100") return "글로벌 시총 TOP100";
   if (path === "/etf") return "ETF 마켓";
@@ -112,6 +115,7 @@ export function pageLabel(path: string): string {
   if (path === "/admin/db") return "관리자 DB";
   if (path === "/admin/monitor") return "관리자 모니터";
   if (path === "/admin/growth") return "성장 통계";
+  if (path === "/admin/live") return "관리자 실시간";
   return "기타";
 }
 
