@@ -325,7 +325,7 @@ export default function RealEstateMapPage() {
                 <span className="kospi-map-legend-label">하락</span>
                 <span className="kospi-map-legend-bar" />
                 <span className="kospi-map-legend-label">상승</span>
-                <span className="kospi-map-legend-scale">±10% 포화 · 빗금 = 기간 내 거래 없음</span>
+                <span className="kospi-map-legend-scale">±10% 포화 · 회색 = 기간 내 거래 없음</span>
               </div>
               <div className="re-map-filters">
                 <label className="kospi-map-sector-filter">
