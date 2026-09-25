@@ -355,6 +355,21 @@ export default function RealEstateMapPage() {
    * a desktop), where its 평형 can be switched and moving into its region is a
    * button. On a desktop the hover card still previews it. */
   const touchUi = useMediaQuery("(hover: none), (pointer: coarse)");
+  /** Tablets and phones stack the region map above the treemap (styles.css, 980px). */
+  const stacked = useMediaQuery("(max-width: 980px)");
+  const mainRef = useRef<HTMLDivElement>(null);
+  /** On a stacked layout a region picked on the region map scrolls down to the
+   * treemap it just changed, clear of the sticky command bar. */
+  const revealTreemap = () => {
+    requestAnimationFrame(() => {
+      const el = mainRef.current;
+      if (!el) return;
+      const bar = document.querySelector<HTMLElement>(".d2-cmd");
+      const offset = (bar && getComputedStyle(bar).position === "sticky" ? bar.offsetHeight : 0) + 8;
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - offset, behavior: reduce ? "auto" : "smooth" });
+    });
+  };
   // The region map folds away on a phone, where it sits above the treemap; the choice
   // is remembered.
   const [regionMapOpen, setRegionMapOpen] = useState(() => {
@@ -678,6 +693,7 @@ export default function RealEstateMapPage() {
                       setSido(next.sido);
                       setSgg(next.sgg);
                       setDong(next.dong);
+                      if (stacked) revealTreemap();
                     }}
                   />
                 </Suspense>
@@ -698,7 +714,7 @@ export default function RealEstateMapPage() {
             </p>
           </aside>
 
-          <div className="kospi-map-workspace-main">
+          <div className="kospi-map-workspace-main" ref={mainRef}>
             <div className="kospi-map-legend re-map-legend">
               <div className="kospi-map-legend-info">
                 <span className="kospi-map-legend-label">하락</span>
