@@ -526,6 +526,13 @@
 
 /* The 부동산 맵's complex card, portalled to <body> (RealEstateSheet): the wrapper
    carries the page's classes for their styles but draws no box of its own. */
+/* !important and the doubled class: in the production bundle this sheet can come
+   before desk2.css, whose .d2 (display, min-height: 100vh, container-type) then won —
+   the wrapper became a screen-tall box at the end of <body> and the card was
+   positioned inside it, below the page. */
+.d2.re-sheet-portal,
 .re-sheet-portal {
-  display: contents;
+  display: contents !important;
+  min-height: 0 !important;
+  container-type: normal !important;
 }
