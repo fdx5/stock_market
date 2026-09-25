@@ -352,6 +352,25 @@
   background: var(--rm3-hover);
 }
 
+/* The touch orbit mode: the stage keeps the finger, the button shows it is on. */
+.rm3-stage.is-orbit {
+  touch-action: none;
+  box-shadow: inset 0 0 0 2px var(--rm3-mark);
+}
+.d2.mm .rm3-controls .rm3-orbit {
+  font: 800 10.5px var(--f-num);
+  letter-spacing: 0.02em;
+}
+.d2.mm .rm3-controls .rm3-orbit.is-on {
+  border-color: var(--rm3-mark);
+  background: var(--rm3-mark);
+  color: #15130c;
+}
+.rm3-hint.is-orbit {
+  border-color: var(--rm3-mark);
+  animation: none;
+}
+
 .rm3-legend {
   display: grid;
   grid-template-columns: auto 1fr auto;

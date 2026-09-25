@@ -195,6 +195,7 @@ class RegionScene {
   private hemi: THREE.HemisphereLight;
   private theme: ThemeMode = "dark";
   private level: Level = "sgg";
+  private orbit = false;
   private blocks = new Map<string, Block>();
   private outline = new THREE.Group();
   private outlineMat = new LineMaterial({ color: HIGHLIGHT, linewidth: 2.4, transparent: true, depthTest: false });
@@ -221,7 +222,7 @@ class RegionScene {
   onGesture: () => void = () => {};
   private touch: boolean;
   private touches = new Map<number, { x: number; y: number }>();
-  private pinch: { dist: number; mid: { x: number; y: number } } | null = null;
+  private pinch: { dist: number; angle: number; mid: { x: number; y: number } } | null = null;
 
   constructor(private host: HTMLDivElement, labelLayer: HTMLDivElement, touch: boolean) {
     this.labelLayer = labelLayer;
@@ -269,8 +270,13 @@ class RegionScene {
     this.controls.maxPolarAngle = 1.12;
     this.controls.minAzimuthAngle = -0.85;
     this.controls.maxAzimuthAngle = 0.85;
-    // A finger on a phone scrolls the page; turning the map is a mouse gesture.
+    // On a phone one finger scrolls the page, so turning the map with one finger is
+    // a mode (setOrbit) the reader switches on; two fingers are handled here.
     this.controls.enabled = !touch;
+    this.controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: -1 as unknown as THREE.TOUCH };
+    // OrbitControls claims every touch on the canvas (touch-action: none); give the
+    // page its vertical scroll back until the orbit mode is on.
+    if (touch) this.renderer.domElement.style.touchAction = "pan-y";
     this.controls.addEventListener("change", () => (this.dirty = true));
     this.controls.addEventListener("start", () => (this.tween = null));
 
@@ -544,6 +550,24 @@ class RegionScene {
     this.frame(true);
   }
 
+  /** Touch screens: one finger turns and tilts the map, as a mouse drag does. */
+  setOrbit(on: boolean) {
+    if (!this.touch) return;
+    this.orbit = on;
+    this.dirty = true;
+    this.controls.enabled = on;
+    this.renderer.domElement.style.touchAction = on ? "none" : "pan-y";
+  }
+
+  /** Turns the view about the map's centre by `angle` radians; the controls' own
+   * limits (the same as a mouse drag's) are applied on the next update. */
+  private twist(angle: number) {
+    const target = this.controls.target;
+    const offset = this.camera.position.clone().sub(target).applyAxisAngle(new THREE.Vector3(0, 0, 1), angle);
+    this.camera.position.copy(target).add(offset);
+    this.dirty = true;
+  }
+
   zoom(factor: number) {
     if (!this.fit) return;
     const target = this.controls.target.clone();
@@ -698,7 +722,8 @@ class RegionScene {
       if (!shown && b.region.key === this.selected) shown = { x0: x - w / 2, y0: y - h / 2, x1: x + w / 2, y1: y + h / 2 };
       if (shown) placed.push(shown);
       b.label.style.opacity = shown ? "1" : "0";
-      b.label.style.pointerEvents = shown && this.touch && b.region.pickable ? "auto" : "none";
+      // In the orbit mode a drag that starts on a label must reach the canvas.
+      b.label.style.pointerEvents = shown && this.touch && !this.orbit && b.region.pickable ? "auto" : "none";
       const at = shown ?? { x0: x - w / 2, y0: y - h / 2 };
       b.label.style.transform = `translate(${at.x0.toFixed(1)}px, ${at.y0.toFixed(1)}px)`;
     }
@@ -743,7 +768,11 @@ class RegionScene {
 
   private pinchState() {
     const [a, b] = [...this.touches.values()];
-    return { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+    return {
+      dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+      angle: Math.atan2(b.y - a.y, b.x - a.x),
+      mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 },
+    };
   }
 
   /** The map itself or one of its labels — not a button or card laid over it. */
@@ -778,6 +807,11 @@ class RegionScene {
     const now = this.pinchState();
     this.zoomAt(now.mid.x, now.mid.y, now.dist / this.pinch.dist);
     this.panBy(this.pinch.mid, now.mid);
+    // Two fingers turning turn the map with them.
+    let turn = now.angle - this.pinch.angle;
+    if (turn > Math.PI) turn -= 2 * Math.PI;
+    if (turn < -Math.PI) turn += 2 * Math.PI;
+    if (Math.abs(turn) > 0.002) this.twist(turn);
     this.pinch = now;
     this.onGesture();
   }
@@ -858,6 +892,7 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
   const [geoError, setGeoError] = useState(false);
   const [moves, setMoves] = useState<{ key: string; items: RealEstateRegionMove[]; pending: number } | null>(null);
   const [hover, setHover] = useState<{ region: Region; x: number; y: number } | null>(null);
+  const [orbit, setOrbit] = useState(false);
   // The pinch hint shows on a touch screen until the reader has zoomed once.
   const [hintSeen, setHintSeen] = useState(() => {
     try {
@@ -985,6 +1020,10 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
   }, [theme, webgl, touch]);
 
   useEffect(() => {
+    sceneRef.current?.setOrbit(orbit);
+  }, [orbit, webgl, touch]);
+
+  useEffect(() => {
     sceneRef.current?.setRegions(drawn, shapes?.level ?? "sgg");
     // A card left over from the regions just replaced would name the wrong place.
     setHover(null);
@@ -1070,7 +1109,7 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
         </nav>
       </header>
 
-      <div className="rm3-stage" ref={hostRef}>
+      <div className={`rm3-stage${orbit ? " is-orbit" : ""}`} ref={hostRef}>
         <div className="rm3-labels" ref={labelsRef} aria-hidden="true" />
         {!webgl && <p className="rm3-fallback">이 브라우저는 3D 지도(WebGL)를 지원하지 않습니다. 위의 지역 선택을 이용해 주세요.</p>}
         {geoError && <p className="rm3-fallback">지도 경계를 불러오지 못했습니다.</p>}
@@ -1080,8 +1119,9 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
             {pending > 0 ? `지역 등락 집계 중 ${Math.round(readyShare * 100)}%` : "지도를 그리는 중…"}
           </div>
         )}
-        {touch && webgl && !hintSeen && !loading && (
-          <p className="rm3-hint">두 손가락으로 확대·이동 · 지역 이름을 눌러도 선택됩니다</p>
+        {touch && webgl && orbit && <p className="rm3-hint is-orbit">한 손가락: 회전·기울기 · 두 손가락: 확대·이동·회전</p>}
+        {touch && webgl && !orbit && !hintSeen && !loading && (
+          <p className="rm3-hint">두 손가락으로 확대·이동·회전 · 지역 이름을 눌러도 선택됩니다</p>
         )}
         {hover && !touch && (
           <div
@@ -1115,6 +1155,17 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
         )}
         {webgl && (
           <div className="rm3-controls">
+            {touch && (
+              <button
+                type="button"
+                className={`rm3-orbit${orbit ? " is-on" : ""}`}
+                aria-pressed={orbit}
+                aria-label={orbit ? "회전 모드 끄기" : "한 손가락으로 회전·기울기"}
+                onClick={() => setOrbit((v) => !v)}
+              >
+                3D
+              </button>
+            )}
             <button type="button" onClick={() => sceneRef.current?.zoom(0.7)} aria-label="확대">
               +
             </button>
