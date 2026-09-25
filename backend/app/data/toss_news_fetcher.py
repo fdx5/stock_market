@@ -13,11 +13,58 @@ and run Readability over it, which is slow, fails on paywalls and script-built p
 and is the reason `paragraphs` can come back null. Here the body arrives as data.
 """
 
+import urllib.parse
+
 from app.data.toss_session import INFO_API, resolve_company_code, session
 from app.services.cache import cache
 
 TTL_NEWS_SECONDS = 5 * 60
 TTL_ARTICLE_SECONDS = 60 * 60
+TTL_IMAGE_SECONDS = 24 * 60 * 60
+IMAGE_MAX_BYTES = 3 * 1024 * 1024
+IMAGE_PROXY_PATH = "/api/global/toss-image"
+
+
+def is_toss_image(url: str) -> bool:
+    parts = urllib.parse.urlsplit(url)
+    host = (parts.hostname or "").lower()
+    return parts.scheme == "https" and (host == "tossinvest.com" or host.endswith(".tossinvest.com"))
+
+
+def _image(url: str | None) -> str | None:
+    """Toss's own image host answers with Cross-Origin-Resource-Policy: same-site, so a
+    browser on kospimap.com refuses to draw it (ERR_BLOCKED_BY_RESPONSE.NotSameSite) —
+    every US stock's lead story showed an empty frame. Those go through our proxy;
+    outlets' own image hosts are linked as they are."""
+    if url and is_toss_image(url):
+        return f"{IMAGE_PROXY_PATH}?u={urllib.parse.quote(url, safe='')}"
+    return url
+
+
+def get_toss_image(url: str) -> tuple[bytes, str] | None:
+    """The bytes and content type of a Toss-hosted image, cached for a day."""
+    if not is_toss_image(url):
+        return None
+
+    # A failure raises rather than returning None, so it is not cached for the day.
+    def fetch() -> tuple[bytes, str]:
+        response = session.get(url, headers={"Accept": "image/*"}, timeout=6, stream=True)
+        try:
+            response.raise_for_status()
+            kind = response.headers.get("Content-Type", "").split(";")[0].strip()
+            if not kind.startswith("image/"):
+                raise ValueError(f"not an image: {kind}")
+            body = response.raw.read(IMAGE_MAX_BYTES + 1, decode_content=True)
+            if len(body) > IMAGE_MAX_BYTES:
+                raise ValueError("image too large")
+            return body, kind
+        finally:
+            response.close()
+
+    try:
+        return cache.get_or_set(f"toss_image:{url}", TTL_IMAGE_SECONDS, fetch)
+    except Exception:
+        return None
 
 
 def _item(news: dict) -> dict:
@@ -32,7 +79,7 @@ def _item(news: dict) -> dict:
         "press_logo": source.get("faviconUrl") or "",
         "date": news.get("createdAt") or "",
         "summary": str(news.get("summary") or "").strip(),
-        "image_url": next(iter(news.get("imageUrls") or []), None),
+        "image_url": _image(next(iter(news.get("imageUrls") or []), None)),
     }
 
 

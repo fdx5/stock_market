@@ -3,11 +3,11 @@ import logging
 import math
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 
 from app.data import global_discussion_fetcher, kospi_futures_fetcher, price_fetcher
 from app.data.toss_discussion_fetcher import get_toss_discussion
-from app.data.toss_news_fetcher import get_toss_news, get_toss_news_article
+from app.data.toss_news_fetcher import get_toss_image, get_toss_news, get_toss_news_article
 from app.data.toss_session import resolve_product_code
 from app.data.us_universe import get_us_stock_item
 from app.services.battle import get_global_enrichment
@@ -235,3 +235,14 @@ def toss_news_article(id: str = Query(..., min_length=1, max_length=128)):
     segment is exactly the shape a path router is most likely to mangle.
     """
     return get_toss_news_article(id)
+
+
+@router.get("/toss-image")
+def toss_image(u: str = Query(..., min_length=1, max_length=512)):
+    """A Toss-hosted news image, relayed: Toss marks its images same-site only, so
+    the browser will not draw them on this site directly. Toss hosts only."""
+    image = get_toss_image(u)
+    if image is None:
+        raise HTTPException(status_code=404)
+    body, kind = image
+    return Response(content=body, media_type=kind, headers={"Cache-Control": "public, max-age=86400"})
