@@ -70,6 +70,7 @@ def test_brands():
 def _seed(monkeypatch, districts):
     monkeypatch.setattr(rm, "is_configured", lambda: False)
     monkeypatch.setattr(rm, "_district", lambda code: districts.get(code, {}))
+    monkeypatch.setattr(rm, "_prefetch", lambda codes: None)
 
 
 def test_map_change_is_latest_versus_last_price_before_window(monkeypatch):
@@ -259,3 +260,36 @@ def test_complex_detail_lays_out_every_pyeong(monkeypatch):
     assert t114["trades_1y"] == 0 and t114["change_pct"] is None
     with pytest.raises(LookupError):
         rm.complex_detail("11650:없는단지", "3m")
+
+
+def test_sido_map_is_served_from_the_last_build_and_rebuilt_behind(monkeypatch):
+    import json
+
+    stored = {}
+    monkeypatch.setattr(rm.realestate_store, "save_map", lambda key, body, at: stored.__setitem__(key, (at, body)))
+    monkeypatch.setattr(rm.realestate_store, "load_map", lambda key: stored.get(key))
+    monkeypatch.setattr(rm, "_map_cache", rm.OrderedDict())
+    queued = []
+    monkeypatch.setattr(rm, "_schedule_rebuild", lambda key, first=False: queued.append(key))
+    builds = []
+
+    def fake_build(sido, sgg, dong, period, top):
+        builds.append(sido)
+        return {"generated_at": "x", "level": "sido", "items": [len(builds)], "status": {"stale": True}}
+
+    monkeypatch.setattr(rm, "build_map", fake_build)
+    monkeypatch.setattr(rm, "is_configured", lambda: False)
+    first = json.loads(rm.get_map("41", None, None, "3m", 500))
+    assert builds == ["41"] and first["items"] == [1] and "stale" not in first["status"]
+    assert "sido:41:3m:500" in stored
+
+    # Answered from memory, no rebuild while fresh.
+    assert json.loads(rm.get_map("41", None, None, "3m", 500))["items"] == [1] and builds == ["41"]
+
+    # After a restart: answered from the store; once stale, rebuilt in the background.
+    monkeypatch.setattr(rm, "_map_cache", rm.OrderedDict())
+    key = ("41", None, None, "3m", 500)
+    at, body = stored["sido:41:3m:500"]
+    stored["sido:41:3m:500"] = ("2020-01-01T00:00:00+09:00", body)
+    assert json.loads(rm.get_map("41", None, None, "3m", 500))["items"] == [1]
+    assert builds == ["41"] and queued == [key]

@@ -747,32 +747,71 @@ def _with_floor(rows: list[dict], limit: int) -> list[dict]:
     return kept
 
 
+def _lawd_codes(sido: str | None, sgg: str | None) -> list[str]:
+    if sgg:
+        if sgg not in _sgg_index():
+            raise ValueError("unknown 시군구")
+        return [sgg]
+    region = next((s for s in regions()["sido"] if s["code"] == sido), None)
+    if region is None:
+        raise ValueError("unknown 시도")
+    return [g["code"] for g in region["sgg"]]
+
+
+def _status(lawd_codes: list[str]) -> dict:
+    """How much of these districts is collected — live, even on a cached map."""
+    configured = is_configured()
+    months = _months_back(MONTHS_KEPT)
+    have = sum(1 for code in lawd_codes for ym in months if (code, ym) in _index)
+    coverage = have / (len(lawd_codes) * len(months))
+    return {
+        "configured": configured,
+        "coverage": round(coverage, 3),
+        "collecting": configured and coverage < 1,
+        "error": _last_error,
+        "calls_today": _calls_today,
+    }
+
+
+def _prefetch(lawd_codes: list[str]) -> None:
+    """Loads the districts not yet in memory in one query. Read one at a time, a
+    시·도 of 40-odd districts spent over half a minute on round trips to the store
+    before a single complex was priced."""
+    with _district_lock:
+        missing = [c for c in lawd_codes if c not in _districts]
+    if not missing:
+        return
+    try:
+        loaded = realestate_store.load_districts(missing)
+    except Exception as exc:  # noqa: BLE001 — _district retries one by one
+        log.warning("realestate: batch load of %d districts failed (%s)", len(missing), exc)
+        return
+    with _district_lock:
+        for code, months in loaded.items():
+            _districts[code] = {ym: deals for ym, (_, deals) in months.items()}
+            _districts.move_to_end(code)
+        # Never evict the districts this map is about to read.
+        keep = set(lawd_codes)
+        while len(_districts) > max(MAX_DISTRICTS_IN_MEMORY, len(keep)):
+            oldest = next((c for c in _districts if c not in keep), None)
+            if oldest is None:
+                break
+            _districts.pop(oldest)
+
+
 def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None) -> dict:
     if period not in PERIODS:
         raise ValueError("unknown period")
     index = _sgg_index()
-    if sgg:
-        if sgg not in index:
-            raise ValueError("unknown 시군구")
-        level = "dong" if dong else "sgg"
-        lawd_codes = [sgg]
-    else:
-        region = next((s for s in regions()["sido"] if s["code"] == sido), None)
-        if region is None:
-            raise ValueError("unknown 시도")
-        level = "sido"
-        lawd_codes = [g["code"] for g in region["sgg"]]
+    lawd_codes = _lawd_codes(sido, sgg)
+    level = ("dong" if dong else "sgg") if sgg else "sido"
 
-    configured = is_configured()
-    if configured:
+    if is_configured():
         start_collector()
         _ensure_index()
         request_districts(lawd_codes, priority=0)
 
-    months = _months_back(MONTHS_KEPT)
-    have = sum(1 for code in lawd_codes for ym in months if (code, ym) in _index)
-    coverage = have / (len(lawd_codes) * len(months))
-
+    _prefetch(lawd_codes)
     complexes = _complexes(lawd_codes)
     if dong:
         complexes = {k: c for k, c in complexes.items() if c["dong"] == dong}
@@ -826,13 +865,7 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         "group_floor": SGG_FLOOR if level == "sido" else None,
         "latest_deal_date": _ymd(latest_day).isoformat() if latest_day else None,
         "window_start": _ymd(window_start).isoformat() if window_start else None,
-        "status": {
-            "configured": configured,
-            "coverage": round(coverage, 3),
-            "collecting": configured and coverage < 1,
-            "error": _last_error,
-            "calls_today": _calls_today,
-        },
+        "status": _status(lawd_codes),
         "count": len(rows),
         "items": rows,
     }
@@ -877,22 +910,165 @@ def complex_detail(complex_id: str, period: str) -> dict:
     }
 
 _map_cache_lock = threading.Lock()
-_map_cache: OrderedDict[tuple, tuple[float, int, dict]] = OrderedDict()
+# key -> (built at, data version, the response as JSON without its "status")
+_map_cache: OrderedDict[tuple, tuple[float, int, str]] = OrderedDict()
 MAP_CACHE_SECONDS = 120
+# A 시·도 map is answered from the last one built — in memory, else as stored — and
+# rebuilt behind the reader once it is this old. Building one means reading every
+# district of the 시·도, which is seconds for the largest even in one query.
+SIDO_MAP_REFRESH_SECONDS = 15 * 60
+# Every 시·도 × period × screen size is kept built this fresh by a background pass.
+SIDO_MAP_WARM_SECONDS = 60 * 60
+WARM_PERIODS = ("3m", "6m", "1y")
+WARM_TOPS = (500, 100)
+
+_rebuild_lock = threading.Condition()
+_rebuild_queue: list[tuple] = []
+_rebuild_started = False
 
 
-def get_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None) -> dict:
-    """build_map, remembered until the data under it changes or two minutes pass."""
-    top = _sido_top(top) if not sgg else None
-    key = (sido, sgg, dong, period, top)
-    now = time.time()
+def _store_key(key: tuple) -> str:
+    sido, _, _, period, top = key
+    return f"sido:{sido}:{period}:{top}"
+
+
+def _body(result: dict) -> str:
+    """The map as JSON, its live "status" left out to be added when served. Kept as
+    text: the country's 시·도 maps as Python objects would take hundreds of MB, and
+    re-encoding a 900-complex map on every request cost more than reading it."""
+    return json.dumps({k: v for k, v in result.items() if k != "status"}, ensure_ascii=False, separators=(",", ":"))
+
+
+def _remember(key: tuple, body: str, built: float, persist: bool) -> None:
     with _map_cache_lock:
-        hit = _map_cache.get(key)
-        if hit and hit[1] == _version and now - hit[0] < MAP_CACHE_SECONDS:
-            return hit[2]
-    result = build_map(sido, sgg, dong, period, top)
-    with _map_cache_lock:
-        _map_cache[key] = (now, _version, result)
+        _map_cache[key] = (built, _version, body)
+        _map_cache.move_to_end(key)
         while len(_map_cache) > 400:
             _map_cache.popitem(last=False)
-    return result
+    if persist:
+        try:
+            stamp = dt.datetime.fromtimestamp(built, KST).isoformat(timespec="seconds")
+            realestate_store.save_map(_store_key(key), body, stamp)
+        except Exception as exc:  # noqa: BLE001 — the memory copy still serves
+            log.warning("realestate: saving map %s failed (%s)", key, exc)
+
+
+def _build_and_remember(key: tuple, persist: bool) -> str:
+    sido, sgg, dong, period, top = key
+    body = _body(build_map(sido, sgg, dong, period, top))
+    _remember(key, body, time.time(), persist)
+    return body
+
+
+def _rebuild_worker() -> None:
+    while True:
+        with _rebuild_lock:
+            while not _rebuild_queue:
+                _rebuild_lock.wait()
+            key = _rebuild_queue.pop(0)
+        try:
+            _build_and_remember(key, persist=True)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("realestate: rebuilding map %s failed (%s)", key, exc)
+        time.sleep(0.05)
+
+
+def _schedule_rebuild(key: tuple, first: bool = False) -> None:
+    """Queues a 시·도 map for the background builder; `first` for one a reader is
+    waiting on, ahead of the warm pass."""
+    global _rebuild_started
+    with _rebuild_lock:
+        if not _rebuild_started:
+            threading.Thread(target=_rebuild_worker, name="realestate-maps", daemon=True).start()
+            _rebuild_started = True
+        if key in _rebuild_queue:
+            if not first:
+                return
+            _rebuild_queue.remove(key)
+        if first:
+            _rebuild_queue.insert(0, key)
+        else:
+            _rebuild_queue.append(key)
+        _rebuild_lock.notify()
+
+
+def _cached(key: tuple) -> tuple[float, str] | None:
+    """A 시·도 map from memory, else from the store (and then kept in memory)."""
+    with _map_cache_lock:
+        hit = _map_cache.get(key)
+    if hit:
+        return hit[0], hit[2]
+    try:
+        row = realestate_store.load_map(_store_key(key))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("realestate: reading stored map %s failed (%s)", key, exc)
+        return None
+    if row is None:
+        return None
+    try:
+        built = dt.datetime.fromisoformat(row[0]).timestamp()
+    except ValueError:
+        built = 0.0
+    _remember(key, row[1], built, persist=False)
+    return built, row[1]
+
+
+def warm_sido_maps() -> None:
+    """Queues every 시·도 map not built within the hour, 서울·경기·인천 first and each
+    시·도's variants together, so its districts are read once for all of them."""
+    order = list(WARM_ORDER) + [s["code"] for s in regions()["sido"] if s["code"] not in WARM_ORDER]
+    for sido in order:
+        for period in WARM_PERIODS:
+            for top in WARM_TOPS:
+                key = (sido, None, None, period, top)
+                hit = _cached(key)
+                if hit is None or time.time() - hit[0] > SIDO_MAP_WARM_SECONDS:
+                    _schedule_rebuild(key)
+
+
+def start_map_warmer() -> None:
+    """Keeps the 시·도 maps built: a pass now, then every half hour."""
+
+    def loop() -> None:
+        while True:
+            try:
+                warm_sido_maps()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("realestate: map warm pass failed (%s)", exc)
+            time.sleep(SIDO_MAP_WARM_SECONDS / 2)
+
+    threading.Thread(target=loop, name="realestate-map-warmer", daemon=True).start()
+
+
+def _served(body: str, lawd_codes: list[str]) -> str:
+    """A remembered map with its collection status read now."""
+    status = json.dumps(_status(lawd_codes), ensure_ascii=False, separators=(",", ":"))
+    return f'{body[:-1]},"status":{status}}}'
+
+
+def get_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None) -> str:
+    """build_map as JSON text, remembered. A 시·군·구 or 동 map is rebuilt once its
+    data changes or two minutes pass — a fraction of a second. A 시·도 map is
+    answered at once from the last one built and rebuilt in the background when it
+    is stale; only a 시·도 never built before is built while the reader waits."""
+    if period not in PERIODS:
+        raise ValueError("unknown period")
+    top = _sido_top(top) if not sgg else None
+    key = (sido, sgg, dong, period, top)
+    lawd_codes = _lawd_codes(sido, sgg)
+    if not sgg:
+        if is_configured():
+            start_collector()
+            _ensure_index()
+            request_districts(lawd_codes, priority=0)
+        hit = _cached(key)
+        if hit is not None:
+            if time.time() - hit[0] > SIDO_MAP_REFRESH_SECONDS:
+                _schedule_rebuild(key, first=True)
+            return _served(hit[1], lawd_codes)
+        return _served(_build_and_remember(key, persist=True), lawd_codes)
+    with _map_cache_lock:
+        hit = _map_cache.get(key)
+    if hit and hit[1] == _version and time.time() - hit[0] < MAP_CACHE_SECONDS:
+        return _served(hit[2], lawd_codes)
+    return _served(_build_and_remember(key, persist=False), lawd_codes)

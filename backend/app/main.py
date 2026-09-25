@@ -497,6 +497,8 @@ def _start_realestate_collector() -> None:
     # start the page's default period now rather than on the first visitor.
     if realestate_map.is_configured():
         realestate_summary.warm("3m")
+        # Every 시·도 map, built ahead and kept fresh, so a large 시·도 opens at once.
+        realestate_map.start_map_warmer()
 
 
 @app.on_event("startup")

@@ -46,6 +46,16 @@ CREATE TABLE IF NOT EXISTS re_complex_facts (
 )
 """
 
+# Finished 시·도 maps (the /map response), so a restart answers the large regions at
+# once instead of re-reading every district first. gzip + base64 JSON.
+_MAP_SCHEMA = """
+CREATE TABLE IF NOT EXISTS re_map_cache (
+    key TEXT PRIMARY KEY,
+    built_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+)
+"""
+
 
 def _connect():
     if TURSO_DATABASE_URL:
@@ -58,6 +68,7 @@ def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
     conn.execute(_FACTS_SCHEMA)
+    conn.execute(_MAP_SCHEMA)
     conn.commit()
     return conn
 
@@ -154,5 +165,65 @@ def load_facts(key: str) -> tuple[str, object] | None:
         return None
     try:
         return str(rows[0][0]), json.loads(rows[0][1])
+    except Exception:
+        return None
+
+
+LOAD_BATCH = 8
+
+
+def load_districts(lawd_cds: list[str]) -> dict[str, dict[str, tuple[str, list]]]:
+    """Every stored month of several 시군구 in one query: {lawd_cd: {deal_ym:
+    (fetched_at, deals)}}. A 시·도 map needs dozens of districts, and one round trip
+    to the store is several times faster than one per district."""
+    out: dict[str, dict[str, tuple[str, list]]] = {code: {} for code in lawd_cds}
+    rows = []
+    # A few districts per query: the whole of 경기도 at once is ~5 MB, past the
+    # client's read timeout.
+    for i in range(0, len(lawd_cds), LOAD_BATCH):
+        chunk = list(lawd_cds[i : i + LOAD_BATCH])
+
+        def _run(conn, chunk=chunk):
+            marks = ",".join("?" * len(chunk))
+            cur = conn.execute(
+                f"SELECT lawd_cd, deal_ym, fetched_at, payload FROM re_trade_months WHERE lawd_cd IN ({marks})",
+                chunk,
+            )
+            return cur.fetchall()
+
+        rows.extend(_with_connection(_run))
+    for lawd_cd, deal_ym, fetched_at, payload in rows:
+        try:
+            out[str(lawd_cd)][str(deal_ym)] = (str(fetched_at), _unpack(payload))
+        except Exception:
+            continue
+    return out
+
+
+def save_map(key: str, body: str, built_at: str) -> None:
+    """A finished map, as the JSON text it is served as."""
+    payload = base64.b64encode(gzip.compress(body.encode("utf-8"), compresslevel=6)).decode("ascii")
+
+    def _run(conn):
+        conn.execute(
+            "INSERT OR REPLACE INTO re_map_cache (key, built_at, payload) VALUES (?, ?, ?)",
+            (key, built_at, payload),
+        )
+        conn.commit()
+
+    _with_connection(_run)
+
+
+def load_map(key: str) -> tuple[str, str] | None:
+    """(built_at, JSON text) of a stored map, or None."""
+
+    def _run(conn):
+        return conn.execute("SELECT built_at, payload FROM re_map_cache WHERE key = ?", (key,)).fetchall()
+
+    rows = _with_connection(_run)
+    if not rows:
+        return None
+    try:
+        return str(rows[0][0]), gzip.decompress(base64.b64decode(rows[0][1])).decode("utf-8")
     except Exception:
         return None

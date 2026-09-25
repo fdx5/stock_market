@@ -23,11 +23,13 @@ def realestate_heatmap(
     top: int | None = Query(None, ge=1, le=1000),
 ):
     """`top` sizes a 시·도 map (a phone asks for 100); every 시·군·구 still keeps its 10."""
-    response.headers["Cache-Control"] = "no-store"
     if not sido and not sgg:
         sido = "11"
     try:
-        return realestate_map.get_map(sido, sgg, dong or None, period, top)
+        # Already JSON: a 시·도 map is kept serialised, and re-encoding it here cost
+        # more than reading it.
+        body = realestate_map.get_map(sido, sgg, dong or None, period, top)
+        return Response(content=body, media_type="application/json", headers={"Cache-Control": "no-store"})
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
