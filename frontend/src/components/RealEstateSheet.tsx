@@ -21,6 +21,38 @@ import RealEstateRentView, { LeaseMode } from "./RealEstateRentView";
  * The map only carries the 대표 평형; the other 평형 are fetched once, when the card
  * opens (GET /api/realestate/complex). */
 
+/** Where to see today's listings and asking prices. 국토교통부 publishes signed
+ * contracts only, so the card sends the reader to the listing services themselves —
+ * linking, never copying their listings. Naver's own search resolves "동 단지명" to
+ * the complex's page; 호갱노노 opens its search with the complex first. KB부동산 has
+ * no address that takes a search, so it is left out. */
+function ListingLinks({ item }: { item: RealEstateItem }) {
+  // "현대2차(10,11,20동)" → "현대2차": the 동 numbers only confuse a search.
+  const name = item.name.replace(/\(.*?\)/g, "").trim();
+  const query = encodeURIComponent(`${item.dong} ${name}`.trim());
+  const links = [
+    { label: "네이버 부동산", sub: "매물·호가", href: `https://m.land.naver.com/search/result/${query}`, cls: "is-naver" },
+    { label: "호갱노노", sub: "매물·시세", href: `https://hogangnono.com/search?q=${query}`, cls: "is-hogang" },
+  ];
+  return (
+    <section className="re-sheet-links" aria-label="현재 매물과 호가">
+      <h4>현재 매물·호가 보기</h4>
+      <div>
+        {links.map((l) => (
+          <a key={l.label} className={l.cls} href={l.href} target="_blank" rel="noopener noreferrer">
+            <b>{l.label}</b>
+            <small>{l.sub}</small>
+            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+              <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </a>
+        ))}
+      </div>
+      <p>국토교통부 자료에는 매물 정보가 없어, 현재 호가는 부동산 서비스에서 확인할 수 있습니다. 새 창으로 열립니다.</p>
+    </section>
+  );
+}
+
 const PYEONG = 3.3058;
 
 /** The 대표 평형's key among the fetched ones: the one whose area rounds the same. */
@@ -242,6 +274,7 @@ export default function RealEstateSheet({
               deals={view?.deals}
               history={history}
             />
+            <ListingLinks item={item} />
           </div>
           <footer className="re-sheet-actions">
             {goLabel && (
