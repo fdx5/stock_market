@@ -17539,3 +17539,202 @@ thead .pred-matrix-ratehead {
    document -- the single most expensive thing a window drag did. Holding the
    page's width (see resizeQuiet.ts) already keeps gauges from changing size
    mid-drag, so the rule is gone; do not reintroduce a selector of that shape. */
+
+/* ── 즐겨찾기 (components/BookmarkButton) — every page header ───────────── */
+.bm-wrap {
+  --bm-bg: #171714;
+  --bm-ink: #ece6d6;
+  --bm-ink-3: #948e7e;
+  --bm-rule: rgba(236, 230, 214, 0.18);
+  --bm-accent: #e0ae4f;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+:root[data-theme="light"] .bm-wrap,
+:root[data-theme="light"] .bm-layer {
+  --bm-bg: #fbf8f1;
+  --bm-ink: #16140e;
+  --bm-ink-3: #6f6a5c;
+  --bm-rule: rgba(22, 20, 14, 0.16);
+  --bm-accent: #946313;
+}
+.bm-layer {
+  --bm-bg: #171714;
+  --bm-ink: #ece6d6;
+  --bm-ink-3: #948e7e;
+  --bm-rule: rgba(236, 230, 214, 0.18);
+  --bm-accent: #e0ae4f;
+}
+.bm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 0;
+  border: 0;
+  border-bottom: 1px dotted currentColor;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bm-btn .bm-star {
+  color: var(--bm-accent);
+  transition: transform 0.15s ease;
+}
+.bm-btn:hover .bm-star,
+.bm-btn.is-open .bm-star {
+  transform: scale(1.12);
+}
+.bm-btn:focus-visible {
+  outline: 2px solid var(--bm-accent);
+  outline-offset: 2px;
+}
+
+.bm-card {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 1200;
+  display: grid;
+  gap: 10px;
+  width: 300px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--bm-rule);
+  border-radius: 10px;
+  background: var(--bm-bg);
+  color: var(--bm-ink);
+  box-shadow: 0 18px 44px -14px rgba(0, 0, 0, 0.55);
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: left;
+  white-space: normal;
+  animation: bm-in 0.16s ease-out;
+}
+.bm-card header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.bm-card header .bm-star {
+  color: var(--bm-accent);
+}
+.bm-card header strong {
+  flex: 1;
+  font-size: 14px;
+}
+.bm-close {
+  border: 0;
+  background: none;
+  color: var(--bm-ink-3);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.bm-card p,
+.bm-card ol {
+  margin: 0;
+}
+.bm-card ol {
+  display: grid;
+  gap: 6px;
+  padding-left: 20px;
+}
+.bm-card kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--bm-rule);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font: 700 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-align: center;
+}
+.bm-keys {
+  font-size: 14px;
+}
+.bm-note {
+  color: var(--bm-ink-3);
+  font-size: 11.5px;
+}
+.bm-done {
+  color: var(--bm-accent);
+  font-weight: 600;
+}
+.bm-inline-icon {
+  vertical-align: -2px;
+}
+.bm-copy {
+  justify-self: start;
+  padding: 6px 12px;
+  border: 1px solid var(--bm-rule);
+  border-radius: 999px;
+  background: none;
+  color: var(--bm-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bm-copy:hover {
+  border-color: var(--bm-accent);
+}
+
+/* On a phone the steps come up from the bottom, over a scrim that closes them. */
+.bm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 1199;
+  background: rgba(0, 0, 0, 0.45);
+  animation: bm-fade 0.16s ease-out;
+}
+.bm-card--sheet {
+  position: fixed;
+  top: auto;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  width: auto;
+  padding: 18px 20px calc(20px + env(safe-area-inset-bottom));
+  border-radius: 16px 16px 0 0;
+  font-size: 14.5px;
+  animation: bm-rise 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.bm-card--sheet header strong {
+  font-size: 16px;
+}
+.bm-card--sheet .bm-copy {
+  justify-self: stretch;
+  padding: 10px 12px;
+  font-size: 13.5px;
+}
+@keyframes bm-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+@keyframes bm-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes bm-rise {
+  from {
+    transform: translateY(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bm-card,
+  .bm-scrim {
+    animation: none;
+  }
+}
+@media print {
+  .bm-wrap {
+    display: none !important;
+  }
+}

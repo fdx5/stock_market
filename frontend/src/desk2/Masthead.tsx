@@ -7,6 +7,7 @@ import { toggleThemeMode, useThemeMode } from "../theme";
 import { reportVoltarisIngress } from "../useActivityTracking";
 import { useMarketIndices } from "../useMarketIndices";
 import { useVisitorCount } from "../useVisitorCount";
+import BookmarkButton from "../components/BookmarkButton";
 import Logo from "../components/Logo";
 import { currentEdition, frontPageOf } from "./edition";
 import { NEW_YORK, SEOUL, clockText, useL, useNow, zoneParts } from "./lib";
@@ -278,6 +279,7 @@ export default function Masthead({
             )}
           </span>
         )}
+        <BookmarkButton className="d2-mast-fav" />
         <button type="button" className="d2-mast-tool" onClick={onPrint} title={L("오늘 지면을 인쇄하거나 PDF로 저장", "Print today's page or save as PDF")}>
           {L("지면 인쇄", "Print")}
         </button>

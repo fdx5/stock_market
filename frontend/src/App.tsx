@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import LoadingState from "./components/LoadingState";
 import VoltarisIngressLink from "./components/VoltarisIngressLink";
+import HeaderBookmark from "./components/HeaderBookmark";
 import HeaderVisitorBadge from "./components/HeaderVisitorBadge";
 import { useActivityTracking } from "./useActivityTracking";
 import { navigate, useRoute } from "./router";
@@ -439,6 +440,7 @@ export default function App() {
       <Suspense fallback={<LoadingState />}>{page}</Suspense>
       <VoltarisIngressLink path={path} />
       <HeaderVisitorBadge path={path} />
+      <HeaderBookmark path={path} />
       {showRecentDock && (
         <Suspense fallback={null}>
           <RecentStocksDock />
