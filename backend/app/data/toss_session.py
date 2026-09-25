@@ -16,6 +16,7 @@ of them.
 import requests
 
 from app.services.cache import cache
+from app.data.http_pool import mount_pool
 
 TTL_CODES_SECONDS = 24 * 60 * 60
 INFO_API = "https://wts-info-api.tossinvest.com"
@@ -29,10 +30,7 @@ session.headers.update(
         "Referer": "https://www.tossinvest.com/",
     }
 )
-session.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
-)
+mount_pool(session)  # pool sized for the threads sharing it (http_pool.py)
 
 
 def _resolve_codes(symbol: str) -> dict[str, str | None]:

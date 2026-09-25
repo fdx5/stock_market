@@ -1,4 +1,5 @@
 import requests
+from app.data.http_pool import mount_pool
 
 # Shared by any feature that needs a live KOSPI/KOSDAQ market-cap-ranked snapshot (the
 # KOSPI MAP treemap, the top-100 prediction panel's live price column, etc). Each caller
@@ -25,10 +26,7 @@ _MARKET_CATEGORY = {0: "KOSPI", 1: "KOSDAQ"}
 # of the (potentially many) page requests a cold fetch makes to the same host.
 _session = requests.Session()
 _session.headers.update(NAVER_HEADERS)
-_session.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
-)
+mount_pool(_session)  # pool sized for the threads sharing it (http_pool.py)
 
 
 def _parse_signed(value) -> float:

@@ -2,6 +2,7 @@ import FinanceDataReader as fdr
 import requests
 
 from app.services.cache import cache
+from app.data.http_pool import mount_pool
 
 TTL_DISCUSSION_SECONDS = 3 * 60
 TTL_NASDAQ_LISTING_SECONDS = 24 * 3600
@@ -16,10 +17,7 @@ HEADERS = {
 
 _session = requests.Session()
 _session.headers.update(HEADERS)
-_session.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
-)
+mount_pool(_session)  # pool sized for the threads sharing it (http_pool.py)
 
 DISCUSSION_URL = "https://m.stock.naver.com/front-api/discussion/list"
 

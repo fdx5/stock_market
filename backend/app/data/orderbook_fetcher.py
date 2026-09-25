@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+from app.data.http_pool import mount_pool
 
 # KRX real-time Level-2 order-book depth is a paid market-data product; the free page
 # Naver serves individual investors carries the same 20-minute delay as everywhere else
@@ -22,10 +23,7 @@ HEADERS = {
 # request faster and look less like a fresh anonymous bot hit to Naver.
 _session = requests.Session()
 _session.headers.update(HEADERS)
-_session.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
-)
+mount_pool(_session)  # pool sized for the threads sharing it (http_pool.py)
 
 
 def _parse_int(text: str) -> int:

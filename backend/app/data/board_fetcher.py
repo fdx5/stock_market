@@ -6,6 +6,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from app.services.cache import cache
+from app.data.http_pool import mount_pool
 
 TTL_BOARD_SECONDS = 3 * 60
 MOBILE_BOARD_URL = "https://m.stock.naver.com/front-api/discussion/list"
@@ -26,10 +27,7 @@ HEADERS = {
 # reuses a keep-alive connection per host instead of paying that handshake every time.
 _session = requests.Session()
 _session.headers.update(HEADERS)
-_session.mount(
-    "https://",
-    requests.adapters.HTTPAdapter(pool_connections=10, pool_maxsize=20, max_retries=1),
-)
+mount_pool(_session)  # pool sized for the threads sharing it (http_pool.py)
 
 
 def _fetch_board_page(code: str, page: int) -> list[dict]:
