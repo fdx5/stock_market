@@ -1,6 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useT } from "../i18n/LanguageContext";
 import KakaoIcon from "./KakaoIcon";
+
+/** Renders a dialog on <body>, centred on the screen. The map pages' box (.d2) is a
+ * size container, which some browsers make the containing block of fixed
+ * descendants — a dialog opened from far down the table view was centred on the
+ * page, out of reach. The wrapper keeps the page classes the dialogs are styled
+ * under and draws no box (display: contents, styles.css). */
+function OnScreen({ children }: { children: ReactNode }) {
+  return createPortal(<div className="d2 mm app kospi-map-page map-layer-portal">{children}</div>, document.body);
+}
 
 /* The maps' PNG export and 카카오톡 share, shared by every treemap page (the four
  * market maps and the 부동산 맵). Each page draws its own PNG — they lay out
@@ -329,26 +339,29 @@ export function MapExportButtons({ exp, disabled }: { exp: MapExport; disabled: 
             {exp.kakaoShareCopied ? t("링크 복사됨") : exp.kakaoSharing ? t("공유 준비 중...") : t("카카오톡 공유")}
           </button>
           {exp.kakaoShareStage !== "idle" && (
-            <div className="kospi-map-share-popover" role="status">
-              <button
-                type="button"
-                className="kospi-map-share-popover-close"
-                onClick={() => exp.setKakaoShareStage("idle")}
-                aria-label={t("닫기")}
-              >
-                ×
-              </button>
-              {exp.kakaoShareStage === "image-copied" ? (
-                <>
-                  <p>{t("MAP 이미지가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.")}</p>
-                  <button type="button" className="kospi-map-share-popover-link" onClick={exp.handleCopyShareLink}>
-                    {t("링크도 복사하기")}
-                  </button>
-                </>
-              ) : (
-                <p>{t("링크가 복사되었습니다. 채팅창에 이어서 붙여넣어 주세요.")}</p>
-              )}
-            </div>
+            <OnScreen>
+              <div className="kospi-map-share-backdrop" onClick={() => exp.setKakaoShareStage("idle")} />
+              <div className="kospi-map-share-popover is-centered" role="status">
+                <button
+                  type="button"
+                  className="kospi-map-share-popover-close"
+                  onClick={() => exp.setKakaoShareStage("idle")}
+                  aria-label={t("닫기")}
+                >
+                  ×
+                </button>
+                {exp.kakaoShareStage === "image-copied" ? (
+                  <>
+                    <p>{t("MAP 이미지가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.")}</p>
+                    <button type="button" className="kospi-map-share-popover-link" onClick={exp.handleCopyShareLink}>
+                      {t("링크도 복사하기")}
+                    </button>
+                  </>
+                ) : (
+                  <p>{t("링크가 복사되었습니다. 채팅창에 이어서 붙여넣어 주세요.")}</p>
+                )}
+              </div>
+            </OnScreen>
           )}
         </div>
     </>
@@ -362,6 +375,7 @@ export function MapPreviewModal({ exp }: { exp: MapExport }) {
   if (!exp.mapPreview) return null;
   const preview = exp.mapPreview;
   return (
+    <OnScreen>
       <div className="kospi-map-preview-overlay" onClick={exp.closeMapPreview}>
         <div
           className="kospi-map-preview-modal"
@@ -424,5 +438,6 @@ export function MapPreviewModal({ exp }: { exp: MapExport }) {
           </div>
         </div>
       </div>
+    </OnScreen>
   );
 }
