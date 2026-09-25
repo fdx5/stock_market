@@ -700,7 +700,9 @@
 /* The card's links out to today's listings (RealEstateSheet ListingLinks). */
 .re-sheet-links {
   margin-top: 4px;
-  padding: 10px 0 4px;
+  /* The card's own sections are inset 14px a side (.re-pop > *); this block sits
+     after the card, so it takes the same inset itself. */
+  padding: 10px 14px 12px;
   border-top: 1px solid var(--gridline);
 }
 .re-sheet-links h4 {
