@@ -633,12 +633,16 @@ export default function RealEstateMapPage() {
               </p>
             </div>
             <div className="kospi-map-view-toggle">
-              <button type="button" className={view === "map" ? "active" : ""} onClick={() => setView("map")}>
-                맵 보기
-              </button>
-              <button type="button" className={view === "table" ? "active" : ""} onClick={() => setView("table")}>
-                표로 보기
-              </button>
+              {/* One button, to the view not on screen. */}
+              {view === "map" ? (
+                <button type="button" onClick={() => setView("table")}>
+                  표로 보기
+                </button>
+              ) : (
+                <button type="button" onClick={() => setView("map")}>
+                  맵 보기
+                </button>
+              )}
               <MapExportButtons exp={mapExport} disabled={zones.length === 0} />
             </div>
           </div>
@@ -652,7 +656,7 @@ export default function RealEstateMapPage() {
           </div>
         )}
 
-        <div className="kospi-map-workspace">
+        <div className={`kospi-map-workspace${view === "table" ? " is-table" : ""}`}>
           <aside className="kospi-map-period-rail re-map-rail" aria-label="조회 기간과 지역 지도">
             <div className="kospi-map-period-head">
               <small>REAL TRADES</small>
@@ -954,7 +958,12 @@ export default function RealEstateMapPage() {
           />
         )}
         {hovered && !touchUi && !sheetItem && (
-          <FloatingTip className="kospi-map-tooltip re-pop-tip" x={hoverPos.x} y={hoverPos.y}>
+          <FloatingTip
+            className="kospi-map-tooltip re-pop-tip"
+            portalClassName="d2 mm app kospi-map-page re-map-page re-sheet-portal"
+            x={hoverPos.x}
+            y={hoverPos.y}
+          >
             <RealEstatePopup item={hovered} ctx={popupContext(hovered)} />
           </FloatingTip>
         )}

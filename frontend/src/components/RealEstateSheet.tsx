@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, RealEstateFacts, RealEstateItem, RealEstatePeriod, RealEstateTypeView } from "../api/client";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import RealEstatePopup, { OtherType, PopupContext } from "./RealEstatePopup";
@@ -129,40 +130,47 @@ export default function RealEstateSheet({
     </div>
   );
 
-  return (
-    <div className="re-sheet-scrim" onClick={onClose}>
-      <section
-        className="re-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${item.name} 상세 정보`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="re-sheet-grip" aria-hidden="true" />
-        <button type="button" className="re-sheet-close" onClick={onClose} aria-label="닫기">
-          ×
-        </button>
-        <div className="re-sheet-body re-pop-tip">
-          <RealEstatePopup
-            item={shown}
-            ctx={{ ...ctx, clickHint: null }}
-            selector={selector}
-            others={others}
-            onPickType={views.length ? setSelected : undefined}
-            facts={facts}
-          />
-        </div>
-        <footer className="re-sheet-actions">
-          {goLabel && (
-            <button type="button" className="re-sheet-go" onClick={onGo}>
-              {goLabel}
-            </button>
-          )}
-          <button type="button" className="re-sheet-dismiss" onClick={onClose}>
-            닫기
+  // Rendered on <body>: the page box (.d2) is a size container, which some browsers
+  // treat as the containing block of fixed descendants, so a card opened from far
+  // down a long table was centred on the page rather than on the screen. The
+  // wrapper (display: contents) keeps the page's classes for their styles.
+  return createPortal(
+    <div className="d2 mm app kospi-map-page re-map-page re-sheet-portal" lang="ko">
+      <div className="re-sheet-scrim" onClick={onClose}>
+        <section
+          className="re-sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${item.name} 상세 정보`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="re-sheet-grip" aria-hidden="true" />
+          <button type="button" className="re-sheet-close" onClick={onClose} aria-label="닫기">
+            ×
           </button>
-        </footer>
-      </section>
-    </div>
+          <div className="re-sheet-body re-pop-tip">
+            <RealEstatePopup
+              item={shown}
+              ctx={{ ...ctx, clickHint: null }}
+              selector={selector}
+              others={others}
+              onPickType={views.length ? setSelected : undefined}
+              facts={facts}
+            />
+          </div>
+          <footer className="re-sheet-actions">
+            {goLabel && (
+              <button type="button" className="re-sheet-go" onClick={onGo}>
+                {goLabel}
+              </button>
+            )}
+            <button type="button" className="re-sheet-dismiss" onClick={onClose}>
+              닫기
+            </button>
+          </footer>
+        </section>
+      </div>
+    </div>,
+    document.body,
   );
 }

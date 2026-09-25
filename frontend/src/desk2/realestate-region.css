@@ -9,6 +9,19 @@
     gap: 16px;
   }
 }
+/* The table runs to hundreds of rows; its rail stays on screen beside it, one
+   viewport tall, so the region map is at hand wherever the reader has scrolled. */
+@media (min-width: 981px) {
+  .kospi-map-workspace.is-table .re-map-rail {
+    position: sticky;
+    top: 16px;
+    align-self: start;
+    height: calc(100vh - 32px);
+    height: calc(100dvh - 32px);
+    min-height: 560px;
+  }
+}
+
 .re-map-rail .kospi-map-period-options {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
@@ -509,4 +522,10 @@
   .rm3-label {
     transition: none;
   }
+}
+
+/* The 부동산 맵's complex card, portalled to <body> (RealEstateSheet): the wrapper
+   carries the page's classes for their styles but draws no box of its own. */
+.re-sheet-portal {
+  display: contents;
 }

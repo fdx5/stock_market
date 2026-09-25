@@ -1,4 +1,5 @@
 import { ReactNode, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 
 /** A hover card that follows the pointer without ever leaving the screen.
  *
@@ -17,11 +18,15 @@ export default function FloatingTip({
   x,
   y,
   className,
+  portalClassName,
   children,
 }: {
   x: number;
   y: number;
   className?: string;
+  /** Renders the card on <body> inside a display: contents wrapper with these
+   * classes, so a page box that contains fixed descendants cannot move it. */
+  portalClassName?: string;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -48,9 +53,10 @@ export default function FloatingTip({
   });
 
   // Hidden until placed, so the first frame never shows it at the unmeasured spot.
-  return (
+  const card = (
     <div ref={ref} className={className} style={{ left: x + GAP, top: y + GAP, visibility: "hidden" }}>
       {children}
     </div>
   );
+  return portalClassName ? createPortal(<div className={portalClassName}>{card}</div>, document.body) : card;
 }
