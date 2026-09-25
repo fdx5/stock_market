@@ -1151,6 +1151,14 @@ export interface RealEstateSummaryResponse {
   items: RealEstateRegionMove[];
 }
 
+/** The search words that open a complex on 네이버 부동산 (/api/realestate/links):
+ * "complex" opens it, "map" the map around it, "search" found neither. */
+export interface RealEstateListingLink {
+  query: string;
+  kind: "complex" | "map" | "search";
+  complex?: string;
+}
+
 /** 전세·월세 of one 평형 of a complex (/api/realestate/rent). 만원 throughout. */
 export interface RealEstateRentType {
   key: number;
@@ -1242,6 +1250,8 @@ export const api = {
   realEstateRegions: () => getJSON<{ source: string; sido: RealEstateSido[] }>(`${BASE}/realestate/regions`),
   realEstateComplex: (id: string, period: RealEstatePeriod) =>
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
+  realEstateLinks: (id: string) =>
+    getJSON<RealEstateListingLink>(`${BASE}/realestate/links?id=${encodeURIComponent(id)}`),
   realEstateRent: (id: string) =>
     getJSONFresh<RealEstateRentResponse>(`${BASE}/realestate/rent?id=${encodeURIComponent(id)}`),
   realEstateFacts: (id: string) =>

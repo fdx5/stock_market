@@ -4,6 +4,7 @@ import {
   api,
   RealEstateFacts,
   RealEstateItem,
+  RealEstateListingLink,
   RealEstatePeriod,
   RealEstateRentResponse,
   RealEstateTradeHistory,
@@ -23,16 +24,44 @@ import RealEstateRentView, { LeaseMode } from "./RealEstateRentView";
 
 /** Where to see today's listings and asking prices. 국토교통부 publishes signed
  * contracts only, so the card sends the reader to the listing services themselves —
- * linking, never copying their listings. Naver's own search resolves "동 단지명" to
- * the complex's page; 호갱노노 opens its search with the complex first. KB부동산 has
- * no address that takes a search, so it is left out. */
+ * linking, never copying their listings. KB부동산 has no address that takes a
+ * search, so it is left out.
+ *
+ * The 실거래 name is often not the one 네이버 knows ("신도6" is 신도6차), so the
+ * server tries the likely spellings once and says which opens the complex
+ * (realestate_links.py). Until it answers — and should it find none — the link
+ * uses the usual fix, 차 after a closing number; with none found, 네이버's general
+ * search, which matches loosely and shows the complex's listings card. */
+function listingWords(item: RealEstateItem): string {
+  const name = item.name
+    .replace(/\([^)]*동\)/g, "")
+    .replace(/[()]/g, "")
+    .replace(/\s+/g, "");
+  return `${item.dong} ${/\d$/.test(name) ? `${name}차` : name}`.trim();
+}
+
 function ListingLinks({ item }: { item: RealEstateItem }) {
-  // "현대2차(10,11,20동)" → "현대2차": the 동 numbers only confuse a search.
-  const name = item.name.replace(/\(.*?\)/g, "").trim();
-  const query = encodeURIComponent(`${item.dong} ${name}`.trim());
+  const [link, setLink] = useState<RealEstateListingLink | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setLink(null);
+    api
+      .realEstateLinks(item.id)
+      .then((res) => !cancelled && setLink(res))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [item.id]);
+  const words = link?.query ?? listingWords(item);
+  const q = encodeURIComponent(words);
+  const naver =
+    link?.kind === "search"
+      ? `https://search.naver.com/search.naver?query=${encodeURIComponent(`${words} 아파트`)}`
+      : `https://m.land.naver.com/search/result/${q}`;
   const links = [
-    { label: "네이버 부동산", sub: "매물·호가", href: `https://m.land.naver.com/search/result/${query}`, cls: "is-naver" },
-    { label: "호갱노노", sub: "매물·시세", href: `https://hogangnono.com/search?q=${query}`, cls: "is-hogang" },
+    { label: "네이버 부동산", sub: "매물·호가", href: naver, cls: "is-naver" },
+    { label: "호갱노노", sub: "매물·시세", href: `https://hogangnono.com/search?q=${q}`, cls: "is-hogang" },
   ];
   return (
     <section className="re-sheet-links" aria-label="현재 매물과 호가">
