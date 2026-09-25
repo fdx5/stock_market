@@ -19,8 +19,15 @@ from app.services import libsql_gate, turso
 
 load_dotenv()
 
-TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
-TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+# The 부동산 data can live in a database of its own (REALESTATE_TURSO_*): its months
+# are large and its collectors busy, and on the database the rest of the site shares
+# they slow everything else's queries. Unset, it shares that database.
+TURSO_DATABASE_URL = os.environ.get("REALESTATE_TURSO_DATABASE_URL") or os.environ.get("TURSO_DATABASE_URL")
+TURSO_AUTH_TOKEN = (
+    os.environ.get("REALESTATE_TURSO_AUTH_TOKEN")
+    if os.environ.get("REALESTATE_TURSO_DATABASE_URL")
+    else os.environ.get("TURSO_AUTH_TOKEN")
+)
 LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "realestate.db"
 
 _gate = libsql_gate.Gate("realestate_store")

@@ -30,6 +30,8 @@ export interface AdminSummary {
   /** Crawler traffic over the same 24 hours, already excluded from every count
    *  above. Reported so a crawl surge is visible rather than merely absent. */
   bots?: { pageviews: number; sessions: number; agents: BotAgent[] };
+  /** Figures that could not be read this time and show their last value. */
+  stale?: string[];
 }
 
 export interface GrowthOverview {
@@ -523,6 +525,62 @@ export function clearMonitorAccess(): void {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+/** /api/admin/health — the server itself (system_health.py). */
+export interface AdminHealthLog {
+  at: string;
+  level: "WARNING" | "ERROR" | "CRITICAL" | string;
+  logger: string;
+  message: string;
+}
+
+export interface AdminGateStats {
+  name: string;
+  calls: number;
+  busy_rejects: number;
+  errors: number;
+  avg_wait_ms: number;
+  avg_work_ms: number;
+  open: boolean;
+  failures: number;
+  last_error: string;
+}
+
+export interface AdminRealestateStatus {
+  configured?: boolean;
+  calls_today?: number;
+  daily_limit?: number;
+  last_error?: string | null;
+  collecting?: string | null;
+  queued_districts?: number;
+  recent_coverage?: number;
+  history_coverage?: number;
+  history_from?: string;
+  districts_in_memory?: number;
+  maps_cached?: number;
+  maps_rebuild_queue?: number;
+  summaries_cached?: number;
+  summaries_pending?: number;
+  rent_districts_cached?: number;
+  rent_queue?: number;
+  rent_error?: string | null;
+  error?: string;
+}
+
+export interface AdminHealth {
+  at: string;
+  uptime_s: number;
+  commit: string;
+  memory_mb: number | null;
+  db: { ok: boolean; ms: number; error?: string };
+  gates: AdminGateStats[];
+  threads: { name: string; count: number }[];
+  errors_last_hour: number;
+  warnings_last_hour: number;
+  logs: AdminHealthLog[];
+  admin_cache: { name: string; args: string; overdue_s: number; error: string | null }[];
+  realestate: AdminRealestateStatus;
+}
+
 export class AdminAuthError extends Error {}
 
 /** A refusal the visitor is expected to act on — a wrong passcode, or too many tries —
@@ -564,17 +622,31 @@ export async function unlockMonitor(passcode: string): Promise<void> {
   localStorage.setItem(MONITOR_TOKEN_KEY, JSON.stringify(data));
 }
 
+/** How long a dashboard read may take before it is given up as failed. Without a
+ * limit a request the server never finished left its panel on "loading" for good. */
+const ADMIN_GET_TIMEOUT_MS = 25_000;
+
 async function authedGet<T>(path: string): Promise<T> {
   const session = getStoredSession();
   if (!session) throw new AdminAuthError("로그인이 필요합니다.");
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { Authorization: `Bearer ${session.token}` },
-  });
+  const ctrl = new AbortController();
+  const timer = window.setTimeout(() => ctrl.abort(), ADMIN_GET_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      headers: { Authorization: `Bearer ${session.token}` },
+      signal: ctrl.signal,
+    });
+  } catch (err) {
+    throw new Error(ctrl.signal.aborted ? "응답 시간 초과 (25초)" : `네트워크 오류: ${(err as Error).message}`);
+  } finally {
+    window.clearTimeout(timer);
+  }
   if (res.status === 401) {
     clearStoredSession();
     throw new AdminAuthError("세션이 만료되었습니다. 다시 로그인해 주세요.");
   }
-  if (!res.ok) throw new Error(`Admin API error: ${res.status}`);
+  if (!res.ok) throw new Error(res.status === 503 ? "서버 저장소가 바빠 응답하지 못했습니다 (503)" : `서버 오류 ${res.status}`);
   return res.json() as Promise<T>;
 }
 
@@ -722,6 +794,7 @@ function sourceParam(source: string | null, separator: "?" | "&" = "?"): string 
 }
 
 export const adminApi = {
+  health: () => authedGet<AdminHealth>("/health"),
   summary: () => authedGet<AdminSummary>("/summary"),
   growthOverview: (days = 5, startDate?: string, endDate?: string) => {
     const params = new URLSearchParams({ days: String(days) });

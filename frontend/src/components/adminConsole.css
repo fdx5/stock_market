@@ -1,0 +1,586 @@
+/* ==========================================================================
+   관리자 콘솔 (/admin/dashboard) — the shell: side menu, status bar, 개요 and
+   시스템 screens. The 트래픽 / 실시간 / 운영 / 댓글 screens keep their own .admin-*
+   styles (adminDashboard.css, adminLive.css, styles.css).
+   ========================================================================== */
+
+.ac-page {
+  --ac-ok: #34c38f;
+  --ac-warn: #f1b44c;
+  --ac-down: #f46a6a;
+  --ac-unknown: #8a8f98;
+  display: grid;
+  grid-template-columns: 228px minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--page-plane);
+  color: var(--text-primary);
+}
+
+/* ── side menu ── */
+.ac-side {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 18px 12px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+}
+.ac-brand {
+  display: grid;
+  padding: 4px 10px 18px;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 800;
+  text-decoration: none;
+}
+.ac-brand small {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.ac-nav {
+  display: grid;
+  gap: 2px;
+}
+.ac-nav button {
+  position: relative;
+  display: grid;
+  gap: 1px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+.ac-nav button span {
+  font-size: 14px;
+  font-weight: 700;
+}
+.ac-nav button small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.ac-nav button:hover {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+.ac-nav button.is-on {
+  background: color-mix(in srgb, var(--series-blue) 16%, transparent);
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 var(--series-blue);
+}
+.ac-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--ac-down);
+  color: #fff;
+  font-size: 11px;
+  text-align: center;
+}
+.ac-side-foot {
+  display: grid;
+  gap: 4px;
+  margin-top: auto;
+  padding: 12px 10px 0;
+  border-top: 1px solid var(--border);
+}
+.ac-side-foot a {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  text-decoration: none;
+}
+.ac-side-foot a:hover {
+  color: var(--text-primary);
+}
+.ac-logout {
+  margin-top: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+/* ── status bar ── */
+.ac-main {
+  min-width: 0;
+  padding: 0 24px 40px;
+}
+.ac-top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin: 0 -24px 18px;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--page-plane) 92%, transparent);
+  backdrop-filter: blur(10px);
+}
+.ac-top h1 {
+  margin: 0;
+  font-size: 20px;
+}
+.ac-top p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.ac-status {
+  --c: var(--ac-unknown);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 520px;
+  margin-left: auto;
+  padding: 7px 14px;
+  border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c) 12%, transparent);
+  font-size: 13px;
+}
+.ac-status.is-ok {
+  --c: var(--ac-ok);
+}
+.ac-status.is-warn {
+  --c: var(--ac-warn);
+}
+.ac-status.is-down {
+  --c: var(--ac-down);
+}
+.ac-status i {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--c);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 25%, transparent);
+}
+.ac-status b {
+  color: var(--c);
+}
+.ac-status span {
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-top-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.ac-top-meta button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* ── cards ── */
+.ac-grid {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.ac-grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.ac-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.ac-card {
+  --c: transparent;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-1);
+  box-shadow: inset 0 3px 0 var(--c);
+}
+.ac-card.is-ok {
+  --c: var(--ac-ok);
+}
+.ac-card.is-warn {
+  --c: var(--ac-warn);
+}
+.ac-card.is-down {
+  --c: var(--ac-down);
+}
+.ac-card.is-unknown {
+  --c: var(--ac-unknown);
+}
+.ac-card > header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 13px 16px 4px;
+}
+.ac-card h3 {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.ac-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.ac-card-body {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: 10px 24px;
+  padding: 8px 16px 14px;
+}
+.ac-card > footer {
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--border);
+}
+.ac-card > footer button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--series-blue);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ac-metric {
+  display: grid;
+  gap: 2px;
+  min-width: 110px;
+}
+.ac-metric span {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.ac-metric b {
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.ac-metric small {
+  color: var(--text-muted);
+  font-size: 11.5px;
+}
+.ac-toplist {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: top;
+}
+.ac-toplist li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  counter-increment: top;
+}
+.ac-toplist li span::before {
+  content: counter(top) ". ";
+  color: var(--text-muted);
+}
+.ac-toplist b {
+  font-variant-numeric: tabular-nums;
+}
+.ac-empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.ac-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+}
+.ac-links a {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-decoration: none;
+}
+.ac-links a:hover {
+  border-color: var(--series-blue);
+}
+
+/* ── logs ── */
+.ac-logs {
+  display: grid;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ac-logs li {
+  display: grid;
+  grid-template-columns: 88px 36px minmax(0, 150px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.ac-logs li:last-child {
+  border-bottom: 0;
+}
+.ac-logs time {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.ac-logs em {
+  font-style: normal;
+  font-weight: 700;
+}
+.ac-logs li.is-warning em {
+  color: var(--ac-warn);
+}
+.ac-logs li.is-error em,
+.ac-logs li.is-critical em {
+  color: var(--ac-down);
+}
+.ac-logs code {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-logs p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.ac-log-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  width: 100%;
+  margin-bottom: 4px;
+}
+.ac-log-tools button {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.ac-log-tools button.is-on {
+  border-color: var(--series-blue);
+  color: var(--text-primary);
+}
+.ac-log-tools input {
+  flex: 1;
+  min-width: 160px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--page-plane);
+  color: var(--text-primary);
+  font-size: 12.5px;
+}
+
+/* ── tables, facts ── */
+.ac-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.ac-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.ac-table th,
+.ac-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  white-space: nowrap;
+}
+.ac-table th:first-child,
+.ac-table td:first-child {
+  text-align: left;
+}
+.ac-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.ac-table tr.is-warn td {
+  color: var(--ac-warn);
+}
+.ac-table tr.is-down td {
+  color: var(--ac-down);
+  font-weight: 700;
+}
+.ac-stale {
+  margin: -4px 0 10px;
+  color: var(--ac-warn);
+}
+.ac-note {
+  width: 100%;
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.ac-dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 7px 16px;
+  width: 100%;
+  margin: 0;
+  font-size: 13px;
+}
+.ac-dl dt {
+  color: var(--text-muted);
+}
+.ac-dl dd {
+  margin: 0;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ac-dl dd.is-error {
+  color: var(--ac-down);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.ac-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ac-chips li {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12px;
+}
+.ac-chips b {
+  margin-left: 4px;
+  color: var(--text-muted);
+}
+
+/* A group of figures that did not load: the reason, and a way to ask again. */
+.admin-load-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, #f46a6a 45%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, #f46a6a 10%, transparent);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.admin-load-error button {
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+/* ── narrow screens: the menu becomes a strip over the page ── */
+@media (max-width: 1100px) {
+  .ac-grid--4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 860px) {
+  .ac-page {
+    grid-template-columns: 1fr;
+  }
+  .ac-side {
+    position: static;
+    height: auto;
+    padding: 12px 12px 8px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .ac-brand {
+    padding-bottom: 8px;
+  }
+  .ac-nav {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+  }
+  .ac-nav button {
+    flex: none;
+    padding: 7px 12px;
+  }
+  .ac-nav button small {
+    display: none;
+  }
+  .ac-side-foot {
+    display: none;
+  }
+  .ac-main {
+    padding: 0 12px 32px;
+  }
+  .ac-top {
+    margin: 0 -12px 14px;
+    padding: 10px 12px;
+  }
+  .ac-status {
+    order: 3;
+    max-width: none;
+    margin-left: 0;
+    width: 100%;
+  }
+  .ac-grid--2 {
+    grid-template-columns: 1fr;
+  }
+  .ac-logs li {
+    grid-template-columns: 80px 32px minmax(0, 1fr);
+  }
+  .ac-logs code {
+    display: none;
+  }
+}
+@media (max-width: 520px) {
+  .ac-grid--4 {
+    grid-template-columns: 1fr;
+  }
+}

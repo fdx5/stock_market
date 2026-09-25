@@ -235,6 +235,22 @@ app.include_router(realestate.router, prefix="/api/realestate")
 
 
 @app.on_event("startup")
+def _keep_recent_warnings() -> None:
+    # Warnings and errors from anywhere in the process, for the admin dashboard's
+    # 개요 — first, so what the other startup hooks log is caught too.
+    from app.services import system_health
+
+    system_health.install()
+
+
+@app.on_event("startup")
+def _warm_admin_dashboard() -> None:
+    from app.routers import admin as admin_router
+
+    admin_router.start_warmer()
+
+
+@app.on_event("startup")
 def _warm_market_maps() -> None:
     # Pre-fetches both maps' Naver pages on boot so the first visitor after a deploy
     # doesn't pay the cold multi-page scrape (every page's cache starts empty then).

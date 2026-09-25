@@ -49,6 +49,14 @@ class StoreUnavailable(RuntimeError):
     """The store could not be reached quickly enough, or is in cooldown."""
 
 
+# Every gate made, for the admin health view (name, load, breaker state).
+_registry: list["Gate"] = []
+
+
+def all_gates() -> list[dict]:
+    return [g.stats() for g in list(_registry)]
+
+
 class Gate:
     """One per store, guarding that store's connection.
 
@@ -77,6 +85,34 @@ class Gate:
         self._state = threading.Lock()
         self._failures = 0
         self._open_until = 0.0
+        # Load figures for the admin health view.
+        self._calls = 0
+        self._busy = 0
+        self._errors = 0
+        self._wait_ms = 0.0  # moving averages
+        self._work_ms = 0.0
+        self._last_error = ""
+        _registry.append(self)
+
+    def stats(self) -> dict:
+        with self._state:
+            return {
+                "name": self.name,
+                "calls": self._calls,
+                "busy_rejects": self._busy,
+                "errors": self._errors,
+                "avg_wait_ms": round(self._wait_ms, 1),
+                "avg_work_ms": round(self._work_ms, 1),
+                "open": time.monotonic() < self._open_until,
+                "failures": self._failures,
+                "last_error": self._last_error,
+            }
+
+    def _note(self, wait: float, work: float) -> None:
+        with self._state:
+            self._calls += 1
+            self._wait_ms += (wait * 1000 - self._wait_ms) * 0.1
+            self._work_ms += (work * 1000 - self._work_ms) * 0.1
 
     @property
     def is_open(self) -> bool:
@@ -91,7 +127,10 @@ class Gate:
             if time.monotonic() < self._open_until:
                 raise StoreUnavailable(f"{self.name}: unavailable (cooling down)")
 
+        asked = time.monotonic()
         if not self._lock.acquire(timeout=self._lock_timeout):
+            with self._state:
+                self._busy += 1
             # Give up rather than wait it out: the point of the bounded wait is that
             # this worker thread goes back to the pool instead of parking on a call it
             # cannot join.
@@ -106,17 +145,22 @@ class Gate:
             # trouble still trips it: an exception raised out of the call below does.
             raise StoreUnavailable(f"{self.name}: busy for over {self._lock_timeout}s")
 
+        got = time.monotonic()
         try:
             yield
         except StoreUnavailable:
             raise
-        except Exception:
+        except Exception as exc:
+            with self._state:
+                self._errors += 1
+                self._last_error = f"{type(exc).__name__}: {exc}"[:200]
             self._record_failure()
             raise
         else:
             self._record_success()
         finally:
             self._lock.release()
+            self._note(got - asked, time.monotonic() - got)
 
     def _record_failure(self) -> None:
         with self._state:

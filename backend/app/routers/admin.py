@@ -48,21 +48,39 @@ def login(payload: LoginPayload):
     return {"token": token, "expires_at": expires_at}
 
 
+# The last good value of each summary figure. The figures are separate queries on the
+# shared database; when one of them times out the rest still answer, and it shows its
+# last value (named in "stale") instead of failing the whole summary.
+_summary_last: dict = {}
+
+
 @router.get("/summary", dependencies=[Depends(require_admin)])
 @ttl_cache(55)
 def summary():
     since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-    top_pages = page_view_store.counts_by_page(since_24h, 5)
     # Every figure above `bots` counts people only (page_view_store.HUMAN). `bots` is
     # the same 24 hours seen from the other side, reported rather than dropped: a crawl
     # surge is worth knowing about, and its agent breakdown is what names the crawler.
-    return {
-        "online_now": tracker.current_count(),
-        "total_visits": visitor_store.total_count(),
-        "views_last_24h": page_view_store.count_today(since_24h),
-        "top_pages": top_pages,
-        "bots": page_view_store.bot_overview(since_24h),
+    parts = {
+        "total_visits": visitor_store.total_count,
+        "views_last_24h": lambda: page_view_store.count_today(since_24h),
+        "top_pages": lambda: page_view_store.counts_by_page(since_24h, 5),
+        "bots": lambda: page_view_store.bot_overview(since_24h),
     }
+    fallback = {"total_visits": 0, "views_last_24h": 0, "top_pages": [], "bots": {"pageviews": 0, "sessions": 0, "agents": []}}
+    out: dict = {"online_now": tracker.current_count()}
+    stale: list[str] = []
+    for name, fn in parts.items():
+        try:
+            out[name] = fn()
+            _summary_last[name] = out[name]
+        except Exception:  # noqa: BLE001 — this figure only
+            out[name] = _summary_last.get(name, fallback[name])
+            stale.append(name)
+    if len(stale) == len(parts) and not _summary_last:
+        raise HTTPException(status_code=503, detail="요약 지표를 계산하지 못했습니다 (DB 응답 없음)")
+    out["stale"] = stale
+    return out
 
 
 # (timedelta, granularity) per range — anything an hour scale or finer buckets by
@@ -598,3 +616,63 @@ def naver_blog_status():
         "last_run": naver_publisher.get_last_run(),
         "recent_posts": recent,
     }
+
+
+
+# ── system health + keeping the dashboard's aggregates warm ────────────────────
+
+
+@router.get("/health", dependencies=[Depends(require_admin)])
+def health():
+    """The server itself: recent warnings and errors, store load, a timed database
+    round trip, background threads, memory, uptime and the 부동산 collectors."""
+    from app.services import system_health
+
+    return system_health.snapshot()
+
+
+_warm_started = False
+
+
+def start_warmer() -> None:
+    """Computes the dashboard's aggregates in the background — once shortly after
+    startup and then every few minutes — so an admin opening the page is answered from
+    a value already computed (admin_query_cache serves it while it refreshes)."""
+    global _warm_started
+    if _warm_started:
+        return
+    _warm_started = True
+    import logging
+    import threading
+    import time
+
+    log = logging.getLogger(__name__)
+
+    def warm_once() -> None:
+        jobs = [
+            summary,
+            lambda: pages_trend("3h"),
+            lambda: pages_visitor_trend("3h"),
+            lambda: hub_trend("3h"),
+            lambda: hub_summary("3h"),
+            lambda: pages_trend("24h"),
+            lambda: pages_visitor_trend("24h"),
+            lambda: pages_top(200),
+            lambda: stocks_top(500),
+            lambda: hub_objects_top(300, None),
+            bubbles_stats,
+        ]
+        for job in jobs:
+            try:
+                job()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("admin warm: %s", exc)
+            time.sleep(1)
+
+    def loop() -> None:
+        time.sleep(90)  # after the site's own startup work
+        while True:
+            warm_once()
+            time.sleep(240)
+
+    threading.Thread(target=loop, name="admin-warmer", daemon=True).start()
