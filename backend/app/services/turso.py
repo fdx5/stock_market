@@ -37,6 +37,7 @@ from __future__ import annotations
 import base64
 import os
 import sqlite3
+import time
 from typing import Any, Iterable, Sequence
 
 import requests
@@ -50,6 +51,10 @@ CONNECT_TIMEOUT = 3.0
 # Bulk writes legitimately take longer than a single statement, and they are
 # batch jobs rather than request-path work.
 BATCH_TIMEOUT_MULTIPLIER = 4
+
+
+# Statements a retry cannot apply twice.
+_READ_ONLY = ("SELECT", "WITH", "PRAGMA", "EXPLAIN")
 
 
 class TursoError(RuntimeError):
@@ -167,14 +172,27 @@ class Connection:
         ]
         requests_body.append({"type": "close"})
 
-        try:
-            response = self._session.post(
-                self._endpoint,
-                json={"requests": requests_body},
-                timeout=(CONNECT_TIMEOUT, timeout),
-            )
-        except requests.RequestException as exc:
-            raise TursoError(f"could not reach the database: {exc}") from exc
+        # A read that times out, or a connection that never opened, is tried once more:
+        # the shared database stalls for a few seconds now and then, and one retry turns
+        # most of those stalls into a slow answer instead of an error page. A write that
+        # timed out waiting for its answer is not resent — it may already have landed.
+        read_only = all((sql.split(None, 1) or [""])[0].upper() in _READ_ONLY for sql, _ in statements)
+        for attempt in (1, 2):
+            try:
+                response = self._session.post(
+                    self._endpoint,
+                    json={"requests": requests_body},
+                    timeout=(CONNECT_TIMEOUT, timeout),
+                )
+                break
+            except (requests.ConnectionError, requests.Timeout) as exc:
+                never_sent = isinstance(exc, requests.ConnectTimeout)
+                if attempt == 1 and (read_only or never_sent):
+                    time.sleep(0.3)
+                    continue
+                raise TursoError(f"could not reach the database: {exc}") from exc
+            except requests.RequestException as exc:
+                raise TursoError(f"could not reach the database: {exc}") from exc
 
         if response.status_code != 200:
             raise TursoError(

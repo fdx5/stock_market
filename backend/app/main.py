@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import re
 import threading
@@ -15,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.staticfiles import NotModifiedResponse
 
 from app.services.libsql_gate import StoreUnavailable
+from app.services.turso import TursoError
 from app.site import LEGACY_RENDER_HOST, PRIMARY_SITE_URL
 
 from app.data.global_discussion_fetcher import warm_nasdaq_symbols
@@ -94,6 +96,16 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(TursoError)
+async def _database_unreachable_handler(request: Request, exc: TursoError) -> JSONResponse:
+    # A query on the shared database that timed out even after its retry (turso.py).
+    # It used to escape as "Exception in ASGI application" and a 500 with a traceback
+    # per occurrence; it is one warning naming the route, and a 503 the pages already
+    # treat as "no data right now".
+    logging.getLogger("app.database").warning("database unreachable on %s %s: %s", request.method, request.url.path, str(exc)[:160])
+    return JSONResponse(status_code=503, content={"detail": "데이터베이스가 잠시 응답하지 않습니다. 잠시 후 다시 시도해 주세요."})
 
 
 @app.exception_handler(StoreUnavailable)
