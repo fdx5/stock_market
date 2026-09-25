@@ -156,6 +156,15 @@ def get_crumb(force_refresh: bool = False) -> tuple[requests.Session, str]:
         if have and (not force_refresh or fresh):
             return _session, _crumb  # type: ignore[return-value]
 
+        # A refresh request means Yahoo just rejected the crumb in hand. It is dead
+        # whether or not a new one can be had, so it goes now: kept past a failed or
+        # skipped handshake, every caller went on sending it — a request Yahoo was
+        # certain to refuse, per chunk per refresh, against an IP it was already
+        # throttling — and cooling_down() reported False the whole time, so nothing
+        # could tell that asking was pointless.
+        if force_refresh:
+            _crumb = None
+
         now = time.time()
         if now < _blocked_until:
             raise CrumbUnavailable(

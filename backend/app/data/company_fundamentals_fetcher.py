@@ -108,12 +108,16 @@ def fetch_fundamentals(symbol: str) -> dict:
         session, crumb = yahoo_session.get_crumb()
         url = QUOTE_SUMMARY_URL.format(symbol=symbol)
         resp = session.get(url, params={"modules": MODULES, "crumb": crumb}, timeout=8)
-        if resp.status_code == 401:
+        if resp.status_code in (401, 403):
             session, crumb = yahoo_session.get_crumb(force_refresh=True)
             resp = session.get(url, params={"modules": MODULES, "crumb": crumb}, timeout=8)
         resp.raise_for_status()
         result = ((resp.json().get("quoteSummary") or {}).get("result")) or []
         fields = _parse(result[0]) if result else dict(_EMPTY_FIELDS)
+    except yahoo_session.CrumbUnavailable:
+        # Cooling down: yahoo_session has logged it once; a traceback per symbol of a
+        # hundred-symbol batch would only repeat it.
+        fields = dict(_EMPTY_FIELDS)
     except Exception:
         logger.warning("company_fundamentals_fetcher: failed for %s", symbol, exc_info=True)
         fields = dict(_EMPTY_FIELDS)

@@ -25,7 +25,7 @@ def _fetch_chunk(symbols: list[str]) -> dict[str, dict]:
     session, crumb = yahoo_session.get_crumb()
     params = {"symbols": ",".join(symbols), "crumb": crumb}
     resp = session.get(QUOTE_URL, params=params, timeout=10)
-    if resp.status_code == 401:
+    if resp.status_code in (401, 403):
         session, crumb = yahoo_session.get_crumb(force_refresh=True)
         resp = session.get(QUOTE_URL, params={"symbols": ",".join(symbols), "crumb": crumb}, timeout=10)
     resp.raise_for_status()
@@ -50,10 +50,20 @@ def fetch_live_quotes(symbols: list[str]) -> dict[str, dict]:
     callers should fall back to their own last-known price/market cap for those
     symbols rather than losing the whole refresh over one bad chunk."""
     out: dict[str, dict] = {}
+    # While yahoo_session is cooling down after a refused handshake no chunk can be
+    # asked for; the page keeps its last-known prices, and yahoo_session has already
+    # logged the one fact worth logging. This module was left out when yahoo_bulk_quote
+    # learned the same, and went on writing a traceback for every chunk of every
+    # 20-30s refresh.
+    if yahoo_session.cooling_down():
+        return out
     for i in range(0, len(symbols), _CHUNK_SIZE):
         chunk = symbols[i : i + _CHUNK_SIZE]
         try:
             out.update(_fetch_chunk(chunk))
+        except yahoo_session.CrumbUnavailable:
+            # Every remaining chunk would get the same answer without a request.
+            break
         except Exception:  # noqa: BLE001 - one chunk's failure must not sink the refresh
             logger.warning("global_top100_batch_quote: chunk fetch failed", exc_info=True)
     return out
