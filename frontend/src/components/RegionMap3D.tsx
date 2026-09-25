@@ -6,6 +6,7 @@ import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { api, RealEstatePeriod, RealEstateRegionLevel, RealEstateRegionMove, RealEstateSido } from "../api/client";
 import { pct } from "../mapTile";
+import { ThemeMode, useThemeMode } from "../theme";
 import { changeToRgb } from "../treemap";
 
 /* The 부동산 맵's region map: Korea in relief, one level at a time — the 시·도, one
@@ -67,8 +68,17 @@ const SIDO_SHORT: Record<string, string> = {
   제주특별자치도: "제주",
 };
 
-const IDLE_CAP = new THREE.Color("#25251f");
 const HIGHLIGHT = "#f2c14e";
+
+/** The scene in each edition: 야간판 blocks on a dark ground, 주간판 blocks on paper
+ * — the site's light tile palette, a pale no-trade block, ink edges, a softer shadow. */
+const PALETTES: Record<
+  ThemeMode,
+  { idle: THREE.Color; edge: number; edgeOpacity: number; shadow: number; sky: number; bounce: number; side: number }
+> = {
+  dark: { idle: new THREE.Color("#25251f"), edge: 0xf5efe0, edgeOpacity: 0.3, shadow: 0.42, sky: 0xf4efe2, bounce: 0x14130f, side: 0.52 },
+  light: { idle: new THREE.Color("#d9d2c0"), edge: 0x16140e, edgeOpacity: 0.22, shadow: 0.2, sky: 0xffffff, bounce: 0xb8ae96, side: 0.7 },
+};
 /** changeToRgb reaches full colour at 5%. */
 const RGB_FULL_PCT = 5;
 
@@ -83,9 +93,9 @@ function saturationFor(moves: Iterable<RealEstateRegionMove>): number {
   return Math.min(8, Math.max(1.5, Math.round(p * 2) / 2));
 }
 
-function capColor(move: RealEstateRegionMove | undefined, saturation: number): THREE.Color {
-  if (!move || move.change === null) return IDLE_CAP.clone();
-  const { r, g, b } = changeToRgb((move.change / saturation) * RGB_FULL_PCT, "dark");
+function capColor(move: RealEstateRegionMove | undefined, saturation: number, theme: ThemeMode): THREE.Color {
+  if (!move || move.change === null) return PALETTES[theme].idle.clone();
+  const { r, g, b } = changeToRgb((move.change / saturation) * RGB_FULL_PCT, theme);
   return new THREE.Color(`rgb(${r}, ${g}, ${b})`);
 }
 
@@ -178,6 +188,8 @@ class RegionScene {
   private root = new THREE.Group();
   private ground: THREE.Mesh;
   private sun: THREE.DirectionalLight;
+  private hemi: THREE.HemisphereLight;
+  private theme: ThemeMode = "dark";
   private blocks = new Map<string, Block>();
   private outline = new THREE.Group();
   private outlineMat = new LineMaterial({ color: HIGHLIGHT, linewidth: 2.4, transparent: true, depthTest: false });
@@ -214,7 +226,8 @@ class RegionScene {
     this.scene.add(this.root);
     this.root.add(this.outline);
 
-    this.scene.add(new THREE.HemisphereLight(0xf4efe2, 0x14130f, 1.15));
+    this.hemi = new THREE.HemisphereLight(PALETTES.dark.sky, PALETTES.dark.bounce, 1.15);
+    this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff6e5, 1.6);
     this.sun.position.set(-60, -40, 120);
     this.sun.castShadow = true;
@@ -325,8 +338,9 @@ class RegionScene {
       }
       if (!shapes.length) continue;
       const geometry = new THREE.ExtrudeGeometry(shapes, { depth: this.depth, bevelEnabled: false, curveSegments: 1 });
-      const cap = new THREE.MeshStandardMaterial({ color: IDLE_CAP, roughness: 0.58, metalness: 0.06 });
-      const side = new THREE.MeshStandardMaterial({ color: IDLE_CAP.clone().multiplyScalar(0.55), roughness: 0.85, metalness: 0 });
+      const palette = PALETTES[this.theme];
+      const cap = new THREE.MeshStandardMaterial({ color: palette.idle, roughness: 0.58, metalness: 0.06 });
+      const side = new THREE.MeshStandardMaterial({ color: palette.idle.clone().multiplyScalar(palette.side), roughness: 0.85, metalness: 0 });
       const mesh = new THREE.Mesh(geometry, [cap, side]);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
@@ -335,7 +349,7 @@ class RegionScene {
       edgeGeo.setAttribute("position", new THREE.Float32BufferAttribute(edgePts, 3));
       const edges = new THREE.LineSegments(
         edgeGeo,
-        new THREE.LineBasicMaterial({ color: 0xf5efe0, transparent: true, opacity: level === "sido" ? 0.34 : 0.26 }),
+        new THREE.LineBasicMaterial({ color: palette.edge, transparent: true, opacity: palette.edgeOpacity }),
       );
       const group = new THREE.Group();
       group.add(mesh, edges);
@@ -359,8 +373,8 @@ class RegionScene {
         labelSize: null,
         anchor: new THREE.Vector3(ax, ay, this.depth),
         lift: 0,
-        color: IDLE_CAP.clone(),
-        target: IDLE_CAP.clone(),
+        color: palette.idle.clone(),
+        target: palette.idle.clone(),
         delay: dist,
         grow: 0,
       });
@@ -373,6 +387,20 @@ class RegionScene {
     this.frame(true);
   }
 
+  setTheme(theme: ThemeMode) {
+    this.theme = theme;
+    const palette = PALETTES[theme];
+    this.hemi.color.setHex(palette.sky);
+    this.hemi.groundColor.setHex(palette.bounce);
+    (this.ground.material as THREE.ShadowMaterial).opacity = palette.shadow;
+    for (const b of this.blocks.values()) {
+      const edge = b.edges.material as THREE.LineBasicMaterial;
+      edge.color.setHex(palette.edge);
+      edge.opacity = palette.edgeOpacity;
+    }
+    this.applyMoves();
+  }
+
   setMoves(moves: Map<string, RealEstateRegionMove>, saturation: number) {
     this.moves = moves;
     this.saturation = saturation;
@@ -382,7 +410,7 @@ class RegionScene {
   private applyMoves() {
     for (const b of this.blocks.values()) {
       const move = this.moves.get(b.region.key);
-      b.target = capColor(move, this.saturation);
+      b.target = capColor(move, this.saturation, this.theme);
       const change = move?.change ?? null;
       const tone = change === null ? "idle" : change > 0 ? "up" : change < 0 ? "down" : "flat";
       b.label.dataset.tone = tone;
@@ -541,7 +569,7 @@ class RegionScene {
       const shown = b.color.clone();
       if (b.region.key === this.hovered) shown.offsetHSL(0, 0, 0.06);
       b.cap.color.copy(shown);
-      b.side.color.copy(shown).multiplyScalar(0.52);
+      b.side.color.copy(shown).multiplyScalar(PALETTES[this.theme].side);
     }
     const sel = this.selected ? this.blocks.get(this.selected) : null;
     if (sel) this.outline.position.z = sel.lift + (sel.group.scale.z - 1) * this.depth;
@@ -663,6 +691,7 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
   const labelsRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<RegionScene | null>(null);
   const [webgl] = useState(supportsWebGL);
+  const theme = useThemeMode();
   const [level, setLevel] = useState<Level>(sgg ? "dong" : "sgg");
   const [shapes, setShapes] = useState<{ key: string; level: Level; features: GeoFeature[] } | null>(null);
   const [geoError, setGeoError] = useState(false);
@@ -775,6 +804,10 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
   }, [webgl, touch]);
 
   useEffect(() => {
+    sceneRef.current?.setTheme(theme);
+  }, [theme, webgl, touch]);
+
+  useEffect(() => {
     sceneRef.current?.setRegions(drawn, shapes?.level ?? "sgg");
     // A card left over from the regions just replaced would name the wrong place.
     setHover(null);
@@ -826,7 +859,7 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
   ];
 
   return (
-    <section className="rm3" aria-label="지역별 등락 3D 지도">
+    <section className="rm3" data-mode={theme} aria-label="지역별 등락 3D 지도">
       <header className="rm3-head">
         <div className="rm3-tabs" role="tablist" aria-label="지도 단위">
           {LEVELS.map((l) => (

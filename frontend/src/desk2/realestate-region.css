@@ -50,6 +50,18 @@
   --rm3-ink-3: #8a8475;
   --rm3-rule: rgba(236, 230, 214, 0.14);
   --rm3-mark: #f2c14e;
+  --rm3-mark-ink: #f2c14e;
+  --rm3-panel: rgba(15, 15, 13, 0.82);
+  --rm3-card: rgba(22, 22, 19, 0.96);
+  --rm3-card-rule: rgba(236, 230, 214, 0.28);
+  --rm3-hover: rgba(236, 230, 214, 0.05);
+  --rm3-stage:
+    radial-gradient(ellipse 70% 60% at 50% 45%, rgba(242, 193, 78, 0.05), transparent 70%),
+    radial-gradient(ellipse at 50% 42%, #1c1b17 0%, #0f0f0d 72%);
+  --rm3-scale: linear-gradient(90deg, #3987e5, #383835 50%, #e66767);
+  --rm3-idle: #25251f;
+  --rm3-up: #ff8e82;
+  --rm3-down: #7fb6ff;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -61,6 +73,9 @@
 .rm3--placeholder {
   min-height: 420px;
   background: radial-gradient(ellipse at 50% 42%, #1c1b17 0%, #0f0f0d 72%);
+}
+:root[data-theme="light"] .rm3--placeholder {
+  background: radial-gradient(ellipse at 50% 42%, #fbf8f0 0%, #e9e3d4 76%);
 }
 
 .rm3-head {
@@ -89,12 +104,12 @@
   border-right: 0;
 }
 .d2.mm .rm3-tabs button:hover:not(:disabled) {
-  background: rgba(236, 230, 214, 0.05);
+  background: var(--rm3-hover);
   color: var(--rm3-ink);
 }
 .d2.mm .rm3-tabs button.active {
   background: var(--rm3-ink);
-  color: #111;
+  color: var(--rm3-bg);
 }
 .d2.mm .rm3-tabs button:disabled {
   opacity: 0.35;
@@ -115,7 +130,7 @@
   opacity: 0.6;
 }
 .rm3-crumbs b {
-  color: var(--rm3-mark);
+  color: var(--rm3-mark-ink);
 }
 .d2.mm .rm3-crumbs button {
   padding: 0;
@@ -125,7 +140,7 @@
   font: inherit;
   cursor: pointer;
   text-decoration: underline;
-  text-decoration-color: rgba(236, 230, 214, 0.3);
+  text-decoration-color: var(--rm3-rule);
   text-underline-offset: 3px;
 }
 .d2.mm .rm3-crumbs button:hover {
@@ -137,9 +152,7 @@
   flex: 1;
   min-height: 340px;
   overflow: hidden;
-  background:
-    radial-gradient(ellipse 70% 60% at 50% 45%, rgba(242, 193, 78, 0.05), transparent 70%),
-    radial-gradient(ellipse at 50% 42%, #1c1b17 0%, #0f0f0d 72%);
+  background: var(--rm3-stage);
   touch-action: pan-y;
 }
 .rm3-stage canvas {
@@ -208,7 +221,7 @@
   gap: 7px;
   padding: 5px 9px;
   border: 1px solid var(--rm3-rule);
-  background: rgba(15, 15, 13, 0.82);
+  background: var(--rm3-panel);
   color: var(--rm3-ink);
   font: 600 11px var(--f-sans);
   pointer-events: none;
@@ -216,7 +229,7 @@
 .rm3-spinner {
   width: 10px;
   height: 10px;
-  border: 2px solid rgba(236, 230, 214, 0.25);
+  border: 2px solid var(--rm3-rule);
   border-top-color: var(--rm3-mark);
   border-radius: 50%;
   animation: rm3-spin 0.8s linear infinite;
@@ -248,8 +261,8 @@
   min-width: 150px;
   max-width: 230px;
   padding: 9px 11px 10px;
-  border: 1px solid rgba(236, 230, 214, 0.28);
-  background: rgba(22, 22, 19, 0.96);
+  border: 1px solid var(--rm3-card-rule);
+  background: var(--rm3-card);
   box-shadow: 0 14px 34px -12px rgba(0, 0, 0, 0.7);
   color: var(--rm3-ink);
   pointer-events: none;
@@ -263,10 +276,10 @@
   font-variant-numeric: tabular-nums;
 }
 .rm3-tip em[data-tone="up"] {
-  color: #ff8e82;
+  color: var(--rm3-up);
 }
 .rm3-tip em[data-tone="down"] {
-  color: #7fb6ff;
+  color: var(--rm3-down);
 }
 .rm3-tip small {
   color: var(--rm3-ink-3);
@@ -276,7 +289,7 @@
   margin-top: 3px;
   padding-top: 5px;
   border-top: 1px solid var(--rm3-rule);
-  color: var(--rm3-mark);
+  color: var(--rm3-mark-ink);
   font: 600 10.5px var(--f-sans);
 }
 
@@ -292,13 +305,13 @@
   height: 28px;
   padding: 0;
   border: 1px solid var(--rm3-rule);
-  background: rgba(15, 15, 13, 0.8);
+  background: var(--rm3-panel);
   color: var(--rm3-ink);
   font: 700 15px/1 var(--f-sans);
   cursor: pointer;
 }
 .d2.mm .rm3-controls button:hover {
-  background: rgba(236, 230, 214, 0.12);
+  background: var(--rm3-hover);
 }
 
 .rm3-legend {
@@ -313,7 +326,7 @@
 }
 .rm3-legend-bar {
   height: 7px;
-  background: linear-gradient(90deg, #3987e5, #383835 50%, #e66767);
+  background: var(--rm3-scale);
 }
 .rm3-legend small {
   display: flex;
@@ -327,8 +340,55 @@
   width: 10px;
   height: 7px;
   margin-left: 6px;
-  border: 1px solid rgba(236, 230, 214, 0.2);
-  background: #25251f;
+  border: 1px solid var(--rm3-rule);
+  background: var(--rm3-idle);
+}
+
+/* 주간판: the map on paper — the site's light tile palette on a warm ground, ink
+   rules and labels, and a deeper brass for the selected region's name. */
+.rm3[data-mode="light"] {
+  --rm3-bg: #f6f2e8;
+  --rm3-ink: #16140e;
+  --rm3-ink-3: #7f7969;
+  --rm3-rule: rgba(22, 20, 14, 0.14);
+  --rm3-mark-ink: #946313;
+  --rm3-panel: rgba(246, 242, 232, 0.9);
+  --rm3-card: rgba(251, 249, 243, 0.98);
+  --rm3-card-rule: rgba(22, 20, 14, 0.22);
+  --rm3-hover: rgba(22, 20, 14, 0.06);
+  --rm3-stage:
+    radial-gradient(ellipse 70% 60% at 50% 45%, rgba(246, 205, 64, 0.1), transparent 70%),
+    radial-gradient(ellipse at 50% 42%, #fbf8f0 0%, #e9e3d4 76%);
+  --rm3-scale: linear-gradient(90deg, #3f66b8, #66707d 50%, #bd5c66);
+  --rm3-idle: #d9d2c0;
+  --rm3-up: #b8343b;
+  --rm3-down: #2f58a8;
+  border-color: var(--rule-ink, #16140e);
+}
+.rm3[data-mode="light"] .rm3-tip {
+  box-shadow: 0 14px 34px -14px rgba(60, 50, 30, 0.35);
+}
+.rm3[data-mode="light"] .rm3-label {
+  color: #16140e;
+  text-shadow:
+    0 0 2px rgba(255, 253, 247, 0.95),
+    0 0 6px rgba(255, 253, 247, 0.8);
+}
+.rm3[data-mode="light"] .rm3-label span {
+  background: rgba(255, 253, 247, 0.82);
+}
+.rm3[data-mode="light"] .rm3-label[data-tone="up"] span {
+  color: #a32a31;
+}
+.rm3[data-mode="light"] .rm3-label[data-tone="down"] span {
+  color: #244a95;
+}
+.rm3[data-mode="light"] .rm3-label[data-tone="idle"] span,
+.rm3[data-mode="light"] .rm3-label[data-tone="flat"] span {
+  color: #6b6557;
+}
+.rm3[data-mode="light"] .rm3-label.is-selected b {
+  color: #7a4f0c;
 }
 
 /* Stacked above the treemap (tablets, phones): a fixed-height map that folds away. */
