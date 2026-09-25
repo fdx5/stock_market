@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, RealEstateFacts, RealEstateItem, RealEstatePeriod, RealEstateTypeView } from "../api/client";
+import { api, RealEstateFacts, RealEstateItem, RealEstatePeriod, RealEstateTradeHistory, RealEstateTypeView } from "../api/client";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import RealEstatePopup, { OtherType, PopupContext } from "./RealEstatePopup";
 
@@ -48,6 +48,7 @@ export default function RealEstateSheet({
   }, [onClose]);
 
   const [views, setViews] = useState<RealEstateTypeView[]>([]);
+  const [history, setHistory] = useState<RealEstateTradeHistory | undefined>(undefined);
   const [selected, setSelected] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
@@ -61,6 +62,7 @@ export default function RealEstateSheet({
       .then((res) => {
         if (cancelled) return;
         setViews(res.types);
+        setHistory(res.history);
         setSelected(representativeKey(item, res.types));
       })
       .catch(() => {
@@ -156,6 +158,8 @@ export default function RealEstateSheet({
               others={others}
               onPickType={views.length ? setSelected : undefined}
               facts={facts}
+              deals={view?.deals}
+              history={history}
             />
           </div>
           <footer className="re-sheet-actions">

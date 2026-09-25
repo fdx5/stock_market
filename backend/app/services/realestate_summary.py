@@ -102,7 +102,10 @@ def _worker() -> None:
             with rm._district_lock:
                 months = rm._districts.get(lawd)
             if months is None:
-                months = {ym: deals for ym, (_, deals) in realestate_store.load_district(lawd).items()}
+                months = {
+                    ym: deals
+                    for ym, (_, deals) in realestate_store.load_district(lawd, since=rm._recent_since()).items()
+                }
             _store(lawd, period, version, summarise(lawd, period, months))
         except Exception as exc:  # noqa: BLE001
             log.warning("realestate summary %s %s failed: %s", lawd, period, exc)

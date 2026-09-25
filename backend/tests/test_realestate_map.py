@@ -208,7 +208,7 @@ def test_failed_store_read_is_not_cached(monkeypatch):
     monkeypatch.setattr(rm.time, "sleep", lambda s: None)
     calls = {"n": 0}
 
-    def flaky(code):
+    def flaky(code, since="", before=""):
         calls["n"] += 1
         if calls["n"] <= 3:
             raise RuntimeError("gate timeout")
@@ -293,3 +293,43 @@ def test_sido_map_is_served_from_the_last_build_and_rebuilt_behind(monkeypatch):
     stored["sido:41:3m:200"] = ("2020-01-01T00:00:00+09:00", body)
     assert json.loads(rm.get_map("41", None, None, "3m", 200))["items"] == [1]
     assert builds == ["41"] and queued == [key]
+
+
+def test_card_lists_every_trade_back_through_the_older_months(monkeypatch):
+    today = dt.datetime.now(rm.KST).date()
+    d = lambda days: int((today - dt.timedelta(days=days)).strftime("%Y%m%d"))  # noqa: E731
+    recent = {"x": [[d(10), "S1", "은마", "대치동", "1", 76.8, 250000, 5, 1979, 0]]}
+    _seed(monkeypatch, {"11680": recent})
+    older = {
+        "201503": ("t", [[20150312, "S1", "은마", "대치동", "1", 76.8, 90000, 3, 1979, 0],
+                         [20150320, "S2", "다른단지", "대치동", "2", 76.8, 50000, 3, 1990, 0]]),
+        "200602": ("t", [[20060215, "S1", "은마", "대치동", "1", 76.9, 70000, 8, 1979, 1]]),
+    }
+    monkeypatch.setattr(rm.realestate_store, "load_district", lambda code, since="", before="": older if before else {})
+    monkeypatch.setattr(rm, "_deep_cache", rm.OrderedDict())
+    monkeypatch.setattr(rm, "_index", {("11680", "201503"): "t", ("11680", "200602"): "t"})
+    wanted = []
+    monkeypatch.setattr(rm, "want_history", lambda code: wanted.append(code))
+
+    got = rm.complex_detail("11680:S1", "3m")
+    deals = got["types"][0]["deals"]
+    assert [x[0] for x in deals] == [d(10), 20150312, 20060215]
+    assert deals[-1][3] == 1  # 직거래 kept
+    assert got["history"]["from"] == "2006-02" and got["history"]["complete"] is False
+    assert wanted == ["11680"]  # the missing months are asked for
+
+
+def test_idle_collector_fills_older_months_opened_districts_first(monkeypatch):
+    monkeypatch.setattr(rm, "_queue", [])
+    monkeypatch.setattr(rm, "_queued", {})
+    monkeypatch.setattr(rm, "_deep_wanted", [])
+    monkeypatch.setattr(rm, "_calls_today", 0)
+    monkeypatch.setattr(rm, "_index", {})
+    rm.want_history("26110")
+    assert rm._next_district(deep=True) == ("deep", "26110")
+    # A newer request still goes first.
+    rm.request_districts(["11680"], priority=0)
+    assert rm._next_district(deep=True) == "11680"
+    # Nothing older is fetched once the day's reserve is reached.
+    monkeypatch.setattr(rm, "_calls_today", rm.DAILY_CALL_LIMIT)
+    assert rm._next_deep() is None

@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import { RealEstateFacts, RealEstateItem } from "../api/client";
+import { RealEstateFacts, RealEstateItem, RealEstateTradeHistory } from "../api/client";
 import { pct } from "../mapTile";
 import AptBrandIcon, { brandLabel } from "./AptBrandIcon";
 
@@ -121,6 +121,92 @@ function FactsRow({ facts }: { facts: RealEstateFacts | null }) {
   );
 }
 
+/** "2006.01" from "2006-01". */
+function ymLabel(ym: string): string {
+  return ym.replace("-", ".");
+}
+
+/** The pinned card's record of one 평형: every trade held, newest first, grouped by
+ * year under a heading that stays in view, each with its move from the trade
+ * before it (brokered trades only — a 직거래 is often off-market). */
+function TradeLog({
+  deals,
+  area,
+  history,
+}: {
+  deals: [number, number, number, number][];
+  area: number;
+  history?: RealEstateTradeHistory;
+}) {
+  const years: { year: number; rows: { d: [number, number, number, number]; move: number | null }[] }[] = [];
+  // The previous (older) brokered trade of each row, walking from the oldest.
+  const moves = new Map<number, number | null>();
+  let last: number | null = null;
+  for (let i = deals.length - 1; i >= 0; i--) {
+    const [, price, , direct] = deals[i];
+    moves.set(i, last !== null && !direct ? price - last : null);
+    if (!direct) last = price;
+  }
+  deals.forEach((d, i) => {
+    const year = Math.floor(d[0] / 10000);
+    if (!years.length || years[years.length - 1].year !== year) years.push({ year, rows: [] });
+    years[years.length - 1].rows.push({ d, move: moves.get(i) ?? null });
+  });
+  const first = deals[deals.length - 1][0];
+  const span = `${String(first).slice(0, 4)}.${String(first).slice(4, 6)} ~ ${String(deals[0][0]).slice(0, 4)}.${String(deals[0][0]).slice(4, 6)}`;
+  return (
+    <div className="re-pop-section re-pop-log">
+      <h4>
+        실거래 전체 · 전용 {Math.round(area)}㎡ <b>{deals.length.toLocaleString()}건</b>
+        <span>{span}</span>
+      </h4>
+      <div className="re-pop-log-scroll" tabIndex={0} aria-label="실거래 전체 목록">
+        {years.map(({ year, rows }) => {
+          const brokered = rows.filter((r) => !r.d[3]);
+          const high = Math.max(...(brokered.length ? brokered : rows).map((r) => r.d[1]));
+          return (
+            <section key={year}>
+              <h5>
+                <b>{year}</b>
+                <span>
+                  {rows.length}건 · 최고 {shortPrice(high)}
+                </span>
+              </h5>
+              <table className="re-pop-trades">
+                <tbody>
+                  {rows.map(({ d: [day, price, floor, direct], move }, i) => (
+                    <tr key={`${day}-${i}`}>
+                      <td>{ymdDots(day)}</td>
+                      <td>{floor}층</td>
+                      <td>{direct ? <i>직거래</i> : null}</td>
+                      <td>
+                        {fullPrice(price)}
+                        {move !== null && move !== 0 && (
+                          <small className={`is-${move > 0 ? "up" : "down"}`}>
+                            {move > 0 ? "▲" : "▼"}
+                            {shortPrice(Math.abs(move))}
+                          </small>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          );
+        })}
+      </div>
+      {history && (
+        <p className="re-pop-log-note">
+          {history.complete
+            ? `국토교통부 실거래가 ${ymLabel(history.target)} 이후 전체 자료입니다.`
+            : `${ymLabel(history.from)} 이후 자료 · ${ymLabel(history.target)}까지의 과거 자료를 수집하고 있습니다.`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export interface PopupContext {
   periodLabel: string;
   /** e.g. "서울특별시" / "강남구" — the region the map is showing. */
@@ -151,6 +237,8 @@ export default function RealEstatePopup({
   others,
   onPickType,
   facts,
+  deals,
+  history,
 }: {
   item: RealEstateItem;
   ctx: PopupContext;
@@ -161,6 +249,10 @@ export default function RealEstatePopup({
   onPickType?: (key: number) => void;
   /** 세대수·주차 — null while loading; left out (the hover preview) hides the row. */
   facts?: RealEstateFacts | null;
+  /** Every trade of the 평형 shown (the pinned card): replaces the last-four list
+   * with the whole record, in a scrolling list. */
+  deals?: [number, number, number, number][];
+  history?: RealEstateTradeHistory;
 }) {
   const otherTypes: OtherType[] = others ?? item.types;
   const brand = brandLabel(item.brand);
@@ -251,7 +343,9 @@ export default function RealEstatePopup({
 
       {facts !== undefined && <FactsRow facts={facts} />}
 
-      {recent.length > 0 && (
+      {deals && deals.length > 0 ? (
+        <TradeLog deals={deals} area={item.area} history={history} />
+      ) : recent.length > 0 && (
         <div className="re-pop-section">
           <h4>최근 실거래 · 전용 {Math.round(item.area)}㎡</h4>
           <table className="re-pop-trades">

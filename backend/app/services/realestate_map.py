@@ -61,7 +61,15 @@ REGION_ENDPOINT = "https://apis.data.go.kr/1741000/StanReginCd/getStanReginCdLis
 
 REGIONS_PATH = Path(__file__).resolve().parent.parent / "data" / "realestate_regions.json"
 
-MONTHS_KEPT = 25  # this month plus the 24 before it
+MONTHS_KEPT = 25  # this month plus the 24 before it: what the maps read
+# A complex's card lists its trades back to here — the first month the 실거래가 API
+# has. The months older than MONTHS_KEPT are collected only when the collector has
+# nothing newer to do (districts whose cards were opened first), stay in the store,
+# and are read for a card, never for a map.
+HISTORY_FROM = os.environ.get("RE_HISTORY_FROM", "200601")
+DEEP_CHUNK = 12  # older months fetched per turn, so newer work is never kept waiting
+# Calls kept back each day for the recent months' refreshes.
+DEEP_RESERVE = 1500
 ROWS_PER_PAGE = 1000
 # Development keys on data.go.kr allow 10,000 calls a day per API. Stop short of it so
 # a busy day degrades into "collecting" rather than into an error for the rest of it.
@@ -337,6 +345,25 @@ def _months_back(n: int, today: dt.date | None = None) -> list[str]:
     return out
 
 
+def _recent_since() -> str:
+    """The oldest month the maps read."""
+    return _months_back(MONTHS_KEPT)[-1]
+
+
+def _deep_months() -> list[str]:
+    """The months before the maps' window back to HISTORY_FROM, newest first."""
+    out = []
+    y, m = int(_recent_since()[:4]), int(_recent_since()[4:])
+    while True:
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+        ym = f"{y:04d}{m:02d}"
+        if ym < HISTORY_FROM:
+            return out
+        out.append(ym)
+
+
 def _stale_after(deal_ym: str, months: list[str]) -> dt.timedelta:
     """How long a stored month stays good. Contracts are reported up to 30 days after
     signing and cancellations later still, so the newest months are re-read often."""
@@ -370,6 +397,11 @@ MAX_DISTRICTS_IN_MEMORY = 90
 _index: dict[tuple[str, str], str] = {}
 _index_loaded = False
 _version = 0  # bumped whenever stored data changes, to invalidate computed maps
+# lawd_cd -> {deal_ym: deals} of the months before the maps' window, for cards.
+_deep_cache: OrderedDict[str, dict[str, list]] = OrderedDict()
+DEEP_CACHE_DISTRICTS = 12
+# Districts whose older months a reader is waiting on (a card was opened), newest first.
+_deep_wanted: list[str] = []
 _lawd_versions: dict[str, int] = {}  # the same, per district, for region summaries
 
 
@@ -392,7 +424,7 @@ def _district(lawd_cd: str) -> dict[str, list]:
     loaded = None
     for attempt in range(3):
         try:
-            loaded = {ym: deals for ym, (_, deals) in realestate_store.load_district(lawd_cd).items()}
+            loaded = {ym: deals for ym, (_, deals) in realestate_store.load_district(lawd_cd, since=_recent_since()).items()}
             break
         except Exception as exc:  # noqa: BLE001
             log.warning("realestate: load %s failed (%s), attempt %d", lawd_cd, exc, attempt + 1)
@@ -413,6 +445,12 @@ def _store_month(lawd_cd: str, deal_ym: str, deals: list) -> None:
     global _version
     now = dt.datetime.now(KST).isoformat(timespec="seconds")
     realestate_store.save_month(lawd_cd, deal_ym, deals, now)
+    if deal_ym < _recent_since():
+        # History for the cards: the maps neither hold nor read it.
+        with _district_lock:
+            _index[(lawd_cd, deal_ym)] = now
+            _deep_cache.pop(lawd_cd, None)
+        return
     with _district_lock:
         _index[(lawd_cd, deal_ym)] = now
         if lawd_cd in _districts:
@@ -452,11 +490,20 @@ def request_districts(codes: list[str], priority: int = 0) -> None:
         _queue_lock.notify()
 
 
-def _next_district() -> str:
+def _next_district(deep: bool = False) -> str | tuple[str, str]:
+    """The next district to collect. With `deep`, an idle queue hands out a district
+    whose older months are missing, as ("deep", code), instead of waiting."""
     global _in_flight
     with _queue_lock:
         while True:
             while not _queue:
+                if deep:
+                    code = _next_deep()
+                    if code:
+                        _in_flight = code
+                        return ("deep", code)
+                    _queue_lock.wait(timeout=60)
+                    continue
                 _queue_lock.wait()
             priority, neg_batch, _, code = heapq.heappop(_queue)
             if _queued.get(code) != (priority, -neg_batch):
@@ -466,34 +513,81 @@ def _next_district() -> str:
             return code
 
 
+def _deep_missing(lawd_cd: str) -> list[str]:
+    return [ym for ym in _deep_months() if (lawd_cd, ym) not in _index]
+
+
+def want_history(lawd_cd: str) -> None:
+    """A card of this district was opened: its older months go first."""
+    with _queue_lock:
+        if lawd_cd in _deep_wanted:
+            _deep_wanted.remove(lawd_cd)
+        _deep_wanted.insert(0, lawd_cd)
+        del _deep_wanted[50:]
+        _queue_lock.notify()
+
+
+def _next_deep() -> str | None:
+    """The district to fill older months for, when nothing newer is waiting: the ones
+    readers opened, then every district in the warm order."""
+    if _calls_today > DAILY_CALL_LIMIT - DEEP_RESERVE:
+        return None
+    for code in list(_deep_wanted):
+        if _deep_missing(code):
+            return code
+        _deep_wanted.remove(code)
+    order = list(WARM_ORDER) + [s["code"] for s in regions()["sido"] if s["code"] not in WARM_ORDER]
+    for sido_code in order:
+        sido = next((s for s in regions()["sido"] if s["code"] == sido_code), None)
+        for g in sido["sgg"] if sido else []:
+            if _deep_missing(g["code"]):
+                return g["code"]
+    return None
+
+
+def _collect_deep(lawd_cd: str) -> None:
+    """Up to DEEP_CHUNK of a district's missing older months, newest first."""
+    for deal_ym in _deep_missing(lawd_cd)[:DEEP_CHUNK]:
+        if not _fetch_and_store(lawd_cd, deal_ym):
+            return
+
+
 def _collect_district(lawd_cd: str) -> None:
-    global _last_error
     months = _months_back(MONTHS_KEPT)
     for deal_ym in months:
         if not _needs_fetch(lawd_cd, deal_ym, _index, months):
             continue
-        try:
-            deals = fetch_month(lawd_cd, deal_ym)
-        except MolitError as exc:
-            _last_error = str(exc)
-            log.warning("realestate: %s %s — %s", lawd_cd, deal_ym, exc)
-            if "budget" in str(exc):
-                time.sleep(600)
-            else:
-                time.sleep(5)
+        if not _fetch_and_store(lawd_cd, deal_ym):
             return
-        except Exception as exc:  # noqa: BLE001 — network trouble; try again later
-            _last_error = str(exc)
-            log.warning("realestate: %s %s — %s", lawd_cd, deal_ym, exc)
+
+
+def _fetch_and_store(lawd_cd: str, deal_ym: str) -> bool:
+    """One month from the API into the store; False when the collector should stop
+    for now (an error or the day's budget)."""
+    global _last_error
+    try:
+        deals = fetch_month(lawd_cd, deal_ym)
+    except MolitError as exc:
+        _last_error = str(exc)
+        log.warning("realestate: %s %s — %s", lawd_cd, deal_ym, exc)
+        if "budget" in str(exc):
+            time.sleep(600)
+        else:
             time.sleep(5)
-            return
-        _last_error = None
-        try:
-            _store_month(lawd_cd, deal_ym, deals)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("realestate: store %s %s failed (%s)", lawd_cd, deal_ym, exc)
-            return
-        time.sleep(CALL_SPACING_SECONDS)
+        return False
+    except Exception as exc:  # noqa: BLE001 — network trouble; try again later
+        _last_error = str(exc)
+        log.warning("realestate: %s %s — %s", lawd_cd, deal_ym, exc)
+        time.sleep(5)
+        return False
+    _last_error = None
+    try:
+        _store_month(lawd_cd, deal_ym, deals)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("realestate: store %s %s failed (%s)", lawd_cd, deal_ym, exc)
+        return False
+    time.sleep(CALL_SPACING_SECONDS)
+    return True
 
 
 def _warm_all() -> None:
@@ -513,9 +607,12 @@ def _worker() -> None:
         if time.time() - last_warm > 3 * 3600:
             _warm_all()
             last_warm = time.time()
-        code = _next_district()
+        task = _next_district(deep=True)
         try:
-            _collect_district(code)
+            if isinstance(task, tuple):
+                _collect_deep(task[1])
+            else:
+                _collect_district(task)
         finally:
             with _queue_lock:
                 _in_flight = None
@@ -782,7 +879,7 @@ def _prefetch(lawd_codes: list[str]) -> None:
     if not missing:
         return
     try:
-        loaded = realestate_store.load_districts(missing)
+        loaded = realestate_store.load_districts(missing, since=_recent_since())
     except Exception as exc:  # noqa: BLE001 — _district retries one by one
         log.warning("realestate: batch load of %d districts failed (%s)", len(missing), exc)
         return
@@ -894,20 +991,67 @@ def complex_detail(complex_id: str, period: str) -> dict:
     window_start, year_ago = _window(period, c["last"])
     # Period windows are the same ones the map used: its "오늘" is the region's latest
     # contract day, which a single complex does not know, so it falls back to its own.
+    older = _older_trades(lawd, complex_id)
     views = []
     for key, rows in c["types"].items():
         view = _type_view(rows, window_start, year_ago)
         view["key"] = key
         view["trades_1y"] = sum(1 for x in rows if x[0] >= year_ago)
         view["trades_total"] = len(rows)
+        # Every trade of this 평형 we hold, newest first: [day, price, floor, 직거래].
+        every = sorted(rows + older.get(key, []), reverse=True)
+        view["deals"] = [[x[0], x[1], x[2], x[4]] for x in every]
         views.append(view)
     views.sort(key=lambda v: (v["trades_1y"], v["trades_total"], v["key"]), reverse=True)
+    deep = _deep_months()
+    have = [ym for ym in deep if (lawd, ym) in _index]
+    earliest = min(have) if have else _recent_since()
+    if len(have) < len(deep):
+        want_history(lawd)
     return {
         "id": c["id"],
         "name": c["name"],
         "period": period,
         "types": views,
+        "history": {
+            # The oldest month collected for this district, and whether every month
+            # back to HISTORY_FROM is in.
+            "from": f"{earliest[:4]}-{earliest[4:]}",
+            "target": f"{HISTORY_FROM[:4]}-{HISTORY_FROM[4:]}",
+            "complete": len(have) == len(deep),
+        },
     }
+
+
+def _older_trades(lawd: str, complex_id: str) -> dict[int, list[tuple]]:
+    """This complex's trades from before the maps' window, by 평형, as _complexes
+    groups them. Read from the store once per district while its history grows."""
+    with _district_lock:
+        months = _deep_cache.get(lawd)
+        if months is not None:
+            _deep_cache.move_to_end(lawd)
+    if months is None:
+        try:
+            months = {
+                ym: deals
+                for ym, (_, deals) in realestate_store.load_district(lawd, before=_recent_since()).items()
+            }
+        except Exception as exc:  # noqa: BLE001 — the card still has the recent years
+            log.warning("realestate: history of %s unavailable (%s)", lawd, exc)
+            return {}
+        with _district_lock:
+            _deep_cache[lawd] = months
+            while len(_deep_cache) > DEEP_CACHE_DISTRICTS:
+                _deep_cache.popitem(last=False)
+    out: dict[int, list[tuple]] = defaultdict(list)
+    for deals in months.values():
+        for row in deals:
+            day, seq, name, umd, jibun, area, price, floor, built = row[:9]
+            direct = row[9] if len(row) > 9 else 0
+            key = f"{lawd}:{seq}" if seq else f"{lawd}:{umd}:{jibun}:{name}"
+            if key == complex_id:
+                out[round(area)].append((day, price, floor, area, direct))
+    return out
 
 _map_cache_lock = threading.Lock()
 # key -> (built at, data version, the response as JSON without its "status")

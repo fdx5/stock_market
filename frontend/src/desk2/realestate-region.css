@@ -536,3 +536,69 @@
   min-height: 0 !important;
   container-type: normal !important;
 }
+
+/* The pinned card's full trade record (RealEstatePopup TradeLog): a scrolling list
+   inside the card, a year's heading held at the top while its trades scroll by. */
+.re-pop-log h4 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 6px;
+}
+.re-pop-log h4 b {
+  color: var(--text-primary);
+}
+.re-pop-log h4 span {
+  margin-left: auto;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.re-pop-log-scroll {
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border-top: 1px solid var(--gridline);
+  border-bottom: 1px solid var(--gridline);
+}
+.re-pop-log-scroll:focus-visible {
+  outline: 2px solid var(--series-blue);
+  outline-offset: -2px;
+}
+.re-pop-log-scroll h5 {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+  padding: 5px 6px 4px;
+  border-bottom: 1px solid var(--gridline);
+  background: var(--surface-1);
+  color: var(--text-muted);
+  font: 600 10.5px var(--f-sans);
+}
+.re-pop-log-scroll h5 b {
+  color: var(--text-primary);
+  font: 800 12px var(--f-num);
+}
+.re-pop-log .re-pop-trades td:last-child small {
+  display: inline-block;
+  min-width: 46px;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+}
+.re-pop-log .re-pop-trades small.is-up {
+  color: var(--up-color);
+}
+.re-pop-log .re-pop-trades small.is-down {
+  color: var(--down-color);
+}
+.re-pop-log-note {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  line-height: 1.5;
+}

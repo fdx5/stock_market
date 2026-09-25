@@ -1105,7 +1105,18 @@ export interface RealEstateTypeView {
   high_1y: RealEstateTrade | null;
   low_1y: RealEstateTrade | null;
   trades_1y: number;
+  /** Every trade of this 평형 held, newest first: [yyyymmdd, 만원, 층, 직거래 0/1].
+   * Only on /complex (the pinned card), older years included. */
+  deals?: [number, number, number, number][];
   trades_total: number;
+}
+
+export interface RealEstateTradeHistory {
+  /** The oldest month collected for the district, "YYYY-MM". */
+  from: string;
+  /** How far back the history goes once collected, "YYYY-MM". */
+  target: string;
+  complete: boolean;
 }
 
 export interface RealEstateComplexResponse {
@@ -1113,6 +1124,7 @@ export interface RealEstateComplexResponse {
   name: string;
   period: RealEstatePeriod;
   types: RealEstateTypeView[];
+  history?: RealEstateTradeHistory;
 }
 
 export type RealEstateRegionLevel = "sido" | "sgg" | "dong";

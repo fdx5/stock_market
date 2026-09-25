@@ -112,13 +112,16 @@ def save_month(lawd_cd: str, deal_ym: str, deals: list, fetched_at: str) -> None
     _with_connection(_run)
 
 
-def load_district(lawd_cd: str) -> dict[str, tuple[str, list]]:
-    """Every stored month of one 시군구: {deal_ym: (fetched_at, deals)}."""
+def load_district(lawd_cd: str, since: str = "", before: str = "") -> dict[str, tuple[str, list]]:
+    """Stored months of one 시군구: {deal_ym: (fetched_at, deals)}. `since` keeps the
+    months from it on (what the maps read), `before` the months before it (the older
+    history a complex's card reads); both empty is every month."""
 
     def _run(conn):
         cur = conn.execute(
-            "SELECT deal_ym, fetched_at, payload FROM re_trade_months WHERE lawd_cd = ?",
-            (lawd_cd,),
+            "SELECT deal_ym, fetched_at, payload FROM re_trade_months WHERE lawd_cd = ? AND deal_ym >= ? "
+            "AND (? = '' OR deal_ym < ?)",
+            (lawd_cd, since, before, before),
         )
         return cur.fetchall()
 
@@ -172,7 +175,7 @@ def load_facts(key: str) -> tuple[str, object] | None:
 LOAD_BATCH = 8
 
 
-def load_districts(lawd_cds: list[str]) -> dict[str, dict[str, tuple[str, list]]]:
+def load_districts(lawd_cds: list[str], since: str = "") -> dict[str, dict[str, tuple[str, list]]]:
     """Every stored month of several 시군구 in one query: {lawd_cd: {deal_ym:
     (fetched_at, deals)}}. A 시·도 map needs dozens of districts, and one round trip
     to the store is several times faster than one per district."""
@@ -186,8 +189,9 @@ def load_districts(lawd_cds: list[str]) -> dict[str, dict[str, tuple[str, list]]
         def _run(conn, chunk=chunk):
             marks = ",".join("?" * len(chunk))
             cur = conn.execute(
-                f"SELECT lawd_cd, deal_ym, fetched_at, payload FROM re_trade_months WHERE lawd_cd IN ({marks})",
-                chunk,
+                f"SELECT lawd_cd, deal_ym, fetched_at, payload FROM re_trade_months "
+                f"WHERE lawd_cd IN ({marks}) AND deal_ym >= ?",
+                [*chunk, since],
             )
             return cur.fetchall()
 
