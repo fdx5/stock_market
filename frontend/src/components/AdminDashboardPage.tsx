@@ -200,7 +200,8 @@ function Overview({
   const problems = (health?.logs ?? []).filter((l) => l.level !== "INFO");
   const dbLevel: Level = !health ? "unknown" : !health.db.ok ? "down" : health.db.ms > 1500 ? "warn" : "ok";
   const errLevel: Level = !health ? "unknown" : health.errors_last_hour > 0 ? "warn" : "ok";
-  const reLevel: Level = !re ? "unknown" : re.error || re.last_error || re.rent_error ? "warn" : "ok";
+  const moving = re?.migration?.needed && !re.migration.done;
+  const reLevel: Level = !re ? "unknown" : re.error || re.last_error || re.rent_error || moving ? "warn" : "ok";
   return (
     <div className="ac-overview">
       <Failed {...healthState} />
@@ -217,7 +218,11 @@ function Overview({
           <Metric label="오류" value={health ? health.errors_last_hour.toLocaleString() : "—"} />
           <Metric label="경고" value={health ? health.warnings_last_hour.toLocaleString() : "—"} />
         </Card>
-        <Card title="부동산 수집" level={reLevel} foot={<button type="button" onClick={() => go("system")}>수집 상세 →</button>}>
+        <Card
+          title={moving ? `부동산 수집 · DB 이전 중 ${re?.migration?.rows.toLocaleString() ?? 0}행` : "부동산 수집"}
+          level={reLevel}
+          foot={<button type="button" onClick={() => go("system")}>수집 상세 →</button>}
+        >
           <Metric label="최근 2년" value={pct(re?.recent_coverage)} sub={re?.history_from ? `과거 이력 ${pct(re.history_coverage)} (${re.history_from.slice(0, 4)}년~)` : undefined} />
           <Metric
             label="오늘 API 호출"
@@ -356,6 +361,18 @@ function SystemSection({ health, state }: { health: AdminHealth | null; state: {
               </dd>
               <dt>메모리의 시군구</dt>
               <dd>{re?.districts_in_memory ?? 0}</dd>
+              <dt>저장 위치</dt>
+              <dd>
+                {re?.separate_db ? "부동산 전용 DB" : "공유 DB"}
+                {re?.migration?.needed && (
+                  <small>
+                    {" "}
+                    · 기존 데이터 이전{" "}
+                    {re.migration.done ? "완료" : re.migration.running ? `중 (${re.migration.table ?? ""} ${re.migration.rows.toLocaleString()}행)` : "대기"}
+                    {re.migration.error && ` · 오류: ${re.migration.error}`}
+                  </small>
+                )}
+              </dd>
               {(re?.last_error || re?.rent_error) && (
                 <>
                   <dt>최근 오류</dt>

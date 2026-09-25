@@ -604,9 +604,29 @@ def _warm_all() -> None:
             request_districts([g["code"] for g in sido["sgg"]], priority=10 + rank)
 
 
+def after_migration() -> None:
+    """Forgets everything read while the 부동산 data was still being copied to its own
+    database: the index, the districts, the maps and the region summaries."""
+    global _index_loaded
+    from app.services import realestate_rent, realestate_summary
+
+    with _district_lock:
+        _index_loaded = False
+        _index.clear()
+        _districts.clear()
+        _deep_cache.clear()
+    with _map_cache_lock:
+        _map_cache.clear()
+    realestate_summary._cache.clear()
+    realestate_rent._cache.clear()
+
+
 def _worker() -> None:
     global _in_flight
     _refresh_regions_from_mois()
+    if not realestate_store.migrated.is_set():
+        realestate_store.migrated.wait()
+        after_migration()
     _ensure_index()
     last_warm = 0.0
     while True:
@@ -1111,6 +1131,7 @@ def _body(result: dict) -> str:
 
 
 def _remember(key: tuple, body: str, built: float, persist: bool) -> None:
+    persist = persist and realestate_store.migrated.is_set()
     with _map_cache_lock:
         _map_cache[key] = (built, _version, body)
         _map_cache.move_to_end(key)
@@ -1201,6 +1222,7 @@ def start_map_warmer() -> None:
     """Keeps the 시·도 maps built: a pass now, then every half hour."""
 
     def loop() -> None:
+        realestate_store.migrated.wait()  # no maps from a half-copied database
         while True:
             try:
                 warm_sido_maps()

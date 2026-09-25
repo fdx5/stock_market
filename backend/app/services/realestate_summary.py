@@ -88,6 +88,7 @@ def _store(lawd: str, period: str, version: int, summary: dict) -> None:
 
 
 def _worker() -> None:
+    realestate_store.migrated.wait()
     while True:
         with _lock:
             while not _pending:

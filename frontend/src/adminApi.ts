@@ -563,6 +563,9 @@ export interface AdminRealestateStatus {
   rent_districts_cached?: number;
   rent_queue?: number;
   rent_error?: string | null;
+  /** The 부동산 data in a database of its own, and the one-time copy into it. */
+  separate_db?: boolean;
+  migration?: { needed: boolean; running: boolean; table: string | null; rows: number; done: boolean; error: string | null };
   error?: string;
 }
 

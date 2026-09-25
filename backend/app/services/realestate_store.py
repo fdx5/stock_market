@@ -309,3 +309,134 @@ def load_rent_district(lawd_cd: str, since: str = "") -> dict[str, tuple[str, li
         except Exception:
             continue
     return out
+
+
+# ── moving the 부동산 data to a database of its own ─────────────────────────────
+#
+# With REALESTATE_TURSO_DATABASE_URL set, the tables above live in that database. Its
+# first start finds it empty, so the rows are copied over from the shared database
+# (still TURSO_DATABASE_URL) in the background — oldest rowid first, a few at a time,
+# INSERT OR IGNORE so anything the new database already holds is kept — and marked
+# done in re_meta. Until then `migrated` stays unset, and the collectors, the map
+# builder and the summaries wait on it instead of refilling an empty database from the
+# API.
+
+import datetime as _dt
+import threading as _threading
+import time as _time
+
+SHARED_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL")
+SHARED_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN")
+SEPARATE = bool(os.environ.get("REALESTATE_TURSO_DATABASE_URL")) and os.environ.get(
+    "REALESTATE_TURSO_DATABASE_URL"
+) != SHARED_DATABASE_URL
+
+migrated = _threading.Event()
+if not SEPARATE:
+    migrated.set()
+
+migration_state: dict = {"needed": SEPARATE, "running": False, "table": None, "rows": 0, "done": not SEPARATE, "error": None}
+
+_META_SCHEMA = "CREATE TABLE IF NOT EXISTS re_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+# (table, columns, rows per round trip). The finished-map cache is not copied: it is
+# rebuilt in minutes, and whatever a build before this code wrote to the new database
+# came from an empty one — so it is cleared once the copy is done.
+_MOVE = (
+    ("re_trade_months", "lawd_cd, deal_ym, fetched_at, deal_count, payload", 40),
+    ("re_rent_months", "lawd_cd, deal_ym, fetched_at, deal_count, payload", 20),
+    ("re_complex_facts", "key, fetched_at, payload", 200),
+)
+
+
+def _open(url: str, token: str | None):
+    """A connection of the copy's own, with a longer read timeout than the stores'."""
+    from app.services.turso import Connection
+
+    if url and "://" in url:
+        return Connection(url, token, timeout=30)
+    return turso.connect(database=url)
+
+
+def _retry(fn, attempts: int = 4):
+    for i in range(attempts):
+        try:
+            return fn()
+        except Exception:
+            if i == attempts - 1:
+                raise
+            _time.sleep(2 * (i + 1))
+
+
+_moved_upto: dict[str, int] = {}  # table -> last rowid copied, so a retry resumes
+
+
+def _migrate() -> None:
+    """Copies until done: a failure waits half a minute and carries on from the last
+    row copied, so the collectors are never left waiting on a copy that gave up."""
+    while not migrated.is_set():
+        _migrate_once()
+        if not migrated.is_set():
+            _time.sleep(30)
+
+
+def _migrate_once() -> None:
+    migration_state["running"] = True
+    migration_state["error"] = None
+    try:
+        target = _open(TURSO_DATABASE_URL, TURSO_AUTH_TOKEN)
+        for schema in (_SCHEMA, _FACTS_SCHEMA, _MAP_SCHEMA, _RENT_SCHEMA, _META_SCHEMA):
+            _retry(lambda s=schema: target.execute(s))
+        done = _retry(lambda: target.execute("SELECT value FROM re_meta WHERE key = 'migrated_from_shared'").fetchall())
+        if done:
+            migration_state.update(done=True, running=False)
+            migrated.set()
+            return
+        source = _open(SHARED_DATABASE_URL, SHARED_AUTH_TOKEN)
+        for table, cols, batch in _MOVE:
+            migration_state["table"] = table
+            try:
+                source.execute(f"SELECT 1 FROM {table} LIMIT 1").fetchall()
+            except Exception:
+                continue  # never created on the shared database
+            marks = ", ".join("?" * len(cols.split(",")))
+            last = _moved_upto.get(table, 0)
+            while True:
+                rows = _retry(
+                    lambda: source.execute(
+                        f"SELECT rowid, {cols} FROM {table} WHERE rowid > ? ORDER BY rowid LIMIT ?", (last, batch)
+                    ).fetchall()
+                )
+                if not rows:
+                    break
+                _retry(lambda: target.executemany(f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({marks})", [r[1:] for r in rows]))
+                if hasattr(target, "commit"):
+                    target.commit()
+                last = rows[-1][0]
+                _moved_upto[table] = last
+                migration_state["rows"] += len(rows)
+        stamp = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
+        _retry(lambda: target.execute("DELETE FROM re_map_cache"))
+        _retry(lambda: target.execute("INSERT OR REPLACE INTO re_meta (key, value) VALUES ('migrated_from_shared', ?)", (stamp,)))
+        if hasattr(target, "commit"):
+            target.commit()
+        migration_state.update(done=True, table=None)
+        migrated.set()
+    except Exception as exc:  # noqa: BLE001 — tried again on the next start
+        migration_state["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        import logging
+
+        logging.getLogger(__name__).error("realestate: moving to its own database failed (%s)", exc)
+    finally:
+        migration_state["running"] = False
+
+
+_migration_started = False
+
+
+def start_migration() -> None:
+    """Copies the 부동산 tables into their own database, once, in the background."""
+    global _migration_started
+    if not SEPARATE or _migration_started:
+        return
+    _migration_started = True
+    _threading.Thread(target=_migrate, name="realestate-migrate", daemon=True).start()

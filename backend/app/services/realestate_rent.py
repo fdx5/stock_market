@@ -125,6 +125,7 @@ def _worker() -> None:
 
 def _work_once() -> None:
     global _busy, _error, _error_at
+    realestate_store.migrated.wait()
     with _lock:
         while not _wanted:
             _lock.wait()

@@ -107,6 +107,7 @@ def _threads() -> list[dict]:
 def _realestate() -> dict:
     from app.services import realestate_map as rm
     from app.services import realestate_rent as rr
+    from app.services import realestate_store as st
     from app.services import realestate_summary as rs
 
     deep = rm._deep_months()
@@ -138,6 +139,8 @@ def _realestate() -> dict:
         "rent_districts_cached": len(rr._cache),
         "rent_queue": len(rr._wanted),
         "rent_error": rr._error,
+        "separate_db": st.SEPARATE,
+        "migration": dict(st.migration_state),
     }
 
 
