@@ -430,13 +430,16 @@ def _deep_months() -> list[str]:
 
 def _stale_after(deal_ym: str, months: list[str]) -> dt.timedelta:
     """How long a stored month stays good. Contracts are reported up to 30 days after
-    signing and cancellations later still, so the newest months are re-read often."""
+    signing and cancellations later still, so the newest months are re-read often —
+    but no more than daily: the source updates once a day, and a 6-hour refresh of
+    every district spent over 2,000 of the day's 10,000 calls on unchanged months.
+    21 hours rather than 24, so the 3-hourly sweep catches each once a day."""
     age = months.index(deal_ym) if deal_ym in months else len(months)
     if age <= 1:
-        return dt.timedelta(hours=6)
+        return dt.timedelta(hours=21)
     if age <= 3:
-        return dt.timedelta(days=1)
-    return dt.timedelta(days=30)
+        return dt.timedelta(days=3)
+    return dt.timedelta(days=60)
 
 
 def _needs_fetch(lawd_cd: str, deal_ym: str, index: dict, months: list[str]) -> bool:
