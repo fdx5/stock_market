@@ -153,6 +153,10 @@ function ringPoints(ring: Ring, proj: (lon: number, lat: number) => [number, num
   return pts;
 }
 
+/** How far in the map zooms: an eighth of the fitted distance, enough to read 서울's
+ * outline on a phone's 시·도 map. */
+const MIN_ZOOM = 0.12;
+
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
 const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
@@ -190,6 +194,7 @@ class RegionScene {
   private sun: THREE.DirectionalLight;
   private hemi: THREE.HemisphereLight;
   private theme: ThemeMode = "dark";
+  private level: Level = "sgg";
   private blocks = new Map<string, Block>();
   private outline = new THREE.Group();
   private outlineMat = new LineMaterial({ color: HIGHLIGHT, linewidth: 2.4, transparent: true, depthTest: false });
@@ -212,9 +217,15 @@ class RegionScene {
 
   onHover: (region: Region | null, x: number, y: number) => void = () => {};
   onPick: (region: Region) => void = () => {};
+  /** Called once the map has been pinched or zoomed, so the gesture hint can go. */
+  onGesture: () => void = () => {};
+  private touch: boolean;
+  private touches = new Map<number, { x: number; y: number }>();
+  private pinch: { dist: number; mid: { x: number; y: number } } | null = null;
 
   constructor(private host: HTMLDivElement, labelLayer: HTMLDivElement, touch: boolean) {
     this.labelLayer = labelLayer;
+    this.touch = touch;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -263,11 +274,17 @@ class RegionScene {
     this.controls.addEventListener("change", () => (this.dirty = true));
     this.controls.addEventListener("start", () => (this.tween = null));
 
-    const el = this.renderer.domElement;
+    // Listened for on the whole stage, not just the canvas: a pinch that starts on a
+    // label (a tap target on phones) must still reach the map.
+    const el = this.host;
     el.addEventListener("pointermove", this.handleMove);
     el.addEventListener("pointerleave", this.handleLeave);
     el.addEventListener("pointerdown", this.handleDown);
     el.addEventListener("pointerup", this.handleUp);
+    el.addEventListener("pointercancel", this.handleCancel);
+    // One finger still scrolls the page (touch-action: pan-y); two fingers belong to
+    // the map, so the page must not scroll or zoom under a pinch.
+    el.addEventListener("touchmove", this.blockTwoFingerScroll, { passive: false });
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
@@ -278,6 +295,14 @@ class RegionScene {
   dispose() {
     cancelAnimationFrame(this.raf);
     this.resizeObserver.disconnect();
+    // The stage outlives the scene (a new one is built when the input kind changes).
+    const el = this.host;
+    el.removeEventListener("pointermove", this.handleMove);
+    el.removeEventListener("pointerleave", this.handleLeave);
+    el.removeEventListener("pointerdown", this.handleDown);
+    el.removeEventListener("pointerup", this.handleUp);
+    el.removeEventListener("pointercancel", this.handleCancel);
+    el.removeEventListener("touchmove", this.blockTwoFingerScroll);
     this.clear();
     this.controls.dispose();
     this.outlineMat.dispose();
@@ -308,6 +333,7 @@ class RegionScene {
 
   setRegions(regions: Region[], level: Level) {
     this.clear();
+    this.level = level;
     this.hovered = null;
     if (!regions.length) return;
     const proj = projection(regions);
@@ -361,6 +387,12 @@ class RegionScene {
       maxDist = Math.max(maxDist, dist);
       const label = document.createElement("div");
       label.className = "rm3-label";
+      // On a touch screen a label is a second, larger target for its region: a
+      // 시·도 as small as 서울 is hard to hit on the map itself.
+      if (this.touch && region.pickable) {
+        label.classList.add("is-tappable");
+        label.addEventListener("click", () => this.onPick(region));
+      }
       this.labelLayer.appendChild(label);
       this.blocks.set(region.key, {
         region,
@@ -517,8 +549,41 @@ class RegionScene {
     const target = this.controls.target.clone();
     const offset = this.camera.position.clone().sub(target);
     const fitDist = this.fit.position.distanceTo(this.fit.target);
-    const next = THREE.MathUtils.clamp(offset.length() * factor, fitDist * 0.3, fitDist * 1.5);
+    const next = THREE.MathUtils.clamp(offset.length() * factor, fitDist * MIN_ZOOM, fitDist * 1.5);
     this.moveTo({ position: target.clone().add(offset.setLength(next)), target }, 320);
+    this.onGesture();
+  }
+
+  /** Where a point on screen meets the ground (z = 0), in world units. */
+  private groundAt(x: number, y: number): THREE.Vector3 | null {
+    const ndc = new THREE.Vector2((x / this.width) * 2 - 1, -(y / this.height) * 2 + 1);
+    this.raycaster.setFromCamera(ndc, this.camera);
+    return this.raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), new THREE.Vector3());
+  }
+
+  /** Zooms by `ratio` about a screen point, which stays under the fingers. */
+  private zoomAt(x: number, y: number, ratio: number) {
+    if (!this.fit) return;
+    const target = this.controls.target;
+    const offset = this.camera.position.clone().sub(target);
+    const fitDist = this.fit.position.distanceTo(this.fit.target);
+    const next = THREE.MathUtils.clamp(offset.length() / ratio, fitDist * MIN_ZOOM, fitDist * 1.5);
+    const k = next / offset.length();
+    const anchor = this.groundAt(x, y);
+    if (anchor) target.sub(anchor).multiplyScalar(k).add(anchor);
+    this.camera.position.copy(target).add(offset.setLength(next));
+    this.dirty = true;
+  }
+
+  /** Moves the map so the ground under `from` ends up under `to`. */
+  private panBy(from: { x: number; y: number }, to: { x: number; y: number }) {
+    const a = this.groundAt(from.x, from.y);
+    const b = this.groundAt(to.x, to.y);
+    if (!a || !b) return;
+    const delta = a.sub(b);
+    this.controls.target.add(delta);
+    this.camera.position.add(delta);
+    this.dirty = true;
   }
 
   private resize() {
@@ -593,9 +658,12 @@ class RegionScene {
    * first; one that would overlap a placed label is hidden until there is room. */
   private placeLabels() {
     const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    // On the 시·도 map the small cities go first — 서울 sits inside 경기, and a
+    // province has room to move its label aside; elsewhere the larger regions do.
+    const smallFirst = this.level === "sido";
     const order = [...this.blocks.values()].sort((a, b) => {
-      const rank = (x: Block) => (x.region.key === this.selected ? 2 : x.region.key === this.hovered ? 1 : 0);
-      return rank(b) - rank(a) || b.region.area - a.region.area;
+      const rank = (x: Block) => (x.region.key === this.selected && !smallFirst ? 2 : x.region.key === this.hovered ? 1 : 0);
+      return rank(b) - rank(a) || (smallFirst ? a.region.area - b.region.area : b.region.area - a.region.area);
     });
     const v = new THREE.Vector3();
     for (const b of order) {
@@ -610,13 +678,29 @@ class RegionScene {
       const y = (-v.y * 0.5 + 0.5) * this.height;
       if (!b.labelSize) b.labelSize = { w: b.label.offsetWidth, h: b.label.offsetHeight };
       const { w, h } = b.labelSize;
-      const box = { x0: x - w / 2, y0: y - h / 2, x1: x + w / 2, y1: y + h / 2 };
-      const inside = box.x0 >= 0 && box.y0 >= 0 && box.x1 <= this.width && box.y1 <= this.height;
-      const free = placed.every((p) => box.x1 < p.x0 || box.x0 > p.x1 || box.y1 < p.y0 || box.y0 > p.y1);
-      const show = inside && (free || b.region.key === this.selected);
-      if (show) placed.push(box);
-      b.label.style.opacity = show ? "1" : "0";
-      b.label.style.transform = `translate(${(x - w / 2).toFixed(1)}px, ${(y - h / 2).toFixed(1)}px)`;
+      // On its point if there is room, else nudged just above, below or beside it.
+      const spots: [number, number][] = [
+        [0, 0], [0, -h * 0.8], [0, h * 0.8], [-w * 0.7, 0], [w * 0.7, 0],
+        [w * 0.8, -h * 0.9], [-w * 0.8, -h * 0.9], [w * 0.8, h * 0.9], [-w * 0.8, h * 0.9],
+        [0, -h * 1.6], [0, h * 1.6], [-w * 1.2, 0], [w * 1.2, 0],
+      ];
+      let shown: { x0: number; y0: number; x1: number; y1: number } | null = null;
+      for (const [dx, dy] of spots) {
+        const box = { x0: x + dx - w / 2, y0: y + dy - h / 2, x1: x + dx + w / 2, y1: y + dy + h / 2 };
+        const inside = box.x0 >= 0 && box.y0 >= 0 && box.x1 <= this.width && box.y1 <= this.height;
+        const free = placed.every((p) => box.x1 < p.x0 || box.x0 > p.x1 || box.y1 < p.y0 || box.y0 > p.y1);
+        if (inside && free) {
+          shown = box;
+          break;
+        }
+      }
+      // The chosen region is always named, on its point if nothing else fitted.
+      if (!shown && b.region.key === this.selected) shown = { x0: x - w / 2, y0: y - h / 2, x1: x + w / 2, y1: y + h / 2 };
+      if (shown) placed.push(shown);
+      b.label.style.opacity = shown ? "1" : "0";
+      b.label.style.pointerEvents = shown && this.touch && b.region.pickable ? "auto" : "none";
+      const at = shown ?? { x0: x - w / 2, y0: y - h / 2 };
+      b.label.style.transform = `translate(${at.x0.toFixed(1)}px, ${at.y0.toFixed(1)}px)`;
     }
   }
 
@@ -633,7 +717,8 @@ class RegionScene {
   }
 
   private handleMove = (e: PointerEvent) => {
-    if (e.pointerType === "touch") return;
+    if (e.pointerType === "touch") return this.handleTouchMove(e);
+    if (e.target !== this.renderer.domElement) return;
     const b = this.pick(e.clientX, e.clientY);
     const key = b?.region.key ?? null;
     if (key !== this.hovered) {
@@ -651,17 +736,93 @@ class RegionScene {
     this.onHover(null, 0, 0);
   };
 
+  private local(e: PointerEvent) {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  }
+
+  private pinchState() {
+    const [a, b] = [...this.touches.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
+  }
+
+  /** The map itself or one of its labels — not a button or card laid over it. */
+  private onSurface(e: Event): boolean {
+    const t = e.target as Element | null;
+    return t === this.renderer.domElement || !!t?.closest?.(".rm3-label");
+  }
+
   private handleDown = (e: PointerEvent) => {
+    if (!this.onSurface(e)) {
+      this.down = null;
+      return;
+    }
+    if (e.pointerType === "touch") {
+      this.touches.set(e.pointerId, this.local(e));
+      if (this.touches.size === 2) {
+        // A second finger turns a tap into a pinch.
+        this.down = null;
+        this.tween = null;
+        this.pinch = this.pinchState();
+        this.onHover(null, 0, 0);
+        return;
+      }
+    }
     this.down = { x: e.clientX, y: e.clientY, t: performance.now() };
   };
 
+  private handleTouchMove(e: PointerEvent) {
+    if (!this.touches.has(e.pointerId)) return;
+    this.touches.set(e.pointerId, this.local(e));
+    if (this.touches.size !== 2 || !this.pinch) return;
+    const now = this.pinchState();
+    this.zoomAt(now.mid.x, now.mid.y, now.dist / this.pinch.dist);
+    this.panBy(this.pinch.mid, now.mid);
+    this.pinch = now;
+    this.onGesture();
+  }
+
+  private handleCancel = (e: PointerEvent) => {
+    this.touches.delete(e.pointerId);
+    if (this.touches.size < 2) this.pinch = null;
+    this.down = null;
+  };
+
+  private blockTwoFingerScroll = (e: TouchEvent) => {
+    if (e.touches.length > 1) e.preventDefault();
+  };
+
   private handleUp = (e: PointerEvent) => {
+    const wasPinch = this.pinch !== null;
+    this.touches.delete(e.pointerId);
+    if (this.touches.size < 2) this.pinch = null;
     const d = this.down;
     this.down = null;
-    if (!d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 6 || performance.now() - d.t > 700) return;
-    const b = this.pick(e.clientX, e.clientY);
+    if (wasPinch || !d || Math.hypot(e.clientX - d.x, e.clientY - d.y) > 8 || performance.now() - d.t > 700) return;
+    // A tapped label picks its region through its own click.
+    if ((e.target as Element | null)?.closest?.(".rm3-label")) return;
+    const b = this.pick(e.clientX, e.clientY) ?? (e.pointerType === "touch" ? this.nearestLabel(e) : null);
     if (b?.region.pickable) this.onPick(b.region);
   };
+
+  /** A tap that missed every block (the sea around a small city) goes to the region
+   * whose label is nearest, if one is within a fingertip. */
+  private nearestLabel(e: PointerEvent): Block | null {
+    const { x, y } = this.local(e);
+    const host = this.renderer.domElement.getBoundingClientRect();
+    let best: Block | null = null;
+    let bestD = 28;
+    for (const b of this.blocks.values()) {
+      if (b.label.style.opacity !== "1") continue;
+      const r = b.label.getBoundingClientRect();
+      const d = Math.hypot(r.left - host.left + r.width / 2 - x, r.top - host.top + r.height / 2 - y);
+      if (d < bestD) {
+        bestD = d;
+        best = b;
+      }
+    }
+    return best;
+  }
 }
 
 // ── component ───────────────────────────────────────────────────────────────
@@ -697,6 +858,22 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
   const [geoError, setGeoError] = useState(false);
   const [moves, setMoves] = useState<{ key: string; items: RealEstateRegionMove[]; pending: number } | null>(null);
   const [hover, setHover] = useState<{ region: Region; x: number; y: number } | null>(null);
+  // The pinch hint shows on a touch screen until the reader has zoomed once.
+  const [hintSeen, setHintSeen] = useState(() => {
+    try {
+      return window.localStorage.getItem("re_region_map_pinched") === "1";
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    if (!hintSeen) return;
+    try {
+      window.localStorage.setItem("re_region_map_pinched", "1");
+    } catch {
+      /* private mode: the hint returns next visit */
+    }
+  }, [hintSeen]);
 
   // A new 시·군·구 steps the map down to its 읍·면·동; leaving one steps back up to the
   // 시·도's 시·군·구. A tab chosen by hand stays until the selection changes.
@@ -841,6 +1018,7 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
     if (!scene) return;
     scene.onPick = (r) => pickRef.current(r);
     scene.onHover = (region, x, y) => setHover(region ? { region, x, y } : null);
+    scene.onGesture = () => setHintSeen(true);
   }, [webgl, touch]);
 
   const hoverMove = hover ? moveMap.get(hover.region.key) : undefined;
@@ -902,6 +1080,9 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
             {pending > 0 ? `지역 등락 집계 중 ${Math.round(readyShare * 100)}%` : "지도를 그리는 중…"}
           </div>
         )}
+        {touch && webgl && !hintSeen && !loading && (
+          <p className="rm3-hint">두 손가락으로 확대·이동 · 지역 이름을 눌러도 선택됩니다</p>
+        )}
         {hover && !touch && (
           <div
             className="rm3-tip"
@@ -934,16 +1115,12 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
         )}
         {webgl && (
           <div className="rm3-controls">
-            {!touch && (
-              <>
-                <button type="button" onClick={() => sceneRef.current?.zoom(0.8)} aria-label="확대">
-                  +
-                </button>
-                <button type="button" onClick={() => sceneRef.current?.zoom(1.25)} aria-label="축소">
-                  −
-                </button>
-              </>
-            )}
+            <button type="button" onClick={() => sceneRef.current?.zoom(0.7)} aria-label="확대">
+              +
+            </button>
+            <button type="button" onClick={() => sceneRef.current?.zoom(1.4)} aria-label="축소">
+              −
+            </button>
             <button type="button" onClick={() => sceneRef.current?.reset()} aria-label="시점 초기화" title="시점 초기화">
               ⟲
             </button>
