@@ -187,13 +187,18 @@ def region_summary(level: str, period: str, sido: str | None = None, sgg: str | 
     else:
         raise ValueError("unknown level")
 
-    missing = [(code, period) for _, _, codes in groups for code in codes if _fresh(code, period) is None]
-    if missing:
-        _request(missing, first=level == "sgg")
-    items = []
+    # A district whose trades changed since its summary keeps showing that summary
+    # while it is redone: the collector touches districts all day, and dropping them
+    # would blank regions and keep the page polling. Only never-summarised districts
+    # count as pending.
+    stale = [(code, period) for _, _, codes in groups for code in codes if _fresh(code, period) is None]
+    if stale:
+        _request(stale, first=level == "sgg")
+    items, pending = [], 0
     for code, name, codes in groups:
-        ready = [s for c in codes if (s := _fresh(c, period)) is not None]
+        ready = [hit[2] for c in codes if (hit := _cache.get((c, period))) is not None]
+        pending += len(codes) - len(ready)
         entry = _out(code, name, _merge([s["all"] for s in ready]))
         entry["ready"] = round(len(ready) / len(codes), 3) if codes else 1.0
         items.append(entry)
-    return {"level": level, "period": period, "pending": len(missing), "items": items}
+    return {"level": level, "period": period, "pending": pending, "items": items}

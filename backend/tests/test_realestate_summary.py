@@ -61,3 +61,11 @@ def test_new_trades_invalidate_a_district(seoul, monkeypatch):
     assert rs._fresh("11650", "3m") is not None
     monkeypatch.setitem(rm._lawd_versions, "11650", rm._lawd_versions.get("11650", 0) + 1)
     assert rs._fresh("11650", "3m") is None
+
+
+def test_a_changed_district_keeps_its_last_summary_while_redone(seoul, monkeypatch):
+    monkeypatch.setattr(rs, "_request", lambda keys, first=False: None)
+    rs._store("11650", "3m", rm._lawd_versions.get("11650", 0), rs.summarise("11650", "3m"))
+    monkeypatch.setitem(rm._lawd_versions, "11650", rm._lawd_versions.get("11650", 0) + 1)
+    items = {i["code"]: i for i in rs.region_summary("sgg", "3m", sido="11")["items"]}
+    assert items["11650"]["change"] == 10.0 and items["11650"]["ready"] == 1
