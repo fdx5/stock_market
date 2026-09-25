@@ -154,7 +154,11 @@ def _fetch_chunk_from(url: str, symbols: list[str], retry: bool = True) -> dict[
 
 
 def _fetch_chunk(symbols: list[str]) -> dict[str, dict]:
-    """Use query2 only when the normal query1 v7 call fails or is unexpectedly empty."""
+    """Use query2 only when the normal query1 v7 call fails or is unexpectedly empty.
+
+    Not when the crumb itself is unavailable: both hosts take the same crumb, so a
+    second try only repeats the answer — and logging it for each host of each chunk of
+    each refresh filled the log with one fact yahoo_session had already reported."""
     last_error: Exception | None = None
     for url in QUOTE_URLS:
         try:
@@ -162,6 +166,8 @@ def _fetch_chunk(symbols: list[str]) -> dict[str, dict]:
             if quotes:
                 return quotes
             last_error = RuntimeError(f"Yahoo v7 returned no quotes from {url}")
+        except yahoo_session.CrumbUnavailable:
+            raise
         except Exception as exc:  # noqa: BLE001 - the second host is the recovery path
             last_error = exc
             logger.warning("Yahoo v7 quote host failed: host=%s error=%s", url, type(exc).__name__)
@@ -184,6 +190,11 @@ def get_quotes(symbols: list[str]) -> dict[str, dict]:
 
     requested = list(by_yahoo)
     chunks = [requested[i : i + CHUNK_SIZE] for i in range(0, len(requested), CHUNK_SIZE)]
+
+    # While yahoo_session is cooling down after a refused handshake no chunk can be
+    # asked for; say nothing and let the callers keep their delayed snapshot.
+    if yahoo_session.cooling_down():
+        return {}
 
     quotes: dict[str, dict] = {}
     with ThreadPoolExecutor(max_workers=min(4, len(chunks))) as pool:

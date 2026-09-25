@@ -129,6 +129,13 @@ class _Throttled(RuntimeError):
         self.retry_after = retry_after
 
 
+def cooling_down() -> bool:
+    """True while no crumb is held and a new handshake is not yet allowed — a request
+    now could only fail with CrumbUnavailable."""
+    with _lock:
+        return (_session is None or _crumb is None) and time.time() < _blocked_until
+
+
 def get_crumb(force_refresh: bool = False) -> tuple[requests.Session, str]:
     """A (session, crumb) pair to use as `session.get(url, params={..., "crumb": crumb})`.
 
