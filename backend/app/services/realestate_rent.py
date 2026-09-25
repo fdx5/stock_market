@@ -113,41 +113,51 @@ def _missing(lawd_cd: str) -> list[str]:
 
 
 def _worker() -> None:
-    global _busy, _error, _error_at
+    # Nothing may end this thread: it is started once, and a store hiccup that
+    # escaped it once left every district's leases waiting forever.
     while True:
-        with _lock:
-            while not _wanted:
-                _lock.wait()
-            code = _wanted[0]
-            _busy = code
         try:
-            for ym in _missing(code):
-                if _error and time.time() - _error_at < 600:
-                    break
-                try:
-                    deals = fetch_rent_month(code, ym)
-                except rm.MolitError as exc:
-                    _error, _error_at = str(exc), time.time()
-                    log.warning("realestate rent: %s %s — %s", code, ym, exc)
-                    break
-                except Exception as exc:  # noqa: BLE001
-                    _error, _error_at = str(exc), time.time()
-                    log.warning("realestate rent: %s %s — %s", code, ym, exc)
-                    break
-                _error = None
-                now = dt.datetime.now(rm.KST).isoformat(timespec="seconds")
-                realestate_store.save_rent_month(code, ym, deals, now)
-                with _lock:
-                    if code in _cache:
-                        _cache[code][ym] = (now, deals)
-                time.sleep(rm.CALL_SPACING_SECONDS)
-        finally:
+            _work_once()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("realestate rent: worker step failed (%s)", exc)
+            time.sleep(10)
+
+
+def _work_once() -> None:
+    global _busy, _error, _error_at
+    with _lock:
+        while not _wanted:
+            _lock.wait()
+        code = _wanted[0]
+        _busy = code
+    try:
+        for ym in _missing(code):
+            if _error and time.time() - _error_at < 600:
+                break
+            try:
+                deals = fetch_rent_month(code, ym)
+            except rm.MolitError as exc:
+                _error, _error_at = str(exc), time.time()
+                log.warning("realestate rent: %s %s — %s", code, ym, exc)
+                break
+            except Exception as exc:  # noqa: BLE001
+                _error, _error_at = str(exc), time.time()
+                log.warning("realestate rent: %s %s — %s", code, ym, exc)
+                break
+            _error = None
+            now = dt.datetime.now(rm.KST).isoformat(timespec="seconds")
+            realestate_store.save_rent_month(code, ym, deals, now)
             with _lock:
-                if _wanted and _wanted[0] == code:
-                    _wanted.pop(0)
-                _busy = None
-        if _error:
-            time.sleep(30)
+                if code in _cache:
+                    _cache[code][ym] = (now, deals)
+            time.sleep(rm.CALL_SPACING_SECONDS)
+    finally:
+        with _lock:
+            if _wanted and _wanted[0] == code:
+                _wanted.pop(0)
+            _busy = None
+    if _error:
+        time.sleep(30)
 
 
 def _request(lawd_cd: str) -> None:
@@ -201,7 +211,12 @@ def complex_rent(complex_id: str) -> dict:
         raise LookupError("no such complex")
     seq, places, names, dong = who
     configured = rm.is_configured()
-    missing = _missing(lawd) if configured else []
+    try:
+        missing = _missing(lawd) if configured else []
+        held = _district(lawd)
+    except Exception as exc:  # noqa: BLE001 — the store is busy: say so, ask again
+        log.warning("realestate rent: reading %s failed (%s)", lawd, exc)
+        missing, held = _months(), {}
     if missing:
         _request(lawd)
     months = _months()
@@ -209,7 +224,7 @@ def complex_rent(complex_id: str) -> dict:
 
     year_ago = rm._as_int(dt.datetime.now(rm.KST).date() - dt.timedelta(days=365))
     by_type: dict[int, list[list]] = defaultdict(list)
-    for _, deals in _district(lawd).values():
+    for _, deals in held.values():
         for row in deals:
             r_seq, r_name, r_umd, r_jibun = row[1], row[2], row[3], row[4]
             same = (seq and r_seq == seq) or (r_umd, r_jibun) in places or (r_name in names and rm._dong_of(r_umd) == dong)
