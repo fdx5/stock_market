@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import inspect
 import logging
 import threading
 import time
@@ -58,9 +59,18 @@ def ttl_cache(seconds: float) -> Callable[[Callable[..., T]], Callable[..., T]]:
     mutating the shared object."""
 
     def decorate(fn: Callable[..., T]) -> Callable[..., T]:
+        signature = inspect.signature(fn)
+
         @functools.wraps(fn)
         def wrapped(*args, **kwargs):
-            key = (fn.__module__, fn.__qualname__, args, tuple(sorted(kwargs.items())))
+            # Keyed by what each parameter was given, not by how: FastAPI calls an
+            # endpoint with keywords (range="3d") while the admin warmer calls it
+            # positionally (pages_trend("3d")). Keyed on the raw call, those were two
+            # entries — the warmer filled one no request ever read, and every panel's
+            # first read waited on the database anyway. Defaults are deliberately not
+            # applied: a FastAPI Query() default is a FieldInfo, not a value.
+            bound = signature.bind(*args, **kwargs)
+            key = (fn.__module__, fn.__qualname__, (), tuple(sorted(bound.arguments.items())))
             now = time.monotonic()
             with _lock:
                 hit = _entries.get(key)

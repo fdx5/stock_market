@@ -102,6 +102,12 @@ _RANGE_CONFIG: dict[str, tuple[timedelta, str]] = {
 @ttl_cache(285)
 def pages_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d|7d|30d)$")):
     delta, granularity = _RANGE_CONFIG[range]
+    if granularity == "day":
+        # Closed days from the nightly rollup, only today from raw rows — see
+        # page_view_store.daily_trend. A 30-day raw scan here outran the dashboard's
+        # read limit whenever the database was slow.
+        points, _ = page_view_store.daily_trend(delta.days)
+        return {"range": range, "points": points}
     since = datetime.now(timezone.utc) - delta
     points = page_view_store.counts_by_bucket(since.isoformat(), granularity)
     return {"range": range, "points": points}
@@ -114,6 +120,9 @@ def pages_visitor_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d
     toggle between the two without changing any of its other query controls), one
     distinct-session count per bucket instead of a per-page breakdown."""
     delta, granularity = _RANGE_CONFIG[range]
+    if granularity == "day":
+        _, points = page_view_store.daily_trend(delta.days)
+        return {"range": range, "points": points}
     since = datetime.now(timezone.utc) - delta
     points = page_view_store.unique_visitors_by_bucket(since.isoformat(), granularity)
     return {"range": range, "points": points}
@@ -650,6 +659,9 @@ def start_warmer() -> None:
 
     def warm_once() -> None:
         jobs = [
+            # The batch first: every closed day the day-scale trend ranges read.
+            # Idempotent, and a no-op once the month is rolled up.
+            page_view_store.ensure_trend_rollups,
             summary,
             lambda: pages_trend("3h"),
             lambda: pages_visitor_trend("3h"),
@@ -657,6 +669,18 @@ def start_warmer() -> None:
             lambda: hub_summary("3h"),
             lambda: pages_trend("24h"),
             lambda: pages_visitor_trend("24h"),
+            # Every range the chart's buttons offer, so the first press of 3일/7일/30일
+            # is answered from the cache rather than waiting on the database.
+            *[
+                job
+                for r in ("3d", "7d", "30d")
+                for job in (
+                    lambda r=r: pages_trend(r),
+                    lambda r=r: pages_visitor_trend(r),
+                    lambda r=r: hub_trend(r),
+                    lambda r=r: hub_summary(r),
+                )
+            ],
             lambda: pages_top(200),
             lambda: stocks_top(500),
             lambda: hub_objects_top(300, None),

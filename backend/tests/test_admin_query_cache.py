@@ -45,3 +45,20 @@ def test_a_failed_refresh_keeps_the_last_good_value(monkeypatch):
     _wait_refresh()
     assert flaky() == [1, 2, 3]
     assert any(e["error"] and "timed out" in e["error"] for e in c.status())
+
+
+def test_positional_and_keyword_calls_share_one_entry(monkeypatch):
+    """The admin warmer calls endpoints positionally; FastAPI calls them by keyword.
+    Both must land on the same entry or the warmer warms nothing a request reads."""
+    monkeypatch.setattr(c, "_entries", c.OrderedDict())
+    monkeypatch.setattr(c, "_refreshing", set())
+    calls = []
+
+    @c.ttl_cache(60)
+    def trend(range: str = "24h"):
+        calls.append(range)
+        return {"range": range}
+
+    assert trend("30d") == {"range": "30d"}  # the warmer
+    assert trend(range="30d") == {"range": "30d"}  # a request
+    assert calls == ["30d"]

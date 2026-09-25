@@ -97,6 +97,31 @@ CREATE TABLE IF NOT EXISTS page_views_daily_breakdowns (
 )
 """
 
+# The admin trend chart's day-scale ranges (3일/7일/30일), one closed KST day at a
+# time: views per path and distinct sessions, counted exactly as counts_by_bucket and
+# unique_visitors_by_bucket count them (every event type, people only). Those two
+# used to scan up to 30 days of raw page_views on every uncached request — longer
+# than the dashboard's 25s read limit whenever Turso was slow, so the panel failed.
+# A closed day never changes, so it is computed once (ensure_trend_rollups, run by
+# the admin warmer) and only today is read from the raw table. The visitors row is
+# written in the same commit as the day's path rows and doubles as the "day done"
+# marker, so a genuinely empty day is not rescanned either.
+_TREND_DAILY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS page_views_trend_daily (
+    day TEXT NOT NULL,
+    path TEXT NOT NULL,
+    views INTEGER NOT NULL,
+    PRIMARY KEY (day, path)
+)
+"""
+_VISITORS_DAILY_SCHEMA = """
+CREATE TABLE IF NOT EXISTS page_views_visitors_daily (
+    day TEXT PRIMARY KEY,
+    visitors INTEGER NOT NULL,
+    computed_at TEXT NOT NULL
+)
+"""
+
 KST = timezone(timedelta(hours=9))
 
 # The trend chart only ever queries the last 30 days (see admin.py's pages_trend),
@@ -157,6 +182,8 @@ def _new_ready_connection():
     conn.execute(_GOAL_SCHEMA)
     conn.execute(_DAILY_SCHEMA)
     conn.execute(_DAILY_BREAKDOWN_SCHEMA)
+    conn.execute(_TREND_DAILY_SCHEMA)
+    conn.execute(_VISITORS_DAILY_SCHEMA)
     # page_views_daily caches one row per closed day and is never recomputed once
     # written - which is right while the definition of a day's totals is stable, and
     # wrong exactly once: the moment bot rows stop counting toward them. Dropping the
@@ -344,6 +371,100 @@ def unique_visitors_by_bucket(since_iso: str, granularity: str) -> list[dict]:
 
     rows = _with_connection(_run)
     return [{"bucket": bucket, "count": count} for bucket, count in rows]
+
+
+def _trend_day_raw(conn, start_iso: str, end_iso: str) -> tuple[list[tuple[str, int]], int]:
+    """Views per path and distinct sessions in [start, end) from the raw table."""
+    paths = conn.execute(
+        f"SELECT path, COUNT(*) FROM page_views WHERE created_at >= ? AND created_at < ? AND {HUMAN} GROUP BY path",
+        (start_iso, end_iso),
+    ).fetchall()
+    visitors = conn.execute(
+        f"SELECT COUNT(DISTINCT session_id) FROM page_views WHERE created_at >= ? AND created_at < ? AND {HUMAN}",
+        (start_iso, end_iso),
+    ).fetchone()
+    return [(path, count or 0) for path, count in paths], (visitors[0] if visitors else 0) or 0
+
+
+def _store_trend_day(conn, day: str) -> None:
+    start_iso, end_iso = _kst_day_bounds(day)
+    paths, visitors = _trend_day_raw(conn, start_iso, end_iso)
+    conn.execute("DELETE FROM page_views_trend_daily WHERE day = ?", (day,))
+    if paths:
+        conn.executemany(
+            "INSERT INTO page_views_trend_daily (day, path, views) VALUES (?, ?, ?)",
+            [(day, path, count) for path, count in paths],
+        )
+    conn.execute(
+        "INSERT OR REPLACE INTO page_views_visitors_daily (day, visitors, computed_at) VALUES (?, ?, ?)",
+        (day, visitors, datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+
+
+def _missing_trend_days(conn, days: list[str]) -> list[str]:
+    if not days:
+        return []
+    have = {
+        row[0]
+        for row in conn.execute(
+            "SELECT day FROM page_views_visitors_daily WHERE day >= ? AND day <= ?", (min(days), max(days))
+        ).fetchall()
+    }
+    return [day for day in days if day not in have]
+
+
+def _closed_days(count: int, today) -> list[str]:
+    return [(today - timedelta(days=i)).isoformat() for i in range(count, 0, -1)]
+
+
+def ensure_trend_rollups(days: int = 31) -> int:
+    """Roll up every closed KST day of the last `days` that has not been yet — the
+    batch behind daily_trend. One day per connection hold, so a slow database costs
+    this background job time rather than blocking the site's writes behind a month
+    of scans. Returns how many days were computed."""
+    today = datetime.now(KST).date()
+    missing = _with_connection(lambda conn: _missing_trend_days(conn, _closed_days(days, today)))
+    for day in missing:
+        _with_connection(lambda conn, day=day: _store_trend_day(conn, day))
+    return len(missing)
+
+
+def daily_trend(days: int) -> tuple[list[dict], list[dict]]:
+    """(views per path per day, distinct sessions per day) for the last `days` KST
+    days including today — the admin chart draws exactly that many day buckets.
+
+    Closed days come from the rollup; a closed day the batch has not reached yet is
+    rolled up here (one bounded day, not the whole window). Only today touches raw
+    page_views, and only today's rows."""
+    today = datetime.now(KST).date()
+    closed = _closed_days(days - 1, today)
+
+    def _run(conn):
+        for day in _missing_trend_days(conn, closed):
+            _store_trend_day(conn, day)
+        views: list[tuple] = []
+        visitors: list[tuple] = []
+        if closed:
+            views = conn.execute(
+                "SELECT day, path, views FROM page_views_trend_daily WHERE day >= ? AND day <= ? ORDER BY day",
+                (closed[0], closed[-1]),
+            ).fetchall()
+            visitors = conn.execute(
+                "SELECT day, visitors FROM page_views_visitors_daily WHERE day >= ? AND day <= ? ORDER BY day",
+                (closed[0], closed[-1]),
+            ).fetchall()
+        start_iso, end_iso = _kst_day_bounds(today.isoformat())
+        today_paths, today_visitors = _trend_day_raw(conn, start_iso, end_iso)
+        views = list(views) + [(today.isoformat(), path, count) for path, count in today_paths]
+        visitors = list(visitors) + [(today.isoformat(), today_visitors)]
+        return views, visitors
+
+    views, visitors = _with_connection(_run)
+    return (
+        [{"bucket": day, "path": path, "count": count} for day, path, count in views if count],
+        [{"bucket": day, "count": count} for day, count in visitors],
+    )
 
 
 def count_today(since_iso: str) -> int:
