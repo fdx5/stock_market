@@ -1,8 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { api, RealEstateFacts, RealEstateItem, RealEstatePeriod, RealEstateTradeHistory, RealEstateTypeView } from "../api/client";
+import {
+  api,
+  RealEstateFacts,
+  RealEstateItem,
+  RealEstatePeriod,
+  RealEstateRentResponse,
+  RealEstateTradeHistory,
+  RealEstateTypeView,
+} from "../api/client";
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import RealEstatePopup, { OtherType, PopupContext } from "./RealEstatePopup";
+import RealEstateRentView, { LeaseMode } from "./RealEstateRentView";
 
 /* The 부동산 맵's pinned complex card — a bottom sheet on a phone or tablet, a centred
  * dialog on a desktop. It opens on a click or tap on a tile, shows what the hover
@@ -78,6 +87,41 @@ export default function RealEstateSheet({
 
   // 세대수·주차 come from K-apt through their own request, so a slow or missing
   // lookup never holds up the 평형 data.
+  // 매매 is the card's default; 전세 and 월세 are read (and, for a district never
+  // opened this way, collected) only once the reader asks for them.
+  const [mode, setMode] = useState<"sale" | LeaseMode>("sale");
+  const [rent, setRent] = useState<RealEstateRentResponse | null>(null);
+  const [rentFailed, setRentFailed] = useState(false);
+  useEffect(() => {
+    setMode("sale");
+    setRent(null);
+    setRentFailed(false);
+  }, [item.id]);
+  useEffect(() => {
+    if (mode === "sale") return;
+    let cancelled = false;
+    let timer = 0;
+    const load = () => {
+      api
+        .realEstateRent(item.id)
+        .then((res) => {
+          if (cancelled) return;
+          setRent(res);
+          setRentFailed(false);
+          // While the district's leases are still coming in, ask again.
+          if (res.status.collecting) timer = window.setTimeout(load, 5000);
+        })
+        .catch(() => {
+          if (!cancelled) setRentFailed(true);
+        });
+    };
+    load();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [mode, item.id]);
+
   const [facts, setFacts] = useState<RealEstateFacts | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -106,6 +150,22 @@ export default function RealEstateSheet({
         .filter((v) => v.key !== selected)
         .map((v) => ({ key: v.key, area: v.area, price: v.price, date: v.deal_date, trades_1y: v.trades_1y }))
     : undefined;
+
+  const modeSwitch = (
+    <div className="re-sheet-mode" role="tablist" aria-label="거래 종류">
+      {(
+        [
+          ["sale", "매매"],
+          ["jeonse", "전세"],
+          ["wolse", "월세"],
+        ] as const
+      ).map(([key, label]) => (
+        <button key={key} type="button" role="tab" aria-selected={mode === key} className={mode === key ? "is-on" : ""} onClick={() => setMode(key)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 
   const selector = (
     <div className="re-sheet-select">
@@ -157,6 +217,19 @@ export default function RealEstateSheet({
               selector={selector}
               others={others}
               onPickType={views.length ? setSelected : undefined}
+              modeSwitch={modeSwitch}
+              replaceBody={
+                mode === "sale" ? undefined : (
+                  <RealEstateRentView
+                    mode={mode}
+                    data={rent}
+                    failed={rentFailed}
+                    typeKey={selected ?? Math.round(item.area)}
+                    area={shown.area}
+                    salePrice={shown.price}
+                  />
+                )
+              }
               facts={facts}
               deals={view?.deals}
               history={history}

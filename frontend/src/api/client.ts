@@ -1151,6 +1151,22 @@ export interface RealEstateSummaryResponse {
   items: RealEstateRegionMove[];
 }
 
+/** 전세·월세 of one 평형 of a complex (/api/realestate/rent). 만원 throughout. */
+export interface RealEstateRentType {
+  key: number;
+  area: number;
+  jeonse: { price: number | null; date: string | null; trades_1y: number; high_1y: number | null; low_1y: number | null };
+  wolse: { deposit: number | null; rent: number | null; date: string | null; trades_1y: number };
+  /** [yyyymmdd, 보증금, 월세 (0 = 전세), 층, 계약 1 신규 / 2 갱신 / 0, 종전 보증금, 종전 월세], newest first. */
+  deals: [number, number, number, number, number, number, number][];
+}
+
+export interface RealEstateRentResponse {
+  id: string;
+  types: RealEstateRentType[];
+  status: { configured: boolean; coverage: number; collecting: boolean; error: string | null; from: string };
+}
+
 /** 세대수·주차대수 of a complex, from 공동주택관리정보 (K-apt). */
 export interface RealEstateFacts {
   id: string;
@@ -1226,6 +1242,8 @@ export const api = {
   realEstateRegions: () => getJSON<{ source: string; sido: RealEstateSido[] }>(`${BASE}/realestate/regions`),
   realEstateComplex: (id: string, period: RealEstatePeriod) =>
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
+  realEstateRent: (id: string) =>
+    getJSONFresh<RealEstateRentResponse>(`${BASE}/realestate/rent?id=${encodeURIComponent(id)}`),
   realEstateFacts: (id: string) =>
     getJSONFresh<RealEstateFacts>(`${BASE}/realestate/facts?id=${encodeURIComponent(id)}`),
   realEstateSummary: (q: { level: RealEstateRegionLevel; sido?: string; sgg?: string; period: RealEstatePeriod }) => {

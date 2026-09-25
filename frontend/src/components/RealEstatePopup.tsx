@@ -239,6 +239,8 @@ export default function RealEstatePopup({
   facts,
   deals,
   history,
+  modeSwitch,
+  replaceBody,
 }: {
   item: RealEstateItem;
   ctx: PopupContext;
@@ -253,6 +255,10 @@ export default function RealEstatePopup({
    * with the whole record, in a scrolling list. */
   deals?: [number, number, number, number][];
   history?: RealEstateTradeHistory;
+  /** 매매·전세·월세 buttons, under the 평형 selector on the pinned card. */
+  modeSwitch?: ReactNode;
+  /** Shown instead of the sale figures (the card's 전세 or 월세 view). */
+  replaceBody?: ReactNode;
 }) {
   const otherTypes: OtherType[] = others ?? item.types;
   const brand = brandLabel(item.brand);
@@ -284,110 +290,116 @@ export default function RealEstatePopup({
 
       {selector}
 
-      <div className="re-pop-hero">
-        <div className="re-pop-hero-price">
-          <small>
-            시세 · 전용 {Math.round(item.area)}㎡ ({item.pyeong}평)
-          </small>
-          <b>{fullPrice(item.price)}</b>
-          <span>
-            최근 계약 {dots(item.deal_date)}
-            {item.floor !== null && ` · ${item.floor}층`}
-          </span>
-        </div>
-        <div className={`re-pop-badge is-${tone(item.change_pct)}`}>
-          <small>{ctx.periodLabel}</small>
-          {item.change_pct === null ? (
-            <b className="re-pop-none">{item.trades ? "비교 거래 없음" : "거래 없음"}</b>
-          ) : (
-            <>
-              <b>{pct(item.change_pct)}</b>
-              {move !== null && move !== 0 && <em>{`${move > 0 ? "▲" : "▼"} ${shortPrice(Math.abs(move))}`}</em>}
-            </>
-          )}
-        </div>
-      </div>
+      {modeSwitch}
 
-      <TradeChart item={item} />
-
-      <div className="re-pop-kpis">
-        <div>
-          <small>3.3㎡당 (전용)</small>
-          <b>{shortPrice(perPyeong)}</b>
-        </div>
-        <div>
-          <small>기간 전 시세</small>
-          <b>{item.base_price ? shortPrice(item.base_price) : "—"}</b>
-          {item.base_date && <span>{dots(item.base_date).slice(2)}</span>}
-        </div>
-        <div>
-          <small>1년 최고가 대비</small>
-          <b className={`is-${tone(fromHigh)}`}>{fromHigh === null ? "—" : pct(fromHigh)}</b>
-        </div>
-        <div>
-          <small>1년 최고</small>
-          <b>{item.high_1y ? shortPrice(item.high_1y.price) : "—"}</b>
-          {item.high_1y && <span>{dots(item.high_1y.date).slice(2)}</span>}
-        </div>
-        <div>
-          <small>1년 최저</small>
-          <b>{item.low_1y ? shortPrice(item.low_1y.price) : "—"}</b>
-          {item.low_1y && <span>{dots(item.low_1y.date).slice(2)}</span>}
-        </div>
-        <div>
-          <small>1년 거래</small>
-          <b>이 평형 {typeYear}건</b>
-          <span>전 평형 {item.trades_1y}건</span>
-        </div>
-      </div>
-
-      {facts !== undefined && <FactsRow facts={facts} />}
-
-      {deals && deals.length > 0 ? (
-        <TradeLog deals={deals} area={item.area} history={history} />
-      ) : recent.length > 0 && (
-        <div className="re-pop-section">
-          <h4>최근 실거래 · 전용 {Math.round(item.area)}㎡</h4>
-          <table className="re-pop-trades">
-            <tbody>
-              {recent.map(([day, price, floor, direct], i) => (
-                <tr key={`${day}-${i}`}>
-                  <td>{ymdDots(day)}</td>
-                  <td>{floor}층</td>
-                  <td>{direct ? <i>직거래</i> : null}</td>
-                  <td>{fullPrice(price)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {otherTypes.length > 0 && (
-        <div className="re-pop-section">
-          <h4>다른 평형{onPickType && " · 눌러서 전환"}</h4>
-          <div className="re-pop-types">
-            {otherTypes.map((t) =>
-              onPickType && t.key !== undefined ? (
-                <button
-                  type="button"
-                  key={t.area}
-                  className="re-pop-type-chip"
-                  onClick={() => onPickType(t.key as number)}
-                  title={`${dots(t.date)} 계약 · 최근 1년 ${t.trades_1y}건`}
-                >
-                  {Math.round(t.area)}㎡ <b>{shortPrice(t.price)}</b>
-                  <small>{t.trades_1y}건</small>
-                </button>
-              ) : (
-                <span key={t.area} title={`${dots(t.date)} 계약 · 최근 1년 ${t.trades_1y}건`}>
-                  {Math.round(t.area)}㎡ <b>{shortPrice(t.price)}</b>
-                  <small>{t.trades_1y}건</small>
-                </span>
-              )
+      {replaceBody ?? (
+        <>
+        <div className="re-pop-hero">
+          <div className="re-pop-hero-price">
+            <small>
+              시세 · 전용 {Math.round(item.area)}㎡ ({item.pyeong}평)
+            </small>
+            <b>{fullPrice(item.price)}</b>
+            <span>
+              최근 계약 {dots(item.deal_date)}
+              {item.floor !== null && ` · ${item.floor}층`}
+            </span>
+          </div>
+          <div className={`re-pop-badge is-${tone(item.change_pct)}`}>
+            <small>{ctx.periodLabel}</small>
+            {item.change_pct === null ? (
+              <b className="re-pop-none">{item.trades ? "비교 거래 없음" : "거래 없음"}</b>
+            ) : (
+              <>
+                <b>{pct(item.change_pct)}</b>
+                {move !== null && move !== 0 && <em>{`${move > 0 ? "▲" : "▼"} ${shortPrice(Math.abs(move))}`}</em>}
+              </>
             )}
           </div>
         </div>
+
+        <TradeChart item={item} />
+
+        <div className="re-pop-kpis">
+          <div>
+            <small>3.3㎡당 (전용)</small>
+            <b>{shortPrice(perPyeong)}</b>
+          </div>
+          <div>
+            <small>기간 전 시세</small>
+            <b>{item.base_price ? shortPrice(item.base_price) : "—"}</b>
+            {item.base_date && <span>{dots(item.base_date).slice(2)}</span>}
+          </div>
+          <div>
+            <small>1년 최고가 대비</small>
+            <b className={`is-${tone(fromHigh)}`}>{fromHigh === null ? "—" : pct(fromHigh)}</b>
+          </div>
+          <div>
+            <small>1년 최고</small>
+            <b>{item.high_1y ? shortPrice(item.high_1y.price) : "—"}</b>
+            {item.high_1y && <span>{dots(item.high_1y.date).slice(2)}</span>}
+          </div>
+          <div>
+            <small>1년 최저</small>
+            <b>{item.low_1y ? shortPrice(item.low_1y.price) : "—"}</b>
+            {item.low_1y && <span>{dots(item.low_1y.date).slice(2)}</span>}
+          </div>
+          <div>
+            <small>1년 거래</small>
+            <b>이 평형 {typeYear}건</b>
+            <span>전 평형 {item.trades_1y}건</span>
+          </div>
+        </div>
+
+        {facts !== undefined && <FactsRow facts={facts} />}
+
+        {deals && deals.length > 0 ? (
+          <TradeLog deals={deals} area={item.area} history={history} />
+        ) : recent.length > 0 && (
+          <div className="re-pop-section">
+            <h4>최근 실거래 · 전용 {Math.round(item.area)}㎡</h4>
+            <table className="re-pop-trades">
+              <tbody>
+                {recent.map(([day, price, floor, direct], i) => (
+                  <tr key={`${day}-${i}`}>
+                    <td>{ymdDots(day)}</td>
+                    <td>{floor}층</td>
+                    <td>{direct ? <i>직거래</i> : null}</td>
+                    <td>{fullPrice(price)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {otherTypes.length > 0 && (
+          <div className="re-pop-section">
+            <h4>다른 평형{onPickType && " · 눌러서 전환"}</h4>
+            <div className="re-pop-types">
+              {otherTypes.map((t) =>
+                onPickType && t.key !== undefined ? (
+                  <button
+                    type="button"
+                    key={t.area}
+                    className="re-pop-type-chip"
+                    onClick={() => onPickType(t.key as number)}
+                    title={`${dots(t.date)} 계약 · 최근 1년 ${t.trades_1y}건`}
+                  >
+                    {Math.round(t.area)}㎡ <b>{shortPrice(t.price)}</b>
+                    <small>{t.trades_1y}건</small>
+                  </button>
+                ) : (
+                  <span key={t.area} title={`${dots(t.date)} 계약 · 최근 1년 ${t.trades_1y}건`}>
+                    {Math.round(t.area)}㎡ <b>{shortPrice(t.price)}</b>
+                    <small>{t.trades_1y}건</small>
+                  </span>
+                )
+              )}
+            </div>
+          </div>
+        )}
+        </>
       )}
 
       <footer className="re-pop-foot">

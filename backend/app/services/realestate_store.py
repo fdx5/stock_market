@@ -231,3 +231,52 @@ def load_map(key: str) -> tuple[str, str] | None:
         return str(rows[0][0]), gzip.decompress(base64.b64decode(rows[0][1])).decode("utf-8")
     except Exception:
         return None
+
+
+# ── 전월세 (apartment leases), one row per (시군구, 계약년월), like the sales ──────
+
+_RENT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS re_rent_months (
+    lawd_cd TEXT NOT NULL,
+    deal_ym TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    deal_count INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    PRIMARY KEY (lawd_cd, deal_ym)
+)
+"""
+
+
+def save_rent_month(lawd_cd: str, deal_ym: str, deals: list, fetched_at: str) -> None:
+    payload = _pack(deals)
+
+    def _run(conn):
+        conn.execute(_RENT_SCHEMA)
+        conn.execute(
+            "INSERT OR REPLACE INTO re_rent_months (lawd_cd, deal_ym, fetched_at, deal_count, payload) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (lawd_cd, deal_ym, fetched_at, len(deals), payload),
+        )
+        conn.commit()
+
+    _with_connection(_run)
+
+
+def load_rent_district(lawd_cd: str, since: str = "") -> dict[str, tuple[str, list]]:
+    """Stored lease months of one 시군구 from `since` on: {deal_ym: (fetched_at, deals)}."""
+
+    def _run(conn):
+        conn.execute(_RENT_SCHEMA)
+        cur = conn.execute(
+            "SELECT deal_ym, fetched_at, payload FROM re_rent_months WHERE lawd_cd = ? AND deal_ym >= ?",
+            (lawd_cd, since),
+        )
+        return cur.fetchall()
+
+    out: dict[str, tuple[str, list]] = {}
+    for deal_ym, fetched_at, payload in _with_connection(_run):
+        try:
+            out[str(deal_ym)] = (str(fetched_at), _unpack(payload))
+        except Exception:
+            continue
+    return out
