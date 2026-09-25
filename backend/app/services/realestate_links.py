@@ -34,7 +34,8 @@ FRESH = dt.timedelta(days=90)
 
 
 def candidates(name: str, dong: str) -> list[str]:
-    base = re.sub(r"\([^)]*동\)", "", name)  # "(10,11,20동)" lists buildings, not names
+    # "(10,11,20동)" lists buildings and "(1009-4)" is a lot number: neither is a name.
+    base = re.sub(r"\([^)]*동\)|\([\d\s,~\-]+\)", "", name)
     names = []
     for n in (re.sub(r"[()]", "", base), re.sub(r"\(.*?\)", "", base)):
         n = re.sub(r"\s+", "", n).strip()
@@ -58,13 +59,19 @@ def candidates(name: str, dong: str) -> list[str]:
     return out[:MAX_TRIES]
 
 
+_last_status = ""
+
+
 def _resolve(words: str) -> tuple[str, str | None]:
     """("complex", number) | ("map", None) | ("none", None) for one search."""
+    global _last_status
     try:
         res = requests.get(SEARCH + urllib.parse.quote(words), headers={"User-Agent": UA}, allow_redirects=False, timeout=6)
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        _last_status = f"error {type(exc).__name__}"
         return "error", None
     loc = res.headers.get("Location", "")
+    _last_status = f"{res.status_code} {loc[:60]}"
     if res.status_code in (301, 302, 303, 307, 308):
         if "/complex/info/" in loc:
             return "complex", loc.split("/complex/info/")[1].split("?")[0]
@@ -83,7 +90,8 @@ def naver_link(complex_id: str) -> dict:
     if stored:
         at, payload = stored
         try:
-            if dt.datetime.now(rm.KST) - dt.datetime.fromisoformat(at) < FRESH:
+            # Only an answer that found something is kept; an old "search" is not.
+            if payload.get("kind") != "search" and dt.datetime.now(rm.KST) - dt.datetime.fromisoformat(at) < FRESH:
                 return payload
         except ValueError:
             pass
@@ -97,7 +105,6 @@ def naver_link(complex_id: str) -> dict:
     words = candidates(c["name"], c["dong"])
     found: dict | None = None
     near: str | None = None
-    errors = 0
     for w in words:
         kind, number = _resolve(w)
         if kind == "complex":
@@ -105,10 +112,11 @@ def naver_link(complex_id: str) -> dict:
             break
         if kind == "map" and near is None:
             near = w
-        errors += kind == "error"
     if found is None:
-        found = {"query": near or words[0], "kind": "map" if near else "search"}
-    if errors < len(words):  # a network failure is not an answer worth keeping
+        found = {"query": near, "kind": "map"} if near else {"query": words[0], "kind": "search", "last": _last_status}
+    # "Nothing found" may be 네이버 not answering this server the way it answers a
+    # reader; only a found complex or map is worth keeping.
+    if found["kind"] != "search":
         try:
             realestate_store.save_facts(key, found, dt.datetime.now(rm.KST).isoformat(timespec="seconds"))
         except Exception as exc:  # noqa: BLE001

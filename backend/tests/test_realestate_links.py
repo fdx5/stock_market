@@ -42,3 +42,7 @@ def test_falls_back_to_the_map_then_to_the_plain_search(monkeypatch):
     assert rl.naver_link("11650:Y") == {"query": "도곡동 타워팰리스", "kind": "map"}
     monkeypatch.setattr(rl, "_resolve", lambda w: ("none", None))
     assert rl.naver_link("11650:Y")["kind"] == "search"
+
+
+def test_lot_numbers_in_parentheses_are_dropped():
+    assert rl.candidates("상지리츠빌카일룸(1009-4)", "대치동")[0] == "대치동 상지리츠빌카일룸"
