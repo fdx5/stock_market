@@ -548,6 +548,8 @@ export interface AdminGateStats {
 export interface AdminRealestateStatus {
   configured?: boolean;
   calls_today?: number;
+  calls_today_rent?: number;
+  calls_today_kapt?: number;
   daily_limit?: number;
   last_error?: string | null;
   collecting?: string | null;

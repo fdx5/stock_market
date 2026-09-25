@@ -139,7 +139,11 @@ def _work_once() -> None:
                 deals = fetch_rent_month(code, ym)
             except rm.MolitError as exc:
                 _error, _error_at = str(exc), time.time()
-                log.warning("realestate rent: %s %s — %s", code, ym, exc)
+                if "budget" in str(exc):
+                    # Today's limit: nothing to do until midnight, and nothing new to log.
+                    time.sleep(600)
+                else:
+                    log.warning("realestate rent: %s %s — %s", code, ym, exc)
                 break
             except Exception as exc:  # noqa: BLE001
                 _error, _error_at = str(exc), time.time()

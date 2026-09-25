@@ -326,7 +326,7 @@ def test_idle_collector_fills_older_months_opened_districts_first(monkeypatch):
     monkeypatch.setattr(rm, "_queue", [])
     monkeypatch.setattr(rm, "_queued", {})
     monkeypatch.setattr(rm, "_deep_wanted", [])
-    monkeypatch.setattr(rm, "_calls_today", 0)
+    monkeypatch.setattr(rm, "calls_today", lambda api="trade": 0)
     monkeypatch.setattr(rm, "_index", {})
     rm.want_history("26110")
     assert rm._next_district(deep=True) == ("deep", "26110")
@@ -334,5 +334,32 @@ def test_idle_collector_fills_older_months_opened_districts_first(monkeypatch):
     rm.request_districts(["11680"], priority=0)
     assert rm._next_district(deep=True) == "11680"
     # Nothing older is fetched once the day's reserve is reached.
-    monkeypatch.setattr(rm, "_calls_today", rm.DAILY_CALL_LIMIT)
+    monkeypatch.setattr(rm, "calls_today", lambda api="trade": rm.DAILY_CALL_LIMIT)
     assert rm._next_deep() is None
+
+
+
+def test_the_day_s_count_survives_a_restart_and_a_quota_error_pauses_the_api(monkeypatch):
+    saved = {}
+    monkeypatch.setattr(rm.realestate_store, "load_call_count", lambda api, day: saved.get((api, day), 0))
+    monkeypatch.setattr(rm.realestate_store, "save_call_count", lambda api, day, n: saved.__setitem__((api, day), n))
+    monkeypatch.setattr(rm, "_calls", {})
+    for _ in range(rm.SAVE_EVERY):
+        assert rm._count_call("trade")
+    assert rm.calls_today("trade") == rm.SAVE_EVERY
+    rm._calls.clear()  # a restart
+    assert rm.calls_today("trade") == rm.SAVE_EVERY  # read back, not zero
+    assert rm.calls_today("rent") == 0  # each API counted on its own
+
+    body = """<OpenAPI_ServiceResponse><cmmMsgHeader><errMsg>LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR</errMsg>
+<returnAuthMsg>LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR</returnAuthMsg><returnReasonCode>22</returnReasonCode>
+</cmmMsgHeader></OpenAPI_ServiceResponse>"""
+    monkeypatch.setattr(rm.requests, "get", lambda *a, **k: FakeResponse(body))
+    with pytest.raises(rm.MolitError, match="budget"):
+        rm._get_page(rm.TRADE_ENDPOINTS[0], "11680", "202609", 1)
+    assert rm.calls_today("trade") >= rm.DAILY_CALL_LIMIT
+    calls = []
+    monkeypatch.setattr(rm.requests, "get", lambda *a, **k: calls.append(1))
+    with pytest.raises(rm.MolitError, match="budget"):
+        rm._get_page(rm.TRADE_ENDPOINTS[0], "11680", "202609", 1)
+    assert calls == []  # no more calls to the portal today

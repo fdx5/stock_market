@@ -123,7 +123,9 @@ def _realestate() -> dict:
         rebuilding = len(rm._rebuild_queue)
     return {
         "configured": rm.is_configured(),
-        "calls_today": rm._calls_today,
+        "calls_today": rm.calls_today("trade"),
+        "calls_today_rent": rm.calls_today("rent"),
+        "calls_today_kapt": rm.calls_today("kapt"),
         "daily_limit": rm.DAILY_CALL_LIMIT,
         "last_error": rm._last_error,
         "collecting": in_flight,

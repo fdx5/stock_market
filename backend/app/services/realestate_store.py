@@ -204,6 +204,29 @@ def load_facts(key: str) -> tuple[str, object] | None:
 LOAD_BATCH = 8
 
 
+def load_call_count(api: str, day: str) -> int:
+    """Today's API calls as last saved — so a restart does not start the day at zero."""
+
+    def _run(conn):
+        conn.execute(_META_SCHEMA)
+        return conn.execute("SELECT value FROM re_meta WHERE key = ?", (f"calls:{api}:{day}",)).fetchall()
+
+    rows = _with_connection(_run)
+    try:
+        return int(rows[0][0]) if rows else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def save_call_count(api: str, day: str, count: int) -> None:
+    def _run(conn):
+        conn.execute(_META_SCHEMA)
+        conn.execute("INSERT OR REPLACE INTO re_meta (key, value) VALUES (?, ?)", (f"calls:{api}:{day}", str(count)))
+        conn.commit()
+
+    _with_connection(_run)
+
+
 def load_districts(lawd_cds: list[str], since: str = "") -> dict[str, dict[str, tuple[str, list]]]:
     """Every stored month of several 시군구 in one query: {lawd_cd: {deal_ym:
     (fetched_at, deals)}}. A 시·도 map needs dozens of districts, and one round trip

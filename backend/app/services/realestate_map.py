@@ -210,22 +210,81 @@ class MolitError(RuntimeError):
 
 
 _endpoint_choice: str | None = None
-_calls_lock = threading.Lock()
-_calls_day = ""
-_calls_today = 0
 _last_error: str | None = None
 
+# Calls made today, per API — 공공데이터포털 limits each API separately (매매, 전월세,
+# K-apt). Counted in memory and saved every few calls, and read back after a restart:
+# a count that started over at zero with each deploy let a busy day of deploys run
+# past the portal's own limit, and every call after that came back
+# LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR.
+_calls_lock = threading.Lock()
+_calls: dict[str, list] = {}  # api -> [day, count, count last saved]
+SAVE_EVERY = 20
+QUOTA_ERRORS = ("LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS", "(22)")
 
-def _count_call() -> bool:
-    global _calls_day, _calls_today
+
+def api_of(endpoint: str) -> str:
+    if "AptRent" in endpoint:
+        return "rent"
+    if "AptList" in endpoint or "AptBasis" in endpoint:
+        return "kapt"
+    return "trade"
+
+
+def _counter(api: str) -> list:
+    today = dt.datetime.now(KST).strftime("%Y%m%d")
+    c = _calls.get(api)
+    if c is None or c[0] != today:
+        try:
+            saved = realestate_store.load_call_count(api, today)
+        except Exception:  # noqa: BLE001 — count from here rather than stop
+            saved = 0
+        c = _calls[api] = [today, saved, saved]
+    return c
+
+
+def _save_count(api: str) -> None:
     with _calls_lock:
-        today = dt.datetime.now(KST).strftime("%Y%m%d")
-        if today != _calls_day:
-            _calls_day, _calls_today = today, 0
-        if _calls_today >= DAILY_CALL_LIMIT:
+        day, count, _ = _calls[api]
+    try:
+        realestate_store.save_call_count(api, day, count)
+        with _calls_lock:
+            if _calls[api][0] == day:
+                _calls[api][2] = count
+    except Exception as exc:  # noqa: BLE001
+        log.info("realestate: saving the %s call count failed (%s)", api, exc)
+
+
+def _count_call(api: str = "trade") -> bool:
+    with _calls_lock:
+        c = _counter(api)
+        if c[1] >= DAILY_CALL_LIMIT:
             return False
-        _calls_today += 1
-        return True
+        c[1] += 1
+        save = c[1] - c[2] >= SAVE_EVERY
+    if save:
+        _save_count(api)
+    return True
+
+
+def calls_today(api: str = "trade") -> int:
+    with _calls_lock:
+        return _counter(api)[1]
+
+
+def exhaust(api: str) -> None:
+    """The portal says today's limit is used up: no more calls to it until midnight."""
+    with _calls_lock:
+        c = _counter(api)
+        already = c[1] >= DAILY_CALL_LIMIT
+        c[1] = max(c[1], DAILY_CALL_LIMIT)
+    if not already:
+        log.warning("realestate: %s API daily limit reached at the portal; pausing it until midnight KST", api)
+        _save_count(api)
+
+
+def is_quota_error(text: str) -> bool:
+    return any(k in text for k in QUOTA_ERRORS)
 
 
 def _text(item: ET.Element, tag: str) -> str:
@@ -241,7 +300,8 @@ def _int(value: str) -> int:
 
 
 def _get_page(endpoint: str, lawd_cd: str, deal_ym: str, page: int) -> tuple[list[ET.Element], int]:
-    if not _count_call():
+    api = api_of(endpoint)
+    if not _count_call(api):
         raise MolitError("daily call budget exhausted")
     res = requests.get(
         endpoint,
@@ -264,7 +324,11 @@ def _get_page(endpoint: str, lawd_cd: str, deal_ym: str, page: int) -> tuple[lis
     reason = root.findtext(".//returnAuthMsg") or root.findtext(".//errMsg")
     if root.tag == "OpenAPI_ServiceResponse" or reason:
         detail = root.findtext(".//errMsg") or reason or "OpenAPI error"
-        raise MolitError(f"{detail} ({root.findtext('.//returnReasonCode') or res.status_code})")
+        message = f"{detail} ({root.findtext('.//returnReasonCode') or res.status_code})"
+        if is_quota_error(message):
+            exhaust(api)
+            raise MolitError(f"daily call budget exhausted — {message}")
+        raise MolitError(message)
     res.raise_for_status()
     code = (root.findtext(".//resultCode") or "").strip()
     if code == "03":  # NO_DATA — a month with no apartment sales in this district
@@ -536,7 +600,7 @@ def want_history(lawd_cd: str) -> None:
 def _next_deep() -> str | None:
     """The district to fill older months for, when nothing newer is waiting: the ones
     readers opened, then every district in the warm order."""
-    if _calls_today > DAILY_CALL_LIMIT - DEEP_RESERVE:
+    if calls_today("trade") > DAILY_CALL_LIMIT - DEEP_RESERVE:
         return None
     for code in list(_deep_wanted):
         if _deep_missing(code):
@@ -892,7 +956,7 @@ def _status(lawd_codes: list[str]) -> dict:
         "coverage": round(coverage, 3),
         "collecting": configured and coverage < 1,
         "error": _last_error,
-        "calls_today": _calls_today,
+        "calls_today": calls_today("trade"),
     }
 
 

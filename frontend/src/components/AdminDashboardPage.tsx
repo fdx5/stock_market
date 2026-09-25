@@ -339,9 +339,11 @@ function SystemSection({ health, state }: { health: AdminHealth | null; state: {
               <dd>
                 {pct(re?.history_coverage)} {re?.history_from && <small>({re.history_from.slice(0, 4)}.{re.history_from.slice(4)}부터)</small>}
               </dd>
-              <dt>오늘 API 호출</dt>
+              <dt>오늘 API 호출 (한도 {re?.daily_limit?.toLocaleString() ?? "—"})</dt>
               <dd>
-                {re?.calls_today?.toLocaleString() ?? "—"} / {re?.daily_limit?.toLocaleString() ?? "—"}
+                매매 {re?.calls_today?.toLocaleString() ?? "—"} · 전월세 {re?.calls_today_rent?.toLocaleString() ?? "—"} · K-apt{" "}
+                {re?.calls_today_kapt?.toLocaleString() ?? "—"}
+                {re?.daily_limit && (re.calls_today ?? 0) >= re.daily_limit && <small> · 매매 한도 소진, 자정에 재개</small>}
               </dd>
               <dt>수집 중 / 대기</dt>
               <dd>

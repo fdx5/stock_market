@@ -58,7 +58,10 @@ def _items(res: requests.Response) -> tuple[list[dict], int]:
         gateway = payload.get("OpenAPI_ServiceResponse")
         if isinstance(gateway, dict):  # key or service refused before reaching the API
             head = gateway.get("cmmMsgHeader") or {}
-            raise FactsError(f"{head.get('errMsg') or 'OpenAPI error'} ({head.get('returnReasonCode') or res.status_code})")
+            message = f"{head.get('errMsg') or 'OpenAPI error'} ({head.get('returnReasonCode') or res.status_code})"
+            if rm.is_quota_error(message):
+                rm.exhaust("kapt")
+            raise FactsError(message)
         # Most services wrap header and body in "response"; some answer them bare.
         envelope = payload.get("response") if isinstance(payload.get("response"), dict) else payload
         header = envelope.get("header") or {}
@@ -83,7 +86,10 @@ def _items(res: requests.Response) -> tuple[list[dict], int]:
         raise FactsError(f"응답을 해석할 수 없습니다: {text[:120]!r}") from exc
     reason = root.findtext(".//returnAuthMsg") or root.findtext(".//errMsg")
     if root.tag == "OpenAPI_ServiceResponse" or reason:
-        raise FactsError(f"{root.findtext('.//errMsg') or reason} ({root.findtext('.//returnReasonCode') or res.status_code})")
+        message = f"{root.findtext('.//errMsg') or reason} ({root.findtext('.//returnReasonCode') or res.status_code})"
+        if rm.is_quota_error(message):
+            rm.exhaust("kapt")
+        raise FactsError(message)
     code = (root.findtext(".//resultCode") or "00").strip()
     if code not in ("00", "000", "03"):
         raise FactsError(f"{code} {root.findtext('.//resultMsg') or ''}".strip())
@@ -96,7 +102,7 @@ def _get(url: str, params: dict) -> tuple[list[dict], int]:
     key = rm._service_key()
     if not key:
         raise FactsError("MOLIT_API_KEY 미설정")
-    if not rm._count_call():
+    if not rm._count_call("kapt"):
         raise FactsError("daily call budget exhausted")
     global _last_raw
     res = requests.get(url, params={"serviceKey": key, "_type": "json", **params}, timeout=20)
