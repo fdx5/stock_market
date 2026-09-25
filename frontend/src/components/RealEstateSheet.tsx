@@ -160,7 +160,15 @@ export default function RealEstateSheet({
           ["wolse", "월세"],
         ] as const
       ).map(([key, label]) => (
-        <button key={key} type="button" role="tab" aria-selected={mode === key} className={mode === key ? "is-on" : ""} onClick={() => setMode(key)}>
+        <button
+          key={key}
+          type="button"
+          role="tab"
+          aria-selected={mode === key}
+          data-mode={key}
+          className={mode === key ? "is-on" : ""}
+          onClick={() => setMode(key)}
+        >
           {label}
         </button>
       ))}
