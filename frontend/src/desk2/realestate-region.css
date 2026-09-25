@@ -603,8 +603,9 @@
   line-height: 1.5;
 }
 
-/* The card's 매매 / 전세 / 월세 switch and its lease views (RealEstateRentView). */
-.re-sheet-mode {
+/* The card's 매매 / 전세 / 월세 switch and its lease views (RealEstateRentView).
+   Doubled up with .d2 so the broadsheet's own button reset does not flatten it. */
+.d2 .re-sheet-mode {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   margin: 0 0 10px;
@@ -612,22 +613,23 @@
   border-radius: 8px;
   overflow: hidden;
 }
-.re-sheet-mode button {
+.d2 .re-sheet-mode button {
   padding: 7px 0;
   border: 0;
   border-right: 1px solid var(--gridline);
+  border-radius: 0;
   background: transparent;
   color: var(--text-muted);
   font: 700 12.5px var(--f-sans);
   cursor: pointer;
 }
-.re-sheet-mode button:last-child {
+.d2 .re-sheet-mode button:last-child {
   border-right: 0;
 }
-.re-sheet-mode button:hover {
+.d2 .re-sheet-mode button:hover {
   color: var(--text-primary);
 }
-.re-sheet-mode button.is-on {
+.d2 .re-sheet-mode button.is-on {
   background: var(--text-primary);
   color: var(--surface-1);
 }

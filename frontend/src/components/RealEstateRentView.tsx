@@ -16,46 +16,58 @@ function dots(iso: string | null): string {
   return iso ? iso.replace(/-/g, ".") : "—";
 }
 
-function ymdTime(n: number): number {
-  return Date.UTC(Math.floor(n / 10000), (Math.floor(n / 100) % 100) - 1, n % 100);
-}
-
 /** "1억 / 월 250만" — a 월세 as it is quoted. */
 function wolseText(deposit: number, rent: number): string {
   return `${shortPrice(deposit)} / 월 ${rent.toLocaleString()}만`;
 }
 
-/** The 전세 deposits of the past two years, 신규 as filled dots, 갱신 hollow. */
+/** The 전세 of the past two years as a monthly median — hundreds of leases a year
+ * in a large complex are a cloud as dots. Each month is priced from its 신규 leases
+ * (a 갱신 is capped at +5% and lags the market), from all of them if it had none. */
 function LeaseChart({ rows }: { rows: [number, number, number, number, number, number, number][] }) {
-  const pts = rows.slice().reverse();
-  if (pts.length < 2) return <div className="re-pop-chart re-pop-chart--empty">거래가 1건뿐이라 추이를 그릴 수 없습니다</div>;
+  const byMonth = new Map<number, { fresh: number[]; all: number[] }>();
+  for (const r of rows) {
+    const ym = Math.floor(r[0] / 100);
+    const m = byMonth.get(ym) ?? { fresh: [], all: [] };
+    m.all.push(r[1]);
+    if (r[4] !== 2) m.fresh.push(r[1]);
+    byMonth.set(ym, m);
+  }
+  const median = (xs: number[]) => {
+    const v = xs.slice().sort((a, b) => a - b);
+    const mid = Math.floor(v.length / 2);
+    return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
+  };
+  const pts = [...byMonth.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([ym, m]) => ({ ym, v: median(m.fresh.length ? m.fresh : m.all), n: m.all.length }));
+  if (pts.length < 2) return <div className="re-pop-chart re-pop-chart--empty">거래가 한 달뿐이라 추이를 그릴 수 없습니다</div>;
   const W = 300;
   const H = 58;
   const PAD = 6;
-  const t0 = ymdTime(pts[0][0]);
-  const t1 = ymdTime(pts[pts.length - 1][0]);
-  const lo = Math.min(...pts.map((p) => p[1]));
-  const hi = Math.max(...pts.map((p) => p[1]));
-  const x = (d: number) => PAD + ((ymdTime(d) - t0) / Math.max(1, t1 - t0)) * (W - PAD * 2);
+  const lo = Math.min(...pts.map((p) => p.v));
+  const hi = Math.max(...pts.map((p) => p.v));
+  const x = (i: number) => PAD + (i / (pts.length - 1)) * (W - PAD * 2);
   const y = (v: number) => H - PAD - ((v - lo) / Math.max(1, hi - lo)) * (H - PAD * 2);
-  const fresh = pts.filter((p) => p[4] !== 2);
-  const line = (fresh.length > 1 ? fresh : pts).map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ");
-  const last = pts[pts.length - 1];
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+  const label = (ym: number) => `${String(ym).slice(2, 4)}.${String(ym).slice(4, 6)}`;
   return (
     <div className="re-pop-chart">
       <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
         <path className="re-pop-chart-line is-flat re-lease-line" d={line} />
         {pts.map((p, i) => (
-          <circle key={i} className={p[4] === 2 ? "re-pop-chart-dot is-direct" : "re-pop-chart-dot"} cx={x(p[0])} cy={y(p[1])} r={2.2} />
+          <circle key={p.ym} className="re-pop-chart-dot" cx={x(i)} cy={y(p.v)} r={2.2}>
+            <title>{`${label(p.ym)} 중간값 ${shortPrice(p.v)} · ${p.n}건`}</title>
+          </circle>
         ))}
-        <circle className="re-pop-chart-last" cx={x(last[0])} cy={y(last[1])} r={4} />
+        <circle className="re-pop-chart-last" cx={x(pts.length - 1)} cy={y(pts[pts.length - 1].v)} r={4} />
       </svg>
       <div className="re-pop-chart-axis">
-        <span>{ymdDots(pts[0][0])}</span>
+        <span>{label(pts[0].ym)}</span>
         <span>
-          {shortPrice(lo)} ~ {shortPrice(hi)}
+          월별 중간값 {shortPrice(lo)} ~ {shortPrice(hi)}
         </span>
-        <span>{ymdDots(last[0])}</span>
+        <span>{label(pts[pts.length - 1].ym)}</span>
       </div>
     </div>
   );
