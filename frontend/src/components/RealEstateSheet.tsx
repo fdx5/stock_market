@@ -4,7 +4,6 @@ import {
   api,
   RealEstateFacts,
   RealEstateItem,
-  RealEstateListingLink,
   RealEstatePeriod,
   RealEstateRentResponse,
   RealEstateTradeHistory,
@@ -25,44 +24,40 @@ import RealEstateRentView, { LeaseMode } from "./RealEstateRentView";
 /** Where to see today's listings and asking prices. 국토교통부 publishes signed
  * contracts only, so the card sends the reader to the listing services themselves —
  * linking, never copying their listings. KB부동산 has no address that takes a
- * search, so it is left out.
- *
- * The 실거래 name is often not the one 네이버 knows ("신도6" is 신도6차), so the
- * server tries the likely spellings once and says which opens the complex
- * (realestate_links.py). Until it answers — and should it find none — the link
- * uses the usual fix, 차 after a closing number; with none found, 네이버's general
- * search, which matches loosely and shows the complex's listings card. */
-function listingWords(item: RealEstateItem): string {
-  const name = item.name
-    .replace(/\([^)]*동\)/g, "")
-    .replace(/[()]/g, "")
-    .replace(/\s+/g, "");
-  return `${item.dong} ${/\d$/.test(name) ? `${name}차` : name}`.trim();
+ * search, so it is left out. */
+
+const ROMAN: Record<string, string> = { Ⅰ: "1", Ⅱ: "2", Ⅲ: "3", Ⅳ: "4", Ⅴ: "5" };
+
+/** A 실거래 name as a search word: roman numerals as digits, "I-PARK" as 아이파크,
+ * building lists "(10,11동)" and lot numbers "(1009-4)" dropped, any other
+ * parenthesised word kept inline ("상록마을(우성)1" → "상록마을우성1"). */
+function searchName(name: string): string {
+  return name
+    .replace(/[ⅠⅡⅢⅣⅤ]/g, (c) => ROMAN[c])
+    .replace(/\([^)]*동\)|\([\d\s,~-]+\)/g, "")
+    .replace(/I-?PARK/gi, "아이파크")
+    .replace(/[()\s]/g, "");
+}
+
+/** 네이버 부동산's search opens a complex only by the name it knows. 실거래 drops
+ * the 차 of a 차수 ("신도6", "개포우성2" are 신도6차, 개포우성2차), so a closing
+ * one- or two-digit number right after Hangul gets its 차 back — and nothing else
+ * does: "PH129" or "현대아이파크1" are left as written. Tried against 240 complexes
+ * in seven districts, this opened 167 directly and made none worse. */
+function naverWords(item: RealEstateItem): string {
+  const name = searchName(item.name);
+  return `${item.dong} ${/[가-힣]\d{1,2}$/.test(name) ? `${name}차` : name}`.trim();
 }
 
 function ListingLinks({ item }: { item: RealEstateItem }) {
-  const [link, setLink] = useState<RealEstateListingLink | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    setLink(null);
-    api
-      .realEstateLinks(item.id)
-      .then((res) => !cancelled && setLink(res))
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [item.id]);
-  const words = link?.query ?? listingWords(item);
-  const q = encodeURIComponent(words);
-  const naver =
-    link?.kind === "search"
-      ? `https://search.naver.com/search.naver?query=${encodeURIComponent(`${words} 아파트`)}`
-      : `https://m.land.naver.com/search/result/${q}`;
+  const plain = `${item.dong} ${searchName(item.name)}`.trim();
   const links = [
-    { label: "네이버 부동산", sub: "매물·호가", href: naver, cls: "is-naver" },
-    { label: "호갱노노", sub: "매물·시세", href: `https://hogangnono.com/search?q=${q}`, cls: "is-hogang" },
+    { label: "네이버 부동산", sub: "매물·호가", href: `https://m.land.naver.com/search/result/${encodeURIComponent(naverWords(item))}`, cls: "is-naver" },
+    { label: "호갱노노", sub: "매물·시세", href: `https://hogangnono.com/search?q=${encodeURIComponent(plain)}`, cls: "is-hogang" },
   ];
+  // 네이버's general search matches loosely and shows the complex's card with its
+  // listings; it finds most of what the 부동산 search misses by name.
+  const fallback = `https://search.naver.com/search.naver?query=${encodeURIComponent(`${plain} 아파트`)}`;
   return (
     <section className="re-sheet-links" aria-label="현재 매물과 호가">
       <h4>현재 매물·호가 보기</h4>
@@ -77,6 +72,12 @@ function ListingLinks({ item }: { item: RealEstateItem }) {
           </a>
         ))}
       </div>
+      <p className="re-sheet-links-alt">
+        네이버 부동산에서 단지가 바로 열리지 않으면{" "}
+        <a href={fallback} target="_blank" rel="noopener noreferrer">
+          네이버 통합검색에서 찾기 ↗
+        </a>
+      </p>
       <p>국토교통부 자료에는 매물 정보가 없어, 현재 호가는 부동산 서비스에서 확인할 수 있습니다. 새 창으로 열립니다.</p>
     </section>
   );

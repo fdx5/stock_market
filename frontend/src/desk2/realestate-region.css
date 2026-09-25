@@ -763,3 +763,17 @@
   font-size: 10.5px;
   line-height: 1.5;
 }
+.re-sheet-links p.re-sheet-links-alt {
+  margin-top: 8px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.d2 .re-sheet-links p.re-sheet-links-alt a {
+  display: inline;
+  padding: 0;
+  border: 0;
+  color: #03c75a;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
