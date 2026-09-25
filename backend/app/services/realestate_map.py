@@ -400,6 +400,7 @@ _version = 0  # bumped whenever stored data changes, to invalidate computed maps
 # lawd_cd -> {deal_ym: deals} of the months before the maps' window, for cards.
 _deep_cache: OrderedDict[str, dict[str, list]] = OrderedDict()
 DEEP_CACHE_DISTRICTS = 12
+DEEP_LOAD_YEARS = 3  # years of a district's history read per query
 # Districts whose older months a reader is waiting on (a card was opened), newest first.
 _deep_wanted: list[str] = []
 _lawd_versions: dict[str, int] = {}  # the same, per district, for region summaries
@@ -446,10 +447,13 @@ def _store_month(lawd_cd: str, deal_ym: str, deals: list) -> None:
     now = dt.datetime.now(KST).isoformat(timespec="seconds")
     realestate_store.save_month(lawd_cd, deal_ym, deals, now)
     if deal_ym < _recent_since():
-        # History for the cards: the maps neither hold nor read it.
+        # History for the cards: the maps neither hold nor read it. A district whose
+        # history is in memory takes the new month as it is, instead of being read
+        # again from the store after every month the backfill adds.
         with _district_lock:
             _index[(lawd_cd, deal_ym)] = now
-            _deep_cache.pop(lawd_cd, None)
+            if lawd_cd in _deep_cache:
+                _deep_cache[lawd_cd][deal_ym] = deals
         return
     with _district_lock:
         _index[(lawd_cd, deal_ym)] = now
@@ -1031,18 +1035,28 @@ def _older_trades(lawd: str, complex_id: str) -> dict[int, list[tuple]]:
         if months is not None:
             _deep_cache.move_to_end(lawd)
     if months is None:
-        try:
-            months = {
-                ym: deals
-                for ym, (_, deals) in realestate_store.load_district(lawd, before=_recent_since()).items()
-            }
-        except Exception as exc:  # noqa: BLE001 — the card still has the recent years
-            log.warning("realestate: history of %s unavailable (%s)", lawd, exc)
-            return {}
-        with _district_lock:
-            _deep_cache[lawd] = months
-            while len(_deep_cache) > DEEP_CACHE_DISTRICTS:
-                _deep_cache.popitem(last=False)
+        months = {}
+        complete = True
+        # A few years per query: twenty years of a busy district at once outran the
+        # store client's read timeout, and the card lost its history every other time.
+        edge = _recent_since()
+        while edge > HISTORY_FROM:
+            start = f"{int(edge[:4]) - DEEP_LOAD_YEARS:04d}{edge[4:]}"
+            try:
+                chunk = realestate_store.load_district(lawd, since=max(start, HISTORY_FROM), before=edge)
+            except Exception as exc:  # noqa: BLE001 — the card still has what loaded
+                log.warning("realestate: history of %s before %s unavailable (%s)", lawd, edge, exc)
+                complete = False
+                break
+            months.update({ym: deals for ym, (_, deals) in chunk.items()})
+            edge = start
+        if complete:
+            with _district_lock:
+                # Months stored while this was read are kept too.
+                months.update(_deep_cache.get(lawd, {}))
+                _deep_cache[lawd] = months
+                while len(_deep_cache) > DEEP_CACHE_DISTRICTS:
+                    _deep_cache.popitem(last=False)
     out: dict[int, list[tuple]] = defaultdict(list)
     for deals in months.values():
         for row in deals:

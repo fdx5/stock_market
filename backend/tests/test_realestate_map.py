@@ -240,6 +240,9 @@ def test_items_carry_popup_detail(monkeypatch):
 
 
 def test_complex_detail_lays_out_every_pyeong(monkeypatch):
+    monkeypatch.setattr(rm.realestate_store, "load_district", lambda code, since="", before="": {})
+    monkeypatch.setattr(rm, "want_history", lambda code: None)
+    monkeypatch.setattr(rm, "_deep_cache", rm.OrderedDict())
     today = dt.datetime.now(rm.KST).date()
     d = lambda days: int((today - dt.timedelta(days=days)).strftime("%Y%m%d"))  # noqa: E731
     deals = [
