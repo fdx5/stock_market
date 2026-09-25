@@ -53,6 +53,14 @@ def _parse_rows(html: str) -> list[dict]:
         except (ValueError, IndexError, KeyError, TypeError):
             continue
 
+        # The table's own price, in USD — the page's last resort when no live quote
+        # for the ticker came back at all. Sorted in cents (22377 is $223.77).
+        price_usd = None
+        try:
+            price_usd = float(mcap_tds[1]["data-sort"]) / 100
+        except (IndexError, KeyError, TypeError, ValueError):
+            price_usd = None
+
         change_pct = None
         if change_td and change_td.get("data-sort") is not None:
             try:
@@ -71,6 +79,7 @@ def _parse_rows(html: str) -> list[dict]:
                 "code": code,
                 "logo_url": BASE_URL + logo_el["src"] if logo_el and logo_el.get("src") else None,
                 "marcap_usd": marcap_usd,
+                "price_usd": price_usd,
                 "change_pct": change_pct,
                 "flag_url": BASE_URL + flag_el["src"] if flag_el and flag_el.get("src") else None,
                 "country": country_el.get_text(strip=True) if country_el else "",

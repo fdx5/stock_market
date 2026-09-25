@@ -9,12 +9,18 @@ requiring it in 2024.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
+
+import requests
 
 from app.data import yahoo_session
 
 logger = logging.getLogger(__name__)
 
 QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
+CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+# Few enough to stay polite to a per-symbol endpoint; 100 symbols take a few seconds.
+_CHART_WORKERS = 8
 
 # Comfortably under whatever undocumented URL-length/result-count ceiling Yahoo applies
 # — the whole TOP 100 roster fits in two chunks at this size.
@@ -66,4 +72,49 @@ def fetch_live_quotes(symbols: list[str]) -> dict[str, dict]:
             break
         except Exception:  # noqa: BLE001 - one chunk's failure must not sink the refresh
             logger.warning("global_top100_batch_quote: chunk fetch failed", exc_info=True)
+    return out
+
+
+def _chart_quote(symbol: str) -> dict | None:
+    """One symbol off the v8 chart endpoint, which needs no crumb — the same endpoint
+    global_returns_fetcher already reads every symbol's history from, and which keeps
+    answering on the server while getcrumb is refused. Its meta carries the regular
+    price, the day's change and the listing currency, the three fields the page's
+    live layer needs."""
+    try:
+        resp = requests.get(
+            CHART_URL.format(symbol=symbol),
+            params={"interval": "1d", "range": "1d"},
+            headers=yahoo_session.HEADERS,
+            timeout=6,
+        )
+        resp.raise_for_status()
+        meta = (resp.json()["chart"]["result"] or [{}])[0].get("meta") or {}
+    except Exception:  # noqa: BLE001 - one symbol's miss costs that symbol only
+        return None
+    price = meta.get("regularMarketPrice")
+    if price is None:
+        return None
+    change_pct = meta.get("regularMarketChangePercent")
+    if change_pct is None:
+        previous = meta.get("previousClose") or meta.get("chartPreviousClose")
+        change_pct = (float(price) / float(previous) - 1) * 100 if previous else None
+    return {
+        "price": float(price),
+        "market_cap": None,
+        "change_pct": None if change_pct is None else round(float(change_pct), 4),
+        "currency": meta.get("currency"),
+    }
+
+
+def fetch_chart_quotes(symbols: list[str]) -> dict[str, dict]:
+    """The crumbless path for many symbols: one v8 chart call each, over a small pool.
+    A symbol that fails is simply absent."""
+    out: dict[str, dict] = {}
+    if not symbols:
+        return out
+    with ThreadPoolExecutor(max_workers=min(_CHART_WORKERS, len(symbols))) as pool:
+        for symbol, quote in zip(symbols, pool.map(_chart_quote, symbols)):
+            if quote:
+                out[symbol] = quote
     return out

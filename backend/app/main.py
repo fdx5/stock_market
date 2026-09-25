@@ -460,10 +460,21 @@ def _global_top100_refresh_loop() -> None:
     # yet. force_refresh_full() itself is idempotent (just overwrites today's
     # rank_store row), so an immediate run plus the cron/nightly tick landing close
     # together is harmless, just redundant work.
+    # Memory first from the saved copy, so the page has its last good data within a
+    # second of startup while the rebuild below takes its minutes.
     try:
-        global_top100_service.force_refresh_full()
+        global_top100_service.load_persisted()
     except Exception:
         pass
+    # Until one build succeeds, keep trying every ten minutes rather than leaving a
+    # process with no saved copy empty until 04:00.
+    while True:
+        try:
+            global_top100_service.force_refresh_full()
+            break
+        except Exception:
+            logging.getLogger(__name__).warning("global_top100: startup build failed; retrying in 10 min", exc_info=True)
+            time.sleep(600)
     time.sleep(_seconds_until_kst_hour(4))
     while True:
         try:
@@ -477,12 +488,11 @@ def _global_top100_refresh_loop() -> None:
 
 
 def _global_top100_live_warm_loop() -> None:
-    # Keeps the live price overlay's short TTL cache pre-filled so a visitor's request
-    # never pays for the ~100-symbol batch-quote round trip synchronously — see
-    # services/global_top100.get_live_overlay_cached's TTL_LIVE_SECONDS.
+    # The only writer of the page's live prices: a visitor's request only ever reads
+    # them (see services/global_top100.refresh_live for the crumb-then-chart order).
     while True:
         try:
-            global_top100_service.get_live_overlay_cached()
+            global_top100_service.refresh_live()
         except Exception:
             pass
         time.sleep(20)

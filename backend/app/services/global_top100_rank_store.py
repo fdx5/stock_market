@@ -1,3 +1,4 @@
+import json
 import os
 import threading
 from pathlib import Path
@@ -29,6 +30,30 @@ CREATE TABLE IF NOT EXISTS global_top100_rank (
 """
 _INDEX = "CREATE INDEX IF NOT EXISTS idx_global_top100_rank_date ON global_top100_rank (snapshot_date)"
 
+# The page's last good data, kept where a restart cannot lose it. The snapshot and
+# the live quotes used to live only in process memory, so every deploy served an
+# empty page for the minutes a full rebuild takes, and a rebuild that failed left
+# nothing at all. `key` is "snapshot" (the merged 100 rows) or "live" (the last
+# quotes); a new value replaces the old one only once it has been built in full.
+_STATE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS global_top100_state (
+    key TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)
+"""
+# Per-symbol fundamentals (sector, PER, the company profile and its translation).
+# They change quarterly at most, and their only source is Yahoo's crumb-guarded
+# quoteSummary — refused for long stretches on the server — so each symbol keeps the
+# last values that ever came back, and a failed night fills nothing with None.
+_FUNDAMENTALS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS global_top100_fundamentals (
+    symbol TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)
+"""
+
 # The only lookup this store ever does is "yesterday's rank", so a handful of days of
 # headroom is plenty to survive a missed nightly refresh without the table growing
 # unbounded — purged on the same daily timer as notify_stats_store, see main.py's
@@ -47,6 +72,8 @@ def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
     conn.execute(_INDEX)
+    conn.execute(_STATE_SCHEMA)
+    conn.execute(_FUNDAMENTALS_SCHEMA)
     conn.commit()
     return conn
 
@@ -124,3 +151,45 @@ def purge_older_than(cutoff_date: str) -> int:
         return cursor.rowcount or 0
 
     return _with_connection(_run)
+
+
+def save_state(key: str, payload, updated_at: str) -> None:
+    def _run(conn):
+        conn.execute(
+            "INSERT OR REPLACE INTO global_top100_state (key, payload, updated_at) VALUES (?, ?, ?)",
+            (key, json.dumps(payload, ensure_ascii=False), updated_at),
+        )
+        conn.commit()
+
+    _with_connection(_run)
+
+
+def load_state(key: str):
+    """(payload, updated_at) for `key`, or None if it was never saved."""
+
+    def _run(conn):
+        return conn.execute("SELECT payload, updated_at FROM global_top100_state WHERE key = ?", (key,)).fetchone()
+
+    row = _with_connection(_run)
+    return (json.loads(row[0]), row[1]) if row else None
+
+
+def save_fundamentals(rows: dict[str, dict], updated_at: str) -> None:
+    if not rows:
+        return
+
+    def _run(conn):
+        conn.executemany(
+            "INSERT OR REPLACE INTO global_top100_fundamentals (symbol, payload, updated_at) VALUES (?, ?, ?)",
+            [(symbol, json.dumps(fields, ensure_ascii=False), updated_at) for symbol, fields in rows.items()],
+        )
+        conn.commit()
+
+    _with_connection(_run)
+
+
+def load_fundamentals() -> dict[str, dict]:
+    def _run(conn):
+        return conn.execute("SELECT symbol, payload FROM global_top100_fundamentals").fetchall()
+
+    return {symbol: json.loads(payload) for symbol, payload in _with_connection(_run)}
