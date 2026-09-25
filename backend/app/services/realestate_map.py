@@ -401,6 +401,8 @@ _version = 0  # bumped whenever stored data changes, to invalidate computed maps
 _deep_cache: OrderedDict[str, dict[str, list]] = OrderedDict()
 DEEP_CACHE_DISTRICTS = 12
 DEEP_LOAD_YEARS = 3  # years of a district's history read per query
+# Districts whose history loaded only in part, and when: read again after a while.
+_deep_partial: dict[str, float] = {}
 # Districts whose older months a reader is waiting on (a card was opened), newest first.
 _deep_wanted: list[str] = []
 _lawd_versions: dict[str, int] = {}  # the same, per district, for region summaries
@@ -1034,29 +1036,40 @@ def _older_trades(lawd: str, complex_id: str) -> dict[int, list[tuple]]:
         months = _deep_cache.get(lawd)
         if months is not None:
             _deep_cache.move_to_end(lawd)
-    if months is None:
-        months = {}
+    stale_partial = lawd in _deep_partial and time.time() - _deep_partial[lawd] > 20
+    if months is None or stale_partial:
+        loaded: dict[str, list] = {}
         complete = True
         # A few years per query: twenty years of a busy district at once outran the
-        # store client's read timeout, and the card lost its history every other time.
+        # store client's read timeout. A query that fails is tried again; what did
+        # load is kept, and the rest is read again on a later card.
         edge = _recent_since()
         while edge > HISTORY_FROM:
             start = f"{int(edge[:4]) - DEEP_LOAD_YEARS:04d}{edge[4:]}"
-            try:
-                chunk = realestate_store.load_district(lawd, since=max(start, HISTORY_FROM), before=edge)
-            except Exception as exc:  # noqa: BLE001 — the card still has what loaded
-                log.warning("realestate: history of %s before %s unavailable (%s)", lawd, edge, exc)
+            chunk = None
+            for attempt in range(3):
+                try:
+                    chunk = realestate_store.load_district(lawd, since=max(start, HISTORY_FROM), before=edge)
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("realestate: history of %s before %s (try %d): %s", lawd, edge, attempt + 1, exc)
+                    time.sleep(0.4 * (attempt + 1))
+            if chunk is None:
                 complete = False
-                break
-            months.update({ym: deals for ym, (_, deals) in chunk.items()})
+            else:
+                loaded.update({ym: deals for ym, (_, deals) in chunk.items()})
             edge = start
-        if complete:
-            with _district_lock:
-                # Months stored while this was read are kept too.
-                months.update(_deep_cache.get(lawd, {}))
-                _deep_cache[lawd] = months
-                while len(_deep_cache) > DEEP_CACHE_DISTRICTS:
-                    _deep_cache.popitem(last=False)
+        with _district_lock:
+            # Months the backfill stored meanwhile are kept too.
+            months = {**loaded, **_deep_cache.get(lawd, {})}
+            _deep_cache[lawd] = months
+            _deep_cache.move_to_end(lawd)
+            while len(_deep_cache) > DEEP_CACHE_DISTRICTS:
+                _deep_cache.popitem(last=False)
+            if complete:
+                _deep_partial.pop(lawd, None)
+            else:
+                _deep_partial[lawd] = time.time()
     out: dict[int, list[tuple]] = defaultdict(list)
     for deals in months.values():
         for row in deals:

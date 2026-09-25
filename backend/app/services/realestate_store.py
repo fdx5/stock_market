@@ -25,6 +25,11 @@ LOCAL_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "store" / "rea
 
 _gate = libsql_gate.Gate("realestate_store")
 _conn = None
+# A second connection for what a reader's complex card waits on — a district's older
+# sales and its leases. The first is shared by the collector, the map builder and the
+# region summaries, and a card queued behind them timed out at the gate.
+_card_gate = libsql_gate.Gate("realestate_store_cards")
+_card_conn = None
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS re_trade_months (
@@ -89,6 +94,23 @@ def _with_connection(fn):
             return fn(_conn)
 
 
+def _with_card_connection(fn):
+    """_with_connection on the cards' own connection."""
+    global _card_conn
+    with _card_gate.hold():
+        if _card_conn is None:
+            _card_conn = _new_ready_connection()
+        try:
+            return fn(_card_conn)
+        except Exception:
+            try:
+                _card_conn.close()
+            except Exception:
+                pass
+            _card_conn = _new_ready_connection()
+            return fn(_card_conn)
+
+
 def _pack(deals: list) -> str:
     raw = json.dumps(deals, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     return base64.b64encode(gzip.compress(raw, compresslevel=6)).decode("ascii")
@@ -126,7 +148,7 @@ def load_district(lawd_cd: str, since: str = "", before: str = "") -> dict[str, 
         return cur.fetchall()
 
     out: dict[str, tuple[str, list]] = {}
-    for deal_ym, fetched_at, payload in _with_connection(_run):
+    for deal_ym, fetched_at, payload in (_with_card_connection if before else _with_connection)(_run):
         try:
             out[str(deal_ym)] = (str(fetched_at), _unpack(payload))
         except Exception:
@@ -259,7 +281,7 @@ def save_rent_month(lawd_cd: str, deal_ym: str, deals: list, fetched_at: str) ->
         )
         conn.commit()
 
-    _with_connection(_run)
+    _with_card_connection(_run)
 
 
 def load_rent_district(lawd_cd: str, since: str = "") -> dict[str, tuple[str, list]]:
@@ -274,7 +296,7 @@ def load_rent_district(lawd_cd: str, since: str = "") -> dict[str, tuple[str, li
         return cur.fetchall()
 
     out: dict[str, tuple[str, list]] = {}
-    for deal_ym, fetched_at, payload in _with_connection(_run):
+    for deal_ym, fetched_at, payload in _with_card_connection(_run):
         try:
             out[str(deal_ym)] = (str(fetched_at), _unpack(payload))
         except Exception:
