@@ -3453,16 +3453,6 @@ tr.is-alert-cool .d2-macro-alert {
     margin: 0 calc(var(--gutter) * -1);
     padding: 0 var(--gutter);
   }
-  .d2-mast-nav::after {
-    content: "";
-    position: absolute;
-    right: 0;
-    top: 0;
-    bottom: 0;
-    width: 36px;
-    background: linear-gradient(90deg, transparent, var(--p0));
-    pointer-events: none;
-  }
   .d2-mast-nav a {
     padding: 10px 11px;
     font-size: 13px;
@@ -4248,6 +4238,260 @@ tr.is-alert-cool .d2-macro-alert {
   .d2 .d2-mast-name--section h1 {
     font-size: 40px;
   }
+}
+
+/* ── site index: fades at whichever edge has more behind it (Masthead.tsx marks
+   the edges as the list scrolls; the 760px block's fixed right fade gives way) ── */
+.d2 .d2-mast-nav::before,
+.d2 .d2-mast-nav::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 36px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 1;
+}
+.d2 .d2-mast-nav::before {
+  left: 0;
+  background: linear-gradient(270deg, transparent, var(--p0));
+}
+.d2 .d2-mast-nav::after {
+  right: 0;
+  background: linear-gradient(90deg, transparent, var(--p0));
+}
+.d2 .d2-mast-nav.has-before::before,
+.d2 .d2-mast-nav.has-after::after {
+  opacity: 1;
+}
+
+/* ═════════════════════════ masthead — phone ═════════════════════════════
+   Masthead.tsx renders this arrangement at 760px and below: one app bar (logo
+   and the three switches, each a thumb-sized target), a one-line dateline, the
+   section flag set small, the session bar folded to one line, and the index. */
+
+.d2 .d2-mast--compact .d2-mast-appbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 52px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.d2 .d2-mast--compact .d2-mast-brand {
+  align-self: center;
+  flex: none;
+}
+.d2 .d2-mast--compact .d2-mast-logo {
+  height: 26px;
+}
+.d2-mast-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.d2 .d2-mast--compact .d2-mast-fav .bm-btn {
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--rule-2);
+  border-radius: 999px;
+}
+/* The star alone on a phone; the word stays for screen readers. */
+.d2 .d2-mast--compact .d2-mast-fav .bm-btn > span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.d2 .d2-mast--compact .d2-mast-fav .bm-star {
+  width: 18px;
+  height: 18px;
+}
+.d2 .d2-mast--compact .d2-mast-lang {
+  height: 38px;
+  align-items: stretch;
+  padding: 3px;
+}
+.d2 .d2-mast--compact .d2-mast-lang button {
+  min-width: 34px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+.d2-mast-theme {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--rule-2);
+  border-radius: 999px;
+  color: var(--ink);
+}
+.d2 .d2-mast--compact .d2-mast-dateline {
+  flex-wrap: nowrap;
+  gap: 10px;
+  padding: 7px 0;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.d2 .d2-mast--compact .d2-mast-date {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.d2 .d2-mast--compact .d2-mast-readers {
+  margin-left: auto;
+  flex: none;
+}
+.d2 .d2-mast--compact .d2-mast-readers small {
+  display: none;
+}
+.d2 .d2-mast--compact .d2-mast-title {
+  display: block;
+  padding: 12px 0 12px;
+  border-bottom-width: 3px;
+}
+.d2 .d2-mast--compact .d2-mast-name h1 {
+  font-size: 38px;
+}
+.d2 .d2-mast--compact .d2-mast-name h1.is-blackletter {
+  font-size: 36px;
+}
+.d2 .d2-mast--compact .d2-mast-name--section {
+  gap: 0;
+}
+.d2 .d2-mast--compact .d2-mast-paper {
+  font-size: 12.5px;
+}
+.d2 .d2-mast--compact .d2-mast-name--section h1 {
+  font-size: 30px;
+  line-height: 1.12;
+}
+.d2 .d2-mast--compact .d2-mast-name p {
+  margin-top: 4px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* the session bar: both markets' state and the next bell on one line */
+.d2-mbar {
+  margin-top: 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.d2 .d2-mbar-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px 0;
+  text-align: left;
+  color: var(--ink);
+}
+.d2-mbar-phases {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.d2-mbar-phase em {
+  font-style: normal;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+.d2-mbar-phase em.is-live {
+  color: var(--live);
+}
+.d2-mbar-phase em.is-live::before {
+  content: "● ";
+  font-size: 8px;
+  vertical-align: 2px;
+}
+.d2-mbar-bell {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.d2-mbar-bell small {
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+.d2-mbar-bell b {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.d2-mbar-caret {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin: 0 3px 3px 0;
+  border-right: 1.6px solid var(--ink-3);
+  border-bottom: 1.6px solid var(--ink-3);
+  transform: rotate(45deg);
+  transition: transform 0.2s;
+}
+.d2-mbar.is-open .d2-mbar-caret {
+  transform: translateY(3px) rotate(-135deg);
+}
+.d2-mbar-body {
+  padding: 2px 0 4px;
+}
+.d2-mbar-clocks {
+  display: flex;
+  gap: 18px;
+  padding: 4px 0 2px;
+}
+.d2-mbar-clocks span {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.d2-mbar-clocks small {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--ink-3);
+}
+.d2-mbar-clocks b {
+  font-family: var(--f-mono);
+  font-size: 15px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.d2 .d2-rail.d2-rail--sheet {
+  padding: 12px 0 6px;
+  border-bottom: 0;
+}
+.d2 .d2-mast--compact .d2-mast-nav a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+}
+.d2 .d2-mast--compact .d2-mast-nav li:first-child a {
+  padding-left: 0;
+}
+/* At a 44px row the marker band would sit under the word, not behind it. */
+.d2 .d2-mast--compact .d2-mast-nav a:hover,
+.d2 .d2-mast--compact .d2-mast-nav a.is-here {
+  background: none;
+}
+.d2 .d2-mast--compact .d2-mast-nav a.is-here {
+  box-shadow: inset 0 -3px 0 var(--brass);
 }
 
 /* ═════════════════════════ print — 오늘 지면 ════════════════════════════ */

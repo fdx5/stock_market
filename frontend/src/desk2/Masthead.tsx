@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -6,6 +6,7 @@ import { Link } from "../router";
 import { toggleThemeMode, useThemeMode } from "../theme";
 import { reportVoltarisIngress } from "../useActivityTracking";
 import { useMarketIndices } from "../useMarketIndices";
+import { useMediaQuery } from "../useMediaQuery";
 import { useVisitorCount } from "../useVisitorCount";
 import BookmarkButton from "../components/BookmarkButton";
 import Logo from "../components/Logo";
@@ -100,7 +101,10 @@ function onSeoulAxis(from: number, to: number, offset: number): Array<[number, n
   ];
 }
 
-function SessionRail({ now, krStatus }: { now: Date; krStatus: string | null }) {
+/** Where both markets stand right now, and which bell the reader is waiting for —
+ * shared by the full rail and the phone's one-line status bar so the two never
+ * disagree. */
+function useSessionState(now: Date, krStatus: string | null) {
   const { lang } = useLanguage();
   const L = useL();
   const seoul = zoneParts(now, SEOUL);
@@ -124,6 +128,14 @@ function SessionRail({ now, krStatus }: { now: Date; krStatus: string | null }) 
   const focusName = focus.who === "kr" ? L("서울", "Seoul") : L("뉴욕", "New York");
   const focusVerb = focus.event === "close" ? L("마감까지", "closes in") : L("개장까지", "opens in");
 
+  return { seoul, ny, offset, krPhase, usPhase, focus, focusName, focusVerb };
+}
+
+function SessionRail({ now, krStatus, className = "", bell = true }: { now: Date; krStatus: string | null; className?: string; bell?: boolean }) {
+  const { lang } = useLanguage();
+  const L = useL();
+  const { seoul, offset, krPhase, usPhase, focus, focusName, focusVerb } = useSessionState(now, krStatus);
+
   const lanes = [
     { key: "kr", name: L("한국", "KRX"), windows: KR_WINDOWS.flatMap((w) => onSeoulAxis(w.from, w.to, 0).map((seg) => ({ seg, w }))), phase: krPhase },
     { key: "us", name: L("미국", "US"), windows: US_WINDOWS.flatMap((w) => onSeoulAxis(w.from, w.to, offset).map((seg) => ({ seg, w }))), phase: usPhase },
@@ -131,7 +143,7 @@ function SessionRail({ now, krStatus }: { now: Date; krStatus: string | null }) 
   const nowPos = ((seoul.min + seoul.sec / 60) / 1440) * 100;
 
   return (
-    <div className="d2-rail" role="group" aria-label={L("거래 시간표", "Trading hours")}>
+    <div className={`d2-rail ${className}`.trim()} role="group" aria-label={L("거래 시간표", "Trading hours")}>
       <div className="d2-rail-lanes">
         {lanes.map((lane) => (
           <div key={lane.key} className={`d2-rail-lane is-${lane.key}`}>
@@ -160,13 +172,97 @@ function SessionRail({ now, krStatus }: { now: Date; krStatus: string | null }) 
           ))}
         </div>
       </div>
-      <div className="d2-rail-bell">
-        <span>
-          {focusName} {focusVerb}
-        </span>
-        <b>{hms(focus.seconds)}</b>
-      </div>
+      {bell && (
+        <div className="d2-rail-bell">
+          <span>
+            {focusName} {focusVerb}
+          </span>
+          <b>{hms(focus.seconds)}</b>
+        </div>
+      )}
     </div>
+  );
+}
+
+/** The phone's version of the clocks and the rail: one line saying whether each
+ * market is trading and how long until the next bell, which opens the full 24-hour
+ * rail and both wall clocks underneath it on a tap. On a 390px screen the two used
+ * to take about 200px above every page's first number. */
+function MobileSessionBar({ now, krStatus }: { now: Date; krStatus: string | null }) {
+  const L = useL();
+  const { krPhase, usPhase, focus, focusName, focusVerb } = useSessionState(now, krStatus);
+  const [open, setOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem("d2_mobile_rail") === "open";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () => {
+    setOpen((v) => {
+      try {
+        window.localStorage.setItem("d2_mobile_rail", v ? "closed" : "open");
+      } catch {
+        /* private mode: the choice lasts this visit */
+      }
+      return !v;
+    });
+  };
+  const phases = [
+    { key: "kr", name: L("한국", "KRX"), phase: krPhase },
+    { key: "us", name: L("미국", "US"), phase: usPhase },
+  ];
+  return (
+    <div className={`d2-mbar${open ? " is-open" : ""}`}>
+      <button type="button" className="d2-mbar-head" aria-expanded={open} onClick={toggle} aria-label={L("거래 시간표 펼치기", "Show trading hours")}>
+        <span className="d2-mbar-phases">
+          {phases.map(({ key, name, phase }) => (
+            <span key={key} className={`d2-mbar-phase is-${key}`}>
+              {name} <em className={phase.live ? "is-live" : ""}>{phase.label}</em>
+            </span>
+          ))}
+        </span>
+        <span className="d2-mbar-bell">
+          <small>
+            {focusName} {focusVerb}
+          </small>
+          <b>{hms(focus.seconds)}</b>
+        </span>
+        <i className="d2-mbar-caret" aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="d2-mbar-body">
+          <div className="d2-mbar-clocks">
+            <span>
+              <small>{L("서울", "SEOUL")}</small>
+              <b>{clockText(now, SEOUL)}</b>
+            </span>
+            <span>
+              <small>{L("뉴욕", "NEW YORK")}</small>
+              <b>{clockText(now, NEW_YORK)}</b>
+            </span>
+          </div>
+          <SessionRail now={now} krStatus={krStatus} bell={false} className="d2-rail--sheet" />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+      <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M5.3 18.7 7 17M17 7l1.7-1.7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+      <path d="M20 14.6A8.2 8.2 0 0 1 9.4 4a8.2 8.2 0 1 0 10.6 10.6Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
   );
 }
 
@@ -254,6 +350,140 @@ export default function Masthead({
   // (the clock re-renders every second), so tab switches that only rewrite the query
   // string are picked up too.
   const front = frontPageOf(currentEdition());
+  /* A phone gets its own arrangement of the same furniture (see the 760px block
+     in desk2.css): the logo and the three switches share one bar, the dateline
+     one line, and the clocks and rail fold into MobileSessionBar — so the page's
+     own content starts in the first screen instead of under half a screen of
+     masthead. */
+  const compact = useMediaQuery("(max-width: 760px)");
+
+  // The site index scrolls sideways; bring the page the reader is on into view
+  // rather than leaving it past the edge (부동산 지도 is ninth), and mark which
+  // edges have more behind them.
+  const navRef = useRef<HTMLElement>(null);
+  const syncNavEdges = () => {
+    const nav = navRef.current;
+    const ul = nav?.querySelector("ul");
+    if (!nav || !ul) return;
+    nav.classList.toggle("has-before", ul.scrollLeft > 4);
+    nav.classList.toggle("has-after", ul.scrollLeft + ul.clientWidth < ul.scrollWidth - 4);
+  };
+  useEffect(() => {
+    const ul = navRef.current?.querySelector("ul");
+    const here = ul?.querySelector<HTMLElement>("a.is-here");
+    if (ul && here && ul.scrollWidth > ul.clientWidth) {
+      ul.scrollLeft = Math.max(0, here.offsetLeft - (ul.clientWidth - here.offsetWidth) / 2);
+    }
+    syncNavEdges();
+    window.addEventListener("resize", syncNavEdges);
+    return () => window.removeEventListener("resize", syncNavEdges);
+  }, [path, compact]);
+
+  const langSwitch = (
+    <span className="d2-mast-lang" role="group" aria-label="Language">
+      <button type="button" className={lang === "ko" ? "is-on" : ""} aria-pressed={lang === "ko"} onClick={() => setLang("ko")}>
+        한
+      </button>
+      <button type="button" className={lang === "en" ? "is-on" : ""} aria-pressed={lang === "en"} onClick={() => setLang("en")}>
+        EN
+      </button>
+    </span>
+  );
+  const readers =
+    visitors.current !== null ? (
+      <span className="d2-mast-readers" title={L("최근 1분 안에 접속한 브라우저 수", "Browsers active in the last minute")}>
+        <i aria-hidden="true" />
+        {L("지금 읽는 사람", "Reading now")} <b>{visitors.current.toLocaleString()}</b>
+        {visitors.total !== null && (
+          <small>
+            {L("누적", "total")} {visitors.total.toLocaleString()}
+          </small>
+        )}
+      </span>
+    ) : null;
+
+  const nameplate = section ? (
+    <div className="d2-mast-name d2-mast-name--section">
+      <Link to={front} className="d2-mast-paper">
+        {L("마켓 데스크", "The Market Desk")}
+      </Link>
+      <h1>{lang === "ko" ? section.ko : section.en}</h1>
+      <p>{lang === "ko" ? section.taglineKo : section.taglineEn}</p>
+    </div>
+  ) : (
+    <div className="d2-mast-name">
+      {/* The English edition gets a blackletter nameplate, the way English-
+          language papers have always set theirs; the Korean one is set in
+          the display serif, as a 제호 would be. */}
+      <h1 className={lang === "en" ? "is-blackletter" : ""}>
+        {L("마켓", "The Market")}
+        <span>{L("데스크", "Desk")}</span>
+      </h1>
+      <p>{L("숫자로 조판하는 오늘의 시장 — 실시간 개정판", "Today's market, typeset from the numbers — live edition")}</p>
+    </div>
+  );
+
+  const siteNav = (
+    <nav className="d2-mast-nav" aria-label={L("사이트 메뉴", "Site sections")} ref={navRef}>
+      <ul onScroll={syncNavEdges}>
+        {SITE_NAV.map((entry) => {
+          const item = entry.to === "/desk" ? { ...entry, to: front } : entry;
+          const base = item.to.split("?")[0];
+          const here =
+            path === base || (base === "/stock/005930" && path.startsWith("/stock/")) || (base === "/ai-prediction" && path.startsWith("/ai-prediction/"));
+          return (
+            <li key={entry.to}>
+              <Link to={item.to} className={here ? "is-here" : undefined} aria-current={here ? "page" : undefined}>
+                {lang === "ko" ? item.ko : item.en}
+              </Link>
+            </li>
+          );
+        })}
+        <li>
+          <a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer" onClick={() => reportVoltarisIngress(path)} className="is-ext">
+            VOLTARIS ↗
+          </a>
+        </li>
+      </ul>
+    </nav>
+  );
+
+  if (compact) {
+    return (
+      <header className="d2-mast d2-mast--compact">
+        <div className="d2-mast-appbar">
+          <Link to="/hub" className="d2-mast-brand" aria-label="K-Stock Hub">
+            <Logo className="d2-mast-logo" />
+          </Link>
+          <span className="d2-mast-actions">
+            <BookmarkButton className="d2-mast-fav" />
+            {langSwitch}
+            <button
+              type="button"
+              className="d2-mast-theme"
+              onClick={toggleThemeMode}
+              aria-label={mode === "dark" ? L("주간판(라이트)으로 전환", "Switch to day edition") : L("야간판(다크)으로 전환", "Switch to night edition")}
+              title={mode === "dark" ? L("주간판으로", "Day edition") : L("야간판으로", "Night edition")}
+            >
+              {mode === "dark" ? <SunIcon /> : <MoonIcon />}
+            </button>
+          </span>
+        </div>
+        <div className="d2-mast-dateline">
+          <span className="d2-mast-date">{dateText}</span>
+          {weather && (
+            <span className="d2-mast-sky">
+              {skyText(weather.code, lang)} <b>{Math.round(weather.temperature)}°</b>
+            </span>
+          )}
+          {readers}
+        </div>
+        <div className="d2-mast-title">{nameplate}</div>
+        <MobileSessionBar now={now} krStatus={krStatus} />
+        {siteNav}
+      </header>
+    );
+  }
 
   return (
     <header className="d2-mast">
@@ -268,29 +498,12 @@ export default function Masthead({
           No.{dayOfYear}
         </span>
         <span className="d2-mast-spacer" />
-        {visitors.current !== null && (
-          <span className="d2-mast-readers" title={L("최근 1분 안에 접속한 브라우저 수", "Browsers active in the last minute")}>
-            <i aria-hidden="true" />
-            {L("지금 읽는 사람", "Reading now")} <b>{visitors.current.toLocaleString()}</b>
-            {visitors.total !== null && (
-              <small>
-                {L("누적", "total")} {visitors.total.toLocaleString()}
-              </small>
-            )}
-          </span>
-        )}
+        {readers}
         <BookmarkButton className="d2-mast-fav" />
         <button type="button" className="d2-mast-tool" onClick={onPrint} title={L("오늘 지면을 인쇄하거나 PDF로 저장", "Print today's page or save as PDF")}>
           {L("지면 인쇄", "Print")}
         </button>
-        <span className="d2-mast-lang" role="group" aria-label="Language">
-          <button type="button" className={lang === "ko" ? "is-on" : ""} onClick={() => setLang("ko")}>
-            한
-          </button>
-          <button type="button" className={lang === "en" ? "is-on" : ""} onClick={() => setLang("en")}>
-            EN
-          </button>
-        </span>
+        {langSwitch}
         <button
           type="button"
           className="d2-mast-edition"
@@ -306,26 +519,7 @@ export default function Masthead({
         <Link to="/hub" className="d2-mast-brand" aria-label="K-Stock Hub">
           <Logo className="d2-mast-logo" />
         </Link>
-        {section ? (
-          <div className="d2-mast-name d2-mast-name--section">
-            <Link to={front} className="d2-mast-paper">
-              {L("마켓 데스크", "The Market Desk")}
-            </Link>
-            <h1>{lang === "ko" ? section.ko : section.en}</h1>
-            <p>{lang === "ko" ? section.taglineKo : section.taglineEn}</p>
-          </div>
-        ) : (
-          <div className="d2-mast-name">
-            {/* The English edition gets a blackletter nameplate, the way English-
-                language papers have always set theirs; the Korean one is set in
-                the display serif, as a 제호 would be. */}
-            <h1 className={lang === "en" ? "is-blackletter" : ""}>
-              {L("마켓", "The Market")}
-              <span>{L("데스크", "Desk")}</span>
-            </h1>
-            <p>{L("숫자로 조판하는 오늘의 시장 — 실시간 개정판", "Today's market, typeset from the numbers — live edition")}</p>
-          </div>
-        )}
+        {nameplate}
         <div className="d2-mast-clocks" data-ear={L("현지 시각", "LOCAL TIME")}>
           <span className="d2-mast-clock">
             <small>{L("서울", "SEOUL")}</small>
@@ -340,28 +534,7 @@ export default function Masthead({
 
       {rail && <SessionRail now={now} krStatus={krStatus} />}
 
-      <nav className="d2-mast-nav" aria-label={L("사이트 메뉴", "Site sections")}>
-        <ul>
-          {SITE_NAV.map((entry) => {
-            const item = entry.to === "/desk" ? { ...entry, to: front } : entry;
-            const base = item.to.split("?")[0];
-            const here =
-              path === base || (base === "/stock/005930" && path.startsWith("/stock/")) || (base === "/ai-prediction" && path.startsWith("/ai-prediction/"));
-            return (
-              <li key={entry.to}>
-                <Link to={item.to} className={here ? "is-here" : undefined} aria-current={here ? "page" : undefined}>
-                  {lang === "ko" ? item.ko : item.en}
-                </Link>
-              </li>
-            );
-          })}
-          <li>
-            <a href="https://voltaris-nyyo.onrender.com/" target="_blank" rel="noopener noreferrer" onClick={() => reportVoltarisIngress(path)} className="is-ext">
-              VOLTARIS ↗
-            </a>
-          </li>
-        </ul>
-      </nav>
+      {siteNav}
     </header>
   );
 }

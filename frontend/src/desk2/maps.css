@@ -983,3 +983,193 @@
     margin: 6px auto 0;
   }
 }
+
+/* ── 부동산 맵 on a phone ──────────────────────────────────────────────────────
+   The page is read for its treemap; on a 390px screen everything above it used to
+   add up to about 1,500px. The period rail's heading and the per-option captions go,
+   the three periods become one segmented row, the three region selectors share a
+   row, and the action buttons split the width evenly — so the treemap starts in
+   the first or second screen, with RealEstateMapPage's breadcrumb bar pinned over
+   it while it scrolls. */
+.re-map-crumbs {
+  display: none;
+}
+@media (max-width: 760px) {
+  .d2.mm.re-map-page .app-header-trailing {
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+  }
+  .d2.mm.re-map-page .app-subtitle {
+    margin-top: 6px;
+    font-size: 14.5px;
+    line-height: 1.45;
+  }
+  .d2.mm.re-map-page .kospi-map-titlebar {
+    gap: 0;
+  }
+  .d2.mm.re-map-page .kospi-map-view-toggle {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+    grid-auto-flow: column;
+    width: 100%;
+    margin-top: 10px;
+  }
+  .d2.mm.re-map-page .kospi-map-view-toggle > * {
+    min-width: 0;
+  }
+  .d2.mm.re-map-page .kospi-map-view-toggle button {
+    width: 100%;
+    min-height: 40px;
+    padding: 0 6px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    text-align: center;
+  }
+  .d2.mm.re-map-page .kospi-map-download-btn {
+    margin-left: 0;
+    padding-left: 6px !important;
+  }
+
+  .d2.mm.re-map-page .kospi-map-period-rail {
+    padding: 0;
+    border-top: 0;
+    border-right: 0;
+  }
+  .d2.mm.re-map-page .kospi-map-period-head {
+    display: none;
+  }
+  .d2.mm.re-map-page .re-map-rail .kospi-map-period-options {
+    gap: 0;
+    padding: 0 0 8px;
+  }
+  .d2.mm.re-map-page .re-map-rail .kospi-map-period-options label {
+    min-height: 42px;
+    padding: 0 4px;
+    border: 1px solid var(--rule-2);
+    align-content: center;
+  }
+  .d2.mm.re-map-page .re-map-rail .kospi-map-period-options label + label {
+    border-left: 0;
+  }
+  .d2.mm.re-map-page .re-map-rail .kospi-map-period-options b {
+    font-size: 14px;
+  }
+  .d2.mm.re-map-page .re-map-rail .kospi-map-period-options small {
+    display: none;
+  }
+  .d2.mm.re-map-page .re-map-region {
+    margin-bottom: 6px;
+  }
+  .d2.mm.re-map-page .re-map-region-toggle {
+    min-height: 44px;
+    margin-bottom: 0;
+  }
+  .d2.mm.re-map-page .kospi-map-period-status {
+    min-height: 0;
+    padding: 6px 0;
+    background: none;
+    font-size: 12px;
+  }
+
+  /* legend on one line, the three selectors side by side with their labels above */
+  .d2.mm.re-map-page .re-map-legend {
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .d2.mm.re-map-page .re-map-legend .kospi-map-legend-info {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    font-size: 11.5px;
+  }
+  .d2.mm.re-map-page .re-map-filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .d2.mm.re-map-page .re-map-filters .kospi-map-sector-filter {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    min-width: 0;
+    width: auto;
+  }
+  .d2.mm.re-map-page .re-map-filters .kospi-map-sector-filter-label {
+    font-size: 11px;
+  }
+  .d2.mm.re-map-page .re-map-filters select {
+    width: 100%;
+    min-height: 40px;
+    font-size: 14px;
+    text-overflow: ellipsis;
+  }
+
+  .d2.mm.re-map-page .re-map-crumbs {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    margin: 0 calc(var(--gutter) * -1);
+    padding: 0 var(--gutter);
+    background: var(--p0);
+    border-bottom: 1px solid var(--rule-ink);
+    font-size: 13.5px;
+  }
+  .re-map-crumbs-path {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .re-map-crumbs-path i {
+    font-style: normal;
+    color: var(--ink-3);
+  }
+  .d2.mm.re-map-page .re-map-crumbs-path button {
+    min-height: 36px;
+    padding: 0 2px;
+    color: var(--ink-2);
+    font-weight: 600;
+    text-decoration: underline;
+    text-decoration-color: var(--rule-2);
+    text-underline-offset: 3px;
+  }
+  .d2.mm.re-map-page .re-map-crumbs-path button:disabled {
+    color: var(--ink);
+    font-weight: 800;
+    text-decoration: none;
+    cursor: default;
+  }
+  .re-map-crumbs-path b {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 800;
+    color: var(--brass);
+  }
+  .re-map-crumbs-period {
+    flex: none;
+    padding: 2px 6px;
+    border: 1px solid var(--rule-2);
+    font-size: 11.5px;
+    color: var(--ink-2);
+  }
+  .d2.mm.re-map-page .re-map-crumbs-change {
+    flex: none;
+    margin-left: auto;
+    min-height: 32px;
+    padding: 0 10px;
+    border: 1px solid var(--rule-ink);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+}

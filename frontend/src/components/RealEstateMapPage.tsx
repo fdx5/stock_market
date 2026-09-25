@@ -358,6 +358,14 @@ export default function RealEstateMapPage() {
   /** Tablets and phones stack the region map above the treemap (styles.css, 980px). */
   const stacked = useMediaQuery("(max-width: 980px)");
   const mainRef = useRef<HTMLDivElement>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
+  /** The phone's breadcrumb bar sends the reader back up to the three selectors. */
+  const revealFilters = () => {
+    const el = filtersRef.current;
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 12, behavior: reduce ? "auto" : "smooth" });
+  };
   /** On a stacked layout a region picked on the region map scrolls down to the
    * treemap it just changed, clear of the sticky command bar. */
   const revealTreemap = () => {
@@ -371,21 +379,28 @@ export default function RealEstateMapPage() {
     });
   };
   // The region map folds away on a phone, where it sits above the treemap; the choice
-  // is remembered.
+  // is remembered. A phone that has never chosen starts with it folded, so the
+  // treemap — the page's reason to exist — is in the first screen rather than
+  // under a 320px 3D stage.
   const [regionMapOpen, setRegionMapOpen] = useState(() => {
     try {
-      return window.localStorage.getItem("re_region_map") !== "closed";
+      const saved = window.localStorage.getItem("re_region_map");
+      if (saved) return saved !== "closed";
     } catch {
-      return true;
+      /* private mode: fall through to the default */
     }
+    return !window.matchMedia("(max-width: 760px)").matches;
   });
-  useEffect(() => {
+  /** Only a reader's own toggle is remembered, never the phone default above. */
+  const toggleRegionMap = () => {
+    const next = !regionMapOpen;
+    setRegionMapOpen(next);
     try {
-      window.localStorage.setItem("re_region_map", regionMapOpen ? "open" : "closed");
+      window.localStorage.setItem("re_region_map", next ? "open" : "closed");
     } catch {
       /* private mode: the choice lasts this visit */
     }
-  }, [regionMapOpen]);
+  };
   const [sheetItem, setSheetItem] = useState<RealEstateItem | null>(null);
   useEffect(() => setSheetItem(null), [sido, sgg, dong, period]);
 
@@ -678,7 +693,7 @@ export default function RealEstateMapPage() {
                 type="button"
                 className="re-map-region-toggle"
                 aria-expanded={regionMapOpen}
-                onClick={() => setRegionMapOpen((v) => !v)}
+                onClick={toggleRegionMap}
               >
                 <span>지역별 등락 지도</span>
                 <small>{regionMapOpen ? "접기" : "펼치기"}</small>
@@ -719,7 +734,7 @@ export default function RealEstateMapPage() {
           </aside>
 
           <div className="kospi-map-workspace-main" ref={mainRef}>
-            <div className="kospi-map-legend re-map-legend">
+            <div className="kospi-map-legend re-map-legend" ref={filtersRef}>
               <div className="kospi-map-legend-info">
                 <span className="kospi-map-legend-label">하락</span>
                 <span className="kospi-map-legend-bar" />
@@ -776,6 +791,44 @@ export default function RealEstateMapPage() {
                 </label>
               </div>
             </div>
+
+            {/* Phones only (maps.css): pinned over the treemap while it scrolls, so
+                the region in view stays named and each level above it is one tap
+                away — the selectors that do the same sit a screen further up. */}
+            {sidoNode && (
+              <nav className="re-map-crumbs" aria-label="현재 지역">
+                <span className="re-map-crumbs-path">
+                  <button
+                    type="button"
+                    disabled={!sgg}
+                    onClick={() => {
+                      setSgg("");
+                      setDong("");
+                    }}
+                  >
+                    {sidoNode.name}
+                  </button>
+                  {sggNode && (
+                    <>
+                      <i aria-hidden="true">›</i>
+                      <button type="button" disabled={!dong} onClick={() => setDong("")}>
+                        {sggNode.name}
+                      </button>
+                    </>
+                  )}
+                  {sgg && dong && (
+                    <>
+                      <i aria-hidden="true">›</i>
+                      <b aria-current="location">{dong}</b>
+                    </>
+                  )}
+                </span>
+                <span className="re-map-crumbs-period">{periodInfo.label}</span>
+                <button type="button" className="re-map-crumbs-change" onClick={revealFilters}>
+                  지역 변경
+                </button>
+              </nav>
+            )}
 
             {view === "map" && (
               <div className="card kospi-map-canvas map-canvas-night" ref={containerRef}>
