@@ -260,9 +260,9 @@ export default function RealEstateMapPage() {
   }, [sido, sgg, dong, period]);
 
   /** A phone's screen fits about 100 tiles, so its 시·도 map asks for the top 100
-   * (every 시·군·구 still keeps its own top 10); a desktop gets 500. */
+   * (every 시·군·구 still keeps its own top 10); a desktop gets 200. */
   const smallScreen = useMediaQuery("(max-width: 760px)");
-  const sidoTop = smallScreen ? 100 : 500;
+  const sidoTop = smallScreen ? 100 : 200;
 
   useEffect(() => {
     let cancelled = false;

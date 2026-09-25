@@ -70,7 +70,7 @@ CALL_SPACING_SECONDS = 0.15
 
 # A 동 shows up to 100 complexes, counting any that traded in the two years kept —
 # which for most 동 is every one of them.
-TOP_N: dict[str, int | None] = {"sido": 500, "sgg": 100, "dong": 100}
+TOP_N: dict[str, int | None] = {"sido": 200, "sgg": 100, "dong": 100}
 # A phone asks a 시·도 map for fewer complexes (its screen fits about 100 tiles); any
 # other request size is clamped into this range.
 SIDO_TOP_RANGE = (50, 500)
@@ -920,7 +920,7 @@ SIDO_MAP_REFRESH_SECONDS = 15 * 60
 # Every 시·도 × period × screen size is kept built this fresh by a background pass.
 SIDO_MAP_WARM_SECONDS = 60 * 60
 WARM_PERIODS = ("3m", "6m", "1y")
-WARM_TOPS = (500, 100)
+WARM_TOPS = (200, 100)
 
 _rebuild_lock = threading.Condition()
 _rebuild_queue: list[tuple] = []

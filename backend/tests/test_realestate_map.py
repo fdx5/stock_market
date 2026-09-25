@@ -117,12 +117,12 @@ def test_sido_map_caps_at_top_n_and_keeps_ten_per_district(monkeypatch):
     _seed(monkeypatch, districts)
     result = rm.build_map("11", None, None, "7d")
     items = result["items"]
-    assert result["top_n"] == 500 and result["group_floor"] == 10
+    assert result["top_n"] == 200 and result["group_floor"] == 10
     assert {r["group"] for r in items} <= {s["name"] for s in seoul["sgg"]}
     assert all(a["price"] >= b["price"] for a, b in zip(items, items[1:]))
-    # The 500 priciest, then each 구 topped up to its own 10 priciest.
+    # The 200 priciest, then each 구 topped up to its own 10 priciest.
     all_prices = sorted((100000 + i * 1000 + j for i in range(len(seoul["sgg"])) for j in range(30)), reverse=True)
-    assert [r["price"] for r in items[:500]] == all_prices[:500]
+    assert [r["price"] for r in items[:200]] == all_prices[:200]
     per_gu = {}
     for r in items:
         per_gu[r["sgg"]] = per_gu.get(r["sgg"], 0) + 1
@@ -279,17 +279,17 @@ def test_sido_map_is_served_from_the_last_build_and_rebuilt_behind(monkeypatch):
 
     monkeypatch.setattr(rm, "build_map", fake_build)
     monkeypatch.setattr(rm, "is_configured", lambda: False)
-    first = json.loads(rm.get_map("41", None, None, "3m", 500))
+    first = json.loads(rm.get_map("41", None, None, "3m", 200))
     assert builds == ["41"] and first["items"] == [1] and "stale" not in first["status"]
-    assert "sido:41:3m:500" in stored
+    assert "sido:41:3m:200" in stored
 
     # Answered from memory, no rebuild while fresh.
-    assert json.loads(rm.get_map("41", None, None, "3m", 500))["items"] == [1] and builds == ["41"]
+    assert json.loads(rm.get_map("41", None, None, "3m", 200))["items"] == [1] and builds == ["41"]
 
     # After a restart: answered from the store; once stale, rebuilt in the background.
     monkeypatch.setattr(rm, "_map_cache", rm.OrderedDict())
-    key = ("41", None, None, "3m", 500)
-    at, body = stored["sido:41:3m:500"]
-    stored["sido:41:3m:500"] = ("2020-01-01T00:00:00+09:00", body)
-    assert json.loads(rm.get_map("41", None, None, "3m", 500))["items"] == [1]
+    key = ("41", None, None, "3m", 200)
+    at, body = stored["sido:41:3m:200"]
+    stored["sido:41:3m:200"] = ("2020-01-01T00:00:00+09:00", body)
+    assert json.loads(rm.get_map("41", None, None, "3m", 200))["items"] == [1]
     assert builds == ["41"] and queued == [key]
