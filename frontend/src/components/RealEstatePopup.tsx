@@ -375,7 +375,7 @@ export default function RealEstatePopup({
         <div className="re-pop-hero">
           <div className="re-pop-hero-price">
             <small>
-              실거래 기준가 · 전용 {Math.round(item.area)}㎡ ({item.pyeong}평)
+              {item.price_source === "rights" ? "분양·입주권 거래 참고가" : "실거래 기준가"} · 전용 {Math.round(item.area)}㎡ ({item.pyeong}평)
             </small>
             <b>{fullPrice(item.price)}</b>
             <span>
@@ -398,6 +398,7 @@ export default function RealEstatePopup({
         <div className="re-price-evidence"><div className="re-evidence-badges">
           <span>{item.price_sample_count ? `${item.price_sample_count}건 중간값` : "산정 근거 확인 중"}</span>
           {item.price_basis === "direct" && <span className="is-caution">직거래 참고값</span>}
+          {item.price_source === "rights" && <span className="is-caution">분양·입주권 거래금액 · 최초 분양가와 다름</span>}
           {daysSince(item.deal_date) > 180 && <span className="is-caution">마지막 거래 {daysSince(item.deal_date)}일 전</span>}
           {item.baseline_kind === "within_period" && <span className="is-caution">기간 내 최초 거래 대비</span>}
         </div>{selector && <details><summary>기준가격은 어떻게 계산하나요?</summary><p>마지막 유효 거래일 이전 90일 안의 최대 3건 중간값입니다. 현재 매물의 호가와 다르며, 층·향 등의 차이를 보정한 감정가격이 아닙니다.</p><p>{item.price_basis === "direct" ? "중개거래 자료가 없어 직거래를 사용한 참고값입니다." : "중개거래를 사용하며 직거래는 기준가격에서 제외합니다."}</p>{item.price_samples?.map((t, i) => <div className="re-evidence-trade" key={i}><span>{dots(t.date)} · {t.floor}층</span><b>{fullPrice(t.price)}</b></div>)}<p>비교가격 {item.base_price ? `${fullPrice(item.base_price)} (${dots(item.base_date)})` : "없음"}{item.baseline_kind === "within_period" ? " · 기간 이전 자료가 없어 기간 내 최초 거래일과 비교합니다." : " · 기간 시작 전 거래 기준입니다."}</p></details>}</div>

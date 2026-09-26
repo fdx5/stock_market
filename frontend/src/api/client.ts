@@ -1060,6 +1060,7 @@ export interface RealEstateSido {
 }
 
 export interface RealEstatePriceEvidence {
+  price_source?: "sale" | "rights";
   price_sample_count?: number;
   price_sample_from?: string;
   price_samples?: RealEstateTrade[];
@@ -1071,10 +1072,15 @@ export interface RealEstatePriceEvidence {
 export interface RealEstateItem extends RealEstatePriceEvidence {
   price_rank?: number;
   leader?: {
-    rank: number; score: number; price_score: number; persistence_score: number; demand_score: number;
+    rank: number | null; score: number | null; price_score: number | null; persistence_score: number | null; demand_score: number | null;
+    status?: "established" | "provisional" | "unranked";
+    reasons?: string[]; scope_label?: string;
     confidence: "high" | "limited";
     bands: { band: number; sample_count: number; window_months: number; active_months: number;
-      annual_count: number; quarters: number; top_quarters: number; peers: number }[];
+      annual_count: number; quarters: number; top_quarters: number; peers: number;
+      source?: "sale" | "rights"; price_basis?: "direct" | "brokered"; last_trade?: string;
+      price_per_m2?: number; expanded_comparison?: boolean;
+      persistence_score?: number | null; demand_score?: number | null }[];
   } | null;
   id: string;
   sgg_code?: string;
@@ -1207,7 +1213,7 @@ export interface RealEstateTrade {
 
 export interface RealEstateMapResponse {
   ranking?: { model: string; as_of: string; eligible_count: number; region_count: number;
-    mode: "leader" | "price"; pinned_count: number };
+    mode: "leader" | "price"; pinned_count: number; provisional_count?: number };
   matched_count?: number;
   offset?: number;
   generated_at: string;
@@ -1218,7 +1224,8 @@ export interface RealEstateMapResponse {
   group_floor: number | null;
   latest_deal_date: string | null;
   window_start: string | null;
-  status: { configured: boolean; coverage: number; collecting: boolean; error: string | null; calls_today: number };
+  status: { configured: boolean; coverage: number; collecting: boolean; error: string | null; calls_today: number;
+    rights?: { coverage: number; collecting: boolean; error: string | null } };
   count: number;
   items: RealEstateItem[];
 }

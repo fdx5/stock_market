@@ -76,8 +76,8 @@ export function csvDownload(items: RealEstateItem[], region: string, period: str
   };
   const rows: unknown[][] = [
     ["조회 지역", region, "기간", period, "자료 생성", generated, "현재 표시 결과만 내보냄"],
-    ["단지명", "지역", "전용면적(㎡)", "실거래 기준가(만원)", "기준 거래일", "등락률(%)", "기간 거래(선택 평형)", "비교 상태", "산정 표본", "가격 기준"],
-    ...items.map(x => [x.name, `${x.sgg} ${x.dong}`, x.area, x.price, x.deal_date, x.change_pct, x.trades, tradeState(x), x.price_sample_count, x.price_basis === "direct" ? "직거래 참고값" : "중개거래"]),
+    ["단지명", "지역", "전용면적(㎡)", "실거래 기준가(만원)", "기준 거래일", "등락률(%)", "기간 거래(선택 평형)", "비교 상태", "산정 표본", "가격 기준", "거래 자료", "종합순위", "평가 상태"],
+    ...items.map(x => [x.name, `${x.sgg} ${x.dong}`, x.area, x.price, x.deal_date, x.change_pct, x.trades, tradeState(x), x.price_sample_count, x.price_basis === "direct" ? "직거래 참고값" : "중개거래", x.price_source === "rights" ? "분양·입주권" : "아파트 매매", x.leader?.rank ?? "", x.leader?.status === "provisional" ? "잠정평가" : x.leader?.rank ? "종합평가" : "산정 보류"]),
   ];
   const url = URL.createObjectURL(new Blob(["\uFEFF", rows.map(r => r.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
   const link = document.createElement("a"); link.href = url; link.download = `부동산_${region}_${period}.csv`; link.click();

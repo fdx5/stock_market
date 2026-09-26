@@ -236,7 +236,7 @@ def test_items_carry_popup_detail(monkeypatch):
     assert item["history"][1][3] == 1
     assert item["high_1y"]["price"] == 240000 and item["low_1y"]["price"] == 200000  # 직거래는 범위에서 뺀다
     assert item["trades_1y"] == 5
-    assert item["types"] == [{"area": 59.8, "price": 160000, "date": item["types"][0]["date"], "trades_1y": 1}]
+    assert item["types"] == [{"area": 59.8, "price": 160000, "date": item["types"][0]["date"], "trades_1y": 1, "price_source": "sale"}]
 
 
 def test_complex_detail_lays_out_every_pyeong(monkeypatch):
@@ -284,7 +284,7 @@ def test_sido_map_is_served_from_the_last_build_and_rebuilt_behind(monkeypatch):
     monkeypatch.setattr(rm, "is_configured", lambda: False)
     first = json.loads(rm.get_map("41", None, None, "3m", 200))
     assert builds == ["41"] and first["items"] == [1] and "stale" not in first["status"]
-    assert "v3:sido:41:3m:200" in stored
+    assert "v4:sido:41:3m:200" in stored
 
     # Answered from memory, no rebuild while fresh.
     assert json.loads(rm.get_map("41", None, None, "3m", 200))["items"] == [1] and builds == ["41"]
@@ -292,8 +292,8 @@ def test_sido_map_is_served_from_the_last_build_and_rebuilt_behind(monkeypatch):
     # After a restart: answered from the store; once stale, rebuilt in the background.
     monkeypatch.setattr(rm, "_map_cache", rm.OrderedDict())
     key = ("41", None, None, "3m", 200)
-    at, body = stored["v3:sido:41:3m:200"]
-    stored["v3:sido:41:3m:200"] = ("2020-01-01T00:00:00+09:00", body)
+    at, body = stored["v4:sido:41:3m:200"]
+    stored["v4:sido:41:3m:200"] = ("2020-01-01T00:00:00+09:00", body)
     assert json.loads(rm.get_map("41", None, None, "3m", 200))["items"] == [1]
     assert builds == ["41"] and queued == [key]
 

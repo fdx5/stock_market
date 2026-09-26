@@ -195,7 +195,7 @@ function tileLayout(item: RealEstateItem, w: number, h: number, ranked = false):
 
 /** 거래없음 for a tile with nothing to compare, the change otherwise. */
 function tileLabelText(item: RealEstateItem): string {
-  return tradeState(item);
+  return [item.price_source === "rights" ? "분양권" : "", item.leader?.status === "provisional" ? "잠정" : "", tradeState(item)].filter(Boolean).join(" · ");
 }
 
 interface Zone {
@@ -942,14 +942,15 @@ export default function RealEstateMapPage() {
               <label>왕관 기준 <select aria-label="왕관 기준" value={crownMode} onChange={e => setCrownMode(e.target.value as "leader" | "price")}>
                 <option value="leader">지역 대표단지 종합순위</option><option value="price">대표 평형 평단가 순위</option>
               </select></label>
-              <span>{loading ? "순위 계산 중…" : `지역 전체 ${data?.ranking?.region_count ?? 0}곳 중 종합평가 가능 ${data?.ranking?.eligible_count ?? 0}곳`}</span>
+              <span>{loading ? "순위 계산 중…" : `지역 전체 ${data?.ranking?.region_count ?? 0}곳 중 평가 ${data?.ranking?.eligible_count ?? 0}곳 · 잠정 ${data?.ranking?.provisional_count ?? 0}곳 포함`}</span>
+              {status?.rights && <span role="status">분양권 자료 {Math.round(status.rights.coverage * 100)}%{status.rights.collecting ? " 수집 중 · 자동 갱신" : " 확인"}{status.rights.error ? ` · ${status.rights.error}` : ""}</span>}
               <details><summary>왕관 선정 기준</summary>
                 <p>선택 지역 전체를 평가한 뒤 1·2·3위에 왕관을 표시합니다. 검색·표시 개수·등락 조회 기간이 바뀌어도 지역 순위는 유지되며, 조건에서 제외된 순위를 다른 단지로 채우지 않습니다.</p>
-                <p>종합점수 = (가격 우위 × 40 + 상위권 지속성 × 25 + 거래 수요 × 20) ÷ 85. 입지·학군·세대수 자료는 점수에 포함하지 않은 실거래 기반 1차 모델입니다.</p>
-                <p>전용면적 5㎡ 간격의 비슷한 평형끼리 비교합니다. 최근 6개월 중개거래 3건 이상, 부족하면 12개월로 확장합니다. 최근 6개월 거래가 없거나 비교 단지가 3곳 미만이면 평가하지 않습니다. 취소·직거래는 제외합니다.</p>
-                <p>가격은 표본 전체의 ㎡당 가격 중앙값, 지속성은 과거 완료된 8분기 중 비교 가능한 분기의 가격 백분위 평균입니다. 분기당 2건 이상, 비교 가능 2분기 이상이 필요합니다. 평형군별 점수를 동일 비중으로 평균합니다.</p>
+                <p>종합점수 = (가격 우위 × 40 + 상위권 지속성 × 25 + 거래 수요 × 20) ÷ 85. 신규·거래 희소 단지도 잠정평가에 포함합니다. 관측되지 않은 지속성·수요는 0점이나 만점 대신 중립 50점을 적용하며, 상세 근거에 표시합니다. 입지·학군·세대수는 미반영입니다.</p>
+                <p>최근 6개월 중개거래를 우선하고, 없으면 같은 기간 직거래, 이후 최근 1년 자료를 확인합니다. 취소·미래일·잘못된 가격은 제외합니다. 매매가 부족하면 분양·입주권 자료를 연결하되 두 거래 이력을 합치지 않습니다. 분양권 거래금액은 최초 분양가가 아닙니다.</p>
+                <p>전용면적 5㎡ 간격으로 비교하며 비교 단지가 적으면 면적 차이 10% 이내의 인접 평형군까지 확인합니다. 그래도 비교 상대가 없으면 산정 보류 사유를 표시합니다. 가격은 같은 자료의 ㎡당 가격 중앙값, 지속성은 과거 완료된 8분기의 중개 매매 가격 순위를 사용합니다.</p>
                 <p>소수 평형군의 1위가 과대평가되지 않도록 가격 백분위는 50 + (백분위 − 50) × 비교 단지 수 ÷ (비교 단지 수 + 10)으로 보정합니다. 신뢰도 높음은 모든 평가 평형군이 6개월 5건 이상·과거 4분기 이상·현재 비교 단지 10곳 이상일 때 표시합니다.</p>
-                <p>거래 수요는 1년간 거래가 발생한 월수(75%, 12개월 상한)와 거래 건수(25%, 12건 상한)입니다. 자료가 부족하면 왕관이 3개보다 적거나 없을 수 있습니다. 신규 입주·희소 단지는 과거 자료 부족으로 빠질 수 있습니다.</p>
+                <p>거래 수요는 1년간 거래 발생 월수(75%, 12개월 상한)와 건수(25%, 12건 상한)입니다. 소수 표본·직거래·분양권·오래된 가격은 가격 점수를 중립값 쪽으로 보정하고 잠정 표시합니다. 거래가 전혀 없고 공식 분양가도 연결되지 않은 단지는 가격을 추정해 채우지 않습니다.</p>
                 <p>평단가 모드는 단지의 기본 대표 평형 가격 ÷ 전용면적 기준이며, 면적 필터로 표시 평형을 바꿔도 순위는 유지됩니다. 기준일 {data?.ranking?.as_of ?? "—"}. {status?.collecting ? "지역 자료 수집 중인 잠정 순위입니다." : "수집된 실거래 자료 기준입니다."}</p>
               </details>
             </div>
@@ -1052,7 +1053,7 @@ export default function RealEstateMapPage() {
                           <button
                             key={tile.id}
                             type="button"
-                            aria-label={`${rank ? crownLabel(rank, crownMode) + ", " : ""}${it.name}, 전용 ${it.area}제곱미터, ${fullPrice(it.price)}, ${tradeState(it)}. 상세 보기`}
+                            aria-label={`${rank ? crownLabel(rank, crownMode) + ", " : ""}${it.name}, 전용 ${it.area}제곱미터, ${fullPrice(it.price)}, ${tileLabelText(it)}. 상세 보기`}
                             className={`kospi-map-tile${idle ? " re-map-tile--idle" : ""}${rank && layout.crownSize ? ` re-map-tile--ranked re-map-tile--rank-${rank}` : ""}`}
                             style={{
                               left: tile.x - zone.rect.x,
@@ -1097,7 +1098,7 @@ export default function RealEstateMapPage() {
                                 </span>
                               </>
                             )}
-                            {rank && layout.crownSize > 0 && <RankCrown rank={rank} size={layout.crownSize} mode={crownMode} className="re-map-tile-crown" />}
+                            {rank && layout.crownSize > 0 && <RankCrown rank={rank} size={layout.crownSize} mode={crownMode} provisional={crownMode === "leader" && it.leader?.status === "provisional"} className="re-map-tile-crown" />}
                             {showPctOnly && (
                               <span className="kospi-map-tile-pct" style={{ fontSize: layout.pctSize }}>
                                 {it.change_pct === null ? "—" : pct(it.change_pct)}

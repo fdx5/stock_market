@@ -35,6 +35,21 @@ test("a trade without a baseline is never called no trades", () => {
   assert.equal(tradeState({ ...item, change_pct: 0 }), "0.00%");
 });
 
+test("new and unranked complexes disclose provisional status and missing evidence", () => {
+  const leader: NonNullable<RealEstateItem["leader"]> = { rank: 2, score: 52, price_score: 54, persistence_score: 50, demand_score: 50,
+    confidence: "limited", status: "provisional", reasons: ["직거래 참고가격", "관측되지 않은 지속성·수요는 중립 50점 적용"], bands: [] };
+  const html = renderToStaticMarkup(<RealEstatePopup item={{ ...item, price_source: "rights", leader }} ctx={ctx} />);
+  assert.match(html, /잠정평가/);
+  assert.match(html, /분양·입주권 거래 참고가/);
+  assert.match(html, /최초 분양가와 다름/);
+  assert.match(html, /중립 50점/);
+  const unranked = renderToStaticMarkup(<RealEstatePopup item={{ ...item, leader: { ...leader, rank: null, score: null, status: "unranked", reasons: ["비교 단지 부족"] } }} ctx={ctx} />);
+  assert.match(unranked, /순위 산정 보류/);
+  assert.match(unranked, /비교 단지 부족/);
+  assert.doesNotMatch(unranked, /null위|NaN점/);
+  assert.match(renderToStaticMarkup(<RankCrown rank={2} size={20} provisional />), /잠정평가/);
+});
+
 test("annual count uses the independent count, not the chart array", () => {
   const html = renderToStaticMarkup(<RealEstatePopup item={item} ctx={ctx} />);
   assert.match(html, /이 평형 72건/);

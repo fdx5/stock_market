@@ -35,7 +35,7 @@ function ComparisonCard({ item, period, tags, onShown, onRemove }: {
     <label>비교할 전용면적<select value={view?.key ?? key} onChange={e => setKey(Number(e.target.value))} disabled={!data}>{data ? data.types.map(t => <option key={t.key} value={t.key}>{t.area}㎡ · {t.pyeong}평</option>) : <option value={key}>{item.area}㎡ · 불러오는 중</option>}</select></label>
     {error && <p role="alert">최신 정보를 불러오지 못했습니다. 저장된 값입니다. <button type="button" onClick={() => setRetry(x => x + 1)}>재시도</button></p>}
     <div className="re-compare-price">
-      <span>실거래 기준가</span>
+      <span>{shown.price_source === "rights" ? "분양·입주권 거래 참고가" : "실거래 기준가"}</span>
       <strong>{fullPrice(shown.price)}</strong>
       <small>{shown.deal_date} 기준 · 3.3㎡당 <b>{fullPrice(perPyeong)}</b></small>
     </div>

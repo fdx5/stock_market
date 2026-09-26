@@ -38,17 +38,22 @@ def test_one_outlier_and_direct_trade_do_not_create_a_leader():
     assert result["D"]["price_score"] == before["D"]["price_score"]
     assert result["D"]["rank"] == 4
     data["only_direct"] = {"types": {85: [(20260901, 99999999, 10, 84.9, 1)] * 8}}
-    assert "only_direct" not in leaders.evaluate(data, TODAY)
+    direct = leaders.evaluate(data, TODAY)["only_direct"]
+    assert direct["status"] == "provisional" and direct["confidence"] == "limited"
+    assert direct["bands"][0]["price_basis"] == "direct"
+    assert direct["rank"] > 1, "a single direct-price series cannot displace established leaders"
 
 
-def test_area_groups_do_not_mix_and_sparse_history_has_no_score():
+def test_area_groups_do_not_mix_and_new_complex_is_provisional():
     data = pool()
     data["small"] = fixture_complex("small", 999999, area=59.9)
     data["new"] = {"types": {85: [(20260901, 999999, 10, 84.9, 0)] * 3}}
     result = leaders.evaluate(data, TODAY)
-    assert "small" not in result
-    assert "new" not in result
-    assert leaders.evaluate({"A": data["A"], "B": data["B"]}, TODAY) == {}
+    assert result["small"]["rank"] is None and result["small"]["reasons"]
+    assert result["new"]["status"] == "provisional" and result["new"]["rank"]
+    assert result["new"]["persistence_score"] == 50
+    two = leaders.evaluate({"A": data["A"], "B": data["B"]}, TODAY)
+    assert two["A"]["rank"] == 1 and two["B"]["rank"] == 2
 
 
 def test_fallback_and_stale_samples():
@@ -58,7 +63,10 @@ def test_fallback_and_stale_samples():
     assert result["A"]["bands"][0]["window_months"] == 12
     assert result["A"]["confidence"] == "limited"
     data["A"]["types"][85] = [r for r in data["A"]["types"][85] if r[0] < 20260301]
-    assert "A" not in leaders.evaluate(data, TODAY)
+    stale = leaders.evaluate(data, TODAY)["A"]
+    assert stale["status"] == "provisional" and stale["bands"][0]["stale"]
+    data["A"]["types"][85] = [r for r in data["A"]["types"][85] if r[0] < 20250901]
+    assert leaders.evaluate(data, TODAY)["A"]["rank"] is None
 
 
 def test_ties_and_future_trades():
@@ -111,5 +119,6 @@ def test_price_mode_pins_price_winner_even_if_not_eligible(monkeypatch):
     monkeypatch.setattr(rm, "_prefetch", lambda codes: None)
     monkeypatch.setattr(rm, "_district", lambda code: {"sample": trades})
     result = rm.build_map("11", "11680", None, "3m", filters={"limit": 1, "sort": "price_asc", "include_leaders": True, "crown_mode": "price"})
-    assert result["ranking"]["eligible_count"] == 0
+    assert result["ranking"]["eligible_count"] == 4
+    assert result["ranking"]["provisional_count"] == 4
     assert {r["price_rank"] for r in result["items"]} == {1, 2, 3, 4}

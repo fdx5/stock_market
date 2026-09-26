@@ -11,7 +11,7 @@ export default function RealEstateResults({ items, saved, compared, onOpen, onSa
     <tbody>{items.map(item => <tr key={item.id}>
       <td data-label="단지"><button type="button" className="re-result-name" onClick={() => onOpen(item)}>{item.name}</button><small>{item.sgg} {item.dong}{item.built ? ` · ${item.built}년` : ""}</small></td>
       <td data-label="전용면적">{item.area}㎡<small>전용 {item.pyeong}평</small></td>
-      <td data-label="기준가"><strong>{fullPrice(item.price)}</strong><small>{item.price_sample_count ? `${item.price_sample_count}건 기준` : "산정 표본 확인 중"}{item.price_basis === "direct" ? " · 직거래" : ""}</small></td>
+      <td data-label="기준가"><strong>{fullPrice(item.price)}</strong><small>{item.price_source === "rights" ? "분양·입주권 · " : ""}{item.price_sample_count ? `${item.price_sample_count}건 기준` : "산정 표본 확인 중"}{item.price_basis === "direct" ? " · 직거래" : ""}{item.leader?.status === "provisional" ? " · 잠정평가" : ""}</small></td>
       <td data-label="등락" className={item.change_pct === null ? "" : item.change_pct > 0 ? "re-up" : item.change_pct < 0 ? "re-down" : ""}>{tradeState(item)}</td>
       <td data-label="최근 거래">{item.deal_date}<small>{daysSince(item.deal_date) > 180 ? "최근 거래 오래됨" : `${daysSince(item.deal_date)}일 전`}</small></td>
       <td data-label="기간 거래">{item.trades}건</td>

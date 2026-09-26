@@ -75,7 +75,7 @@ const GEM = "M13 20.9 L15 22.8 L13 24.7 L11 22.8 Z";
 // Side gem centres on the band.
 const SIDE_X = [7.4, 18.6];
 
-export default function RankCrown({ rank, size, className, mode = "leader" }: { rank: CrownRank; size: number; className?: string; mode?: "leader" | "price" }) {
+export default function RankCrown({ rank, size, className, mode = "leader", provisional = false }: { rank: CrownRank; size: number; className?: string; mode?: "leader" | "price"; provisional?: boolean }) {
   const uid = useId().replace(/:/g, "");
   const m = METALS[rank];
   const id = (name: string) => `crown-${uid}-${name}`;
@@ -87,10 +87,10 @@ export default function RankCrown({ rank, size, className, mode = "leader" }: { 
       height={size}
       viewBox={`0 0 ${CROWN_VIEW_W} ${CROWN_VIEW_H}`}
       role="img"
-      aria-label={crownLabel(rank, mode)}
+      aria-label={`${crownLabel(rank, mode)}${provisional ? " · 잠정평가" : ""}`}
       style={{ ["--crown-glow" as string]: m.glow }}
     >
-      <title>{crownLabel(rank, mode)}</title>
+      <title>{crownLabel(rank, mode)}{provisional ? " · 잠정평가" : ""}</title>
       <defs>
         <linearGradient id={id("body")} x1="0" y1="0" x2="0.35" y2="1">
           <stop offset="0" stopColor={m.body[0]} />

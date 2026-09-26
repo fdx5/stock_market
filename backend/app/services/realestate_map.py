@@ -33,6 +33,7 @@ import datetime as dt
 import heapq
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -46,7 +47,7 @@ from zoneinfo import ZoneInfo
 import requests
 from dotenv import load_dotenv
 
-from app.services import realestate_store, realestate_leaders
+from app.services import realestate_store, realestate_leaders, realestate_rights
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -224,6 +225,8 @@ QUOTA_ERRORS = ("LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS", "(22)")
 
 
 def api_of(endpoint: str) -> str:
+    if "SilvTrade" in endpoint:
+        return "rights"
     if "AptRent" in endpoint:
         return "rent"
     if "AptList" in endpoint or "AptBasis" in endpoint:
@@ -367,7 +370,7 @@ def fetch_month(lawd_cd: str, deal_ym: str) -> list[list]:
 
     out = []
     for it in items:
-        if _text(it, "cdealType") in ("O", "o"):  # 해제된 계약
+        if _text(it, "cdealType") in ("O", "o") or _text(it, "cdealDay"):  # 해제된 계약
             continue
         year, month, day = _int(_text(it, "dealYear")), _int(_text(it, "dealMonth")), _int(_text(it, "dealDay"))
         price = _int(_text(it, "dealAmount"))
@@ -375,7 +378,11 @@ def fetch_month(lawd_cd: str, deal_ym: str) -> list[list]:
             area = round(float(_text(it, "excluUseAr") or 0), 2)
         except ValueError:
             area = 0.0
-        if not (year and month and day and price and area):
+        try:
+            date = dt.date(year, month, day)
+        except ValueError:
+            continue
+        if date > dt.datetime.now(KST).date() or price <= 0 or not math.isfinite(area) or area <= 0:
             continue
         out.append(
             [
@@ -784,11 +791,14 @@ def _complexes(lawd_codes: list[str], months: dict[str, list] | None = None) -> 
     """Every complex in these districts, with its trades grouped by 평형. `months`
     reads one district from an already loaded copy instead of the cache."""
     out: dict[str, dict] = {}
+    today = _as_int(dt.datetime.now(KST).date())
     for lawd in lawd_codes:
         # A snapshot: the collector may add a month to this dict while we read it.
         for deals in list((months if months is not None else _district(lawd)).values()):
             for row in deals:
                 day, seq, name, umd, jibun, area, price, floor, built = row[:9]
+                if day > today or price <= 0 or area <= 0 or not math.isfinite(price) or not math.isfinite(area):
+                    continue
                 direct = row[9] if len(row) > 9 else 0
                 key = f"{lawd}:{seq}" if seq else f"{lawd}:{umd}:{jibun}:{name}"
                 c = out.get(key)
@@ -852,8 +862,13 @@ def _type_view(rows: list[tuple], window_start: int, year_ago: int) -> dict:
     직거래 (unbrokered, often between relatives) is priced off-market often enough
     that one of them as the reference swings a complex by 30%, so brokered trades
     set the price whenever the 평형 has any."""
-    every = sorted(rows)
-    trades = [x for x in every if not x[4]] or every
+    today = dt.datetime.now(KST).date()
+    every = sorted(r for r in rows if r[0] <= _as_int(today) and r[1] > 0 and r[3] > 0
+                   and math.isfinite(r[1]) and math.isfinite(r[3]))
+    if not every:
+        raise ValueError("no valid price observations")
+    sample, _, direct = realestate_leaders.select_reference(every, today)
+    trades = [x for x in every if bool(x[4]) == direct] if sample else ([x for x in every if not x[4]] or every)
     last_day = trades[-1][0]
     price, _ = _robust_price(trades, last_day)
     in_window = [x for x in trades if x[0] >= window_start] if window_start else []
@@ -882,7 +897,7 @@ def _type_view(rows: list[tuple], window_start: int, year_ago: int) -> dict:
         "price_sample_count": len(sample),
         "price_sample_from": _ymd(sample[0][0]).isoformat(),
         "price_samples": [_trade(x) for x in sample],
-        "price_basis": "brokered" if any(not x[4] for x in every) else "direct",
+        "price_basis": "direct" if trades[-1][4] else "brokered",
         "baseline_kind": "before_period" if base_day and base_day < window_start else "within_period" if base_day else None,
         "type_trades_1y": sum(x[0] >= year_ago for x in every),
         "price": round(price),
@@ -916,6 +931,7 @@ def _detail(c: dict, rep: int, year_ago: int) -> dict:
                 "price": last[1],
                 "date": _ymd(last[0]).isoformat(),
                 "trades_1y": sum(1 for x in rows if x[0] >= year_ago),
+                "price_source": c.get("type_sources", {}).get(area_key, "sale"),
             }
         )
     others.sort(key=lambda o: (o["trades_1y"], o["date"]), reverse=True)
@@ -962,10 +978,12 @@ def _status(lawd_codes: list[str]) -> dict:
     months = _months_back(MONTHS_KEPT)
     have = sum(1 for code in lawd_codes for ym in months if (code, ym) in _index)
     coverage = have / (len(lawd_codes) * len(months))
+    rights = realestate_rights.status(lawd_codes)
     return {
         "configured": configured,
         "coverage": round(coverage, 3),
-        "collecting": configured and coverage < 1,
+        "collecting": (configured and coverage < 1) or rights["collecting"],
+        "rights": rights,
         "error": _last_error,
         "calls_today": calls_today("trade"),
     }
@@ -1010,7 +1028,7 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         request_districts(lawd_codes, priority=0)
 
     _prefetch(lawd_codes)
-    complexes = _complexes(lawd_codes)
+    complexes = realestate_rights.merge(_complexes(lawd_codes), lawd_codes, priority=filters is not None)
     if dong:
         complexes = {k: c for k, c in complexes.items() if c["dong"] == dong}
 
@@ -1027,6 +1045,9 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
     filters_active = filters is not None
     f = filters or {}
     leaders = realestate_leaders.evaluate(complexes, today)
+    scope_label = dong or (index[sgg]["name"] if sgg else next((s["name"] for s in regions()["sido"] if s["code"] == sido), "선택 지역"))
+    for assessment in leaders.values():
+        assessment["scope_label"] = scope_label
     query = re.sub(r"\s+", "", f.get("q", "")).casefold()
     for c in complexes.values():
         recent = {t: [x for x in trades if x[0] >= year_ago] for t, trades in c["types"].items()}
@@ -1048,6 +1069,7 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
                 "built": c["built"] or None,
                 "trades_all": sum(1 for t in c["types"].values() for x in t if window_start and x[0] >= window_start),
                 "leader": leaders.get(c["id"]),
+                "price_source": c.get("type_sources", {}).get(rep, "sale"),
                 **selected_view,
                 **_detail(c, rep, year_ago),
             }
@@ -1058,7 +1080,7 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
                     key=lambda r: (-r["price"] / r["area"], r["id"]))
     for rank, row in enumerate(priced, 1):
         row["price_rank"] = rank
-    ranked_count = len(leaders)
+    ranked_count = sum(a["rank"] is not None for a in leaders.values())
     region_count = len(priced)
     filtered = []
     for row in rows:
@@ -1078,7 +1100,8 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
             if not recent:
                 continue
             rep = max(recent, key=lambda t: (len(recent[t]), t))
-            row = {**row, **_type_view(c["types"][rep], window_start, year_ago), **_detail(c, rep, year_ago)}
+            row = {**row, **_type_view(c["types"][rep], window_start, year_ago), **_detail(c, rep, year_ago),
+                   "price_source": c.get("type_sources", {}).get(rep, "sale")}
         if f.get("price_min") is not None and row["price"] < f["price_min"]:
             continue
         if f.get("price_max") is not None and row["price"] > f["price_max"]:
@@ -1096,7 +1119,7 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         rows.sort(key=lambda r: r["deal_date"], reverse=True)
     matched_count = len(rows)
     crown_mode = f.get("crown_mode", "leader")
-    crown_key = lambda r: (r.get("leader") or {}).get("rank", 999999) if crown_mode == "leader" else r.get("price_rank", 999999)
+    crown_key = lambda r: ((r.get("leader") or {}).get("rank") or 999999) if crown_mode == "leader" else r.get("price_rank", 999999)
     winners = [r for r in rows if crown_key(r) <= 3]
     offset = f.get("offset", 0)
     top_n = _sido_top(top) if level == "sido" else TOP_N[level]
@@ -1127,6 +1150,7 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         "matched_count": matched_count,
         "ranking": {"model": realestate_leaders.MODEL, "as_of": today.isoformat(),
                     "eligible_count": ranked_count, "region_count": region_count,
+                    "provisional_count": sum(a["status"] == "provisional" for a in leaders.values()),
                     "mode": crown_mode, "pinned_count": pinned_count},
         "offset": offset,
         "latest_deal_date": _ymd(latest_day).isoformat() if latest_day else None,
@@ -1175,28 +1199,32 @@ def complex_detail(complex_id: str, period: str) -> dict:
     index = _sgg_index()
     if lawd not in index:
         raise ValueError("unknown 시군구")
-    c = _complexes([lawd]).get(complex_id)
+    all_complexes = realestate_rights.merge(_complexes([lawd]), [lawd], priority=True)
+    c = all_complexes.get(complex_id) or next((c for c in all_complexes.values() if complex_id in c.get("aliases", [])), None)
     if c is None:
         raise LookupError("no such complex")
     window_start, year_ago = _window(period, c["last"])
     # Period windows are the same ones the map used: its "오늘" is the region's latest
     # contract day, which a single complex does not know, so it falls back to its own.
-    older = _older_trades(lawd, complex_id)
+    has_sales = any(c.get("type_sources", {}).get(t, "sale") == "sale" for t in c["types"])
+    older = _older_trades(lawd, c["id"]) if has_sales else {}
     views = []
     for key, rows in c["types"].items():
         view = _type_view(rows, window_start, year_ago)
+        view["price_source"] = c.get("type_sources", {}).get(key, "sale")
         view["key"] = key
         view["trades_1y"] = sum(1 for x in rows if x[0] >= year_ago)
         view["trades_total"] = len(rows)
         # Every trade of this 평형 we hold, newest first: [day, price, floor, 직거래].
-        every = sorted(rows + older.get(key, []), reverse=True)
+        every = sorted(rows + (older.get(key, []) if view["price_source"] == "sale" else []), reverse=True)
         view["deals"] = [[x[0], x[1], x[2], x[4]] for x in every]
         views.append(view)
     views.sort(key=lambda v: (v["trades_1y"], v["trades_total"], v["key"]), reverse=True)
     deep = _deep_months()
     have = [ym for ym in deep if (lawd, ym) in _index]
     earliest = min(have) if have else _recent_since()
-    if len(have) < len(deep):
+    rights_from = _months_back(realestate_rights.MONTHS)[-1]
+    if has_sales and len(have) < len(deep):
         want_history(lawd)
     return {
         "id": c["id"],
@@ -1214,9 +1242,9 @@ def complex_detail(complex_id: str, period: str) -> dict:
         "history": {
             # The oldest month collected for this district, and whether every month
             # back to HISTORY_FROM is in.
-            "from": f"{earliest[:4]}-{earliest[4:]}",
-            "target": f"{HISTORY_FROM[:4]}-{HISTORY_FROM[4:]}",
-            "complete": len(have) == len(deep),
+            "from": f"{earliest[:4]}-{earliest[4:]}" if has_sales else f"{rights_from[:4]}-{rights_from[4:]}",
+            "target": f"{HISTORY_FROM[:4]}-{HISTORY_FROM[4:]}" if has_sales else "최근 13개월",
+            "complete": len(have) == len(deep) if has_sales else realestate_rights.status([lawd])["coverage"] >= 1,
         },
     }
 
@@ -1292,7 +1320,7 @@ _rebuild_started = False
 
 def _store_key(key: tuple) -> str:
     sido, _, _, period, top = key
-    return f"v3:sido:{sido}:{period}:{top}"
+    return f"v4:sido:{sido}:{period}:{top}"
 
 
 def _body(result: dict) -> str:
@@ -1361,7 +1389,7 @@ def _cached(key: tuple) -> tuple[float, str] | None:
     with _map_cache_lock:
         hit = _map_cache.get(key)
     if hit:
-        return hit[0], hit[2]
+        return (hit[0] if hit[1] == _version else 0), hit[2]
     try:
         row = realestate_store.load_map(_store_key(key))
     except Exception as exc:  # noqa: BLE001
