@@ -1,0 +1,403 @@
+/* ── The masthead's NOW PLAYING ear (DeskBgm.tsx) ─────────────────────────────
+   Drawn as a sibling of the clocks' ear: the same ruled box and the same label
+   set into its top rule, so the header reads as one piece of furniture. PC only —
+   under 1180px there is no room beside the nameplate, and the phone masthead is
+   its own component. */
+
+.d2 .d2-bgm {
+  --eq-h: 28px;
+  --eq-w: 100px;
+  position: relative;
+  display: none;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 356px;
+  padding: 10px 12px 9px 14px;
+  border: 1px solid var(--rule-ink);
+  color: var(--ink);
+}
+.d2 .d2-bgm::before {
+  content: attr(data-ear);
+  position: absolute;
+  top: -8px;
+  left: 10px;
+  padding: 0 6px;
+  background: var(--p0);
+  font-family: var(--f-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--ink-3);
+  transition: color 0.2s;
+}
+.d2 .d2-bgm.is-on::before {
+  color: var(--brass);
+}
+
+/* Desktop: a fourth column, beside the clocks. Tablet and phone: the strip, a
+   full-width row under the nameplate (see the end of this file). */
+@media (min-width: 1180px) {
+  .d2 .d2-mast-title {
+    grid-template-columns: auto 1fr auto auto;
+  }
+  .d2 .d2-bgm {
+    display: grid;
+  }
+}
+
+
+/* the deck: meter on top, transport under it, one width */
+.d2 .d2-bgm.d2-bgm .d2-bgm-deck {
+  display: grid;
+  gap: 6px;
+  width: var(--eq-w);
+}
+
+/* A segmented LED meter. Each bar's colour is fixed to its HEIGHT (the gradient is
+   the bar's full height and the level only uncovers it), so a loud bar turns brass at
+   the top the way a real meter does, rather than a short bar being brass all over. */
+.d2 .d2-bgm.d2-bgm .d2-bgm-eq {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 2px;
+  height: var(--eq-h);
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-eq i {
+  --lvl: 0.1;
+  --peak: 0.1;
+  position: relative;
+  display: block;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-eq b {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, var(--ink-2) 0%, var(--ink-2) 52%, color-mix(in srgb, var(--brass) 70%, var(--ink-2)) 72%, var(--brass) 88%, var(--up) 100%);
+  clip-path: inset(calc((1 - var(--lvl)) * 100%) 0 0 0);
+  -webkit-mask: repeating-linear-gradient(to top, #000 0 2px, transparent 2px 3px);
+  mask: repeating-linear-gradient(to top, #000 0 2px, transparent 2px 3px);
+  opacity: 0.55;
+  transition: opacity 0.3s;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-eq s {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: var(--brass);
+  transform: translateY(calc(var(--peak) * (2px - var(--eq-h))));
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.d2 .d2-bgm.is-on .d2-bgm-eq b {
+  opacity: 1;
+}
+.d2 .d2-bgm.is-on .d2-bgm-eq s {
+  opacity: 0.95;
+}
+
+/* transport: two quiet skips either side of a solid play */
+.d2 .d2-bgm.d2-bgm .d2-bgm-transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.d2 .d2-bgm button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 0.12s, background 0.15s, color 0.15s, border-color 0.15s, box-shadow 0.15s, opacity 0.15s;
+}
+.d2 .d2-bgm button:focus-visible {
+  outline: 2px solid var(--brass);
+  outline-offset: 2px;
+}
+.d2 .d2-bgm svg {
+  display: block;
+  fill: currentColor;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-transport button {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: var(--ink-2);
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-transport button svg {
+  width: 13px;
+  height: 13px;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-transport button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  color: var(--ink);
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-transport button:disabled {
+  opacity: 0.32;
+  cursor: default;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-transport .d2-bgm-play {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  background: var(--ink);
+  color: var(--p0);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-transport .d2-bgm-play svg {
+  width: 13px;
+  height: 13px;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-transport .d2-bgm-play:hover:not(:disabled) {
+  background: var(--brass);
+  color: #15130c;
+}
+.d2 .d2-bgm.d2-bgm.is-playing .d2-bgm-transport .d2-bgm-play {
+  background: var(--brass);
+  color: #15130c;
+}
+.d2 .d2-bgm button.is-pressed {
+  transform: scale(0.86);
+}
+/* buffering: a ring turns round the play button */
+.d2 .d2-bgm.is-loading .d2-bgm-play::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--brass);
+  animation: d2-bgm-spin 0.8s linear infinite;
+}
+@keyframes d2-bgm-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* the name, the channel, where it is */
+.d2 .d2-bgm.d2-bgm .d2-bgm-meta {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-title {
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--f-sans);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  -webkit-mask: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+  mask: linear-gradient(to right, #000 calc(100% - 14px), transparent);
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-title:not(.is-overflow) {
+  -webkit-mask: none;
+  mask: none;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-title span {
+  display: inline-block;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-title.is-overflow span {
+  animation: d2-bgm-marquee var(--marquee, 8s) ease-in-out infinite alternate;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-title.is-overflow:hover span {
+  animation-play-state: paused;
+}
+@keyframes d2-bgm-marquee {
+  0%,
+  18% {
+    transform: translateX(0);
+  }
+  82%,
+  100% {
+    transform: translateX(var(--shift, 0));
+  }
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-sub {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-family: var(--f-sans);
+  font-size: 11px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  color: var(--ink-2);
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  opacity: 0.6;
+}
+.d2 .d2-bgm.is-playing .d2-bgm-state {
+  color: var(--brass);
+}
+.d2 .d2-bgm.is-playing .d2-bgm-state::before {
+  background: var(--brass);
+  opacity: 1;
+  animation: d2-bgm-pulse 1.6s ease-in-out infinite;
+}
+@keyframes d2-bgm-pulse {
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--brass) 25%, transparent);
+  }
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-channel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-count {
+  margin-left: auto;
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* the power switch: a small rounded key, lit brass when on */
+.d2 .d2-bgm.d2-bgm .d2-bgm-power {
+  flex-direction: column;
+  gap: 2px;
+  align-self: stretch;
+  width: 38px;
+  border: 1px solid var(--rule-2) !important;
+  border-radius: 10px;
+  color: var(--ink-3);
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-power svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-power span {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-power:hover {
+  color: var(--ink);
+  border-color: var(--ink-3) !important;
+}
+.d2 .d2-bgm.d2-bgm .d2-bgm-power[aria-pressed="true"] {
+  color: var(--brass);
+  border-color: var(--brass) !important;
+  background: color-mix(in srgb, var(--brass) 10%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--brass) 28%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .d2 .d2-bgm.d2-bgm .d2-bgm-title.is-overflow span,
+  .d2 .d2-bgm.is-playing .d2-bgm-state::before,
+  .d2 .d2-bgm.is-loading .d2-bgm-play::after {
+    animation: none;
+  }
+  .d2 .d2-bgm.d2-bgm .d2-bgm-title {
+    text-overflow: ellipsis;
+  }
+}
+
+.d2 .d2-bgm.is-blocked .d2-bgm-state {
+  color: var(--brass);
+}
+
+/* ── the phone strip ───────────────────────────────────────────────────────── */
+.d2 .d2-bgm.d2-bgm--strip {
+  --eq-h: 24px;
+  --eq-w: 60px;
+  display: grid;
+  grid-template-columns: auto var(--eq-w) minmax(0, 1fr) auto;
+  grid-template-areas: "power eq meta transport";
+  gap: 10px;
+  width: auto;
+  margin: 12px 0 2px;
+  padding: 8px 8px 8px 8px;
+  border: 1px solid var(--rule-2);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+.d2 .d2-bgm.d2-bgm--strip::before {
+  display: none;
+}
+.d2 .d2-bgm.d2-bgm--strip.is-on {
+  border-color: color-mix(in srgb, var(--brass) 55%, var(--rule-2));
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-deck {
+  display: contents;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-eq {
+  grid-area: eq;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 1px;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-meta {
+  grid-area: meta;
+  gap: 3px;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-title {
+  font-size: 13px;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-sub {
+  font-size: 10.5px;
+  gap: 6px;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-channel,
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-count {
+  display: none;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-transport {
+  grid-area: transport;
+  gap: 2px;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-transport button {
+  width: 34px;
+  height: 40px;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-transport .d2-bgm-play {
+  width: 40px;
+  height: 40px;
+}
+.d2 .d2-bgm.d2-bgm--strip .d2-bgm-power {
+  grid-area: power;
+  width: 40px;
+  min-height: 40px;
+}
+/* Tablets have the width for the channel and the counter, and for the strip to
+   sit under the double rule with some air. */
+@media (min-width: 761px) {
+  .d2 .d2-bgm.d2-bgm--strip {
+    --eq-w: 92px;
+    margin: 18px 0 4px;
+    padding: 8px 10px;
+  }
+  .d2 .d2-bgm.d2-bgm--strip .d2-bgm-channel,
+  .d2 .d2-bgm.d2-bgm--strip .d2-bgm-count {
+    display: inline;
+  }
+  .d2 .d2-bgm.d2-bgm--strip .d2-bgm-title {
+    font-size: 14px;
+  }
+}
+@media (min-width: 1180px) {
+  .d2 .d2-bgm.d2-bgm--strip {
+    display: none;
+  }
+}

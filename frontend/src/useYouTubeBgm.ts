@@ -70,7 +70,7 @@ const API_SRC = "https://www.youtube.com/iframe_api";
 /** Background music, so: audible, and well under whatever else is playing. */
 const VOLUME = 45;
 
-interface YtPlayer {
+export interface YtPlayer {
   playVideo(): void;
   pauseVideo(): void;
   /** Swaps the track and starts it. Used for every play after the first —
@@ -119,7 +119,7 @@ declare global {
  * second <script> tag for it would re-run the whole API. */
 let apiLoad: Promise<YtApi> | null = null;
 
-function loadApi(): Promise<YtApi> {
+export function loadApi(): Promise<YtApi> {
   if (window.YT?.Player) return Promise.resolve(window.YT);
   if (apiLoad) return apiLoad;
 
