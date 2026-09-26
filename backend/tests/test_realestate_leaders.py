@@ -100,7 +100,7 @@ def test_map_ranks_before_limits_filters_and_period(monkeypatch):
     monkeypatch.setattr(rm, "is_configured", lambda: False)
     monkeypatch.setattr(rm, "_prefetch", lambda codes: None)
     monkeypatch.setattr(rm, "_district", lambda code: {"sample": trades})
-    first = rm.build_map("11", "11680", None, "3m", filters={"limit": 1, "sort": "price_asc", "include_leaders": True})
+    first = rm.build_map("11", "11680", None, "3m", filters={"limit": 1, "sort": "price_asc", "include_leaders": True, "crown_mode": "leader"})
     assert first["ranking"]["pinned_count"] == 3
     assert {r["leader"]["rank"] for r in first["items"]} == {1, 2, 3, 4}
     other = rm.build_map("11", "11680", None, "1y", filters={"q": "B", "limit": 1, "include_leaders": True})
@@ -108,7 +108,7 @@ def test_map_ranks_before_limits_filters_and_period(monkeypatch):
     assert other["items"][0]["leader"]["rank"] == 2
     assert other["items"][0]["leader"] == next(r["leader"] for r in first["items"] if r["name"] == "B")
     assert other["items"][0]["price_rank"] == 2
-    page = rm.build_map("11", "11680", None, "3m", filters={"limit": 1, "offset": 3, "include_leaders": True})
+    page = rm.build_map("11", "11680", None, "3m", filters={"limit": 1, "offset": 3, "include_leaders": True, "crown_mode": "leader"})
     assert len(page["items"]) == 1 and page["ranking"]["pinned_count"] == 0
 
 
@@ -122,3 +122,5 @@ def test_price_mode_pins_price_winner_even_if_not_eligible(monkeypatch):
     assert result["ranking"]["eligible_count"] == 4
     assert result["ranking"]["provisional_count"] == 4
     assert {r["price_rank"] for r in result["items"]} == {1, 2, 3, 4}
+    # Price per 평 is the default crown basis when the caller names none.
+    assert rm.build_map("11", "11680", None, "3m", filters={"limit": 1})["ranking"]["mode"] == "price"

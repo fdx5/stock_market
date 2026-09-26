@@ -262,7 +262,7 @@ export default function RealEstateMapPage() {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"map" | "table">(() => new URLSearchParams(location.search).get("view") === "table" ? "table" : "map");
   const [filters, setFilters] = useState(readEstateFilters);
-  const [crownMode, setCrownMode] = useState<"leader" | "price">(() => new URLSearchParams(location.search).get("crown") === "price" ? "price" : "leader");
+  const [crownMode, setCrownMode] = useState<"leader" | "price">(() => new URLSearchParams(location.search).get("crown") === "leader" ? "leader" : "price");
   const [retry, setRetry] = useState(0);
   const [regionsError, setRegionsError] = useState(false);
   const [selectedId, setSelectedId] = useState(() => new URLSearchParams(location.search).get("complex") ?? "");
@@ -476,7 +476,7 @@ export default function RealEstateMapPage() {
       const next = readQuery(); const q = new URLSearchParams(location.search);
       setSido(next.sido); setSgg(next.sgg); setDong(next.dong); setPeriod(next.period);
       setFilters(readEstateFilters());
-      setCrownMode(q.get("crown") === "price" ? "price" : "leader");
+      setCrownMode(q.get("crown") === "leader" ? "leader" : "price");
       setView(q.get("view") === "table" ? "table" : "map");
       setSelectedId(q.get("complex") ?? ""); setSheetItem(null); setDetailError("");
     };
@@ -488,7 +488,7 @@ export default function RealEstateMapPage() {
     const q = new URLSearchParams(location.search);
     const oldComplex = q.get("complex") ?? "";
     q.set("sido", sido); q.set("period", period);
-    if (crownMode === "price") q.set("crown", "price"); else q.delete("crown");
+    if (crownMode === "leader") q.set("crown", "leader"); else q.delete("crown");
     if (sgg) q.set("sgg", sgg); else q.delete("sgg");
     if (sgg && dong) q.set("dong", dong); else q.delete("dong");
     if (view === "table") q.set("view", view); else q.delete("view");
@@ -940,7 +940,7 @@ export default function RealEstateMapPage() {
             <RealEstateExploreControls filters={filters} busy={loading} onChange={value => { setFilters(value); }} />
             <div className="re-leader-controls">
               <label>왕관 기준 <select aria-label="왕관 기준" value={crownMode} onChange={e => setCrownMode(e.target.value as "leader" | "price")}>
-                <option value="leader">지역 대표단지 종합순위</option><option value="price">대표 평형 평단가 순위</option>
+                <option value="price">대표 평형 평단가 순위</option><option value="leader">지역 대표단지 종합순위</option>
               </select></label>
               <span>{loading ? "순위 계산 중…" : `지역 전체 ${data?.ranking?.region_count ?? 0}곳 중 평가 ${data?.ranking?.eligible_count ?? 0}곳 · 잠정 ${data?.ranking?.provisional_count ?? 0}곳 포함`}</span>
               {status?.rights && <span role="status">분양권 자료 {Math.round(status.rights.coverage * 100)}%{status.rights.collecting ? " 수집 중 · 자동 갱신" : " 확인"}{status.rights.error ? ` · ${status.rights.error}` : ""}</span>}

@@ -67,7 +67,7 @@ def realestate_explore(
     sort: str = Query("price_desc", pattern=r"^(price_desc|price_asc|change_desc|trades_desc|date_desc|name)$"),
     offset: int = Query(0, ge=0, le=100000),
     limit: int = Query(100, ge=1, le=200),
-    crown_mode: str = Query("leader", pattern=r"^(leader|price)$"),
+    crown_mode: str = Query("price", pattern=r"^(leader|price)$"),
     include_leaders: bool = Query(False),
 ):
     """Filter all collected complexes in the region before sorting and pagination."""

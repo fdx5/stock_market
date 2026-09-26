@@ -1118,7 +1118,7 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
     if sort == "date_desc":
         rows.sort(key=lambda r: r["deal_date"], reverse=True)
     matched_count = len(rows)
-    crown_mode = f.get("crown_mode", "leader")
+    crown_mode = f.get("crown_mode", "price")
     crown_key = lambda r: ((r.get("leader") or {}).get("rank") or 999999) if crown_mode == "leader" else r.get("price_rank", 999999)
     winners = [r for r in rows if crown_key(r) <= 3]
     offset = f.get("offset", 0)
