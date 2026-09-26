@@ -521,6 +521,45 @@ html.is-desk2 body {
   background: var(--ink);
   color: var(--p0);
 }
+/* The language pill, held against the map pages' blanket control rules — the
+   `.d2.mm :is(button, …)` reset squared its keys, and 부동산 맵's
+   button[aria-pressed] accent drew a teal frame and teal letters on the dark
+   key — so it reads as one rounded switch with a thumb inside it everywhere. */
+.d2 .d2-mast .d2-mast-lang.d2-mast-lang {
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--p0);
+}
+.d2 .d2-mast .d2-mast-lang.d2-mast-lang button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-3);
+  line-height: 1;
+  text-align: center;
+}
+.d2 .d2-mast .d2-mast-lang.d2-mast-lang button:hover:not(.is-on) {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
+}
+.d2 .d2-mast .d2-mast-lang.d2-mast-lang button.is-on {
+  background: var(--ink);
+  color: var(--p0);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.d2 .d2-mast--compact .d2-mast-lang.d2-mast-lang button {
+  min-width: 36px;
+  height: 100%;
+  font-size: 13px;
+}
 
 .d2-mast-title {
   display: grid;
