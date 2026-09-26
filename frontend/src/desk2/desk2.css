@@ -3864,12 +3864,17 @@ tr.is-alert-cool .d2-macro-alert {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .d2-tape-track {
-    animation: none;
-  }
   .d2 * {
     animation-duration: 0.01ms !important;
     transition-duration: 0.01ms !important;
+  }
+  /* The tape is not decoration: it is the only place most of its quotes are
+     printed, and a still tape shows a screen's width of them and hides the rest.
+     So it keeps running — at its own slow reading pace, hover still pauses it —
+     for readers who have turned the OS's animation effects off (Windows makes
+     that easy, which is why it stopped on PCs and not phones). */
+  .d2 .d2-tape .d2-tape-track {
+    animation-duration: var(--tape-dur, 60s) !important;
   }
 }
 

@@ -98,7 +98,7 @@ function TalkTape({ code, us, asset }: { code: string; us: boolean; asset: "STOC
     <div className="d2-tape sk-talktape" aria-label={L("최근 종목토론 제목", "Latest discussion titles")}>
       <span className="d2-tape-label">TALK</span>
       <div className="d2-tape-viewport">
-        <div className="d2-tape-track" style={{ animationDuration: `${Math.max(40, titles.length * 6)}s` }}>
+        <div className="d2-tape-track" style={{ animationDuration: `${Math.max(40, titles.length * 6)}s`, "--tape-dur": `${Math.max(40, titles.length * 6)}s` } as React.CSSProperties}>
           {[...titles, ...titles].map((t, i) => (
             <button key={`${t.id}-${i}`} type="button" className="d2-tape-cell" onClick={() => navigate(href)}>
               <em>{String((i % titles.length) + 1).padStart(2, "0")}</em>

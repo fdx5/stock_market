@@ -47,7 +47,7 @@ export default function Tape() {
         TAPE
       </span>
       <div className="d2-tape-viewport">
-        <div className="d2-tape-track" style={{ animationDuration: `${duration}s` }}>
+        <div className="d2-tape-track" style={{ animationDuration: `${duration}s`, "--tape-dur": `${duration}s` } as React.CSSProperties}>
           {[...items, ...items].map((item, i) => (
             <Cell key={`${item.symbol}-${i}`} item={item} />
           ))}
