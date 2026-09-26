@@ -15,17 +15,9 @@ import { layoutGraph, type MonitorLayout, type PlacedNode } from "../monitor/lay
 import { MonitorScene, type HoverInfo } from "../monitor/scene";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
-import NewBadge from "./NewBadge";
-import StockListIcon from "./StockListIcon";
-import BattleIcon from "./BattleIcon";
-import DashboardIcon from "./DashboardIcon";
-import EtfNavLink from "./EtfNavLink";
-import GlobalNewsIcon from "./GlobalNewsIcon";
-import GlobeRankIcon from "./GlobeRankIcon";
 import Logo from "./Logo";
-import MarketIcon from "./MarketIcon";
-import PredictIcon from "./PredictIcon";
-import RankIcon from "./RankIcon";
+import { SITE_NAV } from "../desk2/siteNav";
+import { useBroadsheetFonts } from "../desk2/fonts";
 import "./monitor.css";
 
 /** How often the live signal is fetched. Fast enough that a click feels like it lights
@@ -88,7 +80,13 @@ function clockOf(ms: number): string {
  * page, anything else is the US one, and they call different APIs. */
 function routeOf(path: string): string {
   const clean = path.split("?")[0].replace(/\/+$/, "");
-  if (clean === "") return "/";
+  if (clean === "" || clean === "/hub" || clean === "/type2") return "/";
+  // Routes that render another node's page, and the per-item landing routes.
+  if (clean === "/sp500-orbit") return "/nasdaq100-orbit";
+  if (/^\/stock\/\d{6}\/investor$/.test(clean)) return "/investor/{code}";
+  if (/^\/stock\/\d{6}\/(outlook|news)$/.test(clean)) return "/stock/{code}";
+  if (/^\/etf\/compare\//.test(clean)) return "/etf/compare";
+  if (/^\/market-brief\//.test(clean)) return "/market-brief";
   if (/^\/stock\/\d{6}$/.test(clean)) return "/stock/{code}";
   if (/^\/stock\/[^/]+$/.test(clean)) return "/stock/{ticker}";
   if (/^\/investor\/[^/]+$/.test(clean)) return "/investor/{code}";
@@ -98,6 +96,7 @@ function routeOf(path: string): string {
 
 export default function MonitorPage() {
   useDocumentTitle("모니터 · K-Stock Hub");
+  useBroadsheetFonts();
 
   const canvasRef = useRef<HTMLDivElement>(null);
   const labelRef = useRef<HTMLDivElement>(null);
@@ -343,65 +342,39 @@ export default function MonitorPage() {
 
   return (
     <div className="app monitor-page">
-      <header className="app-header monitor-header">
-        <div className="app-title-row">
-          <Link to="/hub" className="app-brand" aria-label="K-Stock Hub 태양계 홈">
-            <Logo className="app-logo-wide" />
+      {/* The broadsheet masthead's furniture — nameplate over a double rule, an ear
+          boxing the live figures, the site index under it — set in the monitor's own
+          night palette and kept short, because every pixel it takes is the stage's. */}
+      <header className="monitor-mast">
+        <div className="monitor-mast-top">
+          <Link to="/hub" className="monitor-mast-brand" aria-label="K-Stock Hub 첫 화면">
+            <Logo className="monitor-mast-logo" />
           </Link>
-          <div className="monitor-headline">
-            <h1 className="monitor-title">뉴런 모니터</h1>
-            <p className="monitor-subtitle">사이트 전체 구조와 실시간 신호 전달</p>
+          <div className="monitor-mast-name">
+            <span className="monitor-mast-kicker">관리자 · 사이트 관제</span>
+            <h1>뉴런 모니터</h1>
+            <p>사이트 전체 구조와 실시간 신호 전달</p>
           </div>
-        </div>
-        <div className="monitor-stats">
-          <Stat label="노드" value={layout?.nodes.length ?? 0} />
-          <Stat label="연결" value={layout?.edges.length ?? 0} />
-          <Stat label="접속 세션" value={sessions} live />
-          <Stat label="신호/틱" value={rate} live />
+          <div className="monitor-mast-ear" data-ear="LIVE">
+            <Stat label="노드" value={layout?.nodes.length ?? 0} />
+            <Stat label="연결" value={layout?.edges.length ?? 0} />
+            <Stat label="접속 세션" value={sessions} live />
+            <Stat label="신호/틱" value={rate} live />
+          </div>
           {isAdmin && (
             <Link to="/admin/dashboard" className="monitor-back">
               ← 관리자
             </Link>
           )}
         </div>
+        <nav className="monitor-mast-nav" aria-label="사이트 메뉴">
+          {SITE_NAV.map((item) => (
+            <Link key={item.to} to={item.to}>
+              {item.ko}
+            </Link>
+          ))}
+        </nav>
       </header>
-
-      <div className="app-nav-row monitor-nav-row">
-        <Link to="/desk" className="kospi-map-nav-link kospi-map-nav-link--home">
-          <DashboardIcon /> 홈
-        </Link>
-        <Link to="/stocks" className="kospi-map-nav-link kospi-map-nav-link--stocks">
-          <StockListIcon /> 종목정보
-        </Link>
-        <Link to="/map" className="kospi-map-nav-link">
-          <MarketIcon /> KOSPI
-        </Link>
-        <Link to="/kosdaq-map" className="kospi-map-nav-link kospi-map-nav-link--kosdaq">
-          <MarketIcon /> KOSDAQ
-        </Link>
-        <Link to="/sp500-map" className="kospi-map-nav-link kospi-map-nav-link--sp500">
-          <MarketIcon /> S&P500
-        </Link>
-        <Link to="/nasdaq100-map" className="kospi-map-nav-link kospi-map-nav-link--nasdaq">
-          <MarketIcon /> NASDAQ
-        </Link>
-        <EtfNavLink />
-        <Link to="/kospi-100" className="kospi-map-nav-link kospi-map-nav-link--top100">
-          <RankIcon /> TOP100
-        </Link>
-        <Link to="/ai-prediction" className="kospi-map-nav-link kospi-map-nav-link--predict">
-          <PredictIcon /> AI예측
-        </Link>
-        <Link to="/global-top100" className="kospi-map-nav-link kospi-map-nav-link--globaltop100">
-          <GlobeRankIcon /> 글로벌시총
-        </Link>
-        <Link to="/fight" className="kospi-map-nav-link kospi-map-nav-link--battle">
-          <BattleIcon /> 시총대결
-        </Link>
-        <Link to="/news" className="kospi-map-nav-link kospi-map-nav-link--news">
-          <GlobalNewsIcon /> NEWS
-        </Link>
-      </div>
 
       {error && <div className="error-state">{error}</div>}
 
@@ -599,8 +572,8 @@ function MonitorLock({ onUnlocked }: { onUnlocked: () => void }) {
 function Stat({ label, value, live }: { label: string; value: number; live?: boolean }) {
   return (
     <span className={`monitor-stat${live ? " is-live" : ""}`}>
-      <b>{value}</b>
-      {label}
+      <small>{label}</small>
+      <b>{value.toLocaleString()}</b>
     </span>
   );
 }

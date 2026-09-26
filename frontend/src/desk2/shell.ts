@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { setPageDefaultTheme } from "../theme";
+import { useBroadsheetFonts } from "./fonts";
 import "./desk2.css";
 
 /* What every broadsheet page (the desk, 종목정보, 종목상세) needs from outside its
@@ -7,25 +8,13 @@ import "./desk2.css";
  * ⌘K / "/" shortcut that opens the finder. Kept in one place so the three pages can
  * never disagree about which fonts they load or which class scopes them. */
 
-const FONT_LINKS = [
-  "https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css",
-  "https://fonts.googleapis.com/css2?family=Hahmlet:wght@500..900&family=Noto+Serif+KR:wght@400;500;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400..700;1,8..60,400..600&family=IBM+Plex+Sans+Condensed:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=UnifrakturMaguntia&display=swap",
-];
 
 /** Loads the fonts once and scopes the page. `lightByDefault` is the main desk's
  * wish to open in the 주간판; see setPageDefaultTheme for why it never overrides a
  * visitor's own choice. The fonts are left in place on unmount — a reader moving
  * between broadsheet pages should not re-download them. */
 export function useBroadsheet({ lightByDefault = false }: { lightByDefault?: boolean } = {}): void {
-  useEffect(() => {
-    for (const href of FONT_LINKS) {
-      if (document.querySelector(`link[href="${href}"]`)) continue;
-      const link = document.createElement("link");
-      link.rel = "stylesheet";
-      link.href = href;
-      document.head.appendChild(link);
-    }
-  }, []);
+  useBroadsheetFonts();
 
   useEffect(() => {
     const root = document.documentElement;

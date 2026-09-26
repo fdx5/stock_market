@@ -35,106 +35,164 @@
   overscroll-behavior: none;
 }
 
-/* ─────────────────────────────── header ─────────────────────────────── */
+/* ─────────────────────────────── masthead ───────────────────────────────
+   The desk's masthead in the monitor's night palette: a nameplate in the display
+   serif over a double rule, the live figures boxed in an ear with its label set into
+   the top rule, and the site index (the same list as the masthead's) under it. Kept to
+   two short rows — the stage below is what this page is for. */
 
-.monitor-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  flex-wrap: wrap;
-  padding: 10px 18px;
-  border-bottom: 1px solid var(--mon-line);
-  background: linear-gradient(180deg, rgba(14, 20, 34, 0.95), rgba(6, 9, 16, 0.82));
+.monitor-mast {
   flex: none;
+  padding: 12px 20px 0;
+  background: linear-gradient(180deg, rgba(12, 18, 30, 0.98), rgba(5, 8, 14, 0.94));
 }
-
-.monitor-page .app-title-row {
-  display: flex;
+.monitor-mast-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 16px;
+  gap: 22px;
+  padding-bottom: 12px;
+  border-bottom: 3px solid rgba(207, 224, 245, 0.85);
+  position: relative;
 }
-
-/* A second, compact row under the header proper — same nav pills every other page
-   uses, just tightened up so a page whose whole point is the full-viewport canvas
-   below doesn't lose much of it to navigation chrome. */
-.monitor-nav-row {
-  flex: none;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 6px 18px;
-  border-bottom: 1px solid var(--mon-line);
-  background: rgba(6, 9, 16, 0.9);
+/* the second, thinner rule of a broadsheet masthead */
+.monitor-mast-top::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -7px;
+  height: 1px;
+  background: rgba(207, 224, 245, 0.55);
 }
-
-.monitor-headline {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+.monitor-mast-brand {
+  display: block;
 }
-
-.monitor-title {
-  margin: 0;
-  font-size: 17px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  color: #eaf4ff;
+.monitor-mast-logo {
+  display: block;
+  height: 30px;
+  width: auto;
 }
-
-.monitor-subtitle {
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--mon-dim);
+.monitor-mast-name {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
 }
-
-.monitor-stats {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.monitor-stat {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 5px 11px;
-  border: 1px solid var(--mon-line);
-  border-radius: 999px;
-  background: rgba(18, 26, 42, 0.7);
+.monitor-mast-kicker {
   font-size: 10.5px;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--mon-accent);
+}
+.monitor-mast-name h1 {
+  margin: 0;
+  font-family: "Hahmlet", "Noto Serif KR", "Nanum Myeongjo", serif;
+  font-size: 30px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  color: #eef5ff;
+}
+.monitor-mast-name p {
+  margin: 0;
+  font-family: "Noto Serif KR", "Nanum Myeongjo", serif;
+  font-size: 12.5px;
   color: var(--mon-dim);
 }
 
+/* the ear */
+.monitor-mast-ear {
+  position: relative;
+  display: flex;
+  gap: 18px;
+  padding: 9px 14px 8px;
+  border: 1px solid rgba(207, 224, 245, 0.55);
+}
+.monitor-mast-ear::before {
+  content: attr(data-ear);
+  position: absolute;
+  top: -8px;
+  left: 10px;
+  padding: 0 6px;
+  background: #0a101b;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--mon-accent);
+}
+.monitor-stat {
+  display: grid;
+  gap: 1px;
+  text-align: right;
+}
+.monitor-stat small {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--mon-dim);
+}
 .monitor-stat b {
-  font-size: 14px;
-  font-weight: 800;
+  font-family: "IBM Plex Sans Condensed", "IBM Plex Mono", ui-monospace, monospace;
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
   color: #eaf4ff;
   font-variant-numeric: tabular-nums;
 }
-
-/* The two figures that move on their own get a tint, so a glance separates "what this
-   is" from "what is happening". */
+/* The two figures that move on their own get the accent, so a glance separates "what
+   this is" from "what is happening". */
 .monitor-stat.is-live b {
   color: var(--mon-accent);
-  text-shadow: 0 0 12px rgba(77, 210, 255, 0.55);
+  text-shadow: 0 0 12px rgba(77, 210, 255, 0.5);
 }
 
 .monitor-back {
-  padding: 6px 12px;
+  padding: 7px 14px;
   border: 1px solid var(--mon-line);
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--mon-text);
   text-decoration: none;
   background: rgba(18, 26, 42, 0.7);
 }
-
 .monitor-back:hover {
   border-color: var(--mon-accent);
   color: #fff;
+}
+
+/* the site index, one line that scrolls rather than wraps */
+.monitor-mast-nav {
+  display: flex;
+  gap: 0;
+  margin-top: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+  mask: linear-gradient(90deg, #000 calc(100% - 28px), transparent);
+}
+.monitor-mast-nav::-webkit-scrollbar {
+  display: none;
+}
+.monitor-mast-nav a {
+  flex: none;
+  padding: 9px 13px 10px;
+  border-left: 1px solid var(--mon-line);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mon-dim);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.15s, background 0.15s;
+}
+.monitor-mast-nav a:first-child {
+  border-left: 0;
+  padding-left: 2px;
+}
+.monitor-mast-nav a:hover {
+  color: #eef5ff;
+  background: rgba(77, 210, 255, 0.07);
 }
 
 /* ─────────────────────────── stage + console split ─────────────────────────── */
@@ -632,30 +690,54 @@
    *narrower* field of view, so a squat stage costs zoom everywhere, not just at the
    top and bottom. */
 @media (max-width: 820px) {
-  .monitor-header {
-    gap: 10px;
-    padding: 8px 12px;
+  .monitor-mast {
+    padding: 8px 12px 0;
   }
-
-  .monitor-page .app-title-row {
-    gap: 10px;
+  .monitor-mast-top {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 10px 12px;
   }
-
-  .monitor-page .app-logo-wide {
+  .monitor-mast-logo {
     height: 22px;
   }
-
-  .monitor-title {
-    font-size: 15px;
-  }
-
-  /* The one line on this page that is pure decoration. */
-  .monitor-subtitle {
+  .monitor-mast-kicker,
+  .monitor-mast-name p {
     display: none;
   }
-
+  .monitor-mast-name h1 {
+    font-size: 20px;
+  }
+  .monitor-mast-ear {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 4px;
+    padding: 8px 10px 5px;
+  }
+  .monitor-mast-ear::before {
+    top: -7px;
+    font-size: 9px;
+  }
+  /* One line of "label figure" pairs rather than stacked cells. */
   .monitor-stat {
-    padding: 4px 9px;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+  .monitor-stat small {
+    font-size: 9.5px;
+    letter-spacing: 0.02em;
+  }
+  .monitor-stat b {
+    font-size: 15px;
+  }
+  .monitor-mast-top {
+    padding-bottom: 9px;
+  }
+  .monitor-mast-nav a {
+    padding: 8px 11px 9px;
+    font-size: 12.5px;
   }
 
   .monitor-body {
