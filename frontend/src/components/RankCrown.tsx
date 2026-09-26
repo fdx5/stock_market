@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-/* 부동산 맵 시세 순위 왕관 — the three highest-priced complexes in the region in view
+/* 부동산 맵 평당가 순위 왕관 — the three complexes with the highest price per 평 in the region in view
  * wear a gold, silver or bronze crown in the top-right corner of their tile. One drawing serves both the
  * page (SVG, with a pulsing glow, a light sweep and a twinkle in desk2/maps.css) and
  * the PNG export (drawCrown below, the same paths on a canvas). */
@@ -54,7 +54,7 @@ const METALS: Record<CrownRank, Metal> = {
   },
 };
 
-export const crownLabel = (rank: CrownRank) => `시세 ${rank}위 ${METALS[rank].label}`;
+export const crownLabel = (rank: CrownRank) => `평당가 ${rank}위 ${METALS[rank].label}`;
 
 // Five points: two outer, two inner valleys and the tall centre spire.
 const BODY = "M3.6 21.2 L2.1 9.4 L7.6 14.6 L13 5.4 L18.4 14.6 L23.9 9.4 L22.4 21.2 Z";

@@ -356,13 +356,15 @@ export default function RealEstateMapPage() {
 
   const items = responseKey === requestKey ? data?.items ?? [] : [];
 
-  /** 시세 1·2·3위 in the region in view — whichever of 시·도, 시·군·구 or 읍·면·동 the
-   * map is showing — wear a gold, silver and bronze crown. */
+  /** 평당가 1·2·3위 in the region in view — whichever of 시·도, 시·군·구 or 읍·면·동 the
+   * map is showing — wear a gold, silver and bronze crown. 평당가 is the 대표 평형's
+   * price per 3.3㎡ of 전용면적, as the popup shows it. */
   const crownRanks = useMemo(() => {
     const ranks = new Map<string, CrownRank>();
+    const perPyeong = (it: RealEstateItem) => it.price / it.area;
     [...items]
-      .filter((it) => it.price > 0)
-      .sort((a, b) => b.price - a.price || a.id.localeCompare(b.id))
+      .filter((it) => it.price > 0 && it.area > 0)
+      .sort((a, b) => perPyeong(b) - perPyeong(a) || a.id.localeCompare(b.id))
       .slice(0, 3)
       .forEach((it, i) => ranks.set(it.id, (i + 1) as CrownRank));
     return ranks;

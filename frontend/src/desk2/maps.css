@@ -489,7 +489,7 @@
   margin-bottom: 1px;
 }
 
-/* ── 시세 1·2·3위 왕관 (components/RankCrown.tsx) ─────────────────────────────
+/* ── 평당가 1·2·3위 왕관 (components/RankCrown.tsx) ─────────────────────────────
    A breathing glow in the crown's own metal, a band of light sweeping across it and a
    sparkle that twinkles; gold glows hardest, bronze least. */
 .re-crown {
