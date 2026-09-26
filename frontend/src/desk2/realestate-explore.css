@@ -149,3 +149,32 @@
 .re-map-page .re-toast { position: fixed; z-index: 1400; left: 50%; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 10px); transform: translateX(-50%); max-width: calc(100% - 32px); box-sizing: border-box; padding: 10px 16px; border-radius: 999px; background: var(--ink, #1a1a1a); color: var(--p0, #fff); font-size: 13.5px; font-weight: 600; box-shadow: 0 4px 18px #0004; pointer-events: none; animation: re-toast 2.5s ease both; }
 @keyframes re-toast { 0% { opacity: 0; transform: translate(-50%, 8px); } 8%, 85% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .re-map-page .re-toast { animation: none !important; } }
+
+/* ── The pinned complex card (RealEstateSheet) ─────────────────────────────
+   The map's `.d2.mm :is(button, select, …)` reset squares every control at
+   (0,3,1); .d2.mm.re-map-page — which the card's portal wrapper also carries —
+   gives its controls back the card's own rounded shape. */
+.d2.mm.re-map-page .re-detail-tools { gap: 6px; padding: 14px 60px 12px 14px; }
+.d2.mm.re-map-page .re-detail-tools button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 38px; padding: 0 14px; border: 1px solid var(--rule-2, #bbb); border-radius: 999px; background: var(--re-control); color: var(--ink, var(--text-primary)); font-size: 13px; font-weight: 600; white-space: nowrap; transition: background .15s, border-color .15s, color .15s; }
+.d2.mm.re-map-page .re-detail-tools button:hover { border-color: var(--ink-3, #888); background: color-mix(in srgb, var(--ink, #222) 6%, var(--re-control)); }
+.d2.mm.re-map-page .re-detail-tools button[aria-pressed="true"] { border-color: var(--re-accent); background: color-mix(in srgb, var(--re-accent) 12%, var(--re-control)); color: var(--re-accent); box-shadow: none; }
+.d2.mm.re-map-page .re-detail-tools button.re-primary { border-color: var(--re-accent); background: var(--re-accent) !important; color: #fff !important; }
+:root[data-theme="dark"] .d2.mm.re-map-page .re-detail-tools button.re-primary { background: #27665a !important; border-color: #27665a; }
+.d2.mm.re-map-page .re-detail-note { margin: -4px 14px 8px; }
+.d2.mm.re-map-page .re-sheet-close { top: 12px; right: 12px; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; border: 1px solid var(--rule-2, #bbb); border-radius: 50%; background: var(--re-control); color: var(--ink-2, var(--text-secondary)); font-size: 22px; line-height: 1; box-shadow: 0 1px 4px #0002; }
+.d2.mm.re-map-page .re-sheet-close:hover { color: var(--ink, var(--text-primary)); border-color: var(--ink-3, #888); }
+.d2.mm.re-map-page .re-sheet-mode { border-radius: 10px; }
+.d2.mm.re-map-page .re-sheet-mode button { border-radius: 0; }
+.d2.mm.re-map-page .re-sheet-select select { border-radius: 10px; }
+.d2.mm.re-map-page .re-pop-type-chip { border-radius: 999px; padding: 5px 11px; }
+.d2.mm.re-map-page .re-pop-type-chip:hover { border-color: var(--re-accent); }
+.re-evidence-badges span { border-radius: 999px; padding: 3px 10px; font-size: 12px; }
+.d2.mm.re-map-page .re-sheet-go, .d2.mm.re-map-page .re-sheet-dismiss { border-radius: 12px; }
+.d2.mm.re-map-page .re-sheet-go:hover { opacity: .9; }
+.d2.mm.re-map-page .re-sheet-dismiss:hover { border-color: var(--ink-3, #888); color: var(--ink, var(--text-primary)); }
+@media (max-width: 760px) {
+  .d2.mm.re-map-page .re-detail-tools { padding: 14px 58px 10px 14px; gap: 5px; }
+  .d2.mm.re-map-page .re-detail-tools button { flex: 1 1 auto; min-height: 40px; padding: 0 10px; font-size: 12.5px; }
+}
+/* A year heading held at the top of the scrolled card runs under the close button. */
+.re-sheet-body .re-pop-log h4 { padding-right: 52px; }
