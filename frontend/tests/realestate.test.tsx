@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
-import RealEstatePopup, { PopupContext } from "../src/components/RealEstatePopup";
+import RealEstatePopup, { PopupContext, tradeTrend } from "../src/components/RealEstatePopup";
 import RealEstateResults from "../src/components/RealEstateResults";
 import RealEstateExploreControls from "../src/components/RealEstateExploreControls";
 import { FILTER_DEFAULTS, readEstateFilters, tradeState } from "../src/components/realEstateTools";
@@ -63,4 +63,19 @@ test("malformed shared filters are sanitized", () => {
   assert.equal(filters.price_max, "");
   assert.equal(filters.area_min, "");
   assert.equal(filters.q, "test");
+});
+
+test("trade trend is a median of brokered trades and never bridges a long gap", () => {
+  assert.deepEqual(tradeTrend([[20250101, 100, 5, 0]]), []);
+  assert.equal(tradeTrend([[20250101, 100, 5, 0], [20250201, 110, 5, 0]])[0][1][1], 110, "two trades are joined as they are");
+  const runs = tradeTrend([
+    [20240105, 100, 3, 0], [20240110, 300, 9, 0], [20240115, 110, 4, 0], [20240120, 999, 1, 1],
+    [20250601, 200, 5, 0], [20250605, 210, 6, 0], [20250610, 205, 7, 0],
+  ]);
+  assert.equal(runs.length, 2);
+  assert.ok(runs[0].every(([, v]) => v === 110), "outlier and 직거래 do not move the median");
+  assert.ok(runs[1].every(([, v]) => v === 205));
+  const lone = tradeTrend([[20240101, 100, 1, 0], [20240110, 101, 1, 0], [20240120, 102, 1, 0], [20250601, 200, 1, 0]]);
+  assert.equal(lone.length, 1, "a lone trade after a gap draws no line and borrows no prices");
+  assert.ok(lone[0].every(([, v]) => v < 150));
 });

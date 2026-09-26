@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { daysSince } from "./realEstateTools";
 import { RealEstateFacts, RealEstateItem, RealEstateTradeHistory } from "../api/client";
 import { pct } from "../mapTile";
@@ -46,42 +46,109 @@ function tone(v: number | null | undefined): "up" | "down" | "flat" {
   return v > 0 ? "up" : "down";
 }
 
-/** The 대표 평형's trades over the last two years: a line through the brokered ones,
- * hollow marks for 직거래 (shown, but not what the price is taken from), a dashed rule
- * at the price the period is compared against, and the latest trade ringed. */
+const DAY = 86400000;
+
+/** The trend through a complex's trades, as runs of [time, price] to draw.
+ *
+ * One trade is one flat — its floor and view move the price as much as the market
+ * does — so joining every dot only zigzags. Each point here is instead the median of
+ * the brokered trades around it: within a window scaled to the span on screen (a
+ * month on a year's chart, up to half a year on twenty), and never fewer than the
+ * three nearest in its run (two trades are simply joined). 직거래 stay out, as they
+ * stay out of the reference price. Same-day trades are one point. A stretch with no
+ * trades breaks the line rather than being bridged, and no median reaches across it:
+ * the chart does not invent prices for months nobody traded. */
+export function tradeTrend(deals: [number, number, number, number][]): [number, number][][] {
+  const trades = deals.filter(d => !d[3]).map(d => [ymdTime(d[0]), d[1]] as const).sort((a, b) => a[0] - b[0]);
+  if (trades.length < 2) return [];
+  const span = trades[trades.length - 1][0] - trades[0][0];
+  const half = Math.min(180 * DAY, Math.max(30 * DAY, span / 16));
+  const gap = Math.max(4 * half, 120 * DAY);
+  const median = (v: number[]) => { const s = [...v].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  // Runs first, so no median ever borrows a price from the far side of a gap.
+  const groups: (readonly [number, number])[][] = [];
+  trades.forEach((d, i) => { if (!i || d[0] - trades[i - 1][0] > gap) groups.push([]); groups[groups.length - 1].push(d); });
+  return groups.map(group => {
+    const days = [...new Set(group.map(d => d[0]))];
+    // Too few trades to take a middle of: join the prices themselves.
+    if (group.length < 3) return days.map(t => [t, median(group.filter(d => d[0] === t).map(d => d[1]))] as [number, number]);
+    return days.map(t => {
+      let near = group.filter(d => Math.abs(d[0] - t) <= half);
+      if (near.length < 3) near = [...group].sort((a, b) => Math.abs(a[0] - t) - Math.abs(b[0] - t)).slice(0, 3);
+      return [t, median(near.map(d => d[1]))] as [number, number];
+    });
+  }).filter(run => run.length > 1);
+}
+
+/** A monotone cubic through the points (Fritsch–Carlson): smooth, but never bulging
+ * above or below the prices it passes through the way a plain spline would. */
+function monotonePath(p: [number, number][]): string {
+  const n = p.length;
+  const dx = p.slice(1).map((q, i) => q[0] - p[i][0]);
+  const m = p.slice(1).map((q, i) => (q[1] - p[i][1]) / (dx[i] || 1));
+  const t = p.map((_, i) => (i === 0 ? m[0] : i === n - 1 ? m[n - 2] : m[i - 1] * m[i] <= 0 ? 0 : (m[i - 1] + m[i]) / 2));
+  for (let i = 0; i < n - 1; i++) {
+    if (m[i] === 0) { t[i] = 0; t[i + 1] = 0; continue; }
+    const a = t[i] / m[i], b = t[i + 1] / m[i], h = a * a + b * b;
+    if (h > 9) { const k = 3 / Math.sqrt(h); t[i] = k * a * m[i]; t[i + 1] = k * b * m[i]; }
+  }
+  const f = (v: number) => v.toFixed(1);
+  let d = `M${f(p[0][0])},${f(p[0][1])}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i] / 3;
+    d += ` C${f(p[i][0] + h)},${f(p[i][1] + t[i] * h)} ${f(p[i + 1][0] - h)},${f(p[i + 1][1] - t[i + 1] * h)} ${f(p[i + 1][0])},${f(p[i + 1][1])}`;
+  }
+  return d;
+}
+
+/** The 대표 평형's trades: each contract a dot (hollow for 직거래, shown but not what
+ * the price is taken from), the trend of the brokered ones as a line, a dashed rule at
+ * the price the period is compared against, and the latest (or chosen) trade ringed.
+ * The SVG is drawn at its real pixel size so the dots stay round. */
 function TradeChart({ item, deals, expanded }: { item: RealEstateItem; deals?: [number, number, number, number][]; expanded: boolean }) {
   const [range, setRange] = useState("1y");
   const [point, setPoint] = useState<number | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [box, setBox] = useState<[number, number] | null>(null);
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => { const r = el.getBoundingClientRect(); if (r.width && r.height) setBox([r.width, r.height]); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const all = expanded && deals?.length ? [...deals].reverse() : item.history;
-  const cutoff = Date.now() - (range === "1y" ? 365 : 730) * 86400000;
+  const cutoff = Date.now() - (range === "1y" ? 365 : 730) * DAY;
   const filtered = expanded && range !== "all" ? all.filter(p => ymdTime(p[0]) >= cutoff) : all;
   const pts = filtered;
-  const W = 300;
-  const H = expanded ? 160 : 58;
+  const [W, H] = box ?? [300, expanded ? 160 : 58];
   const PAD = 6;
   const t0 = pts.length ? ymdTime(pts[0][0]) : 0;
   const t1 = pts.length ? ymdTime(pts[pts.length - 1][0]) : 1;
   const prices = pts.map((p) => p[1]).concat(item.base_price ? [item.base_price] : []);
   const lo = Math.min(...prices);
   const hi = Math.max(...prices);
-  const x = (d: number) => PAD + ((ymdTime(d) - t0) / Math.max(1, t1 - t0)) * (W - PAD * 2);
+  const xt = (t: number) => PAD + ((t - t0) / Math.max(1, t1 - t0)) * (W - PAD * 2);
+  const x = (d: number) => xt(ymdTime(d));
   const y = (p: number) => H - PAD - ((p - lo) / Math.max(1, hi - lo)) * (H - PAD * 2);
-  const brokered = pts.filter((p) => !p[3]);
-  const line = (brokered.length > 1 ? brokered : pts).map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ");
+  const trend = tradeTrend(pts);
   const last = pts[pts.length - 1];
   const chosen = pts.length ? pts[Math.min(point ?? pts.length - 1, pts.length - 1)] : null;
+  const r = expanded ? 3 : 2.2;
   return (
     <div className={`re-pop-chart${expanded ? " re-chart-expanded" : ""}`}>
       {expanded && <div className="re-chart-toolbar"><strong>개별 실거래 추이</strong><label>기간 <select value={range} onChange={e => { setRange(e.target.value); setPoint(null); }}><option value="1y">최근 1년</option><option value="2y">최근 2년</option><option value="all">수집된 전체</option></select></label></div>}
-      {!pts.length ? <p>선택한 기간의 거래가 없습니다. 기간을 넓혀 보세요.</p> : <><svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+      {!pts.length ? <p>선택한 기간의 거래가 없습니다. 기간을 넓혀 보세요.</p> : <><svg ref={svgRef} viewBox={`0 0 ${W} ${H}`} aria-hidden="true">
         {item.base_price && (
           <line className="re-pop-chart-base" x1={PAD} x2={W - PAD} y1={y(item.base_price)} y2={y(item.base_price)} />
         )}
-        {!expanded && <path className={`re-pop-chart-line is-${tone(item.change_pct)}`} d={line} />}
-        {pts.map((p, i) => (
-          <circle key={i} className={p[3] ? "re-pop-chart-dot is-direct" : "re-pop-chart-dot"} cx={x(p[0])} cy={y(p[1])} r={2.2} />
+        {trend.map((run, i) => (
+          <path key={i} className={`re-pop-chart-line is-${tone(item.change_pct)}`} d={monotonePath(run.map(([t, v]) => [xt(t), y(v)]))} />
         ))}
-        <circle className="re-pop-chart-last" cx={x((chosen ?? last)[0])} cy={y((chosen ?? last)[1])} r={4} />
+        {pts.map((p, i) => (
+          <circle key={i} className={p[3] ? "re-pop-chart-dot is-direct" : "re-pop-chart-dot"} cx={x(p[0])} cy={y(p[1])} r={r} />
+        ))}
+        <circle className="re-pop-chart-last" cx={x((chosen ?? last)[0])} cy={y((chosen ?? last)[1])} r={r + 2.5} />
       </svg>
       <div className="re-pop-chart-axis">
         <span>{ymdDots(pts[0][0])}</span>
@@ -89,8 +156,9 @@ function TradeChart({ item, deals, expanded }: { item: RealEstateItem; deals?: [
           {shortPrice(lo)} ~ {shortPrice(hi)}
         </span>
         <span>{ymdDots(last[0])}</span>
-      </div></>}
-      {expanded && chosen && <div className="re-chart-inspect"><label htmlFor="re-trade-point">거래 선택 · {pts.length}건</label><input id="re-trade-point" type="range" min={0} max={Math.max(0, pts.length - 1)} value={Math.min(point ?? pts.length - 1, pts.length - 1)} onChange={e => setPoint(Number(e.target.value))} aria-valuetext={`${ymdDots(chosen[0])}, ${fullPrice(chosen[1])}, ${chosen[2]}층`} /><output>{ymdDots(chosen[0])} · <b>{fullPrice(chosen[1])}</b> · {chosen[2]}층 · {chosen[3] ? "직거래" : "중개거래"}</output><small>점은 개별 계약입니다. 거래가 없는 기간은 가격을 추정하지 않습니다.</small></div>}
+      </div>
+      {expanded && <div className="re-chart-legend" aria-hidden="true"><span><i className={`is-line is-${tone(item.change_pct)}`} />추세</span><span><i className="is-dot" />중개거래</span><span><i className="is-direct" />직거래</span>{item.base_price && <span><i className="is-base" />비교 기준가</span>}</div>}</>}
+      {expanded && chosen && <div className="re-chart-inspect"><label htmlFor="re-trade-point">거래 선택 · {pts.length}건</label><input id="re-trade-point" type="range" min={0} max={Math.max(0, pts.length - 1)} value={Math.min(point ?? pts.length - 1, pts.length - 1)} onChange={e => setPoint(Number(e.target.value))} aria-valuetext={`${ymdDots(chosen[0])}, ${fullPrice(chosen[1])}, ${chosen[2]}층`} /><output>{ymdDots(chosen[0])} · <b>{fullPrice(chosen[1])}</b> · {chosen[2]}층 · {chosen[3] ? "직거래" : "중개거래"}</output><small>점은 개별 계약, 선은 주변 중개거래의 중간값으로 이은 추세입니다(직거래 제외). 거래가 끊긴 기간은 잇지 않습니다.</small></div>}
     </div>
   );
 }

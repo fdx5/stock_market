@@ -178,3 +178,15 @@
 }
 /* A year heading held at the top of the scrolled card runs under the close button. */
 .re-sheet-body .re-pop-log h4 { padding-right: 52px; }
+/* The trade chart's trend line (RealEstatePopup tradeTrend) and its key. */
+.re-pop-chart .re-pop-chart-line { stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; opacity: .9; }
+.re-pop-chart .re-pop-chart-dot { opacity: .55; }
+.re-chart-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; color: var(--ink-3, var(--text-muted)); font-size: 11px; }
+.re-chart-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.re-chart-legend i { display: inline-block; flex-shrink: 0; }
+.re-chart-legend .is-line { width: 16px; height: 2.5px; border-radius: 2px; background: var(--text-secondary); }
+.re-chart-legend .is-line.is-up { background: var(--up-color); }
+.re-chart-legend .is-line.is-down { background: var(--down-color); }
+.re-chart-legend .is-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-primary); opacity: .55; }
+.re-chart-legend .is-direct { width: 6px; height: 6px; border-radius: 50%; border: 1px solid var(--text-muted); }
+.re-chart-legend .is-base { width: 14px; border-top: 1px dashed var(--text-muted); }
