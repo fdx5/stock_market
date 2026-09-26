@@ -72,12 +72,28 @@
 .d2 .d2-bgm.d2-bgm .d2-bgm-eq b {
   position: absolute;
   inset: 0;
-  background: linear-gradient(to top, var(--ink-2) 0%, var(--ink-2) 52%, color-mix(in srgb, var(--brass) 70%, var(--ink-2)) 72%, var(--brass) 88%, var(--up) 100%);
+  background: linear-gradient(
+    to top,
+    hsl(var(--h, 40) 62% 36%) 0%,
+    hsl(calc(var(--h, 40) + 18) 78% 50%) 55%,
+    hsl(calc(var(--h, 40) + 32) 92% 62%) 85%,
+    hsl(calc(var(--h, 40) + 40) 100% 74%) 100%
+  );
   clip-path: inset(calc((1 - var(--lvl)) * 100%) 0 0 0);
   -webkit-mask: repeating-linear-gradient(to top, #000 0 2px, transparent 2px 3px);
   mask: repeating-linear-gradient(to top, #000 0 2px, transparent 2px 3px);
-  opacity: 0.55;
-  transition: opacity 0.3s;
+  opacity: 0.5;
+  filter: grayscale(0.85);
+  transition: opacity 0.3s, filter 0.4s;
+}
+:root[data-theme="dark"] .d2 .d2-bgm.d2-bgm .d2-bgm-eq b {
+  background: linear-gradient(
+    to top,
+    hsl(var(--h, 40) 70% 45%) 0%,
+    hsl(calc(var(--h, 40) + 18) 85% 58%) 55%,
+    hsl(calc(var(--h, 40) + 32) 95% 68%) 85%,
+    hsl(calc(var(--h, 40) + 40) 100% 80%) 100%
+  );
 }
 .d2 .d2-bgm.d2-bgm .d2-bgm-eq s {
   position: absolute;
@@ -85,15 +101,18 @@
   right: 0;
   bottom: 0;
   height: 2px;
-  background: var(--brass);
+  border-radius: 1px;
+  background: hsl(calc(var(--h, 40) + 40) 100% 62%);
+  box-shadow: 0 0 4px hsl(calc(var(--h, 40) + 40) 100% 60% / 0.7);
   transform: translateY(calc(var(--peak) * (2px - var(--eq-h))));
   opacity: 0;
   transition: opacity 0.3s;
 }
-.d2 .d2-bgm.is-on .d2-bgm-eq b {
+.d2 .d2-bgm.d2-bgm.is-on .d2-bgm-eq b {
   opacity: 1;
+  filter: none;
 }
-.d2 .d2-bgm.is-on .d2-bgm-eq s {
+.d2 .d2-bgm.d2-bgm.is-on .d2-bgm-eq s {
   opacity: 0.95;
 }
 
@@ -304,14 +323,18 @@
   box-shadow: 0 0 10px color-mix(in srgb, var(--brass) 28%, transparent);
 }
 
+/* Reduced motion stills the decoration (the pulse, the spinner) but not the
+   title's scroll: a name cut off mid-word with no way to read the rest is worse
+   than a slow slide the reader switched on themselves. */
 @media (prefers-reduced-motion: reduce) {
-  .d2 .d2-bgm.d2-bgm .d2-bgm-title.is-overflow span,
   .d2 .d2-bgm.is-playing .d2-bgm-state::before,
   .d2 .d2-bgm.is-loading .d2-bgm-play::after {
     animation: none;
   }
-  .d2 .d2-bgm.d2-bgm .d2-bgm-title {
-    text-overflow: ellipsis;
+  /* The desk's blanket rule (.d2 * { animation-duration: .01ms !important })
+     would turn the slide into a flicker between its two ends. */
+  .d2 .d2-bgm.d2-bgm .d2-bgm-title.is-overflow span {
+    animation-duration: var(--marquee, 8s) !important;
   }
 }
 

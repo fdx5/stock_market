@@ -70,7 +70,6 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
     const el = eqRef.current;
     if (!el) return;
     const bars = Array.from(el.children) as HTMLElement[];
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const levels = bars.map((_, i) => (on ? REST : IDLE[i]));
     const peaks = [...levels];
     const holds = levels.map(() => 0);
@@ -80,7 +79,10 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
         bar.style.setProperty("--peak", peaks[i].toFixed(3));
       });
     };
-    if (reduce || (!running && !on)) {
+    /* Not gated on prefers-reduced-motion: the meter only moves once the reader
+       has switched the music on themselves, and a player whose meter stands
+       still reads as broken — which is exactly how it was reported. */
+    if (!running && !on) {
       if (!on) IDLE.forEach((v, i) => { levels[i] = v; peaks[i] = v; });
       paint();
       return;
@@ -201,7 +203,9 @@ export default function DeskBgm({ variant = "ear" }: { variant?: "ear" | "strip"
       <div className="d2-bgm-deck">
         <div className="d2-bgm-eq" ref={eqRef} aria-hidden="true">
           {Array.from({ length: BARS }, (_, i) => (
-            <i key={i}>
+            // Each band its own hue, low to high: blue through violet and magenta
+            // to red, orange and amber — a spectrum you can read at a glance.
+            <i key={i} style={{ "--h": String(Math.round(200 + (i * 205) / (BARS - 1)) % 360) } as React.CSSProperties}>
               <b />
               <s />
             </i>
