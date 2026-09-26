@@ -262,6 +262,7 @@ export default function RealEstateMapPage() {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"map" | "table">(() => new URLSearchParams(location.search).get("view") === "table" ? "table" : "map");
   const [filters, setFilters] = useState(readEstateFilters);
+  const [crownMode, setCrownMode] = useState<"leader" | "price">(() => new URLSearchParams(location.search).get("crown") === "price" ? "price" : "leader");
   const [retry, setRetry] = useState(0);
   const [regionsError, setRegionsError] = useState(false);
   const [selectedId, setSelectedId] = useState(() => new URLSearchParams(location.search).get("complex") ?? "");
@@ -293,7 +294,7 @@ export default function RealEstateMapPage() {
 
   // The map shows the top results for the current conditions; there is no paging.
   const sidoTop = 100;
-  const requestKey = JSON.stringify([sido, sgg, dong, period, filters, sidoTop]);
+  const requestKey = JSON.stringify([sido, sgg, dong, period, filters, sidoTop, crownMode, view]);
   const [responseKey, setResponseKey] = useState("");
 
   useEffect(() => {
@@ -313,6 +314,8 @@ export default function RealEstateMapPage() {
     const load = (first: boolean) => {
       if (first) setLoading(true);
       const params = new URLSearchParams({ sido, period, limit: String(sidoTop) });
+      params.set("crown_mode", crownMode);
+      params.set("include_leaders", String(view === "map"));
       if (sgg) params.set("sgg", sgg);
       if (sgg && dong) params.set("dong", dong);
       Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
@@ -356,19 +359,15 @@ export default function RealEstateMapPage() {
 
   const items = responseKey === requestKey ? data?.items ?? [] : [];
 
-  /** 평당가 1·2·3위 in the region in view — whichever of 시·도, 시·군·구 or 읍·면·동 the
-   * map is showing — wear a gold, silver and bronze crown. 평당가 is the 대표 평형's
-   * price per 3.3㎡ of 전용면적, as the popup shows it. */
+  // Server ranks the entire region before display limits and search filters.
   const crownRanks = useMemo(() => {
     const ranks = new Map<string, CrownRank>();
-    const perPyeong = (it: RealEstateItem) => it.price / it.area;
-    [...items]
-      .filter((it) => it.price > 0 && it.area > 0)
-      .sort((a, b) => perPyeong(b) - perPyeong(a) || a.id.localeCompare(b.id))
-      .slice(0, 3)
-      .forEach((it, i) => ranks.set(it.id, (i + 1) as CrownRank));
+    items.forEach(it => {
+      const rank = crownMode === "leader" ? it.leader?.rank : it.price_rank;
+      if (rank && rank <= 3) ranks.set(it.id, rank as CrownRank);
+    });
     return ranks;
-  }, [items]);
+  }, [items, crownMode]);
 
   const zones = useMemo<Zone[]>(() => {
     if (items.length === 0 || size.w === 0 || size.h === 0) return [];
@@ -466,6 +465,7 @@ export default function RealEstateMapPage() {
     }
   };
   const [sheetItem, setSheetItem] = useState<RealEstateItem | null>(null);
+  const rankedSheetItem = useMemo(() => sheetItem ? { ...sheetItem, leader: items.find(it => it.id === sheetItem.id)?.leader ?? null } : null, [sheetItem, items]);
   const closeSheet = (restoreHistory = true) => {
     if (restoreHistory && selectedId && window.history.state?.reDetailFromMap) { window.history.back(); return; }
     setSelectedId(""); setSheetItem(null); setDetailError("");
@@ -476,6 +476,7 @@ export default function RealEstateMapPage() {
       const next = readQuery(); const q = new URLSearchParams(location.search);
       setSido(next.sido); setSgg(next.sgg); setDong(next.dong); setPeriod(next.period);
       setFilters(readEstateFilters());
+      setCrownMode(q.get("crown") === "price" ? "price" : "leader");
       setView(q.get("view") === "table" ? "table" : "map");
       setSelectedId(q.get("complex") ?? ""); setSheetItem(null); setDetailError("");
     };
@@ -487,6 +488,7 @@ export default function RealEstateMapPage() {
     const q = new URLSearchParams(location.search);
     const oldComplex = q.get("complex") ?? "";
     q.set("sido", sido); q.set("period", period);
+    if (crownMode === "price") q.set("crown", "price"); else q.delete("crown");
     if (sgg) q.set("sgg", sgg); else q.delete("sgg");
     if (sgg && dong) q.set("dong", dong); else q.delete("dong");
     if (view === "table") q.set("view", view); else q.delete("view");
@@ -502,7 +504,7 @@ export default function RealEstateMapPage() {
     }
     firstUrl.current = false;
     previousNavigation.current = JSON.stringify([sido, sgg, dong, period, view, selectedId]);
-  }, [sido, sgg, dong, period, view, filters, selectedId]);
+  }, [sido, sgg, dong, period, view, filters, selectedId, crownMode]);
   useEffect(() => {
     if (!sidoNode || (sgg && !sggNode)) return;
     try { localStorage.setItem("re_last_region", JSON.stringify({ sido, sgg, dong })); } catch { /* optional preference */ }
@@ -747,9 +749,9 @@ export default function RealEstateMapPage() {
 
   const mapExport = useMapExport({
     render: renderMapPng,
-    filePrefix: `realestate_${sgg || sido}${dong ? "_" + dong : ""}`,
+    filePrefix: `realestate_${sgg || sido}${dong ? "_" + dong : ""}_${crownMode}`,
     shareTitle: `부동산 MAP · ${levelLabel} | K-Stock Hub`,
-    shareText: `${levelLabel} 아파트 실거래가 히트맵 (${periodInfo.label})`,
+    shareText: `${levelLabel} 아파트 실거래가 히트맵 (${periodInfo.label}) · 왕관: ${crownMode === "leader" ? "지역 대표단지 종합순위" : "대표 평형 평단가 순위"}`,
   });
   const status = data?.status;
 
@@ -936,8 +938,24 @@ export default function RealEstateMapPage() {
             </div>
 
             <RealEstateExploreControls filters={filters} busy={loading} onChange={value => { setFilters(value); }} />
+            <div className="re-leader-controls">
+              <label>왕관 기준 <select aria-label="왕관 기준" value={crownMode} onChange={e => setCrownMode(e.target.value as "leader" | "price")}>
+                <option value="leader">지역 대표단지 종합순위</option><option value="price">대표 평형 평단가 순위</option>
+              </select></label>
+              <span>{loading ? "순위 계산 중…" : `지역 전체 ${data?.ranking?.region_count ?? 0}곳 중 종합평가 가능 ${data?.ranking?.eligible_count ?? 0}곳`}</span>
+              <details><summary>왕관 선정 기준</summary>
+                <p>선택 지역 전체를 평가한 뒤 1·2·3위에 왕관을 표시합니다. 검색·표시 개수·등락 조회 기간이 바뀌어도 지역 순위는 유지되며, 조건에서 제외된 순위를 다른 단지로 채우지 않습니다.</p>
+                <p>종합점수 = (가격 우위 × 40 + 상위권 지속성 × 25 + 거래 수요 × 20) ÷ 85. 입지·학군·세대수 자료는 점수에 포함하지 않은 실거래 기반 1차 모델입니다.</p>
+                <p>전용면적 5㎡ 간격의 비슷한 평형끼리 비교합니다. 최근 6개월 중개거래 3건 이상, 부족하면 12개월로 확장합니다. 최근 6개월 거래가 없거나 비교 단지가 3곳 미만이면 평가하지 않습니다. 취소·직거래는 제외합니다.</p>
+                <p>가격은 표본 전체의 ㎡당 가격 중앙값, 지속성은 과거 완료된 8분기 중 비교 가능한 분기의 가격 백분위 평균입니다. 분기당 2건 이상, 비교 가능 2분기 이상이 필요합니다. 평형군별 점수를 동일 비중으로 평균합니다.</p>
+                <p>소수 평형군의 1위가 과대평가되지 않도록 가격 백분위는 50 + (백분위 − 50) × 비교 단지 수 ÷ (비교 단지 수 + 10)으로 보정합니다. 신뢰도 높음은 모든 평가 평형군이 6개월 5건 이상·과거 4분기 이상·현재 비교 단지 10곳 이상일 때 표시합니다.</p>
+                <p>거래 수요는 1년간 거래가 발생한 월수(75%, 12개월 상한)와 거래 건수(25%, 12건 상한)입니다. 자료가 부족하면 왕관이 3개보다 적거나 없을 수 있습니다. 신규 입주·희소 단지는 과거 자료 부족으로 빠질 수 있습니다.</p>
+                <p>평단가 모드는 단지의 기본 대표 평형 가격 ÷ 전용면적 기준이며, 면적 필터로 표시 평형을 바꿔도 순위는 유지됩니다. 기준일 {data?.ranking?.as_of ?? "—"}. {status?.collecting ? "지역 자료 수집 중인 잠정 순위입니다." : "수집된 실거래 자료 기준입니다."}</p>
+              </details>
+            </div>
             <div className="re-results-summary" aria-live="polite" aria-busy={loading}>
               {loading ? "실거래 자료를 조회하고 있습니다…" : `${data?.matched_count?.toLocaleString() ?? 0}개 검색 결과 · 현재 ${items.length}개 표시`}
+              {!!data?.ranking?.pinned_count && <small>지역 왕관 단지 {data.ranking.pinned_count}곳 추가 표시</small>}
               {data?.generated_at && <small>자료 생성 {new Date(data.generated_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</small>}
             </div>
             {!loading && !items.length && !error && <div className="re-explore-empty"><strong>{status?.collecting ? "이 지역의 자료를 수집하고 있습니다" : "현재 조건에 맞는 단지가 없습니다"}</strong><p>검색 지역을 넓히거나 가격·면적 조건을 줄여 보세요. 미수집 자료는 결과에 포함되지 않습니다.</p><button type="button" onClick={() => { setFilters({ ...FILTER_DEFAULTS }); }}>조건 초기화</button>{sgg && <button type="button" onClick={() => { setSgg(""); setDong(""); }}>시·도 전체 검색</button>}</div>}
@@ -1034,7 +1052,7 @@ export default function RealEstateMapPage() {
                           <button
                             key={tile.id}
                             type="button"
-                            aria-label={`${rank ? crownLabel(rank) + ", " : ""}${it.name}, 전용 ${it.area}제곱미터, ${fullPrice(it.price)}, ${tradeState(it)}. 상세 보기`}
+                            aria-label={`${rank ? crownLabel(rank, crownMode) + ", " : ""}${it.name}, 전용 ${it.area}제곱미터, ${fullPrice(it.price)}, ${tradeState(it)}. 상세 보기`}
                             className={`kospi-map-tile${idle ? " re-map-tile--idle" : ""}${rank && layout.crownSize ? ` re-map-tile--ranked re-map-tile--rank-${rank}` : ""}`}
                             style={{
                               left: tile.x - zone.rect.x,
@@ -1079,7 +1097,7 @@ export default function RealEstateMapPage() {
                                 </span>
                               </>
                             )}
-                            {rank && layout.crownSize > 0 && <RankCrown rank={rank} size={layout.crownSize} className="re-map-tile-crown" />}
+                            {rank && layout.crownSize > 0 && <RankCrown rank={rank} size={layout.crownSize} mode={crownMode} className="re-map-tile-crown" />}
                             {showPctOnly && (
                               <span className="kospi-map-tile-pct" style={{ fontSize: layout.pctSize }}>
                                 {it.change_pct === null ? "—" : pct(it.change_pct)}
@@ -1103,7 +1121,7 @@ export default function RealEstateMapPage() {
         {sheetItem && (
           <RealEstateSheet
             key={sheetItem.id}
-            item={sheetItem}
+            item={rankedSheetItem!}
             ctx={popupContext(sheetItem)}
             period={period}
             goLabel={drillLabel(sheetItem)}

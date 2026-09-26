@@ -3,6 +3,7 @@ import { daysSince } from "./realEstateTools";
 import { RealEstateFacts, RealEstateItem, RealEstateTradeHistory } from "../api/client";
 import { pct } from "../mapTile";
 import AptBrandIcon, { brandLabel } from "./AptBrandIcon";
+import RealEstateLeaderEvidence from "./RealEstateLeaderEvidence";
 
 /* The 부동산 맵's hover card: everything a reader wants to know about one complex
  * before deciding whether to look further — its price and move, where that price sits
@@ -364,6 +365,7 @@ export default function RealEstatePopup({
         </div>
       </header>
 
+      <RealEstateLeaderEvidence item={item} />
       {selector}
 
       {modeSwitch}

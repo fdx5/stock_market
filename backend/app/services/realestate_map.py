@@ -46,7 +46,7 @@ from zoneinfo import ZoneInfo
 import requests
 from dotenv import load_dotenv
 
-from app.services import realestate_store
+from app.services import realestate_store, realestate_leaders
 
 load_dotenv()
 log = logging.getLogger(__name__)
@@ -1026,34 +1026,17 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
     rows = []
     filters_active = filters is not None
     f = filters or {}
+    leaders = realestate_leaders.evaluate(complexes, today)
     query = re.sub(r"\s+", "", f.get("q", "")).casefold()
     for c in complexes.values():
-        if query and query not in re.sub(r"\s+", "", f'{index[c["lawd"]]["name"]}{c["dong"]}{c["name"]}').casefold():
-            continue
-        if f.get("built_min") and (not c["built"] or c["built"] < f["built_min"]):
-            continue
         recent = {t: [x for x in trades if x[0] >= year_ago] for t, trades in c["types"].items()}
         recent = {t: v for t, v in recent.items() if v}
         if not recent and (level == "dong" or query):
             recent = {t: v for t, v in c["types"].items() if v}
         if not recent:
             continue
-        if f.get("area_min") is not None or f.get("area_max") is not None:
-            recent = {t: v for t, v in recent.items() if
-                      (f.get("area_min") is None or sum(x[3] for x in v) / len(v) >= f["area_min"]) and
-                      (f.get("area_max") is None or sum(x[3] for x in v) / len(v) <= f["area_max"])}
-        if not recent:
-            continue
         rep = max(recent, key=lambda t: (len(recent[t]), t))
         selected_view = _type_view(c["types"][rep], window_start, year_ago)
-        if f.get("price_min") is not None and selected_view["price"] < f["price_min"]:
-            continue
-        if f.get("price_max") is not None and selected_view["price"] > f["price_max"]:
-            continue
-        if selected_view["trades"] < f.get("min_trades", 0):
-            continue
-        if f.get("recent_days") and (today - dt.date.fromisoformat(selected_view["deal_date"])).days > f["recent_days"]:
-            continue
         rows.append(
             {
                 "id": c["id"],
@@ -1064,17 +1047,57 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
                 "dong": c["dong"],
                 "built": c["built"] or None,
                 "trades_all": sum(1 for t in c["types"].values() for x in t if window_start and x[0] >= window_start),
+                "leader": leaders.get(c["id"]),
                 **selected_view,
                 **_detail(c, rep, year_ago),
             }
         )
 
+    # Rank the whole region before search, price/area filters and display limits.
+    priced = sorted((r for r in rows if r["area"] > 0 and r["price"] > 0 and (r["trades_1y"] > 0 or level == "dong")),
+                    key=lambda r: (-r["price"] / r["area"], r["id"]))
+    for rank, row in enumerate(priced, 1):
+        row["price_rank"] = rank
+    ranked_count = len(leaders)
+    region_count = len(priced)
+    filtered = []
+    for row in rows:
+        if query and query not in re.sub(r"\s+", "", f'{row["sgg"]}{row["dong"]}{row["name"]}').casefold():
+            continue
+        if f.get("built_min") and (not row["built"] or row["built"] < f["built_min"]):
+            continue
+        if f.get("area_min") is not None or f.get("area_max") is not None:
+            c = complexes[row["id"]]
+            recent = {t: [x for x in trades if x[0] >= year_ago] for t, trades in c["types"].items()}
+            recent = {t: v for t, v in recent.items() if v}
+            if not recent and (level == "dong" or query):
+                recent = {t: v for t, v in c["types"].items() if v}
+            recent = {t: v for t, v in recent.items() if
+                      (f.get("area_min") is None or sum(x[3] for x in v) / len(v) >= f["area_min"]) and
+                      (f.get("area_max") is None or sum(x[3] for x in v) / len(v) <= f["area_max"])}
+            if not recent:
+                continue
+            rep = max(recent, key=lambda t: (len(recent[t]), t))
+            row = {**row, **_type_view(c["types"][rep], window_start, year_ago), **_detail(c, rep, year_ago)}
+        if f.get("price_min") is not None and row["price"] < f["price_min"]:
+            continue
+        if f.get("price_max") is not None and row["price"] > f["price_max"]:
+            continue
+        if row["trades"] < f.get("min_trades", 0):
+            continue
+        if f.get("recent_days") and (today - dt.date.fromisoformat(row["deal_date"])).days > f["recent_days"]:
+            continue
+        filtered.append(row)
+    rows = filtered
     sort = f.get("sort", "price_desc")
     sort_key = {"price_asc": "price", "price_desc": "price", "change_desc": "change_pct", "trades_desc": "trades", "date_desc": "deal_date", "name": "name"}.get(sort, "price")
     rows.sort(key=lambda r: (r[sort_key] is None, -(r[sort_key] or 0) if sort_key in ("price", "change_pct", "trades") and sort != "price_asc" else r[sort_key] or ""))
     if sort == "date_desc":
         rows.sort(key=lambda r: r["deal_date"], reverse=True)
     matched_count = len(rows)
+    crown_mode = f.get("crown_mode", "leader")
+    crown_key = lambda r: (r.get("leader") or {}).get("rank", 999999) if crown_mode == "leader" else r.get("price_rank", 999999)
+    winners = [r for r in rows if crown_key(r) <= 3]
     offset = f.get("offset", 0)
     top_n = _sido_top(top) if level == "sido" else TOP_N[level]
     if filters_active:
@@ -1084,6 +1107,14 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         rows = _with_floor(rows, top_n)
     elif top_n:
         rows = rows[:top_n]
+    # Explicit opt-in on explore preserves normal pagination and sorting.
+    pinned_count = 0
+    if not filters_active or (f.get("include_leaders") and not offset):
+        visible = {r["id"] for r in rows}
+        for winner in winners:
+            if winner["id"] not in visible:
+                rows.append(winner)
+                pinned_count += 1
     for r in rows:
         r["group"] = r["sgg"] if level == "sido" else (r["dong"] or dong or "기타")
 
@@ -1094,6 +1125,9 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         "top_n": top_n,
         "group_floor": SGG_FLOOR if level == "sido" and not filters_active else None,
         "matched_count": matched_count,
+        "ranking": {"model": realestate_leaders.MODEL, "as_of": today.isoformat(),
+                    "eligible_count": ranked_count, "region_count": region_count,
+                    "mode": crown_mode, "pinned_count": pinned_count},
         "offset": offset,
         "latest_deal_date": _ymd(latest_day).isoformat() if latest_day else None,
         "window_start": _ymd(window_start).isoformat() if window_start else None,
@@ -1258,7 +1292,7 @@ _rebuild_started = False
 
 def _store_key(key: tuple) -> str:
     sido, _, _, period, top = key
-    return f"v2:sido:{sido}:{period}:{top}"
+    return f"v3:sido:{sido}:{period}:{top}"
 
 
 def _body(result: dict) -> str:

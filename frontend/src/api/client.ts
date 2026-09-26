@@ -1069,6 +1069,13 @@ export interface RealEstatePriceEvidence {
 }
 
 export interface RealEstateItem extends RealEstatePriceEvidence {
+  price_rank?: number;
+  leader?: {
+    rank: number; score: number; price_score: number; persistence_score: number; demand_score: number;
+    confidence: "high" | "limited";
+    bands: { band: number; sample_count: number; window_months: number; active_months: number;
+      annual_count: number; quarters: number; top_quarters: number; peers: number }[];
+  } | null;
   id: string;
   sgg_code?: string;
   name: string;
@@ -1199,6 +1206,8 @@ export interface RealEstateTrade {
 }
 
 export interface RealEstateMapResponse {
+  ranking?: { model: string; as_of: string; eligible_count: number; region_count: number;
+    mode: "leader" | "price"; pinned_count: number };
   matched_count?: number;
   offset?: number;
   generated_at: string;

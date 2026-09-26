@@ -67,6 +67,8 @@ def realestate_explore(
     sort: str = Query("price_desc", pattern=r"^(price_desc|price_asc|change_desc|trades_desc|date_desc|name)$"),
     offset: int = Query(0, ge=0, le=100000),
     limit: int = Query(100, ge=1, le=200),
+    crown_mode: str = Query("leader", pattern=r"^(leader|price)$"),
+    include_leaders: bool = Query(False),
 ):
     """Filter all collected complexes in the region before sorting and pagination."""
     if price_min is not None and price_max is not None and price_min > price_max:
@@ -81,6 +83,7 @@ def realestate_explore(
             "area_min": area_min, "area_max": area_max, "built_min": built_min,
             "min_trades": min_trades, "recent_days": recent_days, "sort": sort,
             "offset": offset, "limit": limit,
+            "crown_mode": crown_mode, "include_leaders": include_leaders,
         })
         return Response(content=body, media_type="application/json", headers={"Cache-Control": "no-store"})
     except ValueError as exc:

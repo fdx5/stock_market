@@ -6,6 +6,7 @@ import RealEstateResults from "../src/components/RealEstateResults";
 import RealEstateExploreControls from "../src/components/RealEstateExploreControls";
 import { FILTER_DEFAULTS, readEstateFilters, tradeState } from "../src/components/realEstateTools";
 import { RealEstateItem } from "../src/api/client";
+import RankCrown, { crownLabel } from "../src/components/RankCrown";
 
 const item: RealEstateItem = {
   id: "11680:test", name: "검증 아파트", sgg: "강남구", dong: "대치동", group: "대치동", brand: null,
@@ -15,6 +16,18 @@ const item: RealEstateItem = {
   type_trades_1y: 72, price_sample_count: 1, price_basis: "brokered",
 };
 const ctx: PopupContext = { periodLabel: "3개월", regionLabel: "강남구", regionRank: 1, regionCount: 10, groupRank: 1, groupCount: 2, share: 10, clickHint: null };
+
+test("crowns describe the selected ranking and details explain score evidence", () => {
+  assert.match(crownLabel(1), /지역 대표단지 1위/);
+  assert.match(renderToStaticMarkup(<RankCrown rank={2} size={20} mode="price" />), /대표 평형 평당가 2위/);
+  const leader: NonNullable<RealEstateItem["leader"]> = { rank: 1, score: 95, price_score: 100, persistence_score: 90, demand_score: 85,
+    confidence: "limited", bands: [{ band: 85, sample_count: 3, window_months: 12, active_months: 3, annual_count: 3, quarters: 2, top_quarters: 1, peers: 5 }] };
+  const html = renderToStaticMarkup(<RealEstatePopup item={{ ...item, leader }} ctx={ctx} />);
+  assert.match(html, /지역 대표단지 1위/);
+  assert.match(html, /제한적/);
+  assert.match(html, /최근 12개월 3건/);
+  assert.match(html, /입지·학군·세대수·재건축 기대는 미반영/);
+});
 
 test("a trade without a baseline is never called no trades", () => {
   assert.equal(tradeState(item), "비교 기준 부족");

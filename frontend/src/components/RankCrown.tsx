@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-/* 부동산 맵 평당가 순위 왕관 — the three complexes with the highest price per 평 in the region in view
+/* 부동산 맵 지역 순위 왕관 — server-ranked leaders (or the optional price-per-area ranking)
  * wear a gold, silver or bronze crown in the top-right corner of their tile. One drawing serves both the
  * page (SVG, with a pulsing glow, a light sweep and a twinkle in desk2/maps.css) and
  * the PNG export (drawCrown below, the same paths on a canvas). */
@@ -54,7 +54,7 @@ const METALS: Record<CrownRank, Metal> = {
   },
 };
 
-export const crownLabel = (rank: CrownRank) => `평당가 ${rank}위 ${METALS[rank].label}`;
+export const crownLabel = (rank: CrownRank, mode: "leader" | "price" = "leader") => `${mode === "leader" ? "지역 대표단지" : "대표 평형 평당가"} ${rank}위 ${METALS[rank].label}`;
 
 // Five points: two outer, two inner valleys and the tall centre spire.
 const BODY = "M3.6 21.2 L2.1 9.4 L7.6 14.6 L13 5.4 L18.4 14.6 L23.9 9.4 L22.4 21.2 Z";
@@ -75,7 +75,7 @@ const GEM = "M13 20.9 L15 22.8 L13 24.7 L11 22.8 Z";
 // Side gem centres on the band.
 const SIDE_X = [7.4, 18.6];
 
-export default function RankCrown({ rank, size, className }: { rank: CrownRank; size: number; className?: string }) {
+export default function RankCrown({ rank, size, className, mode = "leader" }: { rank: CrownRank; size: number; className?: string; mode?: "leader" | "price" }) {
   const uid = useId().replace(/:/g, "");
   const m = METALS[rank];
   const id = (name: string) => `crown-${uid}-${name}`;
@@ -87,10 +87,10 @@ export default function RankCrown({ rank, size, className }: { rank: CrownRank; 
       height={size}
       viewBox={`0 0 ${CROWN_VIEW_W} ${CROWN_VIEW_H}`}
       role="img"
-      aria-label={crownLabel(rank)}
+      aria-label={crownLabel(rank, mode)}
       style={{ ["--crown-glow" as string]: m.glow }}
     >
-      <title>{crownLabel(rank)}</title>
+      <title>{crownLabel(rank, mode)}</title>
       <defs>
         <linearGradient id={id("body")} x1="0" y1="0" x2="0.35" y2="1">
           <stop offset="0" stopColor={m.body[0]} />
