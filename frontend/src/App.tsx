@@ -111,6 +111,7 @@ const MonitorPage = lazy(() => import("./components/MonitorPage"));
 // beside, and self-hides on any allowed route without enough gutter room for
 // it — see RecentStocksDock.tsx.
 const RecentStocksDock = lazy(() => import("./components/RecentStocksDock"));
+const DeskBgmFloat = lazy(() => import("./desk2/DeskBgmFloat"));
 
 /** The one handling old /dashboard traffic gets: straight to the desk, query
  * string carried along as-is (?code=/&name= are exactly what MarketDeskPage
@@ -220,6 +221,15 @@ const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = 
 // full-bleed 3D pages. Deliberately an explicit allowlist rather than "every
 // page with an .app column": that would also cover the map pages, /battle,
 // /ai-prediction/grading and friends, none of which were asked for.
+const BGM_FLOAT_PATHS = new Set([
+  "/discussion-explorer",
+  "/market-bubbles",
+  "/market-bubbles2",
+  "/kospi-orbit",
+  "/kosdaq-orbit",
+  "/nasdaq100-orbit",
+  "/sp500-orbit",
+]);
 const RECENT_DOCK_PATHS = new Set([
   "/desk", "/desk2", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
   "/ai-prediction", "/global-top100", "/fight", "/news",
@@ -431,6 +441,8 @@ export default function App() {
   // A stock detail page records the visit for use elsewhere, but must not render
   // the desk's rail itself (regardless of viewport size or navigation history).
   const showRecentDock = RECENT_DOCK_PATHS.has(path);
+  // The desk's music carries on into these full-screen pages (see DeskBgmFloat).
+  const showBgmFloat = BGM_FLOAT_PATHS.has(path);
 
   // The fallback stays silent for its first 2.5s (see LoadingState): a cached route
   // chunk resolves in milliseconds, and the old fallback made every navigation flash a
@@ -441,6 +453,11 @@ export default function App() {
       <VoltarisIngressLink path={path} />
       <HeaderVisitorBadge path={path} />
       <HeaderBookmark path={path} />
+      {showBgmFloat && (
+        <Suspense fallback={null}>
+          <DeskBgmFloat />
+        </Suspense>
+      )}
       {showRecentDock && (
         <Suspense fallback={null}>
           <RecentStocksDock />

@@ -281,6 +281,7 @@ const SITE_NAV: { to: string; ko: string; en: string; tag?: string }[] = [
   { to: "/market-brief", ko: "오늘 브리핑", en: "Daily brief" },
   { to: "/discussion-explorer?code=005930&name=삼성전자&market=KR&asset=STOCK", ko: "종목토론", en: "Discussions" },
   { to: "/market-bubbles", ko: "증시버블", en: "Bubbles" },
+  { to: "/kospi-orbit", ko: "증시궤도", en: "Market orbit" },
   { to: "/kospi-100", ko: "TOP100", en: "TOP 100" },
   { to: "/ai-prediction", ko: "AI예측", en: "AI forecast" },
   { to: "/global-top100", ko: "글로벌시총", en: "Global caps" },

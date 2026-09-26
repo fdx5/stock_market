@@ -424,3 +424,57 @@
     display: none;
   }
 }
+
+/* ── the floating player on the non-broadsheet pages (DeskBgmFloat) ───────────
+   Those pages do not load the desk's tokens (they hang off :root.is-desk2), so
+   the wrapper carries its own night palette; and `.d2`'s page-box rules
+   (min-height: 100vh, a background, a container) are undone for a small card. */
+.d2.d2-bgm-float {
+  --ink: #ece6d6;
+  --ink-2: #bdb6a4;
+  --ink-3: #8a8475;
+  --p0: #0f0f0d;
+  --rule-2: rgba(236, 230, 214, 0.22);
+  --rule-ink: #ece6d6;
+  --brass: #d6a445;
+  --up: #f0654f;
+  --f-sans: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --f-mono: "IBM Plex Sans Condensed", "Pretendard Variable", Pretendard, system-ui, sans-serif;
+  position: fixed;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 1200;
+  width: min(420px, calc(100vw - 24px));
+  min-height: 0;
+  height: auto;
+  margin: 0;
+  padding: 0 !important;
+  container-type: normal;
+  background: none;
+  color: var(--ink);
+  font-size: 14px;
+}
+.d2.d2-bgm-float .d2-bgm.d2-bgm.d2-bgm--strip {
+  display: grid;
+  margin: 0;
+  background: rgba(15, 15, 13, 0.9);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border-color: color-mix(in srgb, var(--brass) 55%, rgba(236, 230, 214, 0.22));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.d2.d2-bgm-float .d2-bgm.d2-bgm.d2-bgm--strip .d2-bgm-eq b {
+  background: linear-gradient(
+    to top,
+    hsl(var(--h, 40) 70% 45%) 0%,
+    hsl(calc(var(--h, 40) + 18) 85% 58%) 55%,
+    hsl(calc(var(--h, 40) + 32) 95% 68%) 85%,
+    hsl(calc(var(--h, 40) + 40) 100% 80%) 100%
+  );
+}
+@media (max-width: 760px) {
+  .d2.d2-bgm-float {
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
