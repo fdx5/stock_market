@@ -229,6 +229,12 @@ const BGM_FLOAT_PATHS = new Set([
   "/kosdaq-orbit",
   "/nasdaq100-orbit",
   "/sp500-orbit",
+  "/admin",
+  "/admin/dashboard",
+  "/admin/monitor",
+  "/admin/growth",
+  "/admin/live",
+  "/admin/db",
 ]);
 const RECENT_DOCK_PATHS = new Set([
   "/desk", "/desk2", "/global", "/etf", "/kospi-100", "/kosdaq-100", "/nasdaq-100",
