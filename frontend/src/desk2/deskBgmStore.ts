@@ -282,8 +282,34 @@ export function getDeskBgmTime(): number | null {
    before the next mounts. */
 let mounted = 0;
 let leaveTimer: number | undefined;
+/* Phones stop a YouTube frame's sound when the browser goes to the background —
+   YouTube keeps background play for its own app, and nothing a page does can
+   hold it. What the page can do is pick the song back up when the reader
+   returns: if the music was on and playing as the page went out of sight, it is
+   asked to play again the moment the page is visible. iOS may still want a tap
+   for that (it is not inside one), in which case the watchdog turns the ear to
+   "▶ 탭하여 재생" and one tap carries on from where it stopped. */
+let resumeOnReturn = false;
+let visibilityListening = false;
+function onVisibility() {
+  if (document.visibilityState === "hidden") {
+    resumeOnReturn = state.on && state.playing;
+    return;
+  }
+  if (!resumeOnReturn) return;
+  resumeOnReturn = false;
+  if (!state.on || !player || !ready) return;
+  set({ playing: true, loading: true, blocked: false });
+  player.playVideo();
+  armWatchdog();
+}
+
 let warmListening = false;
 export function attachDeskBgm(): () => void {
+  if (!visibilityListening) {
+    visibilityListening = true;
+    document.addEventListener("visibilitychange", onVisibility);
+  }
   mounted += 1;
   window.clearTimeout(leaveTimer);
   /* On a touch screen the player must already be built when the reader taps ON,
