@@ -145,3 +145,7 @@
 @media (prefers-reduced-motion: reduce) {
   .re-map-page *, .re-map-page *::before, .re-map-page *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+/* Compare notices float above the tray and the open card instead of shifting them. */
+.re-map-page .re-toast { position: fixed; z-index: 1400; left: 50%; bottom: calc(max(12px, env(safe-area-inset-bottom)) + 10px); transform: translateX(-50%); max-width: calc(100% - 32px); box-sizing: border-box; padding: 10px 16px; border-radius: 999px; background: var(--ink, #1a1a1a); color: var(--p0, #fff); font-size: 13.5px; font-weight: 600; box-shadow: 0 4px 18px #0004; pointer-events: none; animation: re-toast 2.5s ease both; }
+@keyframes re-toast { 0% { opacity: 0; transform: translate(-50%, 8px); } 8%, 85% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .re-map-page .re-toast { animation: none !important; } }

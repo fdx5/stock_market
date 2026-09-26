@@ -490,6 +490,13 @@ export default function RealEstateMapPage() {
     if (compare.length >= 3) { setNotice("비교는 최대 3개까지 가능합니다. 기존 단지를 제외한 뒤 추가해 주세요."); return; }
     setCompare([...compare, item]); setNotice(`${item.name}을 비교에 추가했습니다.`);
   };
+  // The compare notice is a passing toast: it floats, so it never pushes the page
+  // or the open card around, and it leaves on its own.
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 2500);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
 
   /** Where a click on this complex leads, as a button label — null at 동 level. */
   const drillLabel = (item: RealEstateItem): string | null =>
@@ -763,7 +770,7 @@ export default function RealEstateMapPage() {
           {saved.length ? <div className="re-saved-list">{saved.map(item => <div key={item.id}><button type="button" onClick={() => openItem(item)}>{item.name}<small>{item.sgg} {item.dong} · 전용 {item.area}㎡</small></button><button type="button" aria-label={`${item.name} 관심 해제`} onClick={() => toggleSaved(item)}>해제</button></div>)}</div> : <p>단지 상세나 목록에서 ☆ 관심을 눌러 다시 찾을 단지를 저장하세요.</p>}
           {storageError && <p role="status">{storageError}</p>}
         </details>
-        {(notice || detailError) && <div className="re-feedback" role="status">{detailError || notice}{detailError && <><button type="button" onClick={() => setRetry(x => x + 1)}>다시 시도</button><button type="button" onClick={() => closeSheet()}>닫기</button></>}</div>}
+        {detailError && <div className="re-feedback" role="status">{detailError}{detailError && <><button type="button" onClick={() => setRetry(x => x + 1)}>다시 시도</button><button type="button" onClick={() => closeSheet()}>닫기</button></>}</div>}
         {selectedId && !sheetItem && !detailError && <p role="status">단지 상세를 불러오는 중… <button type="button" onClick={() => closeSheet()}>취소</button></p>}
 
         <div className={`kospi-map-workspace${view === "table" ? " is-table" : ""}`}>
@@ -1067,7 +1074,7 @@ export default function RealEstateMapPage() {
             onCompare={toggleCompare}
             compareCount={compare.length}
             onOpenCompare={() => { closeSheet(); setCompareOpen(true); }}
-            feedback={notice || storageError}
+            feedback={storageError}
           />
         )}
         {hovered && !touchUi && !sheetItem && (
@@ -1080,6 +1087,7 @@ export default function RealEstateMapPage() {
             <RealEstatePopup item={hovered} ctx={popupContext(hovered)} />
           </FloatingTip>
         )}
+        {notice && <div className="re-toast" role="status" key={notice}>{notice}</div>}
         {compare.length > 0 && <div className="re-compare-tray" aria-label="비교할 단지"><span>{compare.length} / 3 선택</span><div>{compare.map(item => <button type="button" key={item.id} aria-label={`${item.name} 비교 제외`} onClick={() => setCompare(compare.filter(x => x.id !== item.id))}>{item.name} ×</button>)}</div><button type="button" className="re-primary" onClick={() => setCompareOpen(true)}>비교하기</button></div>}
         {compareOpen && compare.length > 0 && <RealEstateCompare items={compare} period={period} onClose={() => setCompareOpen(false)} onRemove={id => { setCompare(compare.filter(x => x.id !== id)); if (compare.length === 1) setCompareOpen(false); }} />}
         <MapPreviewModal exp={mapExport} />
