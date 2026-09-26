@@ -244,7 +244,6 @@ export default function RealEstateMapPage() {
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<"map" | "table">(() => new URLSearchParams(location.search).get("view") === "table" ? "table" : "map");
   const [filters, setFilters] = useState(readEstateFilters);
-  const [page, setPage] = useState(() => Math.max(0, Number(new URLSearchParams(location.search).get("page")) || 0));
   const [retry, setRetry] = useState(0);
   const [regionsError, setRegionsError] = useState(false);
   const [selectedId, setSelectedId] = useState(() => new URLSearchParams(location.search).get("complex") ?? "");
@@ -274,9 +273,9 @@ export default function RealEstateMapPage() {
   const sggOptions = useMemo(() => [...(sidoNode?.sgg ?? [])].sort((a, b) => byName(a.name, b.name)), [sidoNode]);
   const dongOptions = useMemo(() => [...(sggNode?.dongs ?? [])].sort(byName), [sggNode]);
 
-  // A stable page size preserves the same result page when a tablet rotates.
+  // The map shows the top results for the current conditions; there is no paging.
   const sidoTop = 100;
-  const requestKey = JSON.stringify([sido, sgg, dong, period, filters, page, sidoTop]);
+  const requestKey = JSON.stringify([sido, sgg, dong, period, filters, sidoTop]);
   const [responseKey, setResponseKey] = useState("");
 
   useEffect(() => {
@@ -295,7 +294,7 @@ export default function RealEstateMapPage() {
     }
     const load = (first: boolean) => {
       if (first) setLoading(true);
-      const params = new URLSearchParams({ sido, period, offset: String(page * sidoTop), limit: String(sidoTop) });
+      const params = new URLSearchParams({ sido, period, limit: String(sidoTop) });
       if (sgg) params.set("sgg", sgg);
       if (sgg && dong) params.set("dong", dong);
       Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
@@ -444,7 +443,7 @@ export default function RealEstateMapPage() {
       restoring.current = true;
       const next = readQuery(); const q = new URLSearchParams(location.search);
       setSido(next.sido); setSgg(next.sgg); setDong(next.dong); setPeriod(next.period);
-      setFilters(readEstateFilters()); setPage(Math.max(0, Number(q.get("page")) || 0));
+      setFilters(readEstateFilters());
       setView(q.get("view") === "table" ? "table" : "map");
       setSelectedId(q.get("complex") ?? ""); setSheetItem(null); setDetailError("");
     };
@@ -452,26 +451,26 @@ export default function RealEstateMapPage() {
     return () => window.removeEventListener("popstate", pop);
   }, []);
   useEffect(() => {
-    if (restoring.current) { restoring.current = false; previousNavigation.current = JSON.stringify([sido, sgg, dong, period, view, page, selectedId]); return; }
+    if (restoring.current) { restoring.current = false; previousNavigation.current = JSON.stringify([sido, sgg, dong, period, view, selectedId]); return; }
     const q = new URLSearchParams(location.search);
     const oldComplex = q.get("complex") ?? "";
     q.set("sido", sido); q.set("period", period);
     if (sgg) q.set("sgg", sgg); else q.delete("sgg");
     if (sgg && dong) q.set("dong", dong); else q.delete("dong");
     if (view === "table") q.set("view", view); else q.delete("view");
-    if (page) q.set("page", String(page)); else q.delete("page");
+    q.delete("page");
     Object.entries(filters).forEach(([key, value]) => { if (value && value !== FILTER_DEFAULTS[key as keyof typeof filters]) q.set(key, value); else q.delete(key); });
     if (selectedId) q.set("complex", selectedId); else q.delete("complex");
     if (oldComplex !== selectedId) { q.delete("area"); q.delete("mode"); }
     const url = `${location.pathname}?${q}`;
     if (url !== `${location.pathname}${location.search}`) {
       const state = { ...window.history.state, reDetailFromMap: !!selectedId && (!oldComplex || !!window.history.state?.reDetailFromMap) };
-      if (firstUrl.current || (oldComplex && !selectedId) || previousNavigation.current === JSON.stringify([sido, sgg, dong, period, view, page, selectedId])) window.history.replaceState(state, "", url);
+      if (firstUrl.current || (oldComplex && !selectedId) || previousNavigation.current === JSON.stringify([sido, sgg, dong, period, view, selectedId])) window.history.replaceState(state, "", url);
       else window.history.pushState(state, "", url);
     }
     firstUrl.current = false;
-    previousNavigation.current = JSON.stringify([sido, sgg, dong, period, view, page, selectedId]);
-  }, [sido, sgg, dong, period, view, filters, page, selectedId]);
+    previousNavigation.current = JSON.stringify([sido, sgg, dong, period, view, selectedId]);
+  }, [sido, sgg, dong, period, view, filters, selectedId]);
   useEffect(() => {
     if (!sidoNode || (sgg && !sggNode)) return;
     try { localStorage.setItem("re_last_region", JSON.stringify({ sido, sgg, dong })); } catch { /* optional preference */ }
@@ -505,7 +504,6 @@ export default function RealEstateMapPage() {
   /** A tile or a group drills one level down: 시·도 → 시·군·구 → 읍·면·동. */
   const drill = (item: RealEstateItem | null, group?: string) => {
     if (!sidoNode) return;
-    setPage(0);
     if (item && item.id.split(":")[0] !== sgg) {
       const code = item.sgg_code ?? item.id.split(":")[0];
       const target = regions.find(r => r.sgg.some(g => g.code === code));
@@ -774,7 +772,7 @@ export default function RealEstateMapPage() {
             <div className="kospi-map-period-options">
               {PERIODS.map((option) => (
                 <label key={option.key} className={period === option.key ? "active" : ""}>
-                  <input type="radio" name="re-period" checked={period === option.key} onChange={() => { setPeriod(option.key); setPage(0); }} />
+                  <input type="radio" name="re-period" checked={period === option.key} onChange={() => { setPeriod(option.key); }} />
                   <span>
                     <b>{option.label}</b>
                     <small>{option.key === "today" && data?.latest_deal_date ? `최근 계약일 ${dateDots(data.latest_deal_date)}` : option.detail}</small>
@@ -803,7 +801,6 @@ export default function RealEstateMapPage() {
                     periodLabel={periodInfo.label}
                     touch={touchUi}
                     onSelect={(next) => {
-                      setPage(0);
                       setSido(next.sido);
                       setSgg(next.sgg);
                       setDong(next.dong);
@@ -841,7 +838,6 @@ export default function RealEstateMapPage() {
                     value={sido}
                     onChange={(e) => {
                       setSido(e.target.value);
-                      setPage(0);
                       setSgg("");
                       setDong("");
                     }}
@@ -860,7 +856,6 @@ export default function RealEstateMapPage() {
                     value={sgg}
                     onChange={(e) => {
                       setSgg(e.target.value);
-                      setPage(0);
                       setDong("");
                     }}
                     aria-label="시·군·구"
@@ -875,7 +870,7 @@ export default function RealEstateMapPage() {
                 </label>
                 <label className="kospi-map-sector-filter">
                   <span className="kospi-map-sector-filter-label">읍·면·동</span>
-                  <select value={dong} onChange={(e) => { setDong(e.target.value); setPage(0); }} disabled={!sgg} aria-label="읍·면·동">
+                  <select value={dong} onChange={(e) => { setDong(e.target.value); }} disabled={!sgg} aria-label="읍·면·동">
                     <option value="">전체</option>
                     {dongOptions.map((d) => (
                       <option key={d} value={d}>
@@ -887,12 +882,12 @@ export default function RealEstateMapPage() {
               </div>
             </div>
 
-            <RealEstateExploreControls filters={filters} busy={loading} onChange={value => { setFilters(value); setPage(0); }} />
+            <RealEstateExploreControls filters={filters} busy={loading} onChange={value => { setFilters(value); }} />
             <div className="re-results-summary" aria-live="polite" aria-busy={loading}>
               {loading ? "실거래 자료를 조회하고 있습니다…" : `${data?.matched_count?.toLocaleString() ?? 0}개 검색 결과 · 현재 ${items.length}개 표시`}
               {data?.generated_at && <small>자료 생성 {new Date(data.generated_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</small>}
             </div>
-            {!loading && !items.length && !error && <div className="re-explore-empty"><strong>{status?.collecting ? "이 지역의 자료를 수집하고 있습니다" : "현재 조건에 맞는 단지가 없습니다"}</strong><p>검색 지역을 넓히거나 가격·면적 조건을 줄여 보세요. 미수집 자료는 결과에 포함되지 않습니다.</p><button type="button" onClick={() => { setFilters({ ...FILTER_DEFAULTS }); setPage(0); }}>조건 초기화</button>{sgg && <button type="button" onClick={() => { setSgg(""); setDong(""); setPage(0); }}>시·도 전체 검색</button>}</div>}
+            {!loading && !items.length && !error && <div className="re-explore-empty"><strong>{status?.collecting ? "이 지역의 자료를 수집하고 있습니다" : "현재 조건에 맞는 단지가 없습니다"}</strong><p>검색 지역을 넓히거나 가격·면적 조건을 줄여 보세요. 미수집 자료는 결과에 포함되지 않습니다.</p><button type="button" onClick={() => { setFilters({ ...FILTER_DEFAULTS }); }}>조건 초기화</button>{sgg && <button type="button" onClick={() => { setSgg(""); setDong(""); }}>시·도 전체 검색</button>}</div>}
 
             {/* Phones only (maps.css): pinned over the treemap while it scrolls, so
                 the region in view stays named and each level above it is one tap
@@ -904,7 +899,6 @@ export default function RealEstateMapPage() {
                     type="button"
                     disabled={!sgg}
                     onClick={() => {
-                      setPage(0);
                       setSgg("");
                       setDong("");
                     }}
@@ -914,7 +908,7 @@ export default function RealEstateMapPage() {
                   {sggNode && (
                     <>
                       <i aria-hidden="true">›</i>
-                      <button type="button" disabled={!dong} onClick={() => { setDong(""); setPage(0); }}>
+                      <button type="button" disabled={!dong} onClick={() => { setDong(""); }}>
                         {sggNode.name}
                       </button>
                     </>
@@ -1045,11 +1039,6 @@ export default function RealEstateMapPage() {
             )}
 
             {view === "table" && !loading && items.length > 0 && <RealEstateResults items={items} saved={saved} compared={compare} onOpen={openItem} onSave={toggleSaved} onCompare={toggleCompare} />}
-            {(data?.matched_count ?? 0) > sidoTop && <nav className="re-pagination" aria-label="검색 결과 페이지">
-              <button type="button" disabled={loading || page === 0} onClick={() => { setPage(p => p - 1); revealTreemap(); }}>이전</button>
-              <span>{page + 1} / {Math.ceil((data?.matched_count ?? 0) / sidoTop)} 페이지</span>
-              <button type="button" disabled={loading || (page + 1) * sidoTop >= (data?.matched_count ?? 0)} onClick={() => { setPage(p => p + 1); revealTreemap(); }}>다음</button>
-            </nav>}
             <p className="re-map-source">
               자료: 국토교통부 아파트 매매 실거래가. 타일 크기는 선택 평형의 실거래 기준가이며 단지 전체 자산가치가 아닙니다. 그룹 등락은 현재 표시 단지의 가격 가중 평균으로 전체 지역 집계와 다를 수 있습니다. 최근 계약은 신고 지연으로 누락될 수 있습니다. 브랜드는 단지명 기준 자동 분류이며 로고 출처는 Wikimedia Commons(힐스테이트·우미린 CC BY-SA) 및 각 사 공식 사이트입니다.
             </p>
