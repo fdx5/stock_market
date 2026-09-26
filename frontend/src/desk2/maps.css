@@ -538,10 +538,13 @@
 .kospi-map-tile.re-map-tile--rank-3 {
   --tile-crown-glow: #ff9d4d;
 }
-/* A crowned tile too small for its name: the crown alone (or over the change), centred. */
-.kospi-map-tile.re-map-tile--crown-only {
-  align-items: center;
-  padding: 1px;
+/* The crown sits in the tile's top-right corner (CROWN_INSET in RealEstateMapPage.tsx). */
+.kospi-map-tile .re-map-tile-crown {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 1;
+  pointer-events: none;
 }
 .kospi-map-tile.re-map-tile--ranked .kospi-map-tile-name {
   text-shadow: 0 0 6px color-mix(in srgb, var(--tile-crown-glow) 60%, transparent);

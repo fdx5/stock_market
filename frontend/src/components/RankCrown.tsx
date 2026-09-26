@@ -1,14 +1,14 @@
 import { useId } from "react";
 
 /* 부동산 맵 시세 순위 왕관 — the three highest-priced complexes in the region in view
- * wear a gold, silver or bronze crown before their name. One drawing serves both the
+ * wear a gold, silver or bronze crown in the top-right corner of their tile. One drawing serves both the
  * page (SVG, with a pulsing glow, a light sweep and a twinkle in desk2/maps.css) and
  * the PNG export (drawCrown below, the same paths on a canvas). */
 
 export type CrownRank = 1 | 2 | 3;
 
 /** The crown's box, in the paths' own units. */
-export const CROWN_VIEW_W = 32;
+export const CROWN_VIEW_W = 26;
 export const CROWN_VIEW_H = 28;
 export const crownWidth = (size: number) => (size * CROWN_VIEW_W) / CROWN_VIEW_H;
 
@@ -57,21 +57,23 @@ const METALS: Record<CrownRank, Metal> = {
 export const crownLabel = (rank: CrownRank) => `시세 ${rank}위 ${METALS[rank].label}`;
 
 // Five points: two outer, two inner valleys and the tall centre spire.
-const BODY = "M4.3 21.2 L2.4 9.4 L9.3 14.6 L16 5.4 L22.7 14.6 L29.6 9.4 L27.7 21.2 Z";
+const BODY = "M3.6 21.2 L2.1 9.4 L7.6 14.6 L13 5.4 L18.4 14.6 L23.9 9.4 L22.4 21.2 Z";
 // Light falling on the left facets of the crown.
-const SHEEN = "M5.4 20 L4.3 12 L9.5 16 L16 7.8 L16 20 Z";
+const SHEEN = "M4.5 20 L3.6 12 L7.8 16 L13 7.8 L13 20 Z";
 // A thin inner rim just above the band.
-const RIM = "M5 19.2 L27 19.2";
-const BAND = { x: 3.4, y: 20.3, w: 25.2, h: 5, r: 1.3 };
+const RIM = "M4.2 19.2 L21.8 19.2";
+const BAND = { x: 2.9, y: 20.3, w: 20.2, h: 5, r: 1.3 };
 const ORBS: [number, number, number][] = [
-  [2.4, 9.4, 1.9],
-  [16, 5.4, 2.4],
-  [29.6, 9.4, 1.9],
+  [2.1, 9.4, 1.7],
+  [13, 5.4, 2.2],
+  [23.9, 9.4, 1.7],
 ];
 // The four-point sparkle in the upper right.
-const SPARKLE = "M26 1 L26.9 3.6 L29.5 4.5 L26.9 5.4 L26 8 L25.1 5.4 L22.5 4.5 L25.1 3.6 Z";
+const SPARKLE = "M21 1 L21.8 3.6 L24.4 4.5 L21.8 5.4 L21 8 L20.2 5.4 L17.6 4.5 L20.2 3.6 Z";
 // The centre gem as a cut diamond, the side gems as small cabochons.
-const GEM = "M16 20.9 L18.4 22.8 L16 24.7 L13.6 22.8 Z";
+const GEM = "M13 20.9 L15 22.8 L13 24.7 L11 22.8 Z";
+// Side gem centres on the band.
+const SIDE_X = [7.4, 18.6];
 
 export default function RankCrown({ rank, size, className }: { rank: CrownRank; size: number; className?: string }) {
   const uid = useId().replace(/:/g, "");
@@ -133,11 +135,13 @@ export default function RankCrown({ rank, size, className }: { rank: CrownRank; 
       <rect x={BAND.x} y={BAND.y} width={BAND.w} height={BAND.h} rx={BAND.r} fill={url("band")} stroke={m.edge} strokeWidth="0.8" />
       <rect x={BAND.x + 1} y={BAND.y + 0.7} width={BAND.w - 2} height="0.9" rx="0.45" fill="#fff" opacity="0.45" />
       <path d={GEM} fill={url("gem")} stroke={m.edge} strokeWidth="0.5" />
-      <path d="M16 21.4 L17.3 22.8 L16 22.8 Z" fill="#fff" opacity="0.7" />
-      <ellipse cx="9" cy="22.8" rx="1.6" ry="1.3" fill={url("side")} stroke={m.edge} strokeWidth="0.45" />
-      <ellipse cx="23" cy="22.8" rx="1.6" ry="1.3" fill={url("side")} stroke={m.edge} strokeWidth="0.45" />
-      <circle cx="8.5" cy="22.3" r="0.45" fill="#fff" opacity="0.8" />
-      <circle cx="22.5" cy="22.3" r="0.45" fill="#fff" opacity="0.8" />
+      <path d="M13 21.4 L14.1 22.8 L13 22.8 Z" fill="#fff" opacity="0.7" />
+      {SIDE_X.map((cx) => (
+        <g key={cx}>
+          <ellipse cx={cx} cy="22.8" rx="1.4" ry="1.3" fill={url("side")} stroke={m.edge} strokeWidth="0.45" />
+          <circle cx={cx - 0.45} cy="22.3" r="0.4" fill="#fff" opacity="0.8" />
+        </g>
+      ))}
 
       <g clipPath={url("clip")}>
         <rect className="re-crown-sweep" x="-12" y="-4" width="8" height="36" fill={url("sweep")} transform="skewX(-20)" />
@@ -217,14 +221,14 @@ export function drawCrown(ctx: CanvasRenderingContext2D, rank: CrownRank, x: num
   ctx.globalAlpha = 1;
 
   const gem = new Path2D(GEM);
-  ctx.fillStyle = radial(16, 22.8, 2.4, m.gem[0], m.gem[1]);
+  ctx.fillStyle = radial(13, 22.8, 2, m.gem[0], m.gem[1]);
   ctx.fill(gem);
   ctx.lineWidth = 0.5;
   ctx.stroke(gem);
-  for (const cx of [9, 23]) {
+  for (const cx of SIDE_X) {
     ctx.beginPath();
-    ctx.ellipse(cx, 22.8, 1.6, 1.3, 0, 0, Math.PI * 2);
-    ctx.fillStyle = radial(cx, 22.8, 1.6, m.side[0], m.side[1]);
+    ctx.ellipse(cx, 22.8, 1.4, 1.3, 0, 0, Math.PI * 2);
+    ctx.fillStyle = radial(cx, 22.8, 1.4, m.side[0], m.side[1]);
     ctx.fill();
     ctx.lineWidth = 0.45;
     ctx.stroke();
