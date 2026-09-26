@@ -16,6 +16,7 @@ import RealEstateSheet from "./RealEstateSheet";
 import { useMediaQuery } from "../useMediaQuery";
 import RealEstatePopup, { PopupContext, fullPrice, shortPrice } from "./RealEstatePopup";
 import AptBrandIcon, { APT_BRANDS, brandIconWidth, brandImage } from "./AptBrandIcon";
+import RankCrown, { CROWN_VIEW_H, CROWN_VIEW_W, CrownRank, crownLabel, crownWidth, drawCrown } from "./RankCrown";
 import RealEstateExploreControls from "./RealEstateExploreControls";
 import RealEstateCompare from "./RealEstateCompare";
 import RealEstateResults from "./RealEstateResults";
@@ -80,6 +81,9 @@ interface TileLayout {
   showPrice: boolean;
   priceSize: number;
   pctSize: number;
+  /** The rank crown's height before the first line — or on its own, when the tile
+   * has no room for the name — 0 when the tile wears none. */
+  crownSize: number;
 }
 
 const TILE_PAD_X = 5;
@@ -109,7 +113,7 @@ function splitName(name: string, size: number, avail: number): [string, string] 
  * given room first: a smaller type size before an ellipsis, the brand mark moved
  * above the name or dropped before the name is cut, two lines before one cut line,
  * and the price line only when all of that still leaves space for it. */
-function tileLayout(item: RealEstateItem, w: number, h: number): TileLayout {
+function tileLayout(item: RealEstateItem, w: number, h: number, ranked = false): TileLayout {
   const base = tileDisplayInfo(w, h, item.name);
   const pctSize = base.fontSizes.pct;
   const iconSize = base.iconSize;
@@ -126,10 +130,29 @@ function tileLayout(item: RealEstateItem, w: number, h: number): TileLayout {
     showPrice: false,
     priceSize,
     pctSize,
+    crownSize: 0,
   };
-  if (!base.showName) return result;
-
   const avail = w - TILE_PAD_X * 2;
+  // 1·2·3위 always wear their crown: it shrinks to fit the tile rather than being
+  // left off, and on a tile with no room for the name it is shown by itself.
+  const crownFor = (want: number, wide: number, tall: number) =>
+    Math.max(6, Math.min(want, (Math.max(wide, 0) * CROWN_VIEW_H) / CROWN_VIEW_W, tall));
+  if (!base.showName) {
+    if (!ranked) return result;
+    const pctRoom = base.showPctOnly ? pctSize * LINE + 1 : 0;
+    const withPct = crownFor(Math.max(12, base.fontSizes.name * 1.25), w - 4, h - 4 - pctRoom);
+    const keepPct = base.showPctOnly && withPct >= 10;
+    return {
+      ...result,
+      showPctOnly: keepPct,
+      crownSize: keepPct ? withPct : crownFor(Math.max(12, base.fontSizes.name * 1.25), w - 4, h - 4),
+    };
+  }
+
+  // A crown sits a little taller than the name it heads.
+  const crownSize = ranked ? crownFor(Math.round(base.fontSizes.name * 1.25), avail - 4, h - 4) : 0;
+  const crownW = ranked ? crownWidth(crownSize) + 4 : 0;
+  result.crownSize = crownSize;
   // The tile's own padding and the 1px gaps between its rows come out of the height.
   const room = h - 8;
   const pctH = pctSize * LINE;
@@ -156,8 +179,8 @@ function tileLayout(item: RealEstateItem, w: number, h: number): TileLayout {
   for (const size of sizes) {
     const nameW = width(item.name, size);
     if (height(1, size, false) > room) continue;
-    if (hasIcon && nameW + iconWidth + 4 <= avail) return finish([item.name], size, "inline");
-    if (nameW <= avail) {
+    if (hasIcon && nameW + iconWidth + 4 + crownW <= avail) return finish([item.name], size, "inline");
+    if (nameW + crownW <= avail) {
       if (hasIcon && height(1, size, true) <= room) return finish([item.name], size, "above");
       return finish([item.name], size, null);
     }
@@ -165,13 +188,13 @@ function tileLayout(item: RealEstateItem, w: number, h: number): TileLayout {
   // Two lines.
   for (const size of sizes) {
     if (height(2, size, false) > room) continue;
-    const split = splitName(item.name, size, avail);
+    const split = splitName(item.name, size, avail - crownW);
     if (!split) continue;
     if (hasIcon && height(2, size, true) <= room) return finish(split, size, "above");
     return finish(split, size, null);
   }
   // Nothing fits whole: one line, cut with an ellipsis, as the market maps do.
-  const inline = hasIcon && w >= iconWidth + iconSize * 2.5;
+  const inline = hasIcon && w >= iconWidth + crownW + iconSize * 2.5;
   return finish([item.name], base.fontSizes.name, inline ? "inline" : null);
 }
 
@@ -337,6 +360,18 @@ export default function RealEstateMapPage() {
   }, [view, loading, data?.items.length]);
 
   const items = responseKey === requestKey ? data?.items ?? [] : [];
+
+  /** 시세 1·2·3위 in the region in view — whichever of 시·도, 시·군·구 or 읍·면·동 the
+   * map is showing — wear a gold, silver and bronze crown. */
+  const crownRanks = useMemo(() => {
+    const ranks = new Map<string, CrownRank>();
+    [...items]
+      .filter((it) => it.price > 0)
+      .sort((a, b) => b.price - a.price || a.id.localeCompare(b.id))
+      .slice(0, 3)
+      .forEach((it, i) => ranks.set(it.id, (i + 1) as CrownRank));
+    return ranks;
+  }, [items]);
 
   const zones = useMemo<Zone[]>(() => {
     if (items.length === 0 || size.w === 0 || size.h === 0) return [];
@@ -623,8 +658,25 @@ export default function RealEstateMapPage() {
         ctx.strokeStyle = gapColor;
         ctx.strokeRect(tile.x + 0.5, tile.y + 0.5, Math.max(tile.w - 1, 0), Math.max(tile.h - 1, 0));
 
-        const layout = tileLayout(it, tile.w, tile.h);
+        const rank = crownRanks.get(it.id);
+        const layout = tileLayout(it, tile.w, tile.h, !!rank);
         const { showName, showPctOnly, iconSize, iconWidth } = layout;
+        if (!showName && rank && layout.crownSize) {
+          // Crown only, or the crown above the change: centred in the tile.
+          const pctH = showPctOnly ? layout.pctSize * LINE + 1 : 0;
+          const cw = crownWidth(layout.crownSize);
+          const top = tile.y + (tile.h - layout.crownSize - pctH) / 2;
+          drawCrown(ctx, rank, tile.x + (tile.w - cw) / 2, top, layout.crownSize);
+          if (showPctOnly) {
+            ctx.fillStyle = rgb ? textColorForRgb(rgb, MAP_MODE) : IDLE_PCT;
+            ctx.font = `600 ${layout.pctSize}px ${TILE_FONT_FAMILY}`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillText(it.change_pct === null ? "—" : pct(it.change_pct), tile.x + tile.w / 2, top + layout.crownSize + 1);
+            ctx.textAlign = "left";
+          }
+          continue;
+        }
         if (!showName && !showPctOnly) continue;
         const textColor = rgb ? textColorForRgb(rgb, MAP_MODE) : IDLE_TEXT;
         const padX = TILE_PAD_X;
@@ -663,6 +715,10 @@ export default function RealEstateMapPage() {
           ctx.textBaseline = "top";
           layout.lines.forEach((line, i) => {
             let textX = tile.x + padX;
+            if (i === 0 && rank && layout.crownSize) {
+              drawCrown(ctx, rank, textX, y + (layout.nameSize * LINE - layout.crownSize) / 2, layout.crownSize);
+              textX += crownWidth(layout.crownSize) + 4;
+            }
             if (i === 0 && layout.icon === "inline") {
               drawMark(textX, y + (layout.nameSize * LINE - iconSize) / 2);
               textX += iconWidth + 4;
@@ -983,15 +1039,16 @@ export default function RealEstateMapPage() {
                         const rgb = colourFor(it.change_pct, MAP_MODE);
                         const idle = rgb === null;
                         const text = rgb ? textColorForRgb(rgb, MAP_MODE) : undefined;
-                        const layout = tileLayout(it, tile.w, tile.h);
+                        const rank = crownRanks.get(it.id);
+                        const layout = tileLayout(it, tile.w, tile.h, !!rank);
                         const { showName, showPctOnly, iconSize } = layout;
                         const label = tileLabelText(it);
                         return (
                           <button
                             key={tile.id}
                             type="button"
-                            aria-label={`${it.name}, 전용 ${it.area}제곱미터, ${fullPrice(it.price)}, ${tradeState(it)}. 상세 보기`}
-                            className={`kospi-map-tile${idle ? " re-map-tile--idle" : ""}`}
+                            aria-label={`${rank ? crownLabel(rank) + ", " : ""}${it.name}, 전용 ${it.area}제곱미터, ${fullPrice(it.price)}, ${tradeState(it)}. 상세 보기`}
+                            className={`kospi-map-tile${idle ? " re-map-tile--idle" : ""}${rank && layout.crownSize ? ` re-map-tile--ranked re-map-tile--rank-${rank}` : ""}${rank && layout.crownSize && !showName ? " re-map-tile--crown-only" : ""}`}
                             style={{
                               left: tile.x - zone.rect.x,
                               top: tile.y - zone.rect.y,
@@ -1017,6 +1074,7 @@ export default function RealEstateMapPage() {
                                 )}
                                 {layout.lines.map((line, i) => (
                                   <span className="kospi-map-tile-name-row" key={i}>
+                                    {i === 0 && rank && layout.crownSize > 0 && <RankCrown rank={rank} size={layout.crownSize} />}
                                     {i === 0 && layout.icon === "inline" && it.brand && (
                                       <AptBrandIcon brand={it.brand} size={iconSize} className="kospi-map-tile-icon" />
                                     )}
@@ -1035,6 +1093,7 @@ export default function RealEstateMapPage() {
                                 </span>
                               </>
                             )}
+                            {!showName && rank && layout.crownSize > 0 && <RankCrown rank={rank} size={layout.crownSize} />}
                             {showPctOnly && (
                               <span className="kospi-map-tile-pct" style={{ fontSize: layout.pctSize }}>
                                 {it.change_pct === null ? "—" : pct(it.change_pct)}

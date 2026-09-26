@@ -489,6 +489,104 @@
   margin-bottom: 1px;
 }
 
+/* ── 시세 1·2·3위 왕관 (components/RankCrown.tsx) ─────────────────────────────
+   A breathing glow in the crown's own metal, a band of light sweeping across it and a
+   sparkle that twinkles; gold glows hardest, bronze least. */
+.re-crown {
+  flex-shrink: 0;
+  overflow: visible;
+  filter: drop-shadow(0 0 1.5px var(--crown-glow)) drop-shadow(0 0 3px var(--crown-glow));
+  animation: re-crown-glow 2.4s ease-in-out infinite;
+}
+.re-crown--1 {
+  --crown-strength: 7px;
+}
+.re-crown--2 {
+  --crown-strength: 5px;
+  animation-delay: -0.8s;
+}
+.re-crown--3 {
+  --crown-strength: 4px;
+  animation-delay: -1.6s;
+}
+.re-crown-sweep {
+  animation: re-crown-sweep 3.2s ease-in-out infinite;
+}
+.re-crown--2 .re-crown-sweep {
+  animation-delay: 0.5s;
+}
+.re-crown--3 .re-crown-sweep {
+  animation-delay: 1s;
+}
+.re-crown-sparkle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: re-crown-twinkle 1.6s ease-in-out infinite;
+}
+.re-crown--2 .re-crown-sparkle {
+  animation-delay: 0.5s;
+}
+.re-crown--3 .re-crown-sparkle {
+  animation-delay: 1s;
+}
+.kospi-map-tile.re-map-tile--rank-1 {
+  --tile-crown-glow: #ffd54a;
+}
+.kospi-map-tile.re-map-tile--rank-2 {
+  --tile-crown-glow: #e8f1ff;
+}
+.kospi-map-tile.re-map-tile--rank-3 {
+  --tile-crown-glow: #ff9d4d;
+}
+/* A crowned tile too small for its name: the crown alone (or over the change), centred. */
+.kospi-map-tile.re-map-tile--crown-only {
+  align-items: center;
+  padding: 1px;
+}
+.kospi-map-tile.re-map-tile--ranked .kospi-map-tile-name {
+  text-shadow: 0 0 6px color-mix(in srgb, var(--tile-crown-glow) 60%, transparent);
+}
+@keyframes re-crown-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 1px var(--crown-glow)) drop-shadow(0 0 2px var(--crown-glow));
+  }
+  50% {
+    filter: drop-shadow(0 0 2px var(--crown-glow)) drop-shadow(0 0 var(--crown-strength) var(--crown-glow));
+  }
+}
+@keyframes re-crown-sweep {
+  0%,
+  45% {
+    transform: skewX(-20deg) translateX(0);
+  }
+  85%,
+  100% {
+    transform: skewX(-20deg) translateX(52px);
+  }
+}
+@keyframes re-crown-twinkle {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: scale(0.4) rotate(0deg);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15) rotate(45deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .re-crown,
+  .re-crown-sweep,
+  .re-crown-sparkle {
+    animation: none;
+  }
+  .re-crown-sweep {
+    display: none;
+  }
+}
+
 /* ── 부동산 맵 hover card (components/RealEstatePopup.tsx) ─────────────────── */
 
 .d2 .re-pop-tip {
