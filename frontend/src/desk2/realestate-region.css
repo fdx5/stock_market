@@ -352,9 +352,13 @@
   gap: 4px;
 }
 .d2.mm .rm3-controls button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
   height: 28px;
   padding: 0;
+  text-align: center;
   border: 1px solid var(--rm3-rule);
   background: var(--rm3-panel);
   color: var(--rm3-ink);

@@ -213,7 +213,7 @@ function readQuery() {
 export default function RealEstateMapPage() {
   const { lang } = useLanguage();
   useDocumentTitle("부동산 맵 · 아파트 실거래가 히트맵 · K-Stock Hub");
-  useBroadsheet();
+  useBroadsheet({ lightByDefault: true });
   const [finderOpen, setFinderOpen] = useState(false);
   useFinderHotkey(setFinderOpen);
   useEffect(() => {

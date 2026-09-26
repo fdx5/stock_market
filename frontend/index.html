@@ -13,9 +13,9 @@
         document.documentElement.classList.add("js");
         try {
           var stored = localStorage.getItem("site_theme");
-          // The market desk opens in its light edition unless the visitor has
+          // The market desk and the real-estate map open in the light edition unless the visitor has
           // chosen a theme — keep in step with PAGE_DEFAULTS in src/theme.ts.
-          var pageLight = !stored && location.pathname === "/desk";
+          var pageLight = !stored && (location.pathname === "/desk" || location.pathname === "/realestate-map");
           if (stored === "light" || pageLight) document.documentElement.setAttribute("data-theme", "light");
         } catch (e) {}
       })();

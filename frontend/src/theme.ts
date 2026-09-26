@@ -93,14 +93,14 @@ function getStoredMode(): ThemeMode | null {
 }
 
 /* A page may ask for a different default than the site's dark one — the market
- * desk opens in its light "주간판". It is only a default: a visitor who has ever
+ * desk and the real-estate map open in the light "주간판". It is only a default: a visitor who has ever
  * picked a theme keeps theirs everywhere, and the page's wish is never written to
  * storage, so leaving the page returns every other route to dark.
  *
  * The desk's path is also read here at load, not only when the page mounts, so
  * the first render already agrees with the attribute index.html's inline script
  * put on <html> before paint — otherwise the page would paint dark and flip. */
-const PAGE_DEFAULTS: Record<string, ThemeMode> = { "/desk": "light" };
+const PAGE_DEFAULTS: Record<string, ThemeMode> = { "/desk": "light", "/realestate-map": "light" };
 let pageDefault: ThemeMode | null =
   typeof window === "undefined" ? null : PAGE_DEFAULTS[window.location.pathname] ?? null;
 
