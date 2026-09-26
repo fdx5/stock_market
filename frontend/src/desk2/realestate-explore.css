@@ -57,13 +57,40 @@
 .re-compare-heading p { font-size: 13px; line-height: 1.6; margin: 0 0 16px; }
 .re-compare-heading > button { flex-shrink: 0; }
 .re-compare-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 16px; }
-.re-compare-card { min-width: 0; padding: 16px; border: 1px solid var(--rule-2); border-radius: 8px; }
+.re-compare-card { --re-dir: var(--rule-2, #bbb); min-width: 0; color: var(--ink, var(--text-primary)); display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--rule-2); border-top: 4px solid var(--re-dir); border-radius: 8px; }
+.re-compare-card.is-up, .re-compare-card.is-down, .re-compare-card.is-flat, .re-compare-card.is-none { color: var(--ink, var(--text-primary)); }
+.re-compare-card.is-up { --re-dir: var(--up, #c8372d); }
+.re-compare-card.is-down { --re-dir: var(--down, #1d5fbf); }
 .re-compare-card header { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; }
-.re-compare-card h3 { margin: 5px 0; font-size: 17px; overflow-wrap: anywhere; }
-.re-compare-card p { font-size: 13px; line-height: 1.5; }
-.re-compare-card dl { margin-bottom: 0; }
-.re-compare-card dt { font-size: 12px; color: var(--ink-3); margin-top: 14px; }
-.re-compare-card dd { font-size: 16px; margin: 4px 0 0; }
+.re-compare-card h3 { margin: 0 0 4px; font-size: 18px; font-weight: 800; overflow-wrap: anywhere; }
+.re-compare-card p { margin: 0; font-size: 13px; line-height: 1.5; color: var(--ink-3); }
+.re-compare-tags { display: flex; flex-wrap: wrap; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.re-compare-tags li { padding: 3px 8px; border-radius: 999px; background: var(--re-accent); color: #fff; font-size: 11.5px; font-weight: 700; }
+:root[data-theme="dark"] .re-compare-tags li { color: #0d1f1b; }
+.re-compare-price { display: grid; gap: 3px; padding: 12px; border-radius: 8px; background: color-mix(in srgb, var(--ink, #222) 5%, transparent); }
+.re-compare-price > span, .re-compare-card dt { font-size: 12px; color: var(--ink-3); }
+.re-compare-price strong { font-size: 26px; font-weight: 800; line-height: 1.2; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.re-compare-price small { font-size: 12.5px; color: var(--ink-3); }
+.re-compare-price small b { color: var(--ink); font-weight: 700; }
+.re-compare-change { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 10px 12px; border-radius: 8px; color: var(--ink-3); background: color-mix(in srgb, var(--ink, #222) 5%, transparent); font-variant-numeric: tabular-nums; }
+.re-compare-change strong { font-size: 18px; font-weight: 800; }
+.re-compare-change > span { font-size: 14px; font-weight: 700; }
+.re-compare-change small { flex-basis: 100%; font-size: 12px; color: var(--ink-3); }
+.re-compare-change.is-up { color: var(--up, #c8372d); background: var(--up-wash, rgba(200, 55, 45, .1)); }
+.re-compare-change.is-down { color: var(--down, #1d5fbf); background: var(--down-wash, rgba(29, 95, 191, .1)); }
+.re-compare-change.is-none strong { font-size: 15px; font-weight: 600; }
+.re-compare-card dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; margin: 0; }
+.re-compare-card dl > div:last-child { grid-column: 1 / -1; }
+.re-compare-card dd { margin: 3px 0 0; font-size: 14px; font-variant-numeric: tabular-nums; }
+.re-compare-card dd b { font-size: 16px; font-weight: 800; }
+.d2.mm.re-map-page .kospi-map-view-toggle > button.re-compare-open { background: var(--re-accent); color: #fff; font-weight: 700; }
+:root[data-theme="dark"] .d2.mm.re-map-page .kospi-map-view-toggle > button.re-compare-open { color: #0d1f1b; }
+/* Five toolbar buttons do not fit one phone row: three, then two. */
+@media (max-width: 760px) {
+  .d2.mm.re-map-page .kospi-map-view-toggle { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-auto-flow: row; }
+  .d2.mm.re-map-page .kospi-map-view-toggle > :nth-child(3n + 1) { border-left: 0; }
+  .d2.mm.re-map-page .kospi-map-view-toggle > :nth-child(n + 4) { border-top: 1px solid var(--rule-2); }
+}
 .re-detail-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 34px 12px 0; }
 .re-price-evidence { margin: 10px 0 14px; font-size: 12px; line-height: 1.6; }
 .re-evidence-badges { display: flex; flex-wrap: wrap; gap: 5px; }

@@ -744,6 +744,9 @@ export default function RealEstateMapPage() {
                   맵 보기
                 </button>
               )}
+              <button type="button" className={compare.length ? "re-compare-open" : undefined} disabled={!compare.length} title={compare.length ? undefined : "단지 카드나 표에서 '+ 비교 추가'로 최대 3개까지 담을 수 있습니다"} onClick={() => setCompareOpen(true)}>
+                비교 ({compare.length})
+              </button>
               <MapExportButtons exp={mapExport} disabled={zones.length === 0} />
               <button type="button" disabled={!items.length || loading} onClick={() => csvDownload(items, levelLabel, periodInfo.label, data?.generated_at ?? "")}>CSV 저장</button>
             </div>
@@ -1062,6 +1065,8 @@ export default function RealEstateMapPage() {
             compared={compare.some(x => x.id === sheetItem.id)}
             onSave={toggleSaved}
             onCompare={toggleCompare}
+            compareCount={compare.length}
+            onOpenCompare={() => { closeSheet(); setCompareOpen(true); }}
             feedback={notice || storageError}
           />
         )}

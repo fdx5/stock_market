@@ -101,7 +101,7 @@ export default function RealEstateSheet({
   goLabel,
   onGo,
   onClose,
-  saved, compared, onSave, onCompare, feedback,
+  saved, compared, onSave, onCompare, compareCount, onOpenCompare, feedback,
 }: {
   item: RealEstateItem;
   ctx: PopupContext;
@@ -114,6 +114,9 @@ export default function RealEstateSheet({
   compared: boolean;
   onSave: (item: RealEstateItem) => void;
   onCompare: (item: RealEstateItem) => void;
+  /** How many complexes are picked for comparison; the card offers to open them. */
+  compareCount: number;
+  onOpenCompare: () => void;
   feedback?: string;
 }) {
   useBodyScrollLock(true);
@@ -308,6 +311,7 @@ export default function RealEstateSheet({
             <div className="re-detail-tools">
               <button type="button" aria-pressed={saved} onClick={() => onSave(shown)}>{saved ? "★ 관심 저장됨" : "☆ 관심 저장"}</button>
               <button type="button" aria-pressed={compared} onClick={() => onCompare(shown)}>{compared ? "✓ 비교 선택됨" : "+ 비교 추가"}</button>
+              {compareCount > 0 && <button type="button" className="re-primary" onClick={onOpenCompare}>비교하기 ({compareCount})</button>}
               <button type="button" onClick={async () => {
                 try { await navigator.clipboard.writeText(location.href); setShareNote("이 단지·평형의 링크를 복사했습니다."); }
                 catch { setShareNote("주소창의 링크를 복사하면 이 단지와 평형을 공유할 수 있습니다."); }
