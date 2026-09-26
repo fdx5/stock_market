@@ -82,17 +82,6 @@ const PALETTES: Record<
 /** changeToRgb reaches full colour at 5%. */
 const RGB_FULL_PCT = 5;
 
-/** Where the colour scale saturates for the regions on screen: most of them (the
- * 85th percentile of |move|) inside it, so a level whose regions all moved 1–3% still
- * reads as a range of colours rather than one shade — rounded to half a percent and
- * kept between 1.5% and 8%. */
-function saturationFor(moves: Iterable<RealEstateRegionMove>): number {
-  const abs = [...moves].map((m) => Math.abs(m.change ?? NaN)).filter((v) => Number.isFinite(v)).sort((a, b) => a - b);
-  if (!abs.length) return 5;
-  const p = abs[Math.min(abs.length - 1, Math.floor(abs.length * 0.85))];
-  return Math.min(8, Math.max(1.5, Math.round(p * 2) / 2));
-}
-
 function capColor(move: RealEstateRegionMove | undefined, saturation: number, theme: ThemeMode): THREE.Color {
   if (!move || move.change === null) return PALETTES[theme].idle.clone();
   const { r, g, b } = changeToRgb((move.change / saturation) * RGB_FULL_PCT, theme);
@@ -213,6 +202,8 @@ class RegionScene {
   private moves = new Map<string, RealEstateRegionMove>();
   private saturation = 5;
   private resizeObserver: ResizeObserver;
+  private visibilityObserver: IntersectionObserver;
+  private visible = true;
   private down: { x: number; y: number; t: number } | null = null;
   private labelLayer: HTMLDivElement;
 
@@ -294,6 +285,12 @@ class RegionScene {
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
+    this.visibilityObserver = new IntersectionObserver(entries => {
+      this.visible = entries.some(entry => entry.isIntersecting);
+      this.refreshVisibility();
+    });
+    this.visibilityObserver.observe(host);
+    document.addEventListener("visibilitychange", this.refreshVisibility);
     this.resize();
     this.loop();
   }
@@ -301,6 +298,8 @@ class RegionScene {
   dispose() {
     cancelAnimationFrame(this.raf);
     this.resizeObserver.disconnect();
+    this.visibilityObserver.disconnect();
+    document.removeEventListener("visibilitychange", this.refreshVisibility);
     // The stage outlives the scene (a new one is built when the input kind changes).
     const el = this.host;
     el.removeEventListener("pointermove", this.handleMove);
@@ -666,6 +665,16 @@ class RegionScene {
     return active;
   }
 
+  private refreshVisibility = () => {
+    if (!this.visible || document.hidden) {
+      cancelAnimationFrame(this.raf);
+      this.raf = 0;
+    } else if (!this.raf) {
+      this.dirty = true;
+      this.loop();
+    }
+  };
+
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
     const now = performance.now();
@@ -885,7 +894,7 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
   const hostRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<RegionScene | null>(null);
-  const [webgl] = useState(supportsWebGL);
+  const [webgl, setWebgl] = useState(supportsWebGL);
   const theme = useThemeMode();
   const [level, setLevel] = useState<Level>(sgg ? "dong" : "sgg");
   const [shapes, setShapes] = useState<{ key: string; level: Level; features: GeoFeature[] } | null>(null);
@@ -1007,7 +1016,9 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
 
   useEffect(() => {
     if (!webgl || !hostRef.current || !labelsRef.current) return;
-    const scene = new RegionScene(hostRef.current, labelsRef.current, touch);
+    let scene: RegionScene;
+    try { scene = new RegionScene(hostRef.current, labelsRef.current, touch); }
+    catch { setWebgl(false); return; }
     sceneRef.current = scene;
     return () => {
       scene.dispose();
@@ -1029,7 +1040,7 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
     setHover(null);
   }, [drawn, shapes?.level]);
 
-  const saturation = useMemo(() => saturationFor(moveMap.values()), [moveMap]);
+  const saturation = 10;
   useEffect(() => {
     sceneRef.current?.setMoves(moveMap, saturation);
   }, [moveMap, saturation, drawn]);
@@ -1184,9 +1195,9 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
         <i className="rm3-legend-bar" aria-hidden="true" />
         <span>상승</span>
         <small>
-          지역 평균 {periodLabel} 등락 · ±{saturation}%에서 최대 색
+          전체 집계 단지의 가격 가중 평균 · {periodLabel} · ±{saturation}%
           <i className="rm3-legend-idle" aria-hidden="true" />
-          거래 없음
+          비교 자료 없음
         </small>
       </footer>
     </section>

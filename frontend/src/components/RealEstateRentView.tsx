@@ -127,6 +127,8 @@ export default function RealEstateRentView({
   typeKey,
   area,
   salePrice,
+  saleDate,
+  onRetry,
 }: {
   mode: LeaseMode;
   data: RealEstateRentResponse | null;
@@ -136,9 +138,11 @@ export default function RealEstateRentView({
   area: number;
   /** The sale price of that 평형 now, for the 전세가율. */
   salePrice: number;
+  saleDate: string;
+  onRetry: () => void;
 }) {
   const label = mode === "jeonse" ? "전세" : "월세";
-  if (failed) return <div className="re-lease-note">전월세 정보를 불러오지 못했습니다.</div>;
+  if (failed) return <div className="re-lease-note" role="alert">전월세 정보를 불러오지 못했습니다. <button type="button" onClick={onRetry}>다시 시도</button></div>;
   if (!data) return <div className="re-lease-note is-loading">{label} 실거래를 불러오는 중…</div>;
   const status = data.status;
   if (status.error && status.error.includes("NOT_REGISTERED")) {
@@ -157,7 +161,7 @@ export default function RealEstateRentView({
       <>
         {collecting}
         <div className="re-lease-note">
-          {status.collecting ? `${label} 거래를 찾는 중입니다.` : `전용 ${Math.round(area)}㎡의 최근 2년 ${label} 거래가 없습니다.`}
+          {status.collecting ? `${label} 거래를 찾는 중입니다.` : !status.configured ? `이 평형의 저장된 ${label} 자료가 없습니다. 자료 연결 상태에 따라 거래가 표시되지 않을 수 있습니다.` : status.error ? "전월세 자료를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요." : `전용 ${Math.round(area)}㎡의 수집된 자료에서 최근 2년 ${label} 거래를 찾지 못했습니다.`}
         </div>
       </>
     );
@@ -165,13 +169,14 @@ export default function RealEstateRentView({
   const j = t!.jeonse;
   const w = t!.wolse;
   const ratio = mode === "jeonse" && j.price && salePrice ? (j.price / salePrice) * 100 : null;
+  const dateGap = j.date ? Math.abs(new Date(j.date).getTime() - new Date(saleDate).getTime()) / 86400000 : 0;
   return (
     <>
       {collecting}
       <div className="re-pop-hero">
         <div className="re-pop-hero-price">
           <small>
-            {label} 시세 · 전용 {Math.round(area)}㎡
+            {label} 실거래 기준 · 전용 {Math.round(area)}㎡
           </small>
           <b>{mode === "jeonse" ? (j.price ? fullPrice(j.price) : "—") : w.deposit !== null && w.rent !== null ? wolseText(w.deposit, w.rent) : "—"}</b>
           <span>최근 계약 {dots(mode === "jeonse" ? j.date : w.date)}</span>
@@ -184,6 +189,8 @@ export default function RealEstateRentView({
           </div>
         )}
       </div>
+
+      {mode === "jeonse" && <p className="re-detail-note">전세 기준 {dots(j.date)} / 매매 기준 {dots(saleDate)}.{dateGap > 90 ? " 두 가격의 기준일이 90일 이상 달라 전세가율은 참고값입니다." : " 서로 다른 계약의 가격을 비교한 참고 비율입니다."}</p>}
 
       {mode === "jeonse" && <LeaseChart rows={rows} />}
 

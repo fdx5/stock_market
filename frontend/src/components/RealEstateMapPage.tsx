@@ -16,6 +16,11 @@ import RealEstateSheet from "./RealEstateSheet";
 import { useMediaQuery } from "../useMediaQuery";
 import RealEstatePopup, { PopupContext, fullPrice, shortPrice } from "./RealEstatePopup";
 import AptBrandIcon, { APT_BRANDS, brandIconWidth, brandImage } from "./AptBrandIcon";
+import RealEstateExploreControls from "./RealEstateExploreControls";
+import RealEstateCompare from "./RealEstateCompare";
+import RealEstateResults from "./RealEstateResults";
+import { csvDownload, FILTER_DEFAULTS, readEstateFilters, tradeState, useSavedEstates } from "./realEstateTools";
+import "../desk2/realestate-explore.css";
 import {
   MapExportButtons,
   MapPreviewModal,
@@ -172,7 +177,7 @@ function tileLayout(item: RealEstateItem, w: number, h: number): TileLayout {
 
 /** 거래없음 for a tile with nothing to compare, the change otherwise. */
 function tileLabelText(item: RealEstateItem): string {
-  return item.change_pct === null ? "거래없음" : pct(item.change_pct);
+  return tradeState(item);
 }
 
 interface Zone {
@@ -200,12 +205,19 @@ const DEFAULT_SGG = "11680"; // 강남구
 function readQuery() {
   const q = new URLSearchParams(window.location.search);
   const period = q.get("period") as RealEstatePeriod | null;
+  let last: { sido?: string; sgg?: string; dong?: string } = {};
+  if (!q.has("sido") && !q.has("sgg")) {
+    try {
+      const saved = JSON.parse(localStorage.getItem("re_last_region") ?? "{}");
+      if (saved && /^\d{2}$/.test(saved.sido)) last = saved;
+    } catch { /* no persisted preference */ }
+  }
   return {
     // A bare /realestate-map opens on 서울 강남구. A link that names its own region —
     // including 시·도 전체, which carries sido and no sgg — is taken as it is.
-    sido: q.get("sido") ?? DEFAULT_SIDO,
-    sgg: q.get("sgg") ?? (q.has("sido") ? "" : DEFAULT_SGG),
-    dong: q.get("dong") ?? "",
+    sido: q.get("sido") ?? last.sido ?? DEFAULT_SIDO,
+    sgg: q.get("sgg") ?? (q.has("sido") ? "" : last.sgg ?? DEFAULT_SGG),
+    dong: q.get("dong") ?? last.dong ?? "",
     period: PERIODS.some((p) => p.key === period) ? (period as RealEstatePeriod) : "3m",
   };
 }
@@ -230,16 +242,29 @@ export default function RealEstateMapPage() {
   const [data, setData] = useState<RealEstateMapResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"map" | "table">("map");
+  const [view, setView] = useState<"map" | "table">(() => new URLSearchParams(location.search).get("view") === "table" ? "table" : "map");
+  const [filters, setFilters] = useState(readEstateFilters);
+  const [page, setPage] = useState(() => Math.max(0, Number(new URLSearchParams(location.search).get("page")) || 0));
+  const [retry, setRetry] = useState(0);
+  const [regionsError, setRegionsError] = useState(false);
+  const [selectedId, setSelectedId] = useState(() => new URLSearchParams(location.search).get("complex") ?? "");
+  const [detailError, setDetailError] = useState("");
+  const { saved, toggle: toggleSaved, storageError } = useSavedEstates();
+  const [compare, setCompare] = useState<RealEstateItem[]>([]);
+  const [compareOpen, setCompareOpen] = useState(false);
+  const [notice, setNotice] = useState("");
+  const restoring = useRef(false);
+  const firstUrl = useRef(true);
+  const previousNavigation = useRef("");
   const [hovered, setHovered] = useState<RealEstateItem | null>(null);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
     api
       .realEstateRegions()
-      .then((r) => setRegions(r.sido))
-      .catch(() => setError("지역 목록을 불러오지 못했습니다."));
-  }, []);
+      .then((r) => { setRegions(r.sido); setRegionsError(false); })
+      .catch(() => setRegionsError(true));
+  }, [retry]);
 
   const sidoNode = regions.find((r) => r.code === sido);
   const sggNode = sidoNode?.sgg.find((g) => g.code === sgg);
@@ -249,31 +274,37 @@ export default function RealEstateMapPage() {
   const sggOptions = useMemo(() => [...(sidoNode?.sgg ?? [])].sort((a, b) => byName(a.name, b.name)), [sidoNode]);
   const dongOptions = useMemo(() => [...(sggNode?.dongs ?? [])].sort(byName), [sggNode]);
 
-  // The address bar carries the selection, so a map can be shared or bookmarked.
-  useEffect(() => {
-    const q = new URLSearchParams();
-    q.set("sido", sido);
-    if (sgg) q.set("sgg", sgg);
-    if (sgg && dong) q.set("dong", dong);
-    q.set("period", period);
-    window.history.replaceState(window.history.state, "", `${window.location.pathname}?${q}`);
-  }, [sido, sgg, dong, period]);
-
-  /** A phone's screen fits about 100 tiles, so its 시·도 map asks for the top 100
-   * (every 시·군·구 still keeps its own top 10); a desktop gets 200. */
-  const smallScreen = useMediaQuery("(max-width: 760px)");
-  const sidoTop = smallScreen ? 100 : 200;
+  // A stable page size preserves the same result page when a tablet rotates.
+  const sidoTop = 100;
+  const requestKey = JSON.stringify([sido, sgg, dong, period, filters, page, sidoTop]);
+  const [responseKey, setResponseKey] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     let timer = 0;
+    const controller = new AbortController();
+    setLoading(true);
+    setData(null);
+    setHovered(null);
+    setError(null);
+    if ((filters.price_min && filters.price_max && Number(filters.price_min) > Number(filters.price_max)) ||
+        (filters.area_min && filters.area_max && Number(filters.area_min) > Number(filters.area_max))) {
+      setError("최소값은 최대값보다 작거나 같아야 합니다. 가격·면적 조건을 확인해 주세요.");
+      setLoading(false);
+      return () => controller.abort();
+    }
     const load = (first: boolean) => {
       if (first) setLoading(true);
+      const params = new URLSearchParams({ sido, period, offset: String(page * sidoTop), limit: String(sidoTop) });
+      if (sgg) params.set("sgg", sgg);
+      if (sgg && dong) params.set("dong", dong);
+      Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
       api
-        .realEstateMap({ sido, sgg: sgg || undefined, dong: (sgg && dong) || undefined, period, top: sidoTop })
+        .realEstateExplore(params, controller.signal)
         .then((res) => {
           if (cancelled) return;
           setData(res);
+          setResponseKey(requestKey);
           setError(null);
           // While the collector is still filling this region, re-read it: the map
           // grows district by district instead of waiting for a reload.
@@ -286,12 +317,13 @@ export default function RealEstateMapPage() {
           if (!cancelled) setLoading(false);
         });
     };
-    load(true);
+    timer = window.setTimeout(() => load(true), 280);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      controller.abort();
     };
-  }, [sido, sgg, dong, period, sidoTop]);
+  }, [requestKey, retry]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -303,9 +335,9 @@ export default function RealEstateMapPage() {
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [view]);
+  }, [view, loading, data?.items.length]);
 
-  const items = data?.items ?? [];
+  const items = responseKey === requestKey ? data?.items ?? [] : [];
 
   const zones = useMemo<Zone[]>(() => {
     if (items.length === 0 || size.w === 0 || size.h === 0) return [];
@@ -350,6 +382,7 @@ export default function RealEstateMapPage() {
 
   const total = useMemo(() => items.reduce((s, it) => s + it.price, 0), [items]);
   const movedCount = items.filter((it) => it.change_pct !== null).length;
+  const tradedCount = items.filter((it) => it.trades > 0).length;
 
   /** A click or tap on a complex pins its card (a sheet on touch screens, a dialog on
    * a desktop), where its 평형 can be switched and moving into its region is a
@@ -402,20 +435,83 @@ export default function RealEstateMapPage() {
     }
   };
   const [sheetItem, setSheetItem] = useState<RealEstateItem | null>(null);
-  useEffect(() => setSheetItem(null), [sido, sgg, dong, period]);
+  const closeSheet = (restoreHistory = true) => {
+    if (restoreHistory && selectedId && window.history.state?.reDetailFromMap) { window.history.back(); return; }
+    setSelectedId(""); setSheetItem(null); setDetailError("");
+  };
+  useEffect(() => {
+    const pop = () => {
+      restoring.current = true;
+      const next = readQuery(); const q = new URLSearchParams(location.search);
+      setSido(next.sido); setSgg(next.sgg); setDong(next.dong); setPeriod(next.period);
+      setFilters(readEstateFilters()); setPage(Math.max(0, Number(q.get("page")) || 0));
+      setView(q.get("view") === "table" ? "table" : "map");
+      setSelectedId(q.get("complex") ?? ""); setSheetItem(null); setDetailError("");
+    };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+  useEffect(() => {
+    if (restoring.current) { restoring.current = false; previousNavigation.current = JSON.stringify([sido, sgg, dong, period, view, page, selectedId]); return; }
+    const q = new URLSearchParams(location.search);
+    const oldComplex = q.get("complex") ?? "";
+    q.set("sido", sido); q.set("period", period);
+    if (sgg) q.set("sgg", sgg); else q.delete("sgg");
+    if (sgg && dong) q.set("dong", dong); else q.delete("dong");
+    if (view === "table") q.set("view", view); else q.delete("view");
+    if (page) q.set("page", String(page)); else q.delete("page");
+    Object.entries(filters).forEach(([key, value]) => { if (value && value !== FILTER_DEFAULTS[key as keyof typeof filters]) q.set(key, value); else q.delete(key); });
+    if (selectedId) q.set("complex", selectedId); else q.delete("complex");
+    if (oldComplex !== selectedId) { q.delete("area"); q.delete("mode"); }
+    const url = `${location.pathname}?${q}`;
+    if (url !== `${location.pathname}${location.search}`) {
+      const state = { ...window.history.state, reDetailFromMap: !!selectedId && (!oldComplex || !!window.history.state?.reDetailFromMap) };
+      if (firstUrl.current || (oldComplex && !selectedId) || previousNavigation.current === JSON.stringify([sido, sgg, dong, period, view, page, selectedId])) window.history.replaceState(state, "", url);
+      else window.history.pushState(state, "", url);
+    }
+    firstUrl.current = false;
+    previousNavigation.current = JSON.stringify([sido, sgg, dong, period, view, page, selectedId]);
+  }, [sido, sgg, dong, period, view, filters, page, selectedId]);
+  useEffect(() => {
+    if (!sidoNode || (sgg && !sggNode)) return;
+    try { localStorage.setItem("re_last_region", JSON.stringify({ sido, sgg, dong })); } catch { /* optional preference */ }
+  }, [sido, sgg, dong, sidoNode, sggNode]);
+  useEffect(() => {
+    if (!selectedId || sheetItem?.id === selectedId) return;
+    let cancelled = false;
+    setDetailError("");
+    api.realEstateComplex(selectedId, period).then(res => {
+      if (!cancelled && res.item) setSheetItem(res.item);
+      else if (!cancelled) setDetailError("이 단지의 상세 정보를 찾지 못했습니다.");
+    }).catch(() => { if (!cancelled) setDetailError("단지 정보를 불러오지 못했습니다. 다시 시도해 주세요."); });
+    return () => { cancelled = true; };
+  }, [selectedId, sheetItem?.id, period, retry]);
+  const toggleCompare = (item: RealEstateItem) => {
+    if (compare.some(x => x.id === item.id)) { setCompare(compare.filter(x => x.id !== item.id)); return; }
+    if (compare.length >= 3) { setNotice("비교는 최대 3개까지 가능합니다. 기존 단지를 제외한 뒤 추가해 주세요."); return; }
+    setCompare([...compare, item]); setNotice(`${item.name}을 비교에 추가했습니다.`);
+  };
 
   /** Where a click on this complex leads, as a button label — null at 동 level. */
   const drillLabel = (item: RealEstateItem): string | null =>
-    !sgg ? `${item.sgg} 지도로 이동` : !dong && item.dong ? `${item.dong} 지도로 이동` : null;
+    item.id.split(":")[0] !== sgg ? `${item.sgg} 지도로 이동` : item.dong !== dong ? `${item.dong} 지도로 이동` : null;
 
   const openItem = (item: RealEstateItem) => {
     setHovered(null);
+    setSelectedId(item.id);
     setSheetItem(item);
   };
 
   /** A tile or a group drills one level down: 시·도 → 시·군·구 → 읍·면·동. */
   const drill = (item: RealEstateItem | null, group?: string) => {
     if (!sidoNode) return;
+    setPage(0);
+    if (item && item.id.split(":")[0] !== sgg) {
+      const code = item.sgg_code ?? item.id.split(":")[0];
+      const target = regions.find(r => r.sgg.some(g => g.code === code));
+      if (target) { setSido(target.code); setSgg(code); setDong(""); setFilters({ ...FILTER_DEFAULTS }); }
+      return;
+    }
     if (!sgg) {
       const name = item?.sgg ?? group;
       const target = sidoNode.sgg.find((g) => g.name === name);
@@ -423,7 +519,7 @@ export default function RealEstateMapPage() {
         setSgg(target.code);
         setDong("");
       }
-    } else if (!dong) {
+    } else if (!dong || item) {
       const name = item?.dong ?? group;
       if (name) setDong(name);
     }
@@ -431,8 +527,6 @@ export default function RealEstateMapPage() {
   };
 
   const levelLabel = dong || sggNode?.name || sidoNode?.name || "";
-  const topN = data?.top_n ?? (sgg ? 100 : sidoTop);
-  const groupFloor = data?.group_floor ?? null;
   const periodInfo = PERIODS.find((p) => p.key === period) ?? PERIODS[0];
 
   /** Where the hovered complex stands on this map, and what clicking it does. */
@@ -446,7 +540,7 @@ export default function RealEstateMapPage() {
       groupRank: inGroup.indexOf(item) + 1,
       groupCount: inGroup.length,
       share: total > 0 ? (item.price / total) * 100 : 0,
-      clickHint: "클릭하면 평형별 상세 보기",
+      clickHint: "선택하면 평형별 상세 보기",
     };
   };
 
@@ -619,7 +713,7 @@ export default function RealEstateMapPage() {
         section={{
           ko: "부동산 지도",
           en: "Real estate map",
-          taglineKo: "아파트 실거래가 히트맵 — 면적은 시세, 색은 등락",
+          taglineKo: "아파트 실거래 탐색 — 타일 크기는 기준가, 색은 등락",
           taglineEn: "Apartment trades — area is price, colour is the move",
         }}
       />
@@ -637,13 +731,7 @@ export default function RealEstateMapPage() {
                 </span>
               </div>
               <p className="app-subtitle">
-                {levelLabel}{" "}
-                {data && items.length < topN
-                  ? `전체 ${items.length.toLocaleString()}개`
-                  : groupFloor
-                    ? `가격 상위 ${topN.toLocaleString()}개 + 구별 상위 ${groupFloor}개`
-                    : `가격 상위 ${topN.toLocaleString()}개`}{" "}
-                아파트 단지 MAP
+                {levelLabel} · 조건에 맞는 아파트 {data?.matched_count?.toLocaleString() ?? "—"}개
                 {data?.latest_deal_date && <span className="kospi-map-updated"> · 최근 계약일 {dateDots(data.latest_deal_date)}</span>}
               </p>
             </div>
@@ -659,17 +747,23 @@ export default function RealEstateMapPage() {
                 </button>
               )}
               <MapExportButtons exp={mapExport} disabled={zones.length === 0} />
+              <button type="button" disabled={!items.length || loading} onClick={() => csvDownload(items, levelLabel, periodInfo.label, data?.generated_at ?? "")}>CSV 저장</button>
             </div>
           </div>
         </div>
 
-        {error && <div className="error-state">{error}</div>}
+        {(error || regionsError) && <div className="error-state" role="alert">{regionsError ? "지역 목록을 불러오지 못했습니다." : error}<button type="button" onClick={() => setRetry(x => x + 1)}>다시 시도</button></div>}
         {status && !status.configured && (
           <div className="error-state re-map-notice">
-            국토교통부 아파트 매매 실거래가 API 키가 아직 설정되지 않아 데이터를 불러올 수 없습니다. 서버 환경변수 <code>MOLIT_API_KEY</code>를
-            설정하면 자동으로 수집을 시작합니다.
+            실시간 자료 연결이 준비되지 않아 저장된 자료를 표시합니다. 기준 거래일을 확인해 주세요.
           </div>
         )}
+        <details className="re-saved-shelf"><summary>관심 단지 <b>{saved.length}</b><span>이 브라우저에 저장</span></summary>
+          {saved.length ? <div className="re-saved-list">{saved.map(item => <div key={item.id}><button type="button" onClick={() => openItem(item)}>{item.name}<small>{item.sgg} {item.dong} · 전용 {item.area}㎡</small></button><button type="button" aria-label={`${item.name} 관심 해제`} onClick={() => toggleSaved(item)}>해제</button></div>)}</div> : <p>단지 상세나 목록에서 ☆ 관심을 눌러 다시 찾을 단지를 저장하세요.</p>}
+          {storageError && <p role="status">{storageError}</p>}
+        </details>
+        {(notice || detailError) && <div className="re-feedback" role="status">{detailError || notice}{detailError && <><button type="button" onClick={() => setRetry(x => x + 1)}>다시 시도</button><button type="button" onClick={() => closeSheet()}>닫기</button></>}</div>}
+        {selectedId && !sheetItem && !detailError && <p role="status">단지 상세를 불러오는 중… <button type="button" onClick={() => closeSheet()}>취소</button></p>}
 
         <div className={`kospi-map-workspace${view === "table" ? " is-table" : ""}`}>
           <aside className="kospi-map-period-rail re-map-rail" aria-label="조회 기간과 지역 지도">
@@ -680,7 +774,7 @@ export default function RealEstateMapPage() {
             <div className="kospi-map-period-options">
               {PERIODS.map((option) => (
                 <label key={option.key} className={period === option.key ? "active" : ""}>
-                  <input type="checkbox" checked={period === option.key} onChange={() => setPeriod(option.key)} />
+                  <input type="radio" name="re-period" checked={period === option.key} onChange={() => { setPeriod(option.key); setPage(0); }} />
                   <span>
                     <b>{option.label}</b>
                     <small>{option.key === "today" && data?.latest_deal_date ? `최근 계약일 ${dateDots(data.latest_deal_date)}` : option.detail}</small>
@@ -709,6 +803,7 @@ export default function RealEstateMapPage() {
                     periodLabel={periodInfo.label}
                     touch={touchUi}
                     onSelect={(next) => {
+                      setPage(0);
                       setSido(next.sido);
                       setSgg(next.sgg);
                       setDong(next.dong);
@@ -723,13 +818,11 @@ export default function RealEstateMapPage() {
                 ? "실거래 데이터를 불러오는 중…"
                 : status?.collecting
                   ? `실거래 수집 중 ${Math.round(status.coverage * 100)}% · 자동 갱신`
-                  : `${items.length.toLocaleString()}개 단지 · 기간 내 거래 ${movedCount.toLocaleString()}곳`}
+                  : `표시 ${items.length.toLocaleString()}곳 · 기간 거래 ${tradedCount}곳 · 등락 비교 ${movedCount}곳`}
               {status?.error && status.collecting && <div className="re-map-status-error">최근 오류: {status.error}</div>}
             </div>
             <p className="kospi-map-period-note">
-              대표 평형의 현재 시세를 기간 시작 직전 시세와 비교합니다. 시세는 최근 거래 최대 3건(90일 이내)의 중간값이고, 지역 색은 그
-              지역 단지들의 시세 가중 평균 등락입니다. 실거래는 계약 후 30일 안에 신고되므로 최근 며칠은 거래가 적게 보일 수 있으며, 해제된
-              계약은 제외합니다.
+              기준가는 마지막 유효 거래일 이전 90일 안의 최대 3건 중간값입니다. 오래된 거래도 포함될 수 있습니다. 중개거래가 없으면 직거래 참고값을 사용합니다. 기간 전 자료가 없으면 기간 내 최초 거래와 비교하며, 계약 해제는 제외합니다.
             </p>
           </aside>
 
@@ -739,7 +832,7 @@ export default function RealEstateMapPage() {
                 <span className="kospi-map-legend-label">하락</span>
                 <span className="kospi-map-legend-bar" />
                 <span className="kospi-map-legend-label">상승</span>
-                <span className="kospi-map-legend-scale">±10% 포화 · 회색 = 기간 내 거래 없음</span>
+                <span className="kospi-map-legend-scale">±10% · 회색 = 기간 거래 없음 / 비교 기준 부족</span>
               </div>
               <div className="re-map-filters">
                 <label className="kospi-map-sector-filter">
@@ -748,6 +841,7 @@ export default function RealEstateMapPage() {
                     value={sido}
                     onChange={(e) => {
                       setSido(e.target.value);
+                      setPage(0);
                       setSgg("");
                       setDong("");
                     }}
@@ -766,6 +860,7 @@ export default function RealEstateMapPage() {
                     value={sgg}
                     onChange={(e) => {
                       setSgg(e.target.value);
+                      setPage(0);
                       setDong("");
                     }}
                     aria-label="시·군·구"
@@ -780,7 +875,7 @@ export default function RealEstateMapPage() {
                 </label>
                 <label className="kospi-map-sector-filter">
                   <span className="kospi-map-sector-filter-label">읍·면·동</span>
-                  <select value={dong} onChange={(e) => setDong(e.target.value)} disabled={!sgg} aria-label="읍·면·동">
+                  <select value={dong} onChange={(e) => { setDong(e.target.value); setPage(0); }} disabled={!sgg} aria-label="읍·면·동">
                     <option value="">전체</option>
                     {dongOptions.map((d) => (
                       <option key={d} value={d}>
@@ -792,6 +887,13 @@ export default function RealEstateMapPage() {
               </div>
             </div>
 
+            <RealEstateExploreControls filters={filters} busy={loading} onChange={value => { setFilters(value); setPage(0); }} />
+            <div className="re-results-summary" aria-live="polite" aria-busy={loading}>
+              {loading ? "실거래 자료를 조회하고 있습니다…" : `${data?.matched_count?.toLocaleString() ?? 0}개 검색 결과 · 현재 ${items.length}개 표시`}
+              {data?.generated_at && <small>자료 생성 {new Date(data.generated_at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</small>}
+            </div>
+            {!loading && !items.length && !error && <div className="re-explore-empty"><strong>{status?.collecting ? "이 지역의 자료를 수집하고 있습니다" : "현재 조건에 맞는 단지가 없습니다"}</strong><p>검색 지역을 넓히거나 가격·면적 조건을 줄여 보세요. 미수집 자료는 결과에 포함되지 않습니다.</p><button type="button" onClick={() => { setFilters({ ...FILTER_DEFAULTS }); setPage(0); }}>조건 초기화</button>{sgg && <button type="button" onClick={() => { setSgg(""); setDong(""); setPage(0); }}>시·도 전체 검색</button>}</div>}
+
             {/* Phones only (maps.css): pinned over the treemap while it scrolls, so
                 the region in view stays named and each level above it is one tap
                 away — the selectors that do the same sit a screen further up. */}
@@ -802,6 +904,7 @@ export default function RealEstateMapPage() {
                     type="button"
                     disabled={!sgg}
                     onClick={() => {
+                      setPage(0);
                       setSgg("");
                       setDong("");
                     }}
@@ -811,7 +914,7 @@ export default function RealEstateMapPage() {
                   {sggNode && (
                     <>
                       <i aria-hidden="true">›</i>
-                      <button type="button" disabled={!dong} onClick={() => setDong("")}>
+                      <button type="button" disabled={!dong} onClick={() => { setDong(""); setPage(0); }}>
                         {sggNode.name}
                       </button>
                     </>
@@ -830,7 +933,7 @@ export default function RealEstateMapPage() {
               </nav>
             )}
 
-            {view === "map" && (
+            {view === "map" && (loading || items.length > 0) && (
               <div className="card kospi-map-canvas map-canvas-night" ref={containerRef}>
                 {loading &&
                   skeleton.map((rect, i) => (
@@ -883,6 +986,7 @@ export default function RealEstateMapPage() {
                           <button
                             key={tile.id}
                             type="button"
+                            aria-label={`${it.name}, 전용 ${it.area}제곱미터, ${fullPrice(it.price)}, ${tradeState(it)}. 상세 보기`}
                             className={`kospi-map-tile${idle ? " re-map-tile--idle" : ""}`}
                             style={{
                               left: tile.x - zone.rect.x,
@@ -940,74 +1044,36 @@ export default function RealEstateMapPage() {
               </div>
             )}
 
-            {view === "table" && (
-              <div className="card kospi-map-table-wrap">
-                <table className="kospi-map-table re-map-table">
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>단지명</th>
-                      <th>지역</th>
-                      <th>대표 평형</th>
-                      <th>시세</th>
-                      <th>최근 계약</th>
-                      <th>기간 전 시세</th>
-                      <th>등락률</th>
-                      <th>기간 거래</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {items.map((it, i) => (
-                      <tr key={it.id} onClick={() => openItem(it)}>
-                        <td>{i + 1}</td>
-                        <td className="kospi-map-table-name">
-                          <span className="re-map-table-name">
-                            {it.brand && <AptBrandIcon brand={it.brand} size={16} />}
-                            {it.name}
-                          </span>
-                        </td>
-                        <td>
-                          {it.sgg} {it.dong}
-                        </td>
-                        <td>
-                          {it.area}㎡ ({it.pyeong}평)
-                        </td>
-                        <td>{fullPrice(it.price)}</td>
-                        <td>{dateDots(it.deal_date)}</td>
-                        <td>{it.base_price ? `${fullPrice(it.base_price)} (${dateDots(it.base_date)})` : "—"}</td>
-                        <td
-                          style={{
-                            color: it.change_pct === null ? undefined : it.change_pct >= 0 ? "var(--up-color)" : "var(--down-color)",
-                          }}
-                        >
-                          {it.change_pct === null ? "—" : pct(it.change_pct)}
-                        </td>
-                        <td>{it.trades}건</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            {view === "table" && !loading && items.length > 0 && <RealEstateResults items={items} saved={saved} compared={compare} onOpen={openItem} onSave={toggleSaved} onCompare={toggleCompare} />}
+            {(data?.matched_count ?? 0) > sidoTop && <nav className="re-pagination" aria-label="검색 결과 페이지">
+              <button type="button" disabled={loading || page === 0} onClick={() => { setPage(p => p - 1); revealTreemap(); }}>이전</button>
+              <span>{page + 1} / {Math.ceil((data?.matched_count ?? 0) / sidoTop)} 페이지</span>
+              <button type="button" disabled={loading || (page + 1) * sidoTop >= (data?.matched_count ?? 0)} onClick={() => { setPage(p => p + 1); revealTreemap(); }}>다음</button>
+            </nav>}
             <p className="re-map-source">
-              자료: 국토교통부 아파트 매매 실거래가 (공공데이터포털). 면적은 단지 대표 평형(최근 1년 최다 거래 전용면적)의 시세(최근 거래 최대 3건 중간값, 직거래 제외), 그룹 면적은
-              지역 내 시세 합계 비중입니다. 브랜드 표시는 단지명 기준 자동 분류이며, 로고는 Wikimedia Commons(힐스테이트·우미린 CC BY-SA)와 각 사 공식 사이트에서 가져왔습니다. 로고가 없는 브랜드는 약식 표지로 표시합니다.
+              자료: 국토교통부 아파트 매매 실거래가. 타일 크기는 선택 평형의 실거래 기준가이며 단지 전체 자산가치가 아닙니다. 그룹 등락은 현재 표시 단지의 가격 가중 평균으로 전체 지역 집계와 다를 수 있습니다. 최근 계약은 신고 지연으로 누락될 수 있습니다. 브랜드는 단지명 기준 자동 분류이며 로고 출처는 Wikimedia Commons(힐스테이트·우미린 CC BY-SA) 및 각 사 공식 사이트입니다.
             </p>
           </div>
         </div>
 
         {sheetItem && (
           <RealEstateSheet
+            key={sheetItem.id}
             item={sheetItem}
             ctx={popupContext(sheetItem)}
             period={period}
             goLabel={drillLabel(sheetItem)}
             onGo={() => {
               const item = sheetItem;
-              setSheetItem(null);
+              closeSheet(false);
               drill(item);
             }}
-            onClose={() => setSheetItem(null)}
+            onClose={closeSheet}
+            saved={saved.some(x => x.id === sheetItem.id)}
+            compared={compare.some(x => x.id === sheetItem.id)}
+            onSave={toggleSaved}
+            onCompare={toggleCompare}
+            feedback={notice || storageError}
           />
         )}
         {hovered && !touchUi && !sheetItem && (
@@ -1020,6 +1086,8 @@ export default function RealEstateMapPage() {
             <RealEstatePopup item={hovered} ctx={popupContext(hovered)} />
           </FloatingTip>
         )}
+        {compare.length > 0 && <div className="re-compare-tray" aria-label="비교할 단지"><span>{compare.length} / 3 선택</span><div>{compare.map(item => <button type="button" key={item.id} aria-label={`${item.name} 비교 제외`} onClick={() => setCompare(compare.filter(x => x.id !== item.id))}>{item.name} ×</button>)}</div><button type="button" className="re-primary" onClick={() => setCompareOpen(true)}>비교하기</button></div>}
+        {compareOpen && compare.length > 0 && <RealEstateCompare items={compare} period={period} onClose={() => setCompareOpen(false)} onRemove={id => { setCompare(compare.filter(x => x.id !== id)); if (compare.length === 1) setCompareOpen(false); }} />}
         <MapPreviewModal exp={mapExport} />
       </main>
 

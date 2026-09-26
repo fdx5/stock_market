@@ -1,5 +1,5 @@
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import { createReadStream, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -11,7 +11,7 @@ const planetAssets = path.resolve(
 
 // Backend runs on :8000 in local dev (uvicorn); proxy /api so the frontend
 // can always call relative paths, matching the single-origin production setup.
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     {
@@ -35,7 +35,8 @@ export default defineConfig({
   ],
   server: {
     proxy: {
+      "/api/realestate": process.env.REALESTATE_API_TARGET || loadEnv(mode, process.cwd(), "REALESTATE_").REALESTATE_API_TARGET || "http://127.0.0.1:8000",
       "/api": "http://127.0.0.1:8000",
     },
   },
-});
+}));

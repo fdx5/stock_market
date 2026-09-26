@@ -876,7 +876,15 @@ def _type_view(rows: list[tuple], window_start: int, year_ago: int) -> dict:
     year = [x for x in trades if x[0] >= year_ago]
     high = max(year, key=lambda x: (x[1], x[0])) if year else None
     low = min(year, key=lambda x: (x[1], -x[0])) if year else None
+    sample_start = _as_int(_ymd(last_day) - dt.timedelta(days=ROBUST_SPAN_DAYS))
+    sample = [x for x in trades[-ROBUST_TRADES:] if x[0] >= sample_start]
     return {
+        "price_sample_count": len(sample),
+        "price_sample_from": _ymd(sample[0][0]).isoformat(),
+        "price_samples": [_trade(x) for x in sample],
+        "price_basis": "brokered" if any(not x[4] for x in every) else "direct",
+        "baseline_kind": "before_period" if base_day and base_day < window_start else "within_period" if base_day else None,
+        "type_trades_1y": sum(x[0] >= year_ago for x in every),
         "price": round(price),
         "area": round(area, 2),
         "pyeong": round(area / 3.3058, 1),
@@ -989,7 +997,7 @@ def _prefetch(lawd_codes: list[str]) -> None:
             _districts.pop(oldest)
 
 
-def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None) -> dict:
+def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, top: int | None = None, *, filters: dict | None = None) -> dict:
     if period not in PERIODS:
         raise ValueError("unknown period")
     index = _sgg_index()
@@ -1016,31 +1024,63 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         window_start = _as_int(today - dt.timedelta(days=days))
 
     rows = []
+    filters_active = filters is not None
+    f = filters or {}
+    query = re.sub(r"\s+", "", f.get("q", "")).casefold()
     for c in complexes.values():
+        if query and query not in re.sub(r"\s+", "", f'{index[c["lawd"]]["name"]}{c["dong"]}{c["name"]}').casefold():
+            continue
+        if f.get("built_min") and (not c["built"] or c["built"] < f["built_min"]):
+            continue
         recent = {t: [x for x in trades if x[0] >= year_ago] for t, trades in c["types"].items()}
         recent = {t: v for t, v in recent.items() if v}
-        if not recent and level == "dong":
+        if not recent and (level == "dong" or query):
             recent = {t: v for t, v in c["types"].items() if v}
         if not recent:
             continue
+        if f.get("area_min") is not None or f.get("area_max") is not None:
+            recent = {t: v for t, v in recent.items() if
+                      (f.get("area_min") is None or sum(x[3] for x in v) / len(v) >= f["area_min"]) and
+                      (f.get("area_max") is None or sum(x[3] for x in v) / len(v) <= f["area_max"])}
+        if not recent:
+            continue
         rep = max(recent, key=lambda t: (len(recent[t]), t))
+        selected_view = _type_view(c["types"][rep], window_start, year_ago)
+        if f.get("price_min") is not None and selected_view["price"] < f["price_min"]:
+            continue
+        if f.get("price_max") is not None and selected_view["price"] > f["price_max"]:
+            continue
+        if selected_view["trades"] < f.get("min_trades", 0):
+            continue
+        if f.get("recent_days") and (today - dt.date.fromisoformat(selected_view["deal_date"])).days > f["recent_days"]:
+            continue
         rows.append(
             {
                 "id": c["id"],
+                "sgg_code": c["lawd"],
                 "name": c["name"],
                 "brand": brand_of(c["name"]),
                 "sgg": index[c["lawd"]]["name"],
                 "dong": c["dong"],
                 "built": c["built"] or None,
                 "trades_all": sum(1 for t in c["types"].values() for x in t if window_start and x[0] >= window_start),
-                **_type_view(c["types"][rep], window_start, year_ago),
+                **selected_view,
                 **_detail(c, rep, year_ago),
             }
         )
 
-    rows.sort(key=lambda r: r["price"], reverse=True)
+    sort = f.get("sort", "price_desc")
+    sort_key = {"price_asc": "price", "price_desc": "price", "change_desc": "change_pct", "trades_desc": "trades", "date_desc": "deal_date", "name": "name"}.get(sort, "price")
+    rows.sort(key=lambda r: (r[sort_key] is None, -(r[sort_key] or 0) if sort_key in ("price", "change_pct", "trades") and sort != "price_asc" else r[sort_key] or ""))
+    if sort == "date_desc":
+        rows.sort(key=lambda r: r["deal_date"], reverse=True)
+    matched_count = len(rows)
+    offset = f.get("offset", 0)
     top_n = _sido_top(top) if level == "sido" else TOP_N[level]
-    if level == "sido":
+    if filters_active:
+        top_n = f.get("limit", 100)
+        rows = rows[offset:offset + top_n]
+    elif level == "sido":
         rows = _with_floor(rows, top_n)
     elif top_n:
         rows = rows[:top_n]
@@ -1052,7 +1092,9 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         "level": level,
         "period": period,
         "top_n": top_n,
-        "group_floor": SGG_FLOOR if level == "sido" else None,
+        "group_floor": SGG_FLOOR if level == "sido" and not filters_active else None,
+        "matched_count": matched_count,
+        "offset": offset,
         "latest_deal_date": _ymd(latest_day).isoformat() if latest_day else None,
         "window_start": _ymd(window_start).isoformat() if window_start else None,
         "status": _status(lawd_codes),
@@ -1060,6 +1102,27 @@ def build_map(sido: str | None, sgg: str | None, dong: str | None, period: str, 
         "items": rows,
     }
 
+
+
+_explore_cache: OrderedDict[tuple, tuple[float, str]] = OrderedDict()
+_explore_lock = threading.Lock()
+
+
+def explore(sido: str, sgg: str | None, dong: str | None, period: str, filters: dict) -> str:
+    """Short bounded cache; changing source data, date or filters invalidates it."""
+    key = (sido, sgg, dong, period, tuple(sorted(filters.items())), _version, dt.datetime.now(KST).date())
+    with _explore_lock:
+        hit = _explore_cache.get(key)
+        if hit and time.monotonic() - hit[0] < 30:
+            _explore_cache.move_to_end(key)
+    if hit and time.monotonic() - hit[0] < 30:
+        return _served(hit[1], _lawd_codes(sido, sgg))
+    body = _body(build_map(sido, sgg, dong, period, filters=filters))
+    with _explore_lock:
+        _explore_cache[key] = (time.monotonic(), body)
+        while len(_explore_cache) > 48:
+            _explore_cache.popitem(last=False)
+    return _served(body, _lawd_codes(sido, sgg))
 
 
 def _window(period: str, latest_day: int) -> tuple[int, int]:
@@ -1104,6 +1167,14 @@ def complex_detail(complex_id: str, period: str) -> dict:
     return {
         "id": c["id"],
         "name": c["name"],
+        "item": {
+            "id": c["id"], "name": c["name"], "brand": brand_of(c["name"]),
+            "sgg_code": lawd, "sgg": index[lawd]["name"], "dong": c["dong"],
+            "group": c["dong"], "built": c["built"] or None,
+            "trades_all": sum(x[0] >= window_start for rs in c["types"].values() for x in rs),
+            **{k: v for k, v in views[0].items() if k not in ("deals", "trades_1y")},
+            **_detail(c, views[0]["key"], year_ago),
+        },
         "period": period,
         "types": views,
         "history": {
@@ -1187,7 +1258,7 @@ _rebuild_started = False
 
 def _store_key(key: tuple) -> str:
     sido, _, _, period, top = key
-    return f"sido:{sido}:{period}:{top}"
+    return f"v2:sido:{sido}:{period}:{top}"
 
 
 def _body(result: dict) -> str:

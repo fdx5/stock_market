@@ -50,6 +50,43 @@ def realestate_complex(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.get("/explore")
+def realestate_explore(
+    sido: str = Query("11", pattern=r"^\d{2}$"),
+    sgg: str | None = Query(None, pattern=r"^\d{5}$"),
+    dong: str | None = Query(None, max_length=40),
+    period: str = Query("3m", pattern=r"^(3m|6m|1y)$"),
+    q: str = Query("", max_length=80),
+    price_min: float | None = Query(None, ge=0),
+    price_max: float | None = Query(None, ge=0),
+    area_min: float | None = Query(None, ge=0),
+    area_max: float | None = Query(None, ge=0),
+    built_min: int | None = Query(None, ge=1900, le=2100),
+    min_trades: int = Query(0, ge=0, le=10000),
+    recent_days: int | None = Query(None, ge=1, le=3650),
+    sort: str = Query("price_desc", pattern=r"^(price_desc|price_asc|change_desc|trades_desc|date_desc|name)$"),
+    offset: int = Query(0, ge=0, le=100000),
+    limit: int = Query(100, ge=1, le=200),
+):
+    """Filter all collected complexes in the region before sorting and pagination."""
+    if price_min is not None and price_max is not None and price_min > price_max:
+        raise HTTPException(400, "최소 가격은 최대 가격보다 클 수 없습니다.")
+    if area_min is not None and area_max is not None and area_min > area_max:
+        raise HTTPException(400, "최소 면적은 최대 면적보다 클 수 없습니다.")
+    if sgg and sgg not in {g["code"] for s in realestate_map.regions()["sido"] if s["code"] == sido for g in s["sgg"]}:
+        raise HTTPException(400, "선택한 시·도에 속하는 지역을 선택해 주세요.")
+    try:
+        body = realestate_map.explore(sido, sgg, dong, period, filters={
+            "q": q, "price_min": price_min, "price_max": price_max,
+            "area_min": area_min, "area_max": area_max, "built_min": built_min,
+            "min_trades": min_trades, "recent_days": recent_days, "sort": sort,
+            "offset": offset, "limit": limit,
+        })
+        return Response(content=body, media_type="application/json", headers={"Cache-Control": "no-store"})
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.get("/facts")
 def realestate_complex_facts(response: Response, id: str = Query(..., min_length=7, max_length=200)):
     """세대수 and 주차대수 of one complex, from 공동주택관리정보 (K-apt)."""

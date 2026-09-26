@@ -1059,8 +1059,18 @@ export interface RealEstateSido {
   sgg: RealEstateSgg[];
 }
 
-export interface RealEstateItem {
+export interface RealEstatePriceEvidence {
+  price_sample_count?: number;
+  price_sample_from?: string;
+  price_samples?: RealEstateTrade[];
+  price_basis?: "brokered" | "direct";
+  baseline_kind?: "before_period" | "within_period" | null;
+  type_trades_1y?: number;
+}
+
+export interface RealEstateItem extends RealEstatePriceEvidence {
   id: string;
+  sgg_code?: string;
   name: string;
   brand: string | null;
   sgg: string;
@@ -1090,7 +1100,7 @@ export interface RealEstateItem {
 }
 
 /** One 평형 of a complex, laid out as the map lays out its 대표 평형. */
-export interface RealEstateTypeView {
+export interface RealEstateTypeView extends RealEstatePriceEvidence {
   key: number;
   price: number;
   area: number;
@@ -1121,6 +1131,7 @@ export interface RealEstateTradeHistory {
 
 export interface RealEstateComplexResponse {
   id: string;
+  item?: RealEstateItem;
   name: string;
   period: RealEstatePeriod;
   types: RealEstateTypeView[];
@@ -1188,6 +1199,8 @@ export interface RealEstateTrade {
 }
 
 export interface RealEstateMapResponse {
+  matched_count?: number;
+  offset?: number;
   generated_at: string;
   level: "sido" | "sgg" | "dong";
   period: RealEstatePeriod;
@@ -1260,6 +1273,8 @@ export const api = {
     if (q.dong) params.set("dong", q.dong);
     return getJSONFresh<RealEstateMapResponse>(`${BASE}/realestate/map?${params}`);
   },
+  realEstateExplore: (params: URLSearchParams, signal?: AbortSignal) =>
+    getJSON<RealEstateMapResponse>(`${BASE}/realestate/explore?${params}`, { signal, cache: "no-store" }),
   etfs: (region: "KR" | "US") => getJSONFresh<EtfMarketResponse>(`${BASE}/etfs?region=${region}`),
   etfQuote: (code: string, region: "KR" | "US") =>
     getJSONFresh<EtfItem>(`${BASE}/etfs/${encodeURIComponent(code)}/quote?region=${region}`),

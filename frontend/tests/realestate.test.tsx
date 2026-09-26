@@ -1,0 +1,66 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { renderToStaticMarkup } from "react-dom/server";
+import RealEstatePopup, { PopupContext } from "../src/components/RealEstatePopup";
+import RealEstateResults from "../src/components/RealEstateResults";
+import RealEstateExploreControls from "../src/components/RealEstateExploreControls";
+import { FILTER_DEFAULTS, readEstateFilters, tradeState } from "../src/components/realEstateTools";
+import { RealEstateItem } from "../src/api/client";
+
+const item: RealEstateItem = {
+  id: "11680:test", name: "검증 아파트", sgg: "강남구", dong: "대치동", group: "대치동", brand: null,
+  area: 84.9, pyeong: 25.7, price: 123000, deal_date: "2026-09-01", floor: 9, built: 2010,
+  base_price: null, base_date: null, change_pct: null, trades: 1, trades_all: 1,
+  history: [[20260901, 123000, 9, 0]], high_1y: null, low_1y: null, trades_1y: 80, types: [],
+  type_trades_1y: 72, price_sample_count: 1, price_basis: "brokered",
+};
+const ctx: PopupContext = { periodLabel: "3개월", regionLabel: "강남구", regionRank: 1, regionCount: 10, groupRank: 1, groupCount: 2, share: 10, clickHint: null };
+
+test("a trade without a baseline is never called no trades", () => {
+  assert.equal(tradeState(item), "비교 기준 부족");
+  assert.equal(tradeState({ ...item, trades: 0 }), "기간 거래 없음");
+  assert.equal(tradeState({ ...item, change_pct: 0 }), "0.00%");
+});
+
+test("annual count uses the independent count, not the chart array", () => {
+  const html = renderToStaticMarkup(<RealEstatePopup item={item} ctx={ctx} />);
+  assert.match(html, /이 평형 72건/);
+  assert.doesNotMatch(html, /이 평형 1건/);
+  assert.match(html, /마지막 기준 거래/);
+});
+
+test("empty and one-point charts render without nonfinite SVG coordinates", () => {
+  for (const history of [[], item.history]) {
+    const html = renderToStaticMarkup(<RealEstatePopup item={{ ...item, history }} ctx={ctx} />);
+    assert.doesNotMatch(html, /NaN|Infinity/);
+  }
+});
+
+test("calculation exceptions are visible on the detail card", () => {
+  const html = renderToStaticMarkup(<RealEstatePopup item={{ ...item, price_basis: "direct", baseline_kind: "within_period" }} ctx={ctx} selector={<span>평형</span>} />);
+  assert.match(html, /직거래 참고값/);
+  assert.match(html, /기간 내 최초 거래 대비/);
+});
+
+test("result actions have labels and toggle state; untrusted names are escaped", () => {
+  const unsafe = { ...item, name: '<script>alert("x")</script>' };
+  const html = renderToStaticMarkup(<RealEstateResults items={[unsafe]} saved={[unsafe]} compared={[]} onOpen={() => {}} onSave={() => {}} onCompare={() => {}} />);
+  assert.match(html, /aria-pressed="true"/);
+  assert.match(html, /비교 선택/);
+  assert.doesNotMatch(html, /<script>/);
+});
+
+test("filter bounds are labelled for keyboard and assistive technology", () => {
+  const html = renderToStaticMarkup(<RealEstateExploreControls filters={FILTER_DEFAULTS} onChange={() => {}} busy={false} />);
+  assert.match(html, /aria-label="최소 가격 \(억원\)"/);
+  assert.match(html, /aria-label="최대 전용면적"/);
+});
+
+test("malformed shared filters are sanitized", () => {
+  Object.defineProperty(globalThis, "location", { configurable: true, value: { search: "?sort=bad&price_max=NaN&area_min=-3&q=test" } });
+  const filters = readEstateFilters();
+  assert.equal(filters.sort, "price_desc");
+  assert.equal(filters.price_max, "");
+  assert.equal(filters.area_min, "");
+  assert.equal(filters.q, "test");
+});

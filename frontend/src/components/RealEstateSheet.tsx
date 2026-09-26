@@ -12,6 +12,7 @@ import {
 import { useBodyScrollLock } from "../useBodyScrollLock";
 import RealEstatePopup, { OtherType, PopupContext } from "./RealEstatePopup";
 import RealEstateRentView, { LeaseMode } from "./RealEstateRentView";
+import { useDialogFocus } from "./realEstateTools";
 
 /* The 부동산 맵's pinned complex card — a bottom sheet on a phone or tablet, a centred
  * dialog on a desktop. It opens on a click or tap on a tile, shows what the hover
@@ -100,6 +101,7 @@ export default function RealEstateSheet({
   goLabel,
   onGo,
   onClose,
+  saved, compared, onSave, onCompare, feedback,
 }: {
   item: RealEstateItem;
   ctx: PopupContext;
@@ -108,15 +110,16 @@ export default function RealEstateSheet({
   goLabel: string | null;
   onGo: () => void;
   onClose: () => void;
+  saved: boolean;
+  compared: boolean;
+  onSave: (item: RealEstateItem) => void;
+  onCompare: (item: RealEstateItem) => void;
+  feedback?: string;
 }) {
   useBodyScrollLock(true);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const dialogRef = useDialogFocus(onClose);
+  const [retry, setRetry] = useState(0);
+  const [shareNote, setShareNote] = useState("");
 
   const [views, setViews] = useState<RealEstateTypeView[]>([]);
   const [history, setHistory] = useState<RealEstateTradeHistory | undefined>(undefined);
@@ -134,7 +137,8 @@ export default function RealEstateSheet({
         if (cancelled) return;
         setViews(res.types);
         setHistory(res.history);
-        setSelected(representativeKey(item, res.types));
+        const requested = Number(new URLSearchParams(location.search).get("area"));
+        setSelected(res.types.some(t => t.key === requested) ? requested : representativeKey(item, res.types));
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -145,17 +149,19 @@ export default function RealEstateSheet({
     return () => {
       cancelled = true;
     };
-  }, [item, period]);
+  }, [item, period, retry]);
 
   // 세대수·주차 come from K-apt through their own request, so a slow or missing
   // lookup never holds up the 평형 data.
   // 매매 is the card's default; 전세 and 월세 are read (and, for a district never
   // opened this way, collected) only once the reader asks for them.
-  const [mode, setMode] = useState<"sale" | LeaseMode>("sale");
+  const [mode, setMode] = useState<"sale" | LeaseMode>(() => {
+    const value = new URLSearchParams(location.search).get("mode");
+    return value === "jeonse" || value === "wolse" ? value : "sale";
+  });
   const [rent, setRent] = useState<RealEstateRentResponse | null>(null);
   const [rentFailed, setRentFailed] = useState(false);
   useEffect(() => {
-    setMode("sale");
     setRent(null);
     setRentFailed(false);
   }, [item.id]);
@@ -182,7 +188,14 @@ export default function RealEstateSheet({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [mode, item.id]);
+  }, [mode, item.id, retry]);
+  useEffect(() => {
+    if (selected === null) return;
+    const q = new URLSearchParams(location.search);
+    q.set("complex", item.id); q.set("area", String(selected));
+    if (mode === "sale") q.delete("mode"); else q.set("mode", mode);
+    window.history.replaceState(window.history.state, "", `${location.pathname}?${q}`);
+  }, [selected, mode, item.id]);
 
   const [facts, setFacts] = useState<RealEstateFacts | null>(null);
   useEffect(() => {
@@ -199,7 +212,7 @@ export default function RealEstateSheet({
     return () => {
       cancelled = true;
     };
-  }, [item.id]);
+  }, [item.id, retry]);
 
   const view = views.find((v) => v.key === selected) ?? null;
   const repKey = useMemo(() => representativeKey(item, views), [item, views]);
@@ -230,6 +243,15 @@ export default function RealEstateSheet({
           data-mode={key}
           className={mode === key ? "is-on" : ""}
           onClick={() => setMode(key)}
+          onKeyDown={e => {
+            if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+            e.preventDefault();
+            const modes = ["sale", "jeonse", "wolse"] as const;
+            const next = (modes.indexOf(mode) + (e.key === "ArrowRight" ? 1 : 2)) % 3;
+            setMode(modes[next]);
+            const target = e.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next];
+            target?.focus();
+          }}
         >
           {label}
         </button>
@@ -257,7 +279,7 @@ export default function RealEstateSheet({
           </option>
         ))}
       </select>
-      {failed && <span className="re-sheet-select-note">다른 평형을 불러오지 못했습니다</span>}
+      {failed && <span className="re-sheet-select-note">다른 평형을 불러오지 못했습니다 <button type="button" onClick={() => setRetry(x => x + 1)}>다시 시도</button></span>}
       {!loading && !failed && views.length === 1 && <span className="re-sheet-select-note">거래된 평형이 하나뿐입니다</span>}
     </div>
   );
@@ -270,6 +292,8 @@ export default function RealEstateSheet({
     <div className="d2 mm app kospi-map-page re-map-page re-sheet-portal" lang="ko">
       <div className="re-sheet-scrim" onClick={onClose}>
         <section
+          ref={dialogRef}
+          tabIndex={-1}
           className="re-sheet"
           role="dialog"
           aria-modal="true"
@@ -281,6 +305,16 @@ export default function RealEstateSheet({
             ×
           </button>
           <div className="re-sheet-body re-pop-tip">
+            <div className="re-detail-tools">
+              <button type="button" aria-pressed={saved} onClick={() => onSave(shown)}>{saved ? "★ 관심 저장됨" : "☆ 관심 저장"}</button>
+              <button type="button" aria-pressed={compared} onClick={() => onCompare(shown)}>{compared ? "✓ 비교 선택됨" : "+ 비교 추가"}</button>
+              <button type="button" onClick={async () => {
+                try { await navigator.clipboard.writeText(location.href); setShareNote("이 단지·평형의 링크를 복사했습니다."); }
+                catch { setShareNote("주소창의 링크를 복사하면 이 단지와 평형을 공유할 수 있습니다."); }
+              }}>링크 복사</button>
+            </div>
+            {(shareNote || feedback) && <p className="re-detail-note" role="status">{shareNote || feedback}</p>}
+            {loading && <p className="re-detail-note" role="status">최신 평형 정보를 확인하고 있습니다…</p>}
             <RealEstatePopup
               item={shown}
               ctx={{ ...ctx, clickHint: null }}
@@ -297,6 +331,8 @@ export default function RealEstateSheet({
                     typeKey={selected ?? Math.round(item.area)}
                     area={shown.area}
                     salePrice={shown.price}
+                    saleDate={shown.deal_date}
+                    onRetry={() => setRetry(x => x + 1)}
                   />
                 )
               }

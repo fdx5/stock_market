@@ -1,4 +1,5 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
+import { daysSince } from "./realEstateTools";
 import { RealEstateFacts, RealEstateItem, RealEstateTradeHistory } from "../api/client";
 import { pct } from "../mapTile";
 import AptBrandIcon, { brandLabel } from "./AptBrandIcon";
@@ -48,14 +49,18 @@ function tone(v: number | null | undefined): "up" | "down" | "flat" {
 /** The 대표 평형's trades over the last two years: a line through the brokered ones,
  * hollow marks for 직거래 (shown, but not what the price is taken from), a dashed rule
  * at the price the period is compared against, and the latest trade ringed. */
-function TradeChart({ item }: { item: RealEstateItem }) {
-  const pts = item.history;
-  if (pts.length < 2) return <div className="re-pop-chart re-pop-chart--empty">거래가 1건뿐이라 추이를 그릴 수 없습니다</div>;
+function TradeChart({ item, deals, expanded }: { item: RealEstateItem; deals?: [number, number, number, number][]; expanded: boolean }) {
+  const [range, setRange] = useState("1y");
+  const [point, setPoint] = useState<number | null>(null);
+  const all = expanded && deals?.length ? [...deals].reverse() : item.history;
+  const cutoff = Date.now() - (range === "1y" ? 365 : 730) * 86400000;
+  const filtered = expanded && range !== "all" ? all.filter(p => ymdTime(p[0]) >= cutoff) : all;
+  const pts = filtered;
   const W = 300;
-  const H = 58;
+  const H = expanded ? 160 : 58;
   const PAD = 6;
-  const t0 = ymdTime(pts[0][0]);
-  const t1 = ymdTime(pts[pts.length - 1][0]);
+  const t0 = pts.length ? ymdTime(pts[0][0]) : 0;
+  const t1 = pts.length ? ymdTime(pts[pts.length - 1][0]) : 1;
   const prices = pts.map((p) => p[1]).concat(item.base_price ? [item.base_price] : []);
   const lo = Math.min(...prices);
   const hi = Math.max(...prices);
@@ -64,17 +69,19 @@ function TradeChart({ item }: { item: RealEstateItem }) {
   const brokered = pts.filter((p) => !p[3]);
   const line = (brokered.length > 1 ? brokered : pts).map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(" ");
   const last = pts[pts.length - 1];
+  const chosen = pts.length ? pts[Math.min(point ?? pts.length - 1, pts.length - 1)] : null;
   return (
-    <div className="re-pop-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
+    <div className={`re-pop-chart${expanded ? " re-chart-expanded" : ""}`}>
+      {expanded && <div className="re-chart-toolbar"><strong>개별 실거래 추이</strong><label>기간 <select value={range} onChange={e => { setRange(e.target.value); setPoint(null); }}><option value="1y">최근 1년</option><option value="2y">최근 2년</option><option value="all">수집된 전체</option></select></label></div>}
+      {!pts.length ? <p>선택한 기간의 거래가 없습니다. 기간을 넓혀 보세요.</p> : <><svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
         {item.base_price && (
           <line className="re-pop-chart-base" x1={PAD} x2={W - PAD} y1={y(item.base_price)} y2={y(item.base_price)} />
         )}
-        <path className={`re-pop-chart-line is-${tone(item.change_pct)}`} d={line} />
+        {!expanded && <path className={`re-pop-chart-line is-${tone(item.change_pct)}`} d={line} />}
         {pts.map((p, i) => (
           <circle key={i} className={p[3] ? "re-pop-chart-dot is-direct" : "re-pop-chart-dot"} cx={x(p[0])} cy={y(p[1])} r={2.2} />
         ))}
-        <circle className="re-pop-chart-last" cx={x(last[0])} cy={y(last[1])} r={4} />
+        <circle className="re-pop-chart-last" cx={x((chosen ?? last)[0])} cy={y((chosen ?? last)[1])} r={4} />
       </svg>
       <div className="re-pop-chart-axis">
         <span>{ymdDots(pts[0][0])}</span>
@@ -82,7 +89,8 @@ function TradeChart({ item }: { item: RealEstateItem }) {
           {shortPrice(lo)} ~ {shortPrice(hi)}
         </span>
         <span>{ymdDots(last[0])}</span>
-      </div>
+      </div></>}
+      {expanded && chosen && <div className="re-chart-inspect"><label htmlFor="re-trade-point">거래 선택 · {pts.length}건</label><input id="re-trade-point" type="range" min={0} max={Math.max(0, pts.length - 1)} value={Math.min(point ?? pts.length - 1, pts.length - 1)} onChange={e => setPoint(Number(e.target.value))} aria-valuetext={`${ymdDots(chosen[0])}, ${fullPrice(chosen[1])}, ${chosen[2]}층`} /><output>{ymdDots(chosen[0])} · <b>{fullPrice(chosen[1])}</b> · {chosen[2]}층 · {chosen[3] ? "직거래" : "중개거래"}</output><small>점은 개별 계약입니다. 거래가 없는 기간은 가격을 추정하지 않습니다.</small></div>}
     </div>
   );
 }
@@ -271,7 +279,7 @@ export default function RealEstatePopup({
   const yearAgo = new Date();
   yearAgo.setFullYear(yearAgo.getFullYear() - 1);
   const yearAgoN = yearAgo.getFullYear() * 10000 + (yearAgo.getMonth() + 1) * 100 + yearAgo.getDate();
-  const typeYear = item.history.filter((h) => h[0] >= yearAgoN).length;
+  const typeYear = item.type_trades_1y ?? (deals ? deals.filter(h => h[0] >= yearAgoN).length : null);
   const move = item.base_price ? item.price - item.base_price : null;
 
   return (
@@ -297,12 +305,11 @@ export default function RealEstatePopup({
         <div className="re-pop-hero">
           <div className="re-pop-hero-price">
             <small>
-              시세 · 전용 {Math.round(item.area)}㎡ ({item.pyeong}평)
+              실거래 기준가 · 전용 {Math.round(item.area)}㎡ ({item.pyeong}평)
             </small>
             <b>{fullPrice(item.price)}</b>
             <span>
-              최근 계약 {dots(item.deal_date)}
-              {item.floor !== null && ` · ${item.floor}층`}
+              마지막 기준 거래 {dots(item.deal_date)}
             </span>
           </div>
           <div className={`re-pop-badge is-${tone(item.change_pct)}`}>
@@ -318,7 +325,14 @@ export default function RealEstatePopup({
           </div>
         </div>
 
-        <TradeChart item={item} />
+        <div className="re-price-evidence"><div className="re-evidence-badges">
+          <span>{item.price_sample_count ? `${item.price_sample_count}건 중간값` : "산정 근거 확인 중"}</span>
+          {item.price_basis === "direct" && <span className="is-caution">직거래 참고값</span>}
+          {daysSince(item.deal_date) > 180 && <span className="is-caution">마지막 거래 {daysSince(item.deal_date)}일 전</span>}
+          {item.baseline_kind === "within_period" && <span className="is-caution">기간 내 최초 거래 대비</span>}
+        </div>{selector && <details><summary>기준가격은 어떻게 계산하나요?</summary><p>마지막 유효 거래일 이전 90일 안의 최대 3건 중간값입니다. 현재 매물의 호가와 다르며, 층·향 등의 차이를 보정한 감정가격이 아닙니다.</p><p>{item.price_basis === "direct" ? "중개거래 자료가 없어 직거래를 사용한 참고값입니다." : "중개거래를 사용하며 직거래는 기준가격에서 제외합니다."}</p>{item.price_samples?.map((t, i) => <div className="re-evidence-trade" key={i}><span>{dots(t.date)} · {t.floor}층</span><b>{fullPrice(t.price)}</b></div>)}<p>비교가격 {item.base_price ? `${fullPrice(item.base_price)} (${dots(item.base_date)})` : "없음"}{item.baseline_kind === "within_period" ? " · 기간 이전 자료가 없어 기간 내 최초 거래일과 비교합니다." : " · 기간 시작 전 거래 기준입니다."}</p></details>}</div>
+
+        <TradeChart key={`${item.id}:${item.area}`} item={item} deals={deals} expanded={!!selector} />
 
         <div className="re-pop-kpis">
           <div>
@@ -326,7 +340,7 @@ export default function RealEstatePopup({
             <b>{shortPrice(perPyeong)}</b>
           </div>
           <div>
-            <small>기간 전 시세</small>
+            <small>{item.baseline_kind === "within_period" ? "기간 내 첫 거래 기준" : "기간 전 기준가"}</small>
             <b>{item.base_price ? shortPrice(item.base_price) : "—"}</b>
             {item.base_date && <span>{dots(item.base_date).slice(2)}</span>}
           </div>
@@ -346,7 +360,7 @@ export default function RealEstatePopup({
           </div>
           <div>
             <small>1년 거래</small>
-            <b>이 평형 {typeYear}건</b>
+            <b>이 평형 {typeYear === null ? "확인 중" : `${typeYear}건`}</b>
             <span>전 평형 {item.trades_1y}건</span>
           </div>
         </div>
@@ -404,9 +418,7 @@ export default function RealEstatePopup({
 
       <footer className="re-pop-foot">
         <span>
-          {ctx.regionLabel} 시세 <b>{ctx.regionRank}위</b> / {ctx.regionCount}
-          {ctx.groupCount > 1 && ctx.groupCount !== ctx.regionCount && ` · 그룹 내 ${ctx.groupRank}위`}
-          {` · 면적 ${ctx.share.toFixed(2)}%`}
+          {item.sgg} {item.dong} · 전용면적 기준 비교
         </span>
         {ctx.clickHint && <span className="re-pop-hint">{ctx.clickHint} ›</span>}
       </footer>
