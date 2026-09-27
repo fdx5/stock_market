@@ -1211,6 +1211,25 @@ export interface RealEstateTrade {
   direct: boolean;
 }
 
+export interface RealEstateBuilding {
+  /** Outer ring then holes, metres east/north of the complex centre. */
+  rings: [number, number][][];
+  height: number; floors: number; base: number;
+  height_source: "measured" | "floors" | "estimated";
+  name: string | null; use: string | null;
+}
+
+export interface RealEstateBuildingsResponse {
+  id: string; name: string; address: string; built: number | null;
+  found: boolean; source?: "vworld" | "osm"; attribution?: string;
+  center?: { lat: number; lon: number };
+  site: [number, number][][];
+  buildings: RealEstateBuilding[];
+  context: RealEstateBuilding[];
+  coverage?: { buildings: number; with_height: number };
+  vworld: boolean; error: string | null; fetched_at: string;
+}
+
 export interface RealEstateMapResponse {
   ranking?: { model: string; as_of: string; eligible_count: number; region_count: number;
     mode: "leader" | "price"; pinned_count: number; provisional_count?: number };
@@ -1243,10 +1262,10 @@ async function getJSON<T>(url: string, init?: RequestInit): Promise<T> {
  * must reflect the server's current value on every call — including an immediate re-entry
  * into a detail view (KOSPI map tile / search) where the browser could otherwise serve a
  * previously cached response and flash a stale price. */
-async function getJSONFresh<T>(url: string): Promise<T> {
+async function getJSONFresh<T>(url: string, signal?: AbortSignal): Promise<T> {
   // Revalidate live reads instead of discarding their previous bytes. The backend's
   // ETag makes an unchanged poll a header-only 304; changed data still arrives now.
-  const res = await fetch(url, { cache: "no-cache" });
+  const res = await fetch(url, { cache: "no-cache", signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { detail?: string });
     throw new Error(body.detail || `요청 실패 (${res.status})`);
@@ -1273,6 +1292,8 @@ export const api = {
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
   realEstateRent: (id: string) =>
     getJSONFresh<RealEstateRentResponse>(`${BASE}/realestate/rent?id=${encodeURIComponent(id)}`),
+  realEstateBuildings: (id: string, signal?: AbortSignal) =>
+    getJSONFresh<RealEstateBuildingsResponse>(`${BASE}/realestate/buildings?id=${encodeURIComponent(id)}`, signal),
   realEstateFacts: (id: string) =>
     getJSONFresh<RealEstateFacts>(`${BASE}/realestate/facts?id=${encodeURIComponent(id)}`),
   realEstateSummary: (q: { level: RealEstateRegionLevel; sido?: string; sgg?: string; period: RealEstatePeriod }) => {

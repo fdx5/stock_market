@@ -811,9 +811,12 @@ def _complexes(lawd_codes: list[str], months: dict[str, list] | None = None) -> 
                         "built": built,
                         "last": 0,
                         "types": defaultdict(list),
+                        "umd": umd,
+                        "jibun": jibun,
                     }
                 if day >= c["last"]:
                     c["last"], c["name"], c["dong"] = day, name or c["name"], _dong_of(umd) or c["dong"]
+                    c["umd"], c["jibun"] = umd or c["umd"], jibun or c["jibun"]
                 c["types"][round(area)].append((day, price, floor, area, direct))
     return out
 

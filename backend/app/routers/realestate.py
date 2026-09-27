@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response
 
-from app.services import realestate_facts, realestate_map, realestate_rent, realestate_summary
+from app.services import realestate_buildings, realestate_facts, realestate_map, realestate_rent, realestate_summary
 
 router = APIRouter()
 
@@ -96,6 +96,18 @@ def realestate_complex_facts(response: Response, id: str = Query(..., min_length
     response.headers["Cache-Control"] = "no-store"
     try:
         return realestate_facts.complex_facts(id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/buildings")
+def realestate_complex_buildings(response: Response, id: str = Query(..., min_length=7, max_length=200)):
+    """Footprints and heights of one complex's buildings, for the 3D viewer."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return realestate_buildings.complex_buildings(id)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다.") from exc
     except ValueError as exc:

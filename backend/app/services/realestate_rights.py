@@ -181,7 +181,8 @@ def merge_records(complexes, by_district, today):
         cid = matches[0] if len(matches) == 1 else alias
         if cid not in out:
             out[cid] = {"id": cid, "name": rows[-1][2], "lawd": lawd, "dong": dong,
-                        "built": 0, "last": 0, "types": {}, "type_sources": {}, "aliases": []}
+                        "built": 0, "last": 0, "types": {}, "type_sources": {}, "aliases": [],
+                        "umd": dong, "jibun": lot}
         out[cid]["aliases"].append(alias)
         for r in rows:
             right_types[cid][round(r[5])].append((r[0], r[6], r[7], r[5], r[9]))

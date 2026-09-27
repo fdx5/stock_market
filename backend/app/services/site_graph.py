@@ -370,6 +370,7 @@ PAGE_CALLS: dict[str, list[str]] = {
         "/api/realestate/complex",
         "/api/realestate/explore",
         "/api/realestate/facts",
+        "/api/realestate/buildings",
         "/api/realestate/rent",
         "/api/search",
         "/api/search/popular",

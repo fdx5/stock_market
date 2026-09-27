@@ -40,6 +40,7 @@ import {
 
 // The region map pulls in three.js; it loads after the treemap, never ahead of it.
 const RegionMap3D = lazy(() => import("./RegionMap3D"));
+const ComplexHologram = lazy(() => import("./ComplexHologram"));
 
 const PERIODS: { key: RealEstatePeriod; label: string; detail: string }[] = [
   { key: "3m", label: "3개월", detail: "최근 3개월 실거래" },
@@ -420,6 +421,11 @@ export default function RealEstateMapPage() {
   const touchUi = useMediaQuery("(hover: none), (pointer: coarse)");
   /** Tablets and phones stack the region map above the treemap (styles.css, 980px). */
   const stacked = useMediaQuery("(max-width: 980px)");
+  // The 3D panel shows the clicked complex, else the region's crowned #1.
+  const [holoPick, setHoloPick] = useState<RealEstateItem | null>(null);
+  useEffect(() => { setHoloPick(null); }, [sido, sgg, dong]);
+  const holoLeader = useMemo(() => items.find(it => crownRanks.get(it.id) === 1) ?? null, [items, crownRanks]);
+  const holoItem = holoPick ?? holoLeader;
   const mainRef = useRef<HTMLDivElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
   /** The phone's breadcrumb bar sends the reader back up to the three selectors. */
@@ -537,6 +543,7 @@ export default function RealEstateMapPage() {
     item.id.split(":")[0] !== sgg ? `${item.sgg} 지도로 이동` : item.dong !== dong ? `${item.dong} 지도로 이동` : null;
 
   const openItem = (item: RealEstateItem) => {
+    setHoloPick(item);
     setHovered(null);
     setSelectedId(item.id);
     setSheetItem(item);
@@ -865,6 +872,15 @@ export default function RealEstateMapPage() {
                 </Suspense>
               )}
             </div>
+            {!stacked && (
+              <Suspense fallback={<div className="re-holo re-holo--placeholder" />}>
+                <ComplexHologram
+                  complexId={holoItem?.id ?? null}
+                  complexName={holoItem?.name}
+                  caption={holoPick ? "선택 단지 · 3D" : `${dong || sggNode?.name || sidoNode?.name || "지역"} 대장단지 · ${crownMode === "price" ? "평단가" : "종합"} 1위`}
+                />
+              </Suspense>
+            )}
             <div className="kospi-map-period-status" aria-live="polite">
               {loading
                 ? "실거래 데이터를 불러오는 중…"

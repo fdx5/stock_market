@@ -110,5 +110,10 @@ services:
       # 동작하지 않고 페이지가 키 미설정 안내를 띄운다. Encoding/Decoding 키 모두 가능.
       - key: MOLIT_API_KEY
         sync: false
+      # 브이월드(국토부 공간정보 오픈플랫폼) 인증키: 부동산 맵 3D 단지 모델의 건물 윤곽·층수
+      # (GIS건물통합정보)와 지번 좌표·필지. 비워 두면 OpenStreetMap으로 대체되어 느리고
+      # 누락이 많다. 키 발급 시 서비스 URL은 https://kospimap.com (VWORLD_DOMAIN으로 변경 가능).
+      - key: VWORLD_API_KEY
+        sync: false
       - key: NAVER_BLOG_ID
         value: kospi-predictor
