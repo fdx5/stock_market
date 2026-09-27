@@ -346,3 +346,35 @@
 @media (prefers-reduced-motion: reduce) {
   .re-holo-wide { animation: none; }
 }
+
+/* Controls sit outside the canvas: gestures never compete with floating buttons. */
+.re-holo-navigation { flex: none; padding: 8px 10px 6px; background: #13212a; border-top: 1px solid #456071; }
+.re-holo-nav-row { display: flex; gap: 6px; }
+.re-holo-modes { display: flex; flex: 1; gap: 4px; }
+.re-holo-navigation button { min-width: 44px; min-height: 44px; padding: 8px 12px; border: 1px solid #516a7c; border-radius: 8px; background: #20333f; color: #eaf6ff; font: 600 12px var(--f-sans, sans-serif); cursor: pointer; touch-action: manipulation; }
+.re-holo-modes button, .re-holo-nav-actions button { flex: 1; }
+.re-holo-navigation button[aria-pressed="true"] { color: #07131c; background: #a6ddf6; border-color: #a6ddf6; }
+.re-holo-navigation button:active { background: #42637a; color: #fff; }
+.re-holo-nav-actions { margin-top: 6px; }
+.re-holo-navigation p { margin: 6px 0 0; color: #c4d6e2; font: 500 11px/1.4 var(--f-sans, sans-serif); text-align: center; }
+.re-holo-stage { overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
+.re-holo-layer { height: 100dvh; box-sizing: border-box; }
+.re-holo-layer .re-holo { border-radius: 0; }
+.re-holo-layer .re-holo-head { flex-wrap: wrap; }
+.re-holo-layer .re-holo-head > div:first-child { flex: 1 1 130px; }
+.re-holo-layer .re-holo-tools button { min-height: 44px; }
+@media (max-width: 480px) {
+  .re-holo-layer .re-holo-head { padding: 8px 56px 8px 10px; }
+  .re-holo-layer .re-holo-tools { gap: 4px; }
+  .re-holo-layer .re-holo-tools button { padding: 6px 9px; }
+  .re-holo-layer .re-holo-scene-label { display: none; }
+  .re-holo-layer .re-holo-foot { font-size: 9px; padding: 4px 10px; }
+  .re-holo-layer .re-holo-credit { position: absolute; right: 10px; bottom: calc(env(safe-area-inset-bottom) + 4px); }
+}
+@media (max-height: 540px) and (orientation: landscape) {
+  .re-holo-layer .re-holo-navigation { display: flex; flex-wrap: wrap; gap: 6px; }
+  .re-holo-layer .re-holo-nav-row { flex: 1; margin: 0; }
+  .re-holo-layer .re-holo-navigation p { flex-basis: 100%; margin: 0; }
+  .re-holo-layer .re-holo-foot { display: none; }
+  .re-holo-layer .re-holo-scene-label { display: none; }
+}

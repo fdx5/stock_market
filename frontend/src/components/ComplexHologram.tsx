@@ -91,6 +91,7 @@ type Stage = {
   onShown: (() => void)[];
   /** Move the live canvases into another stage element (the 크게 보기 layer). */
   attach: (next: HTMLDivElement) => void;
+  frame: () => void;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -129,7 +130,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [slowData, setSlowData] = useState(false);
-  const [spin, setSpin] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+  const [touchMode, setTouchMode] = useState(() => window.matchMedia?.("(any-pointer: coarse)").matches || navigator.maxTouchPoints > 0);
+  const [navMode, setNavMode] = useState<"pan" | "rotate">(() => touchMode ? "pan" : "rotate");
+  const [spin, setSpin] = useState(() => !touchMode && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   const [tod, setTod] = useState<Tod>(() => {
     const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tod") : null;
     return initialTod ?? (q && q in LOOKS ? (q as Tod) : todNow());
@@ -202,22 +205,30 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     camera.position.set(260, 160, 260);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.06;
+    controls.dampingFactor = 0.12;
+    controls.rotateSpeed = 0.65;
+    controls.panSpeed = 0.85;
+    controls.zoomSpeed = 0.8;
+    controls.touches.ONE = navMode === "pan" ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
+    controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
     controls.autoRotate = spinRef.current;
     controls.autoRotateSpeed = 0.55;
     controls.minPolarAngle = 0.12;
     controls.maxPolarAngle = Math.PI / 2 - 0.035;
     // Zoom toward whatever is under the cursor, anywhere in view, and pan freely
-    // (right drag / two fingers); the orbit centre stays above ground near the complex.
-    controls.zoomToCursor = true;
+    // (right drag / two fingers); touch pinches stay centred to avoid sudden jumps.
+    controls.zoomToCursor = !touchMode;
     controls.enablePan = true;
-    controls.screenSpacePanning = false;
+    controls.screenSpacePanning = true;
     controls.addEventListener("change", () => {
       const t = controls.target, st = stageRef.current;
       if (!st) return;
-      t.y = Math.min(Math.max(t.y, 0), st.top);
+      const before = t.clone();
+      t.y = Math.min(Math.max(t.y, 0), Math.max(st.top, st.dist * 0.5));
       const dx = t.x - st.center.x, dz = t.z - st.center.z, r = Math.hypot(dx, dz), limit = st.dist * 2.5;
       if (r > limit) { t.x = st.center.x + dx / r * limit; t.z = st.center.z + dz / r * limit; }
+      // Keep the viewing direction stable when a pan reaches the scene boundary.
+      camera.position.add(t.clone().sub(before));
     });
 
     const sky = new Sky();
@@ -275,7 +286,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       renderer, scene, camera, controls, composer, bloom, finish, sun, hemi, sky, stars, reflector, reflStrength, refreshEnv,
       look: LOOKS.day, fade: null, lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {},
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {},
     };
     stageRef.current = stage;
     // Dev only: lets the render checks place the camera (never in a production build).
@@ -300,11 +311,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     ro.observe(host);
     resize();
 
-    let idleTimer = 0;
-    const onStart = () => { controls.autoRotate = false; stage.intro = null; window.clearTimeout(idleTimer); };
-    const onEnd = () => { idleTimer = window.setTimeout(() => { controls.autoRotate = spinRef.current; }, 3500); };
+    // Exploring a building is deliberate: never restart rotation behind the user.
+    const onStart = () => {
+      controls.autoRotate = false; spinRef.current = false; setSpin(false);
+      stage.intro = null; setTip(null);
+    };
     controls.addEventListener("start", onStart);
-    controls.addEventListener("end", onEnd);
 
     const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3(), sunNdc = new THREE.Vector3();
     const sunRay = new THREE.Raycaster();
@@ -466,7 +478,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       native?.dispose();
       io.disconnect();
       ro.disconnect();
-      window.clearTimeout(idleTimer);
+
       stage.disposeModel();
       controls.dispose();
       composer.dispose();
@@ -492,6 +504,38 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     spinRef.current = spin;
     if (stageRef.current) stageRef.current.controls.autoRotate = spin;
   }, [spin]);
+
+  useEffect(() => {
+    const controls = stageRef.current?.controls;
+    if (!controls) return;
+    controls.touches.ONE = navMode === "pan" ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
+    controls.mouseButtons.LEFT = navMode === "pan" ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+    controls.zoomToCursor = !touchMode;
+  }, [navMode, touchMode]);
+
+  const navigateView = (action: "in" | "out" | "left" | "right" | "home" | "top") => {
+    const st = stageRef.current;
+    if (!st) return;
+    st.controls.autoRotate = false; spinRef.current = false; setSpin(false); setTip(null);
+    st.intro = null;
+    // Consume residual drag inertia before applying an exact button command.
+    st.controls.enableDamping = false; st.controls.update(); st.controls.enableDamping = true;
+    if (action === "home") st.frame();
+    else {
+      const offset = st.camera.position.clone().sub(st.controls.target);
+      if (action === "in" || action === "out") {
+        offset.setLength(THREE.MathUtils.clamp(offset.length() * (action === "in" ? 0.8 : 1.25), st.controls.minDistance, st.controls.maxDistance));
+      } else {
+        const sphere = new THREE.Spherical().setFromVector3(offset);
+        if (action === "top") sphere.phi = 0.18;
+        else sphere.theta += (action === "left" ? -1 : 1) * Math.PI / 8;
+        offset.setFromSpherical(sphere);
+      }
+      st.camera.position.copy(st.controls.target).add(offset);
+      st.controls.update();
+    }
+    st.resume();
+  };
 
   // The layer is portaled to <body> (a transformed ancestor would otherwise pin a
   // fixed layer to itself, off screen); the running renderer moves with it.
@@ -836,27 +880,31 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     stage.center.copy(center);
     stage.dist = dist;
     stage.top = top;
-    stage.controls.target.copy(center);
-    // Fit all eight corners to both frustum axes; tall towers used to lose their
-    // crowns in the narrow map rail. Keep a little sky above the actual roof.
-    const viewDir = new THREE.Vector3(0.74, 0.22, 0.74).normalize();
-    const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), viewDir).normalize();
-    const up = new THREE.Vector3().crossVectors(viewDir, right);
-    const tanV = Math.tan(THREE.MathUtils.degToRad(stage.camera.fov / 2));
-    const tanH = tanV * stage.camera.aspect;
-    let fitDistance = 60;
-    for (const x of [box.min.x, box.max.x]) for (const y of [0, top + 6]) for (const z of [-box.max.y, -box.min.y]) {
-      const v = new THREE.Vector3(x, y, z).sub(center);
-      fitDistance = Math.max(fitDistance, Math.max(Math.abs(v.dot(right)) / tanH, Math.abs(v.dot(up)) / tanV) + v.dot(viewDir));
-    }
-    fitDistance *= 1.16;
-    stage.camera.position.copy(center).addScaledVector(viewDir, fitDistance);
+    stage.frame = () => {
+      stage.controls.target.copy(center);
+      // Fit all eight corners to both frustum axes; tall towers used to lose their
+      // crowns in the narrow map rail. Keep a little sky above the actual roof.
+      const viewDir = new THREE.Vector3(0.74, 0.22, 0.74).normalize();
+      const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), viewDir).normalize();
+      const up = new THREE.Vector3().crossVectors(viewDir, right);
+      const tanV = Math.tan(THREE.MathUtils.degToRad(stage.camera.fov / 2));
+      const tanH = tanV * stage.camera.aspect;
+      let fitDistance = 60;
+      for (const x of [box.min.x, box.max.x]) for (const y of [0, top + 6]) for (const z of [-box.max.y, -box.min.y]) {
+        const v = new THREE.Vector3(x, y, z).sub(center);
+        fitDistance = Math.max(fitDistance, Math.max(Math.abs(v.dot(right)) / tanH, Math.abs(v.dot(up)) / tanV) + v.dot(viewDir));
+      }
+      fitDistance *= 1.16;
+      stage.controls.minDistance = 6;
+      stage.controls.maxDistance = Math.max(dist, fitDistance) * 4;
+      stage.camera.position.copy(center).addScaledVector(viewDir, fitDistance);
+      stage.controls.update();
+    };
+    stage.frame();
     stage.intro = null;
     stage.camera.far = dist * 14 + 2000;
     stage.camera.near = Math.max(0.5, dist / 800);
     stage.camera.updateProjectionMatrix();
-    stage.controls.minDistance = 6;
-    stage.controls.maxDistance = Math.max(dist, fitDistance) * 4;
     const sc2 = stage.sun.shadow.camera;
     const half = span * 0.75 + top * 0.9 + 40;
     sc2.left = -half; sc2.right = half; sc2.top = half; sc2.bottom = -half;
@@ -897,17 +945,26 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const hit = ray.intersectObjects(stage.pickables, false)[0];
     setTip(hit ? { x: e.clientX - rect.left, y: e.clientY - rect.top, text: hit.object.userData.label, pinned, w: rect.width } : null);
   };
-  const press = useRef<{ x: number; y: number; t: number } | null>(null);
+  const press = useRef<{ id: number; x: number; y: number; t: number; moved: boolean } | null>(null);
+  const pointers = useRef(new Set<number>());
   const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = press.current;
+    if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) p.moved = true;
     if (e.pointerType !== "mouse") return;
     if (e.buttons) { setTip(null); return; }
     if (!tip?.pinned) pick(e, false);
   };
-  const onDown = (e: React.PointerEvent<HTMLDivElement>) => { press.current = { x: e.clientX, y: e.clientY, t: performance.now() }; };
+  const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!(e.target instanceof HTMLCanvasElement)) return;
+    pointers.current.add(e.pointerId);
+    if (e.pointerType === "touch" && !touchMode) { setTouchMode(true); setNavMode("pan"); }
+    press.current = pointers.current.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), moved: false } : null;
+  };
   const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const p = press.current;
+    pointers.current.delete(e.pointerId);
     press.current = null;
-    if (!p) return;
+    if (!p || p.id !== e.pointerId || pointers.current.size > 0 || p.moved) return;
     // A drag turned the model: whatever was pinned no longer points at its building.
     if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8 || performance.now() - p.t > 450) { setTip(null); return; }
     pick(e, true);
@@ -931,7 +988,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           <strong>{data?.name ?? complexName ?? "단지를 선택하세요"}</strong>
         </div>
         <div className="re-holo-tools">
-          <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} title="360° 자동 회전">{spin ? "회전 ■" : "회전 ▶"}</button>
+          <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title="360° 자동 회전">{spin ? "자동 ■" : "자동 ▶"}</button>
           <button type="button" onClick={() => setTod(nextTod)} title={`시간대 바꾸기 · 다음: ${TOD_LABEL[nextTod]}`}>{TOD_LABEL[tod]}</button>
           {!wide && !coarse && complexId && !big && (
             <button type="button" className="re-holo-big" onClick={openBig} title="큰 화면으로 감상">크게 보기 ⤢</button>
@@ -939,8 +996,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         </div>
       </header>
       <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
+        onPointerCancel={e => { pointers.current.delete(e.pointerId); press.current = null; }}
         onPointerLeave={e => { if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
-        {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{TOD_LABEL[tod]}의 단지 풍경</strong><i>드래그 회전 · 휠 확대(커서 방향) · 우클릭 드래그 이동</i></div>}
+        {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{TOD_LABEL[tod]}의 단지 풍경</strong><i>{touchMode ? "건물을 짧게 탭하면 동·층수를 볼 수 있습니다" : "드래그 회전 · 휠 확대 · 우클릭 이동"}</i></div>}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         {failed3d && <p className="re-holo-msg">이 브라우저에서는 3D를 표시할 수 없습니다.</p>}
         {loading && <div className="re-holo-scan" role="status"><span />{slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
@@ -949,6 +1007,23 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
           role="status">{tip.text}</div>}
       </div>
+      {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label="3D 화면 조작">
+        <div className="re-holo-nav-row">
+          <div className="re-holo-modes" role="group" aria-label="드래그 방식">
+            <button type="button" aria-pressed={navMode === "pan"} onClick={() => setNavMode("pan")}>✥ 이동</button>
+            <button type="button" aria-pressed={navMode === "rotate"} onClick={() => setNavMode("rotate")}>↻ 회전</button>
+          </div>
+          <button type="button" onClick={() => navigateView("home")}>전체 보기</button>
+          <button type="button" onClick={() => navigateView("top")}>위에서</button>
+        </div>
+        <div className="re-holo-nav-row re-holo-nav-actions">
+          <button type="button" aria-label="3D 축소" onClick={() => navigateView("out")}>− <span>축소</span></button>
+          <button type="button" aria-label="3D 확대" onClick={() => navigateView("in")}>+ <span>확대</span></button>
+          <button type="button" aria-label="3D 왼쪽 회전" onClick={() => navigateView("left")}>↶ <span>왼쪽</span></button>
+          <button type="button" aria-label="3D 오른쪽 회전" onClick={() => navigateView("right")}>↷ <span>오른쪽</span></button>
+        </div>
+        <p>{touchMode ? `한 손가락 ${navMode === "pan" ? "이동" : "회전"} · 두 손가락으로 확대·축소·이동` : `드래그 ${navMode === "pan" ? "이동" : "회전"} · 휠 확대·축소 · 우클릭 이동`}</p>
+      </nav>}
       <footer className="re-holo-foot">
         <a className="re-holo-credit" href="/licenses/tidewater-MIT.txt" target="_blank" rel="noreferrer" title="렌더링 엔진 MIT 라이선스">MIT</a>
         {data?.found ? (
