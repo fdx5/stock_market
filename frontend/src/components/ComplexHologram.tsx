@@ -1,133 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { Sky } from "three/examples/jsm/objects/Sky.js";
+import { Reflector } from "three/examples/jsm/objects/Reflector.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
 import { vworldBuildings } from "./vworldBuildings";
+import {
+  alongRings, contextTextures, dirFrom, facadeTextures, FinishShader, foliageColors, inRing, Look, LOOKS, mixLook,
+  paintGround, paletteFor, patchFoliage, patchMaterial, patchSky, rng, seasonNow, shared, starField, Tod, TOD_LABEL, TOD_ORDER,
+  todNow, treeGeometries,
+} from "./complexScene";
 import "../desk2/realestate-hologram.css";
 
-/* 부동산 맵 — one complex as a turning hologram. Footprints and heights are the real
- * ones (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via
- * VWorld, else OpenStreetMap); only the facade — windows, balconies, paint — is
- * drawn, since no open source carries each building's real elevation. */
-
-interface Palette { wall: string; wall2: string; accent: string; glass: [string, string]; roof: string; holo: string }
-
-// Brand-inspired schemes (colour only, never a mark), matched on the complex name.
-const BRANDS: [RegExp, Palette][] = [
-  [/래미안|raemian/i, { wall: "#ecebe6", wall2: "#c9cbc4", accent: "#2f6b57", glass: ["#9cc3d6", "#27414f"], roof: "#6f7771", holo: "#5ff2c0" }],
-  [/자이|xi\b/i, { wall: "#e7e5e1", wall2: "#3c3f45", accent: "#8b1d2c", glass: ["#a9c4d8", "#1f2c3a"], roof: "#4a4d52", holo: "#ff6f7f" }],
-  [/힐스테이트|hillstate/i, { wall: "#efe9e0", wall2: "#7a5a48", accent: "#5a3a2e", glass: ["#b3cad6", "#2c3b45"], roof: "#6b5347", holo: "#ffb784" }],
-  [/아이파크|ipark/i, { wall: "#f2f1ee", wall2: "#d8d6d0", accent: "#d1492e", glass: ["#a4c9e0", "#233a4d"], roof: "#8a8d90", holo: "#ff8a5c" }],
-  [/푸르지오|prugio/i, { wall: "#eeeae0", wall2: "#b9c3a4", accent: "#4f7a3a", glass: ["#aecbd2", "#28413f"], roof: "#6f7865", holo: "#9dff7a" }],
-  [/롯데캐슬|캐슬/i, { wall: "#f0ebe4", wall2: "#9c6b5d", accent: "#8c2230", glass: ["#b5c9d4", "#2e3a44"], roof: "#6e4c47", holo: "#ff7a94" }],
-  [/e편한|이편한|편한세상/i, { wall: "#f3f2ef", wall2: "#cfd3d6", accent: "#c8102e", glass: ["#a8cde3", "#20384c"], roof: "#8d9296", holo: "#ff5f7a" }],
-  [/더샵|the ?sharp/i, { wall: "#eceef0", wall2: "#304a63", accent: "#1d7a8c", glass: ["#9fc9dc", "#1b3244"], roof: "#4c5c6a", holo: "#57e3ff" }],
-  [/아크로|acro/i, { wall: "#e9e3d6", wall2: "#3a3631", accent: "#b08d57", glass: ["#b9c6cc", "#262a2e"], roof: "#4b463f", holo: "#ffd27a" }],
-  [/디에이치|the ?h\b/i, { wall: "#2f2f31", wall2: "#1d1d1f", accent: "#c4a05a", glass: ["#9fb0bd", "#15191d"], roof: "#2a2a2c", holo: "#ffcf6a" }],
-  [/sk ?뷰|sk ?view|에스케이/i, { wall: "#f1efeb", wall2: "#d6d2ca", accent: "#e8661c", glass: ["#a6c8dc", "#22384a"], roof: "#8c8a86", holo: "#ffa25c" }],
-  [/써밋|summit|호반/i, { wall: "#ebedf0", wall2: "#26344d", accent: "#3d5a8c", glass: ["#a2c1dc", "#1a2a40"], roof: "#46526a", holo: "#7aa8ff" }],
-  [/위브|weve|두산/i, { wall: "#f0eee9", wall2: "#5b6f86", accent: "#2f5d8a", glass: ["#a8c6db", "#213448"], roof: "#5f6b78", holo: "#6fc0ff" }],
-  [/센트레빌|centreville|동부/i, { wall: "#f1eee6", wall2: "#8aa36b", accent: "#3d6b3a", glass: ["#afcbd0", "#27403a"], roof: "#6c775f", holo: "#a4ff8a" }],
-];
-const FALLBACKS: Palette[] = [
-  { wall: "#eeebe4", wall2: "#b8b3a8", accent: "#6d5d4b", glass: ["#aac5d4", "#26394a"], roof: "#77716a", holo: "#ffd08a" },
-  { wall: "#e8ecef", wall2: "#8a9bab", accent: "#34566f", glass: ["#9fc4dc", "#1c3246"], roof: "#5d6a76", holo: "#78d4ff" },
-  { wall: "#f0ece6", wall2: "#c2a38c", accent: "#9a5b3c", glass: ["#b1c8d2", "#2d3b43"], roof: "#806a5c", holo: "#ffab7a" },
-  { wall: "#eceee9", wall2: "#9fae9a", accent: "#48644a", glass: ["#a9cbcd", "#243f3c"], roof: "#697663", holo: "#8dffb8" },
-  { wall: "#efedf0", wall2: "#a69bb3", accent: "#5b4a78", glass: ["#adc2dc", "#252f47"], roof: "#6f6879", holo: "#c29bff" },
-];
-
-function paletteFor(name: string): Palette {
-  const brand = BRANDS.find(([re]) => re.test(name));
-  if (brand) return brand[1];
-  let h = 0;
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return FALLBACKS[h % FALLBACKS.length];
-}
-
-// One facade tile: BAYS windows across, ROWS floors up; world scale set by the texture repeat.
-const BAY_M = 3.2, FLOOR_M = 2.9, GROUND_M = 1.5, BAYS = 8, ROWS = 8;
-
-function facadeTextures(p: Palette, seed: number) {
-  const W = 1024, H = 928, cw = W / BAYS, ch = H / ROWS;
-  const mk = () => { const c = document.createElement("canvas"); c.width = W; c.height = H; return c; };
-  const color = mk(), glow = mk(), rough = mk();
-  const g = color.getContext("2d")!, e = glow.getContext("2d")!, r = rough.getContext("2d")!;
-  let s = seed || 1;
-  const rnd = () => ((s = (s * 16807) % 2147483647) / 2147483647);
-  g.fillStyle = p.wall; g.fillRect(0, 0, W, H);
-  // Subtle weathering so large walls don't read as flat plastic.
-  for (let i = 0; i < 1400; i++) {
-    g.fillStyle = `rgba(0,0,0,${rnd() * 0.035})`;
-    g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 30, 1 + rnd() * 3);
-  }
-  e.fillStyle = "#000"; e.fillRect(0, 0, W, H);
-  r.fillStyle = "rgb(215,215,215)"; r.fillRect(0, 0, W, H);
-  for (let row = 0; row < ROWS; row++) {
-    for (let bay = 0; bay < BAYS; bay++) {
-      const x = bay * cw, y = row * ch;
-      if (bay % 4 === 3) { // pilaster between units, in the second wall colour
-        g.fillStyle = p.wall2; g.fillRect(x + cw * 0.78, y, cw * 0.22, ch);
-      }
-      const wx = x + cw * 0.1, wy = y + ch * 0.2, ww = bay % 4 === 3 ? cw * 0.62 : cw * 0.8, wh = ch * 0.6;
-      const grad = g.createLinearGradient(0, wy, 0, wy + wh);
-      grad.addColorStop(0, p.glass[0]); grad.addColorStop(0.55, p.glass[1]); grad.addColorStop(1, p.glass[0]);
-      g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
-      g.fillStyle = "rgba(255,255,255,0.18)"; g.fillRect(wx, wy, ww, wh * 0.12); // sky catch
-      g.strokeStyle = "rgba(40,40,40,0.55)"; g.lineWidth = 3; g.strokeRect(wx, wy, ww, wh);
-      g.beginPath(); g.moveTo(wx + ww / 2, wy); g.lineTo(wx + ww / 2, wy + wh); g.stroke(); // mullion
-      g.fillStyle = "rgba(255,255,255,0.55)"; g.fillRect(wx - 2, wy + wh * 0.62, ww + 4, 3); // balcony rail
-      r.fillStyle = "rgb(28,28,28)"; r.fillRect(wx, wy, ww, wh);
-      if (rnd() < 0.2) {
-        const warm = 200 + Math.floor(rnd() * 55);
-        e.fillStyle = `rgba(255,${warm},${120 + Math.floor(rnd() * 60)},${0.35 + rnd() * 0.5})`;
-        e.fillRect(wx + 3, wy + 3, ww - 6, wh - 6);
-      }
-    }
-    // Floor slab edge, the strongest horizontal line of a Korean apartment facade.
-    g.fillStyle = p.wall2; g.fillRect(0, row * ch + ch - 7, W, 7);
-    g.fillStyle = "rgba(0,0,0,0.18)"; g.fillRect(0, row * ch + ch, W, 3);
-  }
-  const tex = (c: HTMLCanvasElement, srgb: boolean) => {
-    const t = new THREE.CanvasTexture(c);
-    t.wrapS = t.wrapT = THREE.RepeatWrapping;
-    t.flipY = false;
-    t.repeat.set(1 / (BAYS * BAY_M), 1 / (ROWS * FLOOR_M));
-    // WorldUVGenerator gives v = 1 - z: shift so floor lines start above the ground floor.
-    t.offset.set(0, (1 - GROUND_M) / (ROWS * FLOOR_M));
-    t.anisotropy = 8;
-    if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  };
-  return { map: tex(color, true), emissiveMap: tex(glow, true), roughnessMap: tex(rough, false) };
-}
-
-const HOLO_VERT = `
-varying vec3 vN; varying vec3 vV; varying float vY;
-void main() {
-  vec4 wp = modelMatrix * vec4(position, 1.0);
-  vY = wp.y;
-  vN = normalize(mat3(modelMatrix) * normal);
-  vV = normalize(cameraPosition - wp.xyz);
-  gl_Position = projectionMatrix * viewMatrix * wp;
-}`;
-const HOLO_FRAG = `
-uniform vec3 uColor; uniform float uScan; uniform float uStrength; uniform float uTime;
-varying vec3 vN; varying vec3 vV; varying float vY;
-void main() {
-  float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.2);
-  float band = exp(-pow((vY - uScan) / 3.0, 2.0));
-  float lines = smoothstep(0.93, 1.0, fract(vY / ${FLOOR_M.toFixed(1)})) * 0.35;
-  float flicker = 0.92 + 0.08 * sin(uTime * 7.0 + vY * 0.4);
-  float a = (fres * 0.42 + band * 0.55 + lines * fres * 0.6) * uStrength * flicker;
-  gl_FragColor = vec4(uColor * a, a);
-}`;
+/* 부동산 맵 — one complex in natural light. Footprints and heights are the real ones
+ * (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via VWorld, else
+ * OpenStreetMap); the facade, landscaping, trees and lamps are drawn (complexScene.ts),
+ * since no open source carries them. Sky, sun, clouds, haze, rain-damp ground with
+ * reflections, and a day / dusk / night cycle. */
 
 function shapeOf(b: RealEstateBuilding): THREE.Shape {
   const [outer, ...holes] = b.rings;
@@ -136,19 +32,26 @@ function shapeOf(b: RealEstateBuilding): THREE.Shape {
   return shape;
 }
 
-function extrude(b: RealEstateBuilding, bevel = false): THREE.ExtrudeGeometry {
+function extrude(b: RealEstateBuilding): THREE.ExtrudeGeometry {
   const depth = Math.max(2, b.height - b.base);
-  const geo = new THREE.ExtrudeGeometry(shapeOf(b), { depth, bevelEnabled: bevel, bevelSize: 0.25, bevelThickness: 0.25, bevelSegments: 1, steps: 1 });
+  const geo = new THREE.ExtrudeGeometry(shapeOf(b), { depth, bevelEnabled: false, steps: 1 });
   geo.translate(0, 0, b.base);
   return geo;
 }
 
 type Stage = {
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera;
-  controls: OrbitControls; composer: EffectComposer; bloom: UnrealBloomPass;
-  sun: THREE.DirectionalLight; model: THREE.Group | null; holo: THREE.ShaderMaterial[];
-  pickables: THREE.Mesh[]; edges: THREE.LineBasicMaterial[]; grow: { mesh: THREE.Object3D; delay: number }[]; born: number; now: number; top: number;
-  disposeModel: () => void;
+  controls: OrbitControls; composer: EffectComposer; bloom: UnrealBloomPass; finish: ShaderPass;
+  sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; sky: Sky; stars: THREE.Points;
+  reflector: Reflector | null; reflStrength: { value: number };
+  refreshEnv: () => void;
+  look: Look; fade: { from: Look; to: Look; t0: number } | null;
+  lit: { windows: THREE.MeshStandardMaterial[]; crowns: THREE.MeshStandardMaterial[]; lamps: THREE.MeshStandardMaterial[]; ground: THREE.MeshStandardMaterial[] };
+  ground: THREE.Mesh | null; model: THREE.Group | null;
+  pickables: THREE.Mesh[]; grow: { mesh: THREE.Object3D; delay: number }[];
+  intro: { from: THREE.Vector3; to: THREE.Vector3; t0: number } | null;
+  born: number; now: number; top: number; dist: number; center: THREE.Vector3;
+  hq: boolean; disposeModel: () => void;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -171,6 +74,8 @@ function staleNotice(data: RealEstateBuildingsResponse, complexId: string): stri
   return null;
 }
 
+const ease = (k: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
+
 export default function ComplexHologram({ complexId, complexName, caption }: { complexId: string | null; complexName?: string; caption?: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
@@ -178,7 +83,10 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [spin, setSpin] = useState(true);
-  const [holoOn, setHoloOn] = useState(true);
+  const [tod, setTod] = useState<Tod>(() => {
+    const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tod") : null;
+    return q && q in LOOKS ? (q as Tod) : todNow();
+  });
   const [tip, setTip] = useState<{ x: number; y: number; text: string; pinned: boolean; w: number } | null>(null);
   const [failed3d, setFailed3d] = useState(false);
   const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
@@ -187,69 +95,105 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
+    // Phones and small tablets: no planar reflection or AO, fewer trees, lighter shadows.
+    const hq = !window.matchMedia?.("(pointer: coarse)").matches && Math.min(screen.width, screen.height) >= 700;
     let renderer: THREE.WebGLRenderer;
     try {
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
+      renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
     } catch {
       setFailed3d(true);
       return;
     }
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    const maxRatio = Math.min(window.devicePixelRatio, hq ? 2 : 1.6);
+    let ratio = maxRatio;
+    renderer.setPixelRatio(ratio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.82;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     host.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#07090d");
-    scene.fog = new THREE.FogExp2("#07090d", 0.0011);
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environment = envTex;
-
-    const camera = new THREE.PerspectiveCamera(38, 1, 1, 6000);
-    camera.position.set(260, 200, 260);
+    scene.fog = new THREE.FogExp2("#b9cadb", 0.001);
+    const camera = new THREE.PerspectiveCamera(36, 1, 1, 8000);
+    camera.position.set(260, 160, 260);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
     controls.autoRotate = true;
-    controls.autoRotateSpeed = 1.1;
-    controls.minPolarAngle = 0.08;
-    controls.maxPolarAngle = Math.PI / 2 - 0.04;
+    controls.autoRotateSpeed = 0.55;
+    controls.minPolarAngle = 0.12;
+    controls.maxPolarAngle = Math.PI / 2 - 0.035;
     controls.enablePan = false;
 
-    scene.add(new THREE.HemisphereLight("#cfe3ff", "#1a140c", 0.35));
-    const sun = new THREE.DirectionalLight("#fff1dc", 1.7);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.bias = -0.0004;
-    sun.shadow.normalBias = 0.6;
-    scene.add(sun, sun.target);
-    const rim = new THREE.DirectionalLight("#7fb8ff", 0.9);
-    rim.position.set(-300, 180, -260);
-    scene.add(rim);
+    const sky = new Sky();
+    sky.scale.setScalar(40000);
+    patchSky(sky.material, (scene.fog as THREE.FogExp2).color);
+    scene.add(sky);
+    const envScene = new THREE.Scene();
+    envScene.add(new THREE.Mesh(sky.geometry, sky.material));
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    let envRT: THREE.WebGLRenderTarget | null = null;
+    const refreshEnv = () => {
+      const next = pmrem.fromScene(envScene, 0, 0.1, 1000);
+      scene.environment = next.texture;
+      envRT?.dispose();
+      envRT = next;
+    };
+    const stars = starField(3000);
+    scene.add(stars);
 
-    const composer = new EffectComposer(renderer);
+    const hemi = new THREE.HemisphereLight("#c4dcf6", "#6f6552", 0.45);
+    scene.add(hemi);
+    const sun = new THREE.DirectionalLight("#fff3e0", 3);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(hq ? 4096 : 2048, hq ? 4096 : 2048);
+    sun.shadow.bias = -0.0003;
+    sun.shadow.normalBias = 0.5;
+    sun.shadow.radius = 3;
+    scene.add(sun, sun.target);
+
+    // Rain-damp ground mirrors the towers: a planar reflection sampled by the ground shader.
+    const reflStrength = { value: 0.85 };
+    const reflector = hq ? new Reflector(new THREE.PlaneGeometry(1, 1), { clipBias: 0.002, textureWidth: 512, textureHeight: 512, multisample: 0 }) : null;
+    if (reflector) { reflector.rotation.x = -Math.PI / 2; reflector.updateMatrixWorld(); }
+
+    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    const composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
-    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.32, 0.45, 0.9);
+    const gtao = hq ? new GTAOPass(scene, camera, 1, 1) : null;
+    if (gtao) {
+      gtao.updateGtaoMaterial({ radius: 5, distanceExponent: 1.5, thickness: 6, scale: 1, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
+      gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
+      gtao.blendIntensity = 0.75;
+      composer.addPass(gtao);
+    }
+    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.55, 1.15);
     composer.addPass(bloom);
     composer.addPass(new OutputPass());
+    const finish = new ShaderPass(FinishShader);
+    composer.addPass(finish);
 
     const stage: Stage = {
-      renderer, scene, camera, controls, composer, bloom, sun, model: null, holo: [], pickables: [], edges: [], grow: [],
-      born: 0, now: 0, top: 50, disposeModel: () => {},
+      renderer, scene, camera, controls, composer, bloom, finish, sun, hemi, sky, stars, reflector, reflStrength, refreshEnv,
+      look: LOOKS.day, fade: null, lit: { windows: [], crowns: [], lamps: [], ground: [] },
+      ground: null, model: null, pickables: [], grow: [], intro: null,
+      born: 0, now: 0, top: 50, dist: 300, center: new THREE.Vector3(), hq, disposeModel: () => {},
     };
     stageRef.current = stage;
 
+    let W = 1, H = 1;
     const resize = () => {
-      const w = host.clientWidth, h = host.clientHeight;
-      if (!w || !h) return;
-      renderer.setSize(w, h, false);
-      composer.setSize(w, h);
-      bloom.setSize(w / 2, h / 2);
-      camera.aspect = w / h;
+      W = host.clientWidth; H = host.clientHeight;
+      if (!W || !H) return;
+      renderer.setPixelRatio(ratio);
+      renderer.setSize(W, H, false);
+      composer.setPixelRatio(ratio);
+      composer.setSize(W, H);
+      bloom.setSize(W * ratio / 2, H * ratio / 2);
+      reflector?.getRenderTarget().setSize(Math.round(W * ratio * 0.5), Math.round(H * ratio * 0.5));
+      finish.uniforms.uAspect.value = W / H;
+      camera.aspect = W / H;
       camera.updateProjectionMatrix();
     };
     const ro = new ResizeObserver(resize);
@@ -257,31 +201,119 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
     resize();
 
     let idleTimer = 0;
-    const onStart = () => { controls.autoRotate = false; window.clearTimeout(idleTimer); };
+    const onStart = () => { controls.autoRotate = false; stage.intro = null; window.clearTimeout(idleTimer); };
     const onEnd = () => { idleTimer = window.setTimeout(() => { controls.autoRotate = spinRef.current; }, 3500); };
     controls.addEventListener("start", onStart);
     controls.addEventListener("end", onEnd);
 
-    const clock = new THREE.Clock();
+    const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3(), sunNdc = new THREE.Vector3();
+    const sunRay = new THREE.Raycaster();
+    let sunVis = 0, sunVisTarget = 0, frame = 0, envFrame = 0;
+    // Dynamic resolution (after tidewater): hold ~50 fps by trading pixels, never below 0.75x.
+    let slow = 0, quick = 0, last = performance.now();
+    const t0 = performance.now();
     let raf = 0;
     const loop = () => {
       raf = requestAnimationFrame(loop);
-      const t = clock.getElapsedTime();
+      const nowMs = performance.now();
+      const dt = nowMs - last;
+      last = nowMs;
+      if (dt > 24) { slow++; quick = 0; } else if (dt < 15) { quick++; slow = 0; }
+      if (slow > 40 && ratio > 0.75) { ratio = Math.max(0.75, ratio - 0.25); slow = 0; resize(); }
+      else if (quick > 240 && ratio < maxRatio) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
+
+      const t = (nowMs - t0) / 1000;
       stage.now = t;
+      shared.uTime.value = t;
+      sky.material.uniforms.time.value = t;
       const since = t - stage.born;
       stage.grow.forEach(({ mesh, delay }) => {
-        const k = Math.min(1, Math.max(0, (since - delay) / 1.1));
+        const k = Math.min(1, Math.max(0, (since - delay) / 1.2));
         mesh.scale.z = Math.max(0.001, 1 - Math.pow(1 - k, 3));
       });
-      const scan = ((t * 0.35) % 1.4) * stage.top * 1.2 - stage.top * 0.1;
-      stage.holo.forEach(m => { m.uniforms.uScan.value = since < 1.6 ? since / 1.6 * stage.top : scan; m.uniforms.uTime.value = t; });
+      if (stage.intro) {
+        const k = ease((t - stage.intro.t0) / 3.2);
+        camera.position.lerpVectors(stage.intro.from, stage.intro.to, k);
+        if (k >= 1) stage.intro = null;
+      }
+      if (stage.fade) {
+        const k = ease((t - stage.fade.t0) / 2.2);
+        applyLook(mixLook(stage.fade.from, stage.fade.to, k), k >= 1 || ++envFrame % 8 === 0);
+        if (k >= 1) stage.fade = null;
+      }
       controls.update();
+      stars.position.copy(camera.position);
+
+      // How much of the sun the towers hide, eased, for the flare.
+      dirFrom(stage.look.sunElev, stage.look.sunAz, sunDir);
+      sunNdc.copy(camera.position).addScaledVector(sunDir, 3000).project(camera);
+      const onScreen = sunNdc.z < 1 && Math.abs(sunNdc.x) < 1.2 && Math.abs(sunNdc.y) < 1.2 && stage.look.sunElev > -1;
+      if (++frame % 6 === 0) {
+        sunRay.set(camera.position, sunDir);
+        sunVisTarget = onScreen && !(stage.pickables.length && sunRay.intersectObjects(stage.pickables, false).length) ? 1 : 0;
+      }
+      sunVis += ((onScreen ? sunVisTarget : 0) - sunVis) * Math.min(1, dt / 120);
+      finish.uniforms.uSun.value.set(sunNdc.x * 0.5 + 0.5, sunNdc.y * 0.5 + 0.5);
+      finish.uniforms.uSunVis.value = sunVis * THREE.MathUtils.smoothstep(stage.look.sunElev, -1, 6) * (0.55 + 0.45 * (1 - stage.look.clouds));
+
+      if (reflector && stage.ground) {
+        stage.ground.visible = false;
+        (reflector.onBeforeRender as (r: THREE.WebGLRenderer, s: THREE.Scene, c: THREE.Camera) => void)(renderer, scene, camera);
+        stage.ground.visible = true;
+      }
       composer.render();
     };
-    // Paused while off screen: a spinning model below the fold should cost nothing.
+
+    /** Sun, sky, haze and every light-dependent material for one look. */
+    const applyLook = (l: Look, env: boolean) => {
+      stage.look = l;
+      const u = sky.material.uniforms;
+      u.turbidity.value = l.turbidity;
+      u.rayleigh.value = l.rayleigh;
+      u.mieCoefficient.value = l.mie;
+      u.mieDirectionalG.value = l.mieG;
+      u.cloudCoverage.value = l.clouds;
+      u.cloudDensity.value = 0.55;
+      u.cloudElevation.value = 0.55;
+      u.cloudScale.value = 0.00022;
+      u.cloudSpeed.value = 0.00006;
+      dirFrom(l.sunElev, l.sunAz, sunDir);
+      u.sunPosition.value.copy(sunDir);
+      dirFrom(l.keyElev, l.keyAz, keyDir);
+      const reach = stage.dist * 2 + stage.top * 2;
+      sun.position.copy(stage.center).addScaledVector(keyDir, reach);
+      sun.target.position.copy(stage.center);
+      sun.color.copy(l.key);
+      sun.intensity = l.keyI;
+      hemi.color.copy(l.hemiSky);
+      hemi.groundColor.copy(l.hemiGround);
+      hemi.intensity = l.hemiI;
+      const fog = scene.fog as THREE.FogExp2;
+      fog.color.copy(l.fog);
+      fog.density = l.fogK / stage.dist;
+      renderer.toneMappingExposure = l.exposure;
+      scene.environmentIntensity = l.env;
+      shared.uGlass.value = 0.7 / Math.max(0.05, l.env);
+      stage.lit.windows.forEach(m => { m.emissiveIntensity = l.windows; });
+      stage.lit.crowns.forEach(m => { m.emissiveIntensity = l.windows * 0.5; });
+      stage.lit.lamps.forEach(m => { m.emissiveIntensity = l.lamps * 7; });
+      stage.lit.ground.forEach(m => { m.emissiveIntensity = l.lamps * 0.8; });
+      (stars.material as THREE.PointsMaterial).opacity = l.stars;
+      shared.uCloud.value = l.cloudShade;
+      reflStrength.value = l.reflect;
+      bloom.strength = l.bloom;
+      bloom.threshold = l.bloomAt;
+      finish.uniforms.uFlare.value.copy(l.key).lerp(new THREE.Color("#ffffff"), 0.4);
+      if (env) refreshEnv();
+    };
+    stage.refreshEnv = () => applyLook(stage.look, true);
+    applyLookRef.current = applyLook;
+    applyLook(LOOKS[todRef.current], true);
+
+    // Paused while off screen: a model below the fold should cost nothing.
     const io = new IntersectionObserver(([entry]) => {
       cancelAnimationFrame(raf);
-      if (entry.isIntersecting) loop();
+      if (entry.isIntersecting) { last = performance.now(); loop(); }
     });
     io.observe(host);
 
@@ -293,11 +325,19 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
       stage.disposeModel();
       controls.dispose();
       composer.dispose();
-      envTex.dispose();
+      target.dispose();
+      gtao?.dispose();
+      reflector?.dispose();
+      envRT?.dispose();
       pmrem.dispose();
+      sky.geometry.dispose();
+      sky.material.dispose();
+      stars.geometry.dispose();
+      (stars.material as THREE.Material).dispose();
       renderer.dispose();
       renderer.domElement.remove();
       stageRef.current = null;
+      applyLookRef.current = null;
     };
   }, []);
 
@@ -306,19 +346,15 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
     spinRef.current = spin;
     if (stageRef.current) stageRef.current.controls.autoRotate = spin;
   }, [spin]);
+
+  const todRef = useRef(tod);
+  const applyLookRef = useRef<((l: Look, env: boolean) => void) | null>(null);
   useEffect(() => {
-    stageRef.current?.holo.forEach(m => { m.uniforms.uStrength.value = holoOn ? 1 : 0; });
     const st = stageRef.current;
-    if (st) {
-      st.bloom.strength = holoOn ? 0.32 : 0.12;
-      st.edges.forEach(m => { m.visible = holoOn; });
-      // 실사: a clear dusk sky and brighter sun instead of the night stage.
-      st.scene.background = new THREE.Color(holoOn ? "#07090d" : "#9fb7cf");
-      if (st.scene.fog instanceof THREE.FogExp2) st.scene.fog.color.set(holoOn ? "#07090d" : "#b8c9da");
-      st.sun.intensity = holoOn ? 1.7 : 2.3;
-      st.renderer.toneMappingExposure = holoOn ? 0.82 : 0.95;
-    }
-  }, [holoOn, data]);
+    if (!st || todRef.current === tod) return;
+    todRef.current = tod;
+    st.fade = { from: st.look, to: LOOKS[tod], t0: st.now };
+  }, [tod]);
 
   // Every selection: kept shapes from the server, else VWorld from this browser
   // (VWorld refuses the server abroad), else the server's OpenStreetMap fallback.
@@ -360,140 +396,244 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
     const keep = <T extends { dispose: () => void }>(x: T) => { disposables.push(x); return x; };
     const group = new THREE.Group();
     group.rotation.x = -Math.PI / 2; // footprints are x east / y north, extruded up z
+    const lit: Stage["lit"] = { windows: [], crowns: [], lamps: [], ground: [] };
 
     let seed = 0;
     for (const ch of data.id) seed = (seed * 33 + ch.charCodeAt(0)) % 2147483647;
-    const tex = facadeTextures(palette, seed);
-    Object.values(tex).forEach(keep);
-    const wall = keep(new THREE.MeshPhysicalMaterial({
-      color: new THREE.Color("#d8d8d8"), map: tex.map, roughnessMap: tex.roughnessMap, emissiveMap: tex.emissiveMap, emissive: new THREE.Color("#ffffff"),
-      emissiveIntensity: 0.35, roughness: 1, metalness: 0.02, clearcoat: 0.12, clearcoatRoughness: 0.5, envMapIntensity: 0.55,
-    }));
-    const roof = keep(new THREE.MeshStandardMaterial({ color: palette.roof, roughness: 0.8, metalness: 0.1 }));
-    const crown = keep(new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.45, metalness: 0.35, emissive: palette.accent, emissiveIntensity: 0.12 }));
-    const low = keep(new THREE.MeshStandardMaterial({ color: palette.wall2, roughness: 0.7 }));
-    const holoColor = new THREE.Color(palette.holo);
+    const rnd = rng(seed);
+
+    // Two facade variants so neighbouring towers don't light the same windows.
+    const walls = [seed, seed + 7919].map(s => {
+      const tex = facadeTextures(palette, s);
+      Object.values(tex).forEach(keep);
+      const m = keep(new THREE.MeshPhysicalMaterial({
+        map: tex.map, normalMap: tex.normalMap, normalScale: new THREE.Vector2(0.9, 0.9),
+        roughnessMap: tex.rmMap, metalnessMap: tex.rmMap, roughness: 1, metalness: 1,
+        emissiveMap: tex.emissiveMap, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
+        clearcoat: 0.08, clearcoatRoughness: 0.6,
+      }));
+      patchMaterial(m, { glass: true });
+      lit.windows.push(m);
+      return m;
+    });
+    const roof = keep(new THREE.MeshStandardMaterial({ color: "#6f8174", roughness: 0.93 }));
+    const crown = keep(new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.4, metalness: 0.45, emissive: palette.accent, emissiveIntensity: 0 }));
+    lit.crowns.push(crown);
+    const low = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(palette.wall).lerp(new THREE.Color(palette.wall2), 0.45), roughness: 0.75 }));
+    const plant = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(palette.wall2).lerp(new THREE.Color("#9a9a96"), 0.5), roughness: 0.8 }));
+    [roof, crown, low, plant].forEach(m => patchMaterial(m));
 
     const box = new THREE.Box3();
     const grow: Stage["grow"] = [];
     const pickables: THREE.Mesh[] = [];
-    const holos: THREE.ShaderMaterial[] = [];
-    const edgeMats: THREE.LineBasicMaterial[] = [];
     let top = 10;
     const tall = data.buildings.filter(b => b.floors >= 5);
     data.buildings.forEach((b, i) => {
       const geo = keep(extrude(b));
       const isTower = b.floors >= 5;
-      const mesh = new THREE.Mesh(geo, isTower ? [roof, wall] : [roof, low]);
+      const mesh = new THREE.Mesh(geo, isTower ? [roof, walls[i % 2]] : [roof, low]);
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.userData.label = `${b.name ? b.name + " · " : ""}${heightLabel(b)}`;
       pickables.push(mesh);
       const holder = new THREE.Group();
       holder.add(mesh);
       if (isTower) {
-        // Rooftop crown band and plant room, in the complex's accent colour.
+        // Rooftop crown band in the complex's accent colour, and the lift / stair core.
         const cap = keep(new THREE.ExtrudeGeometry(shapeOf(b), { depth: 1.6, bevelEnabled: false }));
         cap.translate(0, 0, b.height);
-        const capMesh = new THREE.Mesh(cap, crown);
+        const capMesh = new THREE.Mesh(cap, [roof, crown]);
         capMesh.castShadow = true;
         holder.add(capMesh);
-        const holoMat = keep(new THREE.ShaderMaterial({
-          vertexShader: HOLO_VERT, fragmentShader: HOLO_FRAG, transparent: true, depthWrite: false,
-          blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-          uniforms: { uColor: { value: holoColor }, uScan: { value: 0 }, uStrength: { value: holoOn ? 1 : 0 }, uTime: { value: 0 } },
-        }));
-        holos.push(holoMat);
-        holder.add(new THREE.Mesh(geo, holoMat));
-        const edges = keep(new THREE.EdgesGeometry(geo, 35));
-        const edgeMat = keep(new THREE.LineBasicMaterial({ color: holoColor, transparent: true, opacity: 0.45 }));
-        edgeMat.visible = holoOn;
-        edgeMats.push(edgeMat);
-        holder.add(new THREE.LineSegments(edges, edgeMat));
+        const ring = b.rings[0];
+        const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length, cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+        if (inRing([cx, cy], ring)) {
+          let ang = 0, best = 0;
+          ring.forEach((p, j) => {
+            const q = ring[(j + 1) % ring.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+            if (len > best) { best = len; ang = Math.atan2(q[1] - p[1], q[0] - p[0]); }
+          });
+          const core = new THREE.Mesh(keep(new THREE.BoxGeometry(Math.min(9, best * 0.3), 5, 4.2)), plant);
+          core.position.set(cx, cy, b.height + 1.6 + 2.1);
+          core.rotation.z = ang;
+          core.castShadow = core.receiveShadow = true;
+          holder.add(core);
+        }
       }
-      grow.push({ mesh: holder, delay: (tall.indexOf(b) >= 0 ? tall.indexOf(b) : i) * 0.03 });
+      grow.push({ mesh: holder, delay: (tall.indexOf(b) >= 0 ? tall.indexOf(b) : i) * 0.025 });
       group.add(holder);
       geo.computeBoundingBox();
       box.union(geo.boundingBox!);
       top = Math.max(top, b.height);
     });
 
-    // The neighbourhood as dark glass, so the complex reads against its real setting.
+    // The neighbourhood: opaque, tinted per building, windows lit in the evening.
     const ext = data.buildings.flatMap(b => b.rings[0]).reduce((m, [x, y]) => Math.max(m, Math.hypot(x, y)), 0);
-    const reach = Math.max(ext * 1.8, ext + 140);
+    const reach = Math.max(ext * 1.8, ext + 160);
+    const tints = ["#f1ede4", "#e4e1da", "#d9d4ca", "#c9b8a4", "#b88f78", "#a9b3bb", "#e8e3d3", "#cfc9bd"];
     const ctxGeos = data.context
       .filter(b => { const [x, y] = b.rings[0][0]; return Math.hypot(x, y) <= reach; })
-      .map(b => extrude(b));
+      .map(b => {
+        const g = extrude(b);
+        g.clearGroups();
+        const c = new THREE.Color(tints[Math.floor(rnd() * tints.length)]);
+        const n = g.getAttribute("position").count, col = new Float32Array(n * 3);
+        for (let j = 0; j < n; j++) col.set([c.r, c.g, c.b], j * 3);
+        g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+        return g;
+      });
     if (ctxGeos.length) {
-      const merged = keep(mergeGeometries(ctxGeos.map(g => { g.clearGroups(); return g; }), false)!);
+      const merged = keep(mergeGeometries(ctxGeos, false)!);
       ctxGeos.forEach(g => g.dispose());
-      const ctxMat = keep(new THREE.MeshStandardMaterial({ color: "#2a3442", roughness: 0.4, metalness: 0.5, transparent: true, opacity: 0.55, depthWrite: false }));
+      const ct = contextTextures(seed + 3);
+      Object.values(ct).forEach(keep);
+      const ctxMat = keep(new THREE.MeshStandardMaterial({
+        map: ct.map, vertexColors: true, roughnessMap: ct.rmMap, metalnessMap: ct.rmMap, roughness: 1, metalness: 1,
+        emissiveMap: ct.emissiveMap, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
+      }));
+      patchMaterial(ctxMat, { roof: new THREE.Color("#7b7e7a"), glass: true });
+      lit.windows.push(ctxMat);
       const ctxMesh = new THREE.Mesh(merged, ctxMat);
-      ctxMesh.receiveShadow = true;
+      ctxMesh.castShadow = ctxMesh.receiveShadow = true;
       group.add(ctxMesh);
-      const ctxEdges = keep(new THREE.EdgesGeometry(merged, 40));
-      group.add(new THREE.LineSegments(ctxEdges, keep(new THREE.LineBasicMaterial({ color: "#4d6b8f", transparent: true, opacity: 0.22 }))));
     }
+    stage.scene.add(group);
 
     const span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 60);
     const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;
-    // Site boundary glowing on the ground.
-    data.site.forEach(ring => {
-      const pts = [...ring, ring[0]].map(([x, y]) => new THREE.Vector3(x, y, 0.3));
-      const g = keep(new THREE.BufferGeometry().setFromPoints(pts));
-      group.add(new THREE.Line(g, keep(new THREE.LineBasicMaterial({ color: holoColor, transparent: true, opacity: 0.9 }))));
-      const fill = keep(new THREE.ShapeGeometry(new THREE.Shape(ring.map(([x, y]) => new THREE.Vector2(x, y)))));
-      const fillMesh = new THREE.Mesh(fill, keep(new THREE.MeshStandardMaterial({ color: "#1f2a22", roughness: 0.95 })));
-      fillMesh.position.z = 0.1;
-      fillMesh.receiveShadow = true;
-      group.add(fillMesh);
-    });
-    stage.scene.add(group);
+    const dist = Math.max(span, top * 1.4) * 1.1 + 40;
 
-    // Ground: a shadow catcher and a holographic ring grid under the complex.
-    const radius = span * 1.6 + 120;
-    const ground = new THREE.Mesh(keep(new THREE.CircleGeometry(radius, 96)), keep(new THREE.MeshStandardMaterial({ color: "#0c1016", roughness: 0.9, metalness: 0.1 })));
+    // Street lamps along the complex's perimeter road.
+    const lampPts = alongRings(data.site.length ? data.site : data.buildings.filter(b => b.floors >= 5).map(b => b.rings[0]), 22, stage.hq ? 420 : 200);
+    // The ground: painted plan, damp paving, lawns and lamp pools, reflecting the towers.
+    const T = Math.max(reach * 1.15, span * 0.9 + 120);
+    const plan = paintGround(data, T, lampPts, seed, stage.hq ? 4096 : 2048);
+    [plan.color, plan.rough, plan.glow].forEach(keep);
+    const G = dist * 12;
+    const groundGeo = keep(new THREE.PlaneGeometry(2 * G, 2 * G, 1, 1));
+    const uv = groundGeo.getAttribute("uv") as THREE.BufferAttribute, gp = groundGeo.getAttribute("position") as THREE.BufferAttribute;
+    for (let j = 0; j < uv.count; j++) uv.setXY(j, (gp.getX(j) + T) / (2 * T), (gp.getY(j) + T) / (2 * T));
+    const groundMat = keep(new THREE.MeshStandardMaterial({
+      map: plan.color, roughnessMap: plan.rough, roughness: 1, metalness: 0,
+      emissiveMap: plan.glow, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
+    }));
+    patchMaterial(groundMat, {
+      detail: true,
+      reflect: stage.reflector ? {
+        tex: { value: stage.reflector.getRenderTarget().texture },
+        matrix: (stage.reflector.material as THREE.ShaderMaterial).uniforms.textureMatrix,
+        strength: stage.reflStrength,
+        far: { value: dist * 2.2 },
+      } : undefined,
+    });
+    lit.ground.push(groundMat);
+    const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.set(cx, -0.05, -cy);
     ground.receiveShadow = true;
     stage.scene.add(ground);
-    const rings = new THREE.PolarGridHelper(radius, 12, 10, 96, holoColor.clone().multiplyScalar(0.5), holoColor.clone().multiplyScalar(0.22));
-    (rings.material as THREE.Material).transparent = true;
-    (rings.material as THREE.Material).opacity = 0.35;
-    rings.position.set(cx, 0.02, -cy);
-    stage.scene.add(rings);
 
-    // Camera and sun framed on the complex, not the neighbourhood.
-    const target = new THREE.Vector3(cx, top * 0.32, -cy);
-    const dist = Math.max(span, top * 1.4) * 1.12 + 30;
-    stage.controls.target.copy(target);
-    stage.camera.position.set(cx + dist * 0.72, top * 0.55 + dist * 0.5, -cy + dist * 0.72);
-    stage.controls.minDistance = Math.max(30, span * 0.35);
+    // Trees on the lawns and along the perimeter, in the season's colours.
+    const trees = treeGeometries();
+    [trees.trunk, trees.leaf, trees.pine].forEach(keep);
+    const spots: { x: number; y: number; pine: boolean }[] = [];
+    const cell = 6.5;
+    for (let x = -T; x < T; x += cell) {
+      for (let y = -T; y < T; y += cell) {
+        const px = x + (rnd() - 0.5) * cell * 0.9, py = y + (rnd() - 0.5) * cell * 0.9;
+        const [lawn, blocked] = plan.mask.at(px, py);
+        if (lawn > 128 && blocked < 128 && rnd() < 0.72) spots.push({ x: px, y: py, pine: rnd() < 0.32 });
+      }
+    }
+    for (const [x, y] of alongRings(data.site, 9, 600)) {
+      const [, blocked] = plan.mask.at(x, y);
+      if (blocked < 128 && rnd() < 0.8) spots.push({ x, y, pine: false });
+    }
+    const cap = stage.hq ? 2600 : 900;
+    for (let j = spots.length - 1; j > 0; j--) { const k = Math.floor(rnd() * (j + 1)); [spots[j], spots[k]] = [spots[k], spots[j]]; }
+    const chosen = spots.slice(0, cap);
+    const broad = chosen.filter(s => !s.pine), pines = chosen.filter(s => s.pine);
+    const leafMat = keep(new THREE.MeshStandardMaterial({ roughness: 0.88, color: "#ffffff" }));
+    const trunkMat = keep(new THREE.MeshStandardMaterial({ roughness: 0.95, color: "#4a3b2e" }));
+    patchFoliage(leafMat);
+    const colors = foliageColors(seasonNow()), pineColors = ["#2f4f2a", "#34552c", "#3b5a30"];
+    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), yAxis = new THREE.Vector3(0, 1, 0);
+    const trunkMesh = new THREE.InstancedMesh(trees.trunk, trunkMat, Math.max(1, chosen.length));
+    const place = (list: typeof chosen, geo: THREE.BufferGeometry, palette: string[], pine: boolean, offset: number) => {
+      const im = new THREE.InstancedMesh(geo, leafMat, Math.max(1, list.length));
+      im.count = list.length;
+      list.forEach((s, j) => {
+        const h = pine ? 7 + rnd() * 6 : 5.5 + rnd() * 5;
+        const w = pine ? h * (0.55 + rnd() * 0.15) : h * (0.85 + rnd() * 0.35);
+        q.setFromAxisAngle(yAxis, rnd() * Math.PI * 2);
+        m4.compose(p.set(s.x, 0, -s.y), q, sc.set(w, h, w));
+        im.setMatrixAt(j, m4);
+        trunkMesh.setMatrixAt(offset + j, m4);
+        im.setColorAt(j, new THREE.Color(palette[Math.floor(rnd() * palette.length)]).multiplyScalar(0.85 + rnd() * 0.3));
+      });
+      im.castShadow = im.receiveShadow = true;
+      im.frustumCulled = false;
+      return im;
+    };
+    const broadMesh = place(broad, trees.leaf, colors, false, 0);
+    const pineMesh = place(pines, trees.pine, pineColors, true, broad.length);
+    trunkMesh.count = chosen.length;
+    trunkMesh.castShadow = true;
+    trunkMesh.frustumCulled = false;
+    const flora = new THREE.Group();
+    flora.add(broadMesh, pineMesh, trunkMesh);
+    disposables.push({ dispose: () => { broadMesh.dispose(); pineMesh.dispose(); trunkMesh.dispose(); } });
+
+    // Lamps: a slim post and a warm head that blooms at night.
+    const postGeo = keep(new THREE.CylinderGeometry(0.06, 0.09, 4.4, 6));
+    postGeo.translate(0, 2.2, 0);
+    const headGeo = keep(new THREE.SphereGeometry(0.26, 12, 8));
+    headGeo.translate(0, 4.5, 0);
+    const postMat = keep(new THREE.MeshStandardMaterial({ color: "#3b3f44", roughness: 0.5, metalness: 0.6 }));
+    const headMat = keep(new THREE.MeshStandardMaterial({ color: "#f4efe6", emissive: "#ffcf94", emissiveIntensity: 0, roughness: 0.3 }));
+    lit.lamps.push(headMat);
+    const posts = new THREE.InstancedMesh(postGeo, postMat, Math.max(1, lampPts.length));
+    const heads = new THREE.InstancedMesh(headGeo, headMat, Math.max(1, lampPts.length));
+    lampPts.forEach(([x, y], j) => { m4.makeTranslation(x, 0, -y); posts.setMatrixAt(j, m4); heads.setMatrixAt(j, m4); });
+    posts.count = heads.count = lampPts.length;
+    posts.castShadow = true;
+    posts.frustumCulled = heads.frustumCulled = false;
+    flora.add(posts, heads);
+    disposables.push({ dispose: () => { posts.dispose(); heads.dispose(); } });
+    stage.scene.add(flora);
+
+    // Camera, sun and shadows framed on the complex, not the neighbourhood.
+    const center = new THREE.Vector3(cx, top * 0.28, -cy);
+    stage.center.copy(center);
+    stage.dist = dist;
+    stage.top = top;
+    stage.controls.target.copy(center);
+    const to = new THREE.Vector3(cx + dist * 0.74, top * 0.4 + dist * 0.24, -cy + dist * 0.74);
+    const from = new THREE.Vector3(cx + dist * 1.25, top * 0.6 + dist * 0.95, -cy + dist * 0.3);
+    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    stage.camera.position.copy(still ? to : from);
+    stage.intro = still ? null : { from, to, t0: stage.now };
+    stage.camera.far = dist * 14 + 2000;
+    stage.camera.near = Math.max(0.5, dist / 800);
+    stage.camera.updateProjectionMatrix();
+    stage.controls.minDistance = Math.max(30, span * 0.3);
     stage.controls.maxDistance = dist * 3;
-    stage.scene.fog = new THREE.FogExp2("#07090d", 0.55 / (dist * 2.2));
-    const sun = stage.sun;
-    // A late-afternoon sun (~32°) so facades split into lit and shaded sides.
-    const sunR = span * 1.2 + top;
-    sun.position.set(cx + sunR * 0.8, sunR * 0.62, -cy + sunR * 0.45);
-    sun.target.position.copy(target);
-    const sc = sun.shadow.camera;
-    const half = span * 0.9 + top;
-    sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half;
-    sc.near = 1; sc.far = top * 4 + span * 3;
-    sc.updateProjectionMatrix();
+    const sc2 = stage.sun.shadow.camera;
+    const half = span * 0.75 + top * 0.9 + 40;
+    sc2.left = -half; sc2.right = half; sc2.top = half; sc2.bottom = -half;
+    sc2.near = 1; sc2.far = (dist * 2 + top * 2) * 2 + top * 2;
+    sc2.updateProjectionMatrix();
 
     stage.model = group;
-    stage.holo = holos;
-    stage.edges = edgeMats;
+    stage.ground = ground;
+    stage.lit = lit;
     stage.pickables = pickables;
     stage.grow = grow;
-    stage.top = top;
     stage.born = stage.now; // the build-up animation starts now
+    stage.refreshEnv();
     stage.disposeModel = () => {
-      stage.scene.remove(group, ground, rings);
-      rings.geometry.dispose();
-      (rings.material as THREE.Material).dispose();
+      stage.scene.remove(group, ground, flora);
       disposables.forEach(d => d.dispose());
-      stage.model = null; stage.holo = []; stage.edges = []; stage.pickables = []; stage.grow = [];
+      stage.model = null; stage.ground = null; stage.pickables = []; stage.grow = [];
+      stage.lit = { windows: [], crowns: [], lamps: [], ground: [] };
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -529,16 +669,17 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
   const notice = data?.found && complexId ? staleNotice(data, complexId) : null;
   const measured = data?.coverage ? data.coverage.with_height : 0;
   const total = data?.coverage ? data.coverage.buildings : 0;
+  const nextTod = TOD_ORDER[(TOD_ORDER.indexOf(tod) + 1) % TOD_ORDER.length];
   return (
-    <section className="re-holo" aria-label="단지 3D 홀로그램">
+    <section className="re-holo" aria-label="단지 3D 뷰">
       <header className="re-holo-head">
         <div>
-          <small>{caption ?? "3D HOLOGRAM"}</small>
+          <small>{caption ?? "3D 단지뷰"}</small>
           <strong>{data?.name ?? complexName ?? "단지를 선택하세요"}</strong>
         </div>
         <div className="re-holo-tools">
           <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} title="360° 자동 회전">{spin ? "회전 ■" : "회전 ▶"}</button>
-          <button type="button" aria-pressed={holoOn} onClick={() => setHoloOn(v => !v)} title="홀로그램 효과">{holoOn ? "홀로그램" : "실사"}</button>
+          <button type="button" onClick={() => setTod(nextTod)} title={`시간대 바꾸기 · 다음: ${TOD_LABEL[nextTod]}`}>{TOD_LABEL[tod]}</button>
         </div>
       </header>
       <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
@@ -554,7 +695,7 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
         {data?.found ? (
           <>
             <span>건물 {total}개 · 층수·높이 확인 {measured}개{total > measured ? ` · ${data.source === "vworld" ? "층수 미등록 부대시설" : "높이 추정"} ${total - measured}개` : ""}</span>
-            <span>{data.source === "vworld" ? "건물 윤곽·높이: " : "건물 윤곽: "}{data.attribution}. 외벽 색·창호는 표현용</span>
+            <span>{data.source === "vworld" ? "건물 윤곽·높이: " : "건물 윤곽: "}{data.attribution}. 외벽·창호·조경·가로등은 표현용</span>
           </>
         ) : <span>{coarse ? "한 손가락으로 돌리고 두 손가락으로 확대, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 확대합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
