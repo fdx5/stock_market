@@ -1218,3 +1218,11 @@
     grid-column: 2;
   }
 }
+
+/* Preserve the reader's typography without creating a containing block for its
+   fixed backdrop. Specificity also makes this independent of lazy CSS order. */
+.d2.fc-reader-portal {
+  display: contents;
+  min-height: 0;
+  container-type: normal;
+}

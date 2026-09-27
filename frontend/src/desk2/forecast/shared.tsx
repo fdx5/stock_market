@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { AccuracyWindow, AccuracyWindows, PredictionItem, api } from "../../api/client";
 import StockLogo from "../../components/StockLogo";
 import {
@@ -209,7 +210,9 @@ export function ForecastReader({
   const scoreW = Math.max(2, Math.min(100, Math.abs(item.score) * 100)) / 2;
   const krx = item.market === "KOSPI" || item.market === "KOSDAQ";
 
-  return (
+  // Escape page containment/stacking contexts, including container-query roots.
+  return createPortal(
+    <div className="d2 fc-reader-portal">
     <div className="d2-find-scrim fc-scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <article className={`d2-find fc-reader is-${d}`} role="dialog" aria-modal="true" aria-label={L(`${item.name} AI 예측 상세`, `${item.name} forecast`)}>
         <header className="fc-reader-head">
@@ -390,5 +393,7 @@ export function ForecastReader({
         </div>
       </article>
     </div>
+    </div>,
+    document.body
   );
 }
