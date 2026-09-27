@@ -132,11 +132,19 @@
 .re-holo-tip.is-left {
   transform: translate(calc(-100% - 12px), -110%);
 }
+/* A tapped building's card sits across the bottom of the stage, never off screen. */
 .re-holo-tip.is-pinned {
+  top: auto !important;
+  right: 10px;
+  bottom: 10px;
+  left: 10px !important;
+  padding: 8px 11px;
   border-color: #7fd8ff;
   box-shadow: 0 0 0 1px rgba(127, 216, 255, 0.25), 0 6px 18px rgba(0, 0, 0, 0.5);
+  font-size: 13px;
+  line-height: 1.45;
   white-space: normal;
-  max-width: 70%;
+  transform: none;
 }
 .re-holo-stale {
   position: absolute;
