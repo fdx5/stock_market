@@ -173,8 +173,9 @@ def _vworld(url: str, params: dict) -> dict:
     key = _vworld_key()
     res = requests.get(url, params={**params, "key": key, "format": "json",
                                     "domain": os.environ.get("VWORLD_DOMAIN", "https://kospimap.com")},
-                       headers=UA, timeout=12)
-    res.raise_for_status()
+                       headers=UA, timeout=(5, 12))
+    if not res.ok:
+        raise BuildingsError(f"VWorld HTTP {res.status_code}")
     body = res.json().get("response", {})
     status = body.get("status")
     if status == "NOT_FOUND":
@@ -267,7 +268,7 @@ def _overpass(query: str) -> list[dict]:
     last: Exception | None = None
     for url in OVERPASS:
         try:
-            res = requests.post(url, data={"data": query}, headers=UA, timeout=30)
+            res = requests.post(url, data={"data": query}, headers=UA, timeout=(5, 20))
             if res.ok:
                 return res.json().get("elements", [])
             last = BuildingsError(f"Overpass {res.status_code}")
@@ -376,14 +377,14 @@ def _build(complex_id: str) -> dict:
         try:
             result = _from_vworld(c, f'{region} {c.get("umd") or c["dong"]} {c["jibun"]}')
         except Exception as exc:  # noqa: BLE001 — fall through to OSM
-            errors.append(str(exc) if isinstance(exc, BuildingsError) else type(exc).__name__)
+            errors.append("vworld: " + (str(exc) if isinstance(exc, BuildingsError) else type(exc).__name__))
     if result is None:
         try:
             result = _from_osm(c, f'{region} {c["dong"]}')
         except Exception as exc:  # noqa: BLE001
-            errors.append(str(exc) if isinstance(exc, BuildingsError) else type(exc).__name__)
+            errors.append("osm: " + (str(exc) if isinstance(exc, BuildingsError) else type(exc).__name__))
     base = {"id": complex_id, "name": c["name"], "address": f'{region} {c["dong"]} {c.get("jibun") or ""}'.strip(),
-            "built": c.get("built") or None,
+            "built": c.get("built") or None, "attempts": errors,
             "fetched_at": dt.datetime.now(rm.KST).isoformat(timespec="seconds")}
     if result is None:
         return {**base, "found": False, "buildings": [], "context": [], "site": [],
