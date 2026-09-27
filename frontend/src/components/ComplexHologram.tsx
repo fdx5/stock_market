@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -12,19 +12,26 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
-import { vworldBuildings } from "./vworldBuildings";
+import { vworldBuildings, vworldRoads } from "./vworldBuildings";
 import {
-  alongRings, contextTextures, dirFrom, facadeTextures, FinishShader, foliageColors, inRing, Look, LOOKS, mixLook,
-  paintGround, paletteFor, patchFoliage, patchMaterial, patchSky, rng, seasonNow, shared, starField, Tod, TOD_LABEL, TOD_ORDER,
-  todNow, treeGeometries,
+  contextTextures, dirFrom, facadeTextures, FinishShader, inRing, Look, LOOKS, mixLook,
+  moonInSky, paintGround, paletteFor, patchMaterial, patchSky, rng, shared, starField, Tod, TOD_LABEL, TOD_ORDER, todNow,
 } from "./complexScene";
 import "../desk2/realestate-hologram.css";
+import type { ComplexRenderer } from "./tidewater/ComplexRenderer";
+import { facadeRelief } from "./tidewater/facadeRelief";
+import { loadBuildings, saveBuildings } from "./buildingStore";
+import { buildPlants } from "./scenePlants";
+import { buildLamps, buildTraffic } from "./sceneStreet";
 
-/* 부동산 맵 — one complex in natural light. Footprints and heights are the real ones
- * (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via VWorld, else
- * OpenStreetMap); the facade, landscaping, trees and lamps are drawn (complexScene.ts),
- * since no open source carries them. Sky, sun, clouds, haze, rain-damp ground with
- * reflections, and a day / dusk / night cycle. */
+/* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
+ * real ones (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via
+ * VWorld, else OpenStreetMap); only the facade paint and glazing are drawn
+ * (complexScene.ts), with flat landscaping on and along the parcel. No streets, trees
+ * or lamps are invented. Sky, sun, clouds, haze, rain-damp ground with reflections, day / dusk / night.
+ *
+ * Draw calls: every tower of a complex shares one mesh per material (the merged
+ * geometry is what renders); the per-building meshes are kept only for picking. */
 
 function shapeOf(b: RealEstateBuilding): THREE.Shape {
   const [outer, ...holes] = b.rings;
@@ -37,7 +44,30 @@ function extrude(b: RealEstateBuilding): THREE.ExtrudeGeometry {
   const depth = Math.max(2, b.height - b.base);
   const geo = new THREE.ExtrudeGeometry(shapeOf(b), { depth, bevelEnabled: false, steps: 1 });
   geo.translate(0, 0, b.base);
+  const uv = geo.getAttribute('uv');
+  const floorHeight = depth / Math.max(1, b.floors);
+  for (const group of geo.groups) if (group.materialIndex === 1) {
+    for (let i = group.start; i < group.start + group.count; i++) uv.setY(i, uv.getY(i) * 2.9 / floorHeight);
+  }
   return geo;
+}
+
+/** The faces of a non-indexed geometry's material groups, one geometry per material index. */
+function splitGroups(geo: THREE.BufferGeometry): (THREE.BufferGeometry | undefined)[] {
+  const ranges: [number, number][][] = [];
+  for (const g of geo.groups) (ranges[g.materialIndex ?? 0] ??= []).push([g.start, g.count]);
+  return Array.from(ranges, list => {
+    if (!list) return undefined;
+    const out = new THREE.BufferGeometry();
+    const n = list.reduce((sum, [, c]) => sum + c, 0);
+    for (const [name, attr] of Object.entries(geo.attributes) as [string, THREE.BufferAttribute][]) {
+      const size = attr.itemSize, arr = new Float32Array(n * size);
+      let o = 0;
+      for (const [start, count] of list) { arr.set((attr.array as Float32Array).subarray(start * size, (start + count) * size), o); o += count * size; }
+      out.setAttribute(name, new THREE.BufferAttribute(arr, size));
+    }
+    return out;
+  });
 }
 
 type Stage = {
@@ -47,12 +77,20 @@ type Stage = {
   reflector: Reflector | null; reflStrength: { value: number };
   refreshEnv: () => void;
   look: Look; fade: { from: Look; to: Look; t0: number } | null;
-  lit: { windows: THREE.MeshStandardMaterial[]; crowns: THREE.MeshStandardMaterial[]; lamps: THREE.MeshStandardMaterial[]; ground: THREE.MeshStandardMaterial[] };
+  lit: { windows: THREE.MeshStandardMaterial[]; crowns: THREE.MeshStandardMaterial[]; ground: THREE.MeshStandardMaterial[] };
+  /** Per-frame work of the current model (traffic), and what follows the look (lamps). */
+  tick: ((dt: number) => void)[]; onLook: ((l: Look) => void)[];
   ground: THREE.Mesh | null; model: THREE.Group | null;
-  pickables: THREE.Mesh[]; grow: { mesh: THREE.Object3D; delay: number }[];
+  pickables: THREE.Mesh[];
   intro: { from: THREE.Vector3; to: THREE.Vector3; t0: number } | null;
-  born: number; now: number; top: number; dist: number; center: THREE.Vector3;
+  now: number; top: number; dist: number; center: THREE.Vector3;
   hq: boolean; disposeModel: () => void; resume: () => void;
+  /** A new model is built but has not reached the screen yet. */
+  unshown: boolean;
+  /** Run once the new model's first frame is on screen (decoration waits for it). */
+  onShown: (() => void)[];
+  /** Move the live canvases into another stage element (the 크게 보기 layer). */
+  attach: (next: HTMLDivElement) => void;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -75,71 +113,46 @@ function staleNotice(data: RealEstateBuildingsResponse, complexId: string): stri
   return null;
 }
 
-const ease = (k: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
+const buildingCache = new Map<string, { at: number; data: RealEstateBuildingsResponse }>();
 
-/** Desktop: the same view in a large layer over the page, for a proper look. It keeps
- * Escape and Tab to itself while open, and gives focus back when it closes. */
-function WideLayer({ id, name, tod, onClose }: { id: string; name?: string; tod: Tod; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLElement>(".re-holo-wide-close")?.focus();
-    const key = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" && event.key !== "Tab") return;
-      event.stopImmediatePropagation();
-      event.preventDefault();
-      if (event.key === "Escape") { onClose(); return; }
-      const list = Array.from(ref.current?.querySelectorAll<HTMLElement>("button") ?? []);
-      const at = list.indexOf(document.activeElement as HTMLElement);
-      list[(at + (event.shiftKey ? -1 : 1) + list.length) % list.length]?.focus();
-    };
-    window.addEventListener("keydown", key, true);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", key, true);
-      document.body.style.overflow = overflow;
-      if (previous?.isConnected) previous.focus();
-    };
-  }, [onClose]);
-  return createPortal(
-    <div className="re-holo-wide" role="dialog" aria-modal="true" aria-label={`${name ?? "단지"} 3D 단지뷰 크게 보기`} ref={ref}
-      onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="re-holo-wide-box">
-        <button type="button" className="re-holo-wide-close" onClick={onClose} aria-label="크게 보기 닫기" title="닫기 (Esc)">×</button>
-        <ComplexHologram complexId={id} complexName={name} caption="3D 단지뷰 · 크게 보기" wide initialTod={tod} />
-      </div>
-    </div>,
-    document.body,
-  );
-}
+const ease = (k: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
 
 export default function ComplexHologram({ complexId, complexName, caption, wide = false, initialTod }: {
   complexId: string | null; complexName?: string; caption?: string;
   /** Already the large layer: no "크게 보기" button of its own. */
   wide?: boolean; initialTod?: Tod;
 }) {
+  const sectionRef = useRef<HTMLElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const [data, setData] = useState<RealEstateBuildingsResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [spin, setSpin] = useState(true);
+  const [slowData, setSlowData] = useState(false);
+  const [spin, setSpin] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   const [tod, setTod] = useState<Tod>(() => {
     const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tod") : null;
     return initialTod ?? (q && q in LOOKS ? (q as Tod) : todNow());
   });
-  const [big, setBig] = useState(false);
-  const closeBig = useCallback(() => setBig(false), []);
-  const pausedRef = useRef(false);
+  // 크게 보기: a layer over the page at 3x the panel's height (scaled down only as far
+  // as the window requires) and 30 % wider than that proportion.
+  const [bigBase, setBigBase] = useState<{ w: number; h: number } | null>(null);
+  const big = !!bigBase;
+  const [, setViewportTick] = useState(0);
+  const openBig = () => {
+    const r = sectionRef.current?.getBoundingClientRect();
+    if (r?.width && r.height) setBigBase({ w: r.width, h: r.height });
+  };
+  const closeBig = useCallback(() => setBigBase(null), []);
   const [tip, setTip] = useState<{ x: number; y: number; text: string; pinned: boolean; w: number } | null>(null);
   const [failed3d, setFailed3d] = useState(false);
+  const [preparing, setPreparing] = useState(false);
   const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
 
   // One renderer for the panel's lifetime; each complex only swaps the model.
   useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
+    if (!hostRef.current) return;
+    let host: HTMLDivElement = hostRef.current;
     // Phones and small tablets: no planar reflection or AO, fewer trees, lighter shadows.
     const hq = !window.matchMedia?.("(pointer: coarse)").matches && Math.min(screen.width, screen.height) >= 700;
     let renderer: THREE.WebGLRenderer;
@@ -149,14 +162,39 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       setFailed3d(true);
       return;
     }
-    const maxRatio = Math.min(window.devicePixelRatio, hq ? 2 : 1.6);
-    let ratio = maxRatio;
+    // Start at the display's ratio; with frame time to spare, supersample a desktop
+    // panel toward 2x (sharper facades; the native path has no MSAA). Never climb
+    // back past a level that already dropped frames.
+    const dpr = window.devicePixelRatio || 1;
+    let ratio = Math.min(dpr, hq ? 2 : 1.6);
+    let maxRatio = hq ? Math.min(2, Math.max(dpr, 1.5)) : ratio;
     renderer.setPixelRatio(ratio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
     host.appendChild(renderer.domElement);
+    let native: ComplexRenderer | null = null;
+    let disposed = false;
+    let nativePending = "gpu" in navigator && !!navigator.gpu;
+    let wasPreparing = nativePending;
+    setPreparing(nativePending);
+    // Do not compile both renderers on first load: warm native pipelines behind
+    // the loading state, and initialize WebGL lighting only if native fails.
+    if (nativePending) {
+      import("./tidewater/ComplexRenderer").then(m => m.ComplexRenderer.create(host)).then(view => {
+        if (disposed) { view.dispose(); return; }
+        if (view.canvas.parentElement !== host) host.appendChild(view.canvas);
+        native = view;
+        nativePending = false;
+        resize();
+      }).catch(err => {
+        if (disposed) return;
+        nativePending = false;
+        refreshEnv();
+        console.info("[3D] Using WebGL compatibility renderer:", err);
+      });
+    }
 
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2("#b9cadb", 0.001);
@@ -165,11 +203,22 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.06;
-    controls.autoRotate = true;
+    controls.autoRotate = spinRef.current;
     controls.autoRotateSpeed = 0.55;
     controls.minPolarAngle = 0.12;
     controls.maxPolarAngle = Math.PI / 2 - 0.035;
-    controls.enablePan = false;
+    // Zoom toward whatever is under the cursor, anywhere in view, and pan freely
+    // (right drag / two fingers); the orbit centre stays above ground near the complex.
+    controls.zoomToCursor = true;
+    controls.enablePan = true;
+    controls.screenSpacePanning = false;
+    controls.addEventListener("change", () => {
+      const t = controls.target, st = stageRef.current;
+      if (!st) return;
+      t.y = Math.min(Math.max(t.y, 0), st.top);
+      const dx = t.x - st.center.x, dz = t.z - st.center.z, r = Math.hypot(dx, dz), limit = st.dist * 2.5;
+      if (r > limit) { t.x = st.center.x + dx / r * limit; t.z = st.center.z + dz / r * limit; }
+    });
 
     const sky = new Sky();
     sky.scale.setScalar(40000);
@@ -180,12 +229,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const pmrem = new THREE.PMREMGenerator(renderer);
     let envRT: THREE.WebGLRenderTarget | null = null;
     const refreshEnv = () => {
+      if (native || nativePending) return;
       const next = pmrem.fromScene(envScene, 0, 0.1, 1000);
       scene.environment = next.texture;
       envRT?.dispose();
       envRT = next;
     };
     const stars = starField(3000);
+    const moon = moonInSky();
+    scene.add(moon.group);
     scene.add(stars);
 
     const hemi = new THREE.HemisphereLight("#c4dcf6", "#6f6552", 0.45);
@@ -221,11 +273,13 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
 
     const stage: Stage = {
       renderer, scene, camera, controls, composer, bloom, finish, sun, hemi, sky, stars, reflector, reflStrength, refreshEnv,
-      look: LOOKS.day, fade: null, lit: { windows: [], crowns: [], lamps: [], ground: [] },
-      ground: null, model: null, pickables: [], grow: [], intro: null,
-      born: 0, now: 0, top: 50, dist: 300, center: new THREE.Vector3(), hq, disposeModel: () => {}, resume: () => {},
+      look: LOOKS.day, fade: null, lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
+      ground: null, model: null, pickables: [], intro: null,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {},
     };
     stageRef.current = stage;
+    // Dev only: lets the render checks place the camera (never in a production build).
+    if (import.meta.env.DEV) (window as unknown as { __complexStage?: Stage }).__complexStage = stage;
 
     let W = 1, H = 1;
     const resize = () => {
@@ -240,6 +294,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       finish.uniforms.uAspect.value = W / H;
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
+      native?.setSize(W, H, ratio);
     };
     const ro = new ResizeObserver(resize);
     ro.observe(host);
@@ -254,30 +309,29 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3(), sunNdc = new THREE.Vector3();
     const sunRay = new THREE.Raycaster();
     let sunVis = 0, sunVisTarget = 0, frame = 0, envFrame = 0;
-    // Dynamic resolution (after tidewater): hold ~50 fps by trading pixels, never below 0.75x.
+    // Dynamic resolution with hysteresis: target 60 fps, never below 0.75x.
     let slow = 0, quick = 0, last = performance.now();
+    let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
     let raf = 0;
+    // Off screen the loop sleeps, except while shaders and a new model are still being
+    // prepared: that work then finishes before the panel scrolls into view.
+    const warming = () => stage.unshown || nativePending || (!!native && !native.ready);
     const loop = () => {
-      // Paused while the large layer shows the same complex.
-      if (pausedRef.current) return;
+      if (document.hidden || (!inView && !warming())) return;
       raf = requestAnimationFrame(loop);
       const nowMs = performance.now();
       const dt = nowMs - last;
       last = nowMs;
-      if (dt > 24) { slow++; quick = 0; } else if (dt < 15) { quick++; slow = 0; }
-      if (slow > 40 && ratio > 0.75) { ratio = Math.max(0.75, ratio - 0.25); slow = 0; resize(); }
+      if (dt > 24 && dt < 250) { slow++; quick = 0; } else if (dt < 18) { quick++; slow = 0; }
+      if (dt >= 18 && dt <= 24) { slow = Math.max(0, slow - 1); quick = 0; }
+      if (slow > 40 && ratio > 0.75) { ratio = Math.max(0.75, ratio - 0.25); maxRatio = ratio; slow = 0; resize(); }
       else if (quick > 240 && ratio < maxRatio) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
 
       const t = (nowMs - t0) / 1000;
       stage.now = t;
       shared.uTime.value = t;
       sky.material.uniforms.time.value = t;
-      const since = t - stage.born;
-      stage.grow.forEach(({ mesh, delay }) => {
-        const k = Math.min(1, Math.max(0, (since - delay) / 1.2));
-        mesh.scale.z = Math.max(0.001, 1 - Math.pow(1 - k, 3));
-      });
       if (stage.intro) {
         const k = ease((t - stage.intro.t0) / 3.2);
         camera.position.lerpVectors(stage.intro.from, stage.intro.to, k);
@@ -288,8 +342,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         applyLook(mixLook(stage.fade.from, stage.fade.to, k), k >= 1 || ++envFrame % 8 === 0);
         if (k >= 1) stage.fade = null;
       }
+      for (const f of stage.tick) f(dt / 1000);
       controls.update();
       stars.position.copy(camera.position);
+      moon.update(camera);
 
       // How much of the sun the towers hide, eased, for the flare.
       dirFrom(stage.look.sunElev, stage.look.sunAz, sunDir);
@@ -303,12 +359,31 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       finish.uniforms.uSun.value.set(sunNdc.x * 0.5 + 0.5, sunNdc.y * 0.5 + 0.5);
       finish.uniforms.uSunVis.value = sunVis * THREE.MathUtils.smoothstep(stage.look.sunElev, -1, 6) * (0.55 + 0.45 * (1 - stage.look.clouds));
 
-      if (reflector && stage.ground) {
+      if (native) {
+        try { native.render(scene, camera, stage.look, t); }
+        catch (err) { console.warn("[3D] WebGPU fallback:", err); native.failed = true; }
+        if (native.failed) { native.dispose(); native = null; refreshEnv(); }
+      }
+      const isPreparing = nativePending || (!!native && !native.shown);
+      if (wasPreparing !== isPreparing) { setPreparing(isPreparing); wasPreparing = isPreparing; }
+      host.dataset.renderer = native?.shown ? "tidewater-webgpu" : isPreparing ? "preparing" : "webgl";
+      if (++sampleFrames >= 60) {
+        host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
+        host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
+        host.dataset.pixelRatio = ratio.toFixed(2);
+        sampleFrames = 0; sampleStart = nowMs;
+      }
+      if (!native && !nativePending && reflector && stage.ground) {
         stage.ground.visible = false;
         (reflector.onBeforeRender as (r: THREE.WebGLRenderer, s: THREE.Scene, c: THREE.Camera) => void)(renderer, scene, camera);
         stage.ground.visible = true;
       }
-      composer.render();
+      if (!native && !nativePending) composer.render();
+      if (stage.unshown && (native?.ready || (!native && !nativePending))) {
+        stage.unshown = false;
+        stage.onShown.splice(0).forEach(f => f());
+        host.dataset.shownAt = performance.now().toFixed(0);
+      }
     };
 
     /** Sun, sky, haze and every light-dependent material for one look. */
@@ -343,9 +418,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       shared.uGlass.value = 0.7 / Math.max(0.05, l.env);
       stage.lit.windows.forEach(m => { m.emissiveIntensity = l.windows; });
       stage.lit.crowns.forEach(m => { m.emissiveIntensity = l.windows * 0.5; });
-      stage.lit.lamps.forEach(m => { m.emissiveIntensity = l.lamps * 7; });
-      stage.lit.ground.forEach(m => { m.emissiveIntensity = l.lamps * 0.8; });
+      stage.lit.ground.forEach(m => { m.emissiveIntensity = l.lamps * 0.9; });
+      stage.onLook.forEach(f => f(l));
       (stars.material as THREE.PointsMaterial).opacity = l.stars;
+      moon.setLevel(l.stars);
       shared.uCloud.value = l.cloudShade;
       reflStrength.value = l.reflect;
       bloom.strength = l.bloom;
@@ -359,14 +435,35 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
 
     // Paused while off screen: a model below the fold should cost nothing.
     const io = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
       cancelAnimationFrame(raf);
-      if (entry.isIntersecting) { last = performance.now(); loop(); }
+      if (entry.isIntersecting || warming()) { last = performance.now(); loop(); }
     });
     io.observe(host);
+    stage.attach = next => {
+      if (next === host) return;
+      ro.unobserve(host); io.unobserve(host);
+      Object.assign(next.dataset, host.dataset);
+      next.appendChild(renderer.domElement);
+      if (native) next.appendChild(native.canvas);
+      host = next;
+      ro.observe(host); io.observe(host);
+      resize();
+      stage.resume();
+    };
     stage.resume = () => { cancelAnimationFrame(raf); last = performance.now(); loop(); };
+    const visibility = () => {
+      cancelAnimationFrame(raf);
+      last = performance.now(); sampleStart = last; sampleFrames = 0;
+      if (!document.hidden) loop();
+    };
+    document.addEventListener("visibilitychange", visibility);
 
     return () => {
+      disposed = true;
+      document.removeEventListener("visibilitychange", visibility);
       cancelAnimationFrame(raf);
+      native?.dispose();
       io.disconnect();
       ro.disconnect();
       window.clearTimeout(idleTimer);
@@ -381,6 +478,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       sky.geometry.dispose();
       sky.material.dispose();
       stars.geometry.dispose();
+      moon.dispose();
       (stars.material as THREE.Material).dispose();
       renderer.dispose();
       renderer.domElement.remove();
@@ -395,10 +493,49 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (stageRef.current) stageRef.current.controls.autoRotate = spin;
   }, [spin]);
 
-  useEffect(() => {
-    pausedRef.current = big;
-    if (!big) stageRef.current?.resume();
+  // The layer is portaled to <body> (a transformed ancestor would otherwise pin a
+  // fixed layer to itself, off screen); the running renderer moves with it.
+  useLayoutEffect(() => {
+    if (hostRef.current) stageRef.current?.attach(hostRef.current);
   }, [big]);
+
+  useEffect(() => {
+    stageRef.current?.resume();
+    if (!big) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const section = sectionRef.current!;
+    section.querySelector<HTMLButtonElement>('.re-holo-wide-close')?.focus();
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const inert: [HTMLElement, boolean][] = [];
+    for (let node: HTMLElement | null = section; node?.parentElement; node = node.parentElement) {
+      for (const sibling of Array.from(node.parentElement.children)) if (sibling !== node && sibling instanceof HTMLElement) {
+        inert.push([sibling, sibling.inert]); sibling.inert = true;
+      }
+    }
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeBig(); }
+      if (event.key === 'Tab') {
+        const items = Array.from(section.querySelectorAll<HTMLElement>('button,a[href]'));
+        const i = items.indexOf(document.activeElement as HTMLElement);
+        event.preventDefault(); items[(i + (event.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
+      }
+    };
+    // The page behind is inert; a press on it (the dimmed backdrop) closes the layer.
+    const outside = (event: PointerEvent) => { if (!section.contains(event.target as Node)) closeBig(); };
+    const refit = () => setViewportTick(n => n + 1);
+    document.addEventListener('keydown', key, true);
+    document.addEventListener('pointerdown', outside, true);
+    window.addEventListener('resize', refit);
+    return () => {
+      document.body.style.overflow = overflow;
+      inert.forEach(([node, value]) => { node.inert = value; });
+      document.removeEventListener('keydown', key, true);
+      document.removeEventListener('pointerdown', outside, true);
+      window.removeEventListener('resize', refit);
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [big, closeBig]);
 
   const todRef = useRef(tod);
   const applyLookRef = useRef<((l: Look, env: boolean) => void) | null>(null);
@@ -409,33 +546,69 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     st.fade = { from: st.look, to: LOOKS[tod], t0: st.now };
   }, [tod]);
 
-  // Every selection: kept shapes from the server, else VWorld from this browser
-  // (VWorld refuses the server abroad), else the server's OpenStreetMap fallback.
+  /** A result without surveyed roads (kept by the server, or from OpenStreetMap) gets
+   * them from VWorld, in at most 2.5 s; without them it still draws, just roadless. */
+  const withRoads = async (res: RealEstateBuildingsResponse): Promise<RealEstateBuildingsResponse> => {
+    if (res.roads || !res.vworld_key || !res.center) return res;
+    const roads = await Promise.race([
+      vworldRoads(res, res.vworld_key, res.vworld_domain).catch(() => null),
+      new Promise<null>(r => window.setTimeout(() => r(null), 2500)),
+    ]);
+    return roads ? { ...res, roads } : res;
+  };
+
+  // Every selection: this browser's copy, else kept shapes from the server, else
+  // VWorld from this browser (VWorld refuses the server abroad) raced against the
+  // server's OpenStreetMap fallback.
   useEffect(() => {
     setTip(null);
     if (!complexId) { setData(null); return; }
     const ctl = new AbortController();
     let live = true;
     setLoading(true);
+    setSlowData(false);
+    const started = performance.now();
+    if (hostRef.current) { delete hostRef.current.dataset.shownAt; hostRef.current.dataset.selectAt = started.toFixed(0); }
+    const slowTimer = window.setTimeout(() => { if (live) setSlowData(true); }, 3000);
     setError("");
     (async () => {
+      const cached = buildingCache.get(complexId);
+      if (cached && Date.now() - cached.at < 300000) return cached.data;
+      const kept = await loadBuildings(complexId);
+      if (kept) return kept;
       const peek = await api.realEstateBuildings(complexId, ctl.signal, true);
-      if (peek.found) return peek;
-      if (peek.vworld_key && peek.query?.parcel) {
-        try {
-          const direct = await vworldBuildings(complexId, peek.query, peek.vworld_key, peek.vworld_domain);
-          if (direct) return { ...direct, built: peek.built ?? null };
-        } catch (err) {
-          // Outside Korea or VWorld down: the server's OpenStreetMap copy is next.
-          console.warn("[3D] VWorld direct lookup failed:", err instanceof Error ? err.message : err);
-        }
-      }
-      return api.realEstateBuildings(complexId, ctl.signal);
+      if (peek.found) return withRoads(peek);
+      // Start independent suppliers together: a slow JSONP endpoint must not
+      // delay a server result that is already available (and vice versa).
+      const fallback = api.realEstateBuildings(complexId, ctl.signal);
+      if (!peek.vworld_key || !peek.query?.parcel) return fallback;
+      const direct = vworldBuildings(complexId, peek.query, peek.vworld_key, peek.vworld_domain)
+        .then(value => value ? { ...value, built: peek.built ?? null } : null);
+      return new Promise<RealEstateBuildingsResponse>((resolve, reject) => {
+        let remaining = 2;
+        let empty: RealEstateBuildingsResponse | null = null;
+        let failure: unknown;
+        for (const request of [fallback, direct]) request.then(result => {
+          if (result?.found) resolve(result);
+          else if (result) empty = result;
+        }).catch(err => { failure = err; }).finally(() => {
+          if (--remaining === 0) { if (empty) resolve(empty); else reject(failure ?? new Error("건물 자료를 찾지 못했습니다.")); }
+        });
+      });
     })()
-      .then(res => { if (!live) return; setData(res); if (!res.found) setError(res.error || "건물 윤곽 자료를 찾지 못했습니다."); })
+      .then(res => res.found && !res.roads ? withRoads(res) : res)
+      .then(res => {
+        if (res.found) {
+          if (!buildingCache.has(complexId)) void saveBuildings(complexId, res);
+          buildingCache.set(complexId, { at: Date.now(), data: res });
+          if (buildingCache.size > 8) buildingCache.delete(buildingCache.keys().next().value!);
+        }
+        if (!live) return;
+        if (hostRef.current) hostRef.current.dataset.fetchMs = (performance.now() - started).toFixed(0);
+        setData(res); if (!res.found) setError(res.error || "건물 윤곽 자료를 찾지 못했습니다."); })
       .catch(err => { if (live && !ctl.signal.aborted) { setData(null); setError(err instanceof Error ? err.message : "불러오지 못했습니다."); } })
-      .finally(() => { if (live) setLoading(false); });
-    return () => { live = false; ctl.abort(); };
+      .finally(() => { window.clearTimeout(slowTimer); if (live) setLoading(false); });
+    return () => { live = false; window.clearTimeout(slowTimer); ctl.abort(); };
   }, [complexId]);
 
   // Build the model for the loaded complex.
@@ -444,12 +617,18 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (!stage) return;
     stage.disposeModel();
     if (!data?.found || !data.buildings.length) return;
+    const modelStarted = performance.now();
+    // Buildings first: plants, lamps and traffic join once this model is on screen,
+    // so their shaders never hold back the first frame.
+    stage.unshown = true;
+    const afterShown = (f: () => void) => { if (stage.unshown) stage.onShown.push(f); else f(); };
     const palette = paletteFor(data.name);
     const disposables: { dispose: () => void }[] = [];
     const keep = <T extends { dispose: () => void }>(x: T) => { disposables.push(x); return x; };
     const group = new THREE.Group();
     group.rotation.x = -Math.PI / 2; // footprints are x east / y north, extruded up z
-    const lit: Stage["lit"] = { windows: [], crowns: [], lamps: [], ground: [] };
+    group.updateMatrixWorld();
+    const lit: Stage["lit"] = { windows: [], crowns: [], ground: [] };
 
     let seed = 0;
     for (const ch of data.id) seed = (seed * 33 + ch.charCodeAt(0)) % 2147483647;
@@ -473,30 +652,57 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const crown = keep(new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.4, metalness: 0.45, emissive: palette.accent, emissiveIntensity: 0 }));
     lit.crowns.push(crown);
     const low = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(palette.wall).lerp(new THREE.Color(palette.wall2), 0.45), roughness: 0.75 }));
+    // Low-rise facilities (community centre, shops): a plain windowed facade in the
+    // complex's colour, not a blank block.
+    const lowTex = contextTextures(seed + 5);
+    Object.values(lowTex).forEach(keep);
+    const lowFacade = keep(new THREE.MeshStandardMaterial({
+      map: lowTex.map, color: new THREE.Color(palette.wall).lerp(new THREE.Color("#ffffff"), 0.2),
+      roughnessMap: lowTex.rmMap, metalnessMap: lowTex.rmMap, roughness: 1, metalness: 1,
+      emissiveMap: lowTex.emissiveMap, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
+    }));
+    patchMaterial(lowFacade, { glass: true });
+    lit.windows.push(lowFacade);
     const plant = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(palette.wall2).lerp(new THREE.Color("#9a9a96"), 0.5), roughness: 0.8 }));
     [roof, crown, low, plant].forEach(m => patchMaterial(m));
 
+    // Geometry per material, merged once below: a few draws for the whole complex.
+    const parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const add = (mat: THREE.Material, geo: THREE.BufferGeometry | undefined) => {
+      if (!geo) return;
+      if (!parts.has(mat)) parts.set(mat, []);
+      parts.get(mat)!.push(geo);
+    };
+    const relief: THREE.Matrix4[] = [];
+    const reliefLimit = stage.hq ? 40000 : 12000;
     const box = new THREE.Box3();
-    const grow: Stage["grow"] = [];
     const pickables: THREE.Mesh[] = [];
     let top = 10;
-    const tall = data.buildings.filter(b => b.floors >= 5);
+    const footArea = (r: [number, number][]) => Math.abs(r.reduce((a, [x, y], j) => { const q = r[(j + 1) % r.length]; return a + x * q[1] - q[0] * y; }, 0) / 2);
     data.buildings.forEach((b, i) => {
-      const geo = keep(extrude(b));
+      // Register entries with neither height nor floors and a small footprint are guard
+      // posts and ramp covers: drawn as guessed blocks they read as stray objects.
+      if (b.height_source === "estimated" && footArea(b.rings[0]) < 300) return;
+      const geo = extrude(b);
       const isTower = b.floors >= 5;
-      const mesh = new THREE.Mesh(geo, isTower ? [roof, walls[i % 2]] : [roof, low]);
-      mesh.castShadow = mesh.receiveShadow = true;
-      mesh.userData.label = `${b.name ? b.name + " · " : ""}${heightLabel(b)}`;
-      pickables.push(mesh);
-      const holder = new THREE.Group();
-      holder.add(mesh);
+      const [caps, sides] = splitGroups(geo);
+      add(roof, caps);
+      add(isTower ? walls[i % 2] : lowFacade, sides);
+      // Picking only: never rendered, shares the group's transform.
+      geo.clearGroups();
+      const pick = new THREE.Mesh(keep(geo));
+      pick.userData.label = `${b.name ? b.name + " · " : ""}${heightLabel(b)}`;
+      pick.matrixWorld.copy(group.matrixWorld);
+      pickables.push(pick);
       if (isTower) {
+        facadeRelief(b, relief, reliefLimit);
         // Rooftop crown band in the complex's accent colour, and the lift / stair core.
-        const cap = keep(new THREE.ExtrudeGeometry(shapeOf(b), { depth: 1.6, bevelEnabled: false }));
+        const cap = new THREE.ExtrudeGeometry(shapeOf(b), { depth: 1.6, bevelEnabled: false });
         cap.translate(0, 0, b.height);
-        const capMesh = new THREE.Mesh(cap, [roof, crown]);
-        capMesh.castShadow = true;
-        holder.add(capMesh);
+        const [capTop, capSide] = splitGroups(cap);
+        cap.dispose();
+        add(roof, capTop);
+        add(crown, capSide);
         const ring = b.rings[0];
         const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length, cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
         if (inRing([cx, cy], ring)) {
@@ -505,19 +711,32 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
             const q = ring[(j + 1) % ring.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]);
             if (len > best) { best = len; ang = Math.atan2(q[1] - p[1], q[0] - p[0]); }
           });
-          const core = new THREE.Mesh(keep(new THREE.BoxGeometry(Math.min(9, best * 0.3), 5, 4.2)), plant);
-          core.position.set(cx, cy, b.height + 1.6 + 2.1);
-          core.rotation.z = ang;
-          core.castShadow = core.receiveShadow = true;
-          holder.add(core);
+          const core = new THREE.BoxGeometry(Math.min(9, best * 0.3), 5, 4.2).toNonIndexed();
+          core.rotateZ(ang);
+          core.translate(cx, cy, b.height + 1.6 + 2.1);
+          add(plant, core);
         }
       }
-      grow.push({ mesh: holder, delay: (tall.indexOf(b) >= 0 ? tall.indexOf(b) : i) * 0.025 });
-      group.add(holder);
       geo.computeBoundingBox();
       box.union(geo.boundingBox!);
       top = Math.max(top, b.height);
     });
+    for (const [mat, geos] of parts) {
+      const merged = keep(mergeGeometries(geos, false)!);
+      geos.forEach(g => g.dispose());
+      const mesh = new THREE.Mesh(merged, mat);
+      mesh.castShadow = mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+    if (relief.length) {
+      const unit = keep(new THREE.BoxGeometry(1, 1, 1));
+      const ledges = new THREE.InstancedMesh(unit, low, relief.length);
+      relief.forEach((m, j) => ledges.setMatrixAt(j, m));
+      ledges.castShadow = ledges.receiveShadow = true;
+      ledges.computeBoundingSphere();
+      group.add(ledges);
+      disposables.push(ledges);
+    }
 
     // The neighbourhood: opaque, tinted per building, windows lit in the evening.
     const ext = data.buildings.flatMap(b => b.rings[0]).reduce((m, [x, y]) => Math.max(m, Math.hypot(x, y)), 0);
@@ -543,6 +762,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         map: ct.map, vertexColors: true, roughnessMap: ct.rmMap, metalnessMap: ct.rmMap, roughness: 1, metalness: 1,
         emissiveMap: ct.emissiveMap, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
       }));
+      ctxMat.userData.contextBuilding = true;
       patchMaterial(ctxMat, { roof: new THREE.Color("#7b7e7a"), glass: true });
       lit.windows.push(ctxMat);
       const ctxMesh = new THREE.Mesh(merged, ctxMat);
@@ -555,20 +775,22 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;
     const dist = Math.max(span, top * 1.4) * 1.1 + 40;
 
-    // Street lamps along the complex's perimeter road.
-    const lampPts = alongRings(data.site.length ? data.site : data.buildings.filter(b => b.floors >= 5).map(b => b.rings[0]), 22, stage.hq ? 420 : 200);
-    // The ground: painted plan, damp paving, lawns and lamp pools, reflecting the towers.
+    // The ground: the surveyed parcel landscaped (flat paint only), damp paving reflecting the towers.
     const T = Math.max(reach * 1.15, span * 0.9 + 120);
-    const plan = paintGround(data, T, lampPts, seed, stage.hq ? 4096 : 2048);
-    [plan.color, plan.rough, plan.glow].forEach(keep);
+    const plan = paintGround(data, T, stage.hq ? 2048 : 1024, seed);
+    [plan.color, plan.rough].forEach(keep);
     const G = dist * 12;
     const groundGeo = keep(new THREE.PlaneGeometry(2 * G, 2 * G, 1, 1));
     const uv = groundGeo.getAttribute("uv") as THREE.BufferAttribute, gp = groundGeo.getAttribute("position") as THREE.BufferAttribute;
     for (let j = 0; j < uv.count; j++) uv.setXY(j, (gp.getX(j) + T) / (2 * T), (gp.getY(j) + T) / (2 * T));
+    [plan.glow].forEach(keep);
     const groundMat = keep(new THREE.MeshStandardMaterial({
       map: plan.color, roughnessMap: plan.rough, roughness: 1, metalness: 0,
       emissiveMap: plan.glow, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
     }));
+    lit.ground.push(groundMat);
+    // Beyond the surveyed area the ground is featureless: it fades into the horizon haze.
+    groundMat.userData.edgeFade = true;
     patchMaterial(groundMat, {
       detail: true,
       reflect: stage.reflector ? {
@@ -578,115 +800,87 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         far: { value: dist * 2.2 },
       } : undefined,
     });
-    lit.ground.push(groundMat);
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     stage.scene.add(ground);
 
-    // Trees on the lawns and along the perimeter, in the season's colours.
-    const trees = treeGeometries();
-    [trees.trunk, trees.leaf, trees.pine].forEach(keep);
-    const spots: { x: number; y: number; pine: boolean }[] = [];
-    const cell = 6.5;
-    for (let x = -T; x < T; x += cell) {
-      for (let y = -T; y < T; y += cell) {
-        const px = x + (rnd() - 0.5) * cell * 0.9, py = y + (rnd() - 0.5) * cell * 0.9;
-        const [lawn, blocked] = plan.mask.at(px, py);
-        if (lawn > 128 && blocked < 128 && rnd() < 0.72) spots.push({ x: px, y: py, pine: rnd() < 0.32 });
-      }
-    }
-    for (const [x, y] of alongRings(data.site, 9, 600)) {
-      const [, blocked] = plan.mask.at(x, y);
-      if (blocked < 128 && rnd() < 0.8) spots.push({ x, y, pine: false });
-    }
-    const cap = stage.hq ? 2600 : 900;
-    for (let j = spots.length - 1; j > 0; j--) { const k = Math.floor(rnd() * (j + 1)); [spots[j], spots[k]] = [spots[k], spots[j]]; }
-    const chosen = spots.slice(0, cap);
-    const broad = chosen.filter(s => !s.pine), pines = chosen.filter(s => s.pine);
-    const leafMat = keep(new THREE.MeshStandardMaterial({ roughness: 0.88, color: "#ffffff" }));
-    const trunkMat = keep(new THREE.MeshStandardMaterial({ roughness: 0.95, color: "#4a3b2e" }));
-    patchFoliage(leafMat);
-    const colors = foliageColors(seasonNow()), pineColors = ["#2f4f2a", "#34552c", "#3b5a30"];
-    const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), p = new THREE.Vector3(), yAxis = new THREE.Vector3(0, 1, 0);
-    const trunkMesh = new THREE.InstancedMesh(trees.trunk, trunkMat, Math.max(1, chosen.length));
-    const place = (list: typeof chosen, geo: THREE.BufferGeometry, palette: string[], pine: boolean, offset: number) => {
-      const im = new THREE.InstancedMesh(geo, leafMat, Math.max(1, list.length));
-      im.count = list.length;
-      list.forEach((s, j) => {
-        const h = pine ? 7 + rnd() * 6 : 5.5 + rnd() * 5;
-        const w = pine ? h * (0.55 + rnd() * 0.15) : h * (0.85 + rnd() * 0.35);
-        q.setFromAxisAngle(yAxis, rnd() * Math.PI * 2);
-        m4.compose(p.set(s.x, 0, -s.y), q, sc.set(w, h, w));
-        im.setMatrixAt(j, m4);
-        trunkMesh.setMatrixAt(offset + j, m4);
-        im.setColorAt(j, new THREE.Color(palette[Math.floor(rnd() * palette.length)]).multiplyScalar(0.85 + rnd() * 0.3));
-      });
-      im.castShadow = im.receiveShadow = true;
-      im.frustumCulled = false;
-      return im;
-    };
-    const broadMesh = place(broad, trees.leaf, colors, false, 0);
-    const pineMesh = place(pines, trees.pine, pineColors, true, broad.length);
-    trunkMesh.count = chosen.length;
-    trunkMesh.castShadow = true;
-    trunkMesh.frustumCulled = false;
-    const flora = new THREE.Group();
-    flora.add(broadMesh, pineMesh, trunkMesh);
-    disposables.push({ dispose: () => { broadMesh.dispose(); pineMesh.dispose(); trunkMesh.dispose(); } });
-
-    // Lamps: a slim post and a warm head that blooms at night.
-    const postGeo = keep(new THREE.CylinderGeometry(0.06, 0.09, 4.4, 6));
-    postGeo.translate(0, 2.2, 0);
-    const headGeo = keep(new THREE.SphereGeometry(0.26, 12, 8));
-    headGeo.translate(0, 4.5, 0);
-    const postMat = keep(new THREE.MeshStandardMaterial({ color: "#3b3f44", roughness: 0.5, metalness: 0.6 }));
-    const headMat = keep(new THREE.MeshStandardMaterial({ color: "#f4efe6", emissive: "#ffcf94", emissiveIntensity: 0, roughness: 0.3 }));
-    lit.lamps.push(headMat);
-    const posts = new THREE.InstancedMesh(postGeo, postMat, Math.max(1, lampPts.length));
-    const heads = new THREE.InstancedMesh(headGeo, headMat, Math.max(1, lampPts.length));
-    lampPts.forEach(([x, y], j) => { m4.makeTranslation(x, 0, -y); posts.setMatrixAt(j, m4); heads.setMatrixAt(j, m4); });
-    posts.count = heads.count = lampPts.length;
-    posts.castShadow = true;
-    posts.frustumCulled = heads.frustumCulled = false;
-    flora.add(posts, heads);
-    disposables.push({ dispose: () => { posts.dispose(); heads.dispose(); } });
-    stage.scene.add(flora);
+    // Landscaping: photoreal plant impostors, loaded after the buildings are on screen.
+    let alive = true;
+    const decor = new THREE.Group();
+    stage.scene.add(decor);
+    void buildPlants(plan.planting, seed).then(plants => {
+      if (!plants) return;
+      if (!alive) { plants.dispose(); return; }
+      afterShown(() => decor.add(plants.mesh));
+      disposables.push(plants);
+    }).catch(err => console.info("[3D] Plants unavailable:", err));
+    // Street lamps on the surveyed roads (lit from dusk), and traffic both ways.
+    const lamps = buildLamps(plan.lamps);
+    afterShown(() => decor.add(lamps.group));
+    disposables.push(lamps);
+    const onLook = [(l: Look) => lamps.setLevel(l.lamps)];
+    const tick: Stage["tick"] = [];
+    void buildTraffic(data.roads ?? [], seed, stage.hq).then(traffic => {
+      if (!traffic) return;
+      if (!alive) { traffic.dispose(); return; }
+      afterShown(() => decor.add(traffic.group));
+      disposables.push(traffic);
+      tick.push(dt => traffic.update(dt));
+      onLook.push(l => traffic.setLamps(l.lamps));
+      traffic.setLamps(stage.look.lamps);
+    }).catch(err => console.info("[3D] Traffic unavailable:", err));
 
     // Camera, sun and shadows framed on the complex, not the neighbourhood.
-    const center = new THREE.Vector3(cx, top * 0.28, -cy);
+    const center = new THREE.Vector3(cx, top * 0.45, -cy);
     stage.center.copy(center);
     stage.dist = dist;
     stage.top = top;
     stage.controls.target.copy(center);
-    const to = new THREE.Vector3(cx + dist * 0.74, top * 0.4 + dist * 0.24, -cy + dist * 0.74);
-    const from = new THREE.Vector3(cx + dist * 1.25, top * 0.6 + dist * 0.95, -cy + dist * 0.3);
-    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    stage.camera.position.copy(still ? to : from);
-    stage.intro = still ? null : { from, to, t0: stage.now };
+    // Fit all eight corners to both frustum axes; tall towers used to lose their
+    // crowns in the narrow map rail. Keep a little sky above the actual roof.
+    const viewDir = new THREE.Vector3(0.74, 0.22, 0.74).normalize();
+    const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), viewDir).normalize();
+    const up = new THREE.Vector3().crossVectors(viewDir, right);
+    const tanV = Math.tan(THREE.MathUtils.degToRad(stage.camera.fov / 2));
+    const tanH = tanV * stage.camera.aspect;
+    let fitDistance = 60;
+    for (const x of [box.min.x, box.max.x]) for (const y of [0, top + 6]) for (const z of [-box.max.y, -box.min.y]) {
+      const v = new THREE.Vector3(x, y, z).sub(center);
+      fitDistance = Math.max(fitDistance, Math.max(Math.abs(v.dot(right)) / tanH, Math.abs(v.dot(up)) / tanV) + v.dot(viewDir));
+    }
+    fitDistance *= 1.16;
+    stage.camera.position.copy(center).addScaledVector(viewDir, fitDistance);
+    stage.intro = null;
     stage.camera.far = dist * 14 + 2000;
     stage.camera.near = Math.max(0.5, dist / 800);
     stage.camera.updateProjectionMatrix();
-    stage.controls.minDistance = Math.max(30, span * 0.3);
-    stage.controls.maxDistance = dist * 3;
+    stage.controls.minDistance = 6;
+    stage.controls.maxDistance = Math.max(dist, fitDistance) * 4;
     const sc2 = stage.sun.shadow.camera;
     const half = span * 0.75 + top * 0.9 + 40;
     sc2.left = -half; sc2.right = half; sc2.top = half; sc2.bottom = -half;
     sc2.near = 1; sc2.far = (dist * 2 + top * 2) * 2 + top * 2;
     sc2.updateProjectionMatrix();
 
+    if (hostRef.current) hostRef.current.dataset.modelBuildMs = (performance.now() - modelStarted).toFixed(0);
     stage.model = group;
     stage.ground = ground;
     stage.lit = lit;
+    stage.tick = tick;
+    stage.onLook = onLook;
     stage.pickables = pickables;
-    stage.grow = grow;
-    stage.born = stage.now; // the build-up animation starts now
     stage.refreshEnv();
+    stage.unshown = true;
+    stage.resume();
     stage.disposeModel = () => {
-      stage.scene.remove(group, ground, flora);
+      alive = false;
+      stage.onShown = [];
+      stage.scene.remove(group, ground, decor);
       disposables.forEach(d => d.dispose());
-      stage.model = null; stage.ground = null; stage.pickables = []; stage.grow = [];
-      stage.lit = { windows: [], crowns: [], lamps: [], ground: [] };
+      stage.model = null; stage.ground = null; stage.pickables = [];
+      stage.lit = { windows: [], crowns: [], ground: [] };
+      stage.tick = []; stage.onLook = [];
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
@@ -723,8 +917,14 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const measured = data?.coverage ? data.coverage.with_height : 0;
   const total = data?.coverage ? data.coverage.buildings : 0;
   const nextTod = TOD_ORDER[(TOD_ORDER.indexOf(tod) + 1) % TOD_ORDER.length];
+  const bigScale = bigBase ? Math.min(3, (window.innerWidth * 0.96) / bigBase.w, (window.innerHeight * 0.94) / bigBase.h) : 1;
+  const portal = (node: JSX.Element) => bigBase ? createPortal(node, document.body) : node;
+  // 30 % wider than the scaled panel, within the window.
+  const bigStyle = bigBase ? { width: Math.round(Math.min(bigBase.w * bigScale * 1.3, window.innerWidth * 0.97)), height: Math.round(bigBase.h * bigScale) } : undefined;
   return (
-    <section className="re-holo" aria-label="단지 3D 뷰">
+    <>
+    {bigBase && <div className="re-holo-slot" style={{ height: bigBase.h }} aria-hidden="true" />}
+    {portal(<section ref={sectionRef} style={bigStyle} className={`re-holo${big ? " re-holo--expanded" : ""}`} role={big ? "dialog" : undefined} aria-modal={big || undefined} aria-label={big ? "단지 3D 뷰 크게 보기" : "단지 3D 뷰"}>
       <header className="re-holo-head">
         <div>
           <small>{caption ?? "3D 단지뷰"}</small>
@@ -733,29 +933,33 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         <div className="re-holo-tools">
           <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} title="360° 자동 회전">{spin ? "회전 ■" : "회전 ▶"}</button>
           <button type="button" onClick={() => setTod(nextTod)} title={`시간대 바꾸기 · 다음: ${TOD_LABEL[nextTod]}`}>{TOD_LABEL[tod]}</button>
-          {!wide && !coarse && complexId && (
-            <button type="button" className="re-holo-big" onClick={() => setBig(true)} title="큰 화면으로 감상">크게 보기 ⤢</button>
+          {!wide && !coarse && complexId && !big && (
+            <button type="button" className="re-holo-big" onClick={openBig} title="큰 화면으로 감상">크게 보기 ⤢</button>
           )}
         </div>
       </header>
       <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
         onPointerLeave={e => { if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
+        {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{TOD_LABEL[tod]}의 단지 풍경</strong><i>드래그 회전 · 휠 확대(커서 방향) · 우클릭 드래그 이동</i></div>}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         {failed3d && <p className="re-holo-msg">이 브라우저에서는 3D를 표시할 수 없습니다.</p>}
-        {loading && <div className="re-holo-scan" role="status"><span />건물 윤곽 불러오는 중…</div>}
+        {loading && <div className="re-holo-scan" role="status"><span />{slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
+        {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}</p>}
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
           role="status">{tip.text}</div>}
       </div>
       <footer className="re-holo-foot">
+        <a className="re-holo-credit" href="/licenses/tidewater-MIT.txt" target="_blank" rel="noreferrer" title="렌더링 엔진 MIT 라이선스">MIT</a>
         {data?.found ? (
           <>
             <span>건물 {total}개 · 층수·높이 확인 {measured}개{total > measured ? ` · ${data.source === "vworld" ? "층수 미등록 부대시설" : "높이 추정"} ${total - measured}개` : ""}</span>
-            <span>{data.source === "vworld" ? "건물 윤곽·높이: " : "건물 윤곽: "}{data.attribution}. 외벽·창호·조경·가로등은 표현용</span>
+            <span>{data.source === "vworld" ? "건물 윤곽·높이: " : "건물 윤곽: "}{data.attribution}. 외벽·창호·조경은 표현용 (도로·수목은 그리지 않음)</span>
           </>
-        ) : <span>{coarse ? "한 손가락으로 돌리고 두 손가락으로 확대, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 확대합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
+        ) : <span>{coarse ? "한 손가락으로 돌리고 두 손가락으로 확대·이동, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 커서 쪽 확대, 우클릭 드래그로 이동합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
-      {big && complexId && <WideLayer id={complexId} name={data?.name ?? complexName} tod={tod} onClose={closeBig} />}
-    </section>
+      {big && <button type="button" className="re-holo-wide-close" onClick={closeBig} aria-label="크게 보기 닫기" title="닫기 (Esc)">×</button>}
+    </section>)}
+    </>
   );
 }

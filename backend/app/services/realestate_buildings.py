@@ -43,6 +43,7 @@ VWORLD_DATA = "https://api.vworld.kr/req/data"
 FLOOR_M = 2.9           # typical 공동주택 floor-to-floor height
 GROUND_M = 1.5          # pilotis / ground floor extra
 CONTEXT_M = 230         # neighbours drawn around the complex
+ROAD_M = 150            # surveyed major roads drawn around the parcel
 KEEP_DAYS = 30
 KEEP_MISS_DAYS = 1
 STORE_VERSION = "bldg-v1"
@@ -270,8 +271,26 @@ def _from_vworld(c: dict, address: str) -> dict | None:
     if not buildings:
         return None
     site = [s for s in (_clean([project(x, y) for x, y in r]) for r in rings) if s]
+    # Major roads (국가기본도 도로중심선) with their registered width and lanes; keep in
+    # step with frontend vworldBuildings.ts parseRoads.
+    rlon = ROAD_M / (111_320 * math.cos(math.radians(lat)))
+    rlat = ROAD_M / 110_540
+    roads = []
+    try:
+        road_box = f"BOX({min(lons) - rlon},{min(lats) - rlat},{max(lons) + rlon},{max(lats) + rlat})"
+        for f in _features(_vworld(VWORLD_DATA, {**common, "data": "LT_L_N3A0020000", "geomFilter": road_box, "size": 1000, "page": 1})):
+            width, lanes = _num(f["properties"].get("rvwd")) or 0, round(_num(f["properties"].get("rdln")) or 0)
+            if width < 8 and lanes < 2:
+                continue
+            geom = f.get("geometry") or {}
+            lines = [geom.get("coordinates")] if geom.get("type") == "LineString" else geom.get("coordinates") or []
+            for line in lines:
+                if line and len(line) > 1:
+                    roads.append({"line": [project(x, y) for x, y in line], "width": min(60, width or lanes * 3.3), "lanes": max(1, lanes)})
+    except BuildingsError:
+        roads = []  # roads are setting; the buildings stand without them
     return {"source": "vworld", "center": {"lat": lat, "lon": lon}, "site": site, "pnu": pnu,
-            "buildings": buildings, "context": context,
+            "buildings": buildings, "context": context, "roads": roads,
             "attribution": "국토교통부 GIS건물통합정보 · 연속지적도 (브이월드)"}
 
 
@@ -423,6 +442,15 @@ def _query(c: dict) -> dict:
 
 
 def complex_buildings(complex_id: str, peek: bool = False) -> dict:
+    body = _complex_buildings(complex_id, peek)
+    # Kept results carry the (public, domain-bound) key too, so a browser can add the
+    # surveyed roads a result lacks (OpenStreetMap results, older kept shapes).
+    if body.get("found") and "vworld_key" not in body and _vworld_key():
+        body = {**body, "vworld_key": _vworld_key(), "vworld_domain": os.environ.get("VWORLD_DOMAIN", "https://kospimap.com")}
+    return body
+
+
+def _complex_buildings(complex_id: str, peek: bool = False) -> dict:
     """The complex's buildings. `peek` answers at once: a kept result, or else what
     the browser needs to ask VWorld itself (the parcel address and the key, which is
     bound to this site's domain and public by design)."""

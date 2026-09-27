@@ -1,11 +1,10 @@
 import * as THREE from "three";
-import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
+import { RealEstateBuildingsResponse } from "../api/client";
 
 /* The natural-light scene around one complex (components/ComplexHologram.tsx):
- * facades, ground, trees, lamps and the time-of-day looks. Footprints and heights
- * are real; paint, glazing, landscaping, trees and lamps are drawn to read as a
- * lived-in complex, not surveyed. */
+ * facades, ground and the time-of-day looks. Footprints, heights and the parcel are
+ * real; facade paint, glazing and the flat landscaping on the parcel are drawn. No
+ * streets or trees are invented. */
 
 export type Ring = [number, number][];
 
@@ -295,7 +294,7 @@ ${opts.reflect ? "uniform sampler2D tRefl; uniform float uReflect; uniform float
 ${NOISE}`)
       .replace("#include <color_fragment>", `#include <color_fragment>
 ${opts.roof ? "if (vUpN > 0.5) diffuseColor.rgb = uRoof;" : ""}
-${opts.detail ? `diffuseColor.rgb *= 0.86 + 0.2 * fbm3(vWPos.xz * 0.9) + 0.08 * vnoise(vWPos.xz * 6.0);` : ""}`)
+${opts.detail ? `diffuseColor.rgb *= 0.95 + 0.07 * fbm3(vWPos.xz * 0.12);` : ""}`)
       .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>
 ${opts.roof ? "if (vUpN > 0.5) { metalnessFactor = 0.0; roughnessFactor = 0.9; }" : ""}`)
       .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
@@ -326,10 +325,44 @@ ${opts.reflect ? `{
 
 /* ---------- Ground ---------- */
 
-export interface GroundPlan {
-  color: THREE.CanvasTexture; rough: THREE.CanvasTexture; glow: THREE.CanvasTexture;
-  /** R: lawn, G: under or beside a building. */
-  mask: { data: Uint8ClampedArray; size: number; at: (x: number, y: number) => [number, number] };
+/** Where the 3D plants go (metres, footprint frame): trees, shrubs, flowers. */
+export interface Planting { trees: [number, number][]; shrubs: [number, number][]; flowers: [number, number][] }
+/** A street lamp on a sidewalk: position, and the unit direction its arm reaches over the road. */
+export interface Lamp { x: number; y: number; dx: number; dy: number }
+export interface GroundPlan { color: THREE.CanvasTexture; rough: THREE.CanvasTexture; glow: THREE.CanvasTexture; planting: Planting; lamps: Lamp[] }
+
+/** Street lamps along the surveyed major roads: both sidewalks, staggered about every
+ * 50 m a side, never inside the parcel or a footprint; one lamp where carriageways overlap. */
+export function streetLamps(data: RealEstateBuildingsResponse): Lamp[] {
+  const lamps: Lamp[] = [], cell = new Map<string, Lamp[]>();
+  const key = (x: number, y: number) => `${Math.floor(x / 20)},${Math.floor(y / 20)}`;
+  const near = (x: number, y: number) => {
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++)
+      for (const l of cell.get(`${Math.floor(x / 20) + i},${Math.floor(y / 20) + j}`) ?? []) if (Math.hypot(l.x - x, l.y - y) < 20) return true;
+    return false;
+  };
+  const rings = [...data.buildings, ...data.context].map(b => b.rings[0]);
+  const blocked = (x: number, y: number) => data.site.some(r => inRing([x, y], r)) || rings.some(r => inRing([x, y], r));
+  for (const road of data.roads ?? []) {
+    let carry = 0;
+    for (let i = 0; i < road.line.length - 1; i++) {
+      const [ax, ay] = road.line[i], [bx, by] = road.line[i + 1], len = Math.hypot(bx - ax, by - ay);
+      if (len < 0.5) continue;
+      const ux = (bx - ax) / len, uy = (by - ay) / len, nx = -uy, ny = ux;
+      for (let d = carry; d < len; d += 25) {
+        const side = Math.round((d - carry) / 25 + i) % 2 ? 1 : -1, off = road.width / 2 + 1.2;
+        const x = ax + ux * d + nx * off * side, y = ay + uy * d + ny * off * side;
+        if (near(x, y) || blocked(x, y)) continue;
+        const lamp = { x, y, dx: -nx * side, dy: -ny * side };
+        lamps.push(lamp);
+        const k = key(x, y);
+        if (!cell.has(k)) cell.set(k, []);
+        cell.get(k)!.push(lamp);
+      }
+      carry = (carry - len) % 25; if (carry < 0) carry += 25;
+    }
+  }
+  return lamps.slice(0, 400);
 }
 
 type Season = "spring" | "summer" | "autumn" | "winter";
@@ -338,153 +371,177 @@ export function seasonNow(): Season {
   return m >= 3 && m <= 5 ? "spring" : m >= 6 && m <= 9 ? "summer" : m >= 10 && m <= 11 ? "autumn" : "winter";
 }
 
-/** The ground painted top-down over ±T metres: roads, pavements, the complex's
- * paving and lawns, damp patches after rain, soft contact shade and lamp pools. */
-export function paintGround(data: RealEstateBuildingsResponse, T: number, lamps: [number, number][], seed: number, size: number): GroundPlan {
+/** The ground painted top-down over ±T metres, smooth (no grain or noise).
+ * Surveyed: the parcel (연속지적도), every registered footprint, and major roads at
+ * their registered width and lane count (국가기본도 도로중심선). Drawn inside the parcel:
+ * lawn, paved aprons around the towers, a perimeter walk and planting beds, whose
+ * trees, shrubs and flowers are placed as 3D plants (`planting`). */
+export function paintGround(data: RealEstateBuildingsResponse, T: number, size: number, seed: number): GroundPlan {
   const S = size, k = S / (2 * T);
   const X = (x: number) => (x + T) * k, Y = (y: number) => (T - y) * k, m = (v: number) => v * k;
   const rnd = rng(seed);
   const season = seasonNow();
-  const grassTone = season === "autumn" ? "#6b7443" : season === "winter" ? "#7a785c" : season === "spring" ? "#5f8240" : "#4f7236";
-  const color = canvas(S, S), rough = canvas(S, S), glow = canvas(S, S), mask = canvas(S, S);
-  const cg = color.getContext("2d")!, rg = rough.getContext("2d")!, gg = glow.getContext("2d")!, mg = mask.getContext("2d")!;
+  const lawn = season === "autumn" ? "#76784c" : season === "winter" ? "#7b795f" : season === "spring" ? "#688a48" : "#5a7b3e";
+  // Colour carries the detail; roughness and the night glow are low-frequency and
+  // painted in the same coordinates onto 1024 px canvases (scaled context).
+  const R = Math.min(1024, S);
+  const color = canvas(S, S), rough = canvas(R, R);
+  const cg = color.getContext("2d")!, rg = rough.getContext("2d")!;
+  rg.scale(R / S, R / S);
   const path = (ctx: CanvasRenderingContext2D, ring: Ring) => {
     ctx.beginPath();
     ring.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
     ctx.closePath();
   };
-  const outer = (b: RealEstateBuilding) => b.rings[0];
-  const ctxRings = data.context.map(outer), towerRings = data.buildings.map(outer);
-  const lineJoin = (ctx: CanvasRenderingContext2D) => { ctx.lineJoin = "round"; ctx.lineCap = "round"; };
-  [cg, rg, mg].forEach(lineJoin);
+  const line = (ctx: CanvasRenderingContext2D, pts: [number, number][]) => {
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
+  };
+  const sitePath = (ctx: CanvasRenderingContext2D) => {
+    ctx.beginPath();
+    for (const r of data.site) r.forEach(([x, y], i) => (i ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y))));
+    ctx.closePath();
+  };
+  const towers = data.buildings.map(b => b.rings[0]);
+  const rings = [...data.context.map(b => b.rings[0]), ...towers];
+  const roads = data.roads ?? [];
+  const lamps = streetLamps(data);
+  const hasSite = data.site.length > 0;
 
-  // A street grid on the complex's own axis, a guess at the city around it: the
-  // footprints drawn on top hide whatever it gets wrong.
-  let axis = 0, best = 0;
-  (data.site[0] ?? towerRings[0] ?? []).forEach((p, i, r) => {
-    const q = r[(i + 1) % r.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]);
-    if (len > best) { best = len; axis = Math.atan2(q[1] - p[1], q[0] - p[0]); }
+  // Occupancy mask (~0.5 m/px): R = plantable ground (the parcel, or a band round the
+  // towers without one), G = blocked (footprints plus clearance, roads plus verge).
+  const M = 1024, mk = M / (2 * T);
+  const mask = canvas(M, M), mg = mask.getContext("2d", { willReadFrequently: true })!;
+  const MX = (x: number) => (x + T) * mk, MY = (y: number) => (T - y) * mk;
+  const mpath = (ring: [number, number][], close = true) => {
+    mg.beginPath();
+    ring.forEach(([x, y], i) => (i ? mg.lineTo(MX(x), MY(y)) : mg.moveTo(MX(x), MY(y))));
+    if (close) mg.closePath();
+  };
+  mg.lineJoin = mg.lineCap = "round";
+  mg.globalCompositeOperation = "lighter";
+  mg.fillStyle = mg.strokeStyle = "#ff0000";
+  if (hasSite) data.site.forEach(r => { mpath(r); mg.fill(); });
+  else { mg.lineWidth = 60 * mk; towers.forEach(r => { mpath(r); mg.fill(); mg.stroke(); }); }
+  mg.fillStyle = mg.strokeStyle = "#00ff00";
+  mg.lineWidth = 12 * mk;
+  rings.forEach(r => { mpath(r); mg.fill(); mg.stroke(); });
+  roads.forEach(r => { mg.lineWidth = (r.width + 6) * mk; mpath(r.line, false); mg.stroke(); });
+  const md = mg.getImageData(0, 0, M, M).data;
+  const ok = (x: number, y: number) => {
+    const px = Math.floor(MX(x)), py = Math.floor(MY(y));
+    if (px < 0 || py < 0 || px >= M || py >= M) return false;
+    const i = (py * M + px) * 4;
+    return md[i] > 127 && md[i + 1] < 128;
+  };
+  const reachT = hasSite ? Math.max(...data.site.flat().map(([x, y]) => Math.max(Math.abs(x), Math.abs(y)))) : T * 0.5;
+
+  // Planting beds (shrubs and flowers), then trees on the open lawn and along the walk.
+  const beds: [number, number, number, number, number][] = [];
+  for (let i = 0; i < 1200 && beds.length < 70; i++) {
+    const x = (rnd() * 2 - 1) * reachT, y = (rnd() * 2 - 1) * reachT;
+    if (ok(x, y)) beds.push([x, y, 3 + rnd() * 5, 1.8 + rnd() * 2.6, rnd() * Math.PI]);
+  }
+  const inBed = (x: number, y: number) => beds.some(([bx, by, rx, ry, a]) => {
+    const dx = x - bx, dy = y - by, u = dx * Math.cos(a) + dy * Math.sin(a), v = -dx * Math.sin(a) + dy * Math.cos(a);
+    return (u / rx) ** 2 + (v / ry) ** 2 < 1;
   });
-  const roads: [number, number, number][] = []; // offset along the normal, direction, width
-  for (const dirA of [axis, axis + Math.PI / 2]) {
-    for (let o = -T * 1.5; o < T * 1.5; o += 150 + rnd() * 90) roads.push([o, dirA, rnd() < 0.25 ? 30 : 16]);
+  const planting: Planting = { trees: [], shrubs: [], flowers: [] };
+  // Beds: shrubs in the middle, flowers toward the rim (about 1.3 plants per m²).
+  beds.forEach(([bx, by, rx, ry, a]) => {
+    const n = Math.round(Math.PI * rx * ry * 1.3);
+    for (let j = 0; j < n; j++) {
+      const u = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * 0.92, lx = Math.cos(u) * rx * r, ly = Math.sin(u) * ry * r;
+      const p: [number, number] = [bx + lx * Math.cos(a) - ly * Math.sin(a), by + lx * Math.sin(a) + ly * Math.cos(a)];
+      (r > 0.6 ? planting.flowers : r > 0.3 || rnd() < 0.5 ? planting.shrubs : planting.flowers).push(p);
+    }
+  });
+  // Along the inside of the parcel boundary: a clipped hedge line, and a tree row behind it.
+  const spaced = (list: [number, number][], x: number, y: number, gap: number) => !list.some(([tx, ty]) => Math.hypot(tx - x, ty - y) < gap);
+  for (const r of data.site) for (let i = 0; i < r.length; i++) {
+    const [ax, ay] = r[i], [bx, by] = r[(i + 1) % r.length], len = Math.hypot(bx - ax, by - ay);
+    if (len < 4) continue;
+    const nx = -(by - ay) / len, ny = (bx - ax) / len; // rings run counter-clockwise: left is inside
+    for (let d = 1; d < len - 1; d += 1.4) {
+      const x = ax + (bx - ax) * d / len + nx * 5, y = ay + (by - ay) * d / len + ny * 5;
+      if (ok(x, y)) planting.shrubs.push([x, y]);
+    }
+    for (let d = 4; d < len - 4; d += 8 + rnd() * 2) {
+      const x = ax + (bx - ax) * d / len + nx * 9, y = ay + (by - ay) * d / len + ny * 9;
+      if (ok(x, y) && spaced(planting.trees, x, y, 6)) planting.trees.push([x, y]);
+    }
   }
-  const drawRoads = (ctx: CanvasRenderingContext2D, style: string, widen = 0) => {
-    ctx.strokeStyle = style; ctx.lineCap = "butt";
-    for (const [o, a, w] of roads) {
-      const nx = -Math.sin(a), ny = Math.cos(a), dx = Math.cos(a) * T * 3, dy = Math.sin(a) * T * 3;
-      ctx.lineWidth = m(w + widen);
-      ctx.beginPath(); ctx.moveTo(X(nx * o - dx), Y(ny * o - dy)); ctx.lineTo(X(nx * o + dx), Y(ny * o + dy)); ctx.stroke();
-    }
-    ctx.lineCap = "round";
-  };
-  // Layout, drawn identically into colour, roughness (G) and the mask.
-  // Pocket parks between the streets.
-  const parks: [number, number, number, number][] = [];
-  for (let i = 0; i < Math.floor((T * T) / 90000) + 4; i++) parks.push([(rnd() * 2 - 1) * T, (rnd() * 2 - 1) * T, 25 + rnd() * 60, 20 + rnd() * 45]);
-  const layout = (ctx: CanvasRenderingContext2D, c: { base: string; walk: string; under: string; pave: string; lawn: string; road: string }, marks = false) => {
-    ctx.fillStyle = c.base; ctx.fillRect(0, 0, S, S);
-    ctx.fillStyle = c.lawn;
-    parks.forEach(([x, y, w, h]) => {
-      ctx.save(); ctx.translate(X(x), Y(y)); ctx.rotate(-axis);
-      ctx.beginPath(); ctx.roundRect(-m(w) / 2, -m(h) / 2, m(w), m(h), m(6)); ctx.fill(); ctx.restore();
-    });
-    drawRoads(ctx, c.walk, 8);
-    drawRoads(ctx, c.road);
-    if (marks) {
-      ctx.setLineDash([m(3), m(5)]);
-      for (const [o, a, w] of roads) {
-        const nx = -Math.sin(a), ny = Math.cos(a), dx = Math.cos(a) * T * 3, dy = Math.sin(a) * T * 3;
-        const line = (off: number, style: string, width: number) => {
-          ctx.strokeStyle = style; ctx.lineWidth = Math.max(1, m(width));
-          ctx.beginPath(); ctx.moveTo(X(nx * (o + off) - dx), Y(ny * (o + off) - dy)); ctx.lineTo(X(nx * (o + off) + dx), Y(ny * (o + off) + dy)); ctx.stroke();
-        };
-        for (let lane = -w / 2 + 3.3; lane < w / 2 - 1; lane += 3.3) if (Math.abs(lane) > 0.8) line(lane, "rgba(225,225,220,0.45)", 0.2);
-        ctx.setLineDash([]);
-        line(-0.2, "rgba(220,180,70,0.6)", 0.16); line(0.2, "rgba(220,180,70,0.6)", 0.16);
-        ctx.setLineDash([m(3), m(5)]);
-      }
-      ctx.setLineDash([]);
-    }
-    ctx.strokeStyle = c.walk; ctx.lineWidth = m(7);
-    ctxRings.forEach(r => { path(ctx, r); ctx.stroke(); });
-    ctx.fillStyle = c.under;
-    ctxRings.forEach(r => { path(ctx, r); ctx.fill(); });
-    data.site.forEach(r => { ctx.fillStyle = c.lawn; path(ctx, r); ctx.fill(); });
-    ctx.strokeStyle = c.pave; ctx.lineWidth = m(13);
-    data.site.forEach(r => { path(ctx, r); ctx.stroke(); });
-    ctx.lineWidth = m(11);
-    towerRings.forEach(r => { path(ctx, r); ctx.stroke(); });
-    if (!data.site.length) { ctx.lineWidth = m(30); towerRings.forEach(r => { path(ctx, r); ctx.stroke(); }); }
-    ctx.fillStyle = c.under;
-    towerRings.forEach(r => { path(ctx, r); ctx.fill(); });
-  };
-  layout(cg, { base: "#8a877e", walk: "#9d998f", under: "#5a5a58", pave: "#a8a092", lawn: grassTone, road: "#3d4043" }, true);
-  layout(rg, { base: "rgb(0,185,0)", walk: "rgb(0,150,0)", under: "rgb(0,200,0)", pave: "rgb(0,112,0)", lawn: "rgb(0,250,0)", road: "rgb(0,155,0)" });
-  layout(mg, { base: "#000", walk: "#000", under: "#00ff00", pave: "#000", lawn: "#ff0000", road: "#0000ff" });
-  // Keep trees off building edges.
-  mg.strokeStyle = "#00ff00"; mg.lineWidth = m(5);
-  [...ctxRings, ...towerRings].forEach(r => { path(mg, r); mg.stroke(); });
-  const md = mg.getImageData(0, 0, S, S).data;
-  const at = (x: number, y: number): [number, number] => {
-    const px = Math.floor(X(x)), py = Math.floor(Y(y));
-    if (px < 0 || py < 0 || px >= S || py >= S) return [0, 255];
-    const i = (py * S + px) * 4;
-    return [md[i], md[i + 1]];
-  };
+  // Open lawn: trees at least 7 m apart, clear of beds.
+  for (let i = 0; i < 5000 && planting.trees.length < 420; i++) {
+    const x = (rnd() * 2 - 1) * reachT, y = (rnd() * 2 - 1) * reachT;
+    if (ok(x, y) && !inBed(x, y) && spaced(planting.trees, x, y, 7)) planting.trees.push([x, y]);
+  }
 
-  // Surface grain: grass tufts, asphalt aggregate, paving stains.
-  const grain = Math.min(90000, Math.floor(S * S / 45));
-  for (let i = 0; i < grain; i++) {
-    const x = rnd() * S, y = rnd() * S, s = 0.6 + rnd() * 2.4;
-    cg.fillStyle = rnd() < 0.5 ? `rgba(0,0,0,${rnd() * 0.12})` : `rgba(255,255,240,${rnd() * 0.07})`;
-    cg.fillRect(x, y, s, s);
-  }
-  for (let i = 0; i < 260; i++) {
-    const x = rnd() * S, y = rnd() * S, rad = m(4 + rnd() * 22);
-    const grd = cg.createRadialGradient(x, y, 0, x, y, rad);
-    const tone = rnd() < 0.5 ? "0,0,0" : "255,250,220";
-    grd.addColorStop(0, `rgba(${tone},${0.03 + rnd() * 0.05})`); grd.addColorStop(1, `rgba(${tone},0)`);
-    cg.fillStyle = grd; cg.fillRect(x - rad, y - rad, rad * 2, rad * 2);
-  }
-  // Damp patches and puddles after rain, only on hard ground.
-  const puddles = Math.floor(60 + (T * T) / 5000);
-  rg.filter = `blur(${Math.max(1, m(0.7))}px)`;
-  cg.filter = `blur(${Math.max(1, m(0.7))}px)`;
-  for (let i = 0; i < puddles; i++) {
-    const x = (rnd() * 2 - 1) * T * 0.5, y = (rnd() * 2 - 1) * T * 0.5;
-    const [lawn, blocked] = at(x, y);
-    if (lawn > 128 || blocked > 128) continue;
-    const rx = m(1.2 + rnd() * 6), ry = rx * (0.4 + rnd() * 0.6), rot = rnd() * Math.PI;
-    rg.fillStyle = `rgb(0,${25 + Math.floor(rnd() * 40)},0)`;
-    rg.beginPath(); rg.ellipse(X(x), Y(y), rx, ry, rot, 0, Math.PI * 2); rg.fill();
-    cg.fillStyle = "rgba(10,14,20,0.18)";
-    cg.beginPath(); cg.ellipse(X(x), Y(y), rx, ry, rot, 0, Math.PI * 2); cg.fill();
-  }
-  rg.filter = "none";
+  const layout = (ctx: CanvasRenderingContext2D, c: { base: string; walk: string; asphalt: string; lawn: string; path: string; apron: string; bed: string }) => {
+    ctx.fillStyle = c.base; ctx.fillRect(0, 0, S, S);
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.save();
+    if (hasSite) { sitePath(ctx); ctx.clip("evenodd"); ctx.fillStyle = c.lawn; ctx.fillRect(0, 0, S, S); }
+    else { ctx.fillStyle = c.lawn; ctx.strokeStyle = c.lawn; ctx.lineWidth = m(40); towers.forEach(r => { path(ctx, r); ctx.stroke(); ctx.fill(); }); }
+    if (hasSite) { ctx.strokeStyle = c.path; ctx.lineWidth = m(7); data.site.forEach(r => { path(ctx, r); ctx.stroke(); }); ctx.strokeStyle = c.lawn; ctx.lineWidth = m(2.2); data.site.forEach(r => { path(ctx, r); ctx.stroke(); }); }
+    ctx.strokeStyle = c.apron; ctx.lineWidth = m(10);
+    towers.forEach(r => { path(ctx, r); ctx.stroke(); });
+    ctx.fillStyle = c.bed;
+    beds.forEach(([x, y, rx, ry, a]) => { ctx.beginPath(); ctx.ellipse(X(x), Y(y), m(rx), m(ry), a, 0, Math.PI * 2); ctx.fill(); });
+    ctx.restore();
+    // Roads last, at their surveyed width with a 2.5 m sidewalk each side: a road that
+    // crosses the parcel is real and stays paved.
+    ctx.strokeStyle = c.walk;
+    roads.forEach(r => { ctx.lineWidth = m(r.width + 5); line(ctx, r.line); ctx.stroke(); });
+    ctx.strokeStyle = c.asphalt;
+    roads.forEach(r => { ctx.lineWidth = m(r.width); line(ctx, r.line); ctx.stroke(); });
+  };
+  layout(cg, { base: "#8e8c86", walk: "#b3aea5", asphalt: "#3e4146", lawn, path: "#b9b1a2", apron: "#aea799", bed: "#4a3d30" });
+  layout(rg, { base: "rgb(0,190,0)", walk: "rgb(0,150,0)", asphalt: "rgb(0,120,0)", lawn: "rgb(0,245,0)", path: "rgb(0,140,0)", apron: "rgb(0,125,0)", bed: "rgb(0,250,0)" });
+
+  // Lane markings from the registered lane count.
+  cg.save();
+  cg.lineCap = "butt";
+  roads.forEach(r => {
+    const lanes = Math.max(1, r.lanes);
+    if (lanes < 2) return;
+    for (let i = 0; i < r.line.length - 1; i++) {
+      const [ax, ay] = r.line[i], [bx, by] = r.line[i + 1], len = Math.hypot(bx - ax, by - ay);
+      if (len < 1) continue;
+      const nx = -(by - ay) / len, ny = (bx - ax) / len;
+      for (let l = 1; l < lanes; l++) {
+        const off = -r.width / 2 + (r.width * l) / lanes, centre = l === lanes / 2;
+        cg.strokeStyle = centre ? "rgba(214,178,70,0.7)" : "rgba(226,226,220,0.38)";
+        cg.lineWidth = Math.max(0.75, m(0.15));
+        cg.setLineDash(centre ? [] : [m(3), m(5)]);
+        cg.beginPath(); cg.moveTo(X(ax + nx * off), Y(ay + ny * off)); cg.lineTo(X(bx + nx * off), Y(by + ny * off)); cg.stroke();
+      }
+    }
+  });
+  cg.setLineDash([]);
+  cg.restore();
+  // Lamp light pools, lit at night through the ground's emissive map.
+  const glow = canvas(R, R), gg = glow.getContext("2d")!;
+  gg.scale(R / S, R / S);
+  gg.fillStyle = "#000"; gg.fillRect(0, 0, S, S);
+  gg.globalCompositeOperation = "lighter";
+  lamps.forEach(l => {
+    const px = X(l.x + l.dx * 1.6), py = Y(l.y + l.dy * 1.6), rad = m(13);
+    const g = gg.createRadialGradient(px, py, 0, px, py, rad);
+    g.addColorStop(0, "rgba(255,206,150,0.9)"); g.addColorStop(0.4, "rgba(255,180,110,0.32)"); g.addColorStop(1, "rgba(255,170,100,0)");
+    gg.fillStyle = g; gg.fillRect(px - rad, py - rad, rad * 2, rad * 2);
+  });
   // Soft contact shade around every footprint.
   cg.filter = `blur(${Math.max(2, m(2.6))}px)`;
-  cg.fillStyle = "rgba(0,0,0,0.42)";
-  [...ctxRings, ...towerRings].forEach(r => { path(cg, r); cg.fill(); });
+  cg.fillStyle = "rgba(0,0,0,0.34)";
+  rings.forEach(r => { path(cg, r); cg.fill(); });
   cg.filter = "none";
-
-  // Fade the plan into plain ground toward its edge, so nothing streaks past it.
-  for (const [ctx, base] of [[cg, "138,135,126"], [rg, "0,185,0"]] as const) {
+  // Fade toward the edge, so nothing streaks past the painted area.
+  for (const [ctx, base] of [[cg, "142,140,134"], [rg, "0,190,0"]] as const) {
     const fade = ctx.createRadialGradient(S / 2, S / 2, S * 0.36, S / 2, S / 2, S * 0.5);
     fade.addColorStop(0, `rgba(${base},0)`); fade.addColorStop(1, `rgba(${base},1)`);
     ctx.fillStyle = fade; ctx.fillRect(0, 0, S, S);
   }
-
-  // Pools of lamp light, lit in the evening.
-  gg.fillStyle = "#000"; gg.fillRect(0, 0, S, S);
-  gg.globalCompositeOperation = "lighter";
-  lamps.forEach(([x, y]) => {
-    const rad = m(11), px = X(x), py = Y(y);
-    const grd = gg.createRadialGradient(px, py, 0, px, py, rad);
-    grd.addColorStop(0, "rgba(255,196,130,0.85)"); grd.addColorStop(0.35, "rgba(255,170,100,0.3)"); grd.addColorStop(1, "rgba(255,160,90,0)");
-    gg.fillStyle = grd; gg.fillRect(px - rad, py - rad, rad * 2, rad * 2);
-  });
-
   const tex = (c: HTMLCanvasElement, srgb: boolean) => {
     const t = new THREE.CanvasTexture(c);
     t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
@@ -492,28 +549,7 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, lamps:
     t.anisotropy = 8;
     return t;
   };
-  return { color: tex(color, true), rough: tex(rough, false), glow: tex(glow, true), mask: { data: md, size: S, at } };
-}
-
-/** Evenly spaced points along closed rings. */
-export function alongRings(rings: Ring[], step: number, max: number): [number, number][] {
-  const pts: [number, number][] = [];
-  for (const ring of rings) {
-    let acc = 0;
-    for (let i = 0; i < ring.length; i++) {
-      const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length];
-      const len = Math.hypot(bx - ax, by - ay);
-      if (!len) continue;
-      let pos = step - acc;
-      while (pos <= len) {
-        const t = pos / len;
-        pts.push([ax + (bx - ax) * t, ay + (by - ay) * t]);
-        pos += step;
-      }
-      acc = len - (pos - step);
-    }
-  }
-  return pts.slice(0, max);
+  return { color: tex(color, true), rough: tex(rough, false), glow: tex(glow, true), planting, lamps };
 }
 
 export function inRing([x, y]: [number, number], ring: Ring): boolean {
@@ -523,64 +559,6 @@ export function inRing([x, y]: [number, number], ring: Ring): boolean {
     if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
   }
   return inside;
-}
-
-/* ---------- Trees ---------- */
-
-/** Unit-height tree parts: a rounded broadleaf crown, a layered pine, one trunk. */
-export function treeGeometries() {
-  const rnd = rng(7);
-  const trunk = new THREE.CylinderGeometry(0.028, 0.05, 0.55, 6);
-  trunk.translate(0, 0.275, 0);
-  const prep = (g: THREE.BufferGeometry) => { g.deleteAttribute("uv"); g.deleteAttribute("normal"); return g; };
-  const lumps: THREE.BufferGeometry[] = [];
-  for (let i = 0; i < 6; i++) {
-    const g = new THREE.IcosahedronGeometry(0.17 + rnd() * 0.1, 1);
-    const a = rnd() * Math.PI * 2, d = i ? 0.1 + rnd() * 0.08 : 0;
-    g.translate(Math.cos(a) * d, 0.6 + rnd() * 0.25, Math.sin(a) * d);
-    lumps.push(prep(g));
-  }
-  const leaf = mergeVertices(mergeGeometries(lumps)!);
-  const pos = leaf.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    pos.setXYZ(i, pos.getX(i) + (rnd() - 0.5) * 0.05, pos.getY(i) + (rnd() - 0.5) * 0.05, pos.getZ(i) + (rnd() - 0.5) * 0.05);
-  }
-  leaf.computeVertexNormals();
-  const tiers: THREE.BufferGeometry[] = [];
-  for (let k = 0; k < 4; k++) {
-    const g = new THREE.ConeGeometry(0.3 - k * 0.06, 0.34, 9, 1);
-    g.translate(0, 0.36 + k * 0.17, 0);
-    tiers.push(prep(g));
-  }
-  const pine = mergeVertices(mergeGeometries(tiers)!);
-  pine.computeVertexNormals();
-  lumps.forEach(g => g.dispose());
-  tiers.forEach(g => g.dispose());
-  return { trunk, leaf, pine };
-}
-
-/** Crowns sway a little in the wind. */
-export function patchFoliage(mat: THREE.Material) {
-  mat.onBeforeCompile = shader => {
-    shader.uniforms.uTime = shared.uTime;
-    shader.vertexShader = shader.vertexShader
-      .replace("#include <common>", "#include <common>\nuniform float uTime;")
-      .replace("#include <begin_vertex>", `#include <begin_vertex>
-#ifdef USE_INSTANCING
-  vec3 ip = instanceMatrix[3].xyz;
-  float sw = sin(uTime * 1.25 + ip.x * 0.11 + ip.z * 0.07) + 0.5 * sin(uTime * 2.6 + ip.z * 0.13);
-  transformed.xz += vec2(0.02, 0.013) * sw * smoothstep(0.35, 1.0, position.y);
-#endif`);
-  };
-  mat.customProgramCacheKey = () => "foliage";
-}
-
-export function foliageColors(season: Season): string[] {
-  const green = ["#3f6b2c", "#4d7a33", "#35602a", "#5a8a3a", "#44722f"];
-  if (season === "autumn") return [...green, "#c9a227", "#d98b2b", "#b8452a", "#e0b43c", "#a8612a"];
-  if (season === "spring") return [...green, "#7fae4a", "#9cc15a", "#f1c9d6"];
-  if (season === "winter") return ["#3a5a33", "#4a5f3a", "#6e6250", "#7a6b58"];
-  return green;
 }
 
 /* ---------- Time of day ---------- */
@@ -610,19 +588,19 @@ const look = (l: Omit<Look, "key" | "hemiSky" | "hemiGround" | "fog"> & { key: s
 // Azimuth in degrees from south (+z) toward east (+x); the camera opens from the south-east.
 export const LOOKS: Record<Tod, Look> = {
   day: look({
-    sunElev: 40, sunAz: -28, keyElev: 40, keyAz: -28, turbidity: 2, rayleigh: 1.3, mie: 0.004, mieG: 0.8,
+    sunElev: 40, sunAz: -28, keyElev: 40, keyAz: -28, turbidity: 1.4, rayleigh: 1.9, mie: 0.003, mieG: 0.8,
     key: "#fff3e0", keyI: 3.4, hemiSky: "#c4dcf6", hemiGround: "#6f6552", hemiI: 0.3,
-    fog: "#bfd0e2", fogK: 0.16, exposure: 0.6, env: 0.16, windows: 0, lamps: 0, stars: 0, clouds: 0.42, cloudShade: 0.26, bloom: 0.2, bloomAt: 4, reflect: 0.85,
+    fog: "#a9c1dc", fogK: 0.075, exposure: 0.56, env: 0.16, windows: 0, lamps: 0, stars: 0, clouds: 0.42, cloudShade: 0.26, bloom: 0.2, bloomAt: 4, reflect: 0.85,
   }),
   dusk: look({
     sunElev: 3.5, sunAz: -70, keyElev: 6, keyAz: -70, turbidity: 6.5, rayleigh: 2.6, mie: 0.007, mieG: 0.9,
     key: "#ffa65a", keyI: 3.4, hemiSky: "#8e9bd0", hemiGround: "#4a3a3a", hemiI: 0.45,
-    fog: "#e3aa86", fogK: 0.12, exposure: 0.72, env: 0.3, windows: 0.22, lamps: 0.7, stars: 0, clouds: 0.5, cloudShade: 0.05, bloom: 0.3, bloomAt: 2.5, reflect: 1,
+    fog: "#e3aa86", fogK: 0.12, exposure: 0.72, env: 0.3, windows: 0.22, lamps: 0.6, stars: 0, clouds: 0.5, cloudShade: 0.05, bloom: 0.3, bloomAt: 2.5, reflect: 1,
   }),
   night: look({
     sunElev: -5, sunAz: -85, keyElev: 42, keyAz: 55, turbidity: 2, rayleigh: 1, mie: 0.004, mieG: 0.8,
     key: "#a4b8ff", keyI: 0.8, hemiSky: "#3b4f7a", hemiGround: "#0d0f16", hemiI: 0.6,
-    fog: "#152238", fogK: 0.2, exposure: 1.05, env: 1.0, windows: 2.1, lamps: 1.8, stars: 1, clouds: 0.3, cloudShade: 0, bloom: 0.55, bloomAt: 1.3, reflect: 1.1,
+    fog: "#152238", fogK: 0.2, exposure: 1.05, env: 1.0, windows: 2.1, lamps: 1.6, stars: 1, clouds: 0.3, cloudShade: 0, bloom: 0.55, bloomAt: 1.3, reflect: 1.1,
   }),
 };
 
@@ -713,3 +691,55 @@ void main() {
   gl_FragColor = c;
 }`,
 };
+
+/** The full moon: a photographic disk (/3d/moon.webp, from the Solar System Scope
+ * lunar map, CC BY 4.0) with a soft halo, at a fixed direction in the sky — up and to
+ * the right of the opening view, low over the horizon. It keeps that direction as the
+ * camera orbits, zooms or pans, sits beyond the haze, and anything nearer (a tower)
+ * hides it. Shown at night only. */
+export function moonInSky() {
+  // Opening view looks along -(0.74, 0.22, 0.74); 20° to its right, 4° up.
+  const fwd = new THREE.Vector3(-1, 0, -1).normalize(), right = new THREE.Vector3(1, 0, -1).normalize();
+  const az = THREE.MathUtils.degToRad(20), el = THREE.MathUtils.degToRad(4);
+  const dir = fwd.clone().multiplyScalar(Math.cos(az)).addScaledVector(right, Math.sin(az)).multiplyScalar(Math.cos(el)).setY(Math.sin(el)).normalize();
+  const disc = new THREE.TextureLoader().load("/3d/moon.webp");
+  disc.colorSpace = THREE.SRGBColorSpace;
+  const glowCanvas = canvas(128, 128), g = glowCanvas.getContext("2d")!;
+  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, "rgba(255,250,235,0.32)"); grad.addColorStop(0.3, "rgba(225,232,255,0.1)"); grad.addColorStop(1, "rgba(200,215,255,0)");
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  const glow = new THREE.CanvasTexture(glowCanvas);
+  glow.colorSpace = THREE.SRGBColorSpace;
+  const mat = (tex: THREE.Texture) => {
+    // Black albedo, the image as emission, its alpha as coverage: unlit, unfogged.
+    const m = new THREE.MeshStandardMaterial({ color: "#000000", map: tex, emissive: "#ffffff", emissiveMap: tex, emissiveIntensity: 0,
+      transparent: true, depthWrite: false, fog: false, roughness: 1, metalness: 0 });
+    m.userData.sky = true;
+    return m;
+  };
+  const quad = new THREE.PlaneGeometry(1, 1);
+  const halo = new THREE.Mesh(quad, mat(glow)), moon = new THREE.Mesh(quad, mat(disc));
+  halo.renderOrder = 1; moon.renderOrder = 2;
+  const group = new THREE.Group();
+  group.add(halo, moon);
+  group.visible = false;
+  return {
+    group,
+    /** Each frame: far along the fixed direction from the camera, facing it. */
+    update(camera: THREE.PerspectiveCamera) {
+      if (!group.visible) return;
+      const d = camera.far * 0.6, size = 2 * d * Math.tan(THREE.MathUtils.degToRad(1.3)); // ~2.6°: larger than life, as it reads
+      group.position.copy(camera.position).addScaledVector(dir, d);
+      group.quaternion.copy(camera.quaternion);
+      moon.scale.setScalar(size);
+      halo.scale.setScalar(size * 2.6);
+    },
+    /** Look.stars: 1 at night, 0 by day. */
+    setLevel(level: number) {
+      group.visible = level > 0.3;
+      (moon.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.5 * level;
+      (halo.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.7 * level;
+    },
+    dispose() { quad.dispose(); disc.dispose(); glow.dispose(); [moon, halo].forEach(m => (m.material as THREE.Material).dispose()); },
+  };
+}

@@ -1,4 +1,4 @@
-import { RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
+import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateRoad } from "../api/client";
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
  * browser. VWorld answers Korean networks only, so the server abroad can't ask it;
@@ -8,10 +8,10 @@ import { RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
 
 const ADDRESS = "https://api.vworld.kr/req/address";
 const DATA = "https://api.vworld.kr/req/data";
-const FLOOR_M = 2.9, GROUND_M = 1.5, CONTEXT_M = 230;
+const FLOOR_M = 2.9, GROUND_M = 1.5, CONTEXT_M = 230, ROAD_M = 150;
 
 let seq = 0;
-function jsonp(url: string, params: Record<string, string | number>, timeoutMs = 15000): Promise<any> {
+function jsonp(url: string, params: Record<string, string | number>, timeoutMs = 6000): Promise<any> {
   return new Promise((resolve, reject) => {
     const name = `__vw${Date.now().toString(36)}${seq++}`;
     const script = document.createElement("script");
@@ -21,16 +21,32 @@ function jsonp(url: string, params: Record<string, string | number>, timeoutMs =
     w[name] = (body: unknown) => { done(); resolve(body); };
     script.onerror = () => { done(); reject(new Error("VWorld 연결 실패")); };
     const q = new URLSearchParams({ ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])), format: "json", callback: name });
+    // The key is checked against the `domain` parameter; a Referer that doesn't match
+    // the registered domain (a dev host, a preview) is refused by some VWorld nodes
+    // (0/15 with it, 15/15 without, measured).
+    script.referrerPolicy = "no-referrer";
     script.src = `${url}?${q}`;
     document.head.appendChild(script);
   });
 }
 
+// VWorld's data nodes can still answer a valid key with "인증키 정보가 올바르지
+// 않습니다" now and then. A retry lands on another node after a short pause; without
+// it the viewer fell back to OpenStreetMap, which takes 8-50 s.
 async function call(url: string, params: Record<string, string | number>) {
-  const body = (await jsonp(url, params))?.response ?? {};
-  if (body.status === "NOT_FOUND") return {};
-  if (body.status !== "OK") throw new Error(`VWorld: ${body.error?.text ?? body.status}`);
-  return body.result ?? {};
+  let last: Error | null = null, down = 0;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    // Rejections come in bursts of ~150 ms: back off 0, 80, 160 … ms (≈2.2 s at most).
+    if (attempt) await new Promise(r => window.setTimeout(r, attempt * 80));
+    let body: any;
+    try { body = (await jsonp(url, params, attempt ? 3000 : 5000))?.response ?? {}; }
+    catch (err) { last = err as Error; if (++down >= 2) break; continue; }
+    if (body.status === "NOT_FOUND") return {};
+    if (body.status === "OK") return body.result ?? {};
+    last = new Error(`VWorld: ${body.error?.text ?? body.status}`);
+    if (body.error?.code !== "INVALID_KEY" && !/인증키/.test(body.error?.text ?? "")) break;
+  }
+  throw last ?? new Error("VWorld 응답 없음");
 }
 
 type Ring = [number, number][];
@@ -72,6 +88,35 @@ function fillHeights(list: RealEstateBuilding[]) {
   }
 }
 
+/** Major roads only: 8 m or wider, or two lanes and more (alleys and paths are 3 m). */
+function parseRoads(list: Feature[], project: (p: number[]) => [number, number]): RealEstateRoad[] {
+  const roads: RealEstateRoad[] = [];
+  for (const f of list) {
+    const width = num(f.properties.rvwd) ?? 0, lanes = Math.round(num(f.properties.rdln) ?? 0);
+    if (width < 8 && lanes < 2) continue;
+    const lines = f.geometry?.type === "LineString" ? [f.geometry.coordinates] : f.geometry?.type === "MultiLineString" ? f.geometry.coordinates : [];
+    for (const l of lines as number[][][]) if (l.length > 1) roads.push({ line: l.map(project), width: Math.min(60, width || lanes * 3.3), lanes: Math.max(1, lanes) });
+  }
+  return roads;
+}
+
+/** Major roads for a result that came without them (kept by the server, or from
+ * OpenStreetMap): the same 국가기본도 도로중심선 query around the result's centre,
+ * in its own metre frame (x east, y north from `center`). */
+export async function vworldRoads(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com"): Promise<RealEstateRoad[]> {
+  if (!data.center) return [];
+  const { lat, lon } = data.center;
+  const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
+  const pts = [...data.site.flat(), ...data.buildings.flatMap(b => b.rings[0])];
+  if (!pts.length) return [];
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const box = `BOX(${lon + (Math.min(...xs) - ROAD_M) / kx},${lat + (Math.min(...ys) - ROAD_M) / ky},${lon + (Math.max(...xs) + ROAD_M) / kx},${lat + (Math.max(...ys) + ROAD_M) / ky})`;
+  const result = await call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",
+    key, domain, data: "LT_L_N3A0020000", geomFilter: box, size: 1000, page: 1 });
+  const project = ([x, y]: number[]): [number, number] => [Math.round((x - lon) * kx * 100) / 100, Math.round((y - lat) * ky * 100) / 100];
+  return parseRoads(features(result), project);
+}
+
 const memo = new Map<string, RealEstateBuildingsResponse | null>();
 
 export async function vworldBuildings(
@@ -107,7 +152,11 @@ export async function vworldBuildings(
     }
     return all;
   })();
-  const [mineFs, padFs] = await Promise.all([own, fetchBox(box, 1).catch(() => [] as Feature[])]);
+  // Major roads around the parcel: 국가기본도 도로중심선 with surveyed width and lanes.
+  const rLon = ROAD_M / (111_320 * Math.cos((lat * Math.PI) / 180)), rLat = ROAD_M / 110_540;
+  const roadBox = `BOX(${Math.min(...lons) - rLon},${Math.min(...lats) - rLat},${Math.max(...lons) + rLon},${Math.max(...lats) + rLat})`;
+  const roadFs = call(DATA, { ...common, data: "LT_L_N3A0020000", geomFilter: roadBox, size: 1000, page: 1 }).then(features).catch(() => [] as Feature[]);
+  const [mineFs, padFs, roadList] = await Promise.all([own, fetchBox(box, 1).catch(() => [] as Feature[]), roadFs]);
   const seen = new Set<string>();
   const sig = (f: Feature) => JSON.stringify(f.geometry?.coordinates ?? "").slice(0, 80);
   const around = [...mineFs, ...padFs].filter(f => { const k = sig(f); if (seen.has(k)) return false; seen.add(k); return true; });
@@ -139,11 +188,12 @@ export async function vworldBuildings(
   const near = (b: RealEstateBuilding) => Math.hypot(...centroid(b.rings[0]));
   const nearby = context.filter(b => b.height >= 4).sort((a, b) => near(a) - near(b)).slice(0, 700);
   const site = rings.map(r => clean(r.map(project))).filter((r): r is Ring => !!r);
+  const roads = parseRoads(roadList, project);
   const measured = buildings.filter(b => b.height_source !== "estimated").length;
   const out: RealEstateBuildingsResponse = {
     id, name: query.name, address: query.parcel, built: null, found: true, source: "vworld",
     attribution: "국토교통부 GIS건물통합정보 · 연속지적도 (브이월드)", center: { lat, lon },
-    site, buildings, context: nearby, coverage: { buildings: buildings.length, with_height: measured },
+    site, buildings, context: nearby, roads, coverage: { buildings: buildings.length, with_height: measured },
     vworld: true, error: null, fetched_at: new Date().toISOString(),
   };
   memo.set(id, out);

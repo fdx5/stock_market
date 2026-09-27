@@ -1221,6 +1221,8 @@ export interface RealEstateBuilding {
   approved?: number | null;
 }
 
+export interface RealEstateRoad { line: [number, number][]; width: number; lanes: number }
+
 export interface RealEstateBuildingsResponse {
   id: string; name: string; address: string; built: number | null;
   found: boolean; source?: "vworld" | "osm"; attribution?: string;
@@ -1228,6 +1230,9 @@ export interface RealEstateBuildingsResponse {
   site: [number, number][][];
   buildings: RealEstateBuilding[];
   context: RealEstateBuilding[];
+  /** Surveyed road centrelines (국가기본도 도로중심선) within ~150 m of the parcel,
+   * with their registered width (m) and lane count; major roads only. */
+  roads?: RealEstateRoad[];
   coverage?: { buildings: number; with_height: number };
   vworld: boolean; error: string | null; fetched_at: string;
   /** peek: nothing kept yet — the browser asks VWorld with this parcel address and key. */

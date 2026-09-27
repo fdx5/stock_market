@@ -1,0 +1,10 @@
+Plant images in /3d/plants.webp are rendered from Poly Haven 3D models
+(https://polyhaven.com), released under CC0 1.0 Universal (public domain):
+island_tree_01, island_tree_02, jacaranda_tree, pine_sapling_small, fir_sapling,
+celandine_01, othonna_cerarioides, searsia_lucida, didelta_spinosa,
+leipoldtia_schultzei, flower_ursinia.
+https://creativecommons.org/publicdomain/zero/1.0/
+
+The moon image /3d/moon.webp is projected from 2k_moon.jpg (Solar System Scope,
+CC BY 4.0, https://www.solarsystemscope.com/textures/); see
+/img/planet-surfaces/LICENSE.txt.

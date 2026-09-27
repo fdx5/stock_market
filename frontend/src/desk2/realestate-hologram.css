@@ -19,8 +19,11 @@
   flex-direction: column;
   min-height: 340px;
   margin: 0 0 12px;
-  border: 1px solid var(--rule-ink, #2c2b27);
-  background: #07090d;
+  border: 1px solid rgba(160, 183, 185, 0.24);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 12px 36px #0000001a;
+  background: #111a20;
   color: #e8eef6;
 }
 .re-holo--placeholder {
@@ -31,7 +34,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 9px 10px 8px;
+  padding: 14px 16px 12px;
+  background: linear-gradient(120deg, #17242b, #10191f);
   border-bottom: 1px solid rgba(160, 200, 255, 0.14);
 }
 .re-holo-head div {
@@ -39,7 +43,7 @@
   min-width: 0;
 }
 .re-holo-head small {
-  color: #7fa6cc;
+  color: #b7c9c5;
   font: 700 10.5px var(--f-sans);
   letter-spacing: 0.08em;
 }
@@ -54,7 +58,8 @@
   gap: 4px;
 }
 .re-holo .re-holo-tools button {
-  padding: 4px 8px;
+  padding: 7px 10px;
+  border-radius: 7px;
   border: 1px solid rgba(160, 200, 255, 0.28);
   background: transparent;
   color: #cfe0f2;
@@ -69,10 +74,49 @@
 .re-holo-stage {
   position: relative;
   flex: 1;
-  min-height: 260px;
+  min-height: 300px;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
+}
+.re-holo-scene-label {
+  position: absolute;
+  left: 18px;
+  top: 18px;
+  z-index: 1;
+  display: grid;
+  gap: 5px;
+  pointer-events: none;
+  color: #fff;
+  text-shadow: 0 1px 8px #142531aa;
+}
+.re-holo-scene-label span { font: 600 9px var(--f-sans); letter-spacing: .18em; opacity: .85; }
+.re-holo-scene-label strong { font: 500 18px var(--f-sans); letter-spacing: -.04em; }
+.re-holo-scene-label i { font: normal 10px var(--f-sans); opacity: .8; }
+.re-holo-credit { color: #adc1be; font-size: 10px; text-decoration: none; align-self: flex-end; }
+.re-holo-credit:hover { color: white; text-decoration: underline; }
+.re-holo.re-holo--expanded {
+  /* Width and height are set inline: 3x the panel, same aspect ratio. */
+  position: fixed;
+  inset: 0;
+  z-index: 2147483001;
+  margin: auto;
+  max-width: none;
+  max-height: none;
+  box-shadow: 0 24px 80px #0009, 0 0 0 100vmax #050b12d0;
+}
+.re-holo-slot { margin: 0 0 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  .re-holo.re-holo--expanded { animation: re-holo-wide-in 0.22s ease-out; }
+}
+.re-holo--expanded .re-holo-head { padding-right: 66px; }
+.re-holo--expanded .re-holo-stage { min-height: 0; }
+.re-holo button:focus-visible, .re-holo a:focus-visible { outline: 2px solid #e7d9ad; outline-offset: 2px; }
+@media (max-width: 480px) {
+  .re-holo-head { padding: 10px; gap: 4px; }
+  .re-holo .re-holo-tools button { padding: 7px; }
+  .re-holo-scene-label { left: 12px; top: 12px; }
+  .re-holo-scene-label strong { font-size: 15px; }
 }
 .re-holo-stage:active {
   cursor: grabbing;
