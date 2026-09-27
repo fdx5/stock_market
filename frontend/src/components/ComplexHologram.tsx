@@ -132,7 +132,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const [slowData, setSlowData] = useState(false);
   const [touchMode, setTouchMode] = useState(() => window.matchMedia?.("(any-pointer: coarse)").matches || navigator.maxTouchPoints > 0);
   const [navMode, setNavMode] = useState<"pan" | "rotate">(() => touchMode ? "pan" : "rotate");
-  const [spin, setSpin] = useState(() => !touchMode && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+  const [spin, setSpin] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
   const [tod, setTod] = useState<Tod>(() => {
     const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tod") : null;
     return initialTod ?? (q && q in LOOKS ? (q as Tod) : todNow());

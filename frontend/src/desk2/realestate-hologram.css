@@ -351,7 +351,7 @@
 .re-holo-navigation { flex: none; padding: 8px 10px 6px; background: #13212a; border-top: 1px solid #456071; }
 .re-holo-nav-row { display: flex; gap: 6px; }
 .re-holo-modes { display: flex; flex: 1; gap: 4px; }
-.re-holo-navigation button { min-width: 44px; min-height: 44px; padding: 8px 12px; border: 1px solid #516a7c; border-radius: 8px; background: #20333f; color: #eaf6ff; font: 600 12px var(--f-sans, sans-serif); cursor: pointer; touch-action: manipulation; }
+.re-holo-navigation button { min-width: 36px; min-height: 36px; padding: 5px 9px; border: 1px solid #516a7c; border-radius: 7px; background: #20333f; color: #eaf6ff; font: 600 11px var(--f-sans, sans-serif); cursor: pointer; touch-action: manipulation; }
 .re-holo-modes button, .re-holo-nav-actions button { flex: 1; }
 .re-holo-navigation button[aria-pressed="true"] { color: #07131c; background: #a6ddf6; border-color: #a6ddf6; }
 .re-holo-navigation button:active { background: #42637a; color: #fff; }
