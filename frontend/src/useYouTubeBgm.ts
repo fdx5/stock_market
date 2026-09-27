@@ -78,6 +78,7 @@ export interface YtPlayer {
   loadVideoById(videoId: string): void;
   /** Where in the track it is, in seconds. The equaliser's whole clock. */
   getCurrentTime?: () => number;
+  getPlayerState?: () => number;
   setVolume(volume: number): void;
   getVideoData?: () => { title?: string } | undefined;
   destroy(): void;

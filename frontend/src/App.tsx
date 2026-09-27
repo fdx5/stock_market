@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect } from "react";
+import { attachDeskBgm } from "./desk2/deskBgmStore";
 import LoadingState from "./components/LoadingState";
 import VoltarisIngressLink from "./components/VoltarisIngressLink";
 import HeaderBookmark from "./components/HeaderBookmark";
@@ -446,6 +447,8 @@ export default function App() {
   // Keep the floating recent-stocks rail on browsing/ranking workspaces only.
   // A stock detail page records the visit for use elsewhere, but must not render
   // the desk's rail itself (regardless of viewport size or navigation history).
+  const keepBgm = !["/", "/hub", "/type2"].includes(path) && !path.startsWith("/admin");
+  useEffect(() => keepBgm ? attachDeskBgm() : undefined, [keepBgm]);
   const showRecentDock = RECENT_DOCK_PATHS.has(path);
   // The desk's music carries on into these full-screen pages (see DeskBgmFloat).
   const showBgmFloat = BGM_FLOAT_PATHS.has(path);

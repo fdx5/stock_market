@@ -92,6 +92,7 @@ let state: DeskBgmState = {
 };
 const listeners = new Set<() => void>();
 function set(patch: Partial<DeskBgmState>) {
+  if (Object.entries(patch).every(([key, value]) => state[key as keyof DeskBgmState] === value)) return;
   state = { ...state, ...patch };
   listeners.forEach((l) => l());
 }
@@ -103,6 +104,28 @@ let building = false;
 let refusals = 0;
 let host: HTMLDivElement | null = null;
 let watchdog: number | undefined;
+// Intent is separate from reported state: a delayed PLAYING event must recover
+// a watchdog timeout, while a deliberate pause/off must never restart music.
+let wantsPlayback = false;
+let monitor: number | undefined;
+
+function playerState(): number | null {
+  try { return player?.getPlayerState?.() ?? null; } catch { return null; }
+}
+
+function reconcilePlayback() {
+  if (!ready || !player || !state.on || !wantsPlayback) return;
+  const actual = playerState();
+  if (actual === YT_PLAYING) {
+    window.clearTimeout(watchdog);
+    set({ playing: true, loading: false, blocked: false, failed: false });
+  } else if (actual === 3) {
+    set({ loading: true });
+  } else if (actual === YT_PAUSED && !state.loading) {
+    set({ playing: false });
+  }
+}
+
 
 /* A refused play is silent: no error, the player simply never starts. That is
    what iOS does with a play not made inside a tap — and it would leave the ear
@@ -111,7 +134,9 @@ let watchdog: number | undefined;
 function armWatchdog() {
   window.clearTimeout(watchdog);
   watchdog = window.setTimeout(() => {
-    if (state.on && state.playing) set({ playing: false, loading: false, blocked: true });
+    if (!state.on || !wantsPlayback) return;
+    if (playerState() === YT_PLAYING) reconcilePlayback();
+    else set({ playing: false, loading: false, blocked: true });
   }, 4000);
 }
 
@@ -134,8 +159,8 @@ function select(nextCursor: number) {
 function load() {
   if (!player || !ready) return;
   set({ loading: true, blocked: false });
-  player.loadVideoById(state.track.id);
   armWatchdog();
+  player.loadVideoById(state.track.id);
 }
 
 function build() {
@@ -163,20 +188,24 @@ function build() {
         events: {
           onReady: (event) => {
             ready = true;
+            window.clearInterval(monitor);
+            monitor = window.setInterval(reconcilePlayback, 1000);
             event.target.setVolume(VOLUME);
             // Not inside the reader's tap any more (the script and the frame
             // loaded in between), so iOS may refuse this; the watchdog notices.
-            if (state.on && state.playing) {
-              event.target.loadVideoById(state.track.id);
+            if (state.on && wantsPlayback) {
               armWatchdog();
+              event.target.loadVideoById(state.track.id);
             } else set({ loading: false });
           },
           onStateChange: (event) => {
             if (event.data === YT_PLAYING) {
               window.clearTimeout(watchdog);
               refusals = 0;
-              set({ loading: false, failed: false, blocked: false });
-              if (!state.on || !state.playing) event.target.pauseVideo();
+              if (!state.on || !wantsPlayback) { event.target.pauseVideo(); return; }
+              set({ playing: true, loading: false, failed: false, blocked: false });
+            } else if (event.data === 3) {
+              if (state.on && wantsPlayback) set({ loading: true });
             } else if (event.data === YT_PAUSED) {
               // Paused by us, or by the system (a locked phone, another app
               // taking the audio) — either way the button should offer ▶.
@@ -186,7 +215,7 @@ function build() {
               window.clearTimeout(watchdog);
               set({ playing: false });
             } else if (event.data === YT_ENDED) {
-              if (state.on && state.playing) next();
+              if (state.on && wantsPlayback) next();
             }
           },
           // Embedding refused, removed, or region-locked: move on rather than
@@ -194,6 +223,8 @@ function build() {
           onError: () => {
             refusals += 1;
             if (refusals >= DESK_TRACKS.length) {
+              wantsPlayback = false;
+              window.clearTimeout(watchdog);
               set({ on: false, playing: false, loading: false, failed: true });
               return;
             }
@@ -215,6 +246,7 @@ export function warmDeskBgm() {
 
 export function setDeskBgmOn(on: boolean) {
   if (on === state.on) return;
+  wantsPlayback = on;
   if (!on) {
     window.clearTimeout(watchdog);
     set({ on: false, playing: false, loading: false, blocked: false });
@@ -226,19 +258,22 @@ export function setDeskBgmOn(on: boolean) {
   if (!player) build();
   else if (ready) {
     // Straight from the tap's own call stack — the only play iOS allows.
-    player.playVideo();
     armWatchdog();
+    player.playVideo();
+    reconcilePlayback();
   }
 }
 
 export function toggleDeskBgmPlay() {
   if (!state.on) return setDeskBgmOn(true);
   const playing = !state.playing;
+  wantsPlayback = playing;
   set({ playing, blocked: false, loading: playing && ready });
   if (!ready) return;
   if (playing) {
-    player?.playVideo();
     armWatchdog();
+    player?.playVideo();
+    reconcilePlayback();
   } else {
     window.clearTimeout(watchdog);
     player?.pauseVideo();
@@ -254,6 +289,7 @@ export function next() {
     select(0);
   }
   if (state.on) {
+    wantsPlayback = true;
     set({ playing: true });
     load();
   }
@@ -265,6 +301,7 @@ export function next() {
 export function prev() {
   select(cursor > 0 ? cursor - 1 : order.length - 1);
   if (state.on) {
+    wantsPlayback = true;
     set({ playing: true });
     load();
   }
@@ -272,8 +309,10 @@ export function prev() {
 
 export function getDeskBgmTime(): number | null {
   if (!ready || !player) return null;
-  const s = player.getCurrentTime?.();
-  return typeof s === "number" && Number.isFinite(s) ? s : null;
+  try {
+    const s = player.getCurrentTime?.();
+    return typeof s === "number" && Number.isFinite(s) ? s : null;
+  } catch { return null; }
 }
 
 /* Mounted mastheads. When the reader leaves the desk entirely (the entrance
@@ -293,15 +332,18 @@ let resumeOnReturn = false;
 let visibilityListening = false;
 function onVisibility() {
   if (document.visibilityState === "hidden") {
-    resumeOnReturn = state.on && state.playing;
+    resumeOnReturn = state.on && wantsPlayback;
     return;
   }
+  reconcilePlayback();
   if (!resumeOnReturn) return;
   resumeOnReturn = false;
-  if (!state.on || !player || !ready) return;
+  if (!state.on || !wantsPlayback || !player || !ready) return;
+  if (playerState() === YT_PLAYING) { reconcilePlayback(); return; }
   set({ playing: true, loading: true, blocked: false });
-  player.playVideo();
   armWatchdog();
+  player.playVideo();
+  reconcilePlayback();
 }
 
 let warmListening = false;

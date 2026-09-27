@@ -117,8 +117,22 @@ function useMeter(eqRef: React.RefObject<HTMLDivElement>, track: DeskTrack, runn
       paint();
       if (running || !settled) raf = requestAnimationFrame(frame);
     };
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
+    const restart = () => {
+      cancelAnimationFrame(raf);
+      if (document.hidden) return;
+      last = performance.now();
+      clock = getDeskBgmTime() ?? clock;
+      synced = last;
+      raf = requestAnimationFrame(frame);
+    };
+    document.addEventListener("visibilitychange", restart);
+    window.addEventListener("pageshow", restart);
+    restart();
+    return () => {
+      cancelAnimationFrame(raf);
+      document.removeEventListener("visibilitychange", restart);
+      window.removeEventListener("pageshow", restart);
+    };
   }, [eqRef, running, on, track.id]);
 }
 
