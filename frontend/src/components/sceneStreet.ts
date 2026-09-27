@@ -291,6 +291,40 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       nodeOf.set(`${road}:${atStart}`, n);
     }
   });
+  // Intersections. Surveyed centrelines split one real intersection into several nodes
+  // (split carriageways, offset road ends) joined by short stubs. Nodes where three or
+  // more road ends meet, within 35 m of each other or joined by a stub under 40 m, form
+  // one intersection; the stubs are inside it and carry no queue. Traffic enters from
+  // the roads outside (approaches) and leaves by the others (exits).
+  const junction = nodes.map(n => n.ends.length >= 3);
+  const parent = nodes.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  nodes.forEach((a, i) => nodes.forEach((b, j) => {
+    if (j > i && junction[i] && junction[j] && Math.hypot(a.x - b.x, a.y - b.y) < 35) parent[find(i)] = find(j);
+  }));
+  paths.forEach((p, r) => {
+    const a = nodeOf.get(`${r}:true`)!, b = nodeOf.get(`${r}:false`)!;
+    if (junction[a] && junction[b] && p.len < 40) parent[find(a)] = find(b);
+  });
+  const clusterIds = new Map<number, number>();
+  const clusterOf = nodes.map((_, i) => {
+    if (!junction[i]) return -1;
+    const root = find(i);
+    if (!clusterIds.has(root)) clusterIds.set(root, clusterIds.size);
+    return clusterIds.get(root)!;
+  });
+  const clusters = [...clusterIds.keys()].map(() => ({ nodes: [] as number[], x: 0, y: 0, r: 0 }));
+  clusterOf.forEach((c, i) => { if (c >= 0) clusters[c].nodes.push(i); });
+  for (const c of clusters) {
+    c.x = c.nodes.reduce((s, i) => s + nodes[i].x, 0) / c.nodes.length;
+    c.y = c.nodes.reduce((s, i) => s + nodes[i].y, 0) / c.nodes.length;
+    c.r = Math.max(0, ...c.nodes.map(i => Math.hypot(nodes[i].x - c.x, nodes[i].y - c.y)));
+  }
+  const endCluster = (road: number, atStart: boolean) => clusterOf[nodeOf.get(`${road}:${atStart}`)!];
+  const internal = paths.map((_, r) => { const a = endCluster(r, true); return a >= 0 && a === endCluster(r, false); });
+  /** Road ends outside roads have at an intersection: [road, atStart]. */
+  const clusterEnds = clusters.map((c, ci) => c.nodes.flatMap(ni => nodes[ni].ends.filter(e => !internal[e.road])).filter(e => endCluster(e.road, e.atStart) === ci));
+
   /** Ways on from the end of `road` in direction `forward`, with how straight each is. */
   const linkCache = new Map<string, { link: Link; dot: number }[]>();
   const linksFrom = (road: number, forward: boolean) => {
@@ -298,9 +332,11 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     if (linkCache.has(key)) return linkCache.get(key)!;
     const [hx, hy] = headingIn(road, forward);
     const out: { link: Link; dot: number }[] = [];
-    const node = nodes[nodeOf.get(`${road}:${!forward}`)!];
-    for (const e of node.ends) {
-      if (e.road === road) continue;
+    const ni = nodeOf.get(`${road}:${!forward}`)!, node = nodes[ni], ci = clusterOf[ni];
+    // At an intersection: straight across to any other road leaving it.
+    const candidates = ci >= 0 && !internal[road] ? clusterEnds[ci] : node.ends;
+    for (const e of candidates) {
+      if (e.road === road || internal[e.road]) continue;
       const p = paths[e.road], a = at(p, e.atStart ? 0 : p.len);
       const ux = e.atStart ? a.ux : -a.ux, uy = e.atStart ? a.uy : -a.uy;
       out.push({ link: { road: e.road, forward: e.atStart, s0: 0 }, dot: ux * hx + uy * hy });
@@ -309,7 +345,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       // A T-junction: this road ends part way along another.
       const { x: ex, y: ey } = at(paths[road], forward ? paths[road].len : 0);
       for (let r = 0; r < paths.length; r++) {
-        if (r === road) continue;
+        if (r === road || internal[r]) continue;
         const p = paths[r];
         for (let i = 1; i < p.line.length; i++) {
           const [ax, ay] = p.line[i - 1], [bx, by] = p.line[i], dx = bx - ax, dy = by - ay, l = Math.hypot(dx, dy) || 1;
@@ -327,7 +363,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return usable;
   };
   const laneKey = (road: number, forward: boolean, lane: number) => `${road}|${forward}|${Math.min(lane, lanesOf(road) - 1)}`;
-  /** Travel heading at centreline distance s (travel coordinates) on a road. */
+  /** Point and travel heading at distance s (travel coordinates) in a lane. */
   const lanePt = (road: number, forward: boolean, s: number, lane: number) => {
     const p = paths[road], pt = at(p, forward ? s : p.len - s);
     const hx = forward ? pt.ux : -pt.ux, hy = forward ? pt.uy : -pt.uy;
@@ -342,10 +378,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const dot = hx * o.hx + hy * o.hy, cross = hx * o.hy - hy * o.hx;
     return dot > 0.7 ? "straight" : cross > 0 ? "left" : "right";
   };
-  // Roads with nowhere to go at either end (fragments at the edge of the data), and
-  // short dead-end stubs, carry no traffic: cars would only shuttle and U-turn there.
+  // Roads with nowhere to go at either end (fragments at the edge of the data), short
+  // dead-end stubs, and the stubs inside intersections carry no traffic of their own.
   // (Repeated: a road whose only ways on lead into idle roads is a dead end too.)
-  const idle = paths.map(() => false);
+  const idle = paths.map((_, r) => internal[r]);
   for (let pass = 0; pass < 6; pass++) {
     const deadEnd = (road: number, forward: boolean) => linksFrom(road, forward).every(o => idle[o.link.road]);
     let changed = false;
@@ -374,22 +410,57 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return opts[0].link;
   };
 
-  // Intersections: three or more road ends. The box reaches half the widest road plus
-  // 2 m from the centre; stop lines sit on its edge, never in the middle.
-  // Capped, and never more than a third of the shortest road in: wide boulevards would
-  // otherwise leave no room to queue on the short blocks between intersections.
-  const boxR = nodes.map(n => Math.max(5, Math.min(15, ...n.ends.map(e => paths[e.road].width / 2 + 2), ...n.ends.map(e => paths[e.road].len / 3))));
-  const signalled = (ni: number) => nodes[ni].ends.length >= 3;
+  // Where traffic stops on each approach (nothing is painted): walking back out of the
+  // intersection, the first point where both edges of the road are 2 m clear of the
+  // asphalt of every road crossing it there — the stubs inside included; roads running
+  // parallel (the continuation, the other carriageway) don't count. The same distance
+  // is where traffic leaving by that road rejoins its lane.
+  const CLEAR = 2;
+  const distToRoad = (x: number, y: number, o: (typeof paths)[number]) => {
+    let best = Infinity;
+    for (let i = 1; i < o.line.length; i++) {
+      const [ax, ay] = o.line[i - 1], [bx, by] = o.line[i], dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2));
+      best = Math.min(best, Math.hypot(ax + dx * t - x, ay + dy * t - y));
+    }
+    return best;
+  };
+  const trimAt = new Map<string, number>();
+  clusters.forEach((c, ci) => {
+    for (const e of clusterEnds[ci]) {
+      const p = paths[e.road], [hx, hy] = headingIn(e.road, !e.atStart);
+      const crossing = paths.filter((o, r) => {
+        if (r === e.road || distToRoad(c.x, c.y, o) > c.r + 25) return false;
+        let dir = [0, 0], dmin = Infinity;
+        for (let i = 1; i < o.line.length; i++) {
+          const [ax, ay] = o.line[i - 1], [bx, by] = o.line[i], d = Math.hypot((ax + bx) / 2 - c.x, (ay + by) / 2 - c.y);
+          if (d < dmin) { dmin = d; const l = Math.hypot(bx - ax, by - ay) || 1; dir = [(bx - ax) / l, (by - ay) / l]; }
+        }
+        return Math.abs(dir[0] * hx + dir[1] * hy) < 0.85;
+      });
+      // Leave room to queue: half the block when another intersection is at its far end,
+      // else all but 12 m (a queue can't reach back onto the road before).
+      const far = endCluster(e.road, !e.atStart);
+      const limit = far >= 0 ? p.len * 0.45 : Math.max(3, p.len - 12);
+      let d = 3;
+      for (; d < limit; d += 0.5) {
+        const pt = at(p, e.atStart ? d : p.len - d), rx = hy, ry = -hx, w = p.width / 2;
+        if (crossing.every(o => [-w, 0, w].every(k => distToRoad(pt.x + rx * k, pt.y + ry * k, o) > o.width / 2 + CLEAR))) break;
+      }
+      trimAt.set(`${e.road}:${e.atStart}`, Math.min(d, limit));
+    }
+  });
+  const trim = (road: number, atStart: boolean) => trimAt.get(`${road}:${atStart}`) ?? 1.5;
   // Korean 방향별 신호: each approach direction in turn (clockwise) gets green with the
-  // left arrow, then yellow, then all-red, while every other direction is red. Road ends
-  // arriving from about the same direction (split carriageways, a road broken at the
-  // node) share a phase, so a cycle has at most four phases.
+  // left arrow, then yellow, then all-red, while every other direction is red. Roads
+  // arriving from about the same direction share a phase: at most four phases.
   const G = 9, Y = 3, AR = 2, P = G + Y + AR;
-  const signals = nodes.map(n => {
-    if (n.ends.length < 3) return null;
+  const signals = clusters.map((_, ci) => {
+    const ends = clusterEnds[ci];
+    if (ends.length < 3) return null;
     const ang = (e: { road: number; atStart: boolean }) => { const [hx, hy] = headingIn(e.road, !e.atStart); return Math.atan2(hy, hx); };
     const groups: { a: number; keys: string[] }[] = [];
-    for (const e of [...n.ends].sort((a, b) => ang(b) - ang(a))) {
+    for (const e of [...ends].sort((a, b) => ang(b) - ang(a))) {
       const a = ang(e), g = groups.find(o => Math.abs(Math.atan2(Math.sin(a - o.a), Math.cos(a - o.a))) < 0.7);
       if (g) g.keys.push(`${e.road}:${e.atStart}`); else groups.push({ a, keys: [`${e.road}:${e.atStart}`] });
     }
@@ -401,8 +472,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   let clock = 0;
   type Light = "green" | "yellow" | "red";
   /** The light shown to traffic arriving at road end `key` (`${road}:${atStart}`). */
-  const lightAt = (ni: number, key: string): Light => {
-    const sg = signals[ni];
+  const lightAt = (ci: number, key: string): Light => {
+    const sg = signals[ci];
     if (!sg) return "green";
     const t = (clock + sg.offset) % (P * sg.phases), i = Math.floor(t / P), w = t - i * P;
     if (sg.phase.get(key) !== i) return "red";
@@ -417,14 +488,14 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const key = `${road}|${forward}|${lane}>${link.road}|${link.forward}|${link.s0.toFixed(1)}|${nextLane}`;
     const hit = connCache.get(key);
     if (hit) return hit;
-    const ni = nodeOf.get(`${road}:${!forward}`)!, sig = signalled(ni), tJoin = link.s0 > 0;
-    const endTrim = sig ? boxR[ni] : tJoin ? paths[link.road].width / 2 + 1.5 : turn === "uturn" ? 2 : 1.5;
-    const startTrim = sig ? boxR[ni] : tJoin ? paths[road].width / 2 + 1.5 : turn === "uturn" ? 2 : 1.5;
+    const ci = endCluster(road, !forward), sig = ci >= 0 && signals[ci] !== null, tJoin = link.s0 > 0;
+    const endTrim = ci >= 0 ? trim(road, !forward) : tJoin ? paths[link.road].width / 2 + 1.5 : turn === "uturn" ? 2 : 1.5;
+    const startTrim = ci >= 0 ? trim(link.road, link.forward) : tJoin ? paths[road].width / 2 + 1.5 : turn === "uturn" ? 2 : 1.5;
     const endS = paths[road].len - endTrim, startS = Math.min(paths[link.road].len - 1, link.s0 + startTrim);
     const a = lanePt(road, forward, endS, lane), b = lanePt(link.road, link.forward, startS, nextLane);
     const dist = Math.hypot(b.x - a.x, b.y - a.y), k = turn === "uturn" ? Math.max(3.5, dist) : Math.max(1, dist * 0.42);
     const p1 = [a.x + a.hx * k, a.y + a.hy * k], p2 = [b.x - b.hx * k, b.y - b.hy * k];
-    const N = 16, xs = new Float32Array(N + 1), ys = new Float32Array(N + 1), cum = new Float32Array(N + 1);
+    const N = 24, xs = new Float32Array(N + 1), ys = new Float32Array(N + 1), cum = new Float32Array(N + 1);
     for (let i = 0; i <= N; i++) {
       const t = i / N, u = 1 - t;
       xs[i] = u * u * u * a.x + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * b.x;
@@ -432,12 +503,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (i) cum[i] = cum[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
     }
     const conn: Conn = { key, fromKey: laneKey(road, forward, lane), toKey: laneKey(link.road, link.forward, nextLane), link, turn, lane: nextLane,
-      endS, startS, len: Math.max(0.5, cum[N]), node: sig ? ni : -1, approach: `${road}:${!forward}`, tJoin, xs, ys, cum };
+      endS, startS, len: Math.max(0.5, cum[N]), node: sig ? ci : -1, approach: `${road}:${!forward}`, tJoin, xs, ys, cum };
     connCache.set(key, conn);
     return conn;
   };
-  /** Where a road's own start leaves off (travel coordinates): past its start node's box. */
-  const startOf = (road: number, forward: boolean) => { const ni = nodeOf.get(`${road}:${forward}`)!; return signalled(ni) ? boxR[ni] : 1.5; };
+  /** Where a road's own start leaves off (travel coordinates): past its start intersection. */
+  const startOf = (road: number, forward: boolean) => trim(road, forward);
 
   // About one vehicle per 55 m of lane, capped; spaced so none overlap.
   const laneMetres = paths.reduce((s, p) => s + p.len * Math.max(2, p.lanes), 0);
@@ -649,12 +720,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const arrowG = new THREE.ExtrudeGeometry(arrowShape, { depth: 0.02, bevelEnabled: false });
   const LAMP_X = [0.54, 0.18, -0.18, -0.54]; // red, yellow, arrow, green: red on the driver's left
   const basis = new THREE.Matrix4(), tm = new THREE.Matrix4();
-  nodes.forEach((n, ni) => {
-    if (!signalled(ni)) return;
-    for (const e of n.ends) {
+  clusters.forEach((_, ni) => {
+    if (!signals[ni]) return;
+    for (const e of clusterEnds[ni]) {
       const road = e.road, forward = !e.atStart, p = paths[road];
       const [hx, hy] = headingIn(road, forward);
-      const stop = at(p, e.atStart ? boxR[ni] : p.len - boxR[ni]);
+      // The pole stands 1.5 m behind the stop point, never out in the intersection.
+      const tr = Math.min(trim(road, e.atStart) + 1.5, p.len * 0.5), stop = at(p, e.atStart ? tr : p.len - tr);
       const rx = hy, ry = -hx; // right of travel
       const px = stop.x + rx * (p.width / 2 + 0.9), py = stop.y + ry * (p.width / 2 + 0.9);
       const armLen = Math.min(p.width / 2 + 0.9, Math.max(2.5, p.width * 0.35));
@@ -708,7 +780,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     if (dirty) litMeshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
   };
   showSignals();
-  group.userData.traffic = { cars, paths, nodes, nodeOf, boxR }; // inspection in dev tools
+  group.userData.traffic = { cars, paths, nodes, nodeOf, trimAt, clusters }; // inspection in dev tools
 
   return {
     group,
