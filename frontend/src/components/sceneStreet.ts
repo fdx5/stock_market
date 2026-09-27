@@ -196,6 +196,38 @@ interface Conn {
   node: number; approach: string; tJoin: boolean;
   xs: Float32Array; ys: Float32Array; cum: Float32Array;
 }
+/** The surveyed centrelines come cut at every junction and width change, often into
+ * pieces of a few metres. Where exactly two pieces meet end to end with the same lane
+ * count and about the same width, they are one road: join them, repeatedly. */
+function stitchRoads(input: RealEstateRoad[]): RealEstateRoad[] {
+  let roads = input.map(r => ({ ...r, line: r.line.map(p => [p[0], p[1]] as [number, number]) }));
+  const key = ([x, y]: [number, number]) => `${Math.round(x / 1.5)},${Math.round(y / 1.5)}`;
+  for (let pass = 0; pass < 50; pass++) {
+    const at = new Map<string, { i: number; start: boolean }[]>();
+    roads.forEach((r, i) => {
+      for (const start of [true, false]) {
+        const k = key(start ? r.line[0] : r.line[r.line.length - 1]);
+        const l = at.get(k); if (l) l.push({ i, start }); else at.set(k, [{ i, start }]);
+      }
+    });
+    const used = new Set<number>(), next: typeof roads = [];
+    for (const ends of at.values()) {
+      if (ends.length !== 2) continue;
+      const [a, b] = ends;
+      if (a.i === b.i || used.has(a.i) || used.has(b.i)) continue;
+      const ra = roads[a.i], rb = roads[b.i];
+      if (ra.lanes !== rb.lanes || Math.abs(ra.width - rb.width) > 4) continue;
+      // Orient a to end at the joint and b to start there.
+      const la = a.start ? [...ra.line].reverse() : ra.line, lb = b.start ? rb.line : [...rb.line].reverse();
+      next.push({ line: [...la, ...lb.slice(1)], width: Math.max(ra.width, rb.width), lanes: ra.lanes });
+      used.add(a.i); used.add(b.i);
+    }
+    if (!used.size) break;
+    roads = [...roads.filter((_, i) => !used.has(i)), ...next];
+  }
+  return roads;
+}
+
 interface Car {
   road: number; forward: boolean; lane: number; s: number; type: number; slot: number;
   /** World position and heading last placed (footprint frame), width, id. */
@@ -218,7 +250,7 @@ interface Car {
  * Right-hand traffic on the registered lanes, car following, signals at intersections;
  * lamps lit at night. */
 export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: boolean) {
-  const usable = roads.filter(r => r.line.length > 1);
+  const usable = stitchRoads(roads.filter(r => r.line.length > 1));
   if (!usable.length) return null;
   const { geos, texture } = await loadKit();
   const rnd = rng(seed + 29);
@@ -227,7 +259,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const cum = [0];
     for (let i = 1; i < r.line.length; i++) cum.push(cum[i - 1] + Math.hypot(r.line[i][0] - r.line[i - 1][0], r.line[i][1] - r.line[i - 1][1]));
     return { ...r, cum, len: cum[cum.length - 1] };
-  }).filter(p => p.len > 10);
+  }).filter(p => p.len > 0.5); // short pieces stay: they carry the network across
   if (!paths.length) return null;
 
   const bodyMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.45, metalness: 0.25 });
@@ -386,7 +418,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const deadEnd = (road: number, forward: boolean) => linksFrom(road, forward).every(o => idle[o.link.road]);
     let changed = false;
     paths.forEach((p, r) => {
-      const now = (deadEnd(r, true) && deadEnd(r, false)) || ((deadEnd(r, true) || deadEnd(r, false)) && p.len < 60);
+      const now = (deadEnd(r, true) && deadEnd(r, false) && p.len < 60) || ((deadEnd(r, true) || deadEnd(r, false)) && p.len < 30);
       if (now && !idle[r]) { idle[r] = true; changed = true; }
     });
     if (!changed) break;
@@ -512,7 +544,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
 
   // About one vehicle per 55 m of lane, capped; spaced so none overlap.
   const laneMetres = paths.reduce((s, p) => s + p.len * Math.max(2, p.lanes), 0);
-  const count = Math.min(hq ? 220 : 90, Math.round(laneMetres / 55));
+  const count = Math.min(hq ? 300 : 110, Math.round(laneMetres / 55));
   const cars: Car[] = [];
   const perKind = kinds.map(() => 0);
   for (let tries = 0; cars.length < count && tries < count * 10; tries++) {
@@ -780,7 +812,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     if (dirty) litMeshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
   };
   showSignals();
-  group.userData.traffic = { cars, paths, nodes, nodeOf, trimAt, clusters }; // inspection in dev tools
+  group.userData.traffic = { cars, paths, nodes, nodeOf, trimAt, clusters, idle, internal, drawn: roads.length }; // inspection in dev tools
 
   return {
     group,
