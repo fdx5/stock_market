@@ -232,3 +232,73 @@
     animation: none;
   }
 }
+
+/* Desktop: "크게 보기" opens the view in a large layer over the page. */
+.re-holo .re-holo-tools .re-holo-big {
+  border-color: rgba(127, 216, 255, 0.5);
+  color: #eaf6ff;
+}
+.re-holo .re-holo-tools .re-holo-big:hover {
+  background: rgba(127, 216, 255, 0.14);
+}
+.re-holo-wide {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: grid;
+  place-items: center;
+  padding: 3vh 3vw;
+  background: rgba(3, 5, 9, 0.78);
+  backdrop-filter: blur(6px);
+  animation: re-holo-wide-in 0.22s ease-out;
+}
+.re-holo-wide-box {
+  position: relative;
+  display: flex;
+  width: min(1680px, 100%);
+  height: min(1050px, 100%);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+}
+.re-holo-wide .re-holo {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+}
+.re-holo-wide .re-holo-head {
+  padding: 12px 64px 11px 16px;
+}
+.re-holo-wide .re-holo-head strong {
+  font-size: 18px;
+}
+.re-holo-wide .re-holo-tools button {
+  padding: 6px 12px;
+  font-size: 12.5px;
+}
+.re-holo-wide .re-holo-stage {
+  min-height: 0;
+}
+.re-holo-wide-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  z-index: 5;
+  width: 40px;
+  height: 40px;
+  border: 1px solid rgba(160, 200, 255, 0.3);
+  border-radius: 50%;
+  background: rgba(7, 9, 13, 0.85);
+  color: #eaf6ff;
+  font: 400 24px/1 var(--f-sans, sans-serif);
+  cursor: pointer;
+}
+.re-holo-wide-close:hover {
+  border-color: #7fd8ff;
+}
+@keyframes re-holo-wide-in {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .re-holo-wide { animation: none; }
+}

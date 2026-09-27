@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
@@ -51,7 +52,7 @@ type Stage = {
   pickables: THREE.Mesh[]; grow: { mesh: THREE.Object3D; delay: number }[];
   intro: { from: THREE.Vector3; to: THREE.Vector3; t0: number } | null;
   born: number; now: number; top: number; dist: number; center: THREE.Vector3;
-  hq: boolean; disposeModel: () => void;
+  hq: boolean; disposeModel: () => void; resume: () => void;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -76,7 +77,48 @@ function staleNotice(data: RealEstateBuildingsResponse, complexId: string): stri
 
 const ease = (k: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
 
-export default function ComplexHologram({ complexId, complexName, caption }: { complexId: string | null; complexName?: string; caption?: string }) {
+/** Desktop: the same view in a large layer over the page, for a proper look. It keeps
+ * Escape and Tab to itself while open, and gives focus back when it closes. */
+function WideLayer({ id, name, tod, onClose }: { id: string; name?: string; tod: Tod; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.querySelector<HTMLElement>(".re-holo-wide-close")?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" && event.key !== "Tab") return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      if (event.key === "Escape") { onClose(); return; }
+      const list = Array.from(ref.current?.querySelectorAll<HTMLElement>("button") ?? []);
+      const at = list.indexOf(document.activeElement as HTMLElement);
+      list[(at + (event.shiftKey ? -1 : 1) + list.length) % list.length]?.focus();
+    };
+    window.addEventListener("keydown", key, true);
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", key, true);
+      document.body.style.overflow = overflow;
+      if (previous?.isConnected) previous.focus();
+    };
+  }, [onClose]);
+  return createPortal(
+    <div className="re-holo-wide" role="dialog" aria-modal="true" aria-label={`${name ?? "단지"} 3D 단지뷰 크게 보기`} ref={ref}
+      onPointerDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="re-holo-wide-box">
+        <button type="button" className="re-holo-wide-close" onClick={onClose} aria-label="크게 보기 닫기" title="닫기 (Esc)">×</button>
+        <ComplexHologram complexId={id} complexName={name} caption="3D 단지뷰 · 크게 보기" wide initialTod={tod} />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+export default function ComplexHologram({ complexId, complexName, caption, wide = false, initialTod }: {
+  complexId: string | null; complexName?: string; caption?: string;
+  /** Already the large layer: no "크게 보기" button of its own. */
+  wide?: boolean; initialTod?: Tod;
+}) {
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const [data, setData] = useState<RealEstateBuildingsResponse | null>(null);
@@ -85,8 +127,11 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
   const [spin, setSpin] = useState(true);
   const [tod, setTod] = useState<Tod>(() => {
     const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tod") : null;
-    return q && q in LOOKS ? (q as Tod) : todNow();
+    return initialTod ?? (q && q in LOOKS ? (q as Tod) : todNow());
   });
+  const [big, setBig] = useState(false);
+  const closeBig = useCallback(() => setBig(false), []);
+  const pausedRef = useRef(false);
   const [tip, setTip] = useState<{ x: number; y: number; text: string; pinned: boolean; w: number } | null>(null);
   const [failed3d, setFailed3d] = useState(false);
   const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
@@ -178,7 +223,7 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
       renderer, scene, camera, controls, composer, bloom, finish, sun, hemi, sky, stars, reflector, reflStrength, refreshEnv,
       look: LOOKS.day, fade: null, lit: { windows: [], crowns: [], lamps: [], ground: [] },
       ground: null, model: null, pickables: [], grow: [], intro: null,
-      born: 0, now: 0, top: 50, dist: 300, center: new THREE.Vector3(), hq, disposeModel: () => {},
+      born: 0, now: 0, top: 50, dist: 300, center: new THREE.Vector3(), hq, disposeModel: () => {}, resume: () => {},
     };
     stageRef.current = stage;
 
@@ -214,6 +259,8 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
     const t0 = performance.now();
     let raf = 0;
     const loop = () => {
+      // Paused while the large layer shows the same complex.
+      if (pausedRef.current) return;
       raf = requestAnimationFrame(loop);
       const nowMs = performance.now();
       const dt = nowMs - last;
@@ -316,6 +363,7 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
       if (entry.isIntersecting) { last = performance.now(); loop(); }
     });
     io.observe(host);
+    stage.resume = () => { cancelAnimationFrame(raf); last = performance.now(); loop(); };
 
     return () => {
       cancelAnimationFrame(raf);
@@ -346,6 +394,11 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
     spinRef.current = spin;
     if (stageRef.current) stageRef.current.controls.autoRotate = spin;
   }, [spin]);
+
+  useEffect(() => {
+    pausedRef.current = big;
+    if (!big) stageRef.current?.resume();
+  }, [big]);
 
   const todRef = useRef(tod);
   const applyLookRef = useRef<((l: Look, env: boolean) => void) | null>(null);
@@ -680,6 +733,9 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
         <div className="re-holo-tools">
           <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} title="360° 자동 회전">{spin ? "회전 ■" : "회전 ▶"}</button>
           <button type="button" onClick={() => setTod(nextTod)} title={`시간대 바꾸기 · 다음: ${TOD_LABEL[nextTod]}`}>{TOD_LABEL[tod]}</button>
+          {!wide && !coarse && complexId && (
+            <button type="button" className="re-holo-big" onClick={() => setBig(true)} title="큰 화면으로 감상">크게 보기 ⤢</button>
+          )}
         </div>
       </header>
       <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
@@ -699,6 +755,7 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
           </>
         ) : <span>{coarse ? "한 손가락으로 돌리고 두 손가락으로 확대, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 확대합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
+      {big && complexId && <WideLayer id={complexId} name={data?.name ?? complexName} tod={tod} onClose={closeBig} />}
     </section>
   );
 }
