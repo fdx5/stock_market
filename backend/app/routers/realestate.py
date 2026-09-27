@@ -103,11 +103,13 @@ def realestate_complex_facts(response: Response, id: str = Query(..., min_length
 
 
 @router.get("/buildings")
-def realestate_complex_buildings(response: Response, id: str = Query(..., min_length=7, max_length=200)):
-    """Footprints and heights of one complex's buildings, for the 3D viewer."""
+def realestate_complex_buildings(response: Response, id: str = Query(..., min_length=7, max_length=200),
+                                 peek: bool = False):
+    """Footprints and heights of one complex's buildings, for the 3D viewer. `peek`
+    returns at once: kept shapes, or the address for the browser to ask VWorld."""
     response.headers["Cache-Control"] = "no-store"
     try:
-        return realestate_buildings.complex_buildings(id)
+        return realestate_buildings.complex_buildings(id, peek=peek)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다.") from exc
     except ValueError as exc:

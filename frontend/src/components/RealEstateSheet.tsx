@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   api,
@@ -13,6 +13,40 @@ import { useBodyScrollLock } from "../useBodyScrollLock";
 import RealEstatePopup, { OtherType, PopupContext } from "./RealEstatePopup";
 import RealEstateRentView, { LeaseMode } from "./RealEstateRentView";
 import { useDialogFocus } from "./realEstateTools";
+import "../desk2/realestate-hologram.css";
+
+const ComplexHologram = lazy(() => import("./ComplexHologram"));
+
+/** Phones and tablets: the desktop rail's 3D view as a full-screen layer over the
+ * card — one finger turns it, two pinch to zoom. It keeps Escape and Tab to itself
+ * while open so the card underneath stays as it was. */
+function HologramLayer({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.querySelector<HTMLElement>("button")?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" && event.key !== "Tab") return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      if (event.key === "Escape") { onClose(); return; }
+      const list = Array.from(ref.current?.querySelectorAll<HTMLElement>("button") ?? []);
+      const at = list.indexOf(document.activeElement as HTMLElement);
+      list[(at + (event.shiftKey ? -1 : 1) + list.length) % list.length]?.focus();
+    };
+    window.addEventListener("keydown", key, true);
+    return () => { window.removeEventListener("keydown", key, true); if (previous?.isConnected) previous.focus(); };
+  }, [onClose]);
+  return createPortal(
+    <div className="re-holo-layer" role="dialog" aria-modal="true" aria-label={`${name} 3D 건물뷰`} ref={ref}>
+      <button type="button" className="re-holo-layer-close" onClick={onClose} aria-label="3D 건물뷰 닫기">×</button>
+      <Suspense fallback={<div className="re-holo re-holo--placeholder" />}>
+        <ComplexHologram complexId={id} complexName={name} caption="3D 건물뷰 · 한 손가락 회전 · 두 손가락 확대" />
+      </Suspense>
+    </div>,
+    document.body,
+  );
+}
 
 /* The 부동산 맵's pinned complex card — a bottom sheet on a phone or tablet, a centred
  * dialog on a desktop. It opens on a click or tap on a tile, shows what the hover
@@ -123,6 +157,7 @@ export default function RealEstateSheet({
   const dialogRef = useDialogFocus(onClose);
   const [retry, setRetry] = useState(0);
   const [shareNote, setShareNote] = useState("");
+  const [holoOpen, setHoloOpen] = useState(false);
 
   const [views, setViews] = useState<RealEstateTypeView[]>([]);
   const [history, setHistory] = useState<RealEstateTradeHistory | undefined>(undefined);
@@ -310,6 +345,7 @@ export default function RealEstateSheet({
           <div className="re-sheet-body re-pop-tip">
             <div className="re-detail-tools">
               <button type="button" aria-pressed={saved} onClick={() => onSave(shown)}>{saved ? "★ 관심 저장됨" : "☆ 관심 저장"}</button>
+              <button type="button" className="re-holo-open" onClick={() => setHoloOpen(true)}>3D 건물뷰</button>
               <button type="button" aria-pressed={compared} onClick={() => onCompare(shown)}>{compared ? "✓ 비교 선택됨" : "+ 비교 추가"}</button>
               {compareCount > 0 && <button type="button" className="re-primary" onClick={onOpenCompare}>비교하기 ({compareCount})</button>}
               <button type="button" onClick={async () => {
@@ -318,6 +354,7 @@ export default function RealEstateSheet({
               }}>링크 복사</button>
             </div>
             {(shareNote || feedback) && <p className="re-detail-note" role="status">{shareNote || feedback}</p>}
+            {holoOpen && <HologramLayer id={item.id} name={item.name} onClose={() => setHoloOpen(false)} />}
             {loading && <p className="re-detail-note" role="status">최신 평형 정보를 확인하고 있습니다…</p>}
             <RealEstatePopup
               item={shown}

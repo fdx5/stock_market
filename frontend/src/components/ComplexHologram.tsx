@@ -8,6 +8,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
+import { vworldBuildings } from "./vworldBuildings";
 import "../desk2/realestate-hologram.css";
 
 /* 부동산 맵 — one complex as a turning hologram. Footprints and heights are the real
@@ -163,6 +164,7 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
   const [holoOn, setHoloOn] = useState(true);
   const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);
   const [failed3d, setFailed3d] = useState(false);
+  const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
 
   // One renderer for the panel's lifetime; each complex only swaps the model.
   useEffect(() => {
@@ -301,18 +303,33 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
     }
   }, [holoOn, data]);
 
-  // Fetch on every selection; the server keeps shapes, so a repeat click is instant.
+  // Every selection: kept shapes from the server, else VWorld from this browser
+  // (VWorld refuses the server abroad), else the server's OpenStreetMap fallback.
   useEffect(() => {
     setTip(null);
     if (!complexId) { setData(null); return; }
     const ctl = new AbortController();
+    let live = true;
     setLoading(true);
     setError("");
-    api.realEstateBuildings(complexId, ctl.signal)
-      .then(res => { setData(res); if (!res.found) setError(res.error || "건물 윤곽 자료를 찾지 못했습니다."); })
-      .catch(err => { if (!ctl.signal.aborted) { setData(null); setError(err instanceof Error ? err.message : "불러오지 못했습니다."); } })
-      .finally(() => { if (!ctl.signal.aborted) setLoading(false); });
-    return () => ctl.abort();
+    (async () => {
+      const peek = await api.realEstateBuildings(complexId, ctl.signal, true);
+      if (peek.found) return peek;
+      if (peek.vworld_key && peek.query?.parcel) {
+        try {
+          const direct = await vworldBuildings(complexId, peek.query, peek.vworld_key, peek.vworld_domain);
+          if (direct) return { ...direct, built: peek.built ?? null };
+        } catch (err) {
+          // Outside Korea or VWorld down: the server's OpenStreetMap copy is next.
+          console.warn("[3D] VWorld direct lookup failed:", err instanceof Error ? err.message : err);
+        }
+      }
+      return api.realEstateBuildings(complexId, ctl.signal);
+    })()
+      .then(res => { if (!live) return; setData(res); if (!res.found) setError(res.error || "건물 윤곽 자료를 찾지 못했습니다."); })
+      .catch(err => { if (live && !ctl.signal.aborted) { setData(null); setError(err instanceof Error ? err.message : "불러오지 못했습니다."); } })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; ctl.abort(); };
   }, [complexId]);
 
   // Build the model for the loaded complex.
@@ -502,7 +519,7 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
             <span>건물 {total}개 · 층수·높이 확인 {measured}개{total > measured ? ` · ${data.source === "vworld" ? "층수 미등록 부대시설" : "높이 추정"} ${total - measured}개` : ""}</span>
             <span>{data.source === "vworld" ? "건물 윤곽·높이: " : "건물 윤곽: "}{data.attribution}. 외벽 색·창호는 표현용</span>
           </>
-        ) : <span>드래그로 회전, 휠로 확대합니다. 지도에서 단지를 누르면 바뀝니다.</span>}
+        ) : <span>{coarse ? "한 손가락으로 돌리고 두 손가락으로 확대합니다." : "드래그로 회전, 휠로 확대합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
     </section>
   );

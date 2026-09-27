@@ -65,11 +65,24 @@ def test_vworld_picks_buildings_inside_the_parcel(monkeypatch):
     assert math.isclose(abs(rb._area(outer)), 0.0001 * 111_320 * math.cos(math.radians(lat0)) * 0.0001 * 110_540, rel_tol=0.02)
 
 
-def test_missing_key_falls_back_to_osm_without_calling_vworld(monkeypatch):
-    monkeypatch.delenv("VWORLD_API_KEY", raising=False)
+def test_server_abroad_leaves_vworld_to_the_browser(monkeypatch):
+    # VWorld refuses hosts outside Korea: without VWORLD_SERVER_SIDE the server only tries OSM.
+    monkeypatch.setenv("VWORLD_API_KEY", "test-key")
+    monkeypatch.delenv("VWORLD_SERVER_SIDE", raising=False)
     monkeypatch.setattr(rb, "_lookup", lambda cid: {"name": "은마", "dong": "대치동", "jibun": "316",
                                                     "sgg_name": "강남구", "sido_name": "서울특별시"})
     monkeypatch.setattr(rb, "_from_vworld", lambda *a: (_ for _ in ()).throw(AssertionError("no key, no call")))
     monkeypatch.setattr(rb, "_from_osm", lambda c, addr: None)
     body = rb._build("11680:대치동:316:은마")
-    assert body["found"] is False and body["vworld"] is False
+    assert body["found"] is False and body["vworld"] is True
+
+
+def test_peek_hands_the_browser_the_parcel_address(monkeypatch):
+    monkeypatch.setenv("VWORLD_API_KEY", "test-key")
+    monkeypatch.setattr(rb.store, "load_facts", lambda key: None)
+    monkeypatch.setattr(rb, "_lookup", lambda cid: {"name": "은마", "dong": "대치동", "umd": "대치동", "jibun": "316",
+                                                    "sgg_name": "강남구", "sido_name": "서울특별시"})
+    monkeypatch.setattr(rb, "_build", lambda cid: (_ for _ in ()).throw(AssertionError("peek never fetches")))
+    body = rb.complex_buildings("11680:대치동:316:은마-peek", peek=True)
+    assert body["pending"] and body["query"] == {"parcel": "서울특별시 강남구 대치동 316", "name": "은마"}
+    assert body["vworld_key"] == "test-key"

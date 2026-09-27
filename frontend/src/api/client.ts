@@ -1228,6 +1228,8 @@ export interface RealEstateBuildingsResponse {
   context: RealEstateBuilding[];
   coverage?: { buildings: number; with_height: number };
   vworld: boolean; error: string | null; fetched_at: string;
+  /** peek: nothing kept yet — the browser asks VWorld with this parcel address and key. */
+  pending?: boolean; query?: { parcel: string | null; name: string }; vworld_key?: string | null; vworld_domain?: string;
 }
 
 export interface RealEstateMapResponse {
@@ -1292,8 +1294,8 @@ export const api = {
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
   realEstateRent: (id: string) =>
     getJSONFresh<RealEstateRentResponse>(`${BASE}/realestate/rent?id=${encodeURIComponent(id)}`),
-  realEstateBuildings: (id: string, signal?: AbortSignal) =>
-    getJSONFresh<RealEstateBuildingsResponse>(`${BASE}/realestate/buildings?id=${encodeURIComponent(id)}`, signal),
+  realEstateBuildings: (id: string, signal?: AbortSignal, peek = false) =>
+    getJSONFresh<RealEstateBuildingsResponse>(`${BASE}/realestate/buildings?id=${encodeURIComponent(id)}${peek ? "&peek=true" : ""}`, signal),
   realEstateFacts: (id: string) =>
     getJSONFresh<RealEstateFacts>(`${BASE}/realestate/facts?id=${encodeURIComponent(id)}`),
   realEstateSummary: (q: { level: RealEstateRegionLevel; sido?: string; sgg?: string; period: RealEstatePeriod }) => {

@@ -61,6 +61,13 @@ def _vworld_key() -> str | None:
     return (os.environ.get("VWORLD_API_KEY") or "").strip() or None
 
 
+def _server_vworld() -> bool:
+    """VWorld answers Korean networks only; a server abroad (Render) gets 502s and
+    resets. There the browser calls VWorld itself (frontend vworldBuildings.ts) and
+    the server only serves OSM. Set VWORLD_SERVER_SIDE=1 on a host inside Korea."""
+    return bool(_vworld_key()) and os.environ.get("VWORLD_SERVER_SIDE") == "1"
+
+
 def _norm(value: str) -> str:
     return re.sub(r"(아파트|apt)$", "", re.sub(r"[\W_]", "", value or "").casefold())
 
@@ -373,7 +380,7 @@ def _build(complex_id: str) -> dict:
     c = _lookup(complex_id)
     region = f'{c["sido_name"]} {c["sgg_name"]}'
     result, errors = None, []
-    if _vworld_key() and c.get("jibun"):
+    if _server_vworld() and c.get("jibun"):
         try:
             result = _from_vworld(c, f'{region} {c.get("umd") or c["dong"]} {c["jibun"]}')
         except Exception as exc:  # noqa: BLE001 — fall through to OSM
@@ -402,32 +409,50 @@ def _build(complex_id: str) -> dict:
             "error": None}
 
 
-def complex_buildings(complex_id: str) -> dict:
+def _query(c: dict) -> dict:
+    region = f'{c["sido_name"]} {c["sgg_name"]}'
+    return {"parcel": f'{region} {c.get("umd") or c["dong"]} {c["jibun"]}' if c.get("jibun") else None,
+            "name": c["name"]}
+
+
+def complex_buildings(complex_id: str, peek: bool = False) -> dict:
+    """The complex's buildings. `peek` answers at once: a kept result, or else what
+    the browser needs to ask VWorld itself (the parcel address and the key, which is
+    bound to this site's domain and public by design)."""
     now = time.time()
     hit = _cache.get(complex_id)
-    if hit and hit[0] > now:
+    if hit and hit[0] > now and (hit[1]["found"] or not peek):
         return hit[1]
+    key = f"{STORE_VERSION}:{complex_id}"
+    try:
+        saved = store.load_facts(key)
+    except Exception:  # noqa: BLE001 — the store is an optimisation here
+        saved = None
+    kept = saved[1] if saved and isinstance(saved[1], dict) else None
+    if kept:
+        age = (dt.datetime.now(rm.KST) - dt.datetime.fromisoformat(saved[0])).days if saved[0] else 999
+        upgrade = kept.get("source") == "osm" and _server_vworld()
+        if kept.get("found") and age < KEEP_DAYS and not upgrade:
+            _cache[complex_id] = (now + 3600, kept)
+            return kept
+    if peek:
+        c = _lookup(complex_id)
+        return {"id": complex_id, "name": c["name"], "found": False, "pending": True,
+                "query": _query(c), "vworld_key": _vworld_key(),
+                "vworld_domain": os.environ.get("VWORLD_DOMAIN", "https://kospimap.com"), "buildings": [], "context": [], "site": [],
+                "vworld": bool(_vworld_key()), "error": None,
+                "fetched_at": dt.datetime.now(rm.KST).isoformat(timespec="seconds")}
     with _locks_guard:
         lock = _locks.setdefault(complex_id, threading.Lock())
     with lock:
         hit = _cache.get(complex_id)
         if hit and hit[0] > now:
             return hit[1]
-        key = f"{STORE_VERSION}:{complex_id}"
-        try:
-            saved = store.load_facts(key)
-        except Exception:  # noqa: BLE001 — the store is an optimisation here
-            saved = None
-        if saved and isinstance(saved[1], dict):
-            body = saved[1]
-            age = (dt.datetime.now(rm.KST) - dt.datetime.fromisoformat(saved[0])).days if saved[0] else 999
-            upgrade = body.get("source") == "osm" and _vworld_key()
-            if age < (KEEP_DAYS if body.get("found") else KEEP_MISS_DAYS) and not upgrade:
-                _cache[complex_id] = (now + 3600, body)
-                return body
         body = _build(complex_id)
+        if not body["found"] and kept and kept.get("found"):
+            body = kept  # a failed refresh never replaces shapes we already had
         _cache[complex_id] = (now + (3600 if body["found"] else 300), body)
-        if body["found"] or not body.get("error"):
+        if body["found"] and body is not kept:
             try:
                 store.save_facts(key, body, body["fetched_at"])
             except Exception as exc:  # noqa: BLE001
