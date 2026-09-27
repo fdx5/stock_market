@@ -41,7 +41,7 @@ def test_vworld_picks_buildings_inside_the_parcel(monkeypatch):
     d = 0.0005
     parcel = {"type": "Feature", "properties": {"pnu": "1171010700109130000"},
               "geometry": {"type": "Polygon", "coordinates": [_square(lon0 - d, lat0 - d, 2 * d)]}}
-    inside = {"properties": {"bld_nm": "", "dong_nm": "101동", "grnd_flr": "30", "height": "0"},
+    inside = {"properties": {"bld_nm": "", "dong_nm": "101동", "grnd_flr": "30", "height": "0", "useapr_day": "19800512"},
               "geometry": {"type": "MultiPolygon", "coordinates": [[_square(lon0, lat0, 0.0001)]]}}
     outside = {"properties": {"bld_nm": "다른 빌딩", "dong_nm": "", "grnd_flr": "12", "height": "40"},
                "geometry": {"type": "MultiPolygon", "coordinates": [[_square(lon0 + 3 * d, lat0, 0.0001)]]}}
@@ -58,6 +58,7 @@ def test_vworld_picks_buildings_inside_the_parcel(monkeypatch):
     assert result["source"] == "vworld"
     assert [b["name"] for b in result["buildings"]] == ["101동"]
     assert result["buildings"][0]["floors"] == 30 and result["buildings"][0]["height_source"] == "floors"
+    assert result["buildings"][0]["approved"] == 1980 and result["context"][0]["approved"] is None
     assert len(result["context"]) == 1 and result["context"][0]["height"] == 40
     # Metres around the geocoded point, counter-clockwise outer rings.
     outer = result["buildings"][0]["rings"][0]

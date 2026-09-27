@@ -129,6 +129,29 @@
   transform: translate(12px, -110%);
   pointer-events: none;
 }
+.re-holo-tip.is-left {
+  transform: translate(calc(-100% - 12px), -110%);
+}
+.re-holo-tip.is-pinned {
+  border-color: #7fd8ff;
+  box-shadow: 0 0 0 1px rgba(127, 216, 255, 0.25), 0 6px 18px rgba(0, 0, 0, 0.5);
+  white-space: normal;
+  max-width: 70%;
+}
+.re-holo-stale {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 2;
+  margin: 0;
+  padding: 6px 9px;
+  border: 1px solid rgba(255, 196, 92, 0.5);
+  background: rgba(30, 20, 4, 0.82);
+  color: #ffd98a;
+  font: 600 11px/1.45 var(--f-sans, sans-serif);
+  pointer-events: none;
+}
 .re-holo-foot {
   display: grid;
   gap: 2px;

@@ -150,6 +150,12 @@ def _num(value) -> float | None:
     return n if math.isfinite(n) and n > 0 else None
 
 
+def _year(day) -> int | None:
+    """사용승인일 (yyyymmdd) → year, or None for a blank or implausible date."""
+    text = str(day or "").strip()
+    return int(text[:4]) if len(text) >= 4 and text[:4].isdigit() and 1900 <= int(text[:4]) <= 2100 else None
+
+
 def _fill_heights(buildings: list[dict], tower_fallback: bool = False) -> None:
     """Fill a building with neither 층수 nor 높이, marked `estimated`.
 
@@ -258,7 +264,8 @@ def _from_vworld(c: dict, address: str) -> dict | None:
             b = {"rings": [outer, *[h[::-1] for h in holes]], "height": height,
                  "floors": int(floors) if floors else None, "base": 0,
                  "height_source": "measured" if height else "floors" if floors else None,
-                 "name": (p.get("dong_nm") or "").strip() or None, "use": p.get("usability") or None}
+                 "name": (p.get("dong_nm") or "").strip() or None, "use": p.get("usability") or None,
+                 "approved": _year(p.get("useapr_day"))}
             (buildings if id(f) in mine else context).append(b)
     if not buildings:
         return None
@@ -437,7 +444,7 @@ def complex_buildings(complex_id: str, peek: bool = False) -> dict:
             return kept
     if peek:
         c = _lookup(complex_id)
-        return {"id": complex_id, "name": c["name"], "found": False, "pending": True,
+        return {"id": complex_id, "name": c["name"], "built": c.get("built") or None, "found": False, "pending": True,
                 "query": _query(c), "vworld_key": _vworld_key(),
                 "vworld_domain": os.environ.get("VWORLD_DOMAIN", "https://kospimap.com"), "buildings": [], "context": [], "site": [],
                 "vworld": bool(_vworld_key()), "error": None,

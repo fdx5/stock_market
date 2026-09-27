@@ -127,6 +127,7 @@ export async function vworldBuildings(
       const b: RealEstateBuilding = {
         rings: [outer, ...holes], height: height ?? 0, floors: floors ? Math.round(floors) : 0, base: 0,
         height_source: height ? "measured" : "floors", name: (p.dong_nm || "").trim() || null, use: p.usability || null,
+        approved: /^(19|20)\d{2}/.test(p.useapr_day || "") ? +p.useapr_day.slice(0, 4) : null,
       };
       if (!height && !floors) b.height_source = "estimated";
       (mine ? buildings : context).push(b);

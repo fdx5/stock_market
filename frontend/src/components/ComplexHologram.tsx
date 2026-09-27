@@ -152,7 +152,24 @@ type Stage = {
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
-  `${b.floors}층 · 높이 ${Math.round(b.height)}m${b.height_source === "measured" ? " (실측)" : b.height_source === "floors" ? " (층수 기준)" : " (추정)"}`;
+  `${b.floors}층 · 높이 ${Math.round(b.height)}m${b.height_source === "measured" ? " (실측)" : b.height_source === "floors" ? " (층수 기준)" : " (추정)"}${b.approved ? ` · ${b.approved}년 사용승인` : ""}`;
+
+/** When the register's buildings are likely not yet the complex's current ones:
+ * a complex completed after every tower on its parcel was approved is a rebuild the
+ * national data hasn't caught up with; a recent or pre-completion complex may be too. */
+function staleNotice(data: RealEstateBuildingsResponse, complexId: string): string | null {
+  const towers = data.buildings.filter(b => b.floors >= 5);
+  const approved = towers.map(b => b.approved).filter((y): y is number => !!y);
+  const latest = approved.length ? Math.max(...approved) : null;
+  const built = data.built;
+  if (built && latest && latest < built - 1)
+    return `자료 갱신 전일 수 있음 · ${built}년 준공 단지인데 건물 자료는 ${latest}년 사용승인 건물입니다(재건축 전 모습일 수 있습니다).`;
+  if (complexId.includes(":rights:"))
+    return "자료 갱신 전일 수 있음 · 분양·입주권 거래 단지로 준공 전이거나 건물 자료에 아직 반영되지 않았을 수 있습니다.";
+  if (built && built >= new Date().getFullYear() - 2 && !latest)
+    return "자료 갱신 전일 수 있음 · 최근 준공 단지는 국가 건물 자료에 늦게 반영됩니다.";
+  return null;
+}
 
 export default function ComplexHologram({ complexId, complexName, caption }: { complexId: string | null; complexName?: string; caption?: string }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -162,7 +179,7 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
   const [loading, setLoading] = useState(false);
   const [spin, setSpin] = useState(true);
   const [holoOn, setHoloOn] = useState(true);
-  const [tip, setTip] = useState<{ x: number; y: number; text: string } | null>(null);
+  const [tip, setTip] = useState<{ x: number; y: number; text: string; pinned: boolean; w: number } | null>(null);
   const [failed3d, setFailed3d] = useState(false);
   const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
 
@@ -481,18 +498,35 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
-  // Hover: which 동, how many floors, and whether that height is surveyed.
-  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  // Which 동, how many floors, whether that height is surveyed: on hover with a
+  // mouse, and on a tap (a touch that didn't turn the model) on phones.
+  const pick = (e: { clientX: number; clientY: number; currentTarget: HTMLDivElement }, pinned: boolean) => {
     const stage = stageRef.current;
-    if (!stage || !stage.pickables.length || e.buttons) { setTip(null); return; }
+    if (!stage || !stage.pickables.length) { setTip(null); return; }
     const rect = e.currentTarget.getBoundingClientRect();
     const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, stage.camera);
     const hit = ray.intersectObjects(stage.pickables, false)[0];
-    setTip(hit ? { x: e.clientX - rect.left, y: e.clientY - rect.top, text: hit.object.userData.label } : null);
+    setTip(hit ? { x: e.clientX - rect.left, y: e.clientY - rect.top, text: hit.object.userData.label, pinned, w: rect.width } : null);
+  };
+  const press = useRef<{ x: number; y: number; t: number } | null>(null);
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== "mouse") return;
+    if (e.buttons) { setTip(null); return; }
+    if (!tip?.pinned) pick(e, false);
+  };
+  const onDown = (e: React.PointerEvent<HTMLDivElement>) => { press.current = { x: e.clientX, y: e.clientY, t: performance.now() }; };
+  const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const p = press.current;
+    press.current = null;
+    if (!p) return;
+    // A drag turned the model: whatever was pinned no longer points at its building.
+    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8 || performance.now() - p.t > 450) { setTip(null); return; }
+    pick(e, true);
   };
 
+  const notice = data?.found && complexId ? staleNotice(data, complexId) : null;
   const measured = data?.coverage ? data.coverage.with_height : 0;
   const total = data?.coverage ? data.coverage.buildings : 0;
   return (
@@ -507,11 +541,14 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
           <button type="button" aria-pressed={holoOn} onClick={() => setHoloOn(v => !v)} title="홀로그램 효과">{holoOn ? "홀로그램" : "실사"}</button>
         </div>
       </header>
-      <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerLeave={() => setTip(null)}>
+      <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
+        onPointerLeave={e => { if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
+        {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         {failed3d && <p className="re-holo-msg">이 브라우저에서는 3D를 표시할 수 없습니다.</p>}
         {loading && <div className="re-holo-scan" role="status"><span />건물 윤곽 불러오는 중…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}</p>}
-        {tip && <div className="re-holo-tip" style={{ left: tip.x, top: tip.y }}>{tip.text}</div>}
+        {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
+          role="status">{tip.text}</div>}
       </div>
       <footer className="re-holo-foot">
         {data?.found ? (
@@ -519,7 +556,7 @@ export default function ComplexHologram({ complexId, complexName, caption }: { c
             <span>건물 {total}개 · 층수·높이 확인 {measured}개{total > measured ? ` · ${data.source === "vworld" ? "층수 미등록 부대시설" : "높이 추정"} ${total - measured}개` : ""}</span>
             <span>{data.source === "vworld" ? "건물 윤곽·높이: " : "건물 윤곽: "}{data.attribution}. 외벽 색·창호는 표현용</span>
           </>
-        ) : <span>{coarse ? "한 손가락으로 돌리고 두 손가락으로 확대합니다." : "드래그로 회전, 휠로 확대합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
+        ) : <span>{coarse ? "한 손가락으로 돌리고 두 손가락으로 확대, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 확대합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
     </section>
   );
