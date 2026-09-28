@@ -890,13 +890,10 @@ interface Props {
   paused?: boolean;
 }
 
+/** Cheap check only: creating a throwaway context cost ~100 ms on entry. A browser that
+ * has the API but can't make a context is caught where the scene is created. */
 function supportsWebGL(): boolean {
-  try {
-    const c = document.createElement("canvas");
-    return !!(c.getContext("webgl2") || c.getContext("webgl"));
-  } catch {
-    return false;
-  }
+  return typeof window !== "undefined" && ("WebGL2RenderingContext" in window || "WebGLRenderingContext" in window);
 }
 
 export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLabel, touch, onSelect, paused = false }: Props) {

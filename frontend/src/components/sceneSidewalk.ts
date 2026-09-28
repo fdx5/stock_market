@@ -54,6 +54,13 @@ function segmentIndex(roads: RealEstateRoad[]) {
   };
 }
 
+/** Whether (x, y) is on the carriageway of any surveyed road (its registered width,
+ * plus `margin`): where people must not walk. */
+export function carriageway(roads: RealEstateRoad[], margin: number) {
+  const onRoad = segmentIndex(roads);
+  return (x: number, y: number) => onRoad(x, y, -1, margin);
+}
+
 /** Bucketed footprint rings, for "inside a building" tests. */
 export function ringIndex(rings: Ring[]) {
   const cell = 30, map = new Map<string, Ring[]>();

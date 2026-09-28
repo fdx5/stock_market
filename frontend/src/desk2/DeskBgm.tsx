@@ -148,7 +148,8 @@ function useMarquee(ref: React.RefObject<HTMLElement>, text: string) {
       box.style.setProperty("--shift", `${-Math.max(0, over)}px`);
       box.style.setProperty("--marquee", `${Math.max(6, over / 18)}s`);
     };
-    measure();
+    // The observer's first callback measures (after layout), so nothing here forces a
+    // synchronous layout of the page while React commits.
     const ro = new ResizeObserver(measure);
     ro.observe(box);
     return () => ro.disconnect();

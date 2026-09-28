@@ -16,7 +16,7 @@ import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/cli
 import { vworldBuildings, vworldParcels, vworldRoads } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, FLOOR_M, GROUND_M, inRing, Look, LOOKS, mixLook,
-  moonInSky, paintGroundSteps, waterCovered, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, rng, shared, starField, Tod, TOD_LABEL, TOD_ORDER, todNow,
+  moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, rng, shared, starField, Tod, TOD_LABEL, TOD_ORDER, todNow,
 } from "./complexScene";
 import "../desk2/realestate-hologram.css";
 import type { ComplexRenderer } from "./tidewater/ComplexRenderer";
@@ -25,8 +25,8 @@ import { loadBuildings, saveBuildings } from "./buildingStore";
 import { buildPlants, preloadPlants } from "./scenePlants";
 import { buildLamps, buildTraffic, stitchedRoads } from "./sceneStreet";
 import { FLAT, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
-import { buildSidewalks, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
-import { buildWalkers, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
+import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
+import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
@@ -1114,9 +1114,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // People: on the sidewalks, the complex's perimeter walk and round its towers
       // now; on the alleys (도로 parcels) and park edges once the parcels are in.
       const inFootprint = ringIndex(footprints);
-      const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y);
-      const crowd = (paths: WalkPath[], salt: number, spacing: number, cap: number) => {
-        const walkers = buildWalkers(paths, terrain, seed + salt, spacing, cap);
+      // Nobody walks on a carriageway: paths (parcel edges cross roads where a road's
+      // parcels meet) are cut wherever they enter the surveyed road width.
+      const onCarriageway = carriageway(roads, 0.8);
+      const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y) || onCarriageway(x, y);
+      const crowd = (paths: WalkPath[], salt: number, spacing: number, cap: number, cut = true) => {
+        const walkers = buildWalkers(cut ? cutPaths(paths, blocked) : paths, terrain, seed + salt, spacing, cap);
         if (!walkers) return;
         decor.add(walkers.group);
         if (import.meta.env.DEV) ((stage as unknown as { walkers: unknown[] }).walkers ??= []).push(...walkers.group.userData.walkers);
@@ -1134,12 +1137,22 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         const parcels = data.parcels ?? [];
         const water = buildWater(parcels, waterCovered(data), terrain);
         if (water) { decor.add(water.mesh); disposables.push(water); }
-        void nextSlice(pausedRef.current).then(() => {
-          if (!alive) return;
-          crowd([...ringPaths(parcels.filter(p => p.kind === "도").map(p => p.ring), 1.1, blocked, 0.4, 12),
-            ...ringPaths(parcels.filter(p => p.kind === "공" || p.kind === "원" || p.kind === "체").map(p => p.ring), 2.2, blocked, 0.5)],
-          1, 9, stage.hq ? 700 : 220);
-        });
+        // Thousands of parcel edges, each tested every 2 m against buildings and
+        // carriageways: laid out 60 parcels per slice, in idle time.
+        void (async () => {
+          const edges: [Ring, number, number, number][] = [
+            ...parcels.filter(p => p.kind === "도").map(p => [p.ring, 1.1, 0.4, 12] as [Ring, number, number, number]),
+            ...parcels.filter(p => p.kind === "공" || p.kind === "원" || p.kind === "체").map(p => [p.ring, 2.2, 0.5, 20] as [Ring, number, number, number]),
+          ].filter(([ring]) => ring.some(([x, y]) => Math.abs(x) < T && Math.abs(y) < T));
+          const paths: WalkPath[] = [];
+          for (let i = 0; i < edges.length; i += 60) {
+            await nextSlice(pausedRef.current);
+            if (!alive) return;
+            for (const [ring, off, lateral, minLen] of edges.slice(i, i + 60)) paths.push(...cutPaths(ringPaths([ring], off, blocked, lateral, minLen), blocked));
+          }
+          await nextSlice(pausedRef.current);
+          if (alive) crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
+        })();
         return buildPlants(planting, seed, terrain).then(plants => {
           if (!plants) return;
           if (!alive) { plants.dispose(); return; }

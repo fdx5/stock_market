@@ -246,6 +246,26 @@ export function ringPaths(rings: Ring[], offset: number, blocked: (x: number, y:
   return out;
 }
 
+/** Cut paths wherever a walker (on the line, or keeping to either side of it) would be
+ * somewhere people must not walk. */
+export function cutPaths(paths: WalkPath[], blocked: (x: number, y: number) => boolean, minLen = 8): WalkPath[] {
+  const out: WalkPath[] = [];
+  for (const p of paths) {
+    const n = p.xs.length;
+    let cur: [number, number][] = [], cut = false;
+    const flush = () => { if (cur.length > 2) { const q = toPath(cur, false, p.lift, p.lateral); if (q.cum[q.cum.length - 1] >= minLen) out.push(q); } cur = []; };
+    for (let i = 0; i < n; i++) {
+      const j = Math.min(n - 1, i + 1), k = Math.max(0, i - 1);
+      const dx = p.xs[j] - p.xs[k], dy = p.ys[j] - p.ys[k], l = Math.hypot(dx, dy) || 1, ox = (dy / l) * p.lateral, oy = (-dx / l) * p.lateral;
+      const x = p.xs[i], y = p.ys[i];
+      if (blocked(x, y) || blocked(x + ox, y + oy) || blocked(x - ox, y - oy)) { cut = true; flush(); }
+      else cur.push([x, y]);
+    }
+    if (!cut) out.push(p); else flush();
+  }
+  return out;
+}
+
 interface Walker {
   kind: Kind; path: WalkPath; s: number; dir: 1 | -1; speed: number; phase: number; scale: number; width: number;
   /** Instance slots: [mesh index, slot] per part, in pose order. */

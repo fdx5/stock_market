@@ -97,8 +97,11 @@ const LINE = 1.2;
 function splitName(name: string, size: number, avail: number): [string, string] | null {
   const fits = (t: string) => measureTextWidth(t, size) <= avail;
   if (name.length < 2) return null;
-  let cut = name.length - 1;
-  while (cut > 0 && !fits(name.slice(0, cut))) cut -= 1;
+  // The longest prefix that fits (width grows with length: a binary search finds the
+  // same cut the one-by-one walk did, in a handful of measurements).
+  let lo = 0, hi = name.length - 1;
+  while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (fits(name.slice(0, mid))) lo = mid; else hi = mid - 1; }
+  let cut = lo;
   if (cut === 0) return null;
   for (let k = cut; k > Math.max(0, cut - 5); k -= 1) {
     if (/[\s(\[·-]/.test(name[k]) || /[)\]]/.test(name[k - 1])) {
@@ -115,7 +118,18 @@ function splitName(name: string, size: number, avail: number): [string, string] 
  * given room first: a smaller type size before an ellipsis, the brand mark moved
  * above the name or dropped before the name is cut, two lines before one cut line,
  * and the price line only when all of that still leaves space for it. */
+// Re-renders (hover, a popup opening) lay out the same tiles again: remember them.
+const layoutCache = new Map<string, TileLayout>();
 function tileLayout(item: RealEstateItem, w: number, h: number, ranked = false): TileLayout {
+  const key = `${item.name}|${item.brand ?? ""}|${Math.round(w * 2)}|${Math.round(h * 2)}|${ranked}`;
+  const hit = layoutCache.get(key);
+  if (hit) return hit;
+  const out = tileLayoutUncached(item, w, h, ranked);
+  if (layoutCache.size > 4000) layoutCache.clear();
+  layoutCache.set(key, out);
+  return out;
+}
+function tileLayoutUncached(item: RealEstateItem, w: number, h: number, ranked: boolean): TileLayout {
   const base = tileDisplayInfo(w, h, item.name);
   const pctSize = base.fontSizes.pct;
   const iconSize = base.iconSize;
@@ -276,6 +290,15 @@ export default function RealEstateMapPage() {
   const firstUrl = useRef(true);
   const previousNavigation = useRef("");
   const [hovered, setHovered] = useState<RealEstateItem | null>(null);
+  // The two WebGL views (지역별 등락 지도, the 3D 단지뷰) start after the page's first
+  // paint, in idle time: their contexts and shaders otherwise block entry.
+  const [viewsReady, setViewsReady] = useState(false);
+  useEffect(() => {
+    const ric = window.requestIdleCallback;
+    if (typeof ric === "function") { const id = ric(() => setViewsReady(true), { timeout: 1200 }); return () => window.cancelIdleCallback(id); }
+    const t = window.setTimeout(() => setViewsReady(true), 300);
+    return () => window.clearTimeout(t);
+  }, []);
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
@@ -351,9 +374,12 @@ export default function RealEstateMapPage() {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const update = () => setSize({ w: el.clientWidth, h: el.clientHeight });
-    update();
-    const ro = new ResizeObserver(update);
+    // The observer reports the size on observe (and on every change) without forcing a
+    // synchronous layout of the whole page in the middle of a commit.
+    const ro = new ResizeObserver(([entry]) => {
+      const w = Math.round(entry.contentRect.width), h = Math.round(entry.contentRect.height);
+      setSize(prev => (prev.w === w && prev.h === h ? prev : { w, h }));
+    });
     ro.observe(el);
     return () => ro.disconnect();
   }, [view, loading, data?.items.length]);
@@ -852,7 +878,8 @@ export default function RealEstateMapPage() {
                 <span>지역별 등락 지도</span>
                 <small>{regionMapOpen ? "접기" : "펼치기"}</small>
               </button>
-              {regionMapOpen && regions.length > 0 && (
+              {regionMapOpen && regions.length > 0 && !viewsReady && <div className="rm3 rm3--placeholder" />}
+              {regionMapOpen && regions.length > 0 && viewsReady && (
                 <Suspense fallback={<div className="rm3 rm3--placeholder" />}>
                   <RegionMap3D
                     regions={regions}
@@ -873,7 +900,8 @@ export default function RealEstateMapPage() {
                 </Suspense>
               )}
             </div>
-            {!stacked && (
+            {!stacked && !viewsReady && <div className="re-holo re-holo--placeholder" />}
+            {!stacked && viewsReady && (
               <Suspense fallback={<div className="re-holo re-holo--placeholder" />}>
                 <ComplexHologram
                   complexId={holoItem?.id ?? null}

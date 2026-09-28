@@ -14,13 +14,24 @@ let measureCtx: CanvasRenderingContext2D | null | undefined;
 /** Used to decide whether a tile has room to show its company icon: only when the name
  * still fits at full length (no CSS ellipsis) after making room for the icon, so the
  * icon never pushes a name into truncation. */
+// Tile layout asks for the same names at the same sizes over and over (a line split
+// tries every cut, at every font step): measured once each.
+const widthCache = new Map<string, number>();
+let measureFont = "";
 export function measureTextWidth(text: string, fontSizePx: number, weight = 700): number {
+  const key = `${weight}|${fontSizePx}|${text}`;
+  const hit = widthCache.get(key);
+  if (hit !== undefined) return hit;
   if (measureCtx === undefined) {
     measureCtx = document.createElement("canvas").getContext("2d");
   }
   if (!measureCtx) return text.length * fontSizePx * 0.6;
-  measureCtx.font = `${weight} ${fontSizePx}px ${TILE_FONT_FAMILY}`;
-  return measureCtx.measureText(text).width;
+  const font = `${weight} ${fontSizePx}px ${TILE_FONT_FAMILY}`;
+  if (font !== measureFont) { measureCtx.font = font; measureFont = font; }
+  const width = measureCtx.measureText(text).width;
+  if (widthCache.size > 20000) widthCache.clear();
+  widthCache.set(key, width);
+  return width;
 }
 
 /** Scales name/pct text with how much area the tile actually has, instead of a single
