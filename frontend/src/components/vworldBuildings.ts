@@ -249,3 +249,21 @@ export async function vworldBuildings(
   memo.set(id, out);
   return out;
 }
+
+/** Registered buildings on the complex's parcel that predate it: the houses its site was
+ * cleared of. The national building data keeps them until they are deregistered, so a
+ * rebuilt complex showed hundreds of one- and two-storey houses between its towers.
+ * Gone: approved more than 3 years before the complex was completed, and detached
+ * houses (용도 01000) under 5 storeys (an apartment site has none). Only
+ * while the complex's own towers remain: where the data still holds just the old
+ * buildings (not yet updated), they are all that can be shown. */
+export function withoutDemolished(data: RealEstateBuildingsResponse): RealEstateBuildingsResponse {
+  if (!data.found || !data.buildings?.length) return data;
+  const built = data.built;
+  const gone = (b: RealEstateBuilding) => (!!built && !!b.approved && b.approved < built - 3)
+    || (b.floors < 5 && b.use === "01000");
+  const keep = data.buildings.filter(b => !gone(b));
+  if (keep.length === data.buildings.length || !keep.some(b => b.floors >= 10)) return data;
+  return { ...data, buildings: keep, coverage: { ...data.coverage, buildings: keep.length, with_height: keep.filter(b => b.height_source !== "estimated").length } };
+}
+

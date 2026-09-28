@@ -7,6 +7,8 @@ import RealEstateExploreControls from "../src/components/RealEstateExploreContro
 import { FILTER_DEFAULTS, readEstateFilters, tradeState } from "../src/components/realEstateTools";
 import { RealEstateItem } from "../src/api/client";
 import RankCrown, { crownLabel } from "../src/components/RankCrown";
+import { withoutDemolished } from "../src/components/vworldBuildings";
+import type { RealEstateBuilding, RealEstateBuildingsResponse } from "../src/api/client";
 
 const item: RealEstateItem = {
   id: "11680:test", name: "검증 아파트", sgg: "강남구", dong: "대치동", group: "대치동", brand: null,
@@ -106,4 +108,20 @@ test("trade trend is a median of brokered trades and never bridges a long gap", 
   const lone = tradeTrend([[20240101, 100, 1, 0], [20240110, 101, 1, 0], [20240120, 102, 1, 0], [20250601, 200, 1, 0]]);
   assert.equal(lone.length, 1, "a lone trade after a gap draws no line and borrows no prices");
   assert.ok(lone[0].every(([, v]) => v < 150));
+});
+
+test("houses cleared for a rebuilt complex are dropped, never its towers or an unrebuilt register", () => {
+  const b = (floors: number, approved: number | null, use: string | null, name: string | null = null): RealEstateBuilding =>
+    ({ rings: [[[0, 0], [10, 0], [10, 10]]], height: floors * 3, floors, base: 0, height_source: "measured", name, use, approved });
+  const data = (buildings: RealEstateBuilding[], built: number | null) => ({ id: "t", name: "t", address: "", built, found: true, site: [],
+    buildings, context: [], coverage: { buildings: buildings.length, with_height: buildings.length }, vworld: true, error: null, fetched_at: "" }) as unknown as RealEstateBuildingsResponse;
+  const rebuilt = withoutDemolished(data([b(36, null, null, "101동"), b(2, null, null, "경비실"), b(2, 1981, "01000"), b(1, null, "01000"), b(5, 2002, "02000")], 2022));
+  assert.deepEqual(rebuilt.buildings.map(x => x.name), ["101동", "경비실"]);
+  assert.equal(rebuilt.coverage.buildings, 2);
+  // The register still holds only the old buildings: nothing better to show.
+  const stale = data([b(15, 1990, "02000"), b(2, 1985, "01000")], 2024);
+  assert.equal(withoutDemolished(stale), stale);
+  // An old complex keeps its own towers.
+  const old = data([b(14, 1979, "02000"), b(14, 1979, "02000"), b(2, 1979, "07000")], 1979);
+  assert.equal(withoutDemolished(old).buildings.length, 3);
 });

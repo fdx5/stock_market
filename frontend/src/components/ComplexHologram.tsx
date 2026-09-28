@@ -13,7 +13,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
-import { vworldBuildings, vworldParcels, vworldRoads } from "./vworldBuildings";
+import { vworldBuildings, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, FLOOR_M, GROUND_M, inRing, Look, LOOKS, mixLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, rng, shared, starField, Tod, TOD_LABEL, TOD_ORDER, todNow,
@@ -889,7 +889,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         }
         return full;
       })
-      .then(res => {
+      .then(found => {
+        const res = withoutDemolished(found);
         if (res.found) {
           if (!buildingCache.has(complexId)) void saveBuildings(complexId, res);
           buildingCache.set(complexId, { at: Date.now(), data: res });
