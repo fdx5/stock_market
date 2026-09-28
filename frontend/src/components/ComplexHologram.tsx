@@ -28,6 +28,7 @@ import { FLAT, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
+import { disposeControls, releaseRenderer } from "../threeCleanup";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
  * real ones (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via
@@ -307,6 +308,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     scene.fog = new THREE.FogExp2("#b9cadb", 0.001);
     const camera = new THREE.PerspectiveCamera(36, 1, 1, 8000);
     camera.position.set(260, 160, 260);
+    // Every listener this view puts on its canvas goes when it closes: the canvas stays
+    // reachable from materials shared between views (three's dispose listeners), and
+    // through these closures it would keep the closed view's scene alive.
+    const listening = new AbortController();
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.12;
@@ -316,8 +321,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // sidewalk in about twenty notches. Pinch uses zoomSpeed as an exponent, so touch
     // keeps a gentle 1 (set per input below).
     controls.zoomSpeed = WHEEL_ZOOM;
-    renderer.domElement.addEventListener("wheel", () => { controls.zoomSpeed = WHEEL_ZOOM; }, { capture: true, passive: true });
-    renderer.domElement.addEventListener("pointerdown", e => { controls.zoomSpeed = e.pointerType === "touch" ? 1 : WHEEL_ZOOM; }, { capture: true });
+    renderer.domElement.addEventListener("wheel", () => { controls.zoomSpeed = WHEEL_ZOOM; }, { capture: true, passive: true, signal: listening.signal });
+    renderer.domElement.addEventListener("pointerdown", e => { controls.zoomSpeed = e.pointerType === "touch" ? 1 : WHEEL_ZOOM; }, { capture: true, signal: listening.signal });
     controls.touches.ONE = navMode === "pan" ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
     controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
     // Pinch zooms toward the point between the two fingers. OrbitControls takes that
@@ -375,11 +380,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       clearTimeout(zoomEnd);
       zoomEnd = window.setTimeout(() => { zooming = false; reanchor(); }, 300);
     };
-    renderer.domElement.addEventListener("wheel", zoomNow, { capture: true, passive: true });
+    renderer.domElement.addEventListener("wheel", zoomNow, { capture: true, passive: true, signal: listening.signal });
     const touches = new Set<number>();
-    renderer.domElement.addEventListener("pointerdown", e => { if (e.pointerType === "touch") touches.add(e.pointerId); }, { capture: true });
-    renderer.domElement.addEventListener("pointermove", e => { if (touches.size > 1 && touches.has(e.pointerId)) zoomNow(); }, { capture: true });
-    for (const type of ["pointerup", "pointercancel"] as const) renderer.domElement.addEventListener(type, e => { touches.delete(e.pointerId); }, { capture: true });
+    renderer.domElement.addEventListener("pointerdown", e => { if (e.pointerType === "touch") touches.add(e.pointerId); }, { capture: true, signal: listening.signal });
+    renderer.domElement.addEventListener("pointermove", e => { if (touches.size > 1 && touches.has(e.pointerId)) zoomNow(); }, { capture: true, signal: listening.signal });
+    for (const type of ["pointerup", "pointercancel"] as const) renderer.domElement.addEventListener(type, e => { touches.delete(e.pointerId); }, { capture: true, signal: listening.signal });
     controls.addEventListener("change", () => {
       const t = controls.target, st = stageRef.current;
       if (!st || zooming) return;
@@ -708,7 +713,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       ro.disconnect();
 
       stage.disposeModel();
-      controls.dispose();
+      disposeControls(controls);
+      listening.abort();
       composer.dispose();
       target.dispose();
       gtao?.dispose();
@@ -720,8 +726,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       stars.geometry.dispose();
       moon.dispose();
       (stars.material as THREE.Material).dispose();
-      renderer.dispose();
-      renderer.domElement.remove();
+      releaseRenderer(renderer);
       stageRef.current = null;
       applyLookRef.current = null;
     };

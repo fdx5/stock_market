@@ -8,6 +8,7 @@ import { api, RealEstatePeriod, RealEstateRegionLevel, RealEstateRegionMove, Rea
 import { pct } from "../mapTile";
 import { ThemeMode, useThemeMode } from "../theme";
 import { changeToRgb } from "../treemap";
+import { disposeControls } from "../threeCleanup";
 
 /* The 부동산 맵's region map: Korea in relief, one level at a time — the 시·도, one
  * 시·도's 시·군·구, or one 시·군·구's 읍·면·동 — each region raised as a block and
@@ -309,7 +310,7 @@ class RegionScene {
     el.removeEventListener("pointercancel", this.handleCancel);
     el.removeEventListener("touchmove", this.blockTwoFingerScroll);
     this.clear();
-    this.controls.dispose();
+    disposeControls(this.controls);
     this.outlineMat.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();

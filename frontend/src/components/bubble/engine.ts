@@ -6,6 +6,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { LABEL_H, LABEL_W, LabelData, drawLabel, logoPalette, monogramCanvas, transparentLogo } from "./assets";
 import { FLOOR_FRAG, FLOOR_VERT, HALO_FRAG, HALO_VERT, SKY_FRAG, SKY_VERT, SPHERE_FRAG, SPHERE_VERT, STAR_FRAG, STAR_VERT } from "./shaders";
+import { disposeControls } from "../../threeCleanup";
 
 /* The 증시버블 observatory — one engine, one loop.
  *
@@ -809,7 +810,7 @@ export class BubbleEngine {
     this.stage.style.cursor = "";
     this.controls.removeEventListener("start", this.onControlStart);
     this.controls.removeEventListener("end", this.onControlEnd);
-    this.controls.dispose();
+    disposeControls(this.controls);
     this.clearOrbs();
     this.sphereGeo.dispose();
     this.haloGeo.dispose();

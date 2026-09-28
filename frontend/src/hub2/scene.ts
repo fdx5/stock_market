@@ -55,6 +55,7 @@ import {
   WORMHOLE_FRAG,
   WORMHOLE_VERT,
 } from "./shaders";
+import { disposeControls } from "../threeCleanup";
 
 /* ============================================================================
    ORBIT II — the engine.
@@ -7762,7 +7763,7 @@ export class HubScene {
     window.removeEventListener("wheel", this.onUserInput);
 
     this.timer.disconnect();
-    this.controls.dispose();
+    disposeControls(this.controls);
     this.glow.dispose();
     for (const item of this.disposables) item.dispose();
     for (const texture of this.textures) texture.dispose();

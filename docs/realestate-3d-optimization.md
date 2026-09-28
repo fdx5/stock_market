@@ -196,3 +196,19 @@ GIS건물통합정보에는 재건축으로 철거된 건물이 말소 전까지
 - 물 영역 아래 지면 메시를 수면 0.47m 아래로 파낸다(`buildWater().sink`). 도로는 원래 높이라
   하천 위 도로가 다리로 보인다.
 단위 테스트: 둑처럼 높은 20m 구간이 있는 400m 하천에서 그 구간에 수면과 파낸 지면이 존재.
+
+# 단지 열고 닫기 반복 시 누수 (2026-09-28, 7차)
+`scripts/test-complex-leak.py`: 상시 3D뷰 옆에서 상세 시트처럼 3D뷰를 마운트/언마운트 반복,
+GC 후 힙·GPU 버퍼/텍스처·살아 있는 WebGL 컨텍스트·rAF 수 측정.
+- 원인 1: React는 DOM을 먼저 떼고 cleanup을 실행 → OrbitControls.dispose()가
+  `getRootNode()`(이미 분리된 조각)에서 keydown 리스너를 지워 document에 남음 → 닫힌 뷰 전체 보유.
+  `threeCleanup.disposeControls`로 document에서도 제거(3D를 쓰는 모든 페이지에 적용).
+- 원인 2: WebGL 컨텍스트 미반납 → `releaseRenderer`(forceContextLoss).
+- 원인 3(WebGL 경로): 뷰 간 공유 재질의 three dispose 리스너 → 캔버스 → 우리 캔버스 리스너 → 장면.
+  캔버스 리스너를 AbortController로 일괄 해제.
+- 상한 없는 캐시: VWorld 단지 응답 memo 8개, 지형 타일 256개로 제한.
+
+| 반복 | 수정 전 | 수정 후 WebGPU | 수정 후 WebGL |
+| --- | ---: | ---: | ---: |
+| 힙 증가/회 | +35MB | +0.2MB | ~0 |
+| WebGL 컨텍스트 | 회당 +1 | 1 유지 | 1 유지 |

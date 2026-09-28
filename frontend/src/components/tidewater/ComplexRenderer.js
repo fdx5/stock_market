@@ -399,6 +399,7 @@ export class ComplexRenderer {
   }
   dispose() {
     this.disposed = true;
+    if (shadowOwner === this) shadowOwner = null;
     this.context.unconfigure();
     this.canvas.remove();
     for (const mat of this.materials.values()) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); }

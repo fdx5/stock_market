@@ -61,6 +61,7 @@ function tile(x: number, y: number): Promise<Float32Array | null> {
       })
       .catch(() => { tiles.delete(key); return null; });
     tiles.set(key, hit);
+    if (tiles.size > 256) tiles.delete(tiles.keys().next().value!);
   }
   return hit;
 }
@@ -145,6 +146,8 @@ function vworldTile(token: string, x: number, y: number): Promise<Float32Array |
       .catch(() => null)
       .then(t => { if (!t) vwTiles.delete(k); return t; });
     vwTiles.set(k, hit);
+    // (a few MB at most: 17 KB per tile, a complex needs a handful)
+    if (vwTiles.size > 256) vwTiles.delete(vwTiles.keys().next().value!);
   }
   return hit;
 }

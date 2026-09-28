@@ -158,7 +158,13 @@ export async function vworldParcels(data: RealEstateBuildingsResponse, key: stri
   return { parcels: out, streets };
 }
 
+// The last few complexes (a full response is a few MB: every neighbour's footprint).
 const memo = new Map<string, RealEstateBuildingsResponse | null>();
+const remember = (id: string, value: RealEstateBuildingsResponse | null) => {
+  memo.delete(id);
+  memo.set(id, value);
+  if (memo.size > 8) memo.delete(memo.keys().next().value!);
+};
 
 export async function vworldBuildings(
   id: string, query: { parcel: string | null; name: string }, key: string,
@@ -169,12 +175,12 @@ export async function vworldBuildings(
   if (!query.parcel) return null;
   const point = (await call(ADDRESS, { service: "address", request: "getcoord", version: "2.0", crs: "epsg:4326",
     address: query.parcel, refine: "true", simple: "false", type: "parcel", key, domain })).point;
-  if (!point) { memo.set(id, null); return null; }
+  if (!point) { remember(id, null); return null; }
   const lon = +point.x, lat = +point.y;
   prefetchTerrain({ lat, lon }, 700, key);
   const common = { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true", key, domain };
   const parcel = features(await call(DATA, { ...common, data: "LP_PA_CBND_BUBUN", geomFilter: `POINT(${lon} ${lat})`, size: 10 }))[0];
-  if (!parcel) { memo.set(id, null); return null; }
+  if (!parcel) { remember(id, null); return null; }
   const rings = polygons(parcel.geometry).map(p => p[0] as unknown as Ring);
   const lons = rings.flat().map(p => p[0]), lats = rings.flat().map(p => p[1]);
   const padLon = CONTEXT_M / (111_320 * Math.cos((lat * Math.PI) / 180)), padLat = CONTEXT_M / 110_540;
@@ -231,7 +237,7 @@ export async function vworldBuildings(
       (mine ? buildings : context).push(b);
     }
   }
-  if (!buildings.length) { memo.set(id, null); return null; }
+  if (!buildings.length) { remember(id, null); return null; }
   fillHeights(buildings);
   fillHeights(context);
   const near = (b: RealEstateBuilding) => Math.hypot(...centroid(b.rings[0]));
@@ -246,7 +252,7 @@ export async function vworldBuildings(
     site, buildings, context: nearby, roads, coverage: { buildings: buildings.length, with_height: measured },
     vworld: true, error: null, fetched_at: new Date().toISOString(),
   };
-  memo.set(id, out);
+  remember(id, out);
   return out;
 }
 

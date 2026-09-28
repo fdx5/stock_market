@@ -35,6 +35,7 @@ import "./stocksPage.css";
 import "./kospiOrbit.css";
 import "./kospiOrbitRefresh.css";
 import "./orbitCompanyArchive.css";
+import { disposeControls } from "../threeCleanup";
 
 type System = {
   name: string;
@@ -2234,7 +2235,7 @@ uniform float uDetailLevel;`,
         releaseAutoFocusFromWheel,
         true,
       );
-      controls.dispose();
+      disposeControls(controls);
       composer?.dispose();
       backgroundTexture?.dispose();
       renderer.dispose();

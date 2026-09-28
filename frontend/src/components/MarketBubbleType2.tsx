@@ -16,6 +16,7 @@ import MarketBubbleIcon from "./MarketBubbleIcon";
 import MarketBubbleDiscussion from "./MarketBubbleDiscussion";
 import "./marketBubbleType2.css";
 import "./marketBubble.css";
+import { disposeControls } from "../threeCleanup";
 
 type Market = "kospi" | "kosdaq" | "nasdaq";
 
@@ -1431,7 +1432,7 @@ export default function MarketBubbleType2() {
       dom.removeEventListener("dblclick", onDblClick);
       dom.removeEventListener("webglcontextlost", onContextLost);
       dom.removeEventListener("webglcontextrestored", onContextRestored);
-      controls.dispose();
+      disposeControls(controls);
       disposeOrbs(orbsRef.current);
       orbsRef.current = [];
       pickMeshesRef.current = [];
