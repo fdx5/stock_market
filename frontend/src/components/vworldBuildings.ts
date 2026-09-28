@@ -1,4 +1,5 @@
-import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateRoad } from "../api/client";
+import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateParcel, RealEstateRoad } from "../api/client";
+import { prefetchTerrain } from "./sceneTerrain";
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
  * browser. VWorld answers Korean networks only, so the server abroad can't ask it;
@@ -117,6 +118,46 @@ export async function vworldRoads(data: RealEstateBuildingsResponse, key: string
   return parseRoads(features(result), project);
 }
 
+/** Every 연속지적도 parcel around a result (the neighbourhood's radius), with its 지목 —
+ * the last character of the 지번 (대 대지, 도 도로, 공 공원, 학 학교용지, 천 하천, 임 임야,
+ * 전 밭, 답 논, 주 주차장, 체 체육용지, 종 종교용지, 구 구거, 유 유지, 잡 잡종지 …). Pages of
+ * 1000 in parallel; about 1 MB per page, so this runs after the first frame. */
+export async function vworldParcels(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com"): Promise<{ parcels: RealEstateParcel[]; streets: [number, number][][] }> {
+  if (!data.center) return { parcels: [], streets: [] };
+  const { lat, lon } = data.center;
+  const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
+  const pts = [...data.site.flat(), ...data.buildings.flatMap(b => b.rings[0])];
+  if (!pts.length) return { parcels: [], streets: [] };
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = CONTEXT_M + 30;
+  const box = `BOX(${lon + (Math.min(...xs) - pad) / kx},${lat + (Math.min(...ys) - pad) / ky},${lon + (Math.max(...xs) + pad) / kx},${lat + (Math.max(...ys) + pad) / ky})`;
+  const page = (n: number) => call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",
+    key, domain, data: "LP_PA_CBND_BUBUN", geomFilter: box, size: 1000, page: n }).then(features).catch(() => [] as Feature[]);
+  // 도로명주소 도로 (all named roads, alleys too) alongside.
+  const streetFs = call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "false",
+    key, domain, data: "LT_L_SPRD", geomFilter: box, size: 1000, page: 1 }).then(features).catch(() => [] as Feature[]);
+  // Page on only while pages come back full (a page past the end repeats the first).
+  const all = await page(1);
+  for (let n = 2; n <= 6 && all.length >= (n - 1) * 1000; n++) all.push(...await page(n));
+  const seen = new Set<string>();
+  const unique = all.filter(f => { const k = f.properties.pnu ?? JSON.stringify(f.geometry?.coordinates ?? "").slice(0, 80); if (seen.has(k)) return false; seen.add(k); return true; });
+  const project = ([x, y]: number[]): [number, number] => [Math.round((x - lon) * kx * 100) / 100, Math.round((y - lat) * ky * 100) / 100];
+  const out: RealEstateParcel[] = [];
+  for (const f of unique) {
+    const kind = (f.properties.jibun ?? "").trim().slice(-1);
+    for (const poly of polygons(f.geometry)) {
+      const ring = clean(poly[0].map(project));
+      if (ring) out.push({ ring, kind });
+    }
+  }
+  const streets: [number, number][][] = [];
+  for (const f of await streetFs) {
+    const g = f.geometry;
+    const lines = g?.type === "LineString" ? [g.coordinates] : g?.type === "MultiLineString" ? g.coordinates : [];
+    for (const l of lines as number[][][]) if (l.length > 1) streets.push(l.map(project));
+  }
+  return { parcels: out, streets };
+}
+
 const memo = new Map<string, RealEstateBuildingsResponse | null>();
 
 export async function vworldBuildings(
@@ -130,6 +171,7 @@ export async function vworldBuildings(
     address: query.parcel, refine: "true", simple: "false", type: "parcel", key, domain })).point;
   if (!point) { memo.set(id, null); return null; }
   const lon = +point.x, lat = +point.y;
+  prefetchTerrain({ lat, lon }, 700, key);
   const common = { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true", key, domain };
   const parcel = features(await call(DATA, { ...common, data: "LP_PA_CBND_BUBUN", geomFilter: `POINT(${lon} ${lat})`, size: 10 }))[0];
   if (!parcel) { memo.set(id, null); return null; }
@@ -138,8 +180,8 @@ export async function vworldBuildings(
   const padLon = CONTEXT_M / (111_320 * Math.cos((lat * Math.PI) / 180)), padLat = CONTEXT_M / 110_540;
   const box = `BOX(${Math.min(...lons) - padLon},${Math.min(...lats) - padLat},${Math.max(...lons) + padLon},${Math.max(...lats) + padLat})`;
   // The parcel's own box (every page: the complex must be whole) and the padded
-  // neighbourhood (one page is plenty of setting) in parallel — each JSONP call is
-  // ~1 MB of uncompressed GeoJSON, the slow part in a browser.
+  // neighbourhood (every page too: each registered neighbour in the radius is drawn),
+  // in parallel — each JSONP call is ~1 MB of uncompressed GeoJSON, the slow part.
   const tight = `BOX(${Math.min(...lons)},${Math.min(...lats)},${Math.max(...lons)},${Math.max(...lats)})`;
   const fetchBox = (geomFilter: string, page: number) =>
     call(DATA, { ...common, data: "LT_C_BLDGINFO", geomFilter, size: 1000, page }).then(features);
@@ -156,7 +198,14 @@ export async function vworldBuildings(
   const rLon = ROAD_M / (111_320 * Math.cos((lat * Math.PI) / 180)), rLat = ROAD_M / 110_540;
   const roadBox = `BOX(${Math.min(...lons) - rLon},${Math.min(...lats) - rLat},${Math.max(...lons) + rLon},${Math.max(...lats) + rLat})`;
   const roadFs = call(DATA, { ...common, data: "LT_L_N3A0020000", geomFilter: roadBox, size: 1000, page: 1 }).then(features).catch(() => [] as Feature[]);
-  const [mineFs, padFs, roadList] = await Promise.all([own, fetchBox(box, 1).catch(() => [] as Feature[]), roadFs]);
+  const around1 = (async () => {
+    // Pages 1 and 2 together (dense city blocks fill a page), then more only if needed.
+    const [p1, p2] = await Promise.all([fetchBox(box, 1).catch(() => [] as Feature[]), fetchBox(box, 2).catch(() => [] as Feature[])]);
+    const all = [...p1, ...p2];
+    for (let page = 3, last = p2; page <= 5 && last.length >= 1000; page++) { last = await fetchBox(box, page).catch(() => []); all.push(...last); }
+    return all;
+  })();
+  const [mineFs, padFs, roadList] = await Promise.all([own, around1, roadFs]);
   const seen = new Set<string>();
   const sig = (f: Feature) => JSON.stringify(f.geometry?.coordinates ?? "").slice(0, 80);
   const around = [...mineFs, ...padFs].filter(f => { const k = sig(f); if (seen.has(k)) return false; seen.add(k); return true; });
@@ -186,7 +235,8 @@ export async function vworldBuildings(
   fillHeights(buildings);
   fillHeights(context);
   const near = (b: RealEstateBuilding) => Math.hypot(...centroid(b.rings[0]));
-  const nearby = context.filter(b => b.height >= 4).sort((a, b) => near(a) - near(b)).slice(0, 700);
+  // Every registered building, down to low annexes (2.5 m); only sheds below that go.
+  const nearby = context.filter(b => b.height >= 2.5).sort((a, b) => near(a) - near(b)).slice(0, 3000);
   const site = rings.map(r => clean(r.map(project))).filter((r): r is Ring => !!r);
   const roads = parseRoads(roadList, project);
   const measured = buildings.filter(b => b.height_source !== "estimated").length;

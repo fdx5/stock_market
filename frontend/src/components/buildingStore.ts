@@ -4,15 +4,19 @@ import type { RealEstateBuildingsResponse } from "../api/client";
  * draws without a network round trip. Shapes change on a scale of years; the
  * server keeps them 30 days, and so do we. Any storage failure is a cache miss. */
 
-// v2: responses carry roads.
-const DB = "kospimap-3d", STORE = "buildings-v2", KEEP_MS = 30 * 86400_000, MAX = 60;
+// v2: responses carry roads. v3: every registered neighbour in the radius.
+const DB = "kospimap-3d", STORE = "buildings-v3", KEEP_MS = 30 * 86400_000, MAX = 60;
 
 let opening: Promise<IDBDatabase | null> | null = null;
 function db(): Promise<IDBDatabase | null> {
   opening ??= new Promise(resolve => {
     try {
-      const req = indexedDB.open(DB, 2);
-      req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE); };
+      const req = indexedDB.open(DB, 3);
+      req.onupgradeneeded = () => {
+        const names = req.result.objectStoreNames;
+        for (const old of ["buildings", "buildings-v2"]) if (names.contains(old)) req.result.deleteObjectStore(old);
+        if (!names.contains(STORE)) req.result.createObjectStore(STORE);
+      };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
       req.onblocked = () => resolve(null);

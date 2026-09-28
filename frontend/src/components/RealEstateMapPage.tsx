@@ -862,6 +862,7 @@ export default function RealEstateMapPage() {
                     period={period}
                     periodLabel={periodInfo.label}
                     touch={touchUi}
+                    paused={!!sheetItem}
                     onSelect={(next) => {
                       setSido(next.sido);
                       setSgg(next.sgg);
@@ -877,6 +878,7 @@ export default function RealEstateMapPage() {
                 <ComplexHologram
                   complexId={holoItem?.id ?? null}
                   complexName={holoItem?.name}
+                  paused={!!sheetItem}
                   caption={holoPick ? "선택 단지 · 3D" : `${dong || sggNode?.name || sidoNode?.name || "지역"} 대장단지 · ${crownMode === "price" ? "평단가" : "종합"} 1위`}
                 />
               </Suspense>

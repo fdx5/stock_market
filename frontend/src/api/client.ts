@@ -1221,6 +1221,8 @@ export interface RealEstateBuilding {
   approved?: number | null;
 }
 
+export interface RealEstateParcel { ring: [number, number][]; kind: string }
+
 export interface RealEstateRoad { line: [number, number][]; width: number; lanes: number }
 
 export interface RealEstateBuildingsResponse {
@@ -1233,6 +1235,12 @@ export interface RealEstateBuildingsResponse {
   /** Surveyed road centrelines (국가기본도 도로중심선) within ~150 m of the parcel,
    * with their registered width (m) and lane count; major roads only. */
   roads?: RealEstateRoad[];
+  /** 연속지적도 parcels around the complex with their 지목 (대, 도, 공, 학, 천, 임 …),
+   * outer ring in the same metre frame; the ground is painted by land use from them. */
+  parcels?: RealEstateParcel[];
+  /** 도로명주소 도로 centrelines (every named road, alleys included), same frame; used to
+   * tell a covered stream (a road over a water parcel) from open water. */
+  streets?: [number, number][][];
   coverage?: { buildings: number; with_height: number };
   vworld: boolean; error: string | null; fetched_at: string;
   /** peek: nothing kept yet — the browser asks VWorld with this parcel address and key. */

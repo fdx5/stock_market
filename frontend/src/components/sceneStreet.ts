@@ -1,17 +1,22 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import type { RealEstateRoad } from "../api/client";
 import type { Lamp } from "./complexScene";
 import { rng } from "./complexScene";
+import { FLAT, type Terrain } from "./sceneTerrain";
+import { KERB_H } from "./sceneSidewalk";
 
 /* The street: lamps on the surveyed major roads, and traffic driving both ways on
  * them. Cars, vans and box trucks are Kenney's CC0 Car Kit (packed by type into
  * /3d/vehicles.bin), scaled to real dimensions; city buses, cargo and container
- * trucks are modelled here in the same plain style. Footprint frame (x east, y north) maps to world (x, -z). */
+ * trucks are modelled here in the same plain style; the service vehicles (119 구급차,
+ * 경찰차, 소방 펌프차, 압축 청소차, 레미콘) in rounded panels with real proportions.
+ * Everything stands on the terrain (sceneTerrain.ts). Footprint frame (x east, y north) maps to world (x, -z). */
 
 // ---------- Lamps ----------
 
-export function buildLamps(lamps: Lamp[]) {
+export function buildLamps(lamps: Lamp[], terrain: Terrain = FLAT) {
   const posts: THREE.BufferGeometry[] = [], heads: THREE.BufferGeometry[] = [], halos: THREE.BufferGeometry[] = [];
   const pole = new THREE.CylinderGeometry(0.08, 0.13, 9, 6).toNonIndexed(); pole.translate(0, 4.5, 0);
   const arm = new THREE.BoxGeometry(0.1, 0.1, 1.9).toNonIndexed(); arm.translate(0, 8.9, 0.9);
@@ -21,7 +26,8 @@ export function buildLamps(lamps: Lamp[]) {
   for (const l of lamps) {
     // Arm (+z of the model) reaches over the road: world direction (dx, 0, -dy).
     q.setFromAxisAngle(up, Math.atan2(l.dx, -l.dy));
-    m.compose(new THREE.Vector3(l.x, 0, -l.y), q, one);
+    // Lamps stand on the sidewalk (kerb height above the ground).
+    m.compose(new THREE.Vector3(l.x, terrain.at(l.x, l.y) + KERB_H, -l.y), q, one);
     posts.push(pole.clone().applyMatrix4(m), arm.clone().applyMatrix4(m));
     heads.push(head.clone().applyMatrix4(m));
     halos.push(halo.clone().applyMatrix4(m));
@@ -156,6 +162,94 @@ function cargoGeometry(cab: string) {
   ]);
 }
 
+/* Service vehicles: rounded panels (vertex colours), glazing, real wheels. */
+function paint(g: THREE.BufferGeometry, color: string) {
+  const out = g.index ? g.toNonIndexed() : g;
+  if (out !== g) g.dispose();
+  out.deleteAttribute("uv");
+  const c = new THREE.Color(color), n = out.getAttribute("position").count, col = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++) col.set([c.r, c.g, c.b], i * 3);
+  out.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  return out;
+}
+const rbox = (w: number, h: number, l: number, x: number, y: number, z: number, color: string, r = 0.08) =>
+  paint(new RoundedBoxGeometry(w, h, l, 2, Math.min(r, w / 2 - 0.001, h / 2 - 0.001, l / 2 - 0.001)).translate(x, y, z), color);
+const GLASS = "#1b2630", TYRE = "#1a1b1d", HUB = "#a9adb2";
+function wheelPair(W: number, z: number, r = 0.4, dual = false): THREE.BufferGeometry[] {
+  const out: THREE.BufferGeometry[] = [];
+  for (const s of [-1, 1]) {
+    const x = s * (W / 2 - (dual ? 0.3 : 0.16));
+    out.push(paint(new THREE.CylinderGeometry(r, r, dual ? 0.55 : 0.28, 16).rotateZ(Math.PI / 2).translate(x, r, z), TYRE));
+    out.push(paint(new THREE.CylinderGeometry(r * 0.55, r * 0.55, 0.02, 12).rotateZ(Math.PI / 2).translate(x + s * (dual ? 0.285 : 0.145), r, z), HUB));
+  }
+  return out;
+}
+function assemble(list: THREE.BufferGeometry[]) {
+  const out = mergeGeometries(list, false)!;
+  list.forEach(g => g.dispose());
+  return out;
+}
+/** 119 구급차: 5.7 m van with a box body, red bands, light bar. */
+function ambulanceGeometry() {
+  return assemble([
+    rbox(1.96, 1.2, 1.7, 0, 1.0, 1.95, "#f4f4f2", 0.2), paint(new THREE.BoxGeometry(1.86, 0.62, 0.05).rotateX(-0.35).translate(0, 1.55, 2.62), GLASS),
+    rbox(2.02, 2.05, 3.9, 0, 1.52, -0.75, "#f7f7f5", 0.12), rbox(2.05, 0.2, 5.5, 0, 1.0, -0.12, "#d8262b", 0.04), rbox(2.05, 0.08, 3.9, 0, 2.3, -0.75, "#e0632a", 0.03),
+    rbox(2.04, 0.5, 1.2, 0, 1.95, -0.2, GLASS, 0.04), paint(new THREE.BoxGeometry(1.6, 0.9, 0.04).translate(0, 1.6, -2.72), GLASS),
+    rbox(1.3, 0.14, 0.3, 0, 2.62, 1.5, "#d42525", 0.05), rbox(0.5, 0.14, 0.3, 0.42, 2.62, 1.5, "#2a5fd8", 0.05),
+    rbox(1.9, 0.35, 0.2, 0, 0.55, 2.8, "#3a3d42", 0.06), ...wheelPair(1.96, 1.85, 0.37), ...wheelPair(1.96, -1.8, 0.37, true),
+  ]);
+}
+/** 경찰차: a white sedan with a navy band and a red / blue light bar. */
+function policeGeometry() {
+  return assemble([
+    rbox(1.84, 0.62, 4.85, 0, 0.66, 0, "#f5f6f7", 0.22), rbox(1.86, 0.2, 4.4, 0, 0.62, 0, "#1d2d57", 0.05),
+    rbox(1.62, 0.56, 2.45, 0, 1.2, -0.25, GLASS, 0.18), rbox(1.56, 0.07, 1.95, 0, 1.49, -0.3, "#f5f6f7", 0.03),
+    rbox(1.2, 0.12, 0.28, 0, 1.58, -0.15, "#1f1f22", 0.04), rbox(0.5, 0.1, 0.26, -0.32, 1.66, -0.15, "#e02424", 0.04), rbox(0.5, 0.1, 0.26, 0.32, 1.66, -0.15, "#2456e0", 0.04),
+    rbox(1.7, 0.26, 0.2, 0, 0.5, 2.4, "#2a2d31", 0.06), ...wheelPair(1.84, 1.45, 0.34), ...wheelPair(1.84, -1.5, 0.34),
+  ]);
+}
+/** 소방 펌프차: 7.5 m red cab-over with equipment lockers and a roof ladder. */
+function fireGeometry() {
+  const list = [
+    rbox(2.4, 2.1, 2.2, 0, 1.6, 2.6, "#c8141b", 0.18), paint(new THREE.BoxGeometry(2.25, 0.8, 0.05).translate(0, 2.0, 3.71), GLASS),
+    rbox(2.44, 0.5, 2.0, 0, 2.05, 2.3, GLASS, 0.04), rbox(2.42, 2.2, 5.1, 0, 1.65, -1.2, "#cf1a1f", 0.1),
+    rbox(2.46, 0.16, 7.3, 0, 1.1, 0.3, "#f2f2f0", 0.03), rbox(1.2, 0.1, 0.3, 0, 2.72, 2.9, "#1f6fe0", 0.04),
+    rbox(2.1, 0.3, 0.2, 0, 0.7, 3.72, "#2a2a2c", 0.06),
+    ...wheelPair(2.4, 2.55, 0.5), ...wheelPair(2.4, -2.3, 0.5, true),
+  ];
+  for (const x of [-0.45, 0.45]) list.push(rbox(0.07, 0.07, 5.8, x, 2.95, -0.6, "#c9ccd0", 0.02));
+  for (let z = -3.3; z <= 2.2; z += 0.45) list.push(rbox(0.9, 0.05, 0.05, 0, 2.95, z, "#c9ccd0", 0.02));
+  for (let z = -3.2; z <= 0.8; z += 1.0) for (const s of [-1, 1]) list.push(rbox(0.02, 1.6, 0.9, s * 1.215, 1.7, z, "#a8acb2", 0.01));
+  return assemble(list);
+}
+/** 압축 청소차: 7 m, white cab, green compactor body with the rear hopper. */
+function garbageGeometry() {
+  return assemble([
+    rbox(2.3, 2.0, 1.9, 0, 1.55, 2.5, "#eef0ee", 0.18), paint(new THREE.BoxGeometry(2.15, 0.8, 0.05).translate(0, 1.95, 3.46), GLASS),
+    rbox(2.34, 0.5, 1.7, 0, 2.0, 2.25, GLASS, 0.04), rbox(2.35, 2.3, 4.0, 0, 1.75, -0.6, "#2f8a4a", 0.25),
+    rbox(2.3, 2.1, 1.3, 0, 1.6, -3.1, "#27733d", 0.35), rbox(2.37, 0.18, 4.0, 0, 1.0, -0.6, "#f2a21a", 0.04),
+    rbox(1.4, 0.4, 1.8, 0, 0.45, -0.2, "#2b2d30", 0.05), ...wheelPair(2.3, 2.4, 0.48), ...wheelPair(2.3, -1.8, 0.48, true),
+  ]);
+}
+/** 레미콘: 8.6 m mixer, three axles, a banded drum tilted up to the rear. */
+function mixerGeometry() {
+  const prof = [[0, -2.3], [0.45, -2.25], [1.05, -1.6], [1.2, -0.6], [1.15, 0.6], [0.8, 1.6], [0.35, 2.1], [0, 2.15]].map(([r, y]) => new THREE.Vector2(r, y));
+  const drum = new THREE.LatheGeometry(prof, 20);
+  const d = drum.toNonIndexed(); drum.dispose();
+  d.deleteAttribute("uv");
+  // Bands in the drum's paint, the way its spiral blades read from outside.
+  const pos = d.getAttribute("position"), col = new Float32Array(pos.count * 3), a = new THREE.Color("#e9e9e4"), b = new THREE.Color("#d8661e");
+  for (let i = 0; i < pos.count; i++) { const c = Math.floor((pos.getY(i) + 3) / 0.7) % 2 ? a : b; col.set([c.r, c.g, c.b], i * 3); }
+  d.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  d.computeVertexNormals();
+  d.rotateX(Math.PI / 2 - 0.2); d.translate(0, 2.3, -1.1);
+  return assemble([
+    rbox(2.35, 2.0, 1.9, 0, 1.6, 3.2, "#f0f0ec", 0.2), paint(new THREE.BoxGeometry(2.2, 0.8, 0.05).translate(0, 2.0, 4.16), GLASS),
+    rbox(2.39, 0.5, 1.7, 0, 2.05, 2.95, GLASS, 0.04), rbox(1.3, 0.35, 6.2, 0, 0.95, -0.9, "#2b2d30", 0.05), d,
+    rbox(1.4, 0.3, 0.7, 0, 2.35, -3.4, "#9a9ea4", 0.08), ...wheelPair(2.35, 3.1, 0.5), ...wheelPair(2.35, -1.6, 0.5, true), ...wheelPair(2.35, -2.95, 0.5, true),
+  ]);
+}
+
 /** Head and tail lamps for a vehicle of length L, width W at height y: two warm white
  * lamps at the front (+z), two red at the back. uv.x picks white (0) or red (1) from
  * the emissive map, so one material and one draw per vehicle type. */
@@ -249,7 +343,9 @@ interface Car {
  * delivery, box and cargo trucks, city buses in three liveries and container trucks.
  * Right-hand traffic on the registered lanes, car following, signals at intersections;
  * lamps lit at night. */
-export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: boolean) {
+export function stitchedRoads(roads: RealEstateRoad[]) { return stitchRoads(roads.filter(r => r.line.length > 1)); }
+
+export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: boolean, terrain: Terrain = FLAT) {
   const usable = stitchRoads(roads.filter(r => r.line.length > 1));
   if (!usable.length) return null;
   const { geos, texture } = await loadKit();
@@ -289,6 +385,11 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     K(containerGeometry("#b2402f"), boxMat, 1.4, 0.8, [16.2, 2.45, 0.85]),
     K(containerGeometry("#2e5e8c"), boxMat, 1.4, 0.8, [16.2, 2.45, 0.85]),
     K(containerGeometry("#c77a2a"), boxMat, 1.2, 0.8, [16.2, 2.45, 0.85]),
+    K(ambulanceGeometry(), boxMat, 1.1, 1.05, [5.7, 2.02, 0.85]),
+    K(policeGeometry(), boxMat, 1.3, 1, [4.85, 1.84, 0.62]),
+    K(fireGeometry(), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
+    K(garbageGeometry(), boxMat, 1.0, 0.75, [7.0, 2.35, 0.95]),
+    K(mixerGeometry(), boxMat, 1.2, 0.75, [8.6, 2.39, 1.0]),
   ].filter(k => k.geo);
   const totalW = kinds.reduce((s, k) => s + k.weight, 0);
   const pickKind = () => { let r = rnd() * totalW; for (let i = 0; i < kinds.length; i++) { r -= kinds[i].weight; if (r <= 0) return i; } return 0; };
@@ -580,6 +681,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   meshes.forEach(m => { if (m.instanceColor) m.instanceColor.needsUpdate = true; });
 
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
+  const qp = new THREE.Quaternion(), across = new THREE.Vector3(1, 0, 0);
   const place = (c: Car) => {
     if (c.inConn) {
       const cn = c.conn, u = Math.min(c.u, cn.len);
@@ -592,8 +694,11 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       const pt = lanePt(c.road, c.forward, c.s, c.lane);
       c.x = pt.x; c.y = pt.y; c.hx = pt.hx; c.hy = pt.hy;
     }
-    q.setFromAxisAngle(up, Math.atan2(c.hx, -c.hy));
-    m4.compose(v.set(c.x, 0.02, -c.y), q, one);
+    // On the terrain, pitched to the slope under its wheelbase.
+    const reach = c.length * 0.35;
+    const hf = terrain.at(c.x + c.hx * reach, c.y + c.hy * reach), hb = terrain.at(c.x - c.hx * reach, c.y - c.hy * reach);
+    q.setFromAxisAngle(up, Math.atan2(c.hx, -c.hy)).multiply(qp.setFromAxisAngle(across, -Math.atan2(hf - hb, 2 * reach)));
+    m4.compose(v.set(c.x, (hf + hb) / 2 + 0.02, -c.y), q, one);
     meshes[c.type].setMatrixAt(c.slot, m4);
     if (lampsOn) lamps[c.type].setMatrixAt(c.slot, m4);
   };
@@ -765,11 +870,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       const hxW = px - rx * armLen, hyW = py - ry * armLen; // head over the lanes
       // Basis: X = driver's left, Y = up, Z = travel direction (the face looks back at traffic).
       const L = new THREE.Vector3(-hy, 0, -hx), U = new THREE.Vector3(0, 1, 0), H = new THREE.Vector3(hx, 0, -hy);
-      staticParts.push(colored(poleG, "#6b7076", tm.makeTranslation(px, 0, -py)));
+      const gy = terrain.at(px, py) + KERB_H;
+      staticParts.push(colored(poleG, "#6b7076", tm.makeTranslation(px, gy, -py)));
       const armG = new THREE.BoxGeometry(0.1, 0.1, armLen);
-      const armAt = new THREE.Matrix4().makeBasis(L.clone().negate().cross(U).negate(), U, L.clone().negate()).setPosition((px + hxW) / 2, 6.45, -(py + hyW) / 2);
+      const armAt = new THREE.Matrix4().makeBasis(L.clone().negate().cross(U).negate(), U, L.clone().negate()).setPosition((px + hxW) / 2, gy + 6.45, -(py + hyW) / 2);
       staticParts.push(colored(armG, "#6b7076", armAt)); armG.dispose();
-      basis.makeBasis(L, U, H).setPosition(hxW, 6.2, -hyW);
+      basis.makeBasis(L, U, H).setPosition(hxW, gy + 6.2, -hyW);
       staticParts.push(colored(housingG, "#16181b", basis));
       staticParts.push(colored(visorG, "#16181b", tm.copy(basis).multiply(new THREE.Matrix4().makeTranslation(0, 0.23, -0.2))));
       for (const x of LAMP_X) staticParts.push(colored(lensG, "#2a2c2f", tm.copy(basis).multiply(new THREE.Matrix4().makeTranslation(x, 0, -0.16))));

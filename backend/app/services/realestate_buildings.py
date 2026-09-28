@@ -46,7 +46,7 @@ CONTEXT_M = 230         # neighbours drawn around the complex
 ROAD_M = 150            # surveyed major roads drawn around the parcel
 KEEP_DAYS = 30
 KEEP_MISS_DAYS = 1
-STORE_VERSION = "bldg-v1"
+STORE_VERSION = "bldg-v2"  # v2: every registered neighbour in the radius, not the nearest 700
 
 _cache: dict[str, tuple[float, dict]] = {}
 _locks: dict[str, threading.Lock] = {}
@@ -235,7 +235,7 @@ def _from_vworld(c: dict, address: str) -> dict | None:
     pad_lat = CONTEXT_M / 110_540
     box = f"BOX({min(lons) - pad_lon},{min(lats) - pad_lat},{max(lons) + pad_lon},{max(lats) + pad_lat})"
     around = []
-    for page in range(1, 4):
+    for page in range(1, 6):
         result = _vworld(VWORLD_DATA, {**common, "data": "LT_C_BLDGINFO", "geomFilter": box,
                                        "size": 1000, "page": page})
         batch = _features(result)
@@ -426,9 +426,9 @@ def _build(complex_id: str) -> dict:
     osm = result["source"] == "osm"
     _fill_heights(result["buildings"], tower_fallback=osm)
     _fill_heights(result["context"], tower_fallback=osm)
-    # The nearest neighbours only, and none of the sheds: they are setting, not subject.
+    # Every registered neighbour in the radius, down to low annexes; only sheds go.
     near = lambda b: math.hypot(*_centroid(b["rings"][0]))
-    result["context"] = sorted((b for b in result["context"] if b["height"] >= 4), key=near)[:700]
+    result["context"] = sorted((b for b in result["context"] if b["height"] >= 2.5), key=near)[:3000]
     measured = sum(b["height_source"] in ("measured", "floors") for b in result["buildings"])
     return {**base, "found": True, **result, "vworld": bool(_vworld_key()),
             "coverage": {"buildings": len(result["buildings"]), "with_height": measured},

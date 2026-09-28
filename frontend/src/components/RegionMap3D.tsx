@@ -665,8 +665,15 @@ class RegionScene {
     return active;
   }
 
+  /** Covered by the detail popup: no drawing until it closes. */
+  private paused = false;
+  setPaused(paused: boolean) {
+    this.paused = paused;
+    this.refreshVisibility();
+  }
+
   private refreshVisibility = () => {
-    if (!this.visible || document.hidden) {
+    if (!this.visible || document.hidden || this.paused) {
       cancelAnimationFrame(this.raf);
       this.raf = 0;
     } else if (!this.raf) {
@@ -879,6 +886,8 @@ interface Props {
   periodLabel: string;
   touch: boolean;
   onSelect: (sel: { sido: string; sgg: string; dong: string }) => void;
+  /** Covered by the detail popup: stop drawing so the popup gets the frames. */
+  paused?: boolean;
 }
 
 function supportsWebGL(): boolean {
@@ -890,7 +899,7 @@ function supportsWebGL(): boolean {
   }
 }
 
-export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLabel, touch, onSelect }: Props) {
+export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLabel, touch, onSelect, paused = false }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const labelsRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<RegionScene | null>(null);
@@ -928,6 +937,9 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
     else if (!sgg && (prev.sgg || sido !== prev.sido)) setLevel("sgg");
     last.current = { sido, sgg };
   }, [sido, sgg]);
+
+  const pausedRef = useRef(paused);
+  useEffect(() => { pausedRef.current = paused; sceneRef.current?.setPaused(paused); }, [paused]);
 
   const sidoNode = regions.find((r) => r.code === sido);
   const sggNode = sidoNode?.sgg.find((g) => g.code === sgg);
@@ -1020,6 +1032,7 @@ export default function RegionMap3D({ regions, sido, sgg, dong, period, periodLa
     try { scene = new RegionScene(hostRef.current, labelsRef.current, touch); }
     catch { setWebgl(false); return; }
     sceneRef.current = scene;
+    scene.setPaused(pausedRef.current);
     return () => {
       scene.dispose();
       sceneRef.current = null;

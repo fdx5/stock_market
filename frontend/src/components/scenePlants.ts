@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type { Planting } from "./complexScene";
 import { rng, seasonNow } from "./complexScene";
+import { FLAT, type Terrain } from "./sceneTerrain";
+import { KERB_H } from "./sceneSidewalk";
 
 /* Landscaping plants as photoreal impostors. /3d/plants.webp is an atlas baked from
  * Poly Haven's CC0 photoscanned plants (trees, conifers, shrubs, flowers; one cell
@@ -29,10 +31,13 @@ function loadAtlas() {
   return atlas;
 }
 
+/** Start loading the plant atlas early (it is cached for every complex after). */
+export function preloadPlants() { void loadAtlas().catch(() => {}); }
+
 /** Target heights in metres (min, max) for each kind; the bake keeps each model's own proportions. */
 const HEIGHT: Record<Kind, [number, number]> = { tree: [6.5, 11], conifer: [4.5, 8], shrub: [0.9, 2], flower: [0.25, 0.45] };
 
-export async function buildPlants(planting: Planting, seed: number): Promise<{ mesh: THREE.Mesh; dispose: () => void } | null> {
+export async function buildPlants(planting: Planting, seed: number, terrain: Terrain = FLAT): Promise<{ mesh: THREE.Mesh; dispose: () => void } | null> {
   const { meta, texture } = await loadAtlas();
   const rnd = rng(seed + 11);
   const season = seasonNow();
@@ -46,13 +51,14 @@ export async function buildPlants(planting: Planting, seed: number): Promise<{ m
   };
   const pad = 0.5 / meta.cell;
   const tint = new THREE.Color();
-  const add = (x: number, z: number, c: Cell, h: number) => {
-    const k = h / c.height, span = c.span * k, base = c.groundV * span;
+  const add = (x: number, z: number, c: Cell, h: number, ground: number, fixedTint?: THREE.Color) => {
+    const k = h / c.height, span = c.span * k, base = c.groundV * span - ground;
     const yaw = rnd() * Math.PI;
-    const cy = h * 0.55;
+    const cy = ground + h * 0.55;
     // Crown tint: species variety plus the season (autumn warms, winter dulls broadleaf).
     const v = 0.86 + rnd() * 0.24;
-    tint.setRGB(v, v * (0.97 + rnd() * 0.06), v * (0.92 + rnd() * 0.08));
+    if (fixedTint) tint.copy(fixedTint).multiplyScalar(0.97 + rnd() * 0.06);
+    else tint.setRGB(v, v * (0.97 + rnd() * 0.06), v * (0.92 + rnd() * 0.08));
     if (c.kind === "tree" && season === "autumn" && rnd() < 0.7) tint.multiply(new THREE.Color(1.25, 0.9, 0.55));
     if (c.kind === "tree" && season === "winter") tint.multiply(new THREE.Color(0.85, 0.8, 0.72));
     const [u0, v0, u1, v1] = cellUV(c.side);
@@ -76,7 +82,7 @@ export async function buildPlants(planting: Planting, seed: number): Promise<{ m
         [[u0 + pad, v0 + pad], [u1 - pad, v0 + pad], [u1 - pad, v1 - pad], [u0 + pad, v1 - pad]]);
     }
     if (c.top >= 0) {
-      const [t0, w0, t1, w1] = cellUV(c.top), r = c.topSpan * k / 2, y = h * (c.kind === "shrub" ? 0.8 : 0.66);
+      const [t0, w0, t1, w1] = cellUV(c.top), r = c.topSpan * k / 2, y = ground + h * (c.kind === "shrub" ? 0.8 : 0.66);
       const ca = Math.cos(yaw) * r, sa = Math.sin(yaw) * r;
       quad([[x - ca + sa, y, z - sa - ca], [x + ca + sa, y, z + sa - ca], [x + ca - sa, y, z + sa + ca], [x - ca - sa, y, z - sa + ca]],
         [[t0 + pad, w0 + pad], [t1 - pad, w0 + pad], [t1 - pad, w1 - pad], [t0 + pad, w1 - pad]]);
@@ -85,9 +91,27 @@ export async function buildPlants(planting: Planting, seed: number): Promise<{ m
   const pick = <T>(list: T[]) => list[Math.floor(rnd() * list.length)];
   const size = (kind: Kind) => { const [a, b] = HEIGHT[kind]; return a + (b - a) * rnd(); };
   // Footprint frame (x east, y north) to world (x, -z).
-  for (const [x, y] of planting.trees) { const c = pick(trees); add(x, -y, c, size(c.kind)); }
-  for (const [x, y] of planting.shrubs) { const c = pick(shrubs); add(x, -y, c, size("shrub")); }
-  for (const [x, y] of planting.flowers) { const c = pick(flowers); add(x, -y, c, size("flower")); }
+  const at = (x: number, y: number) => terrain.at(x, y);
+  for (const [x, y] of planting.trees) { const c = pick(trees); add(x, -y, c, size(c.kind), at(x, y)); }
+  for (const [x, y] of planting.shrubs) { const c = pick(shrubs); add(x, -y, c, size("shrub"), at(x, y)); }
+  for (const [x, y] of planting.flowers) { const c = pick(flowers); add(x, -y, c, size("flower"), at(x, y)); }
+  // Street trees: one broadleaf species, size and tone per road (planted together),
+  // standing in their pits on the sidewalk.
+  const broadleaf = byKind("tree");
+  const perRoad = new Map<number, { c: Cell; h: number; tint: THREE.Color }>();
+  for (const [x, y, road] of planting.street) {
+    let spec = perRoad.get(road);
+    if (!spec) {
+      const r2 = rng(seed * 31 + road * 977);
+      const c = broadleaf[Math.floor(r2() * broadleaf.length)] ?? pick(trees);
+      const t = new THREE.Color(0.95 + r2() * 0.1, 0.97 + r2() * 0.06, 0.92 + r2() * 0.06);
+      if (season === "autumn") t.multiply(new THREE.Color(1.25, 0.95, 0.5));
+      if (season === "winter") t.multiply(new THREE.Color(0.85, 0.8, 0.72));
+      spec = { c, h: 7.2 + r2() * 2.2, tint: t };
+      perRoad.set(road, spec);
+    }
+    add(x, -y, spec.c, spec.h * (0.96 + rnd() * 0.08), at(x, y) + KERB_H, spec.tint);
+  }
   if (!pos.length) return null;
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));

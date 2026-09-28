@@ -1,5 +1,21 @@
 import * as THREE from "three";
 import { RealEstateBuildingsResponse } from "../api/client";
+import { ringIndex, sidewalkWidth } from "./sceneSidewalk";
+import { coveredStream } from "./sceneWater";
+
+const WATER_KINDS = new Set(["천", "구", "유", "양"]);
+const coveredMemo = new WeakMap<object, boolean[]>();
+/** Per parcel: a water parcel that is really road or built over (not open water). */
+export function waterCovered(data: RealEstateBuildingsResponse): boolean[] {
+  const parcels = data.parcels ?? [];
+  const hit = coveredMemo.get(parcels);
+  if (hit) return hit;
+  const lines = [...(data.roads ?? []).map(r => r.line), ...(data.streets ?? [])];
+  const onBuilding = ringIndex([...data.buildings, ...data.context].map(b => b.rings[0]));
+  const out = parcels.map(p => WATER_KINDS.has(p.kind) && coveredStream(p.ring, lines, onBuilding));
+  coveredMemo.set(parcels, out);
+  return out;
+}
 
 /* The natural-light scene around one complex (components/ComplexHologram.tsx):
  * facades, ground and the time-of-day looks. Footprints, heights and the parcel are
@@ -48,26 +64,44 @@ export const rng = (seed: number) => {
   return () => ((s = (s * 16807) % 2147483647) / 2147483647);
 };
 
+/** Long paints are generators that yield between steps: run at once (runNow), or in
+ * slices between which the page gets the main thread (runSliced). */
+export type Steps<T> = Generator<void, T, void>;
+export function runNow<T>(g: Steps<T>): T {
+  let r = g.next();
+  while (!r.done) r = g.next();
+  return r.value;
+}
+export async function runSliced<T>(g: Steps<T>, pace: () => Promise<boolean>): Promise<T | null> {
+  let r = g.next();
+  while (!r.done) {
+    if (!await pace()) return null;
+    r = g.next();
+  }
+  return r.value;
+}
+
 const canvas = (w: number, h: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
 
 /** Tangent-space normals from a height canvas (brighter = further out). */
-function normalCanvas(height: HTMLCanvasElement, strength: number): HTMLCanvasElement {
+function* normalCanvas(height: HTMLCanvasElement, strength: number): Steps<HTMLCanvasElement> {
   const { width: W, height: H } = height;
-  const src = height.getContext("2d")!.getImageData(0, 0, W, H).data;
+  const src = height.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, W, H).data;
   const out = canvas(W, H);
   const ctx = out.getContext("2d")!;
-  const img = ctx.createImageData(W, H);
-  const h = (x: number, y: number) => src[(((y + H) % H) * W + ((x + W) % W)) * 4] / 255;
+  const img = ctx.createImageData(W, H), d = img.data;
+  // Tight loop over the red channel (wrapping at the edges); ~5x the closure version.
+  const k = strength / 255;
   for (let y = 0; y < H; y++) {
+    if (y && y % 96 === 0) yield;
+    const up = (y === 0 ? H - 1 : y - 1) * W, dn = (y === H - 1 ? 0 : y + 1) * W, row = y * W;
     for (let x = 0; x < W; x++) {
-      const dx = (h(x - 1, y) - h(x + 1, y)) * strength;
-      const dy = (h(x, y + 1) - h(x, y - 1)) * strength;
-      const l = Math.hypot(dx, dy, 1);
-      const i = (y * W + x) * 4;
-      img.data[i] = (dx / l * 0.5 + 0.5) * 255;
-      img.data[i + 1] = (dy / l * 0.5 + 0.5) * 255;
-      img.data[i + 2] = (1 / l * 0.5 + 0.5) * 255;
-      img.data[i + 3] = 255;
+      const l0 = x === 0 ? W - 1 : x - 1, r0 = x === W - 1 ? 0 : x + 1;
+      const dx = (src[(row + l0) << 2] - src[(row + r0) << 2]) * k;
+      const dy = (src[(dn + x) << 2] - src[(up + x) << 2]) * k;
+      const inv = 127.5 / Math.sqrt(dx * dx + dy * dy + 1);
+      const i = (row + x) << 2;
+      d[i] = dx * inv + 127.5; d[i + 1] = dy * inv + 127.5; d[i + 2] = inv + 127.5; d[i + 3] = 255;
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -97,7 +131,8 @@ const BAYS = 8, ROWS = 8;
 /** A Korean apartment facade: expanded-balcony glazing with glass rails, slab bands,
  * AC louvres and pilasters. Colour, normals, roughness (G) / metalness (B) and the
  * lit windows for the evening. */
-export function facadeTextures(p: Palette, seed: number) {
+export const facadeTextures = (p: Palette, seed: number) => runNow(facadeSteps(p, seed));
+export function* facadeSteps(p: Palette, seed: number) {
   const W = 1024, H = 928, cw = W / BAYS, ch = H / ROWS;
   const color = canvas(W, H), height = canvas(W, H), rm = canvas(W, H), glow = canvas(W, H);
   const g = color.getContext("2d")!, hh = height.getContext("2d")!, r = rm.getContext("2d")!, e = glow.getContext("2d")!;
@@ -123,6 +158,7 @@ export function facadeTextures(p: Palette, seed: number) {
   const lit = [[255, 196, 128], [255, 214, 160], [255, 228, 196], [226, 236, 255]];
   const curtains = ["#ece4d4", "#ddd5c6", "#d3d9dd", "#efe7d8", "#c9c0b0"];
   for (let row = 0; row < ROWS; row++) {
+    if (row % 2 === 0) yield;
     const y = row * ch;
     for (let bay = 0; bay < BAYS; bay++) {
       const x = bay * cw;
@@ -190,47 +226,225 @@ export function facadeTextures(p: Palette, seed: number) {
     hh.fillStyle = "rgb(205,205,205)"; hh.fillRect(0, y + ch * 0.9, W, ch * 0.1);
     r.fillStyle = "rgb(0,190,0)"; r.fillRect(0, y + ch * 0.9, W, ch * 0.1);
   }
+  yield;
   // Soften the height steps into bevels before taking normals.
   const soft = canvas(W, H);
   const sctx = soft.getContext("2d")!;
   sctx.filter = "blur(1.2px)";
   sctx.drawImage(height, 0, 0);
-  const normal = normalCanvas(soft, 5);
+  const normal = yield* normalCanvas(soft, 5);
   const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, BAYS * BAY_M, ROWS * FLOOR_M, GROUND_M);
   return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false), emissiveMap: tile(glow, true) };
 }
 
-/** The neighbourhood: plainer office and villa facades, tinted per building. */
-export function contextTextures(seed: number) {
-  const W = 512, H = 512, cols = 4, rows = 4, cw = W / cols, ch = H / rows;
-  const color = canvas(W, H), rm = canvas(W, H), glow = canvas(W, H);
-  const g = color.getContext("2d")!, r = rm.getContext("2d")!, e = glow.getContext("2d")!;
+export type ContextStyle = "villa" | "office" | "shop" | "apt";
+
+/** Neighbouring apartment towers: the apartment facade in a neutral scheme (no brand colour). */
+export const NEIGHBOUR_PALETTE: Palette = { wall: "#eeebe5", wall2: "#c3beb4", accent: "#7a7266", glass: ["#a9c3d2", "#28394a"], roof: "#77716a" };
+
+/** Which facade a neighbouring building gets, from its registered use (건축물 용도) and height. */
+export function contextStyle(use: string | null, height: number, r: number): ContextStyle {
+  // VWorld gives the 건축물 주용도 code (01000 단독주택, 02000 공동주택, 03000/04000
+  // 근린생활, 07000 판매, 09000 의료, 14000 업무, 15000 숙박 …); OSM gives words.
+  const CODES: Record<string, string> = { "01": "주택", "02": "공동주택", "03": "근린", "04": "근린", "07": "판매", "09": "의료",
+    "10": "연구", "14": "업무", "15": "숙박", "16": "위락", "13": "운동", "24": "방송" };
+  const code = /^\d{5}$/.test(use ?? "") ? CODES[(use ?? "").slice(0, 2)] : undefined;
+  const u = code ?? (/^(apartments|residential)$/.test(use ?? "") ? "공동주택" : /^(house|detached)$/.test(use ?? "") ? "주택"
+    : /^(office|commercial)$/.test(use ?? "") ? "업무" : /^(retail|shop)$/.test(use ?? "") ? "판매" : use ?? "");
+  if (/업무|오피스|방송|연구|의료|숙박/.test(u)) return "office";
+  if (/근린|판매|상가|음식|위락|운동/.test(u)) return height > 36 ? "office" : "shop";
+  if (/공동주택|아파트/.test(u) && height > 16) return "apt";
+  if (/주택|기숙/.test(u)) return height > 24 ? "apt" : "villa";
+  return height > 36 ? "office" : r < 0.5 ? "shop" : "villa";
+}
+
+/** Storey height (m) each context facade is drawn at, before fitting to registered floors. */
+export const CONTEXT_FLOOR_M: Record<ContextStyle, number> = { villa: 2.9, shop: 3.4, office: 3.8, apt: FLOOR_M };
+
+/** The neighbourhood: three plainer facades (villa, office curtain wall, shops with a
+ * storefront ground floor), tinted per building. Colour, relief normals, roughness (G)
+ * / metalness (B) and lit windows. The tile's bottom row sits on each building's ground. */
+export const contextTextures = (seed: number, style: Exclude<ContextStyle, "apt"> = "villa") => runNow(contextSteps(seed, style));
+export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> = "villa") {
+  const W = 512, H = 1024, cols = style === "office" ? 6 : 4, rows = 8, cw = W / cols, ch = H / rows;
+  const color = canvas(W, H), rm = canvas(W, H), glow = canvas(W, H), height = canvas(W, H);
+  const g = color.getContext("2d")!, r = rm.getContext("2d")!, e = glow.getContext("2d")!, hh = height.getContext("2d")!;
   const rnd = rng(seed);
-  g.fillStyle = "#e6e3dc"; g.fillRect(0, 0, W, H);
+  g.fillStyle = style === "villa" ? "#e9e2d6" : style === "office" ? "#d9dde0" : "#e6e3dc"; g.fillRect(0, 0, W, H);
   r.fillStyle = "rgb(0,225,0)"; r.fillRect(0, 0, W, H);
   e.fillStyle = "#000"; e.fillRect(0, 0, W, H);
-  for (let i = 0; i < 700; i++) {
+  hh.fillStyle = "rgb(150,150,150)"; hh.fillRect(0, 0, W, H);
+  if (style === "villa") {
+    // Brick-tile cladding under the per-building tint: a 96 × 48 px swatch of varied
+    // bricks, repeated (one fill instead of thousands).
+    const sw = canvas(96, 48), sg = sw.getContext("2d")!;
+    for (let y = 0; y < 48; y += 6) for (let x = (y / 6) % 2 ? -12 : 0; x < 96; x += 24) {
+      sg.fillStyle = `rgba(${120 + rnd() * 40},${70 + rnd() * 30},${50 + rnd() * 20},${0.06 + rnd() * 0.05})`;
+      sg.fillRect(x + 1, y + 1, 22, 4);
+    }
+    g.fillStyle = g.createPattern(sw, "repeat")!; g.fillRect(0, 0, W, H);
+  }
+  for (let i = 0; i < 900; i++) {
     g.fillStyle = `rgba(0,0,0,${rnd() * 0.05})`;
     g.fillRect(rnd() * W, rnd() * H, 1 + rnd() * 14, 1 + rnd() * 2);
   }
+  // Row 0 is the top of the tile, row rows-1 the ground floor.
   for (let row = 0; row < rows; row++) {
+    if (row % 2 === 0) yield;
+    const ground = row === rows - 1, y0 = row * ch;
+    if (style === "office") {
+      // Curtain wall: a spandrel band, then glazing between mullions.
+      g.fillStyle = "#8d969c"; g.fillRect(0, y0, W, ch * 0.22);
+      hh.fillStyle = "rgb(170,170,170)"; hh.fillRect(0, y0, W, ch * 0.22);
+      for (let col = 0; col < cols; col++) {
+        const wx = col * cw + 3, wy = y0 + ch * 0.22, ww = cw - 6, wh = ch * 0.78;
+        const grad = g.createLinearGradient(0, wy, 0, wy + wh);
+        grad.addColorStop(0, "#9fb4c4"); grad.addColorStop(0.5, "#4c6273"); grad.addColorStop(1, "#27343f");
+        g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
+        r.fillStyle = "rgb(0,12,190)"; r.fillRect(wx, wy, ww, wh);
+        hh.fillStyle = "rgb(60,60,60)"; hh.fillRect(wx, wy, ww, wh);
+        if (rnd() < (ground ? 0.8 : 0.35)) {
+          e.fillStyle = `rgba(${220 + rnd() * 35},${225 + rnd() * 30},255,${0.35 + rnd() * 0.45})`;
+          e.fillRect(wx + 2, wy + 2, ww - 4, wh - 4);
+        }
+      }
+      g.fillStyle = "#c9cfd2"; hh.fillStyle = "rgb(200,200,200)";
+      for (let col = 0; col <= cols; col++) { g.fillRect(col * cw - 3, y0, 6, ch); hh.fillRect(col * cw - 3, y0, 6, ch); }
+      continue;
+    }
+    if (ground && style === "shop") {
+      // Storefront: signage band, framed shop glazing lit in the evening.
+      g.fillStyle = ["#2f5d8a", "#b23a2e", "#3d7a4a", "#e0a32a", "#3a3a3a"][Math.floor(rnd() * 5)]; g.fillRect(0, y0, W, ch * 0.2);
+      hh.fillStyle = "rgb(200,200,200)"; hh.fillRect(0, y0, W, ch * 0.2);
+      e.fillStyle = "rgba(255,240,220,0.5)"; e.fillRect(0, y0 + ch * 0.05, W, ch * 0.1);
+      for (let col = 0; col < cols; col++) {
+        const wx = col * cw + 6, wy = y0 + ch * 0.24, ww = cw - 12, wh = ch * 0.7;
+        const grad = g.createLinearGradient(0, wy, 0, wy + wh);
+        grad.addColorStop(0, "#8ea4b3"); grad.addColorStop(1, "#2c3740");
+        g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
+        g.strokeStyle = "#2a2c2e"; g.lineWidth = 5; g.strokeRect(wx, wy, ww, wh);
+        r.fillStyle = "rgb(0,15,170)"; r.fillRect(wx, wy, ww, wh);
+        hh.fillStyle = "rgb(55,55,55)"; hh.fillRect(wx, wy, ww, wh);
+        e.fillStyle = `rgba(255,${215 + rnd() * 30},${170 + rnd() * 50},${0.55 + rnd() * 0.4})`; e.fillRect(wx + 3, wy + 3, ww - 6, wh - 6);
+      }
+      continue;
+    }
+    const villa = style === "villa";
     for (let col = 0; col < cols; col++) {
-      const wx = col * cw + cw * 0.14, wy = row * ch + ch * 0.2, ww = cw * 0.72, wh = ch * 0.52;
+      const wx = col * cw + cw * (villa ? 0.18 : 0.14), wy = y0 + ch * (villa ? 0.26 : 0.2), ww = cw * (villa ? 0.64 : 0.72), wh = ch * (villa ? 0.46 : 0.52);
       const grad = g.createLinearGradient(0, wy, 0, wy + wh);
       grad.addColorStop(0, "#7c8e9c"); grad.addColorStop(1, "#27313a");
       g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
-      g.strokeStyle = "#cfd2d2"; g.lineWidth = 3; g.strokeRect(wx, wy, ww, wh);
-      g.fillStyle = "#cfd2d2"; g.fillRect(wx + ww / 2 - 1, wy, 3, wh);
+      g.strokeStyle = "#d4d6d4"; g.lineWidth = 3; g.strokeRect(wx, wy, ww, wh);
+      g.fillStyle = "#d4d6d4"; g.fillRect(wx + ww / 2 - 1, wy, 3, wh);
       r.fillStyle = "rgb(0,20,140)"; r.fillRect(wx, wy, ww, wh);
+      hh.fillStyle = "rgb(50,50,50)"; hh.fillRect(wx, wy, ww, wh);
+      hh.strokeStyle = "rgb(190,190,190)"; hh.lineWidth = 3; hh.strokeRect(wx, wy, ww, wh);
+      if (villa) {
+        // Sill, and a security grille over the lower half.
+        g.fillStyle = "#cfcac0"; g.fillRect(wx - 4, wy + wh, ww + 8, 5);
+        hh.fillStyle = "rgb(210,210,210)"; hh.fillRect(wx - 4, wy + wh, ww + 8, 5);
+        g.fillStyle = "rgba(60,60,60,0.55)";
+        for (let gx = wx + 6; gx < wx + ww; gx += 9) g.fillRect(gx, wy + wh * 0.55, 1.5, wh * 0.45);
+      }
       if (rnd() < 0.3) {
         e.fillStyle = `rgba(255,${200 + Math.floor(rnd() * 40)},${140 + Math.floor(rnd() * 70)},${0.4 + rnd() * 0.5})`;
         e.fillRect(wx + 2, wy + 2, ww - 4, wh - 4);
       }
     }
-    g.fillStyle = "rgba(0,0,0,0.12)"; g.fillRect(0, row * ch + ch - 4, W, 4);
+    g.fillStyle = "rgba(0,0,0,0.14)"; g.fillRect(0, y0 + ch - 4, W, 4);
+    hh.fillStyle = "rgb(185,185,185)"; hh.fillRect(0, y0 + ch - 6, W, 6);
   }
-  const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, cols * 3.4, rows * 3.1);
-  return { map: tile(color, true), rmMap: tile(rm, false), emissiveMap: tile(glow, true) };
+  const soft = canvas(W, H), sctx = soft.getContext("2d")!;
+  sctx.filter = "blur(1px)"; sctx.drawImage(height, 0, 0);
+  const normal = yield* normalCanvas(soft, 4);
+  // uv.y = 1 - (height above the building's ground): offset 2 puts the last row there.
+  const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, cols * (style === "office" ? 1.8 : 3.4), rows * CONTEXT_FLOOR_M[style], 2);
+  return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false), emissiveMap: tile(glow, true) };
+}
+
+/** The neighbourhood's textures don't depend on the complex: made once per style and
+ * kept for every complex after (never disposed with a model). */
+const sharedTex = new Map<string, Record<string, THREE.Texture>>();
+/** The same, painted in slices (the first time) so the page stays responsive. */
+export async function sharedContextTexturesSliced(style: ContextStyle, pace: () => Promise<boolean>): Promise<Record<string, THREE.Texture> | null> {
+  const hit = sharedTex.get(style);
+  if (hit) return hit;
+  const made = await runSliced<Record<string, THREE.Texture>>(style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242) : contextSteps(1000 + style.length, style), pace);
+  if (made && !sharedTex.has(style)) sharedTex.set(style, made);
+  return sharedTex.get(style) ?? null;
+}
+export function sharedContextTextures(style: ContextStyle): Record<string, THREE.Texture> {
+  let hit = sharedTex.get(style);
+  if (!hit) {
+    hit = style === "apt" ? facadeTextures(NEIGHBOUR_PALETTE, 4242) : contextTextures(1000 + style.length, style);
+    sharedTex.set(style, hit);
+  }
+  return hit;
+}
+
+const sharedMat = new Map<ContextStyle, THREE.MeshStandardMaterial>();
+/** One material per neighbourhood style for the whole session (never disposed with a
+ * model), so its GPU pipeline is built once — see warmMaterials. */
+export function sharedContextMaterial(style: ContextStyle): THREE.MeshStandardMaterial {
+  let m = sharedMat.get(style);
+  if (!m) {
+    const ct = sharedContextTextures(style);
+    m = new THREE.MeshStandardMaterial({
+      map: ct.map, normalMap: ct.normalMap, normalScale: new THREE.Vector2(0.7, 0.7), vertexColors: true,
+      roughnessMap: ct.rmMap, metalnessMap: ct.rmMap, roughness: 1, metalness: 1,
+      emissiveMap: ct.emissiveMap, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
+    });
+    m.userData.contextBuilding = true;
+    patchMaterial(m, { roof: new THREE.Color("#7b7e7a"), glass: true });
+    sharedMat.set(style, m);
+  }
+  return m;
+}
+
+/** A single hidden triangle per shared material, kept in the scene: the renderer builds
+ * their pipelines while the first complex's data is still on the network. */
+export async function warmMaterials(group: THREE.Group, next: () => Promise<void>, alive: () => boolean) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute([0, -500, 0, 0.001, -500, 0, 0, -500, 0.001], 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
+  geo.setAttribute("color", new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
+  // One style per slice: each costs a texture set to paint.
+  for (const style of ["villa", "shop", "office", "apt"] as ContextStyle[]) {
+    if (!await sharedContextTexturesSliced(style, async () => { await next(); return alive(); })) return;
+    const mesh = new THREE.Mesh(geo, sharedContextMaterial(style));
+    mesh.frustumCulled = false;
+    mesh.castShadow = mesh.receiveShadow = true;
+    group.add(mesh);
+  }
+}
+
+/** Granite cladding for the towers' base (1–2층 석재 마감): 1.2 × 0.6 m honed panels with
+ * joints and faint veining; colour, normals, roughness / metalness. */
+export const plinthTextures = (seed: number, tone: string) => runNow(plinthSteps(seed, tone));
+export function* plinthSteps(seed: number, tone: string) {
+  const W = 512, H = 512, pw = W / 4, ph = H / 8;
+  const color = canvas(W, H), height = canvas(W, H), rm = canvas(W, H);
+  const g = color.getContext("2d")!, hh = height.getContext("2d")!, r = rm.getContext("2d")!;
+  const rnd = rng(seed);
+  const base = new THREE.Color(tone);
+  for (let row = 0; row < 8; row++) for (let col = 0; col < 4; col++) {
+    const c = base.clone().offsetHSL(0, 0, (rnd() - 0.5) * 0.06);
+    g.fillStyle = "#" + c.getHexString(); g.fillRect(col * pw, row * ph, pw, ph);
+    for (let i = 0; i < 90; i++) {
+      g.fillStyle = `rgba(${rnd() < 0.5 ? "30,30,30" : "255,255,255"},${rnd() * 0.12})`;
+      g.fillRect(col * pw + rnd() * pw, row * ph + rnd() * ph, 1 + rnd() * 3, 1 + rnd() * 2);
+    }
+  }
+  r.fillStyle = "rgb(0,120,0)"; r.fillRect(0, 0, W, H);
+  hh.fillStyle = "rgb(170,170,170)"; hh.fillRect(0, 0, W, H);
+  g.fillStyle = "rgba(40,38,34,0.55)"; hh.fillStyle = "rgb(60,60,60)"; r.fillStyle = "rgb(0,220,0)";
+  for (let row = 0; row <= 8; row++) { g.fillRect(0, row * ph - 1, W, 2.5); hh.fillRect(0, row * ph - 1, W, 2.5); r.fillRect(0, row * ph - 1, W, 2.5); }
+  for (let col = 0; col <= 4; col++) { g.fillRect(col * pw - 1, 0, 2.5, H); hh.fillRect(col * pw - 1, 0, 2.5, H); r.fillRect(col * pw - 1, 0, 2.5, H); }
+  const normal = yield* normalCanvas(height, 3);
+  const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, 4.8, 4.8, 2);
+  return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false) };
 }
 
 /* ---------- Shader patches shared by the scene's materials ---------- */
@@ -326,7 +540,11 @@ ${opts.reflect ? `{
 /* ---------- Ground ---------- */
 
 /** Where the 3D plants go (metres, footprint frame): trees, shrubs, flowers. */
-export interface Planting { trees: [number, number][]; shrubs: [number, number][]; flowers: [number, number][] }
+export interface Planting {
+  trees: [number, number][]; shrubs: [number, number][]; flowers: [number, number][];
+  /** Street trees in sidewalk pits: x, y and the road they line (one species per road). */
+  street: [number, number, number][];
+}
 /** A street lamp on a sidewalk: position, and the unit direction its arm reaches over the road. */
 export interface Lamp { x: number; y: number; dx: number; dy: number }
 export interface GroundPlan { color: THREE.CanvasTexture; rough: THREE.CanvasTexture; glow: THREE.CanvasTexture; planting: Planting; lamps: Lamp[] }
@@ -341,8 +559,9 @@ export function streetLamps(data: RealEstateBuildingsResponse): Lamp[] {
       for (const l of cell.get(`${Math.floor(x / 20) + i},${Math.floor(y / 20) + j}`) ?? []) if (Math.hypot(l.x - x, l.y - y) < 20) return true;
     return false;
   };
-  const rings = [...data.buildings, ...data.context].map(b => b.rings[0]);
-  const blocked = (x: number, y: number) => data.site.some(r => inRing([x, y], r)) || rings.some(r => inRing([x, y], r));
+  // Bucketed footprints: a city block has well over a thousand of them.
+  const inFootprint = ringIndex([...data.buildings, ...data.context].map(b => b.rings[0]));
+  const blocked = (x: number, y: number) => data.site.some(r => inRing([x, y], r)) || inFootprint(x, y);
   for (const road of data.roads ?? []) {
     let carry = 0;
     for (let i = 0; i < road.line.length - 1; i++) {
@@ -376,7 +595,8 @@ export function seasonNow(): Season {
  * their registered width and lane count (국가기본도 도로중심선). Drawn inside the parcel:
  * lawn, paved aprons around the towers, a perimeter walk and planting beds, whose
  * trees, shrubs and flowers are placed as 3D plants (`planting`). */
-export function paintGround(data: RealEstateBuildingsResponse, T: number, size: number, seed: number): GroundPlan {
+export const paintGround = (data: RealEstateBuildingsResponse, T: number, size: number, seed: number) => runNow(paintGroundSteps(data, T, size, seed));
+export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, size: number, seed: number): Steps<GroundPlan> {
   const S = size, k = S / (2 * T);
   const X = (x: number) => (x + T) * k, Y = (y: number) => (T - y) * k, m = (v: number) => v * k;
   const rnd = rng(seed);
@@ -408,6 +628,7 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
   const lamps = streetLamps(data);
   const hasSite = data.site.length > 0;
 
+  yield;
   // Occupancy mask (~0.5 m/px): R = plantable ground (the parcel, or a band round the
   // towers without one), G = blocked (footprints plus clearance, roads plus verge).
   const M = 1024, mk = M / (2 * T);
@@ -426,7 +647,7 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
   mg.fillStyle = mg.strokeStyle = "#00ff00";
   mg.lineWidth = 12 * mk;
   rings.forEach(r => { mpath(r); mg.fill(); mg.stroke(); });
-  roads.forEach(r => { mg.lineWidth = (r.width + 6) * mk; mpath(r.line, false); mg.stroke(); });
+  roads.forEach(r => { mg.lineWidth = (r.width + 2 * sidewalkWidth(r.width) + 1) * mk; mpath(r.line, false); mg.stroke(); });
   const md = mg.getImageData(0, 0, M, M).data;
   const ok = (x: number, y: number) => {
     const px = Math.floor(MX(x)), py = Math.floor(MY(y));
@@ -434,8 +655,15 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
     const i = (py * M + px) * 4;
     return md[i] > 127 && md[i + 1] < 128;
   };
+  /** Clear of footprints and roads (anywhere, not only on the parcel). */
+  const free = (x: number, y: number) => {
+    const px = Math.floor(MX(x)), py = Math.floor(MY(y));
+    if (px < 0 || py < 0 || px >= M || py >= M) return false;
+    return md[(py * M + px) * 4 + 1] < 128;
+  };
   const reachT = hasSite ? Math.max(...data.site.flat().map(([x, y]) => Math.max(Math.abs(x), Math.abs(y)))) : T * 0.5;
 
+  yield;
   // Planting beds (shrubs and flowers), then trees on the open lawn and along the walk.
   const beds: [number, number, number, number, number][] = [];
   for (let i = 0; i < 1200 && beds.length < 70; i++) {
@@ -446,7 +674,7 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
     const dx = x - bx, dy = y - by, u = dx * Math.cos(a) + dy * Math.sin(a), v = -dx * Math.sin(a) + dy * Math.cos(a);
     return (u / rx) ** 2 + (v / ry) ** 2 < 1;
   });
-  const planting: Planting = { trees: [], shrubs: [], flowers: [] };
+  const planting: Planting = { trees: [], shrubs: [], flowers: [], street: [] };
   // Beds: shrubs in the middle, flowers toward the rim (about 1.3 plants per m²).
   beds.forEach(([bx, by, rx, ry, a]) => {
     const n = Math.round(Math.PI * rx * ry * 1.3);
@@ -456,6 +684,7 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
       (r > 0.6 ? planting.flowers : r > 0.3 || rnd() < 0.5 ? planting.shrubs : planting.flowers).push(p);
     }
   });
+  yield;
   // Along the inside of the parcel boundary: a clipped hedge line, and a tree row behind it.
   const spaced = (list: [number, number][], x: number, y: number, gap: number) => !list.some(([tx, ty]) => Math.hypot(tx - x, ty - y) < gap);
   for (const r of data.site) for (let i = 0; i < r.length; i++) {
@@ -471,15 +700,69 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
       if (ok(x, y) && spaced(planting.trees, x, y, 6)) planting.trees.push([x, y]);
     }
   }
+  yield;
   // Open lawn: trees at least 7 m apart, clear of beds.
   for (let i = 0; i < 5000 && planting.trees.length < 420; i++) {
     const x = (rnd() * 2 - 1) * reachT, y = (rnd() * 2 - 1) * reachT;
     if (ok(x, y) && !inBed(x, y) && spaced(planting.trees, x, y, 7)) planting.trees.push([x, y]);
   }
 
+  yield;
+  // Land use from the 연속지적도 parcels (지목), painted under the complex and the roads:
+  // each parcel in the surface its registered use gives it, and nothing drawn inside it
+  // that isn't surveyed — road parcels (alleys included) asphalt, parks lawn, school
+  // grounds dirt, rivers water, forest floor, fields soil, building lots paving.
+  const parcels = data.parcels ?? [];
+  const inSite = (x: number, y: number) => data.site.some(r => inRing([x, y], r));
+  const lotTones = ["#a9a59c", "#b3aea4", "#9e9a92", "#bbb4a7", "#a49e92", "#aeaaa2", "#98958f"];
+  const paddy = season === "summer" ? "#5f7d3c" : season === "autumn" ? "#b39a4e" : season === "spring" ? "#6b7563" : "#7d7461";
+  const LAND: Record<string, { c: string | ((i: number) => string); r: number }> = {
+    대: { c: i => lotTones[i % lotTones.length], r: 205 }, 도: { c: "#55585c", r: 185 }, 차: { c: "#4b4e52", r: 190 },
+    주: { c: "#8f8d88", r: 170 }, 장: { c: "#8a8a86", r: 200 }, 창: { c: "#8e8c87", r: 200 }, 철: { c: "#6d655b", r: 245 },
+    공: { c: lawn, r: 245 }, 체: { c: "#5d8744", r: 240 }, 원: { c: lawn, r: 245 }, 묘: { c: lawn, r: 245 },
+    학: { c: "#bfa27a", r: 250 }, 임: { c: "#46542f", r: 252 }, 전: { c: "#86704f", r: 252 }, 답: { c: paddy, r: 200 },
+    과: { c: "#6f7a45", r: 250 }, 목: { c: "#77814a", r: 250 },
+    // Water parcels: their banks (둔치); the water itself is a surface on the channel (sceneWater.ts).
+    천: { c: "#6b7a4f", r: 240 }, 구: { c: "#6f7a55", r: 240 }, 유: { c: "#6b7a4f", r: 240 }, 양: { c: "#6b7a4f", r: 240 },
+    제: { c: "#7b8a55", r: 245 }, 종: { c: "#a8a298", r: 205 }, 사: { c: "#9f9888", r: 220 }, 수: { c: "#8e8c87", r: 200 },
+    잡: { c: "#948a78", r: 240 }, 광: { c: "#8f877a", r: 240 }, 염: { c: "#b9b8b0", r: 120 },
+  };
+  // Covered streams (a road runs along the water parcel) are painted as the road they are.
+  const covered = waterCovered(data);
+  const paintLand = (ctx: CanvasRenderingContext2D, rough: boolean) => {
+    parcels.forEach((p, i) => {
+      const spec = (WATER_KINDS.has(p.kind) && covered[i] ? LAND.도 : LAND[p.kind]) ?? LAND.대;
+      path(ctx, p.ring);
+      ctx.fillStyle = rough ? `rgb(0,${spec.r},0)` : typeof spec.c === "function" ? spec.c(i) : spec.c;
+      ctx.fill();
+    });
+  };
+  yield;
+  // Trees where the land is a park or forest (and a few on school and burial grounds),
+  // clear of buildings, roads and each other.
+  const landTrees: [number, number][] = [];
+  for (const p of parcels) {
+    const gap = p.kind === "임" ? 5.5 : p.kind === "공" || p.kind === "원" ? 8 : p.kind === "묘" || p.kind === "학" ? 14 : 0;
+    if (!gap) continue;
+    // Only over the painted ground (a mountain parcel runs far past it).
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of p.ring) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    x0 = Math.max(x0, -T); y0 = Math.max(y0, -T); x1 = Math.min(x1, T); y1 = Math.min(y1, T);
+    let tested = 0;
+    for (let y = y0 + gap / 2; y < y1 && landTrees.length < 900; y += gap * 0.87) {
+      for (let x = x0 + gap / 2 + ((y / gap) % 2) * gap / 2; x < x1; x += gap) {
+        const jx = x + (rnd() - 0.5) * gap * 0.5, jy = y + (rnd() - 0.5) * gap * 0.5;
+        if (free(jx, jy) && inRing([jx, jy], p.ring) && !inSite(jx, jy)) landTrees.push([jx, jy]);
+        if (++tested % 400 === 0) yield;
+      }
+    }
+  }
+  planting.trees.push(...landTrees);
+
   const layout = (ctx: CanvasRenderingContext2D, c: { base: string; walk: string; asphalt: string; lawn: string; path: string; apron: string; bed: string }) => {
     ctx.fillStyle = c.base; ctx.fillRect(0, 0, S, S);
     ctx.lineJoin = "round"; ctx.lineCap = "round";
+    paintLand(ctx, ctx === rg);
     ctx.save();
     if (hasSite) { sitePath(ctx); ctx.clip("evenodd"); ctx.fillStyle = c.lawn; ctx.fillRect(0, 0, S, S); }
     else { ctx.fillStyle = c.lawn; ctx.strokeStyle = c.lawn; ctx.lineWidth = m(40); towers.forEach(r => { path(ctx, r); ctx.stroke(); ctx.fill(); }); }
@@ -489,16 +772,18 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
     ctx.fillStyle = c.bed;
     beds.forEach(([x, y, rx, ry, a]) => { ctx.beginPath(); ctx.ellipse(X(x), Y(y), m(rx), m(ry), a, 0, Math.PI * 2); ctx.fill(); });
     ctx.restore();
-    // Roads last, at their surveyed width with a 2.5 m sidewalk each side: a road that
-    // crosses the parcel is real and stays paved.
+    // Roads last, at their surveyed width with the sidewalk each side (raised in 3D by
+    // sceneSidewalk.ts): a road that crosses the parcel is real and stays paved.
     ctx.strokeStyle = c.walk;
-    roads.forEach(r => { ctx.lineWidth = m(r.width + 5); line(ctx, r.line); ctx.stroke(); });
+    roads.forEach(r => { ctx.lineWidth = m(r.width + 2 * sidewalkWidth(r.width)); line(ctx, r.line); ctx.stroke(); });
     ctx.strokeStyle = c.asphalt;
     roads.forEach(r => { ctx.lineWidth = m(r.width); line(ctx, r.line); ctx.stroke(); });
   };
   layout(cg, { base: "#8e8c86", walk: "#b3aea5", asphalt: "#3e4146", lawn, path: "#b9b1a2", apron: "#aea799", bed: "#4a3d30" });
+  yield;
   layout(rg, { base: "rgb(0,190,0)", walk: "rgb(0,150,0)", asphalt: "rgb(0,120,0)", lawn: "rgb(0,245,0)", path: "rgb(0,140,0)", apron: "rgb(0,125,0)", bed: "rgb(0,250,0)" });
 
+  yield;
   // Lane markings from the registered lane count.
   cg.save();
   cg.lineCap = "butt";
@@ -520,6 +805,7 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
   });
   cg.setLineDash([]);
   cg.restore();
+  yield;
   // Lamp light pools, lit at night through the ground's emissive map.
   const glow = canvas(R, R), gg = glow.getContext("2d")!;
   gg.scale(R / S, R / S);
@@ -531,11 +817,13 @@ export function paintGround(data: RealEstateBuildingsResponse, T: number, size: 
     g.addColorStop(0, "rgba(255,206,150,0.9)"); g.addColorStop(0.4, "rgba(255,180,110,0.32)"); g.addColorStop(1, "rgba(255,170,100,0)");
     gg.fillStyle = g; gg.fillRect(px - rad, py - rad, rad * 2, rad * 2);
   });
+  yield;
   // Soft contact shade around every footprint.
   cg.filter = `blur(${Math.max(2, m(2.6))}px)`;
   cg.fillStyle = "rgba(0,0,0,0.34)";
   rings.forEach(r => { path(cg, r); cg.fill(); });
   cg.filter = "none";
+  yield;
   // Fade toward the edge, so nothing streaks past the painted area.
   for (const [ctx, base] of [[cg, "142,140,134"], [rg, "0,190,0"]] as const) {
     const fade = ctx.createRadialGradient(S / 2, S / 2, S * 0.36, S / 2, S / 2, S * 0.5);
@@ -588,9 +876,9 @@ const look = (l: Omit<Look, "key" | "hemiSky" | "hemiGround" | "fog"> & { key: s
 // Azimuth in degrees from south (+z) toward east (+x); the camera opens from the south-east.
 export const LOOKS: Record<Tod, Look> = {
   day: look({
-    sunElev: 40, sunAz: -28, keyElev: 40, keyAz: -28, turbidity: 1.4, rayleigh: 1.9, mie: 0.003, mieG: 0.8,
+    sunElev: 40, sunAz: -28, keyElev: 40, keyAz: -28, turbidity: 1.4, rayleigh: 1.9, mie: 0.0015, mieG: 0.7,
     key: "#fff3e0", keyI: 3.4, hemiSky: "#c4dcf6", hemiGround: "#6f6552", hemiI: 0.3,
-    fog: "#a9c1dc", fogK: 0.075, exposure: 0.56, env: 0.16, windows: 0, lamps: 0, stars: 0, clouds: 0.42, cloudShade: 0.26, bloom: 0.2, bloomAt: 4, reflect: 0.85,
+    fog: "#a9c1dc", fogK: 0.075, exposure: 0.56, env: 0.16, windows: 0, lamps: 0, stars: 0, clouds: 0.34, cloudShade: 0.26, bloom: 0.2, bloomAt: 4, reflect: 0.85,
   }),
   dusk: look({
     sunElev: 3.5, sunAz: -70, keyElev: 6, keyAz: -70, turbidity: 6.5, rayleigh: 2.6, mie: 0.007, mieG: 0.9,
@@ -622,14 +910,62 @@ export function dirFrom(elevDeg: number, azDeg: number, out = new THREE.Vector3(
   return out.set(Math.cos(el) * Math.sin(az), Math.sin(el), Math.cos(el) * Math.cos(az));
 }
 
-/** The sky melts into the haze at the horizon, and below it is haze, so the far
- * ground and the sky never meet at a hard line. */
+/** The WebGL sky, drawn like the native renderer's (tidewater/ComplexRenderer.js
+ * `complexSky`): a clear blue gradient, fair-weather cumulus drifting overhead, a small
+ * soft sun without glare, night and dusk tints; below the horizon, the haze. It
+ * replaces three's physical Sky shading, which washes out toward the sun. Keep the two
+ * in step. */
 export function patchSky(mat: THREE.ShaderMaterial, horizon: THREE.Color) {
   mat.uniforms.uHorizon = { value: horizon };
-  mat.fragmentShader = mat.fragmentShader
-    .replace("uniform float time;", "uniform float time;\nuniform vec3 uHorizon;")
-    .replace("gl_FragColor = vec4( texColor, 1.0 );",
-      "texColor = mix( uHorizon, texColor, smoothstep( -0.01, 0.07, direction.y ) );\ngl_FragColor = vec4( texColor, 1.0 );");
+  mat.uniforms.uSunColor = { value: new THREE.Color(3, 2.9, 2.7) };
+  mat.uniforms.uNight = { value: 0 };
+  mat.fragmentShader = /* glsl */`
+varying vec3 vWorldPosition;
+uniform vec3 sunPosition; uniform float time; uniform vec3 uHorizon; uniform vec3 uSunColor; uniform float uNight;
+float skyHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float skyNoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(skyHash(i), skyHash(i + vec2(1, 0)), u.x), mix(skyHash(i + vec2(0, 1)), skyHash(i + vec2(1, 1)), u.x), u.y);
+}
+float skyFbm(vec2 p) {
+  float a = 0.5, s = 0.0;
+  for (int i = 0; i < 5; i++) { s += a * skyNoise(p); p = mat2(1.6, 1.2, -1.2, 1.6) * p; a *= 0.5; }
+  return s;
+}
+float cumulus(vec2 uv) {
+  vec2 warp = vec2(skyFbm(uv * 0.7 + vec2(3.1, 1.7)), skyFbm(uv * 0.7 + vec2(8.3, 2.8))) - 0.5;
+  float billow = skyFbm(uv * 1.7 + warp * 0.9);
+  float cover = smoothstep(0.34, 0.6, skyNoise(uv * 0.85 + vec2(5.0, 1.0)) * 0.7 + skyNoise(uv * 0.3 + vec2(2.0, 7.0)) * 0.3);
+  return smoothstep(0.5, 0.6, billow * (0.62 + 0.55 * cover)) * smoothstep(0.05, 0.4, cover);
+}
+void main() {
+  vec3 ray = normalize(vWorldPosition - cameraPosition);
+  vec3 sunDir = normalize(sunPosition);
+  float day = 1.0 - uNight;
+  float e = clamp(ray.y, 0.0, 1.0);
+  float dusk = 1.0 - smoothstep(0.04, 0.45, sunDir.y);
+  vec3 zenith = mix(vec3(0.08, 0.27, 0.72), vec3(0.24, 0.2, 0.34), dusk);
+  vec3 hor = mix(vec3(0.55, 0.71, 0.9), uHorizon, dusk * 0.85);
+  vec3 sky = mix(mix(uHorizon * 0.45, vec3(0.006, 0.013, 0.04), pow(e, 0.35)), mix(hor, zenith, pow(e, 0.55)), day);
+  if (ray.y > 0.0) {
+    vec2 uv = ray.xz / (ray.y + 0.22) * 1.35 + vec2(time * 0.005, time * 0.0018);
+    float d = cumulus(uv);
+    if (d > 0.002) {
+      vec2 toSun = normalize(sunDir.xz + vec2(0.0001, 0.0)) * 0.22;
+      float lit = clamp(1.0 - (cumulus(uv + toSun) - d * 0.35) * 1.5, 0.0, 1.0);
+      vec3 tint = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.001);
+      vec3 dayCloud = mix(vec3(0.6, 0.65, 0.74), vec3(1.06, 1.05, 1.02) * mix(vec3(1.0), tint, 0.3), lit);
+      sky = mix(sky, mix(uHorizon * 0.25, dayCloud, day), clamp(d * 1.25, 0.0, 0.97) * smoothstep(0.0, 0.08, ray.y));
+    }
+  }
+  float sun = max(dot(ray, sunDir), 0.0);
+  vec3 tint = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.001);
+  sky = mix(sky, tint * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85);
+  sky = mix(uHorizon, sky, smoothstep(-0.01, 0.07, ray.y));
+  gl_FragColor = vec4(sky * 1.15, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
   mat.needsUpdate = true;
 }
 
@@ -651,40 +987,17 @@ export function starField(radius: number) {
   return new THREE.Points(geo, mat);
 }
 
-/** Display-referred finish: a lens flare for the sun (ghosts strung along the line
- * through the image centre, a soft veil and a short starburst, faded by how much of
- * the sun the buildings hide), a gentle vignette, and dither against sky banding. */
+/** Display-referred finish: a gentle vignette, and dither against sky banding. (No lens
+ * flare or sun glare: the sky should read as a plain blue sky with clouds.) */
 export const FinishShader = {
-  uniforms: {
-    tDiffuse: { value: null }, uVignette: { value: 0.9 },
-    uSun: { value: new THREE.Vector2(0.5, 0.5) }, uSunVis: { value: 0 }, uAspect: { value: 1 },
-    uFlare: { value: new THREE.Color(1, 0.9, 0.75) },
-  },
+  uniforms: { tDiffuse: { value: null }, uVignette: { value: 0.9 }, uAspect: { value: 1 } },
   vertexShader: /* glsl */`varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
-uniform sampler2D tDiffuse; uniform float uVignette; uniform vec2 uSun; uniform float uSunVis; uniform float uAspect; uniform vec3 uFlare;
+uniform sampler2D tDiffuse; uniform float uVignette;
 varying vec2 vUv;
 float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
-float ghost(vec2 uv, float a, float r) {
-  vec2 c = mix(vec2(0.5), uSun, a);
-  float d = length((uv - c) * vec2(uAspect, 1.0));
-  return smoothstep(r, r * 0.55, d) * 0.6 + smoothstep(r * 0.08, 0.0, abs(d - r * 0.92)) * 0.5;
-}
 void main() {
   vec4 c = texture2D(tDiffuse, vUv);
-  if (uSunVis > 0.001) {
-    vec2 ds = (vUv - uSun) * vec2(uAspect, 1.0);
-    float d = length(ds);
-    float ang = atan(ds.y, ds.x);
-    vec3 f = uFlare * (exp(-d * 7.0) * 0.16 + exp(-d * 30.0) * 0.35);
-    f += uFlare * pow(abs(cos(ang * 7.0 + 0.3)), 60.0) * exp(-d * 11.0) * 0.28;
-    f += vec3(1.0, 0.85, 0.6) * ghost(vUv, 0.62, 0.022) * 0.07;
-    f += vec3(0.55, 0.9, 1.0) * ghost(vUv, 0.3, 0.05) * 0.045;
-    f += vec3(0.8, 1.0, 0.7) * ghost(vUv, -0.2, 0.03) * 0.06;
-    f += vec3(0.6, 0.75, 1.0) * ghost(vUv, -0.55, 0.085) * 0.035;
-    f += vec3(1.0, 0.75, 0.9) * ghost(vUv, -0.95, 0.045) * 0.05;
-    c.rgb += f * uSunVis;
-  }
   vec2 dv = vUv - 0.5;
   c.rgb *= mix(1.0, smoothstep(0.95, 0.25, length(dv)), uVignette * 0.35);
   c.rgb += (h(gl_FragCoord.xy) - 0.5) / 255.0;

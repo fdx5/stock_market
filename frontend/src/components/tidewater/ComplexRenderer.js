@@ -87,8 +87,10 @@ fn complexSky(ray: vec3f) -> vec3f {
       sky = mix(sky, cloud, clamp(d * 1.25, 0.0, 0.97) * smoothstep(0.0, 0.08, ray.y));
     }
   }
+  // The sun: a small soft disc, no glare halo (the sky reads as plain blue with clouds).
   let sun = max(dot(ray, frame.sunDir), 0.0);
-  sky += frame.sunColor * (pow(sun, 1400.0) * 1.6 + pow(sun, 30.0) * 0.035) * day;
+  let tint = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
+  sky = mix(sky, tint * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85);
   return sky;
 }` });
 const skyCode = /* wgsl */`
@@ -162,8 +164,20 @@ export class ComplexRenderer {
     if (img.data) tex.upload(img.data);
     else GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]);
     generateMipmaps(tex);
+    tex.sourceVersion = source.version;
     this.textures.set(source, tex);
     return tex;
+  }
+  /** Canvas textures repainted in place (the ground once land use arrives): upload again. */
+  refreshTextures() {
+    for (const [source, tex] of this.textures) {
+      if (tex.sourceVersion === source.version) continue;
+      tex.sourceVersion = source.version;
+      const img = source.image;
+      if (!img?.width || img.data || img.width !== tex.width || img.height !== tex.height) continue;
+      GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]);
+      generateMipmaps(tex);
+    }
   }
   material(source) {
     if (this.materials.has(source)) return this.materials.get(source);
@@ -188,7 +202,7 @@ export class ComplexRenderer {
       const t = source.normalMap;
       // Cotangent frame from screen derivatives: works on arbitrary GIS walls.
       surface += `{
-        let uv = in.uv * vec2f(${t.repeat.x.toFixed(8)}, ${t.repeat.y.toFixed(8)});
+        let uv = in.uv * vec2f(${t.repeat.x.toFixed(8)}, ${t.repeat.y.toFixed(8)}) + vec2f(${t.offset.x.toFixed(8)}, ${t.offset.y.toFixed(8)});
         let mapN = textureSample(normalMap, smpAnisoRepeat, uv).xyz * 2.0 - 1.0;
         let q0 = dpdx(in.P); let q1 = dpdy(in.P);
         let st0 = dpdx(uv); let st1 = dpdy(uv);
@@ -201,12 +215,30 @@ export class ComplexRenderer {
         s.normal = normalize(T * inv * mapN.x * near + B * inv * mapN.y * near + in.N * mapN.z);
       }`;
     }
+    // Water (sceneWater.ts): travelling waves along the channel ripple the normal, so
+    // the reflected sky flows. Same wave field as WAVES_GLSL there.
+    if (source.userData.water) surface += `{
+      let t = frame.time; let p = in.uv; let p2 = p * 2.3 + vec2f(11.0);
+      let ks = array<vec4f, 4>(vec4f(0.55, 0.08, 0.5, 1.3), vec4f(0.9, -0.35, 0.35, 1.9), vec4f(1.7, 0.6, 0.22, 2.6), vec4f(2.9, -1.1, 0.12, 3.4));
+      var g = vec2f(0.0);
+      for (var i = 0; i < 4; i++) {
+        let w = ks[i];
+        g += w.z * w.xy * cos(dot(p, w.xy) - t * w.w);
+        g += 0.6 * w.z * w.xy * cos(dot(p2, w.xy) - t * 1.4 * w.w);
+      }
+      let q0 = dpdx(in.P); let q1 = dpdy(in.P); let st0 = dpdx(in.uv); let st1 = dpdy(in.uv);
+      let N = vec3f(0.0, 1.0, 0.0);
+      let T = cross(q1, N) * st0.x + cross(N, q0) * st1.x;
+      let B = cross(q1, N) * st0.y + cross(N, q0) * st1.y;
+      let inv = inverseSqrt(max(max(dot(T, T), dot(B, B)), 1e-8));
+      let near = 1.0 - smoothstep(80.0, 600.0, length(in.P - frame.cameraPos));
+      s.normal = normalize(N - (T * g.x + B * g.y) * inv * 0.16 * near);
+    }`;
     // Leaves let light through: a little transmitted sun on the shaded side.
     if (source.userData.foliage) surface += 's.translucency = s.albedo * 0.25;';
     if (source.userData.contextBuilding) surface += 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.27, 0.25); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9; }';
     // Contact darkening and physical glass response (no procedural grain: it aliases).
     surface += `s.roughness = clamp(s.roughness, 0.12, 1.0);
-      s.ao *= mix(0.68, 1.0, smoothstep(0.0, 5.0, in.P.y));
       s.clearcoat = ${source.clearcoat ? '0.16' : '0.0'}; s.clearcoatRoughness = 0.22;`;
     const mat = new Material({ name: 'complex ' + source.id, color: source.color, roughness: source.roughness ?? 0.8,
       metalness: source.metalness ?? 0, vertexColors: source.vertexColors,
@@ -225,7 +257,9 @@ export class ComplexRenderer {
   }
   sync(source) {
     source.updateMatrixWorld(true);
-    const active = new Set();
+    const active = this.active ??= new Set();
+    active.clear();
+    let added = false;
     source.traverseVisible(obj => {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       active.add(obj);
@@ -247,12 +281,16 @@ export class ComplexRenderer {
         this.meshes.set(obj, mesh);
         this.scene.add(mesh);
         this.ready = false;
+        added = true;
       }
       mesh.count = obj.count ?? 1;
       mesh.matrix.copy(obj.matrixWorld);
     });
-    for (const [obj, mesh] of this.meshes) if (!active.has(obj)) { this.scene.remove(mesh); this.meshes.delete(obj); }
-    // Release per-complex resources when switching selections.
+    let removed = false;
+    for (const [obj, mesh] of this.meshes) if (!active.has(obj)) { this.scene.remove(mesh); this.meshes.delete(obj); removed = true; }
+    // Release per-complex resources when switching selections (only then: the scans
+    // below allocate, and most frames change nothing).
+    if (!removed && !added) return;
     const used = new Set([...active].flatMap(o => Array.isArray(o.material) ? o.material : [o.material]));
     for (const [src, mat] of this.materials) if (!used.has(src)) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); this.renderer.pipelines.clear(); }
     const usedTextures = new Set([...used].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap]));
@@ -263,6 +301,7 @@ export class ComplexRenderer {
     if (deviceLost) { this.failed = true; return; }
     GPU.beginFrame();
     this.sync(source);
+    this.refreshTextures();
     const c = this.camera;
     c.position.copy(camera.position); c.quaternion.copy(camera.quaternion);
     c.fov = camera.fov; c.aspect = camera.aspect; c.near = camera.near; c.far = camera.far;
