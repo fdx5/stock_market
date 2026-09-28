@@ -219,14 +219,14 @@ fn _sunShadow( P: vec3f, N: vec3f, pixel: vec2f, pcss: bool ) -> f32 {
 	let last = i32( shadowParams.count ) - 1;
 	for ( var i = 0; i <= last; i++ ) {
 		let b = shadowParams.blend[ i ]; // x, y: cascade range, z / w: blend margin at its near / far seam
-		let center = ( b.x + b.y ) * 0.5;
-		let margin = max( select( b.w, b.z, dist < center ), 1e-5 );
+		let cascadeMid = ( b.x + b.y ) * 0.5;
+		let margin = max( select( b.w, b.z, dist < cascadeMid ), 1e-5 );
 		let csmX = b.x - margin * 0.5;
 		let csmY = select( b.y + margin * 0.5, b.y, i == last );
 		if ( dist >= csmX && dist <= csmY ) {
 			var ratio = clamp( min( dist - csmX, csmY - dist ) / margin, 0.0, 1.0 );
 			// no fade at the near edge of the first cascade
-			if ( i == 0 && dist <= center ) { ratio = 1.0; }
+			if ( i == 0 && dist <= cascadeMid ) { ratio = 1.0; }
 			ret -= ( 1.0 - _sunShadowCascade( P, N, i, noise, pcfNoise, pcss ) ) * ratio;
 		}
 	}

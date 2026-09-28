@@ -89,8 +89,8 @@ fn complexSky(ray: vec3f) -> vec3f {
   }
   // The sun: a small soft disc, no glare halo (the sky reads as plain blue with clouds).
   let sun = max(dot(ray, frame.sunDir), 0.0);
-  let tint = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
-  sky = mix(sky, tint * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85);
+  let sunHue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
+  sky = mix(sky, sunHue * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85);
   return sky;
 }` });
 const skyCode = /* wgsl */`
@@ -184,10 +184,10 @@ export class ComplexRenderer {
     const textures = {};
     let surface = '';
     for (const [key, statement] of [
-      ['map', 's.albedo *= sample.rgb; s.alpha *= sample.a;'],
-      ['roughnessMap', 's.roughness *= sample.g;'],
-      ['metalnessMap', 's.metalness *= sample.b;'],
-      ['emissiveMap', 's.emissive *= sample.rgb;'],
+      ['map', 's.albedo *= texel.rgb; s.alpha *= texel.a;'],
+      ['roughnessMap', 's.roughness *= texel.g;'],
+      ['metalnessMap', 's.metalness *= texel.b;'],
+      ['emissiveMap', 's.emissive *= texel.rgb;'],
     ]) {
       const tex = source[key] && this.texture(source[key]);
       if (!tex) continue;
@@ -195,7 +195,7 @@ export class ComplexRenderer {
       const t = source[key];
       const f = n => Number(n).toFixed(8);
       const sampler = t.wrapS === 1000 ? 'smpAnisoRepeat' : 'smpAnisoClamp';
-      surface += `{ let uv = in.uv * vec2f(${f(t.repeat.x)}, ${f(t.repeat.y)}) + vec2f(${f(t.offset.x)}, ${f(t.offset.y)}); let sample = textureSample(${key}, ${sampler}, uv); ${statement} }\n`;
+      surface += `{ let uv = in.uv * vec2f(${f(t.repeat.x)}, ${f(t.repeat.y)}) + vec2f(${f(t.offset.x)}, ${f(t.offset.y)}); let texel = textureSample(${key}, ${sampler}, uv); ${statement} }\n`;
     }
     if (source.normalMap) {
       textures.normalMap = this.texture(source.normalMap);
@@ -218,21 +218,23 @@ export class ComplexRenderer {
     // Water (sceneWater.ts): travelling waves along the channel ripple the normal, so
     // the reflected sky flows. Same wave field as WAVES_GLSL there.
     if (source.userData.water) surface += `{
-      let t = frame.time; let p = in.uv; let p2 = p * 2.3 + vec2f(11.0);
-      let ks = array<vec4f, 4>(vec4f(0.55, 0.08, 0.5, 1.3), vec4f(0.9, -0.35, 0.35, 1.9), vec4f(1.7, 0.6, 0.22, 2.6), vec4f(2.9, -1.1, 0.12, 3.4));
-      var g = vec2f(0.0);
-      for (var i = 0; i < 4; i++) {
-        let w = ks[i];
-        g += w.z * w.xy * cos(dot(p, w.xy) - t * w.w);
-        g += 0.6 * w.z * w.xy * cos(dot(p2, w.xy) - t * 1.4 * w.w);
-      }
-      let q0 = dpdx(in.P); let q1 = dpdy(in.P); let st0 = dpdx(in.uv); let st1 = dpdy(in.uv);
-      let N = vec3f(0.0, 1.0, 0.0);
-      let T = cross(q1, N) * st0.x + cross(N, q0) * st1.x;
-      let B = cross(q1, N) * st0.y + cross(N, q0) * st1.y;
-      let inv = inverseSqrt(max(max(dot(T, T), dot(B, B)), 1e-8));
-      let near = 1.0 - smoothstep(80.0, 600.0, length(in.P - frame.cameraPos));
-      s.normal = normalize(N - (T * g.x + B * g.y) * inv * 0.16 * near);
+      let wt = frame.time; let wp = in.uv; let wp2 = wp * 2.3 + vec2f(11.0, 11.0);
+      var wg = vec2f(0.0, 0.0);
+      wg += 0.50 * vec2f(0.55, 0.08) * cos(dot(wp, vec2f(0.55, 0.08)) - wt * 1.30);
+      wg += 0.300 * vec2f(0.55, 0.08) * cos(dot(wp2, vec2f(0.55, 0.08)) - wt * 1.82);
+      wg += 0.35 * vec2f(0.90, -0.35) * cos(dot(wp, vec2f(0.90, -0.35)) - wt * 1.90);
+      wg += 0.210 * vec2f(0.90, -0.35) * cos(dot(wp2, vec2f(0.90, -0.35)) - wt * 2.66);
+      wg += 0.22 * vec2f(1.70, 0.60) * cos(dot(wp, vec2f(1.70, 0.60)) - wt * 2.60);
+      wg += 0.132 * vec2f(1.70, 0.60) * cos(dot(wp2, vec2f(1.70, 0.60)) - wt * 3.64);
+      wg += 0.12 * vec2f(2.90, -1.10) * cos(dot(wp, vec2f(2.90, -1.10)) - wt * 3.40);
+      wg += 0.072 * vec2f(2.90, -1.10) * cos(dot(wp2, vec2f(2.90, -1.10)) - wt * 4.76);
+      let wq0 = dpdx(in.P); let wq1 = dpdy(in.P); let ws0 = dpdx(in.uv); let ws1 = dpdy(in.uv);
+      let wn = vec3f(0.0, 1.0, 0.0);
+      let wtan = cross(wq1, wn) * ws0.x + cross(wn, wq0) * ws1.x;
+      let wbit = cross(wq1, wn) * ws0.y + cross(wn, wq0) * ws1.y;
+      let winv = inverseSqrt(max(max(dot(wtan, wtan), dot(wbit, wbit)), 0.00000001));
+      let wnear = 1.0 - smoothstep(80.0, 600.0, length(in.P - frame.cameraPos));
+      s.normal = normalize(wn - (wtan * wg.x + wbit * wg.y) * winv * 0.16 * wnear);
     }`;
     // Leaves let light through: a little transmitted sun on the shaded side.
     if (source.userData.foliage) surface += 's.translucency = s.albedo * 0.25;';
