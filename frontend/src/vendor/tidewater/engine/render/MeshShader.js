@@ -148,16 +148,28 @@ fn cofactor3( m: mat4x4f ) -> mat3x3f {
 	return mat3x3f( cross( b, c ), cross( c, a ), cross( a, b ) );
 }
 
-fn materialVertex( v: ptr<function, VertexData>, o: ptr<function, VSOut> ) {
+// Material code writes \`v.\`, \`o.\`, \`s.\`, \`r.\` fields. Those are pointer parameters;
+// accessing a member straight through a pointer ("pointer composite access") is a newer
+// WGSL feature some browsers' Tint rejects ("invalid member accessor expression"), so
+// each hook works on a local copy and writes it back.
+fn materialVertex( vp: ptr<function, VertexData>, op: ptr<function, VSOut> ) {
+	var v = *vp;
+	var o = *op;
 ${ material.vertex }
+	*vp = v;
+	*op = o;
 }
 
-fn materialSurface( in: FragInput, s: ptr<function, Surface> ) {
+fn materialSurface( in: FragInput, sp: ptr<function, Surface> ) {
+	var s = *sp;
 ${ material.surface }
+	*sp = s;
 }
 
-fn materialOutput( in: FragInput, s: Surface, r: ptr<function, FragResult> ) {
+fn materialOutput( in: FragInput, s: Surface, rp: ptr<function, FragResult> ) {
+	var r = *rp;
 ${ material.output }
+	*rp = r;
 }
 
 #if CLIP_DISTANCES
