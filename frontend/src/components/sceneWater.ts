@@ -53,39 +53,104 @@ vec2 waterGrad(vec2 p, float t) {
   return g;
 }`;
 
+/** Rasterised water: every open-water parcel on one grid (adjacent parcels of one river
+ * are one channel, not separate ponds with banks between them). Per node: inside,
+ * ground height, the local water level and the distance to the nearest dry node (the
+ * bank), in metres. Replaces point-in-polygon tests per vertex (seconds on a river). */
+function waterField(rings: [number, number][][], terrain: Terrain) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const r of rings) for (const [x, y] of r) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  // 2 m nodes; a coarser step only for very large rivers (at most ~300k nodes).
+  const s = Math.max(2, Math.sqrt(((x1 - x0) * (y1 - y0)) / 300000));
+  x0 -= s; y0 -= s;
+  const nx = Math.ceil((x1 - x0) / s) + 2, ny = Math.ceil((y1 - y0) / s) + 2, n = nx * ny;
+  const inside = new Uint8Array(n), h = new Float32Array(n), lvl = new Float32Array(n), dist = new Float32Array(n);
+  // Scanline fill (even-odd per ring, union over rings).
+  const xs: number[] = [];
+  for (const r of rings) for (let j = 0; j < ny; j++) {
+    const y = y0 + j * s;
+    xs.length = 0;
+    for (let i = 0, k = r.length - 1; i < r.length; k = i++) {
+      const [xi, yi] = r[i], [xk, yk] = r[k];
+      if (yi > y !== yk > y) xs.push(((xk - xi) * (y - yi)) / (yk - yi) + xi);
+    }
+    xs.sort((a, b) => a - b);
+    for (let q = 0; q + 1 < xs.length; q += 2)
+      for (let i = Math.max(0, Math.ceil((xs[q] - x0) / s)), e = Math.min(nx - 1, Math.floor((xs[q + 1] - x0) / s)); i <= e; i++) inside[j * nx + i] = 1;
+  }
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) h[j * nx + i] = inside[j * nx + i] ? terrain.at(x0 + i * s, y0 + j * s) : Infinity;
+  // Where the water actually is: a 하천 parcel also holds its banks and riverside paths
+  // (둔치). The national DEM shows the channel as the lowest ground: water only within
+  // 0.7 m of the lowest point nearby (25 m round, on water parcels).
+  const r = Math.round(25 / s), dirs = Array.from({ length: 8 }, (_, k) => [Math.round(Math.cos(k * Math.PI / 4) * r), Math.round(Math.sin(k * Math.PI / 4) * r)]);
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const c = j * nx + i;
+    if (!inside[c]) { lvl[c] = Infinity; continue; }
+    let m = h[c];
+    for (const [di, dj] of dirs) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < nx && b < ny) m = Math.min(m, h[b * nx + a]); }
+    lvl[c] = m;
+  }
+  // Chamfer distance from the dry nodes, forward and backward pass.
+  for (let c = 0; c < n; c++) dist[c] = inside[c] && h[c] <= lvl[c] + 0.7 ? 1e6 : 0;
+  const d1 = s, d2 = s * Math.SQRT2;
+  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+    const c = j * nx + i; if (!dist[c]) continue;
+    let d = dist[c];
+    if (i > 0) d = Math.min(d, dist[c - 1] + d1);
+    if (j > 0) { d = Math.min(d, dist[c - nx] + d1); if (i > 0) d = Math.min(d, dist[c - nx - 1] + d2); if (i < nx - 1) d = Math.min(d, dist[c - nx + 1] + d2); }
+    dist[c] = d;
+  }
+  for (let j = ny - 1; j >= 0; j--) for (let i = nx - 1; i >= 0; i--) {
+    const c = j * nx + i; if (!dist[c]) continue;
+    let d = dist[c];
+    if (i < nx - 1) d = Math.min(d, dist[c + 1] + d1);
+    if (j < ny - 1) { d = Math.min(d, dist[c + nx] + d1); if (i < nx - 1) d = Math.min(d, dist[c + nx + 1] + d2); if (i > 0) d = Math.min(d, dist[c + nx - 1] + d2); }
+    dist[c] = d;
+  }
+  /** Bilinear over the nodes (finite values only: the level exists on water parcels). */
+  const sample = (f: Float32Array, x: number, y: number, fallback: number) => {
+    const fx = Math.min(nx - 1.001, Math.max(0, (x - x0) / s)), fy = Math.min(ny - 1.001, Math.max(0, (y - y0) / s));
+    const i = Math.floor(fx), j = Math.floor(fy), u = fx - i, v = fy - j;
+    const c = j * nx + i;
+    let sum = 0, w = 0;
+    const add = (val: number, k: number) => { if (k > 0 && Number.isFinite(val)) { sum += val * k; w += k; } };
+    add(f[c], (1 - u) * (1 - v)); add(f[c + 1], u * (1 - v)); add(f[c + nx], (1 - u) * v); add(f[c + nx + 1], u * v);
+    return w > 0 ? sum / w : fallback;
+  };
+  return {
+    level: (x: number, y: number) => sample(lvl, x, y, terrain.at(x, y)),
+    // Half a node: the bank line lies between a wet and a dry node.
+    shore: (x: number, y: number) => Math.max(0, sample(dist, x, y, 0) - s * 0.5),
+  };
+}
+
 export function buildWater(parcels: RealEstateParcel[], covered: boolean[], terrain: Terrain) {
-  const pos: number[] = [], uv: number[] = [], nor: number[] = [];
-  for (const [pi, p] of parcels.entries()) {
-    if (!WATER.has(p.kind) || p.ring.length < 3 || covered[pi]) continue;
-    // Slivers under 300 m² are left-over strips of channelled streams, not open water.
-    if (Math.abs(p.ring.reduce((acc, [x, y], i) => { const q = p.ring[(i + 1) % p.ring.length]; return acc + x * q[1] - q[0] * y; }, 0) / 2) < 300) continue;
+  // Slivers under 300 m² are left-over strips of channelled streams, not open water.
+  const open = parcels.filter((p, pi) => WATER.has(p.kind) && p.ring.length >= 3 && !covered[pi]
+    && Math.abs(p.ring.reduce((acc, [x, y], i) => { const q = p.ring[(i + 1) % p.ring.length]; return acc + x * q[1] - q[0] * y; }, 0) / 2) >= 300);
+  if (!open.length) return null;
+  const field = waterField(open.map(p => p.ring), terrain);
+  const pos: number[] = [], uv: number[] = [], nor: number[] = [], shore: number[] = [], flow: number[] = [];
+  for (const p of open) {
     // Flow along the parcel's longest edge.
     let best = 0, ang = 0;
     p.ring.forEach((a, i) => { const b = p.ring[(i + 1) % p.ring.length], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l > best) { best = l; ang = Math.atan2(b[1] - a[1], b[0] - a[0]); } });
     const ux = Math.cos(ang), uy = Math.sin(ang);
     const pts = p.ring.map(([x, y]) => new THREE.Vector2(x, y));
     const tris = THREE.ShapeUtils.triangulateShape(pts, []);
-    // Where the water actually is: a 하천 parcel also holds its banks and riverside
-    // paths (둔치). The national DEM shows the channel as the lowest ground: water only
-    // within 0.7 m of the lowest point nearby (25 m round, inside the parcel), its
-    // surface at that local level.
-    const level = (x: number, y: number) => {
-      let m = terrain.at(x, y);
-      for (let k = 0; k < 8; k++) {
-        const a = (k * Math.PI) / 4, sx = x + Math.cos(a) * 25, sy = y + Math.sin(a) * 25;
-        if (inRing([sx, sy], p.ring)) m = Math.min(m, terrain.at(sx, sy));
-      }
-      return m;
-    };
     const wet = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2) => {
       const x = (a.x + b.x + c.x) / 3, y = (a.y + b.y + c.y) / 3;
-      return terrain.at(x, y) <= level(x, y) + 0.7;
+      return terrain.at(x, y) <= field.level(x, y) + 0.7;
     };
-    // Subdivided finely so the waterline follows the channel.
+    // Subdivided finely so the waterline follows the channel; the surface at the local
+    // level. aShore = metres to the bank, aFlow = the channel direction in world x/z
+    // (the WebGPU water: its depth, soft edge and current).
     const push = (x: number, y: number) => {
-      pos.push(x, level(x, y) + 0.12, -y);
+      pos.push(x, field.level(x, y) + 0.12, -y);
       uv.push(x * ux + y * uy, -x * uy + y * ux);
       nor.push(0, 1, 0);
+      shore.push(field.shore(x, y));
+      flow.push(ux, -uy);
     };
     const split = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2, depth: number): void => {
       const ab = a.distanceTo(b), bc = b.distanceTo(c), ca = c.distanceTo(a), m = Math.max(ab, bc, ca);
@@ -106,6 +171,8 @@ export function buildWater(parcels: RealEstateParcel[], covered: boolean[], terr
   geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute("aShore", new THREE.Float32BufferAttribute(shore, 1));
+  geo.setAttribute("aFlow", new THREE.Float32BufferAttribute(flow, 2));
   geo.computeBoundingSphere();
   const mat = new THREE.MeshStandardMaterial({ color: "#1f3d49", roughness: 0.06, metalness: 0 });
   mat.userData.water = true;

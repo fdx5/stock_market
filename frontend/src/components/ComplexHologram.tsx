@@ -19,7 +19,7 @@ import {
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, rng, shared, starField, Tod, TOD_LABEL, TOD_ORDER, todNow,
 } from "./complexScene";
 import "../desk2/realestate-hologram.css";
-import type { ComplexRenderer } from "./tidewater/ComplexRenderer";
+import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
 import { facadeRelief } from "./tidewater/facadeRelief";
 import { loadBuildings, saveBuildings } from "./buildingStore";
 import { buildPlants, preloadPlants } from "./scenePlants";
@@ -128,6 +128,8 @@ type Stage = {
   onShown: (() => void)[];
   /** Move the live canvases into another stage element (the 크게 보기 layer). */
   attach: (next: HTMLDivElement) => void;
+  /** Add decoration; on WebGL its programs compile in parallel before it joins the scene. */
+  addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void;
   frame: () => void;
 };
 
@@ -257,8 +259,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     setPreparing(nativePending);
     // Do not compile both renderers on first load: warm native pipelines behind
     // the loading state, and initialize WebGL lighting only if native fails.
+    // Native quality from the device: phones and small-memory devices start low (no
+    // screen-space reflection, half the shadow resolution), tablets medium; the loop
+    // below steps down further while frames stay slow at the lowest resolution.
+    const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+    const coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
+    const tier: Quality["name"] = (coarse && Math.min(screen.width, screen.height) < 700) || mem <= 3 ? "low" : !hq || mem <= 4 || navigator.hardwareConcurrency <= 4 ? "medium" : "high";
+    let qualities: Record<Quality["name"], Quality> | null = null;
     if (nativePending) {
-      import("./tidewater/ComplexRenderer").then(m => m.ComplexRenderer.create(host)).then(view => {
+      import("./tidewater/ComplexRenderer").then(m => { qualities = m.QUALITY; return m.ComplexRenderer.create(host, m.QUALITY[tier]); }).then(view => {
         if (disposed) { view.dispose(); return; }
         if (view.canvas.parentElement !== host) host.appendChild(view.canvas);
         native = view;
@@ -268,6 +277,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         if (disposed) return;
         nativePending = false;
         refreshEnv();
+        resize();
         console.info("[3D] Using WebGL compatibility renderer:", err);
       });
     }
@@ -328,6 +338,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // The neighbourhood's shared materials start compiling now, behind the data fetch.
     const warm = new THREE.Group();
     scene.add(warm);
+    // (WebGL: each warmed style joins the scene once its programs are linked.)
+    const warmAdd = warm.add.bind(warm);
+    warm.add = (...objs: THREE.Object3D[]) => {
+      for (const o of objs) { if (native || nativePending) warmAdd(o); else void glCompile(o).then(() => warmAdd(o)); }
+      return warm;
+    };
     void warmMaterials(warm, () => nextSlice(true), () => !disposed);
     const stars = starField(3000);
     const moon = moonInSky();
@@ -350,6 +366,16 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (reflector) { reflector.rotation.x = -Math.PI / 2; reflector.updateMatrixWorld(); }
 
     const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    /** WebGL programs for `obj` (with this scene's lights and fog), linked in parallel
+     * (KHR_parallel_shader_compile) instead of stalling its first draw in turn. Compiled
+     * as the composer draws them: into its HDR target (linear, no tone mapping). */
+    const glCompile = (obj: THREE.Object3D) => {
+      const prev = renderer.getRenderTarget();
+      renderer.setRenderTarget(target);
+      const done = renderer.compileAsync(obj, camera, scene).catch(() => {});
+      renderer.setRenderTarget(prev);
+      return done;
+    };
     const composer = new EffectComposer(renderer, target);
     composer.addPass(new RenderPass(scene, camera));
     const gtao = hq ? new GTAOPass(scene, camera, 1, 1) : null;
@@ -370,6 +396,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       look: LOOKS.day, fade: null, lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null,
       now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {},
+      addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
     // Dev only: lets the render checks place the camera (never in a production build).
@@ -379,6 +406,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const resize = () => {
       W = host.clientWidth; H = host.clientHeight;
       if (!W || !H) return;
+      camera.aspect = W / H;
+      camera.updateProjectionMatrix();
+      native?.setSize(W, H, ratio);
+      // The WebGL buffers (MSAA HDR target, AO, bloom, reflection) only while WebGL draws:
+      // reallocating them on every native resolution step cost frames for nothing.
+      if (native || nativePending) return;
       renderer.setPixelRatio(ratio);
       renderer.setSize(W, H, false);
       composer.setPixelRatio(ratio);
@@ -386,9 +419,6 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       bloom.setSize(W * ratio / 2, H * ratio / 2);
       reflector?.getRenderTarget().setSize(Math.round(W * ratio * 0.5), Math.round(H * ratio * 0.5));
       finish.uniforms.uAspect.value = W / H;
-      camera.aspect = W / H;
-      camera.updateProjectionMatrix();
-      native?.setSize(W, H, ratio);
     };
     const ro = new ResizeObserver(resize);
     ro.observe(host);
@@ -403,8 +433,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
 
     const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3();
     let envFrame = 0, nativeWaitSince = 0;
-    // Dynamic resolution with hysteresis: target 60 fps, never below 0.75x.
-    let slow = 0, quick = 0, last = performance.now();
+    let glCompiled: THREE.Object3D | null = null, glCompiling = false;
+    // Dynamic quality and resolution with hysteresis: at least 40 fps, never below 0.6x.
+    let slow = 0, quick = 0, last = performance.now(), settleUntil = 0;
     let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
     let raf = 0;
@@ -418,9 +449,19 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const nowMs = performance.now();
       const dt = nowMs - last;
       last = nowMs;
-      if (dt > 24 && dt < 250) { slow++; quick = 0; } else if (dt < 18) { quick++; slow = 0; }
-      if (dt >= 18 && dt <= 24) { slow = Math.max(0, slow - 1); quick = 0; }
-      if (slow > 40 && ratio > 0.75) { ratio = Math.max(0.75, ratio - 0.25); maxRatio = ratio; slow = 0; resize(); }
+      // Floor: 40 fps. A frame over 25 ms missed it; misses accumulate and on-time frames
+      // drain them slowly, so a steady ~35 fps also counts as slow within seconds. Not
+      // judged while a model is still being decorated (one-off building work).
+      const judge = !stage.unshown && nowMs > settleUntil && dt < 250;
+      if (judge && dt > 25.5) { slow++; quick = 0; }
+      else if (judge) { slow = Math.max(0, slow - 0.2); if (dt < 20) quick++; else quick = 0; }
+      // Resolution is kept longest: the native view first drops quality steps
+      // (screen-space reflections, clouds in them, shadow resolution), then resolution
+      // (down to 0.6x). Resolution climbs back only with 50 fps to spare.
+      if (slow > 30 && native?.shown && qualities && native.quality.name !== "low") {
+        native.setQuality(native.quality.name === "high" ? qualities.medium : qualities.low);
+        slow = 0;
+      } else if (slow > 30 && ratio > 0.6) { ratio = Math.max(0.6, ratio - 0.25); maxRatio = ratio; slow = 0; resize(); }
       else if (quick > 240 && ratio < maxRatio) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
 
       const t = (nowMs - t0) / 1000;
@@ -455,7 +496,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           nativeWaitSince ||= nowMs;
           if (nowMs - nativeWaitSince > 8000) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
         } else nativeWaitSince = 0;
-        if (native.failed) { native.dispose(); native = null; refreshEnv(); }
+        if (native.failed) { native.dispose(); native = null; refreshEnv(); resize(); }
       }
       const isPreparing = nativePending || (!!native && !native.shown);
       if (wasPreparing !== isPreparing) { setPreparing(isPreparing); wasPreparing = isPreparing; }
@@ -464,16 +505,28 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
         host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
         host.dataset.pixelRatio = ratio.toFixed(2);
+        if (native) host.dataset.quality = native.quality.name;
         sampleFrames = 0; sampleStart = nowMs;
       }
-      if (!native && !nativePending && reflector && stage.ground && stage.reflectOn) {
+      // WebGL: a new model's programs compile in parallel (KHR_parallel_shader_compile)
+      // before it is drawn; a first draw would wait on each link in turn (seconds).
+      const gl = !native && !nativePending;
+      // (and once at the start: sky, stars, moon)
+      const pending = stage.unshown && stage.model ? stage.model : glCompiled ? null : scene;
+      if (gl && pending && glCompiled !== pending && !glCompiling) {
+        glCompiling = true;
+        void glCompile(scene).then(() => { glCompiling = false; glCompiled = pending; });
+      }
+      const glWait = gl && !!pending && glCompiled !== pending;
+      if (gl && !glWait && reflector && stage.ground && stage.reflectOn) {
         stage.ground.visible = false;
         (reflector.onBeforeRender as (r: THREE.WebGLRenderer, s: THREE.Scene, c: THREE.Camera) => void)(renderer, scene, camera);
         stage.ground.visible = true;
       }
-      if (!native && !nativePending) composer.render();
-      if (stage.unshown && stage.model && (native?.ready || (!native && !nativePending))) {
+      if (gl && !glWait) composer.render();
+      if (stage.unshown && stage.model && (native?.ready || (gl && !glWait))) {
         stage.unshown = false;
+        settleUntil = nowMs + 4000;
         stage.onShown.splice(0).forEach(f => f());
         host.dataset.shownAt = performance.now().toFixed(0);
       }
@@ -1113,7 +1166,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       if (import.meta.env.DEV) (stage as unknown as { data: unknown }).data = data;
       const street = streetTrees(runs, plan.lamps);
       const walks = buildSidewalks(runs, terrain, street.map(([x, y]) => [x, y] as [number, number]));
-      decor.add(walks.group);
+      stage.addWarm(decor, walks.group);
       disposables.push(walks);
       // Land use (연속지적도 지목) arrives after the first frame: the ground is repainted in
       // place, parks and forest get their trees, and the parcels are kept with the complex.
@@ -1127,7 +1180,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const crowd = (paths: WalkPath[], salt: number, spacing: number, cap: number, cut = true) => {
         const walkers = buildWalkers(cut ? cutPaths(paths, blocked) : paths, terrain, seed + salt, spacing, cap);
         if (!walkers) return;
-        decor.add(walkers.group);
+        stage.addWarm(decor, walkers.group);
         if (import.meta.env.DEV) ((stage as unknown as { walkers: unknown[] }).walkers ??= []).push(...walkers.group.userData.walkers);
         disposables.push(walkers);
         tick.push(dt => walkers.update(dt, stage.camera));
@@ -1142,7 +1195,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         planting.street = street;
         const parcels = data.parcels ?? [];
         const water = buildWater(parcels, waterCovered(data), terrain);
-        if (water) { decor.add(water.mesh); disposables.push(water); }
+        if (water) { stage.addWarm(decor, water.mesh); disposables.push(water); }
         // Thousands of parcel edges, each tested every 2 m against buildings and
         // carriageways: laid out 60 parcels per slice, in idle time.
         void (async () => {
@@ -1162,21 +1215,21 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         return buildPlants(planting, seed, terrain).then(plants => {
           if (!plants) return;
           if (!alive) { plants.dispose(); return; }
-          decor.add(plants.mesh);
+          stage.addWarm(decor, plants.mesh);
           disposables.push(plants);
         });
       }).catch(err => console.info("[3D] Plants unavailable:", err));
     }));
     // Street lamps on the surveyed roads (lit from dusk), and traffic both ways.
     const lamps = buildLamps(plan.lamps, terrain);
-    afterShown(() => decor.add(lamps.group));
+    afterShown(() => stage.addWarm(decor, lamps.group));
     disposables.push(lamps);
     const onLook = [(l: Look) => lamps.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
     afterShown(() => void nextSlice(pausedRef.current).then(() => (alive ? buildTraffic(roads, seed, stage.hq, terrain) : null)).then(traffic => {
       if (!traffic) return;
       if (!alive) { traffic.dispose(); return; }
-      decor.add(traffic.group);
+      stage.addWarm(decor, traffic.group);
       disposables.push(traffic);
       tick.push(dt => traffic.update(dt));
       onLook.push(l => traffic.setLamps(l.lamps));

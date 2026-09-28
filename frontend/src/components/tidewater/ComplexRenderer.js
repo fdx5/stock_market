@@ -12,6 +12,15 @@ import { FrameUniforms, setFrameCamera } from '../../vendor/tidewater/engine/ren
 import { ShaderModule } from '../../vendor/tidewater/engine/gpu/Shader.js';
 import { SceneLighting } from '../../vendor/tidewater/engine/render/wgsl/lighting.js';
 import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/index.js';
+import { waterMaterial, updateWaveTile } from './ComplexWater.js';
+
+/** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
+ * software / fallback adapters. The view steps down on its own while frames are slow. */
+export const QUALITY = {
+  high: { name: 'high', shadow: 2048, ssr: true, clouds: true },
+  medium: { name: 'medium', shadow: 2048, ssr: true, clouds: false },
+  low: { name: 'low', shadow: 1024, ssr: false, clouds: false },
+};
 
 // The engine owns a device singleton. Share it, but give each panel its own
 // canvas context, scene, buffers and targets. Render/submit each view atomically.
@@ -19,6 +28,14 @@ let initialization;
 let shadows;
 let deviceLost = false;
 let shadowOwner;
+let shadowSize = 0;
+function useShadows(size) {
+  if (shadowSize === size) return;
+  shadows?.texture.destroy();
+  shadows = new SunShadows({ size, splits: [180, 600, 1800], normalBias: [0.12, 0.3, 0.7] });
+  shadowSize = size;
+  shadowOwner = null;
+}
 async function device() {
   initialization ??= GPU.init({ headless: true }).then(() => {
     GPU.format = navigator.gpu.getPreferredCanvasFormat();
@@ -26,7 +43,6 @@ async function device() {
       fn hookEnvSpecular(R: vec3f, roughness: f32) -> vec3f {
         return mix(skyBase(R), frame.horizonColor, roughness * 0.55) * frame.envIntensity;
       }` }));
-    shadows = new SunShadows({ size: 2048, splits: [180, 600, 1800], normalBias: [0.12, 0.3, 0.7] });
     GPU.device.lost.then(() => { deviceLost = true; });
     GPU.device.addEventListener('uncapturederror', event => {
       console.warn('[3D] Native GPU validation failed:', event.error.message);
@@ -68,7 +84,8 @@ fn skyBase(ray: vec3f) -> vec3f {
   let nightSky = mix(frame.horizonColor * 0.45, vec3f(0.006, 0.013, 0.04), pow(e, 0.35));
   return mix(nightSky, daySky, day);
 }
-fn complexSky(ray: vec3f) -> vec3f {
+// The sky with its clouds, without the sun disc (also what the water reflects).
+fn skyClouds(ray: vec3f) -> vec3f {
   let day = 1.0 - frame.night;
   var sky = skyBase(ray);
   if (ray.y > 0.0) {
@@ -87,6 +104,11 @@ fn complexSky(ray: vec3f) -> vec3f {
       sky = mix(sky, cloud, clamp(d * 1.25, 0.0, 0.97) * smoothstep(0.0, 0.08, ray.y));
     }
   }
+  return sky;
+}
+fn complexSky(ray: vec3f) -> vec3f {
+  let day = 1.0 - frame.night;
+  var sky = skyClouds(ray);
   // The sun: a small soft disc, no glare halo (the sky reads as plain blue with clouds).
   let sun = max(dot(ray, frame.sunDir), 0.0);
   let sunHue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
@@ -118,11 +140,13 @@ fn fragment(in: FSIn) -> vec4f {
 }`;
 
 export class ComplexRenderer {
-  static async create(host) {
+  static async create(host, quality = QUALITY.high) {
     await device();
-    return new ComplexRenderer(host);
+    return new ComplexRenderer(host, quality);
   }
-  constructor(host) {
+  constructor(host, quality = QUALITY.high) {
+    this.quality = quality;
+    useShadows(quality.shadow);
     this.canvas = document.createElement('canvas');
     this.canvas.style.pointerEvents = 'none';
     this.canvas.style.visibility = 'hidden';
@@ -136,6 +160,9 @@ export class ComplexRenderer {
     this.renderer = new MeshRenderer();
     this.renderer.syncPipelines = false;
     this.target = new RenderTarget(1, 1, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex HDR' });
+    // What the water sees through and reflects: the opaque scene, copied before the water
+    // pass (Tidewater's sceneCopy). Allocated once water is in the scene.
+    this.copy = null;
     this.sky = new FullscreenPass({ label: 'complex atmosphere', modules: [atmosphere], code: skyCode, colorFormats: ['rgba16float'], depthFormat: 'depth32float', depthCompare: 'equal' });
     this.finish = new FullscreenPass({ label: 'complex filmic resolve', code: finishCode, colorFormats: [GPU.format], bindings: { src: { texture: () => this.target.texture } } });
     this.meshes = new Map();
@@ -158,6 +185,16 @@ export class ComplexRenderer {
     this.canvas.width = width;
     this.canvas.height = height;
     this.target.setSize(this.canvas.width, this.canvas.height);
+    this.copy?.setSize(this.canvas.width, this.canvas.height);
+  }
+  /** Lower (or raise) the quality: shadow resolution and the water's reflection. */
+  setQuality(quality) {
+    if (this.quality === quality) return;
+    this.quality = quality;
+    useShadows(quality.shadow);
+    // The water's defines change: a new material; its mesh is re-created on the next sync.
+    for (const [src, mat] of this.materials) if (src.userData.water) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); }
+    for (const [obj, mesh] of this.meshes) if (obj.material?.userData?.water) { this.scene.remove(mesh); this.meshes.delete(obj); }
   }
   texture(source) {
     if (this.textures.has(source)) return this.textures.get(source);
@@ -184,6 +221,12 @@ export class ComplexRenderer {
   }
   material(source) {
     if (this.materials.has(source)) return this.materials.get(source);
+    if (source.userData.water) {
+      this.copy ??= new RenderTarget(this.target.width, this.target.height, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex scene copy', usage: ['sample', 'copyDst'], depthUsage: ['sample', 'copyDst'] });
+      const mat = waterMaterial({ atmosphere, scene: this.copy, quality: this.quality });
+      this.materials.set(source, mat);
+      return mat;
+    }
     const textures = {};
     let surface = '';
     for (const [key, statement] of [
@@ -218,27 +261,6 @@ export class ComplexRenderer {
         s.normal = normalize(T * inv * mapN.x * near + B * inv * mapN.y * near + in.N * mapN.z);
       }`;
     }
-    // Water (sceneWater.ts): travelling waves along the channel ripple the normal, so
-    // the reflected sky flows. Same wave field as WAVES_GLSL there.
-    if (source.userData.water) surface += `{
-      let wt = frame.time; let wp = in.uv; let wp2 = wp * 2.3 + vec2f(11.0, 11.0);
-      var wg = vec2f(0.0, 0.0);
-      wg += 0.50 * vec2f(0.55, 0.08) * cos(dot(wp, vec2f(0.55, 0.08)) - wt * 1.30);
-      wg += 0.300 * vec2f(0.55, 0.08) * cos(dot(wp2, vec2f(0.55, 0.08)) - wt * 1.82);
-      wg += 0.35 * vec2f(0.90, -0.35) * cos(dot(wp, vec2f(0.90, -0.35)) - wt * 1.90);
-      wg += 0.210 * vec2f(0.90, -0.35) * cos(dot(wp2, vec2f(0.90, -0.35)) - wt * 2.66);
-      wg += 0.22 * vec2f(1.70, 0.60) * cos(dot(wp, vec2f(1.70, 0.60)) - wt * 2.60);
-      wg += 0.132 * vec2f(1.70, 0.60) * cos(dot(wp2, vec2f(1.70, 0.60)) - wt * 3.64);
-      wg += 0.12 * vec2f(2.90, -1.10) * cos(dot(wp, vec2f(2.90, -1.10)) - wt * 3.40);
-      wg += 0.072 * vec2f(2.90, -1.10) * cos(dot(wp2, vec2f(2.90, -1.10)) - wt * 4.76);
-      let wq0 = dpdx(in.P); let wq1 = dpdy(in.P); let ws0 = dpdx(in.uv); let ws1 = dpdy(in.uv);
-      let wn = vec3f(0.0, 1.0, 0.0);
-      let wtan = cross(wq1, wn) * ws0.x + cross(wn, wq0) * ws1.x;
-      let wbit = cross(wq1, wn) * ws0.y + cross(wn, wq0) * ws1.y;
-      let winv = inverseSqrt(max(max(dot(wtan, wtan), dot(wbit, wbit)), 0.00000001));
-      let wnear = 1.0 - smoothstep(80.0, 600.0, length(in.P - frame.cameraPos));
-      s.normal = normalize(wn - (wtan * wg.x + wbit * wg.y) * winv * 0.16 * wnear);
-    }`;
     // Leaves let light through: a little transmitted sun on the shaded side.
     if (source.userData.foliage) surface += 's.translucency = s.albedo * 0.25;';
     if (source.userData.contextBuilding) surface += 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.27, 0.25); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9; }';
@@ -330,11 +352,23 @@ export class ComplexRenderer {
     shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value));
     setFrameCamera(c, this.canvas.width, this.canvas.height);
     const pass = { camera: c, kind: 'color', colorViews: [this.target.texture.view()], colorFormats: ['rgba16float'], depthView: this.target.depthTexture.view(), depthFormat: 'depth32float' };
-    // A color pass already draws both lists. `late` changes the shader variant,
-    // not the mesh selection: the old second pass drew the entire scene again.
-    // Fill only uncovered sky after opaque geometry, then blend transparency once.
-    this.renderer.render(this.scene, { ...pass, clearColors: [[0, 0, 0, 1]], clearDepth: 0,
+    // One collection per frame. Opaque geometry, then the sky where nothing was drawn;
+    // with water on screen: a copy of that (colour + depth), the water, then the blended
+    // surfaces over it. Without water it stays a single pass.
+    const lists = this.renderer.collect(this.scene, pass);
+    let water = null;
+    for (let i = lists.opaque.length - 1; i >= 0; i--) if (lists.opaque[i].material.userData.water) (water ??= []).push(...lists.opaque.splice(i, 1));
+    this.renderer.render(this.scene, { ...pass, items: { opaque: lists.opaque, transparent: water ? [] : lists.transparent }, clearColors: [[0, 0, 0, 1]], clearDepth: 0,
       betweenLists: rp => { if (this.sky.handle.pipeline) this.sky.draw(rp); } });
+    if (water) {
+      updateWaveTile();
+      if (!this.renderer.precompiling) {
+        const enc = GPU.getEncoder(), size = [this.target.width, this.target.height];
+        enc.copyTextureToTexture({ texture: this.target.texture.getGPU() }, { texture: this.copy.texture.getGPU() }, size);
+        enc.copyTextureToTexture({ texture: this.target.depthTexture.getGPU() }, { texture: this.copy.depthTexture.getGPU() }, size);
+      }
+      this.renderer.render(this.scene, { ...pass, label: 'complex water', items: { opaque: water, transparent: lists.transparent } });
+    }
     this.renderer.precompiling = false;
     if (this.shown) this.finish.render({ colorViews: [this.context.getCurrentTexture().createView()] });
     GPU.submit();
@@ -359,6 +393,7 @@ export class ComplexRenderer {
     // Also detaches disposal listeners from CPU geometry shared by later views.
     this.renderer.dispose();
     this.target.textures.forEach(t => t.destroy()); this.target.depthTexture.destroy();
+    this.copy?.textures.forEach(t => t.destroy()); this.copy?.depthTexture.destroy();
     this.renderer.pipelines.clear(); this.materials.clear(); this.textures.clear(); this.meshes.clear();
   }
 }

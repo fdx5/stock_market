@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { RealEstateBuildingsResponse } from "../api/client";
 import { ringIndex, sidewalkWidth } from "./sceneSidewalk";
 import { coveredStream } from "./sceneWater";
+import { normalRows } from "./normalKernel";
 
 const WATER_KINDS = new Set(["천", "구", "유", "양"]);
 const coveredMemo = new WeakMap<object, boolean[]>();
@@ -65,8 +66,10 @@ export const rng = (seed: number) => {
 };
 
 /** Long paints are generators that yield between steps: run at once (runNow), or in
- * slices between which the page gets the main thread (runSliced). */
-export type Steps<T> = Generator<void, T, void>;
+ * slices between which the page gets the main thread (runSliced). A step may yield a
+ * promise: runSliced waits for it (work done in a worker meanwhile); a step asking
+ * `yield` for permission gets true from runSliced, undefined from runNow. */
+export type Steps<T> = Generator<void | Promise<unknown>, T, boolean | undefined>;
 export function runNow<T>(g: Steps<T>): T {
   let r = g.next();
   while (!r.done) r = g.next();
@@ -75,34 +78,57 @@ export function runNow<T>(g: Steps<T>): T {
 export async function runSliced<T>(g: Steps<T>, pace: () => Promise<boolean>): Promise<T | null> {
   let r = g.next();
   while (!r.done) {
+    if (r.value instanceof Promise) await r.value;
     if (!await pace()) return null;
-    r = g.next();
+    r = g.next(true);
   }
   return r.value;
 }
 
 const canvas = (w: number, h: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
 
-/** Tangent-space normals from a height canvas (brighter = further out). */
+let normalWorker: Worker | null | undefined;
+let normalJob = 0;
+const normalJobs = new Map<number, (bitmap: ImageBitmap | null) => void>();
+/** Height canvas -> normal map in a worker: the pixel readback and loop both leave the
+ * page (together a few hundred ms per complex). Null where workers can't do it. */
+function normalsOffThread(height: HTMLCanvasElement, strength: number): Promise<ImageBitmap | null> | null {
+  if (normalWorker === undefined) {
+    try {
+      normalWorker = typeof OffscreenCanvas === "undefined" || typeof createImageBitmap === "undefined" ? null
+        : new Worker(new URL("./normalWorker.ts", import.meta.url), { type: "module" });
+      if (normalWorker) normalWorker.onmessage = (e: MessageEvent<{ id: number; bitmap: ImageBitmap | null }>) => { normalJobs.get(e.data.id)?.(e.data.bitmap); normalJobs.delete(e.data.id); };
+    } catch { normalWorker = null; }
+  }
+  const worker = normalWorker;
+  if (!worker) return null;
+  const id = ++normalJob;
+  return createImageBitmap(height).then(src => new Promise<ImageBitmap | null>(resolve => {
+    normalJobs.set(id, resolve);
+    worker.postMessage({ id, src, strength }, [src]);
+  })).catch(() => null);
+}
+
+/** Tangent-space normals from a height canvas (brighter = further out). Sliced: in a
+ * worker; at once (or without one): here. */
 function* normalCanvas(height: HTMLCanvasElement, strength: number): Steps<HTMLCanvasElement> {
   const { width: W, height: H } = height;
-  const src = height.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, W, H).data;
   const out = canvas(W, H);
   const ctx = out.getContext("2d")!;
+  const sliced = yield;
+  const job = sliced ? normalsOffThread(height, strength) : null;
+  if (job) {
+    let bitmap: ImageBitmap | null = null;
+    yield job.then(b => { bitmap = b; });
+    const got = bitmap as ImageBitmap | null;
+    if (got) { ctx.drawImage(got, 0, 0); got.close(); return out; }
+  }
+  const src = height.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, W, H).data;
   const img = ctx.createImageData(W, H), d = img.data;
-  // Tight loop over the red channel (wrapping at the edges); ~5x the closure version.
-  const k = strength / 255;
-  for (let y = 0; y < H; y++) {
-    if (y && y % 96 === 0) yield;
-    const up = (y === 0 ? H - 1 : y - 1) * W, dn = (y === H - 1 ? 0 : y + 1) * W, row = y * W;
-    for (let x = 0; x < W; x++) {
-      const l0 = x === 0 ? W - 1 : x - 1, r0 = x === W - 1 ? 0 : x + 1;
-      const dx = (src[(row + l0) << 2] - src[(row + r0) << 2]) * k;
-      const dy = (src[(dn + x) << 2] - src[(up + x) << 2]) * k;
-      const inv = 127.5 / Math.sqrt(dx * dx + dy * dy + 1);
-      const i = (row + x) << 2;
-      d[i] = dx * inv + 127.5; d[i + 1] = dy * inv + 127.5; d[i + 2] = inv + 127.5; d[i + 3] = 255;
-    }
+  // Tight loop over the red channel; ~5x the closure version.
+  for (let y = 0; y < H; y += 96) {
+    if (y) yield;
+    normalRows(src, d, W, H, strength, y, Math.min(H, y + 96));
   }
   ctx.putImageData(img, 0, 0);
   return out;
