@@ -64,7 +64,7 @@ function waterField(rings: [number, number][][], terrain: Terrain) {
   const s = Math.max(2, Math.sqrt(((x1 - x0) * (y1 - y0)) / 300000));
   x0 -= s; y0 -= s;
   const nx = Math.ceil((x1 - x0) / s) + 2, ny = Math.ceil((y1 - y0) / s) + 2, n = nx * ny;
-  const inside = new Uint8Array(n), h = new Float32Array(n), lvl = new Float32Array(n), dist = new Float32Array(n);
+  const inside = new Uint8Array(n), h = new Float32Array(n), lvl = new Float32Array(n);
   // Scanline fill (even-odd per ring, union over rings).
   const xs: number[] = [];
   for (const r of rings) for (let j = 0; j < ny; j++) {
@@ -90,23 +90,39 @@ function waterField(rings: [number, number][][], terrain: Terrain) {
     for (const [di, dj] of dirs) { const a = i + di, b = j + dj; if (a >= 0 && b >= 0 && a < nx && b < ny) m = Math.min(m, h[b * nx + a]); }
     lvl[c] = m;
   }
-  // Chamfer distance from the dry nodes, forward and backward pass.
-  for (let c = 0; c < n; c++) dist[c] = inside[c] && h[c] <= lvl[c] + 0.7 ? 1e6 : 0;
+  // Chamfer distance (m) from the seed nodes, forward and backward pass.
   const d1 = s, d2 = s * Math.SQRT2;
-  for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
-    const c = j * nx + i; if (!dist[c]) continue;
-    let d = dist[c];
-    if (i > 0) d = Math.min(d, dist[c - 1] + d1);
-    if (j > 0) { d = Math.min(d, dist[c - nx] + d1); if (i > 0) d = Math.min(d, dist[c - nx - 1] + d2); if (i < nx - 1) d = Math.min(d, dist[c - nx + 1] + d2); }
-    dist[c] = d;
-  }
-  for (let j = ny - 1; j >= 0; j--) for (let i = nx - 1; i >= 0; i--) {
-    const c = j * nx + i; if (!dist[c]) continue;
-    let d = dist[c];
-    if (i < nx - 1) d = Math.min(d, dist[c + 1] + d1);
-    if (j < ny - 1) { d = Math.min(d, dist[c + nx] + d1); if (i < nx - 1) d = Math.min(d, dist[c + nx + 1] + d2); if (i > 0) d = Math.min(d, dist[c + nx - 1] + d2); }
-    dist[c] = d;
-  }
+  const chamfer = (seed: Uint8Array) => {
+    const d = new Float32Array(n);
+    for (let c = 0; c < n; c++) d[c] = seed[c] ? 0 : 1e6;
+    for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+      const c = j * nx + i; if (!d[c]) continue;
+      let v = d[c];
+      if (i > 0) v = Math.min(v, d[c - 1] + d1);
+      if (j > 0) { v = Math.min(v, d[c - nx] + d1); if (i > 0) v = Math.min(v, d[c - nx - 1] + d2); if (i < nx - 1) v = Math.min(v, d[c - nx + 1] + d2); }
+      d[c] = v;
+    }
+    for (let j = ny - 1; j >= 0; j--) for (let i = nx - 1; i >= 0; i--) {
+      const c = j * nx + i; if (!d[c]) continue;
+      let v = d[c];
+      if (i < nx - 1) v = Math.min(v, d[c + 1] + d1);
+      if (j < ny - 1) { v = Math.min(v, d[c + nx] + d1); if (i < nx - 1) v = Math.min(v, d[c + nx + 1] + d2); if (i > 0) v = Math.min(v, d[c + nx - 1] + d2); }
+      d[c] = v;
+    }
+    return d;
+  };
+  const wet = new Uint8Array(n);
+  for (let c = 0; c < n; c++) wet[c] = inside[c] && h[c] <= lvl[c] + 0.7 ? 1 : 0;
+  // A river runs on under its bridges, where the DEM carries the road across as a dam:
+  // close the channel (dilate by R on the water parcels, erode by R), bridging gaps up
+  // to ~2R along it.
+  const R = 15, toWet = chamfer(wet), grown = new Uint8Array(n);
+  for (let c = 0; c < n; c++) grown[c] = inside[c] && toWet[c] <= R ? 0 : 1; // seeds: outside the grown water
+  const toOut = chamfer(grown);
+  for (let c = 0; c < n; c++) if (!wet[c] && inside[c] && toOut[c] > R) wet[c] = 1;
+  const dry = new Uint8Array(n);
+  for (let c = 0; c < n; c++) dry[c] = wet[c] ? 0 : 1;
+  const dist = chamfer(dry);
   /** Bilinear over the nodes (finite values only: the level exists on water parcels). */
   const sample = (f: Float32Array, x: number, y: number, fallback: number) => {
     const fx = Math.min(nx - 1.001, Math.max(0, (x - x0) / s)), fy = Math.min(ny - 1.001, Math.max(0, (y - y0) / s));
@@ -117,8 +133,14 @@ function waterField(rings: [number, number][][], terrain: Terrain) {
     add(f[c], (1 - u) * (1 - v)); add(f[c + 1], u * (1 - v)); add(f[c + nx], (1 - u) * v); add(f[c + nx + 1], u * v);
     return w > 0 ? sum / w : fallback;
   };
+  const node = (x: number, y: number) => {
+    const i = Math.round((x - x0) / s), j = Math.round((y - y0) / s);
+    return i < 0 || j < 0 || i >= nx || j >= ny ? -1 : j * nx + i;
+  };
   return {
     level: (x: number, y: number) => sample(lvl, x, y, terrain.at(x, y)),
+    /** On the (closed) water. */
+    wet: (x: number, y: number) => { const c = node(x, y); return c >= 0 && wet[c] === 1; },
     // Half a node: the bank line lies between a wet and a dry node.
     shore: (x: number, y: number) => Math.max(0, sample(dist, x, y, 0) - s * 0.5),
   };
@@ -138,10 +160,7 @@ export function buildWater(parcels: RealEstateParcel[], covered: boolean[], terr
     const ux = Math.cos(ang), uy = Math.sin(ang);
     const pts = p.ring.map(([x, y]) => new THREE.Vector2(x, y));
     const tris = THREE.ShapeUtils.triangulateShape(pts, []);
-    const wet = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2) => {
-      const x = (a.x + b.x + c.x) / 3, y = (a.y + b.y + c.y) / 3;
-      return terrain.at(x, y) <= field.level(x, y) + 0.7;
-    };
+    const wet = (a: THREE.Vector2, b: THREE.Vector2, c: THREE.Vector2) => field.wet((a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3);
     // Subdivided finely so the waterline follows the channel; the surface at the local
     // level. aShore = metres to the bank, aFlow = the channel direction in world x/z
     // (the WebGPU water: its depth, soft edge and current).
@@ -203,5 +222,23 @@ export function buildWater(parcels: RealEstateParcel[], covered: boolean[], terr
   mat.customProgramCacheKey = () => "complex:water";
   const mesh = new THREE.Mesh(geo, mat);
   mesh.receiveShadow = true;
-  return { mesh, dispose: () => { geo.dispose(); mat.dispose(); } };
+  /** Lower the ground mesh (local x east, y north, z up) under the water below its
+   * surface: interpolated between DEM samples the ground otherwise rises through the
+   * level surface in patches, and a bridge the DEM carries across stays a dam. The
+   * roads keep their height: a road over the channel reads as its bridge. */
+  const sink = (ground: THREE.BufferGeometry) => {
+    const p = ground.getAttribute("position") as THREE.BufferAttribute;
+    let changed = false;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i);
+      if (!field.wet(x, y)) continue;
+      const z = field.level(x, y) - 0.35;
+      if (p.getZ(i) > z) { p.setZ(i, z); changed = true; }
+    }
+    if (!changed) return;
+    p.needsUpdate = true;
+    ground.computeVertexNormals();
+    ground.computeBoundingSphere();
+  };
+  return { mesh, sink, dispose: () => { geo.dispose(); mat.dispose(); } };
 }

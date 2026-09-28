@@ -1290,7 +1290,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         planting.street = street;
         const parcels = data.parcels ?? [];
         const water = buildWater(parcels, waterCovered(data), terrain);
-        if (water) { stage.addWarm(decor, water.mesh); disposables.push(water); }
+        if (water) { stage.addWarm(decor, water.mesh); disposables.push(water); water.sink(groundGeo); }
         // Thousands of parcel edges, each tested every 2 m against buildings and
         // carriageways: laid out 60 parcels per slice, in idle time.
         void (async () => {
