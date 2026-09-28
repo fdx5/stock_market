@@ -173,7 +173,7 @@ function nextSlice(idle: boolean): Promise<void> {
   return new Promise(resolve => {
     if (idle && typeof window.requestIdleCallback === "function") { window.requestIdleCallback(() => resolve(), { timeout: 1500 }); return; }
     const ch = new MessageChannel();
-    ch.port1.onmessage = () => resolve();
+    ch.port1.onmessage = () => { ch.port1.close(); ch.port2.close(); resolve(); };
     ch.port2.postMessage(0);
   });
 }
@@ -709,7 +709,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const kept = await loadBuildings(complexId);
       if (kept) return kept;
       const peek = await api.realEstateBuildings(complexId, ctl.signal, true);
-      if (peek.found) return withRoads(peek);
+      // Roads and terrain only need these footprints/centre. The common stage below
+      // loads them together; awaiting roads here serialized the two network waits.
+      if (peek.found) return peek;
       // Start independent suppliers together: a slow JSONP endpoint must not
       // delay a server result that is already available (and vice versa).
       const fallback = api.realEstateBuildings(complexId, ctl.signal);
@@ -730,12 +732,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     })()
       // Roads and relief together: both only need the result's centre.
       .then(async res => {
+        if (!live) return res;
         const t0 = performance.now();
         const [full, ground] = await Promise.all([res.found && !res.roads ? withRoads(res) : res,
           res.found ? terrainFor(res).then(t => { if (hostRef.current) hostRef.current.dataset.terrainMs = (performance.now() - t0).toFixed(0); return t; }) : FLAT]);
-        if (hostRef.current) hostRef.current.dataset.dataMs = (t0 - started).toFixed(0);
-        terrainRef.current = ground;
-        if (live) setTerrainSource(ground.source);
+        if (live) {
+          if (hostRef.current) hostRef.current.dataset.dataMs = (t0 - started).toFixed(0);
+          terrainRef.current = ground;
+          setTerrainSource(ground.source);
+        }
         return full;
       })
       .then(res => {
@@ -789,7 +794,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // responsive; behind an open popup, only in the browser's idle time.
     let sliceStart = performance.now();
     const pace = async (force = false) => {
-      if (force || performance.now() - sliceStart > (pausedRef.current ? 10 : 30)) {
+      if (force || performance.now() - sliceStart > 8) {
         await nextSlice(pausedRef.current);
         sliceStart = performance.now();
       }
@@ -873,10 +878,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       g.translate((x0 + x1) / 2 + uy * out, (y0 + y1) / 2 - ux * out, (z0 + z1) / 2);
       return g;
     };
-    data.buildings.forEach((b, i) => {
+    for (const [i, b] of data.buildings.entries()) {
+      if (!await pace()) return;
       // Register entries with neither height nor floors and a small footprint are guard
       // posts and ramp covers: drawn as guessed blocks they read as stray objects.
-      if (b.height_source === "estimated" && footArea(b.rings[0]) < 300) return;
+      if (b.height_source === "estimated" && footArea(b.rings[0]) < 300) continue;
       // Seated on the real ground: its lowest point under the footprint.
       const g = terrain.base(b.rings[0]);
       const isTower = b.floors >= 5;
@@ -938,7 +944,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       box.union(geo.boundingBox!);
       top = Math.max(top, H);
       floor = Math.min(floor, g);
-    });
+    }
     if (!Number.isFinite(floor)) floor = 0;
     for (const [mat, geos] of parts) {
       const merged = keep(mergeGeometries(geos, false)!);

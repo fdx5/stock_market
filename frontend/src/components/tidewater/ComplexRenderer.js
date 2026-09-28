@@ -152,8 +152,11 @@ export class ComplexRenderer {
   }
   setSize(w, h, ratio) {
     const limit = GPU.device.limits.maxTextureDimension2D;
-    this.canvas.width = Math.min(limit, Math.max(1, Math.round(w * ratio)));
-    this.canvas.height = Math.min(limit, Math.max(1, Math.round(h * ratio)));
+    const width = Math.min(limit, Math.max(1, Math.round(w * ratio)));
+    const height = Math.min(limit, Math.max(1, Math.round(h * ratio)));
+    if (this.canvas.width === width && this.canvas.height === height) return;
+    this.canvas.width = width;
+    this.canvas.height = height;
     this.target.setSize(this.canvas.width, this.canvas.height);
   }
   texture(source) {
@@ -277,7 +280,7 @@ export class ComplexRenderer {
           mesh.isInstancedMesh = true;
           mesh.instanceMatrix = obj.instanceMatrix;
           mesh.instanceColor = obj.instanceColor;
-          obj.computeBoundingSphere();
+          if (obj.frustumCulled && !obj.boundingSphere) obj.computeBoundingSphere();
           mesh.boundingSphere = obj.boundingSphere;
         }
         this.meshes.set(obj, mesh);
@@ -293,6 +296,7 @@ export class ComplexRenderer {
     // Release per-complex resources when switching selections (only then: the scans
     // below allocate, and most frames change nothing).
     if (!removed && !added) return;
+    this.renderer.retainGeometry(this.meshes.values());
     const used = new Set([...active].flatMap(o => Array.isArray(o.material) ? o.material : [o.material]));
     for (const [src, mat] of this.materials) if (!used.has(src)) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); this.renderer.pipelines.clear(); }
     const usedTextures = new Set([...used].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap]));
@@ -326,9 +330,11 @@ export class ComplexRenderer {
     shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value));
     setFrameCamera(c, this.canvas.width, this.canvas.height);
     const pass = { camera: c, kind: 'color', colorViews: [this.target.texture.view()], colorFormats: ['rgba16float'], depthView: this.target.depthTexture.view(), depthFormat: 'depth32float' };
+    // A color pass already draws both lists. `late` changes the shader variant,
+    // not the mesh selection: the old second pass drew the entire scene again.
+    // Fill only uncovered sky after opaque geometry, then blend transparency once.
     this.renderer.render(this.scene, { ...pass, clearColors: [[0, 0, 0, 1]], clearDepth: 0,
-      after: rp => { if (this.sky.handle.pipeline) this.sky.draw(rp); } });
-    this.renderer.render(this.scene, { ...pass, late: true });
+      betweenLists: rp => { if (this.sky.handle.pipeline) this.sky.draw(rp); } });
     this.renderer.precompiling = false;
     if (this.shown) this.finish.render({ colorViews: [this.context.getCurrentTexture().createView()] });
     GPU.submit();
@@ -350,12 +356,8 @@ export class ComplexRenderer {
     this.canvas.remove();
     for (const mat of this.materials.values()) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); }
     for (const tex of this.textures.values()) tex.destroy();
-    // Geometry buffers have separate ownership from shared CPU geometry.
-    for (const mesh of this.meshes.values()) {
-      const g = this.renderer.geometries.get(mesh.geometry);
-      if (g) { for (const b of g.buffers.values()) b.buffer.destroy(); g.index?.buffer.destroy(); }
-    }
-    this.renderer.drawBuffer?.destroy();
+    // Also detaches disposal listeners from CPU geometry shared by later views.
+    this.renderer.dispose();
     this.target.textures.forEach(t => t.destroy()); this.target.depthTexture.destroy();
     this.renderer.pipelines.clear(); this.materials.clear(); this.textures.clear(); this.meshes.clear();
   }

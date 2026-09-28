@@ -26,7 +26,6 @@ const _vp = new Matrix4();
 const _v = new Vector3();
 const _camPos = new Vector3();
 
-const _layouts = new WeakMap();
 let _listToken = 0; // one per drawItems call (see BindingSet.getBindGroup)
 const sharedPipelines = new Map();
 const layoutIds = new WeakMap();
@@ -44,7 +43,10 @@ export class MeshRenderer {
 	constructor() {
 
 		this.pipelines = new Map();
-		this.geometries = new WeakMap();
+		this.geometries = new Map();
+		// Layouts belong to the mesh, not a cached vehicle geometry shared by every
+		// selection. Otherwise old materials and instance arrays stay reachable.
+		this.layouts = new WeakMap();
 		this.capacity = 8192;
 		this.drawBuffer = null;
 		this.drawData = null;
@@ -133,17 +135,61 @@ export class MeshRenderer {
 
 			g = { buffers: new Map(), index: null, indexVersion: - 1 };
 			this.geometries.set( geometry, g );
-			if ( geometry.addEventListener ) geometry.addEventListener( 'dispose', () => {
-
-				for ( const b of g.buffers.values() ) b.buffer.destroy();
-				if ( g.index ) g.index.buffer.destroy();
-				this.geometries.delete( geometry );
-
-			} );
+			g.onDispose = () => this.releaseGeometry( geometry );
+			geometry.addEventListener?.( 'dispose', g.onDispose );
 
 		}
 
 		return g;
+
+	}
+
+	// CPU geometry may be cached across views, while GPU buffers belong to this
+	// renderer. Reconcile only when meshes enter/leave the scene, not every frame.
+	retainGeometry( objects ) {
+
+		const used = new Map();
+		for ( const o of objects ) {
+			let attrs = used.get( o.geometry );
+			if ( ! attrs ) {
+				attrs = new Set( Object.values( o.geometry.attributes ).map( a => a.isInterleavedBufferAttribute ? a.data : a ) );
+				used.set( o.geometry, attrs );
+			}
+			if ( o.isInstancedMesh ) {
+				attrs.add( o.instanceMatrix );
+				if ( o.instanceColor ) attrs.add( o.instanceColor );
+			}
+		}
+		for ( const [ geometry, g ] of this.geometries ) {
+			const attrs = used.get( geometry );
+			if ( ! attrs ) { this.releaseGeometry( geometry ); continue; }
+			for ( const [ src, b ] of g.buffers ) if ( ! attrs.has( src ) ) {
+				b.buffer.destroy();
+				g.buffers.delete( src );
+			}
+		}
+
+	}
+
+	releaseGeometry( geometry ) {
+
+		const g = this.geometries.get( geometry );
+		if ( ! g ) return;
+		geometry.removeEventListener?.( 'dispose', g.onDispose );
+		for ( const b of g.buffers.values() ) b.buffer.destroy();
+		g.index?.buffer.destroy();
+		this.geometries.delete( geometry );
+
+	}
+
+	dispose() {
+
+		for ( const geometry of this.geometries.keys() ) this.releaseGeometry( geometry );
+		this.drawBuffer?.destroy();
+		this.drawBuffer = null;
+		this.drawData = null;
+		this.layouts = new WeakMap();
+		this.pipelines.clear();
 
 	}
 
@@ -166,10 +212,10 @@ export class MeshRenderer {
 
 		}
 
-		if ( b.version !== version ) {
+		if ( b.version !== version || b.array !== src.array ) {
 
-			const range = src.updateRanges && src.updateRanges.length && b.version >= 0 ? src.updateRanges : null;
-			if ( range && conv.array === src.array ) {
+			const range = src.updateRanges && src.updateRanges.length && b.version >= 0 && b.array === src.array ? src.updateRanges : null;
+			if ( range && conv === src.array ) {
 
 				const bpe = src.array.BYTES_PER_ELEMENT;
 				for ( const r of range ) GPU.queue.writeBuffer( b.buffer, r.start * bpe, src.array.buffer, src.array.byteOffset + r.start * bpe, align4( r.count * bpe ) );
@@ -179,6 +225,8 @@ export class MeshRenderer {
 			} else {
 
 				writePadded( b.buffer, conv );
+				// A first/full upload consumed any pending partial updates too.
+				src.clearUpdateRanges?.();
 
 			}
 
@@ -222,12 +270,12 @@ export class MeshRenderer {
 	// cached _layout(): per geometry and material, checked against the attribute objects it used
 	_cachedLayout( object, geometry, material ) {
 
-		let byMat = _layouts.get( geometry );
-		if ( ! byMat ) _layouts.set( geometry, byMat = new Map() );
+		let byMat = this.layouts.get( object );
+		if ( ! byMat ) this.layouts.set( object, byMat = new Map() );
 		const inst = object.isInstancedMesh ? ( object.instanceColor ? 2 : 1 ) : 0;
 		const mkey = inst ? material.id + ':' + inst : material.id;
 		let e = byMat.get( mkey );
-		if ( e && e.version === material.version && e.attrsVersion === geometry.attributesVersion && ( ! inst || e.instanceMatrix === object.instanceMatrix ) ) {
+		if ( e && e.geometry === geometry && e.version === material.version && e.attrsVersion === geometry.attributesVersion && ( ! inst || ( e.instanceMatrix === object.instanceMatrix && e.instanceColor === object.instanceColor ) ) ) {
 
 			const refs = e.refs, names = e.names, attrs = geometry.attributes;
 			let ok = true;
@@ -244,7 +292,7 @@ export class MeshRenderer {
 
 		const vl = this._layout( object, geometry, material );
 		const names = vl.layout.filter( ( l ) => ! l.name.startsWith( 'instance' ) ).map( ( l ) => l.name );
-		e = { version: material.version, attrsVersion: geometry.attributesVersion, instanceMatrix: object.instanceMatrix, names, refs: names.map( ( n ) => geometry.attributes[ n ] ), vl };
+		e = { geometry, version: material.version, attrsVersion: geometry.attributesVersion, instanceMatrix: object.instanceMatrix, instanceColor: object.instanceColor, names, refs: names.map( ( n ) => geometry.attributes[ n ] ), vl };
 		vl.pipelines = new Map();
 		byMat.set( mkey, e );
 		return vl;

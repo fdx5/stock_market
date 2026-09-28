@@ -360,7 +360,13 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
   const base = new THREE.Matrix4(), joint = new THREE.Matrix4(), tmp = new THREE.Matrix4(), tmp2 = new THREE.Matrix4();
   const q = new THREE.Quaternion(), yAxis = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), scl = new THREE.Vector3();
   const rotX = new THREE.Matrix4(), trans = new THREE.Matrix4();
-  const set = (w: Walker, k: number, m: THREE.Matrix4) => { const [mi, si] = w.slots[k]; meshes[mi].setMatrixAt(si, m); };
+  const firstChanged = new Int32Array(meshes.length), lastChanged = new Int32Array(meshes.length);
+  const set = (w: Walker, k: number, m: THREE.Matrix4) => {
+    const [mi, si] = w.slots[k];
+    meshes[mi].setMatrixAt(si, m);
+    firstChanged[mi] = Math.min(firstChanged[mi], si);
+    lastChanged[mi] = Math.max(lastChanged[mi], si);
+  };
   /** T(x, y, z) · Rx(a), post-multiplied onto `from` into `out`. */
   const chain = (out: THREE.Matrix4, from: THREE.Matrix4, x: number, y: number, z: number, a: number) => {
     trans.makeTranslation(x, y, z); rotX.makeRotationX(a);
@@ -442,6 +448,7 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
     update(dt: number, camera: THREE.Camera) {
       dt = Math.min(0.1, dt);
       frame++;
+      firstChanged.fill(2147483647); lastChanged.fill(-1);
       vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum.setFromProjectionMatrix(vp);
       camPos.setFromMatrixPosition(camera.matrixWorld);
@@ -460,7 +467,17 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
         w.hidden = false;
         pose(w);
       }
-      meshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
+      meshes.forEach((m, i) => {
+        if (lastChanged[i] < 0) return;
+        const attr = m.instanceMatrix;
+        let start = firstChanged[i] * 16, end = (lastChanged[i] + 1) * 16;
+        // A not-yet-compiled or culled draw may not have consumed the last update.
+        // Keep it, coalesced to one contiguous upload per mesh on either renderer.
+        for (const r of attr.updateRanges) { start = Math.min(start, r.start); end = Math.max(end, r.start + r.count); }
+        attr.clearUpdateRanges();
+        attr.addUpdateRange(start, end - start);
+        attr.needsUpdate = true;
+      });
     },
     dispose() {
       meshes.forEach(m => m.dispose());
