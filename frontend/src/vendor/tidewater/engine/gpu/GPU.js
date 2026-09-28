@@ -30,7 +30,15 @@ export const GPU = {
 	async init( { canvas = null, requiredLimits = {}, headless = false } = {} ) {
 
 		if ( ! navigator.gpu ) throw new Error( 'WebGPU is not available in this browser.' );
-		const adapter = await navigator.gpu.requestAdapter( { powerPreference: 'high-performance' } );
+		// (local modification) laptops whose discrete GPU is unavailable, and machines with
+		// only a software adapter, still get one: default, then the fallback adapter
+		let adapter = null;
+		for ( const o of [ { powerPreference: 'high-performance' }, {}, { forceFallbackAdapter: true } ] ) {
+
+			adapter = await navigator.gpu.requestAdapter( o ).catch( () => null );
+			if ( adapter ) break;
+
+		}
 		if ( ! adapter ) throw new Error( 'No WebGPU adapter found.' );
 		this.adapter = adapter;
 

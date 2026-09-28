@@ -270,6 +270,8 @@ interface Walker {
   kind: Kind; path: WalkPath; s: number; dir: 1 | -1; speed: number; phase: number; scale: number; width: number;
   /** Instance slots: [mesh index, slot] per part, in pose order. */
   slots: [number, number][];
+  /** Colours of the distant stand-in: top, legs, skin. */
+  far: [THREE.Color, THREE.Color, THREE.Color];
   /** The slot of a bag carried in the right hand (follows that forearm), or -1. */
   held: number;
   /** Collapsed (out of view or far off). */
@@ -341,31 +343,50 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
     const len = path.cum[path.cum.length - 1];
     const speed = (kind.gait === "run" ? 2.7 : kind.gait === "slow" ? 0.85 : kind.gait === "stroll" ? 1.05 : 1.3) * (0.9 + rnd() * 0.2);
     walkers.push({ kind, path, s: rnd() * len, dir, speed, phase: rnd() * Math.PI * 2,
-      scale: (kind.h / 1.7) * (0.96 + rnd() * 0.08), width: kind.build * (0.95 + rnd() * 0.1), slots, held, hidden: false, x: 0, y: 0, hx: 1, hy: 0 });
+      scale: (kind.h / 1.7) * (0.96 + rnd() * 0.08), width: kind.build * (0.95 + rnd() * 0.1), slots, held, hidden: false, x: 0, y: 0, hx: 1, hy: 0,
+      far: [new THREE.Color(top), new THREE.Color(thighC), new THREE.Color(skinC)] });
   }
 
+  // Only people in view are drawn: each frame they are packed to the front of the
+  // instance lists and the draw count set to them (a collapsed instance still costs its
+  // vertices, in the main and every shadow pass). Near ones get the jointed figure; past
+  // NEAR (a few pixels tall) a three-box stand-in in their colours, without a shadow.
   const group = new THREE.Group();
-  const meshes = entries.map(e => {
-    const im = new THREE.InstancedMesh(e.geo, e.mat, e.colors.length);
-    e.colors.forEach((c, i) => im.setColorAt(i, c));
+  const newMesh = (geo: THREE.BufferGeometry, mat: THREE.Material, n: number, shadow: boolean) => {
+    const im = new THREE.InstancedMesh(geo, mat, Math.max(1, n));
+    im.setColorAt(0, new THREE.Color());
     im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    im.castShadow = e.shadow;
+    im.instanceColor!.setUsage(THREE.DynamicDrawUsage);
+    im.castShadow = shadow;
     im.receiveShadow = true;
     im.frustumCulled = false;
+    im.count = 0;
     group.add(im);
     return im;
-  });
+  };
+  const meshes = entries.map(e => newMesh(e.geo, e.mat, e.colors.length, e.shadow));
+  const box = (w: number, h: number, d: number, y: number) => new THREE.BoxGeometry(w, h, d).translate(0, y, 0);
+  const farGeos = [box(0.4, SHOULDER_Y - HIP_Y + 0.1, 0.24, (HIP_Y + SHOULDER_Y) / 2), box(0.3, HIP_Y, 0.2, HIP_Y / 2), box(0.2, 0.24, 0.22, NECK_Y + 0.12)];
+  const farMeshes = farGeos.map(g => newMesh(g, cloth, walkers.length, false));
+  // What each packed position holds (colour index / walker), to re-upload only changes.
+  const held = meshes.map(m => new Int32Array(m.instanceMatrix.count).fill(-1));
+  const farHeld = new Int32Array(walkers.length).fill(-1);
+  const cursor = new Int32Array(meshes.length), colorFrom = new Int32Array(meshes.length), colorTo = new Int32Array(meshes.length);
+  const NEAR = 90;
 
   // Pose: per walker a base matrix, then joints down each limb.
   const base = new THREE.Matrix4(), joint = new THREE.Matrix4(), tmp = new THREE.Matrix4(), tmp2 = new THREE.Matrix4();
   const q = new THREE.Quaternion(), yAxis = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), scl = new THREE.Vector3();
   const rotX = new THREE.Matrix4(), trans = new THREE.Matrix4();
-  const firstChanged = new Int32Array(meshes.length), lastChanged = new Int32Array(meshes.length);
   const set = (w: Walker, k: number, m: THREE.Matrix4) => {
-    const [mi, si] = w.slots[k];
-    meshes[mi].setMatrixAt(si, m);
-    firstChanged[mi] = Math.min(firstChanged[mi], si);
-    lastChanged[mi] = Math.max(lastChanged[mi], si);
+    const [mi, ci] = w.slots[k];
+    const at = cursor[mi]++;
+    meshes[mi].setMatrixAt(at, m);
+    if (held[mi][at] !== ci) {
+      held[mi][at] = ci;
+      meshes[mi].setColorAt(at, entries[mi].colors[ci]);
+      colorFrom[mi] = Math.min(colorFrom[mi], at); colorTo[mi] = Math.max(colorTo[mi], at);
+    }
   };
   /** T(x, y, z) · Rx(a), post-multiplied onto `from` into `out`. */
   const chain = (out: THREE.Matrix4, from: THREE.Matrix4, x: number, y: number, z: number, a: number) => {
@@ -373,8 +394,6 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
     return out.multiplyMatrices(from, trans).multiply(rotX);
   };
   const frustum = new THREE.Frustum(), vp = new THREE.Matrix4(), sphere = new THREE.Sphere(new THREE.Vector3(), 1.2);
-  let frame = 0;
-  const zero = new THREE.Matrix4().makeScale(0, 0, 0);
   const camPos = new THREE.Vector3();
 
   const advance = (w: Walker, dt: number) => {
@@ -400,14 +419,27 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
     w.phase += (w.speed * dt / stride) * Math.PI * 2;
   };
 
-  const pose = (w: Walker) => {
-    const g = w.kind.gait, φ = w.phase, run = g === "run";
-    const swing = run ? 0.72 : g === "slow" ? 0.26 : g === "stroll" ? 0.32 : 0.4;
-    const bob = (run ? 0.06 : 0.022) * Math.abs(Math.sin(φ));
+  const place = (w: Walker, bob: number) => {
     q.setFromAxisAngle(yAxis, Math.atan2(w.hx, -w.hy));
     pos.set(w.x, terrain.at(w.x, w.y) + w.path.lift + bob * w.scale, -w.y);
     scl.set(w.scale * w.width, w.scale, w.scale * w.width);
     base.compose(pos, q, scl);
+  };
+  let farAt = 0, farFrom = 0, farTo = -1;
+  const poseFar = (w: Walker, wi: number) => {
+    place(w, 0);
+    const at = farAt++;
+    farMeshes.forEach(m => m.setMatrixAt(at, base));
+    if (farHeld[at] !== wi) {
+      farHeld[at] = wi;
+      farMeshes.forEach((m, k) => m.setColorAt(at, w.far[k]));
+      farFrom = Math.min(farFrom, at); farTo = Math.max(farTo, at);
+    }
+  };
+  const pose = (w: Walker) => {
+    const g = w.kind.gait, φ = w.phase, run = g === "run";
+    const swing = run ? 0.72 : g === "slow" ? 0.26 : g === "stroll" ? 0.32 : 0.4;
+    place(w, (run ? 0.06 : 0.022) * Math.abs(Math.sin(φ)));
     if (run || g === "slow") base.multiply(rotX.makeRotationX(run ? 0.14 : 0.07));
     set(w, 0, base);
     // Head (hair shares its frame).
@@ -438,52 +470,50 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
     }
     for (let k = 15; k < w.slots.length; k++) if (k !== w.held) set(w, k, base);
   };
-  walkers.forEach(w => { advance(w, 0); pose(w); });
   group.userData.walkers = walkers; // inspection in dev tools
-  meshes.forEach(m => { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; });
+  const upload = (m: THREE.InstancedMesh, n: number, c0: number, c1: number) => {
+    m.count = n;
+    if (!n) return;
+    m.instanceMatrix.clearUpdateRanges();
+    m.instanceMatrix.addUpdateRange(0, n * 16);
+    m.instanceMatrix.needsUpdate = true;
+    if (c1 >= c0) {
+      const attr = m.instanceColor!;
+      // A draw not yet made may not have consumed the last colour update: keep it.
+      for (const r of attr.updateRanges) { c0 = Math.min(c0, r.start / 3); c1 = Math.max(c1, (r.start + r.count) / 3 - 1); }
+      attr.clearUpdateRanges();
+      attr.addUpdateRange(c0 * 3, (c1 - c0 + 1) * 3);
+      attr.needsUpdate = true;
+    }
+  };
 
   return {
     group,
-    /** Walk, and re-pose those in view (far ones every third frame). */
+    /** Walk; draw those in view (jointed near, stand-ins far). */
     update(dt: number, camera: THREE.Camera) {
       dt = Math.min(0.1, dt);
-      frame++;
-      firstChanged.fill(2147483647); lastChanged.fill(-1);
+      cursor.fill(0); colorFrom.fill(2147483647); colorTo.fill(-1);
+      farAt = 0; farFrom = 2147483647; farTo = -1;
       vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum.setFromProjectionMatrix(vp);
       camPos.setFromMatrixPosition(camera.matrixWorld);
-      for (const w of walkers) {
+      walkers.forEach((w, wi) => {
         advance(w, dt);
         sphere.center.set(w.x, terrain.at(w.x, w.y) + 1, -w.y);
         const d2 = sphere.center.distanceToSquared(camPos);
-        // Out of view or too far to make out (a person under a few pixels): collapsed,
-        // so the GPU rasterises nothing for them; posed again on coming back.
-        if (d2 > 420 * 420 || !frustum.intersectsSphere(sphere)) {
-          if (!w.hidden) { for (let k = 0; k < w.slots.length; k++) set(w, k, zero); w.hidden = true; }
-          continue;
-        }
-        const far = d2 > 160 * 160;
-        if (far && !w.hidden && (frame + w.slots[0][1]) % 3) continue;
-        w.hidden = false;
-        pose(w);
-      }
-      meshes.forEach((m, i) => {
-        if (lastChanged[i] < 0) return;
-        const attr = m.instanceMatrix;
-        let start = firstChanged[i] * 16, end = (lastChanged[i] + 1) * 16;
-        // A not-yet-compiled or culled draw may not have consumed the last update.
-        // Keep it, coalesced to one contiguous upload per mesh on either renderer.
-        for (const r of attr.updateRanges) { start = Math.min(start, r.start); end = Math.max(end, r.start + r.count); }
-        attr.clearUpdateRanges();
-        attr.addUpdateRange(start, end - start);
-        attr.needsUpdate = true;
+        // Out of view or too far to make out: not drawn at all.
+        if (d2 > 420 * 420 || !frustum.intersectsSphere(sphere)) return;
+        if (d2 > NEAR * NEAR) poseFar(w, wi); else pose(w);
       });
+      meshes.forEach((m, i) => upload(m, cursor[i], colorFrom[i], colorTo[i]));
+      farMeshes.forEach(m => upload(m, farAt, farFrom, farTo));
     },
     dispose() {
       meshes.forEach(m => m.dispose());
       const geos = new Set<THREE.BufferGeometry>([...Object.values(parts.torso), parts.hips, parts.skirt, parts.thigh, parts.shin, parts.shoe,
         parts.upper, parts.fore, parts.hand, parts.head, ...Object.values(parts.hair), ...Object.values(parts.acc), ...Object.values(parts.detail)]);
       geos.forEach(g => g.dispose());
+      farGeos.forEach(g => g.dispose());
       [cloth, skin, hairMat, gloss, baked].forEach(m => m.dispose());
     },
   };

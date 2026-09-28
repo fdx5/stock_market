@@ -182,6 +182,22 @@ function nextSlice(idle: boolean): Promise<void> {
 
 const ease = (k: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
 
+/** Stands in for the WebGL renderer where the browser gives no WebGL context: the view
+ * draws with WebGPU, and this only carries the input canvas and the settings the
+ * WebGL-only code writes (it is never asked to draw). */
+function inputOnlyRenderer(): THREE.WebGLRenderer {
+  const canvas = document.createElement("canvas");
+  let ratio = 1, target: THREE.WebGLRenderTarget | null = null;
+  return {
+    domElement: canvas, shadowMap: { enabled: false, type: THREE.PCFShadowMap }, info: { render: { calls: 0 } },
+    outputColorSpace: THREE.SRGBColorSpace, toneMapping: THREE.NoToneMapping, toneMappingExposure: 1,
+    setPixelRatio(v: number) { ratio = v; }, getPixelRatio: () => ratio,
+    getSize: (t: THREE.Vector2) => t.set(canvas.width, canvas.height), setSize() {},
+    getRenderTarget: () => target, setRenderTarget(t: THREE.WebGLRenderTarget | null) { target = t; },
+    compileAsync: () => Promise.resolve(), dispose() {},
+  } as unknown as THREE.WebGLRenderer;
+}
+
 export default function ComplexHologram({ complexId, complexName, caption, wide = false, initialTod, paused = false }: {
   complexId: string | null; complexName?: string; caption?: string;
   /** Covered by something the reader is using (the detail popup): stop drawing, and do
@@ -228,13 +244,22 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     let host: HTMLDivElement = hostRef.current;
     // Phones and small tablets: no planar reflection or AO, fewer trees, lighter shadows.
     const hq = !window.matchMedia?.("(pointer: coarse)").matches && Math.min(screen.width, screen.height) >= 700;
-    let renderer: THREE.WebGLRenderer;
-    try {
-      renderer = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference: "high-performance" });
-    } catch {
-      setFailed3d(true);
-      return;
+    // The native WebGPU path only on implementations as current as the one it is
+    // tested on (pointer_composite_access is a good marker: older Tint builds compile
+    // the shaders but may draw nothing); everything else, and ?renderer=webgl, uses WebGL.
+    const gpu = (navigator as Navigator & { gpu?: { wgslLanguageFeatures?: { has(name: string): boolean } } }).gpu;
+    const forceWebgl = new URLSearchParams(location.search).get("renderer") === "webgl";
+    const nativeCapable = !forceWebgl && !!gpu && !!gpu.wgslLanguageFeatures?.has?.("pointer_composite_access");
+    // WebGL with whichever GPU the browser will give (a blocklisted discrete GPU on a
+    // laptop can still leave the integrated one). Without any WebGL the view still runs
+    // on WebGPU, the WebGL renderer standing in only for input.
+    let made: THREE.WebGLRenderer | null = null;
+    for (const powerPreference of ["high-performance", "default", "low-power"] as const) {
+      try { made = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference }); break; } catch { /* next */ }
     }
+    const glMissing = !made;
+    if (glMissing && !nativeCapable) { setFailed3d(true); return; }
+    const renderer = made ?? inputOnlyRenderer();
     // Start at the display's ratio; with frame time to spare, supersample a desktop
     // panel toward 2x (sharper facades; the native path has no MSAA). Never climb
     // back past a level that already dropped frames.
@@ -249,12 +274,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     host.appendChild(renderer.domElement);
     let native: ComplexRenderer | null = null;
     let disposed = false;
-    // The native WebGPU path only on implementations as current as the one it is
-    // tested on (pointer_composite_access is a good marker: older Tint builds compile
-    // the shaders but may draw nothing); everything else, and ?renderer=webgl, uses WebGL.
-    const gpu = (navigator as Navigator & { gpu?: { wgslLanguageFeatures?: { has(name: string): boolean } } }).gpu;
-    const forceWebgl = new URLSearchParams(location.search).get("renderer") === "webgl";
-    let nativePending = !forceWebgl && !!gpu && !!gpu.wgslLanguageFeatures?.has?.("pointer_composite_access");
+    let nativePending = nativeCapable || glMissing;
     let wasPreparing = nativePending;
     setPreparing(nativePending);
     // Do not compile both renderers on first load: warm native pipelines behind
@@ -276,6 +296,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       }).catch(err => {
         if (disposed) return;
         nativePending = false;
+        if (glMissing) { console.warn("[3D] No WebGL, and WebGPU failed:", err); setFailed3d(true); return; }
         refreshEnv();
         resize();
         console.info("[3D] Using WebGL compatibility renderer:", err);
@@ -299,6 +320,19 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     renderer.domElement.addEventListener("pointerdown", e => { controls.zoomSpeed = e.pointerType === "touch" ? 1 : WHEEL_ZOOM; }, { capture: true });
     controls.touches.ONE = navMode === "pan" ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
     controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+    // Pinch zooms toward the point between the two fingers. OrbitControls takes that
+    // midpoint in page coordinates (scroll included) but maps it with the element's
+    // viewport rectangle, so on a scrolled page the zoom went toward a point off by the
+    // scroll: convert to viewport coordinates for that one call.
+    {
+      type ZoomInternals = { _updateZoomParameters(x: number, y: number): void; _handleTouchMoveDolly(e: PointerEvent): void };
+      const c = controls as unknown as ZoomInternals;
+      const dolly = c._handleTouchMoveDolly, update = c._updateZoomParameters;
+      c._handleTouchMoveDolly = function (this: ZoomInternals, e: PointerEvent) {
+        this._updateZoomParameters = (x, y) => update.call(this, x - window.scrollX, y - window.scrollY);
+        try { dolly.call(this, e); } finally { this._updateZoomParameters = update; }
+      };
+    }
     controls.autoRotate = spinRef.current;
     controls.autoRotateSpeed = 0.55;
     controls.minPolarAngle = 0.12;
@@ -435,7 +469,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
     // Dynamic quality and resolution with hysteresis: at least 40 fps, never below 0.6x.
-    let slow = 0, quick = 0, last = performance.now(), settleUntil = 0;
+    let slow = 0, quick = 0, last = performance.now(), settleUntil = 0, calibrated = false;
+    const calDt: number[] = [];
     let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
     let raf = 0;
@@ -453,11 +488,24 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // drain them slowly, so a steady ~35 fps also counts as slow within seconds. Not
       // judged while a model is still being decorated (one-off building work).
       const judge = !stage.unshown && nowMs > settleUntil && dt < 250;
-      if (judge && dt > 25.5) { slow++; quick = 0; }
+      // (weighted by how late: on a very slow device each frame counts several times)
+      if (judge && dt > 25.5) { slow += Math.min(10, dt / 25); quick = 0; }
       else if (judge) { slow = Math.max(0, slow - 0.2); if (dt < 20) quick++; else quick = 0; }
       // Resolution is kept longest: the native view first drops quality steps
       // (screen-space reflections, clouds in them, shadow resolution), then resolution
       // (down to 0.6x). Resolution climbs back only with 50 fps to spare.
+      // Once, shortly after the first model settles: the GPU time measured on this device
+      // (timestamp queries) sets quality and resolution at once, instead of stepping
+      // down over many slow seconds. Frame timing keeps adjusting from there.
+      // Without timestamps: the median frame interval over the first second.
+      if (native?.shown && !calibrated && !stage.unshown && nowMs > settleUntil && dt < 2000) calDt.push(dt);
+      if (native?.shown && !calibrated && (native.timer.samples > 30 || (!native.timer.enabled && calDt.length >= 5 && nowMs - settleUntil > 1000))) {
+        calibrated = true;
+        const g = native.timer.enabled ? native.timer.ms.total ?? 0 : calDt.sort((a, b) => a - b)[calDt.length >> 1] * 0.85;
+        if (g > 16 && qualities && native.quality.name !== "low") native.setQuality(g > 30 || native.quality.name === "medium" ? qualities.low : qualities.medium);
+        if (g > 24) { ratio = Math.max(0.6, Math.round(ratio * Math.sqrt(20 / g) * 20) / 20); maxRatio = ratio; resize(); }
+        slow = 0;
+      }
       if (slow > 30 && native?.shown && qualities && native.quality.name !== "low") {
         native.setQuality(native.quality.name === "high" ? qualities.medium : qualities.low);
         slow = 0;
@@ -494,18 +542,25 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         // Watchdog: a built model that WebGPU hasn't put on screen in 8 s goes to WebGL.
         if (!native.shown && stage.model) {
           nativeWaitSince ||= nowMs;
-          if (nowMs - nativeWaitSince > 8000) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
+          // (a slow GPU may take a while to build its pipelines; with no WebGL, keep waiting)
+          if (nowMs - nativeWaitSince > 15000 && !glMissing) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
         } else nativeWaitSince = 0;
-        if (native.failed) { native.dispose(); native = null; refreshEnv(); resize(); }
+        if (native.failed) {
+          native.dispose(); native = null;
+          // Device lost with no WebGL to fall back on: the engine can't re-create its
+          // device in this page; offer a reload instead of a dead view.
+          if (glMissing) { setFailed3d(true); return; }
+          refreshEnv(); resize();
+        }
       }
       const isPreparing = nativePending || (!!native && !native.shown);
       if (wasPreparing !== isPreparing) { setPreparing(isPreparing); wasPreparing = isPreparing; }
       host.dataset.renderer = native?.shown ? "tidewater-webgpu" : isPreparing ? "preparing" : "webgl";
-      if (++sampleFrames >= 60) {
+      if (++sampleFrames >= 60 || (sampleFrames >= 2 && nowMs - sampleStart > 1000)) {
         host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
         host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
         host.dataset.pixelRatio = ratio.toFixed(2);
-        if (native) host.dataset.quality = native.quality.name;
+        if (native) { host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); }
         sampleFrames = 0; sampleStart = nowMs;
       }
       // WebGL: a new model's programs compile in parallel (KHR_parallel_shader_compile)
@@ -1093,7 +1148,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (!await pace(true)) return;
     [plan.color, plan.rough].forEach(keep);
     const G = dist * 12;
-    const groundGeo = keep(groundGeometry(T, G, terrain, stage.hq ? 320 : 200));
+    // No elevation data (level ground): no relief for a fine grid to follow.
+    const groundGeo = keep(groundGeometry(T, G, terrain, terrain.source === null ? 64 : stage.hq ? 320 : 200));
     if (!await pace(true)) return;
     [plan.glow].forEach(keep);
     const groundMat = keep(new THREE.MeshStandardMaterial({
@@ -1362,7 +1418,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         onPointerLeave={e => { if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
         {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{TOD_LABEL[tod]}의 단지 풍경</strong><i>{touchMode ? "건물을 짧게 탭하면 동·층수를 볼 수 있습니다" : "드래그 회전 · 휠 확대 · 우클릭 이동"}</i></div>}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
-        {failed3d && <p className="re-holo-msg">이 브라우저에서는 3D를 표시할 수 없습니다.</p>}
+        {failed3d && <p className="re-holo-msg">3D 화면을 불러오지 못했습니다. 브라우저 설정에서 하드웨어 가속이 켜져 있는지 확인해 주세요.{" "}
+          <button type="button" className="re-holo-retry" onClick={() => location.reload()}>다시 시도</button></p>}
         {loading && <div className="re-holo-scan" role="status"><span />{slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
         {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}</p>}

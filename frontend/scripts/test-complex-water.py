@@ -21,6 +21,7 @@ args.add_argument('--profile', action='store_true')
 args.add_argument('--quality', default='')
 args.add_argument('--only', default='')
 args.add_argument('--webgl', action='store_true')
+args.add_argument('--args', default='', help='extra browser flags, space separated')
 args.add_argument('--throttle', type=float, default=0, help='busy ms per frame: checks the 60 fps step-down')
 opts = args.parse_args()
 root = Path(__file__).resolve().parents[2]
@@ -85,7 +86,7 @@ CAM = {
 }
 
 with sync_playwright() as p:
-    browser = p.chromium.launch(channel='msedge', headless=not opts.headed, args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist'])
+    browser = p.chromium.launch(channel='msedge', headless=not opts.headed, args=['--enable-unsafe-webgpu', '--ignore-gpu-blocklist'] + opts.args.split())
     page = browser.new_page(viewport=dict(width=1240, height=800), device_scale_factor=1)
     page.add_init_script(instrument)
     if opts.webgl:
@@ -133,7 +134,8 @@ with sync_playwright() as p:
             page.locator('.re-holo-stage').screenshot(path=str(out / f'{tod}-{name}.png'))
             if tod == 'day':
                 report[name] = {'frames': page.evaluate(FRAMES)} if opts.webgl else {'frames': page.evaluate(FRAMES), 'gpuMs': page.evaluate(THROUGHPUT),
-                                'draws': page.evaluate("window.__native.stats.draws")}
+                                'draws': page.evaluate("window.__native.stats.draws"),
+                                'passes': page.evaluate("(async()=>{await new Promise(r=>setTimeout(r,1500));return Object.fromEntries(Object.entries(window.__native.timer.ms).map(([k,v])=>[k,+v.toFixed(3)]))})()")}
                 print(name, json.dumps(report[name]), flush=True)
     if opts.throttle:
         page.evaluate(f"()=>{{const r=window.__native.render;window.__native.render=function(...a){{const t=performance.now();while(performance.now()-t<{opts.throttle});return r.apply(this,a)}}}}")
@@ -143,6 +145,13 @@ with sync_playwright() as p:
             steps.append(page.evaluate("(()=>{const d=document.querySelector('.re-holo-stage').dataset;return d.pixelRatio+'/'+d.quality+'/'+d.fps})()"))
         report['throttle'] = steps
         print('throttle', steps, flush=True)
+    report['tris'] = page.evaluate('''()=>{const out={};let total=0;window.__complexStage.scene.traverseVisible(o=>{if(!o.isMesh||!o.geometry)return;
+      const g=o.geometry;const t=(g.index?g.index.count:(g.attributes.position?.count||0))/3*(o.isInstancedMesh?o.count:1);total+=t;
+      let k=o.name||'';let p=o;while(!k&&p.parent){p=p.parent;k=p.name||Object.keys(p.userData||{}).join('+');}
+      k=(k||'?')+(o.isInstancedMesh?' [inst '+o.count+']':'')+' '+(o.material?.name||o.material?.type||'');out[k]=(out[k]||0)+t;});
+      return {total:Math.round(total),top:Object.entries(out).sort((a,b)=>b[1]-a[1]).slice(0,18).map(([k,v])=>[k,Math.round(v)])}}''')
+    print('tris', json.dumps(report['tris'], ensure_ascii=False), flush=True)
+    report['finalState'] = page.evaluate("({...document.querySelector('.re-holo-stage').dataset})")
     report['errors'] = errors
     (out / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps({k: v for k, v in report.items() if k != 'longtasks'} | {'longtasks': {k: v for k, v in report['longtasks'].items() if k != 'list'}}, ensure_ascii=False), flush=True)

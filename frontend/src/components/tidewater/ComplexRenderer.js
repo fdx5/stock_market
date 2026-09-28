@@ -13,13 +13,14 @@ import { ShaderModule } from '../../vendor/tidewater/engine/gpu/Shader.js';
 import { SceneLighting } from '../../vendor/tidewater/engine/render/wgsl/lighting.js';
 import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/index.js';
 import { waterMaterial, updateWaveTile } from './ComplexWater.js';
+import { GpuTimer } from './GpuTimer.js';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. The view steps down on its own while frames are slow. */
 export const QUALITY = {
-  high: { name: 'high', shadow: 2048, ssr: true, clouds: true },
-  medium: { name: 'medium', shadow: 2048, ssr: true, clouds: false },
-  low: { name: 'low', shadow: 1024, ssr: false, clouds: false },
+  high: { name: 'high', shadow: 2048, pcss: 1, ssr: true, clouds: true },
+  medium: { name: 'medium', shadow: 2048, pcss: 0, ssr: true, clouds: false },
+  low: { name: 'low', shadow: 1024, pcss: 0, ssr: false, clouds: false },
 };
 
 // The engine owns a device singleton. Share it, but give each panel its own
@@ -28,12 +29,13 @@ let initialization;
 let shadows;
 let deviceLost = false;
 let shadowOwner;
-let shadowSize = 0;
-function useShadows(size) {
-  if (shadowSize === size) return;
+let shadowKey = '';
+/** pcss: cascades with contact-hardening soft shadows (the costliest filter); 0 = PCF. */
+function useShadows({ shadow: size, pcss }) {
+  if (shadowKey === size + '/' + pcss) return;
   shadows?.texture.destroy();
-  shadows = new SunShadows({ size, splits: [180, 600, 1800], normalBias: [0.12, 0.3, 0.7] });
-  shadowSize = size;
+  shadows = new SunShadows({ size, splits: [180, 600, 1800], normalBias: [0.12, 0.3, 0.7], pcssCascades: pcss });
+  shadowKey = size + '/' + pcss;
   shadowOwner = null;
 }
 async function device() {
@@ -142,11 +144,13 @@ fn fragment(in: FSIn) -> vec4f {
 export class ComplexRenderer {
   static async create(host, quality = QUALITY.high) {
     await device();
+    // a software adapter (no usable GPU): the lightest setting from the start
+    if (GPU.adapter.info?.isFallbackAdapter || GPU.adapter.isFallbackAdapter) quality = QUALITY.low;
     return new ComplexRenderer(host, quality);
   }
   constructor(host, quality = QUALITY.high) {
     this.quality = quality;
-    useShadows(quality.shadow);
+    useShadows(quality);
     this.canvas = document.createElement('canvas');
     this.canvas.style.pointerEvents = 'none';
     this.canvas.style.visibility = 'hidden';
@@ -176,6 +180,8 @@ export class ComplexRenderer {
     this.disposed = false;
     this.compiling = false;
     this.stats = this.renderer.stats;
+    /** GPU ms per pass (timer.ms.total: the frame), where timestamps exist. */
+    this.timer = new GpuTimer();
   }
   setSize(w, h, ratio) {
     const limit = GPU.device.limits.maxTextureDimension2D;
@@ -191,7 +197,7 @@ export class ComplexRenderer {
   setQuality(quality) {
     if (this.quality === quality) return;
     this.quality = quality;
-    useShadows(quality.shadow);
+    useShadows(quality);
     // The water's defines change: a new material; its mesh is re-created on the next sync.
     for (const [src, mat] of this.materials) if (src.userData.water) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); }
     for (const [obj, mesh] of this.meshes) if (obj.material?.userData?.water) { this.scene.remove(mesh); this.meshes.delete(obj); }
@@ -349,7 +355,9 @@ export class ComplexRenderer {
     if (shadowOwner !== this) shadows.cascades.forEach(x => { x.dirty = true; });
     shadowOwner = this;
     this.renderer.precompiling = !this.shown;
-    shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value));
+    const timer = this.timer;
+    timer.begin();
+    shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i));
     setFrameCamera(c, this.canvas.width, this.canvas.height);
     const pass = { camera: c, kind: 'color', colorViews: [this.target.texture.view()], colorFormats: ['rgba16float'], depthView: this.target.depthTexture.view(), depthFormat: 'depth32float' };
     // One collection per frame. Opaque geometry, then the sky where nothing was drawn;
@@ -358,7 +366,7 @@ export class ComplexRenderer {
     const lists = this.renderer.collect(this.scene, pass);
     let water = null;
     for (let i = lists.opaque.length - 1; i >= 0; i--) if (lists.opaque[i].material.userData.water) (water ??= []).push(...lists.opaque.splice(i, 1));
-    this.renderer.render(this.scene, { ...pass, items: { opaque: lists.opaque, transparent: water ? [] : lists.transparent }, clearColors: [[0, 0, 0, 1]], clearDepth: 0,
+    this.renderer.render(this.scene, { ...pass, timestampWrites: timer.pass('scene'), items: { opaque: lists.opaque, transparent: water ? [] : lists.transparent }, clearColors: [[0, 0, 0, 1]], clearDepth: 0,
       betweenLists: rp => { if (this.sky.handle.pipeline) this.sky.draw(rp); } });
     if (water) {
       updateWaveTile();
@@ -367,11 +375,16 @@ export class ComplexRenderer {
         enc.copyTextureToTexture({ texture: this.target.texture.getGPU() }, { texture: this.copy.texture.getGPU() }, size);
         enc.copyTextureToTexture({ texture: this.target.depthTexture.getGPU() }, { texture: this.copy.depthTexture.getGPU() }, size);
       }
-      this.renderer.render(this.scene, { ...pass, label: 'complex water', items: { opaque: water, transparent: lists.transparent } });
+      this.renderer.render(this.scene, { ...pass, label: 'complex water', timestampWrites: timer.pass('water'), items: { opaque: water, transparent: lists.transparent } });
     }
     this.renderer.precompiling = false;
-    if (this.shown) this.finish.render({ colorViews: [this.context.getCurrentTexture().createView()] });
+    if (this.shown) {
+      this.finish.timestampWrites = timer.pass('finish');
+      this.finish.render({ colorViews: [this.context.getCurrentTexture().createView()] });
+    }
+    const readTimes = this.renderer.precompiling ? null : timer.end(GPU.getEncoder());
     GPU.submit();
+    readTimes?.();
     if (!this.ready && !this.compiling) {
       this.compiling = true;
       GPU.pipelinesReady().then(() => {
@@ -392,6 +405,7 @@ export class ComplexRenderer {
     for (const tex of this.textures.values()) tex.destroy();
     // Also detaches disposal listeners from CPU geometry shared by later views.
     this.renderer.dispose();
+    this.timer.dispose();
     this.target.textures.forEach(t => t.destroy()); this.target.depthTexture.destroy();
     this.copy?.textures.forEach(t => t.destroy()); this.copy?.depthTexture.destroy();
     this.renderer.pipelines.clear(); this.materials.clear(); this.textures.clear(); this.meshes.clear();

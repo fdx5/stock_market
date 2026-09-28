@@ -139,6 +139,16 @@
   color: #cfe0f2;
   font: 600 12px/1.5 var(--f-sans);
 }
+.re-holo-retry {
+  margin-left: 4px;
+  padding: 2px 8px;
+  border: 1px solid rgba(160, 200, 255, 0.45);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+}
 .re-holo-scan {
   position: absolute;
   inset: 0;

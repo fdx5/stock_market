@@ -146,7 +146,8 @@ export class SunShadows {
 
 	}
 
-	render( scene, meshRenderer, indices ) {
+	// timestamps: optional ( i ) => GPURenderPassTimestampWrites (local modification: profiling)
+	render( scene, meshRenderer, indices, timestamps = null ) {
 
 		for ( const i of indices ) {
 
@@ -155,6 +156,7 @@ export class SunShadows {
 			meshRenderer.render( scene, {
 				label: 'shadow cascade ' + i,
 				kind: 'depth',
+				timestampWrites: timestamps ? timestamps( i ) : undefined,
 				camera: c.camera,
 				frameBlock: c.block,
 				depthView: this.texture.view( { dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 } ),
