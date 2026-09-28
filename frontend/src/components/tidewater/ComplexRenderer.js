@@ -75,7 +75,18 @@ fn cumulus(uv: vec2f) -> f32 {
   // Crisp, heaped edges where a puff is dense; nothing between puffs.
   return smoothstep(0.5, 0.6, billow * (0.62 + 0.55 * cover)) * smoothstep(0.05, 0.4, cover);
 }
-// Clear-sky gradient only (also what glass reflects: no cloud noise per facade pixel).
+// Weather (frame.debug): x overcast 0..1, y rain, z snow.
+// The overcast deck's colour without its texture (grey by day, milky in snow, leaden in
+// rain; the haze colour lit by the city at night). Twin of patchSky in complexScene.ts.
+fn deckColor(ray: vec3f) -> vec3f {
+  let day = 1.0 - frame.night;
+  let e = clamp(ray.y, 0.0, 1.0);
+  var grey = mix(vec3f(0.6, 0.64, 0.69), vec3f(0.8, 0.82, 0.85), frame.debug.z) * mix(1.0, 0.66, frame.debug.y);
+  grey *= mix(0.35, 1.0, smoothstep(-0.12, 0.35, frame.sunDir.y));
+  return mix(frame.horizonColor * 0.9 + vec3f(0.025, 0.02, 0.016), grey, day) * mix(0.93, 1.05, e);
+}
+// Clear-sky gradient, closed over by any overcast (also what glass reflects: no cloud
+// noise per facade pixel).
 fn skyBase(ray: vec3f) -> vec3f {
   let day = 1.0 - frame.night;
   let e = clamp(ray.y, 0.0, 1.0);
@@ -84,7 +95,7 @@ fn skyBase(ray: vec3f) -> vec3f {
   let horizon = mix(vec3f(0.55, 0.71, 0.9), frame.horizonColor, dusk * 0.85);
   let daySky = mix(horizon, zenith, pow(e, 0.55));
   let nightSky = mix(frame.horizonColor * 0.45, vec3f(0.006, 0.013, 0.04), pow(e, 0.35));
-  return mix(nightSky, daySky, day);
+  return mix(mix(nightSky, daySky, day), deckColor(ray), frame.debug.x * smoothstep(-0.02, 0.06, ray.y) * 0.95);
 }
 // The sky with its clouds, without the sun disc (also what the water reflects).
 fn skyClouds(ray: vec3f) -> vec3f {
@@ -94,7 +105,7 @@ fn skyClouds(ray: vec3f) -> vec3f {
     // A cloud layer overhead, seen in perspective; drifting slowly with the wind.
     // A curved cloud deck: near the horizon puffs flatten, but are not smeared into streaks.
     let uv = ray.xz / (ray.y + 0.22) * 1.35 + vec2f(frame.time * 0.005, frame.time * 0.0018);
-    let d = cumulus(uv);
+    let d = cumulus(uv) * (1.0 - frame.debug.x);
     if (d > 0.002) {
       // Self-shadow: denser toward the sun means a darker underside.
       let toSun = normalize(frame.sunDir.xz + vec2f(0.0001, 0.0)) * 0.22;
@@ -106,6 +117,17 @@ fn skyClouds(ray: vec3f) -> vec3f {
       sky = mix(sky, cloud, clamp(d * 1.25, 0.0, 0.97) * smoothstep(0.0, 0.08, ray.y));
     }
   }
+  if (frame.debug.x > 0.001) {
+    // The deck's texture: uneven thickness, darker ragged scud under rain.
+    let uv = ray.xz / (max(ray.y, 0.0) + 0.3) * 0.9 + vec2f(frame.time * 0.012, frame.time * 0.004);
+    let thick = skyFbm(uv * 0.8);
+    let scud = smoothstep(0.52, 0.72, skyFbm(uv * 1.9 + vec2f(4.0, 9.0) + frame.time * 0.01));
+    var deck = deckColor(ray) * (0.8 + 0.34 * thick) * (1.0 - 0.3 * frame.debug.y * scud);
+    // The sun a pale glow behind thin cloud (snow, never rain).
+    let sunHue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
+    deck += sunHue * 0.22 * pow(max(dot(ray, frame.sunDir), 0.0), 18.0) * day * (1.0 - frame.debug.y) * smoothstep(-0.02, 0.1, frame.sunDir.y);
+    sky = mix(sky, deck, frame.debug.x * smoothstep(-0.02, 0.06, ray.y) * 0.95);
+  }
   return sky;
 }
 fn complexSky(ray: vec3f) -> vec3f {
@@ -114,7 +136,7 @@ fn complexSky(ray: vec3f) -> vec3f {
   // The sun: a small soft disc, no glare halo (the sky reads as plain blue with clouds).
   let sun = max(dot(ray, frame.sunDir), 0.0);
   let sunHue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
-  sky = mix(sky, sunHue * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85);
+  sky = mix(sky, sunHue * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85 * (1.0 - frame.debug.x));
   return sky;
 }` });
 const skyCode = /* wgsl */`
@@ -122,6 +144,68 @@ fn fragment(in: FSIn) -> vec4f {
   let p = frame.invProj * vec4f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, 0.001, 1.0);
   let ray = normalize((frame.invView * vec4f(normalize(p.xyz / p.w), 0.0)).xyz);
   return vec4f(complexSky(ray), 1.0);
+}`;
+
+// Falling rain and snow: twin of PRECIP_GLSL / precipField in complexScene.ts (keep the
+// two in step). Drops live on cylinders around the camera (PRECIP_RADII); a cylinder
+// shows where nothing in the scene is nearer along the ray.
+const PRECIP_WGSL = /* wgsl */`
+fn pHash(p: vec2f) -> f32 { var p3 = fract(vec3f(p.x, p.y, p.x) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+fn rainAt(q0: vec2f, r: f32, pix: f32, t: f32, amount: f32, slant: f32) -> f32 {
+  let cu = r * 0.024; let cv = cu * 7.0;
+  var q = q0; q.x += q.y * slant; q.y += t * 8.5;
+  let g = q / vec2f(cu, cv); let cell = floor(g); let f = g - cell;
+  if (pHash(cell + r) > amount * 0.6) { return 0.0; }
+  let x0 = 0.2 + 0.6 * pHash(cell + r + 1.7); let y0 = 0.25 * pHash(cell + r + 3.1);
+  let w = max(0.0045, pix * 0.75);
+  let across = smoothstep(w, 0.0, abs(f.x - x0) * cu);
+  let along = (f.y - y0) / 0.7;
+  return across * smoothstep(0.0, 0.2, along) * smoothstep(1.0, 0.55, along) * min(1.0, 0.0045 / w * 1.6);
+}
+fn snowAt(q0: vec2f, r: f32, pix: f32, t: f32, amount: f32) -> f32 {
+  let c = r * 0.045;
+  var q = q0; q.y += t * 0.735;
+  let g = q / c; let cell = floor(g); let f = g - cell;
+  let h = pHash(cell + r);
+  if (h > amount * 0.42) { return 0.0; }
+  var p0 = vec2f(0.3 + 0.4 * pHash(cell + r + 1.7), 0.3 + 0.4 * pHash(cell + r + 3.1));
+  p0.x += sin(t * 1.3 + h * 40.0) * 0.14;
+  let rad = 0.007 + 0.008 * pHash(cell + r + 5.3); let rr = max(rad, pix * 0.9);
+  let d = length((f - p0) * c);
+  return smoothstep(rr, rr * 0.3, d) * min(1.0, pow(rad / rr, 2.0) * 1.4);
+}
+fn precipitate(c0: vec3f, uv: vec2f) -> vec3f {
+  let rain = frame.debug.y; let snow = frame.debug.z;
+  if (rain < 0.001 && snow < 0.001) { return c0; }
+  let p = frame.invProj * vec4f(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.001, 1.0);
+  let ray = normalize((frame.invView * vec4f(normalize(p.xyz / p.w), 0.0)).xyz);
+  let fwd = normalize((frame.invView * vec4f(0.0, 0.0, -1.0, 0.0)).xyz);
+  let size = vec2f(textureDimensions(sceneDepth));
+  let d = textureLoad(sceneDepth, vec2i(clamp(uv, vec2f(0.0), vec2f(0.9999)) * size), 0).x;
+  // (nothing drawn: the sky, as far as can be)
+  var sceneZ = 1e9;
+  if (d > 0.0) { sceneZ = viewDepth(d); }
+  let pixAngle = 2.0 / (frame.proj[1][1] * frame.resolution.y);
+  let hl = max(length(ray.xz), 1e-4);
+  let side = smoothstep(0.12, 0.45, hl);
+  let rainTint = frame.horizonColor * 1.35 + 0.025;
+  let snowTint = frame.horizonColor * 1.7 + 0.05;
+  var c = c0;
+  let radii = array<f32, 5>(28.0, 16.0, 9.0, 5.0, 2.5);
+  for (var i = 0; i < 5; i++) {
+    let r = radii[i];
+    let t = r / hl;
+    if (t * dot(ray, fwd) > sceneZ) { continue; }
+    let w = frame.cameraPos + ray * t;
+    let q = vec2f(atan2(ray.z, ray.x) * r, w.y);
+    let pix = t * pixAngle;
+    var a = 0.0; var s = 0.0;
+    if (rain > 0.001) { a = rainAt(q, r, pix, frame.time, rain, 0.18); }
+    if (snow > 0.001) { s = snowAt(q, r, pix, frame.time, snow); }
+    let k = clamp(a * 0.34 + s * 0.9, 0.0, 1.0) * exp(-t * 0.012) * side;
+    c = mix(c, mix(rainTint, snowTint, s / max(a + s, 0.001)), k);
+  }
+  return c;
 }`;
 
 const finishCode = /* wgsl */`
@@ -135,6 +219,7 @@ fn fragment(in: FSIn) -> vec4f {
   let e = textureSampleLevel(src, smpLinearClamp, in.uv - vec2f(0.0, px.y), 0.0).rgb;
   let edge = length(a - b) + length(d - e);
   c = mix(c, (a + b + d + e + c * 4.0) / 8.0, smoothstep(0.15, 0.8, edge) * 0.65);
+  c = precipitate(c, in.uv);
   c *= frame.exposure;
   c = clamp((c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14), vec3f(0.0), vec3f(1.0));
   c = pow(c, vec3f(1.0 / 2.2));
@@ -168,7 +253,8 @@ export class ComplexRenderer {
     // pass (Tidewater's sceneCopy). Allocated once water is in the scene.
     this.copy = null;
     this.sky = new FullscreenPass({ label: 'complex atmosphere', modules: [atmosphere], code: skyCode, colorFormats: ['rgba16float'], depthFormat: 'depth32float', depthCompare: 'equal' });
-    this.finish = new FullscreenPass({ label: 'complex filmic resolve', code: finishCode, colorFormats: [GPU.format], bindings: { src: { texture: () => this.target.texture } } });
+    this.finish = new FullscreenPass({ label: 'complex filmic resolve', modules: [new ShaderModule({ name: 'complex precipitation', code: PRECIP_WGSL })], code: finishCode, colorFormats: [GPU.format],
+      bindings: { src: { texture: () => this.target.texture }, sceneDepth: { texture: () => this.target.depthTexture, sampleType: 'unfilterable-float' } } });
     this.meshes = new Map();
     this.materials = new Map();
     this.textures = new Map();
@@ -270,6 +356,18 @@ export class ComplexRenderer {
     // Leaves let light through: a little transmitted sun on the shaded side.
     if (source.userData.foliage) surface += 's.translucency = s.albedo * 0.25;';
     if (source.userData.contextBuilding) surface += 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.27, 0.25); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9; }';
+    // Weather: rain darkens what faces up and makes it glossy (puddles where the ground
+    // dips in the noise); snow settles on it, patchy on slopes. Twin of patchMaterial.
+    if (!source.userData.sky) surface += `{
+      let up = smoothstep(0.45, 0.9, in.N.y);
+      let puddle = smoothstep(0.55, 0.75, skyFbm(in.P.xz * 0.35));
+      s.albedo *= 1.0 - frame.debug.y * (0.18 + 0.22 * up + 0.12 * puddle * up);
+      s.roughness = mix(s.roughness, 0.12 + 0.2 * (1.0 - puddle), frame.debug.y * up * 0.85);
+      let snow = frame.debug.z * smoothstep(0.35, 0.8, in.N.y * (0.8 + 0.35 * skyFbm(in.P.xz * 0.6)));
+      s.albedo = mix(s.albedo, vec3f(0.86, 0.88, 0.92), snow);
+      s.roughness = mix(s.roughness, 0.9, snow); s.metalness *= 1.0 - snow;
+      s.emissive *= 1.0 - snow * 0.8;
+    }`;
     // Contact darkening and physical glass response (no procedural grain: it aliases).
     surface += `s.roughness = clamp(s.roughness, 0.12, 1.0);
       s.clearcoat = ${source.clearcoat ? '0.16' : '0.0'}; s.clearcoatRoughness = 0.22;`;
@@ -278,7 +376,8 @@ export class ComplexRenderer {
       side: source.side === 2 ? 'double' : source.side === 1 ? 'back' : 'front',
       alphaTest: source.alphaTest || 0, transparent: source.transparent, opacity: source.opacity,
       // Sky objects (the moon) sit beyond the haze.
-      textures, surface, output: source.userData.sky ? '' : `let fog = 1.0 - exp(-length(in.P - frame.cameraPos) * mat.haze * mat.hazeScale);
+      // (atmosphere: skyFbm for the puddles and the snow's patchiness)
+      modules: [atmosphere], textures, surface, output: source.userData.sky ? '' : `let fog = 1.0 - exp(-length(in.P - frame.cameraPos) * mat.haze * mat.hazeScale);
         r.color = vec4f(mix(r.color.rgb, frame.horizonColor, clamp(fog, 0.0, 0.9)), r.color.a);${source.userData.edgeFade ? `
         // Past the painted (surveyed) ground, uv leaves 0..1: fade into the horizon haze.
         let past = max(max(-in.uv.x, in.uv.x - 1.0), max(-in.uv.y, in.uv.y - 1.0));
@@ -347,6 +446,7 @@ export class ComplexRenderer {
     f.skyIrradiance.value.copy(look.hemiSky).multiplyScalar(Math.max(0.18, look.hemiI));
     f.horizonColor.value.copy(look.fog); f.exposure.value = look.exposure * 1.15;
     f.time.value = time; f.night.value = look.stars; f.envIntensity.value = Math.max(0.9, look.env);
+    f.debug.value.set(look.overcast ?? 0, look.rain ?? 0, look.snow ?? 0, 0);
     for (const [src, mat] of this.materials) {
       mat.emissive.copy(src.emissive ?? { r: 0, g: 0, b: 0 }).multiplyScalar(src.emissiveIntensity ?? 0);
       mat.set('haze', (source.fog?.density ?? 0.0005) * 0.5);

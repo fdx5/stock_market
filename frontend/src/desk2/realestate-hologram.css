@@ -43,6 +43,9 @@
   min-width: 0;
 }
 .re-holo-head small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: #b7c9c5;
   font: 700 10.5px var(--f-sans);
   letter-spacing: 0.08em;
@@ -55,6 +58,7 @@
 }
 .re-holo-tools {
   display: flex !important;
+  flex: none;
   gap: 4px;
 }
 .re-holo .re-holo-tools button {
@@ -64,6 +68,7 @@
   background: transparent;
   color: #cfe0f2;
   font: 700 11px var(--f-sans);
+  white-space: nowrap;
   cursor: pointer;
 }
 .re-holo .re-holo-tools button[aria-pressed="true"] {
@@ -96,21 +101,41 @@
 .re-holo-credit { color: #adc1be; font-size: 10px; text-decoration: none; align-self: flex-end; }
 .re-holo-credit:hover { color: white; text-decoration: underline; }
 .re-holo.re-holo--expanded {
-  /* Width and height are set inline: 3x the panel, same aspect ratio. */
+  /* 전체화면 on a desktop: the whole window, like the card's 3D 건물뷰 layer. */
   position: fixed;
   inset: 0;
   z-index: 2147483001;
-  margin: auto;
-  max-width: none;
-  max-height: none;
-  box-shadow: 0 24px 80px #0009, 0 0 0 100vmax #050b12d0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  box-sizing: border-box;
+  min-height: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  box-shadow: none;
 }
 .re-holo-slot { margin: 0 0 12px; }
 @media (prefers-reduced-motion: no-preference) {
   .re-holo.re-holo--expanded { animation: re-holo-wide-in 0.22s ease-out; }
 }
-.re-holo--expanded .re-holo-head { padding-right: 66px; }
+.re-holo--expanded .re-holo-head { padding: 12px 66px 11px 18px; }
+.re-holo--expanded .re-holo-head strong { font-size: 18px; }
+.re-holo--expanded .re-holo-tools button { padding: 7px 12px; font-size: 12.5px; }
 .re-holo--expanded .re-holo-stage { min-height: 0; }
+/* Full screen on a desktop (the rail's 전체화면, or the card's 3D 건물뷰 layer): one
+ * row of buttons sized to their labels, the hint beside them. */
+.re-holo--expanded .re-holo-navigation { display: flex; align-items: center; gap: 16px; padding: 10px 18px; }
+.re-holo--expanded .re-holo-nav-row { flex: none; gap: 8px; }
+.re-holo--expanded .re-holo-navigation button { flex: none; min-width: 96px; min-height: 42px; padding: 8px 18px; font-size: 13.5px; }
+.re-holo--expanded .re-holo-navigation p { margin: 0; font-size: 12.5px; text-align: left; }
+@media (min-width: 981px) {
+  .re-holo-layer .re-holo-navigation { display: flex; align-items: center; gap: 16px; padding: 10px 18px; }
+  .re-holo-layer .re-holo-nav-row { flex: none; gap: 8px; }
+  .re-holo-layer .re-holo-navigation button { flex: none; min-width: 96px; min-height: 42px; padding: 8px 18px; font-size: 13.5px; }
+  .re-holo-layer .re-holo-navigation p { margin: 0; font-size: 12.5px; text-align: left; }
+}
 .re-holo button:focus-visible, .re-holo a:focus-visible { outline: 2px solid #e7d9ad; outline-offset: 2px; }
 @media (max-width: 480px) {
   .re-holo-head { padding: 10px; gap: 4px; }
@@ -228,12 +253,6 @@
   }
 }
 
-/* The card's 3D button: phones and tablets only — the desktop rail shows it already. */
-@media (min-width: 981px) {
-  .re-detail-tools .re-holo-open {
-    display: none;
-  }
-}
 .d2.mm .re-detail-tools .re-holo-open {
   border-color: #3a6d8f;
   background: #0b1520;
@@ -360,12 +379,10 @@
 /* Controls sit outside the canvas: gestures never compete with floating buttons. */
 .re-holo-navigation { flex: none; padding: 8px 10px 6px; background: #13212a; border-top: 1px solid #456071; }
 .re-holo-nav-row { display: flex; gap: 6px; }
-.re-holo-modes { display: flex; flex: 1; gap: 4px; }
 .re-holo-navigation button { min-width: 36px; min-height: 36px; padding: 5px 9px; border: 1px solid #516a7c; border-radius: 7px; background: #20333f; color: #eaf6ff; font: 600 11px var(--f-sans, sans-serif); cursor: pointer; touch-action: manipulation; }
-.re-holo-modes button, .re-holo-nav-actions button { flex: 1; }
+.re-holo-nav-row button { flex: 1 1 0; white-space: nowrap; }
 .re-holo-navigation button[aria-pressed="true"] { color: #07131c; background: #a6ddf6; border-color: #a6ddf6; }
 .re-holo-navigation button:active { background: #42637a; color: #fff; }
-.re-holo-nav-actions { margin-top: 6px; }
 .re-holo-navigation p { margin: 6px 0 0; color: #c4d6e2; font: 500 11px/1.4 var(--f-sans, sans-serif); text-align: center; }
 .re-holo-stage { overscroll-behavior: none; user-select: none; -webkit-user-select: none; }
 .re-holo-layer { height: 100dvh; box-sizing: border-box; }
@@ -387,4 +404,42 @@
   .re-holo-layer .re-holo-navigation p { flex-basis: 100%; margin: 0; }
   .re-holo-layer .re-holo-foot { display: none; }
   .re-holo-layer .re-holo-scene-label { display: none; }
+}
+
+/* Time of day and weather: a slider over the hours (its track the sky's colour at each
+ * hour today) and 맑음 / 비 / 눈, just above the view buttons. */
+.re-holo-env { display: flex; flex: none; align-items: flex-end; gap: 10px; padding: 8px 10px 4px; background: #13212a; border-top: 1px solid #456071; }
+.re-holo-env + .re-holo-navigation { border-top: 0; }
+.re-holo-time { display: grid; flex: 1; gap: 5px; min-width: 0; }
+.re-holo-time-read { display: flex; align-items: baseline; gap: 6px; color: #c4d6e2; font: 600 11px var(--f-sans, sans-serif); }
+.re-holo-time-read b { color: #fff; font: 700 13px var(--f-sans, sans-serif); font-variant-numeric: tabular-nums; }
+.re-holo-time input[type="range"] {
+  width: 100%; height: 8px; margin: 7px 0; border-radius: 4px; outline: none; cursor: pointer;
+  -webkit-appearance: none; appearance: none; touch-action: pan-y;
+  box-shadow: inset 0 0 0 1px #ffffff26;
+}
+.re-holo-time input[type="range"]::-webkit-slider-thumb {
+  width: 20px; height: 20px; border: 2px solid #07131c; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #a6ddf6, 0 2px 6px #0008;
+  -webkit-appearance: none; appearance: none;
+}
+.re-holo-time input[type="range"]::-moz-range-thumb {
+  width: 16px; height: 16px; border: 2px solid #07131c; border-radius: 50%; background: #fff; box-shadow: 0 0 0 2px #a6ddf6;
+}
+.re-holo-time input[type="range"]:focus-visible { box-shadow: 0 0 0 2px #e7d9ad; }
+.re-holo-weather { display: flex; flex: none; gap: 3px; }
+.re-holo-weather button { display: flex; align-items: center; justify-content: center; gap: 4px; min-width: 36px; min-height: 36px; padding: 5px 8px; border: 1px solid #516a7c; border-radius: 7px; background: #20333f; color: #eaf6ff; font: 600 11px var(--f-sans, sans-serif); white-space: nowrap; cursor: pointer; touch-action: manipulation; }
+.re-holo-weather button i { font-style: normal; font-size: 14px; line-height: 1; }
+.re-holo-weather button[aria-checked="true"] { color: #07131c; background: #a6ddf6; border-color: #a6ddf6; }
+/* The narrow desktop rail: icons only (the name stays as the button's title). */
+.re-holo:not(.re-holo--expanded) .re-holo-weather span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.re-holo-layer .re-holo .re-holo-weather span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+@media (any-pointer: coarse) {
+  .re-holo-time input[type="range"]::-webkit-slider-thumb { width: 26px; height: 26px; }
+  .re-holo-weather button { min-height: 40px; }
+}
+.re-holo--expanded .re-holo-env { gap: 16px; padding: 10px 18px 4px; }
+.re-holo--expanded .re-holo-time { flex: 0 1 620px; }
+.re-holo--expanded .re-holo-weather button, .re-holo-layer .re-holo-weather button { min-height: 40px; padding: 6px 12px; font-size: 12.5px; }
+@media (max-height: 540px) and (orientation: landscape) {
+  .re-holo-layer .re-holo-env { padding-top: 4px; }
 }

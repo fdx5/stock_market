@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMediaQuery } from "../useMediaQuery";
 import * as THREE from "three";
@@ -15,8 +15,8 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
 import { vworldBuildings, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
-  CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, FLOOR_M, GROUND_M, inRing, Look, LOOKS, mixLook,
-  moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, rng, shared, starField, Tod, TOD_LABEL, TOD_ORDER, todNow,
+  CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
+  moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, starField, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
 } from "./complexScene";
 import "../desk2/realestate-hologram.css";
 import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
@@ -110,7 +110,10 @@ type Stage = {
   /** Planar reflection only on level ground (the mirror is one plane). */
   reflectOn: boolean;
   refreshEnv: () => void;
-  look: Look; fade: { from: Look; to: Look; t0: number } | null;
+  look: Look;
+  /** The clock hour on the slider and the weather: rain and snow ease toward want*
+   * (0 … 1) over a second or two; env: when to re-render the WebGL reflections. */
+  atmos: { hour: number; rain: number; snow: number; wantRain: number; wantSnow: number; dirty: boolean; envAt: number; lat?: number; lon?: number };
   lit: { windows: THREE.MeshStandardMaterial[]; crowns: THREE.MeshStandardMaterial[]; ground: THREE.MeshStandardMaterial[] };
   /** Per-frame work of the current model (traffic), and what follows the look (lamps). */
   tick: ((dt: number) => void)[]; onLook: ((l: Look) => void)[];
@@ -181,6 +184,18 @@ function nextSlice(idle: boolean): Promise<void> {
   });
 }
 
+/** The time slider's track: the sky's colour at each hour of today (night, dawn,
+ * day, dusk), so the track itself shows where the light is. */
+function dayGradient(lat?: number, lon?: number): string {
+  const stops: string[] = [];
+  for (let h = 0; h <= 24; h += 0.5) {
+    const e = sunAt(h, undefined, lat, lon).elev;
+    const c = e < -10 ? "#1a2238" : e < -3 ? "#3b3f6e" : e < 3 ? "#d9855a" : e < 12 ? "#f2c07a" : "#8cc8ee";
+    stops.push(`${c} ${(h / 24 * 100).toFixed(1)}%`);
+  }
+  return `linear-gradient(90deg, ${stops.join(", ")})`;
+}
+
 const ease = (k: number) => 1 - Math.pow(1 - Math.min(1, Math.max(0, k)), 3);
 
 /** Stands in for the WebGL renderer where the browser gives no WebGL context: the view
@@ -204,28 +219,41 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   /** Covered by something the reader is using (the detail popup): stop drawing, and do
    * any loading only in the browser's idle time. */
   paused?: boolean;
-  /** Already the large layer: no "크게 보기" button of its own. */
+  /** Already the full-screen layer: no "전체화면" button of its own. */
   wide?: boolean; initialTod?: Tod;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
+  const hourRef = useRef(0);
+  const weatherRef = useRef<Weather>("clear");
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const [data, setData] = useState<RealEstateBuildingsResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [slowData, setSlowData] = useState(false);
-  const [touchMode, setTouchMode] = useState(() => window.matchMedia?.("(any-pointer: coarse)").matches || navigator.maxTouchPoints > 0);
-  const [navMode, setNavMode] = useState<"pan" | "rotate">("rotate");
+  // Controls follow the pointer in use: a touch laptop starts with the mouse set (its
+  // primary pointer is fine) and switches when the screen is actually touched.
+  const [touchMode, setTouchMode] = useState(() => !!window.matchMedia?.("(pointer: coarse)").matches);
   const [spin, setSpin] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
-  const [tod, setTod] = useState<Tod>(() => {
-    const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("tod") : null;
-    return initialTod ?? (q && q in LOOKS ? (q as Tod) : todNow());
+  // The hour on the time slider (?hour= or ?tod= to open elsewhere), and the weather.
+  const [hour, setHour] = useState<number>(() => {
+    const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
+    const h = Number(q?.get("hour"));
+    const t = q?.get("tod");
+    if (initialTod) return hourForTod(initialTod);
+    if (q?.has("hour") && Number.isFinite(h)) return ((h % 24) + 24) % 24;
+    return t === "day" || t === "dusk" || t === "night" ? hourForTod(t) : Math.round(hourNow() * 4) / 4;
   });
-  // 크게 보기: a layer over the page at 3x the panel's height (scaled down only as far
-  // as the window requires) and 30 % wider than that proportion.
+  const [weather, setWeather] = useState<Weather>(() => {
+    const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("weather") : null;
+    return q === "rain" || q === "snow" ? q : "clear";
+  });
+  hourRef.current = hour;
+  weatherRef.current = weather;
+  // 전체화면: the panel fills the window, as the card's 3D 건물뷰 does on a phone. The
+  // rail keeps a slot of the panel's height so the page underneath does not jump.
   const [bigBase, setBigBase] = useState<{ w: number; h: number } | null>(null);
   const big = !!bigBase;
-  const [, setViewportTick] = useState(0);
   const openBig = () => {
     const r = sectionRef.current?.getBoundingClientRect();
     if (r?.width && r.height) setBigBase({ w: r.width, h: r.height });
@@ -323,8 +351,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     controls.zoomSpeed = WHEEL_ZOOM;
     renderer.domElement.addEventListener("wheel", () => { controls.zoomSpeed = WHEEL_ZOOM; }, { capture: true, passive: true, signal: listening.signal });
     renderer.domElement.addEventListener("pointerdown", e => { controls.zoomSpeed = e.pointerType === "touch" ? 1 : WHEEL_ZOOM; }, { capture: true, signal: listening.signal });
-    controls.touches.ONE = navMode === "pan" ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
+    // The usual 3D-viewer gestures, no mode button: one finger turns, two fingers move
+    // and pinch together; a mouse turns with the left button and moves with the right.
+    controls.touches.ONE = THREE.TOUCH.ROTATE;
     controls.touches.TWO = THREE.TOUCH.DOLLY_PAN;
+    controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+    controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
     // Pinch zooms toward the point between the two fingers. OrbitControls takes that
     // midpoint in page coordinates (scroll included) but maps it with the element's
     // viewport rectangle, so on a scrolled page the zoom went toward a point off by the
@@ -424,6 +456,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     void warmMaterials(warm, () => nextSlice(true), () => !disposed);
     const stars = starField(3000);
     const moon = moonInSky();
+    const precip = precipField();
+    scene.add(precip.group);
     scene.add(moon.group);
     scene.add(stars);
 
@@ -470,7 +504,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
 
     const stage: Stage = {
       renderer, scene, camera, controls, composer, bloom, finish, sun, hemi, sky, stars, reflector, reflStrength, reflectOn: false, refreshEnv,
-      look: LOOKS.day, fade: null, lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
+      look: atmosphereLook(hourRef.current, 0, 0),
+      atmos: { hour: hourRef.current, rain: +(weatherRef.current === "rain"), snow: +(weatherRef.current === "snow"),
+        wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
+      lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null,
       now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {},
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
@@ -564,10 +601,23 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         camera.position.lerpVectors(stage.intro.from, stage.intro.to, k);
         if (k >= 1) stage.intro = null;
       }
-      if (stage.fade) {
-        const k = ease((t - stage.fade.t0) / 2.2);
-        applyLook(mixLook(stage.fade.from, stage.fade.to, k), k >= 1 || ++envFrame % 8 === 0);
-        if (k >= 1) stage.fade = null;
+      {
+        // The slider moves the sun at once; the weather sets in over about 1.6 s.
+        const a = stage.atmos, step = Math.min(dt, 100) / 1600;
+        const toward = (x: number, y: number) => x + THREE.MathUtils.clamp(y - x, -step, step);
+        const moving = a.rain !== a.wantRain || a.snow !== a.wantSnow;
+        if (moving) { a.rain = toward(a.rain, a.wantRain); a.snow = toward(a.snow, a.wantSnow); }
+        if (moving || a.dirty) {
+          const smooth = (x: number) => x * x * (3 - 2 * x);
+          const settled = a.rain === a.wantRain && a.snow === a.wantSnow;
+          applyLook(atmosphereLook(a.hour, smooth(a.rain), smooth(a.snow), undefined, a.lat, a.lon), false);
+          // Reflections (WebGL): now and then while the weather changes, and once the
+          // slider rests.
+          if (moving && (settled || ++envFrame % 8 === 0)) refreshEnv();
+          else if (a.dirty) a.envAt = t + 0.25;
+          a.dirty = false;
+        }
+        if (a.envAt && t >= a.envAt) { a.envAt = 0; refreshEnv(); }
       }
       for (const f of stage.tick) f(dt / 1000);
       controls.update();
@@ -577,6 +627,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       if (Math.abs(near - camera.near) > camera.near * 0.15) { camera.near = near; camera.updateProjectionMatrix(); }
       stars.position.copy(camera.position);
       moon.update(camera);
+      precip.update(camera, t, host.clientHeight);
 
 
       if (native) {
@@ -647,6 +698,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       u.sunPosition.value.copy(sunDir);
       u.uSunColor.value.copy(l.key).multiplyScalar(l.keyI);
       u.uNight.value = l.stars;
+      u.uWeather.value.set(l.overcast, l.rain, l.snow);
       dirFrom(l.keyElev, l.keyAz, keyDir);
       const reach = stage.dist * 2 + stage.top * 2;
       sun.position.copy(stage.center).addScaledVector(keyDir, reach);
@@ -666,9 +718,13 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       stage.lit.crowns.forEach(m => { m.emissiveIntensity = l.windows * 0.5; });
       stage.lit.ground.forEach(m => { m.emissiveIntensity = l.lamps * 0.9; });
       stage.onLook.forEach(f => f(l));
-      (stars.material as THREE.PointsMaterial).opacity = l.stars;
-      moon.setLevel(l.stars);
+      // Behind an overcast no stars or moon.
+      (stars.material as THREE.PointsMaterial).opacity = l.stars * (1 - l.overcast);
+      moon.setLevel(l.stars * (1 - l.overcast));
       shared.uCloud.value = l.cloudShade;
+      shared.uWet.value = l.rain;
+      shared.uSnow.value = l.snow;
+      precip.setLook(l);
       reflStrength.value = l.reflect;
       bloom.strength = l.bloom;
       bloom.threshold = l.bloomAt;
@@ -676,7 +732,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     };
     stage.refreshEnv = () => applyLook(stage.look, true);
     applyLookRef.current = applyLook;
-    applyLook(LOOKS[todRef.current], true);
+    applyLook(stage.look, true);
 
     // Paused while off screen: a model below the fold should cost nothing.
     const io = new IntersectionObserver(([entry]) => {
@@ -725,6 +781,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       sky.material.dispose();
       stars.geometry.dispose();
       moon.dispose();
+      precip.dispose();
       (stars.material as THREE.Material).dispose();
       releaseRenderer(renderer);
       stageRef.current = null;
@@ -743,13 +800,6 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     spinRef.current = spin;
     if (stageRef.current) stageRef.current.controls.autoRotate = spin;
   }, [spin]);
-
-  useEffect(() => {
-    const controls = stageRef.current?.controls;
-    if (!controls) return;
-    controls.touches.ONE = navMode === "pan" ? THREE.TOUCH.PAN : THREE.TOUCH.ROTATE;
-    controls.mouseButtons.LEFT = navMode === "pan" ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
-  }, [navMode, touchMode]);
 
   const navigateView = (action: "in" | "out" | "left" | "right" | "home" | "top") => {
     const st = stageRef.current;
@@ -803,31 +853,38 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         event.preventDefault(); items[(i + (event.shiftKey ? -1 : 1) + items.length) % items.length]?.focus();
       }
     };
-    // The page behind is inert; a press on it (the dimmed backdrop) closes the layer.
-    const outside = (event: PointerEvent) => { if (!section.contains(event.target as Node)) closeBig(); };
-    const refit = () => setViewportTick(n => n + 1);
     document.addEventListener('keydown', key, true);
-    document.addEventListener('pointerdown', outside, true);
-    window.addEventListener('resize', refit);
     return () => {
       document.body.style.overflow = overflow;
       inert.forEach(([node, value]) => { node.inert = value; });
       document.removeEventListener('keydown', key, true);
-      document.removeEventListener('pointerdown', outside, true);
-      window.removeEventListener('resize', refit);
       if (previous?.isConnected) previous.focus();
     };
   }, [big, closeBig]);
 
-  const todRef = useRef(tod);
   const terrainRef = useRef<Terrain>(FLAT);
   const applyLookRef = useRef<((l: Look, env: boolean) => void) | null>(null);
   useEffect(() => {
+    hourRef.current = hour;
     const st = stageRef.current;
-    if (!st || todRef.current === tod) return;
-    todRef.current = tod;
-    st.fade = { from: st.look, to: LOOKS[tod], t0: st.now };
-  }, [tod]);
+    if (!st) return;
+    st.atmos.hour = hour; st.atmos.dirty = true;
+    st.resume();
+  }, [hour]);
+  useEffect(() => {
+    weatherRef.current = weather;
+    const st = stageRef.current;
+    if (!st) return;
+    st.atmos.wantRain = +(weather === "rain"); st.atmos.wantSnow = +(weather === "snow");
+    st.resume();
+  }, [weather]);
+  // The sun over the complex itself (its latitude and longitude, when known).
+  const center = data?.center;
+  useEffect(() => {
+    const st = stageRef.current;
+    if (!st || !center) return;
+    st.atmos.lat = center.lat; st.atmos.lon = center.lon; st.atmos.dirty = true;
+  }, [center?.lat, center?.lon]);
 
   /** A result without surveyed roads (kept by the server, or from OpenStreetMap) gets
    * them from VWorld, in at most 2.5 s; without them it still draws, just roadless. */
@@ -1419,7 +1476,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!(e.target instanceof HTMLCanvasElement)) return;
     pointers.current.add(e.pointerId);
-    if (e.pointerType === "touch" && !touchMode) setTouchMode(true);
+    const touch = e.pointerType !== "mouse";
+    if (touch !== touchMode) setTouchMode(touch);
     press.current = pointers.current.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), moved: false } : null;
   };
   const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -1435,15 +1493,14 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const notice = data?.found && complexId ? staleNotice(data, complexId) : null;
   const measured = data?.coverage ? data.coverage.with_height : 0;
   const total = data?.coverage ? data.coverage.buildings : 0;
-  const nextTod = TOD_ORDER[(TOD_ORDER.indexOf(tod) + 1) % TOD_ORDER.length];
-  const bigScale = bigBase ? Math.min(3, (window.innerWidth * 0.96) / bigBase.w, (window.innerHeight * 0.94) / bigBase.h) : 1;
+  const phase = phaseLabel(sunAt(hour, undefined, center?.lat, center?.lon).elev, hour);
+  const sceneTitle = weather === "rain" ? `비 오는 ${phase}` : weather === "snow" ? `눈 내리는 ${phase}` : `${phase}의 단지 풍경`;
   const portal = (node: JSX.Element) => bigBase ? createPortal(node, document.body) : node;
-  // 30 % wider than the scaled panel, within the window.
-  const bigStyle = bigBase ? { width: Math.round(Math.min(bigBase.w * bigScale * 1.3, window.innerWidth * 0.97)), height: Math.round(bigBase.h * bigScale) } : undefined;
+  const dayTrack = useMemo(() => dayGradient(center?.lat, center?.lon), [center?.lat, center?.lon]);
   return (
     <>
     {bigBase && <div className="re-holo-slot" style={{ height: bigBase.h }} aria-hidden="true" />}
-    {portal(<section ref={sectionRef} style={bigStyle} className={`re-holo${big ? " re-holo--expanded" : ""}`} role={big ? "dialog" : undefined} aria-modal={big || undefined} aria-label={big ? "단지 3D 뷰 크게 보기" : "단지 3D 뷰"}>
+    {portal(<section ref={sectionRef} className={`re-holo${big ? " re-holo--expanded" : ""}`} role={big ? "dialog" : undefined} aria-modal={big || undefined} aria-label={big ? "단지 3D 뷰 전체화면" : "단지 3D 뷰"}>
       <header className="re-holo-head">
         <div>
           <small>{caption ?? "3D 단지뷰"}</small>
@@ -1451,16 +1508,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         </div>
         <div className="re-holo-tools">
           <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title="360° 자동 회전">{spin ? "자동 ■" : "자동 ▶"}</button>
-          <button type="button" onClick={() => setTod(nextTod)} title={`시간대 바꾸기 · 다음: ${TOD_LABEL[nextTod]}`}>{TOD_LABEL[tod]}</button>
           {!wide && !narrow && complexId && !big && (
-            <button type="button" className="re-holo-big" onClick={openBig} title="큰 화면으로 감상">크게 보기 ⤢</button>
+            <button type="button" className="re-holo-big" onClick={openBig} title="전체화면으로 보기 (Esc로 닫기)">⤢ 전체화면</button>
           )}
         </div>
       </header>
       <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
         onPointerCancel={e => { pointers.current.delete(e.pointerId); press.current = null; }}
         onPointerLeave={e => { if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
-        {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{TOD_LABEL[tod]}의 단지 풍경</strong><i>{touchMode ? "건물을 짧게 탭하면 동·층수를 볼 수 있습니다" : "드래그 회전 · 휠 확대 · 우클릭 이동"}</i></div>}
+        {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{sceneTitle}</strong></div>}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         {failed3d && <p className="re-holo-msg">3D 화면을 불러오지 못했습니다. 브라우저 설정에서 하드웨어 가속이 켜져 있는지 확인해 주세요.{" "}
           <button type="button" className="re-holo-retry" onClick={() => location.reload()}>다시 시도</button></p>}
@@ -1470,22 +1526,35 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
           role="status">{tip.text}</div>}
       </div>
+      {data?.found && !failed3d && <div className="re-holo-env">
+        <label className="re-holo-time">
+          <span className="re-holo-time-read"><b>{formatHour(hour)}</b>{phase}</span>
+          <input type="range" min={0} max={24} step={0.25} value={hour} aria-label="시간대"
+            aria-valuetext={`${formatHour(hour)} ${phase}`} style={{ background: dayTrack }}
+            onChange={e => setHour(Number(e.currentTarget.value))} />
+        </label>
+        <div className="re-holo-weather" role="radiogroup" aria-label="날씨">
+          {WEATHER_ORDER.map(w => (
+            <button key={w} type="button" role="radio" aria-checked={weather === w} onClick={() => setWeather(w)} title={WEATHER_LABEL[w]}>
+              <i aria-hidden="true">{WEATHER_ICON[w]}</i><span>{WEATHER_LABEL[w]}</span>
+            </button>
+          ))}
+        </div>
+      </div>}
       {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label="3D 화면 조작">
+        {/* One row of views and steps; the gestures do the rest. A mouse also gets
+         * turn buttons (a finger turns by dragging anyway). */}
         <div className="re-holo-nav-row">
-          <div className="re-holo-modes" role="group" aria-label="드래그 방식">
-            <button type="button" aria-pressed={navMode === "pan"} onClick={() => setNavMode("pan")}>✥ 이동</button>
-            <button type="button" aria-pressed={navMode === "rotate"} onClick={() => setNavMode("rotate")}>↻ 회전</button>
-          </div>
-          <button type="button" onClick={() => navigateView("home")}>전체 보기</button>
-          <button type="button" onClick={() => navigateView("top")}>위에서</button>
+          <button type="button" onClick={() => navigateView("home")} title="처음 시점으로">⟲ 처음</button>
+          <button type="button" onClick={() => navigateView("top")} title="위에서 내려다보기">⤓ 위에서</button>
+          <button type="button" aria-label="3D 축소" title="축소" onClick={() => navigateView("out")}>−</button>
+          <button type="button" aria-label="3D 확대" title="확대" onClick={() => navigateView("in")}>+</button>
+          {!touchMode && <>
+            <button type="button" aria-label="3D 왼쪽 회전" title="왼쪽으로 돌리기" onClick={() => navigateView("left")}>↶</button>
+            <button type="button" aria-label="3D 오른쪽 회전" title="오른쪽으로 돌리기" onClick={() => navigateView("right")}>↷</button>
+          </>}
         </div>
-        <div className="re-holo-nav-row re-holo-nav-actions">
-          <button type="button" aria-label="3D 축소" onClick={() => navigateView("out")}>− <span>축소</span></button>
-          <button type="button" aria-label="3D 확대" onClick={() => navigateView("in")}>+ <span>확대</span></button>
-          <button type="button" aria-label="3D 왼쪽 회전" onClick={() => navigateView("left")}>↶ <span>왼쪽</span></button>
-          <button type="button" aria-label="3D 오른쪽 회전" onClick={() => navigateView("right")}>↷ <span>오른쪽</span></button>
-        </div>
-        <p>{touchMode ? `한 손가락 ${navMode === "pan" ? "이동" : "회전"} · 두 손가락으로 확대·축소·이동` : `드래그 ${navMode === "pan" ? "이동" : "회전"} · 휠 확대·축소 · 우클릭 이동`}</p>
+        <p>{touchMode ? "한 손가락 회전 · 두 손가락 이동·확대 · 건물 탭: 동·층수" : "드래그 회전 · 우클릭 이동 · 휠 확대 · 건물 클릭: 동·층수"}</p>
       </nav>}
       <footer className="re-holo-foot">
         <a className="re-holo-credit" href="/licenses/tidewater-MIT.txt" target="_blank" rel="noreferrer" title="렌더링 엔진 MIT 라이선스">MIT</a>
@@ -1496,7 +1565,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           </>
         ) : <span>{touchMode ? "한 손가락으로 돌리고 두 손가락으로 확대·이동, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 커서 쪽 확대, 우클릭 드래그로 이동합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
-      {big && <button type="button" className="re-holo-wide-close" onClick={closeBig} aria-label="크게 보기 닫기" title="닫기 (Esc)">×</button>}
+      {big && <button type="button" className="re-holo-wide-close" onClick={closeBig} aria-label="전체화면 닫기" title="닫기 (Esc)">×</button>}
     </section>)}
     </>
   );

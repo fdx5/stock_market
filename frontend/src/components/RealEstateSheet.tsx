@@ -17,8 +17,8 @@ import "../desk2/realestate-hologram.css";
 
 const ComplexHologram = lazy(() => import("./ComplexHologram"));
 
-/** Phones and tablets: the desktop rail's 3D view as a full-screen layer over the
- * card — one finger moves or turns it, two pinch to zoom. It keeps Escape and Tab to itself
+/** The 3D view as a full-screen layer over the card, on every device — one finger
+ * moves or turns it, two pinch to zoom; a mouse drags, wheels and right-drags. It keeps Escape and Tab to itself
  * while open so the card underneath stays as it was. */
 function HologramLayer({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -42,7 +42,7 @@ function HologramLayer({ id, name, onClose }: { id: string; name: string; onClos
     <div className="re-holo-layer" role="dialog" aria-modal="true" aria-label={`${name} 3D 건물뷰`} ref={ref}>
       <button type="button" className="re-holo-layer-close" onClick={onClose} aria-label="3D 건물뷰 닫기">×</button>
       <Suspense fallback={<div className="re-holo re-holo--placeholder" />}>
-        <ComplexHologram complexId={id} complexName={name} caption="3D 건물뷰" />
+        <ComplexHologram complexId={id} complexName={name} caption="3D 건물뷰" wide />
       </Suspense>
     </div>,
     document.body,

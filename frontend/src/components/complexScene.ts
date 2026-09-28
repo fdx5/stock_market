@@ -478,6 +478,9 @@ export function* plinthSteps(seed: number, tone: string) {
 export const shared = {
   uTime: { value: 0 },
   uCloud: { value: 0 },
+  /** Weather on the surfaces: rain-wet (darker, glossy) and snow-covered tops. */
+  uWet: { value: 0 },
+  uSnow: { value: 0 },
   /** Sky reflection in glass, independent of how much the sky lights the walls. */
   uGlass: { value: 1 },
 };
@@ -518,24 +521,34 @@ export function patchMaterial(mat: THREE.Material, opts: PatchOpts = {}) {
     if (opts.roof) shader.uniforms.uRoof = { value: opts.roof };
     shader.vertexShader = shader.vertexShader
       .replace("#include <common>", `#include <common>
-varying vec3 vWPos;
+varying vec3 vWPos; varying float vWUp;
 ${opts.roof ? "varying float vUpN;" : ""}
 ${opts.reflect ? "uniform mat4 uReflMatrix; varying vec4 vReflUv;" : ""}`)
       .replace("#include <project_vertex>", `#include <project_vertex>
 vWPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+vWUp = normalize(mat3(modelMatrix) * objectNormal).y;
 ${opts.roof ? "vUpN = normal.z;" : ""}
 ${opts.reflect ? "vReflUv = uReflMatrix * vec4(transformed, 1.0);" : ""}`);
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>
-uniform float uTime; uniform float uCloud; uniform float uGlass;
-varying vec3 vWPos;
+uniform float uTime; uniform float uCloud; uniform float uGlass; uniform float uWet; uniform float uSnow;
+varying vec3 vWPos; varying float vWUp;
 ${opts.roof ? "varying float vUpN; uniform vec3 uRoof;" : ""}
 ${opts.reflect ? "uniform sampler2D tRefl; uniform float uReflect; uniform float uReflFar; varying vec4 vReflUv;" : ""}
 ${NOISE}`)
       .replace("#include <color_fragment>", `#include <color_fragment>
 ${opts.roof ? "if (vUpN > 0.5) diffuseColor.rgb = uRoof;" : ""}
-${opts.detail ? `diffuseColor.rgb *= 0.95 + 0.07 * fbm3(vWPos.xz * 0.12);` : ""}`)
+${opts.detail ? `diffuseColor.rgb *= 0.95 + 0.07 * fbm3(vWPos.xz * 0.12);` : ""}
+// Weather: rain darkens what faces up (and gathers in puddles); snow settles on it,
+// patchy at the edges of a surface and on slopes.
+float wUp = smoothstep(0.45, 0.9, vWUp);
+float wPuddle = smoothstep(0.55, 0.75, fbm3(vWPos.xz * 0.35));
+diffuseColor.rgb *= 1.0 - uWet * (0.18 + 0.22 * wUp + 0.12 * wPuddle * wUp);
+float wSnow = uSnow * smoothstep(0.35, 0.8, vWUp * (0.8 + 0.35 * fbm3(vWPos.xz * 0.6)));
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.88, 0.92), wSnow);`)
       .replace("#include <metalnessmap_fragment>", `#include <metalnessmap_fragment>
+roughnessFactor = mix(roughnessFactor, 0.12 + 0.2 * (1.0 - wPuddle), uWet * wUp * 0.85);
+roughnessFactor = mix(roughnessFactor, 0.9, wSnow); metalnessFactor *= 1.0 - wSnow;
 ${opts.roof ? "if (vUpN > 0.5) { metalnessFactor = 0.0; roughnessFactor = 0.9; }" : ""}`)
       .replace("#include <emissivemap_fragment>", `#include <emissivemap_fragment>
 ${opts.roof ? "if (vUpN > 0.5) totalEmissiveRadiance = vec3(0.0);" : ""}`)
@@ -875,15 +888,67 @@ export function inRing([x, y]: [number, number], ring: Ring): boolean {
   return inside;
 }
 
-/* ---------- Time of day ---------- */
+/* ---------- Time of day and weather ---------- */
 
 export type Tod = "day" | "dusk" | "night";
-export const TOD_ORDER: Tod[] = ["day", "dusk", "night"];
-export const TOD_LABEL: Record<Tod, string> = { day: "낮", dusk: "노을", night: "밤" };
+export type Weather = "clear" | "rain" | "snow";
+export const WEATHER_ORDER: Weather[] = ["clear", "rain", "snow"];
+export const WEATHER_LABEL: Record<Weather, string> = { clear: "맑음", rain: "비", snow: "눈" };
+export const WEATHER_ICON: Record<Weather, string> = { clear: "☀", rain: "☂", snow: "❄" };
 
-export function todNow(): Tod {
-  const h = new Date().getHours();
-  return h >= 7 && h < 17 ? "day" : (h >= 17 && h < 20) || (h >= 5 && h < 7) ? "dusk" : "night";
+/** Local clock hour (fractional) now. */
+export function hourNow(): number {
+  const d = new Date();
+  return d.getHours() + d.getMinutes() / 60;
+}
+
+const DEG = Math.PI / 180;
+/** The sun over Korea for a KST clock hour on a given date: elevation and azimuth in
+ * degrees (azimuth from south toward east, as `dirFrom` takes it). Declination and the
+ * equation of time from the day of the year; good to about a degree. */
+export function sunAt(hour: number, date = new Date(), lat = 37.55, lon = 126.98): { elev: number; az: number } {
+  const n = Math.floor((Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) - Date.UTC(date.getFullYear(), 0, 0)) / 86400000);
+  const b = (360 / 365) * (n - 81) * DEG;
+  const eot = 9.87 * Math.sin(2 * b) - 7.53 * Math.cos(b) - 1.5 * Math.sin(b); // minutes
+  const decl = 23.44 * DEG * Math.sin(b);
+  // KST keeps the 135°E meridian: solar time runs behind the clock west of it.
+  const solar = hour + ((lon - 135) * 4 + eot) / 60;
+  const h = (solar - 12) * 15 * DEG, phi = lat * DEG;
+  const sinEl = Math.sin(phi) * Math.sin(decl) + Math.cos(phi) * Math.cos(decl) * Math.cos(h);
+  const elev = Math.asin(THREE.MathUtils.clamp(sinEl, -1, 1));
+  // Azimuth from south, positive toward west; the scene measures it toward east.
+  const west = Math.atan2(Math.sin(h), Math.cos(h) * Math.sin(phi) - Math.tan(decl) * Math.cos(phi));
+  return { elev: elev / DEG, az: -west / DEG };
+}
+
+/** Clock hour of sunset (the sun 2° up, in the evening) on the date. */
+export function sunsetHour(date = new Date(), lat?: number, lon?: number): number {
+  let lo = 12, hi = 23;
+  for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (sunAt(mid, date, lat, lon).elev > 2) lo = mid; else hi = mid; }
+  return lo;
+}
+
+/** The clock hour a named time of day opens the view at (?tod=, initialTod). */
+export function hourForTod(tod: Tod, date = new Date()): number {
+  return tod === "day" ? 13 : tod === "dusk" ? sunsetHour(date) - 0.2 : 22;
+}
+
+/** What to call the light at this sun elevation (morning or evening by the clock). */
+export function phaseLabel(elev: number, hour: number): string {
+  // Twilight by its usual steps: 새벽 from nautical dawn, 해질녘 to civil dusk, then
+  // 초저녁 through nautical dusk.
+  if (elev < -12) return "밤";
+  if (elev < 0 && hour < 12) return "새벽";
+  if (elev < -6) return "초저녁";
+  if (elev < 0) return "해질녘";
+  if (elev < 8) return hour < 12 ? "일출" : "노을";
+  if (elev < 22) return hour < 12 ? "아침" : "오후";
+  return "낮";
+}
+
+export function formatHour(hour: number): string {
+  const m = Math.round((((hour % 24) + 24) % 24) * 60) % 1440;
+  return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 }
 
 export interface Look {
@@ -891,12 +956,17 @@ export interface Look {
   turbidity: number; rayleigh: number; mie: number; mieG: number;
   key: THREE.Color; keyI: number; hemiSky: THREE.Color; hemiGround: THREE.Color; hemiI: number;
   fog: THREE.Color; fogK: number; exposure: number; env: number;
+  /** stars: how much night it is (0 day … 1 night); the sky shaders read it so. */
   windows: number; lamps: number; stars: number; clouds: number; cloudShade: number;
   bloom: number; bloomAt: number; reflect: number;
+  /** Weather: the overcast deck (0 … 1), rain and snow (falling, and on the ground). */
+  overcast: number; rain: number; snow: number;
 }
 
-const look = (l: Omit<Look, "key" | "hemiSky" | "hemiGround" | "fog"> & { key: string; hemiSky: string; hemiGround: string; fog: string }): Look => ({
+type LookSpec = Omit<Look, "key" | "hemiSky" | "hemiGround" | "fog" | "overcast" | "rain" | "snow"> & { key: string; hemiSky: string; hemiGround: string; fog: string };
+const look = (l: LookSpec): Look => ({
   ...l, key: new THREE.Color(l.key), hemiSky: new THREE.Color(l.hemiSky), hemiGround: new THREE.Color(l.hemiGround), fog: new THREE.Color(l.fog),
+  overcast: 0, rain: 0, snow: 0,
 });
 
 // Azimuth in degrees from south (+z) toward east (+x); the camera opens from the south-east.
@@ -918,17 +988,123 @@ export const LOOKS: Record<Tod, Look> = {
   }),
 };
 
+/** The light through the day by sun elevation: night, blue hour, afterglow, sunset,
+ * golden hour, day, high summer noon. Between two stops the look blends; the sun's
+ * direction comes from the clock afterwards. */
+const SUN_STOPS: [number, Look][] = [
+  [-16, LOOKS.night],
+  [-7, look({
+    sunElev: -7, sunAz: 0, keyElev: 0, keyAz: 0, turbidity: 3, rayleigh: 1.8, mie: 0.005, mieG: 0.85,
+    key: "#8ea4ff", keyI: 0.45, hemiSky: "#5a6aa8", hemiGround: "#1a1822", hemiI: 0.62,
+    fog: "#34406a", fogK: 0.16, exposure: 1.0, env: 0.8, windows: 1.7, lamps: 1.45, stars: 0.78, clouds: 0.35, cloudShade: 0, bloom: 0.46, bloomAt: 1.5, reflect: 1.05,
+  })],
+  [-1.5, look({
+    sunElev: -1.5, sunAz: 0, keyElev: 0, keyAz: 0, turbidity: 5, rayleigh: 2.4, mie: 0.006, mieG: 0.88,
+    key: "#ff8a50", keyI: 1.3, hemiSky: "#7d82bd", hemiGround: "#3a2e34", hemiI: 0.52,
+    fog: "#cf8a78", fogK: 0.13, exposure: 0.82, env: 0.45, windows: 0.75, lamps: 1.05, stars: 0.3, clouds: 0.48, cloudShade: 0.02, bloom: 0.36, bloomAt: 2, reflect: 1,
+  })],
+  [4, LOOKS.dusk],
+  [14, look({
+    sunElev: 14, sunAz: 0, keyElev: 0, keyAz: 0, turbidity: 3.5, rayleigh: 2.2, mie: 0.004, mieG: 0.8,
+    key: "#ffd4a3", keyI: 3.3, hemiSky: "#b3c4e8", hemiGround: "#5e5146", hemiI: 0.38,
+    fog: "#c7bcb0", fogK: 0.095, exposure: 0.62, env: 0.22, windows: 0.04, lamps: 0.08, stars: 0, clouds: 0.42, cloudShade: 0.16, bloom: 0.24, bloomAt: 3.2, reflect: 0.9,
+  })],
+  [38, LOOKS.day],
+  [72, look({
+    sunElev: 72, sunAz: 0, keyElev: 0, keyAz: 0, turbidity: 1.3, rayleigh: 1.8, mie: 0.0014, mieG: 0.7,
+    key: "#fffaf0", keyI: 3.6, hemiSky: "#c9e0f8", hemiGround: "#72695a", hemiI: 0.28,
+    fog: "#b1cae4", fogK: 0.07, exposure: 0.53, env: 0.15, windows: 0, lamps: 0, stars: 0, clouds: 0.34, cloudShade: 0.28, bloom: 0.2, bloomAt: 4, reflect: 0.85,
+  })],
+];
+
+// Where the moon lights the night from (the key light once the sun is well down).
+const MOON = { elev: 42, az: 55 };
+
+/** The clear-sky look for a sun position. */
+export function sunLook(elev: number, az: number): Look {
+  const last = SUN_STOPS.length - 1;
+  let l: Look;
+  if (elev <= SUN_STOPS[0][0]) l = mixLook(SUN_STOPS[0][1], SUN_STOPS[0][1], 0);
+  else if (elev >= SUN_STOPS[last][0]) l = mixLook(SUN_STOPS[last][1], SUN_STOPS[last][1], 0);
+  else {
+    let i = 0;
+    while (elev > SUN_STOPS[i + 1][0]) i++;
+    const [e0, a] = SUN_STOPS[i], [e1, b] = SUN_STOPS[i + 1];
+    const t = (elev - e0) / (e1 - e0);
+    l = mixLook(a, b, t * t * (3 - 2 * t));
+  }
+  l.sunElev = elev; l.sunAz = az;
+  // The key light is the sun while it is up (5° at the lowest: a lower sun's shadows
+  // would run past the shadow map), the moon once it is down; across twilight, when
+  // both are faint, it swings over.
+  const w = THREE.MathUtils.smoothstep(elev, -5, 1);
+  l.keyElev = THREE.MathUtils.lerp(MOON.elev, Math.max(elev, 5), w);
+  let dAz = az - MOON.az;
+  dAz -= Math.round(dAz / 360) * 360;
+  l.keyAz = MOON.az + dAz * w;
+  // Direct light thins as the sun lowers (more air): full from about 30°.
+  if (elev > 0) l.keyI *= 0.55 + 0.45 * THREE.MathUtils.smoothstep(elev, 0, 30);
+  return l;
+}
+
+/** Rain or snow over a clear look. Both close the sky (no sun disc, faint soft shadows,
+ * light from the whole sky), thicken the haze and turn the lights on earlier; rain wets
+ * the ground (reflections), snow whitens it (light thrown back up). The greys follow how
+ * light it is: a night deck glows dully with the city under it. */
+function weatherLook(base: Look, kind: "rain" | "snow"): Look {
+  const l = mixLook(base, base, 0);
+  const day = 1 - base.stars;
+  const lit = THREE.MathUtils.smoothstep(base.sunElev, -8, 12);
+  if (kind === "rain") {
+    l.overcast = 1; l.rain = 1;
+    l.keyI = base.keyI * 0.12;
+    l.hemiI = base.hemiI * (1.6 + 0.9 * lit);
+    l.hemiSky.lerp(new THREE.Color("#8d97a3").multiplyScalar(0.35 + 0.65 * lit), 0.8);
+    l.hemiGround.lerp(new THREE.Color("#2e3033"), 0.6);
+    l.fog.lerp(new THREE.Color("#262a31").lerp(new THREE.Color("#7f8890"), lit), 0.85);
+    l.fogK = base.fogK * 2.3;
+    l.exposure = base.exposure * (1.08 + 0.12 * lit);
+    l.windows = base.windows + 0.3 * day;
+    l.lamps = Math.max(base.lamps, 0.25 + 0.35 * (1 - lit));
+    l.clouds = 0; l.cloudShade = 0;
+    l.reflect = base.reflect * 1.7;
+    l.bloom = base.bloom * 1.15;
+    l.env = base.env * 1.2;
+  } else {
+    l.overcast = 0.9; l.snow = 1;
+    l.keyI = base.keyI * 0.24;
+    l.hemiI = base.hemiI * (1.5 + 0.8 * lit);
+    l.hemiSky.lerp(new THREE.Color("#c5ccd6").multiplyScalar(0.3 + 0.7 * lit), 0.8);
+    l.hemiGround.lerp(new THREE.Color("#b9bfc7").multiplyScalar(0.25 + 0.75 * lit), 0.75);
+    l.fog.lerp(new THREE.Color("#363b46").lerp(new THREE.Color("#c2c8d0"), lit), 0.85);
+    l.fogK = base.fogK * 2.8;
+    l.exposure = base.exposure * (1.0 - 0.06 * lit);
+    l.windows = base.windows + 0.2 * day;
+    l.lamps = Math.max(base.lamps, 0.2 + 0.3 * (1 - lit));
+    l.clouds = 0; l.cloudShade = 0;
+    l.reflect = base.reflect * 0.35;
+    l.env = base.env * 1.15;
+  }
+  return l;
+}
+
+/** The whole look: the sun from the clock, then rain and snow by how far each has set
+ * in (0 … 1; the caller eases these for a gradual change of weather). */
+export function atmosphereLook(hour: number, rain: number, snow: number, date?: Date, lat?: number, lon?: number): Look {
+  const { elev, az } = sunAt(hour, date, lat, lon);
+  let l = sunLook(elev, az);
+  if (rain > 0.001) l = mixLook(l, weatherLook(l, "rain"), rain);
+  if (snow > 0.001) l = mixLook(l, weatherLook(l, "snow"), snow);
+  return l;
+}
+
 export function mixLook(a: Look, b: Look, t: number): Look {
-  const n = (x: number, y: number) => x + (y - x) * t;
-  const c = (x: THREE.Color, y: THREE.Color) => x.clone().lerp(y, t);
-  return {
-    sunElev: n(a.sunElev, b.sunElev), sunAz: n(a.sunAz, b.sunAz), keyElev: n(a.keyElev, b.keyElev), keyAz: n(a.keyAz, b.keyAz),
-    turbidity: n(a.turbidity, b.turbidity), rayleigh: n(a.rayleigh, b.rayleigh), mie: n(a.mie, b.mie), mieG: n(a.mieG, b.mieG),
-    key: c(a.key, b.key), keyI: n(a.keyI, b.keyI), hemiSky: c(a.hemiSky, b.hemiSky), hemiGround: c(a.hemiGround, b.hemiGround), hemiI: n(a.hemiI, b.hemiI),
-    fog: c(a.fog, b.fog), fogK: n(a.fogK, b.fogK), exposure: n(a.exposure, b.exposure), env: n(a.env, b.env),
-    windows: n(a.windows, b.windows), lamps: n(a.lamps, b.lamps), stars: n(a.stars, b.stars), clouds: n(a.clouds, b.clouds),
-    cloudShade: n(a.cloudShade, b.cloudShade), bloom: n(a.bloom, b.bloom), bloomAt: n(a.bloomAt, b.bloomAt), reflect: n(a.reflect, b.reflect),
-  };
+  const out = {} as Record<string, unknown>;
+  for (const k of Object.keys(a) as (keyof Look)[]) {
+    const x = a[k], y = b[k];
+    out[k] = x instanceof THREE.Color ? x.clone().lerp(y as THREE.Color, t) : (x as number) + ((y as number) - (x as number)) * t;
+  }
+  return out as unknown as Look;
 }
 
 export function dirFrom(elevDeg: number, azDeg: number, out = new THREE.Vector3()) {
@@ -938,16 +1114,18 @@ export function dirFrom(elevDeg: number, azDeg: number, out = new THREE.Vector3(
 
 /** The WebGL sky, drawn like the native renderer's (tidewater/ComplexRenderer.js
  * `complexSky`): a clear blue gradient, fair-weather cumulus drifting overhead, a small
- * soft sun without glare, night and dusk tints; below the horizon, the haze. It
- * replaces three's physical Sky shading, which washes out toward the sun. Keep the two
- * in step. */
+ * soft sun without glare, night and dusk tints; below the horizon, the haze. Weather
+ * closes it: an overcast deck of uneven thickness (a dull glow where the sun is behind it
+ * in snow), darker ragged scud under rain clouds, a city-lit deck at night. It replaces
+ * three's physical Sky shading, which washes out toward the sun. Keep the two in step. */
 export function patchSky(mat: THREE.ShaderMaterial, horizon: THREE.Color) {
   mat.uniforms.uHorizon = { value: horizon };
   mat.uniforms.uSunColor = { value: new THREE.Color(3, 2.9, 2.7) };
   mat.uniforms.uNight = { value: 0 };
+  mat.uniforms.uWeather = { value: new THREE.Vector3() }; // overcast, rain, snow
   mat.fragmentShader = /* glsl */`
 varying vec3 vWorldPosition;
-uniform vec3 sunPosition; uniform float time; uniform vec3 uHorizon; uniform vec3 uSunColor; uniform float uNight;
+uniform vec3 sunPosition; uniform float time; uniform vec3 uHorizon; uniform vec3 uSunColor; uniform float uNight; uniform vec3 uWeather;
 float skyHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float skyNoise(vec2 p) {
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
@@ -968,31 +1146,143 @@ void main() {
   vec3 ray = normalize(vWorldPosition - cameraPosition);
   vec3 sunDir = normalize(sunPosition);
   float day = 1.0 - uNight;
+  float overcast = uWeather.x, rain = uWeather.y, snow = uWeather.z;
   float e = clamp(ray.y, 0.0, 1.0);
   float dusk = 1.0 - smoothstep(0.04, 0.45, sunDir.y);
   vec3 zenith = mix(vec3(0.08, 0.27, 0.72), vec3(0.24, 0.2, 0.34), dusk);
   vec3 hor = mix(vec3(0.55, 0.71, 0.9), uHorizon, dusk * 0.85);
   vec3 sky = mix(mix(uHorizon * 0.45, vec3(0.006, 0.013, 0.04), pow(e, 0.35)), mix(hor, zenith, pow(e, 0.55)), day);
+  vec3 tint = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.001);
   if (ray.y > 0.0) {
     vec2 uv = ray.xz / (ray.y + 0.22) * 1.35 + vec2(time * 0.005, time * 0.0018);
-    float d = cumulus(uv);
+    float d = cumulus(uv) * (1.0 - overcast);
     if (d > 0.002) {
       vec2 toSun = normalize(sunDir.xz + vec2(0.0001, 0.0)) * 0.22;
       float lit = clamp(1.0 - (cumulus(uv + toSun) - d * 0.35) * 1.5, 0.0, 1.0);
-      vec3 tint = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.001);
       vec3 dayCloud = mix(vec3(0.6, 0.65, 0.74), vec3(1.06, 1.05, 1.02) * mix(vec3(1.0), tint, 0.3), lit);
       sky = mix(sky, mix(uHorizon * 0.25, dayCloud, day), clamp(d * 1.25, 0.0, 0.97) * smoothstep(0.0, 0.08, ray.y));
     }
   }
+  if (overcast > 0.001) {
+    // The deck: grey by day (milky in snow, leaden in rain), dimming as the sun goes
+    // down; at night the haze colour, lit from below by the city.
+    vec2 uv = ray.xz / (max(ray.y, 0.0) + 0.3) * 0.9 + vec2(time * 0.012, time * 0.004);
+    float thick = skyFbm(uv * 0.8);
+    float scud = smoothstep(0.52, 0.72, skyFbm(uv * 1.9 + vec2(4.0, 9.0) + time * 0.01));
+    vec3 grey = mix(vec3(0.6, 0.64, 0.69), vec3(0.8, 0.82, 0.85), snow) * mix(1.0, 0.66, rain);
+    grey *= mix(0.35, 1.0, smoothstep(-0.12, 0.35, sunDir.y));
+    vec3 deck = mix(uHorizon * 0.9 + vec3(0.025, 0.02, 0.016), grey, day);
+    deck *= (0.8 + 0.34 * thick) * (1.0 - 0.3 * rain * scud) * mix(0.93, 1.05, e);
+    // The sun a pale glow behind thin cloud (snow, never rain).
+    deck += tint * 0.22 * pow(max(dot(ray, sunDir), 0.0), 18.0) * day * (1.0 - rain) * smoothstep(-0.02, 0.1, sunDir.y);
+    sky = mix(sky, deck, overcast * smoothstep(-0.02, 0.06, ray.y) * 0.95);
+  }
   float sun = max(dot(ray, sunDir), 0.0);
-  vec3 tint = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.001);
-  sky = mix(sky, tint * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85);
+  sky = mix(sky, tint * 1.15, smoothstep(0.99985, 0.99995, sun) * day * 0.85 * (1.0 - overcast));
   sky = mix(uHorizon, sky, smoothstep(-0.01, 0.07, ray.y));
   gl_FragColor = vec4(sky * 1.15, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
   mat.needsUpdate = true;
+}
+
+/* ---------- Rain and snow ---------- */
+
+/** Falling rain and snow, the same in both renderers (WGSL twin: PRECIP_WGSL in
+ * tidewater/ComplexRenderer.js). Drops live on a few cylinders around the camera; `q`
+ * is a point on one (arc length, height, in metres), r its radius, pix a pixel's size
+ * there. Rain: thin slanted streaks falling fast; snow: soft flakes drifting down and
+ * swaying. Each returns coverage 0 … 1. */
+export const PRECIP_RADII = [2.5, 5, 9, 16, 28];
+const PRECIP_GLSL = /* glsl */`
+float pHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+float rainAt(vec2 q, float r, float pix, float t, float amount, float slant) {
+  float cu = r * 0.024, cv = cu * 7.0;
+  q.x += q.y * slant;
+  q.y += t * 8.5;
+  vec2 g = q / vec2(cu, cv), cell = floor(g), f = g - cell;
+  if (pHash(cell + r) > amount * 0.6) return 0.0;
+  float x0 = 0.2 + 0.6 * pHash(cell + r + 1.7), y0 = 0.25 * pHash(cell + r + 3.1);
+  float w = max(0.0045, pix * 0.75);
+  float across = smoothstep(w, 0.0, abs(f.x - x0) * cu);
+  float along = (f.y - y0) / 0.7;
+  return across * smoothstep(0.0, 0.2, along) * smoothstep(1.0, 0.55, along) * min(1.0, 0.0045 / w * 1.6);
+}
+float snowAt(vec2 q, float r, float pix, float t, float amount) {
+  float c = r * 0.045;
+  q.y += t * 0.735;
+  vec2 g = q / c, cell = floor(g), f = g - cell;
+  float h = pHash(cell + r);
+  if (h > amount * 0.42) return 0.0;
+  vec2 p0 = vec2(0.3 + 0.4 * pHash(cell + r + 1.7), 0.3 + 0.4 * pHash(cell + r + 3.1));
+  p0.x += sin(t * 1.3 + h * 40.0) * 0.14;
+  float rad = 0.007 + 0.008 * pHash(cell + r + 5.3), rr = max(rad, pix * 0.9);
+  float d = length((f - p0) * c);
+  return smoothstep(rr, rr * 0.3, d) * min(1.0, pow(rad / rr, 2.0) * 1.4);
+}`;
+
+/** The WebGL rain and snow: one open cylinder per radius, kept around the camera and
+ * drawn after the opaque scene (the depth test hides drops behind a tower). */
+export function precipField() {
+  const geo = new THREE.CylinderGeometry(1, 1, 1, 64, 1, true);
+  const group = new THREE.Group();
+  const uniforms = {
+    uTime: { value: 0 }, uRain: { value: 0 }, uSnow: { value: 0 }, uPixAngle: { value: 0.001 }, uSlant: { value: 0.18 },
+    uRainColor: { value: new THREE.Color() }, uSnowColor: { value: new THREE.Color() }, uHaze: { value: 0 },
+  };
+  const layers = PRECIP_RADII.map((r, i) => {
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { ...uniforms, uR: { value: r } },
+      vertexShader: /* glsl */`varying vec3 vW; void main() { vW = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * viewMatrix * vec4(vW, 1.0); }`,
+      fragmentShader: /* glsl */`
+uniform float uTime, uRain, uSnow, uPixAngle, uSlant, uR, uHaze; uniform vec3 uRainColor, uSnowColor;
+varying vec3 vW;
+${PRECIP_GLSL}
+void main() {
+  vec3 d = vW - cameraPosition;
+  float dist = length(d), pix = dist * uPixAngle;
+  // Looking steeply down or up, the cylinder is seen edge-on: let it fade.
+  float side = smoothstep(0.12, 0.45, length(d.xz) / dist);
+  vec2 q = vec2(atan(d.z, d.x) * uR, vW.y);
+  float fade = exp(-dist * uHaze) * side;
+  float rain = uRain > 0.001 ? rainAt(q, uR, pix, uTime, uRain, uSlant) : 0.0;
+  float snow = uSnow > 0.001 ? snowAt(q, uR, pix, uTime, uSnow) : 0.0;
+  float a = clamp(rain * 0.34 + snow * 0.9, 0.0, 1.0) * fade;
+  if (a < 0.003) discard;
+  gl_FragColor = vec4(mix(uRainColor, uSnowColor, snow / max(rain + snow, 0.001)), a);
+}`,
+      transparent: true, depthWrite: false, side: THREE.BackSide, fog: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.scale.set(r, r * 10, r);
+    mesh.renderOrder = 10 + (PRECIP_RADII.length - i);
+    mesh.frustumCulled = false;
+    group.add(mesh);
+    return mesh;
+  });
+  group.visible = false;
+  return {
+    group,
+    /** Each frame: centred on the camera. */
+    update(camera: THREE.PerspectiveCamera, time: number, heightPx: number) {
+      uniforms.uTime.value = time;
+      if (!group.visible) return;
+      uniforms.uPixAngle.value = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) / Math.max(1, heightPx);
+      group.position.copy(camera.position);
+    },
+    setLook(l: Look) {
+      uniforms.uRain.value = l.rain;
+      uniforms.uSnow.value = l.snow;
+      group.visible = l.rain > 0.01 || l.snow > 0.01;
+      // Lit like the haze around them; flakes a little brighter than the streaks.
+      uniforms.uRainColor.value.copy(l.fog).multiplyScalar(1.35).addScalar(0.025);
+      uniforms.uSnowColor.value.copy(l.fog).multiplyScalar(1.7).addScalar(0.05);
+      uniforms.uHaze.value = 0.012;
+      layers.forEach(m => { (m.material as THREE.ShaderMaterial).uniformsNeedUpdate = true; });
+    },
+    dispose() { geo.dispose(); layers.forEach(m => (m.material as THREE.Material).dispose()); },
+  };
 }
 
 /** A sky full of faint stars, drawn at a fixed distance around the camera. */
