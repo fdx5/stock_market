@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useMediaQuery } from "../useMediaQuery";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
@@ -215,7 +216,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const [failed3d, setFailed3d] = useState(false);
   const [terrainSource, setTerrainSource] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
-  const coarse = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
+  // Button set follows the page layout (the desktop rail from 981 px, as the map page
+  // decides), not the pointer: an iPad in the desktop layout gets the desktop controls.
+  const narrow = useMediaQuery("(max-width: 980px)");
 
   // One renderer for the panel's lifetime; each complex only swaps the model.
   useEffect(() => {
@@ -1277,7 +1280,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         <div className="re-holo-tools">
           <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title="360° 자동 회전">{spin ? "자동 ■" : "자동 ▶"}</button>
           <button type="button" onClick={() => setTod(nextTod)} title={`시간대 바꾸기 · 다음: ${TOD_LABEL[nextTod]}`}>{TOD_LABEL[tod]}</button>
-          {!wide && !coarse && complexId && !big && (
+          {!wide && !narrow && complexId && !big && (
             <button type="button" className="re-holo-big" onClick={openBig} title="큰 화면으로 감상">크게 보기 ⤢</button>
           )}
         </div>
@@ -1318,7 +1321,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
             <span>건물 {total}개 · 층수·높이 확인 {measured}개{total > measured ? ` · ${data.source === "vworld" ? "층수 미등록 부대시설" : "높이 추정"} ${total - measured}개` : ""}</span>
             <span>{data.source === "vworld" ? "건물 윤곽·높이: " : "건물 윤곽: "}{data.attribution}. 도로: 국가기본도 도로중심선 · 지형: {terrainSource ?? "평지(지형 자료 없음)"}{data.vworld_key ? " · 토지이용: 연속지적도 지목" : ""}. 외벽·창호·조경·가로수·보행자·차량은 표현용</span>
           </>
-        ) : <span>{coarse ? "한 손가락으로 돌리고 두 손가락으로 확대·이동, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 커서 쪽 확대, 우클릭 드래그로 이동합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
+        ) : <span>{touchMode ? "한 손가락으로 돌리고 두 손가락으로 확대·이동, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 커서 쪽 확대, 우클릭 드래그로 이동합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
       {big && <button type="button" className="re-holo-wide-close" onClick={closeBig} aria-label="크게 보기 닫기" title="닫기 (Esc)">×</button>}
     </section>)}
