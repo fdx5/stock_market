@@ -82,6 +82,8 @@ CAM = {
     'overview': '(s)=>{}',
     'river': '(s)=>{s.controls.target.set(60,0,-200);s.camera.position.set(-60,110,-40);}',
     'bank': '(s)=>{s.controls.target.set(60,1,-185);s.camera.position.set(-10,9,-120);}',
+    'garden': '(s)=>{s.controls.target.set(-10,4,10);s.camera.position.set(70,30,95);}',
+    'lawn': '(s)=>{s.controls.target.set(-20,5,0);s.camera.position.set(40,9,40);}',
     'low': '(s)=>{s.controls.target.set(120,4,-190);s.camera.position.set(-140,3.5,-176);}',
 }
 

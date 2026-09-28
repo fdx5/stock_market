@@ -11,7 +11,9 @@ import { KERB_H } from "./sceneSidewalk";
  * like a rounded crown so they light as volumes. Every plant of a complex is baked
  * into one static mesh: the whole landscape is a single draw (plus shadows). */
 
-type Kind = "tree" | "conifer" | "shrub" | "flower";
+// tree: broadleaf; smalltree: a smaller, lighter deciduous; pine and fir: full-grown
+// conifers (Poly Haven CC0, baked by scripts/bake-plants.py); conifer: saplings.
+type Kind = "tree" | "smalltree" | "pine" | "fir" | "conifer" | "shrub" | "flower";
 interface Cell { kind: Kind; side: number; top: number; span: number; topSpan: number; groundV: number; height: number; width: number }
 interface Atlas { cell: number; cols: number; rows: number; assets: Cell[] }
 
@@ -35,14 +37,27 @@ function loadAtlas() {
 export function preloadPlants() { void loadAtlas().catch(() => {}); }
 
 /** Target heights in metres (min, max) for each kind; the bake keeps each model's own proportions. */
-const HEIGHT: Record<Kind, [number, number]> = { tree: [6.5, 11], conifer: [4.5, 8], shrub: [0.9, 2], flower: [0.25, 0.45] };
+const HEIGHT: Record<Kind, [number, number]> = { tree: [6.5, 11], smalltree: [4, 6.5], pine: [5.5, 9], fir: [6, 10], conifer: [4.5, 8], shrub: [0.9, 2], flower: [0.25, 0.45] };
+/** Landscaping mix (Korean apartment grounds: broadleaf, pine, small ornamentals, conical conifers). */
+const MIX: [Kind, number][] = [["tree", 0.34], ["pine", 0.3], ["smalltree", 0.2], ["fir", 0.16]];
+/** Crown card height (fraction of the tree): where the crown is widest seen from above. */
+const TOP_AT: Partial<Record<Kind, number>> = { shrub: 0.8, pine: 0.78, fir: 0.42 };
+const DECIDUOUS = new Set<Kind>(["tree", "smalltree"]);
 
 export async function buildPlants(planting: Planting, seed: number, terrain: Terrain = FLAT): Promise<{ mesh: THREE.Mesh; dispose: () => void } | null> {
   const { meta, texture } = await loadAtlas();
   const rnd = rng(seed + 11);
   const season = seasonNow();
   const byKind = (k: Kind) => meta.assets.filter(a => a.kind === k);
-  const trees = [...byKind("tree"), ...byKind("tree"), ...byKind("conifer")]; // broadleaf twice as common
+  // Species planted in groups, as landscapers do: one species per ~14 m patch.
+  const species = MIX.filter(([k]) => byKind(k).length);
+  const speciesAt = (x: number, y: number) => {
+    const h = rng(seed * 7 + Math.floor(x / 14) * 7919 + Math.floor(y / 14) * 104729)();
+    let r = h * species.reduce((a, [, w]) => a + w, 0);
+    for (const [k, w] of species) { r -= w; if (r <= 0) return k; }
+    return species[0]?.[0] ?? "tree";
+  };
+  const trees = byKind("tree");
   const shrubs = byKind("shrub"), flowers = byKind("flower");
   const pos: number[] = [], nor: number[] = [], uv: number[] = [], col: number[] = [];
   const cellUV = (k: number) => {
@@ -59,8 +74,11 @@ export async function buildPlants(planting: Planting, seed: number, terrain: Ter
     const v = 0.86 + rnd() * 0.24;
     if (fixedTint) tint.copy(fixedTint).multiplyScalar(0.97 + rnd() * 0.06);
     else tint.setRGB(v, v * (0.97 + rnd() * 0.06), v * (0.92 + rnd() * 0.08));
-    if (c.kind === "tree" && season === "autumn" && rnd() < 0.7) tint.multiply(new THREE.Color(1.25, 0.9, 0.55));
-    if (c.kind === "tree" && season === "winter") tint.multiply(new THREE.Color(0.85, 0.8, 0.72));
+    // The photoscanned pine and fir needles are darker than the broadleaf cells.
+    if (c.kind === "pine") tint.multiply(new THREE.Color(1.2, 1.42, 1.12));
+    if (c.kind === "fir") tint.multiplyScalar(1.15);
+    if (DECIDUOUS.has(c.kind) && season === "autumn" && rnd() < 0.7) tint.multiply(c.kind === "smalltree" ? new THREE.Color(1.35, 0.7, 0.45) : new THREE.Color(1.25, 0.9, 0.55));
+    if (DECIDUOUS.has(c.kind) && season === "winter") tint.multiply(new THREE.Color(0.85, 0.8, 0.72));
     const [u0, v0, u1, v1] = cellUV(c.side);
     const quad = (p: number[][], uvs: number[][]) => {
       // Both windings, front faces only: the back face keeps the outward crown normal
@@ -82,7 +100,7 @@ export async function buildPlants(planting: Planting, seed: number, terrain: Ter
         [[u0 + pad, v0 + pad], [u1 - pad, v0 + pad], [u1 - pad, v1 - pad], [u0 + pad, v1 - pad]]);
     }
     if (c.top >= 0) {
-      const [t0, w0, t1, w1] = cellUV(c.top), r = c.topSpan * k / 2, y = ground + h * (c.kind === "shrub" ? 0.8 : 0.66);
+      const [t0, w0, t1, w1] = cellUV(c.top), r = c.topSpan * k / 2, y = ground + h * (TOP_AT[c.kind] ?? 0.66);
       const ca = Math.cos(yaw) * r, sa = Math.sin(yaw) * r;
       quad([[x - ca + sa, y, z - sa - ca], [x + ca + sa, y, z + sa - ca], [x + ca - sa, y, z + sa + ca], [x - ca - sa, y, z - sa + ca]],
         [[t0 + pad, w0 + pad], [t1 - pad, w0 + pad], [t1 - pad, w1 - pad], [t0 + pad, w1 - pad]]);
@@ -92,7 +110,7 @@ export async function buildPlants(planting: Planting, seed: number, terrain: Ter
   const size = (kind: Kind) => { const [a, b] = HEIGHT[kind]; return a + (b - a) * rnd(); };
   // Footprint frame (x east, y north) to world (x, -z).
   const at = (x: number, y: number) => terrain.at(x, y);
-  for (const [x, y] of planting.trees) { const c = pick(trees); add(x, -y, c, size(c.kind), at(x, y)); }
+  for (const [x, y] of planting.trees) { const c = pick(byKind(speciesAt(x, y))); add(x, -y, c, size(c.kind), at(x, y)); }
   for (const [x, y] of planting.shrubs) { const c = pick(shrubs); add(x, -y, c, size("shrub"), at(x, y)); }
   for (const [x, y] of planting.flowers) { const c = pick(flowers); add(x, -y, c, size("flower"), at(x, y)); }
   // Street trees: one broadleaf species, size and tone per road (planted together),

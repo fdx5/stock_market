@@ -342,9 +342,47 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     controls.zoomToCursor = true;
     controls.enablePan = true;
     controls.screenSpacePanning = true;
+    // Zoom and pan scale with the distance to the orbit target, and zooming to the cursor
+    // re-places the target that far in front of the camera. After some panning and
+    // turning that distance no longer matches what is on screen: shrunk to the minimum
+    // in mid-air, zoom stops and panning crawls; too short, each wheel notch moves only
+    // centimetres. So every gesture starts from the surface actually at the centre of
+    // the view (a building or the ground), moving the target only along the line of
+    // sight: the picture does not jump.
+    const aim = new THREE.Raycaster(), ahead = new THREE.Vector3();
+    const reanchor = () => {
+      const st = stageRef.current;
+      if (!st) return;
+      camera.getWorldDirection(ahead);
+      aim.set(camera.position, ahead);
+      aim.far = st.dist * 8;
+      let d = aim.intersectObjects(st.pickables, false)[0]?.distance ?? Infinity;
+      if (ahead.y < -1e-3) { const g = (st.floor - camera.position.y) / ahead.y; if (g > 0) d = Math.min(d, g); }
+      const r = camera.position.distanceTo(controls.target);
+      // Looking at the sky: keep a sensible radius rather than the collapsed one.
+      const next = Number.isFinite(d) ? d : Math.max(r, st.dist * 0.4);
+      if (Math.abs(next - r) < r * 0.02) return;
+      controls.target.copy(camera.position).addScaledVector(ahead, Math.max(next, controls.minDistance * 1.5));
+    };
+    controls.addEventListener("start", reanchor);
+    // While zooming, the target follows the cursor; the scene bounds below apply to
+    // panning only (pulling the camera back mid-zoom cancelled the zoom).
+    // (through the damped frames after it; then the target returns to the surface on
+    // the line of sight, which keeps the picture still and the target within bounds)
+    let zooming = false, zoomEnd = 0;
+    const zoomNow = () => {
+      zooming = true;
+      clearTimeout(zoomEnd);
+      zoomEnd = window.setTimeout(() => { zooming = false; reanchor(); }, 300);
+    };
+    renderer.domElement.addEventListener("wheel", zoomNow, { capture: true, passive: true });
+    const touches = new Set<number>();
+    renderer.domElement.addEventListener("pointerdown", e => { if (e.pointerType === "touch") touches.add(e.pointerId); }, { capture: true });
+    renderer.domElement.addEventListener("pointermove", e => { if (touches.size > 1 && touches.has(e.pointerId)) zoomNow(); }, { capture: true });
+    for (const type of ["pointerup", "pointercancel"] as const) renderer.domElement.addEventListener(type, e => { touches.delete(e.pointerId); }, { capture: true });
     controls.addEventListener("change", () => {
       const t = controls.target, st = stageRef.current;
-      if (!st) return;
+      if (!st || zooming) return;
       const before = t.clone();
       t.y = Math.min(Math.max(t.y, st.floor), Math.max(st.top, st.dist * 0.5));
       const dx = t.x - st.center.x, dz = t.z - st.center.z, r = Math.hypot(dx, dz), limit = st.dist * 2.5;
