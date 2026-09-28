@@ -39,7 +39,8 @@ function useShadows({ shadow: size, pcss }) {
   shadowOwner = null;
 }
 async function device() {
-  initialization ??= GPU.init({ headless: true }).then(() => {
+  // (a device already made — before a hot update of this module — is reused)
+  initialization ??= (GPU.device && !deviceLost ? Promise.resolve() : GPU.init({ headless: true })).then(() => {
     GPU.format = navigator.gpu.getPreferredCanvasFormat();
     SceneLighting.set('envSpecular', new ShaderModule({ name: 'complex reflected sky', deps: [atmosphere], code: `
       fn hookEnvSpecular(R: vec3f, roughness: f32) -> vec3f {
@@ -54,6 +55,13 @@ async function device() {
   await initialization;
   if (deviceLost) throw new Error('WebGPU device lost');
 }
+
+// Development: a hot update runs this module again. The engine's other modules keep
+// their layouts, uniform blocks and pipelines on the device they were made with, so the
+// new module must reuse that device (device() below); a second one fails validation
+// and leaves the first, still referenced, holding ~400 MB. Only this module's shadow
+// atlas is its own to release.
+if (import.meta.hot) import.meta.hot.dispose(() => { shadows?.texture.destroy(); shadows = null; shadowKey = ''; });
 
 const atmosphere = new ShaderModule({ name: 'complex daylight atmosphere', code: /* wgsl */`
 fn skyHash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
@@ -98,9 +106,10 @@ fn skyBase(ray: vec3f) -> vec3f {
   return mix(mix(nightSky, daySky, day), deckColor(ray), frame.debug.x * smoothstep(-0.02, 0.06, ray.y) * 0.95);
 }
 // The sky with its clouds, without the sun disc (also what the water reflects).
-fn skyClouds(ray: vec3f) -> vec3f {
+fn skyClouds(ray: vec3f) -> vec3f { return skyCloudsOver(ray, skyBase(ray)); }
+fn skyCloudsOver(ray: vec3f, base: vec3f) -> vec3f {
   let day = 1.0 - frame.night;
-  var sky = skyBase(ray);
+  var sky = base;
   if (ray.y > 0.0) {
     // A cloud layer overhead, seen in perspective; drifting slowly with the wind.
     // A curved cloud deck: near the horizon puffs flatten, but are not smeared into streaks.
@@ -130,9 +139,40 @@ fn skyClouds(ray: vec3f) -> vec3f {
   }
   return sky;
 }
-fn complexSky(ray: vec3f) -> vec3f {
+// Stars (frame.debug.w: how many show; frame.pad0: the sky's turn about the pole, from
+// sidereal time). Twin of starField in complexScene.ts patchSky.
+fn sHash3(p0: vec3f) -> vec3f { var p = fract(p0 * vec3f(0.1031, 0.103, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
+fn starLayer(d: vec3f, scale: f32, density: f32, pr: f32, bright: f32, halo: f32, t: f32) -> vec3f {
+  let c = floor(d * scale); let h = sHash3(c);
+  if (h.x > density) { return vec3f(0.0); }
+  let sd = normalize(c + 0.2 + 0.6 * sHash3(c + 17.0));
+  let ang = length(d - sd); let k = h.z;
+  var col = vec3f(1.15, 0.78, 0.58);
+  if (k < 0.12) { col = vec3f(0.72, 0.82, 1.15); } else if (k < 0.6) { col = vec3f(1.0, 0.98, 0.95); } else if (k < 0.86) { col = vec3f(1.1, 0.95, 0.78); }
+  let b = bright * (0.2 + 0.8 * pow(h.y, 3.0));
+  let tw = 1.0 + 0.45 * sin(t * (1.5 + 5.0 * h.y) + h.x * 90.0) * sin(t * (2.3 + 3.0 * h.z) + h.y * 40.0);
+  let core = exp(-pow(ang / (pr * 0.95), 2.0)) + halo * exp(-ang / (pr * 3.5));
+  return col * b * tw * core;
+}
+fn starField(ray: vec3f, pr: f32) -> vec3f {
+  let vis = frame.debug.w;
+  if (vis < 0.002 || ray.y < -0.02) { return vec3f(0.0); }
+  let k = vec3f(0.0, 0.6088, -0.7934);
+  let cs = cos(-frame.pad0); let sn = sin(-frame.pad0);
+  let d = ray * cs + cross(k, ray) * sn + k * dot(k, ray) * (1.0 - cs);
+  let n = normalize(vec3f(0.42, 0.18, 0.89));
+  let band = exp(-pow(dot(d, n) / 0.17, 2.0));
+  let dust = skyFbm(vec2f(atan2(d.z, d.x) * 5.0, d.y * 7.0));
+  let t = frame.time;
+  let s = starLayer(d, 95.0, 0.5 + 0.4 * band, pr, 0.32, 0.0, t)
+        + starLayer(d, 42.0, 0.45, pr, 0.85, 0.04, t)
+        + starLayer(d, 15.0, 0.28, pr * 1.3, 2.6, 0.12, t);
+  let milky = vec3f(0.022, 0.025, 0.036) * band * smoothstep(0.3, 0.75, dust) * (1.0 - 0.6 * smoothstep(0.55, 0.7, skyFbm(vec2f(atan2(d.z, d.x) * 11.0, d.y * 16.0))));
+  return (s + milky) * vis * smoothstep(-0.02, 0.22, ray.y);
+}
+fn complexSky(ray: vec3f, pr: f32) -> vec3f {
   let day = 1.0 - frame.night;
-  var sky = skyClouds(ray);
+  var sky = skyCloudsOver(ray, skyBase(ray) + starField(ray, pr));
   // The sun: a small soft disc, no glare halo (the sky reads as plain blue with clouds).
   let sun = max(dot(ray, frame.sunDir), 0.0);
   let sunHue = frame.sunColor / max(max(frame.sunColor.r, max(frame.sunColor.g, frame.sunColor.b)), 0.001);
@@ -143,7 +183,9 @@ const skyCode = /* wgsl */`
 fn fragment(in: FSIn) -> vec4f {
   let p = frame.invProj * vec4f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, 0.001, 1.0);
   let ray = normalize((frame.invView * vec4f(normalize(p.xyz / p.w), 0.0)).xyz);
-  return vec4f(complexSky(ray), 1.0);
+  // (a pixel's angular size, for stars one pixel across)
+  let pr = length(fwidth(ray));
+  return vec4f(complexSky(ray, pr), 1.0);
 }`;
 
 // Falling rain and snow: twin of PRECIP_GLSL / precipField in complexScene.ts (keep the
@@ -446,7 +488,8 @@ export class ComplexRenderer {
     f.skyIrradiance.value.copy(look.hemiSky).multiplyScalar(Math.max(0.18, look.hemiI));
     f.horizonColor.value.copy(look.fog); f.exposure.value = look.exposure * 1.15;
     f.time.value = time; f.night.value = look.stars; f.envIntensity.value = Math.max(0.9, look.env);
-    f.debug.value.set(look.overcast ?? 0, look.rain ?? 0, look.snow ?? 0, 0);
+    f.debug.value.set(look.overcast ?? 0, look.rain ?? 0, look.snow ?? 0, (look.stars ?? 0) * (1 - (look.overcast ?? 0)));
+    f.pad0.value = look.starTurn ?? 0;
     for (const [src, mat] of this.materials) {
       mat.emissive.copy(src.emissive ?? { r: 0, g: 0, b: 0 }).multiplyScalar(src.emissiveIntensity ?? 0);
       mat.set('haze', (source.fog?.density ?? 0.0005) * 0.5);

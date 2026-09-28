@@ -408,6 +408,7 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     page_lookup = "/market-brief" if brief_day else canonical_path
     title, description = PAGES.get(page_lookup, PAGES["/"])
     page_image = IMAGE
+    image_alt = ""
     if brief:
         title = f"{brief_day} {brief_market.upper()} 오늘 브리핑 | K-Stock Hub"
         description = _brief_description(brief, brief_day, brief_market)
@@ -434,6 +435,21 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         else:
             title = f"{stock_name} 주가·차트·외국인 기관 수급 | K-Stock Hub"
             description = f"{stock_name}({stock_code}) 주가, 등락률, 거래량, 차트, 기술적 지표, 외국인·기관 수급과 최신 뉴스를 한 페이지에서 확인하세요."
+
+    # A shared 3D view link (/realestate-map?complex=…&3d=1): the preview names the
+    # complex. Its id ends with the complex name ("11680:청담동:106-7:에테르노청담").
+    if canonical_path == "/realestate-map" and query.get("3d") == "1" and query.get("complex"):
+        parts = query["complex"].split(":")
+        complex_name = "".join(ch for ch in parts[-1] if ch.isprintable() and ch not in '<>"').strip()[:60]
+        area = ("".join(ch for ch in parts[1] if ch.isprintable() and ch not in '<>"').strip()[:20]) if len(parts) > 2 else ""
+        if complex_name:
+            page_image = f"{SITE}/img/realestate-3d-og.jpg"
+            image_alt = f"{complex_name} 아파트 단지 3D 웹뷰"
+            title = f"{complex_name} 3D 단지뷰 | K-Stock Hub"
+            description = (
+                f"{area + ' ' if area else ''}{complex_name} 아파트 단지를 실측 건물 윤곽·지형으로 만든 3D로 둘러보세요. "
+                "시간대에 따른 햇빛과 그림자, 비·눈 날씨까지 바꿔 볼 수 있습니다."
+            )
 
     code = re.sub(r"[^A-Za-z0-9.-]", "", query.get("code", ""))[:16]
     supplied_name = re.sub(r"[<>\r\n]", "", query.get("name", "")).strip()[:80]
@@ -494,11 +510,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     document = _replace_meta(document, 'property="og:type"', "article" if brief else "website")
     document = _replace_meta(document, 'property="og:image"', page_image)
     document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
-    document = _replace_meta(document, 'property="og:image:alt"', f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터")
+    document = _replace_meta(document, 'property="og:image:alt"', image_alt or (f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터"))
     document = _replace_meta(document, 'name="twitter:title"', title)
     document = _replace_meta(document, 'name="twitter:description"', description)
     document = _replace_meta(document, 'name="twitter:image"', page_image)
-    document = _replace_meta(document, 'name="twitter:image:alt"', f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터")
+    document = _replace_meta(document, 'name="twitter:image:alt"', image_alt or (f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터"))
     document = re.sub(
         r'(<link\s+rel="canonical"\s+href=")[^"]*("\s*/?>)',
         rf"\g<1>{html.escape(canonical, quote=True)}\g<2>",

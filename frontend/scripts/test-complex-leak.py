@@ -1,4 +1,4 @@
-"""Opening and closing a complex repeatedly must not leak. Vite :5173, Edge.
+"""Opening and closing a complex repeatedly must not leak. Vite :5173 (--port), Edge.
 
 A rail view stays mounted (as on the map page) while a second view is mounted and
 unmounted like the detail sheet, N times. After each cycle: JS heap after GC, live
@@ -16,6 +16,8 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--cycles', type=int, default=8)
 ap.add_argument('--label', default='after')
 ap.add_argument('--webgl', action='store_true')
+ap.add_argument('--port', type=int, default=5173)
+ap.add_argument('--host', default='127.0.0.1')
 ap.add_argument('--snapshot', action='store_true', help='write a heap snapshot after the cycles')
 opts = ap.parse_args()
 root = Path(__file__).resolve().parents[2]
@@ -51,7 +53,7 @@ def data(cid):
                 buildings=[building(x, y, 32, 15, 65 + (i % 3) * 12, i) for i, (x, y) in enumerate([(x, y) for y in [-55, 0, 55] for x in [-75, 0, 65]])],
                 context=[building(x, y, 18, 14, 14 + (i % 4) * 6, i) for i, (x, y) in enumerate([(x, y) for y in range(-310, 311, 35) for x in range(-310, 311, 35) if abs(x) > 120 or abs(y) > 110])],
                 roads=[dict(line=[[-360, y], [360, y]], width=14, lanes=4) for y in [-110, 110]],
-                parcels=[dict(ring=[[-420, 150], [420, 150], [420, 220], [-420, 220]], kind='천')],
+                parcels=[dict(ring=[[-900, 150], [900, 150], [900, 650], [-900, 650]], kind='천')],
                 coverage=dict(buildings=9, with_height=9), vworld=True, error=None, fetched_at='')
 
 
@@ -83,8 +85,8 @@ with sync_playwright() as p:
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
-    page.route('http://127.0.0.1:5173/api/**', lambda r: r.fulfill(json=data(r.request.url.split('id=')[-1].split('&')[0] if 'id=' in r.request.url else 'rail')))
-    page.goto('http://127.0.0.1:5173/__leak3d.html')
+    page.route(f'http://{opts.host}:{opts.port}/api/**', lambda r: r.fulfill(json=data(r.request.url.split('id=')[-1].split('&')[0] if 'id=' in r.request.url else 'rail')))
+    page.goto(f'http://{opts.host}:{opts.port}/__leak3d.html')
     page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.shownAt", timeout=60000)
     page.wait_for_timeout(5000)
     cdp = page.context.new_cdp_session(page)

@@ -527,7 +527,8 @@ export default function RealEstateMapPage() {
     q.delete("page");
     Object.entries(filters).forEach(([key, value]) => { if (value && value !== FILTER_DEFAULTS[key as keyof typeof filters]) q.set(key, value); else q.delete(key); });
     if (selectedId) q.set("complex", selectedId); else q.delete("complex");
-    if (oldComplex !== selectedId) { q.delete("area"); q.delete("mode"); }
+    // Another complex (or none): its 평형, and a shared 3D view's state, no longer apply.
+    if (oldComplex !== selectedId) { q.delete("area"); q.delete("mode"); q.delete("3d"); q.delete("hour"); q.delete("weather"); }
     const url = `${location.pathname}?${q}`;
     if (url !== `${location.pathname}${location.search}`) {
       const state = { ...window.history.state, reDetailFromMap: !!selectedId && (!oldComplex || !!window.history.state?.reDetailFromMap) };

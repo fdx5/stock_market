@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   api,
@@ -158,7 +158,19 @@ export default function RealEstateSheet({
   const dialogRef = useDialogFocus(onClose);
   const [retry, setRetry] = useState(0);
   const [shareNote, setShareNote] = useState("");
-  const [holoOpen, setHoloOpen] = useState(false);
+  // The full-screen 3D view. A shared link (…&3d=1, share3d.ts) opens the card straight
+  // into it; while it is open the address says so (so it can be shared), and closing it
+  // leaves the map with this complex selected — also when the link was opened from
+  // outside, with no page of ours to go back to.
+  const [holoOpen, setHoloOpenState] = useState(() => new URLSearchParams(location.search).get("3d") === "1");
+  const setHoloOpen = useCallback((open: boolean) => {
+    setHoloOpenState(open);
+    const q = new URLSearchParams(location.search);
+    if (open) q.set("3d", "1");
+    else { q.delete("3d"); q.delete("hour"); q.delete("weather"); }
+    window.history.replaceState(window.history.state, "", `${location.pathname}?${q}`);
+  }, []);
+
 
   const [views, setViews] = useState<RealEstateTypeView[]>([]);
   const [history, setHistory] = useState<RealEstateTradeHistory | undefined>(undefined);

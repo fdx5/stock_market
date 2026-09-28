@@ -8,7 +8,7 @@ import KakaoIcon from "./KakaoIcon";
  * descendants — a dialog opened from far down the table view was centred on the
  * page, out of reach. The wrapper keeps the page classes the dialogs are styled
  * under and draws no box (display: contents, styles.css). */
-function OnScreen({ children }: { children: ReactNode }) {
+export function OnScreen({ children }: { children: ReactNode }) {
   return createPortal(<div className="d2 mm app kospi-map-page map-layer-portal">{children}</div>, document.body);
 }
 

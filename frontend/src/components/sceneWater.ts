@@ -143,8 +143,12 @@ function waterField(rings: [number, number][][], terrain: Terrain) {
     wet: (x: number, y: number) => { const c = node(x, y); return c >= 0 && wet[c] === 1; },
     // Half a node: the bank line lies between a wet and a dry node.
     shore: (x: number, y: number) => Math.max(0, sample(dist, x, y, 0) - s * 0.5),
+    /** The grid's extent (footprint metres), for walking the water (sceneBoats.ts). */
+    bounds: { x0, y0, x1: x0 + (nx - 1) * s, y1: y0 + (ny - 1) * s },
   };
 }
+
+export type WaterField = ReturnType<typeof waterField>;
 
 export function buildWater(parcels: RealEstateParcel[], covered: boolean[], terrain: Terrain) {
   // Slivers under 300 m² are left-over strips of channelled streams, not open water.
@@ -240,5 +244,5 @@ export function buildWater(parcels: RealEstateParcel[], covered: boolean[], terr
     ground.computeVertexNormals();
     ground.computeBoundingSphere();
   };
-  return { mesh, sink, dispose: () => { geo.dispose(); mat.dispose(); } };
+  return { mesh, sink, field, dispose: () => { geo.dispose(); mat.dispose(); } };
 }

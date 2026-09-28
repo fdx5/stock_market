@@ -768,8 +768,55 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
   };
   // Covered streams (a road runs along the water parcel) are painted as the road they are.
   const covered = waterCovered(data);
+  // A school ground: a dirt pitch inside a band of grass, the two worked into each other
+  // (grass creeping in from the edges, worn earth where the grass is walked), with a
+  // lighter, beaten patch in the middle.
+  const schoolGround = (ctx: CanvasRenderingContext2D, ring: Ring, i: number) => {
+    const r = rng(seed * 7 + i * 13 + 1);
+    ctx.save();
+    path(ctx, ring); ctx.clip();
+    path(ctx, ring); ctx.fillStyle = "#b99a70"; ctx.fill();
+    // Grass band along the edge, feathered into the dirt.
+    ctx.strokeStyle = lawn; ctx.lineJoin = "round";
+    for (const [w, a] of [[18, 0.18], [14, 0.32], [11, 0.5], [8, 0.75], [5, 1]] as const) {
+      ctx.globalAlpha = a; ctx.lineWidth = m(w * 2); path(ctx, ring); ctx.stroke();
+    }
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of ring) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+    x0 = Math.max(x0, -T); y0 = Math.max(y0, -T); x1 = Math.min(x1, T); y1 = Math.min(y1, T);
+    const edge = (x: number, y: number) => {
+      let d = Infinity;
+      for (let q = 0, n = ring.length; q < n; q++) {
+        const [ax, ay] = ring[q], [bx, by] = ring[(q + 1) % n], dx = bx - ax, dy = by - ay;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)));
+        d = Math.min(d, Math.hypot(x - ax - dx * t, y - ay - dy * t));
+      }
+      return d;
+    };
+    // The beaten middle: a lighter, sandier oval.
+    const cxm = (x0 + x1) / 2, cym = (y0 + y1) / 2;
+    const g = ctx.createRadialGradient(X(cxm), Y(cym), 0, X(cxm), Y(cym), m(Math.min(x1 - x0, y1 - y0) * 0.45));
+    g.addColorStop(0, "rgba(212,188,150,0.55)"); g.addColorStop(1, "rgba(212,188,150,0)");
+    ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(X(x0), Y(y1), m(x1 - x0), m(y1 - y0));
+    // Mottling: grass tufts in the dirt, thinning away from the edge; bare patches in the grass.
+    const grass = [lawn, "#6d8f4c", "#5f7f41", "#7c9a57"], dirt = ["#c3a57b", "#a98b62", "#b59571", "#cbb08a"];
+    const count = Math.min(5000, ((x1 - x0) * (y1 - y0)) / 5);
+    for (let n = 0; n < count; n++) {
+      const x = x0 + r() * (x1 - x0), y = y0 + r() * (y1 - y0);
+      if (!inRing([x, y], ring)) continue;
+      const d = edge(x, y);
+      const green = r() < Math.exp(-d / 9) * 0.9 + 0.04;
+      ctx.globalAlpha = 0.25 + r() * 0.4;
+      ctx.fillStyle = green ? grass[Math.floor(r() * grass.length)] : dirt[Math.floor(r() * dirt.length)];
+      ctx.beginPath();
+      ctx.ellipse(X(x), Y(y), Math.max(1, m(0.4 + r() * (green ? 1.8 : 2.4))), Math.max(1, m(0.3 + r() * 1.2)), r() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  };
   const paintLand = (ctx: CanvasRenderingContext2D, rough: boolean) => {
     parcels.forEach((p, i) => {
+      if (p.kind === "학" && !rough) { schoolGround(ctx, p.ring, i); return; }
       const spec = (WATER_KINDS.has(p.kind) && covered[i] ? LAND.도 : LAND[p.kind]) ?? LAND.대;
       path(ctx, p.ring);
       ctx.fillStyle = rough ? `rgb(0,${spec.r},0)` : typeof spec.c === "function" ? spec.c(i) : spec.c;
@@ -777,11 +824,31 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
     });
   };
   yield;
-  // Trees where the land is a park or forest (and a few on school and burial grounds),
-  // clear of buildings, roads and each other.
+  // Trees where the land is a park or forest (and a few on burial grounds), clear of
+  // buildings, roads and each other. A school keeps its playground open: its trees
+  // stand in a row along the edge of the parcel, a few metres in, as schools plant them.
   const landTrees: [number, number][] = [];
   for (const p of parcels) {
-    const gap = p.kind === "임" ? 5.5 : p.kind === "공" || p.kind === "원" ? 8 : p.kind === "묘" || p.kind === "학" ? 14 : 0;
+    if (p.kind === "학") {
+      const ring = p.ring, n = ring.length;
+      let area = 0;
+      for (let i = 0; i < n; i++) { const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % n]; area += ax * by - bx * ay; }
+      const inward = area > 0 ? 1 : -1, inset = 3, step = 9;
+      for (let i = 0; i < n && landTrees.length < 900; i++) {
+        const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % n];
+        const len = Math.hypot(bx - ax, by - ay);
+        if (len < step * 0.6) continue;
+        // (left of the edge is inside for a counter-clockwise ring)
+        const nx = (-(by - ay) / len) * inward * inset, ny = ((bx - ax) / len) * inward * inset;
+        for (let t = step / 2; t < len - step / 3; t += step) {
+          const k = t / len, jx = ax + (bx - ax) * k + nx + (rnd() - 0.5) * 1.2, jy = ay + (by - ay) * k + ny + (rnd() - 0.5) * 1.2;
+          if (Math.abs(jx) < T && Math.abs(jy) < T && free(jx, jy) && inRing([jx, jy], ring) && !inSite(jx, jy) && spaced(landTrees, jx, jy, step * 0.7)) landTrees.push([jx, jy]);
+        }
+      }
+      yield;
+      continue;
+    }
+    const gap = p.kind === "임" ? 5.5 : p.kind === "공" || p.kind === "원" ? 8 : p.kind === "묘" ? 14 : 0;
     if (!gap) continue;
     // Only over the painted ground (a mountain parcel runs far past it).
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -921,6 +988,42 @@ export function sunAt(hour: number, date = new Date(), lat = 37.55, lon = 126.98
   return { elev: elev / DEG, az: -west / DEG };
 }
 
+/** Local sidereal time (radians) at a KST clock hour: how far the sky has turned. */
+export function siderealTurn(hour: number, date = new Date(), lon = 126.98): number {
+  const ms = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) + (hour - 9) * 3600000;
+  const gmst = 280.46061837 + 360.98564736629 * (ms / 86400000 + 2440587.5 - 2451545);
+  return ((((gmst + lon) % 360) + 360) % 360) * DEG;
+}
+
+/** Horizontal position (degrees; azimuth from south toward east) of equatorial RA/Dec
+ * at a moment, from the local sidereal time. */
+function horizontal(raDeg: number, decDeg: number, jd: number, lat: number, lon: number) {
+  const gmst = 280.46061837 + 360.98564736629 * (jd - 2451545);
+  const h = (gmst + lon - raDeg) * DEG, phi = lat * DEG, dec = decDeg * DEG;
+  const sinEl = Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(h);
+  const west = Math.atan2(Math.sin(h), Math.cos(h) * Math.sin(phi) - Math.tan(dec) * Math.cos(phi));
+  return { elev: Math.asin(THREE.MathUtils.clamp(sinEl, -1, 1)) / DEG, az: -west / DEG };
+}
+
+/** The moon for a KST clock hour on a date: elevation and azimuth as `sunAt` gives them,
+ * and how lit its disc is (0 new … 1 full). The main periodic terms of its orbit (after
+ * Meeus); good to a degree or so, enough to rise, cross and set where it really does. */
+export function moonAt(hour: number, date = new Date(), lat = 37.55, lon = 126.98): { elev: number; az: number; lit: number } {
+  const ms = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) + (hour - 9) * 3600000;
+  const jd = ms / 86400000 + 2440587.5, d = jd - 2451545;
+  const L = 218.316 + 13.176396 * d, M = (134.963 + 13.064993 * d) * DEG, F = (93.272 + 13.22935 * d) * DEG;
+  const D = (297.85 + 12.190749 * d) * DEG, Ms = (357.529 + 0.98560028 * d) * DEG;
+  const lam = (L + 6.289 * Math.sin(M) + 1.274 * Math.sin(2 * D - M) + 0.658 * Math.sin(2 * D) + 0.214 * Math.sin(2 * M) - 0.186 * Math.sin(Ms) - 0.114 * Math.sin(2 * F)) * DEG;
+  const beta = (5.128 * Math.sin(F) + 0.281 * Math.sin(M + F) + 0.278 * Math.sin(M - F)) * DEG;
+  const eps = 23.439 * DEG;
+  const ra = Math.atan2(Math.sin(lam) * Math.cos(eps) - Math.tan(beta) * Math.sin(eps), Math.cos(lam));
+  const dec = Math.asin(Math.sin(beta) * Math.cos(eps) + Math.cos(beta) * Math.sin(eps) * Math.sin(lam));
+  // Phase from the elongation: the moon's longitude less the sun's.
+  const sunLon = (280.46 + 0.9856474 * d + 1.915 * Math.sin(Ms) + 0.02 * Math.sin(2 * Ms)) * DEG;
+  const lit = (1 - Math.cos(lam - sunLon)) / 2;
+  return { ...horizontal(ra / DEG, dec / DEG, jd, lat, lon), lit };
+}
+
 /** Clock hour of sunset (the sun 2° up, in the evening) on the date. */
 export function sunsetHour(date = new Date(), lat?: number, lon?: number): number {
   let lo = 12, hi = 23;
@@ -961,12 +1064,16 @@ export interface Look {
   bloom: number; bloomAt: number; reflect: number;
   /** Weather: the overcast deck (0 … 1), rain and snow (falling, and on the ground). */
   overcast: number; rain: number; snow: number;
+  /** Where the moon is (degrees, as sunElev / sunAz) and how lit its disc is. */
+  moonElev: number; moonAz: number; moonLit: number;
+  /** The star field's turn about the celestial pole (local sidereal time, radians). */
+  starTurn: number;
 }
 
-type LookSpec = Omit<Look, "key" | "hemiSky" | "hemiGround" | "fog" | "overcast" | "rain" | "snow"> & { key: string; hemiSky: string; hemiGround: string; fog: string };
+type LookSpec = Omit<Look, "key" | "hemiSky" | "hemiGround" | "fog" | "overcast" | "rain" | "snow" | "moonElev" | "moonAz" | "moonLit" | "starTurn"> & { key: string; hemiSky: string; hemiGround: string; fog: string };
 const look = (l: LookSpec): Look => ({
   ...l, key: new THREE.Color(l.key), hemiSky: new THREE.Color(l.hemiSky), hemiGround: new THREE.Color(l.hemiGround), fog: new THREE.Color(l.fog),
-  overcast: 0, rain: 0, snow: 0,
+  overcast: 0, rain: 0, snow: 0, moonElev: 30, moonAz: 20, moonLit: 1, starTurn: 0,
 });
 
 // Azimuth in degrees from south (+z) toward east (+x); the camera opens from the south-east.
@@ -1017,11 +1124,11 @@ const SUN_STOPS: [number, Look][] = [
   })],
 ];
 
-// Where the moon lights the night from (the key light once the sun is well down).
-const MOON = { elev: 42, az: 55 };
+// Where the night's key light comes from while the moon is down: a high, dim sky light.
+const NIGHT_SKY = { elev: 42, az: 55 };
 
-/** The clear-sky look for a sun position. */
-export function sunLook(elev: number, az: number): Look {
+/** The clear-sky look for a sun (and moon) position. */
+export function sunLook(elev: number, az: number, moon: { elev: number; az: number; lit: number } = { elev: NIGHT_SKY.elev, az: NIGHT_SKY.az, lit: 1 }): Look {
   const last = SUN_STOPS.length - 1;
   let l: Look;
   if (elev <= SUN_STOPS[0][0]) l = mixLook(SUN_STOPS[0][1], SUN_STOPS[0][1], 0);
@@ -1034,14 +1141,23 @@ export function sunLook(elev: number, az: number): Look {
     l = mixLook(a, b, t * t * (3 - 2 * t));
   }
   l.sunElev = elev; l.sunAz = az;
+  l.moonElev = moon.elev; l.moonAz = moon.az; l.moonLit = moon.lit;
+  // At night the key light is the moon while it is up (brighter the higher and fuller
+  // it is, its shadows turning as it crosses the sky), a dim high sky light while it is
+  // down.
+  const up = THREE.MathUtils.smoothstep(moon.elev, -1, 12);
+  const night = { elev: THREE.MathUtils.lerp(NIGHT_SKY.elev, Math.max(moon.elev, 12), up), az: moon.az * up + NIGHT_SKY.az * (1 - up) };
+  if (up < 1 && up > 0) { let a = moon.az - NIGHT_SKY.az; a -= Math.round(a / 360) * 360; night.az = NIGHT_SKY.az + a * up; }
+  const moonLight = 0.45 + 0.55 * up * (0.3 + 0.7 * moon.lit);
   // The key light is the sun while it is up (5° at the lowest: a lower sun's shadows
-  // would run past the shadow map), the moon once it is down; across twilight, when
+  // would run past the shadow map), the night's once it is down; across twilight, when
   // both are faint, it swings over.
   const w = THREE.MathUtils.smoothstep(elev, -5, 1);
-  l.keyElev = THREE.MathUtils.lerp(MOON.elev, Math.max(elev, 5), w);
-  let dAz = az - MOON.az;
+  l.keyI *= THREE.MathUtils.lerp(moonLight, 1, w);
+  l.keyElev = THREE.MathUtils.lerp(night.elev, Math.max(elev, 5), w);
+  let dAz = az - night.az;
   dAz -= Math.round(dAz / 360) * 360;
-  l.keyAz = MOON.az + dAz * w;
+  l.keyAz = night.az + dAz * w;
   // Direct light thins as the sun lowers (more air): full from about 30°.
   if (elev > 0) l.keyI *= 0.55 + 0.45 * THREE.MathUtils.smoothstep(elev, 0, 30);
   return l;
@@ -1092,7 +1208,8 @@ function weatherLook(base: Look, kind: "rain" | "snow"): Look {
  * in (0 … 1; the caller eases these for a gradual change of weather). */
 export function atmosphereLook(hour: number, rain: number, snow: number, date?: Date, lat?: number, lon?: number): Look {
   const { elev, az } = sunAt(hour, date, lat, lon);
-  let l = sunLook(elev, az);
+  let l = sunLook(elev, az, moonAt(hour, date, lat, lon));
+  l.starTurn = siderealTurn(hour, date, lon);
   if (rain > 0.001) l = mixLook(l, weatherLook(l, "rain"), rain);
   if (snow > 0.001) l = mixLook(l, weatherLook(l, "snow"), snow);
   return l;
@@ -1123,9 +1240,12 @@ export function patchSky(mat: THREE.ShaderMaterial, horizon: THREE.Color) {
   mat.uniforms.uSunColor = { value: new THREE.Color(3, 2.9, 2.7) };
   mat.uniforms.uNight = { value: 0 };
   mat.uniforms.uWeather = { value: new THREE.Vector3() }; // overcast, rain, snow
+  mat.uniforms.uStarVis = { value: 0 };
+  mat.uniforms.uStarTurn = { value: 0 };
   mat.fragmentShader = /* glsl */`
 varying vec3 vWorldPosition;
 uniform vec3 sunPosition; uniform float time; uniform vec3 uHorizon; uniform vec3 uSunColor; uniform float uNight; uniform vec3 uWeather;
+uniform float uStarVis; uniform float uStarTurn;
 float skyHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float skyNoise(vec2 p) {
   vec2 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
@@ -1142,8 +1262,41 @@ float cumulus(vec2 uv) {
   float cover = smoothstep(0.34, 0.6, skyNoise(uv * 0.85 + vec2(5.0, 1.0)) * 0.7 + skyNoise(uv * 0.3 + vec2(2.0, 7.0)) * 0.3);
   return smoothstep(0.5, 0.6, billow * (0.62 + 0.55 * cover)) * smoothstep(0.05, 0.4, cover);
 }
+// Stars: three layers (many faint, some medium, a few bright with a soft halo), each
+// star its own colour (blue-white to orange) and twinkle, the Milky Way a faint dusty
+// band. The field turns about the celestial pole with the clock (uStarTurn, sidereal).
+// Twin: STARS_WGSL in tidewater/ComplexRenderer.js.
+vec3 sHash3(vec3 p) { p = fract(p * vec3(0.1031, 0.103, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.xxy + p.yxx) * p.zyx); }
+vec3 starLayer(vec3 d, float scale, float density, float pr, float bright, float halo, float t) {
+  vec3 c = floor(d * scale), h = sHash3(c);
+  if (h.x > density) return vec3(0.0);
+  vec3 sd = normalize(c + 0.2 + 0.6 * sHash3(c + 17.0));
+  float ang = length(d - sd), k = h.z;
+  vec3 col = k < 0.12 ? vec3(0.72, 0.82, 1.15) : k < 0.6 ? vec3(1.0, 0.98, 0.95) : k < 0.86 ? vec3(1.1, 0.95, 0.78) : vec3(1.15, 0.78, 0.58);
+  float b = bright * (0.2 + 0.8 * pow(h.y, 3.0));
+  float tw = 1.0 + 0.45 * sin(t * (1.5 + 5.0 * h.y) + h.x * 90.0) * sin(t * (2.3 + 3.0 * h.z) + h.y * 40.0);
+  float core = exp(-pow(ang / (pr * 0.95), 2.0)) + halo * exp(-ang / (pr * 3.5));
+  return col * b * tw * core;
+}
+vec3 starField(vec3 ray, float pr, float t, float turn, float vis) {
+  if (vis < 0.002 || ray.y < -0.02) return vec3(0.0);
+  // Into the star frame: undo the sky's turn about the pole (north is -z; latitude 37.5°).
+  vec3 k = vec3(0.0, 0.6088, -0.7934);
+  float cs = cos(-turn), sn = sin(-turn);
+  vec3 d = ray * cs + cross(k, ray) * sn + k * dot(k, ray) * (1.0 - cs);
+  vec3 n = normalize(vec3(0.42, 0.18, 0.89));
+  float band = exp(-pow(dot(d, n) / 0.17, 2.0));
+  float dust = skyFbm(vec2(atan(d.z, d.x) * 5.0, d.y * 7.0));
+  vec3 s = starLayer(d, 95.0, 0.5 + 0.4 * band, pr, 0.32, 0.0, t)
+         + starLayer(d, 42.0, 0.45, pr, 0.85, 0.04, t)
+         + starLayer(d, 15.0, 0.28, pr * 1.3, 2.6, 0.12, t);
+  vec3 milky = vec3(0.022, 0.025, 0.036) * band * smoothstep(0.3, 0.75, dust) * (1.0 - 0.6 * smoothstep(0.55, 0.7, skyFbm(vec2(atan(d.z, d.x) * 11.0, d.y * 16.0))));
+  // Thinner and dimmer toward the horizon (more air, city haze).
+  return (s + milky) * vis * smoothstep(-0.02, 0.22, ray.y);
+}
 void main() {
   vec3 ray = normalize(vWorldPosition - cameraPosition);
+  float pixel = length(fwidth(ray));
   vec3 sunDir = normalize(sunPosition);
   float day = 1.0 - uNight;
   float overcast = uWeather.x, rain = uWeather.y, snow = uWeather.z;
@@ -1153,6 +1306,7 @@ void main() {
   vec3 hor = mix(vec3(0.55, 0.71, 0.9), uHorizon, dusk * 0.85);
   vec3 sky = mix(mix(uHorizon * 0.45, vec3(0.006, 0.013, 0.04), pow(e, 0.35)), mix(hor, zenith, pow(e, 0.55)), day);
   vec3 tint = uSunColor / max(max(uSunColor.r, max(uSunColor.g, uSunColor.b)), 0.001);
+  sky += starField(ray, pixel, time, uStarTurn, uStarVis);
   if (ray.y > 0.0) {
     vec2 uv = ray.xz / (ray.y + 0.22) * 1.35 + vec2(time * 0.005, time * 0.0018);
     float d = cumulus(uv) * (1.0 - overcast);
@@ -1285,24 +1439,6 @@ void main() {
   };
 }
 
-/** A sky full of faint stars, drawn at a fixed distance around the camera. */
-export function starField(radius: number) {
-  const rnd = rng(42), n = 1800;
-  const pos = new Float32Array(n * 3), col = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) {
-    const u = rnd(), v = 0.04 + rnd() * 0.96;
-    const th = u * Math.PI * 2, y = v, r = Math.sqrt(1 - y * y);
-    pos.set([Math.cos(th) * r * radius, y * radius, Math.sin(th) * r * radius], i * 3);
-    const b = 0.5 + rnd() * 0.5, warm = rnd();
-    col.set([b * (0.85 + warm * 0.15), b * 0.9, b * (1 - warm * 0.12)], i * 3);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  const mat = new THREE.PointsMaterial({ size: 1.6, sizeAttenuation: false, vertexColors: true, transparent: true, opacity: 0, depthWrite: false, fog: false });
-  return new THREE.Points(geo, mat);
-}
-
 /** Display-referred finish: a gentle vignette, and dither against sky banding. (No lens
  * flare or sun glare: the sky should read as a plain blue sky with clouds.) */
 export const FinishShader = {
@@ -1321,16 +1457,14 @@ void main() {
 }`,
 };
 
-/** The full moon: a photographic disk (/3d/moon.webp, from the Solar System Scope
- * lunar map, CC BY 4.0) with a soft halo, at a fixed direction in the sky — up and to
- * the right of the opening view, low over the horizon. It keeps that direction as the
- * camera orbits, zooms or pans, sits beyond the haze, and anything nearer (a tower)
- * hides it. Shown at night only. */
+/** The moon: a photographic disk (/3d/moon.webp, from the Solar System Scope lunar
+ * map, CC BY 4.0) with a soft halo, where the moon is at the hour on the slider (Look
+ * moonElev / moonAz): it rises, crosses the sky and sets as the time moves. It keeps
+ * that direction as the camera orbits, zooms or pans, sits beyond the haze, and
+ * anything nearer (a tower) hides it. Shown at night, while it is above the horizon. */
 export function moonInSky() {
-  // Opening view looks along -(0.74, 0.22, 0.74); 20° to its right, 4° up.
-  const fwd = new THREE.Vector3(-1, 0, -1).normalize(), right = new THREE.Vector3(1, 0, -1).normalize();
-  const az = THREE.MathUtils.degToRad(20), el = THREE.MathUtils.degToRad(4);
-  const dir = fwd.clone().multiplyScalar(Math.cos(az)).addScaledVector(right, Math.sin(az)).multiplyScalar(Math.cos(el)).setY(Math.sin(el)).normalize();
+  const dir = new THREE.Vector3(0, 1, 0);
+  let above = 1, level = 0, lit = 1;
   const disc = new THREE.TextureLoader().load("/3d/moon.webp");
   disc.colorSpace = THREE.SRGBColorSpace;
   const glowCanvas = canvas(128, 128), g = glowCanvas.getContext("2d")!;
@@ -1363,11 +1497,25 @@ export function moonInSky() {
       moon.scale.setScalar(size);
       halo.scale.setScalar(size * 2.6);
     },
-    /** Look.stars: 1 at night, 0 by day. */
-    setLevel(level: number) {
-      group.visible = level > 0.3;
-      (moon.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.5 * level;
-      (halo.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.7 * level;
+    /** Where it is (degrees, as dirFrom takes them) and how lit (0 new … 1 full). A
+     * moon near the horizon sinks into it rather than vanishing. */
+    setPosition(elevDeg: number, azDeg: number, litFraction = 1) {
+      // The orbit camera looks at most a little above the horizon: a moon drawn at its
+      // true height would leave the view within the hour of rising. Its bearing is real;
+      // its height is eased into the band the view shows (it still rises and sets).
+      const shown = elevDeg <= 0 ? elevDeg : 5 * (1 - Math.exp(-elevDeg / 7));
+      dirFrom(shown, azDeg, dir);
+      above = THREE.MathUtils.smoothstep(elevDeg, -1.5, 1.5);
+      lit = litFraction;
+      this.setLevel(level);
+    },
+    /** Look.stars: 1 at night, 0 by day (and less behind an overcast). */
+    setLevel(next: number) {
+      level = next;
+      const k = level * above * (0.35 + 0.65 * lit);
+      group.visible = k > 0.05 && level > 0.3;
+      (moon.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.5 * k;
+      (halo.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.7 * k * lit;
     },
     dispose() { quad.dispose(); disc.dispose(); glow.dispose(); [moon, halo].forEach(m => (m.material as THREE.Material).dispose()); },
   };

@@ -443,3 +443,14 @@
 @media (max-height: 540px) and (orientation: landscape) {
   .re-holo-layer .re-holo-env { padding-top: 4px; }
 }
+
+/* 카카오톡 공유: the map pages' button and note (mapExport.tsx), over the 3D layers too. */
+.re-holo .re-holo-tools .re-holo-share { display: inline-flex; align-items: center; gap: 5px; border-color: #fee500; background: #fee500; color: #191919; }
+.re-holo .re-holo-tools .re-holo-share:hover { background: #f5dc00; }
+.re-holo .re-holo-tools .re-holo-share:disabled { opacity: 0.7; cursor: progress; }
+.re-holo-share .kakao-icon { width: 14px; height: 14px; flex-shrink: 0; }
+.re-holo-share-long { display: none; }
+.re-holo--expanded .re-holo-share-long, .re-holo-layer .re-holo-share-long { display: inline; }
+.re-holo--expanded .re-holo-share-short, .re-holo-layer .re-holo-share-short { display: none; }
+.kospi-map-share-backdrop.re-holo-share-layer { z-index: 2147483002; }
+.kospi-map-share-popover.re-holo-share-layer { z-index: 2147483003; }

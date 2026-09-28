@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMediaQuery } from "../useMediaQuery";
+import { captionedShot, share3d, view3dUrl, type ShareStage } from "./share3d";
+import { OnScreen } from "./mapExport";
+import KakaoIcon from "./KakaoIcon";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { Sky } from "three/examples/jsm/objects/Sky.js";
@@ -16,7 +19,7 @@ import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/cli
 import { vworldBuildings, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
-  moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, starField, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
+  moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
 } from "./complexScene";
 import "../desk2/realestate-hologram.css";
 import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
@@ -28,6 +31,7 @@ import { FLAT, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
+import { buildBoats } from "./sceneBoats";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
@@ -105,7 +109,7 @@ function splitGroups(geo: THREE.BufferGeometry): (THREE.BufferGeometry | undefin
 type Stage = {
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera;
   controls: OrbitControls; composer: EffectComposer; bloom: UnrealBloomPass; finish: ShaderPass;
-  sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; sky: Sky; stars: THREE.Points;
+  sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; sky: Sky;
   reflector: Reflector | null; reflStrength: { value: number };
   /** Planar reflection only on level ground (the mirror is one plane). */
   reflectOn: boolean;
@@ -135,6 +139,8 @@ type Stage = {
   /** Add decoration; on WebGL its programs compile in parallel before it joins the scene. */
   addWarm: (parent: THREE.Object3D, obj: THREE.Object3D) => void;
   frame: () => void;
+  /** A picture of the next frame drawn, for sharing (null: none wanted). */
+  snap: ((frame: Blob | null) => void) | null;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -259,6 +265,31 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (r?.width && r.height) setBigBase({ w: r.width, h: r.height });
   };
   const closeBig = useCallback(() => setBigBase(null), []);
+  // 카카오톡 공유, as the map pages share: a picture of this view and a link that opens it
+  // full screen at this hour and weather (share3d.ts).
+  const [shareStage, setShareStage] = useState<ShareStage>("idle");
+  const [sharing, setSharing] = useState(false);
+  const shareUrl = useRef("");
+  const onShare = async () => {
+    const st = stageRef.current;
+    if (!complexId || !st || sharing) return;
+    setSharing(true); setShareStage("idle");
+    try {
+      const name = data?.name ?? complexName ?? "단지";
+      shareUrl.current = view3dUrl(complexId, hour, weather);
+      const frame = await new Promise<Blob | null>(resolve => {
+        const timer = window.setTimeout(() => { if (st.snap) { st.snap = null; resolve(null); } }, 1500);
+        st.snap = b => { window.clearTimeout(timer); resolve(b); };
+        st.resume();
+      });
+      const image = frame ? await captionedShot(frame, name, phaseCaption()) : null;
+      setShareStage(await share3d({ url: shareUrl.current, title: `${name} 3D 단지뷰`, text: `${name} 3D 단지뷰 · ${phaseCaption()}`, image }));
+    } finally { setSharing(false); }
+  };
+  const copyShareLink = async () => {
+    try { await navigator.clipboard.writeText(shareUrl.current); setShareStage("link-copied"); window.setTimeout(() => setShareStage("idle"), 4000); }
+    catch { /* clipboard refused: the note stays up for another try */ }
+  };
   const [tip, setTip] = useState<{ x: number; y: number; text: string; pinned: boolean; w: number } | null>(null);
   const [failed3d, setFailed3d] = useState(false);
   const [terrainSource, setTerrainSource] = useState<string | null>(null);
@@ -454,12 +485,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       return warm;
     };
     void warmMaterials(warm, () => nextSlice(true), () => !disposed);
-    const stars = starField(3000);
     const moon = moonInSky();
     const precip = precipField();
     scene.add(precip.group);
     scene.add(moon.group);
-    scene.add(stars);
 
     const hemi = new THREE.HemisphereLight("#c4dcf6", "#6f6552", 0.45);
     scene.add(hemi);
@@ -503,13 +532,13 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     composer.addPass(finish);
 
     const stage: Stage = {
-      renderer, scene, camera, controls, composer, bloom, finish, sun, hemi, sky, stars, reflector, reflStrength, reflectOn: false, refreshEnv,
+      renderer, scene, camera, controls, composer, bloom, finish, sun, hemi, sky, reflector, reflStrength, reflectOn: false, refreshEnv,
       look: atmosphereLook(hourRef.current, 0, 0),
       atmos: { hour: hourRef.current, rain: +(weatherRef.current === "rain"), snow: +(weatherRef.current === "snow"),
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {},
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {}, snap: null,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
@@ -625,7 +654,6 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // deeper than needed from afar (depth precision on distant roofs).
       const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.04, 0.05, stage.nearMax);
       if (Math.abs(near - camera.near) > camera.near * 0.15) { camera.near = near; camera.updateProjectionMatrix(); }
-      stars.position.copy(camera.position);
       moon.update(camera);
       precip.update(camera, t, host.clientHeight);
 
@@ -673,6 +701,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         stage.ground.visible = true;
       }
       if (gl && !glWait) composer.render();
+      // A picture for sharing: read in the task that drew the frame (neither canvas keeps
+      // its drawing after it is shown).
+      if (stage.snap) {
+        const done = stage.snap; stage.snap = null;
+        (native?.shown ? native.canvas : renderer.domElement).toBlob(b => done(b), "image/png");
+      }
       if (stage.unshown && stage.model && (native?.ready || (gl && !glWait))) {
         stage.unshown = false;
         settleUntil = nowMs + 4000;
@@ -719,7 +753,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       stage.lit.ground.forEach(m => { m.emissiveIntensity = l.lamps * 0.9; });
       stage.onLook.forEach(f => f(l));
       // Behind an overcast no stars or moon.
-      (stars.material as THREE.PointsMaterial).opacity = l.stars * (1 - l.overcast);
+      u.uStarVis.value = l.stars * (1 - l.overcast);
+      u.uStarTurn.value = l.starTurn;
+      moon.setPosition(l.moonElev, l.moonAz, l.moonLit);
       moon.setLevel(l.stars * (1 - l.overcast));
       shared.uCloud.value = l.cloudShade;
       shared.uWet.value = l.rain;
@@ -779,10 +815,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       pmrem.dispose();
       sky.geometry.dispose();
       sky.material.dispose();
-      stars.geometry.dispose();
       moon.dispose();
       precip.dispose();
-      (stars.material as THREE.Material).dispose();
       releaseRenderer(renderer);
       stageRef.current = null;
       applyLookRef.current = null;
@@ -1352,7 +1386,24 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         planting.street = street;
         const parcels = data.parcels ?? [];
         const water = buildWater(parcels, waterCovered(data), terrain);
-        if (water) { stage.addWarm(decor, water.mesh); disposables.push(water); water.sink(groundGeo); }
+        if (water) {
+          stage.addWarm(decor, water.mesh); disposables.push(water); water.sink(groundGeo);
+          // A big river: boats in clear weather by day (none on streams and ponds).
+          const boats = buildBoats(water.field, cx, cy, seed);
+          if (boats) {
+            stage.addWarm(decor, boats.group);
+            disposables.push(boats);
+            tick.push(dt => boats.update(dt, stage.camera));
+            onLook.push(l => boats.setLook(l));
+            boats.setLook(stage.look);
+            if (hostRef.current) hostRef.current.dataset.boats = String(boats.group.children.length);
+            // (development: tests aim the camera at a boat)
+            if (import.meta.env.DEV) {
+              Object.assign(window, { __holoStage: stage, __holoBoats: boats });
+              disposables.push({ dispose: () => { const w = window as unknown as Record<string, unknown>; if (w.__holoBoats === boats) { delete w.__holoBoats; delete w.__holoStage; } } });
+            }
+          }
+        }
         // Thousands of parcel edges, each tested every 2 m against buildings and
         // carriageways: laid out 60 parcels per slice, in idle time.
         void (async () => {
@@ -1494,6 +1545,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const measured = data?.coverage ? data.coverage.with_height : 0;
   const total = data?.coverage ? data.coverage.buildings : 0;
   const phase = phaseLabel(sunAt(hour, undefined, center?.lat, center?.lon).elev, hour);
+  function phaseCaption() { return `${formatHour(hour)} ${phase}${weather === "clear" ? "" : ` · ${weather === "rain" ? "비" : "눈"}`}`; }
   const sceneTitle = weather === "rain" ? `비 오는 ${phase}` : weather === "snow" ? `눈 내리는 ${phase}` : `${phase}의 단지 풍경`;
   const portal = (node: JSX.Element) => bigBase ? createPortal(node, document.body) : node;
   const dayTrack = useMemo(() => dayGradient(center?.lat, center?.lon), [center?.lat, center?.lon]);
@@ -1508,6 +1560,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         </div>
         <div className="re-holo-tools">
           <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title="360° 자동 회전">{spin ? "자동 ■" : "자동 ▶"}</button>
+          {complexId && data?.found && (
+            <button type="button" className="re-holo-share" onClick={() => void onShare()} disabled={sharing} title="이 3D 화면을 카카오톡으로 공유 (지금 시간대·날씨 그대로)">
+              <KakaoIcon /><span className="re-holo-share-long">{sharing ? "공유 준비 중…" : "카카오톡 공유"}</span><span className="re-holo-share-short">{sharing ? "준비 중" : "공유"}</span>
+            </button>
+          )}
           {!wide && !narrow && complexId && !big && (
             <button type="button" className="re-holo-big" onClick={openBig} title="전체화면으로 보기 (Esc로 닫기)">⤢ 전체화면</button>
           )}
@@ -1567,6 +1624,22 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       </footer>
       {big && <button type="button" className="re-holo-wide-close" onClick={closeBig} aria-label="전체화면 닫기" title="닫기 (Esc)">×</button>}
     </section>)}
+    {shareStage !== "idle" && (
+      <OnScreen>
+        <div className="kospi-map-share-backdrop re-holo-share-layer" onClick={() => setShareStage("idle")} />
+        <div className="kospi-map-share-popover is-centered re-holo-share-layer" role="status">
+          <button type="button" className="kospi-map-share-popover-close" onClick={() => setShareStage("idle")} aria-label="닫기">×</button>
+          {shareStage === "image-copied" ? (
+            <>
+              <p>3D 화면 이미지가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.</p>
+              <button type="button" className="kospi-map-share-popover-link" onClick={() => void copyShareLink()}>링크도 복사하기</button>
+            </>
+          ) : (
+            <p>링크가 복사되었습니다. 채팅창에 이어서 붙여넣어 주세요.</p>
+          )}
+        </div>
+      </OnScreen>
+    )}
     </>
   );
 }
