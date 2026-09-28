@@ -244,7 +244,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     host.appendChild(renderer.domElement);
     let native: ComplexRenderer | null = null;
     let disposed = false;
-    let nativePending = "gpu" in navigator && !!navigator.gpu;
+    // The native WebGPU path only on implementations as current as the one it is
+    // tested on (pointer_composite_access is a good marker: older Tint builds compile
+    // the shaders but may draw nothing); everything else, and ?renderer=webgl, uses WebGL.
+    const gpu = (navigator as Navigator & { gpu?: { wgslLanguageFeatures?: { has(name: string): boolean } } }).gpu;
+    const forceWebgl = new URLSearchParams(location.search).get("renderer") === "webgl";
+    let nativePending = !forceWebgl && !!gpu && !!gpu.wgslLanguageFeatures?.has?.("pointer_composite_access");
     let wasPreparing = nativePending;
     setPreparing(nativePending);
     // Do not compile both renderers on first load: warm native pipelines behind
@@ -394,7 +399,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     controls.addEventListener("start", onStart);
 
     const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3();
-    let envFrame = 0;
+    let envFrame = 0, nativeWaitSince = 0;
     // Dynamic resolution with hysteresis: target 60 fps, never below 0.75x.
     let slow = 0, quick = 0, last = performance.now();
     let inView = true, sampleStart = last, sampleFrames = 0;
@@ -442,6 +447,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       if (native) {
         try { native.render(scene, camera, stage.look, t); }
         catch (err) { console.warn("[3D] WebGPU fallback:", err); native.failed = true; }
+        // Watchdog: a built model that WebGPU hasn't put on screen in 8 s goes to WebGL.
+        if (!native.shown && stage.model) {
+          nativeWaitSince ||= nowMs;
+          if (nowMs - nativeWaitSince > 8000) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
+        } else nativeWaitSince = 0;
         if (native.failed) { native.dispose(); native = null; refreshEnv(); }
       }
       const isPreparing = nativePending || (!!native && !native.shown);
