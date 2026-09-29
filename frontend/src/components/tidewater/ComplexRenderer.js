@@ -279,6 +279,7 @@ export function warmDevice() { return device().catch(() => {}); }
 const isMoving = mesh => mesh.moving === true;
 // (twin of scenePlants' WebGL fade)
 const FOLIAGE_FADE = '0.14, 0.46, face';
+const FOLIAGE_STEEP = '0.5, 0.78, abs(v.y)';
 function sameMatrix(a, b) {
   const x = a.elements, y = b.elements;
   for (let i = 0; i < 16; i++) if (x[i] !== y[i]) return false;
@@ -498,8 +499,23 @@ export class ComplexRenderer {
     if (source.userData.foliage) surface += `s.translucency = s.albedo * 0.25;
       // Plant cards thin out as they turn edge-on to the eye (or the sun, in the shadow
       // pass): no flat slabs from the side, no six-pointed star of crossed cards from above.
-      { let ng = normalize(cross(dpdx(in.P), dpdy(in.P))); let face = abs(dot(ng, normalize(frame.cameraPos - in.P)));
-        s.alpha *= smoothstep(${FOLIAGE_FADE}); }`;
+      // Looked down on steeply, the upright cards squash into streaks round the trunk (a
+      // snowflake about every tree): they give way to the crown card seen from above.
+      { let ng = normalize(cross(dpdx(in.P), dpdy(in.P))); let v = normalize(frame.cameraPos - in.P);
+        let face = abs(dot(ng, v)); let upright = 1.0 - abs(ng.y);
+        // (for the sun, harder: a card at a low angle to it casts a thin straight band)
+#if PASS_DEPTH
+        let faceCut = smoothstep(0.35, 0.75, face);
+#else
+        let faceCut = smoothstep(${FOLIAGE_FADE});
+#endif
+        s.alpha *= faceCut * mix(1.0, 1.0 - smoothstep(${FOLIAGE_STEEP}), upright);
+        // Crowns cut straight at their card's border read as polygons (and cast polygon
+        // shadows): the upright cards soften at their sides and top, the crown card round.
+        let cell = fract(in.uv * ${Number(source.userData.atlasCells ?? 8).toFixed(1)});
+        let side = smoothstep(0.0, 0.12, min(min(cell.x, 1.0 - cell.x), 1.0 - cell.y));
+        let crownEdge = 1.0 - smoothstep(0.78, 1.0, length(cell - 0.5) * 2.0);
+        s.alpha *= select(crownEdge, side, upright > 0.5); }`;
     if (source.userData.contextBuilding) surface += 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.27, 0.25); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9; }';
     // Weather: rain darkens what faces up and makes it glossy (puddles where the ground
     // dips in the noise); snow settles on it, patchy on slopes. Twin of patchMaterial.

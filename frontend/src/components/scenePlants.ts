@@ -164,12 +164,20 @@ export async function buildPlants(planting: Planting, seed: number, terrain: Ter
   geo.computeBoundingSphere();
   const mat = new THREE.MeshStandardMaterial({ map: texture, alphaTest: 0.32, side: THREE.FrontSide, vertexColors: true, roughness: 0.85, metalness: 0 });
   mat.userData.foliage = true;
-  // Cards thin out as they turn edge-on to the eye (twin of the WebGPU view's fade): no
-  // flat slabs from the side, no six-pointed star of crossed cards from above.
+  mat.userData.atlasCells = meta.cols;
+  // Cards thin out as they turn edge-on to the eye, and the upright ones as the eye looks
+  // steeply down (twin of the WebGPU view's fade): no flat slabs from the side, no
+  // snowflake of squashed cards round the trunk from above.
   mat.onBeforeCompile = shader => {
     shader.fragmentShader = shader.fragmentShader.replace("#include <alphatest_fragment>", `
-      { vec3 ng = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
-        diffuseColor.a *= smoothstep(0.14, 0.46, abs(dot(ng, normalize(vViewPosition)))); }
+      { vec3 ng = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition))); vec3 v = normalize(vViewPosition);
+        vec3 up = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+        float upright = 1.0 - abs(dot(ng, up));
+        diffuseColor.a *= smoothstep(0.14, 0.46, abs(dot(ng, v))) * mix(1.0, 1.0 - smoothstep(0.5, 0.78, abs(dot(v, up))), upright);
+        vec2 cell = fract(vMapUv * ${meta.cols.toFixed(1)});
+        float side = smoothstep(0.0, 0.12, min(min(cell.x, 1.0 - cell.x), 1.0 - cell.y));
+        float crownEdge = 1.0 - smoothstep(0.78, 1.0, length(cell - 0.5) * 2.0);
+        diffuseColor.a *= upright > 0.5 ? side : crownEdge; }
       #include <alphatest_fragment>`);
   };
   const mesh = new THREE.Mesh(geo, mat);
