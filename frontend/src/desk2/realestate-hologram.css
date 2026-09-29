@@ -457,3 +457,15 @@
 /* 이미지 저장, beside 카카오톡 공유: an icon in the rail, labelled when full screen. */
 .re-holo .re-holo-tools .re-holo-save { display: inline-flex; align-items: center; gap: 5px; }
 .re-holo .re-holo-tools .re-holo-save:disabled { opacity: 0.7; cursor: progress; }
+
+/* 열기구: right of the weather, like its buttons; lit while riding. The note over the
+ * view says how to look around. */
+.re-holo-balloon-btn { display: flex; flex: none; align-items: center; justify-content: center; gap: 4px; min-width: 36px; min-height: 36px; padding: 5px 8px; border: 1px solid #516a7c; border-radius: 7px; background: #20333f; color: #eaf6ff; font: 600 11px var(--f-sans, sans-serif); white-space: nowrap; cursor: pointer; touch-action: manipulation; }
+.re-holo-balloon-btn i { font-style: normal; font-size: 14px; line-height: 1; }
+.re-holo-balloon-btn[aria-pressed="true"] { color: #07131c; background: #ffd27a; border-color: #ffd27a; }
+.re-holo:not(.re-holo--expanded) .re-holo-balloon-btn span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.re-holo-layer .re-holo .re-holo-balloon-btn span { position: static; width: auto; height: auto; overflow: visible; clip: auto; }
+.re-holo--expanded .re-holo-balloon-btn, .re-holo-layer .re-holo-balloon-btn { min-height: 40px; padding: 6px 12px; font-size: 12.5px; }
+@media (any-pointer: coarse) { .re-holo-balloon-btn { min-height: 40px; } }
+.re-holo-balloon-hint { position: absolute; left: 50%; bottom: 14px; z-index: 2; display: grid; gap: 2px; justify-items: center; max-width: calc(100% - 24px); padding: 8px 14px; border-radius: 12px; background: #07131cd0; color: #eaf6ff; font: 500 11.5px var(--f-sans, sans-serif); text-align: center; transform: translateX(-50%); pointer-events: none; }
+.re-holo-balloon-hint b { color: #ffd27a; font-size: 12.5px; }

@@ -32,6 +32,8 @@ import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } fro
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
 import { buildBoats, noBoatsReason } from "./sceneBoats";
+import { buildKids } from "./sceneKids";
+import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
@@ -141,6 +143,10 @@ type Stage = {
   frame: () => void;
   /** A picture of the next frame drawn, for sharing (null: none wanted). */
   snap: ((frame: Blob | null) => void) | null;
+  /** The hot-air balloon circling the complex, and the view from its basket while on
+   * (yaw/pitch of the look in radians, fov the zoom; baseFov restored on leaving). */
+  balloon: Balloon | null;
+  balloonView: { yaw: number; pitch: number; fov: number; baseFov: number } | null;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -518,6 +524,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const precip = precipField();
     scene.add(precip.group);
     scene.add(moon.group);
+    const balloon = buildBalloon();
+    balloon.group.visible = false;   // until a complex gives it a route
+    scene.add(balloon.group);
 
     const hemi = new THREE.HemisphereLight("#c4dcf6", "#6f6552", 0.45);
     scene.add(hemi);
@@ -567,10 +576,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {}, snap: null,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
+    stage.balloon = balloon;
     // Dev only: lets the render checks place the camera (never in a production build).
     if (import.meta.env.DEV) (window as unknown as { __complexStage?: Stage }).__complexStage = stage;
 
@@ -608,6 +618,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     for (const type of ["pointerdown", "pointermove", "wheel", "keydown"] as const) renderer.domElement.addEventListener(type, touched, { passive: true, signal: listening.signal });
 
     const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3();
+    const bvAt = new THREE.Vector3(), bvLook = new THREE.Vector3();
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
     // Dynamic quality and resolution with hysteresis: at least 40 fps, never below 0.6x.
@@ -624,7 +635,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // the scene's own life), the view draws every other display frame: the same
     // pictures at 30 fps, half the GPU and main-thread time for the rest of the page.
     let idleSkip = false;
-    const busy = () => performance.now() - lastInput < 3000 || !!stage.intro || stage.atmos.dirty || stage.atmos.rain !== stage.atmos.wantRain
+    const busy = () => performance.now() - lastInput < 3000 || !!stage.balloonView || !!stage.intro || stage.atmos.dirty || stage.atmos.rain !== stage.atmos.wantRain
       || stage.atmos.snow !== stage.atmos.wantSnow || stage.unshown || warming() || !!stage.snap;
     const loop = () => {
       if (document.hidden || ((!inView || pausedRef.current) && !warming())) return;
@@ -699,11 +710,24 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         if (a.envAt && t >= a.envAt) { a.envAt = 0; refreshEnv(); }
       }
       for (const f of stage.tick) f(dt / 1000);
-      controls.update();
-      // Near plane follows the zoom: close enough to stand beside a person, and no
-      // deeper than needed from afar (depth precision on distant roofs).
-      const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.04, 0.05, stage.nearMax);
-      if (Math.abs(near - camera.near) > camera.near * 0.15) { camera.near = near; camera.updateProjectionMatrix(); }
+      if (balloon.group.visible) balloon.update(dt / 1000);
+      const bv = stage.balloonView;
+      if (bv) {
+        // Standing at the basket's rim on the side the look faces, leaning out a little:
+        // the rim along the bottom of the view, the complex below, the envelope overhead.
+        balloon.basket(bvAt);
+        const fx = Math.cos(bv.yaw), fz = Math.sin(bv.yaw);
+        camera.position.set(bvAt.x + fx * 1.02, bvAt.y + 1.62, bvAt.z + fz * 1.02);
+        bvLook.set(fx * Math.cos(bv.pitch), Math.sin(bv.pitch), fz * Math.cos(bv.pitch)).add(camera.position);
+        camera.lookAt(bvLook);
+        if (camera.fov !== bv.fov || camera.near !== 0.08) { camera.fov = bv.fov; camera.near = 0.08; camera.updateProjectionMatrix(); }
+      } else {
+        controls.update();
+        // Near plane follows the zoom: close enough to stand beside a person, and no
+        // deeper than needed from afar (depth precision on distant roofs).
+        const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.04, 0.05, stage.nearMax);
+        if (Math.abs(near - camera.near) > camera.near * 0.15) { camera.near = near; camera.updateProjectionMatrix(); }
+      }
       moon.update(camera);
       precip.update(camera, t, host.clientHeight);
 
@@ -808,6 +832,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       u.uStarVis.value = l.stars * (1 - l.overcast);
       u.uStarTurn.value = l.starTurn;
       moon.setPosition(l.moonElev, l.moonAz, l.moonLit);
+      balloon.setLook(l);
       moon.setLevel(l.stars * (1 - l.overcast));
       shared.uCloud.value = l.cloudShade;
       shared.uWet.value = l.rain;
@@ -868,6 +893,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       sky.geometry.dispose();
       sky.material.dispose();
       moon.dispose();
+      balloon.dispose();
       precip.dispose();
       releaseRenderer(renderer);
       stageRef.current = null;
@@ -900,6 +926,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const navigateView = (action: "in" | "out" | "left" | "right" | "home" | "top") => {
     const st = stageRef.current;
     if (!st) return;
+    if (st.balloonView) {
+      const bv = st.balloonView;
+      if (action === "home") leaveBalloon();
+      else if (action === "in" || action === "out") zoomBalloon(action === "in" ? 0.7 : 1.4);
+      else if (action === "left" || action === "right") bv.yaw += (action === "left" ? -1 : 1) * Math.PI / 8;
+      else bv.pitch = -1.45;
+      st.resume();
+      return;
+    }
     st.controls.autoRotate = false; spinRef.current = false; setSpin(false); setTip(null);
     st.intro = null;
     // Consume residual drag inertia before applying an exact button command.
@@ -1449,6 +1484,17 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         if (!alive) return;
         planting.street = street;
         const parcels = data.parcels ?? [];
+        // Children at play on the school grounds, by day in dry weather.
+        const kids = buildKids(parcels, terrain, blocked, T, seed);
+        if (kids) {
+          stage.addWarm(decor, kids.group);
+          disposables.push(kids);
+          tick.push(dt => kids.update(dt));
+          onLook.push(l => kids.setLook(l));
+          kids.setLook(stage.look);
+          if (hostRef.current) hostRef.current.dataset.kids = String(kids.group.children[0] ? (kids.group.children[0] as THREE.InstancedMesh).count : 0);
+          if (import.meta.env.DEV) Object.assign(window, { __holoKids: kids, __holoStage: stage });
+        }
         const water = buildWater(parcels, waterCovered(data), terrain);
         if (water) {
           stage.addWarm(decor, water.mesh); disposables.push(water); water.sink(groundGeo);
@@ -1538,6 +1584,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     };
     stage.frame();
     stage.intro = null;
+    stage.balloon?.setRoute(center, dist, top);
+    if (stage.balloon) stage.balloon.group.visible = true;
     stage.camera.far = dist * 14 + 2000;
     stage.nearMax = Math.max(0.5, dist / 800);
     stage.camera.near = stage.nearMax;
@@ -1580,11 +1628,71 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const hit = ray.intersectObjects(stage.pickables, false)[0];
     setTip(hit ? { x: e.clientX - rect.left, y: e.clientY - rect.top, text: hit.object.userData.label, pinned, w: rect.width } : null);
   };
+  // 열기구: the view from the balloon's basket. Drag looks around, the wheel, a pinch or
+  // −/+ zoom (the field of view, like binoculars); the button, 처음 or Esc steps out.
+  const [balloonOn, setBalloonOn] = useState(false);
+  const enterBalloon = () => {
+    const st = stageRef.current;
+    if (!st?.balloon || !st.balloon.group.visible || st.balloonView) return;
+    const at = st.balloon.basket(new THREE.Vector3());
+    // Facing the complex, looking down at it.
+    const yaw = Math.atan2(st.center.z - at.z, st.center.x - at.x);
+    const pitch = -Math.atan2(at.y - st.center.y, Math.hypot(st.center.x - at.x, st.center.z - at.z));
+    st.balloonView = { yaw, pitch: Math.max(-1.45, Math.min(-0.15, pitch)), fov: 50, baseFov: st.camera.fov };
+    st.controls.enabled = false; st.controls.autoRotate = false; spinRef.current = false; setSpin(false);
+    st.intro = null; setTip(null); setBalloonOn(true); st.resume();
+  };
+  const leaveBalloon = () => {
+    const st = stageRef.current;
+    if (!st?.balloonView) return;
+    st.camera.fov = st.balloonView.baseFov; st.camera.updateProjectionMatrix();
+    st.balloonView = null;
+    st.controls.enabled = true;
+    st.frame();
+    setBalloonOn(false); st.resume();
+  };
+  const zoomBalloon = (factor: number) => {
+    const bv = stageRef.current?.balloonView;
+    if (bv) bv.fov = THREE.MathUtils.clamp(bv.fov * factor, 6, 75);
+  };
+  const lookBalloon = (dx: number, dy: number) => {
+    const bv = stageRef.current?.balloonView;
+    if (!bv) return;
+    // Drag moves the view like grabbing the scene; slower when zoomed in.
+    const k = (bv.fov / 50) * 0.0045;
+    bv.yaw += dx * k; bv.pitch = THREE.MathUtils.clamp(bv.pitch + dy * k, -1.5, 0.9);
+  };
+  useEffect(() => {
+    if (!balloonOn) return;
+    const host = hostRef.current;
+    const wheel = (e: WheelEvent) => { e.preventDefault(); zoomBalloon(Math.exp(e.deltaY * 0.0012)); stageRef.current?.resume(); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); e.stopImmediatePropagation(); leaveBalloon(); } };
+    host?.addEventListener("wheel", wheel, { passive: false });
+    // (on the window, capturing: ahead of the full-screen layer's Esc on the document)
+    window.addEventListener("keydown", key, true);
+    return () => { host?.removeEventListener("wheel", wheel); window.removeEventListener("keydown", key, true); };
+  }, [balloonOn, big]);
+  // A new complex, or the view going away: back on the ground.
+  useEffect(() => { if (balloonOn) leaveBalloon(); }, [complexId]);
+  const drag = useRef<{ x: number; y: number; pinch: number } | null>(null);
   const press = useRef<{ id: number; x: number; y: number; t: number; moved: boolean } | null>(null);
   const pointers = useRef(new Set<number>());
+  const pinchSpan = () => { const ps = [...touchPoints.current.values()]; return ps.length >= 2 ? Math.hypot(ps[0][0] - ps[1][0], ps[0][1] - ps[1][1]) : 0; };
+  const touchPoints = useRef(new Map<number, [number, number]>());
   const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const p = press.current;
     if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) p.moved = true;
+    if (stageRef.current?.balloonView) {
+      if (touchPoints.current.has(e.pointerId)) touchPoints.current.set(e.pointerId, [e.clientX, e.clientY]);
+      const d = drag.current;
+      if (d && touchPoints.current.size >= 2) {
+        const span = pinchSpan();
+        if (d.pinch && span) zoomBalloon(d.pinch / span);
+        d.pinch = span;
+      } else if (d && (e.buttons || e.pointerType !== "mouse")) { lookBalloon(e.clientX - d.x, e.clientY - d.y); d.x = e.clientX; d.y = e.clientY; }
+      stageRef.current.resume();
+      return;
+    }
     if (e.pointerType !== "mouse") return;
     if (e.buttons) { setTip(null); return; }
     if (!tip?.pinned) pick(e, false);
@@ -1592,6 +1700,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const onDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!(e.target instanceof HTMLCanvasElement)) return;
     pointers.current.add(e.pointerId);
+    if (stageRef.current?.balloonView) {
+      touchPoints.current.set(e.pointerId, [e.clientX, e.clientY]);
+      drag.current = { x: e.clientX, y: e.clientY, pinch: pinchSpan() };
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+    }
     const touch = e.pointerType !== "mouse";
     if (touch !== touchMode) setTouchMode(touch);
     press.current = pointers.current.size === 1 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now(), moved: false } : null;
@@ -1599,10 +1712,20 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const onUp = (e: React.PointerEvent<HTMLDivElement>) => {
     const p = press.current;
     pointers.current.delete(e.pointerId);
+    touchPoints.current.delete(e.pointerId);
     press.current = null;
+    if (stageRef.current?.balloonView) { if (touchPoints.current.size === 0) drag.current = null; else if (drag.current) drag.current.pinch = pinchSpan(); return; }
     if (!p || p.id !== e.pointerId || pointers.current.size > 0 || p.moved) return;
     // A drag turned the model: whatever was pinned no longer points at its building.
     if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8 || performance.now() - p.t > 450) { setTip(null); return; }
+    // A tap on the balloon: into its basket.
+    const st = stageRef.current;
+    if (st?.balloon?.group.visible) {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), st.camera);
+      if (ray.intersectObjects(st.balloon.pickables, true).length) { enterBalloon(); return; }
+    }
     pick(e, true);
   };
 
@@ -1650,6 +1773,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         {loading && <div className="re-holo-scan" role="status"><span />{slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
         {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}</p>}
+        {balloonOn && <div className="re-holo-balloon-hint" role="status"><b>🎈 열기구에서 내려다보는 중</b><span>{touchMode ? "드래그로 둘러보기 · 두 손가락으로 확대·축소" : "드래그로 둘러보기 · 휠로 확대·축소 · Esc로 내리기"}</span></div>}
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
           role="status">{tip.text}</div>}
       </div>
@@ -1667,6 +1791,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
             </button>
           ))}
         </div>
+        <button type="button" className="re-holo-balloon-btn" aria-pressed={balloonOn} onClick={() => (balloonOn ? leaveBalloon() : enterBalloon())}
+          title={balloonOn ? "열기구에서 내려 원래 시점으로" : "열기구에 타고 단지를 내려다보기 (열기구를 눌러도 됩니다)"}>
+          <i aria-hidden="true">🎈</i><span>{balloonOn ? "내리기" : "열기구"}</span>
+        </button>
       </div>}
       {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label="3D 화면 조작">
         {/* One row of views and steps; the gestures do the rest. A mouse also gets
