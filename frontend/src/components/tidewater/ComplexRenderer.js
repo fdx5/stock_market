@@ -309,6 +309,7 @@ export class ComplexRenderer {
     this.renderer = new MeshRenderer();
     // A new complex's pipelines spread over frames (see MeshRenderer._pipeline).
     this.renderer.pipelinesPerFrame = 3;
+    this.renderer.pipelineGapMs = 12;
     this.renderer.syncPipelines = false;
     this.target = new RenderTarget(1, 1, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex HDR' });
     // What the water sees through and reflects: the opaque scene, copied before the water
@@ -552,13 +553,28 @@ export class ComplexRenderer {
     source.updateMatrixWorld(true);
     const active = this.active ??= new Set();
     active.clear();
-    let added = false;
+    let added = false, deferred = false;
+    // A new complex brings dozens of materials, each with textures to upload (and encode as
+    // BC7 on the GPU) and a shader to compose: all in one frame that is a long task and a
+    // burst of GPU work, and the pointer stalls with it. They come a few per frame instead
+    // (behind the loading overlay before the first frame, unseen; later meshes just appear
+    // a frame or two on).
+    const until = performance.now() + (this.shown ? 3 : 6);
+    // (and by texels: a 2048 px colour map is a BC7 encode of 260k blocks on the GPU, a
+    // 30-50 ms task in the browser's GPU process that the whole page's drawing waits behind)
+    const texels = () => { let n = 0; for (const t of this.textures.values()) n += t.width * t.height; return n; };
+    const room = (this.shown ? 1 : 1.5) * 1e6;
+    const startTexels = texels();
+    let made = 0;
     source.traverseVisible(obj => {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       active.add(obj);
       let mesh = this.meshes.get(obj);
       if (!mesh) {
+        if (made && (performance.now() > until || texels() - startTexels > room)) { deferred = true; return; }
+        const before = this.materials.size + this.textures.size;
         const material = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material);
+        if (this.materials.size + this.textures.size !== before) made++;
         // CPU geometry is shared; no WebGL draw calls are used in this path.
         mesh = new Mesh(obj.geometry, material);
         mesh.matrixAutoUpdate = false;
@@ -596,6 +612,8 @@ export class ComplexRenderer {
         if (mesh.castShadow) this.castersChanged = true;
       }
     });
+    this.pending = deferred;
+    if (deferred) this.ready = false;
     let removed = false;
     for (const [obj, mesh] of this.meshes) if (!active.has(obj)) {
       this.scene.remove(mesh); this.meshes.delete(obj); removed = true;
@@ -654,6 +672,7 @@ export class ComplexRenderer {
     if (this.castersChanged) { shadows.invalidateCache(); this.castersChanged = false; }
     this.shadowStats = shadows.stats;
     this.renderer.precompiling = !this.shown;
+    this.renderer.starved = false;
     const timer = this.timer;
     timer.begin();
     shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i), this.renderer.precompiling ? null : isMoving);
@@ -681,6 +700,8 @@ export class ComplexRenderer {
       this.finish.timestampWrites = timer.pass('finish');
       this.finish.render({ colorViews: [this.context.getCurrentTexture().createView()] });
     }
+    // (a frame that held pipelines back to the pace hasn't got the scene's pipelines yet)
+    this.starved = this.renderer.starved;
     const readTimes = this.renderer.precompiling ? null : timer.end(GPU.getEncoder());
     GPU.submit();
     readTimes?.();
@@ -690,7 +711,7 @@ export class ComplexRenderer {
         this.compiling = false;
         if (this.disposed) return;
         this.failed = [...this.renderer.pipelines.values()].some(p => p.handle.failed) || this.sky.handle.failed || this.finish.handle.failed;
-        this.ready = !this.failed;
+        this.ready = !this.failed && !this.pending && !this.starved;
         if (this.ready) this.shown = true;
       });
     }

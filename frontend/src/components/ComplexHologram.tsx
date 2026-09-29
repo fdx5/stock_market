@@ -76,15 +76,18 @@ function extrude(b: RealEstateBuilding, ground = 0, floorM = FLOOR_M): THREE.Ext
 
 /** The ground as one grid over ±G: fine (≈T/100) inside the surveyed square ±T, growing
  * outward to the horizon; heights from the terrain, uv spanning the painted square. */
-function groundGeometry(T: number, G: number, terrain: Terrain, segs: number) {
+async function groundGeometry(T: number, G: number, terrain: Terrain, segs: number, pace: () => Promise<boolean>) {
   const geo = new THREE.PlaneGeometry(2, 2, segs, segs);
   const p = geo.getAttribute("position") as THREE.BufferAttribute, uv = geo.getAttribute("uv") as THREE.BufferAttribute;
   const a = 0.84;
   const f = (u: number) => { const s = Math.sign(u), v = Math.abs(u); return s * (v <= a ? (v / a) * T : T + (G - T) * ((v - a) / (1 - a)) ** 2); };
+  // (a fine grid is 100k terrain lookups: laid a few rows at a time)
+  const row = segs + 1;
   for (let i = 0; i < p.count; i++) {
     const x = f(p.getX(i)), y = f(p.getY(i));
     p.setXYZ(i, x, y, terrain.at(x, y));
     uv.setXY(i, (x + T) / (2 * T), (y + T) / (2 * T));
+    if (i % row === row - 1 && !await pace()) return null;
   }
   geo.computeVertexNormals();
   geo.computeBoundingSphere();
@@ -220,6 +223,20 @@ function nextSlice(idle: boolean): Promise<void> {
   });
 }
 
+/** Like nextSlice, but past the next frame: the browser hands a canvas's recorded drawing
+ * to the GPU at the end of a frame, so painting a big canvas in frame-sized pieces gives
+ * the GPU its work in pieces too (one 2048 px ground was a single ~170 ms GPU task, and the
+ * pointer and the whole page's drawing waited behind it). A hidden page has no frames. */
+function nextFrame(idle: boolean): Promise<void> {
+  if (idle || document.hidden) return nextSlice(idle);
+  return new Promise(resolve => {
+    let done = false;
+    const go = () => { if (!done) { done = true; resolve(); } };
+    requestAnimationFrame(() => void nextSlice(false).then(go));
+    window.setTimeout(go, 150);
+  });
+}
+
 /** The time slider's track: the sky's colour at each hour of today (night, dawn,
  * day, dusk), so the track itself shows where the light is. */
 function dayGradient(lat?: number, lon?: number): string {
@@ -301,12 +318,25 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   // 전체화면: the panel fills the window, as the card's 3D 건물뷰 does on a phone. The
   // rail keeps a slot of the panel's height so the page underneath does not jump.
   const [bigBase, setBigBase] = useState<{ w: number; h: number } | null>(null);
+  const [bigSize, setBigSize] = useState<{ w: number; h: number } | null>(null);
+  const resizeDrag = useRef<{ id: number; x: number; y: number; w: number; h: number } | null>(null);
+  const fitBigSize = (w: number, h: number) => ({
+    w: Math.round(Math.min(window.innerWidth, Math.max(760, w))),
+    h: Math.round(Math.min(window.innerHeight, Math.max(480, h))),
+  });
   const big = !!bigBase;
   const openBig = () => {
     const r = sectionRef.current?.getBoundingClientRect();
-    if (r?.width && r.height) setBigBase({ w: r.width, h: r.height });
+    if (r?.width && r.height) {
+      setBigSize(null);
+      setBigBase({ w: r.width, h: r.height });
+    }
   };
-  const closeBig = useCallback(() => setBigBase(null), []);
+  const closeBig = useCallback(() => {
+    resizeDrag.current = null;
+    setBigSize(null);
+    setBigBase(null);
+  }, []);
   // 카카오톡 공유, as the map pages share: a picture of this view and a link that opens it
   // full screen at this hour and weather (share3d.ts).
   const [shareStage, setShareStage] = useState<ShareStage>("idle");
@@ -336,11 +366,22 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   };
   const [tip, setTip] = useState<{ x: number; y: number; text: string; pinned: boolean; w: number } | null>(null);
   const [failed3d, setFailed3d] = useState(false);
+  // WebGPU-capable browsers start without a WebGL renderer at all (a WebGL context costs
+  // ~250 ms of the main thread at start and a share of the GPU): the view is built again in
+  // "webgl" mode only if WebGPU fails.
+  const [renderMode, setRenderMode] = useState<"auto" | "webgl">("auto");
   const [terrainSource, setTerrainSource] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
   // Button set follows the page layout (the desktop rail from 981 px, as the map page
   // decides), not the pointer: an iPad in the desktop layout gets the desktop controls.
   const narrow = useMediaQuery("(max-width: 980px)");
+
+  useEffect(() => {
+    if (!big || narrow) { resizeDrag.current = null; return; }
+    const fit = () => setBigSize(size => size ? fitBigSize(size.w, size.h) : null);
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [big, narrow]);
 
   // One renderer for the panel's lifetime; each complex only swaps the model.
   useEffect(() => {
@@ -352,13 +393,14 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // tested on (pointer_composite_access is a good marker: older Tint builds compile
     // the shaders but may draw nothing); everything else, and ?renderer=webgl, uses WebGL.
     const gpu = (navigator as Navigator & { gpu?: { wgslLanguageFeatures?: { has(name: string): boolean } } }).gpu;
-    const forceWebgl = new URLSearchParams(location.search).get("renderer") === "webgl";
+    const forceWebgl = renderMode === "webgl" || new URLSearchParams(location.search).get("renderer") === "webgl";
     const nativeCapable = !forceWebgl && !!gpu && !!gpu.wgslLanguageFeatures?.has?.("pointer_composite_access");
     // WebGL with whichever GPU the browser will give (a blocklisted discrete GPU on a
-    // laptop can still leave the integrated one). Without any WebGL the view still runs
-    // on WebGPU, the WebGL renderer standing in only for input.
+    // laptop can still leave the integrated one). Where WebGPU will draw, none is made: a
+    // stand-in carries the input, and WebGL is set up (renderMode "webgl") only if WebGPU
+    // fails.
     let made: THREE.WebGLRenderer | null = null;
-    for (const powerPreference of ["high-performance", "default", "low-power"] as const) {
+    if (!nativeCapable) for (const powerPreference of ["high-performance", "default", "low-power"] as const) {
       try { made = new THREE.WebGLRenderer({ antialias: false, alpha: false, powerPreference }); break; } catch { /* next */ }
     }
     const glMissing = !made;
@@ -404,7 +446,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       }).catch(err => {
         if (disposed) return;
         nativePending = false;
-        if (glMissing) { console.warn("[3D] No WebGL, and WebGPU failed:", err); setFailed3d(true); return; }
+        if (glMissing) { console.info("[3D] WebGPU failed, using WebGL:", err); setRenderMode("webgl"); return; }
         refreshEnv();
         resize();
         console.info("[3D] Using WebGL compatibility renderer:", err);
@@ -648,6 +690,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // the scene's own life), the view draws every other display frame: the same
     // pictures at 30 fps, half the GPU and main-thread time for the rest of the page.
     let idleSkip = false;
+    // The slowest submit (CPU, ms) since the last sample: dataset.renderMaxMs.
+    let renderMax = 0;
     // (a model still loading, behind its scan overlay, renders at the idle rate: those
     // frames only prepare its pipelines, and at full rate they held the GPU — and with it
     // the pointer and the page — through every load)
@@ -762,7 +806,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
 
 
       if (native) {
-        try { native.render(scene, camera, stage.look, t); }
+        try {
+          const r0 = performance.now();
+          native.render(scene, camera, stage.look, t);
+          renderMax = Math.max(renderMax, performance.now() - r0);
+        }
         catch (err) { console.warn("[3D] WebGPU fallback:", err); native.failed = true; }
         // Watchdog: a built model that WebGPU hasn't put on screen in 8 s goes to WebGL.
         if (!native.shown && stage.model) {
@@ -770,16 +818,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           // (a slow GPU may take a while to build its pipelines; with no WebGL, keep waiting)
           // (generous: a slow GPU compiling its pipelines is not a failure, and WebGL on top
           // of the WebGPU memory already held is what stalls a weak machine)
-          if (nowMs - nativeWaitSince > 40000 && !glMissing) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
+          if (nowMs - nativeWaitSince > 40000) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
         } else nativeWaitSince = 0;
         if (native.failed) {
           const released = native.released ?? 0;
           native.dispose(); native = null;
-          // Canvases emptied after upload can't feed WebGL: build the model again.
+          // The view is set up again with WebGL (and its model built again: canvases emptied
+          // after upload can't feed it); with no WebGL there either, it says so.
+          if (glMissing) { console.info("[3D] WebGPU lost, using WebGL"); setRenderMode("webgl"); return; }
           if (released) rebuildRef.current?.();
-          // Device lost with no WebGL to fall back on: the engine can't re-create its
-          // device in this page; offer a reload instead of a dead view.
-          if (glMissing) { setFailed3d(true); return; }
           refreshEnv(); resize();
         }
       }
@@ -790,6 +837,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
         host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
         host.dataset.pixelRatio = ratio.toFixed(2);
+        host.dataset.renderMaxMs = renderMax.toFixed(0); renderMax = 0;
         if (native) { host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); }
         sampleFrames = 0; sampleStart = nowMs;
       }
@@ -931,7 +979,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       stageRef.current = null;
       applyLookRef.current = null;
     };
-  }, []);
+  }, [renderMode]);
 
   // Full screen, the view draws even when its owner would pause it (the card is under it).
   const pausedRef = useRef(paused);
@@ -1235,6 +1283,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const step = (name: string) => {
       const now = performance.now(), used = cpu + (now - sliceStart);
       steps.push(`${name}=${(now - stepAt).toFixed(0)}/${(used - cpuAt).toFixed(0)}`);
+      console.timeStamp(`3d:${name}`);
       stepAt = now; cpuAt = used;
     };
     void (async () => {
@@ -1512,14 +1561,20 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const T = Math.max(reach * 1.15, span * 0.9 + 120);
     step("ctxMaterials");
     if (!await pace(true)) return;
-    const plan = await runSliced(paintGroundSteps(data, T, stage.hq ? 2048 : 1024, seed), pace);
+    let paintAt = performance.now();
+    const plan = await runSliced(paintGroundSteps(data, T, stage.hq ? 2048 : 1024, seed), async () => {
+      if (performance.now() - paintAt > 6) { cpu += performance.now() - sliceStart; await nextFrame(pausedRef.current); paintAt = sliceStart = performance.now(); }
+      return alive;
+    });
     if (!plan) return;
     step("groundPaint");
     if (!await pace(true)) return;
     [plan.color, plan.rough].forEach(keep);
     const G = dist * 12;
     // No elevation data (level ground): no relief for a fine grid to follow.
-    const groundGeo = keep(groundGeometry(T, G, terrain, terrain.source === null ? 64 : stage.hq ? 320 : 200));
+    const groundGrid = await groundGeometry(T, G, terrain, terrain.source === null ? 64 : stage.hq ? 320 : 200, pace);
+    if (!groundGrid) return;
+    const groundGeo = keep(groundGrid);
     if (!await pace(true)) return;
     [plan.glow].forEach(keep);
     const groundMat = keep(new THREE.MeshStandardMaterial({
@@ -1567,7 +1622,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       void saveBuildings(data.id, data);
       let sliceAt = performance.now();
       const next = await runSliced(paintGroundSteps(data, T, stage.hq ? 2048 : 1024, seed), async () => {
-        if (performance.now() - sliceAt > 12) { await nextSlice(pausedRef.current); sliceAt = performance.now(); }
+        if (performance.now() - sliceAt > 6) { await nextFrame(pausedRef.current); sliceAt = performance.now(); }
         return alive;
       });
       if (!next) return plan.planting;
@@ -1585,16 +1640,29 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const tick: Stage["tick"] = [];
     // Sidewalks, street trees, planting and people: laid out once the buildings are on
     // screen (none of it may hold back the first frame).
-    afterShown(() => void nextSlice(pausedRef.current).then(() => {
-      if (!alive) return;
+    // (each stage is its own task, and the long ones slice themselves: what runs after the
+    // first frame must never hold the pointer; dataset.longChunks names any piece over 12 ms)
+    const chunks: string[] = [];
+    const timed = <R,>(name: string, fn: () => R): R => {
+      const t = performance.now();
+      try { return fn(); } finally {
+        const d = performance.now() - t;
+        if (d > 12 && hostRef.current) { chunks.push(`${name}=${d.toFixed(0)}`); hostRef.current.dataset.longChunks = chunks.join(" "); }
+      }
+    };
+    const later = async () => { await nextSlice(pausedRef.current); return alive; };
+    afterShown(() => void (async () => {
+      if (!await later()) return;
       const footprints = [...data.buildings, ...neighbours].map(b => b.rings[0]);
-      const runs = sidewalkRuns(roads, footprints);
+      const runs = timed("sidewalkRuns", () => sidewalkRuns(roads, footprints));
       if (import.meta.env.DEV) (stage as unknown as { runs: unknown }).runs = runs;
       if (import.meta.env.DEV) (stage as unknown as { data: unknown }).data = data;
       const street = streetTrees(runs, plan.lamps);
-      const walks = buildSidewalks(runs, terrain, street.map(([x, y]) => [x, y] as [number, number]));
+      if (!await later()) return;
+      const walks = timed("buildSidewalks", () => buildSidewalks(runs, terrain, street.map(([x, y]) => [x, y] as [number, number])));
       stage.addWarm(decor, walks.group);
       disposables.push(walks);
+      if (!await later()) return;
       // Land use (연속지적도 지목) arrives after the first frame: the ground is repainted in
       // place, parks and forest get their trees, and the parcels are kept with the complex.
       // People: on the sidewalks, the complex's perimeter walk and round its towers
@@ -1605,7 +1673,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const onCarriageway = carriageway(roads, 0.8);
       const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y) || onCarriageway(x, y);
       const crowd = (paths: WalkPath[], salt: number, spacing: number, cap: number, cut = true) => {
-        const walkers = buildWalkers(cut ? cutPaths(paths, blocked) : paths, terrain, seed + salt, spacing, cap);
+        const walkers = timed("buildWalkers", () => buildWalkers(cut ? cutPaths(paths, blocked) : paths, terrain, seed + salt, spacing, cap));
         if (!walkers) return;
         stage.addWarm(decor, walkers.group);
         if (import.meta.env.DEV) {
@@ -1620,15 +1688,16 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // Land use (연속지적도 지목) arrives after the first frame: the ground is repainted in
       // place, parks and forest get their trees, water its surface, alleys their people;
       // the parcels are kept with the complex.
-      void landUse().then(planting => {
+      try {
+        const planting = await landUse();
         // The ground's last paint is done (land use in, or none to come): its canvases
         // may go once uploaded again.
         for (const t of [plan.color, plan.rough, plan.glow]) { t.userData.releaseAfterUpload = true; t.needsUpdate = true; }
-        if (!alive) return;
+        if (!await later()) return;
         planting.street = street;
         const parcels = data.parcels ?? [];
         // Children at play on the school grounds, by day in dry weather.
-        const kids = buildKids(parcels, terrain, blocked, T, seed);
+        const kids = timed("buildKids", () => buildKids(parcels, terrain, blocked, T, seed));
         if (kids) {
           stage.addWarm(decor, kids.group);
           disposables.push(kids);
@@ -1637,12 +1706,16 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           kids.setLook(stage.look);
           if (hostRef.current) hostRef.current.dataset.kids = String(kids.group.children[0] ? (kids.group.children[0] as THREE.InstancedMesh).count : 0);
           if (import.meta.env.DEV) Object.assign(window, { __holoKids: kids, __holoStage: stage });
+          if (!await later()) return;
         }
-        const water = buildWater(parcels, waterCovered(data), terrain);
+        const water = await buildWater(parcels, waterCovered(data), terrain, pace);
+        if (!alive) { water?.dispose(); return; }
         if (water) {
-          stage.addWarm(decor, water.mesh); disposables.push(water); water.sink(groundGeo);
+          stage.addWarm(decor, water.mesh); disposables.push(water);
+          await water.sink(groundGeo);
+          if (!await later()) return;
           // A big river: boats in clear weather by day (none on streams and ponds).
-          const boats = buildBoats(water.field, cx, cy, seed);
+          const boats = timed("buildBoats", () => buildBoats(water.field, cx, cy, seed));
           if (!boats && hostRef.current) hostRef.current.dataset.boats = `none: ${noBoatsReason}`;
           if (boats) {
             stage.addWarm(decor, boats.group);
@@ -1656,6 +1729,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
               Object.assign(window, { __holoStage: stage, __holoBoats: boats });
               disposables.push({ dispose: () => { const w = window as unknown as Record<string, unknown>; if (w.__holoBoats === boats) { delete w.__holoBoats; delete w.__holoStage; } } });
             }
+            if (!await later()) return;
           }
         }
         // Thousands of parcel edges, each tested every 2 m against buildings and
@@ -1669,19 +1743,18 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           for (let i = 0; i < edges.length; i += 60) {
             await nextSlice(pausedRef.current);
             if (!alive) return;
-            for (const [ring, off, lateral, minLen] of edges.slice(i, i + 60)) paths.push(...cutPaths(ringPaths([ring], off, blocked, lateral, minLen), blocked));
+            timed("parcelEdges", () => { for (const [ring, off, lateral, minLen] of edges.slice(i, i + 60)) paths.push(...cutPaths(ringPaths([ring], off, blocked, lateral, minLen), blocked)); });
           }
           await nextSlice(pausedRef.current);
           if (alive) crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
         })();
-        return buildPlants(planting, seed, terrain).then(plants => {
-          if (!plants) return;
-          if (!alive) { plants.dispose(); return; }
-          stage.addWarm(decor, plants.mesh);
-          disposables.push(plants);
-        });
-      }).catch(err => console.info("[3D] Plants unavailable:", err));
-    }));
+        const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain));
+        if (!plants) return;
+        if (!alive) { plants.dispose(); return; }
+        stage.addWarm(decor, plants.mesh);
+        disposables.push(plants);
+      } catch (err) { console.info("[3D] Plants unavailable:", err); }
+    })());
     // Street lamps on the surveyed roads (lit from dusk), and traffic both ways.
     const lamps = buildLamps(plan.lamps, terrain);
     afterShown(() => stage.addWarm(decor, lamps.group));
@@ -1761,7 +1834,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     stage.resume();
     })().catch(err => console.warn("[3D] Model build failed:", err));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data]);
+  }, [data, renderMode]);
 
   // Which 동, how many floors, whether that height is surveyed: on hover with a
   // mouse, and on a tap (a touch that didn't turn the model) on phones.
@@ -1931,13 +2004,18 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   return (
     <>
     {bigBase && <div className="re-holo-slot" style={{ height: bigBase.h }} aria-hidden="true" />}
-    {portal(<section ref={sectionRef} className={`re-holo${big ? " re-holo--expanded" : ""}`} role={big ? "dialog" : undefined} aria-modal={big || undefined} aria-label={big ? "단지 3D 뷰 전체화면" : "단지 3D 뷰"}>
+    {big && !narrow && createPortal(<div className="re-holo-resize-backdrop" aria-hidden="true" />, document.body)}
+    {portal(<section ref={sectionRef} className={`re-holo${big ? " re-holo--expanded" : ""}${big && !narrow && bigSize ? " re-holo--resized" : ""}`}
+      style={big && !narrow && bigSize ? { width: bigSize.w, height: bigSize.h } : undefined}
+      role={big ? "dialog" : undefined} aria-modal={big || undefined} aria-label={big ? "단지 3D 뷰 전체화면" : "단지 3D 뷰"}>
       <header className="re-holo-head">
         <div>
           <small>{caption ?? "3D 단지뷰"}</small>
           <strong>{data?.name ?? complexName ?? "단지를 선택하세요"}</strong>
         </div>
         <div className="re-holo-tools">
+          {big && !narrow && <button type="button" onClick={() => { resizeDrag.current = null; setBigSize(null); }}
+            title="3D 뷰를 화면 전체 크기로 되돌리기">⤢ 화면 채우기</button>}
           <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title="360° 자동 회전">{spin ? "자동 ■" : "자동 ▶"}</button>
           {complexId && data?.found && (
             <button type="button" className="re-holo-save" onClick={() => void onSaveImage()} disabled={sharing} title="지금 3D 화면을 이미지(PNG)로 저장" aria-label="이미지 저장">
@@ -2017,6 +2095,37 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         ) : <span>{touchMode ? "한 손가락으로 돌리고 두 손가락으로 확대·이동, 건물을 탭하면 동·층수를 봅니다." : "드래그로 회전, 휠로 커서 쪽 확대, 우클릭 드래그로 이동합니다. 지도에서 단지를 누르면 바뀝니다."}</span>}
       </footer>
       {big && <button type="button" className="re-holo-wide-close" onClick={closeBig} aria-label="전체화면 닫기" title="닫기 (Esc)">×</button>}
+      {big && !narrow && <button type="button" className="re-holo-resize" aria-label="3D 뷰 크기 조절"
+        title="드래그로 화면 크기 조절 · 방향키로 조절 · 두 번 클릭으로 화면 채우기"
+        onPointerDown={e => {
+          if (e.button !== 0) return;
+          e.preventDefault(); e.stopPropagation();
+          e.currentTarget.focus();
+          const rect = sectionRef.current!.getBoundingClientRect();
+          resizeDrag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, w: rect.width, h: rect.height };
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={e => {
+          const drag = resizeDrag.current;
+          if (!drag || drag.id !== e.pointerId) return;
+          // The panel stays centered, so each corner moves half the size change.
+          setBigSize(fitBigSize(drag.w + 2 * (e.clientX - drag.x), drag.h + 2 * (e.clientY - drag.y)));
+        }}
+        onPointerUp={e => {
+          if (resizeDrag.current?.id !== e.pointerId) return;
+          resizeDrag.current = null;
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }}
+        onPointerCancel={() => { resizeDrag.current = null; }}
+        onLostPointerCapture={() => { resizeDrag.current = null; }}
+        onDoubleClick={() => setBigSize(null)}
+        onKeyDown={e => {
+          if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+          e.preventDefault(); e.stopPropagation();
+          const rect = sectionRef.current!.getBoundingClientRect(), step = e.shiftKey ? 80 : 20;
+          setBigSize(fitBigSize(rect.width + (e.key === "ArrowRight" ? step : e.key === "ArrowLeft" ? -step : 0),
+            rect.height + (e.key === "ArrowDown" ? step : e.key === "ArrowUp" ? -step : 0)));
+        }}><span aria-hidden="true">◢</span></button>}
     </section>)}
     {shareStage !== "idle" && (
       <OnScreen>

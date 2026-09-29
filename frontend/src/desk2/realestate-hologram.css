@@ -117,6 +117,44 @@
   box-shadow: none;
 }
 .re-holo-slot { margin: 0 0 12px; }
+.re-holo-resize-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  background: #0009;
+}
+.re-holo.re-holo--resized {
+  margin: auto;
+  max-width: 100vw;
+  max-height: 100dvh;
+  border: 1px solid rgba(160, 200, 255, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 20px 80px #0008;
+  animation: none;
+}
+.re-holo-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px 0 0 0;
+  background: #20333f;
+  color: #cfe0f2;
+  font-size: 22px;
+  cursor: nwse-resize;
+  touch-action: none;
+  user-select: none;
+}
+.re-holo-resize:hover, .re-holo-resize:focus-visible { background: #365568; color: #fff; }
+.re-holo--expanded:has(.re-holo-resize) .re-holo-foot { padding-right: 42px; }
+.re-holo--resized .re-holo-head { flex-wrap: wrap; }
+.re-holo--resized .re-holo-tools { flex-wrap: wrap; }
+.re-holo--resized .re-holo-navigation { flex-wrap: wrap; gap: 8px; }
+.re-holo--resized .re-holo-nav-row { flex-wrap: wrap; }
 @media (prefers-reduced-motion: no-preference) {
   .re-holo.re-holo--expanded { animation: re-holo-wide-in 0.22s ease-out; }
 }

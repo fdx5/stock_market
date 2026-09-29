@@ -388,7 +388,17 @@ export class MeshRenderer {
 			// on the main thread, and a new scene asks for a dozen or two at once (one long,
 			// janky frame). The rest wait a frame or two — they compile asynchronously anyway.
 			if ( this._budgetFrame !== GPU.frame ) { this._budgetFrame = GPU.frame; this._created = 0; }
-			if ( this._created >= ( this.pipelinesPerFrame ?? Infinity ) ) return null;
+			if ( this._created >= ( this.pipelinesPerFrame ?? Infinity ) ) return this._starve();
+			// (local modification) and a pace in time, not only per frame: each new pipeline costs
+			// the browser's GPU process ~10 ms (its one busy thread, which also draws the page), so
+			// frames at a high rate still have to leave it room
+			if ( this.pipelineGapMs ) {
+
+				const now = performance.now();
+				if ( now - ( this._lastCreated ?? - Infinity ) < this.pipelineGapMs ) return this._starve();
+				this._lastCreated = now;
+
+			}
 			this._created ++;
 			p = this._createPipeline( material, vl, pass, key );
 
@@ -590,6 +600,15 @@ export class MeshRenderer {
 		this.drawItems( rp, lists.transparent, pass );
 		if ( pass.after ) pass.after( rp );
 		rp.end();
+
+	}
+
+	// (local modification) a pipeline held back by the pace: `starved` tells the owner that the frame
+	// left some out (a scene isn't complete while any are still to be made)
+	_starve() {
+
+		this.starved = true;
+		return null;
 
 	}
 

@@ -128,7 +128,7 @@ test("houses cleared for a rebuilt complex are dropped, never its towers or an u
   assert.equal(withoutDemolished(old).buildings.length, 3);
 });
 
-test("a river runs on under a bridge the elevation data carries across as a dam", () => {
+test("a river runs on under a bridge the elevation data carries across as a dam", async () => {
   // A 40 m wide channel, 400 m long, in two parcels; a 20 m band where the DEM holds the
   // bridge road 2 m above the water.
   const parcels = [
@@ -136,7 +136,7 @@ test("a river runs on under a bridge the elevation data carries across as a dam"
     { kind: "천", ring: [[0, -20], [200, -20], [200, 20], [0, 20]] as [number, number][] },
   ];
   const terrain = { at: (x: number) => (Math.abs(x - 50) < 10 ? 2 : 0), base: () => 0, relief: 2, elevation: null, source: "test" };
-  const water = buildWater(parcels, [false, false], terrain)!;
+  const water = (await buildWater(parcels, [false, false], terrain, async () => true))!;
   const p = water.mesh.geometry.getAttribute("position");
   let under = 0;
   for (let i = 0; i < p.count; i += 3) if (Math.abs((p.getX(i) + p.getX(i + 1) + p.getX(i + 2)) / 3 - 50) < 8) under++;
@@ -144,7 +144,7 @@ test("a river runs on under a bridge the elevation data carries across as a dam"
   // The ground there is sunk below the surface (it no longer rises through the water).
   const ground = new BufferGeometry();
   ground.setAttribute("position", new Float32BufferAttribute([50, 0, 2, -100, 0, 0, 50, 60, 2], 3));
-  water.sink(ground);
+  await water.sink(ground);
   const z = ground.getAttribute("position");
   assert.ok(z.getZ(0) < 0.1 && z.getZ(1) < 0.1, "channel ground sunk under the water");
   assert.equal(z.getZ(2), 2, "ground off the water untouched");

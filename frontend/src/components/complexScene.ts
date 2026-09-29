@@ -939,9 +939,13 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
   });
   yield;
   // Soft contact shade around every footprint.
+  // (one path, one blurred fill: a blur per footprint was hundreds of full-canvas GPU
+  // passes, a 160 ms task in the browser's GPU process, and the pointer stalled with it)
   cg.filter = `blur(${Math.max(2, m(2.6))}px)`;
   cg.fillStyle = "rgba(0,0,0,0.34)";
-  rings.forEach(r => { path(cg, r); cg.fill(); });
+  cg.beginPath();
+  rings.forEach(ring => { ring.forEach(([x, y], i) => (i ? cg.lineTo(X(x), Y(y)) : cg.moveTo(X(x), Y(y)))); cg.closePath(); });
+  cg.fill();
   cg.filter = "none";
   yield;
   // Fade toward the edge, so nothing streaks past the painted area.

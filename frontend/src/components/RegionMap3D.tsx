@@ -683,12 +683,24 @@ class RegionScene {
     }
   };
 
+  /** The first draw would link every program in turn on the main thread (~250 ms with the
+   * pointer stuck); they are linked in parallel by the browser first, and the map is drawn
+   * once they are. */
+  private compiled = false;
+  private compiling = false;
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop);
     const now = performance.now();
     const active = this.step(now);
     const moved = this.controls.update();
     if (active || moved || this.dirty) {
+      if (!this.compiled) {
+        if (!this.compiling) {
+          this.compiling = true;
+          void this.renderer.compileAsync(this.scene, this.camera).catch(() => {}).then(() => { this.compiled = true; this.dirty = true; });
+        }
+        return;
+      }
       this.renderer.render(this.scene, this.camera);
       this.placeLabels();
       this.dirty = false;
