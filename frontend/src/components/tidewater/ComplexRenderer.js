@@ -268,6 +268,9 @@ fn fragment(in: FSIn) -> vec4f {
   return vec4f(c, 1.0);
 }`;
 
+/** The device, ahead of the first view (ComplexHologram.warmGpu). */
+export function warmDevice() { return device().catch(() => {}); }
+
 export class ComplexRenderer {
   static async create(host, quality = QUALITY.high) {
     await device();

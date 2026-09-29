@@ -575,7 +575,9 @@ export function buildBoats(field: WaterField, cx: number, cy: number, seed: numb
   const e = new THREE.Euler(0, 0, 0, "YZX");
 
   const update = (dt: number, camera: THREE.Camera) => {
-    if (!on) return;
+    // A frame of no time (the loop just resumed) moves nothing: rates over it are 0/0,
+    // and a NaN heel once stored would hide the hull for good.
+    if (!on || !(dt > 0)) return;
     dt = Math.min(dt, 0.05);
     time += dt;
     const sample = time - lastSample >= 0.15;
@@ -588,7 +590,8 @@ export function buildBoats(field: WaterField, cx: number, cy: number, seed: numb
       if (!Number.isNaN(b.yawPrev)) { let dy = p.yaw - b.yawPrev; dy -= Math.round(dy / (2 * Math.PI)) * 2 * Math.PI; yawRate = dy / dt; }
       b.yawPrev = p.yaw;
       const heel = Math.max(-0.35, Math.min(0.35, Math.atan((b.speed * yawRate) / G) * (b.kind === "cruiser" ? 0.35 : 0.8)));
-      b.roll += (heel - b.roll) * Math.min(1, dt * 3);
+      if (Number.isFinite(heel)) b.roll += (heel - b.roll) * Math.min(1, dt * 3);
+      if (!Number.isFinite(b.roll)) b.roll = 0;
       // Riding the waves: a slow heave and pitch, quicker for a small hull.
       const f = b.kind === "jetski" ? 2.6 : b.kind === "bowrider" ? 1.8 : 1.1;
       const heave = 0.05 * Math.sin(time * f + b.phase), pitchWave = 0.02 * Math.sin(time * f * 1.3 + b.phase * 1.7);
@@ -627,7 +630,8 @@ export function buildBoats(field: WaterField, cx: number, cy: number, seed: numb
         const lateral = 6 * Math.sin(time * 0.42 + s.swing);
         const nx = -q.ty, ny = q.tx;
         s.x = q.x + nx * lateral; s.y = q.y + ny * lateral;
-        const lv = (lateral - s.lateralPrev) / dt; s.lateralPrev = lateral;
+        const lvRaw = (lateral - s.lateralPrev) / dt; s.lateralPrev = lateral;
+        const lv = Number.isFinite(lvRaw) ? Math.max(-8, Math.min(8, lvRaw)) : 0;
         const hs = surface(s.x, s.y);
         s.group.position.set(s.x, hs + 0.02 + 0.03 * Math.sin(time * 3 + s.swing), -s.y);
         // The board points a little across its path; the rider leans against the rope and into the cut.

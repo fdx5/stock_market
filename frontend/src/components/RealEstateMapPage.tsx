@@ -452,6 +452,18 @@ export default function RealEstateMapPage() {
   useEffect(() => { setHoloPick(null); }, [sido, sgg, dong]);
   const holoLeader = useMemo(() => items.find(it => crownRanks.get(it.id) === 1) ?? null, [items, crownRanks]);
   const holoItem = holoPick ?? holoLeader;
+  // Desktop: the 3D view's code, the renderer and the GPU device come in while the page
+  // loads its data, and the complex it will show starts loading as soon as it is known
+  // (the view itself still starts after the first paint).
+  useEffect(() => {
+    if (stacked) return;
+    void import("./ComplexHologram").then(m => m.warmGpu()).catch(() => {});
+  }, [stacked]);
+  const holoId = holoItem?.id;
+  useEffect(() => {
+    if (stacked || !holoId) return;
+    void import("./ComplexHologram").then(m => m.prefetchComplex(holoId)).catch(() => {});
+  }, [stacked, holoId]);
   // Desktop: the card's 3D button opens the rail's view full screen on its complex.
   const [holoFull, setHoloFull] = useState(0);
   const openHoloFull = (item: RealEstateItem) => { setHoloPick(item); setHoloFull(n => n + 1); };

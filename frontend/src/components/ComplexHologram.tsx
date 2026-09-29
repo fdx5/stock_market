@@ -165,6 +165,26 @@ function staleNotice(data: RealEstateBuildingsResponse, complexId: string): stri
 
 const buildingCache = new Map<string, { at: number; data: RealEstateBuildingsResponse }>();
 
+/** Loads started before the view mounts (the map page knows the complex it will show
+ * while the view's code is still arriving): the server's kept shapes, and the relief
+ * under them (terrainFor caches its tiles). Taken, once, by the view. */
+const prefetched = new Map<string, Promise<RealEstateBuildingsResponse>>();
+export function prefetchComplex(id: string): void {
+  if (prefetched.has(id) || buildingCache.has(id)) return;
+  const peek = api.realEstateBuildings(id, undefined, true);
+  prefetched.set(id, peek);
+  peek.then(res => { if (res.found) void terrainFor(res); }).catch(() => { prefetched.delete(id); });
+  if (prefetched.size > 4) prefetched.delete(prefetched.keys().next().value!);
+}
+
+/** The WebGPU device, made ahead of the first view (adapter and device requests take a
+ * few hundred ms); only where the view would use WebGPU. */
+export function warmGpu(): void {
+  const gpu = (navigator as Navigator & { gpu?: { wgslLanguageFeatures?: { has(name: string): boolean } } }).gpu;
+  if (!gpu?.wgslLanguageFeatures?.has?.("pointer_composite_access") || new URLSearchParams(location.search).get("renderer") === "webgl") return;
+  void import("./tidewater/ComplexRenderer").then(m => m.warmDevice()).catch(() => {});
+}
+
 /** The real relief under a result, in at most 2.5 s (tiles are cached after the first
  * complex); level ground when it can't be had. Covers the painted ground square. */
 async function terrainFor(res: RealEstateBuildingsResponse): Promise<Terrain> {
@@ -966,9 +986,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     (async () => {
       const cached = buildingCache.get(complexId);
       if (cached && Date.now() - cached.at < 300000) return cached.data;
+      const early = prefetched.get(complexId);
+      prefetched.delete(complexId);
       const kept = await loadBuildings(complexId);
       if (kept) return kept;
-      const peek = await api.realEstateBuildings(complexId, ctl.signal, true);
+      const peek = await (early ?? api.realEstateBuildings(complexId, ctl.signal, true)).catch(() => api.realEstateBuildings(complexId, ctl.signal, true));
       // Roads and terrain only need these footprints/centre. The common stage below
       // loads them together; awaiting roads here serialized the two network waits.
       if (peek.found) return peek;
