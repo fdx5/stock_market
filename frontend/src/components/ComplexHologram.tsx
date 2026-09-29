@@ -270,7 +270,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   // Controls follow the pointer in use: a touch laptop starts with the mouse set (its
   // primary pointer is fine) and switches when the screen is actually touched.
   const [touchMode, setTouchMode] = useState(() => !!window.matchMedia?.("(pointer: coarse)").matches);
-  const [spin, setSpin] = useState(() => !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches);
+  // Auto-rotation on from the first load (a press on the view or its buttons stops it).
+  const [spin, setSpin] = useState(true);
   // The hour on the time slider (?hour= or ?tod= to open elsewhere), and the weather.
   const [hour, setHour] = useState<number>(() => {
     const q = typeof location !== "undefined" ? new URLSearchParams(location.search) : null;
@@ -677,10 +678,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // browser (the pointer and the rest of the page stutter). With timestamps: climb
       // under 7 ms of GPU work a frame, step down over 12 ms; without, never past the
       // display's own ratio.
-      else if (native?.timer.enabled && (native.timer.ms.total ?? 0) > 12 && ratio > Math.min(1, dpr) && judge && ++gpuHot > 90) {
+      // (changes judged over seconds, not a moment: each reallocates the render targets,
+      // a visible hitch, and a view moving about — the balloon — varies from frame to frame)
+      else if (native?.timer.enabled && (native.timer.ms.total ?? 0) > 12 && ratio > Math.min(1, dpr) && judge && ++gpuHot > 180) {
         ratio = Math.max(Math.min(1, dpr), ratio - 0.25); maxRatio = ratio; gpuHot = 0; resize();
       }
-      else if (quick > 240 && ratio < maxRatio && (native?.timer.enabled ? (native.timer.ms.total ?? 99) < 7 : ratio + 0.25 <= dpr)) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
+      else if (quick > 600 && ratio < maxRatio && (native?.timer.enabled ? (native.timer.ms.total ?? 99) < 7 : ratio + 0.25 <= dpr)) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
 
       const t = (nowMs - t0) / 1000;
       stage.now = t;

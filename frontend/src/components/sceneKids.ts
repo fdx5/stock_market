@@ -155,9 +155,11 @@ export function buildKids(parcels: RealEstateParcel[], terrain: Terrain, blocked
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
   const hand = new THREE.Vector3();
   let time = 0, on = false;
+  // (scratch objects reused every frame: no garbage for the collector to pause on)
+  const euler = new THREE.Euler(0, 0, 0, "XYZ"), lift = new THREE.Matrix4();
   const place = (im: THREE.InstancedMesh, i: number, x: number, y: number, z: number, rz = 0, rx = 0) => {
     part.makeTranslation(x, y, z);
-    if (rz || rx) part.multiply(rot.makeRotationFromEuler(new THREE.Euler(rx, 0, rz, "XYZ")));
+    if (rz || rx) part.multiply(rot.makeRotationFromEuler(euler.set(rx, 0, rz)));
     im.setMatrixAt(i, m.multiplyMatrices(body, part));
   };
   const update = (dt: number) => {
@@ -195,7 +197,7 @@ export function buildKids(parcels: RealEstateParcel[], terrain: Terrain, blocked
       body.compose(v.set(k.x, h + bob * k.scale, -k.y), q, s.setScalar(k.scale));
       // Torso leans about the hips.
       const hipY = 0.6;
-      part.makeTranslation(0, hipY, 0).multiply(rot.makeRotationZ(-lean)).multiply(new THREE.Matrix4().makeTranslation(0, 0.2, 0));
+      part.makeTranslation(0, hipY, 0).multiply(rot.makeRotationZ(-lean)).multiply(lift.makeTranslation(0, 0.2, 0));
       torso.setMatrixAt(i, m.multiplyMatrices(body, part));
       const headX = Math.sin(lean) * 0.5, headY = hipY + Math.cos(lean) * 0.5;
       place(head, i, headX, headY, 0);

@@ -465,14 +465,28 @@ export class ComplexRenderer {
     });
     let removed = false;
     for (const [obj, mesh] of this.meshes) if (!active.has(obj)) { this.scene.remove(mesh); this.meshes.delete(obj); removed = true; }
-    // Release per-complex resources when switching selections (only then: the scans
-    // below allocate, and most frames change nothing).
-    if (!removed && !added) return;
-    this.renderer.retainGeometry(this.meshes.values());
+    // Release what the scene no longer uses — on a change, and every couple of seconds
+    // (the scans allocate; most frames change nothing). A material (with its textures)
+    // goes only after 20 s out of use: dropping one clears every pipeline, and things
+    // shown and hidden again (weather, time of day, a burner's flame) would otherwise
+    // rebuild them all each time — a stutter. Switching complexes still frees them.
+    this.sweep = (this.sweep ?? 0) + 1;
+    if (!removed && !added && this.sweep % 120 !== 0) return;
+    if (removed || added) this.renderer.retainGeometry(this.meshes.values());
     const used = new Set([...active].flatMap(o => Array.isArray(o.material) ? o.material : [o.material]));
-    for (const [src, mat] of this.materials) if (!used.has(src)) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); this.renderer.pipelines.clear(); }
-    const usedTextures = new Set([...used].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap]));
-    for (const [src, tex] of this.textures) if (!usedTextures.has(src)) { tex.destroy(); this.textures.delete(src); }
+    const unusedAt = this.unusedAt ??= new Map();
+    const now = performance.now();
+    let dropped = false;
+    for (const [src, mat] of this.materials) {
+      if (used.has(src)) { unusedAt.delete(src); continue; }
+      const since = unusedAt.get(src) ?? now;
+      unusedAt.set(src, since);
+      if (now - since < 20000) continue;
+      mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); unusedAt.delete(src); dropped = true;
+    }
+    if (dropped) this.renderer.pipelines.clear();
+    const kept = new Set([...this.materials.keys()].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap]));
+    for (const [src, tex] of this.textures) if (!kept.has(src)) { tex.destroy(); this.textures.delete(src); }
   }
   render(source, camera, look, time) {
     if (this.disposed || this.failed) return;

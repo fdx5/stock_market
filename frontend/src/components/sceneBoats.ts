@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { Look } from "./complexScene";
 import { rng } from "./complexScene";
 import type { WaterField } from "./sceneWater";
+import { mergeStatic } from "./sceneMerge";
 
 /* Boats on a big river (the Han and rivers like it), in clear weather from morning to
  * sunset: a bowrider towing a wakeboarder, a jet ski and a small cruiser, each on its own
@@ -543,6 +544,8 @@ export function buildBoats(field: WaterField, cx: number, cy: number, seed: numb
   for (const sp of specs) {
     if (!sp.loop) continue;
     const b = makeBoat(k, sp.kind);
+    // Hull, fittings and crew never move against each other: one mesh per material.
+    k.geos.push(...mergeStatic(b.group).map(m => m.geometry));
     group.add(b.group);
     const wake = new Ribbon(96, wakeMat(sp.speed), 8), wash = new Ribbon(64, washMat, 9);
     group.add(wake.mesh, wash.mesh);
@@ -558,6 +561,7 @@ export function buildBoats(field: WaterField, cx: number, cy: number, seed: numb
       // Side-on to the travel: facing starboard, left foot forward.
       rider.position.set(0, 0.07, 0); rider.rotation.y = -Math.PI / 2;
       sg.add(rider);
+      k.geos.push(...mergeStatic(sg).map(m => m.geometry));
       const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 4), k.rope);
       k.geos.push(rope.geometry);
       group.add(sg, rope);

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Look } from "./complexScene";
+import { mergeStatic } from "./sceneMerge";
 
 /* A hot-air balloon over the complex, day and night, in any weather: a full-size
  * envelope (about 18 m across, 22 m tall) of sixteen coloured gores with a crown band,
@@ -93,8 +94,13 @@ export function buildBalloon() {
   const flames = new THREE.Group();
   const fl = new THREE.Mesh(keep(new THREE.ConeGeometry(0.22, 1.6, 10, 1, true)), flameMat); fl.position.y = 3.65; flames.add(fl);
   const core = new THREE.Mesh(keep(new THREE.ConeGeometry(0.09, 0.8, 8, 1, true)), flameCore); core.position.y = 3.25; flames.add(core);
-  flames.visible = false;
+  // (never hidden: shrunk between burns, so the renderers keep their pipelines)
+  flames.scale.setScalar(0.0001);
   body.add(flames);
+  // Basket, frame, tanks and cables ride together: one mesh per material (the envelope,
+  // which glows, and the flickering flames stay apart).
+  const hardware = mergeStatic(body, o => o === envelope || o === flames);
+  geos.push(...hardware.map(m => m.geometry));
 
   // ---- flight ----
   let center = new THREE.Vector3(), radius = 200, base = 80, time = 0, night = 0, burn = 0, nextBurn = 3;
@@ -115,7 +121,7 @@ export function buildBalloon() {
   return {
     group,
     /** Things a click on the balloon can hit. */
-    pickables: [envelope, ...basket.children] as THREE.Object3D[],
+    pickables: [envelope, ...hardware] as THREE.Object3D[],
     /** Over this complex: its centre, its footprint's size, how high the roofs are. */
     setRoute(c: THREE.Vector3, span: number, roofTop: number) {
       // Over the complex itself: a circle inside its footprint, the basket 9-27 m over
@@ -129,8 +135,7 @@ export function buildBalloon() {
       place();
       // Burns every few seconds, longer ones as it climbs; the flame flickers.
       if (burn > 0) burn -= dt; else if ((nextBurn -= dt) <= 0) { burn = 0.8 + Math.random() * 1.8; nextBurn = 4 + Math.random() * 7; }
-      flames.visible = burn > 0;
-      if (flames.visible) { const f = 0.85 + Math.random() * 0.3; flames.scale.set(1, f, 1); }
+      if (burn > 0) { const f = 0.85 + Math.random() * 0.3; flames.scale.set(1, f, 1); } else flames.scale.setScalar(0.0001);
       envMat.emissiveIntensity = burn > 0 ? 0.35 * night : 0.03 * night;
     },
     /** Glow from the burner reads at night (Look.stars 1), barely by day. */
