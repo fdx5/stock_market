@@ -728,6 +728,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.04, 0.05, stage.nearMax);
         if (Math.abs(near - camera.near) > camera.near * 0.15) { camera.near = near; camera.updateProjectionMatrix(); }
       }
+      // The camera's world matrices, every frame: three only refreshes them while it
+      // draws, and on the WebGPU path it doesn't, so view-dependent work (which people
+      // to draw, and how) would go on judging from a stale camera.
+      camera.updateMatrixWorld();
       moon.update(camera);
       precip.update(camera, t, host.clientHeight);
 
@@ -1471,7 +1475,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         const walkers = buildWalkers(cut ? cutPaths(paths, blocked) : paths, terrain, seed + salt, spacing, cap);
         if (!walkers) return;
         stage.addWarm(decor, walkers.group);
-        if (import.meta.env.DEV) ((stage as unknown as { walkers: unknown[] }).walkers ??= []).push(...walkers.group.userData.walkers);
+        if (import.meta.env.DEV) {
+          ((stage as unknown as { walkers: unknown[] }).walkers ??= []).push(...walkers.group.userData.walkers);
+          (stage as unknown as { terrainAt: (x: number, y: number) => number }).terrainAt = (x, y) => terrain.at(x, y);
+        }
         disposables.push(walkers);
         tick.push(dt => walkers.update(dt, stage.camera));
       };

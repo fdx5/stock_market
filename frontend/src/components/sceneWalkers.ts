@@ -497,10 +497,16 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
       vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum.setFromProjectionMatrix(vp);
       camPos.setFromMatrixPosition(camera.matrixWorld);
+      // Distances judged as seen: a zoomed-in view (a narrower field, the balloon's
+      // binoculars) brings people as close as walking up to them would. 36° is the
+      // view's own field.
+      const fov = (camera as THREE.PerspectiveCamera).fov ?? 36;
+      const zoom = Math.tan(THREE.MathUtils.degToRad(fov / 2)) / Math.tan(THREE.MathUtils.degToRad(18));
+      const zoom2 = zoom * zoom;
       walkers.forEach((w, wi) => {
         advance(w, dt);
         sphere.center.set(w.x, terrain.at(w.x, w.y) + 1, -w.y);
-        const d2 = sphere.center.distanceToSquared(camPos);
+        const d2 = sphere.center.distanceToSquared(camPos) * zoom2;
         // Out of view or too far to make out: not drawn at all.
         if (d2 > 420 * 420 || !frustum.intersectsSphere(sphere)) return;
         if (d2 > NEAR * NEAR) poseFar(w, wi); else pose(w);
