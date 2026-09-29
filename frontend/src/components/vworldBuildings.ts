@@ -9,7 +9,7 @@ import { prefetchTerrain } from "./sceneTerrain";
 
 const ADDRESS = "https://api.vworld.kr/req/address";
 const DATA = "https://api.vworld.kr/req/data";
-const FLOOR_M = 2.9, GROUND_M = 1.5, CONTEXT_M = 230, ROAD_M = 150;
+const FLOOR_M = 2.9, GROUND_M = 1.5, CONTEXT_M = 288, ROAD_M = 150;  // (the server: realestate_buildings.py)
 
 let seq = 0;
 function jsonp(url: string, params: Record<string, string | number>, timeoutMs = 6000): Promise<any> {

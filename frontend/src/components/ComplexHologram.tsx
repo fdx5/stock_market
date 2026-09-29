@@ -21,6 +21,7 @@ import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
 } from "./complexScene";
+import { paintStats, paintTextures, plinthTone, prefetchPaint } from "./paintClient";
 import "../desk2/realestate-hologram.css";
 import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
 import { facadeRelief } from "./tidewater/facadeRelief";
@@ -199,7 +200,7 @@ export function warmGpu(): void {
 async function terrainFor(res: RealEstateBuildingsResponse): Promise<Terrain> {
   if (!res.center) return FLAT;
   const ext = res.buildings.flatMap(b => b.rings[0]).reduce((m, [x, y]) => Math.max(m, Math.hypot(x, y)), 0);
-  const radius = Math.min(1400, (ext + 240) * 1.3 + 80);
+  const radius = Math.min(1400, (ext + 300) * 1.3 + 80);
   return Promise.race([
     loadTerrain(res.center, radius, res.vworld_key).catch(() => FLAT),
     new Promise<Terrain>(r => window.setTimeout(() => r(FLAT), 2500)),
@@ -263,6 +264,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
 }) {
   const sectionRef = useRef<HTMLElement>(null);
   const hourRef = useRef(0);
+  /** Build the current model again (its textures painted afresh). */
+  const rebuildRef = useRef<(() => void) | null>(null);
   const weatherRef = useRef<Weather>("clear");
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
@@ -391,6 +394,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         if (disposed) { view.dispose(); return; }
         if (view.canvas.parentElement !== host) host.appendChild(view.canvas);
         native = view;
+        if (import.meta.env.DEV) Object.assign(window, { __holoNative: view, __holoGL: renderer, __holoStageAny: stageRef });
         nativePending = false;
         resize();
       }).catch(err => {
@@ -762,7 +766,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           if (nowMs - nativeWaitSince > 40000 && !glMissing) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
         } else nativeWaitSince = 0;
         if (native.failed) {
+          const released = native.released ?? 0;
           native.dispose(); native = null;
+          // Canvases emptied after upload can't feed WebGL: build the model again.
+          if (released) rebuildRef.current?.();
           // Device lost with no WebGL to fall back on: the engine can't re-create its
           // device in this page; offer a reload instead of a dead view.
           if (glMissing) { setFailed3d(true); return; }
@@ -1036,6 +1043,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   }, [big, closeBig]);
 
   const terrainRef = useRef<Terrain>(FLAT);
+  rebuildRef.current = () => setData(d => (d ? { ...d } : d));
   const applyLookRef = useRef<((l: Look, env: boolean) => void) | null>(null);
   useEffect(() => {
     hourRef.current = hour;
@@ -1081,6 +1089,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     setLoading(true);
     setSlowData(false);
     const started = performance.now();
+    // Its facades start painting now, alongside the network.
+    prefetchPaint(complexId);
     if (hostRef.current) { delete hostRef.current.dataset.shownAt; hostRef.current.dataset.selectAt = started.toFixed(0); }
     const slowTimer = window.setTimeout(() => { if (live) setSlowData(true); }, 3000);
     setError("");
@@ -1179,10 +1189,19 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     let sliceStart = performance.now();
     const pace = async (force = false) => {
       if (force || performance.now() - sliceStart > 8) {
+        cpu += performance.now() - sliceStart;
         await nextSlice(pausedRef.current);
         sliceStart = performance.now();
       }
       return alive;
+    };
+    // Where the build's time goes (dataset.buildSteps: step=wall ms/main-thread ms).
+    const steps: string[] = [];
+    let stepAt = performance.now(), cpu = 0, cpuAt = 0;
+    const step = (name: string) => {
+      const now = performance.now(), used = cpu + (now - sliceStart);
+      steps.push(`${name}=${(now - stepAt).toFixed(0)}/${(used - cpuAt).toFixed(0)}`);
+      stepAt = now; cpuAt = used;
     };
     void (async () => {
 
@@ -1195,8 +1214,14 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const walls: THREE.MeshPhysicalMaterial[] = [];
     for (const s of [seed, seed + 7919]) {
       if (!await pace(true)) return;
-      const tex = await runSliced(facadeSteps(palette, s), pace);
+      // Started when the complex was chosen (alongside its network wait), or kept from
+      // an earlier visit.
+      const tex = await paintTextures({ kind: "facade", palette, seed: s }, pace);
       if (!tex) return;
+      if (!alive) { Object.values(tex).forEach(t => t.dispose()); return; }
+      // Painted for this complex only and never repainted: the WebGPU view empties the
+      // canvas once the texture is on the GPU (ComplexRenderer.release).
+      Object.values(tex).forEach(t => { t.userData.releaseAfterUpload = true; });
       Object.values(tex).forEach(keep);
       const m = keep(new THREE.MeshPhysicalMaterial({
         map: tex.map, normalMap: tex.normalMap, normalScale: new THREE.Vector2(0.9, 0.9),
@@ -1208,6 +1233,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       lit.windows.push(m);
       walls.push(m);
     }
+    step("facades");
     if (!await pace(true)) return;
     const roof = keep(new THREE.MeshStandardMaterial({ color: "#6f8174", roughness: 0.93 }));
     const crown = keep(new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.4, metalness: 0.45, emissive: palette.accent, emissiveIntensity: 0 }));
@@ -1218,9 +1244,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const lowTint = new THREE.Color(palette.wall).lerp(new THREE.Color("#ffffff"), 0.2);
     // The towers' own finish, a step above the neighbourhood: a honed granite base
     // (1–2층), end walls (측벽) in the complex's second colour with its accent stripe.
-    const stoneTex = await runSliced(plinthSteps(seed + 13, "#" + new THREE.Color(palette.wall2).lerp(new THREE.Color("#8d8a84"), 0.55).getHexString()), pace);
+    const stoneTex = await paintTextures({ kind: "plinth", seed: seed + 13, tone: plinthTone(palette) }, pace);
     if (!stoneTex) return;
+    if (!alive) { Object.values(stoneTex).forEach(t => t.dispose()); return; }
     Object.values(stoneTex).forEach(keep);
+    Object.values(stoneTex).forEach(t => { t.userData.releaseAfterUpload = true; });
     const stone = keep(new THREE.MeshPhysicalMaterial({
       map: stoneTex.map, normalMap: stoneTex.normalMap, normalScale: new THREE.Vector2(0.8, 0.8),
       roughnessMap: stoneTex.rmMap, roughness: 1, metalness: 0, clearcoat: 0.12, clearcoatRoughness: 0.35,
@@ -1236,7 +1264,33 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       g.setAttribute("color", new THREE.BufferAttribute(col, 3));
       return g;
     };
+    step("stone");
     [roof, crown, low, stone, trim].forEach(m => patchMaterial(m));
+    // The complex's own materials start compiling now, while its buildings are laid out
+    // (their pipelines used to wait for the finished model: ~1 s after it, on a first
+    // visit). One invisible triangle each — zero area, never culled, shadow-casting so the
+    // shadow passes compile too — with the attributes their meshes will have; gone once
+    // the model is on screen.
+    {
+      const tri = (color: boolean) => {
+        const g = keep(new THREE.BufferGeometry());
+        g.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(9), 3));
+        g.setAttribute("normal", new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
+        g.setAttribute("uv", new THREE.Float32BufferAttribute(new Float32Array(6), 2));
+        if (color) g.setAttribute("color", new THREE.Float32BufferAttribute(new Float32Array(9), 3));
+        return g;
+      };
+      const plainTri = tri(false), tintedTri = tri(true);
+      const warmBox = new THREE.Group();
+      stage.scene.add(warmBox);
+      for (const m of [...walls, roof, crown, low, stone, trim]) {
+        const mesh = new THREE.Mesh(m.vertexColors ? tintedTri : plainTri, m);
+        mesh.frustumCulled = false; mesh.castShadow = true;
+        stage.addWarm(warmBox, mesh);
+      }
+      stage.onShown.push(() => warmBox.removeFromParent());
+      disposables.push({ dispose: () => warmBox.removeFromParent() });
+    }
     // The neighbourhood's facades (and the complex's own low-rise) by style.
     const ctxGeos: Record<ContextStyle, THREE.BufferGeometry[]> = { villa: [], shop: [], office: [], apt: [] };
 
@@ -1329,6 +1383,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       top = Math.max(top, H);
       floor = Math.min(floor, g);
     }
+    step("towers");
     if (!Number.isFinite(floor)) floor = 0;
     for (const [mat, geos] of parts) {
       const merged = keep(mergeGeometries(geos, false)!);
@@ -1351,12 +1406,14 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // own ground, in one of three facades chosen by its registered use, tinted per
     // building, windows fitted to its registered floors, a parapet round its roof.
     const ext = data.buildings.flatMap(b => b.rings[0]).reduce((m, [x, y]) => Math.max(m, Math.hypot(x, y)), 0);
-    const reach = ext + 240;
+    // Neighbours drawn this far out (the fetched radius, CONTEXT_M 288 m, plus the parcel).
+    const reach = ext + 300;
     const tints = ["#f1ede4", "#e4e1da", "#d9d4ca", "#c9b8a4", "#b88f78", "#a9b3bb", "#e8e3d3", "#cfc9bd"];
     const styles: ContextStyle[] = ["villa", "shop", "office", "apt"];
     const parapets: THREE.Matrix4[] = [];
     const pm = new THREE.Object3D();
     const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach));
+    step("merge");
     if (!await pace(true)) return;
     for (const b of neighbours) {
       if (!await pace()) return;
@@ -1384,6 +1441,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         parapets.push(pm.matrix.clone());
       });
     }
+    step("neighbours");
     for (const style of styles) {
       if (!await pace()) return;
       const list = ctxGeos[style];
@@ -1418,9 +1476,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // The ground: the surveyed parcel landscaped (flat paint only), laid over the real
     // relief; damp paving reflects the towers where the ground is level.
     const T = Math.max(reach * 1.15, span * 0.9 + 120);
+    step("ctxMaterials");
     if (!await pace(true)) return;
     const plan = await runSliced(paintGroundSteps(data, T, stage.hq ? 2048 : 1024, seed), pace);
     if (!plan) return;
+    step("groundPaint");
     if (!await pace(true)) return;
     [plan.color, plan.rough].forEach(keep);
     const G = dist * 12;
@@ -1445,6 +1505,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         far: { value: dist * 2.2 },
       } : undefined,
     });
+    step("groundGeo");
     ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
@@ -1526,6 +1587,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // place, parks and forest get their trees, water its surface, alleys their people;
       // the parcels are kept with the complex.
       void landUse().then(planting => {
+        // The ground's last paint is done (land use in, or none to come): its canvases
+        // may go once uploaded again.
+        for (const t of [plan.color, plan.rough, plan.glow]) { t.userData.releaseAfterUpload = true; t.needsUpdate = true; }
         if (!alive) return;
         planting.street = street;
         const parcels = data.parcels ?? [];
@@ -1644,6 +1708,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
 
     if (hostRef.current) {
       hostRef.current.dataset.modelBuildMs = (performance.now() - modelStarted).toFixed(0);
+      step("rest");
+      hostRef.current.dataset.buildSteps = steps.join(" ");
+      hostRef.current.dataset.paint = `kept ${paintStats.kept} / painted ${paintStats.painted}`;
       hostRef.current.dataset.builtAt = performance.now().toFixed(0);
       hostRef.current.dataset.terrain = terrain.source ? `${terrain.relief.toFixed(1)}m` : "flat";
       hostRef.current.dataset.neighbours = String(neighbours.length);

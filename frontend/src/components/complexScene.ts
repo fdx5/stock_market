@@ -393,11 +393,25 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
  * kept for every complex after (never disposed with a model). */
 const sharedTex = new Map<string, Record<string, THREE.Texture>>();
 /** The same, painted in slices (the first time) so the page stays responsive. */
+type Kept = { lookUp: (style: ContextStyle) => Promise<Record<string, THREE.Texture> | null>; keep: (style: ContextStyle, t: Record<string, THREE.Texture>) => void };
+let kept: Kept | null = null;
+const lookups = new Map<string, Promise<Record<string, THREE.Texture> | null>>();
+/** Copies kept between visits, when the page has them (paintClient). */
+export function keepPaintWith(k: Kept) { kept = k; }
 export async function sharedContextTexturesSliced(style: ContextStyle, pace: () => Promise<boolean>): Promise<Record<string, THREE.Texture> | null> {
   const hit = sharedTex.get(style);
   if (hit) return hit;
+  if (kept) {
+    let job = lookups.get(style);
+    if (!job) { job = kept.lookUp(style); lookups.set(style, job); }
+    const got = await job;
+    if (got && !sharedTex.has(style)) sharedTex.set(style, got);
+    if (sharedTex.has(style)) return sharedTex.get(style)!;
+    if (!await pace()) return null;
+    if (sharedTex.has(style)) return sharedTex.get(style)!;
+  }
   const made = await runSliced<Record<string, THREE.Texture>>(style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242) : contextSteps(1000 + style.length, style), pace);
-  if (made && !sharedTex.has(style)) sharedTex.set(style, made);
+  if (made && !sharedTex.has(style)) { sharedTex.set(style, made); kept?.keep(style, made); }
   return sharedTex.get(style) ?? null;
 }
 export function sharedContextTextures(style: ContextStyle): Record<string, THREE.Texture> {

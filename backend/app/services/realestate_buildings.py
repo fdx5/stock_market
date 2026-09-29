@@ -42,11 +42,11 @@ VWORLD_ADDRESS = "https://api.vworld.kr/req/address"
 VWORLD_DATA = "https://api.vworld.kr/req/data"
 FLOOR_M = 2.9           # typical 공동주택 floor-to-floor height
 GROUND_M = 1.5          # pilotis / ground floor extra
-CONTEXT_M = 230         # neighbours drawn around the complex
+CONTEXT_M = 288         # neighbours drawn around the complex (1.25x the former 230 m)
 ROAD_M = 150            # surveyed major roads drawn around the parcel
 KEEP_DAYS = 30
 KEEP_MISS_DAYS = 1
-STORE_VERSION = "bldg-v2"  # v2: every registered neighbour in the radius, not the nearest 700
+STORE_VERSION = "bldg-v3"  # v2: every registered neighbour in the radius, not the nearest 700; v3: 288 m radius
 
 _cache: dict[str, tuple[float, dict]] = {}
 _locks: dict[str, threading.Lock] = {}

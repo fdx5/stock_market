@@ -10,6 +10,8 @@ export class ComplexRenderer {
   ready: boolean;
   shown: boolean;
   failed: boolean;
+  /** Canvases emptied after upload (a fall back to WebGL must repaint them). */
+  released?: number;
   quality: Quality;
   stats: { draws: number; triangles: number; pipelines: number };
   /** Smoothed GPU ms per pass and their sum (total); empty without timestamp queries. */

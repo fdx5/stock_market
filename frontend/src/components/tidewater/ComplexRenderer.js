@@ -14,6 +14,7 @@ import { SceneLighting } from '../../vendor/tidewater/engine/render/wgsl/lightin
 import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/index.js';
 import { waterMaterial, updateWaveTile } from './ComplexWater.js';
 import { GpuTimer } from './GpuTimer.js';
+import { packInto } from './texturePack.js';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. The view steps down on its own while frames are slow. */
@@ -33,7 +34,7 @@ let shadowKey = '';
 /** pcss: cascades with contact-hardening soft shadows (the costliest filter); 0 = PCF. */
 function useShadows({ shadow: size, pcss }) {
   if (shadowKey === size + '/' + pcss) return;
-  shadows?.texture.destroy();
+  shadows?.dispose();
   shadows = new SunShadows({ size, splits: [180, 600, 1800], normalBias: [0.12, 0.3, 0.7], pcssCascades: pcss });
   shadowKey = size + '/' + pcss;
   shadowOwner = null;
@@ -61,7 +62,7 @@ async function device() {
 // new module must reuse that device (device() below); a second one fails validation
 // and leaves the first, still referenced, holding ~400 MB. Only this module's shadow
 // atlas is its own to release.
-if (import.meta.hot) import.meta.hot.dispose(() => { shadows?.texture.destroy(); shadows = null; shadowKey = ''; });
+if (import.meta.hot) import.meta.hot.dispose(() => { shadows?.dispose(); shadows = null; shadowKey = ''; });
 
 const atmosphere = new ShaderModule({ name: 'complex daylight atmosphere', code: /* wgsl */`
 fn skyHash(p: vec2f) -> f32 { return fract(sin(dot(p, vec2f(127.1, 311.7))) * 43758.5453); }
@@ -271,6 +272,13 @@ fn fragment(in: FSIn) -> vec4f {
 /** The device, ahead of the first view (ComplexHologram.warmGpu). */
 export function warmDevice() { return device().catch(() => {}); }
 
+const isMoving = mesh => mesh.moving === true;
+function sameMatrix(a, b) {
+  const x = a.elements, y = b.elements;
+  for (let i = 0; i < 16; i++) if (x[i] !== y[i]) return false;
+  return true;
+}
+
 export class ComplexRenderer {
   static async create(host, quality = QUALITY.high) {
     await device();
@@ -343,7 +351,53 @@ export class ComplexRenderer {
     generateMipmaps(tex);
     tex.sourceVersion = source.version;
     this.textures.set(source, tex);
+    this.release(source);
     return tex;
+  }
+  /** Normal map + roughness (G) / metalness (B) map of the same size and placement as one
+   * rgba8 texture (x, y, roughness, metalness): a quarter of a facade's texture memory. */
+  packedSurface(source) {
+    const n = source.normalMap, r = source.roughnessMap;
+    if (!n || !r || (source.metalnessMap && source.metalnessMap !== r)) return null;
+    if (this.textures.has(n)) return this.textures.get(n).packed ? this.textures.get(n) : null;
+    const a = n.image, b = r.image;
+    const same = (u, v) => u.x === v.x && u.y === v.y;
+    if (!a?.width || !b?.width || a.width !== b.width || a.height !== b.height || n.flipY !== r.flipY
+      || n.wrapS !== 1000 || r.wrapS !== 1000 || !same(n.repeat, r.repeat) || !same(n.offset, r.offset)) return null;
+    const tex = new Texture({ width: a.width, height: a.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render'] });
+    packInto(tex, [{ img: a, flipY: n.flipY }, { img: b, flipY: r.flipY }], 'vec4f(A.x, A.y, B.y, B.z)');
+    tex.packed = true;
+    tex.sourceVersion = n.version;
+    this.textures.set(n, tex);
+    this.release(n); this.release(r);
+    return tex;
+  }
+  /** A roughness map (read from G) as a single-channel texture: a quarter of its memory. */
+  singleChannel(source) {
+    const known = this.textures.get(source);
+    if (known) return known.channel ? known : null;
+    const img = source.image;
+    if (!img?.width || !img?.height || img.data) return null;
+    const tex = new Texture({ width: img.width, height: img.height, format: 'r8unorm', mips: true, usage: ['sample', 'render'] });
+    tex.repack = () => packInto(tex, [{ img: source.image, flipY: source.flipY }], 'vec4f(A.y, 0.0, 0.0, 1.0)');
+    tex.repack();
+    tex.channel = true;
+    tex.sourceVersion = source.version;
+    this.textures.set(source, tex);
+    this.release(source);
+    return tex;
+  }
+  /** A canvas painted for one complex and never repainted (userData.releaseAfterUpload):
+   * once on the GPU, its pixels are held twice — the page's 2D canvas (GPU-backed in
+   * Chrome) or bitmap, and this texture. Emptied here (~100 MB a complex). `released` counts
+   * them: a later fall back to WebGL has to paint them again. */
+  release(source) {
+    const img = source.image;
+    if (!source.userData?.releaseAfterUpload || source.userData.released || !img || img.data || !('width' in img)) return;
+    // A canvas is emptied; a bitmap (painted in the worker) let go.
+    if (typeof img.close === 'function') img.close(); else { img.width = 1; img.height = 1; }
+    source.userData.released = true;
+    this.released = (this.released ?? 0) + 1;
   }
   /** Canvas textures repainted in place (the ground once land use arrives): upload again. */
   refreshTextures() {
@@ -351,9 +405,11 @@ export class ComplexRenderer {
       if (tex.sourceVersion === source.version) continue;
       tex.sourceVersion = source.version;
       const img = source.image;
-      if (!img?.width || img.data || img.width !== tex.width || img.height !== tex.height) continue;
+      if (!img?.width || img.data || img.width !== tex.width || img.height !== tex.height || tex.packed) continue;
+      if (tex.repack) { tex.repack(); this.release(source); continue; }
       GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]);
       generateMipmaps(tex);
+      this.release(source);
     }
   }
   material(source) {
@@ -366,13 +422,19 @@ export class ComplexRenderer {
     }
     const textures = {};
     let surface = '';
+    // Relief normals and roughness / metalness in one texture where they line up (the
+    // facades): normal x, y, roughness, metalness; z comes back from x and y.
+    const surfaceTex = this.packedSurface(source);
+    // Roughness alone (the ground): its one channel.
+    const roughOnly = !surfaceTex && source.roughnessMap && source.roughnessMap !== source.metalnessMap ? this.singleChannel(source.roughnessMap) : null;
     for (const [key, statement] of [
       ['map', 's.albedo *= texel.rgb; s.alpha *= texel.a;'],
-      ['roughnessMap', 's.roughness *= texel.g;'],
+      ['roughnessMap', roughOnly ? 's.roughness *= texel.r;' : 's.roughness *= texel.g;'],
       ['metalnessMap', 's.metalness *= texel.b;'],
       ['emissiveMap', 's.emissive *= texel.rgb;'],
     ]) {
-      const tex = source[key] && this.texture(source[key]);
+      if (surfaceTex && (key === 'roughnessMap' || key === 'metalnessMap')) continue;
+      const tex = source[key] && (key === 'roughnessMap' && roughOnly ? roughOnly : this.texture(source[key]));
       if (!tex) continue;
       textures[key] = tex;
       const t = source[key];
@@ -381,12 +443,16 @@ export class ComplexRenderer {
       surface += `{ let uv = in.uv * vec2f(${f(t.repeat.x)}, ${f(t.repeat.y)}) + vec2f(${f(t.offset.x)}, ${f(t.offset.y)}); let texel = textureSample(${key}, ${sampler}, uv); ${statement} }\n`;
     }
     if (source.normalMap) {
-      textures.normalMap = this.texture(source.normalMap);
+      textures.normalMap = surfaceTex ?? this.texture(source.normalMap);
       const t = source.normalMap;
       // Cotangent frame from screen derivatives: works on arbitrary GIS walls.
       surface += `{
         let uv = in.uv * vec2f(${t.repeat.x.toFixed(8)}, ${t.repeat.y.toFixed(8)}) + vec2f(${t.offset.x.toFixed(8)}, ${t.offset.y.toFixed(8)});
-        let mapN = textureSample(normalMap, smpAnisoRepeat, uv).xyz * 2.0 - 1.0;
+        ${surfaceTex ? `let packed = textureSample(normalMap, smpAnisoRepeat, uv);
+        var mapN = vec3f(packed.xy * 2.0 - 1.0, 0.0);
+        mapN.z = sqrt(max(1.0 - dot(mapN.xy, mapN.xy), 0.0));
+        s.roughness *= packed.z;${source.metalnessMap === source.roughnessMap ? ' s.metalness *= packed.w;' : ''}`
+          : 'let mapN = textureSample(normalMap, smpAnisoRepeat, uv).xyz * 2.0 - 1.0;'}
         let q0 = dpdx(in.P); let q1 = dpdy(in.P);
         let st0 = dpdx(uv); let st1 = dpdy(uv);
         let q1p = cross(q1, in.N); let q0p = cross(in.N, q0);
@@ -459,12 +525,32 @@ export class ComplexRenderer {
         this.scene.add(mesh);
         this.ready = false;
         added = true;
+        // A new caster joins the cached shadows (as still, until it moves).
+        if (mesh.castShadow) this.castersChanged = true;
+        mesh.matrix.copy(obj.matrixWorld);
+        mesh.count = obj.count ?? 1;
+        mesh.instVersion = obj.instanceMatrix?.version;
       }
-      mesh.count = obj.count ?? 1;
-      mesh.matrix.copy(obj.matrixWorld);
+      // Casters that moved lately (walkers, traffic, boats, the balloon) are drawn into the
+      // shadow maps every frame; the still ones can be kept (SunShadows.render). A change
+      // of either set invalidates what is kept.
+      const moved = mesh.count !== (obj.count ?? 1) || mesh.instVersion !== obj.instanceMatrix?.version || !sameMatrix(mesh.matrix, obj.matrixWorld);
+      if (moved) {
+        if (mesh.castShadow && !mesh.moving) this.castersChanged = true;
+        mesh.moving = true; mesh.movedAt = this.frameNo;
+        mesh.count = obj.count ?? 1;
+        mesh.instVersion = obj.instanceMatrix?.version;
+        mesh.matrix.copy(obj.matrixWorld);
+      } else if (mesh.moving && this.frameNo - mesh.movedAt > 90) {
+        mesh.moving = false;
+        if (mesh.castShadow) this.castersChanged = true;
+      }
     });
     let removed = false;
-    for (const [obj, mesh] of this.meshes) if (!active.has(obj)) { this.scene.remove(mesh); this.meshes.delete(obj); removed = true; }
+    for (const [obj, mesh] of this.meshes) if (!active.has(obj)) {
+      this.scene.remove(mesh); this.meshes.delete(obj); removed = true;
+      if (mesh.castShadow && !mesh.moving) this.castersChanged = true;
+    }
     // Release what the scene no longer uses — on a change, and every couple of seconds
     // (the scans allocate; most frames change nothing). A material (with its textures)
     // goes only after 20 s out of use: dropping one clears every pipeline, and things
@@ -492,6 +578,7 @@ export class ComplexRenderer {
     if (this.disposed || this.failed) return;
     if (deviceLost) { this.failed = true; return; }
     GPU.beginFrame();
+    this.frameNo = (this.frameNo ?? 0) + 1;
     this.sync(source);
     this.refreshTextures();
     const c = this.camera;
@@ -512,12 +599,14 @@ export class ComplexRenderer {
       mat.set('haze', (source.fog?.density ?? 0.0005) * 0.5);
     }
     // Shared shadow atlas must be refreshed for each view (including modal views).
-    if (shadowOwner !== this) shadows.cascades.forEach(x => { x.dirty = true; });
+    if (shadowOwner !== this) { shadows.cascades.forEach(x => { x.dirty = true; }); shadows.invalidateCache(); }
     shadowOwner = this;
+    if (this.castersChanged) { shadows.invalidateCache(); this.castersChanged = false; }
+    this.shadowStats = shadows.stats;
     this.renderer.precompiling = !this.shown;
     const timer = this.timer;
     timer.begin();
-    shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i));
+    shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i), this.renderer.precompiling ? null : isMoving);
     setFrameCamera(c, this.canvas.width, this.canvas.height);
     const pass = { camera: c, kind: 'color', colorViews: [this.target.texture.view()], colorFormats: ['rgba16float'], depthView: this.target.depthTexture.view(), depthFormat: 'depth32float' };
     // One collection per frame. Opaque geometry, then the sky where nothing was drawn;

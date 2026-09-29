@@ -1,4 +1,5 @@
 import { Texture } from '../gpu/Texture.js';
+import { GPU } from '../gpu/GPU.js';
 import { ShadowUniforms, setShadowMap } from './wgsl/lighting.js';
 import { createViewUniforms, setFrameCamera } from './Frame.js';
 import { Matrix4, Vector3, Vector4 } from '../math/index.js';
@@ -29,7 +30,10 @@ export class SunShadows {
 		this.lightMargin = lightMargin;
 		this.normalBias = normalBias;
 		this.periods = splits.map( ( _, i ) => i === 0 ? 1 : i === 1 ? 2 : 4 );
-		this.texture = new Texture( { label: 'sunShadowMap', width: size, height: size, depth: this.count, dimension: '2d-array', format: 'depth32float', usage: [ 'sample', 'render' ] } );
+		this.texture = new Texture( { label: 'sunShadowMap', width: size, height: size, depth: this.count, dimension: '2d-array', format: 'depth32float', usage: [ 'sample', 'render', 'copySrc', 'copyDst' ] } );
+		// (local modification) static casters kept per cascade while the view holds still: see render()
+		this.cache = null;
+		this.cacheLayers = Math.min( 2, this.count );
 		setShadowMap( this.texture );
 		this.cascades = splits.map( ( _, i ) => ( {
 			camera: {
@@ -40,7 +44,12 @@ export class SunShadows {
 			viewProj: new Matrix4(),
 			radius: 0,
 			dirty: true,
+			lastFit: new Matrix4(), // viewProj of the fit before this one
+			cacheVP: new Matrix4(), // viewProj the cached static layer was drawn with
+			cached: false,
+			stillFits: 0,
 		} ) );
+		this.idleRenders = 0;
 		this.enabled = true;
 		this.layerMask = 0xffffffff;
 		this.frame = 0;
@@ -98,11 +107,17 @@ export class SunShadows {
 		const L = sunDir;
 		const up = Math.abs( L.y ) > 0.99 ? _tmp.set( 1, 0, 0 ) : _up;
 		cam.matrixWorld.lookAt( L, new Vector3( 0, 0, 0 ), up ); // rotation only: z axis = sunDir
+		// (local modification) snapped in a light frame anchored at the world origin: lookAt keeps
+		// the last eye as the translation, which made the grid follow the eye
+		cam.matrixWorld.setPosition( 0, 0, 0 );
 		_inv.copy( cam.matrixWorld ).invert();
 		const texel = 2 * r / this.size;
 		const ls = _tmp4.set( _center.x, _center.y, _center.z, 1 ).applyMatrix4( _inv );
 		ls.x = Math.round( ls.x / texel ) * texel;
 		ls.y = Math.round( ls.y / texel ) * texel;
+		// (local modification) along the light too: an orbit's damping never quite settles, and
+		// sub-texel drift here would change the matrix (and the depths) every frame
+		ls.z = Math.round( ls.z / texel ) * texel;
 		const back = r + this.lightMargin;
 		// eye = snapped centre moved back toward the sun
 		const eye = new Vector3( ls.x, ls.y, ls.z + back ).applyMatrix4( cam.matrixWorld );
@@ -146,29 +161,95 @@ export class SunShadows {
 
 	}
 
+	/** Forget the cached static casters (they changed, or another view drew over the maps). */
+	invalidateCache() {
+
+		for ( const c of this.cascades ) c.cached = false;
+
+	}
+
 	// timestamps: optional ( i ) => GPURenderPassTimestampWrites (local modification: profiling)
-	render( scene, meshRenderer, indices, timestamps = null ) {
+	//
+	// (local modification) isDynamic: optional ( mesh ) => bool, the casters that move. While a
+	// cascade's fit stays put (camera and sun still), its static casters are drawn once into a
+	// cache layer; each later render copies that back and draws only the moving casters over
+	// it. A moving view renders every caster in one pass, as before (nothing is kept then:
+	// the copy would only add to its cost). Near cascades only (cacheLayers).
+	render( scene, meshRenderer, indices, timestamps = null, isDynamic = null ) {
 
 		for ( const i of indices ) {
 
 			const c = this.cascades[ i ];
 			setFrameCamera( c.camera, this.size, this.size, { block: c.block } );
-			meshRenderer.render( scene, {
+			const layer = this.texture.view( { dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 } );
+			const pass = ( extra ) => meshRenderer.render( scene, {
 				label: 'shadow cascade ' + i,
 				kind: 'depth',
 				timestampWrites: timestamps ? timestamps( i ) : undefined,
 				camera: c.camera,
 				frameBlock: c.block,
-				depthView: this.texture.view( { dimension: '2d', baseArrayLayer: i, arrayLayerCount: 1 } ),
+				depthView: layer,
 				depthFormat: 'depth32float',
 				clearDepth: 1,
 				depthCompare: 'less-equal',
 				layerMask: this.layerMask,
 				depthBias: 2,
 				depthBiasSlopeScale: 1.5,
+				...extra,
 			} );
+			const still = c.lastFit.equals( c.viewProj );
+			c.lastFit.copy( c.viewProj );
+			c.stillFits = still ? c.stillFits + 1 : 0;
+			if ( ! isDynamic || i >= this.cacheLayers ) { pass(); continue; }
+			// The cache (~17 MB a layer) only once the view has held still for a moment
+			// (auto-rotation, a drag: never), and given back after a while of moving.
+			if ( ! this.cascades.some( ( x ) => x.cached ) && ++ this.idleRenders > 900 && this.cache ) { this.cache.destroy(); this.cache = null; }
+			const moving = ( o ) => isDynamic( o );
+			this.stats ??= { hit: 0, store: 0, full: 0 };
+			if ( c.cached && c.cacheVP.equals( c.viewProj ) ) {
+				this.stats.hit ++;
+				this.idleRenders = 0;
+
+				this._copy( this.cache, this.texture, i );
+				pass( { filter: moving, clearDepth: null } );
+
+			} else if ( still && c.stillFits >= 24 ) {
+				this.stats.store ++;
+
+				pass( { filter: ( o ) => ! isDynamic( o ) } );
+				this.cache ??= new Texture( { label: 'sunShadowCache', width: this.size, height: this.size, depth: this.cacheLayers, dimension: '2d-array', format: 'depth32float', usage: [ 'copySrc', 'copyDst' ] } );
+				this._copy( this.texture, this.cache, i );
+				c.cached = true;
+				c.cacheVP.copy( c.viewProj );
+				pass( { filter: moving, clearDepth: null } );
+
+			} else {
+
+				c.cached = false;
+				this.stats.full ++;
+				pass();
+
+			}
 
 		}
+
+	}
+
+	_copy( from, to, layer ) {
+
+		GPU.getEncoder().copyTextureToTexture(
+			{ texture: from.getGPU(), origin: [ 0, 0, layer ] },
+			{ texture: to.getGPU(), origin: [ 0, 0, layer ] },
+			[ this.size, this.size, 1 ],
+		);
+
+	}
+
+	dispose() {
+
+		this.texture.destroy();
+		this.cache?.destroy();
+		this.cache = null;
 
 	}
 

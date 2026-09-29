@@ -127,14 +127,27 @@ export function installNavRowScroll() {
   window.addEventListener("resize", syncAll);
 
   // Rows come and go with route changes and fonts/translations change their width.
-  // Debounced so busy pages (tickers, WebGL overlays) do not pay for a layout read on
-  // every DOM mutation.
+  // Only mutations that touch a row (or add one) count: busy pages (a clock ticking,
+  // tickers, a 3D view's overlays) otherwise forced a whole-page layout read after
+  // every burst (~0.3 s of main thread while the real-estate 3D view loaded). A
+  // ResizeObserver on each row catches width changes without reading layout itself.
   let timer = 0;
   const schedule = () => {
     window.clearTimeout(timer);
     timer = window.setTimeout(syncAll, 120);
   };
-  new MutationObserver(schedule).observe(document.body, { childList: true, subtree: true, characterData: true });
+  const watched = new WeakSet<Element>();
+  const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(entries => entries.forEach(e => syncRow(e.target as HTMLElement))) : null;
+  const watchRows = () => document.querySelectorAll<HTMLElement>(ROW).forEach(row => { if (!watched.has(row)) { watched.add(row); sizes?.observe(row); } });
+  const touchesRow = (m: MutationRecord) => {
+    const at = m.target instanceof Element ? m.target : m.target.parentElement;
+    if (at?.closest?.(ROW)) return true;
+    for (const n of m.addedNodes) if (n instanceof Element && (n.matches(ROW) || n.querySelector(ROW))) return true;
+    return false;
+  };
+  new MutationObserver(mutations => { if (mutations.some(touchesRow)) { watchRows(); schedule(); } })
+    .observe(document.body, { childList: true, subtree: true, characterData: true });
+  watchRows();
   window.addEventListener("load", schedule);
   document.fonts?.ready.then(schedule).catch(() => {});
   schedule();
