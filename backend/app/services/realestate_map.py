@@ -33,6 +33,7 @@ import datetime as dt
 import heapq
 import json
 import logging
+import functools
 import math
 import os
 import re
@@ -1191,6 +1192,25 @@ def _window(period: str, latest_day: int) -> tuple[int, int]:
     days = PERIODS[period]
     start = latest_day if days is None else _as_int(today - dt.timedelta(days=days))
     return start, _as_int(today - dt.timedelta(days=365))
+
+
+@functools.lru_cache(maxsize=512)
+def complex_label(complex_id: str) -> tuple[str, str] | None:
+    """Name and 동 of one complex, for link previews (a shared 3D view). Many ids carry
+    no name ("11680:<serial>"), so it is looked up as complex_detail looks it up; the
+    presale-rights records only when the trades don't have it. None when unknown."""
+    lawd = complex_id.split(":", 1)[0]
+    try:
+        if lawd not in _sgg_index():
+            return None
+        found = _complexes([lawd])
+        c = found.get(complex_id)
+        if c is None:
+            merged = realestate_rights.merge(found, [lawd], priority=True)
+            c = merged.get(complex_id) or next((x for x in merged.values() if complex_id in x.get("aliases", [])), None)
+    except Exception:
+        return None
+    return (c["name"], c.get("dong") or "") if c else None
 
 
 def complex_detail(complex_id: str, period: str) -> dict:

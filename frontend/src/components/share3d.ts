@@ -1,8 +1,8 @@
 /* Sharing the 3D 단지뷰 the way the map pages share (mapExport.tsx handleShareMap): a
  * picture of the view and a link that opens straight into it, full screen, at the same
  * hour and weather. On a phone both go to the OS share sheet (KakaoTalk takes them
- * together); on a desktop the picture goes to the clipboard for Ctrl+V into the chat,
- * and the page offers the link as a second copy. */
+ * together); on a desktop the picture and the link go to the clipboard together, as one
+ * item (the app pasted into takes the form it accepts). */
 import type { Weather } from "./complexScene";
 import { IS_MOBILE_LIKE, downloadTimestamp } from "./mapExport";
 
@@ -41,11 +41,11 @@ export async function captionedShot(frame: Blob, title: string, caption: string)
   return new Promise(resolve => c.toBlob(b => resolve(b), "image/png"));
 }
 
-export type ShareStage = "idle" | "image-copied" | "link-copied";
+export type ShareStage = "idle" | "both-copied" | "link-copied";
 
 /** handleShareMap's order: phone share sheet with the picture and the link; the picture
- * to the clipboard (the page then shows the Ctrl+V note and a link button); the share
- * sheet with the link alone; the link to the clipboard. */
+ * and the link to the clipboard in one item; the share sheet with the link alone; the
+ * link to the clipboard (never the picture without the link, and no second press). */
 export async function share3d(o: { url: string; title: string; text: string; image: Blob | null }): Promise<ShareStage> {
   const file = o.image ? new File([o.image], `realestate_3d_${downloadTimestamp()}.png`, { type: "image/png" }) : null;
   try {
@@ -54,8 +54,10 @@ export async function share3d(o: { url: string; title: string; text: string; ima
       return "idle";
     }
     if (o.image && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-      await navigator.clipboard.write([new ClipboardItem({ "image/png": o.image })]);
-      return "image-copied";
+      try {
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": o.image, "text/plain": new Blob([o.url], { type: "text/plain" }) })]);
+        return "both-copied";
+      } catch { /* one form per item here: the link below */ }
     }
     if (IS_MOBILE_LIKE && typeof navigator.share === "function") {
       await navigator.share({ title: o.title, text: o.text, url: o.url });

@@ -286,10 +286,6 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       setShareStage(await share3d({ url: shareUrl.current, title: `${name} 3D 단지뷰`, text: `${name} 3D 단지뷰 · ${phaseCaption()}`, image }));
     } finally { setSharing(false); }
   };
-  const copyShareLink = async () => {
-    try { await navigator.clipboard.writeText(shareUrl.current); setShareStage("link-copied"); window.setTimeout(() => setShareStage("idle"), 4000); }
-    catch { /* clipboard refused: the note stays up for another try */ }
-  };
   const [tip, setTip] = useState<{ x: number; y: number; text: string; pinned: boolean; w: number } | null>(null);
   const [failed3d, setFailed3d] = useState(false);
   const [terrainSource, setTerrainSource] = useState<string | null>(null);
@@ -1629,13 +1625,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         <div className="kospi-map-share-backdrop re-holo-share-layer" onClick={() => setShareStage("idle")} />
         <div className="kospi-map-share-popover is-centered re-holo-share-layer" role="status">
           <button type="button" className="kospi-map-share-popover-close" onClick={() => setShareStage("idle")} aria-label="닫기">×</button>
-          {shareStage === "image-copied" ? (
-            <>
-              <p>3D 화면 이미지가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.</p>
-              <button type="button" className="kospi-map-share-popover-link" onClick={() => void copyShareLink()}>링크도 복사하기</button>
-            </>
+          {shareStage === "both-copied" ? (
+            <p>3D 화면 이미지와 링크가 함께 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.</p>
           ) : (
-            <p>링크가 복사되었습니다. 채팅창에 이어서 붙여넣어 주세요.</p>
+            <p>3D 화면 링크가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.</p>
           )}
         </div>
       </OnScreen>
