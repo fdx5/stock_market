@@ -1048,6 +1048,57 @@ a.app-brand:hover .app-logo-wide {
   display: none;
 }
 
+/* Overflowing link row (state set by navRowScroll.ts): edge fades say "more this
+   way", and mouse users get a thin scrollbar plus wheel / drag panning. Selectors
+   are one class heavier than every per-page .app-nav-row rule so this wins
+   wherever the row was hidden-scrollbar. */
+:root .app-nav-row[data-nav-overflow="true"] {
+  --nav-fade-l: 0px;
+  --nav-fade-r: 0px;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 var(--nav-fade-l), #000 calc(100% - var(--nav-fade-r)), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 var(--nav-fade-l), #000 calc(100% - var(--nav-fade-r)), transparent 100%);
+}
+
+:root .app-nav-row[data-nav-more-start="true"] {
+  --nav-fade-l: 28px;
+}
+
+:root .app-nav-row[data-nav-more-end="true"] {
+  --nav-fade-r: 28px;
+}
+
+:root .app-nav-row[data-nav-dragging="true"] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  :root .app-nav-row[data-nav-overflow="true"] {
+    cursor: grab;
+    padding-bottom: 6px;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--text-muted, #8892a0) 55%, transparent) transparent;
+  }
+
+  :root .app-nav-row[data-nav-overflow="true"]::-webkit-scrollbar {
+    display: block;
+    height: 6px;
+  }
+
+  :root .app-nav-row[data-nav-overflow="true"]::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  :root .app-nav-row[data-nav-overflow="true"]::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text-muted, #8892a0) 55%, transparent);
+  }
+
+  :root .app-nav-row[data-nav-dragging="true"] .kospi-map-nav-link {
+    pointer-events: none;
+  }
+}
+
 /* Shared external-game CTA: portalled into each page's real header so it is always
    the final header link, including full-screen WebGL pages with custom headers. */
 .voltaris-ingress-link {
