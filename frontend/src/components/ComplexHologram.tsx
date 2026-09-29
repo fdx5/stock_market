@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMediaQuery } from "../useMediaQuery";
-import { captionedShot, share3d, view3dUrl, type ShareStage } from "./share3d";
+import { captionedShot, saveImage3d, shareLink3d, view3dUrl, type ShareStage } from "./share3d";
 import { OnScreen } from "./mapExport";
 import KakaoIcon from "./KakaoIcon";
 import * as THREE from "three";
@@ -31,7 +31,7 @@ import { FLAT, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
-import { buildBoats } from "./sceneBoats";
+import { buildBoats, noBoatsReason } from "./sceneBoats";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
@@ -220,8 +220,12 @@ function inputOnlyRenderer(): THREE.WebGLRenderer {
   } as unknown as THREE.WebGLRenderer;
 }
 
-export default function ComplexHologram({ complexId, complexName, caption, wide = false, initialTod, paused = false }: {
+export default function ComplexHologram({ complexId, complexName, caption, wide = false, initialTod, paused = false, openFull = 0, onFullChange }: {
   complexId: string | null; complexName?: string; caption?: string;
+  /** Each increase opens this view full screen (the map's detail card on a desktop
+   * shows its complex here rather than in a second renderer). */
+  openFull?: number;
+  onFullChange?: (open: boolean) => void;
   /** Covered by something the reader is using (the detail popup): stop drawing, and do
    * any loading only in the browser's idle time. */
   paused?: boolean;
@@ -271,19 +275,25 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const [sharing, setSharing] = useState(false);
   const shareUrl = useRef("");
   const onShare = async () => {
+    if (!complexId || sharing) return;
+    const name = data?.name ?? complexName ?? "단지";
+    shareUrl.current = view3dUrl(complexId, hour, weather);
+    setShareStage(await shareLink3d({ url: shareUrl.current, title: `${name} 3D 단지뷰`, text: `${name} 3D 단지뷰 · ${phaseCaption()}` }));
+  };
+  // 이미지 저장: the next frame drawn, with its caption band.
+  const onSaveImage = async () => {
     const st = stageRef.current;
-    if (!complexId || !st || sharing) return;
-    setSharing(true); setShareStage("idle");
+    if (!st || sharing) return;
+    setSharing(true);
     try {
       const name = data?.name ?? complexName ?? "단지";
-      shareUrl.current = view3dUrl(complexId, hour, weather);
       const frame = await new Promise<Blob | null>(resolve => {
         const timer = window.setTimeout(() => { if (st.snap) { st.snap = null; resolve(null); } }, 1500);
         st.snap = b => { window.clearTimeout(timer); resolve(b); };
         st.resume();
       });
       const image = frame ? await captionedShot(frame, name, phaseCaption()) : null;
-      setShareStage(await share3d({ url: shareUrl.current, title: `${name} 3D 단지뷰`, text: `${name} 3D 단지뷰 · ${phaseCaption()}`, image }));
+      if (image) await saveImage3d(image, name);
     } finally { setSharing(false); }
   };
   const [tip, setTip] = useState<{ x: number; y: number; text: string; pinned: boolean; w: number } | null>(null);
@@ -661,7 +671,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         if (!native.shown && stage.model) {
           nativeWaitSince ||= nowMs;
           // (a slow GPU may take a while to build its pipelines; with no WebGL, keep waiting)
-          if (nowMs - nativeWaitSince > 15000 && !glMissing) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
+          // (generous: a slow GPU compiling its pipelines is not a failure, and WebGL on top
+          // of the WebGPU memory already held is what stalls a weak machine)
+          if (nowMs - nativeWaitSince > 40000 && !glMissing) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
         } else nativeWaitSince = 0;
         if (native.failed) {
           native.dispose(); native = null;
@@ -819,11 +831,21 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     };
   }, []);
 
+  // Full screen, the view draws even when its owner would pause it (the card is under it).
   const pausedRef = useRef(paused);
   useEffect(() => {
-    pausedRef.current = paused;
-    if (!paused) stageRef.current?.resume();
-  }, [paused]);
+    pausedRef.current = paused && !big;
+    if (!pausedRef.current) stageRef.current?.resume();
+  }, [paused, big]);
+  const openedFull = useRef(0);
+  useEffect(() => {
+    if (!openFull || openFull === openedFull.current) return;
+    openedFull.current = openFull;
+    openBig();
+  }, [openFull]);
+  const fullChange = useRef(onFullChange);
+  fullChange.current = onFullChange;
+  useEffect(() => { fullChange.current?.(big); }, [big]);
 
   const spinRef = useRef(spin);
   useEffect(() => {
@@ -1386,6 +1408,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           stage.addWarm(decor, water.mesh); disposables.push(water); water.sink(groundGeo);
           // A big river: boats in clear weather by day (none on streams and ponds).
           const boats = buildBoats(water.field, cx, cy, seed);
+          if (!boats && hostRef.current) hostRef.current.dataset.boats = `none: ${noBoatsReason}`;
           if (boats) {
             stage.addWarm(decor, boats.group);
             disposables.push(boats);
@@ -1557,8 +1580,13 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         <div className="re-holo-tools">
           <button type="button" aria-pressed={spin} onClick={() => setSpin(v => !v)} aria-label="자동 회전" title="360° 자동 회전">{spin ? "자동 ■" : "자동 ▶"}</button>
           {complexId && data?.found && (
-            <button type="button" className="re-holo-share" onClick={() => void onShare()} disabled={sharing} title="이 3D 화면을 카카오톡으로 공유 (지금 시간대·날씨 그대로)">
-              <KakaoIcon /><span className="re-holo-share-long">{sharing ? "공유 준비 중…" : "카카오톡 공유"}</span><span className="re-holo-share-short">{sharing ? "준비 중" : "공유"}</span>
+            <button type="button" className="re-holo-save" onClick={() => void onSaveImage()} disabled={sharing} title="지금 3D 화면을 이미지(PNG)로 저장" aria-label="이미지 저장">
+              <span aria-hidden="true">⤓</span><span className="re-holo-share-long">{sharing ? "저장 중…" : "이미지 저장"}</span>
+            </button>
+          )}
+          {complexId && data?.found && (
+            <button type="button" className="re-holo-share" onClick={() => void onShare()} title="이 3D 화면 링크를 카카오톡으로 공유 (지금 시간대·날씨 그대로)">
+              <KakaoIcon /><span className="re-holo-share-long">카카오톡 공유</span><span className="re-holo-share-short">공유</span>
             </button>
           )}
           {!wide && !narrow && complexId && !big && (
@@ -1625,11 +1653,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         <div className="kospi-map-share-backdrop re-holo-share-layer" onClick={() => setShareStage("idle")} />
         <div className="kospi-map-share-popover is-centered re-holo-share-layer" role="status">
           <button type="button" className="kospi-map-share-popover-close" onClick={() => setShareStage("idle")} aria-label="닫기">×</button>
-          {shareStage === "both-copied" ? (
-            <p>3D 화면 이미지와 링크가 함께 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.</p>
-          ) : (
-            <p>3D 화면 링크가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.</p>
-          )}
+          <p>3D 화면 링크가 복사되었습니다. 카카오톡 채팅창에 Ctrl+V로 붙여넣어 주세요.</p>
         </div>
       </OnScreen>
     )}

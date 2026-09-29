@@ -136,7 +136,7 @@ export default function RealEstateSheet({
   goLabel,
   onGo,
   onClose,
-  saved, compared, onSave, onCompare, compareCount, onOpenCompare, feedback,
+  saved, compared, onSave, onCompare, compareCount, onOpenCompare, feedback, onOpen3d,
 }: {
   item: RealEstateItem;
   ctx: PopupContext;
@@ -153,6 +153,9 @@ export default function RealEstateSheet({
   compareCount: number;
   onOpenCompare: () => void;
   feedback?: string;
+  /** Desktop: the map's own 3D view shows this complex full screen (one renderer, not
+   * a second one in a layer). Phones and tablets have none: the card opens its layer. */
+  onOpen3d?: () => void;
 }) {
   useBodyScrollLock(true);
   const dialogRef = useDialogFocus(onClose);
@@ -162,7 +165,9 @@ export default function RealEstateSheet({
   // into it; while it is open the address says so (so it can be shared), and closing it
   // leaves the map with this complex selected — also when the link was opened from
   // outside, with no page of ours to go back to.
-  const [holoOpen, setHoloOpenState] = useState(() => new URLSearchParams(location.search).get("3d") === "1");
+  const [holoOpen, setHoloOpenState] = useState(() => !onOpen3d && new URLSearchParams(location.search).get("3d") === "1");
+  // A shared link on a desktop: straight into the map's view, full screen.
+  useEffect(() => { if (onOpen3d && new URLSearchParams(location.search).get("3d") === "1") onOpen3d(); }, []);
   const setHoloOpen = useCallback((open: boolean) => {
     setHoloOpenState(open);
     const q = new URLSearchParams(location.search);
@@ -358,7 +363,7 @@ export default function RealEstateSheet({
           <div className="re-sheet-body re-pop-tip">
             <div className="re-detail-tools">
               <button type="button" aria-pressed={saved} onClick={() => onSave(shown)}>{saved ? "★ 관심 저장됨" : "☆ 관심 저장"}</button>
-              <button type="button" className="re-holo-open" onClick={() => setHoloOpen(true)}>3D 건물뷰</button>
+              <button type="button" className="re-holo-open" onClick={() => (onOpen3d ? onOpen3d() : setHoloOpen(true))}>3D 건물뷰</button>
               <button type="button" aria-pressed={compared} onClick={() => onCompare(shown)}>{compared ? "✓ 비교 선택됨" : "+ 비교 추가"}</button>
               {compareCount > 0 && <button type="button" className="re-primary" onClick={onOpenCompare}>비교하기 ({compareCount})</button>}
               <button type="button" onClick={async () => {

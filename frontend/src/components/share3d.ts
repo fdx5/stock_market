@@ -1,10 +1,9 @@
 /* Sharing the 3D 단지뷰 the way the map pages share (mapExport.tsx handleShareMap): a
  * picture of the view and a link that opens straight into it, full screen, at the same
- * hour and weather. On a phone both go to the OS share sheet (KakaoTalk takes them
- * together); on a desktop the picture and the link go to the clipboard together, as one
- * item (the app pasted into takes the form it accepts). */
+ * hour and weather — shared as a link (카카오톡 공유), the picture saved on its own
+ * (이미지 저장). */
 import type { Weather } from "./complexScene";
-import { IS_MOBILE_LIKE, downloadTimestamp } from "./mapExport";
+import { IS_IOS_LIKE, IS_MOBILE_LIKE, downloadTimestamp } from "./mapExport";
 
 /** /realestate-map?…&complex=…&3d=1&hour=…[&weather=…]: the region the page is on, the
  * complex, and the view's time and weather. RealEstateSheet opens the view from `3d`. */
@@ -41,24 +40,12 @@ export async function captionedShot(frame: Blob, title: string, caption: string)
   return new Promise(resolve => c.toBlob(b => resolve(b), "image/png"));
 }
 
-export type ShareStage = "idle" | "both-copied" | "link-copied";
+export type ShareStage = "idle" | "link-copied";
 
-/** handleShareMap's order: phone share sheet with the picture and the link; the picture
- * and the link to the clipboard in one item; the share sheet with the link alone; the
- * link to the clipboard (never the picture without the link, and no second press). */
-export async function share3d(o: { url: string; title: string; text: string; image: Blob | null }): Promise<ShareStage> {
-  const file = o.image ? new File([o.image], `realestate_3d_${downloadTimestamp()}.png`, { type: "image/png" }) : null;
+/** 카카오톡 공유: the link alone. A phone's share sheet (KakaoTalk is in it); on a
+ * desktop the clipboard, for Ctrl+V into the chat (the page says so). */
+export async function shareLink3d(o: { url: string; title: string; text: string }): Promise<ShareStage> {
   try {
-    if (IS_MOBILE_LIKE && file && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: o.title, text: o.text, url: o.url });
-      return "idle";
-    }
-    if (o.image && typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-      try {
-        await navigator.clipboard.write([new ClipboardItem({ "image/png": o.image, "text/plain": new Blob([o.url], { type: "text/plain" }) })]);
-        return "both-copied";
-      } catch { /* one form per item here: the link below */ }
-    }
     if (IS_MOBILE_LIKE && typeof navigator.share === "function") {
       await navigator.share({ title: o.title, text: o.text, url: o.url });
       return "idle";
@@ -69,4 +56,20 @@ export async function share3d(o: { url: string; title: string; text: string; ima
     // cancelled, or the clipboard refused: as the map does, no error for either
     return "idle";
   }
+}
+
+/** 이미지 저장: the picture of the view as a PNG. iOS-family browsers open a download
+ * in a viewer instead, so there the share sheet ("이미지 저장") takes it. */
+export async function saveImage3d(image: Blob, name: string): Promise<void> {
+  const filename = `${name.replace(/[\\/:*?"<>|\s]+/g, "_")}_3D_${downloadTimestamp()}.png`;
+  const file = new File([image], filename, { type: "image/png" });
+  if (IS_IOS_LIKE && typeof navigator.canShare === "function" && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); } catch { /* cancelled */ }
+    return;
+  }
+  const url = URL.createObjectURL(image);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 10000);
 }

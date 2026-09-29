@@ -22,6 +22,9 @@ const KELVIN = Math.tan(19.47 * Math.PI / 180);
 
 /* ---------- The route ---------- */
 
+/** Why the last scene got no boats (shown on the stage's data-boats, for diagnosis). */
+export let noBoatsReason = "";
+
 /** Loops along the river's core near the complex: out along one lane, a U-turn, back
  * along another. Null when there is no river wider than ~110 m in the scene. */
 function riverLoops(field: WaterField, cx: number, cy: number, fractions: [number, number][]) {
@@ -34,7 +37,7 @@ function riverLoops(field: WaterField, cx: number, cy: number, fractions: [numbe
       const sh = field.shore(x, y);
       if (sh >= 55) pts.push([x, y, sh]);
     }
-  if (pts.length < 40) return null;
+  if (pts.length < 40) { noBoatsReason = `narrow (${pts.length} core points)`; return null; }
   // The channel's axis: principal direction of its core.
   let mx = 0, my = 0;
   for (const [x, y] of pts) { mx += x; my += y; }
@@ -57,9 +60,9 @@ function riverLoops(field: WaterField, cx: number, cy: number, fractions: [numbe
   for (const k of keys) { const r = runs[runs.length - 1]; if (r && k - r[r.length - 1] <= 2) r.push(k); else runs.push([k]); }
   const score = (r: number[]) => r.length * bin - Math.max(0, Math.min(...r.map(k => Math.abs(k * bin - t0))) - 300);
   const run = runs.filter(r => r.length * bin >= 400).sort((a, b) => score(b) - score(a))[0];
-  if (!run) return null;
+  if (!run) { noBoatsReason = `no run ≥400 m (${runs.map(r => r.length * bin).join(",")})`; return null; }
   const lo = Math.max(run[0], Math.round((t0 - 1100) / bin)), hi = Math.min(run[run.length - 1], Math.round((t0 + 1100) / bin));
-  if ((hi - lo) * bin < 400) return null;
+  if ((hi - lo) * bin < 400) { noBoatsReason = `run near complex ${(hi - lo) * bin} m`; return null; }
   const line: { t: number; w: number; sh: number }[] = [];
   for (let k = lo; k <= hi; k++) {
     const near = [k - 1, k, k + 1].map(q => bins.get(q)).filter(Boolean) as { w: number; sh: number }[];
@@ -72,29 +75,43 @@ function riverLoops(field: WaterField, cx: number, cy: number, fractions: [numbe
   });
   const at = (t: number, w: number): [number, number] => [mx + ux * t + vx * w, my + uy * t + vy * w];
   const ok = (p: [number, number]) => field.wet(p[0], p[1]) && field.shore(p[0], p[1]) > 14;
-  return fractions.map(([out, back]) => {
-    for (let shrink = 1; shrink > 0.2; shrink -= 0.2) {
-      // Ends a little short of the run's ends: room for the U-turn, a half ellipse
-      // reaching up to 60 m on beyond the last point.
-      const body = mid.slice(3, -3);
-      if (body.length < 4) return null;
-      const lane = (p: { w: number; sh: number }, f: number) => p.w + f * shrink * (p.sh - 20);
-      const turn = (p: { t: number; w: number; sh: number }, from: number, to: number, dir: number): [number, number][] => {
-        const c = (from + to) / 2, b = (to - from) / 2, a = 60 * dir;
-        return Array.from({ length: 11 }, (_, i) => { const th = (Math.PI * (i + 1)) / 12; return at(p.t + a * Math.sin(th), c - b * Math.cos(th)); });
-      };
-      const first = body[0], last = body[body.length - 1];
-      const loop: [number, number][] = [
-        ...body.map(p => at(p.t, lane(p, out))),
-        ...turn(last, lane(last, out), lane(last, back), 1),
-        ...body.slice().reverse().map(p => at(p.t, lane(p, back))),
-        ...turn(first, lane(first, back), lane(first, out), -1),
-      ];
-      let pl = loop;
-      for (let i = 0; i < 3; i++) pl = chaikin(pl);
-      if (pl.every(ok)) return new Loop(pl);
+  // Each lane point is placed on open water: at its share of the way to the bank, or,
+  // where that falls on an island, a pier or the bank, moved toward the middle (or
+  // past it) until it is on the water. The U-turns shorten where the run ends early.
+  const place = (p: { t: number; w: number; sh: number }, f: number) => {
+    for (const k of [1, 0.8, 0.6, 0.4, 0.2, 0, -0.2, -0.4, -0.6]) {
+      const q = at(p.t, p.w + f * k * (p.sh - 20));
+      if (ok(q)) return { q, w: p.w + f * k * (p.sh - 20) };
     }
     return null;
+  };
+  return fractions.map(([out, back]) => {
+    const body = mid.slice(3, -3);
+    if (body.length < 4) return null;
+    const lane = (f: number) => body.map(p => ({ p, at: place(p, f) })).filter(x => x.at) as { p: typeof body[number]; at: { q: [number, number]; w: number } }[];
+    const fwd = lane(out), rev = lane(back);
+    if (fwd.length < body.length * 0.8 || rev.length < body.length * 0.8) return null;
+    const turn = (p: { t: number }, from: number, to: number, dir: number): [number, number][] => {
+      for (const reach of [60, 40, 20, 0]) {
+        const c = (from + to) / 2, b = (to - from) / 2, pts: [number, number][] = [];
+        for (let i = 0; i < 11; i++) { const th = (Math.PI * (i + 1)) / 12; pts.push(at(p.t + reach * dir * Math.sin(th), c - b * Math.cos(th))); }
+        if (pts.every(ok)) return pts;
+      }
+      return [];
+    };
+    const f0 = fwd[fwd.length - 1], r0 = rev[rev.length - 1], f1 = fwd[0], r1 = rev[0];
+    const loop: [number, number][] = [
+      ...fwd.map(x => x.at.q),
+      ...turn(f0.p, f0.at.w, r0.at.w, 1),
+      ...rev.slice().reverse().map(x => x.at.q),
+      ...turn(f1.p, r1.at.w, f1.at.w, -1),
+    ];
+    let pl = loop;
+    for (let i = 0; i < 3; i++) pl = chaikin(pl);
+    // Smoothing may cut a corner over the edge here and there: allow a few such points.
+    const off = pl.filter(q => !ok(q)).length;
+    if (off > pl.length * 0.03) { noBoatsReason = `lanes off the water (${off}/${pl.length})`; return null; }
+    return new Loop(pl);
   });
 }
 

@@ -452,6 +452,15 @@ export default function RealEstateMapPage() {
   useEffect(() => { setHoloPick(null); }, [sido, sgg, dong]);
   const holoLeader = useMemo(() => items.find(it => crownRanks.get(it.id) === 1) ?? null, [items, crownRanks]);
   const holoItem = holoPick ?? holoLeader;
+  // Desktop: the card's 3D button opens the rail's view full screen on its complex.
+  const [holoFull, setHoloFull] = useState(0);
+  const openHoloFull = (item: RealEstateItem) => { setHoloPick(item); setHoloFull(n => n + 1); };
+  const holoFullChange = (open: boolean) => {
+    const q = new URLSearchParams(location.search);
+    if (open === (q.get("3d") === "1") || !q.get("complex")) return;
+    if (open) q.set("3d", "1"); else { q.delete("3d"); q.delete("hour"); q.delete("weather"); }
+    window.history.replaceState(window.history.state, "", `${location.pathname}?${q}`);
+  };
   const mainRef = useRef<HTMLDivElement>(null);
   const filtersRef = useRef<HTMLDivElement>(null);
   /** The phone's breadcrumb bar sends the reader back up to the three selectors. */
@@ -906,6 +915,8 @@ export default function RealEstateMapPage() {
               <Suspense fallback={<div className="re-holo re-holo--placeholder" />}>
                 <ComplexHologram
                   complexId={holoItem?.id ?? null}
+                  openFull={holoFull}
+                  onFullChange={holoFullChange}
                   complexName={holoItem?.name}
                   paused={!!sheetItem}
                   caption={holoPick ? "선택 단지 · 3D" : `${dong || sggNode?.name || sidoNode?.name || "지역"} 대장단지 · ${crownMode === "price" ? "평단가" : "종합"} 1위`}
@@ -1179,6 +1190,7 @@ export default function RealEstateMapPage() {
               drill(item);
             }}
             onClose={closeSheet}
+            onOpen3d={stacked ? undefined : () => openHoloFull(sheetItem)}
             saved={saved.some(x => x.id === sheetItem.id)}
             compared={compare.some(x => x.id === sheetItem.id)}
             onSave={toggleSaved}
