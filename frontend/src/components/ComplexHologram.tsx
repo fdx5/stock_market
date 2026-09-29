@@ -126,6 +126,9 @@ type Stage = {
   ground: THREE.Mesh | null; model: THREE.Group | null;
   pickables: THREE.Mesh[];
   intro: { from: THREE.Vector3; to: THREE.Vector3; t0: number } | null;
+  /** A smooth camera move (buttons, keys, a double-click on a building): camera and
+   * orbit target eased from where they were to where they go. */
+  fly: { fromPos: THREE.Vector3; toPos: THREE.Vector3; fromTarget: THREE.Vector3; toTarget: THREE.Vector3; t0: number; dur: number } | null;
   now: number; top: number; dist: number; center: THREE.Vector3;
   /** Lowest ground under the complex (the orbit target never goes below it). */
   floor: number;
@@ -269,7 +272,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const [slowData, setSlowData] = useState(false);
   // Controls follow the pointer in use: a touch laptop starts with the mouse set (its
   // primary pointer is fine) and switches when the screen is actually touched.
-  const [touchMode, setTouchMode] = useState(() => !!window.matchMedia?.("(pointer: coarse)").matches);
+  const [touchMode, setTouchMode] = useState(() => !!window.matchMedia?.("(pointer: coarse)").matches
+    || (navigator.maxTouchPoints > 0 && !!window.matchMedia?.("(hover: none)").matches));
   // Auto-rotation on from the first load (a press on the view or its buttons stops it).
   const [spin, setSpin] = useState(true);
   // The hour on the time slider (?hour= or ?tod= to open elsewhere), and the weather.
@@ -576,7 +580,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       atmos: { hour: hourRef.current, rain: +(weatherRef.current === "rain"), snow: +(weatherRef.current === "snow"),
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
-      ground: null, model: null, pickables: [], intro: null,
+      ground: null, model: null, pickables: [], intro: null, fly: null,
       now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
@@ -610,7 +614,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // Exploring a building is deliberate: never restart rotation behind the user.
     const onStart = () => {
       controls.autoRotate = false; spinRef.current = false; setSpin(false);
-      stage.intro = null; setTip(null);
+      stage.intro = null; stage.fly = null; setTip(null);
     };
     controls.addEventListener("start", onStart);
     // (a drag's start and end, not "change": auto-rotation fires that every frame)
@@ -636,7 +640,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // the scene's own life), the view draws every other display frame: the same
     // pictures at 30 fps, half the GPU and main-thread time for the rest of the page.
     let idleSkip = false;
-    const busy = () => performance.now() - lastInput < 3000 || !!stage.balloonView || !!stage.intro || stage.atmos.dirty || stage.atmos.rain !== stage.atmos.wantRain
+    const busy = () => performance.now() - lastInput < 3000 || !!stage.balloonView || !!stage.fly || !!stage.intro || stage.atmos.dirty || stage.atmos.rain !== stage.atmos.wantRain
       || stage.atmos.snow !== stage.atmos.wantSnow || stage.unshown || warming() || !!stage.snap;
     const loop = () => {
       if (document.hidden || ((!inView || pausedRef.current) && !warming())) return;
@@ -689,6 +693,13 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       stage.now = t;
       shared.uTime.value = t;
       sky.material.uniforms.time.value = t;
+      if (stage.fly) {
+        // (orbit target and camera together: the view glides, the shot stays composed)
+        const f = stage.fly, k = ease((t - f.t0) / f.dur);
+        controls.target.lerpVectors(f.fromTarget, f.toTarget, k);
+        camera.position.lerpVectors(f.fromPos, f.toPos, k);
+        if (k >= 1) stage.fly = null;
+      }
       if (stage.intro) {
         const k = ease((t - stage.intro.t0) / 3.2);
         camera.position.lerpVectors(stage.intro.from, stage.intro.to, k);
@@ -930,7 +941,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (stageRef.current) stageRef.current.controls.autoRotate = spin;
   }, [spin]);
 
-  const navigateView = (action: "in" | "out" | "left" | "right" | "home" | "top") => {
+  const navigateView = (action: "in" | "out" | "left" | "right" | "up" | "down" | "home" | "top") => {
     const st = stageRef.current;
     if (!st) return;
     if (st.balloonView) {
@@ -938,6 +949,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       if (action === "home") leaveBalloon();
       else if (action === "in" || action === "out") zoomBalloon(action === "in" ? 0.7 : 1.4);
       else if (action === "left" || action === "right") bv.yaw += (action === "left" ? -1 : 1) * Math.PI / 8;
+      else if (action === "up" || action === "down") bv.pitch = THREE.MathUtils.clamp(bv.pitch + (action === "up" ? 0.15 : -0.15), -1.5, 0.9);
       else bv.pitch = -1.45;
       st.resume();
       return;
@@ -946,20 +958,43 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     st.intro = null;
     // Consume residual drag inertia before applying an exact button command.
     st.controls.enableDamping = false; st.controls.update(); st.controls.enableDamping = true;
-    if (action === "home") st.frame();
-    else {
-      const offset = st.camera.position.clone().sub(st.controls.target);
+    // From where a flight in progress is heading (a second press adds to the first).
+    const fromPos = st.fly ? st.fly.toPos.clone() : st.camera.position.clone();
+    const fromTarget = st.fly ? st.fly.toTarget.clone() : st.controls.target.clone();
+    let toPos: THREE.Vector3, toTarget = fromTarget.clone();
+    if (action === "home") {
+      // Where the opening shot puts the camera, then glide there.
+      const pos = st.camera.position.clone(), target = st.controls.target.clone();
+      st.frame();
+      toPos = st.camera.position.clone(); toTarget = st.controls.target.clone();
+      st.camera.position.copy(pos); st.controls.target.copy(target); st.controls.update();
+    } else {
+      const offset = fromPos.clone().sub(fromTarget);
       if (action === "in" || action === "out") {
         offset.setLength(THREE.MathUtils.clamp(offset.length() * (action === "in" ? 0.55 : 1.8), st.controls.minDistance, st.controls.maxDistance));
       } else {
         const sphere = new THREE.Spherical().setFromVector3(offset);
         if (action === "top") sphere.phi = 0.18;
+        else if (action === "up" || action === "down") sphere.phi = THREE.MathUtils.clamp(sphere.phi + (action === "up" ? -1 : 1) * 0.16, 0.12, Math.PI / 2 - 0.035);
         else sphere.theta += (action === "left" ? -1 : 1) * Math.PI / 8;
         offset.setFromSpherical(sphere);
       }
-      st.camera.position.copy(st.controls.target).add(offset);
-      st.controls.update();
+      toPos = fromTarget.clone().add(offset);
     }
+    st.fly = { fromPos: st.camera.position.clone(), toPos, fromTarget: st.controls.target.clone(), toTarget, t0: st.now, dur: 0.6 };
+    st.resume();
+  };
+  /** Glide to a point (a double-clicked building): the orbit target there, the camera
+   * keeping its bearing at a distance that frames it. */
+  const flyTo = (point: THREE.Vector3, distance: number) => {
+    const st = stageRef.current;
+    if (!st || st.balloonView) return;
+    st.controls.autoRotate = false; spinRef.current = false; setSpin(false); st.intro = null;
+    const dir = st.camera.position.clone().sub(st.controls.target).normalize();
+    // (not flatter than 20°: a building seen from its own ground level reads badly)
+    if (dir.y < 0.34) { dir.y = 0.34; dir.normalize(); }
+    const d = THREE.MathUtils.clamp(distance, st.controls.minDistance * 4, st.controls.maxDistance);
+    st.fly = { fromPos: st.camera.position.clone(), toPos: point.clone().addScaledVector(dir, d), fromTarget: st.controls.target.clone(), toTarget: point.clone(), t0: st.now, dur: 0.9 };
     st.resume();
   };
 
@@ -1686,6 +1721,28 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   // A new complex, or the view going away: back on the ground.
   useEffect(() => { if (balloonOn) leaveBalloon(); }, [complexId]);
   const drag = useRef<{ x: number; y: number; pinch: number } | null>(null);
+  // Keys, while the pointer is over the view or it is full screen: arrows turn and
+  // tilt, +/- zoom, H back to the opening shot, T from above, R auto-rotation,
+  // F full screen, B the balloon (not while typing, nor on the time slider).
+  const hovering = useRef(false);
+  const keyRef = useRef<(e: KeyboardEvent) => void>(() => {});
+  keyRef.current = (e: KeyboardEvent) => {
+    if (!(hovering.current || big) || e.ctrlKey || e.metaKey || e.altKey || !data?.found) return;
+    const el = e.target as HTMLElement | null;
+    if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+    const k = e.key;
+    const act = k === "ArrowLeft" ? "left" : k === "ArrowRight" ? "right" : k === "ArrowUp" ? "up" : k === "ArrowDown" ? "down"
+      : k === "+" || k === "=" ? "in" : k === "-" || k === "_" ? "out" : k === "h" || k === "H" || k === "Home" ? "home" : k === "t" || k === "T" ? "top" : null;
+    if (act) { e.preventDefault(); navigateView(act); return; }
+    if (k === "r" || k === "R") { e.preventDefault(); setSpin(v => !v); stageRef.current?.resume(); return; }
+    if ((k === "f" || k === "F") && !wide && !narrow) { e.preventDefault(); if (big) closeBig(); else openBig(); return; }
+    if (k === "b" || k === "B") { e.preventDefault(); if (stageRef.current?.balloonView) leaveBalloon(); else enterBalloon(); }
+  };
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => keyRef.current(e);
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
   const press = useRef<{ id: number; x: number; y: number; t: number; moved: boolean } | null>(null);
   const pointers = useRef(new Set<number>());
   const pinchSpan = () => { const ps = [...touchPoints.current.values()]; return ps.length >= 2 ? Math.hypot(ps[0][0] - ps[1][0], ps[0][1] - ps[1][1]) : 0; };
@@ -1737,7 +1794,29 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       ray.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), st.camera);
       if (ray.intersectObjects(st.balloon.pickables, true).length) { enterBalloon(); return; }
     }
+    // A second tap on the same spot soon after: fly to that building.
+    const last = lastTap.current;
+    lastTap.current = { x: e.clientX, y: e.clientY, t: performance.now() };
+    // (touch only: a mouse has its own double-click)
+    if (e.pointerType !== "mouse" && last && performance.now() - last.t < 350 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 24) { lastTap.current = null; focusAt(e); return; }
     pick(e, true);
+  };
+  const lastTap = useRef<{ x: number; y: number; t: number } | null>(null);
+  /** Fly to the building under a point (double-click or double-tap). */
+  const focusAt = (e: { clientX: number; clientY: number; currentTarget: HTMLDivElement }) => {
+    const st = stageRef.current;
+    if (!st || !st.pickables.length) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1), st.camera);
+    const hit = ray.intersectObjects(st.pickables, false)[0];
+    if (!hit) return;
+    // Framed whole: the orbit on its middle, about three of its heights away.
+    const box = new THREE.Box3().setFromObject(hit.object);
+    const mid = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3());
+    const tall = Math.min(size.y, 160), wide = Math.min(Math.max(size.x, size.z), 120);
+    setTip(null);
+    flyTo(new THREE.Vector3(hit.point.x, box.min.y + tall * 0.5, hit.point.z).lerp(mid.setY(box.min.y + tall * 0.5), 0.5), Math.max(tall, wide) * 2.4 + 20);
   };
 
   const notice = data?.found && complexId ? staleNotice(data, complexId) : null;
@@ -1776,7 +1855,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       </header>
       <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
         onPointerCancel={e => { pointers.current.delete(e.pointerId); press.current = null; }}
-        onPointerLeave={e => { if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
+        onPointerEnter={() => { hovering.current = true; }}
+        onDoubleClick={e => { if (!stageRef.current?.balloonView && e.target instanceof HTMLCanvasElement) focusAt(e); }}
+        onPointerLeave={e => { hovering.current = false; if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
         {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{sceneTitle}</strong></div>}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         {failed3d && <p className="re-holo-msg">3D 화면을 불러오지 못했습니다. 브라우저 설정에서 하드웨어 가속이 켜져 있는지 확인해 주세요.{" "}
@@ -1790,10 +1871,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       </div>
       {data?.found && !failed3d && <div className="re-holo-env">
         <label className="re-holo-time">
-          <span className="re-holo-time-read"><b>{formatHour(hour)}</b>{phase}</span>
+          <span className="re-holo-time-read"><b>{formatHour(hour)}</b>{phase}
+            <button type="button" className="re-holo-now" onClick={e => { e.preventDefault(); setHour(Math.round(hourNow() * 4) / 4); }} title="지금 시각으로">지금</button></span>
           <input type="range" min={0} max={24} step={0.25} value={hour} aria-label="시간대"
             aria-valuetext={`${formatHour(hour)} ${phase}`} style={{ background: dayTrack }}
             onChange={e => setHour(Number(e.currentTarget.value))} />
+          <span className="re-holo-ticks" aria-hidden="true"><i>0</i><i>6</i><i>12</i><i>18</i><i>24</i></span>
         </label>
         <div className="re-holo-weather" role="radiogroup" aria-label="날씨">
           {WEATHER_ORDER.map(w => (
@@ -1820,7 +1903,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
             <button type="button" aria-label="3D 오른쪽 회전" title="오른쪽으로 돌리기" onClick={() => navigateView("right")}>↷</button>
           </>}
         </div>
-        <p>{touchMode ? "한 손가락 회전 · 두 손가락 이동·확대 · 건물 탭: 동·층수" : "드래그 회전 · 우클릭 이동 · 휠 확대 · 건물 클릭: 동·층수"}</p>
+        <p>{touchMode ? "한 손가락 회전 · 두 손가락 이동·확대 · 두 번 탭: 건물로" : "드래그 회전 · 우클릭 이동 · 휠 확대 · 더블클릭: 건물로 · ←→ +− H B"}</p>
       </nav>}
       <footer className="re-holo-foot">
         <a className="re-holo-credit" href="/licenses/tidewater-MIT.txt" target="_blank" rel="noreferrer" title="렌더링 엔진 MIT 라이선스">MIT</a>

@@ -469,3 +469,17 @@
 @media (any-pointer: coarse) { .re-holo-balloon-btn { min-height: 40px; } }
 .re-holo-balloon-hint { position: absolute; left: 50%; bottom: 14px; z-index: 2; display: grid; gap: 2px; justify-items: center; max-width: calc(100% - 24px); padding: 8px 14px; border-radius: 12px; background: #07131cd0; color: #eaf6ff; font: 500 11.5px var(--f-sans, sans-serif); text-align: center; transform: translateX(-50%); pointer-events: none; }
 .re-holo-balloon-hint b { color: #ffd27a; font-size: 12.5px; }
+
+/* The time slider's hours under the track, and 지금 (back to the present hour). */
+.re-holo-time { position: relative; }
+.re-holo-ticks { display: flex; justify-content: space-between; margin: -4px 2px 0; color: #8fa6b6; font: 600 9.5px var(--f-sans, sans-serif); pointer-events: none; }
+.re-holo-ticks i { font-style: normal; width: 0; display: flex; justify-content: center; }
+.re-holo-now { margin-left: auto; padding: 2px 8px; border: 1px solid #516a7c; border-radius: 999px; background: transparent; color: #a6ddf6; font: 700 10.5px var(--f-sans, sans-serif); cursor: pointer; }
+.re-holo-now:hover { background: #20333f; }
+/* Phones: the slider across the whole width, weather and balloon on the row below. */
+@media (max-width: 600px) {
+  .re-holo-env { flex-wrap: wrap; row-gap: 6px; }
+  .re-holo-time { flex: 1 1 100%; }
+  .re-holo-weather { flex: 1; }
+  .re-holo-weather button { flex: 1; }
+}
