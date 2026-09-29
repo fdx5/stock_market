@@ -773,7 +773,9 @@ if STATIC_DIR.exists():
             headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"},
         )
 
-    @app.get("/{full_path:path}")
+    # HEAD too: link-preview crawlers (KakaoTalk's among them) check og:image with a HEAD
+    # first, and a 405 there drops the thumbnail. Starlette sends headers only for HEAD.
+    @app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
     def spa_fallback(full_path: str, request: Request):
         # Resolved and containment-checked before serving — unlike the /assets mount
         # above (Starlette's own StaticFiles, which already guards against this), this

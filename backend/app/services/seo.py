@@ -499,6 +499,13 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
     canonical = f"{SITE}{canonical_path}"
     if canonical_query:
         canonical += "?" + urlencode(canonical_query)
+    # What a shared link previews as: the page itself. A shared 3D view keeps its complex
+    # and view in og:url (a crawler following og:url to the bare map page would preview
+    # the map instead); the canonical stays the page, for search engines.
+    share_url = canonical
+    if canonical_path == "/realestate-map" and query.get("3d") == "1" and query.get("complex"):
+        keep = {k: query[k] for k in ("sido", "sgg", "dong", "complex", "3d", "hour", "weather") if query.get(k)}
+        share_url = f"{SITE}{canonical_path}?{urlencode(keep)}"
 
     document = re.sub(r"<title>.*?</title>", f"<title>{html.escape(title)}</title>", template, count=1, flags=re.S)
     document = _replace_meta(document, 'name="description"', description)
@@ -510,10 +517,11 @@ def render_spa_shell(template: str, path: str, query: dict[str, str]) -> str:
         )
     document = _replace_meta(document, 'property="og:title"', title)
     document = _replace_meta(document, 'property="og:description"', description)
-    document = _replace_meta(document, 'property="og:url"', canonical)
+    document = _replace_meta(document, 'property="og:url"', share_url)
     document = _replace_meta(document, 'property="og:type"', "article" if brief else "website")
     document = _replace_meta(document, 'property="og:image"', page_image)
     document = _replace_meta(document, 'property="og:image:secure_url"', page_image)
+    document = _replace_meta(document, 'property="og:image:type"', "image/jpeg" if page_image.lower().endswith((".jpg", ".jpeg")) else "image/png")
     document = _replace_meta(document, 'property="og:image:alt"', image_alt or (f"{brief_day} {brief_market.upper()} 오늘 브리핑 핵심 지표" if brief else "K-Stock Hub 시장 데이터"))
     document = _replace_meta(document, 'name="twitter:title"', title)
     document = _replace_meta(document, 'name="twitter:description"', description)
