@@ -352,6 +352,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const dpr = window.devicePixelRatio || 1;
     let ratio = Math.min(dpr, hq ? 2 : 1.6);
     let maxRatio = hq ? Math.min(2, Math.max(dpr, 1.5)) : ratio;
+    // The last pointer, wheel or key on the view (the loop draws at full rate for 3 s after).
+    let lastInput = performance.now();
+    const touched = () => { lastInput = performance.now(); };
     renderer.setPixelRatio(ratio);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -599,12 +602,16 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       stage.intro = null; setTip(null);
     };
     controls.addEventListener("start", onStart);
+    // (a drag's start and end, not "change": auto-rotation fires that every frame)
+    controls.addEventListener("start", touched);
+    controls.addEventListener("end", touched);
+    for (const type of ["pointerdown", "pointermove", "wheel", "keydown"] as const) renderer.domElement.addEventListener(type, touched, { passive: true, signal: listening.signal });
 
     const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3();
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
     // Dynamic quality and resolution with hysteresis: at least 40 fps, never below 0.6x.
-    let slow = 0, quick = 0, last = performance.now(), settleUntil = 0, calibrated = false;
+    let slow = 0, quick = 0, gpuHot = 0, last = performance.now(), settleUntil = 0, calibrated = false;
     const calDt: number[] = [];
     let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
@@ -613,16 +620,25 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // prepared: that work then finishes before the panel scrolls into view.
     // (A model still being built in slices isn't in the scene yet: nothing to warm.)
     const warming = () => (stage.unshown && !!stage.model) || nativePending || (!!native && !native.ready);
+    // Left alone (no pointer, wheel or key on the view for 3 s, nothing in motion but
+    // the scene's own life), the view draws every other display frame: the same
+    // pictures at 30 fps, half the GPU and main-thread time for the rest of the page.
+    let idleSkip = false;
+    const busy = () => performance.now() - lastInput < 3000 || !!stage.intro || stage.atmos.dirty || stage.atmos.rain !== stage.atmos.wantRain
+      || stage.atmos.snow !== stage.atmos.wantSnow || stage.unshown || warming() || !!stage.snap;
     const loop = () => {
       if (document.hidden || ((!inView || pausedRef.current) && !warming())) return;
       raf = requestAnimationFrame(loop);
+      const idle = !busy();
+      if (idle) { idleSkip = !idleSkip; if (idleSkip) return; } else idleSkip = false;
       const nowMs = performance.now();
       const dt = nowMs - last;
       last = nowMs;
       // Floor: 40 fps. A frame over 25 ms missed it; misses accumulate and on-time frames
       // drain them slowly, so a steady ~35 fps also counts as slow within seconds. Not
       // judged while a model is still being decorated (one-off building work).
-      const judge = !stage.unshown && nowMs > settleUntil && dt < 250;
+      // (not while idle: every other frame is skipped on purpose, 33 ms is not slow)
+      const judge = !idle && !stage.unshown && nowMs > settleUntil && dt < 250;
       // (weighted by how late: on a very slow device each frame counts several times)
       if (judge && dt > 25.5) { slow += Math.min(10, dt / 25); quick = 0; }
       else if (judge) { slow = Math.max(0, slow - 0.2); if (dt < 20) quick++; else quick = 0; }
@@ -633,7 +649,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // (timestamp queries) sets quality and resolution at once, instead of stepping
       // down over many slow seconds. Frame timing keeps adjusting from there.
       // Without timestamps: the median frame interval over the first second.
-      if (native?.shown && !calibrated && !stage.unshown && nowMs > settleUntil && dt < 2000) calDt.push(dt);
+      if (native?.shown && !calibrated && !idle && !stage.unshown && nowMs > settleUntil && dt < 2000) calDt.push(dt);
       if (native?.shown && !calibrated && (native.timer.samples > 30 || (!native.timer.enabled && calDt.length >= 5 && nowMs - settleUntil > 1000))) {
         calibrated = true;
         const g = native.timer.enabled ? native.timer.ms.total ?? 0 : calDt.sort((a, b) => a - b)[calDt.length >> 1] * 0.85;
@@ -645,7 +661,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         native.setQuality(native.quality.name === "high" ? qualities.medium : qualities.low);
         slow = 0;
       } else if (slow > 30 && ratio > 0.6) { ratio = Math.max(0.6, ratio - 0.25); maxRatio = ratio; slow = 0; resize(); }
-      else if (quick > 240 && ratio < maxRatio) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
+      // Resolution up only with GPU time to spare. The frame interval can't tell: vsync
+      // holds it at 16.7 ms however full the GPU is, and a GPU run to 100 % starves the
+      // browser (the pointer and the rest of the page stutter). With timestamps: climb
+      // under 7 ms of GPU work a frame, step down over 12 ms; without, never past the
+      // display's own ratio.
+      else if (native?.timer.enabled && (native.timer.ms.total ?? 0) > 12 && ratio > Math.min(1, dpr) && judge && ++gpuHot > 90) {
+        ratio = Math.max(Math.min(1, dpr), ratio - 0.25); maxRatio = ratio; gpuHot = 0; resize();
+      }
+      else if (quick > 240 && ratio < maxRatio && (native?.timer.enabled ? (native.timer.ms.total ?? 99) < 7 : ratio + 0.25 <= dpr)) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
 
       const t = (nowMs - t0) / 1000;
       stage.now = t;
@@ -816,7 +840,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       resize();
       stage.resume();
     };
-    stage.resume = () => { cancelAnimationFrame(raf); last = performance.now(); loop(); };
+    stage.resume = () => { cancelAnimationFrame(raf); touched(); last = performance.now(); loop(); };
     const visibility = () => {
       cancelAnimationFrame(raf);
       last = performance.now(); sampleStart = last; sampleFrames = 0;
