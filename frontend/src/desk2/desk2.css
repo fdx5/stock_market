@@ -771,6 +771,30 @@ html.is-desk2 body {
 .d2-mast-nav ul::-webkit-scrollbar {
   display: none;
 }
+/* Mouse users: navRowScroll.ts adds wheel and drag panning to this list; a thin
+   scrollbar shows only while it overflows so the trailing links are discoverable. */
+.d2-mast-nav ul[data-nav-dragging="true"] {
+  cursor: grabbing;
+  user-select: none;
+}
+.d2-mast-nav ul[data-nav-dragging="true"] a {
+  pointer-events: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .d2-mast-nav ul[data-nav-overflow="true"] {
+    cursor: grab;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--ink-2) 45%, transparent) transparent;
+  }
+  .d2-mast-nav ul[data-nav-overflow="true"]::-webkit-scrollbar {
+    display: block;
+    height: 6px;
+  }
+  .d2-mast-nav ul[data-nav-overflow="true"]::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--ink-2) 45%, transparent);
+  }
+}
 .d2-mast-nav li {
   flex: none;
 }

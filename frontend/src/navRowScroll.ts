@@ -1,4 +1,4 @@
-/* Desktop scrolling for the shared header link row (.app-nav-row).
+/* Desktop scrolling for the header link rows (.app-nav-row and the masthead index).
 
    The row holds 15+ pills and, on several pages, is kept on one line with its
    scrollbar hidden (touch users swipe it). With a mouse there is nothing to grab, so
@@ -14,7 +14,9 @@
      scroll state so the CSS can show a thin scrollbar and edge fades only when there
      is something to scroll to. */
 
-const ROW = ".app-nav-row";
+// .app-nav-row: the classic header's link pills; .d2-mast-nav > ul: the market desk
+// masthead's site index (its own has-before/has-after fades are set by Masthead.tsx).
+const ROW = ".app-nav-row, .d2-mast-nav > ul";
 const DRAG_THRESHOLD = 5;
 
 function canScroll(row: HTMLElement): boolean {
