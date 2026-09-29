@@ -61,7 +61,7 @@ export const GPU = {
 		const limits = {};
 		for ( const k in want ) if ( L[ k ] !== undefined ) limits[ k ] = Math.min( want[ k ], L[ k ] );
 
-		const optional = [ 'float32-filterable', 'timestamp-query', 'rg11b10ufloat-renderable', 'float32-blendable', 'shader-f16', 'clip-distances' ];
+		const optional = [ 'float32-filterable', 'timestamp-query', 'rg11b10ufloat-renderable', 'float32-blendable', 'shader-f16', 'clip-distances', 'texture-compression-bc' ]; // (local modification: BC for pre-compressed atlases)
 		const requiredFeatures = optional.filter( ( f ) => adapter.features.has( f ) );
 		this.features = new Set( requiredFeatures );
 		this.hasTimestamp = this.features.has( 'timestamp-query' );
@@ -240,6 +240,9 @@ const FORMAT_INFO = {
 	r8uint: { bytes: 1, sample: 'uint' },
 	rgba8uint: { bytes: 4, sample: 'uint' },
 	depth32float: { bytes: 4, sample: 'depth' },
+	// (local modification) block-compressed, pre-made mips: sampled only
+	'bc7-rgba-unorm': { bytes: 1, sample: 'float', compressed: true },
+	'bc7-rgba-unorm-srgb': { bytes: 1, sample: 'float', compressed: true },
 	depth24plus: { bytes: 4, sample: 'depth' },
 	'depth24plus-stencil8': { bytes: 4, sample: 'depth' },
 };

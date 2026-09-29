@@ -15,6 +15,8 @@ import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/in
 import { waterMaterial, updateWaveTile } from './ComplexWater.js';
 import { GpuTimer } from './GpuTimer.js';
 import { packInto } from './texturePack.js';
+import { canEncodeBC7, encodeBC7, warmBC7 } from './bc7Encode.js';
+import { gpuCaps } from '../gpuCaps';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. The view steps down on its own while frames are slow. */
@@ -42,6 +44,8 @@ function useShadows({ shadow: size, pcss }) {
 async function device() {
   // (a device already made — before a hot update of this module — is reused)
   initialization ??= (GPU.device && !deviceLost ? Promise.resolve() : GPU.init({ headless: true })).then(() => {
+    gpuCaps.bc = GPU.features.has('texture-compression-bc');
+    warmBC7();
     GPU.format = navigator.gpu.getPreferredCanvasFormat();
     SceneLighting.set('envSpecular', new ShaderModule({ name: 'complex reflected sky', deps: [atmosphere], code: `
       fn hookEnvSpecular(R: vec3f, roughness: f32) -> vec3f {
@@ -273,6 +277,8 @@ fn fragment(in: FSIn) -> vec4f {
 export function warmDevice() { return device().catch(() => {}); }
 
 const isMoving = mesh => mesh.moving === true;
+// (twin of scenePlants' WebGL fade)
+const FOLIAGE_FADE = '0.14, 0.46, face';
 function sameMatrix(a, b) {
   const x = a.elements, y = b.elements;
   for (let i = 0; i < 16; i++) if (x[i] !== y[i]) return false;
@@ -300,6 +306,8 @@ export class ComplexRenderer {
     this.scene = new Scene();
     this.camera = new PerspectiveCamera();
     this.renderer = new MeshRenderer();
+    // A new complex's pipelines spread over frames (see MeshRenderer._pipeline).
+    this.renderer.pipelinesPerFrame = 3;
     this.renderer.syncPipelines = false;
     this.target = new RenderTarget(1, 1, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex HDR' });
     // What the water sees through and reflects: the opaque scene, copied before the water
@@ -343,8 +351,29 @@ export class ComplexRenderer {
   }
   texture(source) {
     if (this.textures.has(source)) return this.textures.get(source);
+    // Pre-compressed levels (the plant atlas as BC7): uploaded as they are, a quarter of the memory.
+    const packed = source.userData?.compressed;
+    if (packed && GPU.features.has('texture-compression-bc')) {
+      const tex = new Texture({ width: packed.width, height: packed.height, format: packed.format, mips: packed.levels.length, usage: ['sample', 'copyDst'] });
+      packed.levels.forEach(({ w, h, data }, level) => {
+        const bw = Math.ceil(w / 4), bh = Math.ceil(h / 4);
+        GPU.queue.writeTexture({ texture: tex.getGPU(), mipLevel: level }, data, { bytesPerRow: bw * 16, rowsPerImage: bh }, { width: bw * 4, height: bh * 4 });
+      });
+      tex.sourceVersion = source.version;
+      this.textures.set(source, tex);
+      return tex;
+    }
     const img = source.image;
     if (!img?.width || !img?.height) return null;
+    // Painted colour maps (facades, glazing, lit windows, the ground's paint): BC7, made on
+    // the GPU — a quarter of the memory, the same look (48–62 dB against the source).
+    if (!img.data && source.colorSpace === 'srgb' && canEncodeBC7(img)) {
+      const tex = encodeBC7(img, { flipY: source.flipY });
+      tex.sourceVersion = source.version;
+      this.textures.set(source, tex);
+      this.release(source);
+      return tex;
+    }
     const tex = new Texture({ width: img.width, height: img.height, format: source.colorSpace === 'srgb' ? 'rgba8unorm-srgb' : 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'] });
     if (img.data) tex.upload(img.data);
     else GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]);
@@ -407,6 +436,7 @@ export class ComplexRenderer {
       const img = source.image;
       if (!img?.width || img.data || img.width !== tex.width || img.height !== tex.height || tex.packed) continue;
       if (tex.repack) { tex.repack(); this.release(source); continue; }
+      if (tex.format.startsWith('bc7')) { encodeBC7(img, { flipY: source.flipY, into: tex }); this.release(source); continue; }
       GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]);
       generateMipmaps(tex);
       this.release(source);
@@ -465,7 +495,11 @@ export class ComplexRenderer {
       }`;
     }
     // Leaves let light through: a little transmitted sun on the shaded side.
-    if (source.userData.foliage) surface += 's.translucency = s.albedo * 0.25;';
+    if (source.userData.foliage) surface += `s.translucency = s.albedo * 0.25;
+      // Plant cards thin out as they turn edge-on to the eye (or the sun, in the shadow
+      // pass): no flat slabs from the side, no six-pointed star of crossed cards from above.
+      { let ng = normalize(cross(dpdx(in.P), dpdy(in.P))); let face = abs(dot(ng, normalize(frame.cameraPos - in.P)));
+        s.alpha *= smoothstep(${FOLIAGE_FADE}); }`;
     if (source.userData.contextBuilding) surface += 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.27, 0.25); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9; }';
     // Weather: rain darkens what faces up and makes it glossy (puddles where the ground
     // dips in the noise); snow settles on it, patchy on slopes. Twin of patchMaterial.

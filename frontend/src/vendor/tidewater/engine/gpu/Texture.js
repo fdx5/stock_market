@@ -54,7 +54,8 @@ export class Texture {
 			copyDst: GPUTextureUsage.COPY_DST,
 		}[ k ];
 		// mip generation renders into each level
-		if ( this.mipLevelCount > 1 ) u |= GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+		// (local modification) compressed formats bring their own mips and can't be render targets
+		if ( this.mipLevelCount > 1 && ! this.format.startsWith( 'bc' ) ) u |= GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
 		return u;
 
 	}

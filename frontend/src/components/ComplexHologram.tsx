@@ -273,6 +273,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [slowData, setSlowData] = useState(false);
+  // Waiting on the building shapes: which attempt (a stalled request is retried), and a
+  // manual retry after the last one fails.
+  const [dataTry, setDataTry] = useState(0);
+  const [reloadKey, setReloadKey] = useState(0);
   // Controls follow the pointer in use: a touch laptop starts with the mouse set (its
   // primary pointer is fine) and switches when the screen is actually touched.
   const [touchMode, setTouchMode] = useState(() => !!window.matchMedia?.("(pointer: coarse)").matches
@@ -644,8 +648,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // the scene's own life), the view draws every other display frame: the same
     // pictures at 30 fps, half the GPU and main-thread time for the rest of the page.
     let idleSkip = false;
+    // (a model still loading, behind its scan overlay, renders at the idle rate: those
+    // frames only prepare its pipelines, and at full rate they held the GPU — and with it
+    // the pointer and the page — through every load)
     const busy = () => performance.now() - lastInput < 3000 || !!stage.balloonView || !!stage.fly || !!stage.intro || stage.atmos.dirty || stage.atmos.rain !== stage.atmos.wantRain
-      || stage.atmos.snow !== stage.atmos.wantSnow || stage.unshown || warming() || !!stage.snap;
+      || stage.atmos.snow !== stage.atmos.wantSnow || !!stage.snap;
     const loop = () => {
       if (document.hidden || ((!inView || pausedRef.current) && !warming())) return;
       raf = requestAnimationFrame(loop);
@@ -1094,20 +1101,26 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (hostRef.current) { delete hostRef.current.dataset.shownAt; hostRef.current.dataset.selectAt = started.toFixed(0); }
     const slowTimer = window.setTimeout(() => { if (live) setSlowData(true); }, 3000);
     setError("");
-    (async () => {
+    setDataTry(0);
+    // One attempt at the shapes. The server's first look-up of a complex asks outside
+    // sources (OpenStreetMap, several tries each) and can take minutes, or stall; a
+    // request left waiting only ended with a page reload. Each attempt now has a time
+    // limit and the next one starts over (by then the server has usually kept the
+    // result, and answers at once).
+    const attempt = async (signal: AbortSignal): Promise<RealEstateBuildingsResponse> => {
       const cached = buildingCache.get(complexId);
       if (cached && Date.now() - cached.at < 300000) return cached.data;
       const early = prefetched.get(complexId);
       prefetched.delete(complexId);
       const kept = await loadBuildings(complexId);
       if (kept) return kept;
-      const peek = await (early ?? api.realEstateBuildings(complexId, ctl.signal, true)).catch(() => api.realEstateBuildings(complexId, ctl.signal, true));
+      const peek = await (early ?? api.realEstateBuildings(complexId, signal, true)).catch(() => api.realEstateBuildings(complexId, signal, true));
       // Roads and terrain only need these footprints/centre. The common stage below
       // loads them together; awaiting roads here serialized the two network waits.
       if (peek.found) return peek;
       // Start independent suppliers together: a slow JSONP endpoint must not
       // delay a server result that is already available (and vice versa).
-      const fallback = api.realEstateBuildings(complexId, ctl.signal);
+      const fallback = api.realEstateBuildings(complexId, signal);
       if (!peek.vworld_key || !peek.query?.parcel) return fallback;
       const direct = vworldBuildings(complexId, peek.query, peek.vworld_key, peek.vworld_domain)
         .then(value => value ? { ...value, built: peek.built ?? null, vworld_key: peek.vworld_key, vworld_domain: peek.vworld_domain } : null);
@@ -1122,6 +1135,27 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           if (--remaining === 0) { if (empty) resolve(empty); else reject(failure ?? new Error("건물 자료를 찾지 못했습니다.")); }
         });
       });
+    };
+    const LIMITS = [20000, 30000, 45000];
+    (async () => {
+      for (let n = 0; ; n++) {
+        const one = new AbortController();
+        const stop = () => one.abort();
+        ctl.signal.addEventListener("abort", stop);
+        const limit = window.setTimeout(stop, LIMITS[n]);
+        try {
+          return await Promise.race([
+            attempt(one.signal),
+            new Promise<never>((_, reject) => one.signal.addEventListener("abort", () => reject(new Error("건물 자료 응답이 늦어지고 있습니다.")))),
+          ]);
+        } catch (err) {
+          if (ctl.signal.aborted || n === LIMITS.length - 1) throw err;
+          if (live) setDataTry(n + 1);
+        } finally {
+          window.clearTimeout(limit);
+          ctl.signal.removeEventListener("abort", stop);
+        }
+      }
     })()
       // Roads and relief together: both only need the result's centre.
       .then(async res => {
@@ -1149,7 +1183,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       .catch(err => { if (live && !ctl.signal.aborted) { setData(null); setError(err instanceof Error ? err.message : "불러오지 못했습니다."); } })
       .finally(() => { window.clearTimeout(slowTimer); if (live) setLoading(false); });
     return () => { live = false; window.clearTimeout(slowTimer); ctl.abort(); };
-  }, [complexId]);
+  }, [complexId, reloadKey]);
 
   // Build the model for the loaded complex.
   useEffect(() => {
@@ -1929,9 +1963,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         {failed3d && <p className="re-holo-msg">3D 화면을 불러오지 못했습니다. 브라우저 설정에서 하드웨어 가속이 켜져 있는지 확인해 주세요.{" "}
           <button type="button" className="re-holo-retry" onClick={() => location.reload()}>다시 시도</button></p>}
-        {loading && <div className="re-holo-scan" role="status"><span />{slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
+        {loading && <div className="re-holo-scan" role="status"><span />{dataTry ? `응답이 늦어 다시 요청하는 중입니다 (${dataTry + 1}/3)…` : slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
         {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
-        {!loading && error && <p className="re-holo-msg" role="status">{error}</p>}
+        {!loading && error && <p className="re-holo-msg" role="status">{error}{" "}
+          <button type="button" className="re-holo-retry" onClick={() => setReloadKey(k => k + 1)}>다시 시도</button></p>}
         {balloonOn && <div className="re-holo-balloon-hint" role="status"><b>🎈 열기구에서 내려다보는 중</b><span>{touchMode ? "드래그로 둘러보기 · 두 손가락으로 확대·축소" : "드래그로 둘러보기 · 휠로 확대·축소 · Esc로 내리기"}</span></div>}
         {tip && <div className={`re-holo-tip${tip.x > tip.w * 0.55 ? " is-left" : ""}${tip.pinned ? " is-pinned" : ""}`} style={{ left: tip.x, top: tip.y }}
           role="status">{tip.text}</div>}

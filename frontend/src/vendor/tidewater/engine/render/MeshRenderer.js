@@ -382,7 +382,17 @@ export class MeshRenderer {
 		if ( c && c.materialKey === material.__pk ) return c.p;
 		const key = `${ material.__pk }|${ vl.key }|${ passKey }`;
 		let p = this.pipelines.get( key );
-		if ( ! p ) p = this._createPipeline( material, vl, pass, key );
+		if ( ! p ) {
+
+			// (local modification) a few new pipelines a frame: composing a shader costs several ms
+			// on the main thread, and a new scene asks for a dozen or two at once (one long,
+			// janky frame). The rest wait a frame or two — they compile asynchronously anyway.
+			if ( this._budgetFrame !== GPU.frame ) { this._budgetFrame = GPU.frame; this._created = 0; }
+			if ( this._created >= ( this.pipelinesPerFrame ?? Infinity ) ) return null;
+			this._created ++;
+			p = this._createPipeline( material, vl, pass, key );
+
+		}
 		if ( vl.pipelines ) vl.pipelines.set( passKey, { materialKey: material.__pk, p } );
 		return p;
 
@@ -599,6 +609,7 @@ export class MeshRenderer {
 
 					vl = this._cachedLayout( o, geo, material );
 					p = this._pipeline( material, vl, pass );
+					if ( ! p ) continue;
 
 				} catch ( e ) {
 
@@ -612,6 +623,7 @@ export class MeshRenderer {
 
 			vl = this._cachedLayout( o, geo, material );
 			p = this._pipeline( material, vl, pass );
+			if ( ! p ) continue; // over this frame's budget
 			const pipeline = p.handle.pipeline || ( this.syncPipelines ? GPU.ready( p.handle ) : null );
 			if ( ! pipeline ) continue; // still compiling
 			if ( p !== lastPipeline ) {

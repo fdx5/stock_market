@@ -3,6 +3,7 @@ import type { Planting } from "./complexScene";
 import { rng, seasonNow } from "./complexScene";
 import { FLAT, type Terrain } from "./sceneTerrain";
 import { KERB_H } from "./sceneSidewalk";
+import { gpuCaps } from "./gpuCaps";
 
 /* Landscaping plants as photoreal impostors. /3d/plants.webp is an atlas baked from
  * Poly Haven's CC0 photoscanned plants (trees, conifers, shrubs, flowers; one cell
@@ -28,9 +29,33 @@ function loadAtlas() {
     texture.anisotropy = 8;
     texture.flipY = true;
     return { meta, texture };
+  }).then(async got => {
+    // Where the WebGPU view reads BC textures: the atlas pre-compressed (scripts/plants-bc7.py).
+    if (gpuCaps.bc) got.texture.userData.compressed = await compressedAtlas().catch(() => null);
+    return got;
   });
   atlas.catch(() => { atlas = null; });
   return atlas;
+}
+
+/** plants.bc7.gz: 'BC7A', u32 header length, JSON header, then every mip level's blocks. */
+async function compressedAtlas() {
+  const res = await fetch("/3d/plants.bc7.gz");
+  if (!res.ok) return null;
+  let buf = new Uint8Array(await res.arrayBuffer());
+  // Still gzipped, unless the server already undid it (Content-Encoding).
+  if (buf[0] === 0x1f && buf[1] === 0x8b) {
+    if (typeof DecompressionStream === "undefined") return null;
+    buf = new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+  }
+  if (String.fromCharCode(...buf.subarray(0, 4)) !== "BC7A") return null;
+  const n = new DataView(buf.buffer).getUint32(4, true);
+  const head = JSON.parse(new TextDecoder().decode(buf.subarray(8, 8 + n))) as { width: number; height: number; levels: [number, number, number, number][] };
+  const base = 8 + n;
+  return {
+    format: "bc7-rgba-unorm-srgb", width: head.width, height: head.height,
+    levels: head.levels.map(([w, h, off, len]) => ({ w, h, data: buf.subarray(base + off, base + off + len) })),
+  };
 }
 
 /** Start loading the plant atlas early (it is cached for every complex after). */
@@ -139,6 +164,14 @@ export async function buildPlants(planting: Planting, seed: number, terrain: Ter
   geo.computeBoundingSphere();
   const mat = new THREE.MeshStandardMaterial({ map: texture, alphaTest: 0.32, side: THREE.FrontSide, vertexColors: true, roughness: 0.85, metalness: 0 });
   mat.userData.foliage = true;
+  // Cards thin out as they turn edge-on to the eye (twin of the WebGPU view's fade): no
+  // flat slabs from the side, no six-pointed star of crossed cards from above.
+  mat.onBeforeCompile = shader => {
+    shader.fragmentShader = shader.fragmentShader.replace("#include <alphatest_fragment>", `
+      { vec3 ng = normalize(cross(dFdx(vViewPosition), dFdy(vViewPosition)));
+        diffuseColor.a *= smoothstep(0.14, 0.46, abs(dot(ng, normalize(vViewPosition)))); }
+      #include <alphatest_fragment>`);
+  };
   const mesh = new THREE.Mesh(geo, mat);
   mesh.castShadow = mesh.receiveShadow = true;
   // The atlas stays cached for the next complex; only this complex's geometry goes.
