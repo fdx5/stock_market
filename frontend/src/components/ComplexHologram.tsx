@@ -1564,14 +1564,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     stage.frame = () => {
       stage.controls.target.copy(center);
       // Fit all eight corners to both frustum axes; tall towers used to lose their
-      // crowns in the narrow map rail. Keep a little sky above the actual roof.
+      // crowns in the narrow map rail. Keep the sky above the roofs where the hot-air
+      // balloon circles (its envelope up to ~55 m over the tallest roof).
       const viewDir = new THREE.Vector3(0.74, 0.22, 0.74).normalize();
       const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), viewDir).normalize();
       const up = new THREE.Vector3().crossVectors(viewDir, right);
       const tanV = Math.tan(THREE.MathUtils.degToRad(stage.camera.fov / 2));
       const tanH = tanV * stage.camera.aspect;
       let fitDistance = 60;
-      for (const x of [box.min.x, box.max.x]) for (const y of [floor, top + 6]) for (const z of [-box.max.y, -box.min.y]) {
+      for (const x of [box.min.x, box.max.x]) for (const y of [floor, top + 50]) for (const z of [-box.max.y, -box.min.y]) {
         const v = new THREE.Vector3(x, y, z).sub(center);
         fitDistance = Math.max(fitDistance, Math.max(Math.abs(v.dot(right)) / tanH, Math.abs(v.dot(up)) / tanV) + v.dot(viewDir));
       }
@@ -1584,7 +1585,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     };
     stage.frame();
     stage.intro = null;
-    stage.balloon?.setRoute(center, dist, top);
+    stage.balloon?.setRoute(center, span, top);
     if (stage.balloon) stage.balloon.group.visible = true;
     stage.camera.far = dist * 14 + 2000;
     stage.nearMax = Math.max(0.5, dist / 800);

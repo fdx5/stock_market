@@ -6,7 +6,8 @@ import type { Look } from "./complexScene";
  * load tapes and a throat; eight cables down to a wicker basket with a leather rim, a
  * burner frame and burners that fire now and then — at night the envelope glows from
  * inside while they burn. It circles the complex slowly, rising and sinking, turning
- * gently as balloons do, just over the rooftops (its envelope 6-28 m above the basket rising above them), a few hundred metres out (in the opening view's sky, over the skyline). From its basket the complex can be looked down on
+ * gently as balloons do, right over the apartments, its basket 9-27 m above the tallest
+ * roof. From its basket the complex can be looked down on
  * (ComplexHologram's balloon view).
  * World frame, metres; the envelope's throat is 6 m above the basket floor. */
 
@@ -99,13 +100,13 @@ export function buildBalloon() {
   let center = new THREE.Vector3(), radius = 200, base = 80, time = 0, night = 0, burn = 0, nextBurn = 3;
   const heading = { yaw: 0 };
   const place = () => {
-    // Circling at ~3.5 m/s; height swinging slowly between ~10 and ~70 m over the roofs
+    // Circling at ~3 m/s; height swinging slowly between ~10 and ~70 m over the roofs
     // (low enough to sit in the opening view's sky, just above the skyline).
     // Starting beyond the complex from the opening view (it looks in from +x +z), in
     // that view's sky, then on round.
-    const w = 3.5 / radius, a = time * w - 2.36;
+    const w = 3 / radius, a = time * w - 2.36;
     const r = radius * (1 + 0.12 * Math.sin(time * 0.021));
-    const y = base + 12 * Math.sin(time * 0.043) + 5 * Math.sin(time * 0.11 + 1.3);
+    const y = base + 6 * Math.sin(time * 0.043) + 3 * Math.sin(time * 0.11 + 1.3);
     group.position.set(center.x + Math.cos(a) * r, y, center.z + Math.sin(a) * r);
     // A slow spin of its own, and a gentle pendulum sway of basket and envelope.
     heading.yaw = time * 0.05;
@@ -115,9 +116,11 @@ export function buildBalloon() {
     group,
     /** Things a click on the balloon can hit. */
     pickables: [envelope, ...basket.children] as THREE.Object3D[],
-    /** Over this complex: its centre, how far out to circle, how high the roofs are. */
-    setRoute(c: THREE.Vector3, dist: number, roofTop: number) {
-      center = c.clone(); radius = Math.max(300, dist * 1.8); base = roofTop + 8;
+    /** Over this complex: its centre, its footprint's size, how high the roofs are. */
+    setRoute(c: THREE.Vector3, span: number, roofTop: number) {
+      // Over the complex itself: a circle inside its footprint, the basket 9-27 m over
+      // the tallest roof (never low enough to touch a tower).
+      center = c.clone(); radius = Math.max(35, span * 0.42); base = roofTop + 18;
       place();
     },
     update(dt: number) {
