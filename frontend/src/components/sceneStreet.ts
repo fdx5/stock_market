@@ -1,11 +1,12 @@
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
 import type { RealEstateRoad } from "../api/client";
 import type { Lamp } from "./complexScene";
 import { rng } from "./complexScene";
 import { FLAT, type Terrain } from "./sceneTerrain";
 import { KERB_H } from "./sceneSidewalk";
+import { carGeometry, CAR_SPECS } from "./sceneCars";
 
 /* The street: lamps on the surveyed major roads, and traffic driving both ways on
  * them. Cars, vans and box trucks are Kenney's CC0 Car Kit (packed by type into
@@ -112,7 +113,11 @@ function loadKit() {
       g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
       g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
       g.setIndex(new THREE.BufferAttribute(new Uint16Array(idx), 1));
-      geos.set(t.name, g.toNonIndexed());
+      // Kenney's cars are flat-shaded facets: smooth normals within 45° (the panels read
+      // rounded, like pressed steel) and hard at the real creases (roof edge, wheel arch).
+      const flat = g.toNonIndexed();
+      geos.set(t.name, toCreasedNormals(flat, (45 * Math.PI) / 180));
+      flat.dispose();
       g.dispose();
     }
     return { geos, texture };
@@ -359,24 +364,31 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   if (!paths.length) return null;
 
   const bodyMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.45, metalness: 0.25 });
+  // (WebGPU: clear-coated paint, dark glazing, matte tyres from the swatches)
+  bodyMat.userData.carPaint = true;
   const boxMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15 });
   const lampMat = new THREE.MeshStandardMaterial({ color: "#000000", emissive: "#ffffff", emissiveMap: lampMap(), emissiveIntensity: 0, roughness: 0.3 });
-  const kit = (name: string) => geos.get(name)!;
+  // Passenger cars from their proportions (sceneCars); vans, trucks and the rest from the kit.
+  const kit = (name: string) => carGeometry(name) ?? geos.get(name)!;
   // [geometry, material, weight, speed factor, length, width, lamp height, repaint]
   const K = (geo: THREE.BufferGeometry, mat: THREE.Material, weight: number, speed: number, dims: [number, number, number], paint = false) =>
     ({ geo, mat, weight, speed, dims, paint, own: mat === boxMat });
-  const d = (n: string) => DIMS[n];
+  const d = (n: string): [number, number, number] => CAR_SPECS[n] ? [CAR_SPECS[n].length, CAR_SPECS[n].width, CAR_SPECS[n].height] : DIMS[n];
   // Mix: passenger cars about 70 %; then trucks, buses and containers.
   const kinds = [
-    K(kit("sedan"), bodyMat, 17, 1, [d("sedan")[0], d("sedan")[1], 0.62], true),
-    K(kit("sedan-sports"), bodyMat, 6, 1.08, [d("sedan-sports")[0], d("sedan-sports")[1], 0.55], true),
-    K(kit("suv"), bodyMat, 12, 1, [d("suv")[0], d("suv")[1], 0.75], true),
-    K(kit("suv-luxury"), bodyMat, 6, 1, [d("suv-luxury")[0], d("suv-luxury")[1], 0.75], true),
-    K(kit("hatchback-sports"), bodyMat, 7, 1.04, [d("hatchback-sports")[0], d("hatchback-sports")[1], 0.6], true),
-    K(kit("taxi"), bodyMat, 10, 1, [d("taxi")[0], d("taxi")[1], 0.62]),
-    K(kit("van"), bodyMat, 5, 0.95, [d("van")[0], d("van")[1], 0.75], true),
-    K(kit("delivery"), bodyMat, 4, 0.9, [d("delivery")[0], d("delivery")[1], 0.8]),
-    K(kit("truck"), bodyMat, 4, 0.85, [d("truck")[0], d("truck")[1], 0.85]),
+    // (the passenger cars: sceneCars; shares after what Korean roads carry)
+    K(kit("sedan"), bodyMat, 12, 1, [d("sedan")[0], d("sedan")[1], 0.62], true),
+    K(kit("sedan-large"), bodyMat, 8, 1, [d("sedan-large")[0], d("sedan-large")[1], 0.64], true),
+    K(kit("sedan-sports"), bodyMat, 8, 1.06, [d("sedan-sports")[0], d("sedan-sports")[1], 0.58], true),
+    K(kit("suv"), bodyMat, 10, 1, [d("suv")[0], d("suv")[1], 0.75], true),
+    K(kit("suv-small"), bodyMat, 8, 1.02, [d("suv-small")[0], d("suv-small")[1], 0.72], true),
+    K(kit("suv-luxury"), bodyMat, 6, 1, [d("suv-luxury")[0], d("suv-luxury")[1], 0.78], true),
+    K(kit("hatchback-sports"), bodyMat, 5, 1.02, [d("hatchback-sports")[0], d("hatchback-sports")[1], 0.62], true),
+    K(kit("kei-box"), bodyMat, 4, 1, [d("kei-box")[0], d("kei-box")[1], 0.66], true),
+    K(kit("taxi"), bodyMat, 8, 1, [d("taxi")[0], d("taxi")[1], 0.62], true),
+    K(kit("mpv"), bodyMat, 5, 0.98, [d("mpv")[0], d("mpv")[1], 0.76], true),
+    K(kit("van"), bodyMat, 3, 0.95, [d("van")[0], d("van")[1], 0.78], true),
+    K(kit("delivery"), bodyMat, 3, 0.9, [d("delivery")[0], d("delivery")[1], 0.8], true),
     K(cargoGeometry("#2d5fa8"), boxMat, 4, 0.9, [5.1, 1.75, 0.75]),
     K(cargoGeometry("#e9e9e6"), boxMat, 2, 0.9, [5.1, 1.75, 0.75]),
     K(busGeometry("#2a6fc4"), boxMat, 2.5, 0.8, [11, 2.5, 0.75]),   // 간선 blue
@@ -676,8 +688,24 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const lamps = kinds.map((_, i) => { const im = instanced(lampGeos[i], lampMat, perKind[i], false); im.visible = false; return im; });
   let lampsOn = false;
   // Body colours for the Kenney cars vary through the per-instance colour.
-  const paints = ["#ffffff", "#f4f4f4", "#1c1d20", "#9aa0a6", "#c9ccd0", "#3a4a63", "#7d1f22", "#e6e2d8", "#2f3a2f"];
-  cars.forEach(c => { if (kinds[c.type].paint) meshes[c.type].setColorAt(c.slot, new THREE.Color(paints[Math.floor(rnd() * paints.length)]).lerp(new THREE.Color("#ffffff"), 0.3)); });
+  // Colours by their share of Korean registrations: white and pearl about a third, greys a
+  // fifth, black a sixth, silver, blue; red, beige, brown and green only now and then.
+  const paintShares: [string, number][] = [
+    ["#f7f7f5", 20], ["#ecebe6", 13], ["#6b6e72", 10], ["#4a4d51", 10], ["#141518", 17], ["#b9bcc0", 8],
+    ["#223a5e", 4], ["#3d5f86", 2], ["#7a1c22", 3], ["#c8bca6", 3], ["#5a4336", 2], ["#2f4436", 2], ["#9a9d8f", 2]];
+  const paintTotal = paintShares.reduce((t, [, w]) => t + w, 0);
+  const paintPick = () => { let r = rnd() * paintTotal; for (const [c, w] of paintShares) { r -= w; if (r <= 0) return c; } return paintShares[0][0]; };
+  // (taxis in the city's liveries: orange, white, silver)
+  const taxiPaints = ["#e8772a", "#f2f2f0", "#c9ccd0", "#e8772a"];
+  // (delivery vans: white, silver, the odd blue)
+  const vanPaints = ["#f4f4f2", "#f4f4f2", "#c9ccd0", "#2d5fa8"];
+  const taxiKind = kinds.findIndex(k => k.geo === kit("taxi")), deliveryKind = kinds.findIndex(k => k.geo === kit("delivery"));
+  cars.forEach(c => {
+    if (!kinds[c.type].paint) return;
+    const colour = c.type === taxiKind ? taxiPaints[Math.floor(rnd() * taxiPaints.length)]
+      : c.type === deliveryKind ? vanPaints[Math.floor(rnd() * vanPaints.length)] : paintPick();
+    meshes[c.type].setColorAt(c.slot, new THREE.Color(colour).lerp(new THREE.Color("#ffffff"), 0.3));
+  });
   meshes.forEach(m => { if (m.instanceColor) m.instanceColor.needsUpdate = true; });
 
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);

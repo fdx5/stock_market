@@ -61,7 +61,7 @@ export const GPU = {
 		const limits = {};
 		for ( const k in want ) if ( L[ k ] !== undefined ) limits[ k ] = Math.min( want[ k ], L[ k ] );
 
-		const optional = [ 'float32-filterable', 'timestamp-query', 'rg11b10ufloat-renderable', 'float32-blendable', 'shader-f16', 'clip-distances', 'texture-compression-bc' ]; // (local modification: BC for pre-compressed atlases)
+		const optional = [ 'float32-filterable', 'timestamp-query', 'rg11b10ufloat-renderable', 'float32-blendable', 'shader-f16', 'clip-distances', 'texture-compression-bc', 'texture-compression-etc2' ]; // (local modification: BC / ETC2 for pre-compressed atlases)
 		const requiredFeatures = optional.filter( ( f ) => adapter.features.has( f ) );
 		this.features = new Set( requiredFeatures );
 		this.hasTimestamp = this.features.has( 'timestamp-query' );

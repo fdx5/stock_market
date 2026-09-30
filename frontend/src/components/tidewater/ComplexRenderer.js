@@ -10,6 +10,7 @@ import { FullscreenPass } from '../../vendor/tidewater/engine/render/FullscreenP
 import { SunShadows } from '../../vendor/tidewater/engine/render/Shadows.js';
 import { FrameUniforms, setFrameCamera } from '../../vendor/tidewater/engine/render/Frame.js';
 import { ShaderModule } from '../../vendor/tidewater/engine/gpu/Shader.js';
+import { UniformBlock } from '../../vendor/tidewater/engine/gpu/Uniforms.js';
 import { SceneLighting } from '../../vendor/tidewater/engine/render/wgsl/lighting.js';
 import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/index.js';
 import { waterMaterial, updateWaveTile } from './ComplexWater.js';
@@ -41,16 +42,57 @@ function useShadows({ shadow: size, pcss }) {
   shadowKey = size + '/' + pcss;
   shadowOwner = null;
 }
+// Photographic surface detail (scripts/detail-textures.py): small CC0 scans tiled in world
+// space over the painted surfaces up close. Loaded with the device, alongside the page.
+let details = null;
+let detailLoad = null;
+async function loadDetails() {
+  const meta = await fetch('/3d/detail.json').then(r => { if (!r.ok) throw new Error('detail.json ' + r.status); return r.json(); });
+  const out = {};
+  await Promise.all(Object.entries(meta).map(async ([name, m]) => {
+    const blob = await fetch('/3d/' + m.file).then(r => { if (!r.ok) throw new Error(m.file + ' ' + r.status); return r.blob(); });
+    const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+    const tex = new Texture({ width: bmp.width, height: bmp.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'], label: 'detail ' + name });
+    GPU.queue.copyExternalImageToTexture({ source: bmp }, { texture: tex.getGPU() }, [bmp.width, bmp.height]);
+    generateMipmaps(tex);
+    bmp.close();
+    out[name] = { tex, metres: m.metres, avgRough: m.avgRough };
+  }));
+  details = out;
+}
 async function device() {
   // (a device already made — before a hot update of this module — is reused)
   initialization ??= (GPU.device && !deviceLost ? Promise.resolve() : GPU.init({ headless: true })).then(() => {
     gpuCaps.bc = GPU.features.has('texture-compression-bc');
+    gpuCaps.etc2 = GPU.features.has('texture-compression-etc2');
     warmBC7();
     GPU.format = navigator.gpu.getPreferredCanvasFormat();
     SceneLighting.set('envSpecular', new ShaderModule({ name: 'complex reflected sky', deps: [atmosphere], code: `
       fn hookEnvSpecular(R: vec3f, roughness: f32) -> vec3f {
         return mix(skyBase(R), frame.horizonColor, roughness * 0.55) * frame.envIntensity;
       }` }));
+    // Light bounced off the ground (paving, grass, soil: a warm grey, ~20 %) onto what faces
+    // sideways or down: the shaded side of a block is filled from below as well as by the
+    // blue sky, instead of reading cold violet. (The sky's own lower half stays in envDiffuse.)
+    SceneLighting.set('bounce', new ShaderModule({ name: 'complex ground bounce', code: `
+      fn hookBounce(P: vec3f, N: vec3f) -> vec3f {
+        let below = sat(0.5 - 0.5 * N.y);
+        let ground = frame.sunColor * max(frame.sunDir.y, 0.0) * 0.75 + frame.skyIrradiance * PI;
+        return vec3f(0.2, 0.185, 0.16) * ground * below * INV_PI;
+      }` }));
+    // Plant cards: the shadow looked up a couple of metres toward the sun, so a tree's crossed
+    // cards don't shade one another in dark wedges (buildings and other trees still do).
+    SceneLighting.set('shadowPosition', new ShaderModule({ name: 'complex foliage shadow offset', code: `
+      fn hookShadowPosition(P: vec3f, N: vec3f, pixel: vec2f) -> vec3f {
+#if FOLIAGE == 2
+        return P + frame.sunDir * 0.6;
+#elif FOLIAGE
+        return P + frame.sunDir * 2.2;
+#else
+        return P;
+#endif
+      }` }));
+    detailLoad ??= loadDetails().catch(err => console.info('[3D] surface detail unavailable:', err));
     GPU.device.lost.then(() => { deviceLost = true; });
     GPU.device.addEventListener('uncapturederror', event => {
       console.warn('[3D] Native GPU validation failed:', event.error.message);
@@ -255,10 +297,82 @@ fn precipitate(c0: vec3f, uv: vec2f) -> vec3f {
   return c;
 }`;
 
+// Ambient occlusion in screen space, at half resolution (after N8AO / Alchemy AO, McGuire
+// 2011): what the flat sky and bounce light miss — where a building meets the ground, the
+// window reveals and slab undersides, the ground under trees and between blocks. The
+// radius follows the distance (a metre up close, several from the overview), so corners
+// read at every zoom. Normals come from the depth (the forward pass writes none).
+const AO_CODE = /* wgsl */`
+fn aoView(ip: vec2i, size: vec2f) -> vec3f {
+  let q = clamp(ip, vec2i(0), vec2i(size) - 1);
+  // (the sky, at infinite depth: a point far behind instead of a NaN)
+  return viewFromDepth((vec2f(q) + 0.5) / size, max(textureLoad(sceneDepth, q, 0).x, 1e-6));
+}
+fn fragment(in: FSIn) -> vec4f {
+  let size = vec2f(textureDimensions(sceneDepth));
+  let ip = vec2i(in.uv * size);
+  let d = textureLoad(sceneDepth, ip, 0).x;
+  if (d <= 0.0) { return vec4f(1.0, 60000.0, 0.0, 1.0); }
+  let P = aoView(ip, size);
+  // (the flatter side of each pair: no normals bent across silhouettes)
+  let l = aoView(ip - vec2i(1, 0), size); let r = aoView(ip + vec2i(1, 0), size);
+  let u = aoView(ip - vec2i(0, 1), size); let b = aoView(ip + vec2i(0, 1), size);
+  let dx = select(P - l, r - P, abs(r.z - P.z) < abs(P.z - l.z));
+  let dy = select(P - u, b - P, abs(b.z - P.z) < abs(P.z - u.z));
+  var N = normalize(cross(dx, dy));
+  if (dot(N, P) > 0.0) { N = -N; }
+  let dist = -P.z;
+  let R = clamp(dist * 0.035, 0.7, 9.0);
+  // the radius on screen, in pixels of the full-size depth
+  let rPx = R * frame.proj[1][1] * 0.5 * size.y / dist;
+  if (rPx < 1.5) { return vec4f(1.0, dist, 0.0, 1.0); }
+  // interleaved gradient noise: each pixel turns the pattern, the blur averages it out
+  let ign = fract(52.9829189 * fract(dot(in.pos.xy, vec2f(0.06711056, 0.00583715))));
+  var occ = 0.0;
+  let COUNT = 12;
+  for (var i = 0; i < COUNT; i++) {
+    let t = (f32(i) + ign) / f32(COUNT);
+    let a = t * 18.8495559 + ign * 6.2831853;   // three turns of a spiral
+    let o = vec2f(cos(a), sin(a)) * rPx * (0.12 + 0.88 * t * t);
+    let S = aoView(ip + vec2i(o), size);
+    let v = S - P;
+    let vv = dot(v, v);
+    let fall = sat(1.0 - vv / (R * R));
+    occ += sat(dot(v, N) * inverseSqrt(vv + 1e-4) - 0.08) * fall;
+  }
+  let ao = sat(1.0 - occ / f32(COUNT) * 2.2);
+  return vec4f(ao * ao, dist, 0.0, 1.0);
+}`;
+// Depth-aware blur of the AO (one axis per pass): no dark halo spills off an edge.
+const aoBlurCode = axis => /* wgsl */`
+fn fragment(in: FSIn) -> vec4f {
+  let size = vec2f(textureDimensions(aoSrc));
+  let full = vec2f(textureDimensions(sceneDepth));
+  let ip = vec2i(in.uv * size);
+  let z0 = viewDepth(max(textureLoad(sceneDepth, vec2i(in.uv * full), 0).x, 1e-6));
+  var sum = 0.0; var wsum = 0.0;
+  for (var i = -3; i <= 3; i++) {
+    let q = clamp(ip + ${axis === 0 ? 'vec2i(i, 0)' : 'vec2i(0, i)'}, vec2i(0), vec2i(size) - 1);
+    let z = viewDepth(max(textureLoad(sceneDepth, vec2i((vec2f(q) + 0.5) / size * full), 0).x, 1e-6));
+    let dz = (z - z0) / (z0 * 0.03 + 0.05);
+    let w = exp(-f32(i * i) / 8.0) * exp(-dz * dz);
+    sum += textureLoad(aoSrc, q, 0).r * w; wsum += w;
+  }
+  return vec4f(sum / max(wsum, 1e-4), textureLoad(aoSrc, ip, 0).g, 0.0, 1.0);
+}`;
+
 const finishCode = /* wgsl */`
 fn fragment(in: FSIn) -> vec4f {
   let px = 1.0 / vec2f(textureDimensions(src));
   var c = textureSampleLevel(src, smpLinearClamp, in.uv, 0.0).rgb;
+  c = select(min(c, vec3f(30000.0)), vec3f(0.0), c != c);
+#if AO
+  // (before the edge filter: a sampled blur of the occlusion, whole-screen)
+  let aoTexel = textureSampleLevel(aoTex, smpLinearClamp, in.uv, 0.0);
+  let finalZ = viewDepth(max(textureLoad(sceneDepth, vec2i(in.uv * vec2f(textureDimensions(sceneDepth))), 0).x, 1e-6));
+  // (a plant or the water in front of the depth the occlusion was taken at: unshaded)
+  let occl = select(1.0, aoTexel.r, abs(finalZ - aoTexel.g) < finalZ * 0.03 + 0.3);
+#endif
   // Small edge-aware filter at internal resolution reduces facade shimmer.
   let a = textureSampleLevel(src, smpLinearClamp, in.uv + vec2f(px.x, 0.0), 0.0).rgb;
   let b = textureSampleLevel(src, smpLinearClamp, in.uv - vec2f(px.x, 0.0), 0.0).rgb;
@@ -266,11 +380,253 @@ fn fragment(in: FSIn) -> vec4f {
   let e = textureSampleLevel(src, smpLinearClamp, in.uv - vec2f(0.0, px.y), 0.0).rgb;
   let edge = length(a - b) + length(d - e);
   c = mix(c, (a + b + d + e + c * 4.0) / 8.0, smoothstep(0.15, 0.8, edge) * 0.65);
+#if AO
+  c *= occl;
+#if AO_SHOW
+  return vec4f(vec3f(occl), 1.0);
+#endif
+#endif
   c = precipitate(c, in.uv);
   c *= frame.exposure;
+#if BLOOM
+  c += textureSampleLevel(bloomTex, smpLinearClamp, in.uv, 0.0).rgb * bloom.strength;
+#endif
+#if TONEMAP_NEUTRAL
+  // Khronos PBR Neutral: base colours come out as painted (no ACES hue skew and
+  // oversaturation of the facades and grass); highlights roll off into white.
+  c *= 1.45;
+  let lo = min(c.r, min(c.g, c.b));
+  c -= select(0.04, lo - 6.25 * lo * lo, lo < 0.08);
+  let peak = max(c.r, max(c.g, c.b));
+  if (peak > 0.76) {
+    let newPeak = 1.0 - 0.0576 / (peak - 0.52);
+    c *= newPeak / peak;
+    c = mix(c, vec3f(newPeak), 1.0 - 1.0 / (0.15 * (peak - newPeak) + 1.0));
+  }
+  c = clamp(c, vec3f(0.0), vec3f(1.0));
+  c = select(1.055 * pow(c, vec3f(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3f(0.0031308));
+#else
   c = clamp((c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14), vec3f(0.0), vec3f(1.0));
   c = pow(c, vec3f(1.0 / 2.2));
+#endif
   return vec4f(c, 1.0);
+}`;
+// Bloom (Jimenez 2014, Call of Duty: Advanced Warfare): the bright part of the frame
+// (lit windows, street lamps, the sun on glass) blurred through a chain of half-size
+// levels and added back — light spilling round a lit window at night instead of a
+// hard-edged rectangle. 13-tap downsample (a soft threshold on the first), tent upsample.
+const BloomUniforms = new UniformBlock('Bloom', { strength: ['f32', 0], threshold: ['f32', 1], exposure: ['f32', 1], pad: ['f32', 0] }, { label: 'complex bloom' });
+const BLOOM_LEVELS = 5;
+const BLOOM_THRESHOLD = /* wgsl */`
+  c = select(min(c, vec3f(30000.0)), vec3f(0.0), c != c);
+  c *= bloom.exposure;
+  // soft knee over the threshold; very bright specks capped (no flicker from single pixels)
+  let br = max(c.r, max(c.g, c.b));
+  let knee = bloom.threshold * 0.5;
+  let soft = clamp(br - bloom.threshold + knee, 0.0, 2.0 * knee);
+  c *= max(soft * soft / (4.0 * knee + 1e-4), br - bloom.threshold) / max(br, 1e-4);
+  c = min(c, vec3f(8.0));`;
+const bloomDownCode = first => /* wgsl */`
+fn tap(uv: vec2f) -> vec3f { return textureSampleLevel(src, smpLinearClamp, uv, 0.0).rgb; }
+fn fragment(in: FSIn) -> vec4f {
+  let t = 1.0 / vec2f(textureDimensions(src));
+  let uv = in.uv;
+  var c = tap(uv) * 0.125
+    + (tap(uv + t * vec2f(-2.0, -2.0)) + tap(uv + t * vec2f(2.0, -2.0)) + tap(uv + t * vec2f(-2.0, 2.0)) + tap(uv + t * vec2f(2.0, 2.0))) * 0.03125
+    + (tap(uv + t * vec2f(0.0, -2.0)) + tap(uv + t * vec2f(-2.0, 0.0)) + tap(uv + t * vec2f(2.0, 0.0)) + tap(uv + t * vec2f(0.0, 2.0))) * 0.0625
+    + (tap(uv + t * vec2f(-1.0, -1.0)) + tap(uv + t * vec2f(1.0, -1.0)) + tap(uv + t * vec2f(-1.0, 1.0)) + tap(uv + t * vec2f(1.0, 1.0))) * 0.125;
+  ${first ? BLOOM_THRESHOLD : ''}
+  return vec4f(c, 1.0);
+}`;
+const bloomUpCode = /* wgsl */`
+fn tap(uv: vec2f) -> vec3f { return textureSampleLevel(src, smpLinearClamp, uv, 0.0).rgb; }
+fn fragment(in: FSIn) -> vec4f {
+  let t = 1.0 / vec2f(textureDimensions(src));
+  let uv = in.uv;
+  let c = tap(uv) * 4.0
+    + (tap(uv + vec2f(t.x, 0.0)) + tap(uv - vec2f(t.x, 0.0)) + tap(uv + vec2f(0.0, t.y)) + tap(uv - vec2f(0.0, t.y))) * 2.0
+    + tap(uv + t) + tap(uv - t) + tap(uv + vec2f(t.x, -t.y)) + tap(uv + vec2f(-t.x, t.y));
+  return vec4f(c / 16.0, 1.0);
+}`;
+
+// Look switches for side-by-side checks (?ao=0, ?tm=aces, ?bloom=0).
+const lookParams = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
+const TONEMAP_NEUTRAL = lookParams.get('tm') !== 'aces';
+const AO_ALLOWED = lookParams.get('ao') !== '0';
+const BLOOM_ALLOWED = lookParams.get('bloom') !== '0';
+const INTERIOR_ALLOWED = lookParams.get('int') !== '0';
+const DETAIL_ALLOWED = lookParams.get('detail') !== '0';
+
+// Interior mapping (van Dongen 2008; the windows of Marvel's Spider-Man, Cities: Skylines
+// II): behind each pane of clear glass a room — back wall, side walls, floor and ceiling —
+// found by casting the view ray into a box one bay wide, one storey high and a room deep.
+// No textures: per-room colours and furniture from a hash of the window's cell. By day it
+// is lit through the window (bright near the glass, dim at the back); a lit window at
+// night (the lit-window colour) is a room under its ceiling lamp. The glass itself turns
+// clear, reflecting like double glazing. Painted cells: 8 bays by 8 storeys a texture
+// tile (facadeSteps), the storey's floor at the top of its slab band.
+const INTERIOR_WGSL = /* wgsl */`
+  let uvT = in.uv * REPEAT + OFFSET;
+  let cellUV = uvT * GRID;
+  let cell = floor(cellUV);
+  let fc = fract(cellUV);
+  let Ng = normalize(in.N);
+  let iq0 = dpdx(in.P); let iq1 = dpdy(in.P); let ist0 = dpdx(uvT); let ist1 = dpdy(uvT);
+  let iq1p = cross(iq1, Ng); let iq0p = cross(Ng, iq0);
+  let Tn = normalize(iq1p * ist0.x + iq0p * ist1.x + vec3f(1e-7));
+  let Bn = normalize(iq1p * ist0.y + iq0p * ist1.y + vec3f(1e-7));
+  let dW = normalize(in.P - frame.cameraPos);
+  let rd = vec3f(dot(dW, Tn), dot(dW, Bn), max(-dot(dW, Ng), 0.04));
+  let rh = vec3f(skyHash(cell), skyHash(cell + 17.3), skyHash(cell + 41.9));
+  // (the cell's v runs down the wall: its ceiling at CEIL, its floor at FLOOR of the storey)
+  let RW = BAYW; let RH = STOREY; let RC = STOREY * CEIL; let RF = STOREY * FLOOR; let RD = 3.6 + 2.2 * rh.z;
+  let rp = vec3f(fc.x * RW, fc.y * RH, 0.0);
+  let rdx = select(min(rd.x, -1e-4), max(rd.x, 1e-4), rd.x >= 0.0);
+  let rdy = select(min(rd.y, -1e-4), max(rd.y, 1e-4), rd.y >= 0.0);
+  let tx = (select(0.0, RW, rd.x >= 0.0) - rp.x) / rdx;
+  let ty = (select(RC, RF, rd.y >= 0.0) - rp.y) / rdy;
+  let tz = RD / rd.z;
+  let th = min(tx, min(ty, tz));
+  let hp = rp + rd * th;
+  let wallC = mix(vec3f(0.78, 0.74, 0.67), vec3f(0.9, 0.89, 0.86), rh.x);
+  let floorC = mix(vec3f(0.34, 0.24, 0.15), vec3f(0.64, 0.57, 0.47), rh.y);
+  var col = wallC * 0.95; var lamp = 0.5;
+  if (th == tz) {
+    col = wallC * 0.9;
+    // along the back wall: a sofa or cabinet, now and then a picture above it
+    if (hp.y > RF - 0.85 && abs(hp.x - RW * 0.5) < RW * (0.25 + 0.2 * rh.y)) { col = mix(vec3f(0.2, 0.18, 0.17), vec3f(0.58, 0.52, 0.45), rh.x); }
+    else if (rh.y > 0.55 && abs(hp.y - (RF - 1.75)) < 0.3 && abs(hp.x - RW * 0.5) < 0.45) { col = mix(vec3f(0.25, 0.3, 0.36), vec3f(0.62, 0.45, 0.32), rh.z); }
+  } else if (th == ty) {
+    if (rd.y >= 0.0) { col = floorC; lamp = 0.3; }
+    else { col = vec3f(0.9); lamp = 1.0 - 0.7 * min(length(vec2f(hp.x - RW * 0.5, hp.z - RD * 0.5)) / RD, 1.0); }
+  }
+  let deep = sat(hp.z / RD);
+  // (a room by day is several times darker than the sunlit wall outside it)
+  let dayIn = (frame.skyIrradiance * PI * 0.3 + frame.sunColor * max(frame.sunDir.y, 0.0) * 0.035) * mix(0.85, 0.12, deep);
+  var room = col * dayIn * INV_PI * 1.15 + s.emissive * col * (0.5 + 1.15 * lamp);
+  // A window a few pixels across: the room's average (single cells would flicker).
+  let avg = wallC * (dayIn * INV_PI * 0.7 + s.emissive * 0.95);
+  room = mix(room, avg, smoothstep(0.12, 0.45, max(fwidth(cellUV).x, fwidth(cellUV).y)));
+  s.emissive = mix(s.emissive, room, roomOpen);
+  s.albedo = mix(s.albedo, vec3f(0.012, 0.014, 0.016), roomOpen);
+  s.metalness = mix(s.metalness, 0.0, roomOpen);
+  s.roughness = mix(s.roughness, 0.05, roomOpen);
+  s.specularIntensity = mix(s.specularIntensity, 3.3, roomOpen);`;
+
+// Surface detail in world space, from noise alone (no textures to load): what a painted
+// canvas cannot hold up close, faded out by the pixel's footprint so nothing shimmers far
+// away. Each reads the albedo already sampled (s.albedo, linear).
+//
+// Ground: the painted land use tells the surface — grass (clumps, dry patches, blades),
+// asphalt (aggregate grain, worn tone), light paving (20 x 10 cm blocks in running bond,
+// joints and per-block tone, as on apartment-complex walks).
+const GROUND_DETAIL = /* wgsl */`{
+  let a = s.albedo; let lum = luminance(a);
+  let hi = max(a.r, max(a.g, a.b)); let chroma = (hi - min(a.r, min(a.g, a.b))) / max(hi, 1e-4);
+  let xz = in.P.xz;
+  let px = max(length(fwidth(xz)), 1e-4);
+  let fine = 1.0 - smoothstep(0.02, 0.09, px);
+  let mid = 1.0 - smoothstep(0.15, 0.7, px);
+  let broad = skyNoise(xz * 0.07) * 0.6 + skyNoise(xz * 0.23 + 3.7) * 0.4;
+  let grain = skyNoise(xz * 3.1) * 0.5 + skyNoise(xz * 7.3 + 1.3) * 0.5;
+  let grass = smoothstep(0.015, 0.06, a.g - max(a.r, a.b));
+  let tar = (1.0 - grass) * (1.0 - smoothstep(0.05, 0.13, lum)) * (1.0 - smoothstep(0.15, 0.35, chroma));
+  let pave = (1.0 - grass) * smoothstep(0.13, 0.28, lum) * (1.0 - smoothstep(0.2, 0.4, chroma));
+  var alb = a;
+  // grass
+  // (lawns read olive rather than paint-green; clumps and worn patches break them up)
+  alb = mix(alb, vec3f(luminance(alb)) * vec3f(0.95, 1.12, 0.62) + alb * 0.25, grass * 0.45);
+  let clump = mix(0.7, 1.15, broad) * mix(1.0, mix(0.74, 1.2, grain), fine);
+  let dry = smoothstep(0.55, 0.8, skyNoise(xz * 0.045 + 9.1));
+  alb *= mix(1.0, clump, grass);
+  alb = mix(alb, alb * vec3f(1.35, 1.1, 0.7), dry * grass * 0.7 * mid);
+  // (asphalt is a neutral dark grey, never the blue the painted plan and the sky tint give it)
+  alb = mix(alb, vec3f(luminance(alb)) * vec3f(1.02, 1.0, 0.97), tar * 0.7);
+  // asphalt: coarse aggregate, worn and patched (repairs a few metres across), the odd stain
+  let agg = mix(0.72, 1.25, skyHash(floor(xz * 45.0)));
+  let repair = smoothstep(0.68, 0.72, skyNoise(floor(xz * 0.4) * 0.37 + 11.0)) * 0.14;
+  let stain = smoothstep(0.7, 0.9, skyNoise(xz * 0.9 + 4.2)) * 0.18;
+  alb *= mix(1.0, mix(0.84, 1.1, broad) * (1.0 - repair - stain * mid) * mix(1.0, agg, fine * 0.7), tar);
+  // (stone chips catch the sun: a jittered normal per few centimetres, only up close)
+  let chip = vec2f(skyHash(floor(xz * 30.0) + 1.7), skyHash(floor(xz * 30.0) + 8.3)) - 0.5;
+  s.normal = normalize(s.normal + vec3f(chip.x, 0.0, chip.y) * 0.22 * fine * (tar + pave * 0.5));
+  // paving blocks
+  let bw = vec2f(0.2, 0.1);
+  var q = xz / bw; q.x += 0.5 * step(0.5, fract(q.y * 0.5));
+  let cellB = floor(q); let fb = fract(q);
+  let joint = min(min(fb.x, 1.0 - fb.x) * bw.x, min(fb.y, 1.0 - fb.y) * bw.y);
+  let jointK = 1.0 - smoothstep(0.004, 0.011, joint);
+  let fineP = 1.0 - smoothstep(0.012, 0.045, px);
+  alb *= mix(1.0, mix(0.93, 1.04, broad) * mix(1.0, mix(0.9, 1.08, skyHash(cellB + 3.1)) * (1.0 - 0.32 * jointK), fineP), pave * mid);
+  s.albedo = alb;
+  s.roughness = s.roughness * mix(1.0, mix(0.86, 1.08, grain), fine);
+}`;
+// Flat roofs: urethane waterproofing in patches of wear and repair, the seams of its runs.
+const ROOF_DETAIL = /* wgsl */`{
+  let xz = in.P.xz;
+  let px = max(length(fwidth(xz)), 1e-4);
+  let m = skyNoise(xz * 0.18) * 0.6 + skyNoise(xz * 0.61 + 2.0) * 0.4;
+  let d = (0.5 - abs(fract(xz / 4.5) - 0.5)) * 4.5;
+  let seam = (1.0 - smoothstep(0.02, 0.06, min(d.x, d.y))) * (1.0 - smoothstep(0.04, 0.2, px));
+  s.albedo *= mix(0.8, 1.1, m) * (1.0 - 0.2 * seam);
+  s.roughness *= mix(0.82, 1.05, m);
+}`;
+// Walls: faint rain streaks run down from the slabs and sills, and the paint's tone drifts
+// across a block (no two panels quite the same) — the clean CG sheen goes.
+const WALL_WEATHER = /* wgsl */`if (abs(in.N.y) < 0.5) {
+  let along = dot(in.P.xz, normalize(vec2f(-in.N.z, in.N.x) + vec2f(1e-5, 0.0)));
+  let px = max(length(fwidth(in.P)), 1e-4);
+  let streak = smoothstep(0.55, 0.9, skyNoise(vec2f(along * 1.7, in.P.y * 0.07))) * (1.0 - smoothstep(0.3, 1.5, px));
+  let drift = mix(0.95, 1.03, skyNoise(vec2f(along * 0.035, in.P.y * 0.02) + 5.3));
+  s.albedo *= drift * (1.0 - 0.09 * streak);
+}`;
+// Photographic detail over a painted surface: the scan's grain and relief projected in world
+// space (walls by their run and height, tops from above) at its real size, strongest up
+// close and gone by the time a texel would shimmer; a second, broad tap of the same scan
+// gives the blotchy unevenness of real render and stone from further off. Glass and metal
+// (the glazing and frames painted into the same texture) are left alone.
+const DETAIL_WGSL = (metres, albedo, relief, avgRough) => /* wgsl */`{
+  let dN = normalize(in.N);
+  let dTop = abs(dN.y) > 0.7;
+  let dRun = normalize(vec3f(-dN.z, 0.0, dN.x) + vec3f(1e-5, 0.0, 0.0));
+  let dUV = select(vec2f(dot(in.P, dRun), in.P.y), in.P.xz, dTop) / ${metres.toFixed(3)};
+  let dT = select(dRun, vec3f(1.0, 0.0, 0.0), dTop);
+  let dB = select(vec3f(0.0, 1.0, 0.0), vec3f(0.0, 0.0, 1.0), dTop);
+  let dFine = textureSample(detailMap, smpAnisoRepeat, dUV);
+  let dBroad = textureSample(detailMap, smpAnisoRepeat, dUV * 0.21 + vec2f(0.37, 0.61));
+  let dPx = max(length(fwidth(in.P)), 1e-4);
+  let dNear = (1.0 - smoothstep(0.012, 0.07, dPx)) * (1.0 - smoothstep(0.3, 0.5, s.metalness));
+  let dMid = (1.0 - smoothstep(0.15, 0.6, dPx)) * (1.0 - smoothstep(0.3, 0.5, s.metalness));
+  s.albedo *= mix(1.0, dFine.r * 2.0, dNear * ${albedo.toFixed(2)}) * mix(1.0, dBroad.r * 2.0, dMid * ${(albedo * 0.7).toFixed(2)});
+  let dn = dFine.gb * 2.0 - 1.0;
+  s.normal = normalize(s.normal + (dT * dn.x + dB * dn.y) * dNear * ${relief.toFixed(2)});
+  s.roughness = mix(s.roughness, s.roughness * clamp(dFine.a / ${avgRough.toFixed(3)}, 0.6, 1.4), dNear * 0.6);
+}`;
+// How strongly each scan shows (albedo grain, relief).
+const DETAIL_LOOK = { paint: [0.55, 0.45], granite: [0.6, 0.35], concrete: [0.6, 0.5], roof: [0.55, 0.45] };
+
+// Kenney's cars carry flat colour swatches: the body becomes clear-coated paint (a sharp
+// sky reflection over the colour — what makes a car read as one), the windows dark
+// reflective glass, tyres and trim matte.
+const CAR_PAINT = /* wgsl */`{
+  let t = carTex; let tl = luminance(t);
+  let glass = smoothstep(0.08, 0.16, t.b - t.r) * smoothstep(0.45, 0.65, tl);
+  let dark = 1.0 - smoothstep(0.02, 0.07, tl);
+  let body = (1.0 - glass) * (1.0 - dark);
+#if INSTANCE_COLOR
+  // The repaint was made for multiplying over the swatch (lerped 30 % toward white): here the
+  // body takes the paint itself — white, silver, black as on Korean roads, not a red-tinted
+  // version of each over the kit's red body.
+  let paint = clamp((in.color.rgb - 0.3) / 0.7, vec3f(0.0), vec3f(1.0));
+  s.albedo = mix(s.albedo, paint * mat.color * 0.92, body);
+#endif
+  s.clearcoat = body; s.clearcoatRoughness = 0.12;
+  s.roughness = mix(mix(s.roughness, 0.85, dark), 0.3, body);
+  s.metalness = mix(s.metalness * (1.0 - dark), 0.3, body);
+  s.albedo = mix(s.albedo, vec3f(0.01, 0.012, 0.015), glass);
+  s.roughness = mix(s.roughness, 0.12, glass);
+  s.metalness = mix(s.metalness, 0.0, glass);
+  s.specularIntensity = mix(s.specularIntensity, 3.0, glass);
 }`;
 
 /** The device, ahead of the first view (ComplexHologram.warmGpu). */
@@ -289,6 +645,8 @@ function sameMatrix(a, b) {
 export class ComplexRenderer {
   static async create(host, quality = QUALITY.high) {
     await device();
+    // (the surface detail with the first view, if it comes within a moment: never held up for it)
+    await Promise.race([detailLoad, new Promise(r => setTimeout(r, 1500))]);
     // a software adapter (no usable GPU): the lightest setting from the start
     if (GPU.adapter.info?.isFallbackAdapter || GPU.adapter.isFallbackAdapter) quality = QUALITY.low;
     return new ComplexRenderer(host, quality);
@@ -316,8 +674,25 @@ export class ComplexRenderer {
     // pass (Tidewater's sceneCopy). Allocated once water is in the scene.
     this.copy = null;
     this.sky = new FullscreenPass({ label: 'complex atmosphere', modules: [atmosphere], code: skyCode, colorFormats: ['rgba16float'], depthFormat: 'depth32float', depthCompare: 'equal' });
+    // Ambient occlusion (not on the low setting): half-size, blurred across then down.
+    this.aoOn = AO_ALLOWED && quality.name !== 'low';
+    const depthBinding = { texture: () => this.target.depthTexture, sampleType: 'unfilterable-float' };
+    if (this.aoOn) {
+      // (occlusion, and the view depth it was taken at: the finish tells the plants in front)
+      this.ao = new RenderTarget(1, 1, { colors: ['rg16float'], label: 'complex ao', usage: ['sample', 'render'] });
+      this.aoTmp = new RenderTarget(1, 1, { colors: ['rg16float'], label: 'complex ao blur', usage: ['sample', 'render'] });
+    }
+    this.depthBinding = depthBinding;
+    // Bloom (not on the low setting): half, quarter … 1/32 size levels.
+    this.bloomOn = BLOOM_ALLOWED && quality.name !== 'low';
+    if (this.bloomOn) {
+      this.bloomRT = [];
+      for (let i = 0; i < BLOOM_LEVELS; i++) this.bloomRT.push(new RenderTarget(1, 1, { colors: ['rgba16float'], label: 'complex bloom ' + i, usage: ['sample', 'render', ...(import.meta.env.DEV && lookParams.get('probe') ? ['copySrc'] : [])] }));
+    }
     this.finish = new FullscreenPass({ label: 'complex filmic resolve', modules: [new ShaderModule({ name: 'complex precipitation', code: PRECIP_WGSL })], code: finishCode, colorFormats: [GPU.format],
-      bindings: { src: { texture: () => this.target.texture }, sceneDepth: { texture: () => this.target.depthTexture, sampleType: 'unfilterable-float' } } });
+      defines: { AO: this.aoOn ? 1 : 0, AO_SHOW: lookParams.get('ao') === 'show' ? 1 : 0, TONEMAP_NEUTRAL: TONEMAP_NEUTRAL ? 1 : 0, BLOOM: this.bloomOn ? 1 : 0 },
+      bindings: { src: { texture: () => this.target.texture }, sceneDepth: depthBinding, ...(this.aoOn ? { aoTex: { texture: () => this.ao.texture } } : {}),
+        ...(this.bloomOn ? { bloomTex: { texture: () => this.bloomRT[0].texture }, bloom: { uniform: BloomUniforms } } : {}) } });
     this.meshes = new Map();
     this.materials = new Map();
     this.textures = new Map();
@@ -332,6 +707,49 @@ export class ComplexRenderer {
     /** GPU ms per pass (timer.ms.total: the frame), where timestamps exist. */
     this.timer = new GpuTimer();
   }
+  /** The AO and bloom passes, made once the first frame is up: their twelve pipelines
+   * compiled alongside the scene's held the first frame back by a quarter second. Until
+   * they are ready the frame goes without (a white occlusion, no bloom). */
+  makePost() {
+    if (this.postMade) return;
+    this.postMade = true;
+    const depthBinding = this.depthBinding;
+    if (this.aoOn) {
+      this.aoPass = new FullscreenPass({ label: 'complex ao', code: AO_CODE, colorFormats: ['rg16float'], bindings: { sceneDepth: depthBinding } });
+      this.aoBlurX = new FullscreenPass({ label: 'complex ao blur x', code: aoBlurCode(0), colorFormats: ['rg16float'],
+        bindings: { aoSrc: { texture: () => this.ao.texture, sampleType: 'unfilterable-float' }, sceneDepth: depthBinding } });
+      this.aoBlurY = new FullscreenPass({ label: 'complex ao blur y', code: aoBlurCode(1), colorFormats: ['rg16float'],
+        bindings: { aoSrc: { texture: () => this.aoTmp.texture, sampleType: 'unfilterable-float' }, sceneDepth: depthBinding } });
+    }
+    if (this.bloomOn) {
+      const u = { bloom: { uniform: BloomUniforms } };
+      this.bloomDown = this.bloomRT.map((_, i) => new FullscreenPass({ label: 'complex bloom down ' + i, code: bloomDownCode(i === 0), colorFormats: ['rgba16float'],
+        bindings: { src: { texture: () => (i === 0 ? this.target : this.bloomRT[i - 1]).texture }, ...(i === 0 ? u : {}) } }));
+      this.bloomUp = this.bloomRT.slice(1).map((_, i) => new FullscreenPass({ label: 'complex bloom up ' + i, code: bloomUpCode, colorFormats: ['rgba16float'], blend: 'add',
+        bindings: { src: { texture: () => this.bloomRT[i + 1].texture } } }));
+    }
+  }
+  /** Development (?probe=1): the smallest bloom level read back each frame; a non-finite or
+   * absurd value there is a pixel that would flash the whole frame (window.__hdrBad). */
+  probeBloom() {
+    if (this.probing) return;
+    const rt = this.bloomRT[BLOOM_LEVELS - 1], w = rt.width, h = rt.height, row = Math.ceil(w * 8 / 256) * 256;
+    const buf = GPU.device.createBuffer({ size: row * h, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    GPU.getEncoder().copyTextureToBuffer({ texture: rt.texture.getGPU() }, { buffer: buf, bytesPerRow: row }, [w, h]);
+    this.probing = true;
+    setTimeout(() => buf.mapAsync(GPUMapMode.READ).then(() => {
+      const u = new Uint16Array(buf.getMappedRange());
+      let bad = 0, max = 0;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w * 4; x++) {
+        const v = u[y * row / 2 + x], e = (v >> 10) & 31;
+        if (e === 31) bad++; else max = Math.max(max, e);
+      }
+      buf.unmap(); buf.destroy(); this.probing = false;
+      const g = window; g.__hdrFrames = (g.__hdrFrames ?? 0) + 1;
+      if (bad) { g.__hdrBad = (g.__hdrBad ?? 0) + 1; console.warn('[3D probe] non-finite bloom', bad, performance.now().toFixed(0)); }
+      g.__hdrMaxExp = Math.max(g.__hdrMaxExp ?? 0, max);
+    }).catch(() => { this.probing = false; }), 0);
+  }
   setSize(w, h, ratio) {
     const limit = GPU.device.limits.maxTextureDimension2D;
     const width = Math.min(limit, Math.max(1, Math.round(w * ratio)));
@@ -341,6 +759,9 @@ export class ComplexRenderer {
     this.canvas.height = height;
     this.target.setSize(this.canvas.width, this.canvas.height);
     this.copy?.setSize(this.canvas.width, this.canvas.height);
+    const hw = Math.max(1, Math.ceil(width / 2)), hh = Math.max(1, Math.ceil(height / 2));
+    this.ao?.setSize(hw, hh); this.aoTmp?.setSize(hw, hh);
+    this.bloomRT?.forEach((rt, i) => rt.setSize(Math.max(1, width >> (i + 1)), Math.max(1, height >> (i + 1))));
   }
   /** Lower (or raise) the quality: shadow resolution and the water's reflection. */
   setQuality(quality) {
@@ -355,7 +776,7 @@ export class ComplexRenderer {
     if (this.textures.has(source)) return this.textures.get(source);
     // Pre-compressed levels (the plant atlas as BC7): uploaded as they are, a quarter of the memory.
     const packed = source.userData?.compressed;
-    if (packed && GPU.features.has('texture-compression-bc')) {
+    if (packed && GPU.features.has(packed.format.startsWith('etc2') ? 'texture-compression-etc2' : 'texture-compression-bc')) {
       const tex = new Texture({ width: packed.width, height: packed.height, format: packed.format, mips: packed.levels.length, usage: ['sample', 'copyDst'] });
       packed.levels.forEach(({ w, h, data }, level) => {
         const bw = Math.ceil(w / 4), bh = Math.ceil(h / 4);
@@ -453,17 +874,20 @@ export class ComplexRenderer {
       return mat;
     }
     const textures = {};
-    let surface = '';
+    // Facades with a glass mask (the lit-window map's alpha): a room behind the clear glass.
+    const interior = INTERIOR_ALLOWED && !!(source.userData.interior && source.emissiveMap);
+    const car = !!(source.userData.carPaint && source.map);
+    let surface = (interior ? 'var roomOpen = 0.0;\n' : '') + (car ? 'var carTex = vec3f(0.5);\n' : '');
     // Relief normals and roughness / metalness in one texture where they line up (the
     // facades): normal x, y, roughness, metalness; z comes back from x and y.
     const surfaceTex = this.packedSurface(source);
     // Roughness alone (the ground): its one channel.
     const roughOnly = !surfaceTex && source.roughnessMap && source.roughnessMap !== source.metalnessMap ? this.singleChannel(source.roughnessMap) : null;
     for (const [key, statement] of [
-      ['map', 's.albedo *= texel.rgb; s.alpha *= texel.a;'],
+      ['map', car ? 's.albedo *= texel.rgb; s.alpha *= texel.a; carTex = texel.rgb;' : 's.albedo *= texel.rgb; s.alpha *= texel.a;'],
       ['roughnessMap', roughOnly ? 's.roughness *= texel.r;' : 's.roughness *= texel.g;'],
       ['metalnessMap', 's.metalness *= texel.b;'],
-      ['emissiveMap', 's.emissive *= texel.rgb;'],
+      ['emissiveMap', interior ? 's.emissive *= texel.rgb; roomOpen = texel.a;' : 's.emissive *= texel.rgb;'],
     ]) {
       if (surfaceTex && (key === 'roughnessMap' || key === 'metalnessMap')) continue;
       const tex = source[key] && (key === 'roughnessMap' && roughOnly ? roughOnly : this.texture(source[key]));
@@ -496,8 +920,27 @@ export class ComplexRenderer {
         s.normal = normalize(T * inv * mapN.x * near + B * inv * mapN.y * near + in.N * mapN.z);
       }`;
     }
+    if (interior) {
+      const t = source.emissiveMap, f = n => Number(n).toFixed(8);
+      // (the painted grid: bays across, storeys up, and where each storey's ceiling and floor lie;
+      // the complex's facade tile unless the material says otherwise)
+      const g = { grid: [8, 8], bay: 3.2, storey: 2.9, ceil: 0.0, floor: 0.9, ...(typeof source.userData.interior === 'object' ? source.userData.interior : {}) };
+      const code = INTERIOR_WGSL.replace('REPEAT', `vec2f(${f(t.repeat.x)}, ${f(t.repeat.y)})`).replace('OFFSET', `vec2f(${f(t.offset.x)}, ${f(t.offset.y)})`)
+        .replace('GRID', `vec2f(${f(g.grid[0])}, ${f(g.grid[1])})`).replaceAll('BAYW', f(g.bay)).replaceAll('STOREY', f(g.storey)).replace('CEIL;', f(g.ceil) + ';').replace('FLOOR;', f(g.floor) + ';');
+      surface += `if (roomOpen > 0.02) { ${code} }\n`;
+    }
+    if (DETAIL_ALLOWED && source.userData.groundDetail) surface += GROUND_DETAIL + '\n';
+    const scan = DETAIL_ALLOWED && details?.[source.userData.detail];
+    if (scan) {
+      textures.detailMap = scan.tex;
+      const [albedo, relief] = DETAIL_LOOK[source.userData.detail] ?? [0.5, 0.4];
+      // (not on the clear glass of the windows)
+      surface += (interior ? DETAIL_WGSL(scan.metres, albedo, relief, scan.avgRough).replace('let dNear = (', 'let dNear = (1.0 - roomOpen) * (') : DETAIL_WGSL(scan.metres, albedo, relief, scan.avgRough)) + '\n';
+    }
+    if (source.userData.roofDetail) surface += ROOF_DETAIL + '\n';
+    if (interior || source.userData.weathered) surface += WALL_WEATHER + '\n';
     // Leaves let light through: a little transmitted sun on the shaded side.
-    if (source.userData.foliage) surface += `s.translucency = s.albedo * 0.25;
+    if (source.userData.foliage) surface += `s.translucency = s.albedo * 0.32;
       // Plant cards thin out as they turn edge-on to the eye (or the sun, in the shadow
       // pass): no flat slabs from the side, no six-pointed star of crossed cards from above.
       // Looked down on steeply, the upright cards squash into streaks round the trunk (a
@@ -513,11 +956,36 @@ export class ComplexRenderer {
         s.alpha *= faceCut * mix(1.0, 1.0 - smoothstep(${FOLIAGE_STEEP}), upright);
         // Crowns cut straight at their card's border read as polygons (and cast polygon
         // shadows): the upright cards soften at their sides and top, the crown card round.
-        let cell = fract(in.uv * ${Number(source.userData.atlasCells ?? 8).toFixed(1)});
+        let cell = fract(in.uv * vec2f(${Number(source.userData.atlasCells ?? 8).toFixed(1)}, ${Number(source.userData.atlasRows ?? source.userData.atlasCells ?? 8).toFixed(1)}));
         let side = smoothstep(0.0, 0.12, min(min(cell.x, 1.0 - cell.x), 1.0 - cell.y));
         let crownEdge = 1.0 - smoothstep(0.78, 1.0, length(cell - 0.5) * 2.0);
-        s.alpha *= select(crownEdge, side, upright > 0.5); }`;
-    if (source.userData.contextBuilding) surface += 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.27, 0.25); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9; }';
+        s.alpha *= select(crownEdge, side, upright > 0.5);
+#if !PASS_DEPTH
+        // Lit as a crown, not as flat cards (the foliage normals of SpeedTree and co.): the
+        // normal leans out from the middle of the crown — sunlit on one side, shading off
+        // smoothly round the other — instead of each card flat-lit, bright or dark, with
+        // hard seams where they cross.
+        let fq0 = dpdx(in.P); let fq1 = dpdy(in.P); let fu0 = dpdx(in.uv); let fu1 = dpdy(in.uv);
+        let facing = select(-ng, ng, dot(ng, v) >= 0.0);
+        let fT = normalize(cross(fq1, facing) * fu0.x + cross(facing, fq0) * fu1.x + vec3f(1e-7));
+        var round = facing * 0.55;
+        if (upright > 0.5) { round += fT * (cell.x - 0.5) * 2.0 + vec3f(0.0, (cell.y - 0.62) * 1.7, 0.0); }
+        else { round += vec3f(0.0, 1.0, 0.0) + fT * (cell.x - 0.5) * 1.4; }
+        s.normal = normalize(mix(s.normal, normalize(round), 0.75));
+#endif
+      }`;
+    // Leaf-cluster cards of the mesh trees: light through the leaves, and a card turning
+    // edge-on thins out (no hard straight line of leaves).
+    if (source.userData.leafCluster) surface += `s.translucency = s.albedo * 0.4;
+      { let ng = normalize(cross(dpdx(in.P), dpdy(in.P))); let v = normalize(frame.cameraPos - in.P);
+        s.alpha *= smoothstep(0.08, 0.3, abs(dot(ng, v)));
+        // Mipmaps average the leaves' edges (and a needle tuft's thin lines) away: the alpha
+        // falls under the test and distant crowns go bare. Scaled back up by how far down the
+        // mip chain the texel is read (after Golus's alpha-to-coverage notes).
+        let texel = in.uv * vec2f(textureDimensions(map));
+        let mip = max(0.0, log2(max(length(dpdx(texel)), length(dpdy(texel)))));
+        s.alpha *= 1.0 + min(mip, 4.0) * 0.28; }`;
+    if (source.userData.contextBuilding) surface += WALL_WEATHER + 'if (in.N.y > 0.7) { s.albedo = vec3f(0.24, 0.27, 0.25); s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.9;\n' + ROOF_DETAIL + ' }';
     // Weather: rain darkens what faces up and makes it glossy (puddles where the ground
     // dips in the noise); snow settles on it, patchy on slopes. Twin of patchMaterial.
     if (!source.userData.sky) surface += `{
@@ -533,18 +1001,23 @@ export class ComplexRenderer {
     // Contact darkening and physical glass response (no procedural grain: it aliases).
     surface += `s.roughness = clamp(s.roughness, 0.12, 1.0);
       s.clearcoat = ${source.clearcoat ? '0.16' : '0.0'}; s.clearcoatRoughness = 0.22;`;
+    if (car) surface += CAR_PAINT;
     const mat = new Material({ name: 'complex ' + source.id, color: source.color, roughness: source.roughness ?? 0.8,
       metalness: source.metalness ?? 0, vertexColors: source.vertexColors,
       side: source.side === 2 ? 'double' : source.side === 1 ? 'back' : 'front',
       alphaTest: source.alphaTest || 0, transparent: source.transparent, opacity: source.opacity,
       // Sky objects (the moon) sit beyond the haze.
       // (atmosphere: skyFbm for the puddles and the snow's patchiness)
-      modules: [atmosphere], textures, surface, output: source.userData.sky ? '' : `let fog = 1.0 - exp(-length(in.P - frame.cameraPos) * mat.haze * mat.hazeScale);
+      modules: [atmosphere], textures, surface, output: source.userData.sky ? '' : `// (never a NaN or an overflow into the half-float target: one such pixel, spread by the
+        // bloom, would flash the whole frame black or white)
+        r.color = vec4f(select(min(r.color.rgb, vec3f(30000.0)), vec3f(0.0), r.color.rgb != r.color.rgb), r.color.a);
+        let fog = 1.0 - exp(-length(in.P - frame.cameraPos) * mat.haze * mat.hazeScale);
         r.color = vec4f(mix(r.color.rgb, frame.horizonColor, clamp(fog, 0.0, 0.9)), r.color.a);${source.userData.edgeFade ? `
         // Past the painted (surveyed) ground, uv leaves 0..1: fade into the horizon haze.
         let past = max(max(-in.uv.x, in.uv.x - 1.0), max(-in.uv.y, in.uv.y - 1.0));
         r.color = vec4f(mix(r.color.rgb, frame.horizonColor * 0.92, smoothstep(-0.05, 0.9, past)), r.color.a);` : ''}`,
-      uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1] }, defines: { CLEARCOAT: source.clearcoat ? 1 : 0 },
+      uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1] }, defines: { CLEARCOAT: source.clearcoat || car ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
+      userData: { foliage: !!(source.userData.foliage || source.userData.leafCluster) },
     });
     this.materials.set(source, mat);
     return mat;
@@ -662,6 +1135,10 @@ export class ComplexRenderer {
     f.time.value = time; f.night.value = look.stars; f.envIntensity.value = Math.max(0.9, look.env);
     f.debug.value.set(look.overcast ?? 0, look.rain ?? 0, look.snow ?? 0, (look.stars ?? 0) * (1 - (look.overcast ?? 0)));
     f.pad0.value = look.starTurn ?? 0;
+    // (the look's bloom: faint by day, strong at night; threshold in exposed units)
+    this.bloomStrength = (look.bloom ?? 0.2) * 0.5;
+    BloomUniforms.set('threshold', Math.max(0.6, (look.bloomAt ?? 4) * 0.35));
+    BloomUniforms.set('exposure', f.exposure.value);
     for (const [src, mat] of this.materials) {
       mat.emissive.copy(src.emissive ?? { r: 0, g: 0, b: 0 }).multiplyScalar(src.emissiveIntensity ?? 0);
       mat.set('haze', (source.fog?.density ?? 0.0005) * 0.5);
@@ -684,8 +1161,28 @@ export class ComplexRenderer {
     const lists = this.renderer.collect(this.scene, pass);
     let water = null;
     for (let i = lists.opaque.length - 1; i >= 0; i--) if (lists.opaque[i].material.userData.water) (water ??= []).push(...lists.opaque.splice(i, 1));
-    this.renderer.render(this.scene, { ...pass, timestampWrites: timer.pass('scene'), items: { opaque: lists.opaque, transparent: water ? [] : lists.transparent }, clearColors: [[0, 0, 0, 1]], clearDepth: 0,
-      betweenLists: rp => { if (this.sky.handle.pipeline) this.sky.draw(rp); } });
+    if (this.shown) this.makePost();
+    const aoNow = this.shown && this.aoOn && this.quality.name !== 'low' && !!this.aoPass?.handle.pipeline && !!this.aoBlurX?.handle.pipeline && !!this.aoBlurY?.handle.pipeline;
+    const sky = rp => { if (this.sky.handle.pipeline) this.sky.draw(rp); };
+    if (aoNow) {
+      // The occlusion comes from the solid scene alone: buildings, ground, people. Plant
+      // cards would shade the ground in a star round each trunk (their bases), so they are
+      // drawn after it, and the finish leaves whatever lies in front of that depth unshaded.
+      const plants = [], solid = [];
+      for (const item of lists.opaque) (item.material.userData.foliage ? plants : solid).push(item);
+      this.renderer.render(this.scene, { ...pass, timestampWrites: timer.pass('scene'), items: { opaque: solid, transparent: [] }, clearColors: [[0, 0, 0, 1]], clearDepth: 0 });
+      this.aoPass.timestampWrites = timer.pass('ao');
+      this.aoPass.render({ colorViews: [this.ao.texture] });
+      this.aoBlurX.timestampWrites = timer.pass('aoBlur');
+      this.aoBlurX.render({ colorViews: [this.aoTmp.texture] });
+      this.aoBlurY.timestampWrites = undefined;
+      this.aoBlurY.render({ colorViews: [this.ao.texture] });
+      this.renderer.render(this.scene, { ...pass, label: 'complex plants', timestampWrites: timer.pass('plants'), items: { opaque: plants, transparent: water ? [] : lists.transparent }, betweenLists: sky });
+    } else {
+      this.renderer.render(this.scene, { ...pass, timestampWrites: timer.pass('scene'), items: { opaque: lists.opaque, transparent: water ? [] : lists.transparent }, clearColors: [[0, 0, 0, 1]], clearDepth: 0, betweenLists: sky });
+      // (no occlusion this frame: the finish reads a white one, never an empty — black — texture)
+      if (this.shown && this.aoOn) GPU.getEncoder().beginRenderPass({ label: 'complex ao off', colorAttachments: [{ view: this.ao.texture.view(), loadOp: 'clear', storeOp: 'store', clearValue: [1, 0, 0, 1] }] }).end();
+    }
     if (water) {
       updateWaveTile();
       if (!this.renderer.precompiling) {
@@ -696,6 +1193,13 @@ export class ComplexRenderer {
       this.renderer.render(this.scene, { ...pass, label: 'complex water', timestampWrites: timer.pass('water'), items: { opaque: water, transparent: lists.transparent } });
     }
     this.renderer.precompiling = false;
+    const bloomNow = this.shown && this.bloomOn && this.quality.name !== 'low' && !!this.bloomDown?.every(p => p.handle.pipeline) && !!this.bloomUp?.every(p => p.handle.pipeline);
+    BloomUniforms.set('strength', bloomNow ? this.bloomStrength ?? 0 : 0);
+    if (bloomNow) {
+      this.bloomDown.forEach((p, i) => { p.timestampWrites = i === 0 ? timer.pass('bloom') : undefined; p.render({ colorViews: [this.bloomRT[i].texture] }); });
+      for (let i = this.bloomUp.length - 1; i >= 0; i--) this.bloomUp[i].render({ colorViews: [this.bloomRT[i].texture] });
+      if (import.meta.env.DEV && lookParams.get('probe')) this.probeBloom();
+    }
     if (this.shown) {
       this.finish.timestampWrites = timer.pass('finish');
       this.finish.render({ colorViews: [this.context.getCurrentTexture().createView()] });
@@ -710,7 +1214,8 @@ export class ComplexRenderer {
       GPU.pipelinesReady().then(() => {
         this.compiling = false;
         if (this.disposed) return;
-        this.failed = [...this.renderer.pipelines.values()].some(p => p.handle.failed) || this.sky.handle.failed || this.finish.handle.failed;
+        this.failed = [...this.renderer.pipelines.values()].some(p => p.handle.failed) || this.sky.handle.failed || this.finish.handle.failed
+          || !!(this.aoPass?.handle.failed || this.aoBlurX?.handle.failed || this.aoBlurY?.handle.failed);
         this.ready = !this.failed && !this.pending && !this.starved;
         if (this.ready) this.shown = true;
       });
@@ -729,6 +1234,8 @@ export class ComplexRenderer {
     this.timer.dispose();
     this.target.textures.forEach(t => t.destroy()); this.target.depthTexture.destroy();
     this.copy?.textures.forEach(t => t.destroy()); this.copy?.depthTexture.destroy();
+    this.ao?.textures.forEach(t => t.destroy()); this.aoTmp?.textures.forEach(t => t.destroy());
+    this.bloomRT?.forEach(rt => rt.textures.forEach(t => t.destroy()));
     this.renderer.pipelines.clear(); this.materials.clear(); this.textures.clear(); this.meshes.clear();
   }
 }

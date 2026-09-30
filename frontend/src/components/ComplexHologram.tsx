@@ -657,7 +657,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       reflector?.getRenderTarget().setSize(Math.round(W * ratio * 0.5), Math.round(H * ratio * 0.5));
       finish.uniforms.uAspect.value = W / H;
     };
-    const ro = new ResizeObserver(resize);
+    // (a new canvas size clears it: drawn again at once, before the page paints, not a blank
+    // frame first — the loop may be skipping this frame at the idle rate)
+    const ro = new ResizeObserver(() => { const w = W, h = H; resize(); if ((W !== w || H !== h) && raf) stage.resume(); });
     ro.observe(host);
     resize();
 
@@ -1311,15 +1313,22 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         clearcoat: 0.08, clearcoatRoughness: 0.6,
       }));
       patchMaterial(m, { glass: true });
+      // (WebGPU: rooms behind the clear glass — interior mapping, ComplexRenderer)
+      m.userData.interior = true;
+      m.userData.detail = "paint";
       lit.windows.push(m);
       walls.push(m);
     }
     step("facades");
     if (!await pace(true)) return;
     const roof = keep(new THREE.MeshStandardMaterial({ color: "#6f8174", roughness: 0.93 }));
+    roof.userData.roofDetail = true;
+    roof.userData.detail = "roof";
     const crown = keep(new THREE.MeshStandardMaterial({ color: palette.accent, roughness: 0.4, metalness: 0.45, emissive: palette.accent, emissiveIntensity: 0 }));
     lit.crowns.push(crown);
     const low = keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(palette.wall).lerp(new THREE.Color(palette.wall2), 0.45), roughness: 0.75 }));
+    low.userData.weathered = true;
+    low.userData.detail = "paint";
     // Low-rise facilities (community centre, shops): the shop facade in the complex's
     // colour, drawn with the neighbourhood's shop material (one pipeline fewer).
     const lowTint = new THREE.Color(palette.wall).lerp(new THREE.Color("#ffffff"), 0.2);
@@ -1334,9 +1343,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       map: stoneTex.map, normalMap: stoneTex.normalMap, normalScale: new THREE.Vector2(0.8, 0.8),
       roughnessMap: stoneTex.rmMap, roughness: 1, metalness: 0, clearcoat: 0.12, clearcoatRoughness: 0.35,
     }));
+    stone.userData.detail = "granite";
     // Plain painted trim (end walls, their accent stripe, the roof core): one material,
     // colour per vertex.
     const trim = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.05 }));
+    trim.userData.weathered = true;
+    trim.userData.detail = "paint";
     const gableC = new THREE.Color(palette.wall2).lerp(new THREE.Color(palette.wall), 0.25), stripeC = new THREE.Color(palette.accent);
     const plantC = new THREE.Color(palette.wall2).lerp(new THREE.Color("#9a9a96"), 0.5);
     const tinted = (g: THREE.BufferGeometry, c: THREE.Color) => {
@@ -1582,6 +1594,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     lit.ground.push(groundMat);
     // Beyond the surveyed area the ground is featureless: it fades into the horizon haze.
     groundMat.userData.edgeFade = true;
+    // (WebGPU: grass, asphalt and paving detail in world space)
+    groundMat.userData.groundDetail = true;
     const level = terrain.relief < 1.2;
     patchMaterial(groundMat, {
       detail: true,
@@ -1604,7 +1618,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // in pits, lamps, traffic and people walking. All of it after the first frame.
     stage.scene.add(decor);
     const roads = stitchedRoads(data.roads ?? []);
-    preloadPlants();
+    // (the plant kit — meshes, twig and bark textures, ~3 MB — after the first frame: fetched and
+    // decoded alongside it, it held the first frame back by a few hundred ms)
+    afterShown(() => preloadPlants());
     const landUse = async (): Promise<Planting> => {
       if (data.parcels || !data.vworld_key) return plan.planting;
       const got = await Promise.race([
@@ -1746,7 +1762,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           await nextSlice(pausedRef.current);
           if (alive) crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
         })();
-        const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain));
+        const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
         if (!plants) return;
         if (!alive) { plants.dispose(); return; }
         stage.addWarm(decor, plants.mesh);

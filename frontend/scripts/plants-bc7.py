@@ -1,10 +1,12 @@
-"""GPU-compressed copy of the plant atlas: public/3d/plants.bc7.gz.
+"""GPU-compressed copies of the plant atlas: public/3d/plants.bc7.gz and plants.etc2.gz.
 
   python frontend/scripts/plants-bc7.py        (after every change to plants.webp)
 
 BC7 (8 bits a texel instead of 32): the WebGPU view keeps the atlas in a quarter of the
 memory (35 MB -> 9 MB with mips) where the GPU reads BC textures (desktops); elsewhere
-plants.webp is used as before. Every mip level is made here from the full-size texels,
+plants.webp is used as before. The same levels as ETC2 RGBA (plants.etc2.gz) for the GPUs
+of phones and tablets (texture-compression-etc2), which read no BC: the same quarter of the
+memory instead of the full RGBA (43 MB with mips) — what KTX2 / Basis would transcode to there. Every mip level is made here from the full-size texels,
 the same 2x2 box filter the renderer would use, then encoded. Blocks that are fully
 transparent and at least a block away from anything visible are cleared to one value
 (no filtering reaches them), so the gzipped file stays small.
@@ -52,12 +54,21 @@ def encode(a):
     return etcpak.compress_bc7(np.ascontiguousarray(px).tobytes(), W, H), px  # RGBA in
 
 
+def encode_etc2(px):
+    H, W = px.shape[:2]
+    return etcpak.compress_etc2_rgba(np.ascontiguousarray(px).tobytes(), W, H)
+
+
 data, header, errs = bytearray(), [], []
+etc, etc_header = bytearray(), []
 for a in levels:
     h, w = a.shape[:2]
     blocks, px = encode(a)
     header.append([w, h, len(data), len(blocks)])
     data += blocks
+    e = encode_etc2(px)
+    etc_header.append([w, h, len(etc), len(e)])
+    etc += e
     if w >= 64:
         H, W = px.shape[:2]
         back = np.frombuffer(texture2ddecoder.decode_bc7(blocks, W, H), np.uint8).reshape(H, W, 4)[..., [2, 1, 0, 3]]
@@ -70,5 +81,9 @@ for a in levels:
 head = json.dumps({'width': img.shape[1], 'height': img.shape[0], 'flipY': True, 'levels': header}).encode()
 raw = b'BC7A' + struct.pack('<I', len(head)) + head + bytes(data)
 (root / 'plants.bc7.gz').write_bytes(gzip.compress(raw, 9))
+head = json.dumps({'width': img.shape[1], 'height': img.shape[0], 'flipY': True, 'levels': etc_header}).encode()
+raw_etc = b'ETC2' + struct.pack('<I', len(head)) + head + bytes(etc)
+(root / 'plants.etc2.gz').write_bytes(gzip.compress(raw_etc, 9))
+print(f'ETC2: {len(raw_etc) / 1e6:.2f} MB raw, {(root / "plants.etc2.gz").stat().st_size / 1e6:.2f} MB gzipped')
 print('\n'.join(errs))
 print(f'{len(raw) / 1e6:.2f} MB raw, {(root / "plants.bc7.gz").stat().st_size / 1e6:.2f} MB gzipped, {len(header)} levels')

@@ -1,0 +1,26 @@
+{
+ "paint": {
+  "asset": "beige_wall_001",
+  "metres": 3.0,
+  "file": "detail-paint.webp",
+  "avgRough": 0.621
+ },
+ "granite": {
+  "asset": "granite_tile",
+  "metres": 2.3,
+  "file": "detail-granite.webp",
+  "avgRough": 0.543
+ },
+ "concrete": {
+  "asset": "concrete_wall_008",
+  "metres": 2.71,
+  "file": "detail-concrete.webp",
+  "avgRough": 0.737
+ },
+ "roof": {
+  "asset": "concrete_floor_painted",
+  "metres": 2.0,
+  "file": "detail-roof.webp",
+  "avgRough": 0.748
+ }
+}

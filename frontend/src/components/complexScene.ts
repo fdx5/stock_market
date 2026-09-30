@@ -160,8 +160,14 @@ const BAYS = 8, ROWS = 8;
 export const facadeTextures = (p: Palette, seed: number) => runNow(facadeSteps(p, seed));
 export function* facadeSteps(p: Palette, seed: number) {
   const W = 1024, H = 928, cw = W / BAYS, ch = H / ROWS;
-  const color = canvas(W, H), height = canvas(W, H), rm = canvas(W, H), glow = canvas(W, H);
+  const color = canvas(W, H), height = canvas(W, H), rm = canvas(W, H), glow = canvas(W, H), open = canvas(W, H);
   const g = color.getContext("2d")!, hh = height.getContext("2d")!, r = rm.getContext("2d")!, e = glow.getContext("2d")!;
+  // Where the glass shows the room behind it (the lit-window map's alpha): clear glass,
+  // not the curtains, frames or rail. The WebGPU view draws a room there (interior
+  // mapping); everything else ignores it.
+  // (rectangles collected, drawn in two batches: switching the composite mode per window
+  // tripled the painting time)
+  const glassRects: number[][] = [], cuts: number[][] = [];
   const rnd = rng(seed);
   const slab = mixHex(p.wall, p.wall2, 0.25);
 
@@ -208,12 +214,14 @@ export function* facadeSteps(p: Palette, seed: number) {
       const grad = g.createLinearGradient(0, wy, 0, wy + wh);
       grad.addColorStop(0, p.glass[0]); grad.addColorStop(0.45, p.glass[1]); grad.addColorStop(1, mixHex(p.glass[1], "#000000", 0.3));
       g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
+      glassRects.push([wx, wy, ww, wh]);
       if (rnd() < 0.55) {
         g.fillStyle = curtains[Math.floor(rnd() * curtains.length)];
         g.globalAlpha = 0.55 + rnd() * 0.3;
+        const cut = Math.min(1, g.globalAlpha + 0.15);
         const cwid = ww * (0.18 + rnd() * 0.3);
-        if (rnd() < 0.5) g.fillRect(wx, wy + 2, cwid, wh * 0.95);
-        if (rnd() < 0.6) g.fillRect(wx + ww - cwid, wy + 2, cwid, wh * 0.95);
+        if (rnd() < 0.5) { g.fillRect(wx, wy + 2, cwid, wh * 0.95); cuts.push([wx, wy + 2, cwid, wh * 0.95, cut]); }
+        if (rnd() < 0.6) { g.fillRect(wx + ww - cwid, wy + 2, cwid, wh * 0.95); cuts.push([wx + ww - cwid, wy + 2, cwid, wh * 0.95, cut]); }
         g.globalAlpha = 1;
       }
       // Recess shadow under the lintel.
@@ -235,6 +243,8 @@ export function* facadeSteps(p: Palette, seed: number) {
       g.fillStyle = "#e3e5e4";
       g.fillRect(wx + ww / 2 - 2, wy, 4, wh);
       g.fillRect(wx, wy + wh * 0.24, ww, 3);
+      cuts.push([wx - 1, wy - 1, ww + 2, 7, 1], [wx - 1, wy + wh - 6, ww + 2, 7, 1], [wx - 1, wy, 7, wh, 1], [wx + ww - 6, wy, 7, wh, 1],
+        [wx + ww / 2 - 3, wy, 6, wh, 1], [wx, wy + wh * 0.24 - 1, ww, 5, 1]);
       hh.fillStyle = "rgb(120,120,120)";
       hh.fillRect(wx + ww / 2 - 2, wy, 4, wh); hh.fillRect(wx, wy + wh * 0.24, ww, 3);
       hh.strokeStyle = "rgb(120,120,120)"; hh.lineWidth = 4; hh.strokeRect(wx + 2, wy + 2, ww - 4, wh - 4);
@@ -243,6 +253,10 @@ export function* facadeSteps(p: Palette, seed: number) {
       g.fillStyle = "rgba(190,210,220,0.22)"; g.fillRect(wx, ry, ww, wy + wh - ry);
       g.fillStyle = "#f2f4f4"; g.fillRect(wx - 2, ry - 2, ww + 4, 4);
       for (let px = wx + 6; px < wx + ww; px += ww / 4) g.fillRect(px, ry, 2, wy + wh - ry);
+      cuts.push([wx - 2, ry - 3, ww + 4, 6, 1]);
+      for (let px = wx + 6; px < wx + ww; px += ww / 4) cuts.push([px - 1, ry, 4, wy + wh - ry, 1]);
+      // (the rail's tinted glass: the room a little dimmer through it)
+      cuts.push([wx, ry + 3, ww, wy + wh - ry - 3, 0.2]);
       hh.fillStyle = "rgb(200,200,200)"; hh.fillRect(wx - 2, ry - 2, ww + 4, 4);
       r.fillStyle = "rgb(0,90,40)"; r.fillRect(wx - 2, ry - 2, ww + 4, 4);
     }
@@ -253,6 +267,13 @@ export function* facadeSteps(p: Palette, seed: number) {
     r.fillStyle = "rgb(0,190,0)"; r.fillRect(0, y + ch * 0.9, W, ch * 0.1);
   }
   yield;
+  // The lit-window map keeps its colour and takes the glass mask as its alpha.
+  const o = open.getContext("2d")!;
+  o.fillStyle = "#fff";
+  for (const [x, y, w, h] of glassRects) o.fillRect(x, y, w, h);
+  o.globalCompositeOperation = "destination-out";
+  for (const [x, y, w, h, a] of cuts) { o.globalAlpha = a; o.fillRect(x, y, w, h); }
+  e.globalCompositeOperation = "destination-in"; e.drawImage(open, 0, 0); e.globalCompositeOperation = "source-over";
   // Soften the height steps into bevels before taking normals.
   const soft = canvas(W, H);
   const sctx = soft.getContext("2d")!;
@@ -295,6 +316,10 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
   const W = 512, H = 1024, cols = style === "office" ? 6 : 4, rows = 8, cw = W / cols, ch = H / rows;
   const color = canvas(W, H), rm = canvas(W, H), glow = canvas(W, H), height = canvas(W, H);
   const g = color.getContext("2d")!, r = rm.getContext("2d")!, e = glow.getContext("2d")!, hh = height.getContext("2d")!;
+  // The clear glass, as on the complex's own facades (the lit-window map's alpha): the
+  // WebGPU view draws rooms behind it. Frames, mullions and grilles are cut out of it.
+  const glassRects: number[][] = [], cuts: number[][] = [];
+  const frame = (x: number, y: number, w: number, h: number, t: number) => cuts.push([x - t, y - t, w + 2 * t, 2 * t, 1], [x - t, y + h - t, w + 2 * t, 2 * t, 1], [x - t, y, 2 * t, h, 1], [x + w - t, y, 2 * t, h, 1]);
   const rnd = rng(seed);
   g.fillStyle = style === "villa" ? "#e9e2d6" : style === "office" ? "#d9dde0" : "#e6e3dc"; g.fillRect(0, 0, W, H);
   r.fillStyle = "rgb(0,225,0)"; r.fillRect(0, 0, W, H);
@@ -327,6 +352,7 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
         const grad = g.createLinearGradient(0, wy, 0, wy + wh);
         grad.addColorStop(0, "#9fb4c4"); grad.addColorStop(0.5, "#4c6273"); grad.addColorStop(1, "#27343f");
         g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
+        glassRects.push([wx, wy, ww, wh]);
         r.fillStyle = "rgb(0,12,190)"; r.fillRect(wx, wy, ww, wh);
         hh.fillStyle = "rgb(60,60,60)"; hh.fillRect(wx, wy, ww, wh);
         if (rnd() < (ground ? 0.8 : 0.35)) {
@@ -335,7 +361,7 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
         }
       }
       g.fillStyle = "#c9cfd2"; hh.fillStyle = "rgb(200,200,200)";
-      for (let col = 0; col <= cols; col++) { g.fillRect(col * cw - 3, y0, 6, ch); hh.fillRect(col * cw - 3, y0, 6, ch); }
+      for (let col = 0; col <= cols; col++) { g.fillRect(col * cw - 3, y0, 6, ch); hh.fillRect(col * cw - 3, y0, 6, ch); cuts.push([col * cw - 4, y0, 8, ch, 1]); }
       continue;
     }
     if (ground && style === "shop") {
@@ -349,6 +375,7 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
         grad.addColorStop(0, "#8ea4b3"); grad.addColorStop(1, "#2c3740");
         g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
         g.strokeStyle = "#2a2c2e"; g.lineWidth = 5; g.strokeRect(wx, wy, ww, wh);
+        glassRects.push([wx, wy, ww, wh]); frame(wx, wy, ww, wh, 3.5);
         r.fillStyle = "rgb(0,15,170)"; r.fillRect(wx, wy, ww, wh);
         hh.fillStyle = "rgb(55,55,55)"; hh.fillRect(wx, wy, ww, wh);
         e.fillStyle = `rgba(255,${215 + rnd() * 30},${170 + rnd() * 50},${0.55 + rnd() * 0.4})`; e.fillRect(wx + 3, wy + 3, ww - 6, wh - 6);
@@ -363,6 +390,7 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
       g.fillStyle = grad; g.fillRect(wx, wy, ww, wh);
       g.strokeStyle = "#d4d6d4"; g.lineWidth = 3; g.strokeRect(wx, wy, ww, wh);
       g.fillStyle = "#d4d6d4"; g.fillRect(wx + ww / 2 - 1, wy, 3, wh);
+      glassRects.push([wx, wy, ww, wh]); frame(wx, wy, ww, wh, 2.5); cuts.push([wx + ww / 2 - 2, wy, 5, wh, 1]);
       r.fillStyle = "rgb(0,20,140)"; r.fillRect(wx, wy, ww, wh);
       hh.fillStyle = "rgb(50,50,50)"; hh.fillRect(wx, wy, ww, wh);
       hh.strokeStyle = "rgb(190,190,190)"; hh.lineWidth = 3; hh.strokeRect(wx, wy, ww, wh);
@@ -372,6 +400,7 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
         hh.fillStyle = "rgb(210,210,210)"; hh.fillRect(wx - 4, wy + wh, ww + 8, 5);
         g.fillStyle = "rgba(60,60,60,0.55)";
         for (let gx = wx + 6; gx < wx + ww; gx += 9) g.fillRect(gx, wy + wh * 0.55, 1.5, wh * 0.45);
+        cuts.push([wx, wy + wh * 0.55, ww, wh * 0.45, 0.35]);
       }
       if (rnd() < 0.3) {
         e.fillStyle = `rgba(255,${200 + Math.floor(rnd() * 40)},${140 + Math.floor(rnd() * 70)},${0.4 + rnd() * 0.5})`;
@@ -381,6 +410,12 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
     g.fillStyle = "rgba(0,0,0,0.14)"; g.fillRect(0, y0 + ch - 4, W, 4);
     hh.fillStyle = "rgb(185,185,185)"; hh.fillRect(0, y0 + ch - 6, W, 6);
   }
+  const open = canvas(W, H), o = open.getContext("2d")!;
+  o.fillStyle = "#fff";
+  for (const [x, y, w, h] of glassRects) o.fillRect(x, y, w, h);
+  o.globalCompositeOperation = "destination-out";
+  for (const [x, y, w, h, a] of cuts) { o.globalAlpha = a; o.fillRect(x, y, w, h); }
+  e.globalCompositeOperation = "destination-in"; e.drawImage(open, 0, 0); e.globalCompositeOperation = "source-over";
   const soft = canvas(W, H), sctx = soft.getContext("2d")!;
   sctx.filter = "blur(1px)"; sctx.drawImage(height, 0, 0);
   const normal = yield* normalCanvas(soft, 4);
@@ -436,6 +471,14 @@ export function sharedContextMaterial(style: ContextStyle): THREE.MeshStandardMa
       emissiveMap: ct.emissiveMap, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
     });
     m.userData.contextBuilding = true;
+    // Rooms behind the glass for every style, on each style's grid (bays across the tile, eight
+    // storeys; a curtain wall's spandrel hides the top of each storey).
+    m.userData.interior = style === "apt" ? true : {
+      grid: [style === "office" ? 6 : 4, 8], bay: style === "office" ? 1.8 : 3.4, storey: CONTEXT_FLOOR_M[style],
+      ceil: style === "office" ? 0.22 : 0.0, floor: style === "office" ? 1.0 : 0.97,
+    };
+    // (WebGPU: photographic grain over the painted walls; office spandrels are concrete)
+    m.userData.detail = style === "office" ? "concrete" : "paint";
     patchMaterial(m, { roof: new THREE.Color("#7b7e7a"), glass: true });
     sharedMat.set(style, m);
   }
