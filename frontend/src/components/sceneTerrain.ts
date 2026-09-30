@@ -121,7 +121,7 @@ const VW_LEVEL = 13, VW_TILE = 36 / 2 ** VW_LEVEL;
 const vwTokens = new Map<string, Promise<string>>();
 const vwTiles = new Map<string, Promise<Float32Array | null>>();
 
-function vworldToken(key: string): Promise<string> {
+export function vworldToken(key: string): Promise<string> {
   let hit = vwTokens.get(key);
   if (!hit) {
     hit = fetch(`https://map.vworld.kr/dtkmap/selectApiKeyJson.do?apiKey=${encodeURIComponent(key)}&output=json`, { referrerPolicy: "no-referrer" })

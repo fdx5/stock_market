@@ -18,7 +18,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
 import { vworldBuildings, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
-  CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
+  CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
 } from "./complexScene";
 import { paintStats, paintTextures, plinthTone, prefetchPaint } from "./paintClient";
@@ -34,6 +34,8 @@ import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sc
 import { buildWater } from "./sceneWater";
 import { buildBoats, noBoatsReason } from "./sceneBoats";
 import { buildKids, schoolBorders } from "./sceneKids";
+import type { Palette } from "./complexScene";
+import { photoBuildings, photoColours, photoRhythm, surveyedShape, type PhotoBuilding } from "./vworld3d";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 
@@ -1295,17 +1297,20 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // Two facade variants so neighbouring towers don't light the same windows.
     if (!await pace(true)) return;
     const walls: THREE.MeshPhysicalMaterial[] = [];
-    for (const s of [seed, seed + 7919]) {
-      if (!await pace(true)) return;
+    /** The complex's facade in a palette (the brand's to start with; the real colours read
+     * from the survey photographs later). */
+    const facadeMaterial = async (pal: Palette, s: number, bay = BAY_M, storey = FLOOR_M, scale = 1) => {
       // Started when the complex was chosen (alongside its network wait), or kept from
       // an earlier visit.
-      const tex = await paintTextures({ kind: "facade", palette, seed: s }, pace);
-      if (!tex) return;
-      if (!alive) { Object.values(tex).forEach(t => t.dispose()); return; }
+      const tex = await paintTextures(scale === 1 ? { kind: "facade", palette: pal, seed: s } : { kind: "facade", palette: pal, seed: s, scale }, pace);
+      if (!tex) return null;
+      if (!alive) { Object.values(tex).forEach(t => t.dispose()); return null; }
       // Painted for this complex only and never repainted: the WebGPU view empties the
       // canvas once the texture is on the GPU (ComplexRenderer.release).
       Object.values(tex).forEach(t => { t.userData.releaseAfterUpload = true; });
       Object.values(tex).forEach(keep);
+      // (the tile is 8 bays by 8 storeys: fitted to the measured window pitch and storey)
+      if (bay !== BAY_M || storey !== FLOOR_M) Object.values(tex).forEach(t => { t.repeat.set(1 / (8 * bay), 1 / (8 * storey)); t.offset.set(0, (1 - GROUND_M) / (8 * storey)); });
       const m = keep(new THREE.MeshPhysicalMaterial({
         map: tex.map, normalMap: tex.normalMap, normalScale: new THREE.Vector2(0.9, 0.9),
         roughnessMap: tex.rmMap, metalnessMap: tex.rmMap, roughness: 1, metalness: 1,
@@ -1317,6 +1322,12 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       m.userData.interior = true;
       m.userData.detail = "paint";
       lit.windows.push(m);
+      return m;
+    };
+    for (const s of [seed, seed + 7919]) {
+      if (!await pace(true)) return;
+      const m = await facadeMaterial(palette, s);
+      if (!m) return;
       walls.push(m);
     }
     step("facades");
@@ -1390,12 +1401,16 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (!await pace(true)) return;
     // Geometry per material, merged once below: a few draws for the whole complex.
     const parts = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    // Every piece remembers its building ("b" + index, "c" + neighbour index): the photo
+    // models (VWorld 3D) replace buildings one by one, after the first frame.
+    let owner = "";
+    const own = <G extends THREE.BufferGeometry>(geo: G) => { geo.userData.owner = owner; return geo; };
     const add = (mat: THREE.Material, geo: THREE.BufferGeometry | undefined) => {
       if (!geo) return;
       if (!parts.has(mat)) parts.set(mat, []);
-      parts.get(mat)!.push(geo);
+      parts.get(mat)!.push(own(geo));
     };
-    const relief: THREE.Matrix4[] = [];
+    const relief: THREE.Matrix4[] = [], reliefOwner: string[] = [];
     const reliefLimit = stage.hq ? 40000 : 12000;
     const box = new THREE.Box3();
     const pickables: THREE.Mesh[] = [];
@@ -1410,6 +1425,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       return g;
     };
     for (const [i, b] of data.buildings.entries()) {
+      owner = "b" + i;
       if (!await pace()) return;
       // Register entries with neither height nor floors and a small footprint are guard
       // posts and ramp covers: drawn as guessed blocks they read as stray objects.
@@ -1421,7 +1437,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const [caps, sides] = splitGroups(geo);
       add(roof, caps);
       if (isTower) add(walls[i % 2], sides);
-      else if (sides) ctxGeos.shop.push(tinted(sides, lowTint));
+      else if (sides) ctxGeos.shop.push(own(tinted(sides, lowTint)));
       // Picking only: never rendered, shares the group's transform.
       geo.clearGroups();
       const pick = new THREE.Mesh(keep(geo));
@@ -1431,6 +1447,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const H = b.height + g, B = b.base + g;
       if (isTower) {
         facadeRelief({ ...b, base: B, height: H }, relief, reliefLimit);
+        while (reliefOwner.length < relief.length) reliefOwner.push(owner);
         // Rooftop crown band in the complex's accent colour, and the lift / stair core.
         const cap = new THREE.ExtrudeGeometry(shapeOf(b), { depth: 1.6, bevelEnabled: false });
         cap.translate(0, 0, H);
@@ -1478,23 +1495,6 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     }
     step("towers");
     if (!Number.isFinite(floor)) floor = 0;
-    for (const [mat, geos] of parts) {
-      const merged = keep(mergeGeometries(geos, false)!);
-      geos.forEach(g => g.dispose());
-      const mesh = new THREE.Mesh(merged, mat);
-      mesh.castShadow = mesh.receiveShadow = true;
-      group.add(mesh);
-    }
-    if (relief.length) {
-      const unit = keep(new THREE.BoxGeometry(1, 1, 1));
-      const ledges = new THREE.InstancedMesh(unit, low, relief.length);
-      relief.forEach((m, j) => ledges.setMatrixAt(j, m));
-      ledges.castShadow = ledges.receiveShadow = true;
-      ledges.computeBoundingSphere();
-      group.add(ledges);
-      disposables.push(ledges);
-    }
-
     // The neighbourhood: every registered building within the surveyed radius, on its
     // own ground, in one of three facades chosen by its registered use, tinted per
     // building, windows fitted to its registered floors, a parapet round its roof.
@@ -1503,12 +1503,13 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const reach = ext + 300;
     const tints = ["#f1ede4", "#e4e1da", "#d9d4ca", "#c9b8a4", "#b88f78", "#a9b3bb", "#e8e3d3", "#cfc9bd"];
     const styles: ContextStyle[] = ["villa", "shop", "office", "apt"];
-    const parapets: THREE.Matrix4[] = [];
+    const parapets: THREE.Matrix4[] = [], parapetOwner: string[] = [];
     const pm = new THREE.Object3D();
     const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach));
     step("merge");
     if (!await pace(true)) return;
-    for (const b of neighbours) {
+    for (const [j, b] of neighbours.entries()) {
+      owner = "c" + j;
       if (!await pace()) return;
       const g = terrain.base(b.rings[0]);
       const style = contextStyle(b.use, b.height, rnd());
@@ -1520,7 +1521,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const n = geo.getAttribute("position").count, col = new Float32Array(n * 3);
       for (let j = 0; j < n; j++) col.set([c.r, c.g, c.b], j * 3);
       geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
-      ctxGeos[style].push(geo);
+      ctxGeos[style].push(own(geo));
       // Parapet: a 0.9 m upstand, 0.2 m thick, along every roof edge longer than 2 m.
       const ring = b.rings[0], H = b.height + g;
       if (b.height >= 5 && parapets.length < (stage.hq ? 24000 : 8000)) ring.forEach((p, j) => {
@@ -1531,36 +1532,254 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         pm.rotation.set(0, 0, Math.atan2(uy, ux));
         pm.scale.set(len + 0.2, 0.2, 0.9);
         pm.updateMatrix();
-        parapets.push(pm.matrix.clone());
+        parapets.push(pm.matrix.clone()); parapetOwner.push(owner);
       });
     }
     step("neighbours");
-    for (const style of styles) {
-      if (!await pace()) return;
-      const list = ctxGeos[style];
-      if (!list.length) continue;
-      const merged = keep(mergeGeometries(list, false)!);
-      list.forEach(g => g.dispose());
-      // Apartment neighbours get the apartment facade (neutral colours, one variant, no
-      // base, end walls or crown: those stay the complex's own). Shared by every complex,
-      // compiled while the first one loads.
-      if (!await sharedContextTexturesSliced(style, pace)) return;
-      const ctxMat = sharedContextMaterial(style);
-      lit.windows.push(ctxMat);
-      const ctxMesh = new THREE.Mesh(merged, ctxMat);
-      ctxMesh.castShadow = ctxMesh.receiveShadow = true;
-      group.add(ctxMesh);
+    // The buildings as merged meshes, leaving out any in `skip` (replaced by photo models).
+    // The pieces are kept until the photo pass is done (they are needed to merge again).
+    // (?survey=0: the modelled buildings only, for comparison)
+    const photoPending = !!(data.vworld_key && data.center) && new URLSearchParams(location.search).get("survey") !== "0";
+    let assembled: THREE.Object3D[] = [];
+    const assemble = async (skip: Set<string>, first: boolean) => {
+      const out: THREE.Object3D[] = [];
+      const kept = (g: THREE.BufferGeometry) => !skip.has(g.userData.owner);
+      for (const [mat, geos] of parts) {
+        const list = geos.filter(kept);
+        if (!list.length) continue;
+        const mesh = new THREE.Mesh(keep(mergeGeometries(list, false)!), mat);
+        mesh.castShadow = mesh.receiveShadow = true;
+        out.push(mesh);
+      }
+      const reliefKept = relief.filter((_, j) => !skip.has(reliefOwner[j] ?? ""));
+      if (reliefKept.length) {
+        const unit = keep(new THREE.BoxGeometry(1, 1, 1));
+        const ledges = new THREE.InstancedMesh(unit, low, reliefKept.length);
+        reliefKept.forEach((m, j) => ledges.setMatrixAt(j, m));
+        ledges.castShadow = ledges.receiveShadow = true;
+        ledges.computeBoundingSphere();
+        out.push(ledges);
+        disposables.push(ledges);
+      }
+      for (const style of styles) {
+        if (first && !await pace()) return null;
+        const list = ctxGeos[style].filter(kept);
+        if (!list.length) continue;
+        const merged = keep(mergeGeometries(list, false)!);
+        // Apartment neighbours get the apartment facade (neutral colours, one variant, no
+        // base, end walls or crown: those stay the complex's own). Shared by every complex,
+        // compiled while the first one loads.
+        if (!await sharedContextTexturesSliced(style, pace)) return null;
+        const ctxMat = sharedContextMaterial(style);
+        if (first) lit.windows.push(ctxMat);
+        const ctxMesh = new THREE.Mesh(merged, ctxMat);
+        ctxMesh.castShadow = ctxMesh.receiveShadow = true;
+        out.push(ctxMesh);
+      }
+      const parKept = parapets.filter((_, j) => !skip.has(parapetOwner[j] ?? ""));
+      if (parKept.length) {
+        // Same material and instanced pipeline as the towers' floor ledges.
+        const unit = keep(new THREE.BoxGeometry(1, 1, 1));
+        const im = new THREE.InstancedMesh(unit, low, parKept.length);
+        parKept.forEach((m, j) => im.setMatrixAt(j, m));
+        im.castShadow = im.receiveShadow = true;
+        im.computeBoundingSphere();
+        out.push(im);
+        disposables.push(im);
+      }
+      return out;
+    };
+    const releasePieces = () => {
+      for (const geos of parts.values()) geos.forEach(g => g.dispose());
+      for (const style of styles) ctxGeos[style].forEach(g => g.dispose());
+    };
+    {
+      const out = await assemble(new Set(), true);
+      if (!out) return;
+      assembled = out;
+      group.add(...assembled);
+      if (!photoPending) releasePieces();
     }
-    if (parapets.length) {
-      // Same material and instanced pipeline as the towers' floor ledges.
-      const unit = keep(new THREE.BoxGeometry(1, 1, 1));
-      const im = new THREE.InstancedMesh(unit, low, parapets.length);
-      parapets.forEach((m, j) => im.setMatrixAt(j, m));
-      im.castShadow = im.receiveShadow = true;
-      im.computeBoundingSphere();
-      group.add(im);
-      disposables.push(im);
-    }
+    // Building numbers painted on end walls: one texture per number, dark grey on clear.
+    const numberMats = new Map<string, THREE.MeshStandardMaterial>();
+    const numberMaterial = (label: string) => {
+      let m = numberMats.get(label);
+      if (m) return m;
+      const cv = document.createElement("canvas"); cv.width = 512; cv.height = 256;
+      const g2 = cv.getContext("2d")!;
+      g2.font = `bold 220px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
+      g2.textAlign = "center"; g2.textBaseline = "middle"; g2.fillStyle = "#3a3d42";
+      const tw = Math.min(500, g2.measureText(label).width + 30);
+      g2.fillText(label, 256, 136, 500);
+      const tex = keep(new THREE.CanvasTexture(cv));
+      tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8; tex.flipY = false;
+      // (the quad covers only the digits: uv x cropped to them)
+      tex.repeat.set(tw / 512, 1); tex.offset.set((256 - tw / 2) / 512, 0);
+      m = keep(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2 }));
+      m.userData.aspect = tw / 256;
+      numberMats.set(label, m);
+      return m;
+    };
+    // The real buildings: VWorld's photo-textured 3D models (their facades photographed),
+    // fetched after the first frame and swapped in for the modelled buildings they match.
+    // Accuracy first: a model is used only over a registered footprint (the survey can
+    // predate a rebuild) and at a height within 35 % of the registered one; the rest keep
+    // their modelled buildings. A constant survey offset between the two sources is taken
+    // out first (the median shift between matched centres).
+    if (photoPending) afterShown(() => void (async () => {
+      let photos: PhotoBuilding[] = [];
+      try {
+        // (the complex and the blocks round it: ~220 m, 130 on phones — beyond, the modelled ones)
+        photos = await photoBuildings(data.vworld_key!, data.center!.lat, data.center!.lon, Math.min(reach, stage.hq ? 220 : 130), { photo: false });
+      } catch (err) { console.info("[3D] photo buildings unavailable:", err); }
+      const drop = () => photos.forEach(ph => ph.geometry.dispose());
+      if (!alive) { drop(); return; }
+      const centre = (r: [number, number][]) => [r.reduce((t, q) => t + q[0], 0) / r.length, r.reduce((t, q) => t + q[1], 0) / r.length] as const;
+      const feet = [
+        ...data.buildings.map((b, i) => ({ owner: "b" + i, ring: b.rings[0], height: b.height, estimated: b.height_source === "estimated" })),
+        ...neighbours.map((b, j) => ({ owner: "c" + j, ring: b.rings[0], height: b.height, estimated: b.height_source === "estimated" })),
+      ].map(f => ({ ...f, c: centre(f.ring) }));
+      const deltas: [number, number][] = [];
+      for (const ph of photos) {
+        let best: (typeof feet)[number] | null = null, bd = 15;
+        for (const f of feet) { const d = Math.hypot(f.c[0] - ph.cx, f.c[1] - ph.cy); if (d < bd) { bd = d; best = f; } }
+        if (best) deltas.push([best.c[0] - ph.cx, best.c[1] - ph.cy]);
+      }
+      const median = (v: number[]) => { const a = [...v].sort((x, y) => x - y); return a.length ? a[a.length >> 1] : 0; };
+      const [dx, dy] = deltas.length >= 3 ? [median(deltas.map(d => d[0])), median(deltas.map(d => d[1]))] : [0, 0];
+      const skip = new Set<string>();
+      const used: THREE.Mesh[] = [];
+      // The surveyed shapes in the view's own materials (lit, shadowed, reflecting, lit at
+      // night like the rest): the complex's facade and roof, the neighbours' facade by use.
+      const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+      const put = (m: THREE.Material, g: THREE.BufferGeometry | null) => { if (g) byMat.set(m, [...(byMat.get(m) ?? []), g]); };
+      const paint = (g: THREE.BufferGeometry | null, c: THREE.Color) => {
+        if (!g) return g;
+        const n = g.getAttribute("position").count, col = new Float32Array(n * 3);
+        for (let j = 0; j < n; j++) col.set([c.r, c.g, c.b], j * 3);
+        g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+        return g;
+      };
+      // The real colours: the complex's own buildings' photographs read (not drawn) —
+      // the paint of the walls, the band under the roof edge, the roof — and the facade
+      // painted again in them. Brand colours stay where the photographs say little.
+      // (every photograph read at once, a few at a time by the browser)
+      const rhythmOf = new Map(photos.map(ph => [ph, photoRhythm(data.vworld_key!, ph).catch(() => null)] as const));
+      await Promise.all(rhythmOf.values());
+      if (!alive) { drop(); releasePieces(); return; }
+      const own = photos.filter(ph => feet.some(f => f.owner.startsWith("b") && Math.hypot(f.c[0] - (ph.cx + dx), f.c[1] - (ph.cy + dy)) < 12));
+      const colours = (await Promise.all(own.slice(0, 8).map(ph => photoColours(data.vworld_key!, ph).catch(() => null)))).filter(c => c && c.samples > 40) as NonNullable<Awaited<ReturnType<typeof photoColours>>>[];
+      if (!alive) { drop(); releasePieces(); return; }
+      let ownWalls = walls, coreMat: THREE.Material = low, gableMat: THREE.Material = low, bandMat: THREE.Material = crown;
+      // (the neighbours' end walls: plain paint in each building's own tint)
+      const plainMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }));
+      plainMat.userData.weathered = true; plainMat.userData.detail = "paint";
+      if (colours.length) {
+        const avg = (pick: (c: (typeof colours)[number]) => number[]) => [0, 1, 2].map(k => colours.map(c => pick(c)[k]).sort((a, b) => a - b)[colours.length >> 1]);
+        const hex = (c: number[], lift = 1) => "#" + c.map(v => Math.round(Math.min(1, v * lift) * 255).toString(16).padStart(2, "0")).join("");
+        const sat = (c: number[]) => (Math.max(...c) - Math.min(...c)) / Math.max(Math.max(...c), 1e-3);
+        const wall = avg(c => c.wall), band = avg(c => c.band), roofC = avg(c => c.roof);
+        // (the photographs are shaded: the paint a little brighter than they show it)
+        const lift = Math.min(1.35, 0.9 / Math.max(...wall, 0.05));
+        const real: Palette = {
+          ...palette,
+          wall: hex(wall, lift),
+          wall2: hex(wall.map(v => v * 0.86), lift),
+          // (the stripe as painted: the photograph greys and darkens it — saturation restored)
+          accent: sat(band) > 0.25 ? (() => { const c = new THREE.Color().setRGB(band[0], band[1], band[2]); const hsl = { h: 0, s: 0, l: 0 }; c.getHSL(hsl); c.setHSL(hsl.h, Math.min(0.85, hsl.s * 1.8), Math.min(0.5, Math.max(0.38, hsl.l))); return "#" + c.getHexString(); })() : hex(wall.map(v => v * 0.7), lift),
+          roof: hex(roofC, 1.1),
+        };
+        // the window pitch and storey measured on the complex's own faces
+        const med = (v: number[]) => { const q = [...v].sort((a, b) => a - b); return q.length ? q[q.length >> 1] : null; };
+        const rh = await Promise.all(own.map(ph => rhythmOf.get(ph)));
+        const bay = med(rh.map(r => r?.bay).filter((v): v is number => !!v)) ?? BAY_M;
+        const storey = med(rh.map(r => r?.storey).filter((v): v is number => !!v)) ?? FLOOR_M;
+        // (the complex being viewed at twice the texture resolution: 80 texels a metre; phones 1x)
+        const sharp = stage.hq ? 2 : 1;
+        const fresh = await Promise.all([facadeMaterial(real, seed, bay, storey, sharp), facadeMaterial(real, seed + 7919, bay, storey, sharp)]);
+        if (hostRef.current) hostRef.current.dataset.rhythm = `bay ${bay.toFixed(2)} storey ${storey.toFixed(2)}`;
+        if (!alive) { drop(); releasePieces(); return; }
+        if (fresh[0] && fresh[1]) ownWalls = fresh as THREE.MeshPhysicalMaterial[];
+        roof.color.set(real.roof);
+        bandMat = keep(new THREE.MeshStandardMaterial({ color: real.accent, roughness: 0.45, metalness: 0.1 }));
+        coreMat = keep(new THREE.MeshStandardMaterial({ color: real.wall, roughness: 0.8 }));
+        gableMat = keep(new THREE.MeshStandardMaterial({ color: real.wall2, roughness: 0.8 }));
+        for (const m of [coreMat, gableMat]) { m.userData.weathered = true; m.userData.detail = "paint"; }
+        if (hostRef.current) hostRef.current.dataset.realColours = `${real.wall} ${real.accent} ${real.roof} (${colours.length})`;
+      }
+      let k = 0, matched = 0;
+      for (const ph of photos) {
+        ph.geometry.computeBoundingBox();
+        const height = ph.geometry.boundingBox!.max.z;
+        const hull = ph.hull.map(([x, y]) => [x + dx, y + dy] as [number, number]);
+        const cx = ph.cx + dx, cy = ph.cy + dy;
+        const hits = feet.filter(f => inRing([f.c[0], f.c[1]], hull) || Math.hypot(f.c[0] - cx, f.c[1] - cy) < 6);
+        const fits = hits.filter(f => f.estimated || f.height <= 0 || Math.abs(height - f.height) / f.height < 0.35);
+        if (!fits.length) { ph.geometry.dispose(); continue; }
+        fits.forEach(f => skip.add(f.owner));
+        matched++;
+        // (which faces have windows: from the photograph, before the model moves — the plane
+        // keys are taken in its own frame)
+        const windows = (await rhythmOf.get(ph))?.planes;
+        const shape = surveyedShape(ph, terrain.base(fits[0].ring) - 0.25, windows);
+        for (const g of [shape.walls, shape.roofs, shape.cores, shape.ends, shape.bands]) g?.translate(dx, dy, 0);
+        ph.geometry.dispose();
+        const main = fits.some(f => f.owner.startsWith("b"));
+        if (main) {
+          put(ownWalls[k++ % 2], shape.walls);
+          put(roof, shape.roofs);
+          put(coreMat, shape.cores);
+          put(gableMat, shape.ends);
+          put(bandMat, shape.bands);
+          // The building's number on its end walls, as painted there (43동 → 43).
+          const nb = data.buildings[Number(fits.find(f => f.owner.startsWith("b"))!.owner.slice(1))];
+          const label = (nb?.name ?? "").match(/\d+/)?.[0];
+          if (label && shape.roofZ !== null) for (const e of shape.endPlanes) {
+            const m = numberMaterial(label);
+            const h = Math.min(4.2, e.width * 0.3), w = h * (m.userData.aspect as number);
+            const cx = e.x + dx + e.nx * 0.08, cy = e.y + dy + e.ny * 0.08, z = shape.roofZ - 2.6 - h / 2;
+            const rx = -e.ny * w / 2, ry = e.nx * w / 2;
+            const g = new THREE.BufferGeometry();
+            g.setAttribute("position", new THREE.Float32BufferAttribute([
+              cx - rx, cy - ry, z - h / 2, cx + rx, cy + ry, z - h / 2, cx + rx, cy + ry, z + h / 2, cx - rx, cy - ry, z + h / 2], 3));
+            g.setAttribute("uv", new THREE.Float32BufferAttribute([0, 1, 1, 1, 1, 0, 0, 0], 2));
+            g.setAttribute("normal", new THREE.Float32BufferAttribute([e.nx, e.ny, 0, e.nx, e.ny, 0, e.nx, e.ny, 0, e.nx, e.ny, 0], 3));
+            g.setIndex([0, 1, 2, 0, 2, 3]);
+            put(m, keep(g));
+          }
+        } else {
+          const nb = neighbours[Number(fits[0].owner.slice(1))];
+          const style = contextStyle(nb?.use, height, rnd());
+          const c = new THREE.Color(tints[Math.floor(rnd() * tints.length)]);
+          if (style === "office") c.lerp(new THREE.Color("#ffffff"), 0.4);
+          if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
+          const m = sharedContextMaterial(style);
+          put(m, paint(shape.walls, c));
+          put(m, paint(shape.roofs, c));   // (the context material paints its roofs itself)
+          put(m, paint(shape.cores, c));
+          put(m, paint(shape.bands, c));
+          put(plainMat, paint(shape.ends, c.clone().multiplyScalar(0.86)));
+        }
+      }
+      for (const [m, list] of byMat) {
+        const mesh = new THREE.Mesh(keep(mergeGeometries(list, false)!), m);
+        list.forEach(g => g.dispose());
+        mesh.castShadow = mesh.receiveShadow = true;
+        used.push(mesh);
+      }
+      if (!used.length) { releasePieces(); return; }
+      const out = await assemble(skip, false);
+      if (!out || !alive) { releasePieces(); return; }
+      group.remove(...assembled);
+      group.add(...out, ...used);
+      assembled = out;
+      releasePieces();
+      if (hostRef.current) {
+        hostRef.current.dataset.photoBuildings = `${matched}/${photos.length}`;
+        hostRef.current.dataset.photoOffset = `${dx.toFixed(1)},${dy.toFixed(1)}`;
+      }
+      stage.resume();
+    })());
 
     const span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 60);
     const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;

@@ -158,10 +158,12 @@ const BAYS = 8, ROWS = 8;
  * AC louvres and pilasters. Colour, normals, roughness (G) / metalness (B) and the
  * lit windows for the evening. */
 export const facadeTextures = (p: Palette, seed: number) => runNow(facadeSteps(p, seed));
-export function* facadeSteps(p: Palette, seed: number) {
-  const W = 1024, H = 928, cw = W / BAYS, ch = H / ROWS;
-  const color = canvas(W, H), height = canvas(W, H), rm = canvas(W, H), glow = canvas(W, H), open = canvas(W, H);
+export function* facadeSteps(p: Palette, seed: number, scale = 1) {
+  // (scale: the same drawing on larger canvases — the complex being viewed gets 2x)
+  const W = 1024, H = 928, cw = W / BAYS, ch = H / ROWS, k = scale;
+  const color = canvas(W * k, H * k), height = canvas(W * k, H * k), rm = canvas(W * k, H * k), glow = canvas(W * k, H * k), open = canvas(W * k, H * k);
   const g = color.getContext("2d")!, hh = height.getContext("2d")!, r = rm.getContext("2d")!, e = glow.getContext("2d")!;
+  for (const c of [g, hh, r, e]) c.scale(k, k);
   // Where the glass shows the room behind it (the lit-window map's alpha): clear glass,
   // not the curtains, frames or rail. The WebGPU view draws a room there (interior
   // mapping); everything else ignores it.
@@ -269,17 +271,20 @@ export function* facadeSteps(p: Palette, seed: number) {
   yield;
   // The lit-window map keeps its colour and takes the glass mask as its alpha.
   const o = open.getContext("2d")!;
+  o.scale(k, k);
   o.fillStyle = "#fff";
   for (const [x, y, w, h] of glassRects) o.fillRect(x, y, w, h);
   o.globalCompositeOperation = "destination-out";
   for (const [x, y, w, h, a] of cuts) { o.globalAlpha = a; o.fillRect(x, y, w, h); }
+  e.setTransform(1, 0, 0, 1, 0, 0);
   e.globalCompositeOperation = "destination-in"; e.drawImage(open, 0, 0); e.globalCompositeOperation = "source-over";
   // Soften the height steps into bevels before taking normals.
-  const soft = canvas(W, H);
+  const soft = canvas(W * k, H * k);
   const sctx = soft.getContext("2d")!;
-  sctx.filter = "blur(1.2px)";
+  sctx.filter = `blur(${1.2 * k}px)`;
   sctx.drawImage(height, 0, 0);
-  const normal = yield* normalCanvas(soft, 5);
+  // (the same slopes at twice the texels: twice the strength per texel step)
+  const normal = yield* normalCanvas(soft, 5 * k);
   const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, BAYS * BAY_M, ROWS * FLOOR_M, GROUND_M);
   return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false), emissiveMap: tile(glow, true) };
 }

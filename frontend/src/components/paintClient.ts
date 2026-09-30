@@ -8,7 +8,7 @@ import { normalRows } from "./normalKernel";
  * used to follow them now overlaps them. */
 
 export type PaintJob =
-  | { kind: "facade"; palette: Palette; seed: number }
+  | { kind: "facade"; palette: Palette; seed: number; scale?: number }
   | { kind: "plinth"; seed: number; tone: string }
   | { kind: "context"; style: ContextStyle };
 type Textures = Record<string, THREE.Texture>;
@@ -89,7 +89,7 @@ function keep(job: PaintJob, textures: Textures) {
 }
 
 const stepsOf = (job: PaintJob) =>
-  job.kind === "facade" ? facadeSteps(job.palette, job.seed)
+  job.kind === "facade" ? facadeSteps(job.palette, job.seed, job.scale ?? 1)
     : job.kind === "plinth" ? plinthSteps(job.seed, job.tone)
       : job.style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242) : contextSteps(1000 + job.style.length, job.style);
 
