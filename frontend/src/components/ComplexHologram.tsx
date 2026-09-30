@@ -1,3 +1,4 @@
+import { safeCompileAsync } from "./safeCompile";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useMediaQuery } from "../useMediaQuery";
@@ -24,7 +25,7 @@ import {
 import { paintStats, paintTextures, plinthTone, prefetchPaint } from "./paintClient";
 import "../desk2/realestate-hologram.css";
 import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
-import { facadeRelief } from "./tidewater/facadeRelief";
+import { endWalls, facadeRelief } from "./tidewater/facadeRelief";
 import { loadBuildings, saveBuildings } from "./buildingStore";
 import { buildPlants, preloadPlants } from "./scenePlants";
 import { buildLamps, buildTraffic, stitchedRoads } from "./sceneStreet";
@@ -35,7 +36,8 @@ import { buildWater } from "./sceneWater";
 import { buildBoats, noBoatsReason } from "./sceneBoats";
 import { buildKids, schoolBorders } from "./sceneKids";
 import type { Palette } from "./complexScene";
-import { photoBuildings, photoColours, photoRhythm, surveyedShape, type PhotoBuilding } from "./vworld3d";
+import { photoBuildings, photoColours, photoRhythm, photoWallPaint, surveyedShape, type PhotoBuilding, type WallPaint } from "./vworld3d";
+import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 
@@ -143,6 +145,11 @@ type Stage = {
   hq: boolean; disposeModel: () => void; resume: () => void;
   /** A new model is built but has not reached the screen yet. */
   unshown: boolean;
+  /** One-off work under way after the first frame (the photo pass): its hitches are not the
+   * device being slow, so the resolution and quality steps don't judge them. */
+  busy: number;
+  /** A model being built: its warm-up meshes (pipelines, textures) are already in the scene. */
+  building: boolean;
   /** Run once the new model's first frame is on screen (decoration waits for it). */
   onShown: (() => void)[];
   /** Move the live canvases into another stage element (the 크게 보기 layer). */
@@ -414,6 +421,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const dpr = window.devicePixelRatio || 1;
     let ratio = Math.min(dpr, hq ? 2 : 1.6);
     let maxRatio = hq ? Math.min(2, Math.max(dpr, 1.5)) : ratio;
+    // High resolution on every device is the rule: never below the display's own pixels
+    // (a phone's 3x may step down, never under 1 CSS pixel a pixel).
+    const minRatio = Math.min(1, dpr);
     // The last pointer, wheel or key on the view (the loop draws at full rate for 3 s after).
     let lastInput = performance.now();
     const touched = () => { lastInput = performance.now(); };
@@ -430,12 +440,13 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     setPreparing(nativePending);
     // Do not compile both renderers on first load: warm native pipelines behind
     // the loading state, and initialize WebGL lighting only if native fails.
-    // Native quality from the device: phones and small-memory devices start low (no
-    // screen-space reflection, half the shadow resolution), tablets medium; the loop
-    // below steps down further while frames stay slow at the lowest resolution.
+    // Native quality from the device: high quality everywhere is the rule — desktops
+    // (panel or full screen) start high, phones and small-memory devices medium; only a
+    // tiny-memory device starts low. The GPU time measured once the scene settles steps
+    // a genuinely weak GPU down from there.
     const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
     const coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
-    const tier: Quality["name"] = (coarse && Math.min(screen.width, screen.height) < 700) || mem <= 3 ? "low" : !hq || mem <= 4 || navigator.hardwareConcurrency <= 4 ? "medium" : "high";
+    const tier: Quality["name"] = mem <= 2 ? "low" : (coarse && Math.min(screen.width, screen.height) < 700) || mem <= 4 || navigator.hardwareConcurrency <= 4 ? "medium" : "high";
     let qualities: Record<Quality["name"], Quality> | null = null;
     if (nativePending) {
       import("./tidewater/ComplexRenderer").then(m => { qualities = m.QUALITY; return m.ComplexRenderer.create(host, m.QUALITY[tier]); }).then(view => {
@@ -576,7 +587,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       for (const o of objs) { if (native || nativePending) warmAdd(o); else void glCompile(o).then(() => warmAdd(o)); }
       return warm;
     };
-    void warmMaterials(warm, () => nextSlice(true), () => !disposed);
+    // (in short task slices, not idle time: during page load idle time hardly comes, and the
+    // neighbourhood textures then held up the first complex's build by half a second)
+    void warmMaterials(warm, () => nextSlice(false), () => !disposed);
     const moon = moonInSky();
     const precip = precipField();
     scene.add(precip.group);
@@ -607,7 +620,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const glCompile = (obj: THREE.Object3D) => {
       const prev = renderer.getRenderTarget();
       renderer.setRenderTarget(target);
-      const done = renderer.compileAsync(obj, camera, scene).catch(() => {});
+      const done = safeCompileAsync(renderer, obj, camera, scene);
       renderer.setRenderTarget(prev);
       return done;
     };
@@ -633,7 +646,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null, fly: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
@@ -680,7 +693,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const bvAt = new THREE.Vector3(), bvLook = new THREE.Vector3();
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
-    // Dynamic quality and resolution with hysteresis: at least 40 fps, never below 0.6x.
+    // Dynamic quality and resolution with hysteresis: at least 40 fps, never below 1x.
     let slow = 0, quick = 0, gpuHot = 0, last = performance.now(), settleUntil = 0, calibrated = false;
     const calDt: number[] = [];
     let inView = true, sampleStart = last, sampleFrames = 0;
@@ -688,8 +701,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     let raf = 0;
     // Off screen the loop sleeps, except while shaders and a new model are still being
     // prepared: that work then finishes before the panel scrolls into view.
-    // (A model still being built in slices isn't in the scene yet: nothing to warm.)
-    const warming = () => (stage.unshown && !!stage.model) || nativePending || (!!native && !native.ready);
+    // (and while a model is being built in slices: its materials' warm-up meshes are in the
+    // scene from the start, so its pipelines and textures are ready when it is — behind the
+    // detail popup too, at the idle rate)
+    const warming = () => stage.building || (stage.unshown && !!stage.model) || nativePending || (!!native && !native.ready);
     // Left alone (no pointer, wheel or key on the view for 3 s, nothing in motion but
     // the scene's own life), the view draws every other display frame: the same
     // pictures at 30 fps, half the GPU and main-thread time for the rest of the page.
@@ -713,13 +728,16 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // drain them slowly, so a steady ~35 fps also counts as slow within seconds. Not
       // judged while a model is still being decorated (one-off building work).
       // (not while idle: every other frame is skipped on purpose, 33 ms is not slow)
-      const judge = !idle && !stage.unshown && nowMs > settleUntil && dt < 250;
+      if (stage.busy) settleUntil = Math.max(settleUntil, nowMs + 1500);
+      // (a single stall of 100 ms or more is one-off work — a texture, a pipeline — not the
+      // device being slow: that shows as a run of 30–90 ms frames)
+      const judge = !idle && !stage.unshown && nowMs > settleUntil && dt < 100;
       // (weighted by how late: on a very slow device each frame counts several times)
-      if (judge && dt > 25.5) { slow += Math.min(10, dt / 25); quick = 0; }
+      if (judge && dt > 25.5) { slow += Math.min(3, dt / 25); quick = 0; }
       else if (judge) { slow = Math.max(0, slow - 0.2); if (dt < 20) quick++; else quick = 0; }
       // Resolution is kept longest: the native view first drops quality steps
       // (screen-space reflections, clouds in them, shadow resolution), then resolution
-      // (down to 0.6x). Resolution climbs back only with 50 fps to spare.
+      // (down to 1x, the display's own pixels). Resolution climbs back only with 50 fps to spare.
       // Once, shortly after the first model settles: the GPU time measured on this device
       // (timestamp queries) sets quality and resolution at once, instead of stepping
       // down over many slow seconds. Frame timing keeps adjusting from there.
@@ -729,13 +747,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         calibrated = true;
         const g = native.timer.enabled ? native.timer.ms.total ?? 0 : calDt.sort((a, b) => a - b)[calDt.length >> 1] * 0.85;
         if (g > 16 && qualities && native.quality.name !== "low") native.setQuality(g > 30 || native.quality.name === "medium" ? qualities.low : qualities.medium);
-        if (g > 24) { ratio = Math.max(0.6, Math.round(ratio * Math.sqrt(20 / g) * 20) / 20); maxRatio = ratio; resize(); }
+        if (g > 24) { ratio = Math.max(minRatio, Math.round(ratio * Math.sqrt(20 / g) * 20) / 20); maxRatio = Math.max(ratio, Math.min(dpr, maxRatio)); resize(); }
         slow = 0;
       }
-      if (slow > 30 && native?.shown && qualities && native.quality.name !== "low") {
-        native.setQuality(native.quality.name === "high" ? qualities.medium : qualities.low);
+      // (sustained slowness only; quality steps to medium at most here — low, without AO
+      // and bloom, only for a GPU measured too weak above)
+      if (slow > 45 && native?.shown && qualities && native.quality.name === "high") {
+        native.setQuality(qualities.medium);
         slow = 0;
-      } else if (slow > 30 && ratio > 0.6) { ratio = Math.max(0.6, ratio - 0.25); maxRatio = ratio; slow = 0; resize(); }
+      } else if (slow > 45 && ratio > minRatio) { ratio = Math.max(minRatio, ratio - 0.25); slow = 0; resize(); }
       // Resolution up only with GPU time to spare. The frame interval can't tell: vsync
       // holds it at 16.7 ms however full the GPU is, and a GPU run to 100 % starves the
       // browser (the pointer and the rest of the page stutter). With timestamps: climb
@@ -744,9 +764,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // (changes judged over seconds, not a moment: each reallocates the render targets,
       // a visible hitch, and a view moving about — the balloon — varies from frame to frame)
       else if (native?.timer.enabled && (native.timer.ms.total ?? 0) > 12 && ratio > Math.min(1, dpr) && judge && ++gpuHot > 180) {
-        ratio = Math.max(Math.min(1, dpr), ratio - 0.25); maxRatio = ratio; gpuHot = 0; resize();
+        ratio = Math.max(minRatio, ratio - 0.25); maxRatio = Math.max(minRatio, ratio); gpuHot = 0; resize();
       }
-      else if (quick > 600 && ratio < maxRatio && (native?.timer.enabled ? (native.timer.ms.total ?? 99) < 7 : ratio + 0.25 <= dpr)) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
+      else if (quick > 150 && ratio < maxRatio && (native?.timer.enabled ? (native.timer.ms.total ?? 99) < 7 : ratio + 0.25 <= dpr)) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
 
       const t = (nowMs - t0) / 1000;
       stage.now = t;
@@ -806,7 +826,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       // to draw, and how) would go on judging from a stale camera.
       camera.updateMatrixWorld();
       moon.update(camera);
-      precip.update(camera, t, host.clientHeight);
+      precip.update(camera, t, H);   // (H from the resize observer: reading clientHeight here forced a page layout every frame)
 
 
       if (native) {
@@ -836,13 +856,14 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       }
       const isPreparing = nativePending || (!!native && !native.shown);
       if (wasPreparing !== isPreparing) { setPreparing(isPreparing); wasPreparing = isPreparing; }
-      host.dataset.renderer = native?.shown ? "tidewater-webgpu" : isPreparing ? "preparing" : "webgl";
+      const rendererName = native?.shown ? "tidewater-webgpu" : isPreparing ? "preparing" : "webgl";
+      if (host.dataset.renderer !== rendererName) host.dataset.renderer = rendererName;   // (a write each frame dirtied the page's style)
       if (++sampleFrames >= 60 || (sampleFrames >= 2 && nowMs - sampleStart > 1000)) {
         host.dataset.fps = (sampleFrames * 1000 / (nowMs - sampleStart)).toFixed(1);
         host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
         host.dataset.pixelRatio = ratio.toFixed(2);
         host.dataset.renderMaxMs = renderMax.toFixed(0); renderMax = 0;
-        if (native) { host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); }
+        if (native) { host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); host.dataset.pipelines = String((native as unknown as { renderer: { pipelines: Map<string, unknown> } }).renderer.pipelines.size); }
         sampleFrames = 0; sampleStart = nowMs;
       }
       // WebGL: a new model's programs compile in parallel (KHR_parallel_shader_compile)
@@ -1167,6 +1188,18 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const peek = await (early ?? api.realEstateBuildings(complexId, signal, true)).catch(() => api.realEstateBuildings(complexId, signal, true));
       // Roads and terrain only need these footprints/centre. The common stage below
       // loads them together; awaiting roads here serialized the two network waits.
+      // Accuracy first: a server result from OpenStreetMap (its rough outlines; the server
+      // can't reach VWorld's registry) gives way to the surveyed buildings (GIS건물통합정보)
+      // the browser can ask VWorld for itself, when they come within a few seconds.
+      if (peek.found && peek.source === "osm" && peek.vworld_key && peek.query?.parcel) {
+        const surveyed = await Promise.race([
+          vworldBuildings(complexId, peek.query, peek.vworld_key, peek.vworld_domain).catch(() => null),
+          new Promise<null>(res => window.setTimeout(() => res(null), 4000)),
+        ]);
+        if (surveyed?.found && surveyed.buildings.length >= Math.min(2, peek.buildings.length))
+          return { ...surveyed, built: peek.built ?? surveyed.built ?? null, vworld_key: peek.vworld_key, vworld_domain: peek.vworld_domain };
+        return peek;
+      }
       if (peek.found) return peek;
       // Start independent suppliers together: a slow JSONP endpoint must not
       // delay a server result that is already available (and vice versa).
@@ -1258,8 +1291,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     let ground: THREE.Mesh | null = null;
     const decor = new THREE.Group();
     // Set before any work: a newer selection disposes a half-built model cleanly.
+    stage.building = true;
+    stage.resume();
     stage.disposeModel = () => {
       alive = false;
+      stage.building = false;
       stage.onShown = [];
       stage.scene.remove(group, decor);
       if (ground) stage.scene.remove(ground);
@@ -1467,14 +1503,16 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         const [, plinthSide] = splitGroups(plinth);
         plinth.dispose();
         add(stone, plinthSide);
-        // End walls: the short sides of a slab tower, full height above the base.
-        let longest = 0;
-        ring.forEach((p, j) => { const q = ring[(j + 1) % ring.length]; longest = Math.max(longest, Math.hypot(q[0] - p[0], q[1] - p[1])); });
+        // End walls (측벽): the faces square to the slab's long axis at its two extremes — not
+        // the short segments of a stepped front. No invented stripes or blocks (every real end
+        // wall is its own design): plain paint in the second colour, the number at the top;
+        // where VWorld's survey covers the complex, its end walls are repainted from the
+        // colours measured on them (the photo pass).
+        const ends = endWalls(ring);
         ring.forEach((p, j) => {
-          const q = ring[(j + 1) % ring.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]);
-          if (len < 6 || len > 22 || len > longest * 0.6) return;
+          if (!ends.has(j)) return;
+          const q = ring[(j + 1) % ring.length];
           add(trim, tinted(panel(p[0], p[1], q[0], q[1], plinthTop, H, 0.12, 0.22, 0.92), gableC));
-          add(trim, tinted(panel(p[0], p[1], q[0], q[1], B + (H - B) * 0.45, H - 0.4, 0.26, 0.06, Math.min(0.2, 1.4 / len)), stripeC));
         });
         if (inRing([cx, cy], ring)) {
           let ang = 0, best = 0;
@@ -1544,7 +1582,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const assemble = async (skip: Set<string>, first: boolean) => {
       const out: THREE.Object3D[] = [];
       const kept = (g: THREE.BufferGeometry) => !skip.has(g.userData.owner);
+      // (in slices, the photo pass's second assembly too: one task of it stalled the page)
       for (const [mat, geos] of parts) {
+        if (!await pace()) return null;
         const list = geos.filter(kept);
         if (!list.length) continue;
         const mesh = new THREE.Mesh(keep(mergeGeometries(list, false)!), mat);
@@ -1562,7 +1602,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         disposables.push(ledges);
       }
       for (const style of styles) {
-        if (first && !await pace()) return null;
+        if (!await pace()) return null;
         const list = ctxGeos[style].filter(kept);
         if (!list.length) continue;
         const merged = keep(mergeGeometries(list, false)!);
@@ -1626,7 +1666,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // predate a rebuild) and at a height within 35 % of the registered one; the rest keep
     // their modelled buildings. A constant survey offset between the two sources is taken
     // out first (the median shift between matched centres).
-    if (photoPending) afterShown(() => void (async () => {
+    if (photoPending) afterShown(() => { stage.busy++; void (async () => {
       let photos: PhotoBuilding[] = [];
       try {
         // (the complex and the blocks round it: ~220 m, 130 on phones — beyond, the modelled ones)
@@ -1670,6 +1710,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       const own = photos.filter(ph => feet.some(f => f.owner.startsWith("b") && Math.hypot(f.c[0] - (ph.cx + dx), f.c[1] - (ph.cy + dy)) < 12));
       const colours = (await Promise.all(own.slice(0, 8).map(ph => photoColours(data.vworld_key!, ph).catch(() => null)))).filter(c => c && c.samples > 40) as NonNullable<Awaited<ReturnType<typeof photoColours>>>[];
       if (!alive) { drop(); releasePieces(); return; }
+      let measured = { bay: BAY_M, storey: FLOOR_M };
       let ownWalls = walls, coreMat: THREE.Material = low, gableMat: THREE.Material = low, bandMat: THREE.Material = crown;
       // (the neighbours' end walls: plain paint in each building's own tint)
       const plainMat = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }));
@@ -1686,7 +1727,14 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           wall: hex(wall, lift),
           wall2: hex(wall.map(v => v * 0.86), lift),
           // (the stripe as painted: the photograph greys and darkens it — saturation restored)
-          accent: sat(band) > 0.25 ? (() => { const c = new THREE.Color().setRGB(band[0], band[1], band[2]); const hsl = { h: 0, s: 0, l: 0 }; c.getHSL(hsl); c.setHSL(hsl.h, Math.min(0.85, hsl.s * 1.8), Math.min(0.5, Math.max(0.38, hsl.l))); return "#" + c.getHexString(); })() : hex(wall.map(v => v * 0.7), lift),
+          // (a blue or cyan "stripe" is glass mirroring the sky in the photograph, not paint)
+          accent: (() => {
+            const c = new THREE.Color().setRGB(band[0], band[1], band[2]); const hsl = { h: 0, s: 0, l: 0 }; c.getHSL(hsl);
+            const sky = hsl.h > 0.5 && hsl.h < 0.7;
+            if (sat(band) <= 0.25 || sky) return hex(wall.map(v => v * 0.7), lift);
+            c.setHSL(hsl.h, Math.min(0.6, hsl.s * 1.3), Math.min(0.5, Math.max(0.36, hsl.l)));
+            return "#" + c.getHexString();
+          })(),
           roof: hex(roofC, 1.1),
         };
         // the window pitch and storey measured on the complex's own faces
@@ -1698,6 +1746,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         const sharp = stage.hq ? 2 : 1;
         const fresh = await Promise.all([facadeMaterial(real, seed, bay, storey, sharp), facadeMaterial(real, seed + 7919, bay, storey, sharp)]);
         if (hostRef.current) hostRef.current.dataset.rhythm = `bay ${bay.toFixed(2)} storey ${storey.toFixed(2)}`;
+        measured = { bay, storey };
         if (!alive) { drop(); releasePieces(); return; }
         if (fresh[0] && fresh[1]) ownWalls = fresh as THREE.MeshPhysicalMaterial[];
         roof.color.set(real.roof);
@@ -1707,8 +1756,38 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         for (const m of [coreMat, gableMat]) { m.userData.weathered = true; m.userData.detail = "paint"; }
         if (hostRef.current) hostRef.current.dataset.realColours = `${real.wall} ${real.accent} ${real.roof} (${colours.length})`;
       }
+      // (B) relief on the complex's window faces, as instanced boxes
+      const ledges: THREE.Matrix4[] = [], rails: THREE.Matrix4[] = [], fins: THREE.Matrix4[] = [];
+      const ob = new THREE.Object3D();
+      const reliefBox = (list: THREE.Matrix4[], x: number, y: number, z: number, sx: number, sy: number, sz: number, ang: number) => {
+        ob.position.set(x, y, z); ob.rotation.set(0, 0, ang); ob.scale.set(sx, sy, sz); ob.updateMatrix(); list.push(ob.matrix.clone());
+      };
+      const relBay = measured.bay, relStorey = measured.storey;
+      // The complex's end walls repainted from the paint measured on them (their real bands,
+      // blocks and colours; never the photograph itself): one atlas, 7 px a cell, packed in
+      // shelves as the walls ask for it; drawn once every wall is placed.
+      const ATLAS = 2048, CELL = 7;
+      const atlasCv = document.createElement("canvas"); atlasCv.width = atlasCv.height = ATLAS;
+      const atlasTex = keep(new THREE.CanvasTexture(atlasCv));
+      atlasTex.colorSpace = THREE.SRGBColorSpace; atlasTex.anisotropy = 8; atlasTex.flipY = false;
+      const paintMat = keep(new THREE.MeshStandardMaterial({ map: atlasTex, roughness: 0.85 }));
+      paintMat.userData.weathered = true; paintMat.userData.detail = "paint";
+      const slots = new Map<WallPaint, { x: number; y: number }>();
+      let shelfX = 0, shelfY = 0, shelfH = 0;
+      const slotOf = (w: WallPaint) => {
+        let at = slots.get(w);
+        if (at) return at;
+        const pw = w.cols * CELL + 2, ph2 = w.rows * CELL + 2;
+        if (shelfX + pw > ATLAS) { shelfX = 0; shelfY += shelfH; shelfH = 0; }
+        if (shelfY + ph2 > ATLAS || pw > ATLAS) return null;
+        at = { x: shelfX + 1, y: shelfY + 1 }; slots.set(w, at);
+        shelfX += pw; shelfH = Math.max(shelfH, ph2);
+        return at;
+      };
+      const paintsOf = new Map(await Promise.all(photos.map(async ph => [ph, await photoWallPaint(data.vworld_key!, ph).catch(() => [] as WallPaint[])] as const)));
       let k = 0, matched = 0;
       for (const ph of photos) {
+        if (!await pace()) { drop(); releasePieces(); return; }
         ph.geometry.computeBoundingBox();
         const height = ph.geometry.boundingBox!.max.z;
         const hull = ph.hull.map(([x, y]) => [x + dx, y + dy] as [number, number]);
@@ -1721,8 +1800,21 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         // (which faces have windows: from the photograph, before the model moves — the plane
         // keys are taken in its own frame)
         const windows = (await rhythmOf.get(ph))?.planes;
-        const shape = surveyedShape(ph, terrain.base(fits[0].ring) - 0.25, windows);
-        for (const g of [shape.walls, shape.roofs, shape.cores, shape.ends, shape.bands]) g?.translate(dx, dy, 0);
+        // (the complex's own end walls only, by plane key — a face split across buckets finds
+        // its paint in the neighbouring ones)
+        const own = fits.some(f => f.owner.startsWith("b")), paints = own ? paintsOf.get(ph) ?? [] : [];
+        const byKey = new Map(paints.map(w => [w.key, w] as const));
+        const paintUv = (key: string, u: number, z: number): [number, number] | null => {
+          let w = byKey.get(key);
+          if (!w) { const [a0, o0] = key.split(":").map(Number); for (let da = -1; da <= 1 && !w; da++) for (let d0 = -1; d0 <= 1 && !w; d0++) w = byKey.get(`${a0 + da}:${o0 + d0}`); }
+          if (!w || u < w.u0 - 0.5 || u > w.u1 + 0.5) return null;
+          const at = slotOf(w);
+          if (!at) return null;
+          const fu = THREE.MathUtils.clamp((u - w.u0) / (w.u1 - w.u0), 0, 1), fz = THREE.MathUtils.clamp((z - w.z0) / (w.z1 - w.z0), 0, 1);
+          return [(at.x + fu * w.cols * CELL) / ATLAS, (at.y + (1 - fz) * w.rows * CELL) / ATLAS];
+        };
+        const shape = surveyedShape(ph, terrain.base(fits[0].ring) - 0.25, windows, 1.0, own ? paintUv : undefined);
+        for (const g of [shape.walls, shape.roofs, shape.cores, shape.ends, shape.bands, shape.painted]) g?.translate(dx, dy, 0);
         ph.geometry.dispose();
         const main = fits.some(f => f.owner.startsWith("b"));
         if (main) {
@@ -1730,7 +1822,28 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           put(roof, shape.roofs);
           put(coreMat, shape.cores);
           put(gableMat, shape.ends);
+          put(paintMat, shape.painted);
           put(bandMat, shape.bands);
+          // B: the window faces in relief — a slab ledge at every storey (on the painted
+          // slab band: z = 0.5 + m·storey in the tile's frame), a balcony rail across each
+          // storey, and a fin at every window bay (the tile's cell edges, u = k·bay).
+          if (shape.roofZ !== null) for (const f of shape.facePlanes) {
+            const tx = -f.ny, ty = f.nx;
+            const at = (u: number, out: number) => [f.nx * (f.off + out) + tx * u + dx, f.ny * (f.off + out) + ty * u + dy];
+            const ang = Math.atan2(ty, tx), w = f.u1 - f.u0, um = (f.u0 + f.u1) / 2;
+            const z0f = shape.z0 + 2.5, z1f = shape.roofZ - 0.6;
+            for (let m = Math.ceil((z0f - 0.5) / relStorey); 0.5 + m * relStorey < z1f; m++) {
+              const zs = 0.5 + m * relStorey;
+              const [lx, ly] = at(um, 0.16);
+              reliefBox(ledges, lx, ly, zs + 0.05 * relStorey, w, 0.34, 0.1 * relStorey, ang);
+              const [rx, ry] = at(um, 0.34);
+              reliefBox(rails, rx, ry, zs + 0.1 * relStorey + 1.0, w, 0.05, 0.06, ang);
+              for (let u = Math.ceil(f.u0 / relBay) * relBay; u <= f.u1 - 0.2; u += relBay) {
+                const [fx, fy] = at(u, 0.17);
+                reliefBox(fins, fx, fy, zs + 0.1 * relStorey + 0.5 * relStorey, 0.14, 0.34, 0.9 * relStorey, ang);
+              }
+            }
+          }
           // The building's number on its end walls, as painted there (43동 → 43).
           const nb = data.buildings[Number(fits.find(f => f.owner.startsWith("b"))!.owner.slice(1))];
           const label = (nb?.name ?? "").match(/\d+/)?.[0];
@@ -1761,13 +1874,204 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           put(plainMat, paint(shape.ends, c.clone().multiplyScalar(0.86)));
         }
       }
+      {
+        const unit = keep(new THREE.BoxGeometry(1, 1, 1));
+        const wallC = (gableMat as THREE.MeshStandardMaterial).color ?? new THREE.Color("#dcd8cc");
+        const slabMat = keep(new THREE.MeshStandardMaterial({ color: wallC.clone().multiplyScalar(0.95), roughness: 0.75 }));
+        slabMat.userData.detail = "paint";
+        const railMat = keep(new THREE.MeshStandardMaterial({ color: "#e8eaea", roughness: 0.35, metalness: 0.6 }));
+        for (const [list, mat] of [[ledges, slabMat], [rails, railMat], [fins, slabMat]] as const) {
+          if (!list.length) continue;
+          const im = new THREE.InstancedMesh(unit, mat, list.length);
+          list.forEach((mm, j) => im.setMatrixAt(j, mm));
+          im.castShadow = im.receiveShadow = true;
+          im.computeBoundingSphere();
+          used.push(im as unknown as THREE.Mesh);
+          disposables.push(im);
+        }
+        if (hostRef.current) hostRef.current.dataset.relief = `${ledges.length}/${rails.length}/${fins.length}`;
+      }
+      // The measured end-wall paint into the atlas: each cell its paint, a little brighter
+      // than the shaded photograph shows it (as the walls' own colour).
+      if (slots.size) {
+        const g2 = atlasCv.getContext("2d")!;
+        for (const [w, at] of slots) {
+          let top = 0;
+          for (let i = 0; i < w.rgb.length; i += 3) top = Math.max(top, (w.rgb[i] + w.rgb[i + 1] + w.rgb[i + 2]) / 3);
+          const lift = Math.min(1.3, 0.85 / Math.max(top, 0.05));
+          for (let r = 0; r < w.rows; r++) for (let c = 0; c < w.cols; c++) {
+            const o = (r * w.cols + c) * 3, v = (x: number) => Math.round(Math.min(1, x * lift) * 255);
+            g2.fillStyle = `rgb(${v(w.rgb[o])},${v(w.rgb[o + 1])},${v(w.rgb[o + 2])})`;
+            // (row 0 is the bottom of the wall; each cell spills a pixel so no seams show)
+            g2.fillRect(at.x + c * CELL - 1, at.y + (w.rows - 1 - r) * CELL - 1, CELL + 2, CELL + 2);
+          }
+        }
+        atlasTex.needsUpdate = true;
+        if (hostRef.current) hostRef.current.dataset.wallPaint = String(slots.size);
+      }
       for (const [m, list] of byMat) {
+        if (!await pace()) { drop(); releasePieces(); return; }
         const mesh = new THREE.Mesh(keep(mergeGeometries(list, false)!), m);
         list.forEach(g => g.dispose());
         mesh.castShadow = mesh.receiveShadow = true;
         used.push(mesh);
       }
-      if (!used.length) { releasePieces(); return; }
+      if (!used.length) {
+        // No surveyed shapes here (outside VWorld's 3D coverage): the modelled buildings stay,
+        // in the colours the aerial photographs show (roof, its rim, the leaning facade) —
+        // or else every complex would look alike — their facade at twice the resolution, and
+        // a gable of tiles where the roofs are tiled.
+        releasePieces();
+        const towers = data.buildings.filter(b => b.floors >= 5);
+        const aerial = await aerialColours(data.vworld_key!, data.center!.lat, data.center!.lon, towers.map(b => b.rings[0])).catch(() => [] as never[]);
+        if (!alive) return;
+        const got = aerial.filter(Boolean) as NonNullable<(typeof aerial)[number]>[];
+        const med3 = (list: number[][]) => [0, 1, 2].map(k => list.map(c => c[k]).sort((x, y) => x - y)[list.length >> 1]);
+        const hex = (c: number[], lift = 1) => "#" + c.map(v => Math.round(Math.min(1, Math.max(0, v * lift)) * 255).toString(16).padStart(2, "0")).join("");
+        let pal: Palette = palette;
+        let roofMat: THREE.Material | null = null, rimMat: THREE.Material | null = null;
+        if (got.length) {
+          const roofC = med3(got.map(g2 => g2.roof));
+          const rims = got.map(g2 => g2.rim).filter(Boolean) as number[][];
+          const facades = got.map(g2 => g2.facade).filter(Boolean) as number[][];
+          const wallC = facades.length ? med3(facades) : null;
+          pal = {
+            ...palette,
+            ...(wallC ? { wall: hex(wallC, Math.min(1.25, 0.92 / Math.max(...wallC, 0.05))), wall2: hex(wallC.map(v => v * 0.85), Math.min(1.25, 0.92 / Math.max(...wallC, 0.05))) } : {}),
+            ...(rims.length ? { accent: hex(med3(rims), 1.1) } : {}),
+            roof: hex(roofC, 1.1),
+          };
+          roofMat = keep(new THREE.MeshStandardMaterial({ color: pal.roof, roughness: 0.9 }));
+          roofMat.userData.roofDetail = true; roofMat.userData.detail = "roof";
+          rimMat = keep(new THREE.MeshStandardMaterial({ color: pal.accent, roughness: 0.45, metalness: 0.2 }));
+          if (hostRef.current) hostRef.current.dataset.realColours = `aerial ${pal.wall} ${pal.accent} ${pal.roof} (${got.length}/${towers.length})`;
+        }
+        const sharp = await Promise.all([facadeMaterial(pal, seed, BAY_M, FLOOR_M, stage.hq ? 2 : 1), facadeMaterial(pal, seed + 7919, BAY_M, FLOOR_M, stage.hq ? 2 : 1)]);
+        if (!alive || !sharp[0] || !sharp[1]) return;
+        // (new meshes rather than a material swapped under a drawn one: the WebGPU view keeps
+        // each mesh's pipeline by its first material)
+        // (the ledges and fins in the facade's second colour)
+        const reliefMat = got.length ? keep(new THREE.MeshStandardMaterial({ color: new THREE.Color(pal.wall2).lerp(new THREE.Color(pal.wall), 0.4), roughness: 0.75 })) : null;
+        assembled = assembled.map(o => {
+          if (o instanceof THREE.InstancedMesh) {
+            if (!reliefMat || o.material !== low) return o;
+            const fresh = new THREE.InstancedMesh(o.geometry, reliefMat, o.count);
+            fresh.instanceMatrix.copy(o.instanceMatrix);
+            fresh.castShadow = o.castShadow; fresh.receiveShadow = o.receiveShadow;
+            fresh.computeBoundingSphere();
+            group.remove(o); group.add(fresh); disposables.push(fresh);
+            return fresh;
+          }
+          if (!(o instanceof THREE.Mesh)) return o;
+          const j = walls.indexOf(o.material as THREE.MeshPhysicalMaterial);
+          if (o.material === trim && got.length) {
+            // the end walls, their stripe and the roof cores repainted in the aerial colours
+            const g2 = keep(o.geometry.clone()), col = g2.getAttribute("color");
+            const nGable = new THREE.Color(pal.wall2).lerp(new THREE.Color(pal.wall), 0.25), nStripe = new THREE.Color(pal.accent);
+            const nPlant = new THREE.Color(pal.wall2).lerp(new THREE.Color("#9a9a96"), 0.5);
+            const c = new THREE.Color();
+            for (let v = 0; v < col.count; v++) {
+              c.fromBufferAttribute(col as THREE.BufferAttribute, v);
+              const d = (x: THREE.Color) => Math.abs(x.r - c.r) + Math.abs(x.g - c.g) + Math.abs(x.b - c.b);
+              const pick = [[gableC, nGable], [stripeC, nStripe], [plantC, nPlant]].sort((p1, p2) => d(p1[0]) - d(p2[0]))[0];
+              if (d(pick[0]) < 0.05) col.setXYZ(v, pick[1].r, pick[1].g, pick[1].b);
+            }
+            const fresh = new THREE.Mesh(g2, trim);
+            fresh.castShadow = o.castShadow; fresh.receiveShadow = o.receiveShadow;
+            group.remove(o); group.add(fresh);
+            return fresh;
+          }
+          const next = j >= 0 ? sharp[j] : roofMat && o.material === roof ? roofMat : rimMat && o.material === crown ? rimMat : null;
+          if (!next) return o;
+          const fresh = new THREE.Mesh(o.geometry, next);
+          fresh.castShadow = o.castShadow; fresh.receiveShadow = o.receiveShadow;
+          group.remove(o); group.add(fresh);
+          return fresh;
+        });
+        // The building numbers on the modelled towers' end walls (their short faces).
+        const numbers = new Map<THREE.Material, THREE.BufferGeometry[]>();
+        for (const b of towers) {
+          const label = (b.name ?? "").match(/\d+/)?.[0];
+          if (!label) continue;
+          const r0 = b.rings[0], H = b.height + terrain.base(r0);
+          const signed = r0.reduce((a2, [x, y], j) => { const q = r0[(j + 1) % r0.length]; return a2 + x * q[1] - q[0] * y; }, 0);
+          let longest = 0;
+          r0.forEach((p, j) => { const q = r0[(j + 1) % r0.length]; longest = Math.max(longest, Math.hypot(q[0] - p[0], q[1] - p[1])); });
+          // (the two ends only: on each side along the long axis, the widest short face)
+          let lx = 1, ly = 0;
+          r0.forEach((p, j) => { const q = r0[(j + 1) % r0.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]); if (len === longest) { lx = (q[0] - p[0]) / len; ly = (q[1] - p[1]) / len; } });
+          const ends = new Map<number, number>();
+          r0.forEach((p, j) => {
+            const q = r0[(j + 1) % r0.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+            if (len < 8 || len > 24 || len > longest * 0.6) return;
+            const ux = (q[0] - p[0]) / len, uy = (q[1] - p[1]) / len;
+            const [nx, ny] = signed > 0 ? [uy, -ux] : [-uy, ux];
+            const along = nx * lx + ny * ly;
+            if (Math.abs(along) < 0.9) return;
+            const side = along > 0 ? 1 : -1, cur = ends.get(side);
+            if (cur === undefined || len > Math.hypot(r0[(cur + 1) % r0.length][0] - r0[cur][0], r0[(cur + 1) % r0.length][1] - r0[cur][1])) ends.set(side, j);
+          });
+          r0.forEach((p, j) => {
+            if (![...ends.values()].includes(j)) return;
+            const q = r0[(j + 1) % r0.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]);
+            const ux = (q[0] - p[0]) / len, uy = (q[1] - p[1]) / len;
+            const [nx, ny] = signed > 0 ? [uy, -ux] : [-uy, ux];
+            const m = numberMaterial(label);
+            const h = Math.min(4.2, len * 0.3), w = h * (m.userData.aspect as number);
+            // (on the end-wall panel, 0.12 m proud of the wall, plus a hair)
+            const cx = (p[0] + q[0]) / 2 + nx * 0.26, cy = (p[1] + q[1]) / 2 + ny * 0.26, z = H - 2.6 - h / 2;
+            const rx = -ny * w / 2, ry = nx * w / 2;
+            const g2 = new THREE.BufferGeometry();
+            g2.setAttribute("position", new THREE.Float32BufferAttribute([cx - rx, cy - ry, z - h / 2, cx + rx, cy + ry, z - h / 2, cx + rx, cy + ry, z + h / 2, cx - rx, cy - ry, z + h / 2], 3));
+            g2.setAttribute("uv", new THREE.Float32BufferAttribute([0, 1, 1, 1, 1, 0, 0, 0], 2));
+            g2.setAttribute("normal", new THREE.Float32BufferAttribute([nx, ny, 0, nx, ny, 0, nx, ny, 0, nx, ny, 0], 3));
+            g2.setIndex([0, 1, 2, 0, 2, 3]);
+            numbers.set(m, [...(numbers.get(m) ?? []), g2]);
+          });
+        }
+        for (const [m, list] of numbers) {
+          const mesh = new THREE.Mesh(keep(mergeGeometries(list, false)!), m);
+          list.forEach(g2 => g2.dispose());
+          group.add(mesh);
+        }
+        // Gables of tiles over the towers whose roofs show them.
+        const gables: THREE.BufferGeometry[] = [];
+        towers.forEach((b, i) => {
+          if (!aerial[i]?.pitched) return;
+          const r0 = b.rings[0];
+          let best = 0, ux = 1, uy = 0;
+          r0.forEach((p, j) => { const q = r0[(j + 1) % r0.length], len = Math.hypot(q[0] - p[0], q[1] - p[1]); if (len > best) { best = len; ux = (q[0] - p[0]) / len; uy = (q[1] - p[1]) / len; } });
+          // the oriented box: along the longest edge, across it
+          let a0 = Infinity, a1 = -Infinity, c0 = Infinity, c1 = -Infinity;
+          for (const [x, y] of r0) { const a2 = x * ux + y * uy, c2 = -x * uy + y * ux; a0 = Math.min(a0, a2); a1 = Math.max(a1, a2); c0 = Math.min(c0, c2); c1 = Math.max(c1, c2); }
+          const w = c1 - c0, rise = Math.min(4, w * 0.3), z = b.height + terrain.base(r0) + 1.6, cm = (c0 + c1) / 2, eave = 0.4;
+          const P = (a2: number, c2: number, zz: number) => [a2 * ux - c2 * uy, a2 * uy + c2 * ux, zz];
+          const A = P(a0 - eave, c0 - eave, z), B2 = P(a1 + eave, c0 - eave, z), C = P(a1 + eave, c1 + eave, z), D = P(a0 - eave, c1 + eave, z);
+          const R0 = P(a0 - eave, cm, z + rise), R1 = P(a1 + eave, cm, z + rise);
+          const tri = (...v: number[][]) => v.flat();
+          const pos = [
+            ...tri(A, B2, R1), ...tri(A, R1, R0),     // slope on the c0 side
+            ...tri(C, D, R0), ...tri(C, R0, R1),      // slope on the c1 side
+            ...tri(D, A, R0), ...tri(B2, C, R1),      // gable ends
+          ];
+          const g2 = new THREE.BufferGeometry();
+          g2.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+          g2.setAttribute("uv", new THREE.Float32BufferAttribute(new Array(pos.length / 3 * 2).fill(0), 2));
+          g2.computeVertexNormals();
+          gables.push(g2);
+        });
+        if (gables.length && roofMat) {
+          const tile = keep(new THREE.MeshStandardMaterial({ color: pal.roof, roughness: 0.75, side: THREE.DoubleSide }));
+          tile.userData.roofDetail = true;
+          const mesh = new THREE.Mesh(keep(mergeGeometries(gables, false)!), tile);
+          gables.forEach(g2 => g2.dispose());
+          mesh.castShadow = mesh.receiveShadow = true;
+          group.add(mesh);
+        }
+        if (hostRef.current) hostRef.current.dataset.photoBuildings = `0/${photos.length} (aerial${gables.length ? `, ${gables.length} gables` : ""})`;
+        stage.resume();
+        return;
+      }
       const out = await assemble(skip, false);
       if (!out || !alive) { releasePieces(); return; }
       group.remove(...assembled);
@@ -1779,7 +2083,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         hostRef.current.dataset.photoOffset = `${dx.toFixed(1)},${dy.toFixed(1)}`;
       }
       stage.resume();
-    })());
+    })().finally(() => { stage.busy--; }); });
 
     const span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 60);
     const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;
@@ -2065,8 +2369,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     stage.pickables = pickables;
     stage.refreshEnv();
     stage.unshown = true;
+    stage.building = false;
     stage.resume();
-    })().catch(err => console.warn("[3D] Model build failed:", err));
+    })().catch(err => { stage.building = false; console.warn("[3D] Model build failed:", err); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, renderMode]);
 

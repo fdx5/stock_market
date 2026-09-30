@@ -447,6 +447,13 @@ def complex_buildings(complex_id: str, peek: bool = False) -> dict:
     # surveyed roads a result lacks (OpenStreetMap results, older kept shapes).
     if body.get("found") and "vworld_key" not in body and _vworld_key():
         body = {**body, "vworld_key": _vworld_key(), "vworld_domain": os.environ.get("VWORLD_DOMAIN", "https://kospimap.com")}
+    # An OpenStreetMap result (the server abroad can't reach VWorld's registry) carries
+    # the parcel too: a browser in Korea asks VWorld for the surveyed buildings itself.
+    if body.get("found") and body.get("source") == "osm" and "query" not in body:
+        try:
+            body = {**body, "query": _query(_lookup(complex_id))}
+        except Exception:  # noqa: BLE001 — the upgrade is optional
+            pass
     return body
 
 

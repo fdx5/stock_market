@@ -1255,7 +1255,8 @@ export class ComplexRenderer {
         if (this.ready) this.shown = true;
       });
     }
-    this.canvas.style.visibility = this.shown && !this.failed ? 'visible' : 'hidden';
+    const vis = this.shown && !this.failed ? 'visible' : 'hidden';
+    if (this.canvas.style.visibility !== vis) this.canvas.style.visibility = vis;
   }
   dispose() {
     this.disposed = true;

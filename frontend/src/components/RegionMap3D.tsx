@@ -1,3 +1,4 @@
+import { safeCompileAsync } from "./safeCompile";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
@@ -697,7 +698,7 @@ class RegionScene {
       if (!this.compiled) {
         if (!this.compiling) {
           this.compiling = true;
-          void this.renderer.compileAsync(this.scene, this.camera).catch(() => {}).then(() => { this.compiled = true; this.dirty = true; });
+          void safeCompileAsync(this.renderer, this.scene, this.camera).then(() => { this.compiled = true; this.dirty = true; });
         }
         return;
       }

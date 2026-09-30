@@ -143,3 +143,15 @@
 - 옥탑(주 옥상 위 구조물)은 창 없는 벽색.
 - 확인: 압구정 한양 23/24동, 서초구 단지 33/50동. GPU 약 5.7 ms, 60 fps, WebGL 경로 정상, 테스트 12개 통과.
 - 대상 단지 외벽 2배 해상도(facadeSteps scale 2: 2048×1856, 80 texel/m, 데스크톱만). 첫 화면 뒤 재도색 시점에 그림.
+
+## 저녁: 랙·해상도 저하 근본 수정 (로컬, 배포 대기)
+- 원인: 사진 분석(photoRhythm/photoColours)이 메인스레드에서 돌며 긴 작업 24~44회 → 적응형 품질 로직이 "느린 기기"로 판단, 해상도 0.6~0.75x·quality low(AO/bloom off)로 영구 하락 ("저품질 깍두기").
+- 수정: photoAnalysis.ts(순수 분석) + photoWorker.ts(워커, 디코드·분석), vworld3d는 fetch 후 전송. 판단 제외: stage.busy(사진 패스 중), dt≥100ms 단발 hitch. 해상도 하한 min(1,dpr), 품질은 slow 경로에서 medium까지만, 초기 tier: 데스크톱 high/폰 medium.
+- 매 프레임 host.clientHeight 읽기(강제 레이아웃) 제거, dataset/visibility 동일값 쓰기 방지.
+- stage.building: 빌드 중에도 루프 유지(상세 팝업에 가려져 있어도) → 파이프라인 사전 컴파일, built→shown 0.95s→0.45s. warmMaterials는 idle 대신 task 슬라이스.
+- 사진 패스의 surveyed 루프·병합·두번째 assemble에 pace.
+- 서버가 OSM 윤곽만 있을 때(해외 서버는 VWorld 불가) 브라우저가 GIS 실측 윤곽으로 교체(4s 제한). 백엔드는 osm 결과에 query 포함. 아크로리버파크 2→15동, 한양4 GIS.
+- 띠 색이 하늘 반사(청색 hue)면 도장색으로 쓰지 않음. 모델 타워 줄무늬를 동번호 아래서 끊음.
+- 측정(운영 빌드, 1920×1080): 전체화면 긴작업 배포본 37회/3.2s → 0회, 5개 단지 모두 high/1.5x.
+- 남은 과제: 첫 표시 2.0~2.4s(클릭 기준) — 대기(네트워크·텍스처 페인트)가 대부분, 3배 단축은 미달성.
+- 측벽: 임의 세로 줄무늬 제거. 측벽 판정은 "장축에 직각 + 양 끝" (facadeRelief.endWalls / vworld3d trueEnd) — 계단식 전면 세그먼트는 절대 측벽 아님(신도6 602동). 실측 단지의 측벽은 사진에서 1.2×1.5 m 셀 색을 k-means(≤3색)로 정리해 아틀라스로 재도장(photoAnalysis.wallPaintFrom): 직선형 경계만 페인트로 인정, 같은 색의 명암(그림자)은 경계가 완전 직선이 아니면 밝은 색 하나로 병합. 데이터 없는 모델 타워는 단색+동번호.
