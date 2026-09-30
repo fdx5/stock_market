@@ -1916,8 +1916,10 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           const m = sharedContextMaterial(style);
           put(m, paint(shape.walls, c));
           put(m, paint(shape.roofs, c));   // (the context material paints its roofs itself)
-          put(m, paint(shape.cores, c));
-          put(m, paint(shape.bands, c));
+          // (the lift and stair rooms on the roof, and the parapet band: plain paint, no
+          // windows — as the complex's own, and as they are)
+          put(plainMat, paint(shape.cores, c));
+          put(plainMat, paint(shape.bands, c));
           put(plainMat, paint(shape.ends, c.clone().multiplyScalar(0.86)));
         }
       }

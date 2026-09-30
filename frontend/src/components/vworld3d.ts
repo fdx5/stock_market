@@ -314,7 +314,8 @@ export function surveyedShape(ph: PhotoBuilding, z0: number, windows?: Map<strin
       continue;
     }
     t.crossVectors(up, n).normalize();   // along the wall, counter-clockwise seen from above
-    const core = Math.min(a.z, b.z, c.z) > mainRoof - 0.3;
+    // (the roof level is taken to the metre: a room on it may start a little under that)
+    const core = Math.min(a.z, b.z, c.z) > mainRoof - 0.8;
     const h = Math.hypot(n.x, n.y), key = planeKey(n.x / h, n.y / h, (a.x + b.x + c.x) / 3, (a.y + b.y + c.y) / 3);
     // (a face split across two buckets of direction or offset counts at its full width)
     let width = 0;
