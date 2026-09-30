@@ -17,6 +17,14 @@ ap.add_argument('--label', default='run')
 ap.add_argument('--detail', action='store_true')
 ap.add_argument('--no-3d', action='store_true', help='block both 3D chunks: the page alone')
 ap.add_argument('--no-region', action='store_true', help='collapse the region map (isolate the complex view)')
+ap.add_argument('--size', default='1600x900', help='viewport WxH')
+ap.add_argument('--a11y', action='store_true', help='accessibility on, as screen readers, IMEs and password managers turn it on')
+ap.add_argument('--channel', default='chrome', help='chrome | msedge')
+ap.add_argument('--no-full', action='store_true', help='control: close the card without opening full screen')
+ap.add_argument('--trace', default='', help='browser trace (all processes) of the after-close phase')
+ap.add_argument('--card-after', type=int, default=10)
+ap.add_argument('--after', type=int, default=15, help='seconds measured after closing full screen')
+ap.add_argument('--close-card', action='store_true', help='then close the detail card too')
 a = ap.parse_args()
 
 INIT = """
@@ -43,9 +51,9 @@ def summarize(j, t0, t1, label):
     return r
 
 with sync_playwright() as p:
-    args = ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist']
-    browser = p.chromium.launch(channel='msedge', headless=a.headless, args=args)
-    ctx = browser.new_context(viewport={'width': 1600, 'height': 900})
+    args = ['--enable-unsafe-webgpu', '--ignore-gpu-blocklist'] + (['--force-renderer-accessibility'] if a.a11y else [])
+    browser = p.chromium.launch(channel=a.channel, headless=a.headless, args=args)
+    ctx = browser.new_context(viewport={'width': int(a.size.split('x')[0]), 'height': int(a.size.split('x')[1])})
     page = ctx.new_page()
     if a.webgl: page.add_init_script("Object.defineProperty(navigator, 'gpu', {value: undefined});")
     page.add_init_script(INIT)
@@ -93,6 +101,7 @@ with sync_playwright() as p:
     tiles = page.locator('.kospi-map-tile')
     n = tiles.count()
     tgt = tiles.nth(min(3, n - 1))
+    tgt.scroll_into_view_if_needed(); page.wait_for_timeout(300)
     box = tgt.bounding_box()
     page.mouse.move(box['x'] + box['width'] / 2, box['y'] + box['height'] / 2, steps=6)
     T2 = now()
@@ -102,7 +111,17 @@ with sync_playwright() as p:
     report.append(summarize(page.evaluate('window.__j'), T2, T3, 'tile click (6s)'))
 
     # Phase 3: the card's 3D button opens the view full screen.
-    btn = page.get_by_role('button', name='3D').first
+    btn = page.locator('.re-holo-open').first
+    if a.no_full:
+        page.keyboard.press('Escape')
+        page.locator('.re-holo-stage').scroll_into_view_if_needed()
+        for k in range(4):
+            t = now(); wiggle(5000)
+            report.append(summarize(page.evaluate('window.__j'), t, now(), f'card closed, never full {k*5}-{k*5+5}s'))
+            report[-1]['stage'] = page.evaluate("({...(document.querySelector('.re-holo-stage')?.dataset||{})})")
+        print(json.dumps({'label': a.label, 'errors': errs[:5], 'phases': report}, ensure_ascii=False, indent=1)); browser.close(); sys.exit(0)
+    try: btn.wait_for(timeout=15000)
+    except Exception: page.screenshot(path='C:/Users/fdx5/AppData/Local/Temp/claude/I--ai-root-stock-market/7c48c3dc-697d-4a52-921c-c153f256c325/scratchpad/nobtn.png')
     if btn.count():
         T4 = now()
         btn.click()
@@ -110,6 +129,26 @@ with sync_playwright() as p:
         T5 = now()
         report.append(summarize(page.evaluate('window.__j'), T4, T5, 'open full screen 3D (9s)'))
         report[-1]['stage'] = page.evaluate("({...(document.querySelector('.re-holo-stage')?.dataset||{})})")
+        # Phase 4: close it (the card is back on top) and keep moving the pointer.
+        close = page.locator('.re-holo-wide-close')
+        if close.count():
+            T6 = now()
+            if a.trace: browser.start_tracing(page=page, path=a.trace, categories=['devtools.timeline','toplevel','accessibility','disabled-by-default-devtools.timeline','blink','cc','viz','gpu'])
+            close.click()
+            for k in range(a.after // 5):
+                t = now(); wiggle(5000)
+                report.append(summarize(page.evaluate('window.__j'), t, now(), f'after close {k*5}-{k*5+5}s'))
+                report[-1]['stage'] = page.evaluate("({...(document.querySelector('.re-holo-stage')?.dataset||{})})")
+            print('STATE', page.evaluate("({inert: document.querySelectorAll('[inert]').length, nodes: document.getElementsByTagName('*').length, active: document.activeElement?.className, overflow: document.body.style.overflow})"))
+            if a.close_card:
+                page.keyboard.press('Escape')
+                for k in range(a.card_after // 5):
+                    t = now(); wiggle(5000)
+                    report.append(summarize(page.evaluate('window.__j'), t, now(), f'card closed {k*5}-{k*5+5}s'))
+                    report[-1]['stage'] = page.evaluate("({...(document.querySelector('.re-holo-stage')?.dataset||{})})")
+                print('STATE2', page.evaluate("({inert: document.querySelectorAll('[inert]').length, nodes: document.getElementsByTagName('*').length, active: document.activeElement?.className, overflow: document.body.style.overflow, y: scrollY})"))
+                print('GAPS2', [(round(x), round(y)) for x, y in page.evaluate('window.__j')['gaps'] if x > T6])
+            if a.trace: browser.stop_tracing()
     else:
         report.append({'phase': 'open full screen', 'error': 'no 3D button'})
     if a.detail:

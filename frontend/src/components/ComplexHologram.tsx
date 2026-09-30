@@ -1074,12 +1074,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     section.querySelector<HTMLButtonElement>('.re-holo-wide-close')?.focus();
     const overflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const inert: [HTMLElement, boolean][] = [];
-    for (let node: HTMLElement | null = section; node?.parentElement; node = node.parentElement) {
-      for (const sibling of Array.from(node.parentElement.children)) if (sibling !== node && sibling instanceof HTMLElement) {
-        inert.push([sibling, sibling.inert]); sibling.inert = true;
-      }
-    }
+    // No `inert` on the page behind: the layer already covers it (pointer), Tab is kept
+    // inside below and the section is aria-modal. Toggling inert on the page root restyled
+    // and rebuilt the accessibility tree of the whole page on open and on close (~60 ms here,
+    // far more with accessibility clients running): the pointer stuck right after closing,
+    // on its way to the detail card's ×.
     const key = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closeBig(); }
       if (event.key === 'Tab') {
@@ -1091,7 +1090,6 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     document.addEventListener('keydown', key, true);
     return () => {
       document.body.style.overflow = overflow;
-      inert.forEach(([node, value]) => { node.inert = value; });
       document.removeEventListener('keydown', key, true);
       if (previous?.isConnected) previous.focus();
     };
