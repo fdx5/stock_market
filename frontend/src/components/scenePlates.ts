@@ -1,17 +1,18 @@
 import * as THREE from "three";
 
-/* Number plates: 128 drawn once into an atlas (no download) — "123가 4567", white with
- * black characters for private cars (96), yellow for commercial ones (taxis, trucks,
- * buses: 32). A plate quad takes its plate from its instance colour (r = index / 255):
- * the WebGPU view reads it (ComplexRenderer PLATE), WebGL through the patch below. */
+/* Number plates: 512 drawn once into an atlas (no download) — "123가 4567" and the older
+ * "12가 3456", white with black characters for private cars (400), yellow for commercial
+ * ones (taxis, trucks, buses: 112). Every vehicle in view gets its own. A plate quad takes
+ * its plate from its instance colour (index = r·255 + g·255·256): the WebGPU view reads it
+ * (ComplexRenderer PLATE), WebGL through the patch below. */
 
-export const PLATE_COLS = 8, PLATE_ROWS = 16, PLATE_WHITE = 96, PLATE_COUNT = PLATE_COLS * PLATE_ROWS;
+export const PLATE_COLS = 8, PLATE_ROWS = 64, PLATE_WHITE = 400, PLATE_COUNT = PLATE_COLS * PLATE_ROWS;
 const HANGUL = ["가", "나", "다", "라", "마", "바", "사", "아", "자", "차", "카", "타", "파", "하", "구", "수", "거", "허"];
 
 let atlas: THREE.CanvasTexture | null = null;
 function plateAtlas() {
   if (atlas) return atlas;
-  const CW = 256, CH = 56;
+  const CW = 224, CH = 48;
   const c = document.createElement("canvas");
   c.width = CW * PLATE_COLS; c.height = CH * PLATE_ROWS;
   const g = c.getContext("2d")!;
@@ -25,9 +26,9 @@ function plateAtlas() {
     g.fillRect(x + 2, y + 2, CW - 4, CH - 4);
     g.strokeStyle = "#1a1a1a"; g.lineWidth = 3;
     g.strokeRect(x + 4, y + 4, CW - 8, CH - 8);
-    const text = `${digits(3)}${HANGUL[Math.floor(rnd() * HANGUL.length)]} ${digits(4)}`;
+    const text = `${digits(rnd() < 0.25 ? 2 : 3)}${HANGUL[Math.floor(rnd() * HANGUL.length)]} ${digits(4)}`;
     g.fillStyle = "#111111";
-    g.font = `bold 40px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Nanum Gothic", sans-serif`;
+    g.font = `bold 34px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", "Nanum Gothic", sans-serif`;
     g.textAlign = "center"; g.textBaseline = "middle";
     // (squeezed to the plate's width, as the plate font is narrow)
     const w = g.measureText(text).width, k = Math.min(1, (CW - 26) / w);
@@ -49,7 +50,7 @@ export function plateMaterial() {
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <map_fragment>", `
         #ifdef USE_INSTANCING_COLOR
-        float plateId = floor(vColor.r * 255.0 + 0.5);
+        float plateId = floor(vColor.r * 255.0 + 0.5) + 256.0 * floor(vColor.g * 255.0 + 0.5);
         #else
         float plateId = 0.0;
         #endif

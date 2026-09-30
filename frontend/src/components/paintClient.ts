@@ -142,17 +142,14 @@ export function complexPaintJobs(id: string, name: string): PaintJob[] {
   ];
 }
 
-/** Start on a complex's facades now (its id ends in its name), one after another; its
+/** Start on a complex's facades now (its id ends in its name), all together; its
  * build collects them. Unclaimed ones are dropped when another complex is chosen. */
 export function prefetchPaint(id: string) {
   if (!store()) return;
   for (const [key, job] of ahead) { ahead.delete(key); void job.then(t => t && Object.values(t).forEach(x => x.dispose())); }
-  let chain: Promise<unknown> = Promise.resolve();
-  for (const job of complexPaintJobs(id, id.split(":").pop() ?? "")) {
-    const p = chain.then(() => obtain(job));
-    chain = p;
-    ahead.set(JSON.stringify(job), p);
-  }
+  // (all at once: their drawing is brief, the waits — normal maps in the worker pool, the
+  // kept copies — overlap)
+  for (const job of complexPaintJobs(id, id.split(":").pop() ?? "")) ahead.set(JSON.stringify(job), obtain(job));
 }
 
 // The neighbourhood's styles, shared by every complex: kept too.

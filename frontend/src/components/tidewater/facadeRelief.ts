@@ -1,13 +1,6 @@
 import * as THREE from 'three';
 import type { RealEstateBuilding } from '../../api/client';
 
-/** Synthesized facade relief, never presented as surveyed balcony geometry, laid on the
- * facade tile it stands in front of (complexScene facadeSteps through ExtrudeGeometry's
- * world uvs: u = x or y by the wall's run, v = 1 − z; 8 bays of `bay` m across, 8 storeys
- * of `storey` m up, the slab band at the bottom 10 % of each storey cell): a slab ledge on
- * every painted slab band, and a fin on every bay edge of the long faces (the short end
- * walls stay flat). Out of step with the paint they read as a cage in front of the windows.
- * Returns unit-box transforms (footprint frame): one instanced draw for every tower. */
 /** The end walls (측벽) of a slab tower: faces square to its long axis (the longest edge's
  * run) at either extreme of it. A stepped front's short segments run along the axis and
  * are no end walls, nor are the small returns between the steps (short, and inside). */
@@ -30,14 +23,17 @@ export function endWalls(ring: [number, number][]): Set<number> {
   return out;
 }
 
-export function facadeRelief(building: RealEstateBuilding, out: THREE.Matrix4[], limit: number, bay = 3.2, storey = 2.9) {
+/** A thin slab ledge on every painted slab band of a modelled tower's window faces (never
+ * the end walls, never past a corner), laid on the facade tile it stands in front of
+ * (ComplexHologram extrude uvs). No fins or rails: bars over the fronts read as scaffolding.
+ * Returns unit-box transforms (footprint frame): one instanced draw for every tower. */
+export function facadeRelief(building: RealEstateBuilding, out: THREE.Matrix4[], limit: number, storey = 2.9) {
   const ring = building.rings[0];
   const object = new THREE.Object3D();
-  let area = 0, longest = 0;
+  let area = 0;
   ring.forEach(([x, y], i) => {
     const q = ring[(i + 1) % ring.length];
     area += x * q[1] - q[0] * y;
-    longest = Math.max(longest, Math.hypot(q[0] - x, q[1] - y));
   });
   const sign = area >= 0 ? 1 : -1;
   const z0 = building.base + 2.4, z1 = building.height - 0.5;
@@ -62,21 +58,11 @@ export function facadeRelief(building: RealEstateBuilding, out: THREE.Matrix4[],
     // Projecting slab ledges catch direct light and cast true narrow shadows.
     for (const z of slabs) {
       if (out.length >= limit) break;
+      // (inside the face's ends: a ledge running past a corner reads as a bare frame)
       object.position.set((x + qx) / 2 + nx * 0.14, (y + qy) / 2 + ny * 0.14, z + 0.05 * s);
-      object.scale.set(length, 0.28, 0.1 * s);
+      object.scale.set(Math.max(0, length - 0.6), 0.28, 0.1 * s);
       object.updateMatrix(); out.push(object.matrix.clone());
     }
-    // Fins on the long faces only, where the tile's u (x or y, by the wall's run) crosses
-    // a whole number of bays: between the windows, never across them.
-    if (length < Math.max(8, longest * 0.5)) continue;
-    const alongX = Math.abs(qx - x) > Math.abs(qy - y);
-    const a0 = alongX ? x : y, a1 = alongX ? qx : qy;
-    const lo = Math.min(a0, a1), hi = Math.max(a0, a1);
-    for (let u = Math.ceil((lo + 0.3) / bay) * bay; u < hi - 0.3 && out.length < limit; u += bay) {
-      const t = (u - a0) / (a1 - a0);
-      object.position.set(x + (qx - x) * t + nx * 0.14, y + (qy - y) * t + ny * 0.14, (z0 + z1) / 2);
-      object.scale.set(0.14, 0.28, z1 - z0);
-      object.updateMatrix(); out.push(object.matrix.clone());
-    }
+    // (no fins: bars down the fronts read as scaffolding)
   }
 }

@@ -1217,6 +1217,8 @@ export interface RealEstateBuilding {
   height: number; floors: number; base: number;
   height_source: "measured" | "floors" | "estimated";
   name: string | null; use: string | null;
+  /** The building's registered name (건물명: 아파트, 학교, 백화점…), when known. */
+  title?: string | null;
   /** 사용승인 year from the building register, when known. */
   approved?: number | null;
 }

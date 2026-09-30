@@ -266,6 +266,7 @@ def _from_vworld(c: dict, address: str) -> dict | None:
                  "floors": int(floors) if floors else None, "base": 0,
                  "height_source": "measured" if height else "floors" if floors else None,
                  "name": (p.get("dong_nm") or "").strip() or None, "use": p.get("usability") or None,
+                 "title": (p.get("bld_nm") or "").strip() or None,
                  "approved": _year(p.get("useapr_day"))}
             (buildings if id(f) in mine else context).append(b)
     if not buildings:
@@ -331,7 +332,10 @@ def _osm_building(e: dict, project) -> dict | None:
     base = _num(tags.get("min_height")) or ((_num(tags.get("building:min_level")) or 0) * FLOOR_M)
     return {"rings": [outer], "height": height, "floors": int(floors) if floors else None, "base": round(base, 1),
             "height_source": "measured" if height else "floors" if floors else None,
-            "name": tags.get("name") or tags.get("addr:housenumber") or None, "use": tags.get("building")}
+            "name": tags.get("name") or tags.get("addr:housenumber") or None,
+            # (a plain "yes" building says what it is by its amenity or shop tag, when it has one)
+            "use": tags.get("building") if tags.get("building") not in (None, "yes") else (tags.get("amenity") or tags.get("shop") or tags.get("building")),
+            "title": tags.get("name") or None}
 
 
 def _from_osm(c: dict, dong_address: str) -> dict | None:

@@ -691,8 +691,10 @@ export class ComplexRenderer {
     this.camera = new PerspectiveCamera();
     this.renderer = new MeshRenderer();
     // A new complex's pipelines spread over frames (see MeshRenderer._pipeline).
+    // (3 a frame, 5 ms apart: at 12 ms apart a new complex's ~35 pipelines came one a frame at
+    // the loading view's half rate, and held its first picture back most of a second)
     this.renderer.pipelinesPerFrame = 3;
-    this.renderer.pipelineGapMs = 12;
+    this.renderer.pipelineGapMs = 5;
     this.renderer.syncPipelines = false;
     this.target = new RenderTarget(1, 1, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex HDR' });
     // What the water sees through and reflects: the opaque scene, copied before the water
@@ -912,7 +914,7 @@ export class ComplexRenderer {
     const plate = source.userData.plate;
     if (plate && source.map) {
       textures.map = this.texture(source.map);
-      surface += `{ let pid = floor(in.color.r * 255.0 + 0.5);
+      surface += `{ let pid = floor(in.color.r * 255.0 + 0.5) + 256.0 * floor(in.color.g * 255.0 + 0.5);
         let cell = vec2f(pid % ${plate.cols.toFixed(1)}, floor(pid / ${plate.cols.toFixed(1)}));
         let puv = (cell + clamp(in.uv, vec2f(0.01), vec2f(0.99))) / vec2f(${plate.cols.toFixed(1)}, ${plate.rows.toFixed(1)});
         s.albedo = textureSampleLevel(map, smpLinearClamp, puv, 0.0).rgb; s.roughness = 0.45; s.metalness = 0.0; }\n`;
@@ -930,7 +932,10 @@ export class ComplexRenderer {
       const t = source[key];
       const f = n => Number(n).toFixed(8);
       const sampler = t.wrapS === 1000 ? 'smpAnisoRepeat' : 'smpAnisoClamp';
-      surface += `{ let uv = in.uv * vec2f(${f(t.repeat.x)}, ${f(t.repeat.y)}) + vec2f(${f(t.offset.x)}, ${f(t.offset.y)}); let texel = textureSample(${key}, ${sampler}, uv); ${statement} }\n`;
+      // (the car kit's colour swatches at full resolution, always: mipmapped from afar they
+      // blended into the kit's dark red, the paint mask failed and far cars showed red)
+      const sample = car && key === 'map' ? `textureSampleLevel(${key}, smpLinearClamp, uv, 0.0)` : `textureSample(${key}, ${sampler}, uv)`;
+      surface += `{ let uv = in.uv * vec2f(${f(t.repeat.x)}, ${f(t.repeat.y)}) + vec2f(${f(t.offset.x)}, ${f(t.offset.y)}); let texel = ${sample}; ${statement} }\n`;
     }
     if (source.normalMap) {
       textures.normalMap = surfaceTex ?? this.texture(source.normalMap);

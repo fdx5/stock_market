@@ -87,26 +87,36 @@ export async function runSliced<T>(g: Steps<T>, pace: () => Promise<boolean>): P
 
 const canvas = (w: number, h: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
 
-let normalWorker: Worker | null | undefined;
+// A few workers: a complex asks for a normal map per texture set (two facades, the base,
+// the ground, the neighbourhood's styles), and one worker made them queue — the page sat
+// idle for hundreds of ms while each waited its turn.
+let normalPool: { w: Worker; busy: number }[] | null | undefined;
 let normalJob = 0;
 const normalJobs = new Map<number, (bitmap: ImageBitmap | null) => void>();
 /** Height canvas -> normal map in a worker: the pixel readback and loop both leave the
  * page (together a few hundred ms per complex). Null where workers can't do it. */
 function normalsOffThread(height: HTMLCanvasElement, strength: number): Promise<ImageBitmap | null> | null {
-  if (normalWorker === undefined) {
+  if (normalPool === undefined) {
+    normalPool = null;
     try {
-      normalWorker = typeof OffscreenCanvas === "undefined" || typeof createImageBitmap === "undefined" ? null
-        : new Worker(new URL("./normalWorker.ts", import.meta.url), { type: "module" });
-      if (normalWorker) normalWorker.onmessage = (e: MessageEvent<{ id: number; bitmap: ImageBitmap | null }>) => { normalJobs.get(e.data.id)?.(e.data.bitmap); normalJobs.delete(e.data.id); };
-    } catch { normalWorker = null; }
+      if (typeof OffscreenCanvas !== "undefined" && typeof createImageBitmap !== "undefined") {
+        const n = Math.max(2, Math.min(4, (navigator.hardwareConcurrency || 4) - 2));
+        normalPool = Array.from({ length: n }, () => {
+          const w = new Worker(new URL("./normalWorker.ts", import.meta.url), { type: "module" });
+          w.onmessage = (e: MessageEvent<{ id: number; bitmap: ImageBitmap | null }>) => { normalJobs.get(e.data.id)?.(e.data.bitmap); normalJobs.delete(e.data.id); };
+          return { w, busy: 0 };
+        });
+      }
+    } catch { normalPool = null; }
   }
-  const worker = normalWorker;
-  if (!worker) return null;
+  if (!normalPool) return null;
+  const slot = normalPool.reduce((a, b) => (b.busy < a.busy ? b : a));
+  slot.busy++;
   const id = ++normalJob;
   return createImageBitmap(height).then(src => new Promise<ImageBitmap | null>(resolve => {
-    normalJobs.set(id, resolve);
-    worker.postMessage({ id, src, strength }, [src]);
-  })).catch(() => null);
+    normalJobs.set(id, bitmap => { slot.busy--; resolve(bitmap); });
+    slot.w.postMessage({ id, src, strength }, [src]);
+  })).catch(() => { slot.busy--; return null; });
 }
 
 /** Tangent-space normals from a height canvas (brighter = further out). Sliced: in a
@@ -310,6 +320,31 @@ export function contextStyle(use: string | null, height: number, r: number): Con
   return height > 36 ? "office" : r < 0.5 ? "shop" : "villa";
 }
 
+/** The name a neighbouring building is known by, for the hover label — only the landmarks:
+ * apartment blocks (5 storeys and up: 아파트, not 빌라), department stores and marts,
+ * schools, hospitals, stations, public offices, culture and sports halls. Houses, villas
+ * and neighbourhood shops (근린생활) get none. Null when it has no registered name. */
+export function landmarkLabel(b: { use: string | null; title?: string | null; name: string | null; floors: number; height: number }): string | null {
+  const title = (b.title ?? "").trim();
+  if (!title) return null;
+  const use = b.use ?? "", code = /^\d{5}$/.test(use) ? use.slice(0, 2) : null;
+  const PUBLIC = /(청|센터|주민|우체국|경찰|파출소|지구대|소방|세무서|법원|검찰|공단|공사|도서관|보건소|박물관|미술관|체육관|문화)/;
+  const MART = /(백화점|마트|아울렛|몰|쇼핑|시장)/;
+  // (an apartment: named so, or 6 storeys and up — villas are 4, 5 over pilotis — and never
+  // a 빌라 / 빌트 / 하우스 / 타운 by name)
+  const villa = /(빌라|빌트|빌$|하우스|타운|주택|원룸)/.test(title);
+  const apartment = !villa && (/아파트/.test(title) || b.floors >= 6 || (!b.floors && b.height >= 18));
+  let ok = false;
+  if (code) ok = (code === "02" && apartment) || ["05", "07", "08", "09", "10", "12", "13"].includes(code) || (code === "14" && PUBLIC.test(title))
+    || ((code === "03" || code === "04") && (MART.test(title) || PUBLIC.test(title)));
+  else ok = (/^(apartments|residential)$/.test(use) && apartment) || /^(school|university|college|kindergarten|hospital|clinic|train_station|station|transportation|public|civic|government|townhall|library|police|fire_station|post_office|department_store|mall|supermarket|sports_centre|stadium|museum|theatre|community_centre)$/.test(use)
+    || (/^(retail|commercial)$/.test(use) && MART.test(title));
+  if (!ok) return null;
+  // (an apartment block by its complex and 동: "호원가든아파트 103동"; the rest by name alone)
+  const dong = (b.name ?? "").trim(), home = code === "02" || /^(apartments|residential)$/.test(use);
+  return home && dong && dong !== title && /동$/.test(dong) ? `${title} ${dong}` : title;
+}
+
 /** Storey height (m) each context facade is drawn at, before fitting to registered floors. */
 export const CONTEXT_FLOOR_M: Record<ContextStyle, number> = { villa: 2.9, shop: 3.4, office: 3.8, apt: FLOOR_M };
 
@@ -450,10 +485,18 @@ export async function sharedContextTexturesSliced(style: ContextStyle, pace: () 
     if (!await pace()) return null;
     if (sharedTex.has(style)) return sharedTex.get(style)!;
   }
-  const made = await runSliced<Record<string, THREE.Texture>>(style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242) : contextSteps(1000 + style.length, style), pace);
-  if (made && !sharedTex.has(style)) { sharedTex.set(style, made); kept?.keep(style, made); }
+  // (one painting per style: a second caller waits on the first, it doesn't paint again)
+  let job = painting.get(style);
+  if (!job) {
+    job = runSliced<Record<string, THREE.Texture>>(style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242) : contextSteps(1000 + style.length, style), pace)
+      .then(made => { if (made && !sharedTex.has(style)) { sharedTex.set(style, made); kept?.keep(style, made); } return made; })
+      .finally(() => painting.delete(style));
+    painting.set(style, job);
+  }
+  await job;
   return sharedTex.get(style) ?? null;
 }
+const painting = new Map<string, Promise<Record<string, THREE.Texture> | null>>();
 export function sharedContextTextures(style: ContextStyle): Record<string, THREE.Texture> {
   let hit = sharedTex.get(style);
   if (!hit) {
@@ -498,14 +541,16 @@ export async function warmMaterials(group: THREE.Group, next: () => Promise<void
   geo.setAttribute("normal", new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0], 3));
   geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 0, 1, 0, 0, 1], 2));
   geo.setAttribute("color", new THREE.Float32BufferAttribute([1, 1, 1, 1, 1, 1, 1, 1, 1], 3));
-  // One style per slice: each costs a texture set to paint.
-  for (const style of ["villa", "shop", "office", "apt"] as ContextStyle[]) {
+  // All four at once, from the page's start: their drawing is brief and their waits (normal
+  // maps in the worker pool, kept copies) overlap — one after another they were still being
+  // painted when the first complex's build asked for them, half a second on.
+  await Promise.all((["villa", "shop", "office", "apt"] as ContextStyle[]).map(async style => {
     if (!await sharedContextTexturesSliced(style, async () => { await next(); return alive(); })) return;
     const mesh = new THREE.Mesh(geo, sharedContextMaterial(style));
     mesh.frustumCulled = false;
     mesh.castShadow = mesh.receiveShadow = true;
     group.add(mesh);
-  }
+  }));
 }
 
 /** Granite cladding for the towers' base (1–2층 석재 마감): 1.2 × 0.6 m honed panels with

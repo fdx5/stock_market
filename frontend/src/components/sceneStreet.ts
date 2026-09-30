@@ -730,7 +730,12 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, perKind[i]) * 3), 3);
     return im;
   });
-  const plateOf = cars.map(c => commercial[c.type] ? PLATE_WHITE + Math.floor(rnd() * (PLATE_COUNT - PLATE_WHITE)) : Math.floor(rnd() * PLATE_WHITE));
+  // (each vehicle its own plate: the white and the yellow ones dealt out shuffled, no repeats
+  // until a deck runs out)
+  const deck = (lo: number, hi: number) => { const d = Array.from({ length: hi - lo }, (_, i) => lo + i); for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; } return d; };
+  const whites = deck(0, PLATE_WHITE), yellows = deck(PLATE_WHITE, PLATE_COUNT);
+  let wi = 0, yi = 0;
+  const plateOf = cars.map(c => commercial[c.type] ? yellows[yi++ % yellows.length] : whites[wi++ % whites.length]);
   const nearNow = kinds.map(() => new Set<number>());
   const swapNear = (eye?: THREE.Vector3) => {
     if (!eye) return;
@@ -743,7 +748,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         far.getMatrixAt(c.slot, mm);
         const k = platesN[c.type]++;
         plates[c.type].setMatrixAt(k, mm);
-        plates[c.type].setColorAt(k, cc.setRGB(plateOf[c.id] / 255, 0, 0));
+        plates[c.type].setColorAt(k, cc.setRGB((plateOf[c.id] % 256) / 255, Math.floor(plateOf[c.id] / 256) / 255, 0));
       }
       const im = near[c.type];
       if (!im) continue;

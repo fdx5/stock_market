@@ -19,7 +19,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
 import { vworldBuildings, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
-  CONTEXT_FLOOR_M, ContextStyle, contextStyle, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
+  CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
 } from "./complexScene";
 import { paintStats, paintTextures, plinthTone, prefetchPaint } from "./paintClient";
@@ -1560,6 +1560,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       for (let j = 0; j < n; j++) col.set([c.r, c.g, c.b], j * 3);
       geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
       ctxGeos[style].push(own(geo));
+      // The landmarks round the complex answer the hover with their names (picking only).
+      const known = landmarkLabel(b);
+      if (known) {
+        const pick = new THREE.Mesh(keep(extrude(b, g, CONTEXT_FLOOR_M[style])));
+        pick.geometry.clearGroups();
+        pick.userData.label = known;
+        pick.matrixWorld.copy(group.matrixWorld);
+        pickables.push(pick);
+      }
       // Parapet: a 0.9 m upstand, 0.2 m thick, along every roof edge longer than 2 m.
       const ring = b.rings[0], H = b.height + g;
       if (b.height >= 5 && parapets.length < (stage.hq ? 24000 : 8000)) ring.forEach((p, j) => {
@@ -1824,26 +1833,9 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
           put(gableMat, shape.ends);
           put(paintMat, shape.painted);
           put(bandMat, shape.bands);
-          // B: the window faces in relief — a slab ledge at every storey (on the painted
-          // slab band: z = 0.5 + m·storey in the tile's frame), a balcony rail across each
-          // storey, and a fin at every window bay (the tile's cell edges, u = k·bay).
-          if (shape.roofZ !== null) for (const f of shape.facePlanes) {
-            const tx = -f.ny, ty = f.nx;
-            const at = (u: number, out: number) => [f.nx * (f.off + out) + tx * u + dx, f.ny * (f.off + out) + ty * u + dy];
-            const ang = Math.atan2(ty, tx), w = f.u1 - f.u0, um = (f.u0 + f.u1) / 2;
-            const z0f = shape.z0 + 2.5, z1f = shape.roofZ - 0.6;
-            for (let m = Math.ceil((z0f - 0.5) / relStorey); 0.5 + m * relStorey < z1f; m++) {
-              const zs = 0.5 + m * relStorey;
-              const [lx, ly] = at(um, 0.16);
-              reliefBox(ledges, lx, ly, zs + 0.05 * relStorey, w, 0.34, 0.1 * relStorey, ang);
-              const [rx, ry] = at(um, 0.34);
-              reliefBox(rails, rx, ry, zs + 0.1 * relStorey + 1.0, w, 0.05, 0.06, ang);
-              for (let u = Math.ceil(f.u0 / relBay) * relBay; u <= f.u1 - 0.2; u += relBay) {
-                const [fx, fy] = at(u, 0.17);
-                reliefBox(fins, fx, fy, zs + 0.1 * relStorey + 0.5 * relStorey, 0.14, 0.34, 0.9 * relStorey, ang);
-              }
-            }
-          }
+          // (no boxed relief over the surveyed faces: ledges, rails and fins laid over the
+          // measured shapes read as scaffolding and formwork — an unfinished building — at
+          // corners and on stepped fronts; the facade paint carries the balconies)
           // The building's number on its end walls, as painted there (43동 → 43).
           const nb = data.buildings[Number(fits.find(f => f.owner.startsWith("b"))!.owner.slice(1))];
           const label = (nb?.name ?? "").match(/\d+/)?.[0];
