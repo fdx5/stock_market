@@ -1227,6 +1227,17 @@ export interface RealEstateParcel { ring: [number, number][]; kind: string }
 
 export interface RealEstateRoad { line: [number, number][]; width: number; lanes: number }
 
+/** A parcel round a complex with the 공동주택 on it (x east, y north of the view's centre, m). */
+export interface RealEstateNearbyParcel {
+  pnu: string; addr: string;
+  buildings: { x: number; y: number; name: string; dong: string; floors: number }[];
+}
+/** A complex on one of those parcels, for the 3D view's 주변 단지 selector. */
+export interface RealEstateNearbyComplex {
+  id: string; name: string; dong: string; built: number | null;
+  x: number; y: number; towers: number; floors: number | null;
+}
+
 export interface RealEstateBuildingsResponse {
   id: string; name: string; address: string; built: number | null;
   found: boolean; source?: "vworld" | "osm"; attribution?: string;
@@ -1313,6 +1324,8 @@ export const api = {
     getJSONFresh<RealEstateRentResponse>(`${BASE}/realestate/rent?id=${encodeURIComponent(id)}`),
   realEstateBuildings: (id: string, signal?: AbortSignal, peek = false) =>
     getJSONFresh<RealEstateBuildingsResponse>(`${BASE}/realestate/buildings?id=${encodeURIComponent(id)}${peek ? "&peek=true" : ""}`, signal),
+  realEstateNearby: (id: string, parcels: RealEstateNearbyParcel[]) =>
+    postJSON<{ id: string; items: RealEstateNearbyComplex[] }>(`${BASE}/realestate/nearby`, { id, parcels }),
   realEstateFacts: (id: string) =>
     getJSONFresh<RealEstateFacts>(`${BASE}/realestate/facts?id=${encodeURIComponent(id)}`),
   realEstateSummary: (q: { level: RealEstateRegionLevel; sido?: string; sgg?: string; period: RealEstatePeriod }) => {

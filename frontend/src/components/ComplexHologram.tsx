@@ -16,8 +16,8 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
-import { vworldBuildingNames, vworldBuildings, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
+import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex } from "../api/client";
+import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -162,7 +162,9 @@ type Stage = {
   /** The hot-air balloon circling the complex, and the view from its basket while on
    * (yaw/pitch of the look in radians, fov the zoom; baseFov restored on leaving). */
   balloon: Balloon | null;
-  balloonView: { yaw: number; pitch: number; fov: number; baseFov: number } | null;
+  balloonView: { yaw: number; pitch: number; fov: number; baseFov: number;
+    /** Moving to another complex: the look turns toward it (a drag hands it back). */
+    aim?: THREE.Vector3 } | null;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -258,6 +260,28 @@ async function terrainFor(res: RealEstateBuildingsResponse): Promise<Terrain> {
   ]);
 }
 
+/** The complexes round a complex (주변 단지 selector), once per complex: where they stand
+ * as latitude and longitude, so any complex's view can place them. */
+type Nearby = RealEstateNearbyComplex & { lat: number; lon: number };
+const nearbyOf = new Map<string, Promise<Nearby[]>>();
+function nearbyFor(id: string, res: RealEstateBuildingsResponse): Promise<Nearby[]> {
+  const had = nearbyOf.get(id);
+  if (had) return had;
+  const { lat, lon } = res.center!;
+  const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
+  const job = vworldNearbyParcels(res, res.vworld_key!, res.vworld_domain)
+    .then(parcels => (parcels.length ? api.realEstateNearby(id, parcels) : { id, items: [] }))
+    .then(r => r.items.map(i => ({ ...i, lat: lat + i.y / ky, lon: lon + i.x / kx })));
+  job.catch(() => nearbyOf.delete(id));
+  return remember(nearbyOf, id, job);
+}
+/** Where a latitude and longitude lie from a result's centre: x east, y north (m). */
+function metresFrom(center: { lat: number; lon: number }, lat: number, lon: number): [number, number] {
+  return [(lon - center.lon) * Math.cos((center.lat * Math.PI) / 180) * 111_320, (lat - center.lat) * 110_540];
+}
+const BEARINGS = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"];
+const bearing = (x: number, y: number) => BEARINGS[Math.round(((Math.atan2(x, y) * 180) / Math.PI + 360) % 360 / 45) % 8];
+
 const WHEEL_ZOOM = 4.8;
 
 /** Yield the main thread: the next task, or (when the view is covered) the next idle
@@ -315,7 +339,7 @@ function inputOnlyRenderer(): THREE.WebGLRenderer {
   } as unknown as THREE.WebGLRenderer;
 }
 
-export default function ComplexHologram({ complexId, complexName, caption, wide = false, initialTod, paused = false, openFull = 0, onFullChange }: {
+export default function ComplexHologram({ complexId: homeId, complexName: homeName, caption: homeCaption, wide = false, initialTod, paused = false, openFull = 0, onFullChange }: {
   complexId: string | null; complexName?: string; caption?: string;
   /** Each increase opens this view full screen (the map's detail card on a desktop
    * shows its complex here rather than in a second renderer). */
@@ -328,6 +352,18 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   wide?: boolean; initialTod?: Tod;
 }) {
   const sectionRef = useRef<HTMLElement>(null);
+  // 주변 단지: a neighbouring complex chosen in the selector is built in full detail and
+  // the view centres on it; the page's complex (home) comes back from the same selector.
+  // (tied to the home it was chosen from: another complex on the map ends it)
+  const [hopState, setHop] = useState<{ id: string; name: string; home: string | null } | null>(null);
+  const hop = hopState && hopState.home === homeId ? hopState : null;
+  const complexId = hop?.id ?? homeId;
+  const complexName = hop?.name ?? homeName;
+  const caption = hop ? "주변 단지 · 3D" : homeCaption;
+  /** A move under way to another complex: where the view's centre was (to carry the
+   * camera and the balloon across when the new model's origin replaces it). */
+  const hopRef = useRef<{ id: string; from: { lat: number; lon: number }; terrain: Terrain } | null>(null);
+  const [nearby, setNearby] = useState<{ home: string; name: string; lat: number; lon: number; items: Nearby[] } | null>(null);
   const hourRef = useRef(0);
   /** Build the current model again (its textures painted afresh). */
   const rebuildRef = useRef<(() => void) | null>(null);
@@ -848,6 +884,15 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         // Standing at the basket's rim on the side the look faces, leaning out a little:
         // the rim along the bottom of the view, the complex below, the envelope overhead.
         balloon.basket(bvAt);
+        if (bv.aim) {
+          // (eased: about half the way in a third of a second)
+          const k = Math.min(1, (dt / 1000) * 2.2);
+          const yaw = Math.atan2(bv.aim.z - bvAt.z, bv.aim.x - bvAt.x);
+          const pitch = THREE.MathUtils.clamp(-Math.atan2(bvAt.y - bv.aim.y, Math.hypot(bv.aim.x - bvAt.x, bv.aim.z - bvAt.z)), -1.45, -0.15);
+          const dYaw = Math.atan2(Math.sin(yaw - bv.yaw), Math.cos(yaw - bv.yaw));
+          bv.yaw += dYaw * k; bv.pitch += (pitch - bv.pitch) * k;
+          if (!balloon.travelling && Math.abs(dYaw) < 0.003 && Math.abs(pitch - bv.pitch) < 0.003) bv.aim = undefined;
+        }
         const fx = Math.cos(bv.yaw), fz = Math.sin(bv.yaw);
         camera.position.set(bvAt.x + fx * 1.02, bvAt.y + 1.62, bvAt.z + fz * 1.02);
         bvLook.set(fx * Math.cos(bv.pitch), Math.sin(bv.pitch), fz * Math.cos(bv.pitch)).add(camera.position);
@@ -1072,6 +1117,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (!st) return;
     if (st.balloonView) {
       const bv = st.balloonView;
+      bv.aim = undefined;
       if (action === "home") leaveBalloon();
       else if (action === "in" || action === "out") zoomBalloon(action === "in" ? 0.7 : 1.4);
       else if (action === "left" || action === "right") bv.yaw += (action === "left" ? -1 : 1) * Math.PI / 8;
@@ -1112,7 +1158,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
   };
   /** Glide to a point (a double-clicked building): the orbit target there, the camera
    * keeping its bearing at a distance that frames it. */
-  const flyTo = (point: THREE.Vector3, distance: number) => {
+  const flyTo = (point: THREE.Vector3, distance: number, dur = 0.9) => {
     const st = stageRef.current;
     if (!st || st.balloonView) return;
     st.controls.autoRotate = false; spinRef.current = false; setSpin(false); st.intro = null;
@@ -1120,7 +1166,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // (not flatter than 20°: a building seen from its own ground level reads badly)
     if (dir.y < 0.34) { dir.y = 0.34; dir.normalize(); }
     const d = THREE.MathUtils.clamp(distance, st.controls.minDistance * 4, st.controls.maxDistance);
-    st.fly = { fromPos: st.camera.position.clone(), toPos: point.clone().addScaledVector(dir, d), fromTarget: st.controls.target.clone(), toTarget: point.clone(), t0: st.now, dur: 0.9 };
+    st.fly = { fromPos: st.camera.position.clone(), toPos: point.clone().addScaledVector(dir, d), fromTarget: st.controls.target.clone(), toTarget: point.clone(), t0: st.now, dur };
     st.resume();
   };
 
@@ -2386,9 +2432,33 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       stage.camera.position.copy(center).addScaledVector(viewDir, fitDistance);
       stage.controls.update();
     };
-    stage.frame();
+    // Arriving from another complex (the 주변 단지 selector): this model's origin is its own
+    // centre, so the camera, the orbit and the balloon move by the offset between the two
+    // centres and stay where they were in the world; from there the camera glides into this
+    // complex's opening shot, and the balloon on to its sky.
+    const came = hopRef.current?.id === complexId && data.center ? hopRef.current : null;
+    hopRef.current = null;
+    let shift: THREE.Vector3 | null = null;
+    if (came && data.center) {
+      const [ox, oy] = metresFrom(came.from, data.center.lat, data.center.lon);
+      shift = new THREE.Vector3(-ox, -came.terrain.at(ox, oy), oy);
+      if (shift.length() > 3000) shift = null;
+    }
+    if (shift) {
+      const cam = stage.camera.position.clone().add(shift), look = stage.controls.target.clone().add(shift);
+      stage.balloon?.shift(shift);
+      stage.balloonView?.aim?.add(shift);
+      stage.frame();
+      const toPos = stage.camera.position.clone(), toTarget = stage.controls.target.clone();
+      stage.camera.position.copy(cam); stage.controls.target.copy(look); stage.controls.update();
+      stage.fly = stage.balloonView ? null : { fromPos: cam, toPos, fromTarget: look, toTarget, t0: stage.now, dur: 1.6 };
+      if (stage.balloonView) stage.balloonView.aim = center.clone();
+    } else {
+      stage.frame();
+      stage.fly = null;
+    }
     stage.intro = null;
-    stage.balloon?.setRoute(center, span, top);
+    stage.balloon?.setRoute(center, span, top, !!shift);
     if (stage.balloon) stage.balloon.group.visible = true;
     stage.camera.far = dist * 14 + 2000;
     stage.nearMax = Math.max(0.5, dist / 800);
@@ -2468,6 +2538,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     if (!bv) return;
     // Drag moves the view like grabbing the scene; slower when zoomed in.
     const k = (bv.fov / 50) * 0.0045;
+    bv.aim = undefined;
     bv.yaw += dx * k; bv.pitch = THREE.MathUtils.clamp(bv.pitch + dy * k, -1.5, 0.9);
   };
   useEffect(() => {
@@ -2481,7 +2552,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     return () => { host?.removeEventListener("wheel", wheel); window.removeEventListener("keydown", key, true); };
   }, [balloonOn, big]);
   // A new complex, or the view going away: back on the ground.
-  useEffect(() => { if (balloonOn) leaveBalloon(); }, [complexId]);
+  // (a move to a neighbouring complex keeps the ride: the balloon flies there)
+  useEffect(() => { if (balloonOn) leaveBalloon(); }, [homeId]);
   const drag = useRef<{ x: number; y: number; pinch: number } | null>(null);
   // Keys, while the pointer is over the view or it is full screen: arrows turn and
   // tilt, +/- zoom, H back to the opening shot, T from above, R auto-rotation,
@@ -2581,6 +2653,47 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     flyTo(new THREE.Vector3(hit.point.x, box.min.y + tall * 0.5, hit.point.z).lerp(mid.setY(box.min.y + tall * 0.5), 0.5), Math.max(tall, wide) * 2.4 + 20);
   };
 
+  // 주변 단지: the apartment complexes round the page's complex (VWorld's 공동주택 and the
+  // parcels they stand on, matched to the trades' 지번 by the server), once its view is up.
+  useEffect(() => {
+    if (!homeId || complexId !== homeId || !data?.found || !data.center || !data.vworld_key || nearby?.home === homeId) return;
+    let live = true;
+    const st = stageRef.current, res = data, home = homeId;
+    const go = () => void nearbyFor(home, res)
+      .then(items => { if (live) setNearby({ home, name: res.name, lat: res.center!.lat, lon: res.center!.lon, items }); })
+      .catch(err => console.info("[3D] Nearby complexes unavailable:", err));
+    // (after the first frame and the neighbourhood's own requests: none of it may slow the view)
+    const timer = window.setTimeout(() => { if (st?.unshown) st.onShown.push(go); else go(); }, 1200);
+    return () => { live = false; window.clearTimeout(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, homeId]);
+  const near = nearby && nearby.home === homeId ? nearby : null;
+  /** Show another complex in detail: the camera (or, riding it, the balloon) sets off
+   * toward it at once over the current scene while its shapes load; the new model then
+   * takes over centred on it, and the balloon circles its sky. */
+  const goTo = (id: string) => {
+    if (!near || !homeId || id === complexId) return;
+    const home = id === homeId;
+    const item = home ? null : near.items.find(i => i.id === id);
+    if (!home && !item) return;
+    const st = stageRef.current, cur = data;
+    setTip(null);
+    if (st && cur?.found && cur.center) {
+      const [x, y] = metresFrom(cur.center, item?.lat ?? near.lat, item?.lon ?? near.lon);
+      const ground = terrainRef.current.at(x, y);
+      const roof = ground + (item?.floors ?? 20) * FLOOR_M + GROUND_M;
+      hopRef.current = { id, from: { ...cur.center }, terrain: terrainRef.current };
+      const spot = new THREE.Vector3(x, ground, -y);
+      // (the balloon over the taller of the two: it never passes through a tower)
+      st.balloon?.setRoute(spot, 160, Math.max(st.top, roof), true);
+      const mid = spot.clone().setY(ground + (roof - ground) * 0.45);
+      if (st.balloonView) st.balloonView.aim = mid;
+      else flyTo(mid, Math.max(260, (roof - ground) * 3), THREE.MathUtils.clamp(Math.hypot(x, y) / 300, 1.2, 2.4));
+      st.resume();
+    } else hopRef.current = null;
+    setHop(home ? null : { id, name: item!.name, home: homeId });
+  };
+
   const notice = data?.found && complexId ? staleNotice(data, complexId) : null;
   const measured = data?.coverage ? data.coverage.with_height : 0;
   const total = data?.coverage ? data.coverage.buildings : 0;
@@ -2599,7 +2712,17 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       <header className="re-holo-head">
         <div>
           <small>{caption ?? "3D 단지뷰"}</small>
-          <strong>{data?.name ?? complexName ?? "단지를 선택하세요"}</strong>
+          <strong>{(hop && loading ? hop.name : data?.name) ?? complexName ?? "단지를 선택하세요"}</strong>
+          {near && near.items.length > 0 && (
+            <select className="re-holo-nearby" value={hop?.id ?? ""} onChange={e => goTo(e.currentTarget.value || homeId!)}
+              aria-label="주변 아파트 단지 자세히 보기" title="주변 아파트 단지를 고르면 그 단지를 자세히 그리고, 열기구가 그 위로 옮겨 갑니다">
+              <option value="">{hop ? `↩ 내 단지로 · ${near.name}` : `주변 단지 ${near.items.length}곳 보기`}</option>
+              {near.items.map(i => {
+                const d = Math.hypot(i.x, i.y);
+                return <option key={i.id} value={i.id}>{`${i.name} · ${bearing(i.x, i.y)} ${d < 950 ? `${Math.round(d / 10) * 10}m` : `${(d / 1000).toFixed(1)}km`}`}</option>;
+              })}
+            </select>
+          )}
         </div>
         <div className="re-holo-tools">
           {big && !narrow && <button type="button" onClick={() => { resizeDrag.current = null; setBigSize(null); }}

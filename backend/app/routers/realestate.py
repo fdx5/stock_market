@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 
-from app.services import realestate_buildings, realestate_facts, realestate_map, realestate_rent, realestate_summary
+from app.services import realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary
 
 router = APIRouter()
 
@@ -112,6 +112,20 @@ def realestate_complex_buildings(response: Response, id: str = Query(..., min_le
         return realestate_buildings.complex_buildings(id, peek=peek)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/nearby")
+def realestate_nearby_complexes(response: Response, body: dict = Body(...)):
+    """The complexes on the parcels a browser found round one complex (the 3D view's
+    주변 단지 selector): {id, parcels: [{pnu, addr, buildings: [{x, y, name, dong, floors}]}]}."""
+    response.headers["Cache-Control"] = "no-store"
+    complex_id, parcels = body.get("id"), body.get("parcels")
+    if not isinstance(complex_id, str) or not 7 <= len(complex_id) <= 200 or not isinstance(parcels, list):
+        raise HTTPException(status_code=400, detail="id와 parcels가 필요합니다.")
+    try:
+        return realestate_nearby.nearby(complex_id, [p for p in parcels if isinstance(p, dict)])
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -1,4 +1,4 @@
-import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateParcel, RealEstateRoad } from "../api/client";
+import { RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyParcel, RealEstateParcel, RealEstateRoad } from "../api/client";
 import { prefetchTerrain } from "./sceneTerrain";
 
 /* A complex's buildings straight from VWorld (국토교통부 GIS건물통합정보), in the
@@ -139,6 +139,51 @@ export async function vworldBuildingNames(data: RealEstateBuildingsResponse, key
     out.push({ x: (cx - lon) * kx, y: (cy - lat) * ky, title, use: p.usability || null, floors: Math.round(num(p.grnd_flr) ?? 0), dong: String(p.dong_nm || "").trim() || null });
   }
   return out;
+}
+
+/** The 공동주택 (주용도 02000, five storeys and up) within `radius` of a result, grouped by
+ * the 연속지적도 parcel each stands on — what the server matches to the complexes in the
+ * trades (their 지번), for the 주변 단지 selector. A parcel is asked for at a building's
+ * centroid only when no parcel already read holds it (a complex's towers mostly share
+ * one lot), six at a time, nearest first. */
+export async function vworldNearbyParcels(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com", radius = 500): Promise<RealEstateNearbyParcel[]> {
+  if (!data.center) return [];
+  const { lat, lon } = data.center;
+  const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
+  const box = `BOX(${lon - radius / kx},${lat - radius / ky},${lon + radius / kx},${lat + radius / ky})`;
+  const common = { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true", key, domain };
+  const page = (n: number) => call(DATA, { ...common, data: "LT_C_BLDGINFO", geomFilter: box, attrFilter: "usability:=:02000", size: 1000, page: n }).then(features);
+  const first = await page(1);
+  const all = first.length >= 1000 ? [...first, ...(await page(2).catch(() => []))] : first;
+  const towers = all.flatMap(f => {
+    const p = f.properties, floors = Math.round(num(p.grnd_flr) ?? 0), poly = polygons(f.geometry)[0];
+    if (floors < 5 || !poly) return [];
+    const [cx, cy] = centroid(poly[0] as unknown as Ring);
+    return [{ lonlat: [cx, cy] as [number, number], x: Math.round((cx - lon) * kx * 10) / 10, y: Math.round((cy - lat) * ky * 10) / 10,
+      name: String(p.bld_nm || "").trim(), dong: String(p.dong_nm || "").trim(), floors }];
+  }).sort((a, b) => a.x * a.x + a.y * a.y - b.x * b.x - b.y * b.y);
+  const parcels: (RealEstateNearbyParcel & { rings: Ring[] })[] = [];
+  const holder = (pt: [number, number]) => parcels.find(p => p.rings.some(r => inside(pt, r)));
+  const waiting = [...towers];
+  const worker = async () => {
+    for (let t = waiting.shift(); t; t = waiting.shift()) {
+      let lot = holder(t.lonlat);
+      if (!lot) {
+        const f = features(await call(DATA, { ...common, data: "LP_PA_CBND_BUBUN", geomFilter: `POINT(${t.lonlat[0]} ${t.lonlat[1]})`, size: 1 }).catch(() => null))[0];
+        const pnu = String(f?.properties.pnu ?? "");
+        if (!f || !pnu) continue;
+        // (another worker may have read the same lot meanwhile)
+        lot = parcels.find(p => p.pnu === pnu);
+        if (!lot) {
+          lot = { pnu, addr: String(f.properties.addr ?? ""), buildings: [], rings: polygons(f.geometry).map(p => p[0] as unknown as Ring) };
+          parcels.push(lot);
+        }
+      }
+      lot.buildings.push({ x: t.x, y: t.y, name: t.name, dong: t.dong, floors: t.floors });
+    }
+  };
+  await Promise.all(Array.from({ length: 6 }, worker));
+  return parcels.map(({ rings: _rings, ...p }) => p);
 }
 
 /** Every 연속지적도 parcel around a result (the neighbourhood's radius), with its 지목 —

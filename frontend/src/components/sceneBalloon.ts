@@ -105,6 +105,9 @@ export function buildBalloon() {
   // ---- flight ----
   let center = new THREE.Vector3(), radius = 200, base = 80, time = 0, night = 0, burn = 0, nextBurn = 3;
   const heading = { yaw: 0 };
+  /** A move to another complex's sky: the circle's centre, size and height eased from
+   * where they were to where they go (the balloon keeps circling on the way). */
+  let travel: { from: THREE.Vector3; to: THREE.Vector3; r0: number; r1: number; b0: number; b1: number; t: number; dur: number } | null = null;
   const place = () => {
     // Circling at ~3 m/s; height swinging slowly between ~10 and ~70 m over the roofs
     // (low enough to sit in the opening view's sky, just above the skyline).
@@ -123,15 +126,40 @@ export function buildBalloon() {
     /** Things a click on the balloon can hit. */
     pickables: [envelope, ...hardware] as THREE.Object3D[],
     /** Over this complex: its centre, its footprint's size, how high the roofs are. */
-    setRoute(c: THREE.Vector3, span: number, roofTop: number) {
+    setRoute(c: THREE.Vector3, span: number, roofTop: number, glide = false) {
       // Over the complex itself: a circle inside its footprint, the basket 9-27 m over
       // the tallest roof (never low enough to touch a tower).
-      center = c.clone(); radius = Math.max(35, span * 0.42); base = roofTop + 18;
+      const r1 = Math.max(35, span * 0.42), b1 = roofTop + 18;
+      if (glide) {
+        // (about 150 m/s at the most, and never a jump: 1.6 s at the least)
+        const dur = Math.min(4, Math.max(1.6, c.distanceTo(center) / 150));
+        travel = { from: center.clone(), to: c.clone(), r0: radius, r1, b0: base, b1, t: 0, dur };
+        return;
+      }
+      travel = null;
+      center = c.clone(); radius = r1; base = b1;
       place();
     },
+    /** The scene's origin moved (a neighbouring complex became the view's centre): the
+     * balloon stays where it is in the world. */
+    shift(d: THREE.Vector3) {
+      center.add(d);
+      if (travel) { travel.from.add(d); travel.to.add(d); }
+      place();
+    },
+    /** Moving to another complex (the view follows it from the basket). */
+    get travelling() { return !!travel; },
     update(dt: number) {
       if (!(dt > 0)) return;
       time += Math.min(dt, 0.1);
+      if (travel) {
+        travel.t += Math.min(dt, 0.1);
+        const k = Math.min(1, travel.t / travel.dur), e = k * k * (3 - 2 * k);
+        center.lerpVectors(travel.from, travel.to, e);
+        radius = travel.r0 + (travel.r1 - travel.r0) * e;
+        base = travel.b0 + (travel.b1 - travel.b0) * e;
+        if (k >= 1) travel = null;
+      }
       place();
       // Burns every few seconds, longer ones as it climbs; the flame flickers.
       if (burn > 0) burn -= dt; else if ((nextBurn -= dt) <= 0) { burn = 0.8 + Math.random() * 1.8; nextBurn = 4 + Math.random() * 7; }
