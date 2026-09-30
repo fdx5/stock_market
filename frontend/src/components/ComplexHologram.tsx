@@ -33,13 +33,14 @@ import { FLAT, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
-import { buildBoats, noBoatsReason } from "./sceneBoats";
+import { buildBoats, noBoatsReason, prepareWakes } from "./sceneBoats";
 import { buildKids, schoolBorders } from "./sceneKids";
 import type { Palette } from "./complexScene";
 import { photoBuildings, photoColours, photoRhythm, photoWallPaint, surveyedShape, type PhotoBuilding, type WallPaint } from "./vworld3d";
 import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
+import { frameSlice } from "./frameSlice";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
  * real ones (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via
@@ -143,6 +144,9 @@ type Stage = {
   /** Near plane when zoomed out (it shrinks as the camera closes in). */
   nearMax: number;
   hq: boolean; disposeModel: () => void; resume: () => void;
+  /** The model on screen, to keep in view while the next one is built (a move to a neighbouring
+   * complex): stop its late additions, and later take it out of the scene and free it. */
+  current: { stop: () => void; release: () => void; parts: () => THREE.Object3D[] } | null;
   /** A new model is built but has not reached the screen yet. */
   unshown: boolean;
   /** One-off work under way after the first frame (the photo pass): its hitches are not the
@@ -287,12 +291,8 @@ const WHEEL_ZOOM = 4.8;
 /** Yield the main thread: the next task, or (when the view is covered) the next idle
  * period, so input and scrolling elsewhere on the page come first. */
 function nextSlice(idle: boolean): Promise<void> {
-  return new Promise(resolve => {
-    if (idle && typeof window.requestIdleCallback === "function") { window.requestIdleCallback(() => resolve(), { timeout: 1500 }); return; }
-    const ch = new MessageChannel();
-    ch.port1.onmessage = () => { ch.port1.close(); ch.port2.close(); resolve(); };
-    ch.port2.postMessage(0);
-  });
+  if (!idle || typeof window.requestIdleCallback !== "function") return frameSlice();
+  return new Promise(resolve => { window.requestIdleCallback(() => resolve(), { timeout: 1500 }); });
 }
 
 /** Like nextSlice, but past the next frame: the browser hands a canvas's recorded drawing
@@ -721,7 +721,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null, fly: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
@@ -1350,8 +1350,33 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   useEffect(() => {
     const stage = stageRef.current;
     if (!stage) return;
-    stage.disposeModel();
-    if (!data?.found || !data.buildings.length) return;
+    // Arriving from another complex (the 주변 단지 selector): this model's origin is its own
+    // centre, so everything in the scene moves by the offset between the two centres and stays
+    // where it was in the world — the camera, the orbit, the balloon, and the complex left
+    // behind, which stays in view (no empty sky) until this one's first frame is up.
+    const came = hopRef.current?.id === complexId && data?.found && data.center && data.buildings.length ? hopRef.current : null;
+    hopRef.current = null;
+    let shift: THREE.Vector3 | null = null;
+    if (came && data?.center) {
+      const [ox, oy] = metresFrom(came.from, data.center.lat, data.center.lon);
+      shift = new THREE.Vector3(-ox, -came.terrain.at(ox, oy), oy);
+      if (shift.length() > 3000) shift = null;
+    }
+    let behind = shift && stage.model && !stage.unshown ? stage.current : null;
+    if (behind) {
+      behind.stop();
+      for (const o of behind.parts()) o.position.add(shift!);
+      // (its traffic and people keep moving meanwhile: tick stays until this model's replaces it)
+      stage.current = null; stage.model = null; stage.ground = null; stage.pickables = []; stage.onShown = [];
+    } else stage.disposeModel();
+    if (shift) {
+      stage.camera.position.add(shift); stage.controls.target.add(shift);
+      if (stage.fly) for (const v of [stage.fly.fromPos, stage.fly.toPos, stage.fly.fromTarget, stage.fly.toTarget]) v.add(shift);
+      stage.balloon?.shift(shift);
+      stage.balloonView?.aim?.add(shift);
+    }
+    const letGo = () => { behind?.release(); behind = null; };
+    if (!data?.found || !data.buildings.length) { letGo(); return; }
     const modelStarted = performance.now();
     const terrain = terrainRef.current;
     // Buildings first: plants, lamps and traffic join once this model is on screen,
@@ -1371,8 +1396,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Set before any work: a newer selection disposes a half-built model cleanly.
     stage.building = true;
     stage.resume();
+    const release = () => {
+      stage.scene.remove(group, decor);
+      if (ground) stage.scene.remove(ground);
+      disposables.forEach(d => d.dispose());
+    };
+    stage.current = { stop: () => { alive = false; }, release, parts: () => (ground ? [group, decor, ground] : [group, decor]) };
     stage.disposeModel = () => {
       alive = false;
+      letGo();
+      stage.current = null;
       stage.building = false;
       stage.onShown = [];
       stage.scene.remove(group, decor);
@@ -2228,8 +2261,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
-    // The model and its ground reach the scene together, in one frame.
+    // The model and its ground reach the scene together, in one frame. The complex left behind
+    // stays until this one is fully drawn (its pipelines and ground ready: before that it would
+    // stand on bare sky), a little lower meanwhile so this one's roofs and ground win where the
+    // two coincide; then it is freed.
     stage.scene.add(group, ground);
+    if (behind) { for (const o of behind.parts()) o.position.y -= 0.25; stage.onShown.push(letGo); }
     stage.unshown = true;
 
     // Street furniture on the surveyed roads: raised sidewalks with kerbs, street trees
@@ -2341,6 +2378,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (import.meta.env.DEV) Object.assign(window, { __holoKids: kids, __holoStage: stage });
           if (!await later()) return;
         }
+        prepareWakes();   // (idle time, once a session: boats on a river need them at once)
         const water = await buildWater(parcels, waterCovered(data), terrain, pace);
         if (!alive) { water?.dispose(); return; }
         if (water) {
@@ -2432,22 +2470,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stage.camera.position.copy(center).addScaledVector(viewDir, fitDistance);
       stage.controls.update();
     };
-    // Arriving from another complex (the 주변 단지 selector): this model's origin is its own
-    // centre, so the camera, the orbit and the balloon move by the offset between the two
-    // centres and stay where they were in the world; from there the camera glides into this
-    // complex's opening shot, and the balloon on to its sky.
-    const came = hopRef.current?.id === complexId && data.center ? hopRef.current : null;
-    hopRef.current = null;
-    let shift: THREE.Vector3 | null = null;
-    if (came && data.center) {
-      const [ox, oy] = metresFrom(came.from, data.center.lat, data.center.lon);
-      shift = new THREE.Vector3(-ox, -came.terrain.at(ox, oy), oy);
-      if (shift.length() > 3000) shift = null;
-    }
+    // (from another complex: the camera glides from where it was into this one's opening shot,
+    // the look from the balloon turns to it, and the balloon flies on to its sky)
     if (shift) {
-      const cam = stage.camera.position.clone().add(shift), look = stage.controls.target.clone().add(shift);
-      stage.balloon?.shift(shift);
-      stage.balloonView?.aim?.add(shift);
+      const cam = stage.camera.position.clone(), look = stage.controls.target.clone();
       stage.frame();
       const toPos = stage.camera.position.clone(), toTarget = stage.controls.target.clone();
       stage.camera.position.copy(cam); stage.controls.target.copy(look); stage.controls.update();

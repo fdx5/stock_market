@@ -880,10 +880,16 @@ export class ComplexRenderer {
   }
   /** Canvas textures repainted in place (the ground once land use arrives): upload again. */
   refreshTextures() {
+    // About one big canvas a frame: the ground repainted with land use and the facades with the
+    // survey's colours come in the same moment, and each copy from a canvas holds the main thread
+    // (~40–110 ms for 2048 px); together they made one long, visible stall. The rest wait a frame.
+    let budget = 4.5e6;
     for (const [source, tex] of this.textures) {
       if (tex.sourceVersion === source.version) continue;
+      if (budget <= 0) break;
       tex.sourceVersion = source.version;
       const img = source.image;
+      if (img?.width) budget -= img.width * img.height;
       if (!img?.width || img.data || img.width !== tex.width || img.height !== tex.height || tex.packed) continue;
       if (tex.repack) { tex.repack(); this.release(source); continue; }
       if (tex.format.startsWith('bc7')) { encodeBC7(img, { flipY: source.flipY, into: tex }); this.release(source); continue; }

@@ -1,3 +1,4 @@
+import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
 
 /* Trees as meshes (scripts/gen-mesh-trees.py): bark tubes and leaf-cluster cards per species
@@ -50,7 +51,7 @@ export function loadTreeKit(): Promise<TreeKit> {
       }));
       return out;
     }).catch(() => new Map<string, THREE.Texture>()),
-  ]).then(([meta, bin, texture, twigs, twigAtlas, barkTex]) => {
+  ]).then(async ([meta, bin, texture, twigs, twigAtlas, barkTex]) => {
     for (const t of [texture, twigs]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.flipY = true; }
     // a twig's cell (flipY: v up); a hair inside it, off the neighbours
     const twigRect = (k: number): [number, number, number, number] => {
@@ -76,6 +77,8 @@ export function loadTreeKit(): Promise<TreeKit> {
       return e === 0 ? sg * m * 2 ** -24 : e === 31 ? 0 : sg * (1 + m / 1024) * 2 ** (e - 15);
     };
     for (const v of meta.variants) {
+      // (one variant a slice: decoding them all at once held the page ~0.1 s)
+      await frameSlice();
       const b = v.bark, l = v.leaves;
       const bark = barkGeo(b);
       // Each leaf record to a quad: base + across * (-1..1) + along * (0..1).

@@ -1,3 +1,4 @@
+import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
 import { contextSteps, facadeSteps, keepPaintWith, NEIGHBOUR_PALETTE, paletteFor, plinthSteps, runSliced, type ContextStyle, type Palette } from "./complexScene";
 import { normalRows } from "./normalKernel";
@@ -98,7 +99,7 @@ function slicer() {
   let at = performance.now();
   return async () => {
     if (performance.now() - at > 8) {
-      await new Promise<void>(resolve => { const ch = new MessageChannel(); ch.port1.onmessage = () => { ch.port1.close(); resolve(); }; ch.port2.postMessage(0); });
+      await frameSlice();
       at = performance.now();
     }
     return true;

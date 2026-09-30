@@ -354,8 +354,23 @@ function makeBoat(k: Kit, kind: Boat["kind"]): { group: THREE.Group; L: number; 
  * carries the transverse crests and the diverging feathers. Wash: churned white water
  * down the middle. Spray: a soft round droplet cloud. */
 let textures: { wakeMap: THREE.CanvasTexture; wakeNormal: THREE.CanvasTexture; wash: THREE.CanvasTexture; spray: THREE.CanvasTexture } | null = null;
+/** The wake textures painted ahead, in idle time (a river complex's boats need them at once, and
+ * painting them on the spot held the page ~0.1 s). */
+export function prepareWakes() {
+  if (textures || preparing) return;
+  preparing = true;
+  // (one texture an idle period: all four at once were ~0.1 s, past any idle deadline)
+  const go = () => { if (!textures && !wakeSteps.next().done) later(); };
+  const later = () => { if (typeof requestIdleCallback === "function") requestIdleCallback(go, { timeout: 3000 }); else setTimeout(go, 200); };
+  later();
+}
+let preparing = false;
+const wakeSteps = paintWakes();
 function wakeTextures() {
-  if (textures) return textures;
+  while (!textures) if (wakeSteps.next().done) break;
+  return textures!;
+}
+function* paintWakes(): Generator<void, void, void> {
   const W = 128, H = 256, r = rng(7);
   const noise = new Float32Array(64 * 64).map(() => r());
   const n2 = (u: number, v: number) => {
@@ -363,12 +378,16 @@ function wakeTextures() {
     const q = (a: number, b: number) => noise[((b & 63) * 64) + (a & 63)];
     return (q(i, j) * (1 - fx) + q(i + 1, j) * fx) * (1 - fy) + (q(i, j + 1) * (1 - fx) + q(i + 1, j + 1) * fx) * fy;
   };
-  const make = (w: number, h: number, px: (u: number, v: number) => [number, number, number, number]) => {
+  // (a pause every 32 rows: each piece a few ms, within an idle period)
+  const make = function* (w: number, h: number, px: (u: number, v: number) => [number, number, number, number]): Generator<void, THREE.CanvasTexture, void> {
     const c = document.createElement("canvas"); c.width = w; c.height = h;
     const g = c.getContext("2d")!, img = g.createImageData(w, h);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const [R, Gc, B, A] = px((x + 0.5) / w, (y + 0.5) / h), o = (y * w + x) * 4;
-      img.data[o] = R * 255; img.data[o + 1] = Gc * 255; img.data[o + 2] = B * 255; img.data[o + 3] = A * 255;
+    for (let y = 0; y < h; y++) {
+      if (y && y % 32 === 0) yield;
+      for (let x = 0; x < w; x++) {
+        const [R, Gc, B, A] = px((x + 0.5) / w, (y + 0.5) / h), o = (y * w + x) * 4;
+        img.data[o] = R * 255; img.data[o + 1] = Gc * 255; img.data[o + 2] = B * 255; img.data[o + 3] = A * 255;
+      }
     }
     g.putImageData(img, 0, 0);
     const t = new THREE.CanvasTexture(c);
@@ -378,7 +397,7 @@ function wakeTextures() {
     return t;
   };
   const water: Rgb = [0.12, 0.24, 0.29];
-  const wakeMap = make(W, H, (u, v) => {
+  const wakeMap = yield* make(W, H, (u, v) => {
     const edge = Math.min(u, 1 - u);                          // 0 at the arms
     const age = v;                                            // 0 at the hull
     const arm = Math.exp(-(((edge - 0.035) / (0.03 + 0.05 * age)) ** 2)) * (1 - age) ** 1.6;
@@ -388,6 +407,7 @@ function wakeTextures() {
     const a = Math.min(1, Math.max(foam, 0.28 * wave * Math.min(1, age * 12 + 0.2)));
     return [water[0] + (0.95 - water[0]) * foam, water[1] + (0.97 - water[1]) * foam, water[2] + (0.98 - water[2]) * foam, a];
   });
+  yield;
   // Height: transverse crests across the wake plus feathers along the arms, as a normal map.
   const h = (u: number, v: number) => {
     const edge = Math.min(u, 1 - u), across = Math.abs(u - 0.5) * 2;
@@ -395,28 +415,29 @@ function wakeTextures() {
     const feather = Math.sin(2 * Math.PI * (v * 1.0 + across * 0.9) * 2.2) * Math.exp(-edge * 7);
     return (transverse * 0.6 + feather) * (1 - v) ** 0.6;
   };
-  const wakeNormal = make(W, H, (u, v) => {
+  const wakeNormal = yield* make(W, H, (u, v) => {
     const e = 1 / W, dx = (h(u + e, v) - h(u - e, v)) / (2 * e), dy = (h(u, v + 1 / H) - h(u, v - 1 / H)) / (2 / H);
     const nx = -dx * 0.02, ny = -dy * 0.02, l = Math.hypot(nx, ny, 1);
     return [0.5 + 0.5 * nx / l, 0.5 + 0.5 * ny / l, 0.5 + 0.5 / l, 1];
   });
   wakeNormal.wrapT = THREE.RepeatWrapping;
-  const wash = make(64, 256, (u, v) => {
+  yield;
+  const wash = yield* make(64, 256, (u, v) => {
     const across = Math.abs(u - 0.5) * 2;
     // Churned water: bright boils near the hull breaking into streaks and patches.
     const churn = 0.35 + 0.8 * n2(u * 3 + v * 0.3, v * 16) - 0.45 * n2(u * 9, v * 40) + 0.3 * (Math.max(0, n2(u * 6, v * 70) - 0.5));
     const a = Math.max(0, Math.min(1, (1 - across ** 1.4) * churn * (1 - v) ** 1.6 * 0.85 * (v < 0.02 ? v / 0.02 : 1)));
     return [0.96, 0.98, 1, a];
   });
+  yield;
   // A cloud of droplets rather than a ball: speckles inside a soft falloff.
-  const spray = make(64, 64, (u, v) => {
+  const spray = yield* make(64, 64, (u, v) => {
     const d = Math.hypot(u - 0.5, v - 0.5) * 2;
     const speck = Math.max(0, n2(u * 5, v * 5) - 0.45) * 2.4;
     const a = Math.max(0, 1 - d) ** 2.2 * (0.25 + speck);
     return [1, 1, 1, Math.min(1, a)];
   });
   textures = { wakeMap, wakeNormal, wash, spray };
-  return textures;
 }
 
 /** A strip laid on the water behind something moving: one pair of vertices per sample of

@@ -1,3 +1,4 @@
+import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
@@ -351,6 +352,7 @@ interface Car {
  * lamps lit at night. */
 export function stitchedRoads(roads: RealEstateRoad[]) { return stitchRoads(roads.filter(r => r.line.length > 1)); }
 
+
 export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: boolean, terrain: Terrain = FLAT) {
   const usable = stitchRoads(roads.filter(r => r.line.length > 1));
   if (!usable.length) return null;
@@ -409,34 +411,42 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const official = <G,>(g: G) => { officials.add(g as unknown as THREE.BufferGeometry); return g; };
   const d = (n: string): [number, number, number] => CAR_SPECS[n] ? [CAR_SPECS[n].length, CAR_SPECS[n].width, CAR_SPECS[n].height] : DIMS[n];
   // Mix: passenger cars about 70 %; then trucks, buses and containers.
-  const kinds = [
+  // (made one kind at a time, the page breathing between: all at once held it ~0.1 s)
+  const makers: (() => ReturnType<typeof K>)[] = [
     // (the passenger cars: sceneCars; shares after what Korean roads carry)
-    K(kit("sedan"), bodyMat, 12, 1, [d("sedan")[0], d("sedan")[1], 0.62], true),
-    K(kit("sedan-large"), bodyMat, 8, 1, [d("sedan-large")[0], d("sedan-large")[1], 0.64], true),
-    K(kit("sedan-sports"), bodyMat, 8, 1.06, [d("sedan-sports")[0], d("sedan-sports")[1], 0.58], true),
-    K(kit("suv"), bodyMat, 10, 1, [d("suv")[0], d("suv")[1], 0.75], true),
-    K(kit("suv-small"), bodyMat, 8, 1.02, [d("suv-small")[0], d("suv-small")[1], 0.72], true),
-    K(kit("suv-luxury"), bodyMat, 6, 1, [d("suv-luxury")[0], d("suv-luxury")[1], 0.78], true),
-    K(kit("hatchback-sports"), bodyMat, 5, 1.02, [d("hatchback-sports")[0], d("hatchback-sports")[1], 0.62], true),
-    K(kit("kei-box"), bodyMat, 4, 1, [d("kei-box")[0], d("kei-box")[1], 0.66], true),
-    K(kit("taxi"), bodyMat, 8, 1, [d("taxi")[0], d("taxi")[1], 0.62], true),
-    K(kit("mpv"), bodyMat, 5, 0.98, [d("mpv")[0], d("mpv")[1], 0.76], true),
-    K(kit("van"), bodyMat, 3, 0.95, [d("van")[0], d("van")[1], 0.78], true),
-    K(kit("delivery"), bodyMat, 3, 0.9, [d("delivery")[0], d("delivery")[1], 0.8], true, "boxtruck"),
-    K(cargoGeometry("#2d5fa8"), boxMat, 4, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#2d5fa8"),
-    K(cargoGeometry("#e9e9e6"), boxMat, 2, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#e9e9e6"),
-    K(busGeometry("#2a6fc4"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#2a6fc4"),   // 간선 blue
-    K(busGeometry("#3b9a44"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#3b9a44"),   // 지선 green
-    K(busGeometry("#c8322f"), boxMat, 0.5, 0.85, [11, 2.5, 0.75], false, "bus", "#c8322f"),  // 광역 red
-    K(containerGeometry("#b2402f"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#b2402f"),
-    K(containerGeometry("#2e5e8c"), boxMat, 1.6, 0.8, [16.2, 2.45, 0.85], false, "container", "#2e5e8c"),
-    K(containerGeometry("#c77a2a"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#c77a2a"),
-    K(official(ambulanceGeometry()), boxMat, 1.1, 1.05, [5.7, 2.02, 0.85]),
-    K(official(policeGeometry()), boxMat, 1.3, 1, [4.85, 1.84, 0.62]),
-    K(official(fireGeometry()), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
-    K(garbageGeometry(), boxMat, 1.0, 0.75, [7.0, 2.35, 0.95], false, "garbage", "#3f8f4e"),
-    K(mixerGeometry(), boxMat, 1.2, 0.75, [8.6, 2.39, 1.0], false, "mixer", "#e8e6e0"),
-  ].filter(k => k.geo);
+    () => K(kit("sedan"), bodyMat, 12, 1, [d("sedan")[0], d("sedan")[1], 0.62], true),
+    () => K(kit("sedan-large"), bodyMat, 8, 1, [d("sedan-large")[0], d("sedan-large")[1], 0.64], true),
+    () => K(kit("sedan-sports"), bodyMat, 8, 1.06, [d("sedan-sports")[0], d("sedan-sports")[1], 0.58], true),
+    () => K(kit("suv"), bodyMat, 10, 1, [d("suv")[0], d("suv")[1], 0.75], true),
+    () => K(kit("suv-small"), bodyMat, 8, 1.02, [d("suv-small")[0], d("suv-small")[1], 0.72], true),
+    () => K(kit("suv-luxury"), bodyMat, 6, 1, [d("suv-luxury")[0], d("suv-luxury")[1], 0.78], true),
+    () => K(kit("hatchback-sports"), bodyMat, 5, 1.02, [d("hatchback-sports")[0], d("hatchback-sports")[1], 0.62], true),
+    () => K(kit("kei-box"), bodyMat, 4, 1, [d("kei-box")[0], d("kei-box")[1], 0.66], true),
+    () => K(kit("taxi"), bodyMat, 8, 1, [d("taxi")[0], d("taxi")[1], 0.62], true),
+    () => K(kit("mpv"), bodyMat, 5, 0.98, [d("mpv")[0], d("mpv")[1], 0.76], true),
+    () => K(kit("van"), bodyMat, 3, 0.95, [d("van")[0], d("van")[1], 0.78], true),
+    () => K(kit("delivery"), bodyMat, 3, 0.9, [d("delivery")[0], d("delivery")[1], 0.8], true, "boxtruck"),
+    () => K(cargoGeometry("#2d5fa8"), boxMat, 4, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#2d5fa8"),
+    () => K(cargoGeometry("#e9e9e6"), boxMat, 2, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#e9e9e6"),
+    () => K(busGeometry("#2a6fc4"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#2a6fc4"),   // 간선 blue
+    () => K(busGeometry("#3b9a44"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#3b9a44"),   // 지선 green
+    () => K(busGeometry("#c8322f"), boxMat, 0.5, 0.85, [11, 2.5, 0.75], false, "bus", "#c8322f"),  // 광역 red
+    () => K(containerGeometry("#b2402f"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#b2402f"),
+    () => K(containerGeometry("#2e5e8c"), boxMat, 1.6, 0.8, [16.2, 2.45, 0.85], false, "container", "#2e5e8c"),
+    () => K(containerGeometry("#c77a2a"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#c77a2a"),
+    () => K(official(ambulanceGeometry()), boxMat, 1.1, 1.05, [5.7, 2.02, 0.85]),
+    () => K(official(policeGeometry()), boxMat, 1.3, 1, [4.85, 1.84, 0.62]),
+    () => K(official(fireGeometry()), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
+    () => K(garbageGeometry(), boxMat, 1.0, 0.75, [7.0, 2.35, 0.95], false, "garbage", "#3f8f4e"),
+    () => K(mixerGeometry(), boxMat, 1.2, 0.75, [8.6, 2.39, 1.0], false, "mixer", "#e8e6e0"),
+  ];
+  const kinds: ReturnType<typeof K>[] = [];
+  let slice = performance.now();
+  for (const make of makers) {
+    const k = make();
+    if (k.geo) kinds.push(k);
+    if (performance.now() - slice > 8) { await frameSlice(); slice = performance.now(); }
+  }
   const totalW = kinds.reduce((s, k) => s + k.weight, 0);
   const pickKind = () => { let r = rnd() * totalW; for (let i = 0; i < kinds.length; i++) { r -= kinds[i].weight; if (r <= 0) return i; } return 0; };
 

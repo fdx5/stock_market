@@ -513,6 +513,26 @@ export function group0ForBlock( block, stage = 'render' ) {
 
 // ---------------------------------------------------------------------------------- compose
 
+// (local modification) The costly text work of composing — preprocessing and the reachability
+// walk — depends on the source text and the defines only, not on which material asks: every new
+// complex brings new materials of the same kinds, and each was composed again on the main thread
+// while the new model was trying to reach the screen. Kept by text (the sets are only read).
+const _reach = new Map(), _pre = new Map();
+function _memo( map, key, make ) {
+
+	let v = map.get( key );
+	if ( v === undefined ) {
+
+		v = make();
+		map.set( key, v );
+		if ( map.size > 256 ) map.delete( map.keys().next().value );
+
+	}
+
+	return v;
+
+}
+
 // Assemble a full WGSL source: structs, group 0/1 declarations, module code, main code.
 //   modules: ShaderModule[]; bindings: extra { name: spec } (material resources); code: main WGSL
 // returns { code, bindings: BindingSet (group 1), group0: BindingSet }
@@ -536,9 +556,12 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 		// 12 uniform buffers, 16 sampled textures on some adapters)
 		let all = '';
 		for ( const m of mods ) all += m.code + '\n';
-		const full = preprocess( all + code, defines );
-		const usedV = reachableIdentifiers( full, 'vs' );
-		const usedF = /@fragment\s+fn\s+fs\b/.test( full ) ? reachableIdentifiers( full, 'fs' ) : null;
+		const { usedV, usedF } = _memo( _reach, all + code + '\u0000' + JSON.stringify( defines ), () => {
+
+			const full = preprocess( all + code, defines );
+			return { usedV: reachableIdentifiers( full, 'vs' ), usedF: /@fragment\s+fn\s+fs\b/.test( full ) ? reachableIdentifiers( full, 'fs' ) : null };
+
+		} );
 		stageOf = {};
 		for ( const k in specs ) {
 
@@ -590,7 +613,7 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 	src += set.declarations( 1 ) + '\n';
 	for ( const m of mods ) src += `// ---- ${ m.name }\n${ m.code }\n`;
 	src += code;
-	return { code: preprocess( src, defines ), bindings: set, group0: g0, modules: mods };
+	return { code: _memo( _pre, src + '\u0000' + JSON.stringify( defines ), () => preprocess( src, defines ) ), bindings: set, group0: g0, modules: mods };
 
 }
 
