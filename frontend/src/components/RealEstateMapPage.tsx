@@ -459,6 +459,16 @@ export default function RealEstateMapPage() {
     if (stacked) return;
     void import("./ComplexHologram").then(m => m.warmGpu()).catch(() => {});
   }, [stacked]);
+  // Desktop: a complex the pointer rests on starts loading for the 3D view — its shapes,
+  // roads and relief after a moment, its facades if it stays — so a click finds them
+  // under way (the view's load was mostly the network after the click).
+  const hoverId = hovered?.id;
+  useEffect(() => {
+    if (stacked || touchUi || !hoverId) return;
+    const data = window.setTimeout(() => { void import("./ComplexHologram").then(m => m.prefetchComplex(hoverId)).catch(() => {}); }, 120);
+    const paint = window.setTimeout(() => { void import("./paintClient").then(m => m.prefetchPaint(hoverId)).catch(() => {}); }, 350);
+    return () => { window.clearTimeout(data); window.clearTimeout(paint); };
+  }, [stacked, touchUi, hoverId]);
   const holoId = holoItem?.id;
   useEffect(() => {
     if (stacked || !holoId) return;

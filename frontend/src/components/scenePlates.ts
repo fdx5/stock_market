@@ -49,7 +49,9 @@ export function plateMaterial() {
   m.onBeforeCompile = shader => {
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <map_fragment>", `
-        #ifdef USE_INSTANCING_COLOR
+        // (three defines USE_INSTANCING_COLOR for the vertex stage only; the fragment stage
+        // sees vColor under USE_COLOR)
+        #if defined( USE_INSTANCING_COLOR ) || defined( USE_COLOR )
         float plateId = floor(vColor.r * 255.0 + 0.5) + 256.0 * floor(vColor.g * 255.0 + 0.5);
         #else
         float plateId = 0.0;

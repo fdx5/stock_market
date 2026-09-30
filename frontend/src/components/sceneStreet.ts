@@ -369,6 +369,28 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const bodyMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.45, metalness: 0.25 });
   // (WebGPU: clear-coated paint, dark glazing, matte tyres from the swatches)
   bodyMat.userData.carPaint = true;
+  // WebGL: the same repaint as the WebGPU view (ComplexRenderer CAR_PAINT) — the body takes
+  // the paint itself, glass and tyres stay; the kit's swatches read at full resolution.
+  // Multiplied over the kit's red body instead, every car came out red-tinted (from afar,
+  // with the swatches blended, red outright).
+  bodyMat.onBeforeCompile = shader => {
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <map_fragment>", `
+        vec4 carTexel = textureLod(map, vMapUv, 0.0);
+        float carL = dot(carTexel.rgb, vec3(0.2126, 0.7152, 0.0722));
+        float carGlass = smoothstep(0.08, 0.16, carTexel.b - carTexel.r) * smoothstep(0.45, 0.65, carL);
+        float carBody = (1.0 - carGlass) * smoothstep(0.02, 0.07, carL);
+        // (three defines USE_INSTANCING_COLOR for the vertex stage only; the fragment stage
+        // sees vColor under USE_COLOR)
+        #if defined( USE_INSTANCING_COLOR ) || defined( USE_COLOR )
+        vec3 carPaint = clamp((vColor.rgb - 0.3) / 0.7, 0.0, 1.0) * 0.92;
+        #else
+        vec3 carPaint = carTexel.rgb;
+        #endif
+        diffuseColor.rgb = mix(mix(carTexel.rgb, carPaint, carBody), vec3(0.01, 0.012, 0.015), carGlass);`)
+      .replace("#include <color_fragment>", "");
+  };
+  bodyMat.customProgramCacheKey = () => "car-paint";
   const boxMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15 });
   const lampMat = new THREE.MeshStandardMaterial({ color: "#000000", emissive: "#ffffff", emissiveMap: lampMap(), emissiveIntensity: 0, roughness: 0.3 });
   // Passenger cars from their proportions (sceneCars); vans, trucks and the rest from the kit.
@@ -405,10 +427,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     K(cargoGeometry("#e9e9e6"), boxMat, 2, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#e9e9e6"),
     K(busGeometry("#2a6fc4"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#2a6fc4"),   // 간선 blue
     K(busGeometry("#3b9a44"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#3b9a44"),   // 지선 green
-    K(busGeometry("#c8322f"), boxMat, 1.5, 0.85, [11, 2.5, 0.75], false, "bus", "#c8322f"),  // 광역 red
-    K(containerGeometry("#b2402f"), boxMat, 1.4, 0.8, [16.2, 2.45, 0.85], false, "container", "#b2402f"),
-    K(containerGeometry("#2e5e8c"), boxMat, 1.4, 0.8, [16.2, 2.45, 0.85], false, "container", "#2e5e8c"),
-    K(containerGeometry("#c77a2a"), boxMat, 1.2, 0.8, [16.2, 2.45, 0.85], false, "container", "#c77a2a"),
+    K(busGeometry("#c8322f"), boxMat, 0.5, 0.85, [11, 2.5, 0.75], false, "bus", "#c8322f"),  // 광역 red
+    K(containerGeometry("#b2402f"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#b2402f"),
+    K(containerGeometry("#2e5e8c"), boxMat, 1.6, 0.8, [16.2, 2.45, 0.85], false, "container", "#2e5e8c"),
+    K(containerGeometry("#c77a2a"), boxMat, 0.5, 0.8, [16.2, 2.45, 0.85], false, "container", "#c77a2a"),
     K(official(ambulanceGeometry()), boxMat, 1.1, 1.05, [5.7, 2.02, 0.85]),
     K(official(policeGeometry()), boxMat, 1.3, 1, [4.85, 1.84, 0.62]),
     K(official(fireGeometry()), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
@@ -779,7 +801,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const paintTotal = paintShares.reduce((t, [, w]) => t + w, 0);
   const paintPick = () => { let r = rnd() * paintTotal; for (const [c, w] of paintShares) { r -= w; if (r <= 0) return c; } return paintShares[0][0]; };
   // (taxis in the city's liveries: orange, white, silver)
-  const taxiPaints = ["#e8772a", "#f2f2f0", "#c9ccd0", "#e8772a"];
+  const taxiPaints = ["#e8772a", "#f2f2f0", "#c9ccd0", "#f2f2f0", "#c9ccd0"];
   // (delivery vans: white, silver, the odd blue)
   const vanPaints = ["#f4f4f2", "#f4f4f2", "#c9ccd0", "#2d5fa8"];
   const taxiKind = kinds.findIndex(k => k.geo === kit("taxi")), deliveryKind = kinds.findIndex(k => k.geo === kit("delivery"));

@@ -17,7 +17,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse } from "../api/client";
-import { vworldBuildings, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
+import { vworldBuildingNames, vworldBuildings, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -187,16 +187,55 @@ function staleNotice(data: RealEstateBuildingsResponse, complexId: string): stri
 
 const buildingCache = new Map<string, { at: number; data: RealEstateBuildingsResponse }>();
 
-/** Loads started before the view mounts (the map page knows the complex it will show
- * while the view's code is still arriving): the server's kept shapes, and the relief
- * under them (terrainFor caches its tiles). Taken, once, by the view. */
-const prefetched = new Map<string, Promise<RealEstateBuildingsResponse>>();
-export function prefetchComplex(id: string): void {
-  if (prefetched.has(id) || buildingCache.has(id)) return;
-  const peek = api.realEstateBuildings(id, undefined, true);
-  prefetched.set(id, peek);
-  peek.then(res => { if (res.found) void terrainFor(res); }).catch(() => { prefetched.delete(id); });
-  if (prefetched.size > 4) prefetched.delete(prefetched.keys().next().value!);
+/** A complex's shapes as the view will use them, started ahead — as soon as the page
+ * knows the complex (the pointer resting on its tile, a click, the region's #1): this
+ * browser's copy and the server's kept shapes asked together; a server result from
+ * OpenStreetMap (its rough outlines: the server abroad can't reach VWorld's registry) given
+ * way to the surveyed buildings (GIS건물통합정보) the browser asks VWorld for itself when
+ * they come within a few seconds; then the roads and the relief under them. Null when the
+ * complex has no kept shapes yet (the view then asks the slower way). */
+const prefetched = new Map<string, Promise<RealEstateBuildingsResponse | null>>();
+const roadsOf = new Map<string, Promise<RealEstateBuildingsResponse>>();
+const terrainOf = new Map<string, Promise<Terrain>>();
+const remember = <T,>(m: Map<string, T>, id: string, v: T) => { m.set(id, v); if (m.size > 6) m.delete(m.keys().next().value!); return v; };
+export function prefetchComplex(id: string): void { void firstLook(id); }
+function firstLook(id: string): Promise<RealEstateBuildingsResponse | null> {
+  const had = prefetched.get(id);
+  if (had) return had;
+  const job = (async () => {
+    const peekJob = api.realEstateBuildings(id, undefined, true).catch(() => null);
+    const kept = await loadBuildings(id).catch(() => null);
+    const peek = kept ?? await peekJob;
+    if (!peek?.found) return null;
+    let res = peek;
+    if (!kept && peek.source === "osm" && peek.vworld_key && peek.query?.parcel) {
+      const surveyed = await Promise.race([
+        vworldBuildings(id, peek.query, peek.vworld_key, peek.vworld_domain).catch(() => null),
+        new Promise<null>(r => window.setTimeout(() => r(null), 4000)),
+      ]);
+      if (surveyed?.found && surveyed.buildings.length >= Math.min(2, peek.buildings.length))
+        res = { ...surveyed, built: peek.built ?? surveyed.built ?? null, vworld_key: peek.vworld_key, vworld_domain: peek.vworld_domain };
+    }
+    // (the roads and the relief start now too: the view finds them under way, or done)
+    void withRoads(id, res); void terrainOnce(id, res);
+    return res;
+  })();
+  job.catch(() => prefetched.delete(id));
+  return remember(prefetched, id, job);
+}
+/** The surveyed roads for a result that lacks them (once per complex). */
+function withRoads(id: string, res: RealEstateBuildingsResponse): Promise<RealEstateBuildingsResponse> {
+  if (res.roads || !res.vworld_key || !res.center) return Promise.resolve(res);
+  const had = roadsOf.get(id);
+  if (had) return had;
+  const job = Promise.race([
+    vworldRoads(res, res.vworld_key, res.vworld_domain).catch(() => null),
+    new Promise<null>(r => window.setTimeout(() => r(null), 2500)),
+  ]).then(roads => (roads ? { ...res, roads } : res));
+  return remember(roadsOf, id, job);
+}
+function terrainOnce(id: string, res: RealEstateBuildingsResponse): Promise<Terrain> {
+  return terrainOf.get(id) ?? remember(terrainOf, id, terrainFor(res));
 }
 
 /** The WebGPU device, made ahead of the first view (adapter and device requests take a
@@ -1147,14 +1186,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
 
   /** A result without surveyed roads (kept by the server, or from OpenStreetMap) gets
    * them from VWorld, in at most 2.5 s; without them it still draws, just roadless. */
-  const withRoads = async (res: RealEstateBuildingsResponse): Promise<RealEstateBuildingsResponse> => {
-    if (res.roads || !res.vworld_key || !res.center) return res;
-    const roads = await Promise.race([
-      vworldRoads(res, res.vworld_key, res.vworld_domain).catch(() => null),
-      new Promise<null>(r => window.setTimeout(() => r(null), 2500)),
-    ]);
-    return roads ? { ...res, roads } : res;
-  };
+
 
   // Every selection: this browser's copy, else kept shapes from the server, else
   // VWorld from this browser (VWorld refuses the server abroad) raced against the
@@ -1181,11 +1213,11 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const attempt = async (signal: AbortSignal): Promise<RealEstateBuildingsResponse> => {
       const cached = buildingCache.get(complexId);
       if (cached && Date.now() - cached.at < 300000) return cached.data;
-      const early = prefetched.get(complexId);
+      // (the look started ahead — on the tile's hover, or just now — when it found shapes)
+      const early = await firstLook(complexId).catch(() => null);
       prefetched.delete(complexId);
-      const kept = await loadBuildings(complexId);
-      if (kept) return kept;
-      const peek = await (early ?? api.realEstateBuildings(complexId, signal, true)).catch(() => api.realEstateBuildings(complexId, signal, true));
+      if (early?.found) return early;
+      const peek = await api.realEstateBuildings(complexId, signal, true);
       // Roads and terrain only need these footprints/centre. The common stage below
       // loads them together; awaiting roads here serialized the two network waits.
       // Accuracy first: a server result from OpenStreetMap (its rough outlines; the server
@@ -1244,8 +1276,8 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       .then(async res => {
         if (!live) return res;
         const t0 = performance.now();
-        const [full, ground] = await Promise.all([res.found && !res.roads ? withRoads(res) : res,
-          res.found ? terrainFor(res).then(t => { if (hostRef.current) hostRef.current.dataset.terrainMs = (performance.now() - t0).toFixed(0); return t; }) : FLAT]);
+        const [full, ground] = await Promise.all([res.found && !res.roads ? withRoads(complexId, res) : res,
+          res.found ? terrainOnce(complexId, res).then(t => { if (hostRef.current) hostRef.current.dataset.terrainMs = (performance.now() - t0).toFixed(0); return t; }) : FLAT]);
         if (live) {
           if (hostRef.current) hostRef.current.dataset.dataMs = (t0 - started).toFixed(0);
           terrainRef.current = ground;
@@ -1546,6 +1578,19 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach));
     step("merge");
     if (!await pace(true)) return;
+    // The landmarks round the complex answer the hover with their names (picking only).
+    // (an OpenStreetMap result names its buildings in `name`)
+    if (hostRef.current) { delete hostRef.current.dataset.landmarks; delete hostRef.current.dataset.landmarkNames; hostRef.current.dataset.titled = String(neighbours.filter(b => b.title).length); }
+    const landmark = (b: RealEstateBuilding) => {
+      const known = landmarkLabel(b.title === undefined && data.source === "osm" && /[가-힣A-Za-z]/.test(b.name ?? "") ? { ...b, title: b.name } : b);
+      if (!known) return;
+      const pick = new THREE.Mesh(keep(extrude(b, terrain.base(b.rings[0]), FLOOR_M)));
+      pick.geometry.clearGroups();
+      pick.userData.label = known;
+      pick.matrixWorld.copy(group.matrixWorld);
+      pickables.push(pick);
+      if (hostRef.current) hostRef.current.dataset.landmarks = String(+(hostRef.current.dataset.landmarks ?? 0) + 1);
+    };
     for (const [j, b] of neighbours.entries()) {
       owner = "c" + j;
       if (!await pace()) return;
@@ -1560,15 +1605,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       for (let j = 0; j < n; j++) col.set([c.r, c.g, c.b], j * 3);
       geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
       ctxGeos[style].push(own(geo));
-      // The landmarks round the complex answer the hover with their names (picking only).
-      const known = landmarkLabel(b);
-      if (known) {
-        const pick = new THREE.Mesh(keep(extrude(b, g, CONTEXT_FLOOR_M[style])));
-        pick.geometry.clearGroups();
-        pick.userData.label = known;
-        pick.matrixWorld.copy(group.matrixWorld);
-        pickables.push(pick);
-      }
+      landmark(b);
       // Parapet: a 0.9 m upstand, 0.2 m thick, along every roof edge longer than 2 m.
       const ring = b.rings[0], H = b.height + g;
       if (b.height >= 5 && parapets.length < (stage.hq ? 24000 : 8000)) ring.forEach((p, j) => {
@@ -1675,6 +1712,24 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
     // predate a rebuild) and at a height within 35 % of the registered one; the rest keep
     // their modelled buildings. A constant survey offset between the two sources is taken
     // out first (the median shift between matched centres).
+    // Results kept before building names were: the names asked of VWorld once the view is
+    // up, matched to the neighbours by position (within 4 m of the footprint's middle).
+    if (data.vworld_key && data.center && data.source !== "osm" && !neighbours.some(b => b.title !== undefined)) afterShown(() => void (async () => {
+      const names = await vworldBuildingNames(data, data.vworld_key!, data.vworld_domain, reach + 30).catch(() => []);
+      if (!alive || !names.length) return;
+      const mid = (r: [number, number][]) => [r.reduce((t, q) => t + q[0], 0) / r.length, r.reduce((t, q) => t + q[1], 0) / r.length];
+      let n = 0;
+      for (const b of neighbours) {
+        const [x, y] = mid(b.rings[0]);
+        let best: (typeof names)[number] | null = null, bd = 16;
+        for (const c of names) { const d = (c.x - x) ** 2 + (c.y - y) ** 2; if (d < bd) { bd = d; best = c; } }
+        if (!best) continue;
+        const before = pickables.length;
+        landmark({ ...b, title: best.title, use: b.use ?? best.use, floors: b.floors || best.floors, name: b.name ?? best.dong });
+        n += pickables.length - before;
+      }
+      if (hostRef.current) hostRef.current.dataset.landmarkNames = `${names.length} names, ${n} matched`;
+    })());
     if (photoPending) afterShown(() => { stage.busy++; void (async () => {
       let photos: PhotoBuilding[] = [];
       try {

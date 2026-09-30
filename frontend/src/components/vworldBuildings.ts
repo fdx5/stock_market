@@ -118,6 +118,29 @@ export async function vworldRoads(data: RealEstateBuildingsResponse, key: string
   return parseRoads(features(result), project);
 }
 
+/** The registered names (건물명), 주용도 and storeys of the buildings round a result, for
+ * results kept before names were (the hover labels): centroids in the result's metres.
+ * Pages of 1000 in parallel; runs after the first frame. */
+export async function vworldBuildingNames(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com", radius = 450): Promise<{ x: number; y: number; title: string; use: string | null; floors: number; dong: string | null }[]> {
+  if (!data.center) return [];
+  const { lat, lon } = data.center;
+  const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
+  const box = `BOX(${lon - radius / kx},${lat - radius / ky},${lon + radius / kx},${lat + radius / ky})`;
+  const page = (n: number) => call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",
+    key, domain, data: "LT_C_BLDGINFO", geomFilter: box, size: 1000, page: n }).then(features).catch(() => [] as Feature[]);
+  const all = (await Promise.all([1, 2, 3].map(page))).flat();
+  const out: { x: number; y: number; title: string; use: string | null; floors: number; dong: string | null }[] = [];
+  for (const f of all) {
+    const p = f.properties, title = String(p.bld_nm || "").trim();
+    if (!title) continue;
+    const poly = polygons(f.geometry)[0];
+    if (!poly) continue;
+    const [cx, cy] = centroid(poly[0] as unknown as Ring);
+    out.push({ x: (cx - lon) * kx, y: (cy - lat) * ky, title, use: p.usability || null, floors: Math.round(num(p.grnd_flr) ?? 0), dong: String(p.dong_nm || "").trim() || null });
+  }
+  return out;
+}
+
 /** Every 연속지적도 parcel around a result (the neighbourhood's radius), with its 지목 —
  * the last character of the 지번 (대 대지, 도 도로, 공 공원, 학 학교용지, 천 하천, 임 임야,
  * 전 밭, 답 논, 주 주차장, 체 체육용지, 종 종교용지, 구 구거, 유 유지, 잡 잡종지 …). Pages of

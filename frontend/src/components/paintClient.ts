@@ -146,6 +146,9 @@ export function complexPaintJobs(id: string, name: string): PaintJob[] {
  * build collects them. Unclaimed ones are dropped when another complex is chosen. */
 export function prefetchPaint(id: string) {
   if (!store()) return;
+  const jobs = complexPaintJobs(id, id.split(":").pop() ?? "").map(j => JSON.stringify(j));
+  // (already under way — started when the pointer rested on its tile: kept as they are)
+  if (jobs.every(k => ahead.has(k))) return;
   for (const [key, job] of ahead) { ahead.delete(key); void job.then(t => t && Object.values(t).forEach(x => x.dispose())); }
   // (all at once: their drawing is brief, the waits — normal maps in the worker pool, the
   // kept copies — overlap)
