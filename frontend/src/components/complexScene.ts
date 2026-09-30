@@ -638,6 +638,8 @@ ${opts.reflect ? `{
 /** Where the 3D plants go (metres, footprint frame): trees, shrubs, flowers. */
 export interface Planting {
   trees: [number, number][]; shrubs: [number, number][]; flowers: [number, number][];
+  /** Flower borders (school grounds): x, y, run. */
+  border?: [number, number, number][];
   /** Street trees in sidewalk pits: x, y and the road they line (one species per road). */
   street: [number, number, number][];
 }

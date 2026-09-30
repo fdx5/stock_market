@@ -262,3 +262,35 @@ function mergeTwo(a: THREE.BufferGeometry, b: THREE.BufferGeometry) {
   if (B !== b) B.dispose();
   return out;
 }
+
+/** Flower borders round the school grounds: points along each school parcel's edge, 1.2 m
+ * inside it in two rows 0.8 m apart, clear of buildings; the third value numbers the ~10 m runs (a
+ * species each). Footprint frame. */
+export function schoolBorders(parcels: RealEstateParcel[], blocked: (x: number, y: number) => boolean, T: number) {
+  const out: [number, number, number][] = [];
+  let run = 0;
+  for (const p of parcels) {
+    if (p.kind !== "학") continue;
+    const ring = p.ring as [number, number][];
+    for (let i = 0, n = ring.length; i < n; i++) {
+      const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % n], len = Math.hypot(bx - ax, by - ay);
+      if (len < 2) continue;
+      const ux = (bx - ax) / len, uy = (by - ay) / len;
+      // the inward side: whichever normal lands inside the parcel
+      const mx = (ax + bx) / 2, my = (ay + by) / 2;
+      const sgn = inRing([mx - uy * 1.2, my + ux * 1.2], ring) ? 1 : -1;
+      const nx = -uy * sgn, ny = ux * sgn;
+      // two staggered rows, a bed 1.2 m deep
+      for (let d = 0.6; d < len - 0.6; d += 0.8) {
+        if (d > 0.6 && Math.floor(d / 10) !== Math.floor((d - 0.8) / 10)) run++;
+        for (const [inset, shift] of [[0.9, 0], [1.6, 0.4]]) {
+          const x = ax + ux * (d + shift) + nx * inset, y = ay + uy * (d + shift) + ny * inset;
+          if (Math.abs(x) > T || Math.abs(y) > T || blocked(x, y)) continue;
+          out.push([x, y, run]);
+        }
+      }
+      run++;
+    }
+  }
+  return out;
+}

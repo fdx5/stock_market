@@ -6,7 +6,8 @@ import type { Lamp } from "./complexScene";
 import { rng } from "./complexScene";
 import { FLAT, type Terrain } from "./sceneTerrain";
 import { KERB_H } from "./sceneSidewalk";
-import { carGeometry, CAR_SPECS } from "./sceneCars";
+import { carGeometry, carModelMaterial, CAR_SPECS, loadCarModels } from "./sceneCars";
+import { plateGeometry, plateMaterial, PLATE_COUNT, PLATE_WHITE } from "./scenePlates";
 
 /* The street: lamps on the surveyed major roads, and traffic driving both ways on
  * them. Cars, vans and box trucks are Kenney's CC0 Car Kit (packed by type into
@@ -354,6 +355,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const usable = stitchRoads(roads.filter(r => r.line.length > 1));
   if (!usable.length) return null;
   const { geos, texture } = await loadKit();
+  // (the modelled cars where they load; else built from their proportions)
+  const models = await loadCarModels().catch(err => { console.info("[3D] car models unavailable:", err); return null; });
   const rnd = rng(seed + 29);
   // Road polylines with cumulative lengths.
   const paths = usable.map(r => {
@@ -369,10 +372,19 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const boxMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.15 });
   const lampMat = new THREE.MeshStandardMaterial({ color: "#000000", emissive: "#ffffff", emissiveMap: lampMap(), emissiveIntensity: 0, roughness: 0.3 });
   // Passenger cars from their proportions (sceneCars); vans, trucks and the rest from the kit.
+  // (far and by default: the cars built from their proportions; near the eye the modelled ones)
   const kit = (name: string) => carGeometry(name) ?? geos.get(name)!;
+  const modelMat = models ? carModelMaterial() : null;
+  const nearGeo = new Map<THREE.BufferGeometry, THREE.BufferGeometry>();
+  if (models) for (const name of Object.keys(CAR_SPECS)) { const g = models.get(name), f = carGeometry(name); if (g && f) nearGeo.set(f, g); }
   // [geometry, material, weight, speed factor, length, width, lamp height, repaint]
-  const K = (geo: THREE.BufferGeometry, mat: THREE.Material, weight: number, speed: number, dims: [number, number, number], paint = false) =>
-    ({ geo, mat, weight, speed, dims, paint, own: mat === boxMat });
+  // model: the modelled mesh near the eye (sceneCars loadCarModels); livery: its paint when
+  // the kind has one colour (buses by route, trucks, containers)
+  const K = (geo: THREE.BufferGeometry, mat: THREE.Material, weight: number, speed: number, dims: [number, number, number], paint = false, model?: string, livery?: string) =>
+    ({ geo, mat, weight, speed, dims, paint, own: mat === boxMat, model, livery });
+  // (emergency vehicles keep white plates; the other box-built trucks and buses are commercial)
+  const officials = new Set<THREE.BufferGeometry | null>();
+  const official = <G,>(g: G) => { officials.add(g as unknown as THREE.BufferGeometry); return g; };
   const d = (n: string): [number, number, number] => CAR_SPECS[n] ? [CAR_SPECS[n].length, CAR_SPECS[n].width, CAR_SPECS[n].height] : DIMS[n];
   // Mix: passenger cars about 70 %; then trucks, buses and containers.
   const kinds = [
@@ -388,20 +400,20 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     K(kit("taxi"), bodyMat, 8, 1, [d("taxi")[0], d("taxi")[1], 0.62], true),
     K(kit("mpv"), bodyMat, 5, 0.98, [d("mpv")[0], d("mpv")[1], 0.76], true),
     K(kit("van"), bodyMat, 3, 0.95, [d("van")[0], d("van")[1], 0.78], true),
-    K(kit("delivery"), bodyMat, 3, 0.9, [d("delivery")[0], d("delivery")[1], 0.8], true),
-    K(cargoGeometry("#2d5fa8"), boxMat, 4, 0.9, [5.1, 1.75, 0.75]),
-    K(cargoGeometry("#e9e9e6"), boxMat, 2, 0.9, [5.1, 1.75, 0.75]),
-    K(busGeometry("#2a6fc4"), boxMat, 2.5, 0.8, [11, 2.5, 0.75]),   // 간선 blue
-    K(busGeometry("#3b9a44"), boxMat, 2.5, 0.8, [11, 2.5, 0.75]),   // 지선 green
-    K(busGeometry("#c8322f"), boxMat, 1.5, 0.85, [11, 2.5, 0.75]),  // 광역 red
-    K(containerGeometry("#b2402f"), boxMat, 1.4, 0.8, [16.2, 2.45, 0.85]),
-    K(containerGeometry("#2e5e8c"), boxMat, 1.4, 0.8, [16.2, 2.45, 0.85]),
-    K(containerGeometry("#c77a2a"), boxMat, 1.2, 0.8, [16.2, 2.45, 0.85]),
-    K(ambulanceGeometry(), boxMat, 1.1, 1.05, [5.7, 2.02, 0.85]),
-    K(policeGeometry(), boxMat, 1.3, 1, [4.85, 1.84, 0.62]),
-    K(fireGeometry(), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
-    K(garbageGeometry(), boxMat, 1.0, 0.75, [7.0, 2.35, 0.95]),
-    K(mixerGeometry(), boxMat, 1.2, 0.75, [8.6, 2.39, 1.0]),
+    K(kit("delivery"), bodyMat, 3, 0.9, [d("delivery")[0], d("delivery")[1], 0.8], true, "boxtruck"),
+    K(cargoGeometry("#2d5fa8"), boxMat, 4, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#2d5fa8"),
+    K(cargoGeometry("#e9e9e6"), boxMat, 2, 0.9, [5.1, 1.75, 0.75], false, "cargo", "#e9e9e6"),
+    K(busGeometry("#2a6fc4"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#2a6fc4"),   // 간선 blue
+    K(busGeometry("#3b9a44"), boxMat, 2.5, 0.8, [11, 2.5, 0.75], false, "bus", "#3b9a44"),   // 지선 green
+    K(busGeometry("#c8322f"), boxMat, 1.5, 0.85, [11, 2.5, 0.75], false, "bus", "#c8322f"),  // 광역 red
+    K(containerGeometry("#b2402f"), boxMat, 1.4, 0.8, [16.2, 2.45, 0.85], false, "container", "#b2402f"),
+    K(containerGeometry("#2e5e8c"), boxMat, 1.4, 0.8, [16.2, 2.45, 0.85], false, "container", "#2e5e8c"),
+    K(containerGeometry("#c77a2a"), boxMat, 1.2, 0.8, [16.2, 2.45, 0.85], false, "container", "#c77a2a"),
+    K(official(ambulanceGeometry()), boxMat, 1.1, 1.05, [5.7, 2.02, 0.85]),
+    K(official(policeGeometry()), boxMat, 1.3, 1, [4.85, 1.84, 0.62]),
+    K(official(fireGeometry()), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
+    K(garbageGeometry(), boxMat, 1.0, 0.75, [7.0, 2.35, 0.95], false, "garbage", "#3f8f4e"),
+    K(mixerGeometry(), boxMat, 1.2, 0.75, [8.6, 2.39, 1.0], false, "mixer", "#e8e6e0"),
   ].filter(k => k.geo);
   const totalW = kinds.reduce((s, k) => s + k.weight, 0);
   const pickKind = () => { let r = rnd() * totalW; for (let i = 0; i < kinds.length; i++) { r -= kinds[i].weight; if (r <= 0) return i; } return 0; };
@@ -684,6 +696,72 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return im;
   };
   const meshes = kinds.map((k, i) => instanced(k.geo, k.mat, perKind[i], true));
+  // Near the eye (NEAR_M) a car is drawn from its modelled mesh: those instances are packed
+  // into a second mesh per kind each frame and hidden in the far one.
+  const NEAR_M = 55;
+  const near = kinds.map((k, i) => {
+    const g = nearGeo.get(k.geo) ?? (k.model ? models?.get(k.model) : undefined);
+    if (!g || !modelMat) return null;
+    const im = instanced(g, modelMat, perKind[i], true);
+    im.count = 0;
+    im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, perKind[i]) * 3).fill(1), 3);
+    return im;
+  });
+  const white = new THREE.Color("#ffffff");
+  const hidden = new THREE.Matrix4().makeScale(0, 0, 0), mm = new THREE.Matrix4(), cc = new THREE.Color(), eyeLocal = new THREE.Vector3();
+  // Number plates, front and rear, on the vehicles near enough to read them (PLATE_M):
+  // yellow for taxis, delivery vans, trucks and buses, white for the rest.
+  const PLATE_M = 40;
+  const plateMat = plateMaterial();
+  const commercial = kinds.map(k => k.geo === kit("taxi") || k.geo === kit("delivery") || (k.mat === boxMat && !officials.has(k.geo)));
+  const plateGeos = kinds.map(k => {
+    const spec = Object.entries(CAR_SPECS).find(([n]) => kit(n) === k.geo)?.[1];
+    const L = k.dims[0], c = spec?.clearance ?? 0.3;
+    // (the modelled trucks' plates: on the bumper, and under the tail lamps — gen-cars.py)
+    const TRUCK: Record<string, [number, number, number, number]> = { cargo: [0.6, 0.55, 0.14, 0.05], boxtruck: [0.7, 0.7, 0.14, 0.05],
+      bus: [0.45, 0.73, 0.18, 0.05], container: [0.98, 1.03, 0.14, 0.07], garbage: [0.88, 1.08, 0.14, 0.07], mixer: [0.93, 1.03, 0.14, 0.05] };
+    const t = k.model ? TRUCK[k.model] : undefined;
+    if (t) return plateGeometry(L, t[0], t[1], t[2], t[3]);
+    return plateGeometry(L, spec ? c + 0.2 : 0.55, spec ? c + 0.35 : 0.65);
+  });
+  const plates = kinds.map((_, i) => {
+    const im = instanced(plateGeos[i], plateMat, perKind[i], false);
+    im.count = 0;
+    im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.max(1, perKind[i]) * 3), 3);
+    return im;
+  });
+  const plateOf = cars.map(c => commercial[c.type] ? PLATE_WHITE + Math.floor(rnd() * (PLATE_COUNT - PLATE_WHITE)) : Math.floor(rnd() * PLATE_WHITE));
+  const nearNow = kinds.map(() => new Set<number>());
+  const swapNear = (eye?: THREE.Vector3) => {
+    if (!eye) return;
+    eyeLocal.copy(eye); group.worldToLocal(eyeLocal);
+    const packed = near.map(() => 0), platesN = kinds.map(() => 0);
+    for (const c of cars) {
+      const far = meshes[c.type];
+      const pdx = c.x - eyeLocal.x, pdz = -c.y - eyeLocal.z;
+      if (pdx * pdx + pdz * pdz < PLATE_M * PLATE_M) {
+        far.getMatrixAt(c.slot, mm);
+        const k = platesN[c.type]++;
+        plates[c.type].setMatrixAt(k, mm);
+        plates[c.type].setColorAt(k, cc.setRGB(plateOf[c.id] / 255, 0, 0));
+      }
+      const im = near[c.type];
+      if (!im) continue;
+      far.getMatrixAt(c.slot, mm);
+      const was = nearNow[c.type].has(c.slot);
+      const dx = c.x - eyeLocal.x, dz = -c.y - eyeLocal.z, isNear = dx * dx + dz * dz < NEAR_M * NEAR_M;
+      if (isNear) {
+        if (!was) nearNow[c.type].add(c.slot);
+        const k = packed[c.type]++;
+        im.setMatrixAt(k, mm);
+        if (kinds[c.type].livery) im.setColorAt(k, cc.set(kinds[c.type].livery!).lerp(white, 0.3));
+        else if (far.instanceColor) { far.getColorAt(c.slot, cc); im.setColorAt(k, cc); }
+        far.setMatrixAt(c.slot, hidden);
+      } else if (was) nearNow[c.type].delete(c.slot);
+    }
+    plates.forEach((im, i) => { im.count = platesN[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
+    near.forEach((im, i) => { if (!im) return; im.count = packed[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
+  };
   const lampGeos = kinds.map(k => lampGeometry(k.dims[0], k.dims[1], k.dims[2]));
   const lamps = kinds.map((_, i) => { const im = instanced(lampGeos[i], lampMat, perKind[i], false); im.visible = false; return im; });
   let lampsOn = false;
@@ -950,8 +1028,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
 
   return {
     group,
-    update(dt: number) {
+    /** eye: the camera's world position (the cars near it get their modelled mesh). */
+    update(dt: number, eye?: THREE.Vector3) {
       step(Math.min(0.1, dt));
+      swapNear(eye);
       showSignals();
       meshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
       if (lampsOn) lamps.forEach(m => { m.instanceMatrix.needsUpdate = true; });
@@ -967,6 +1047,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     },
     dispose() {
       [...meshes, ...lamps].forEach(m => m.dispose());
+      near.forEach(m => m?.dispose()); modelMat?.dispose();
+      plates.forEach(m => m.dispose()); plateGeos.forEach(g => g.dispose()); plateMat.dispose();
       kinds.forEach(k => { if (k.own) k.geo.dispose(); });
       lampGeos.forEach(g => g.dispose());
       [poleG, housingG, visorG, lensG, arrowG].forEach(g => g.dispose());

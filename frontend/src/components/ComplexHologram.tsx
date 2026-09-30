@@ -33,7 +33,7 @@ import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } fro
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
 import { buildBoats, noBoatsReason } from "./sceneBoats";
-import { buildKids } from "./sceneKids";
+import { buildKids, schoolBorders } from "./sceneKids";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 
@@ -1710,6 +1710,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
         if (!await later()) return;
         planting.street = street;
         const parcels = data.parcels ?? [];
+        planting.border = schoolBorders(parcels, blocked, T);
         // Children at play on the school grounds, by day in dry weather.
         const kids = timed("buildKids", () => buildKids(parcels, terrain, blocked, T, seed));
         if (kids) {
@@ -1780,7 +1781,7 @@ export default function ComplexHologram({ complexId, complexName, caption, wide 
       if (!alive) { traffic.dispose(); return; }
       stage.addWarm(decor, traffic.group);
       disposables.push(traffic);
-      tick.push(dt => traffic.update(dt));
+      tick.push(dt => traffic.update(dt, stage.camera.position));
       onLook.push(l => traffic.setLamps(l.lamps));
       traffic.setLamps(stage.look.lamps);
     }).catch(err => console.info("[3D] Traffic unavailable:", err)));

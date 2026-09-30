@@ -143,6 +143,14 @@ function plantForest(planting: Planting, seed: number, terrain: Terrain, forest:
       const g = rng(seed * 23 + Math.floor(x / 4) * 71 + Math.floor(y / 4) * 353)();
       flower(FLOWERS[Math.floor(g * FLOWERS.length)], x, at(x, y), y);
     }
+    // School grounds: a flower border round the edge, a species every ten metres or so,
+    // the bright bedding plants in turn.
+    const BORDER = ["petunia", "marigold", "salvia", "begonia", "pansy", "tulip_yellow", "coreopsis", "daisy", "tulip_red", "lavender", "cosmos"].filter(k => forest.has(k));
+    for (const [x, y, run] of planting.border ?? []) {
+      if (!BORDER.length) break;
+      const species = BORDER[(run * 7 + (seed % 5)) % BORDER.length];
+      flower(species, x + (rnd() - 0.5) * 0.4, at(x, y), y + (rnd() - 0.5) * 0.4);
+    }
     // By the road: about a third of the streets have their tree pits planted, a low
     // species round each tree (as the district's street planters are).
     const PIT = FLOWERS.filter(k => FLOWER_H[k][1] <= 0.6);

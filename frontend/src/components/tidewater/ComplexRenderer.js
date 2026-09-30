@@ -602,6 +602,31 @@ const DETAIL_WGSL = (metres, albedo, relief, avgRough) => /* wgsl */`{
   s.normal = normalize(s.normal + (dT * dn.x + dB * dn.y) * dNear * ${relief.toFixed(2)});
   s.roughness = mix(s.roughness, s.roughness * clamp(dFine.a / ${avgRough.toFixed(3)}, 0.6, 1.4), dNear * 0.6);
 }`;
+// The modelled cars (gen-cars.py): each part from its uv slot. Only the body takes the
+// instance's paint (a clear-coated finish); rims and trim chrome are metal, lamps glass.
+const CAR_MODEL = /* wgsl */`{
+  let part = i32(floor(in.uv.x * 16.0));
+  var paint = vec3f(0.8);
+#if INSTANCE_COLOR
+  paint = clamp((in.color.rgb - 0.3) / 0.7, vec3f(0.0), vec3f(1.0));
+#endif
+  s.clearcoat = 0.0; s.metalness = 0.0; s.roughness = 0.6; s.emissive = vec3f(0.0);
+  switch part {
+    case 0: { s.albedo = paint * 0.92; s.clearcoat = 1.0; s.clearcoatRoughness = 0.12; s.roughness = 0.32; s.metalness = 0.35; }
+    case 1: { s.albedo = vec3f(0.012, 0.015, 0.02); s.roughness = 0.12; s.specularIntensity = 3.0; }
+    case 2: { s.albedo = vec3f(0.03); s.roughness = 0.55; }
+    case 3: { s.albedo = vec3f(0.6, 0.61, 0.63); s.metalness = 1.0; s.roughness = 0.3; }
+    case 4: { s.albedo = vec3f(0.78, 0.79, 0.8); s.metalness = 1.0; s.roughness = 0.16; }
+    case 5: { s.albedo = vec3f(0.85, 0.85, 0.82); s.roughness = 0.12; s.specularIntensity = 2.0; }
+    case 6: { s.albedo = vec3f(0.42, 0.02, 0.02); s.roughness = 0.14; s.specularIntensity = 2.0; }
+    case 7: { s.albedo = vec3f(0.78, 0.78, 0.75); s.roughness = 0.45; }
+    case 8: { s.albedo = vec3f(0.95, 0.6, 0.1); s.roughness = 0.4; }
+    case 10: { s.albedo = vec3f(0.66, 0.68, 0.7); s.metalness = 0.6; s.roughness = 0.38; }
+    case 11: { s.albedo = vec3f(0.86, 0.86, 0.84); s.clearcoat = 1.0; s.clearcoatRoughness = 0.15; s.roughness = 0.35; s.metalness = 0.2; }
+    default: { s.albedo = vec3f(0.018); s.roughness = 0.9; }
+  }
+}`;
+
 // How strongly each scan shows (albedo grain, relief).
 const DETAIL_LOOK = { paint: [0.55, 0.45], granite: [0.6, 0.35], concrete: [0.6, 0.5], roof: [0.55, 0.45] };
 
@@ -883,7 +908,16 @@ export class ComplexRenderer {
     const surfaceTex = this.packedSurface(source);
     // Roughness alone (the ground): its one channel.
     const roughOnly = !surfaceTex && source.roughnessMap && source.roughnessMap !== source.metalnessMap ? this.singleChannel(source.roughnessMap) : null;
-    for (const [key, statement] of [
+    // Number plates: the plate's cell of the atlas from the instance colour (scenePlates).
+    const plate = source.userData.plate;
+    if (plate && source.map) {
+      textures.map = this.texture(source.map);
+      surface += `{ let pid = floor(in.color.r * 255.0 + 0.5);
+        let cell = vec2f(pid % ${plate.cols.toFixed(1)}, floor(pid / ${plate.cols.toFixed(1)}));
+        let puv = (cell + clamp(in.uv, vec2f(0.01), vec2f(0.99))) / vec2f(${plate.cols.toFixed(1)}, ${plate.rows.toFixed(1)});
+        s.albedo = textureSampleLevel(map, smpLinearClamp, puv, 0.0).rgb; s.roughness = 0.45; s.metalness = 0.0; }\n`;
+    }
+    for (const [key, statement] of plate ? [] : [
       ['map', car ? 's.albedo *= texel.rgb; s.alpha *= texel.a; carTex = texel.rgb;' : 's.albedo *= texel.rgb; s.alpha *= texel.a;'],
       ['roughnessMap', roughOnly ? 's.roughness *= texel.r;' : 's.roughness *= texel.g;'],
       ['metalnessMap', 's.metalness *= texel.b;'],
@@ -1002,6 +1036,7 @@ export class ComplexRenderer {
     surface += `s.roughness = clamp(s.roughness, 0.12, 1.0);
       s.clearcoat = ${source.clearcoat ? '0.16' : '0.0'}; s.clearcoatRoughness = 0.22;`;
     if (car) surface += CAR_PAINT;
+    if (source.userData.carModel) surface += CAR_MODEL;
     const mat = new Material({ name: 'complex ' + source.id, color: source.color, roughness: source.roughness ?? 0.8,
       metalness: source.metalness ?? 0, vertexColors: source.vertexColors,
       side: source.side === 2 ? 'double' : source.side === 1 ? 'back' : 'front',
@@ -1016,7 +1051,7 @@ export class ComplexRenderer {
         // Past the painted (surveyed) ground, uv leaves 0..1: fade into the horizon haze.
         let past = max(max(-in.uv.x, in.uv.x - 1.0), max(-in.uv.y, in.uv.y - 1.0));
         r.color = vec4f(mix(r.color.rgb, frame.horizonColor * 0.92, smoothstep(-0.05, 0.9, past)), r.color.a);` : ''}`,
-      uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1] }, defines: { CLEARCOAT: source.clearcoat || car ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
+      uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1] }, defines: { CLEARCOAT: source.clearcoat || car || source.userData.carModel ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
       userData: { foliage: !!(source.userData.foliage || source.userData.leafCluster) },
     });
     this.materials.set(source, mat);

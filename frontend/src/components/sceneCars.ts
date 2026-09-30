@@ -234,3 +234,52 @@ export function carGeometry(kind: string): THREE.BufferGeometry | null {
   cache.set(kind, g);
   return g;
 }
+
+/* Detailed cars modelled in Blender (scripts/gen-cars.py): public/3d/cars.bin, same
+ * proportions and palette swatches as the ones built above, which stay as the fallback. */
+interface CarPart { verts: number; index: number; pos: number; nor: number; uv: number; idx: number }
+let modelled: Promise<Map<string, THREE.BufferGeometry>> | null = null;
+export function loadCarModels(): Promise<Map<string, THREE.BufferGeometry>> {
+  modelled ??= Promise.all([
+    fetch("/3d/cars.json").then(r => { if (!r.ok) throw new Error("cars.json " + r.status); return r.json() as Promise<{ kinds: Record<string, CarPart> }>; }),
+    fetch("/3d/cars.bin").then(r => { if (!r.ok) throw new Error("cars.bin " + r.status); return r.arrayBuffer(); }),
+  ]).then(([meta, bin]) => {
+    const out = new Map<string, THREE.BufferGeometry>();
+    for (const [kind, p] of Object.entries(meta.kinds)) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(bin, p.pos, p.verts * 3).slice(), 3));
+      const n8 = new Int8Array(bin, p.nor, p.verts * 4), nor = new Float32Array(p.verts * 3);
+      for (let i = 0; i < p.verts; i++) { nor[i * 3] = n8[i * 4] / 127; nor[i * 3 + 1] = n8[i * 4 + 1] / 127; nor[i * 3 + 2] = n8[i * 4 + 2] / 127; }
+      g.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+      const u16 = new Uint16Array(bin, p.uv, p.verts * 2), uv = new Float32Array(p.verts * 2);
+      for (let i = 0; i < uv.length; i++) uv[i] = u16[i] / 65535;
+      g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+      g.setIndex(new THREE.BufferAttribute(new Uint16Array(bin, p.idx, p.index).slice(), 1));
+      g.computeBoundingSphere();
+      out.set(kind, g);
+    }
+    return out;
+  });
+  modelled.catch(() => { modelled = null; });
+  return modelled;
+}
+
+/** Parts of the modelled cars by uv slot (gen-cars.py PARTS), for renderers that read
+ * colours (WebGL): body white (times the instance's paint), glass, trim, rims, chrome,
+ * head and tail lamps, plates, the taxi sign, tyres, aluminium panels (truck boxes, beds),
+ * the white cabs of trucks whose body is painted (container, refuse, mixer). The WebGPU view sets each part's
+ * surface itself (ComplexRenderer CAR_MODEL). */
+const PART_RGB = ["#ffffff", "#1b2028", "#141414", "#9ea3a8", "#c8ccd0", "#f2efe6", "#9a1c1c", "#eeeeea", "#f0a823", "#0c0c0c", "#d4d7da", "#eeeeeb"];
+let partTex: THREE.Texture | null = null;
+export function carModelMaterial() {
+  if (!partTex) {
+    const c = document.createElement("canvas"); c.width = 16; c.height = 1;
+    const g = c.getContext("2d")!;
+    PART_RGB.forEach((col, i) => { g.fillStyle = col; g.fillRect(i, 0, 1, 1); });
+    partTex = new THREE.CanvasTexture(c);
+    partTex.colorSpace = THREE.SRGBColorSpace; partTex.magFilter = partTex.minFilter = THREE.NearestFilter; partTex.generateMipmaps = false;
+  }
+  const m = new THREE.MeshStandardMaterial({ map: partTex, roughness: 0.4, metalness: 0.2 });
+  m.userData.carModel = true;
+  return m;
+}
