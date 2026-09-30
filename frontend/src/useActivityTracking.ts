@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getSessionId } from "./session";
+import { deviceInfo, resolveDeviceInfo } from "./deviceInfo";
 
 const EVENT_ENDPOINT = "/api/activity/event";
 const CLICK_DEBOUNCE_MS = 500;
@@ -143,14 +144,34 @@ function isAdminPath(path: string): boolean {
 }
 
 function sendEvent(body: Record<string, unknown>) {
-  fetch(EVENT_ENDPOINT, {
+  const payload = { session_id: getSessionId(), ...body };
+  const send = (info: ReturnType<typeof deviceInfo>) => fetch(EVENT_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: getSessionId(), ...body }),
+    body: JSON.stringify({ ...payload, device_info: info }),
     keepalive: true,
   }).catch(() => {
     // Best-effort telemetry — a dropped event isn't worth surfacing to the visitor.
   });
+  if (body.type === "page_view" && document.visibilityState === "visible") {
+    // Navigation before hint resolution must not drop or duplicate the visit.
+    let sent = false;
+    const cleanup = () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+    const deliver = (info: ReturnType<typeof deviceInfo>) => {
+      if (sent) return;
+      sent = true;
+      cleanup();
+      void send(info);
+    };
+    const flush = () => deliver(deviceInfo());
+    const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    void resolveDeviceInfo().then(deliver).catch(flush);
+  } else send(deviceInfo());
 }
 
 /** Records both the deliberate CTA click and the external game's virtual entrance.

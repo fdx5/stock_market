@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.services import (
     activity_log,
+    device_analytics,
     dram_price,
     hub_event_store,
     kakao_notify,
@@ -133,6 +134,12 @@ def pages_visitor_trend(range: str = Query("24h", pattern="^(1h|3h|6h|12h|24h|3d
 # reshuffled every time someone flipped the chart to "1시간" would be more
 # confusing than useful.
 _RANKING_WINDOW = timedelta(days=7)
+
+
+@router.get("/traffic/devices", dependencies=[Depends(require_admin)])
+@ttl_cache(55)
+def traffic_devices(days: int = Query(30, ge=1, le=730)):
+    return device_analytics.overview(days)
 
 
 # The admin ranking lists scroll past their top ten now, so these ceilings are
@@ -662,6 +669,7 @@ def start_warmer() -> None:
             # The batch first: every closed day the day-scale trend ranges read.
             # Idempotent, and a no-op once the month is rolled up.
             page_view_store.ensure_trend_rollups,
+            lambda: traffic_devices(30),
             summary,
             lambda: pages_trend("3h"),
             lambda: pages_visitor_trend("3h"),

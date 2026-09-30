@@ -20,6 +20,7 @@ import { startVisibilityAwareInterval } from "../pollVisibility";
 import { navigate } from "../router";
 import { pageLabel, routeTemplate } from "../useActivityTracking";
 import StockLogo from "./StockLogo";
+import AdminDevicesPanel from "./AdminDevicesPanel";
 import "./adminLive.css";
 import "./adminDashboard.css";
 
@@ -714,6 +715,8 @@ export default function AdminTrafficSection() {
               </div>
             </div>
           </div>
+
+          <AdminDevicesPanel />
 
           <div className="admin-stats-row admin-stats-row--hub">
             <div className="admin-stats-rowlabel">

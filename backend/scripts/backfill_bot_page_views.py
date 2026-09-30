@@ -171,6 +171,10 @@ def main() -> int:
         for start in range(0, len(ids), CHUNK):
             chunk = ids[start:start + CHUNK]
             placeholders = ",".join("?" * len(chunk))
+            # Only invalidate days whose source rows are being changed. Never
+            # clear all device history: older source logs may already be purged.
+            conn.execute("DELETE FROM device_traffic_daily WHERE device_type='_complete' AND day IN "
+                         f"(SELECT DISTINCT date(created_at,'+9 hours') FROM page_views WHERE id IN ({placeholders}))", chunk)
             conn.execute(f"UPDATE page_views SET is_bot = 1 WHERE id IN ({placeholders})", chunk)
             conn.commit()
             marked += len(chunk)

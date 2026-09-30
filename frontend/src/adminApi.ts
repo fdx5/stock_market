@@ -47,6 +47,17 @@ export interface GrowthOverview {
   campaigns: Array<{ campaign: string; source: string; visitors: number; pageviews: number }>;
 }
 
+export type DeviceType = "desktop" | "tablet" | "mobile" | "unknown";
+export interface DeviceTraffic {
+  days: number; start_date: string; end_date: string; metric: "human_pageviews";
+  total: number; coverage_percentage: number; missing_days: number; history_ready: boolean;
+  available_from: string | null; aggregated_at: string | null; generated_at: string;
+  types: Array<{ type: DeviceType; count: number; percentage: number }>;
+  devices: Array<{ type: DeviceType; name: string; count: number; percentage: number; within_type_percentage: number }>;
+  operating_systems: Array<{ name: string; count: number; percentage: number }>;
+  browsers: Array<{ name: string; count: number; percentage: number }>;
+}
+
 export type AdminTrendRange = "1h" | "3h" | "6h" | "12h" | "24h" | "3d" | "7d" | "30d";
 
 export interface TrendPoint {
@@ -801,6 +812,7 @@ function sourceParam(source: string | null, separator: "?" | "&" = "?"): string 
 export const adminApi = {
   health: () => authedGet<AdminHealth>("/health"),
   summary: () => authedGet<AdminSummary>("/summary"),
+  deviceTraffic: (days = 30) => authedGet<DeviceTraffic>(`/traffic/devices?days=${days}`),
   growthOverview: (days = 5, startDate?: string, endDate?: string) => {
     const params = new URLSearchParams({ days: String(days) });
     if (startDate && endDate) {

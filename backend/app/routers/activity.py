@@ -32,6 +32,13 @@ _VALID_HUB_ACTIONS = {
 MAX_DWELL_VALUE = 3600.0
 
 
+class DeviceInfo(BaseModel):
+    model: str | None = Field(default=None, max_length=80)
+    platform: str | None = Field(default=None, max_length=40)
+    ipad: bool = False
+    mobile: bool | None = None
+
+
 class ActivityEvent(BaseModel):
     session_id: str = Field(pattern=SESSION_ID_PATTERN)
     type: str
@@ -48,6 +55,7 @@ class ActivityEvent(BaseModel):
     utm_source: str | None = Field(default=None, max_length=100)
     utm_medium: str | None = Field(default=None, max_length=100)
     utm_campaign: str | None = Field(default=None, max_length=150)
+    device_info: DeviceInfo | None = None
 
     @field_validator("type")
     @classmethod
@@ -91,5 +99,6 @@ def post_event(payload: ActivityEvent, request: Request):
         utm_campaign=payload.utm_campaign,
         user_agent=user_agent,
         is_bot=bot_detector.is_bot(user_agent),
+        device_info=payload.device_info.model_dump() if payload.device_info else None,
     )
     return {"ok": True}

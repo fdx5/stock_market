@@ -50,6 +50,7 @@ def record_event(
     utm_campaign: str | None = None,
     user_agent: str | None = None,
     is_bot: bool = False,
+    device_info: dict | None = None,
 ) -> None:
     now = time.time()
     created_at = _now_iso()
@@ -108,7 +109,7 @@ def record_event(
             target=page_view_store.record_page_view,
             args=(session_id, path, created_at, event_type, referrer, source_channel,
                   source_name, utm_source, utm_medium, utm_campaign, label,
-                  stock_code, stock_name, object_key, user_agent, is_bot),
+                  stock_code, stock_name, object_key, user_agent, is_bot, device_info),
             daemon=True,
         ).start()
     elif is_bot:

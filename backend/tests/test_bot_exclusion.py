@@ -216,7 +216,8 @@ class TestActivityLog:
         assert [session["session_id"] for session in activity_log.active_sessions()] == ["human"]
         # Both are still persisted - the crawler row carrying its agent and flag.
         assert len(persisted) == 2
-        assert persisted[1][-2:] == (GOOGLEBOT, True)
+        assert persisted[1][14:16] == (GOOGLEBOT, True)
+        assert persisted[1][16] is None  # optional browser device hints
 
     def test_crawler_hub_and_search_events_are_dropped_entirely(self, monkeypatch):
         from app.services import activity_log

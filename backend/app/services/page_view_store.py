@@ -3,7 +3,7 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.services import libsql_gate, turso
+from app.services import device_analytics, libsql_gate, turso
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -171,6 +171,10 @@ def _new_ready_connection():
         "object_key": "TEXT",
         "user_agent": "TEXT",
         "is_bot": "INTEGER NOT NULL DEFAULT 0",
+        "device_type": "TEXT",
+        "device_name": "TEXT",
+        "device_os": "TEXT",
+        "device_browser": "TEXT",
     }
     added = [name for name in migrations if name not in columns]
     for name in added:
@@ -184,6 +188,8 @@ def _new_ready_connection():
     conn.execute(_DAILY_BREAKDOWN_SCHEMA)
     conn.execute(_TREND_DAILY_SCHEMA)
     conn.execute(_VISITORS_DAILY_SCHEMA)
+    for sql in device_analytics.SCHEMAS:
+        conn.execute(sql)
     # page_views_daily caches one row per closed day and is never recomputed once
     # written - which is right while the definition of a day's totals is stable, and
     # wrong exactly once: the moment bot rows stop counting toward them. Dropping the
@@ -232,6 +238,7 @@ def record_page_view(
     object_key: str | None = None,
     user_agent: str | None = None,
     is_bot: bool = False,
+    device_info: dict | None = None,
 ) -> None:
     """Crawler rows are written, not dropped.
 
@@ -239,16 +246,23 @@ def record_page_view(
     keeping them is what makes "which crawler, how often, over which URLs" answerable
     at all — the question this column was added to answer. bot_overview() reads them.
     """
+    device = device_analytics.classify(user_agent, device_info)
     def _run(conn):
         conn.execute(
             "INSERT INTO page_views (session_id, path, created_at, event_type, referrer, "
             "source_channel, source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key, "
-            "user_agent, is_bot) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "user_agent, is_bot, device_type, device_name, device_os, device_browser) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (session_id, path, created_at, event_type, referrer, source_channel,
              source_name, utm_source, utm_medium, utm_campaign, label, stock_code, stock_name, object_key,
-             user_agent, 1 if is_bot else 0),
+             user_agent, 1 if is_bot else 0, *device),
         )
+        # A delayed visit must invalidate a sealed historical day. Keep its old
+        # summary until the worker rebuilds; readers only accept completed days.
+        if event_type == "page_view" and not is_bot:
+            day = _to_kst_date(created_at).isoformat()
+            if day < datetime.now(timezone(timedelta(hours=9))).date().isoformat():
+                conn.execute("DELETE FROM device_traffic_daily WHERE day=? AND device_type='_complete'", (day,))
         conn.commit()
 
     _with_connection(_run)

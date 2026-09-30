@@ -258,7 +258,9 @@ def _keep_recent_warnings() -> None:
 @app.on_event("startup")
 def _warm_admin_dashboard() -> None:
     from app.routers import admin as admin_router
+    from app.services import device_analytics
 
+    device_analytics.start_worker()
     admin_router.start_warmer()
 
 
@@ -352,6 +354,9 @@ def _admin_retention_loop() -> None:
             pass
         try:
             page_cutoff = (datetime.now(timezone.utc) - timedelta(days=page_view_store.RETENTION_DAYS)).isoformat()
+            from app.services import device_analytics
+            if not device_analytics.retention_safe(page_cutoff):
+                raise RuntimeError("Device aggregates pending; retain source logs for the next batch")
             page_view_store.purge_older_than(page_cutoff)
         except Exception:
             # A failed purge just means one more day's worth of rows lingers —

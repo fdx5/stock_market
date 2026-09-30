@@ -15,6 +15,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import AdminCommentsPanel from "./AdminCommentsPanel";
 import AdminOpsPanel from "./AdminOpsPanel";
 import AdminTrafficSection from "./AdminTrafficSection";
+import AdminDevicesPanel from "./AdminDevicesPanel";
 import LiveSessionsAndLog, { LiveStatus } from "./LiveSessionsAndLog";
 import "./adminLive.css";
 import "./adminDashboard.css";
@@ -258,6 +259,8 @@ function Overview({
           </ol>
         </Card>
       </div>
+
+      <AdminDevicesPanel />
 
       <div className="ac-grid ac-grid--2">
         <Card title="최근 경고·오류" foot={<button type="button" onClick={() => go("system")}>전체 로그 →</button>}>
