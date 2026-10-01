@@ -15,7 +15,7 @@ import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex } from "../api/client";
 import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
@@ -36,11 +36,12 @@ import { buildWater } from "./sceneWater";
 import { buildBoats, noBoatsReason, prepareWakes } from "./sceneBoats";
 import { buildKids, schoolBorders } from "./sceneKids";
 import type { Palette } from "./complexScene";
-import { photoBuildings, photoColours, photoRhythm, photoWallPaint, surveyedShape, type PhotoBuilding, type WallPaint } from "./vworld3d";
+import { photoBuildings, photoBuildingsNear, photoColours, photoRhythm, photoWallPaint, surveyedShape, type PhotoBuilding, type WallPaint } from "./vworld3d";
 import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice } from "./frameSlice";
+import { ringBuildings } from "./ringBuildings";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
  * real ones (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via
@@ -76,6 +77,38 @@ function extrude(b: RealEstateBuilding, ground = 0, floorM = FLOOR_M): THREE.Ext
   for (const group of geo.groups) if (group.materialIndex === 1) {
     for (let i = group.start; i < group.start + group.count; i++) uv.setY(i, (1 - (pos.getZ(i) - ground)) * k);
   }
+  return geo;
+}
+
+/** A neighbour as drawn, compactly: a quad per wall (indexed) and the roof — no floor (it is sunk
+ * below the ground anyway) — the same outline, height, wall uv (storeys from the ground, as extrude)
+ * and roof uv as ExtrudeGeometry's, in about half its vertex memory (which paid for the 1 km ring:
+ * ringBuildings.ts makes those the same way, in its worker). */
+function compactExtrude(b: RealEstateBuilding, ground = 0, floorM = FLOOR_M): THREE.BufferGeometry {
+  const depth = Math.max(2, b.height - b.base), below = b.base > 0 ? 0 : SINK;
+  const z0 = ground + b.base - below, z1 = ground + b.base + depth;
+  const k = THREE.MathUtils.clamp(floorM / (depth / Math.max(1, b.floors)), 0.5, 2);
+  const area = (r: [number, number][]) => r.reduce((sum, [x1, y1], i) => { const [x2, y2] = r[(i + 1) % r.length]; return sum + x1 * y2 - x2 * y1; }, 0);
+  const outer = area(b.rings[0]) >= 0 ? b.rings[0] : [...b.rings[0]].reverse();
+  const holes = b.rings.slice(1).map(h => (area(h) <= 0 ? h : [...h].reverse()));
+  const P: number[] = [], N: number[] = [], U: number[] = [], I: number[] = [];
+  for (const ring of [outer, ...holes]) for (let i = 0; i < ring.length; i++) {
+    const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length];
+    const ex = bx - ax, ey = by - ay, el = Math.hypot(ex, ey);
+    if (el < 1e-4) continue;
+    const nx = ey / el, ny = -ex / el, alongX = Math.abs(ey) < Math.abs(ex), v = P.length / 3;
+    for (const [x, y, z] of [[ax, ay, z0], [bx, by, z0], [bx, by, z1], [ax, ay, z1]]) { P.push(x, y, z); N.push(nx, ny, 0); U.push(alongX ? x : y, (1 - (z - ground)) * k); }
+    I.push(v, v + 1, v + 2, v, v + 2, v + 3);
+  }
+  const roof = P.length / 3, pts = [...outer, ...holes.flat()];
+  for (const [x, y] of pts) { P.push(x, y, z1); N.push(0, 0, 1); U.push(x, y); }
+  const tris = THREE.ShapeUtils.triangulateShape(outer.map(([x, y]) => new THREE.Vector2(x, y)), holes.map(h => h.map(([x, y]) => new THREE.Vector2(x, y))));
+  for (const [a, c, d] of tris) I.push(roof + a, roof + c, roof + d);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
+  geo.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(U, 2));
+  geo.setIndex(I);
   return geo;
 }
 
@@ -155,6 +188,9 @@ type Stage = {
   /** Near plane when zoomed out (it shrinks as the camera closes in). */
   nearMax: number;
   hq: boolean; disposeModel: () => void; resume: () => void;
+  /** Stop the current model's late extras (the 1 km ring's fetching and building): another
+   * complex was chosen, and its loading comes first. */
+  stopExtras: () => void;
   /** The model on screen, to keep in view while the next one is built (a move to a neighbouring
    * complex): stop its late additions, and later take it out of the scene and free it. */
   current: { stop: () => void; release: () => void; parts: () => THREE.Object3D[] } | null;
@@ -748,7 +784,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null, fly: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
@@ -1328,6 +1364,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   useEffect(() => {
     setTip(null);
     if (!complexId) { setData(null); return; }
+    // (the model on screen stops its late extras: this one's loading comes first)
+    stageRef.current?.stopExtras();
     const ctl = new AbortController();
     let live = true;
     setLoading(true);
@@ -1766,8 +1804,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!await pace()) return;
       const g = terrain.base(b.rings[0]);
       const style = contextStyle(b.use, b.height, rnd());
-      const geo = extrude(b, g, CONTEXT_FLOOR_M[style]);
-      geo.clearGroups();
+      const geo = compactExtrude(b, g, CONTEXT_FLOOR_M[style]);
       const c = new THREE.Color(tints[Math.floor(rnd() * tints.length)]);
       if (style === "office") c.lerp(new THREE.Color("#ffffff"), 0.4);
       if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
@@ -1821,6 +1858,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (!await pace()) return null;
         const list = ctxGeos[style].filter(kept);
         if (!list.length) continue;
+        // (the complex's own low sides join the shop facade unindexed: indexed as they are, to merge)
+        for (const g of list) if (!g.index) g.setIndex(Array.from({ length: g.getAttribute("position").count }, (_, i) => i));
         const merged = keep(mergeGeometries(list, false)!);
         // Apartment neighbours get the apartment facade (neutral colours, one variant, no
         // base, end walls or crown: those stay the complex's own). Shared by every complex,
@@ -2524,6 +2563,117 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     afterShown(() => stage.addWarm(decor, lamps.group));
     // A desktop's neighbourhood painted again at twice the texels, in idle time once all this is
     // in (complexScene.sharpenNeighbourhood: once a session, kept between visits).
+    // The neighbourhood out to 1 km (ringBuildings.ts): every registered building past this
+    // view's own data, made in a worker after the first frame (the JSONP, the footprints, the
+    // extrusion on the relief all off the page) and drawn in the same shared facades — a mesh per
+    // style. (OpenStreetMap results have no key: no ring.) Once the near decoration is in (4 s
+    // after the first frame, then idle time): alongside it, the worker's network and the GPU's
+    // uploads made that loading stutter more; a model left before then fetches nothing.
+    const ringStop = new AbortController();
+    disposables.push({ dispose: () => ringStop.abort() });
+    stage.stopExtras = () => ringStop.abort();
+    const whenIdle = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 3000 }); else window.setTimeout(f, 200); };
+    afterShown(() => { window.setTimeout(() => whenIdle(() => {
+      if (!alive || ringStop.signal.aborted || !data.center || !data.vworld_key || new URLSearchParams(location.search).get("ring") === "0") return;
+      const near = new Float32Array([...data.buildings, ...data.context].flatMap(b => {
+        const r = b.rings[0]; let x = 0, y = 0;
+        for (const [px, py] of r) { x += px; y += py; }
+        return [x / r.length, y / r.length];
+      }));
+      if (hostRef.current) hostRef.current.dataset.ringStart = performance.now().toFixed(0);
+      void ringBuildings(data, near, terrain, { outer: 1000, floorM: CONTEXT_FLOOR_M, seed, signal: ringStop.signal }).then(async ring => {
+        if (!ring || !alive || ringStop.signal.aborted) return;
+        if (hostRef.current) hostRef.current.dataset.ringGot = performance.now().toFixed(0);
+        let aptGeo: THREE.BufferGeometry | null = null;
+        for (const [style, a] of Object.entries(ring.styles) as [ContextStyle, NonNullable<typeof ring.styles.apt>][]) {
+          if (!await pace(true)) return;
+          const geo = keep(new THREE.BufferGeometry());
+          geo.setAttribute("position", new THREE.BufferAttribute(a.position, 3));
+          geo.setAttribute("normal", new THREE.BufferAttribute(a.normal, 3));
+          geo.setAttribute("uv", new THREE.BufferAttribute(a.uv, 2));
+          geo.setAttribute("color", new THREE.BufferAttribute(a.color, 3));
+          geo.setIndex(new THREE.BufferAttribute(a.index, 1));
+          geo.computeBoundingSphere();
+          if (!await sharedContextTexturesSliced(style, pace)) return;
+          const mesh = new THREE.Mesh(geo, sharedContextMaterial(style));
+          mesh.castShadow = mesh.receiveShadow = true;
+          stage.addWarm(group, mesh);
+          if (style === "apt") aptGeo = geo;
+        }
+        // The ring's apartment blocks in their surveyed shapes (VWorld 3D), as the near ones: shapes
+        // only — no photographs (hundreds of them) — the long fronts windowed, the end walls and short
+        // returns plain, roof rooms and parapet bands as painted. Each replaces its block in the ring
+        // mesh (its triangles emptied). Re-indexed after: vertices shared, as compact as the ring.
+        if (aptGeo && ring.apts.length) {
+          const geoA = aptGeo as THREE.BufferGeometry, A = ring.apts;
+          const blocks = Array.from({ length: A.length / 6 }, (_, i) => ({ x: A[i * 6], y: A[i * 6 + 1], h: A[i * 6 + 2], g: A[i * 6 + 3], s: A[i * 6 + 4], n: A[i * 6 + 5], used: false }));
+          await new Promise<void>(r => whenIdle(r));
+          if (!alive || ringStop.signal.aborted) return;
+          const photos = await photoBuildingsNear(data.vworld_key!, data.center!.lat, data.center!.lon, blocks, { signal: ringStop.signal }).catch(() => [] as PhotoBuilding[]);
+          if (!alive) { photos.forEach(ph => ph.geometry.dispose()); return; }
+          const pairs: [number, number][] = [];
+          for (const ph of photos) {
+            let bd = 15, best: (typeof blocks)[number] | null = null;
+            for (const bl of blocks) { const d = Math.hypot(bl.x - ph.cx, bl.y - ph.cy); if (d < bd) { bd = d; best = bl; } }
+            if (best) pairs.push([best.x - ph.cx, best.y - ph.cy]);
+          }
+          const mid = (v: number[]) => { const q = [...v].sort((a, b) => a - b); return q.length ? q[q.length >> 1] : 0; };
+          const [ox, oy] = pairs.length >= 3 ? [mid(pairs.map(p => p[0])), mid(pairs.map(p => p[1]))] : [0, 0];
+          const aptMat = sharedContextMaterial("apt");
+          const plain = keep(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85 }));
+          const byMat = new Map<THREE.Material, THREE.BufferGeometry[]>();
+          const put = (m: THREE.Material, g: THREE.BufferGeometry | null, c: THREE.Color) => {
+            if (!g) return;
+            const n = g.getAttribute("position").count, col = new Float32Array(n * 3);
+            for (let j = 0; j < n; j++) { col[j * 3] = c.r; col[j * 3 + 1] = c.g; col[j * 3 + 2] = c.b; }
+            g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+            // (vertices shared building by building, a few ms each between slices: the whole ring
+            // at once was a 120 ms stall)
+            const shared = mergeVertices(g.index ? g.toNonIndexed() : g);
+            if (shared !== g) g.dispose();
+            byMat.set(m, [...(byMat.get(m) ?? []), shared]);
+          };
+          const idx = geoA.index!, colA = geoA.getAttribute("color");
+          let replaced = 0;
+          const hide: [number, number][] = [];
+          for (const ph of photos) {
+            if (!await pace() || ringStop.signal.aborted) { photos.forEach(q => q.geometry.dispose()); return; }
+            const px = ph.cx + ox, py = ph.cy + oy;
+            let bd = 12, best: (typeof blocks)[number] | null = null;
+            for (const bl of blocks) { if (bl.used) continue; const d = Math.hypot(bl.x - px, bl.y - py); if (d < bd) { bd = d; best = bl; } }
+            ph.geometry.computeBoundingBox();
+            const top = ph.geometry.boundingBox!.max.z;
+            if (!best || top < best.h * 0.65 || top > best.h * 1.35) { ph.geometry.dispose(); continue; }
+            best.used = true; replaced++;
+            const shape = surveyedShape(ph, best.g - 0.25, undefined, 1.0);
+            for (const gg of [shape.walls, shape.roofs, shape.cores, shape.ends, shape.bands, shape.painted]) gg?.translate(ox, oy, 0);
+            ph.geometry.dispose();
+            const vi = idx.getX(best.s), c = new THREE.Color(colA.getX(vi), colA.getY(vi), colA.getZ(vi));
+            put(aptMat, shape.walls, c); put(aptMat, shape.roofs, c);
+            put(plain, shape.cores, c); put(plain, shape.bands, c); put(plain, shape.ends, c.clone().multiplyScalar(0.86));
+            hide.push([best.s, best.n]);
+          }
+          if (!replaced) return;
+          for (const [m, geos] of byMat) {
+            if (!await pace(true)) return;
+            const compact = mergeGeometries(geos, false);
+            geos.forEach(g => g.dispose());
+            if (!compact) continue;
+            keep(compact);
+            compact.computeBoundingSphere();
+            const mesh = new THREE.Mesh(compact, m);
+            mesh.castShadow = mesh.receiveShadow = true;
+            stage.addWarm(group, mesh);
+          }
+          // (the blocks' boxes go only once their surveyed shapes are in: a stop halfway leaves none
+          // missing)
+          for (const [st, n] of hide) (idx.array as Uint32Array).fill(0, st, st + n);
+          idx.needsUpdate = true;
+          if (hostRef.current) hostRef.current.dataset.ringSurveyed = `${replaced}/${blocks.length}`;
+        }
+        if (hostRef.current) { hostRef.current.dataset.ring = `${ring.buildings} in ${Math.round(ring.ms)} ms`; hostRef.current.dataset.ringAt = performance.now().toFixed(0); }
+      });
+    }), 4000); });
     if (stage.hq) afterShown(() => { window.setTimeout(() => void sharpenNeighbourhood(async () => { await nextSlice(true); return true; }).then(() => { if (hostRef.current) hostRef.current.dataset.sharp = "2x"; }), 4000); });
     disposables.push(lamps);
     const onLook = [(l: Look) => lamps.setLevel(l.lamps)];

@@ -183,6 +183,42 @@ export async function photoBuildings(key: string, lat0: number, lon0: number, ra
   return out;
 }
 
+/** The surveyed shapes near some points only (the 1 km ring's apartment blocks): the tiles that
+ * hold the points, and of their buildings those within 40 m of one, shapes only (no photograph),
+ * nearest first, four at a time. Points in local metres about (lat0, lon0). */
+export async function photoBuildingsNear(key: string, lat0: number, lon0: number, points: { x: number; y: number }[], opts: { signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void } = {}): Promise<PhotoBuilding[]> {
+  if (!points.length) return [];
+  const token = await vworldToken(key);
+  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
+  const tiles = new Map<string, [number, number]>(), cell = new Set<string>();
+  for (const q of points) {
+    const lon = lon0 + q.x / kx, lat = lat0 + q.y / ky;
+    const tx = Math.floor((lon + 180) / SIZE), ty = Math.floor((lat + 90) / SIZE);
+    tiles.set(tx + "," + ty, [tx, ty]);
+    cell.add(Math.round(q.x / 40) + "," + Math.round(q.y / 40));
+  }
+  const near = (x: number, y: number) => { const a = Math.round(x / 40), b = Math.round(y / 40); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (cell.has(a + i + "," + (b + j))) return true; return false; };
+  const lists = await Promise.all([...tiles.values()].map(([x, y]) => tileList(token, x, y, opts.signal)));
+  const seen = new Set<string>(), entries: Entry[] = [];
+  for (const e of lists.flat()) {
+    if (seen.has(e.key)) continue;
+    seen.add(e.key);
+    if (near((e.lon - lon0) * kx, (e.lat - lat0) * ky)) entries.push(e);
+  }
+  entries.sort((a, b) => Math.hypot(a.lon - lon0, a.lat - lat0) - Math.hypot(b.lon - lon0, b.lat - lat0));
+  const out: PhotoBuilding[] = [];
+  let next = 0;
+  const run = async () => {
+    while (next < entries.length && !opts.signal?.aborted) {
+      const e = entries[next++];
+      const b = await model(token, e, lat0, lon0, 0, opts.signal, false).catch(() => null);
+      if (b) { out.push(b); opts.onBuilding?.(b); }
+    }
+  };
+  await Promise.all([run(), run(), run(), run()]);
+  return out;
+}
+
 /** The photograph read in a worker (a few at a time): fetched here, decoded and
  * analysed there, so the page never stalls on it. One analysis per building. */
 const workers: Worker[] = [];

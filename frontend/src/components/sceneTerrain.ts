@@ -22,6 +22,9 @@ export interface Terrain {
   /** Absolute elevation of the centre (m above sea level), null when level fallback. */
   elevation: number | null;
   source: string | null;
+  /** The height grid itself (for work done off the page: the 1 km ring's buildings): n × n
+   * heights, CELL metres apart, centred, R the half-size. */
+  grid?: { h: Float32Array; n: number; R: number; cell: number };
 }
 
 export const FLAT: Terrain = { at: () => 0, base: () => 0, relief: 0, elevation: null, source: null };
@@ -261,6 +264,7 @@ function gridTerrain(radius: number, CELL: number, sample: (x: number, y: number
     relief: Number.isFinite(hi - lo) ? hi - lo : 0,
     elevation: Math.round(h0 * 10) / 10,
     source,
+    grid: { h, n, R, cell: CELL },
   };
 }
 

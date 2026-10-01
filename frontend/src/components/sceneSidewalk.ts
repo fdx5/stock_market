@@ -151,7 +151,13 @@ function paverTexture() {
  * paving, one for kerbs and pits. */
 export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [number, number][]) {
   const pos: number[] = [], uv: number[] = [], nor: number[] = [];
-  const kPos: number[] = [], kNor: number[] = [], kCol: number[] = [];
+  const kPos: number[] = [], kNor: number[] = [], kCol: number[] = [], kIdx: number[] = [];
+  // (kerb faces, bands and pits as indexed quads: four vertices each, not six)
+  const kQuad = (q: number[][], nx: number, ny: number, nz: number, r: number, g: number, b: number, order: number[]) => {
+    const v = kPos.length / 3;
+    for (const p of q) { push(kPos, p[0], p[1], p[2]); push(kNor, nx, ny, nz); push(kCol, r, g, b); }
+    for (const k of order) kIdx.push(v + k);
+  };
   const kerb = new THREE.Color("#b9b6ae"), pit = new THREE.Color("#3a3129"), grate = new THREE.Color("#2b2d2f");
   const push = (arr: number[], ...v: number[]) => { for (const x of v) arr.push(x); };
   // (a few ms at a time: all the runs at once held the page ~45 ms)
@@ -180,21 +186,22 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
       for (const [p, q, yp, yq, drop, out] of [[a0, b0, ya0, yb0, KERB_H + 0.08, -1], [a1, b1, ya1, yb1, KERB_H + 0.08, 1]] as const) {
         const nx = r.nx[i] * r.side * out, ny = -r.ny[i] * r.side * out;
         const quad: [number, number, number][] = [W(p, yp), W(q, yq), W(q, yq - drop), W(p, yp - drop)];
-        for (const k of [0, 3, 2, 0, 2, 1]) { push(kPos, ...quad[k]); push(kNor, nx, 0, ny); push(kCol, kerb.r, kerb.g, kerb.b); }
+        kQuad(quad, nx, 0, ny, kerb.r, kerb.g, kerb.b, [0, 3, 2, 0, 2, 1]);
       }
       // Kerbstone top edge: a 15 cm granite band along the road side.
       const k0 = runPt(r, i, r.half + 0.15), k1 = runPt(r, i + 1, r.half + 0.15);
       const band: [number, number, number][] = [W(a0, ya0 + 0.004), W(b0, yb0 + 0.004), W(k1, yb0 + 0.004), W(k0, ya0 + 0.004)];
       const up = r.side > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
-      for (const k of up) { push(kPos, ...band[k]); push(kNor, 0, 1, 0); push(kCol, kerb.r * 1.05, kerb.g * 1.05, kerb.b * 1.05); }
+      kQuad(band, 0, 1, 0, kerb.r * 1.05, kerb.g * 1.05, kerb.b * 1.05, up);
     }
   }
   // Tree pits: 1.2 m squares, soil with a cast-iron grate frame.
   for (const [x, y] of pits) {
     const h = terrain.at(x, y) + KERB_H + 0.006;
     for (const [s, c] of [[0.62, grate], [0.5, pit]] as const) {
-      const q: [number, number, number][] = [[x - s, h, -y - s], [x + s, h, -y - s], [x + s, h, -y + s], [x - s, h, -y + s]];
-      for (const k of [0, 3, 2, 0, 2, 1]) { push(kPos, q[k][0], q[k][1] + (c === pit ? 0.002 : 0), q[k][2]); push(kNor, 0, 1, 0); push(kCol, c.r, c.g, c.b); }
+      const lift = c === pit ? 0.002 : 0;
+      const q: [number, number, number][] = [[x - s, h + lift, -y - s], [x + s, h + lift, -y - s], [x + s, h + lift, -y + s], [x - s, h + lift, -y + s]];
+      kQuad(q, 0, 1, 0, c.r, c.g, c.b, [0, 3, 2, 0, 2, 1]);
     }
   }
   const group = new THREE.Group();
@@ -216,6 +223,7 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     geo.setAttribute("position", new THREE.Float32BufferAttribute(kPos, 3));
     geo.setAttribute("normal", new THREE.Float32BufferAttribute(kNor, 3));
     geo.setAttribute("color", new THREE.Float32BufferAttribute(kCol, 3));
+    geo.setIndex(kIdx);
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;

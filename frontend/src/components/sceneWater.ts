@@ -177,8 +177,12 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
   if (!open.length) return null;
   const field = await waterField(open.map(p => p.ring), terrain, pace);
   if (!field) return null;
-  const pos: number[] = [], uv: number[] = [], nor: number[] = [], shore: number[] = [], flow: number[] = [];
+  const pos: number[] = [], uv: number[] = [], nor: number[] = [], shore: number[] = [], flow: number[] = [], index: number[] = [];
+  // (a corner shared by the triangles round it is one vertex: everything at a vertex follows from
+  // where it is and which parcel it belongs to. Unshared, each was stored ~6 times — 8 MB of
+  // vertices on the Han river, and as many shore and level look-ups.)
   for (const p of open) {
+    const at = new Map<string, number>();
     // Flow along the parcel's longest edge.
     let best = 0, ang = 0;
     p.ring.forEach((a, i) => { const b = p.ring[(i + 1) % p.ring.length], l = Math.hypot(b[0] - a[0], b[1] - a[1]); if (l > best) { best = l; ang = Math.atan2(b[1] - a[1], b[0] - a[0]); } });
@@ -190,6 +194,10 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
     // level. aShore = metres to the bank, aFlow = the channel direction in world x/z
     // (the WebGPU water: its depth, soft edge and current).
     const push = (x: number, y: number) => {
+      const key = `${x.toFixed(3)},${y.toFixed(3)}`;
+      const had = at.get(key);
+      if (had !== undefined) { index.push(had); return; }
+      at.set(key, pos.length / 3); index.push(pos.length / 3);
       pos.push(x, field.level(x, y) + 0.12, -y);
       uv.push(x * ux + y * uy, -x * uy + y * ux);
       nor.push(0, 1, 0);
@@ -218,6 +226,7 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
   geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
   geo.setAttribute("aShore", new THREE.Float32BufferAttribute(shore, 1));
   geo.setAttribute("aFlow", new THREE.Float32BufferAttribute(flow, 2));
+  geo.setIndex(index);
   geo.computeBoundingSphere();
   const mat = new THREE.MeshStandardMaterial({ color: "#1f3d49", roughness: 0.06, metalness: 0 });
   mat.userData.water = true;
