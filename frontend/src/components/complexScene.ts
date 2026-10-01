@@ -3,6 +3,7 @@ import { RealEstateBuildingsResponse } from "../api/client";
 import { ringIndex, sidewalkWidth } from "./sceneSidewalk";
 import { coveredStream } from "./sceneWater";
 import { normalRows } from "./normalKernel";
+import { cdn } from "../staticCdn";
 
 const WATER_KINDS = new Set(["천", "구", "유", "양"]);
 const coveredMemo = new WeakMap<object, boolean[]>();
@@ -1626,7 +1627,7 @@ void main() {
 export function moonInSky() {
   const dir = new THREE.Vector3(0, 1, 0);
   let above = 1, level = 0, lit = 1;
-  const disc = new THREE.TextureLoader().load("/3d/moon.webp");
+  const disc = new THREE.TextureLoader().load(cdn("/3d/moon.webp"));
   disc.colorSpace = THREE.SRGBColorSpace;
   const glowCanvas = canvas(128, 128), g = glowCanvas.getContext("2d")!;
   const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);

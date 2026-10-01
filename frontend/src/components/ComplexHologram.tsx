@@ -29,6 +29,7 @@ import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
 import { endWalls, facadeRelief } from "./tidewater/facadeRelief";
 import { loadBuildings, saveBuildings } from "./buildingStore";
 import { buildPlants, preloadPlants } from "./scenePlants";
+import { vehicleShapes } from "./vehicleClient";
 import { buildLamps, buildTraffic, stitchedRoads } from "./sceneStreet";
 import { FLAT, gridNormals, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
@@ -2449,7 +2450,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const roads = stitchedRoads(data.roads ?? []);
     // (the plant kit — meshes, twig and bark textures, ~3 MB — after the first frame: fetched and
     // decoded alongside it, it held the first frame back by a few hundred ms)
-    afterShown(() => preloadPlants());
+    afterShown(() => { preloadPlants(); void vehicleShapes().catch(() => {}); });
     const landUse = async (): Promise<Planting> => {
       if (data.parcels || !data.vworld_key) return plan.planting;
       const got = await Promise.race([

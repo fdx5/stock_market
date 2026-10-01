@@ -36,6 +36,7 @@ import "./kospiOrbit.css";
 import "./kospiOrbitRefresh.css";
 import "./orbitCompanyArchive.css";
 import { disposeControls } from "../threeCleanup";
+import { cdn } from "../staticCdn";
 
 type System = {
   name: string;
@@ -352,11 +353,11 @@ function SpaceScene({
     const panoramaSize = use8kPanorama ? "8k" : "4k";
     const backgroundPath =
       trackingMarket === "KOSPI"
-        ? `/img/sky/nebula-kit-deep-field-11-${panoramaSize}.webp`
+        ? cdn(`/img/sky/nebula-kit-deep-field-11-${panoramaSize}.webp`)
         : trackingMarket === "KOSDAQ"
-          ? `/img/sky/space-spheremaps-blue-nebulae-1-${panoramaSize}.webp`
+          ? cdn(`/img/sky/space-spheremaps-blue-nebulae-1-${panoramaSize}.webp`)
           : trackingMarket === "NASDAQ100"
-            ? `/img/sky/space-spheremaps-hazy-nebulae-1-${panoramaSize}.webp`
+            ? cdn(`/img/sky/space-spheremaps-hazy-nebulae-1-${panoramaSize}.webp`)
             : null;
     if (backgroundPath) {
       backgroundTexture = new THREE.TextureLoader().load(backgroundPath);

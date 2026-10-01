@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { fetchStatic } from "../staticCdn";
 
 /* Passenger cars built from their proportions, in place of the Kenney kit's blocky bodies:
  * a side profile (bonnet, windscreen, roof, rear screen, boot or hatch) lofted through
@@ -197,6 +198,8 @@ function wheel(b: Builder, x: number, z: number, R: number, width: number, out: 
 }
 
 const cache = new Map<string, THREE.BufferGeometry>();
+/** A car's shape made elsewhere (vehicleWorker): taken as this kind's from now on. */
+export function primeCarGeometry(kind: string, g: THREE.BufferGeometry) { if (!cache.has(kind)) cache.set(kind, g); }
 
 /** The car of a kind (CAR_SPECS keys), shared by every car of that kind. */
 export function carGeometry(kind: string): THREE.BufferGeometry | null {
@@ -244,8 +247,8 @@ interface CarPart { verts: number; index: number; pos: number; nor: number; uv: 
 let modelled: Promise<Map<string, THREE.BufferGeometry>> | null = null;
 export function loadCarModels(): Promise<Map<string, THREE.BufferGeometry>> {
   modelled ??= Promise.all([
-    fetch("/3d/cars.json").then(r => { if (!r.ok) throw new Error("cars.json " + r.status); return r.json() as Promise<{ kinds: Record<string, CarPart> }>; }),
-    fetch("/3d/cars.bin").then(r => { if (!r.ok) throw new Error("cars.bin " + r.status); return r.arrayBuffer(); }),
+    fetchStatic("/3d/cars.json").then(r => { if (!r.ok) throw new Error("cars.json " + r.status); return r.json() as Promise<{ kinds: Record<string, CarPart> }>; }),
+    fetchStatic("/3d/cars.bin").then(r => { if (!r.ok) throw new Error("cars.bin " + r.status); return r.arrayBuffer(); }),
   ]).then(([meta, bin]) => {
     const out = new Map<string, THREE.BufferGeometry>();
     for (const [kind, p] of Object.entries(meta.kinds)) {

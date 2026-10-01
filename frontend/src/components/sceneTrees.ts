@@ -1,5 +1,6 @@
 import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
+import { cdn, fetchStatic } from "../staticCdn";
 
 /* Trees as meshes (scripts/gen-mesh-trees.py): bark tubes and leaf-cluster cards per species
  * variant, instanced — every tree of one variant is one draw for its bark and one for its
@@ -32,18 +33,18 @@ function yUp(a: ArrayLike<number>, n: number, stride: number, scale = 1) {
 
 export function loadTreeKit(): Promise<TreeKit> {
   kit ??= Promise.all([
-    fetch("/3d/trees.json").then(r => { if (!r.ok) throw new Error("trees.json " + r.status); return r.json() as Promise<Meta>; }),
-    fetch("/3d/trees.bin").then(r => { if (!r.ok) throw new Error("trees.bin " + r.status); return r.arrayBuffer(); }),
-    new THREE.TextureLoader().loadAsync("/3d/leaves.webp"),
+    fetchStatic("/3d/trees.json").then(r => { if (!r.ok) throw new Error("trees.json " + r.status); return r.json() as Promise<Meta>; }),
+    fetchStatic("/3d/trees.bin").then(r => { if (!r.ok) throw new Error("trees.bin " + r.status); return r.arrayBuffer(); }),
+    new THREE.TextureLoader().loadAsync(cdn("/3d/leaves.webp")),
     // Leafy twigs (photographed leaves on their stems): what the crowns are made of.
-    new THREE.TextureLoader().loadAsync("/3d/twigs.webp"),
-    fetch("/3d/twigs.json").then(r => { if (!r.ok) throw new Error("twigs.json " + r.status); return r.json() as Promise<TwigAtlas>; }),
+    new THREE.TextureLoader().loadAsync(cdn("/3d/twigs.webp")),
+    fetchStatic("/3d/twigs.json").then(r => { if (!r.ok) throw new Error("twigs.json " + r.status); return r.json() as Promise<TwigAtlas>; }),
     // Scanned bark per species (Poly Haven CC0: zelkova, plane, cherry, pine …), tiled at
     // its real size; a tree whose bark doesn't load keeps its vertex colour.
-    fetch("/3d/bark.json").then(r => (r.ok ? r.json() : {}) as Promise<Record<string, BarkInfo>>).then(async (info: Record<string, BarkInfo>) => {
+    fetchStatic("/3d/bark.json").then(r => (r.ok ? r.json() : {}) as Promise<Record<string, BarkInfo>>).then(async (info: Record<string, BarkInfo>) => {
       const out = new Map<string, THREE.Texture>();
       await Promise.all(Object.entries(info).map(async ([species, b]) => {
-        const t = await new THREE.TextureLoader().loadAsync("/3d/" + b.file).catch(() => null);
+        const t = await new THREE.TextureLoader().loadAsync(cdn("/3d/" + b.file)).catch(() => null);
         if (!t) return;
         t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
         t.repeat.set(1 / b.metres, 1 / b.metres);

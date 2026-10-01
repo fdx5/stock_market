@@ -1,3 +1,4 @@
+import { cdn } from "../staticCdn";
 /** Representative product/facility photo for a company, keyed by the same `code`
  * companiesmarketcap.com returns. Files live in /img/products/ — Wikimedia Commons
  * photos, all freely licensed and vetted by hand for actually being the right
@@ -36,5 +37,5 @@ const HAS_PRODUCT_IMAGE = new Set([
 
 export function productImageFor(code: string): string | null {
   if (!HAS_PRODUCT_IMAGE.has(code)) return null;
-  return `/img/products/${sanitize(code)}.webp`;
+  return cdn(`/img/products/${sanitize(code)}.webp`);
 }

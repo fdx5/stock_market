@@ -9,6 +9,7 @@ import LanguageToggle from "./LanguageToggle";
 import StockIcon from "./StockIcon";
 import ThemeToggle from "./ThemeToggle";
 import "./hub.css";
+import { cdn } from "../staticCdn";
 
 /* ============================================================================
    ORBIT — the site's entrance.
@@ -71,7 +72,7 @@ const PLANETS: PlanetSpec[] = [
     duration: 34,
     phase: 0.06,
     skin: {
-      texture: "/img/planets/mercury.webp",
+      texture: cdn("/img/planets/mercury.webp"),
       spinSeconds: 9,
       glow: "#c9beae",
     },
@@ -87,7 +88,7 @@ const PLANETS: PlanetSpec[] = [
     phase: 0.56,
     feed: "KOSDAQ",
     skin: {
-      texture: "/img/planets/venus.webp",
+      texture: cdn("/img/planets/venus.webp"),
       spinSeconds: 13,
       // Venus's real rotation is retrograde.
       reverseSpin: true,
@@ -105,7 +106,7 @@ const PLANETS: PlanetSpec[] = [
     phase: 0.2,
     feed: "KOSPI",
     skin: {
-      texture: "/img/planets/earth.webp",
+      texture: cdn("/img/planets/earth.webp"),
       spinSeconds: 11,
       glow: "#5fa8ff",
     },
@@ -121,7 +122,7 @@ const PLANETS: PlanetSpec[] = [
     phase: 0.68,
     feed: "NDX",
     skin: {
-      texture: "/img/planets/mars.webp",
+      texture: cdn("/img/planets/mars.webp"),
       spinSeconds: 10,
       glow: "#ff8f5c",
     },
@@ -137,7 +138,7 @@ const PLANETS: PlanetSpec[] = [
     phase: 0.78,
     feed: "SPX",
     skin: {
-      texture: "/img/planets/jupiter.webp",
+      texture: cdn("/img/planets/jupiter.webp"),
       spinSeconds: 16,
       glow: "#e0b177",
     },
@@ -152,7 +153,7 @@ const PLANETS: PlanetSpec[] = [
     duration: 66,
     phase: 0.42,
     skin: {
-      texture: "/img/planets/saturn.webp",
+      texture: cdn("/img/planets/saturn.webp"),
       spinSeconds: 18,
       glow: "#e8cf9a",
       discR: 25,
@@ -169,7 +170,7 @@ const PLANETS: PlanetSpec[] = [
     duration: 84,
     phase: 0.14,
     skin: {
-      texture: "/img/planets/uranus.webp",
+      texture: cdn("/img/planets/uranus.webp"),
       spinSeconds: 14,
       // Uranus's real rotation is retrograde (its axis is tipped ~98°, but a
       // full barrel-roll is out of scope for this billboard). That same ~98°
@@ -194,7 +195,7 @@ const PLANETS: PlanetSpec[] = [
     duration: 104,
     phase: 0.32,
     skin: {
-      texture: "/img/planets/neptune.webp",
+      texture: cdn("/img/planets/neptune.webp"),
       spinSeconds: 15,
       glow: "#4d6dff",
     },
@@ -435,7 +436,7 @@ interface MoonSpec {
 // separate explicit request — rather than the Moon's real ~27-day tidally
 // locked rotation, which read as motionless like Mercury's would.
 const MOON_SKIN: PhotoSkin = {
-  texture: "/img/planets/moon.webp",
+  texture: cdn("/img/planets/moon.webp"),
   spinSeconds: 6,
   glow: "#cfc9be",
 };
@@ -478,10 +479,10 @@ const MOON_UNIT = 30;
 // slowest) — a small, free nod to the real Galilean moons' own orbital
 // periods actually working the same way, same idea as Venus/Uranus's
 // reverseSpin elsewhere in PLANETS.
-const IO_SKIN: PhotoSkin = { texture: "/img/planets/io.webp", spinSeconds: 5, glow: "#d9a85f" };
-const EUROPA_SKIN: PhotoSkin = { texture: "/img/planets/europa.webp", spinSeconds: 7, glow: "#d8cfba" };
-const GANYMEDE_SKIN: PhotoSkin = { texture: "/img/planets/ganymede.webp", spinSeconds: 9, glow: "#9c9483" };
-const CALLISTO_SKIN: PhotoSkin = { texture: "/img/planets/callisto.webp", spinSeconds: 11, glow: "#5f5c56" };
+const IO_SKIN: PhotoSkin = { texture: cdn("/img/planets/io.webp"), spinSeconds: 5, glow: "#d9a85f" };
+const EUROPA_SKIN: PhotoSkin = { texture: cdn("/img/planets/europa.webp"), spinSeconds: 7, glow: "#d8cfba" };
+const GANYMEDE_SKIN: PhotoSkin = { texture: cdn("/img/planets/ganymede.webp"), spinSeconds: 9, glow: "#9c9483" };
+const CALLISTO_SKIN: PhotoSkin = { texture: cdn("/img/planets/callisto.webp"), spinSeconds: 11, glow: "#5f5c56" };
 
 // Real closest-to-farthest order (also this array's own order, though that
 // only affects initial DOM paint order — each ring's actual near/far pass
@@ -505,9 +506,9 @@ const JUPITER_MOONS: MoonSpec[] = [
 // this to a camera, the same way Jupiter's own banding is real and not a
 // stylistic tint) rather than a neutral grey the way Mimas/Enceladus's icy
 // surfaces are.
-const MIMAS_SKIN: PhotoSkin = { texture: "/img/planets/mimas.webp", spinSeconds: 6, glow: "#d8d2c4" };
-const ENCELADUS_SKIN: PhotoSkin = { texture: "/img/planets/enceladus.webp", spinSeconds: 8, glow: "#eaf4ff" };
-const TITAN_SKIN: PhotoSkin = { texture: "/img/planets/titan.webp", spinSeconds: 13, glow: "#e8a35c" };
+const MIMAS_SKIN: PhotoSkin = { texture: cdn("/img/planets/mimas.webp"), spinSeconds: 6, glow: "#d8d2c4" };
+const ENCELADUS_SKIN: PhotoSkin = { texture: cdn("/img/planets/enceladus.webp"), spinSeconds: 8, glow: "#eaf4ff" };
+const TITAN_SKIN: PhotoSkin = { texture: cdn("/img/planets/titan.webp"), spinSeconds: 13, glow: "#e8a35c" };
 
 // Real closest-to-farthest order — Mimas, Enceladus, then Titan much further
 // out (Titan is Saturn's largest moon by far, hence sizeUnits MOON_UNIT * 2
@@ -1293,7 +1294,7 @@ const EJECTA_KNOTS = buildEjectaKnots(20, 60217);
    independent timers that could drift apart from each other. */
 
 const PLUTO_SKIN: PhotoSkin = {
-  texture: "/img/planets/pluto.webp",
+  texture: cdn("/img/planets/pluto.webp"),
   spinSeconds: 17,
   glow: "#d9b48f",
 };

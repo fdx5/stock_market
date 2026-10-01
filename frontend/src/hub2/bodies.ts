@@ -1,3 +1,4 @@
+import { cdn } from "../staticCdn";
 /* ============================================================================
    ORBIT II — the world's contents.
    ----------------------------------------------------------------------------
@@ -120,7 +121,7 @@ export interface PlanetSpec {
   moons?: MoonSpec[];
 }
 
-const TEX = "/img/planets";
+const TEX = cdn("/img/planets");
 
 /* ─────────────────────────── moons ─────────────────────────── */
 

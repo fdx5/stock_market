@@ -56,6 +56,7 @@ import {
   WORMHOLE_VERT,
 } from "./shaders";
 import { disposeControls } from "../threeCleanup";
+import { cdn } from "../staticCdn";
 
 /* ============================================================================
    ORBIT II — the engine.
@@ -1547,7 +1548,7 @@ export class HubScene {
        tier — which is the phone tier — gets a quarter of the pixels. At the
        size the band is drawn, that difference is most visible in the bulge and
        barely anywhere else. */
-    const texture = this.texture(this.tier === "low" ? "/img/sky/milkyway-2k.webp" : "/img/sky/milkyway-4k.webp");
+    const texture = this.texture(cdn(this.tier === "low" ? "/img/sky/milkyway-2k.webp" : "/img/sky/milkyway-4k.webp"));
 
     // Enough segments that the UV-to-longitude mapping stays smooth across a
     // sphere this large; the shader reads the geometry's own UVs.
@@ -1595,7 +1596,7 @@ export class HubScene {
    * has room. Far enough out (2450) to sit outside every orbit and behind the
    * whole starfield. */
   private buildSkyPhoto() {
-    const texture = new THREE.TextureLoader().load("/img/sky/horsehead.jpg");
+    const texture = new THREE.TextureLoader().load(cdn("/img/sky/horsehead.jpg"));
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     this.textures.push(texture);

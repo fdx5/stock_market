@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { cdn } from "../staticCdn";
 
 export type PremiumPlanetKind = "rock" | "ocean" | "ocean-clouds";
 
@@ -19,7 +20,7 @@ export interface PremiumPlanetMaps {
   invertLandform: number;
 }
 
-const ROOT = "/img/planet-surfaces/";
+const ROOT = cdn("/img/planet-surfaces/");
 const ROCK_MAPS = ["2k_mercury.jpg", "2k_moon.jpg", "2k_venus_surface.jpg"];
 const LANDFORM_MAPS = [
   "2k_mercury.jpg",

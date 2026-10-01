@@ -5,6 +5,7 @@ import { FLAT, type Terrain } from "./sceneTerrain";
 import { KERB_H } from "./sceneSidewalk";
 import { gpuCaps } from "./gpuCaps";
 import { Forest, loadTreeKit, preloadTrees } from "./sceneTrees";
+import { cdn, fetchStatic } from "../staticCdn";
 
 /* Landscaping plants as photoreal impostors. /3d/plants.webp is an atlas baked from
  * Poly Haven's CC0 photoscanned plants (trees, conifers, shrubs, flowers; one cell
@@ -24,8 +25,8 @@ interface Atlas { cell: number; cols: number; rows: number; assets: Cell[] }
 let atlas: Promise<{ meta: Atlas; texture: THREE.Texture }> | null = null;
 function loadAtlas() {
   atlas ??= Promise.all([
-    fetch("/3d/plants.json").then(r => { if (!r.ok) throw new Error("plants.json " + r.status); return r.json() as Promise<Atlas>; }),
-    new THREE.TextureLoader().loadAsync("/3d/plants.webp"),
+    fetchStatic("/3d/plants.json").then(r => { if (!r.ok) throw new Error("plants.json " + r.status); return r.json() as Promise<Atlas>; }),
+    new THREE.TextureLoader().loadAsync(cdn("/3d/plants.webp")),
   ]).then(([meta, texture]) => {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
@@ -45,7 +46,7 @@ function loadAtlas() {
 /** plants.bc7.gz / plants.etc2.gz: 'BC7A' / 'ETC2', u32 header length, JSON header, then
  * every mip level's blocks. */
 async function compressedAtlas(kind: "bc7" | "etc2") {
-  const res = await fetch(`/3d/plants.${kind}.gz`);
+  const res = await fetchStatic(`/3d/plants.${kind}.gz`);
   if (!res.ok) return null;
   let buf = new Uint8Array(await res.arrayBuffer());
   // Still gzipped, unless the server already undid it (Content-Encoding).

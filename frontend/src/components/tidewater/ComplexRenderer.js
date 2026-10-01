@@ -18,6 +18,7 @@ import { GpuTimer } from './GpuTimer.js';
 import { packInto, warmPack } from './texturePack.js';
 import { canEncodeBC7, encodeBC7, warmBC7 } from './bc7Encode.js';
 import { gpuCaps } from '../gpuCaps';
+import { fetchStatic } from '../../staticCdn';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. The view steps down on its own while frames are slow. */
@@ -47,10 +48,10 @@ function useShadows({ shadow: size, pcss }) {
 let details = null;
 let detailLoad = null;
 async function loadDetails() {
-  const meta = await fetch('/3d/detail.json').then(r => { if (!r.ok) throw new Error('detail.json ' + r.status); return r.json(); });
+  const meta = await fetchStatic('/3d/detail.json').then(r => { if (!r.ok) throw new Error('detail.json ' + r.status); return r.json(); });
   const out = {};
   await Promise.all(Object.entries(meta).map(async ([name, m]) => {
-    const blob = await fetch('/3d/' + m.file).then(r => { if (!r.ok) throw new Error(m.file + ' ' + r.status); return r.blob(); });
+    const blob = await fetchStatic('/3d/' + m.file).then(r => { if (!r.ok) throw new Error(m.file + ' ' + r.status); return r.blob(); });
     const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
     const tex = new Texture({ width: bmp.width, height: bmp.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'], label: 'detail ' + name });
     GPU.queue.copyExternalImageToTexture({ source: bmp }, { texture: tex.getGPU() }, [bmp.width, bmp.height]);

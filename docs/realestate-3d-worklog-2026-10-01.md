@@ -151,3 +151,11 @@
   지면 페인트 단계(schoolGround 등), 보트, 근거리 photo pass의 surveyedShape. 완전 제거는 생성 파이프라인의 워커 이전 필요.
 - 차량 20종 추가(공사: 덤프 25t×2·2.5t, 타이어식 굴착기, 로베드+크롤러 굴착기, 카고크레인, 하이드로크레인, 펌프카 / 윙바디, 탱크로리, 1톤 냉동·알루미늄 탑차 /
   사다리차, 렉카, 노면청소차 / 마을·관광·2층버스 / 배달 오토바이, 픽업, 노란 통학 승합). ?veh=0으로 끔.
+
+## 10-02 차량 형상 워커 이전 + 정적 대용량 파일 CDN(jsDelivr)
+- vehicleShapes.ts(순수 지오메트리) / vehicleWorker.ts(모듈 워커) / vehicleClient.ts: Kenney 키트 디코딩+크리스 노멀, 승용 11종, 박스형 31종을
+  세션당 1회 워커에서 만들어 배열로 전달(실패 시 페이지에서 분할 생성). 단지 이동 때 트럭·버스 재생성 제거(세션 공유). 신호등 헤드 교차로별 분할.
+  A/B(HEAD 8876765): 표시후 12초 jank 907–956→842–873ms, hop 동일.
+- 서버 대역폭: frontend/public/3d(18MB, trees.bin·cars.bin·plants.*) 와 큰 이미지(planets, sky 파노라마, planet-surfaces, products)를
+  jsDelivr(https://cdn.jsdelivr.net/gh/fdx5/stock_market@<커밋>/frontend/public/...)에서 제공. src/staticCdn.ts의 STATIC_PIN(현재 8876765),
+  CDN 실패/미포함 파일은 우리 서버로 폴백. 파일 바꾸거나 추가하면 푸시 후 STATIC_PIN(및 kospiOrbit.css의 sky URL) 갱신 필요.
