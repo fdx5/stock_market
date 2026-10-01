@@ -775,12 +775,20 @@ export function seasonNow(): Season {
  * lawn, paved aprons around the towers, a perimeter walk and planting beds, whose
  * trees, shrubs and flowers are placed as 3D plants (`planting`). */
 export const paintGround = (data: RealEstateBuildingsResponse, T: number, size: number, seed: number) => runNow(paintGroundSteps(data, T, size, seed));
+/** The season's lawn and paddy colours (the ground's paint near and far: farGround.ts). */
+export function seasonGround(season: Season = seasonNow()) {
+  return {
+    lawn: season === "autumn" ? "#76784c" : season === "winter" ? "#7b795f" : season === "spring" ? "#688a48" : "#5a7b3e",
+    paddy: season === "summer" ? "#5f7d3c" : season === "autumn" ? "#b39a4e" : season === "spring" ? "#6b7563" : "#7d7461",
+  };
+}
+
 export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, size: number, seed: number): Steps<GroundPlan> {
   const S = size, k = S / (2 * T);
   const X = (x: number) => (x + T) * k, Y = (y: number) => (T - y) * k, m = (v: number) => v * k;
   const rnd = rng(seed);
   const season = seasonNow();
-  const lawn = season === "autumn" ? "#76784c" : season === "winter" ? "#7b795f" : season === "spring" ? "#688a48" : "#5a7b3e";
+  const { lawn, paddy } = seasonGround(season);
   // Colour carries the detail; roughness and the night glow are low-frequency and
   // painted in the same coordinates onto 1024 px canvases (scaled context).
   const R = Math.min(1024, S);
@@ -899,7 +907,6 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
   const parcels = data.parcels ?? [];
   const inSite = (x: number, y: number) => data.site.some(r => inRing([x, y], r));
   const lotTones = ["#a9a59c", "#b3aea4", "#9e9a92", "#bbb4a7", "#a49e92", "#aeaaa2", "#98958f"];
-  const paddy = season === "summer" ? "#5f7d3c" : season === "autumn" ? "#b39a4e" : season === "spring" ? "#6b7563" : "#7d7461";
   const LAND: Record<string, { c: string | ((i: number) => string); r: number }> = {
     대: { c: i => lotTones[i % lotTones.length], r: 205 }, 도: { c: "#55585c", r: 185 }, 차: { c: "#4b4e52", r: 190 },
     주: { c: "#8f8d88", r: 170 }, 장: { c: "#8a8a86", r: 200 }, 창: { c: "#8e8c87", r: 200 }, 철: { c: "#6d655b", r: 245 },

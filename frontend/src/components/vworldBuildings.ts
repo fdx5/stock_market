@@ -190,14 +190,23 @@ export async function vworldNearbyParcels(data: RealEstateBuildingsResponse, key
  * the last character of the 지번 (대 대지, 도 도로, 공 공원, 학 학교용지, 천 하천, 임 임야,
  * 전 밭, 답 논, 주 주차장, 체 체육용지, 종 종교용지, 구 구거, 유 유지, 잡 잡종지 …). Pages of
  * 1000 in parallel; about 1 MB per page, so this runs after the first frame. */
+/** The square the parcels are read for (footprint metres, [x0, y0, x1, y1]): the complex and
+ * its context; its land use is painted out to here (the 1 km picture takes over past it). */
+export function parcelBox(data: RealEstateBuildingsResponse): [number, number, number, number] | null {
+  const pts = [...data.site.flat(), ...data.buildings.flatMap(b => b.rings[0])];
+  if (!pts.length) return null;
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = CONTEXT_M + 30;
+  return [Math.min(...xs) - pad, Math.min(...ys) - pad, Math.max(...xs) + pad, Math.max(...ys) + pad];
+}
+
 export async function vworldParcels(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com"): Promise<{ parcels: RealEstateParcel[]; streets: [number, number][][] }> {
   if (!data.center) return { parcels: [], streets: [] };
   const { lat, lon } = data.center;
   const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
   const pts = [...data.site.flat(), ...data.buildings.flatMap(b => b.rings[0])];
   if (!pts.length) return { parcels: [], streets: [] };
-  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]), pad = CONTEXT_M + 30;
-  const box = `BOX(${lon + (Math.min(...xs) - pad) / kx},${lat + (Math.min(...ys) - pad) / ky},${lon + (Math.max(...xs) + pad) / kx},${lat + (Math.max(...ys) + pad) / ky})`;
+  const [x0, y0, x1, y1] = parcelBox(data)!;
+  const box = `BOX(${lon + x0 / kx},${lat + y0 / ky},${lon + x1 / kx},${lat + y1 / ky})`;
   const page = (n: number) => call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",
     key, domain, data: "LP_PA_CBND_BUBUN", geomFilter: box, size: 1000, page: n }).then(features).catch(() => [] as Feature[]);
   // 도로명주소 도로 (all named roads, alleys too) alongside.

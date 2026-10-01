@@ -17,9 +17,9 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex } from "../api/client";
-import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
+import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished, parcelBox } from "./vworldBuildings";
 import {
-  CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
+  CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
 } from "./complexScene";
 import { paintAhead, paintStats, paintTextures, plinthTone, prefetchPaint } from "./paintClient";
@@ -42,6 +42,7 @@ import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice } from "./frameSlice";
 import { ringBuildings } from "./ringBuildings";
+import { farGround } from "./farGround";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
  * real ones (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via
@@ -332,6 +333,21 @@ function metresFrom(center: { lat: number; lon: number }, lat: number, lon: numb
 }
 const BEARINGS = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"];
 const bearing = (x: number, y: number) => BEARINGS[Math.round(((Math.atan2(x, y) * 180) / Math.PI + 360) % 360 / 45) % 8];
+
+/** The 1 km land use's square (half its side, metres) and the blank it starts from (farGround.ts:
+ * the ground's shader takes the picture from the first frame, so its arrival swaps a texture,
+ * never the shader). */
+const FAR_HALF = 1100;
+let farBlank: THREE.Texture | null = null;
+const blankFar = () => {
+  if (farBlank) return farBlank;
+  const c = document.createElement("canvas"); c.width = c.height = 4;
+  // (drawn on: WebGPU cannot copy a canvas that has no context)
+  const x = c.getContext("2d")!; x.fillStyle = "#000"; x.fillRect(0, 0, 4, 4);
+  farBlank = new THREE.CanvasTexture(c);
+  farBlank.colorSpace = THREE.SRGBColorSpace; farBlank.flipY = false;
+  return farBlank;
+};
 
 const WHEEL_ZOOM = 4.8;
 
@@ -2373,8 +2389,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       emissiveMap: plan.glow, emissive: new THREE.Color("#ffffff"), emissiveIntensity: 0,
     }));
     lit.ground.push(groundMat);
-    // Beyond the surveyed area the ground is featureless: it fades into the horizon haze.
+    // Beyond the surveyed area the ground is featureless: it fades into the horizon haze — until
+    // the 1 km land use is in (farGround.ts), then past that.
     groundMat.userData.edgeFade = true;
+    groundMat.userData.farGround = { map: blankFar(), half: FAR_HALF, on: false };
     // (WebGPU: grass, asphalt and paving detail in world space)
     groundMat.userData.groundDetail = true;
     const level = terrain.relief < 1.2;
@@ -2600,6 +2618,24 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           stage.addWarm(group, mesh);
           if (style === "apt") aptGeo = geo;
         }
+        // The ground under the ring in its land use (farGround.ts): parcels by 지목, roads, channels.
+        whenIdle(() => {
+          if (!alive || ringStop.signal.aborted || new URLSearchParams(location.search).get("far") === "0") return;
+          const { lawn, paddy } = seasonGround();
+          void farGround(data, terrain, { half: FAR_HALF, size: 1024, lawn, paddy, signal: ringStop.signal }).then(fg => {
+            if (!fg) return;
+            if (!alive || ringStop.signal.aborted) { fg.bitmap.close(); return; }
+            const tex = keep(new THREE.Texture(fg.bitmap as unknown as HTMLImageElement));
+            tex.colorSpace = THREE.SRGBColorSpace; tex.flipY = false; tex.anisotropy = 8; tex.needsUpdate = true;
+            tex.userData.releaseAfterUpload = true;
+            // (the near land use reaches only the parcels' square: the picture past it, inside the
+           // painted square too; without parcels, everywhere past the painted square)
+           const pb = data.parcels?.length ? parcelBox(data) : null;
+           groundMat.userData.farGround = { map: tex, half: FAR_HALF, on: true, box: pb ? [pb[0], -pb[3], pb[2], -pb[1]] : null };
+            groundMat.needsUpdate = true;
+            if (hostRef.current) hostRef.current.dataset.farGround = `${fg.parcels} parcels in ${Math.round(fg.ms)} ms`;
+          });
+        });
         // The ring's apartment blocks in their surveyed shapes (VWorld 3D), as the near ones: shapes
         // only — no photographs (hundreds of them) — the long fronts windowed, the end walls and short
         // returns plain, roof rooms and parapet bands as painted. Each replaces its block in the ring

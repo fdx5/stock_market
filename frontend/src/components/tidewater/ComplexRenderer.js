@@ -560,8 +560,7 @@ const RECESS_WGSL = /* wgsl */`
 const ENV_SIZE = 256;
 const EnvUniforms = new UniformBlock('Env', { probe: ['vec4f', [0, 25, 0, 320]], on: ['f32', 0], pad0: ['f32', 0], pad1: ['f32', 0], pad2: ['f32', 0] }, { label: 'complex env' });
 let envView = null, envBlank = null;
-// (two cubes in turn: one read while the next is drawn — a texture can't be both at once)
-const envTexture = () => envView?.env?.tex[envView.env.cur] ?? (envBlank ??= new Texture({ width: 4, height: 4, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'render'], label: 'complex env blank' }));
+const envTexture = () => envView?.env?.tex ?? (envBlank ??= new Texture({ width: 4, height: 4, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'render'], label: 'complex env blank' }));
 // Cube faces +x, -x, +y, -y, +z, -z: where each looks and its up. A WebGPU cube's faces are laid
 // out left-handed against the scene's right-handed camera, so no turn of the camera matches them;
 // each face is drawn of the scene mirrored in z (look and up below, mirrored) and read with z
@@ -852,7 +851,10 @@ export class ComplexRenderer {
     }
     this.resolved = () => (this.taaNow ? this.taaHist[this.taaIdx] : this.target);
     if (ENV_ALLOWED) this.env = {
-      tex: [0, 1].map(i => new Texture({ width: ENV_SIZE, height: ENV_SIZE, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'render'], label: 'complex env ' + i })), cur: 0,
+      // (one cube, each face drawn into a buffer and copied in: drawing into the cube it reads
+      // isn't allowed, and a second cube was 3 MB — what the 1 km land use costs)
+      tex: new Texture({ width: ENV_SIZE, height: ENV_SIZE, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'copyDst'], label: 'complex env' }),
+      faceRT: new RenderTarget(ENV_SIZE, ENV_SIZE, { colors: ['rgba16float'], label: 'complex env face', usage: ['render', 'copySrc'] }),
       depth: new RenderTarget(ENV_SIZE, ENV_SIZE, { colors: [], depth: 'depth32float', label: 'complex env depth' }),
       block: createViewUniforms('complex env view'), cam: new PerspectiveCamera(90, 1, 0.5, 4000),
       face: -1, dirtyAt: performance.now(), key: '', meshes: 0, on: false,
@@ -1142,6 +1144,25 @@ export class ComplexRenderer {
         s.albedo = mat.color * wallTex * 0.55; s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.85; s.specularIntensity = 0.5;
       }\n`;
     }
+    // The ground out to 1 km (farGround.ts): past the painted square, the land-use picture; its
+    // water (alpha ½) smooth, reflecting. Always bound — a blank until the picture comes — so the
+    // picture arriving only swaps a texture, never the shader.
+    const far = source.userData.farGround;
+    if (far?.map) {
+      textures.farMap = this.texture(far.map);
+      extra.farT = ['vec4f', [far.half, far.on ? 1 : 0, 0, 0]];
+      // (farB: the square the near land use covers, in x and z; past it, the picture)
+      extra.farB = ['vec4f', far.box ?? [-1e9, -1e9, 1e9, 1e9]];
+      surface += `let pz = vec2f(in.P.x, in.P.z);
+      if (mat.farT.y > 0.5 && (any(in.uv < vec2f(0.0)) || any(in.uv > vec2f(1.0)) || any(pz < mat.farB.xy) || any(pz > mat.farB.zw))) {
+        let fuv = vec2f(in.P.x, in.P.z) / (2.0 * mat.farT.x) + 0.5;
+        if (all(fuv > vec2f(0.0)) && all(fuv < vec2f(1.0))) {
+          let ft = textureSample(farMap, smpAnisoClamp, fuv);
+          s.albedo = ft.rgb; s.metalness = 0.0; s.emissive = vec3f(0.0);
+          s.roughness = select(0.95, 0.07, ft.a < 0.75);
+        }
+      }\n`;
+    }
     if (DETAIL_ALLOWED && source.userData.groundDetail) surface += GROUND_DETAIL + '\n';
     const scan = DETAIL_ALLOWED && details?.[source.userData.detail];
     if (scan) {
@@ -1228,8 +1249,12 @@ export class ComplexRenderer {
         r.color = vec4f(select(min(r.color.rgb, vec3f(30000.0)), vec3f(0.0), r.color.rgb != r.color.rgb), r.color.a);
         let fog = 1.0 - exp(-length(in.P - frame.cameraPos) * mat.haze * mat.hazeScale);
         r.color = vec4f(mix(r.color.rgb, frame.horizonColor, clamp(fog, 0.0, 0.9)), r.color.a);${source.userData.edgeFade ? `
-        // Past the painted (surveyed) ground, uv leaves 0..1: fade into the horizon haze.
-        let past = max(max(-in.uv.x, in.uv.x - 1.0), max(-in.uv.y, in.uv.y - 1.0));
+        // Past the painted (surveyed) ground, uv leaves 0..1: fade into the horizon haze (past the
+        // 1 km land use once it is in).
+        let pastNear = max(max(-in.uv.x, in.uv.x - 1.0), max(-in.uv.y, in.uv.y - 1.0));${source.userData.farGround ? `
+        let fq = abs(vec2f(in.P.x, in.P.z)) / mat.farT.x;
+        let past = select(pastNear, (max(fq.x, fq.y) - 1.0) * 0.5, mat.farT.y > 0.5);` : `
+        let past = pastNear;`}
         r.color = vec4f(mix(r.color.rgb, frame.horizonColor * 0.92, smoothstep(-0.05, 0.9, past)), r.color.a);` : ''}`,
       uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1], ...extra }, defines: { CLEARCOAT: source.clearcoat || car || source.userData.carModel ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
       userData: { foliage: !!(source.userData.foliage || source.userData.leafCluster) },
@@ -1328,7 +1353,7 @@ export class ComplexRenderer {
       mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); unusedAt.delete(src); dropped = true;
     }
     if (dropped) this.renderer.pipelines.clear();
-    const kept = new Set([...this.materials.keys()].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap]));
+    const kept = new Set([...this.materials.keys()].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap, m.userData.farGround?.map]));
     for (const [src, tex] of this.textures) if (!kept.has(src)) { tex.destroy(); this.textures.delete(src); }
   }
   render(source, camera, look, time) {
@@ -1482,10 +1507,11 @@ export class ComplexRenderer {
     setFrameCamera(cam, ENV_SIZE, ENV_SIZE, { block: e.block });
     this.renderer.render(this.scene, {
       label: 'complex env ' + e.face, camera: cam, kind: 'color', frameBlock: e.block,
-      colorViews: [e.tex[e.cur ^ 1].view({ dimension: '2d', baseArrayLayer: e.face, arrayLayerCount: 1 })], colorFormats: ['rgba16float'],
+      colorViews: [e.faceRT.texture.view()], colorFormats: ['rgba16float'],
       depthView: e.depth.depthTexture.view(), depthFormat: 'depth32float', clearColors: [[0, 0, 0, 0]], clearDepth: 0,
     });
-    if (++e.face === 6) { e.face = -1; e.on = true; e.cur ^= 1; }
+    GPU.getEncoder().copyTextureToTexture({ texture: e.faceRT.texture.getGPU() }, { texture: e.tex.getGPU(), origin: [0, 0, e.face] }, [ENV_SIZE, ENV_SIZE, 1]);
+    if (++e.face === 6) { e.face = -1; e.on = true; }
   }
   dispose() {
     this.disposed = true;
@@ -1502,7 +1528,7 @@ export class ComplexRenderer {
     this.ao?.textures.forEach(t => t.destroy()); this.aoTmp?.textures.forEach(t => t.destroy());
     this.bloomRT?.forEach(rt => rt.textures.forEach(t => t.destroy()));
     this.taaHist?.forEach(rt => rt.textures.forEach(t => t.destroy()));
-    if (this.env) { this.env.tex.forEach(t => t.destroy()); this.env.depth.depthTexture.destroy(); if (envView === this) envView = null; }
+    if (this.env) { this.env.tex.destroy(); this.env.faceRT.textures.forEach(t => t.destroy()); this.env.depth.depthTexture.destroy(); if (envView === this) envView = null; }
     this.renderer.pipelines.clear(); this.materials.clear(); this.textures.clear(); this.meshes.clear();
   }
 }
