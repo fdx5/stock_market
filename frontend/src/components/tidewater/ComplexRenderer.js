@@ -801,6 +801,9 @@ export class ComplexRenderer {
     this.context.configure({ device: GPU.device, format: GPU.format, alphaMode: 'opaque' });
     host.appendChild(this.canvas);
     this.scene = new Scene();
+    // (the scene itself never moves: its meshes' world matrices are worked out only when sync()
+    // gives them a new one — not every mesh in every pass, as an auto-updating root forced)
+    this.scene.matrixAutoUpdate = false;
     this.camera = new PerspectiveCamera();
     this.renderer = new MeshRenderer();
     // A new complex's pipelines spread over frames (see MeshRenderer._pipeline).
@@ -1307,7 +1310,7 @@ export class ComplexRenderer {
         added = true;
         // A new caster joins the cached shadows (as still, until it moves).
         if (mesh.castShadow) this.castersChanged = true;
-        mesh.matrix.copy(obj.matrixWorld);
+        mesh.matrix.copy(obj.matrixWorld); mesh.matrixWorldNeedsUpdate = true;
         mesh.count = obj.count ?? 1;
         mesh.instVersion = obj.instanceMatrix?.version;
       }
@@ -1324,7 +1327,7 @@ export class ComplexRenderer {
         mesh.moving = true; mesh.movedAt = this.frameNo;
         mesh.count = obj.count ?? 1;
         mesh.instVersion = obj.instanceMatrix?.version;
-        mesh.matrix.copy(obj.matrixWorld);
+        mesh.matrix.copy(obj.matrixWorld); mesh.matrixWorldNeedsUpdate = true;
       } else if (mesh.moving && this.frameNo - mesh.movedAt > 90) {
         mesh.moving = false;
         if (mesh.castShadow) this.castersChanged = true;

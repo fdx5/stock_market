@@ -550,7 +550,8 @@ export class MeshRenderer {
 
 		};
 
-		scene.updateMatrixWorld();
+		// (local modification) once a frame: every pass of the frame sees the same matrices
+		if ( scene.__mwFrame !== GPU.frame || this.precompiling ) { scene.updateMatrixWorld(); scene.__mwFrame = GPU.frame; }
 		visit( scene );
 		opaque.sort( ( a, b ) => a.renderOrder - b.renderOrder || a.pipeKey - b.pipeKey || a.z - b.z );
 		transparent.sort( ( a, b ) => a.renderOrder - b.renderOrder || b.z - a.z );
@@ -574,8 +575,16 @@ export class MeshRenderer {
 		}
 
 		if ( ! s || s.radius < 0 || ! Number.isFinite( s.radius ) ) return true;
-		_sphere.copy( s ).applyMatrix4( o.matrixWorld );
-		return _frustum.intersectsSphere( _sphere );
+		// (local modification) the world sphere once a frame, not once a pass
+		let w = o.__worldSphere;
+		if ( ! w || w.frame !== GPU.frame || w.src !== s ) {
+
+			w = o.__worldSphere ??= { frame: - 1, src: null, sphere: new Sphere() };
+			w.sphere.copy( s ).applyMatrix4( o.matrixWorld );
+			w.frame = GPU.frame; w.src = s;
+
+		}
+		return _frustum.intersectsSphere( w.sphere );
 
 	}
 
@@ -674,18 +683,28 @@ export class MeshRenderer {
 
 			const { object: o, geometry: geo, material } = it;
 			if ( ! geo.attributes.position && ! geo.vertexCount && ! geo.indirect ) continue;
-			const vl = this._cachedLayout( o, geo, material );
+			const instances = o.isInstancedMesh ? o.count : geo.instanceCount ?? 1;
+			if ( instances === 0 ) continue;
+			// (local modification) the layout and buffers a draw resolves are the same in every pass of
+			// a frame (scene, plants, each shadow cascade): worked out by its first pass, then reused
+			let m = o.__frameRow;
+			if ( ! m || m.frame !== GPU.frame || m.material !== material || m.geo !== geo || m.owner !== this ) {
+
+				const vl = this._cachedLayout( o, geo, material );
+				const vbs = new Array( vl.buffers.length );
+				for ( let i = 0; i < vbs.length; i ++ ) vbs[ i ] = this._attributeBuffer( geo, vl.buffers[ i ].attr );
+				m = { frame: GPU.frame, material, geo, owner: this, vl, vbs, index: this._indexBuffer( geo ) };
+				// (an object drawn with several materials keeps only its last: the others resolve each time)
+				o.__frameRow = m;
+
+			}
+			const vl = m.vl, vbs = m.vbs, index = m.index;
 			const p = this._pipeline( material, vl, pass );
 			if ( ! p ) continue; // over this frame's budget
 			const pipeline = p.handle.pipeline || ( this.syncPipelines ? GPU.ready( p.handle ) : null );
 			if ( ! pipeline ) continue; // still compiling
 			const group = p.bindings.getBindGroup( token );
 			const offset = this._slot( o ) * DRAW_STRIDE;
-			const vbs = new Array( vl.buffers.length );
-			for ( let i = 0; i < vbs.length; i ++ ) vbs[ i ] = this._attributeBuffer( geo, vl.buffers[ i ].attr );
-			const instances = o.isInstancedMesh ? o.count : geo.instanceCount ?? 1;
-			if ( instances === 0 ) continue;
-			const index = this._indexBuffer( geo );
 			// (changed within the last second: kept out of the bundles; compared as numbers — a
 			// string a draw each frame was a good part of this loop)
 			if ( o.__bsI !== instances || o.__bsS !== it.start || o.__bsC !== it.count ) { o.__bsI = instances; o.__bsS = it.start; o.__bsC = it.count; o.__bundleShapeAt = GPU.frame; }
