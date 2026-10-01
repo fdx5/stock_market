@@ -217,6 +217,8 @@ type Stage = {
   balloonView: { yaw: number; pitch: number; fov: number; baseFov: number;
     /** Moving to another complex: the look turns toward it (a drag hands it back). */
     aim?: THREE.Vector3 } | null;
+  /** Place the complexes' name signs (an HTML layer over the view) for this frame's camera. */
+  signs: ((camera: THREE.PerspectiveCamera, w: number, h: number) => void) | null;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -800,7 +802,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null, fly: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
@@ -1051,6 +1053,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       camera.updateMatrixWorld();
       moon.update(camera);
       precip.update(camera, t, H);   // (H from the resize observer: reading clientHeight here forced a page layout every frame)
+      stage.signs?.(camera, W, H);
 
 
       if (native) {
@@ -2987,6 +2990,54 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, homeId]);
   const near = nearby && nearby.home === homeId ? nearby : null;
+  /** 단지 팻말: a name sign over the shown complex and over each complex within 500 m of it,
+   * floating above its tallest roof; a click goes there (as the 주변 단지 list does). An HTML
+   * layer moved each frame by transform alone: nothing drawn on the GPU, nothing laid out. */
+  const signs = useMemo(() => {
+    if (!data?.found || !data.center || !complexId || new URLSearchParams(location.search).get("signs") === "0") return [];
+    const t = terrainRef.current;
+    const towers = data.buildings.filter(b => b.rings[0]?.length);
+    const mid = towers.flatMap(b => b.rings[0]).reduce((m, [x, y], _, a) => [m[0] + x / a.length, m[1] + y / a.length], [0, 0]);
+    const top = towers.reduce((m, b) => Math.max(m, b.height + t.base(b.rings[0])), 0);
+    const out = [{ id: complexId, name: data.name, x: mid[0], y: mid[1], z: top || t.at(0, 0) + 40, here: true }];
+    if (near) {
+      const others = [...near.items.map(i => ({ id: i.id, name: i.name, lat: i.lat, lon: i.lon, floors: i.floors ?? 15 })),
+        { id: homeId!, name: near.name, lat: near.lat, lon: near.lon, floors: 20 }];
+      for (const o of others) {
+        if (o.id === complexId) continue;
+        const [x, y] = metresFrom(data.center, o.lat, o.lon);
+        if (Math.hypot(x, y) > 520) continue;
+        out.push({ id: o.id, name: o.name, x, y, z: t.at(x, y) + o.floors * FLOOR_M + GROUND_M, here: false });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, near, complexId, homeId, loading]);
+  const signEls = useRef(new Map<string, HTMLButtonElement>());
+  useEffect(() => {
+    const st = stageRef.current;
+    if (!st) return;
+    const v = new THREE.Vector3(), at = new Map<string, string>();
+    st.signs = (camera, w, h) => {
+      for (const sgn of signs) {
+        const el = signEls.current.get(sgn.id);
+        if (!el) continue;
+        // (14 m over the roof: clear of the crown and the rooftop signs)
+        v.set(sgn.x, sgn.z + 14, -sgn.y);
+        const d = v.distanceTo(camera.position);
+        v.project(camera);
+        const shown = v.z < 1 && Math.abs(v.x) < 1.15 && Math.abs(v.y) < 1.15 && !st.balloonView?.aim;
+        const k = THREE.MathUtils.clamp(520 / d, 0.62, 1);
+        const css = shown ? `translate3d(${((v.x + 1) * 0.5 * w).toFixed(1)}px,${((1 - v.y) * 0.5 * h).toFixed(1)}px,0) translate(-50%,-100%) scale(${k.toFixed(2)})` : "";
+        // (written only when it changed: a style write each frame dirtied the page)
+        if (at.get(sgn.id) === css) continue;
+        at.set(sgn.id, css);
+        if (css) { el.style.transform = css; el.style.visibility = "visible"; el.style.zIndex = String(Math.round(10000 - d)); }
+        else el.style.visibility = "hidden";
+      }
+    };
+    return () => { if (st.signs) st.signs = null; };
+  }, [signs]);
   /** Show another complex in detail: the camera (or, riding it, the balloon) sets off
    * toward it at once over the current scene while its shapes load; the new model then
    * takes over centred on it, and the balloon circles its sky. */
@@ -3073,6 +3124,19 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         onPointerLeave={e => { hovering.current = false; if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
         {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{sceneTitle}</strong></div>}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
+        {!loading && signs.length > 0 && (
+          <div className="re-holo-signs">
+            {signs.map(sg => (
+              <button key={sg.id} type="button" ref={el => { if (el) signEls.current.set(sg.id, el); else signEls.current.delete(sg.id); }}
+                className={`re-holo-sign${sg.here ? " is-here" : ""}`} style={{ visibility: "hidden" }}
+                onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
+                onClick={() => (sg.here ? undefined : goTo(sg.id))}
+                title={sg.here ? sg.name : `${sg.name}(으)로 이동`} aria-label={sg.here ? sg.name : `${sg.name}(으)로 이동`}>
+                {sg.name}
+              </button>
+            ))}
+          </div>
+        )}
         {failed3d && <p className="re-holo-msg">3D 화면을 불러오지 못했습니다. 브라우저 설정에서 하드웨어 가속이 켜져 있는지 확인해 주세요.{" "}
           <button type="button" className="re-holo-retry" onClick={() => location.reload()}>다시 시도</button></p>}
         {loading && <div className="re-holo-scan" role="status"><span />{dataTry ? `응답이 늦어 다시 요청하는 중입니다 (${dataTry + 1}/3)…` : slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
