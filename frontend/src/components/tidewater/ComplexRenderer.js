@@ -696,6 +696,9 @@ export class ComplexRenderer {
     this.renderer.pipelinesPerFrame = 3;
     this.renderer.pipelineGapMs = 5;
     this.renderer.syncPipelines = false;
+    // Unchanged runs of draws replayed as render bundles (MeshRenderer.drawItems); ?bundles=0 draws
+    // every one directly, for comparison.
+    this.renderer.bundles = typeof location === 'undefined' || new URLSearchParams(location.search).get('bundles') !== '0';
     this.target = new RenderTarget(1, 1, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex HDR' });
     // What the water sees through and reflects: the opaque scene, copied before the water
     // pass (Tidewater's sceneCopy). Allocated once water is in the scene.
@@ -907,6 +910,11 @@ export class ComplexRenderer {
       return mat;
     }
     const textures = {};
+    // Per-material numbers (texture placement, the window grid, atlas sizes) as uniforms, not
+    // written into the shader: materials of one kind then share one shader source, and the
+    // browser compiles it once — a first visit compiled ~70 shaders of ~38 KB, a third of them
+    // differing only in such numbers.
+    const extra = {};
     // Facades with a glass mask (the lit-window map's alpha): a room behind the clear glass.
     const interior = INTERIOR_ALLOWED && !!(source.userData.interior && source.emissiveMap);
     const car = !!(source.userData.carPaint && source.map);
@@ -920,9 +928,10 @@ export class ComplexRenderer {
     const plate = source.userData.plate;
     if (plate && source.map) {
       textures.map = this.texture(source.map);
+      extra.plateGrid = ['vec4f', [plate.cols, plate.rows, 0, 0]];
       surface += `{ let pid = floor(in.color.r * 255.0 + 0.5) + 256.0 * floor(in.color.g * 255.0 + 0.5);
-        let cell = vec2f(pid % ${plate.cols.toFixed(1)}, floor(pid / ${plate.cols.toFixed(1)}));
-        let puv = (cell + clamp(in.uv, vec2f(0.01), vec2f(0.99))) / vec2f(${plate.cols.toFixed(1)}, ${plate.rows.toFixed(1)});
+        let cell = vec2f(pid % mat.plateGrid.x, floor(pid / mat.plateGrid.x));
+        let puv = (cell + clamp(in.uv, vec2f(0.01), vec2f(0.99))) / mat.plateGrid.xy;
         s.albedo = textureSampleLevel(map, smpLinearClamp, puv, 0.0).rgb; s.roughness = 0.45; s.metalness = 0.0; }\n`;
     }
     for (const [key, statement] of plate ? [] : [
@@ -936,19 +945,20 @@ export class ComplexRenderer {
       if (!tex) continue;
       textures[key] = tex;
       const t = source[key];
-      const f = n => Number(n).toFixed(8);
+      extra['uv' + key] = ['vec4f', [t.repeat.x, t.repeat.y, t.offset.x, t.offset.y]];
       const sampler = t.wrapS === 1000 ? 'smpAnisoRepeat' : 'smpAnisoClamp';
       // (the car kit's colour swatches at full resolution, always: mipmapped from afar they
       // blended into the kit's dark red, the paint mask failed and far cars showed red)
       const sample = car && key === 'map' ? `textureSampleLevel(${key}, smpLinearClamp, uv, 0.0)` : `textureSample(${key}, ${sampler}, uv)`;
-      surface += `{ let uv = in.uv * vec2f(${f(t.repeat.x)}, ${f(t.repeat.y)}) + vec2f(${f(t.offset.x)}, ${f(t.offset.y)}); let texel = ${sample}; ${statement} }\n`;
+      surface += `{ let uv = in.uv * mat.uv${key}.xy + mat.uv${key}.zw; let texel = ${sample}; ${statement} }\n`;
     }
     if (source.normalMap) {
       textures.normalMap = surfaceTex ?? this.texture(source.normalMap);
       const t = source.normalMap;
+      extra.uvNormal = ['vec4f', [t.repeat.x, t.repeat.y, t.offset.x, t.offset.y]];
       // Cotangent frame from screen derivatives: works on arbitrary GIS walls.
       surface += `{
-        let uv = in.uv * vec2f(${t.repeat.x.toFixed(8)}, ${t.repeat.y.toFixed(8)}) + vec2f(${t.offset.x.toFixed(8)}, ${t.offset.y.toFixed(8)});
+        let uv = in.uv * mat.uvNormal.xy + mat.uvNormal.zw;
         ${surfaceTex ? `let packed = textureSample(normalMap, smpAnisoRepeat, uv);
         var mapN = vec3f(packed.xy * 2.0 - 1.0, 0.0);
         mapN.z = sqrt(max(1.0 - dot(mapN.xy, mapN.xy), 0.0));
@@ -966,12 +976,14 @@ export class ComplexRenderer {
       }`;
     }
     if (interior) {
-      const t = source.emissiveMap, f = n => Number(n).toFixed(8);
       // (the painted grid: bays across, storeys up, and where each storey's ceiling and floor lie;
-      // the complex's facade tile unless the material says otherwise)
+      // the complex's facade tile unless the material says otherwise — placed as the emissive
+      // map is, uvemissiveMap)
       const g = { grid: [8, 8], bay: 3.2, storey: 2.9, ceil: 0.0, floor: 0.9, ...(typeof source.userData.interior === 'object' ? source.userData.interior : {}) };
-      const code = INTERIOR_WGSL.replace('REPEAT', `vec2f(${f(t.repeat.x)}, ${f(t.repeat.y)})`).replace('OFFSET', `vec2f(${f(t.offset.x)}, ${f(t.offset.y)})`)
-        .replace('GRID', `vec2f(${f(g.grid[0])}, ${f(g.grid[1])})`).replaceAll('BAYW', f(g.bay)).replaceAll('STOREY', f(g.storey)).replace('CEIL;', f(g.ceil) + ';').replace('FLOOR;', f(g.floor) + ';');
+      extra.room = ['vec4f', [g.grid[0], g.grid[1], g.bay, g.storey]];
+      extra.roomCF = ['vec4f', [g.ceil, g.floor, 0, 0]];
+      const code = INTERIOR_WGSL.replace('REPEAT', 'mat.uvemissiveMap.xy').replace('OFFSET', 'mat.uvemissiveMap.zw')
+        .replace('GRID', 'mat.room.xy').replaceAll('BAYW', 'mat.room.z').replaceAll('STOREY', 'mat.room.w').replace('CEIL;', 'mat.roomCF.x;').replace('FLOOR;', 'mat.roomCF.y;');
       surface += `if (roomOpen > 0.02) { ${code} }\n`;
     }
     if (DETAIL_ALLOWED && source.userData.groundDetail) surface += GROUND_DETAIL + '\n';
@@ -985,6 +997,7 @@ export class ComplexRenderer {
     if (source.userData.roofDetail) surface += ROOF_DETAIL + '\n';
     if (interior || source.userData.weathered) surface += WALL_WEATHER + '\n';
     // Leaves let light through: a little transmitted sun on the shaded side.
+    if (source.userData.foliage) extra.atlasGrid = ['vec4f', [Number(source.userData.atlasCells ?? 8), Number(source.userData.atlasRows ?? source.userData.atlasCells ?? 8), 0, 0]];
     if (source.userData.foliage) surface += `s.translucency = s.albedo * 0.32;
       // Plant cards thin out as they turn edge-on to the eye (or the sun, in the shadow
       // pass): no flat slabs from the side, no six-pointed star of crossed cards from above.
@@ -1001,7 +1014,7 @@ export class ComplexRenderer {
         s.alpha *= faceCut * mix(1.0, 1.0 - smoothstep(${FOLIAGE_STEEP}), upright);
         // Crowns cut straight at their card's border read as polygons (and cast polygon
         // shadows): the upright cards soften at their sides and top, the crown card round.
-        let cell = fract(in.uv * vec2f(${Number(source.userData.atlasCells ?? 8).toFixed(1)}, ${Number(source.userData.atlasRows ?? source.userData.atlasCells ?? 8).toFixed(1)}));
+        let cell = fract(in.uv * mat.atlasGrid.xy);
         let side = smoothstep(0.0, 0.12, min(min(cell.x, 1.0 - cell.x), 1.0 - cell.y));
         let crownEdge = 1.0 - smoothstep(0.78, 1.0, length(cell - 0.5) * 2.0);
         s.alpha *= select(crownEdge, side, upright > 0.5);
@@ -1062,7 +1075,7 @@ export class ComplexRenderer {
         // Past the painted (surveyed) ground, uv leaves 0..1: fade into the horizon haze.
         let past = max(max(-in.uv.x, in.uv.x - 1.0), max(-in.uv.y, in.uv.y - 1.0));
         r.color = vec4f(mix(r.color.rgb, frame.horizonColor * 0.92, smoothstep(-0.05, 0.9, past)), r.color.a);` : ''}`,
-      uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1] }, defines: { CLEARCOAT: source.clearcoat || car || source.userData.carModel ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
+      uniforms: { haze: ['f32', 0.0005], hazeScale: ['f32', source.userData.hazeScale ?? 1], ...extra }, defines: { CLEARCOAT: source.clearcoat || car || source.userData.carModel ? 1 : 0, FOLIAGE: source.userData.leafCluster ? 2 : source.userData.foliage ? 1 : 0 },
       userData: { foliage: !!(source.userData.foliage || source.userData.leafCluster) },
     });
     this.materials.set(source, mat);

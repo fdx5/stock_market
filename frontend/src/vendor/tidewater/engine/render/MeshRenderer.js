@@ -28,6 +28,17 @@ const _camPos = new Vector3();
 
 let _listToken = 0; // one per drawItems call (see BindingSet.getBindGroup)
 const sharedPipelines = new Map();
+// (local modification) a number per GPU object, for the render-bundle keys
+const _gpuIds = new WeakMap();
+let _gpuNext = 1;
+function _gpuId( x ) {
+
+	if ( ! x ) return 0;
+	let id = _gpuIds.get( x );
+	if ( ! id ) _gpuIds.set( x, id = _gpuNext ++ );
+	return id;
+
+}
 const layoutIds = new WeakMap();
 let nextLayoutId = 0;
 const layoutId = layout => {
@@ -78,8 +89,20 @@ export class MeshRenderer {
 		if ( this.frame === GPU.frame ) return;
 		this.frame = GPU.frame;
 		this._ensureDrawBuffer();
+		// (bundles: slots kept by their objects, freed after a few seconds unused)
+		if ( this.bundles && this._slotRecs && GPU.frame % 120 === 0 ) {
+
+			for ( let i = 0; i < this._slotRecs.length; i ++ ) {
+
+				const rec = this._slotRecs[ i ];
+				if ( rec && GPU.frame - rec.frame > 240 ) { rec.slot = - 1; this._slotRecs[ i ] = null; this._freeSlots.push( i ); }
+
+			}
+
+		}
+
 		// grow for next frame if this one came close
-		if ( this.drawCount > this.capacity * 0.75 ) {
+		if ( Math.max( this.drawCount, this._slotTop ?? 0 ) > this.capacity * 0.75 ) {
 
 			this.capacity *= 2;
 			this._ensureDrawBuffer();
@@ -101,11 +124,32 @@ export class MeshRenderer {
 	_slot( obj ) {
 
 		let g = obj.__draw;
-		if ( ! g ) g = obj.__draw = { frame: - 1, slot: 0, cur: new Float32Array( 16 ), prev: new Float32Array( 16 ), has: false };
+		if ( ! g ) g = obj.__draw = { frame: - 1, slot: - 1, cur: new Float32Array( 16 ), prev: new Float32Array( 16 ), has: false };
 		if ( g.frame === GPU.frame ) return g.slot;
-		if ( this.drawCount >= this.capacity ) throw new Error( 'MeshRenderer: draw buffer full' );
+		if ( this.bundles ) {
+
+			// (local modification) a slot of its own while it is drawn: a recorded bundle carries its
+			// draws' slots, and slots by draw order moved whenever culling changed the order
+			if ( g.slot < 0 || g.owner !== this ) {
+
+				this._freeSlots ??= []; this._slotRecs ??= []; this._slotTop ??= 0;
+				g.slot = this._freeSlots.length ? this._freeSlots.pop() : this._slotTop ++;
+				if ( g.slot >= this.capacity ) throw new Error( 'MeshRenderer: draw buffer full' );
+				g.owner = this;
+				this._slotRecs[ g.slot ] = g;
+
+			}
+
+			this.drawCount = Math.max( this.drawCount, g.slot + 1 );
+
+		} else {
+
+			if ( this.drawCount >= this.capacity ) throw new Error( 'MeshRenderer: draw buffer full' );
+			g.slot = this.drawCount ++;
+
+		}
+
 		g.frame = GPU.frame;
-		g.slot = this.drawCount ++;
 		const e = obj.matrixWorld.elements;
 		if ( g.has && ! obj.resetVelocity ) g.prev.set( g.cur );
 		else g.prev.set( e );
@@ -594,10 +638,11 @@ export class MeshRenderer {
 		if ( pass.timestampWrites ) desc.timestampWrites = pass.timestampWrites;
 		const rp = enc.beginRenderPass( desc );
 		if ( pass.viewport ) rp.setViewport( ...pass.viewport );
-		rp.setBindGroup( 0, group0ForBlock( pass.frameBlock, 'render' ).getBindGroup() );
-		this.drawItems( rp, lists.opaque, pass );
+		pass.group0 = group0ForBlock( pass.frameBlock, 'render' ).getBindGroup();
+		rp.setBindGroup( 0, pass.group0 );
+		this.drawItems( rp, lists.opaque, pass, 'opaque' );
 		if ( pass.betweenLists ) pass.betweenLists( rp );
-		this.drawItems( rp, lists.transparent, pass );
+		this.drawItems( rp, lists.transparent, pass, 'transparent' );
 		if ( pass.after ) pass.after( rp );
 		rp.end();
 
@@ -612,7 +657,158 @@ export class MeshRenderer {
 
 	}
 
-	drawItems( rp, items, pass ) {
+	// (local modification) Render bundles. Each draw costs the page and, more, the browser's GPU
+	// process (validation, translation) every frame; a scene of a few hundred draws spent most of
+	// its frame there while the GPU itself idled. Runs of draws whose every input is unchanged
+	// since the last frame — pipeline, bind groups, buffers, draw range, instance count, draw
+	// slot — are recorded once as a GPURenderBundle and replayed. Meshes whose instance count or
+	// range keeps changing (people shown by distance) and indirect draws are drawn directly.
+	// Opt in: `bundles = true`.
+	drawItems( rp, items, pass, role = '' ) {
+
+		if ( ! this.bundles || this.precompiling || ! pass.group0 ) return this._drawDirect( rp, items, pass );
+		const token = ++ _listToken;
+		const rows = [];
+		for ( const it of items ) {
+
+			const { object: o, geometry: geo, material } = it;
+			if ( ! geo.attributes.position && ! geo.vertexCount && ! geo.indirect ) continue;
+			const vl = this._cachedLayout( o, geo, material );
+			const p = this._pipeline( material, vl, pass );
+			if ( ! p ) continue; // over this frame's budget
+			const pipeline = p.handle.pipeline || ( this.syncPipelines ? GPU.ready( p.handle ) : null );
+			if ( ! pipeline ) continue; // still compiling
+			const group = p.bindings.getBindGroup( token );
+			const offset = this._slot( o ) * DRAW_STRIDE;
+			const vbs = new Array( vl.buffers.length );
+			for ( let i = 0; i < vbs.length; i ++ ) vbs[ i ] = this._attributeBuffer( geo, vl.buffers[ i ].attr );
+			const instances = o.isInstancedMesh ? o.count : geo.instanceCount ?? 1;
+			if ( instances === 0 ) continue;
+			const index = this._indexBuffer( geo );
+			// (changed within the last second: kept out of the bundles)
+			const shape = instances + ':' + it.start + ':' + it.count;
+			if ( o.__bundleShape !== shape ) { o.__bundleShape = shape; o.__bundleShapeAt = GPU.frame; }
+			const steady = ! geo.indirect && GPU.frame - o.__bundleShapeAt > 60;
+			rows.push( { it, o, geo, pipeline, group, offset, vbs, instances, index, steady } );
+
+		}
+
+		if ( this._bundleFrame !== GPU.frame ) { this._bundleFrame = GPU.frame; this._bundleCalls = new Map(); }
+		const site = `${ pass.label || '' }|${ pass.passKey }|${ role }`;
+		const nth = this._bundleCalls.get( site ) ?? 0;
+		this._bundleCalls.set( site, nth + 1 );
+		this._bundles ??= new Map();
+		const callKey = site + '|' + nth;
+		let cache = this._bundles.get( callKey );
+		if ( ! cache ) this._bundles.set( callKey, cache = [] );
+		const state = { pipeline: null, group: null };
+		let segment = [], segments = 0, replayed = false;
+		const flush = () => {
+
+			if ( ! segment.length ) return;
+			let key = `${ _gpuId( pass.group0 ) }/${ _gpuId( this.drawBindGroup ) }`;
+			for ( const r of segment ) {
+
+				key += `;${ _gpuId( r.pipeline ) },${ _gpuId( r.group ) },${ r.offset },${ r.instances },${ r.it.start },${ r.it.count }`;
+				for ( const b of r.vbs ) key += ',' + _gpuId( b );
+				if ( r.index ) key += ',' + _gpuId( r.index.buffer ) + r.index.format + ( r.geo.index ? r.geo.index.count : '' );
+				else key += ',' + ( r.geo.attributes.position ? r.geo.attributes.position.count : r.geo.vertexCount );
+
+			}
+
+			let c = cache[ segments ];
+			if ( ! c || c.key !== key ) {
+
+				const be = GPU.device.createRenderBundleEncoder( {
+					label: ( pass.label || pass.kind ) + ' bundle',
+					colorFormats: pass.colorFormats, depthStencilFormat: pass.depthFormat || undefined, sampleCount: pass.sampleCount || 1,
+				} );
+				be.setBindGroup( 0, pass.group0 );
+				const own = { pipeline: null, group: null };
+				for ( const r of segment ) this._drawRow( be, r, own );
+				c = cache[ segments ] = { key, bundle: be.finish() };
+
+			} else {
+
+				// (the counts the direct path keeps, for the overlay)
+				for ( const r of segment ) { this.stats.draws ++; this.stats.triangles += ( r.index ? Math.min( r.it.count, r.geo.index.count - r.it.start ) : r.it.count ) / 3 * r.instances; }
+
+			}
+
+			rp.executeBundles( [ c.bundle ] );
+			replayed = true;
+			// (a bundle leaves the pass with nothing bound)
+			state.pipeline = null; state.group = null;
+			segments ++;
+			segment = [];
+
+		};
+
+		for ( const r of rows ) {
+
+			if ( r.steady ) { segment.push( r ); continue; }
+			flush();
+			if ( replayed ) { rp.setBindGroup( 0, pass.group0 ); replayed = false; }
+			this._drawRow( rp, r, state );
+
+		}
+
+		flush();
+		cache.length = segments;
+		if ( replayed ) rp.setBindGroup( 0, pass.group0 );
+
+	}
+
+	// one draw (the direct path's body): pipeline and material group when they change, the draw's
+	// slot, its buffers, the draw call
+	_drawRow( enc, r, state ) {
+
+		const { it, geo } = r;
+		if ( r.pipeline !== state.pipeline ) { enc.setPipeline( r.pipeline ); state.pipeline = r.pipeline; }
+		if ( r.group !== state.group ) { enc.setBindGroup( 1, r.group ); state.group = r.group; }
+		enc.setBindGroup( 2, this.drawBindGroup, [ r.offset ] );
+		for ( let i = 0; i < r.vbs.length; i ++ ) enc.setVertexBuffer( i, r.vbs[ i ] );
+		const instances = r.instances, index = r.index;
+		if ( geo.indirect ) {
+
+			const ib = geo.indirect.buffer.getGPU ? geo.indirect.buffer.getGPU() : geo.indirect.buffer;
+			const offs = geo.indirect.offsets || [ geo.indirect.offset || 0 ];
+			if ( index ) enc.setIndexBuffer( index.buffer, index.format );
+			for ( const off of offs ) {
+
+				if ( index ) enc.drawIndexedIndirect( ib, off );
+				else enc.drawIndirect( ib, off );
+				this.stats.draws ++;
+
+			}
+
+			return;
+
+		}
+
+		if ( index ) {
+
+			const count = Math.min( it.count, geo.index.count - it.start );
+			if ( count <= 0 ) return;
+			enc.setIndexBuffer( index.buffer, index.format );
+			enc.drawIndexed( count, instances === Infinity ? 1 : instances, it.start, 0, 0 );
+			this.stats.triangles += count / 3 * instances;
+
+		} else {
+
+			const total = geo.attributes.position ? geo.attributes.position.count : geo.vertexCount;
+			const count = Math.min( it.count, total - it.start );
+			if ( count <= 0 ) return;
+			enc.draw( count, instances, it.start, 0 );
+			this.stats.triangles += count / 3 * instances;
+
+		}
+
+		this.stats.draws ++;
+
+	}
+
+	_drawDirect( rp, items, pass ) {
 
 		let lastPipeline = null, lastGroup = null;
 		const token = ++ _listToken;
