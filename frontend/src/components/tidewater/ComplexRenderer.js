@@ -8,7 +8,7 @@ import { MeshRenderer } from '../../vendor/tidewater/engine/render/MeshRenderer.
 import { Material } from '../../vendor/tidewater/engine/render/Material.js';
 import { FullscreenPass } from '../../vendor/tidewater/engine/render/FullscreenPass.js';
 import { SunShadows } from '../../vendor/tidewater/engine/render/Shadows.js';
-import { FrameUniforms, setFrameCamera } from '../../vendor/tidewater/engine/render/Frame.js';
+import { FrameUniforms, setFrameCamera, createViewUniforms } from '../../vendor/tidewater/engine/render/Frame.js';
 import { ShaderModule } from '../../vendor/tidewater/engine/gpu/Shader.js';
 import { UniformBlock } from '../../vendor/tidewater/engine/gpu/Uniforms.js';
 import { SceneLighting } from '../../vendor/tidewater/engine/render/wgsl/lighting.js';
@@ -67,9 +67,21 @@ async function device() {
     gpuCaps.etc2 = GPU.features.has('texture-compression-etc2');
     warmBC7();
     GPU.format = navigator.gpu.getPreferredCanvasFormat();
-    SceneLighting.set('envSpecular', new ShaderModule({ name: 'complex reflected sky', deps: [atmosphere], code: `
+    SceneLighting.set('envSpecular', new ShaderModule({ name: 'complex reflected surroundings', deps: [atmosphere],
+      bindings: { env: { uniform: EnvUniforms }, envCube: { texture: envTexture, viewDimension: 'cube' } }, code: `
+      var<private> envP: vec3f;
       fn hookEnvSpecular(R: vec3f, roughness: f32) -> vec3f {
-        return mix(skyBase(R), frame.horizonColor, roughness * 0.55) * frame.envIntensity;
+        let sky = mix(skyBase(R), frame.horizonColor, roughness * 0.55) * frame.envIntensity;
+        // (smooth surfaces only — glass, car paint, wet paving: a painted band or wall keeps the
+        // colour measured from the photographs, not a tint of its grey neighbours)
+        let w = env.on * (1.0 - smoothstep(0.15, 0.3, roughness));
+        if (w <= 0.0) { return sky; }
+        // (where the ray leaves the sphere round the complex, seen from the cube's centre)
+        let o = envP - env.probe.xyz; let b = dot(o, R); let c = dot(o, o) - env.probe.w * env.probe.w;
+        let t = max(-b + sqrt(max(b * b - c, 0.0)), 0.0);
+        let s = textureSampleLevel(envCube, smpLinearClamp, normalize(o + R * t) * vec3f(1.0, 1.0, -1.0), 0.0);
+        // (leaves are drawn with a partial alpha: any cover counts)
+        return mix(sky, s.rgb / max(s.a, 1e-3) * min(s.a, 1.0), w * min(s.a * 8.0, 1.0));
       }` }));
     // Light bounced off the ground (paving, grass, soil: a warm grey, ~20 %) onto what faces
     // sideways or down: the shaded side of a block is filled from below as well as by the
@@ -454,6 +466,108 @@ const lookParams = typeof location !== 'undefined' ? new URLSearchParams(locatio
 const TONEMAP_NEUTRAL = lookParams.get('tm') !== 'aces';
 const AO_ALLOWED = lookParams.get('ao') !== '0';
 const BLOOM_ALLOWED = lookParams.get('bloom') !== '0';
+const TAA_ALLOWED = lookParams.get('taa') !== '0';
+// Temporal anti-aliasing. The native view has no MSAA: window grids, railings and far rooflines
+// stepped and shimmered, and the soft shadows' sampling noise showed (it was written to be
+// resolved over frames). Each frame is drawn a sub-pixel off (Halton 2,3) and blended into the
+// history, reprojected by depth and last frame's camera; the history is held to the colour range
+// of the pixel's neighbours (no trails behind cars and people) and read with Catmull-Rom (no blur).
+const TaaUniforms = new UniformBlock('Taa', { valid: ['f32', 0], pad0: ['f32', 0], pad1: ['f32', 0], pad2: ['f32', 0] }, { label: 'complex taa' });
+const TAA_CODE = /* wgsl */`
+fn taaY(c: vec3f) -> vec3f { return vec3f(dot(c, vec3f(0.25, 0.5, 0.25)), dot(c, vec3f(0.5, 0.0, -0.5)), dot(c, vec3f(-0.25, 0.5, -0.25))); }
+fn taaRgb(c: vec3f) -> vec3f { return vec3f(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z); }
+// (blended in a tone-mapped space: one bright highlight can't outweigh its neighbours)
+fn taaTm(c: vec3f) -> vec3f { return c / (1.0 + max(c.r, max(c.g, c.b))); }
+fn taaItm(c: vec3f) -> vec3f { return c / max(1e-4, 1.0 - max(c.r, max(c.g, c.b))); }
+fn taaHistory(uv: vec2f) -> vec3f {
+  let size = vec2f(textureDimensions(hist));
+  let sp = uv * size; let t1 = floor(sp - 0.5) + 0.5; let f = sp - t1;
+  let w0 = f * (-0.5 + f * (1.0 - 0.5 * f)); let w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  let w2 = f * (0.5 + f * (2.0 - 1.5 * f)); let w3 = f * f * (-0.5 + 0.5 * f);
+  let w12 = w1 + w2; let a = (t1 - 1.0) / size; let b = (t1 + w2 / w12) / size; let c = (t1 + 2.0) / size;
+  var r = textureSampleLevel(hist, smpLinearClamp, vec2f(b.x, a.y), 0.0).rgb * (w12.x * w0.y);
+  r += textureSampleLevel(hist, smpLinearClamp, vec2f(a.x, b.y), 0.0).rgb * (w0.x * w12.y);
+  r += textureSampleLevel(hist, smpLinearClamp, b, 0.0).rgb * (w12.x * w12.y);
+  r += textureSampleLevel(hist, smpLinearClamp, vec2f(c.x, b.y), 0.0).rgb * (w3.x * w12.y);
+  r += textureSampleLevel(hist, smpLinearClamp, vec2f(b.x, c.y), 0.0).rgb * (w12.x * w3.y);
+  let ws = w12.x * w0.y + w0.x * w12.y + w12.x * w12.y + w3.x * w12.y + w12.x * w3.y;
+  return max(r / ws, vec3f(0.0));
+}
+fn fragment(in: FSIn) -> vec4f {
+  let size = vec2i(textureDimensions(src));
+  let p = vec2i(in.pos.xy);
+  let cur = textureLoad(src, p, 0).rgb;
+  if (taa.valid < 0.5) { return vec4f(cur, 1.0); }
+  // the neighbours' colour range (mean and spread)
+  var m1 = vec3f(0.0); var m2 = vec3f(0.0);
+  for (var dy = -1; dy <= 1; dy++) { for (var dx = -1; dx <= 1; dx++) {
+    let q = taaY(taaTm(textureLoad(src, clamp(p + vec2i(dx, dy), vec2i(0), size - 1), 0).rgb));
+    m1 += q; m2 += q * q;
+  } }
+  m1 /= 9.0; m2 /= 9.0;
+  let sigma = sqrt(max(m2 - m1 * m1, vec3f(0.0)));
+  // where this pixel was last frame
+  let d = textureLoad(sceneDepth, p, 0).x;
+  let ndc = vec2f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0);
+  let wp = frame.invViewProj * vec4f(ndc, d, 1.0);
+  let pc = frame.prevViewProjNoJitter * vec4f(wp.xyz / wp.w, 1.0);
+  let puv = vec2f(pc.x / pc.w * 0.5 + 0.5, 0.5 - pc.y / pc.w * 0.5);
+  if (pc.w <= 0.0 || any(puv < vec2f(0.0)) || any(puv > vec2f(1.0))) { return vec4f(cur, 1.0); }
+  let h = clamp(taaY(taaTm(taaHistory(puv))), m1 - sigma * 1.25, m1 + sigma * 1.25);
+  // (more of the new frame while the view moves fast: less to reproject wrongly)
+  let moved = length((puv - in.uv) * vec2f(size));
+  let k = mix(0.1, 0.3, clamp(moved / 6.0, 0.0, 1.0));
+  return vec4f(taaItm(taaRgb(mix(h, taaY(taaTm(cur)), k))), 1.0);
+}`;
+// The surroundings in the reflections: what glass, car paint and wet paving reflect was the sky
+// alone; a city's windows show the towers across from them. The scene is captured once into a
+// cube around the complex (one face a frame, again when the light, the weather or the scene
+// changes) and smooth surfaces reflect it, the ray carried out to a sphere round the complex
+// so a tower far from the centre sees its own side of the street. Rough surfaces keep the sky.
+const ENV_ALLOWED = lookParams.get('envmap') !== '0';
+// Windows set into the wall: the glass and its frames sit 14 cm behind the facade, so seen at an
+// angle the opening's side and head show (in the wall's paint, shaded) and the glass shifts
+// within it. Drawn in the facade's own shader — no geometry is added — on the painted window grid
+// of facadeSteps (openings 6–94 % across a bay, 10–84 % down a storey; every fourth bay the
+// pilaster); near views only, fading out from 40 m to 140 m.
+const RECESS_ALLOWED = lookParams.get('recess') !== '0';
+const RECESS_WGSL = /* wgsl */`
+{
+  let uvT0 = in.uv * mat.uvemissiveMap.xy + mat.uvemissiveMap.zw;
+  let cu = uvT0 * mat.room.xy; let cl = floor(cu); let f0 = fract(cu);
+  let N0 = normalize(in.N);
+  let a0 = dpdx(in.P); let a1 = dpdy(in.P); let b0 = dpdx(uvT0); let b1 = dpdy(uvT0);
+  let a1p = cross(a1, N0); let a0p = cross(N0, a0);
+  let T0 = normalize(a1p * b0.x + a0p * b1.x + vec3f(1e-7)); let B0 = normalize(a1p * b0.y + a0p * b1.y + vec3f(1e-7));
+  let dv = normalize(in.P - frame.cameraPos);
+  let r3 = vec3f(dot(dv, T0), dot(dv, B0), max(-dot(dv, N0), 0.05));
+  let cellM = mat.room.zw;
+  let depthM = 0.14 * (1.0 - smoothstep(40.0, 140.0, length(in.P - frame.cameraPos)));
+  let lo = vec2f(0.06, 0.10) * cellM; let hi = vec2f(0.94, 0.84) * cellM;
+  let p0 = f0 * cellM;
+  let bay = ((i32(cl.x) % 4) + 4) % 4;
+  if (depthM > 0.002 && bay != 3 && all(p0 > lo) && all(p0 < hi)) {
+    let q = p0 + r3.xy * (depthM / r3.z);
+    if (all(q > lo) && all(q < hi)) { puv = in.uv + (q - p0) / cellM / (mat.room.xy * mat.uvemissiveMap.xy); }
+    else {
+      reveal = 1.0;
+      // (the wall's own paint, from beside the opening in the same bay)
+      revealUV = (((cl + vec2f(0.03, 0.47)) / mat.room.xy) - mat.uvemissiveMap.zw) / mat.uvemissiveMap.xy;
+    }
+  }
+}
+`;
+const ENV_SIZE = 256;
+const EnvUniforms = new UniformBlock('Env', { probe: ['vec4f', [0, 25, 0, 320]], on: ['f32', 0], pad0: ['f32', 0], pad1: ['f32', 0], pad2: ['f32', 0] }, { label: 'complex env' });
+let envView = null, envBlank = null;
+// (two cubes in turn: one read while the next is drawn — a texture can't be both at once)
+const envTexture = () => envView?.env?.tex[envView.env.cur] ?? (envBlank ??= new Texture({ width: 4, height: 4, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'render'], label: 'complex env blank' }));
+// Cube faces +x, -x, +y, -y, +z, -z: where each looks and its up. A WebGPU cube's faces are laid
+// out left-handed against the scene's right-handed camera, so no turn of the camera matches them;
+// each face is drawn of the scene mirrored in z (look and up below, mirrored) and read with z
+// mirrored back (envDir), the two mirrors cancelling.
+const ENV_FACES = [[1, 0, 0, 0, 1, 0], [-1, 0, 0, 0, 1, 0], [0, 1, 0, 0, 0, 1], [0, -1, 0, 0, 0, -1], [0, 0, -1, 0, 1, 0], [0, 0, 1, 0, 1, 0]];
+const HALTON = (i, b) => { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; };
 const INTERIOR_ALLOWED = lookParams.get('int') !== '0';
 const DETAIL_ALLOWED = lookParams.get('detail') !== '0';
 
@@ -704,6 +818,15 @@ export class ComplexRenderer {
     // pass (Tidewater's sceneCopy). Allocated once water is in the scene.
     this.copy = null;
     this.sky = new FullscreenPass({ label: 'complex atmosphere', modules: [atmosphere], code: skyCode, colorFormats: ['rgba16float'], depthFormat: 'depth32float', depthCompare: 'equal' });
+    // (?envdebug=1: the captured surroundings as the background, to check the cube's faces)
+    if (lookParams.get('envdebug')) this.sky = new FullscreenPass({ label: 'complex env debug', modules: [atmosphere], colorFormats: ['rgba16float'], depthFormat: 'depth32float', depthCompare: 'always',
+      bindings: { envCube: { texture: envTexture, viewDimension: 'cube' } }, code: `
+      fn fragment(in: FSIn) -> vec4f {
+        let p = frame.invProj * vec4f(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, 0.001, 1.0);
+        let ray = normalize((frame.invView * vec4f(normalize(p.xyz / p.w), 0.0)).xyz);
+        let s = textureSampleLevel(envCube, smpLinearClamp, ray * vec3f(1.0, 1.0, -1.0), 0.0);
+        return vec4f(mix(vec3f(1.0, 0.0, 1.0), s.rgb, s.a), 1.0);
+      }` });
     // Ambient occlusion (not on the low setting): half-size, blurred across then down.
     this.aoOn = AO_ALLOWED && quality.name !== 'low';
     const depthBinding = { texture: () => this.target.depthTexture, sampleType: 'unfilterable-float' };
@@ -719,9 +842,24 @@ export class ComplexRenderer {
       this.bloomRT = [];
       for (let i = 0; i < BLOOM_LEVELS; i++) this.bloomRT.push(new RenderTarget(1, 1, { colors: ['rgba16float'], label: 'complex bloom ' + i, usage: ['sample', 'render', ...(import.meta.env.DEV && lookParams.get('probe') ? ['copySrc'] : [])] }));
     }
+    // (TAA: two history images, written in turn; what the bloom and the finish read)
+    this.taaOn = TAA_ALLOWED;
+    if (this.taaOn) {
+      this.taaHist = [0, 1].map(i => new RenderTarget(1, 1, { colors: ['rgba16float'], label: 'complex taa ' + i, usage: ['sample', 'render'] }));
+      this.taaIdx = 0;
+      this.taaPass = new FullscreenPass({ label: 'complex taa', code: TAA_CODE, colorFormats: ['rgba16float'],
+        bindings: { src: { texture: () => this.target.texture }, hist: { texture: () => this.taaHist[this.taaIdx ^ 1].texture }, sceneDepth: depthBinding, taa: { uniform: TaaUniforms } } });
+    }
+    this.resolved = () => (this.taaNow ? this.taaHist[this.taaIdx] : this.target);
+    if (ENV_ALLOWED) this.env = {
+      tex: [0, 1].map(i => new Texture({ width: ENV_SIZE, height: ENV_SIZE, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'render'], label: 'complex env ' + i })), cur: 0,
+      depth: new RenderTarget(ENV_SIZE, ENV_SIZE, { colors: [], depth: 'depth32float', label: 'complex env depth' }),
+      block: createViewUniforms('complex env view'), cam: new PerspectiveCamera(90, 1, 0.5, 4000),
+      face: -1, dirtyAt: performance.now(), key: '', meshes: 0, on: false,
+    };
     this.finish = new FullscreenPass({ label: 'complex filmic resolve', modules: [new ShaderModule({ name: 'complex precipitation', code: PRECIP_WGSL })], code: finishCode, colorFormats: [GPU.format],
       defines: { AO: this.aoOn ? 1 : 0, AO_SHOW: lookParams.get('ao') === 'show' ? 1 : 0, TONEMAP_NEUTRAL: TONEMAP_NEUTRAL ? 1 : 0, BLOOM: this.bloomOn ? 1 : 0 },
-      bindings: { src: { texture: () => this.target.texture }, sceneDepth: depthBinding, ...(this.aoOn ? { aoTex: { texture: () => this.ao.texture } } : {}),
+      bindings: { src: { texture: () => this.resolved().texture }, sceneDepth: depthBinding, ...(this.aoOn ? { aoTex: { texture: () => this.ao.texture } } : {}),
         ...(this.bloomOn ? { bloomTex: { texture: () => this.bloomRT[0].texture }, bloom: { uniform: BloomUniforms } } : {}) } });
     this.meshes = new Map();
     this.materials = new Map();
@@ -754,7 +892,7 @@ export class ComplexRenderer {
     if (this.bloomOn) {
       const u = { bloom: { uniform: BloomUniforms } };
       this.bloomDown = this.bloomRT.map((_, i) => new FullscreenPass({ label: 'complex bloom down ' + i, code: bloomDownCode(i === 0), colorFormats: ['rgba16float'],
-        bindings: { src: { texture: () => (i === 0 ? this.target : this.bloomRT[i - 1]).texture }, ...(i === 0 ? u : {}) } }));
+        bindings: { src: { texture: () => (i === 0 ? this.resolved() : this.bloomRT[i - 1]).texture }, ...(i === 0 ? u : {}) } }));
       this.bloomUp = this.bloomRT.slice(1).map((_, i) => new FullscreenPass({ label: 'complex bloom up ' + i, code: bloomUpCode, colorFormats: ['rgba16float'], blend: 'add',
         bindings: { src: { texture: () => this.bloomRT[i + 1].texture } } }));
     }
@@ -789,6 +927,8 @@ export class ComplexRenderer {
     this.canvas.height = height;
     this.target.setSize(this.canvas.width, this.canvas.height);
     this.copy?.setSize(this.canvas.width, this.canvas.height);
+    this.taaHist?.forEach(rt => rt.setSize(this.canvas.width, this.canvas.height));
+    this.taaValid = false;
     const hw = Math.max(1, Math.ceil(width / 2)), hh = Math.max(1, Math.ceil(height / 2));
     this.ao?.setSize(hw, hh); this.aoTmp?.setSize(hw, hh);
     this.bloomRT?.forEach((rt, i) => rt.setSize(Math.max(1, width >> (i + 1)), Math.max(1, height >> (i + 1))));
@@ -901,8 +1041,18 @@ export class ComplexRenderer {
       this.release(source);
     }
   }
+  /** The native material for a three material, made again when the source changed (its
+   * version: new maps — the neighbourhood's sharper paint swapped in); the old one is freed
+   * next frame, once no mesh draws with it. */
   material(source) {
-    if (this.materials.has(source)) return this.materials.get(source);
+    const had = this.materials.get(source);
+    if (had && had.srcVersion === source.version) return had;
+    if (had) { this.materials.delete(source); (this.retired ??= []).push(had); }
+    const mat = this.makeMaterial(source);
+    mat.srcVersion = source.version;
+    return mat;
+  }
+  makeMaterial(source) {
     if (source.userData.water) {
       this.copy ??= new RenderTarget(this.target.width, this.target.height, { colors: ['rgba16float'], depth: 'depth32float', label: 'complex scene copy', usage: ['sample', 'copyDst'], depthUsage: ['sample', 'copyDst'] });
       const mat = waterMaterial({ atmosphere, scene: this.copy, quality: this.quality });
@@ -918,7 +1068,8 @@ export class ComplexRenderer {
     // Facades with a glass mask (the lit-window map's alpha): a room behind the clear glass.
     const interior = INTERIOR_ALLOWED && !!(source.userData.interior && source.emissiveMap);
     const car = !!(source.userData.carPaint && source.map);
-    let surface = (interior ? 'var roomOpen = 0.0;\n' : '') + (car ? 'var carTex = vec3f(0.5);\n' : '');
+    const recess = RECESS_ALLOWED && interior && source.userData.interior === true;
+    let surface = '#if !PASS_DEPTH\nenvP = in.P;\n#endif\nvar puv = in.uv;\nvar reveal = 0.0;\nvar revealUV = in.uv;\n' + (recess ? RECESS_WGSL : '') + (interior ? 'var roomOpen = 0.0;\n' : '') + (car ? 'var carTex = vec3f(0.5);\n' : '');
     // Relief normals and roughness / metalness in one texture where they line up (the
     // facades): normal x, y, roughness, metalness; z comes back from x and y.
     const surfaceTex = this.packedSurface(source);
@@ -950,7 +1101,7 @@ export class ComplexRenderer {
       // (the car kit's colour swatches at full resolution, always: mipmapped from afar they
       // blended into the kit's dark red, the paint mask failed and far cars showed red)
       const sample = car && key === 'map' ? `textureSampleLevel(${key}, smpLinearClamp, uv, 0.0)` : `textureSample(${key}, ${sampler}, uv)`;
-      surface += `{ let uv = in.uv * mat.uv${key}.xy + mat.uv${key}.zw; let texel = ${sample}; ${statement} }\n`;
+      surface += `{ let uv = puv * mat.uv${key}.xy + mat.uv${key}.zw; let texel = ${sample}; ${statement} }\n`;
     }
     if (source.normalMap) {
       textures.normalMap = surfaceTex ?? this.texture(source.normalMap);
@@ -958,7 +1109,7 @@ export class ComplexRenderer {
       extra.uvNormal = ['vec4f', [t.repeat.x, t.repeat.y, t.offset.x, t.offset.y]];
       // Cotangent frame from screen derivatives: works on arbitrary GIS walls.
       surface += `{
-        let uv = in.uv * mat.uvNormal.xy + mat.uvNormal.zw;
+        let uv = puv * mat.uvNormal.xy + mat.uvNormal.zw;
         ${surfaceTex ? `let packed = textureSample(normalMap, smpAnisoRepeat, uv);
         var mapN = vec3f(packed.xy * 2.0 - 1.0, 0.0);
         mapN.z = sqrt(max(1.0 - dot(mapN.xy, mapN.xy), 0.0));
@@ -982,9 +1133,14 @@ export class ComplexRenderer {
       const g = { grid: [8, 8], bay: 3.2, storey: 2.9, ceil: 0.0, floor: 0.9, ...(typeof source.userData.interior === 'object' ? source.userData.interior : {}) };
       extra.room = ['vec4f', [g.grid[0], g.grid[1], g.bay, g.storey]];
       extra.roomCF = ['vec4f', [g.ceil, g.floor, 0, 0]];
-      const code = INTERIOR_WGSL.replace('REPEAT', 'mat.uvemissiveMap.xy').replace('OFFSET', 'mat.uvemissiveMap.zw')
+      const code = INTERIOR_WGSL.replace('in.uv * REPEAT', 'puv * REPEAT').replace('REPEAT', 'mat.uvemissiveMap.xy').replace('OFFSET', 'mat.uvemissiveMap.zw')
         .replace('GRID', 'mat.room.xy').replaceAll('BAYW', 'mat.room.z').replaceAll('STOREY', 'mat.room.w').replace('CEIL;', 'mat.roomCF.x;').replace('FLOOR;', 'mat.roomCF.y;');
       surface += `if (roomOpen > 0.02) { ${code} }\n`;
+      // (the opening's reveal: the wall's paint, shaded — no glass, no room)
+      if (recess) surface += `if (reveal > 0.5) {
+        let wallTex = textureSampleLevel(map, smpAnisoRepeat, revealUV * mat.uvmap.xy + mat.uvmap.zw, 0.0).rgb;
+        s.albedo = mat.color * wallTex * 0.55; s.emissive = vec3f(0.0); s.metalness = 0.0; s.roughness = 0.85; s.specularIntensity = 0.5;
+      }\n`;
     }
     if (DETAIL_ALLOWED && source.userData.groundDetail) surface += GROUND_DETAIL + '\n';
     const scan = DETAIL_ALLOWED && details?.[source.userData.detail];
@@ -1102,6 +1258,7 @@ export class ComplexRenderer {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       active.add(obj);
       let mesh = this.meshes.get(obj);
+      if (mesh && !Array.isArray(obj.material) && mesh.material.srcVersion !== obj.material.version) { mesh.material = this.material(obj.material); this.ready = false; }
       if (!mesh) {
         if (made && (performance.now() > until || texels() - startTexels > room)) { deferred = true; return; }
         const before = this.materials.size + this.textures.size;
@@ -1179,6 +1336,7 @@ export class ComplexRenderer {
     if (deviceLost) { this.failed = true; return; }
     GPU.beginFrame();
     this.frameNo = (this.frameNo ?? 0) + 1;
+    if (this.retired?.length) { for (const m of this.retired.splice(0)) { m.dispose(); m.uniformBlock.buffer?.destroy(); } }
     this.sync(source);
     this.refreshTextures();
     const c = this.camera;
@@ -1212,7 +1370,18 @@ export class ComplexRenderer {
     const timer = this.timer;
     timer.begin();
     shadows.render(this.scene, this.renderer, shadows.update(c, f.sunDir.value), i => timer.pass('shadow' + i), this.renderer.precompiling ? null : isMoving);
-    setFrameCamera(c, this.canvas.width, this.canvas.height);
+    if (this.env && this.shown) this.captureEnv(look);
+    // TAA: the frame a sub-pixel off (8 Halton offsets); a jump (a hop, a resize, the balloon's
+    // basket) starts the history afresh.
+    this.taaNow = this.taaOn && this.shown && !!this.taaPass?.handle.pipeline;
+    const camAt = c.position.clone();
+    if (this.taaNow && this.taaPrevAt && (camAt.distanceTo(this.taaPrevAt) > 40 || c.fov !== this.taaPrevFov)) this.taaValid = false;
+    const k = (this.frameNo % 8) + 1;
+    setFrameCamera(c, this.canvas.width, this.canvas.height, this.taaNow
+      ? { jitterX: HALTON(k, 2) - 0.5, jitterY: HALTON(k, 3) - 0.5, prevViewProj: this.taaPrevVP ?? null }
+      : {});
+    this.taaPrevVP = f.viewProjNoJitter.value.clone();
+    this.taaPrevAt = camAt; this.taaPrevFov = c.fov;
     const pass = { camera: c, kind: 'color', colorViews: [this.target.texture.view()], colorFormats: ['rgba16float'], depthView: this.target.depthTexture.view(), depthFormat: 'depth32float' };
     // One collection per frame. Opaque geometry, then the sky where nothing was drawn;
     // with water on screen: a copy of that (colour + depth), the water, then the blended
@@ -1252,6 +1421,13 @@ export class ComplexRenderer {
       this.renderer.render(this.scene, { ...pass, label: 'complex water', timestampWrites: timer.pass('water'), items: { opaque: water, transparent: lists.transparent } });
     }
     this.renderer.precompiling = false;
+    if (this.taaNow) {
+      this.taaIdx ^= 1;
+      TaaUniforms.set('valid', this.taaValid ? 1 : 0);
+      this.taaPass.timestampWrites = timer.pass('taa');
+      this.taaPass.render({ colorViews: [this.taaHist[this.taaIdx].texture] });
+      this.taaValid = true;
+    } else this.taaValid = false;
     const bloomNow = this.shown && this.bloomOn && this.quality.name !== 'low' && !!this.bloomDown?.every(p => p.handle.pipeline) && !!this.bloomUp?.every(p => p.handle.pipeline);
     BloomUniforms.set('strength', bloomNow ? this.bloomStrength ?? 0 : 0);
     if (bloomNow) {
@@ -1282,6 +1458,35 @@ export class ComplexRenderer {
     const vis = this.shown && !this.failed ? 'visible' : 'hidden';
     if (this.canvas.style.visibility !== vis) this.canvas.style.visibility = vis;
   }
+  /** The surroundings cube: one face a frame once the light, the weather or the scene has
+   * changed and settled (each face drawn as the main view is: no pipelines of its own). */
+  captureEnv(look) {
+    const e = this.env, now = performance.now();
+    envView = this;
+    EnvUniforms.set('on', e.on ? 1 : 0);
+    const key = `${Math.round(look.keyElev)}|${Math.round(look.keyAz)}|${(look.rain ?? 0).toFixed(1)}|${(look.snow ?? 0).toFixed(1)}|${(look.stars ?? 0).toFixed(1)}|${(look.overcast ?? 0).toFixed(1)}`;
+    if (key !== e.key) { e.key = key; e.dirtyAt = now; }
+    if (Math.abs(this.meshes.size - e.meshes) > Math.max(8, e.meshes * 0.1)) { e.meshes = this.meshes.size; e.dirtyAt = now; }
+    // (once the scene has held still for 3 s — a new complex's decoration all in — and then a face
+    // every third frame: each is a whole scene drawn again, and in a row they made the load stutter)
+    if (e.face < 0) { if (!e.dirtyAt || now - e.dirtyAt < 3000 || !this.ready) return; e.face = 0; e.dirtyAt = 0; }
+    if (this.frameNo % 3) return;
+    const [dx, dy, dz, ux, uy, uz] = ENV_FACES[e.face];
+    const probe = EnvUniforms.fields.probe.value;
+    const cam = e.cam;
+    cam.far = this.camera.far;
+    cam.position.set(probe[0], probe[1], probe[2]);
+    cam.up.set(ux, uy, uz);
+    cam.lookAt(probe[0] + dx, probe[1] + dy, probe[2] + dz);
+    cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+    setFrameCamera(cam, ENV_SIZE, ENV_SIZE, { block: e.block });
+    this.renderer.render(this.scene, {
+      label: 'complex env ' + e.face, camera: cam, kind: 'color', frameBlock: e.block,
+      colorViews: [e.tex[e.cur ^ 1].view({ dimension: '2d', baseArrayLayer: e.face, arrayLayerCount: 1 })], colorFormats: ['rgba16float'],
+      depthView: e.depth.depthTexture.view(), depthFormat: 'depth32float', clearColors: [[0, 0, 0, 0]], clearDepth: 0,
+    });
+    if (++e.face === 6) { e.face = -1; e.on = true; e.cur ^= 1; }
+  }
   dispose() {
     this.disposed = true;
     if (shadowOwner === this) shadowOwner = null;
@@ -1296,6 +1501,8 @@ export class ComplexRenderer {
     this.copy?.textures.forEach(t => t.destroy()); this.copy?.depthTexture.destroy();
     this.ao?.textures.forEach(t => t.destroy()); this.aoTmp?.textures.forEach(t => t.destroy());
     this.bloomRT?.forEach(rt => rt.textures.forEach(t => t.destroy()));
+    this.taaHist?.forEach(rt => rt.textures.forEach(t => t.destroy()));
+    if (this.env) { this.env.tex.forEach(t => t.destroy()); this.env.depth.depthTexture.destroy(); if (envView === this) envView = null; }
     this.renderer.pipelines.clear(); this.materials.clear(); this.textures.clear(); this.meshes.clear();
   }
 }

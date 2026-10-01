@@ -19,7 +19,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex } from "../api/client";
 import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished } from "./vworldBuildings";
 import {
-  CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
+  CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
 } from "./complexScene";
 import { paintAhead, paintStats, paintTextures, plinthTone, prefetchPaint } from "./paintClient";
@@ -2522,6 +2522,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Street lamps on the surveyed roads (lit from dusk), and traffic both ways.
     const lamps = buildLamps(plan.lamps, terrain);
     afterShown(() => stage.addWarm(decor, lamps.group));
+    // A desktop's neighbourhood painted again at twice the texels, in idle time once all this is
+    // in (complexScene.sharpenNeighbourhood: once a session, kept between visits).
+    if (stage.hq) afterShown(() => { window.setTimeout(() => void sharpenNeighbourhood(async () => { await nextSlice(true); return true; }).then(() => { if (hostRef.current) hostRef.current.dataset.sharp = "2x"; }), 4000); });
     disposables.push(lamps);
     const onLook = [(l: Look) => lamps.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.

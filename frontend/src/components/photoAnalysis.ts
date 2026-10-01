@@ -319,6 +319,17 @@ export function wallPaintFrom(px: Uint8ClampedArray, S: number, g: THREE.BufferG
     }
     // The paints drawn in their clean shapes where they fit (else the wall's own paint).
     const same = (a: number[], b: number[]) => a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+    // A wall in shade takes the sky's blue in the photograph (as the roof band does, see
+    // photoColours): a sky-blue paint is not read as paint — the wall keeps its default end-wall
+    // paint when its main colour is, and a blue patch is dropped (한양1차 9동: a blue end wall).
+    const skyBlue = (c: number[]) => {
+      const mx = Math.max(...c), mn = Math.min(...c);
+      if (mx - mn < 0.04 || c[2] !== mx) return false;
+      const hue = (60 * ((c[0] - c[1]) / (mx - mn)) + 240 + 360) % 360;
+      return hue > 190 && hue < 255 && c[2] > c[0] * 1.12;
+    };
+    if (skyBlue(colour[dominant])) continue;
+    for (let p = 0; p < colour.length; p++) if (skyBlue(colour[p])) colour[p] = colour[dominant];
     const base = colour[dominant];
     const final: number[][] = clean.map(() => base);
     for (let p = 0; p < kept.length; p++) {

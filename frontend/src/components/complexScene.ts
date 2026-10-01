@@ -352,10 +352,12 @@ export const CONTEXT_FLOOR_M: Record<ContextStyle, number> = { villa: 2.9, shop:
  * storefront ground floor), tinted per building. Colour, relief normals, roughness (G)
  * / metalness (B) and lit windows. The tile's bottom row sits on each building's ground. */
 export const contextTextures = (seed: number, style: Exclude<ContextStyle, "apt"> = "villa") => runNow(contextSteps(seed, style));
-export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> = "villa") {
-  const W = 512, H = 1024, cols = style === "office" ? 6 : 4, rows = 8, cw = W / cols, ch = H / rows;
-  const color = canvas(W, H), rm = canvas(W, H), glow = canvas(W, H), height = canvas(W, H);
+export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> = "villa", scale = 1) {
+  // (scale: the same drawing on larger canvases — a desktop's neighbourhood gets 2x)
+  const W = 512, H = 1024, cols = style === "office" ? 6 : 4, rows = 8, cw = W / cols, ch = H / rows, k = scale;
+  const color = canvas(W * k, H * k), rm = canvas(W * k, H * k), glow = canvas(W * k, H * k), height = canvas(W * k, H * k);
   const g = color.getContext("2d")!, r = rm.getContext("2d")!, e = glow.getContext("2d")!, hh = height.getContext("2d")!;
+  for (const c of [g, r, e, hh]) c.scale(k, k);
   // The clear glass, as on the complex's own facades (the lit-window map's alpha): the
   // WebGPU view draws rooms behind it. Frames, mullions and grilles are cut out of it.
   const glassRects: number[][] = [], cuts: number[][] = [];
@@ -450,15 +452,18 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
     g.fillStyle = "rgba(0,0,0,0.14)"; g.fillRect(0, y0 + ch - 4, W, 4);
     hh.fillStyle = "rgb(185,185,185)"; hh.fillRect(0, y0 + ch - 6, W, 6);
   }
-  const open = canvas(W, H), o = open.getContext("2d")!;
+  const open = canvas(W * k, H * k), o = open.getContext("2d")!;
+  o.scale(k, k);
   o.fillStyle = "#fff";
   for (const [x, y, w, h] of glassRects) o.fillRect(x, y, w, h);
   o.globalCompositeOperation = "destination-out";
   for (const [x, y, w, h, a] of cuts) { o.globalAlpha = a; o.fillRect(x, y, w, h); }
+  e.setTransform(1, 0, 0, 1, 0, 0);
   e.globalCompositeOperation = "destination-in"; e.drawImage(open, 0, 0); e.globalCompositeOperation = "source-over";
-  const soft = canvas(W, H), sctx = soft.getContext("2d")!;
-  sctx.filter = "blur(1px)"; sctx.drawImage(height, 0, 0);
-  const normal = yield* normalCanvas(soft, 4);
+  const soft = canvas(W * k, H * k), sctx = soft.getContext("2d")!;
+  sctx.filter = `blur(${k}px)`; sctx.drawImage(height, 0, 0);
+  // (the same slopes at twice the texels: twice the strength per texel step)
+  const normal = yield* normalCanvas(soft, 4 * k);
   // uv.y = 1 - (height above the building's ground): offset 2 puts the last row there.
   const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, cols * (style === "office" ? 1.8 : 3.4), rows * CONTEXT_FLOOR_M[style], 2);
   return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false), emissiveMap: tile(glow, true) };
@@ -497,6 +502,32 @@ export async function sharedContextTexturesSliced(style: ContextStyle, pace: () 
   return sharedTex.get(style) ?? null;
 }
 const painting = new Map<string, Promise<Record<string, THREE.Texture> | null>>();
+
+/** A desktop's neighbourhood at twice the texels (the complex itself already is): painted in
+ * idle time once the first complex is on screen, kept between visits like the rest, and
+ * swapped into the shared materials (the view makes their native materials again). Near
+ * neighbours read as soft blocks of window grid at the single size. Once a session. */
+let sharpening: Promise<void> | null = null;
+export function sharpenNeighbourhood(pace: () => Promise<boolean>): Promise<void> {
+  return sharpening ??= (async () => {
+    for (const style of ["apt", "villa", "shop", "office"] as ContextStyle[]) {
+      const key = (style + "@2") as ContextStyle;
+      let made = kept ? await kept.lookUp(key).catch(() => null) : null;
+      if (!made) {
+        made = await runSliced<Record<string, THREE.Texture>>(style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242, 2) : contextSteps(1000 + style.length, style, 2), pace);
+        if (!made) { sharpening = null; return; }
+        kept?.keep(key, made);
+      }
+      const m = sharedMat.get(style), old = sharedTex.get(style);
+      sharedTex.set(style, made);
+      if (m) {
+        m.map = made.map; m.normalMap = made.normalMap; m.roughnessMap = made.rmMap; m.metalnessMap = made.rmMap; m.emissiveMap = made.emissiveMap;
+        m.needsUpdate = true;
+      }
+      if (old && old !== made) Object.values(old).forEach(t => t.dispose());
+    }
+  })();
+}
 export function sharedContextTextures(style: ContextStyle): Record<string, THREE.Texture> {
   let hit = sharedTex.get(style);
   if (!hit) {
