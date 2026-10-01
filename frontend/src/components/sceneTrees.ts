@@ -16,7 +16,7 @@ interface BarkInfo { file: string; metres: number }
 
 /** A variant's meshes: full detail, and the distant copy (main limbs, a third of the twigs,
  * larger, so the crown keeps its fill). */
-interface Built { v: Variant; bark: THREE.BufferGeometry; leaves: THREE.BufferGeometry; farBark: THREE.BufferGeometry; farLeaves: THREE.BufferGeometry; twig: boolean }
+interface Built { v: Variant; bark: THREE.BufferGeometry; leaves: THREE.BufferGeometry; farBark: THREE.BufferGeometry; farLeaves: THREE.BufferGeometry; farthestLeaves: THREE.BufferGeometry; twig: boolean }
 export interface TreeKit { species: string[]; variants: Map<string, Built[]>; texture: THREE.Texture; twigs: THREE.Texture; bark: Map<string, THREE.Texture> }
 
 let kit: Promise<TreeKit> | null = null;
@@ -114,11 +114,17 @@ export function loadTreeKit(): Promise<TreeKit> {
       const n = l.count;
       const leaves = leafGeo(n, 1);
       // (the distant copy: the first third of the twigs — they were laid in random order — half as large again)
+      // (each copy a slice of its own: the three in one made the slice a longer frame)
+      await frameSlice();
       const farLeaves = n > 400 ? leafGeo(Math.ceil(n * 0.32), 1.5) : leaves;   // (trees only: a flower keeps its heads)
+      await frameSlice();
+      // (and the farthest: a seventh of the twigs, twice as large — a crown a few dozen pixels
+      // tall keeps its fill and outline from far fewer cards)
+      const farthestLeaves = n > 400 ? leafGeo(Math.ceil(n * 0.14), 2.0) : n > 120 ? leafGeo(Math.ceil(n * 0.4), 1.5) : farLeaves;
       const farBark = v.barkLod ? barkGeo(v.barkLod) : bark;
 
       const twig = n > 0 && dv.getUint8(26) >= 128;
-      variants.set(v.species, [...(variants.get(v.species) ?? []), { v, bark, leaves, farBark, farLeaves, twig }]);
+      variants.set(v.species, [...(variants.get(v.species) ?? []), { v, bark, leaves, farBark, farLeaves, farthestLeaves, twig }]);
     }
     return { species: meta.species, variants, texture, twigs, bark: barkTex };
   });
@@ -127,14 +133,20 @@ export function loadTreeKit(): Promise<TreeKit> {
 }
 export function preloadTrees() { void loadTreeKit().catch(() => {}); }
 
-/** Full detail within this distance of the complex (the orbit's centre), the distant copy
- * beyond; beyond the second, no shadow of their own (the far cascade is 600-1800 m). */
-const NEAR_M = 110, SHADOW_M = 250;
+/** The detail a tree is drawn in follows its size on screen (the camera's distance, the
+ * zoom): full detail over FULL_PX tall (CSS pixels), the distant copy over FAR_PX, the
+ * farthest copy below. Shadows as before, by the place: every tree within SHADOW_M of the
+ * complex casts one (a phone's small view draws them all small, and the lawn kept its shade). Re-sorted as the camera moves (Forest.build's update): the bands used to be fixed
+ * by distance from the complex's centre, so the orbit's far side drew hundreds of small trees
+ * in full detail (~5 M leaf triangles a frame, a third of the GPU's frame). */
+const FULL_PX = 130, FAR_PX = 35, SHADOW_M = 250;
+
+type Planted = { m: THREE.Matrix4; tint: THREE.Color; x: number; y: number; z: number; h: number };
 
 /** Trees placed one by one, then built into instanced meshes. */
 export class Forest {
-  private placed = new Map<string, { m: THREE.Matrix4; tint: THREE.Color }[]>();
-  /** (the complex's centre, in the same frame as the trees: the distance bands' origin) */
+  private placed = new Map<string, Planted[]>();
+  /** (kept for callers: the bands no longer depend on it) */
   centre = new THREE.Vector2();
   constructor(private kit: TreeKit, private hq = true) {}
   has(species: string) { return this.kit.variants.has(species); }
@@ -145,15 +157,13 @@ export class Forest {
     const k = Math.floor(pick * list.length) % list.length, v = list[k].v;
     const s = height / v.height;
     const m = new THREE.Matrix4().compose(new THREE.Vector3(x, ground - 0.05, z), new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw), new THREE.Vector3(s, s, s));
-    // near (full detail), far (the distant copy), farthest (the distant copy, casting no shadow)
-    const d = Math.hypot(x - this.centre.x, z - this.centre.y), band = d < NEAR_M && this.hq ? 0 : d < SHADOW_M ? 1 : 2;
-    const key = `${species}:${k}:${band}`;
+    const key = `${species}:${k}`;
     const at = this.placed.get(key) ?? [];
-    at.push({ m, tint: tint.clone() });
+    at.push({ m, tint: tint.clone(), x, y: ground + height * 0.5, z, h: height });
     this.placed.set(key, at);
     return true;
   }
-  build(): { group: THREE.Group; dispose: () => void } {
+  build(): { group: THREE.Group; dispose: () => void; update: (camera: THREE.PerspectiveCamera, heightPx: number) => void } {
     const group = new THREE.Group();
     const barkMats = new Map<string, THREE.MeshStandardMaterial>();
     const barkMat = (species: string) => {
@@ -173,20 +183,76 @@ export class Forest {
     };
     const twigMat = foliage(this.kit.twigs), leafMat = foliage(this.kit.texture);
     const meshes: THREE.InstancedMesh[] = [];
+    // Per variant, one leaf (and bark) mesh per level, each sized for every tree of the variant;
+    // update() deals the trees out among them.
+    const sets: { list: Planted[]; levels: THREE.InstancedMesh[][]; band: Uint8Array }[] = [];
     for (const [key, list] of this.placed) {
-      const [species, k, bandS] = key.split(":");
-      const band = Number(bandS);
+      const [species, k] = key.split(":");
       const built = this.kit.variants.get(species)![Number(k)];
-      const bark = band ? built.farBark : built.bark, leaves = band ? built.farLeaves : built.leaves, twig = built.twig;
-      const l = new THREE.InstancedMesh(leaves, twig ? twigMat : leafMat, list.length);
-      const parts = [l];
-      if (bark.getAttribute("position")) parts.push(new THREE.InstancedMesh(bark, barkMat(species), list.length));
-      list.forEach((t, i) => { parts.forEach(im => im.setMatrixAt(i, t.m)); l.setColorAt(i, t.tint); });
       // (shrubs and flowers are low: no shadow of their own worth drawing into the sun's maps)
       const low = this.kit.variants.get(species)![0].v.height < 1.6;
-      for (const im of parts) { im.name = key; im.castShadow = !low && band < 2; im.receiveShadow = true; im.computeBoundingSphere(); group.add(im); meshes.push(im); }
+      // (levels: full, distant, farthest casting a shadow, farthest without)
+      const levels = ([[built.bark, built.leaves], [built.farBark, built.farLeaves], [built.farBark, built.farthestLeaves], [built.farBark, built.farthestLeaves]] as const).map(([bark, leaves], lv) => {
+        // (no full detail on phones and small tablets: that level is never dealt any)
+        if (lv === 0 && !this.hq) return [] as THREE.InstancedMesh[];
+        // (room for a few to start with: a level grows when the trees dealt to it outnumber its
+        // room — sized for every tree, the four levels held four times the instance data)
+        const l = new THREE.InstancedMesh(leaves, built.twig ? twigMat : leafMat, Math.min(16, list.length));
+        const parts = [l];
+        if (bark.getAttribute("position")) parts.push(new THREE.InstancedMesh(bark, barkMat(species), Math.min(16, list.length)));
+        for (const im of parts) {
+          im.name = `${key}:${lv}`; im.castShadow = !low && lv < 3; im.receiveShadow = true; im.count = 0;
+          // (the trees move between levels: bounds of the whole variant's spread)
+          im.frustumCulled = false;
+          group.add(im); meshes.push(im);
+        }
+        return parts;
+      });
+      sets.push({ list, levels, band: new Uint8Array(list.length).fill(255) });
     }
+    const v = new THREE.Vector3();
+    // (?treelod=0: the former bands, by distance from the complex's centre — for comparison)
+    const oldBands = typeof location !== "undefined" && new URLSearchParams(location.search).get("treelod") === "0";
+    const update = (camera: THREE.PerspectiveCamera, heightPx: number) => {
+      const k = heightPx / (2 * Math.tan((camera.fov * Math.PI) / 360));
+      const p = camera.position;
+      for (const set of sets) {
+        let changed = false;
+        const bands = set.list.map((t, i) => {
+          const px = (t.h * k) / Math.max(1, v.set(t.x - p.x, t.y - p.y, t.z - p.z).length());
+          const fromCentre = Math.hypot(t.x - this.centre.x, t.z - this.centre.y);
+          const b = oldBands ? (fromCentre < 110 && this.hq ? 0 : fromCentre < SHADOW_M ? 1 : 3)
+            : px > FULL_PX && this.hq ? 0 : px > FAR_PX ? 1 : fromCentre < SHADOW_M ? 2 : 3;
+          if (b !== set.band[i]) { set.band[i] = b; changed = true; }
+          return b;
+        });
+        if (!changed) continue;
+        const n = [0, 0, 0, 0];
+        for (const b of bands) n[b]++;
+        set.levels.forEach((parts, b) => {
+          if (!parts.length) return;
+          const room = parts[0].instanceMatrix.count;
+          if (n[b] <= room) return;
+          const size = Math.min(set.list.length, Math.ceil(n[b] * 1.25) + 8);
+          for (const im of parts) {
+            im.instanceMatrix = new THREE.InstancedBufferAttribute(new Float32Array(size * 16), 16);
+            if (im.instanceColor) im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(size * 3), 3);
+          }
+        });
+        n.fill(0);
+        set.list.forEach((t, i) => {
+          const b = bands[i], j = n[b]++;
+          for (const im of set.levels[b]) im.setMatrixAt(j, t.m);
+          set.levels[b][0]?.setColorAt(j, t.tint);
+        });
+        set.levels.forEach((parts, b) => parts.forEach(im => {
+          im.count = n[b];
+          im.instanceMatrix.needsUpdate = true;
+          if (im.instanceColor) im.instanceColor.needsUpdate = true;
+        }));
+      }
+    };
     // (the geometries and the texture belong to the kit, kept for the next complex)
-    return { group, dispose: () => { barkMats.forEach(m => m.dispose()); leafMat.dispose(); twigMat.dispose(); meshes.forEach(m => m.dispose()); } };
+    return { group, update, dispose: () => { barkMats.forEach(m => m.dispose()); leafMat.dispose(); twigMat.dispose(); meshes.forEach(m => m.dispose()); } };
   }
 }

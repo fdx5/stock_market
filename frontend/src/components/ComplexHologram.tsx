@@ -219,6 +219,8 @@ type Stage = {
     aim?: THREE.Vector3 } | null;
   /** Place the complexes' name signs (an HTML layer over the view) for this frame's camera. */
   signs: ((camera: THREE.PerspectiveCamera, w: number, h: number) => void) | null;
+  /** The view's height in CSS pixels (the trees' detail follows their size on screen). */
+  viewH: number;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -802,7 +804,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         wantRain: +(weatherRef.current === "rain"), wantSnow: +(weatherRef.current === "snow"), dirty: true, envAt: 0 },
       lit: { windows: [], crowns: [], ground: [] }, tick: [], onLook: [],
       ground: null, model: null, pickables: [], intro: null, fly: null,
-      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null,
+      now: 0, top: 50, dist: 300, center: new THREE.Vector3(), floor: 0, nearMax: 0.5, hq, disposeModel: () => {}, resume: () => {}, stopExtras: () => {}, current: null, unshown: false, busy: 0, building: false, onShown: [], attach: () => {}, frame: () => {}, snap: null, balloon: null, balloonView: null, signs: null, viewH: 600,
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
@@ -814,6 +816,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const resize = () => {
       W = host.clientWidth; H = host.clientHeight;
       if (!W || !H) return;
+      stage.viewH = H;
       if (hq && !fixedRatio) {
         const area = W * H, cap = Math.max(minRatio, Math.min(maxRatio, Math.sqrt(PIX_CAP / area)));
         // First size, or a much larger one (full screen): the ratio this GPU should hold at about
@@ -2576,6 +2579,21 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
         if (!plants) return;
         if (!alive) { plants.dispose(); return; }
+        // The trees' detail by their size on screen: dealt out again whenever the camera has moved
+        // 6 m, zoomed or the view resized (a few tenths of a ms for thousands of trees).
+        const fit = plants.update;
+        if (fit) {
+          const at = new THREE.Vector3(Infinity, 0, 0);
+          let fov = 0, vh = 0;
+          const refit = () => {
+            const cam = stage.camera;
+            if (cam.position.distanceToSquared(at) < 36 && cam.fov === fov && stage.viewH === vh) return;
+            at.copy(cam.position); fov = cam.fov; vh = stage.viewH;
+            fit(cam, vh);
+          };
+          refit();
+          tick.push(refit);
+        }
         stage.addWarm(decor, plants.mesh);
         disposables.push(plants);
       } catch (err) { console.info("[3D] Plants unavailable:", err); }

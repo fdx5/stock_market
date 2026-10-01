@@ -269,6 +269,8 @@ export function cutPaths(paths: WalkPath[], blocked: (x: number, y: number) => b
 
 interface Walker {
   kind: Kind; path: WalkPath; s: number; dir: 1 | -1; speed: number; phase: number; scale: number; width: number;
+  /** Near the view last time looked at (else walked on in larger steps), and the time owed. */
+  around?: boolean; lag?: number;
   /** Instance slots: [mesh index, slot] per part, in pose order. */
   slots: [number, number][];
   /** Colours of the distant stand-in: top, legs, skin. */
@@ -397,7 +399,8 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     trans.makeTranslation(x, y, z); rotX.makeRotationX(a);
     return out.multiplyMatrices(from, trans).multiply(rotX);
   };
-  const frustum = new THREE.Frustum(), vp = new THREE.Matrix4(), sphere = new THREE.Sphere(new THREE.Vector3(), 1.2);
+  const frustum = new THREE.Frustum(), vp = new THREE.Matrix4(), sphere = new THREE.Sphere(new THREE.Vector3(), 1.2), wide = new THREE.Sphere(new THREE.Vector3(), 15);
+  let frameN = 0;
   const camPos = new THREE.Vector3();
 
   const advance = (w: Walker, dt: number) => {
@@ -507,10 +510,17 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
       const fov = (camera as THREE.PerspectiveCamera).fov ?? 36;
       const zoom = Math.tan(THREE.MathUtils.degToRad(fov / 2)) / Math.tan(THREE.MathUtils.degToRad(18));
       const zoom2 = zoom * zoom;
+      frameN++;
       walkers.forEach((w, wi) => {
-        advance(w, dt);
+        // Those well out of view (or too far) walk on every sixth frame by the time owed: no one
+        // sees them, and most of the crowd is out of view at any time. "Near the view" has a
+        // 15 m margin, so anyone turning into it is already walking frame by frame.
+        if (w.around === false && (wi + frameN) % 6) { w.lag = (w.lag ?? 0) + dt; return; }
+        advance(w, dt + (w.lag ?? 0)); w.lag = 0;
         sphere.center.set(w.x, terrain.at(w.x, w.y) + 1, -w.y);
         const d2 = sphere.center.distanceToSquared(camPos) * zoom2;
+        wide.center.copy(sphere.center);
+        w.around = d2 <= 440 * 440 && frustum.intersectsSphere(wide);
         // Out of view or too far to make out: not drawn at all.
         if (d2 > 420 * 420 || !frustum.intersectsSphere(sphere)) return;
         if (d2 > NEAR * NEAR) poseFar(w, wi); else pose(w);

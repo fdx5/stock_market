@@ -27,6 +27,7 @@ const _v = new Vector3();
 const _camPos = new Vector3();
 
 let _listToken = 0; // one per drawItems call (see BindingSet.getBindGroup)
+const _sig = [];
 const sharedPipelines = new Map();
 // (local modification) a number per GPU object, for the render-bundle keys
 const _gpuIds = new WeakMap();
@@ -685,9 +686,9 @@ export class MeshRenderer {
 			const instances = o.isInstancedMesh ? o.count : geo.instanceCount ?? 1;
 			if ( instances === 0 ) continue;
 			const index = this._indexBuffer( geo );
-			// (changed within the last second: kept out of the bundles)
-			const shape = instances + ':' + it.start + ':' + it.count;
-			if ( o.__bundleShape !== shape ) { o.__bundleShape = shape; o.__bundleShapeAt = GPU.frame; }
+			// (changed within the last second: kept out of the bundles; compared as numbers — a
+			// string a draw each frame was a good part of this loop)
+			if ( o.__bsI !== instances || o.__bsS !== it.start || o.__bsC !== it.count ) { o.__bsI = instances; o.__bsS = it.start; o.__bsC = it.count; o.__bundleShapeAt = GPU.frame; }
 			const steady = ! geo.indirect && GPU.frame - o.__bundleShapeAt > 60;
 			rows.push( { it, o, geo, pipeline, group, offset, vbs, instances, index, steady } );
 
@@ -706,18 +707,23 @@ export class MeshRenderer {
 		const flush = () => {
 
 			if ( ! segment.length ) return;
-			let key = `${ _gpuId( pass.group0 ) }/${ _gpuId( this.drawBindGroup ) }`;
+			// The segment's inputs as a list of numbers (compared, not joined into a string: that
+			// was most of this method's time), -1 between draws.
+			const key = _sig; key.length = 0;
+			key.push( _gpuId( pass.group0 ), _gpuId( this.drawBindGroup ) );
 			for ( const r of segment ) {
 
-				key += `;${ _gpuId( r.pipeline ) },${ _gpuId( r.group ) },${ r.offset },${ r.instances },${ r.it.start },${ r.it.count }`;
-				for ( const b of r.vbs ) key += ',' + _gpuId( b );
-				if ( r.index ) key += ',' + _gpuId( r.index.buffer ) + r.index.format + ( r.geo.index ? r.geo.index.count : '' );
-				else key += ',' + ( r.geo.attributes.position ? r.geo.attributes.position.count : r.geo.vertexCount );
+				key.push( - 1, _gpuId( r.pipeline ), _gpuId( r.group ), r.offset, r.instances, r.it.start, r.it.count, r.vbs.length );
+				for ( const b of r.vbs ) key.push( _gpuId( b ) );
+				if ( r.index ) key.push( _gpuId( r.index.buffer ), r.index.format === 'uint32' ? 2 : 1, r.geo.index ? r.geo.index.count : - 2 );
+				else key.push( 0, 0, r.geo.attributes.position ? r.geo.attributes.position.count : r.geo.vertexCount );
 
 			}
 
 			let c = cache[ segments ];
-			if ( ! c || c.key !== key ) {
+			let same = !! c && c.key.length === key.length;
+			if ( same ) for ( let i = 0; i < key.length; i ++ ) if ( c.key[ i ] !== key[ i ] ) { same = false; break; }
+			if ( ! same ) {
 
 				const be = GPU.device.createRenderBundleEncoder( {
 					label: ( pass.label || pass.kind ) + ' bundle',
@@ -726,7 +732,7 @@ export class MeshRenderer {
 				be.setBindGroup( 0, pass.group0 );
 				const own = { pipeline: null, group: null };
 				for ( const r of segment ) this._drawRow( be, r, own );
-				c = cache[ segments ] = { key, bundle: be.finish() };
+				c = cache[ segments ] = { key: key.slice(), bundle: be.finish() };
 
 			} else {
 

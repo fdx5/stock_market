@@ -1266,7 +1266,7 @@ export class ComplexRenderer {
     source.updateMatrixWorld(true);
     const active = this.active ??= new Set();
     active.clear();
-    let added = false, deferred = false;
+    let added = false, deferred = false, swapped = false;
     // A new complex brings dozens of materials, each with textures to upload (and encode as
     // BC7 on the GPU) and a shader to compose: all in one frame that is a long task and a
     // burst of GPU work, and the pointer stalls with it. They come a few per frame instead
@@ -1314,6 +1314,10 @@ export class ComplexRenderer {
       // Casters that moved lately (walkers, traffic, boats, the balloon) are drawn into the
       // shadow maps every frame; the still ones can be kept (SunShadows.render). A change
       // of either set invalidates what is kept.
+      // (instance data replaced — a level of trees grown: the old buffers are let go below)
+      if (obj.isInstancedMesh && (mesh.instanceMatrix !== obj.instanceMatrix || mesh.instanceColor !== obj.instanceColor)) {
+        mesh.instanceMatrix = obj.instanceMatrix; mesh.instanceColor = obj.instanceColor; mesh.instVersion = -1; swapped = true;
+      }
       const moved = mesh.count !== (obj.count ?? 1) || mesh.instVersion !== obj.instanceMatrix?.version || !sameMatrix(mesh.matrix, obj.matrixWorld);
       if (moved) {
         if (mesh.castShadow && !mesh.moving) this.castersChanged = true;
@@ -1339,8 +1343,8 @@ export class ComplexRenderer {
     // shown and hidden again (weather, time of day, a burner's flame) would otherwise
     // rebuild them all each time — a stutter. Switching complexes still frees them.
     this.sweep = (this.sweep ?? 0) + 1;
-    if (!removed && !added && this.sweep % 120 !== 0) return;
-    if (removed || added) this.renderer.retainGeometry(this.meshes.values());
+    if (!removed && !added && !swapped && this.sweep % 120 !== 0) return;
+    if (removed || added || swapped) this.renderer.retainGeometry(this.meshes.values());
     const used = new Set([...active].flatMap(o => Array.isArray(o.material) ? o.material : [o.material]));
     const unusedAt = this.unusedAt ??= new Map();
     const now = performance.now();
