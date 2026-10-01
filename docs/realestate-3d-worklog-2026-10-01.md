@@ -159,3 +159,9 @@
 - 서버 대역폭: frontend/public/3d(18MB, trees.bin·cars.bin·plants.*) 와 큰 이미지(planets, sky 파노라마, planet-surfaces, products)를
   jsDelivr(https://cdn.jsdelivr.net/gh/fdx5/stock_market@<커밋>/frontend/public/...)에서 제공. src/staticCdn.ts의 STATIC_PIN(현재 8876765),
   CDN 실패/미포함 파일은 우리 서버로 폴백. 파일 바꾸거나 추가하면 푸시 후 STATIC_PIN(및 kospiOrbit.css의 sky URL) 갱신 필요.
+
+## 10-02 데스크톱 깜빡임(사용자: 데스크톱 크롬) — 반사 교체 크로스페이드, ?hud=1
+- 데스크톱 high에서만 켜지는 창 반사(env cube): 태양이 1° 움직일 때마다(실시간 시각 ≈4분마다) 재캡처 → 완료 순간 모든 창 반사가 한 프레임에 바뀜
+  = 간헐적 깜빡임 + 캡처 동안 장면 재렌더로 프레임 부담. → 3° 단위로만 재캡처, 이전 큐브에서 1초 크로스페이드(env.fade, envPrev 바인딩),
+  페이드 중엔 다음 캡처 보류.
+- ?hud=1: 화면 우하단에 fps·25ms 넘는 프레임 수·최악 프레임·GPU ms·해상도 배율·품질·렌더러·draws 표시(사용자 기기 진단용).

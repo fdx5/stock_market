@@ -528,6 +528,32 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const [renderMode, setRenderMode] = useState<"auto" | "webgl">("auto");
   const [terrainSource, setTerrainSource] = useState<string | null>(null);
   const [preparing, setPreparing] = useState(false);
+  // ?hud=1: the view's own numbers on screen (frame rate, frames dropped, GPU time, resolution,
+  // quality, renderer), for a reader's device to tell what it does. Written straight into a
+  // <pre> twice a second; the frames counted by their own requestAnimationFrame.
+  const hudRef = useRef<HTMLPreElement>(null);
+  const hudOn = useMemo(() => new URLSearchParams(location.search).get("hud") === "1", []);
+  useEffect(() => {
+    if (!hudOn) return;
+    let raf = 0, last = performance.now(), n = 0, slow = 0, worst = 0, at = last, totalSlow = 0;
+    const tick = (t: number) => {
+      const dt = t - last; last = t; n++;
+      if (dt > 25) { slow++; totalSlow++; } worst = Math.max(worst, dt);
+      if (t - at > 500) {
+        const d = (document.querySelector<HTMLElement>(".re-holo--expanded .re-holo-stage") ?? hostRef.current)?.dataset ?? {};
+        if (hudRef.current) hudRef.current.textContent =
+          `fps ${(n * 1000 / (t - at)).toFixed(0)}  drop>25ms ${slow}/0.5s (total ${totalSlow})  worst ${worst.toFixed(0)}ms
+` +
+          `gpu ${d.gpuMs ?? "-"}ms  ratio ${d.pixelRatio ?? "-"} x dpr ${devicePixelRatio}  quality ${d.quality ?? "-"}  ${d.renderer ?? ""}
+` +
+          `draws ${d.draws ?? "-"}  ${innerWidth}x${innerHeight}  ${d.trial ?? ""}`;
+        n = 0; slow = 0; worst = 0; at = t;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [hudOn]);
   // Button set follows the page layout (the desktop rail from 981 px, as the map page
   // decides), not the pointer: an iPad in the desktop layout gets the desktop controls.
   const narrow = useMediaQuery("(max-width: 980px)");
@@ -3166,6 +3192,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         onDoubleClick={e => { if (!stageRef.current?.balloonView && e.target instanceof HTMLCanvasElement) focusAt(e); }}
         onPointerLeave={e => { hovering.current = false; if (e.pointerType === "mouse" && !tip?.pinned) setTip(null); }}>
         {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{sceneTitle}</strong></div>}
+        {hudOn && <pre ref={hudRef} style={{ position: "fixed", right: 8, bottom: 8, zIndex: 2147483647, margin: 0, padding: "6px 8px", background: "rgba(0,0,0,.65)", color: "#9f9", font: "11px/1.35 ui-monospace, monospace", pointerEvents: "none", whiteSpace: "pre" }} />}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
         {!loading && signs.length > 0 && (
           <div className="re-holo-signs">

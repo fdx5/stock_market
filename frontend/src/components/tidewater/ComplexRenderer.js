@@ -77,7 +77,7 @@ async function device() {
     void warmCopies();
     GPU.format = navigator.gpu.getPreferredCanvasFormat();
     SceneLighting.set('envSpecular', new ShaderModule({ name: 'complex reflected surroundings', deps: [atmosphere],
-      bindings: { env: { uniform: EnvUniforms }, envCube: { texture: envTexture, viewDimension: 'cube' } }, code: `
+      bindings: { env: { uniform: EnvUniforms }, envCube: { texture: envTexture, viewDimension: 'cube' }, envPrev: { texture: envPrevTexture, viewDimension: 'cube' } }, code: `
       var<private> envP: vec3f;
       fn hookEnvSpecular(R: vec3f, roughness: f32) -> vec3f {
         let sky = mix(skyBase(R), frame.horizonColor, roughness * 0.55) * frame.envIntensity;
@@ -88,7 +88,10 @@ async function device() {
         // (where the ray leaves the sphere round the complex, seen from the cube's centre)
         let o = envP - env.probe.xyz; let b = dot(o, R); let c = dot(o, o) - env.probe.w * env.probe.w;
         let t = max(-b + sqrt(max(b * b - c, 0.0)), 0.0);
-        let s = textureSampleLevel(envCube, smpLinearClamp, normalize(o + R * t) * vec3f(1.0, 1.0, -1.0), 0.0);
+        let dir = normalize(o + R * t) * vec3f(1.0, 1.0, -1.0);
+        // (a new capture fades in over a second: swapped at once, every window's reflection
+        // changed in one frame — a flicker whenever the sun had moved on a few degrees)
+        let s = mix(textureSampleLevel(envPrev, smpLinearClamp, dir, 0.0), textureSampleLevel(envCube, smpLinearClamp, dir, 0.0), env.fade);
         // (leaves are drawn with a partial alpha: any cover counts)
         return mix(sky, s.rgb / max(s.a, 1e-3) * min(s.a, 1.0), w * min(s.a * 8.0, 1.0));
       }` }));
@@ -567,9 +570,11 @@ const RECESS_WGSL = /* wgsl */`
 }
 `;
 const ENV_SIZE = 256;
-const EnvUniforms = new UniformBlock('Env', { probe: ['vec4f', [0, 25, 0, 320]], on: ['f32', 0], pad0: ['f32', 0], pad1: ['f32', 0], pad2: ['f32', 0] }, { label: 'complex env' });
+const EnvUniforms = new UniformBlock('Env', { probe: ['vec4f', [0, 25, 0, 320]], on: ['f32', 0], fade: ['f32', 1], pad1: ['f32', 0], pad2: ['f32', 0] }, { label: 'complex env' });
 let envView = null, envBlank = null;
 const envTexture = () => envView?.env?.tex ?? (envBlank ??= new Texture({ width: 4, height: 4, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'render'], label: 'complex env blank' }));
+// (the capture before the current one: the reflections fade from it — env.fade — not jump)
+const envPrevTexture = () => envView?.env?.back ?? envTexture();
 // Cube faces +x, -x, +y, -y, +z, -z: where each looks and its up. A WebGPU cube's faces are laid
 // out left-handed against the scene's right-handed camera, so no turn of the camera matches them;
 // each face is drawn of the scene mirrored in z (look and up below, mirrored) and read with z
@@ -1628,12 +1633,15 @@ export class ComplexRenderer {
     const e = this.env, now = performance.now();
     envView = this;
     EnvUniforms.set('on', e.on ? 1 : 0);
-    const key = `${Math.round(look.keyElev)}|${Math.round(look.keyAz)}|${(look.rain ?? 0).toFixed(1)}|${(look.snow ?? 0).toFixed(1)}|${(look.stars ?? 0).toFixed(1)}|${(look.overcast ?? 0).toFixed(1)}`;
+    EnvUniforms.set('fade', e.fadeAt ? Math.min(1, (now - e.fadeAt) / 1000) : 1);
+    // (the sun in 3° steps: captured again each degree, the reflections changed every few minutes)
+    const key = `${Math.round(look.keyElev / 3)}|${Math.round(look.keyAz / 3)}|${(look.rain ?? 0).toFixed(1)}|${(look.snow ?? 0).toFixed(1)}|${(look.stars ?? 0).toFixed(1)}|${(look.overcast ?? 0).toFixed(1)}`;
     if (key !== e.key) { e.key = key; e.dirtyAt = now; }
     if (Math.abs(this.meshes.size - e.meshes) > Math.max(8, e.meshes * 0.1)) { e.meshes = this.meshes.size; e.dirtyAt = now; }
     // (once the scene has held still for 3 s — a new complex's decoration all in — and then a face
     // every third frame: each is a whole scene drawn again, and in a row they made the load stutter)
-    if (e.face < 0) { if (!e.dirtyAt || now - e.dirtyAt < 3000 || !this.ready) return; e.face = 0; e.dirtyAt = 0; }
+    // (not while the last one still fades in: its predecessor, being faded from, is the cube drawn into)
+    if (e.face < 0) { if (!e.dirtyAt || now - e.dirtyAt < 3000 || !this.ready || (e.fadeAt && now - e.fadeAt < 1100)) return; e.face = 0; e.dirtyAt = 0; }
     if (this.frameNo % 3) return;
     const [dx, dy, dz, ux, uy, uz] = ENV_FACES[e.face];
     const probe = EnvUniforms.fields.probe.value;
@@ -1650,7 +1658,7 @@ export class ComplexRenderer {
       depthView: e.depth.depthTexture.view(), depthFormat: 'depth32float', clearColors: [[0, 0, 0, 0]], clearDepth: 0,
     });
     GPU.getEncoder().copyTextureToTexture({ texture: e.faceRT.texture.getGPU() }, { texture: e.back.getGPU(), origin: [0, 0, e.face] }, [ENV_SIZE, ENV_SIZE, 1]);
-    if (++e.face === 6) { e.face = -1; e.on = true; [e.tex, e.back] = [e.back, e.tex]; }
+    if (++e.face === 6) { e.face = -1; e.on = true; [e.tex, e.back] = [e.back, e.tex]; e.fadeAt = performance.now(); }
   }
   dispose() {
     this.disposed = true;
