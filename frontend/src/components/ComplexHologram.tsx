@@ -508,7 +508,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // (a phone at its own pixels, up to 3x: it started at 1.6x and could never climb, so a 3x
     // screen showed a soft picture from the first frame)
     let ratio = Math.min(dpr, hq ? 2 : 3);
-    let maxRatio = hq ? Math.min(2, Math.max(dpr, 1.5)) : ratio;
+    // (a desktop supersamples up to 2x where its GPU has the time: the native view has no MSAA,
+    // and at the display's own 1x its window grids and edges shimmered)
+    let maxRatio = hq ? 2 : ratio;
+    // Desktop: the first ratio from a pixel budget (a panel or a normal window starts well above
+    // 1x, a 5K full screen at its own pixels), never above ~14 MP of drawing in all (the render
+    // targets of a 5120x1440 screen at 2x would be gigabytes). Measured GPU time climbs from there.
+    const PIX_START = 4.5e6, PIX_CAP = 14e6;
+    let lastArea = 0;
+    // (?pr=1.5: a fixed ratio, for comparing sharpness and GPU time)
+    const fixedRatio = Number(new URLSearchParams(location.search).get("pr")) || 0;
+    if (fixedRatio) ratio = maxRatio = fixedRatio;
     // High resolution on every device is the rule: never below the display's own pixels
     // (a phone's 3x may step down, never under 1 CSS pixel a pixel).
     const minRatio = Math.min(1, dpr);
@@ -750,6 +760,19 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const resize = () => {
       W = host.clientWidth; H = host.clientHeight;
       if (!W || !H) return;
+      if (hq && !fixedRatio) {
+        const area = W * H, cap = Math.max(minRatio, Math.min(maxRatio, Math.sqrt(PIX_CAP / area)));
+        // First size, or a much larger one (full screen): the ratio this GPU should hold at about
+        // 10 ms a frame, from its time measured at the size before (all of it taken as growing with
+        // the pixels: on the safe side); unmeasured, the pixel budget.
+        if (area > lastArea * 1.3) {
+          const gpu = native?.timer.enabled ? native.timer.ms.total ?? 0 : 0, drawn = lastArea * ratio * ratio;
+          const want = gpu > 0.5 && drawn > 0 ? Math.sqrt((10 / gpu) * drawn / area) : Math.sqrt(PIX_START / area);
+          ratio = Math.max(Math.min(dpr, 2), minRatio, Math.min(cap, Math.floor(want * 4) / 4));
+        }
+        ratio = Math.min(ratio, cap);
+        lastArea = area;
+      }
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
       native?.setSize(W, H, ratio);
@@ -786,7 +809,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
     // Dynamic quality and resolution with hysteresis: at least 40 fps, never below 1x.
-    let slow = 0, quick = 0, gpuHot = 0, last = performance.now(), settleUntil = 0, calibrated = false;
+    let slow = 0, quick = 0, gpuHot = 0, gpuCool = 0, last = performance.now(), settleUntil = 0, calibrated = false;
     // A step down on trial (no GPU timestamps), and whether one proved the main thread the limit.
     let trial: { step: string; before: number; ratio: number; quality: Quality | null; from: number; until: number; dts: number[] } | null = null;
     let cpuBound = false;
@@ -887,14 +910,26 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // Resolution up only with GPU time to spare. The frame interval can't tell: vsync
       // holds it at 16.7 ms however full the GPU is, and a GPU run to 100 % starves the
       // browser (the pointer and the rest of the page stutter). With timestamps: climb
-      // under 7 ms of GPU work a frame, step down over 12 ms; without, never past the
+      // under ~12 ms of GPU work a frame (predicted), step down over 14.5 ms; without, never past the
       // display's own ratio.
       // (changes judged over seconds, not a moment: each reallocates the render targets,
       // a visible hitch, and a view moving about — the balloon — varies from frame to frame)
-      else if (native?.timer.enabled && (native.timer.ms.total ?? 0) > 12 && ratio > Math.min(1, dpr) && judge && ++gpuHot > 180) {
+      // (14.5 ms held for 3 s: the GPU's time swings with the view — shadows redrawn while it
+      // turns — and the frame rate holds to well past 13 ms; the page keeps its drawing time)
+      else if (native?.timer.enabled && (native.timer.ms.total ?? 0) > 14.5 && ratio > Math.min(1, dpr) && judge && ++gpuHot > 180) {
         ratio = Math.max(minRatio, ratio - 0.25); maxRatio = Math.max(minRatio, ratio); gpuHot = 0; resize();
       }
-      else if (quick > 150 && ratio < maxRatio && (native?.timer.enabled ? (native.timer.ms.total ?? 99) < 7 : ratio + 0.25 <= dpr)) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
+      // (with timestamps: up whenever the GPU has had time to spare for ~1.5 s — idle frames too:
+      // a still view left at a lower ratio stayed soft for good)
+      else if (native?.timer.enabled && !fixedRatio) {
+        // (a step up only where the GPU time it predicts — growing with the pixels — stays under
+        // 12 ms: below the 14.5 ms that steps down, so it never swings back and forth)
+        const top = Math.min(maxRatio, Math.sqrt(PIX_CAP / (W * H))), next = Math.min(top, ratio + 0.25);
+        const room = !stage.unshown && nowMs > settleUntil && next > ratio && (native.timer.ms.total ?? 99) * (next / ratio) ** 2 < 12;
+        if (!room) gpuCool = 0;
+        else if (++gpuCool > 60) { ratio = next; gpuCool = 0; settleUntil = nowMs + 500; resize(); }
+      }
+      else if (quick > 150 && ratio < maxRatio && ratio + 0.25 <= dpr) { ratio = Math.min(maxRatio, ratio + 0.25); quick = 0; resize(); }
 
       const t = (nowMs - t0) / 1000;
       stage.now = t;
