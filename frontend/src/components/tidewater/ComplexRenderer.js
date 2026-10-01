@@ -1480,7 +1480,7 @@ export class ComplexRenderer {
     // shown and hidden again (weather, time of day, a burner's flame) would otherwise
     // rebuild them all each time — a stutter. Switching complexes still frees them.
     this.sweep = (this.sweep ?? 0) + 1;
-    if (!removed && !added && !swapped && this.sweep % 120 !== 0) return;
+    if (!removed && !added && !swapped && !this.forgetSoon?.size && this.sweep % 120 !== 0) return;
     if (removed || added || swapped) this.renderer.retainGeometry(this.meshes.values());
     const used = new Set([...active].flatMap(o => Array.isArray(o.material) ? o.material : [o.material]));
     const unusedAt = this.unusedAt ??= new Map();
@@ -1490,15 +1490,23 @@ export class ComplexRenderer {
       if (used.has(src)) { unusedAt.delete(src); continue; }
       const since = unusedAt.get(src) ?? now;
       unusedAt.set(src, since);
-      if (now - since < 20000) continue;
-      mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); unusedAt.delete(src); dropped = true;
+      // (a model taken off the scene — the complex left for another — goes at once: kept 20 s, two
+      // or three complexes' facades were held at a time, ~200 MB more while hopping between them)
+      const gone = this.forgetSoon?.has(src);
+      if (now - since < 20000 && !gone) continue;
+      mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); unusedAt.delete(src);
+      if (!gone) dropped = true;
     }
+    this.forgetSoon?.clear();
     if (dropped) this.renderer.pipelines.clear();
     const kept = new Set([...this.materials.keys()].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap, m.userData.farGround?.map]));
     for (const [src, tex] of this.textures) if (!kept.has(src)) { tex.destroy(); this.textures.delete(src); }
     // (strips of a canvas no material uses any more)
     if (this.stagings) for (const [src, st] of this.stagings) if (!kept.has(src) && this.frameNo - (st.at ?? 0) > 600) { st.tex.destroy(); this.stagings.delete(src); }
   }
+  /** The materials of a model taken off the scene: freed at the next sweep (with their textures,
+   * where nothing else uses them), not after 20 s out of use. */
+  forget(sources) { this.forgetSoon ??= new Set(); for (const s of sources) this.forgetSoon.add(s); }
   render(source, camera, look, time) {
     if (this.disposed || this.failed) return;
     if (deviceLost) { this.failed = true; return; }

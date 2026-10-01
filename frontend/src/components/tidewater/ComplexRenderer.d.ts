@@ -20,4 +20,6 @@ export class ComplexRenderer {
   setSize(width: number, height: number, ratio: number): void;
   setQuality(quality: Quality): void;
   dispose(): void;
+  /** Free the materials of a model taken off the scene at the next sweep (not after 20 s unused). */
+  forget(materials: Set<import("three").Material>): void;
 }

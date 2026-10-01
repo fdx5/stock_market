@@ -198,6 +198,8 @@ type Stage = {
   /** The model on screen, to keep in view while the next one is built (a move to a neighbouring
    * complex): stop its late additions, and later take it out of the scene and free it. */
   current: { stop: () => void; release: () => void; parts: () => THREE.Object3D[] } | null;
+  /** Free a model's materials now that it is off the scene (the WebGPU view keeps unused ones 20 s). */
+  forget?: (materials: Set<THREE.Material>) => void;
   /** A new model is built but has not reached the screen yet. */
   unshown: boolean;
   /** One-off work under way after the first frame (the photo pass): its hitches are not the
@@ -639,6 +641,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (disposed) { view.dispose(); return; }
         if (view.canvas.parentElement !== host) host.appendChild(view.canvas);
         native = view;
+        stage.forget = mats => view.forget(mats);
         if (import.meta.env.DEV) Object.assign(window, { __holoNative: view, __holoGL: renderer, __holoStageAny: stageRef });
         nativePending = false;
         resize();
@@ -1591,7 +1594,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Set before any work: a newer selection disposes a half-built model cleanly.
     stage.building = true;
     stage.resume();
+    // (its materials handed to the view to free at once: see ComplexRenderer.forget)
+    const forgetAll = () => {
+      const mats = new Set<THREE.Material>();
+      for (const root of [group, decor, ground]) root?.traverse(o => { const m = (o as THREE.Mesh).material; if (m) (Array.isArray(m) ? m : [m]).forEach(x => mats.add(x)); });
+      stage.forget?.(mats);
+    };
     const release = () => {
+      forgetAll();
       stage.scene.remove(group, decor);
       if (ground) stage.scene.remove(ground);
       disposables.forEach(d => d.dispose());
@@ -1603,6 +1613,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stage.current = null;
       stage.building = false;
       stage.onShown = [];
+      forgetAll();
       stage.scene.remove(group, decor);
       if (ground) stage.scene.remove(ground);
       disposables.forEach(d => d.dispose());
@@ -2597,7 +2608,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           await water.sink(groundGeo);
           if (!await later()) return;
           // A big river: boats in clear weather by day (none on streams and ponds).
-          const boats = timed("buildBoats", () => buildBoats(water.field, cx, cy, seed));
+          const boats = await buildBoats(water.field, cx, cy, seed);
+          if (!alive) { boats?.dispose(); return; }
           if (!boats && hostRef.current) hostRef.current.dataset.boats = `none: ${noBoatsReason}`;
           if (boats) {
             stage.addWarm(decor, boats.group);

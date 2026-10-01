@@ -3,6 +3,7 @@ import type { Look } from "./complexScene";
 import { rng } from "./complexScene";
 import type { WaterField } from "./sceneWater";
 import { mergeStatic } from "./sceneMerge";
+import { frameSlice } from "./frameSlice";
 
 /* Boats on a big river (the Han and rivers like it), in clear weather from morning to
  * sunset: a bowrider towing a wakeboarder, a jet ski and a small cruiser, each on its own
@@ -538,9 +539,11 @@ class Spray {
 
 /* ---------- The fleet ---------- */
 
-export function buildBoats(field: WaterField, cx: number, cy: number, seed: number) {
+/** Made in slices (the routes, then a boat at a time): at once ~50-60 ms of a frame. */
+export async function buildBoats(field: WaterField, cx: number, cy: number, seed: number) {
   const loops = riverLoops(field, cx, cy, [[0.32, -0.3], [0.6, 0.12], [-0.12, -0.58]]);
   if (!loops || loops.every(l => !l)) return null;
+  await frameSlice();
   const r = rng(seed * 31 + 5);
   const k = kit(), tx = wakeTextures();
   const group = new THREE.Group();
@@ -564,6 +567,7 @@ export function buildBoats(field: WaterField, cx: number, cy: number, seed: numb
   const boats: Boat[] = [];
   for (const sp of specs) {
     if (!sp.loop) continue;
+    await frameSlice();
     const b = makeBoat(k, sp.kind);
     // Hull, fittings and crew never move against each other: one mesh per material.
     k.geos.push(...mergeStatic(b.group).map(m => m.geometry));
@@ -572,6 +576,7 @@ export function buildBoats(field: WaterField, cx: number, cy: number, seed: numb
     group.add(wake.mesh, wash.mesh);
     const boat: Boat = { group: b.group, loop: sp.loop, speed: sp.speed, L: b.L, beam: b.beam, d: r() * sp.loop.length, phase: r() * 10, pitch: b.pitch, kind: sp.kind, yawPrev: NaN, roll: 0, wake, wash };
     if (sp.kind === "bowrider") {
+      await frameSlice();
       // The wakeboarder on 18 m of rope, cutting back and forth across the wake.
       const sg = new THREE.Group();
       const board = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.05, 0.43), k.board);

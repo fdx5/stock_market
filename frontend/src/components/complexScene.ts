@@ -929,7 +929,9 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
   // A school ground: a dirt pitch inside a band of grass, the two worked into each other
   // (grass creeping in from the edges, worn earth where the grass is walked), with a
   // lighter, beaten patch in the middle.
-  const schoolGround = (ctx: CanvasRenderingContext2D, ring: Ring, i: number) => {
+  // (generators: the painting pauses between pieces — a school's tufts, a few hundred parcels —
+  // the whole layout at once was a 50-70 ms step)
+  const schoolGround = function* (ctx: CanvasRenderingContext2D, ring: Ring, i: number): Generator<void, void> {
     const r = rng(seed * 7 + i * 13 + 1);
     ctx.save();
     path(ctx, ring); ctx.clip();
@@ -960,6 +962,7 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
     const grass = [lawn, "#6d8f4c", "#5f7f41", "#7c9a57"], dirt = ["#c3a57b", "#a98b62", "#b59571", "#cbb08a"];
     const count = Math.min(5000, ((x1 - x0) * (y1 - y0)) / 5);
     for (let n = 0; n < count; n++) {
+      if (n && n % 800 === 0) yield;
       const x = x0 + r() * (x1 - x0), y = y0 + r() * (y1 - y0);
       if (!inRing([x, y], ring)) continue;
       const d = edge(x, y);
@@ -972,14 +975,16 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
     }
     ctx.restore();
   };
-  const paintLand = (ctx: CanvasRenderingContext2D, rough: boolean) => {
-    parcels.forEach((p, i) => {
-      if (p.kind === "학" && !rough) { schoolGround(ctx, p.ring, i); return; }
+  const paintLand = function* (ctx: CanvasRenderingContext2D, rough: boolean): Generator<void, void> {
+    for (let i = 0; i < parcels.length; i++) {
+      const p = parcels[i];
+      if (i && i % 250 === 0) yield;
+      if (p.kind === "학" && !rough) { yield* schoolGround(ctx, p.ring, i); continue; }
       const spec = (WATER_KINDS.has(p.kind) && covered[i] ? LAND.도 : LAND[p.kind]) ?? LAND.대;
       path(ctx, p.ring);
       ctx.fillStyle = rough ? `rgb(0,${spec.r},0)` : typeof spec.c === "function" ? spec.c(i) : spec.c;
       ctx.fill();
-    });
+    }
   };
   yield;
   // Trees where the land is a park or forest (and a few on burial grounds), clear of
@@ -1023,10 +1028,11 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
   }
   planting.trees.push(...landTrees);
 
-  const layout = (ctx: CanvasRenderingContext2D, c: { base: string; walk: string; asphalt: string; lawn: string; path: string; apron: string; bed: string }) => {
+  const layout = function* (ctx: CanvasRenderingContext2D, c: { base: string; walk: string; asphalt: string; lawn: string; path: string; apron: string; bed: string }): Generator<void, void> {
     ctx.fillStyle = c.base; ctx.fillRect(0, 0, S, S);
     ctx.lineJoin = "round"; ctx.lineCap = "round";
-    paintLand(ctx, ctx === rg);
+    yield* paintLand(ctx, ctx === rg);
+    yield;
     ctx.save();
     if (hasSite) { sitePath(ctx); ctx.clip("evenodd"); ctx.fillStyle = c.lawn; ctx.fillRect(0, 0, S, S); }
     else { ctx.fillStyle = c.lawn; ctx.strokeStyle = c.lawn; ctx.lineWidth = m(40); towers.forEach(r => { path(ctx, r); ctx.stroke(); ctx.fill(); }); }
@@ -1043,9 +1049,9 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
     ctx.strokeStyle = c.asphalt;
     roads.forEach(r => { ctx.lineWidth = m(r.width); line(ctx, r.line); ctx.stroke(); });
   };
-  layout(cg, { base: "#8e8c86", walk: "#b3aea5", asphalt: "#3e4146", lawn, path: "#b9b1a2", apron: "#aea799", bed: "#4a3d30" });
+  yield* layout(cg, { base: "#8e8c86", walk: "#b3aea5", asphalt: "#3e4146", lawn, path: "#b9b1a2", apron: "#aea799", bed: "#4a3d30" });
   yield;
-  layout(rg, { base: "rgb(0,190,0)", walk: "rgb(0,150,0)", asphalt: "rgb(0,120,0)", lawn: "rgb(0,245,0)", path: "rgb(0,140,0)", apron: "rgb(0,125,0)", bed: "rgb(0,250,0)" });
+  yield* layout(rg, { base: "rgb(0,190,0)", walk: "rgb(0,150,0)", asphalt: "rgb(0,120,0)", lawn: "rgb(0,245,0)", path: "rgb(0,140,0)", apron: "rgb(0,125,0)", bed: "rgb(0,250,0)" });
 
   yield;
   // Lane markings from the registered lane count.
