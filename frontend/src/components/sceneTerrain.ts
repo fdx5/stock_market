@@ -1,4 +1,5 @@
 import type * as THREE from "three";
+import { frameSlice } from "./frameSlice";
 /* The ground's real relief around one complex (components/ComplexHologram.tsx).
  *
  * Source, best first: VWorld's national DEM (국토지리정보원, the WebGL 3D map's
@@ -163,17 +164,19 @@ async function vworldSampler(key: string, lat: number, lon: number, radius: numb
   const tx0 = Math.floor((lon - radius / kx + 180) / VW_TILE), tx1 = Math.floor((lon + radius / kx + 180) / VW_TILE);
   const ty0 = Math.floor((lat - radius / ky + 90) / VW_TILE), ty1 = Math.floor((lat + radius / ky + 90) / VW_TILE);
   if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) > 64) return null;
-  const tilesOut = new Map<string, Float32Array>();
+  // (tiles by index: a string key a sample was most of a ~0.5 M-sample grid's time)
+  const cols = tx1 - tx0 + 1;
+  const tilesOut: (Float32Array | null)[] = new Array(cols * (ty1 - ty0 + 1)).fill(null);
   let ok = true;
   await Promise.all(Array.from({ length: (tx1 - tx0 + 1) * (ty1 - ty0 + 1) }, (_, i) => {
-    const x = tx0 + (i % (tx1 - tx0 + 1)), y = ty0 + Math.floor(i / (tx1 - tx0 + 1));
-    return vworldTile(token, x, y).then(t => { if (t) tilesOut.set(`${x}/${y}`, t); else ok = false; });
+    const x = tx0 + (i % cols), y = ty0 + Math.floor(i / cols);
+    return vworldTile(token, x, y).then(t => { if (t) tilesOut[i] = t; else ok = false; });
   }));
   if (!ok) return null;
   return (lo: number, la: number) => {
     const fx = (lo + 180) / VW_TILE, fy = (la + 90) / VW_TILE;
     const x = Math.min(tx1, Math.max(tx0, Math.floor(fx))), y = Math.min(ty1, Math.max(ty0, Math.floor(fy)));
-    const t = tilesOut.get(`${x}/${y}`)!;
+    const t = tilesOut[(y - ty0) * cols + (x - tx0)]!;
     const u = Math.min(64, Math.max(0, (fx - x) * 64)), v = Math.min(64, Math.max(0, (1 - (fy - y)) * 64));
     const c = Math.min(63, Math.floor(u)), r = Math.min(63, Math.floor(v)), a = u - c, b = v - r;
     return (t[r * 65 + c] * (1 - a) + t[r * 65 + c + 1] * a) * (1 - b) + (t[(r + 1) * 65 + c] * (1 - a) + t[(r + 1) * 65 + c + 1] * a) * b;
@@ -188,7 +191,7 @@ export async function loadTerrain(center: { lat: number; lon: number }, radius: 
       const sampler = await vworldSampler(vworldKey, center.lat, center.lon, radius);
       if (sampler) {
         const kx = Math.cos((center.lat * Math.PI) / 180) * 111_320, ky = 110_540;
-        const t = gridTerrain(radius, 4, (x, y) => sampler(center.lon + x / kx, center.lat + y / ky), false, "국토지리정보원 DEM (브이월드)");
+        const t = await gridTerrain(radius, 4, (x, y) => sampler(center.lon + x / kx, center.lat + y / ky), false, "국토지리정보원 DEM (브이월드)");
         if (t) return t;
       }
     } catch { /* fall back to SRTM */ }
@@ -224,20 +227,27 @@ async function loadSrtm(center: { lat: number; lon: number }, radius: number): P
     const gx = px(x) - 0.5, gy = py(y) - 0.5, fx = gx - Math.floor(gx), fy = gy - Math.floor(gy), bx = Math.floor(gx), by = Math.floor(gy);
     return (raw(bx, by) * (1 - fx) + raw(bx + 1, by) * fx) * (1 - fy) + (raw(bx, by + 1) * (1 - fx) + raw(bx + 1, by + 1) * fx) * fy;
   };
-  return gridTerrain(radius, 8, sample, true, "NASA SRTM (AWS Terrain Tiles)") ?? FLAT;
+  return (await gridTerrain(radius, 8, sample, true, "NASA SRTM (AWS Terrain Tiles)")) ?? FLAT;
 }
 
 /** Resample absolute elevations onto a CELL-metre grid over ±radius (surface models get
  * the roof filter), relative to the ground at the centre. */
-function gridTerrain(radius: number, CELL: number, sample: (x: number, y: number) => number, surface: boolean, source: string): Terrain | null {
+async function gridTerrain(radius: number, CELL: number, sample: (x: number, y: number) => number, surface: boolean, source: string): Promise<Terrain | null> {
   const n = Math.ceil((2 * radius) / CELL) + 1, R = (n - 1) * CELL / 2;
   const h = new Float32Array(n * n);
-  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) h[j * n + i] = sample(-R + i * CELL, -R + j * CELL);
+  // (in slices of rows: the whole grid at once held the page up to ~70 ms while a complex loaded)
+  let at0 = performance.now();
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) h[j * n + i] = sample(-R + i * CELL, -R + j * CELL);
+    if (performance.now() - at0 > 6) { await frameSlice(); at0 = performance.now(); }
+  }
   if (h.some(v => !Number.isFinite(v) || v < -500 || v > 3000)) return null;
   if (surface) {
     const open = Math.round(26 / CELL);
     morph(h, n, open, Math.min);
+    await frameSlice();
     morph(h, n, open, Math.max);
+    await frameSlice();
     blur(h, n, 3);
   }
   const ci = (n - 1) / 2, h0 = h[Math.round(ci) * n + Math.round(ci)];

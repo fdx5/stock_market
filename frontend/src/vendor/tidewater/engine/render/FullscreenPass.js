@@ -67,7 +67,12 @@ export class FullscreenPass {
 
 	draw( rp, frameBlock = FrameUniforms ) {
 
-		rp.setPipeline( GPU.ready( this.handle ) );
+		// (local modification) while GPU.deferCompiles (a view not on screen yet), a pass whose
+		// pipeline is still compiling is left out rather than compiled on the spot: that holds the
+		// browser's GPU process — and every frame of the page — some 20-50 ms
+		const pipeline = this.handle.pipeline || ( GPU.deferCompiles ? null : GPU.ready( this.handle ) );
+		if ( ! pipeline ) return;
+		rp.setPipeline( pipeline );
 		rp.setBindGroup( 0, group0ForBlock( frameBlock, 'render' ).getBindGroup() );
 		rp.setBindGroup( 1, this.bindings.getBindGroup() );
 		rp.draw( 3 );

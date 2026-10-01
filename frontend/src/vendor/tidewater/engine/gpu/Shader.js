@@ -674,12 +674,81 @@ function sameSpec( a, b ) {
 // Shader module creation with readable errors (line numbers + source excerpt).
 const _moduleCache = new Map();
 
+// (local modification) The functions no entry point reaches, taken out before the browser sees
+// the code: a composed material shader carried every library function (sky, clouds, noise,
+// shadows) — a depth-only one was 90 % unreachable code, a full one 40 % — and the browser's
+// GPU process parses and checks all of it on its one main thread, 20-30 ms a module, while
+// the page's frames wait. Comments go too. (WGSL has no strings: braces count the blocks.)
+const _stripped = new Map();
+export function stripUnusedFunctions( code ) {
+
+	const hit = _stripped.get( code );
+	if ( hit !== undefined ) return hit;
+	const src = code.replace( /\/\*[\s\S]*?\*\//g, '' ).replace( /\/\/[^\n]*/g, '' );
+	// top-level declarations: [start, end) spans, split where a block or a ';' closes at depth 0
+	const decls = [];
+	let depth = 0, start = 0, paren = 0;
+	for ( let i = 0; i < src.length; i ++ ) {
+
+		const c = src[ i ];
+		if ( c === '(' ) paren ++;
+		else if ( c === ')' ) paren --;
+		else if ( c === '{' ) depth ++;
+		else if ( c === '}' ) { depth --; if ( depth === 0 && paren === 0 ) {
+
+			// (a struct's closing brace may be followed by a ';')
+			let j = i + 1; while ( j < src.length && /\s/.test( src[ j ] ) ) j ++;
+			if ( src[ j ] === ';' ) i = j;
+			decls.push( [ start, i + 1 ] ); start = i + 1;
+
+		} }
+		else if ( c === ';' && depth === 0 && paren === 0 ) { decls.push( [ start, i + 1 ] ); start = i + 1; }
+
+	}
+	if ( depth !== 0 ) { _stripped.set( code, code ); return code; }
+	const tail = src.slice( start );
+	const fns = new Map(), roots = [];
+	for ( const [ a, b ] of decls ) {
+
+		const text = src.slice( a, b ), m = /\bfn\s+([A-Za-z_]\w*)\s*\(/.exec( text );
+		if ( m && /^[\s\S]*?\bfn\b/.exec( text )[ 0 ].indexOf( '{' ) < 0 ) {
+
+			fns.set( m[ 1 ], { text, entry: /@(vertex|fragment|compute)\b/.test( text.slice( 0, m.index ) ) } );
+
+		} else roots.push( text );
+
+	}
+	if ( ! fns.size ) { _stripped.set( code, code ); return code; }
+	const used = new Set(), stack = [];
+	const scan = ( text ) => { for ( const id of text.match( /[A-Za-z_]\w*/g ) || [] ) if ( fns.has( id ) && ! used.has( id ) ) { used.add( id ); stack.push( id ); } };
+	for ( const [ name, f ] of fns ) if ( f.entry && ! used.has( name ) ) { used.add( name ); stack.push( name ); }
+	roots.forEach( scan ); scan( tail );
+	while ( stack.length ) scan( fns.get( stack.pop() ).text );
+	let out = '';
+	for ( const [ a, b ] of decls ) {
+
+		const text = src.slice( a, b ), m = /\bfn\s+([A-Za-z_]\w*)\s*\(/.exec( text );
+		if ( m && fns.get( m[ 1 ] )?.text === text && ! used.has( m[ 1 ] ) ) continue;
+		out += text;
+
+	}
+	out += tail;
+	_stripped.set( code, out );
+	return out;
+
+}
+
 export function createShaderModule( code, label ) {
 
 	let m = _moduleCache.get( code );
 	if ( m ) return m;
-	m = GPU.device.createShaderModule( { label, code } );
-	_moduleCache.set( code, m );
+	const lean = stripUnusedFunctions( code );
+	// (two materials whose shaders differ only in what neither reaches: one module)
+	m = _moduleCache.get( lean );
+	if ( m ) { _moduleCache.set( code, m ); return m; }
+	m = GPU.device.createShaderModule( { label, code: lean } );
+	_moduleCache.set( code, m ); _moduleCache.set( lean, m );
+	code = lean;
 	if ( m.getCompilationInfo ) m.getCompilationInfo().then( ( info ) => {
 
 		const errs = info.messages.filter( ( x ) => x.type === 'error' );

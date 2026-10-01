@@ -12,10 +12,7 @@ import { generateMipmaps } from '../../vendor/tidewater/engine/gpu/Mipmaps.js';
 
 const pipelines = new Map();
 
-function pipelineFor(format, body, count) {
-  const key = `${format}|${count}|${body}`;
-  let p = pipelines.get(key);
-  if (p) return p;
+function descFor(format, body, count) {
   const names = ['A', 'B'].slice(0, count);
   const module = GPU.device.createShaderModule({ label: 'texture pack', code: /* wgsl */`
     @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
@@ -29,15 +26,29 @@ function pipelineFor(format, body, count) {
       return ${body};
     }
   ` });
-  p = GPU.device.createRenderPipeline({
+  return {
     label: 'texture pack ' + format,
     layout: 'auto',
     vertex: { module, entryPoint: 'vs' },
     fragment: { module, entryPoint: 'fs', targets: [{ format }] },
     primitive: { topology: 'triangle-list' },
-  });
+  };
+}
+function pipelineFor(format, body, count) {
+  const key = `${format}|${count}|${body}`;
+  let p = pipelines.get(key);
+  if (p) return p;
+  // (made on the spot only when not warmed ahead: see warmPack)
+  p = GPU.device.createRenderPipeline(descFor(format, body, count));
   pipelines.set(key, p);
   return p;
+}
+/** The packs the view uses made ahead, asynchronously: a synchronous compile held the browser's
+ * GPU process (and the page's frames) ~20 ms. */
+export function warmPack(format, body, count) {
+  const key = `${format}|${count}|${body}`;
+  if (pipelines.has(key)) return;
+  GPU.device.createRenderPipelineAsync(descFor(format, body, count)).then(p => { if (!pipelines.has(key)) pipelines.set(key, p); }, () => {});
 }
 
 /** Fill `target` (a Texture with 'render' usage, the sources' size) from the images. */

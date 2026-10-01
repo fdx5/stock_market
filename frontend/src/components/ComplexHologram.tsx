@@ -15,7 +15,8 @@ import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
-import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { fastMergeVertices } from "./fastMerge";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex } from "../api/client";
 import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {
@@ -138,6 +139,7 @@ async function groundGeometry(T: number, G: number, terrain: Terrain, segs: numb
   // Normals straight from the height grid (sceneTerrain.gridNormals): the same smooth shading as
   // computeVertexNormals, without its pass over 200k triangles.
   geo.userData.grid = { xs, ys };
+  if (!await pace()) return null;
   gridNormals(geo);
   pos.needsUpdate = true; uvA.needsUpdate = true;
   geo.computeBoundingSphere();
@@ -219,8 +221,10 @@ type Stage = {
     aim?: THREE.Vector3 } | null;
   /** Place the complexes' name signs (an HTML layer over the view) for this frame's camera. */
   signs: ((camera: THREE.PerspectiveCamera, w: number, h: number) => void) | null;
-  /** The view's height in CSS pixels (the trees' detail follows their size on screen). */
+  /** The view's height in CSS pixels. */
   viewH: number;
+  /** The route given before the balloon was made (it is made in idle time). */
+  balloonRoute?: [THREE.Vector3, number, number] | null;
 };
 
 const heightLabel = (b: RealEstateBuilding) =>
@@ -752,9 +756,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const precip = precipField();
     scene.add(precip.group);
     scene.add(moon.group);
-    const balloon = buildBalloon();
-    balloon.group.visible = false;   // until a complex gives it a route
-    scene.add(balloon.group);
+    // The balloon is made in idle slices once the view is up (it shows only over a complex);
+    // a route given before it is ready waits for it (stage.balloonRoute).
+    let balloon: Balloon | null = null;
 
     const hemi = new THREE.HemisphereLight("#c4dcf6", "#6f6552", 0.45);
     scene.add(hemi);
@@ -808,13 +812,24 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
-    stage.balloon = balloon;
+    const idleBuild = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 2500 }); else window.setTimeout(f, 300); };
+    idleBuild(() => void buildBalloon(() => frameSlice()).then(b => {
+      if (disposed) { b.dispose(); return; }
+      balloon = b; stage.balloon = b;
+      b.group.visible = false;   // until a complex gives it a route
+      b.setLook(stage.look);
+      scene.add(b.group);
+      const r = stage.balloonRoute;
+      if (r) { b.setRoute(r[0], r[1], r[2]); b.group.visible = true; stage.balloonRoute = null; }
+    }));
     // Dev only: lets the render checks place the camera (never in a production build).
     if (import.meta.env.DEV) (window as unknown as { __complexStage?: Stage }).__complexStage = stage;
 
     let W = 1, H = 1;
-    const resize = () => {
-      W = host.clientWidth; H = host.clientHeight;
+    // (sizes from the ResizeObserver: reading clientWidth made the browser lay out the page there
+    // and then — ~40 ms twice as the view opened, while the page was still being built)
+    const resize = (w = W, h = H) => {
+      W = Math.round(w); H = Math.round(h);
       if (!W || !H) return;
       stage.viewH = H;
       if (hq && !fixedRatio) {
@@ -846,9 +861,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     };
     // (a new canvas size clears it: drawn again at once, before the page paints, not a blank
     // frame first — the loop may be skipping this frame at the idle rate)
-    const ro = new ResizeObserver(() => { const w = W, h = H; resize(); if ((W !== w || H !== h) && raf) stage.resume(); });
+    const ro = new ResizeObserver(entries => {
+      const box = entries[entries.length - 1].contentRect, w = W, h = H;
+      resize(box.width, box.height);
+      if ((W !== w || H !== h) && raf) stage.resume();
+    });
     ro.observe(host);
-    resize();
 
     // Exploring a building is deliberate: never restart rotation behind the user.
     const onStart = () => {
@@ -895,7 +913,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // picture moving: at the idle rate it read as a stutter — a model on screen only)
     const busy = () => performance.now() - lastInput < 3000 || !!stage.balloonView || !!stage.fly || !!stage.intro || stage.atmos.dirty || stage.atmos.rain !== stage.atmos.wantRain
       || stage.atmos.snow !== stage.atmos.wantSnow || !!stage.snap
-      || (!!stage.model && !stage.unshown && (controls.autoRotate || !!balloon.travelling));
+      || (!!stage.model && !stage.unshown && (controls.autoRotate || !!balloon?.travelling));
     const loop = () => {
       if (document.hidden || ((!inView || pausedRef.current) && !warming())) return;
       raf = requestAnimationFrame(loop);
@@ -1023,12 +1041,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (a.envAt && t >= a.envAt) { a.envAt = 0; refreshEnv(); }
       }
       for (const f of stage.tick) f(dt / 1000);
-      if (balloon.group.visible) balloon.update(dt / 1000);
+      if (balloon?.group.visible) balloon.update(dt / 1000);
       const bv = stage.balloonView;
       if (bv) {
         // Standing at the basket's rim on the side the look faces, leaning out a little:
         // the rim along the bottom of the view, the complex below, the envelope overhead.
-        balloon.basket(bvAt);
+        balloon?.basket(bvAt);
         if (bv.aim) {
           // (eased: about half the way in a third of a second)
           const k = Math.min(1, (dt / 1000) * 2.2);
@@ -1036,7 +1054,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const pitch = THREE.MathUtils.clamp(-Math.atan2(bvAt.y - bv.aim.y, Math.hypot(bv.aim.x - bvAt.x, bv.aim.z - bvAt.z)), -1.45, -0.15);
           const dYaw = Math.atan2(Math.sin(yaw - bv.yaw), Math.cos(yaw - bv.yaw));
           bv.yaw += dYaw * k; bv.pitch += (pitch - bv.pitch) * k;
-          if (!balloon.travelling && Math.abs(dYaw) < 0.003 && Math.abs(pitch - bv.pitch) < 0.003) bv.aim = undefined;
+          if (!balloon?.travelling && Math.abs(dYaw) < 0.003 && Math.abs(pitch - bv.pitch) < 0.003) bv.aim = undefined;
         }
         const fx = Math.cos(bv.yaw), fz = Math.sin(bv.yaw);
         camera.position.set(bvAt.x + fx * 1.02, bvAt.y + 1.62, bvAt.z + fz * 1.02);
@@ -1167,7 +1185,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       u.uStarVis.value = l.stars * (1 - l.overcast);
       u.uStarTurn.value = l.starTurn;
       moon.setPosition(l.moonElev, l.moonAz, l.moonLit);
-      balloon.setLook(l);
+      balloon?.setLook(l);
       moon.setLevel(l.stars * (1 - l.overcast));
       shared.uCloud.value = l.cloudShade;
       shared.uWet.value = l.rain;
@@ -1196,8 +1214,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       next.appendChild(renderer.domElement);
       if (native) next.appendChild(native.canvas);
       host = next;
+      // (its size comes with the observer's first report on it: drawn again then)
       ro.observe(host); io.observe(host);
-      resize();
       stage.resume();
     };
     stage.resume = () => { cancelAnimationFrame(raf); touched(); last = performance.now(); loop(); };
@@ -1228,7 +1246,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       sky.geometry.dispose();
       sky.material.dispose();
       moon.dispose();
-      balloon.dispose();
+      balloon?.dispose();
       precip.dispose();
       releaseRenderer(renderer);
       stageRef.current = null;
@@ -1923,7 +1941,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       let m = numberMats.get(label);
       if (m) return m;
       const cv = document.createElement("canvas"); cv.width = 512; cv.height = 256;
-      const g2 = cv.getContext("2d")!;
+      const g2 = cv.getContext("2d", { willReadFrequently: true })!;
       g2.font = `bold 220px "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif`;
       g2.textAlign = "center"; g2.textBaseline = "middle"; g2.fillStyle = "#3a3d42";
       const tw = Math.min(500, g2.measureText(label).width + 30);
@@ -2063,6 +2081,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // shelves as the walls ask for it; drawn once every wall is placed.
       const ATLAS = 2048, CELL = 7;
       const atlasCv = document.createElement("canvas"); atlasCv.width = atlasCv.height = ATLAS;
+      atlasCv.getContext("2d", { willReadFrequently: true });   // (drawn by the CPU: see complexScene canvas)
       const atlasTex = keep(new THREE.CanvasTexture(atlasCv));
       atlasTex.colorSpace = THREE.SRGBColorSpace; atlasTex.anisotropy = 8; atlasTex.flipY = false;
       const paintMat = keep(new THREE.MeshStandardMaterial({ map: atlasTex, roughness: 0.85 }));
@@ -2451,10 +2470,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       });
       if (!next) return plan.planting;
       for (const k of ["color", "rough", "glow"] as const) {
-        // The canvases still carry their painting state (a scale, additive blending).
-        const g = (plan[k].image as HTMLCanvasElement).getContext("2d")!;
-        g.setTransform(1, 0, 0, 1, 0, 0); g.globalCompositeOperation = "copy"; g.filter = "none"; g.globalAlpha = 1;
-        g.drawImage(next[k].image as HTMLCanvasElement, 0, 0);
+        // The new paint swapped in (the texture takes the new canvas and uploads it again):
+        // drawn over the old one, three 2048 px copies by the CPU held a frame ~90 ms.
+        plan[k].image = next[k].image;
+        plan[k].userData.released = false;   // (the new canvas emptied in its turn once uploaded)
         plan[k].needsUpdate = true;
         next[k].dispose();
       }
@@ -2498,7 +2517,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const onCarriageway = carriageway(roads, 0.8);
       const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y) || onCarriageway(x, y);
       const crowd = async (paths: WalkPath[], salt: number, spacing: number, cap: number, cut = true) => {
-        const open = timed("cutPaths", () => (cut ? cutPaths(paths, blocked) : paths));
+        // (cut 40 paths a slice: all at once was ~20 ms of a frame)
+        let open = paths;
+        if (cut) {
+          open = [];
+          for (let i = 0; i < paths.length; i += 40) {
+            if (i && !await later()) return;
+            open.push(...timed("cutPaths", () => cutPaths(paths.slice(i, i + 40), blocked)));
+          }
+        }
         const walkers = await buildWalkers(open, terrain, seed + salt, spacing, cap);
         if (!walkers) return;
         if (!alive) { walkers.dispose(); return; }
@@ -2579,28 +2606,19 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
         if (!plants) return;
         if (!alive) { plants.dispose(); return; }
-        // The trees' detail by their size on screen: dealt out again whenever the camera has moved
-        // 6 m, zoomed or the view resized (a few tenths of a ms for thousands of trees).
-        const fit = plants.update;
-        if (fit) {
-          const at = new THREE.Vector3(Infinity, 0, 0);
-          let fov = 0, vh = 0;
-          const refit = () => {
-            const cam = stage.camera;
-            if (cam.position.distanceToSquared(at) < 36 && cam.fov === fov && stage.viewH === vh) return;
-            at.copy(cam.position); fov = cam.fov; vh = stage.viewH;
-            fit(cam, vh);
-          };
-          refit();
-          tick.push(refit);
-        }
+        // (the trees dealt out to their levels, once: fixed by where they stand)
+        plants.update?.();
         stage.addWarm(decor, plants.mesh);
         disposables.push(plants);
       } catch (err) { console.info("[3D] Plants unavailable:", err); }
     })());
     // Street lamps on the surveyed roads (lit from dusk), and traffic both ways.
-    const lamps = buildLamps(plan.lamps, terrain);
-    afterShown(() => stage.addWarm(decor, lamps.group));
+    // (made in slices after the first frame; the look applied to them once they are in)
+    let lamps: Awaited<ReturnType<typeof buildLamps>> | null = null;
+    afterShown(() => void buildLamps(plan.lamps, terrain).then(l => {
+      if (!alive) { l.dispose(); return; }
+      lamps = l; stage.addWarm(decor, l.group); l.setLevel(stage.look.lamps);
+    }));
     // A desktop's neighbourhood painted again at twice the texels, in idle time once all this is
     // in (complexScene.sharpenNeighbourhood: once a session, kept between visits).
     // The neighbourhood out to 1 km (ringBuildings.ts): every registered building past this
@@ -2687,7 +2705,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             g.setAttribute("color", new THREE.BufferAttribute(col, 3));
             // (vertices shared building by building, a few ms each between slices: the whole ring
             // at once was a 120 ms stall)
-            const shared = mergeVertices(g.index ? g.toNonIndexed() : g);
+            const shared = fastMergeVertices(g);
             if (shared !== g) g.dispose();
             byMat.set(m, [...(byMat.get(m) ?? []), shared]);
           };
@@ -2707,8 +2725,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             for (const gg of [shape.walls, shape.roofs, shape.cores, shape.ends, shape.bands, shape.painted]) gg?.translate(ox, oy, 0);
             ph.geometry.dispose();
             const vi = idx.getX(best.s), c = new THREE.Color(colA.getX(vi), colA.getY(vi), colA.getZ(vi));
-            put(aptMat, shape.walls, c); put(aptMat, shape.roofs, c);
-            put(plain, shape.cores, c); put(plain, shape.bands, c); put(plain, shape.ends, c.clone().multiplyScalar(0.86));
+            // (a pause between the parts: one building's shape and its five merges together were
+            // 20-50 ms of a frame)
+            for (const [m, g, cc] of [[aptMat, shape.walls, c], [aptMat, shape.roofs, c], [plain, shape.cores, c], [plain, shape.bands, c], [plain, shape.ends, c.clone().multiplyScalar(0.86)]] as const) {
+              if (!await pace() || ringStop.signal.aborted) { photos.forEach(q => q.geometry.dispose()); return; }
+              put(m, g, cc);
+            }
             hide.push([best.s, best.n]);
           }
           if (!replaced) return;
@@ -2733,8 +2755,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       });
     }), 4000); });
     if (stage.hq) afterShown(() => { window.setTimeout(() => void sharpenNeighbourhood(async () => { await nextSlice(true); return true; }).then(() => { if (hostRef.current) hostRef.current.dataset.sharp = "2x"; }), 4000); });
-    disposables.push(lamps);
-    const onLook = [(l: Look) => lamps.setLevel(l.lamps)];
+    disposables.push({ dispose: () => lamps?.dispose() });
+    const onLook = [(l: Look) => lamps?.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
     afterShown(() => void nextSlice(pausedRef.current).then(() => (alive ? buildTraffic(roads, seed, stage.hq, terrain) : null)).then(traffic => {
       if (!traffic) return;
@@ -2790,6 +2812,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     stage.intro = null;
     stage.balloon?.setRoute(center, span, top, !!shift);
     if (stage.balloon) stage.balloon.group.visible = true;
+    else stage.balloonRoute = [center.clone(), span, top];
     stage.camera.far = dist * 14 + 2000;
     stage.nearMax = Math.max(0.5, dist / 800);
     stage.camera.near = stage.nearMax;

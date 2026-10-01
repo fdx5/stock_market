@@ -19,19 +19,22 @@ let measureCtx: CanvasRenderingContext2D | null | undefined;
 const widthCache = new Map<string, number>();
 let measureFont = "";
 export function measureTextWidth(text: string, fontSizePx: number, weight = 700): number {
-  const key = `${weight}|${fontSizePx}|${text}`;
+  // Measured once per text at a 100 px reference and scaled: glyph advances scale with the
+  // size, and every new size used to set the context's font (parsed again each time) — a
+  // map's first layout of a few hundred tiles at fractional sizes held the page ~0.2 s.
+  const key = `${weight}|${text}`;
   const hit = widthCache.get(key);
-  if (hit !== undefined) return hit;
+  if (hit !== undefined) return (hit * fontSizePx) / 100;
   if (measureCtx === undefined) {
     measureCtx = document.createElement("canvas").getContext("2d");
   }
   if (!measureCtx) return text.length * fontSizePx * 0.6;
-  const font = `${weight} ${fontSizePx}px ${TILE_FONT_FAMILY}`;
+  const font = `${weight} 100px ${TILE_FONT_FAMILY}`;
   if (font !== measureFont) { measureCtx.font = font; measureFont = font; }
   const width = measureCtx.measureText(text).width;
   if (widthCache.size > 20000) widthCache.clear();
   widthCache.set(key, width);
-  return width;
+  return (width * fontSizePx) / 100;
 }
 
 /** Scales name/pct text with how much area the tile actually has, instead of a single

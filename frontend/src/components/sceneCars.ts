@@ -65,6 +65,9 @@ export const CAR_SPECS: Record<string, CarSpec> = {
   // minivan (Carnival): long, lower than the Staria
   mpv: { length: 5.15, width: 1.99, height: 1.78, top: [[0, 0.86], [0.015, 1.3], [0.03, 1.7], [0.1, 1.78], [0.6, 1.78], [0.7, 1.7], [0.8, 1.22], [0.87, 1.08], [0.97, 0.98], [1, 0.72]],
     cabin: [0.03, 0.8], belt: 1.08, axles: [0.16, 0.82], wheel: 0.36, clearance: 0.18, tumble: 0.16, roof: 0.82 },
+  // pickup (Rexton Sports): open bed behind a double cab, tall bonnet
+  pickup: { length: 5.42, width: 1.95, height: 1.84, top: [[0, 0.95], [0.02, 1.16], [0.36, 1.18], [0.385, 1.5], [0.41, 1.8], [0.47, 1.84], [0.62, 1.82], [0.7, 1.46], [0.76, 1.3], [0.94, 1.24], [0.985, 1.06], [1, 0.8]],
+    cabin: [0.4, 0.72], belt: 1.18, axles: [0.2, 0.82], wheel: 0.4, clearance: 0.24, tumble: 0.18, roof: 0.8 },
   taxi: { length: 4.9, width: 1.86, height: 1.45, top: [[0, 0.68], [0.03, 0.9], [0.1, 0.98], [0.22, 1.0], [0.3, 1.06], [0.4, 1.38], [0.5, 1.45], [0.6, 1.42], [0.7, 1.12], [0.76, 1.0], [0.9, 0.93], [0.97, 0.8], [1, 0.62]],
     cabin: [0.3, 0.72], belt: 0.98, axles: [0.19, 0.78], wheel: 0.33, clearance: 0.16, tumble: 0.32, roof: 0.72, sign: true },
 };

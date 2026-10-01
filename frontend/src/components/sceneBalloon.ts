@@ -28,6 +28,9 @@ function envelopeGeometry() {
   // Colour per face by its gore and height: crisp vertical stripes, a band round the
   // equator, a crown in one colour; slightly darker along the load tapes.
   const pos = geo.getAttribute("position"), col = new Float32Array(pos.count * 3), c = new THREE.Color();
+  // (the colours parsed once, not a hex string per face)
+  const parsed = new Map<string, THREE.Color>();
+  const colour = (hex: string) => { let v = parsed.get(hex); if (!v) parsed.set(hex, v = new THREE.Color(hex)); return v; };
   for (let f = 0; f < pos.count; f += 3) {
     let x = 0, y = 0, z = 0;
     for (let k = 0; k < 3; k++) { x += pos.getX(f + k); y += pos.getY(f + k); z += pos.getZ(f + k); }
@@ -37,16 +40,18 @@ function envelopeGeometry() {
     if (y > 25.5) hex = "#e63b2e";
     else if (y > 15.5 && y < 17.5) hex = "#1f2b5c";
     else if (y < 8.5) hex = "#3a3a3a";
-    c.set(hex);
+    c.copy(colour(hex));
     if (within < 0.06 || within > 0.94) c.multiplyScalar(0.72);
-    for (let k = 0; k < 3; k++) col.set([c.r, c.g, c.b], (f + k) * 3);
+    for (let k = 0; k < 3; k++) { const o = (f + k) * 3; col[o] = c.r; col[o + 1] = c.g; col[o + 2] = c.b; }
   }
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
   geo.computeVertexNormals();
   return geo;
 }
 
-export function buildBalloon() {
+/** Built in a few slices (`pace` between them): made at once it held the page ~0.1 s as the
+ * 3D view opened, before anything of the complex was on screen. */
+export async function buildBalloon(pace: () => Promise<unknown>) {
   const geos: THREE.BufferGeometry[] = [];
   const mats: THREE.Material[] = [];
   const keep = <T extends THREE.BufferGeometry>(g: T) => { geos.push(g); return g; };
@@ -57,6 +62,7 @@ export function buildBalloon() {
   // Double-sided: from the basket, looking up, the inside of the envelope shows.
   const envMat = mat({ vertexColors: true, roughness: 0.55, metalness: 0, side: THREE.DoubleSide, emissive: "#ff9a3c", emissiveIntensity: 0 });
   const envelope = new THREE.Mesh(keep(envelopeGeometry()), envMat);
+  await pace();
   envelope.castShadow = true;
   body.add(envelope);
   // Basket: wicker sides, leather rim, a floor.
@@ -97,6 +103,7 @@ export function buildBalloon() {
   // (never hidden: shrunk between burns, so the renderers keep their pipelines)
   flames.scale.setScalar(0.0001);
   body.add(flames);
+  await pace();
   // Basket, frame, tanks and cables ride together: one mesh per material (the envelope,
   // which glows, and the flickering flames stay apart).
   const hardware = mergeStatic(body, o => o === envelope || o === flames);
@@ -174,4 +181,4 @@ export function buildBalloon() {
     dispose() { geos.forEach(g => g.dispose()); mats.forEach(m => m.dispose()); },
   };
 }
-export type Balloon = ReturnType<typeof buildBalloon>;
+export type Balloon = Awaited<ReturnType<typeof buildBalloon>>;

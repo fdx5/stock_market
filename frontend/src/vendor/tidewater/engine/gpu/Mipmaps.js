@@ -7,10 +7,8 @@ import { GPU } from './GPU.js';
 const _pipelines = new Map();
 let _module = null;
 
-function pipelineFor( format ) {
+function descFor( format ) {
 
-	let p = _pipelines.get( format );
-	if ( p ) return p;
 	if ( ! _module ) _module = GPU.device.createShaderModule( { label: 'mipmap', code: /* wgsl */`
 		struct VSOut { @builtin( position ) pos: vec4f, @location( 0 ) uv: vec2f };
 		@vertex fn vs( @builtin( vertex_index ) i: u32 ) -> VSOut {
@@ -26,15 +24,37 @@ function pipelineFor( format ) {
 			return textureSampleLevel( src, smp, in.uv, 0.0 );
 		}
 	` } );
-	p = GPU.device.createRenderPipeline( {
+	return {
 		label: 'mipmap ' + format,
 		layout: 'auto',
 		vertex: { module: _module, entryPoint: 'vs' },
 		fragment: { module: _module, entryPoint: 'fs', targets: [ { format } ] },
 		primitive: { topology: 'triangle-list' },
-	} );
+	};
+
+}
+
+function pipelineFor( format ) {
+
+	let p = _pipelines.get( format );
+	if ( p ) return p;
+	// (made on the spot only when not warmed ahead: a synchronous compile holds the browser's GPU
+	// process — and the page's frames — some 20 ms)
+	p = GPU.device.createRenderPipeline( descFor( format ) );
 	_pipelines.set( format, p );
 	return p;
+
+}
+
+// (local modification) the pipelines of the usual formats made ahead, asynchronously
+export function warmMipmaps( formats ) {
+
+	for ( const format of formats ) {
+
+		if ( _pipelines.has( format ) ) continue;
+		GPU.device.createRenderPipelineAsync( descFor( format ) ).then( ( p ) => { if ( ! _pipelines.has( format ) ) _pipelines.set( format, p ); }, () => {} );
+
+	}
 
 }
 

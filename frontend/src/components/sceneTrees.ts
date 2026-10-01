@@ -133,13 +133,13 @@ export function loadTreeKit(): Promise<TreeKit> {
 }
 export function preloadTrees() { void loadTreeKit().catch(() => {}); }
 
-/** The detail a tree is drawn in follows its size on screen (the camera's distance, the
- * zoom): full detail over FULL_PX tall (CSS pixels), the distant copy over FAR_PX, the
- * farthest copy below. Shadows as before, by the place: every tree within SHADOW_M of the
- * complex casts one (a phone's small view draws them all small, and the lawn kept its shade). Re-sorted as the camera moves (Forest.build's update): the bands used to be fixed
- * by distance from the complex's centre, so the orbit's far side drew hundreds of small trees
- * in full detail (~5 M leaf triangles a frame, a third of the GPU's frame). */
-const FULL_PX = 130, FAR_PX = 35, SHADOW_M = 250;
+/** The detail a tree is drawn in, fixed by where it stands (never by the camera: a tree that
+ * changed its detail as the view moved popped — the crowns flickered while the view turned):
+ * full detail within FULL_M of the complex (phones: none), the distant copy to SHADOW_M, the
+ * farthest copy (a seventh of the twigs, twice as large) beyond — those without a shadow of
+ * their own, as before. Most trees of the 1 km view stand out there: ~5 M leaf triangles a
+ * frame had been drawn at the middle copy's detail. */
+const FULL_M = 110, SHADOW_M = 250;
 
 type Planted = { m: THREE.Matrix4; tint: THREE.Color; x: number; y: number; z: number; h: number };
 
@@ -163,7 +163,7 @@ export class Forest {
     this.placed.set(key, at);
     return true;
   }
-  build(): { group: THREE.Group; dispose: () => void; update: (camera: THREE.PerspectiveCamera, heightPx: number) => void } {
+  build(): { group: THREE.Group; dispose: () => void; update: () => void } {
     const group = new THREE.Group();
     const barkMats = new Map<string, THREE.MeshStandardMaterial>();
     const barkMat = (species: string) => {
@@ -202,27 +202,18 @@ export class Forest {
         if (bark.getAttribute("position")) parts.push(new THREE.InstancedMesh(bark, barkMat(species), Math.min(16, list.length)));
         for (const im of parts) {
           im.name = `${key}:${lv}`; im.castShadow = !low && lv < 3; im.receiveShadow = true; im.count = 0;
-          // (the trees move between levels: bounds of the whole variant's spread)
-          im.frustumCulled = false;
           group.add(im); meshes.push(im);
         }
         return parts;
       });
       sets.push({ list, levels, band: new Uint8Array(list.length).fill(255) });
     }
-    const v = new THREE.Vector3();
-    // (?treelod=0: the former bands, by distance from the complex's centre — for comparison)
-    const oldBands = typeof location !== "undefined" && new URLSearchParams(location.search).get("treelod") === "0";
-    const update = (camera: THREE.PerspectiveCamera, heightPx: number) => {
-      const k = heightPx / (2 * Math.tan((camera.fov * Math.PI) / 360));
-      const p = camera.position;
+    const update = () => {
       for (const set of sets) {
         let changed = false;
         const bands = set.list.map((t, i) => {
-          const px = (t.h * k) / Math.max(1, v.set(t.x - p.x, t.y - p.y, t.z - p.z).length());
           const fromCentre = Math.hypot(t.x - this.centre.x, t.z - this.centre.y);
-          const b = oldBands ? (fromCentre < 110 && this.hq ? 0 : fromCentre < SHADOW_M ? 1 : 3)
-            : px > FULL_PX && this.hq ? 0 : px > FAR_PX ? 1 : fromCentre < SHADOW_M ? 2 : 3;
+          const b = fromCentre < FULL_M && this.hq ? 0 : fromCentre < SHADOW_M ? 1 : 3;
           if (b !== set.band[i]) { set.band[i] = b; changed = true; }
           return b;
         });
@@ -247,6 +238,8 @@ export class Forest {
         });
         set.levels.forEach((parts, b) => parts.forEach(im => {
           im.count = n[b];
+          // (bounds of the trees it holds: a level out of view isn't drawn)
+          if (n[b]) im.computeBoundingSphere();
           im.instanceMatrix.needsUpdate = true;
           if (im.instanceColor) im.instanceColor.needsUpdate = true;
         }));

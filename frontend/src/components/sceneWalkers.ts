@@ -115,6 +115,7 @@ const colored = (g: THREE.BufferGeometry, color: string) => {
 const HIP_Y = 0.92, HIP_X = 0.092, THIGH = 0.43, SHIN = 0.41, SHOULDER_Y = 1.41, SHOULDER_X = 0.2, UPPER = 0.29, FORE = 0.25;
 const NECK_Y = 1.47;
 
+let partsCache: ReturnType<typeof partGeometries> | null = null;
 function partGeometries() {
   const torso: Record<Top, THREE.BufferGeometry> = {
     shirt: lathe([[0, 0.86], [0.14, 0.87], [0.155, 0.96], [0.142, 1.08], [0.155, 1.22], [0.178, 1.35], [0.172, 1.42], [0.11, 1.47], [0.05, 1.49], [0, 1.49]]),
@@ -287,7 +288,9 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
   const usable = paths.filter(r => r.cum[r.cum.length - 1] > 6);
   if (!usable.length) return null;
   const rnd = rng(seed + 97);
-  const parts = partGeometries();
+  // (the body parts are the same for every crowd: made once, kept for the session — each
+  // crowd made them again, ~20 ms of a frame)
+  const parts = partsCache ??= partGeometries();
   const cloth = new THREE.MeshStandardMaterial({ roughness: 0.86, metalness: 0 });
   const skin = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0 });
   const hairMat = new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.05 });
@@ -530,9 +533,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     },
     dispose() {
       meshes.forEach(m => m.dispose());
-      const geos = new Set<THREE.BufferGeometry>([...Object.values(parts.torso), parts.hips, parts.skirt, parts.thigh, parts.shin, parts.shoe,
-        parts.upper, parts.fore, parts.hand, parts.head, ...Object.values(parts.hair), ...Object.values(parts.acc), ...Object.values(parts.detail)]);
-      geos.forEach(g => g.dispose());
+      // (the body parts stay: shared by every crowd, see partsCache)
       farGeos.forEach(g => g.dispose());
       [cloth, skin, hairMat, gloss, baked].forEach(m => m.dispose());
     },

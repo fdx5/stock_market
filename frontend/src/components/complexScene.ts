@@ -85,7 +85,12 @@ export async function runSliced<T>(g: Steps<T>, pace: () => Promise<boolean>): P
   return r.value;
 }
 
-const canvas = (w: number, h: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h; return c; };
+/** A canvas to paint on. Drawn by the GPU (the browser's default): drawn by the CPU instead
+ * (willReadFrequently, ?cpucanvas=1) the painting's slices ran several times longer on the
+ * page and the view stuttered more after its first frame (measured: 0.9 s against 1.3 s of
+ * late frames over 12 s), though the browser's GPU process then had less to do. */
+const CPU_CANVAS = typeof location !== "undefined" && new URLSearchParams(location.search).get("cpucanvas") === "1";
+const canvas = (w: number, h: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h; if (CPU_CANVAS) c.getContext("2d", { willReadFrequently: true }); return c; };
 
 // A few workers: a complex asks for a normal map per texture set (two facades, the base,
 // the ground, the neighbourhood's styles), and one worker made them queue — the page sat

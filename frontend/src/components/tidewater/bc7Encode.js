@@ -139,11 +139,13 @@ export function canEncodeBC7(img) {
 
 /** The image as a BC7 texture with its full mip chain. `into`: an existing BC7 Texture of
  * the same size to refill (a repainted canvas). */
-export function encodeBC7(img, { flipY = false, srgb = true, into = null, readback = null } = {}) {
-  const width = img.width, height = img.height;
+export function encodeBC7(img, { flipY = false, srgb = true, into = null, readback = null, staged = null } = {}) {
+  // (staged: the source already on the GPU — an rgba8unorm Texture with mips, level 0 filled,
+  // taken over and freed here — instead of an image copied in now)
+  const width = staged ? staged.width : img.width, height = staged ? staged.height : img.height;
   // Source with mips (the same box filter as every other texture), then each level encoded.
-  const staging = new Texture({ label: 'bc7 source', width, height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'] });
-  GPU.queue.copyExternalImageToTexture({ source: img, flipY }, { texture: staging.getGPU() }, [width, height]);
+  const staging = staged ?? new Texture({ label: 'bc7 source', width, height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'] });
+  if (!staged) GPU.queue.copyExternalImageToTexture({ source: img, flipY }, { texture: staging.getGPU() }, [width, height]);
   const enc = GPU.getEncoder();
   generateMipmaps(staging, enc);
   const tex = into ?? new Texture({ label: 'bc7', width, height, format: srgb ? 'bc7-rgba-unorm-srgb' : 'bc7-rgba-unorm', mips: true, usage: ['sample', 'copyDst'] });

@@ -381,7 +381,7 @@ function* paintWakes(): Generator<void, void, void> {
   // (a pause every 32 rows: each piece a few ms, within an idle period)
   const make = function* (w: number, h: number, px: (u: number, v: number) => [number, number, number, number]): Generator<void, THREE.CanvasTexture, void> {
     const c = document.createElement("canvas"); c.width = w; c.height = h;
-    const g = c.getContext("2d")!, img = g.createImageData(w, h);
+    const g = c.getContext("2d", { willReadFrequently: true })!, img = g.createImageData(w, h);
     for (let y = 0; y < h; y++) {
       if (y && y % 32 === 0) yield;
       for (let x = 0; x < w; x++) {

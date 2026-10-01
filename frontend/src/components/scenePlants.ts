@@ -168,7 +168,7 @@ function plantForest(planting: Planting, seed: number, terrain: Terrain, forest:
   return { mesh: built.group as THREE.Object3D, dispose: built.dispose, update: built.update };
 }
 
-export async function buildPlants(planting: Planting, seed: number, terrain: Terrain = FLAT, hq = true): Promise<{ mesh: THREE.Object3D; dispose: () => void; update?: (camera: THREE.PerspectiveCamera, heightPx: number) => void } | null> {
+export async function buildPlants(planting: Planting, seed: number, terrain: Terrain = FLAT, hq = true): Promise<{ mesh: THREE.Object3D; dispose: () => void; update?: () => void } | null> {
   // Every plant as a mesh where the kit loads (sceneTrees): no cards at all.
   const treeKit = await loadTreeKit().catch(err => { console.info("[3D] plant meshes unavailable, using cards:", err); return null; });
   // (phones and small tablets: every tree as the distant copy)

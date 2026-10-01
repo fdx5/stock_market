@@ -7,7 +7,7 @@ self.onmessage = async (e: MessageEvent) => {
   try {
     const S = 512;
     const bmp = await createImageBitmap(new Blob([img], { type: "image/jpeg" }), { resizeWidth: S, resizeHeight: S, resizeQuality: "medium" });
-    const cv = new OffscreenCanvas(S, S), cx = cv.getContext("2d")!;
+    const cv = new OffscreenCanvas(S, S), cx = cv.getContext("2d", { willReadFrequently: true })!;
     cx.drawImage(bmp, 0, 0); bmp.close();
     const px = cx.getImageData(0, 0, S, S).data;
     const g = new THREE.BufferGeometry();

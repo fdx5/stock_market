@@ -365,12 +365,22 @@ export function withoutStrays(data: RealEstateBuildingsResponse): RealEstateBuil
   const linked = (b: RealEstateBuilding) => !!b.use || !!b.approved;
   const all = [...data.buildings, ...(data.context ?? [])];
   const reg = all.filter(linked).map(b => ({ ring: b.rings[0], c: centroid(b.rings[0]) }));
+  // (the linked ones by 60 m cell: each record looks only at its neighbourhood — against all
+  // of them, a thousand-building neighbourhood took ~10 ms of the load)
+  const cellOf = (x: number, y: number) => Math.floor(x / 60) * 100003 + Math.floor(y / 60);
+  const regAt = new Map<number, typeof reg>();
+  for (const r of reg) { const k = cellOf(r.c[0], r.c[1]); const l = regAt.get(k); if (l) l.push(r); else regAt.set(k, [r]); }
+  const near = (c: [number, number]) => {
+    const out: typeof reg = [], i0 = Math.floor(c[0] / 60), j0 = Math.floor(c[1] / 60);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) { const l = regAt.get((i0 + i) * 100003 + j0 + j); if (l) out.push(...l); }
+    return out;
+  };
   let dropped = 0, fixed = 0;
   const keep = (b: RealEstateBuilding) => {
     const ring = b.rings[0], a = Math.abs(area(ring));
     const stray = (b.floors >= 5 && a < 25)
       || (!linked(b) && b.floors >= 8 && a < 10 * b.floors + 40)
-      || (!linked(b) && (() => { const c = centroid(ring); return reg.some(r => inside(c, r.ring) || inside(r.c, ring)); })());
+      || (!linked(b) && (() => { const c = centroid(ring); return near(c).some(r => inside(c, r.ring) || inside(r.c, ring)); })());
     if (stray) dropped++;
     return !stray;
   };

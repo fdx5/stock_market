@@ -41,7 +41,9 @@ function farWorkerMain() {
       제: "#7b8a55", 종: "#a8a298", 사: "#9f9888", 수: "#8e8c87", 잡: "#948a78", 광: "#8f877a", 염: "#b9b8b0",
     };
     const WATER = new Set(["천", "구", "유", "양"]);
-    const canvas = new OffscreenCanvas(S, S), ctx = canvas.getContext("2d")!;
+    // (drawn by the CPU: a GPU-drawn canvas, even a worker's, is run by the browser's GPU process —
+    // the page's frames waited behind each batch of parcels)
+    const canvas = new OffscreenCanvas(S, S), ctx = canvas.getContext("2d", { willReadFrequently: true })!;
     const X = (x: number) => ((x + half) / (2 * half)) * S, Y = (y: number) => ((half - y) / (2 * half)) * S;
     ctx.fillStyle = lots[0]; ctx.fillRect(0, 0, S, S);
     const water: number[][][] = [];

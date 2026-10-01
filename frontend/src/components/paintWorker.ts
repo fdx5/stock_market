@@ -56,7 +56,8 @@ const RAW: ImageBitmapOptions = { colorSpaceConversion: "none", premultiplyAlpha
 
 async function encode(bitmap: ImageBitmap): Promise<Blob> {
   const c = new OffscreenCanvas(bitmap.width, bitmap.height);
-  c.getContext("2d")!.drawImage(bitmap, 0, 0);
+  // (the CPU's canvas: a GPU one is run by the browser's GPU process, which the page's frames wait on)
+  c.getContext("2d", { willReadFrequently: true })!.drawImage(bitmap, 0, 0);
   bitmap.close();
   return c.convertToBlob({ type: "image/png" });
 }

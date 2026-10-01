@@ -8,7 +8,7 @@ import { rng } from "./complexScene";
 import { FLAT, type Terrain } from "./sceneTerrain";
 import { KERB_H } from "./sceneSidewalk";
 import { carGeometry, carModelMaterial, CAR_SPECS, loadCarModels } from "./sceneCars";
-import { plateGeometry, plateMaterial, PLATE_COUNT, PLATE_WHITE } from "./scenePlates";
+import { plateAtlasReady, plateGeometry, plateMaterial, PLATE_COUNT, PLATE_WHITE } from "./scenePlates";
 
 /* The street: lamps on the surveyed major roads, and traffic driving both ways on
  * them. Cars, vans and box trucks are Kenney's CC0 Car Kit (packed by type into
@@ -19,14 +19,17 @@ import { plateGeometry, plateMaterial, PLATE_COUNT, PLATE_WHITE } from "./sceneP
 
 // ---------- Lamps ----------
 
-export function buildLamps(lamps: Lamp[], terrain: Terrain = FLAT) {
+/** Made in slices (a few dozen lamps each): at once, with the ground, it held a frame ~50 ms. */
+export async function buildLamps(lamps: Lamp[], terrain: Terrain = FLAT) {
   const posts: THREE.BufferGeometry[] = [], heads: THREE.BufferGeometry[] = [], halos: THREE.BufferGeometry[] = [];
   const pole = new THREE.CylinderGeometry(0.08, 0.13, 9, 6).toNonIndexed(); pole.translate(0, 4.5, 0);
   const arm = new THREE.BoxGeometry(0.1, 0.1, 1.9).toNonIndexed(); arm.translate(0, 8.9, 0.9);
   const head = new THREE.BoxGeometry(0.34, 0.14, 0.7).toNonIndexed(); head.translate(0, 8.82, 1.85);
   const halo = new THREE.SphereGeometry(0.9, 10, 6).toNonIndexed(); halo.translate(0, 8.55, 1.85);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), one = new THREE.Vector3(1, 1, 1);
+  let at0 = performance.now();
   for (const l of lamps) {
+    if (performance.now() - at0 > 5) { await frameSlice(); at0 = performance.now(); }
     // Arm (+z of the model) reaches over the road: world direction (dx, 0, -dy).
     q.setFromAxisAngle(up, Math.atan2(l.dx, -l.dy));
     // Lamps stand on the sidewalk (kerb height above the ground).
@@ -45,6 +48,7 @@ export function buildLamps(lamps: Lamp[], terrain: Terrain = FLAT) {
   let haloMesh: THREE.Mesh | null = null;
   if (lamps.length) {
     for (const [list, mat, shadow] of [[posts, postMat, true], [heads, headMat, false], [halos, haloMat, false]] as const) {
+      await frameSlice();
       const geo = mergeGeometries(list as THREE.BufferGeometry[], false)!;
       (list as THREE.BufferGeometry[]).forEach(g => g.dispose());
       const mesh = new THREE.Mesh(geo, mat);
@@ -257,6 +261,170 @@ function mixerGeometry() {
   ]);
 }
 
+/* More of what Korean roads carry (twenty kinds, same plain style): construction plant — dump
+ * trucks, a wheeled excavator driving to its site, a crawler excavator on a low-bed, cargo and
+ * mobile cranes, a concrete pump — goods vehicles, the moving-company ladder truck, a tow
+ * truck, a street sweeper, village, coach and double-deck buses, a delivery scooter. */
+/** A cab-over cab: front face at zFront, the windscreen and a glazing band round it. */
+const cabOver = (W: number, H: number, L: number, zFront: number, color: string, y0 = 0.6) => [
+  rbox(W, H, L, 0, y0 + H / 2, zFront - L / 2, color, 0.16),
+  paint(new THREE.BoxGeometry(W - 0.16, H * 0.4, 0.05).translate(0, y0 + H * 0.7, zFront + 0.005), GLASS),
+  rbox(W + 0.03, H * 0.32, L * 0.62, 0, y0 + H * 0.7, zFront - L * 0.36, GLASS, 0.03),
+  rbox(W - 0.2, 0.3, 0.22, 0, y0 + 0.05, zFront, "#2a2d31", 0.06),
+];
+const chassis = (L: number, z = 0, y = 0.95) => rbox(1.2, 0.38, L, 0, y, z, "#2b2d30", 0.05);
+/** 25 t 덤프트럭: three axles, a deep body with the cab guard over the roof. */
+function dumpGeometry(body: string, cab: string) {
+  return assemble([
+    ...cabOver(2.45, 2.1, 2.0, 4.75, cab, 0.75), chassis(8.6, -0.3),
+    rbox(2.5, 1.55, 5.7, 0, 2.3, -1.85, body, 0.06), rbox(2.54, 0.12, 5.7, 0, 3.1, -1.85, "#3b3e42", 0.03),
+    rbox(2.5, 0.1, 0.95, 0, 3.12, 1.3, body, 0.03),
+    ...wheelPair(2.45, 3.6, 0.52), ...wheelPair(2.45, 2.25, 0.52), ...wheelPair(2.45, -1.9, 0.52, true), ...wheelPair(2.45, -3.25, 0.52, true),
+  ]);
+}
+/** 2.5 t 소형 덤프: a cargo truck's cab, a steel tipping bed. */
+function smallDumpGeometry() {
+  return assemble([
+    ...cabOver(1.95, 1.6, 1.7, 2.95, "#f2f2f0", 0.6), chassis(5.4, -0.2, 0.75),
+    rbox(2.0, 0.85, 3.5, 0, 1.4, -1.1, "#4f6f96", 0.05), rbox(2.02, 0.08, 3.5, 0, 1.86, -1.1, "#30343a", 0.02),
+    ...wheelPair(1.95, 2.0, 0.4), ...wheelPair(1.95, -1.6, 0.4, true),
+  ]);
+}
+/** 타이어식 굴착기: on the road between sites — blade at the front, the boom folded forward. */
+function excavatorGeometry() {
+  const Y = "#f2b705", D = "#2b2d30";
+  const boom = paint(new THREE.BoxGeometry(0.5, 0.6, 4.2).translate(0, 0, 2.1).rotateX(-0.42).translate(0.35, 2.3, 0.2), Y);
+  const stick = paint(new THREE.BoxGeometry(0.4, 0.45, 2.4).translate(0, 0, 1.2).rotateX(1.15).translate(0.35, 3.95, 3.95), Y);
+  return assemble([
+    rbox(2.45, 0.55, 4.4, 0, 0.95, 0, D, 0.05), rbox(2.5, 0.55, 0.16, 0, 0.55, 2.55, Y, 0.03),
+    rbox(2.45, 1.05, 2.9, 0, 1.75, -0.6, Y, 0.12), rbox(2.45, 0.85, 0.6, 0, 1.65, -2.15, "#3a3c40", 0.15),
+    rbox(0.95, 1.55, 1.45, -0.72, 2.95, 0.4, Y, 0.1), rbox(0.97, 0.75, 1.47, -0.72, 3.2, 0.4, GLASS, 0.03),
+    boom, stick, rbox(1.0, 0.75, 0.8, 0.35, 1.25, 4.15, "#3a3c40", 0.12),
+    ...wheelPair(2.45, 1.3, 0.5, true), ...wheelPair(2.45, -1.3, 0.5, true),
+  ]);
+}
+/** 로베드 트레일러: a tractor and a low deck carrying a crawler excavator, boom folded back. */
+function lowbedGeometry() {
+  const Y = "#f39800";
+  const boom = paint(new THREE.BoxGeometry(0.5, 0.6, 4.6).translate(0, 0, -2.3).rotateX(-0.25).translate(0.35, 2.9, -0.4), Y);
+  return assemble([
+    ...cabOver(2.5, 2.2, 2.3, 8.5, "#e9ebec", 0.85), chassis(4.0, 6.5),
+    rbox(2.6, 0.3, 11.0, 0, 0.75, -2.5, "#30343a", 0.03), rbox(2.6, 0.4, 1.4, 0, 1.15, 4.4, "#30343a", 0.04),
+    rbox(0.6, 0.8, 3.6, -0.95, 1.3, -1.0, "#232427", 0.25), rbox(0.6, 0.8, 3.6, 0.95, 1.3, -1.0, "#232427", 0.25),
+    rbox(2.4, 0.95, 2.7, 0, 2.2, -1.0, Y, 0.12), rbox(0.9, 1.3, 1.3, -0.7, 3.25, -0.2, Y, 0.1), rbox(0.92, 0.65, 1.32, -0.7, 3.45, -0.2, GLASS, 0.03),
+    boom, rbox(0.9, 0.7, 0.8, 0.35, 1.5, -5.1, "#3a3c40", 0.12),
+    ...wheelPair(2.5, 7.2, 0.52), ...wheelPair(2.5, 5.4, 0.52, true), ...wheelPair(2.6, -6.2, 0.4, true), ...wheelPair(2.6, -7.2, 0.4, true),
+  ]);
+}
+/** 카고크레인: a 5 t cargo truck, the knuckle crane behind the cab, its boom laid over the bed. */
+function cargoCraneGeometry() {
+  const C = "#e8c21a";
+  return assemble([
+    ...cabOver(2.35, 1.95, 1.9, 4.2, "#2d5fa8", 0.7), chassis(7.8, -0.2),
+    rbox(0.65, 1.7, 0.65, 0, 2.15, 1.85, C, 0.08), rbox(0.45, 0.45, 5.2, 0.35, 2.85, -0.9, C, 0.06),
+    rbox(2.4, 0.12, 5.0, 0, 1.2, -1.55, "#8d9196", 0.02),
+    rbox(0.06, 0.5, 5.0, -1.18, 1.5, -1.55, "#b9bdc2", 0.01), rbox(0.06, 0.5, 5.0, 1.18, 1.5, -1.55, "#b9bdc2", 0.01),
+    ...wheelPair(2.35, 3.1, 0.48), ...wheelPair(2.35, -1.7, 0.48, true), ...wheelPair(2.35, -2.95, 0.48, true),
+  ]);
+}
+/** 하이드로 크레인: four axles, a small cab beside the deck, the telescopic boom over it all. */
+function mobileCraneGeometry() {
+  const C = "#f2c400";
+  return assemble([
+    rbox(2.75, 1.1, 12.2, 0, 1.4, 0, "#dcdddf", 0.1), rbox(0.95, 1.45, 1.8, -0.88, 2.65, 5.0, C, 0.12), rbox(0.97, 0.7, 1.82, -0.88, 2.9, 5.0, GLASS, 0.03),
+    rbox(2.5, 1.2, 3.0, 0, 2.55, -3.5, C, 0.1), rbox(0.85, 1.2, 1.4, -0.85, 3.5, -2.5, C, 0.08),
+    rbox(0.8, 0.8, 11.0, 0.35, 3.05, 1.2, C, 0.06), rbox(0.6, 0.6, 1.0, 0.35, 3.05, 6.6, "#3a3c40", 0.05),
+    ...wheelPair(2.75, 4.6, 0.62), ...wheelPair(2.75, 3.0, 0.62), ...wheelPair(2.75, -1.9, 0.62), ...wheelPair(2.75, -3.5, 0.62),
+  ]);
+}
+/** 콘크리트 펌프카: four axles, the boom folded in three on top. */
+function pumpGeometry() {
+  const O = "#ea6a1a", W = "#f0f0ec";
+  return assemble([
+    ...cabOver(2.45, 2.0, 2.0, 5.95, W, 0.75), chassis(10.5, -0.5),
+    rbox(1.8, 1.0, 1.6, 0, 1.85, -3.6, O, 0.1), rbox(2.5, 0.35, 8.0, 0, 1.4, -0.9, "#55585c", 0.04),
+    rbox(0.45, 0.5, 9.0, 0, 2.65, -0.5, O, 0.05), rbox(0.42, 0.45, 8.4, 0, 3.12, -0.3, W, 0.05), rbox(0.38, 0.42, 7.6, 0, 3.55, 0.0, O, 0.05),
+    ...wheelPair(2.45, 4.6, 0.52), ...wheelPair(2.45, 3.2, 0.52), ...wheelPair(2.45, -2.5, 0.52, true), ...wheelPair(2.45, -3.85, 0.52, true),
+  ]);
+}
+/** 이삿짐 사다리차: a 1 t truck, the long ladder laid over the cab. */
+function ladderGeometry() {
+  const list = [
+    ...cabOver(1.78, 1.35, 1.6, 2.6, "#2d5fa8", 0.55), chassis(5.0, -0.6, 0.65),
+    rbox(1.8, 0.12, 3.0, 0, 0.85, -1.7, "#8d9196", 0.02), rbox(1.0, 0.55, 1.0, 0, 1.2, -2.4, "#e3e4e2", 0.08),
+    rbox(0.5, 0.75, 0.1, 0, 1.95, 1.2, "#c9ccd0", 0.02),
+    rbox(0.07, 0.14, 7.4, -0.32, 2.35, -0.25, "#d9dbde", 0.02), rbox(0.07, 0.14, 7.4, 0.32, 2.35, -0.25, "#d9dbde", 0.02),
+    ...wheelPair(1.78, 1.7, 0.36), ...wheelPair(1.78, -1.6, 0.36, true),
+  ];
+  for (let z = -3.7; z <= 3.3; z += 0.7) list.push(rbox(0.6, 0.05, 0.06, 0, 2.35, z, "#c9ccd0", 0.01));
+  return assemble(list);
+}
+/** 탱크로리: tractor and a polished tank trailer. */
+function tankerGeometry() {
+  const tank = paint(new THREE.CylinderGeometry(1.12, 1.12, 9.6, 18).rotateX(Math.PI / 2).translate(0, 2.25, -1.7), "#cfd3d8");
+  return assemble([
+    ...cabOver(2.48, 2.2, 2.3, 6.5, "#f4f4f2", 0.85), chassis(4.0, 4.6), rbox(1.2, 0.3, 11.0, 0, 0.95, -1.5, "#2b2d30", 0.04), tank,
+    rbox(2.0, 0.1, 6.0, 0, 3.4, -1.7, "#9a9ea4", 0.02),
+    ...wheelPair(2.48, 5.3, 0.52), ...wheelPair(2.48, 3.8, 0.52, true), ...wheelPair(2.48, -4.6, 0.52, true), ...wheelPair(2.48, -5.8, 0.52, true),
+  ]);
+}
+/** 5톤 윙바디: an aluminium van body whose sides open as wings (closed on the road). */
+function wingGeometry(cab: string) {
+  return assemble([
+    ...cabOver(2.45, 2.1, 2.0, 4.75, cab, 0.75), chassis(8.8, -0.3),
+    rbox(2.5, 2.6, 6.9, 0, 2.45, -1.25, "#c9ccd0", 0.05), rbox(2.53, 0.08, 6.9, 0, 3.72, -1.25, "#8a8f96", 0.02),
+    ...wheelPair(2.45, 3.6, 0.5), ...wheelPair(2.45, -2.3, 0.5, true), ...wheelPair(2.45, -3.6, 0.5, true),
+  ]);
+}
+/** 1톤 탑차: the Porter-style cab and a box; a refrigerated one has its cooling unit up front. */
+function boxTruckGeometry(cab: string, box: string, cooled: boolean) {
+  const list = [
+    ...cabOver(1.75, 1.35, 1.6, 2.65, cab, 0.55), chassis(5.0, -0.2, 0.65),
+    rbox(1.86, 1.9, 3.25, 0, 1.75, -0.95, box, 0.06),
+    ...wheelPair(1.75, 1.75, 0.36), ...wheelPair(1.75, -1.55, 0.36, true),
+  ];
+  if (cooled) list.push(rbox(1.2, 0.36, 0.55, 0, 2.86, 0.4, "#d6d8da", 0.06));
+  return assemble(list);
+}
+/** 견인차 (렉카): a 2.5 t cab, the lifting boom and wheel lift at the back, an amber bar. */
+function towGeometry() {
+  return assemble([
+    ...cabOver(1.95, 1.55, 1.8, 3.1, "#f0f0ee", 0.6), chassis(5.6, -0.3, 0.7),
+    rbox(1.95, 0.3, 3.0, 0, 0.95, -0.8, "#2b2d30", 0.04),
+    paint(new THREE.BoxGeometry(0.3, 0.3, 2.6).rotateX(0.35).translate(0, 1.6, -1.6), "#f2c400"),
+    rbox(1.6, 0.15, 0.45, 0, 0.42, -3.05, "#f2c400", 0.03), rbox(1.2, 0.12, 0.25, 0, 2.27, 2.4, "#f29f05", 0.04),
+    ...wheelPair(1.95, 2.05, 0.4), ...wheelPair(1.95, -1.55, 0.4, true),
+  ]);
+}
+/** 노면 청소차: compact cab-over, a hopper body, side brushes under the front. */
+function sweeperGeometry() {
+  const brush = (x: number) => paint(new THREE.CylinderGeometry(0.42, 0.42, 0.08, 12).translate(x, 0.06, 1.7), "#56595e");
+  return assemble([
+    ...cabOver(2.1, 1.75, 1.6, 3.2, "#f2f2f0", 0.55), chassis(5.4, -0.4, 0.7),
+    rbox(2.15, 1.9, 3.3, 0, 1.6, -0.9, "#f29a2e", 0.2), rbox(2.17, 0.15, 3.3, 0, 1.0, -0.9, "#2f8a4a", 0.03),
+    brush(-0.75), brush(0.75), ...wheelPair(2.1, 2.2, 0.45), ...wheelPair(2.1, -1.8, 0.45, true),
+  ]);
+}
+/** Buses by size: 마을버스 (short, green), 관광·고속 (high deck), 광역 2층. */
+function busBox(L: number, W: number, H: number, body: string, bands: number[], roof: string, axles: number[]) {
+  return boxes([
+    [W, H, L, 0, H / 2 + 0.35, 0, body], ...bands.map(y => [W + 0.02, 0.95, L - 0.8, 0, y, -0.1, "#20303c"] as [number, number, number, number, number, number, string]),
+    [W + 0.02, H * 0.45, 0.06, 0, H * 0.62 + 0.35, L / 2, "#20303c"], [W - 0.08, 0.22, L - 0.2, 0, H + 0.46, 0, roof], ...wheels(W, axles),
+  ]);
+}
+/** 배달 오토바이: a scooter with its delivery box, and its rider in a helmet. */
+function scooterGeometry() {
+  return assemble([
+    rbox(0.32, 0.45, 1.3, 0, 0.62, 0, "#eceef0", 0.12), rbox(0.3, 0.1, 0.62, 0, 0.92, -0.15, "#1e1f22", 0.04),
+    rbox(0.46, 0.44, 0.46, 0, 1.12, -0.6, "#d8262b", 0.05), rbox(0.68, 0.05, 0.05, 0, 1.12, 0.52, "#1e1f22", 0.02),
+    rbox(0.38, 0.58, 0.27, 0, 1.3, -0.08, "#26303e", 0.1), rbox(0.3, 0.32, 0.5, 0, 0.98, 0.12, "#2e3238", 0.08),
+    rbox(0.1, 0.36, 0.1, -0.17, 1.28, 0.22, "#26303e", 0.04), rbox(0.1, 0.36, 0.1, 0.17, 1.28, 0.22, "#26303e", 0.04),
+    paint(new THREE.SphereGeometry(0.15, 10, 8).translate(0, 1.76, -0.04), "#f2f2f0"),
+    paint(new THREE.CylinderGeometry(0.27, 0.27, 0.12, 14).rotateZ(Math.PI / 2).translate(0, 0.27, 0.62), TYRE),
+    paint(new THREE.CylinderGeometry(0.27, 0.27, 0.12, 14).rotateZ(Math.PI / 2).translate(0, 0.27, -0.62), TYRE),
+  ]);
+}
+
 /** Head and tail lamps for a vehicle of length L, width W at height y: two warm white
  * lamps at the front (+z), two red at the back. uv.x picks white (0) or red (1) from
  * the emissive map, so one material and one draw per vehicle type. */
@@ -439,13 +607,38 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     () => K(official(fireGeometry()), boxMat, 0.6, 0.85, [7.5, 2.42, 1.0]),
     () => K(garbageGeometry(), boxMat, 1.0, 0.75, [7.0, 2.35, 0.95], false, "garbage", "#3f8f4e"),
     () => K(mixerGeometry(), boxMat, 1.2, 0.75, [8.6, 2.39, 1.0], false, "mixer", "#e8e6e0"),
+    // (twenty more: construction plant, goods, service, buses, a scooter, a pickup, the yellow school van)
+    ...(new URLSearchParams(location.search).get("veh") === "0" ? [] : [
+    () => K(dumpGeometry("#d4521f", "#eceef0"), boxMat, 0.9, 0.75, [9.6, 2.5, 1.05]),
+    () => K(dumpGeometry("#e3b21c", "#2d5fa8"), boxMat, 0.6, 0.75, [9.6, 2.5, 1.05]),
+    () => K(smallDumpGeometry(), boxMat, 0.6, 0.85, [6.0, 2.0, 0.8]),
+    () => K(excavatorGeometry(), boxMat, 0.35, 0.55, [9.0, 2.5, 0.9]),
+    () => K(lowbedGeometry(), boxMat, 0.25, 0.65, [17.4, 2.6, 1.0]),
+    () => K(cargoCraneGeometry(), boxMat, 0.5, 0.8, [8.6, 2.4, 0.95]),
+    () => K(mobileCraneGeometry(), boxMat, 0.25, 0.6, [13.2, 2.75, 1.0]),
+    () => K(pumpGeometry(), boxMat, 0.3, 0.7, [12.0, 2.5, 1.0]),
+    () => K(wingGeometry("#eef0f2"), boxMat, 0.9, 0.8, [9.6, 2.5, 1.0]),
+    () => K(tankerGeometry(), boxMat, 0.35, 0.75, [13.2, 2.48, 1.0]),
+    () => K(boxTruckGeometry("#2d5fa8", "#f4f4f2", true), boxMat, 1.4, 0.9, [5.3, 1.86, 0.75]),
+    () => K(boxTruckGeometry("#e9e9e6", "#c9ccd0", false), boxMat, 1.4, 0.9, [5.3, 1.86, 0.75]),
+    () => K(ladderGeometry(), boxMat, 0.5, 0.85, [7.4, 1.8, 0.75]),
+    () => K(towGeometry(), boxMat, 0.4, 1, [6.2, 1.95, 0.8]),
+    () => K(sweeperGeometry(), boxMat, 0.25, 0.5, [6.4, 2.17, 0.9]),
+    () => K(busBox(8.9, 2.3, 2.6, "#3b9a44", [2.05], "#f1f1ee", [2.6, -2.6]), boxMat, 1.0, 0.85, [8.9, 2.3, 0.75]),
+    () => K(busBox(12, 2.5, 3.1, "#f3f3f1", [2.7], "#e9e9e6", [4.2, -3.0, -4.2]), boxMat, 0.6, 0.9, [12, 2.5, 0.8]),
+    () => K(busBox(12, 2.5, 3.7, "#c8322f", [1.85, 3.3], "#f1f1ee", [4.2, -3.1, -4.3]), boxMat, 0.35, 0.8, [12, 2.5, 0.75]),
+    () => K(scooterGeometry(), boxMat, 2.2, 1.05, [1.95, 0.7, 0.8]),
+    () => K(kit("pickup"), bodyMat, 2.5, 1, [d("pickup")[0], d("pickup")[1], 0.78], true),
+    () => K(kit("van"), bodyMat, 0.9, 0.9, [d("van")[0], d("van")[1], 0.78], false, undefined, "#f2c414"),
+    ]),
   ];
   const kinds: ReturnType<typeof K>[] = [];
   let slice = performance.now();
   for (const make of makers) {
+    // (a slice a kind or two: some take several ms the first time — 45 kinds now)
+    if (performance.now() - slice > 4) { await frameSlice(); slice = performance.now(); }
     const k = make();
     if (k.geo) kinds.push(k);
-    if (performance.now() - slice > 8) { await frameSlice(); slice = performance.now(); }
   }
   const totalW = kinds.reduce((s, k) => s + k.weight, 0);
   const pickKind = () => { let r = rnd() * totalW; for (let i = 0; i < kinds.length; i++) { r -= kinds[i].weight; if (r <= 0) return i; } return 0; };
@@ -727,6 +920,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     group.add(im);
     return im;
   };
+  await frameSlice();
   const meshes = kinds.map((k, i) => instanced(k.geo, k.mat, perKind[i], true));
   // Near the eye (NEAR_M) a car is drawn from its modelled mesh: those instances are packed
   // into a second mesh per kind each frame and hidden in the far one.
@@ -744,8 +938,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // Number plates, front and rear, on the vehicles near enough to read them (PLATE_M):
   // yellow for taxis, delivery vans, trucks and buses, white for the rest.
   const PLATE_M = 40;
+  await plateAtlasReady();
   const plateMat = plateMaterial();
   const commercial = kinds.map(k => k.geo === kit("taxi") || k.geo === kit("delivery") || (k.mat === boxMat && !officials.has(k.geo)));
+  await frameSlice();
   const plateGeos = kinds.map(k => {
     const spec = Object.entries(CAR_SPECS).find(([n]) => kit(n) === k.geo)?.[1];
     const L = k.dims[0], c = spec?.clearance ?? 0.3;
@@ -799,6 +995,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     plates.forEach((im, i) => { im.count = platesN[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
     near.forEach((im, i) => { if (!im) return; im.count = packed[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
   };
+  await frameSlice();
   const lampGeos = kinds.map(k => lampGeometry(k.dims[0], k.dims[1], k.dims[2]));
   const lamps = kinds.map((_, i) => { const im = instanced(lampGeos[i], lampMat, perKind[i], false); im.visible = false; return im; });
   let lampsOn = false;
@@ -815,7 +1012,11 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // (delivery vans: white, silver, the odd blue)
   const vanPaints = ["#f4f4f2", "#f4f4f2", "#c9ccd0", "#2d5fa8"];
   const taxiKind = kinds.findIndex(k => k.geo === kit("taxi")), deliveryKind = kinds.findIndex(k => k.geo === kit("delivery"));
+  await frameSlice();
   cars.forEach(c => {
+    // (one colour for every car of a kind: the school vans' yellow)
+    const fixed = kinds[c.type].mat === bodyMat && !kinds[c.type].paint ? kinds[c.type].livery : undefined;
+    if (fixed) { meshes[c.type].setColorAt(c.slot, new THREE.Color(fixed)); return; }
     if (!kinds[c.type].paint) return;
     const colour = c.type === taxiKind ? taxiPaints[Math.floor(rnd() * taxiPaints.length)]
       : c.type === deliveryKind ? vanPaints[Math.floor(rnd() * vanPaints.length)] : paintPick();

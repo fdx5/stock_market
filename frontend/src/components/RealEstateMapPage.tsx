@@ -476,8 +476,11 @@ export default function RealEstateMapPage() {
   }, [stacked, holoId]);
   // Desktop: the card's 3D button opens the rail's view full screen on its complex.
   const [holoFull, setHoloFull] = useState(0);
+  // (whether the rail's view is full screen now: a page opened on a complex starts so)
+  const [holoIsFull, setHoloIsFull] = useState(() => new URLSearchParams(location.search).get("3d") === "1");
   const openHoloFull = (item: RealEstateItem) => { setHoloPick(item); setHoloFull(n => n + 1); };
   const holoFullChange = (open: boolean) => {
+    setHoloIsFull(open);
     const q = new URLSearchParams(location.search);
     if (open === (q.get("3d") === "1") || !q.get("complex")) return;
     if (open) q.set("3d", "1"); else { q.delete("3d"); q.delete("hour"); q.delete("weather"); }
@@ -528,6 +531,12 @@ export default function RealEstateMapPage() {
     }
   };
   const [sheetItem, setSheetItem] = useState<RealEstateItem | null>(null);
+  // The region map's own WebGL view starts only once no complex's 3D view is open (full or a
+  // sheet): made
+  // behind an open one (a page opened on a complex), its context alone held the page ~0.13 s
+  // while the complex was loading on screen. (Once made, it stays: paused under a complex.)
+  const [regionAllowed, setRegionAllowed] = useState(false);
+  useEffect(() => { if (!sheetItem && !holoIsFull) setRegionAllowed(true); }, [sheetItem, holoIsFull]);
   const rankedSheetItem = useMemo(() => sheetItem ? { ...sheetItem, leader: items.find(it => it.id === sheetItem.id)?.leader ?? null } : null, [sheetItem, items]);
   const closeSheet = (restoreHistory = true) => {
     if (restoreHistory && selectedId && window.history.state?.reDetailFromMap) { window.history.back(); return; }
@@ -910,8 +919,8 @@ export default function RealEstateMapPage() {
                 <span>지역별 등락 지도</span>
                 <small>{regionMapOpen ? "접기" : "펼치기"}</small>
               </button>
-              {regionMapOpen && regions.length > 0 && !viewsReady && <div className="rm3 rm3--placeholder" />}
-              {regionMapOpen && regions.length > 0 && viewsReady && (
+              {regionMapOpen && regions.length > 0 && !(viewsReady && regionAllowed) && <div className="rm3 rm3--placeholder" />}
+              {regionMapOpen && regions.length > 0 && viewsReady && regionAllowed && (
                 <Suspense fallback={<div className="rm3 rm3--placeholder" />}>
                   <RegionMap3D
                     regions={regions}

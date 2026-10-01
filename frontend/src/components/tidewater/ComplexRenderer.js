@@ -3,7 +3,7 @@
 // Upstream and full MIT notice: ../../vendor/tidewater/{NOTICE.md,LICENSE}.
 import { GPU } from '../../vendor/tidewater/engine/gpu/GPU.js';
 import { Texture, RenderTarget } from '../../vendor/tidewater/engine/gpu/Texture.js';
-import { generateMipmaps } from '../../vendor/tidewater/engine/gpu/Mipmaps.js';
+import { generateMipmaps, warmMipmaps } from '../../vendor/tidewater/engine/gpu/Mipmaps.js';
 import { MeshRenderer } from '../../vendor/tidewater/engine/render/MeshRenderer.js';
 import { Material } from '../../vendor/tidewater/engine/render/Material.js';
 import { FullscreenPass } from '../../vendor/tidewater/engine/render/FullscreenPass.js';
@@ -15,7 +15,7 @@ import { SceneLighting } from '../../vendor/tidewater/engine/render/wgsl/lightin
 import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/index.js';
 import { waterMaterial, updateWaveTile } from './ComplexWater.js';
 import { GpuTimer } from './GpuTimer.js';
-import { packInto } from './texturePack.js';
+import { packInto, warmPack } from './texturePack.js';
 import { canEncodeBC7, encodeBC7, warmBC7 } from './bc7Encode.js';
 import { gpuCaps } from '../gpuCaps';
 
@@ -66,6 +66,14 @@ async function device() {
     gpuCaps.bc = GPU.features.has('texture-compression-bc');
     gpuCaps.etc2 = GPU.features.has('texture-compression-etc2');
     warmBC7();
+    // (the mip chains and the surface pack, made ahead: see warmMipmaps)
+    warmMipmaps(['rgba8unorm', 'rgba8unorm-srgb', 'rgba16float', 'r8unorm']);
+    warmPack('rgba8unorm', 'vec4f(A.x, A.y, B.y, B.z)', 2);
+    warmPack('r8unorm', 'vec4f(A.y, 0.0, 0.0, 1.0)', 1);
+    // (the browser's own copy pipelines for pictures, made on the first copy into each format —
+    // a compile on its GPU process's main thread: done here, as the device is made, not later
+    // while a complex is on screen)
+    void warmCopies();
     GPU.format = navigator.gpu.getPreferredCanvasFormat();
     SceneLighting.set('envSpecular', new ShaderModule({ name: 'complex reflected surroundings', deps: [atmosphere],
       bindings: { env: { uniform: EnvUniforms }, envCube: { texture: envTexture, viewDimension: 'cube' } }, code: `
@@ -769,8 +777,21 @@ const CAR_PAINT = /* wgsl */`{
 
 /** The device, ahead of the first view (ComplexHologram.warmGpu). */
 export function warmDevice() { return device().catch(() => {}); }
+async function warmCopies() {
+  try {
+    const c = new OffscreenCanvas(4, 4); c.getContext('2d', { willReadFrequently: true }).fillRect(0, 0, 4, 4);
+    const bmp = await createImageBitmap(c);
+    for (const format of ['rgba8unorm-srgb', 'rgba8unorm']) for (const flipY of [false, true]) {
+      const t = GPU.device.createTexture({ size: [4, 4], format, usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT });
+      GPU.queue.copyExternalImageToTexture({ source: bmp, flipY }, { texture: t }, [4, 4]);
+      GPU.onSubmit(null, () => t.destroy());
+    }
+    bmp.close();
+  } catch { /* (only a warm-up) */ }
+}
 
 const isMoving = mesh => mesh.moving === true;
+const NO_STRIPS = typeof location !== 'undefined' && new URLSearchParams(location.search).get('strips') === '0';
 // (twin of scenePlants' WebGL fade)
 const FOLIAGE_FADE = '0.14, 0.46, face';
 const FOLIAGE_STEEP = '0.5, 0.78, abs(v.y)';
@@ -854,9 +875,11 @@ export class ComplexRenderer {
     }
     this.resolved = () => (this.taaNow ? this.taaHist[this.taaIdx] : this.target);
     if (ENV_ALLOWED) this.env = {
-      // (one cube, each face drawn into a buffer and copied in: drawing into the cube it reads
-      // isn't allowed, and a second cube was 3 MB — what the 1 km land use costs)
+      // (two cubes: the faces of a new capture go into the back one, one face every few frames,
+      // and the two swap once all six are in. With one cube the reflections changed face by
+      // face as a capture went on — the windows flickered whenever the sun or the scene moved on)
       tex: new Texture({ width: ENV_SIZE, height: ENV_SIZE, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'copyDst'], label: 'complex env' }),
+      back: new Texture({ width: ENV_SIZE, height: ENV_SIZE, dimension: 'cube', format: 'rgba16float', usage: ['sample', 'copyDst'], label: 'complex env back' }),
       faceRT: new RenderTarget(ENV_SIZE, ENV_SIZE, { colors: ['rgba16float'], label: 'complex env face', usage: ['render', 'copySrc'] }),
       depth: new RenderTarget(ENV_SIZE, ENV_SIZE, { colors: [], depth: 'depth32float', label: 'complex env depth' }),
       block: createViewUniforms('complex env view'), cam: new PerspectiveCamera(90, 1, 0.5, 4000),
@@ -947,6 +970,89 @@ export class ComplexRenderer {
     for (const [src, mat] of this.materials) if (src.userData.water) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); this.materials.delete(src); }
     for (const [obj, mesh] of this.meshes) if (obj.material?.userData?.water) { this.scene.remove(mesh); this.meshes.delete(obj); }
   }
+  /** A large painted canvas goes up to the GPU in strips of rows, a few a frame (its pixels
+   * read with getImageData — the canvases are drawn by the CPU — and written in): copied at
+   * once, a 2048 px canvas held the main thread ~40 ms in the frame that needed it. Returns
+   * the filled rgba8unorm texture (with mips to make) once the last strip is in, else null. */
+  staged(source) {
+    const img = source.image, w = img.width, h = img.height;
+    this.stagings ??= new Map();
+    let st = this.stagings.get(source);
+    if (st && st.version !== source.version) { st.tex.destroy(); st = null; }   // (repainted meanwhile: again)
+    if (!st) {
+      st = { tex: new Texture({ label: 'staged canvas', width: w, height: h, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copySrc', 'copyDst'] }), y: 0, version: source.version, at: this.frameNo };
+      this.stagings.set(source, st);
+    }
+    if (st.y < h) {
+      if (this.stageFrame !== this.frameNo) { this.stageFrame = this.frameNo; this.stageBudget = 0.6e6; }
+      const ctx = img.getContext('2d', { willReadFrequently: true });
+      if (!ctx) { this.stagings.delete(source); st.tex.destroy(); return null; }
+      while (this.stageBudget > 0 && st.y < h) {
+        const rows = Math.min(128, h - st.y), data = ctx.getImageData(0, st.y, w, rows).data;
+        let buf = data, y = st.y;
+        if (source.flipY) {
+          // (the texture's rows bottom-up: the strip lands mirrored, its rows reversed)
+          y = h - st.y - rows; buf = new Uint8Array(data.length);
+          for (let r = 0; r < rows; r++) buf.set(data.subarray(r * w * 4, (r + 1) * w * 4), (rows - 1 - r) * w * 4);
+        }
+        GPU.queue.writeTexture({ texture: st.tex.getGPU(), origin: { x: 0, y } }, buf, { bytesPerRow: w * 4, rowsPerImage: rows }, { width: w, height: rows });
+        st.y += rows; this.stageBudget -= w * rows;
+      }
+    }
+    return st.y >= h ? st.tex : null;
+  }
+  /** The staged texture into `into` (BC7: encoded from it; else copied, mips made); it is
+   * then freed. */
+  fromStaged(source, st, into) {
+    this.stagings.delete(source);
+    if (into.format.startsWith('bc7')) { encodeBC7(null, { staged: st, into }); return; }
+    GPU.getEncoder().copyTextureToTexture({ texture: st.getGPU() }, { texture: into.getGPU() }, [st.width, st.height, 1]);
+    generateMipmaps(into);
+    GPU.onSubmit(null, () => st.destroy());
+  }
+  /** Whether a canvas goes up in strips (see staged). */
+  stripped(img) {
+    if (NO_STRIPS || !(typeof HTMLCanvasElement !== 'undefined' && img instanceof HTMLCanvasElement) || img.width * img.height < 512 * 512 || img.width % 4 || img.height % 4) return false;
+    // (only a canvas drawn by the CPU: reading a GPU-drawn one back took ~50 ms a strip)
+    if (img.__cpu === undefined) img.__cpu = !!img.getContext('2d')?.getContextAttributes?.().willReadFrequently;
+    return img.__cpu;
+  }
+  /** A loaded picture (<img>) is decoded in the background before it is uploaded: copied
+   * straight away, its decode ran on the main thread in the frame that needed it (~100 ms for
+   * the plants' atlases). A large canvas goes up in strips (staged). Returns the image once
+   * ready, else null. */
+  snapshot(source, strips = true) {
+    const img = source.image;
+    if (img && this.stripped(img)) return !strips || this.staged(source) ? img : null;
+    if (!(typeof HTMLImageElement !== 'undefined' && img instanceof HTMLImageElement)) return img;
+    this.snaps ??= new Map();
+    const s = this.snaps.get(source);
+    if (s) return s.ready ? img : null;
+    const entry = { version: source.version, ready: false };
+    this.snaps.set(source, entry);
+    const done = () => { entry.ready = true; };
+    if (img.decode) img.decode().then(done, done); else done();
+    return null;
+  }
+  /** Done with a picture's decode: forget it. */
+  dropSnapshot(source) { this.snaps?.delete(source); }
+  /** Whether the pictures a material reads are all decoded (see snapshot). */
+  imagesReady(material) {
+    let ready = true;
+    for (const m of Array.isArray(material) ? material : [material]) {
+      for (const t of [m.map, m.emissiveMap, m.userData?.farGround?.map]) {
+        if (!t || this.textures.has(t) || t.userData?.compressed) continue;
+        if (!this.snapshot(t)) ready = false;
+      }
+      // (normal and roughness maps are packed together from their canvases — packedSurface —
+      // not uploaded in strips: only a picture among them waits for its decode)
+      for (const t of [m.normalMap, m.roughnessMap, m.metalnessMap]) {
+        if (!t || this.textures.has(t) || t.userData?.compressed) continue;
+        if (!this.snapshot(t, false)) ready = false;
+      }
+    }
+    return ready;
+  }
   texture(source) {
     if (this.textures.has(source)) return this.textures.get(source);
     // Pre-compressed levels (the plant atlas as BC7): uploaded as they are, a quarter of the memory.
@@ -963,21 +1069,31 @@ export class ComplexRenderer {
     }
     const img = source.image;
     if (!img?.width || !img?.height) return null;
+    const version = source.version;
+    // (a large canvas: from its strips once all are up — a material made before then copies it)
+    const st = this.stripped(img) && this.stagings?.get(source)?.version === version ? this.staged(source) : null;
+    // (strips begun but not all up: dropped, the canvas copied as it is)
+    if (!st && this.stagings?.has(source)) { this.stagings.get(source).tex.destroy(); this.stagings.delete(source); }
     // Painted colour maps (facades, glazing, lit windows, the ground's paint): BC7, made on
     // the GPU — a quarter of the memory, the same look (48–62 dB against the source).
     if (!img.data && source.colorSpace === 'srgb' && canEncodeBC7(img)) {
-      const tex = encodeBC7(img, { flipY: source.flipY });
-      tex.sourceVersion = source.version;
+      const tex = st ? (this.stagings.delete(source), encodeBC7(null, { staged: st })) : encodeBC7(img, { flipY: source.flipY });
+      tex.sourceVersion = version;
       this.textures.set(source, tex);
+      this.dropSnapshot(source);
       this.release(source);
       return tex;
     }
     const tex = new Texture({ width: img.width, height: img.height, format: source.colorSpace === 'srgb' ? 'rgba8unorm-srgb' : 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'] });
-    if (img.data) tex.upload(img.data);
-    else GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]);
-    generateMipmaps(tex);
-    tex.sourceVersion = source.version;
+    if (st) this.fromStaged(source, st, tex);
+    else {
+      if (img.data) tex.upload(img.data);
+      else GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]);
+      generateMipmaps(tex);
+    }
+    tex.sourceVersion = version;
     this.textures.set(source, tex);
+    this.dropSnapshot(source);
     this.release(source);
     return tex;
   }
@@ -1035,14 +1151,24 @@ export class ComplexRenderer {
     for (const [source, tex] of this.textures) {
       if (tex.sourceVersion === source.version) continue;
       if (budget <= 0) break;
+      const raw = source.image;
+      if (!raw?.width || raw.data || raw.width !== tex.width || raw.height !== tex.height || tex.packed) { tex.sourceVersion = source.version; continue; }
+      if (tex.repack) { tex.sourceVersion = source.version; tex.repack(); this.release(source); continue; }
+      const img = raw;
+      if (this.stripped(img)) {
+        // (a repainted canvas: up in strips over a few frames, then into the texture)
+        const st = this.staged(source);
+        if (!st) continue;
+        tex.sourceVersion = source.version;
+        this.fromStaged(source, st, tex);
+        this.release(source);
+        continue;
+      }
       tex.sourceVersion = source.version;
-      const img = source.image;
-      if (img?.width) budget -= img.width * img.height;
-      if (!img?.width || img.data || img.width !== tex.width || img.height !== tex.height || tex.packed) continue;
-      if (tex.repack) { tex.repack(); this.release(source); continue; }
-      if (tex.format.startsWith('bc7')) { encodeBC7(img, { flipY: source.flipY, into: tex }); this.release(source); continue; }
-      GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]);
-      generateMipmaps(tex);
+      budget -= img.width * img.height;
+      if (tex.format.startsWith('bc7')) encodeBC7(img, { flipY: source.flipY, into: tex });
+      else { GPU.queue.copyExternalImageToTexture({ source: img, flipY: source.flipY }, { texture: tex.getGPU() }, [img.width, img.height]); generateMipmaps(tex); }
+      this.dropSnapshot(source);
       this.release(source);
     }
   }
@@ -1289,6 +1415,8 @@ export class ComplexRenderer {
       if (mesh && !Array.isArray(obj.material) && mesh.material.srcVersion !== obj.material.version) { mesh.material = this.material(obj.material); this.ready = false; }
       if (!mesh) {
         if (made && (performance.now() > until || texels() - startTexels > room)) { deferred = true; return; }
+        // (its painted canvases taken off the page first: they come in a frame or two)
+        if (!this.imagesReady(obj.material)) { deferred = true; return; }
         const before = this.materials.size + this.textures.size;
         const material = Array.isArray(obj.material) ? obj.material.map(m => this.material(m)) : this.material(obj.material);
         if (this.materials.size + this.textures.size !== before) made++;
@@ -1362,6 +1490,8 @@ export class ComplexRenderer {
     if (dropped) this.renderer.pipelines.clear();
     const kept = new Set([...this.materials.keys()].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap, m.userData.farGround?.map]));
     for (const [src, tex] of this.textures) if (!kept.has(src)) { tex.destroy(); this.textures.delete(src); }
+    // (strips of a canvas no material uses any more)
+    if (this.stagings) for (const [src, st] of this.stagings) if (!kept.has(src) && this.frameNo - (st.at ?? 0) > 600) { st.tex.destroy(); this.stagings.delete(src); }
   }
   render(source, camera, look, time) {
     if (this.disposed || this.failed) return;
@@ -1398,6 +1528,7 @@ export class ComplexRenderer {
     if (this.castersChanged) { shadows.invalidateCache(); this.castersChanged = false; }
     this.shadowStats = shadows.stats;
     this.renderer.precompiling = !this.shown;
+    GPU.deferCompiles = !this.shown;
     this.renderer.starved = false;
     const timer = this.timer;
     timer.begin();
@@ -1517,11 +1648,13 @@ export class ComplexRenderer {
       colorViews: [e.faceRT.texture.view()], colorFormats: ['rgba16float'],
       depthView: e.depth.depthTexture.view(), depthFormat: 'depth32float', clearColors: [[0, 0, 0, 0]], clearDepth: 0,
     });
-    GPU.getEncoder().copyTextureToTexture({ texture: e.faceRT.texture.getGPU() }, { texture: e.tex.getGPU(), origin: [0, 0, e.face] }, [ENV_SIZE, ENV_SIZE, 1]);
-    if (++e.face === 6) { e.face = -1; e.on = true; }
+    GPU.getEncoder().copyTextureToTexture({ texture: e.faceRT.texture.getGPU() }, { texture: e.back.getGPU(), origin: [0, 0, e.face] }, [ENV_SIZE, ENV_SIZE, 1]);
+    if (++e.face === 6) { e.face = -1; e.on = true; [e.tex, e.back] = [e.back, e.tex]; }
   }
   dispose() {
     this.disposed = true;
+    this.snaps = null;
+    this.stagings?.forEach(st => st.tex.destroy()); this.stagings = null;
     if (shadowOwner === this) shadowOwner = null;
     this.context.unconfigure();
     this.canvas.remove();
@@ -1535,7 +1668,7 @@ export class ComplexRenderer {
     this.ao?.textures.forEach(t => t.destroy()); this.aoTmp?.textures.forEach(t => t.destroy());
     this.bloomRT?.forEach(rt => rt.textures.forEach(t => t.destroy()));
     this.taaHist?.forEach(rt => rt.textures.forEach(t => t.destroy()));
-    if (this.env) { this.env.tex.destroy(); this.env.faceRT.textures.forEach(t => t.destroy()); this.env.depth.depthTexture.destroy(); if (envView === this) envView = null; }
+    if (this.env) { this.env.tex.destroy(); this.env.back.destroy(); this.env.faceRT.textures.forEach(t => t.destroy()); this.env.depth.depthTexture.destroy(); if (envView === this) envView = null; }
     this.renderer.pipelines.clear(); this.materials.clear(); this.textures.clear(); this.meshes.clear();
   }
 }

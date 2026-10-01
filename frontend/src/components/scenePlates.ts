@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { frameSlice } from "./frameSlice";
 
 /* Number plates: 512 drawn once into an atlas (no download) — "123가 4567" and the older
  * "12가 3456", white with black characters for private cars (400), yellow for commercial
@@ -10,16 +11,33 @@ export const PLATE_COLS = 8, PLATE_ROWS = 64, PLATE_WHITE = 400, PLATE_COUNT = P
 const HANGUL = ["가", "나", "다", "라", "마", "바", "사", "아", "자", "차", "카", "타", "파", "하", "구", "수", "거", "허"];
 
 let atlas: THREE.CanvasTexture | null = null;
+let painting: Promise<void> | null = null;
+/** The atlas painted in slices (32 plates each) before traffic first needs it: all 512 at
+ * once held the page ~60 ms. */
+export function plateAtlasReady(): Promise<void> {
+  if (atlas) return Promise.resolve();
+  return painting ??= (async () => {
+    const steps = paintSteps();
+    while (!steps.next().done) await frameSlice();
+  })();
+}
 function plateAtlas() {
   if (atlas) return atlas;
+  const steps = paintSteps();
+  while (!steps.next().done) { /* at once: not prepared ahead */ }
+  return atlas!;
+}
+function* paintSteps(): Generator<void, void> {
   const CW = 224, CH = 48;
   const c = document.createElement("canvas");
   c.width = CW * PLATE_COLS; c.height = CH * PLATE_ROWS;
-  const g = c.getContext("2d")!;
+  const g = c.getContext("2d", { willReadFrequently: true })!;   // (drawn by the CPU: see complexScene canvas)
   let seed = 20260930;
   const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
   const digits = (n: number) => Array.from({ length: n }, () => Math.floor(rnd() * 10)).join("");
   for (let i = 0; i < PLATE_COUNT; i++) {
+    if (i && i % 32 === 0) yield;
+    if (atlas) return;   // (painted meanwhile by the synchronous path)
     const x = (i % PLATE_COLS) * CW, y = Math.floor(i / PLATE_COLS) * CH;
     const yellow = i >= PLATE_WHITE;
     g.fillStyle = yellow ? "#f2c21b" : "#f6f6f2";
@@ -34,11 +52,11 @@ function plateAtlas() {
     const w = g.measureText(text).width, k = Math.min(1, (CW - 26) / w);
     g.save(); g.translate(x + CW / 2, y + CH / 2 + 2); g.scale(k, 1); g.fillText(text, 0, 0); g.restore();
   }
-  atlas = new THREE.CanvasTexture(c);
-  atlas.colorSpace = THREE.SRGBColorSpace;
-  atlas.flipY = false;
-  atlas.anisotropy = 8;
-  return atlas;
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.flipY = false;
+  t.anisotropy = 8;
+  atlas = t;
 }
 
 /** The plates' material (shared by every plate mesh of a traffic set). */
