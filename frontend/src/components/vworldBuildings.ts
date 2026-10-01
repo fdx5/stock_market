@@ -351,3 +351,39 @@ export function withoutDemolished(data: RealEstateBuildingsResponse): RealEstate
   return { ...data, buildings: keep, coverage: { ...data.coverage, buildings: keep.length, with_height: keep.filter(b => b.height_source !== "estimated").length } };
 }
 
+/** Records of the national building data that aren't buildings as drawn. VWorld's
+ * GIS건물통합정보 also holds footprints not linked to the building register (no 용도, no
+ * 사용승인일) that carry only the complex's name and its storey count: slivers of a few m²
+ * (ramp mouths, vents, pieces of the deck) drawn as 18-storey needles between the towers, and
+ * second copies of the register's own buildings (a 동 drawn twice, one inside the other).
+ * Gone: an unlinked record on a register-linked one (either's middle inside the other), and
+ * an unlinked one of 8 storeys or more too slender for them (under 10 m² a storey + 40 m²); any record of
+ * 5 storeys or more on under 25 m². A measured height far over its storeys (404 m for one
+ * storey) is the storeys' height instead. */
+export function withoutStrays(data: RealEstateBuildingsResponse): RealEstateBuildingsResponse {
+  if (!data.found || !data.buildings?.length) return data;
+  const linked = (b: RealEstateBuilding) => !!b.use || !!b.approved;
+  const all = [...data.buildings, ...(data.context ?? [])];
+  const reg = all.filter(linked).map(b => ({ ring: b.rings[0], c: centroid(b.rings[0]) }));
+  let dropped = 0, fixed = 0;
+  const keep = (b: RealEstateBuilding) => {
+    const ring = b.rings[0], a = Math.abs(area(ring));
+    const stray = (b.floors >= 5 && a < 25)
+      || (!linked(b) && b.floors >= 8 && a < 10 * b.floors + 40)
+      || (!linked(b) && (() => { const c = centroid(ring); return reg.some(r => inside(c, r.ring) || inside(r.c, ring)); })());
+    if (stray) dropped++;
+    return !stray;
+  };
+  const sane = (b: RealEstateBuilding) => {
+    if (b.height_source !== "measured" || !b.floors || b.height <= b.floors * 4.5 + 12) return b;
+    fixed++;
+    return { ...b, height: Math.round((b.floors * FLOOR_M + GROUND_M) * 10) / 10, height_source: "floors" as const };
+  };
+  const buildings = data.buildings.filter(keep).map(sane);
+  const context = (data.context ?? []).filter(keep).map(sane);
+  if (!dropped && !fixed) return data;
+  // (never the complex's last tower: then the data is all there is)
+  if (!buildings.some(b => b.floors >= 2)) return data;
+  return { ...data, buildings, context, coverage: data.coverage && { ...data.coverage, buildings: buildings.length } };
+}
+

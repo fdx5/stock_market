@@ -17,7 +17,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex } from "../api/client";
-import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished, parcelBox } from "./vworldBuildings";
+import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -1477,7 +1477,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         return full;
       })
       .then(found => {
-        const res = withoutDemolished(found);
+        const res = withoutStrays(withoutDemolished(found));
         if (res.found) {
           if (!buildingCache.has(complexId)) void saveBuildings(complexId, res);
           buildingCache.set(complexId, { at: Date.now(), data: res });
@@ -2369,6 +2369,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // The ground: the surveyed parcel landscaped (flat paint only), laid over the real
     // relief; damp paving reflects the towers where the ground is level.
     const T = Math.max(reach * 1.15, span * 0.9 + 120);
+    if (import.meta.env.DEV) Object.assign(window, { __holoData: data });
     step("ctxMaterials");
     if (!await pace(true)) return;
     let paintAt = performance.now();

@@ -66,6 +66,9 @@ function ringWorkerMain() {
     const seen = new Set<string>();
     const apts: number[] = [];
     let count = 0;
+    // All the pages first: a record is judged against the others (vworldBuildings.withoutStrays).
+    type Cand = { ring: number[][]; area: number; cx: number; cy: number; d: number; props: any; linked: boolean };
+    const cands: Cand[] = [];
     for (const url of job.urls) {
       let body: any = null;
       (self as any).ringCb = (b: unknown) => { body = b; };
@@ -94,67 +97,92 @@ function ringWorkerMain() {
           if (area < 0) ring = ring.reverse();
           const d = Math.hypot(cx, cy);
           if (d > job.outer || known(cx, cy) || (d < job.inner && near.size)) continue;
-          // heights as the register gives them (vworldBuildings.fillHeights)
-          const hReg = parseFloat(props.height) || 0, fReg = Math.round(parseFloat(props.grnd_flr) || 0);
-          let height = hReg, floors = fReg;
-          if (height) floors = floors || Math.max(1, Math.round((height - GROUND_M) / FLOOR_M));
-          else if (floors) height = Math.round((floors * FLOOR_M + GROUND_M) * 10) / 10;
-          else { floors = 2; height = 6.5; }
-          if (height < 2.5) continue;
-          const style = styleOf(String(props.usability ?? ""), height, rnd());
-          const tint = TINTS[Math.floor(rnd() * TINTS.length)].slice();
-          const lift = style === "office" ? 0.4 : style === "apt" ? 0.65 : 0;
-          for (let k = 0; k < 3; k++) tint[k] += (1 - tint[k]) * lift;
-          // on its own ground: the lowest point under it, sunk 3 m (no gap on a slope)
-          let ground = Infinity;
-          for (const [x, y] of ring) ground = Math.min(ground, at(x, y));
-          const depth = Math.max(2, height), bottom = ground - SINK, top = ground + depth;
-          const floorM = job.floorM[style] ?? FLOOR_M;
-          const kv = Math.min(2, Math.max(0.5, floorM / (depth / Math.max(1, floors))));
-          const b = buf(style);
-          const iStart = b.i.length;
-          // walls: a quad per edge, outward normal, uv as three's world uv (along x or y) with
-          // v counting storeys from the ground (ComplexHologram.extrude)
-          for (let i = 0; i < ring.length; i++) {
-            const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length];
-            const ex = bx - ax, ey = by - ay, el = Math.hypot(ex, ey) || 1, nx = ey / el, ny = -ex / el;
-            const alongX = Math.abs(ey) < Math.abs(ex);
-            const base = b.p.length / 3;
-            for (const [x, y, z] of [[ax, ay, bottom], [bx, by, bottom], [bx, by, top], [ax, ay, top]]) {
-              b.p.push(x, y, z); b.n.push(nx, ny, 0); b.u.push(alongX ? x : y, (1 - (z - ground)) * kv); b.c.push(tint[0], tint[1], tint[2]);
-            }
-            b.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
-          }
-          // roof: ear clipping of the outline (outlines are a few to a few dozen points)
-          const base = b.p.length / 3;
-          for (const [x, y] of ring) { b.p.push(x, y, top); b.n.push(0, 0, 1); b.u.push(x, y); b.c.push(tint[0], tint[1], tint[2]); }
-          const idx = ring.map((_, k) => k);
-          const cross = (o: number[], p: number[], q: number[]) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
-          let guard = idx.length * idx.length;
-          while (idx.length > 3 && guard-- > 0) {
-            let cut = false;
-            for (let k = 0; k < idx.length; k++) {
-              const ia = idx[(k + idx.length - 1) % idx.length], ib = idx[k], ic = idx[(k + 1) % idx.length];
-              const A = ring[ia], B = ring[ib], C = ring[ic];
-              if (cross(A, B, C) <= 0) continue;
-              let inside = false;
-              for (const m of idx) {
-                if (m === ia || m === ib || m === ic) continue;
-                const P = ring[m];
-                if (cross(A, B, P) >= 0 && cross(B, C, P) >= 0 && cross(C, A, P) >= 0) { inside = true; break; }
-              }
-              if (inside) continue;
-              b.i.push(base + ia, base + ib, base + ic);
-              idx.splice(k, 1); cut = true; break;
-            }
-            if (!cut) break;
-          }
-          if (idx.length === 3) b.i.push(base + idx[0], base + idx[1], base + idx[2]);
-          if (style === "apt" && floors >= 5) apts.push(cx, cy, height, ground, iStart, b.i.length - iStart);
-          count++;
+          cands.push({ ring, area: Math.abs(area), cx, cy, d, props, linked: !!props.usability || /^(19|20)\d{2}/.test(props.useapr_day || "") });
         }
       }
       if (last) break;
+    }
+    // Records not linked to the register (no 용도, no 사용승인일): gone where they lie on a
+    // linked one (a second copy), or as needles (8+ storeys on under 10 m² a storey + 40 m²);
+    // any 5+ storeys on under 25 m².
+    const inRing = (x: number, y: number, r: number[][]) => {
+      let hit = false;
+      for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [x1, y1] = r[i], [x2, y2] = r[j]; if ((y1 > y) !== (y2 > y) && x < ((x2 - x1) * (y - y1)) / (y2 - y1) + x1) hit = !hit; }
+      return hit;
+    };
+    const cell = (x: number, y: number) => Math.floor(x / 40) + "," + Math.floor(y / 40);
+    const regAt = new Map<string, Cand[]>();
+    for (const c of cands) if (c.linked) { const k = cell(c.cx, c.cy); regAt.set(k, [...(regAt.get(k) ?? []), c]); }
+    const onLinked = (c: Cand) => {
+      const i0 = Math.floor(c.cx / 40), j0 = Math.floor(c.cy / 40);
+      for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const r of regAt.get(i0 + i + "," + (j0 + j)) ?? [])
+        if (inRing(c.cx, c.cy, r.ring) || inRing(r.cx, r.cy, c.ring)) return true;
+      return false;
+    };
+    for (const { ring, area, cx, cy, props, linked } of cands) {
+      const fl = Math.round(parseFloat(props.grnd_flr) || 0);
+      if ((fl >= 5 && area < 25) || (!linked && fl >= 8 && area < 10 * fl + 40)) continue;
+      if (!linked && onLinked({ ring, area, cx, cy, d: 0, props, linked })) continue;
+      // heights as the register gives them (vworldBuildings.fillHeights)
+      const hReg = parseFloat(props.height) || 0, fReg = Math.round(parseFloat(props.grnd_flr) || 0);
+      let height = hReg, floors = fReg;
+      // (a measured height far over the storeys — 404 m for one — is the storeys' height)
+      if (height && fReg && height > fReg * 4.5 + 12) height = 0;
+      if (height) floors = floors || Math.max(1, Math.round((height - GROUND_M) / FLOOR_M));
+      else if (floors) height = Math.round((floors * FLOOR_M + GROUND_M) * 10) / 10;
+      else { floors = 2; height = 6.5; }
+      if (height < 2.5) continue;
+      const style = styleOf(String(props.usability ?? ""), height, rnd());
+      const tint = TINTS[Math.floor(rnd() * TINTS.length)].slice();
+      const lift = style === "office" ? 0.4 : style === "apt" ? 0.65 : 0;
+      for (let k = 0; k < 3; k++) tint[k] += (1 - tint[k]) * lift;
+      // on its own ground: the lowest point under it, sunk 3 m (no gap on a slope)
+      let ground = Infinity;
+      for (const [x, y] of ring) ground = Math.min(ground, at(x, y));
+      const depth = Math.max(2, height), bottom = ground - SINK, top = ground + depth;
+      const floorM = job.floorM[style] ?? FLOOR_M;
+      const kv = Math.min(2, Math.max(0.5, floorM / (depth / Math.max(1, floors))));
+      const b = buf(style);
+      const iStart = b.i.length;
+      // walls: a quad per edge, outward normal, uv as three's world uv (along x or y) with
+      // v counting storeys from the ground (ComplexHologram.extrude)
+      for (let i = 0; i < ring.length; i++) {
+        const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length];
+        const ex = bx - ax, ey = by - ay, el = Math.hypot(ex, ey) || 1, nx = ey / el, ny = -ex / el;
+        const alongX = Math.abs(ey) < Math.abs(ex);
+        const base = b.p.length / 3;
+        for (const [x, y, z] of [[ax, ay, bottom], [bx, by, bottom], [bx, by, top], [ax, ay, top]]) {
+          b.p.push(x, y, z); b.n.push(nx, ny, 0); b.u.push(alongX ? x : y, (1 - (z - ground)) * kv); b.c.push(tint[0], tint[1], tint[2]);
+        }
+        b.i.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+      // roof: ear clipping of the outline (outlines are a few to a few dozen points)
+      const base = b.p.length / 3;
+      for (const [x, y] of ring) { b.p.push(x, y, top); b.n.push(0, 0, 1); b.u.push(x, y); b.c.push(tint[0], tint[1], tint[2]); }
+      const idx = ring.map((_, k) => k);
+      const cross = (o: number[], p: number[], q: number[]) => (p[0] - o[0]) * (q[1] - o[1]) - (p[1] - o[1]) * (q[0] - o[0]);
+      let guard = idx.length * idx.length;
+      while (idx.length > 3 && guard-- > 0) {
+        let cut = false;
+        for (let k = 0; k < idx.length; k++) {
+          const ia = idx[(k + idx.length - 1) % idx.length], ib = idx[k], ic = idx[(k + 1) % idx.length];
+          const A = ring[ia], B = ring[ib], C = ring[ic];
+          if (cross(A, B, C) <= 0) continue;
+          let inside = false;
+          for (const m of idx) {
+            if (m === ia || m === ib || m === ic) continue;
+            const P = ring[m];
+            if (cross(A, B, P) >= 0 && cross(B, C, P) >= 0 && cross(C, A, P) >= 0) { inside = true; break; }
+          }
+          if (inside) continue;
+          b.i.push(base + ia, base + ib, base + ic);
+          idx.splice(k, 1); cut = true; break;
+        }
+        if (!cut) break;
+      }
+      if (idx.length === 3) b.i.push(base + idx[0], base + idx[1], base + idx[2]);
+      if (style === "apt" && floors >= 5) apts.push(cx, cy, height, ground, iStart, b.i.length - iStart);
+      count++;
     }
     const styles: Record<string, unknown> = {}, transfer: ArrayBuffer[] = [];
     for (const [s, b] of Object.entries(bufs)) {
