@@ -796,7 +796,12 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
   mg.lineWidth = 12 * mk;
   rings.forEach(r => { mpath(r); mg.fill(); mg.stroke(); });
   roads.forEach(r => { mg.lineWidth = (r.width + 2 * sidewalkWidth(r.width) + 1) * mk; mpath(r.line, false); mg.stroke(); });
-  const md = mg.getImageData(0, 0, M, M).data;
+  // (read in four strips, a pause between: the whole 1024² at once was one ~15 ms piece)
+  const md = new Uint8ClampedArray(M * M * 4);
+  for (let y = 0; y < M; y += 256) {
+    if (y) yield;
+    md.set(mg.getImageData(0, y, M, Math.min(256, M - y)).data, y * M * 4);
+  }
   const ok = (x: number, y: number) => {
     const px = Math.floor(MX(x)), py = Math.floor(MY(y));
     if (px < 0 || py < 0 || px >= M || py >= M) return false;

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { RealEstateParcel } from "../api/client";
-import type { Terrain } from "./sceneTerrain";
+import { gridNormals, type Terrain } from "./sceneTerrain";
 import { inRing, shared } from "./complexScene";
 
 /* Water on the parcels registered as water (연속지적도 지목 천 하천, 구 구거, 유 유지,
@@ -264,7 +264,7 @@ export async function buildWater(parcels: RealEstateParcel[], covered: boolean[]
     }
     if (!changed) return;
     p.needsUpdate = true;
-    ground.computeVertexNormals();
+    gridNormals(ground);
     ground.computeBoundingSphere();
   };
   return { mesh, sink, field, dispose: () => { geo.dispose(); mat.dispose(); } };

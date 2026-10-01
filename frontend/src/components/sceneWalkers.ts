@@ -1,3 +1,4 @@
+import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
@@ -280,7 +281,7 @@ interface Walker {
 }
 
 /** People on `paths`, about one per `spacing` metres of path, at most `cap`. */
-export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, spacing: number, cap: number) {
+export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, spacing: number, cap: number) {
   const usable = paths.filter(r => r.cum[r.cum.length - 1] > 6);
   if (!usable.length) return null;
   const rnd = rng(seed + 97);
@@ -309,7 +310,10 @@ export function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: number, 
   };
 
   const walkers: Walker[] = [];
+  // (a few ms at a time: 650 people at once held the page ~45 ms)
+  let slice = performance.now();
   for (let n = 0; n < count; n++) {
+    if (performance.now() - slice > 6) { await frameSlice(); slice = performance.now(); }
     // Longer runs get proportionally more people.
     let r = rnd() * total, path = usable[0];
     for (const u of usable) { r -= u.cum[u.cum.length - 1]; if (r <= 0) { path = u; break; } }

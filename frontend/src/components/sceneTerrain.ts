@@ -1,3 +1,4 @@
+import type * as THREE from "three";
 /* The ground's real relief around one complex (components/ComplexHologram.tsx).
  *
  * Source, best first: VWorld's national DEM (국토지리정보원, the WebGL 3D map's
@@ -261,4 +262,25 @@ function gridTerrain(radius: number, CELL: number, sample: (x: number, y: number
     elevation: Math.round(h0 * 10) / 10,
     source,
   };
+}
+
+/** Normals of a ground grid (a PlaneGeometry laid over the terrain, heights in z) straight
+ * from its heights: central differences over the real spacing, which the builder keeps in
+ * `userData.grid` (world x per column, y per row). The same smooth shading as
+ * computeVertexNormals without its pass over every triangle; other geometry falls back to it. */
+export function gridNormals(geo: THREE.BufferGeometry) {
+  const grid = geo.userData.grid as { xs: Float64Array; ys: Float64Array } | undefined;
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute, nor = geo.getAttribute("normal") as THREE.BufferAttribute | undefined;
+  if (!grid || !nor || pos.count !== grid.xs.length * grid.ys.length) { geo.computeVertexNormals(); return; }
+  const P = pos.array as Float32Array, N = nor.array as Float32Array, { xs, ys } = grid, row = xs.length, last = row - 1;
+  for (let j = 0; j < ys.length; j++) {
+    const j0 = Math.max(0, j - 1), j1 = Math.min(ys.length - 1, j + 1), dy = ys[j1] - ys[j0];
+    for (let i = 0; i < row; i++) {
+      const i0 = Math.max(0, i - 1), i1 = Math.min(last, i + 1), dx = xs[i1] - xs[i0];
+      const gx = (P[(j * row + i1) * 3 + 2] - P[(j * row + i0) * 3 + 2]) / dx, gy = (P[(j1 * row + i) * 3 + 2] - P[(j0 * row + i) * 3 + 2]) / dy;
+      const l = Math.hypot(gx, gy, 1), k = (j * row + i) * 3;
+      N[k] = -gx / l; N[k + 1] = -gy / l; N[k + 2] = 1 / l;
+    }
+  }
+  nor.needsUpdate = true;
 }

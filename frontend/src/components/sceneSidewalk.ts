@@ -1,3 +1,4 @@
+import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
 import type { RealEstateRoad } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
@@ -148,12 +149,15 @@ function paverTexture() {
 
 /** Raised sidewalks with a granite kerb along each run, and tree pits. One draw for the
  * paving, one for kerbs and pits. */
-export function buildSidewalks(runs: Run[], terrain: Terrain, pits: [number, number][]) {
+export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [number, number][]) {
   const pos: number[] = [], uv: number[] = [], nor: number[] = [];
   const kPos: number[] = [], kNor: number[] = [], kCol: number[] = [];
   const kerb = new THREE.Color("#b9b6ae"), pit = new THREE.Color("#3a3129"), grate = new THREE.Color("#2b2d2f");
   const push = (arr: number[], ...v: number[]) => { for (const x of v) arr.push(x); };
+  // (a few ms at a time: all the runs at once held the page ~45 ms)
+  let slice = performance.now();
   for (const r of runs) {
+    if (performance.now() - slice > 6) { await frameSlice(); slice = performance.now(); }
     const n = r.cum.length;
     for (let i = 0; i < n - 1; i++) {
       const a0 = runPt(r, i, r.half), a1 = runPt(r, i, r.half + r.width), b0 = runPt(r, i + 1, r.half), b1 = runPt(r, i + 1, r.half + r.width);

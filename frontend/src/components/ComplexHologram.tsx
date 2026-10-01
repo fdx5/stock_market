@@ -22,14 +22,14 @@ import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
 } from "./complexScene";
-import { paintStats, paintTextures, plinthTone, prefetchPaint } from "./paintClient";
+import { paintAhead, paintStats, paintTextures, plinthTone, prefetchPaint } from "./paintClient";
 import "../desk2/realestate-hologram.css";
 import type { ComplexRenderer, Quality } from "./tidewater/ComplexRenderer";
 import { endWalls, facadeRelief } from "./tidewater/facadeRelief";
 import { loadBuildings, saveBuildings } from "./buildingStore";
 import { buildPlants, preloadPlants } from "./scenePlants";
 import { buildLamps, buildTraffic, stitchedRoads } from "./sceneStreet";
-import { FLAT, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
+import { FLAT, gridNormals, loadTerrain, preconnectTerrain, Terrain } from "./sceneTerrain";
 import { buildSidewalks, carriageway, ringIndex, sidewalkRuns, streetTrees } from "./sceneSidewalk";
 import { buildWalkers, cutPaths, ringPaths, sidewalkPaths, WalkPath } from "./sceneWalkers";
 import { buildWater } from "./sceneWater";
@@ -83,18 +83,29 @@ function extrude(b: RealEstateBuilding, ground = 0, floorM = FLOOR_M): THREE.Ext
  * outward to the horizon; heights from the terrain, uv spanning the painted square. */
 async function groundGeometry(T: number, G: number, terrain: Terrain, segs: number, pace: () => Promise<boolean>) {
   const geo = new THREE.PlaneGeometry(2, 2, segs, segs);
-  const p = geo.getAttribute("position") as THREE.BufferAttribute, uv = geo.getAttribute("uv") as THREE.BufferAttribute;
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute, uvA = geo.getAttribute("uv") as THREE.BufferAttribute;
+  const P = pos.array as Float32Array, UV = uvA.array as Float32Array;
   const a = 0.84;
   const f = (u: number) => { const s = Math.sign(u), v = Math.abs(u); return s * (v <= a ? (v / a) * T : T + (G - T) * ((v - a) / (1 - a)) ** 2); };
+  // The grid's world coordinates, once per column and row (PlaneGeometry: x left to right,
+  // rows from y = +1 down).
+  const row = segs + 1, xs = new Float64Array(row), ys = new Float64Array(row);
+  for (let k = 0; k < row; k++) { xs[k] = f((k / segs) * 2 - 1); ys[k] = f(1 - (k / segs) * 2); }
   // (a fine grid is 100k terrain lookups: laid a few rows at a time)
-  const row = segs + 1;
-  for (let i = 0; i < p.count; i++) {
-    const x = f(p.getX(i)), y = f(p.getY(i));
-    p.setXYZ(i, x, y, terrain.at(x, y));
-    uv.setXY(i, (x + T) / (2 * T), (y + T) / (2 * T));
-    if (i % row === row - 1 && !await pace()) return null;
+  for (let j = 0; j < row; j++) {
+    const y = ys[j];
+    for (let i = 0; i < row; i++) {
+      const k = j * row + i, x = xs[i], z = terrain.at(x, y);
+      P[k * 3] = x; P[k * 3 + 1] = y; P[k * 3 + 2] = z;
+      UV[k * 2] = (x + T) / (2 * T); UV[k * 2 + 1] = (y + T) / (2 * T);
+    }
+    if (!await pace()) return null;
   }
-  geo.computeVertexNormals();
+  // Normals straight from the height grid (sceneTerrain.gridNormals): the same smooth shading as
+  // computeVertexNormals, without its pass over 200k triangles.
+  geo.userData.grid = { xs, ys };
+  gridNormals(geo);
+  pos.needsUpdate = true; uvA.needsUpdate = true;
   geo.computeBoundingSphere();
   return geo;
 }
@@ -494,7 +505,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // panel toward 2x (sharper facades; the native path has no MSAA). Never climb
     // back past a level that already dropped frames.
     const dpr = window.devicePixelRatio || 1;
-    let ratio = Math.min(dpr, hq ? 2 : 1.6);
+    // (a phone at its own pixels, up to 3x: it started at 1.6x and could never climb, so a 3x
+    // screen showed a soft picture from the first frame)
+    let ratio = Math.min(dpr, hq ? 2 : 3);
     let maxRatio = hq ? Math.min(2, Math.max(dpr, 1.5)) : ratio;
     // High resolution on every device is the rule: never below the display's own pixels
     // (a phone's 3x may step down, never under 1 CSS pixel a pixel).
@@ -516,12 +529,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Do not compile both renderers on first load: warm native pipelines behind
     // the loading state, and initialize WebGL lighting only if native fails.
     // Native quality from the device: high quality everywhere is the rule — desktops
-    // (panel or full screen) start high, phones and small-memory devices medium; only a
-    // tiny-memory device starts low. The GPU time measured once the scene settles steps
-    // a genuinely weak GPU down from there.
+    // (panel or full screen) and current phones start high, small-memory or 4-core devices
+    // medium; only a tiny-memory device starts low. The GPU time measured once the scene
+    // settles steps a genuinely weak GPU down from there.
     const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
-    const coarse = !!window.matchMedia?.("(pointer: coarse)").matches;
-    const tier: Quality["name"] = mem <= 2 ? "low" : (coarse && Math.min(screen.width, screen.height) < 700) || mem <= 4 || navigator.hardwareConcurrency <= 4 ? "medium" : "high";
+    // (a current phone — 8 GB, 8 cores — starts at full quality like a desktop: a small touch
+    // screen alone was taken for a weak device; the view still steps down where its GPU proves slow)
+    const tier: Quality["name"] = mem <= 2 ? "low" : mem <= 4 || navigator.hardwareConcurrency <= 4 ? "medium" : "high";
     let qualities: Record<Quality["name"], Quality> | null = null;
     if (nativePending) {
       import("./tidewater/ComplexRenderer").then(m => { qualities = m.QUALITY; return m.ComplexRenderer.create(host, m.QUALITY[tier]); }).then(view => {
@@ -580,7 +594,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       };
     }
     controls.autoRotate = spinRef.current;
-    controls.autoRotateSpeed = 0.55;
+    // (by time, not per drawn frame — controls.update(dt) in the loop: per frame, the turn slowed
+    // with every late frame while loading, and halved when the view went to its idle rate. This
+    // is the speed the idle view turned at, the one seen longest.)
+    controls.autoRotateSpeed = 0.275;
     controls.minPolarAngle = 0.12;
     controls.maxPolarAngle = Math.PI / 2 - 0.035;
     // Zoom toward whatever is under the cursor (or between the pinching fingers),
@@ -770,6 +787,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
     // Dynamic quality and resolution with hysteresis: at least 40 fps, never below 1x.
     let slow = 0, quick = 0, gpuHot = 0, last = performance.now(), settleUntil = 0, calibrated = false;
+    // A step down on trial (no GPU timestamps), and whether one proved the main thread the limit.
+    let trial: { step: string; before: number; ratio: number; quality: Quality | null; from: number; until: number; dts: number[] } | null = null;
+    let cpuBound = false;
+    const recent: number[] = [];
+    const median = (xs: number[]) => { const v = [...xs].sort((a, b) => a - b); return v[v.length >> 1] ?? 0; };
     const calDt: number[] = [];
     let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
@@ -789,12 +811,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // (a model still loading, behind its scan overlay, renders at the idle rate: those
     // frames only prepare its pipelines, and at full rate they held the GPU — and with it
     // the pointer and the page — through every load)
+    // (the camera turning on its own, or the balloon on its way to another complex, is the whole
+    // picture moving: at the idle rate it read as a stutter — a model on screen only)
     const busy = () => performance.now() - lastInput < 3000 || !!stage.balloonView || !!stage.fly || !!stage.intro || stage.atmos.dirty || stage.atmos.rain !== stage.atmos.wantRain
-      || stage.atmos.snow !== stage.atmos.wantSnow || !!stage.snap;
+      || stage.atmos.snow !== stage.atmos.wantSnow || !!stage.snap
+      || (!!stage.model && !stage.unshown && (controls.autoRotate || !!balloon.travelling));
     const loop = () => {
       if (document.hidden || ((!inView || pausedRef.current) && !warming())) return;
       raf = requestAnimationFrame(loop);
-      const idle = !busy();
+      // (a built model waiting for its pipelines: every frame, each one lets a few more be made
+      // — at the idle rate a complex's ~35 took twice as many display frames to reach the screen)
+      const idle = !busy() && !(stage.unshown && stage.model);
       if (idle) { idleSkip = !idleSkip; if (idleSkip) return; } else idleSkip = false;
       const nowMs = performance.now();
       const dt = nowMs - last;
@@ -820,17 +847,43 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (native?.shown && !calibrated && !idle && !stage.unshown && nowMs > settleUntil && dt < 2000) calDt.push(dt);
       if (native?.shown && !calibrated && (native.timer.samples > 30 || (!native.timer.enabled && calDt.length >= 5 && nowMs - settleUntil > 1000))) {
         calibrated = true;
-        const g = native.timer.enabled ? native.timer.ms.total ?? 0 : calDt.sort((a, b) => a - b)[calDt.length >> 1] * 0.85;
+        // (only the GPU's own measured time: a frame interval can't tell a busy main thread —
+        // which neither quality nor resolution relieves — from a GPU at its limit)
+        const g = native.timer.enabled ? native.timer.ms.total ?? 0 : 0;
         if (g > 16 && qualities && native.quality.name !== "low") native.setQuality(g > 30 || native.quality.name === "medium" ? qualities.low : qualities.medium);
         if (g > 24) { ratio = Math.max(minRatio, Math.round(ratio * Math.sqrt(20 / g) * 20) / 20); maxRatio = Math.max(ratio, Math.min(dpr, maxRatio)); resize(); }
         slow = 0;
       }
       // (sustained slowness only; quality steps to medium at most here — low, without AO
       // and bloom, only for a GPU measured too weak above)
-      if (slow > 45 && native?.shown && qualities && native.quality.name === "high") {
-        native.setQuality(qualities.medium);
+      // Sustained slowness lowers quality, then resolution, only where the GPU is what's slow.
+      // With timestamps: its measured time says so (under 12 ms a frame it isn't). Without (most
+      // phones): one step is tried, and the frames over the next two seconds judge it — no real
+      // gain means the main thread is the limit, the step is undone, and none is tried again.
+      if (judge) { recent.push(dt); if (recent.length > 90) recent.shift(); }
+      if (trial) {
+        if (nowMs > trial.from && judge) trial.dts.push(dt);
+        if (nowMs > trial.until && trial.dts.length >= 30) {
+          const after = median(trial.dts);
+          if (after > trial.before * 0.88) {
+            if (trial.quality && qualities) native?.setQuality(trial.quality);
+            if (trial.ratio !== ratio) { ratio = trial.ratio; resize(); }
+            cpuBound = true;
+          }
+          host.dataset.trial = `${trial.step} ${trial.before.toFixed(1)}→${after.toFixed(1)}ms ${cpuBound ? "undone" : "kept"}`;
+          trial = null; slow = 0;
+        }
+      } else if (slow > 45) {
         slow = 0;
-      } else if (slow > 45 && ratio > minRatio) { ratio = Math.max(minRatio, ratio - 0.25); slow = 0; resize(); }
+        const gpuSlow = native?.timer.enabled ? (native.timer.ms.total ?? 0) > 12 : !cpuBound && recent.length >= 30;
+        const qualityStep = !!(native?.shown && qualities && native.quality.name === "high");
+        if (gpuSlow && (qualityStep || ratio > minRatio)) {
+          const before = median(recent);
+          trial = native?.timer.enabled ? null : { step: qualityStep ? "quality" : "ratio", before, ratio, quality: qualityStep ? native!.quality : null, from: nowMs + 600, until: nowMs + 2600, dts: [] };
+          if (qualityStep) native!.setQuality(qualities!.medium);
+          else { ratio = Math.max(minRatio, ratio - 0.25); resize(); }
+        }
+      }
       // Resolution up only with GPU time to spare. The frame interval can't tell: vsync
       // holds it at 16.7 ms however full the GPU is, and a GPU run to 100 % starves the
       // browser (the pointer and the rest of the page stutter). With timestamps: climb
@@ -899,7 +952,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         camera.lookAt(bvLook);
         if (camera.fov !== bv.fov || camera.near !== 0.08) { camera.fov = bv.fov; camera.near = 0.08; camera.updateProjectionMatrix(); }
       } else {
-        controls.update();
+        controls.update(Math.min(dt, 100) / 1000);
         // Near plane follows the zoom: close enough to stand beside a person, and no
         // deeper than needed from afar (depth precision on distant roofs).
         const near = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.04, 0.05, stage.nearMax);
@@ -1377,6 +1430,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     }
     const letGo = () => { behind?.release(); behind = null; };
     if (!data?.found || !data.buildings.length) { letGo(); return; }
+    // (idle time, once a session: a river complex's boats need them the moment its water is in)
+    prepareWakes();
     const modelStarted = performance.now();
     const terrain = terrainRef.current;
     // Buildings first: plants, lamps and traffic join once this model is on screen,
@@ -1419,7 +1474,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // responsive; behind an open popup, only in the browser's idle time.
     let sliceStart = performance.now();
     const pace = async (force = false) => {
-      if (force || performance.now() - sliceStart > 8) {
+      // (6 ms: what is left of a frame after the view's own drawing — longer slices missed frames)
+      if (force || performance.now() - sliceStart > 6) {
         cpu += performance.now() - sliceStart;
         await nextSlice(pausedRef.current);
         sliceStart = performance.now();
@@ -2328,7 +2384,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (import.meta.env.DEV) (stage as unknown as { data: unknown }).data = data;
       const street = streetTrees(runs, plan.lamps);
       if (!await later()) return;
-      const walks = timed("buildSidewalks", () => buildSidewalks(runs, terrain, street.map(([x, y]) => [x, y] as [number, number])));
+      const walks = await buildSidewalks(runs, terrain, street.map(([x, y]) => [x, y] as [number, number]));
+      if (!alive) { walks.dispose(); return; }
       stage.addWarm(decor, walks.group);
       disposables.push(walks);
       if (!await later()) return;
@@ -2341,9 +2398,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // parcels meet) are cut wherever they enter the surveyed road width.
       const onCarriageway = carriageway(roads, 0.8);
       const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y) || onCarriageway(x, y);
-      const crowd = (paths: WalkPath[], salt: number, spacing: number, cap: number, cut = true) => {
-        const walkers = timed("buildWalkers", () => buildWalkers(cut ? cutPaths(paths, blocked) : paths, terrain, seed + salt, spacing, cap));
+      const crowd = async (paths: WalkPath[], salt: number, spacing: number, cap: number, cut = true) => {
+        const open = timed("cutPaths", () => (cut ? cutPaths(paths, blocked) : paths));
+        const walkers = await buildWalkers(open, terrain, seed + salt, spacing, cap);
         if (!walkers) return;
+        if (!alive) { walkers.dispose(); return; }
         stage.addWarm(decor, walkers.group);
         if (import.meta.env.DEV) {
           ((stage as unknown as { walkers: unknown[] }).walkers ??= []).push(...walkers.group.userData.walkers);
@@ -2352,7 +2411,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         disposables.push(walkers);
         tick.push(dt => walkers.update(dt, stage.camera));
       };
-      crowd([...sidewalkPaths(runs), ...ringPaths(data.site, 2.4, blocked, 0.5), ...ringPaths(data.buildings.filter(b => b.floors >= 5).map(b => b.rings[0]), -3.2, blocked, 0.45)],
+      await crowd([...sidewalkPaths(runs), ...ringPaths(data.site, 2.4, blocked, 0.5), ...ringPaths(data.buildings.filter(b => b.floors >= 5).map(b => b.rings[0]), -3.2, blocked, 0.45)],
         0, 6, stage.hq ? 650 : 200);
       // Land use (연속지적도 지목) arrives after the first frame: the ground is repainted in
       // place, parks and forest get their trees, water its surface, alleys their people;
@@ -2378,7 +2437,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (import.meta.env.DEV) Object.assign(window, { __holoKids: kids, __holoStage: stage });
           if (!await later()) return;
         }
-        prepareWakes();   // (idle time, once a session: boats on a river need them at once)
         const water = await buildWater(parcels, waterCovered(data), terrain, pace);
         if (!alive) { water?.dispose(); return; }
         if (water) {
@@ -2404,20 +2462,20 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           }
         }
         // Thousands of parcel edges, each tested every 2 m against buildings and
-        // carriageways: laid out 60 parcels per slice, in idle time.
+        // carriageways: laid out 20 parcels per slice (60 were ~30 ms), in idle time.
         void (async () => {
           const edges: [Ring, number, number, number][] = [
             ...parcels.filter(p => p.kind === "도").map(p => [p.ring, 1.1, 0.4, 12] as [Ring, number, number, number]),
             ...parcels.filter(p => p.kind === "공" || p.kind === "원" || p.kind === "체").map(p => [p.ring, 2.2, 0.5, 20] as [Ring, number, number, number]),
           ].filter(([ring]) => ring.some(([x, y]) => Math.abs(x) < T && Math.abs(y) < T));
           const paths: WalkPath[] = [];
-          for (let i = 0; i < edges.length; i += 60) {
+          for (let i = 0; i < edges.length; i += 20) {
             await nextSlice(pausedRef.current);
             if (!alive) return;
-            timed("parcelEdges", () => { for (const [ring, off, lateral, minLen] of edges.slice(i, i + 60)) paths.push(...cutPaths(ringPaths([ring], off, blocked, lateral, minLen), blocked)); });
+            timed("parcelEdges", () => { for (const [ring, off, lateral, minLen] of edges.slice(i, i + 20)) paths.push(...cutPaths(ringPaths([ring], off, blocked, lateral, minLen), blocked)); });
           }
           await nextSlice(pausedRef.current);
-          if (alive) crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
+          if (alive) await crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
         })();
         const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
         if (!plants) return;
@@ -2686,7 +2744,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let live = true;
     const st = stageRef.current, res = data, home = homeId;
     const go = () => void nearbyFor(home, res)
-      .then(items => { if (live) setNearby({ home, name: res.name, lat: res.center!.lat, lon: res.center!.lon, items }); })
+      .then(items => {
+        if (!live) return;
+        setNearby({ home, name: res.name, lat: res.center!.lat, lon: res.center!.lon, items });
+        // The nearest few are fetched ahead (shapes, roads, relief), in idle time: most choices
+        // are among them, and the view then has them at once.
+        // (their facades too, one complex after another, kept in the paint store)
+        const ahead = () => {
+          items.slice(0, 3).forEach(i => prefetchComplex(i.id));
+          void items.slice(0, 3).reduce((done, i) => done.then(() => (live ? paintAhead(i.id) : undefined)), Promise.resolve());
+        };
+        if (typeof requestIdleCallback === "function") requestIdleCallback(ahead, { timeout: 4000 }); else window.setTimeout(ahead, 2000);
+      })
       .catch(err => console.info("[3D] Nearby complexes unavailable:", err));
     // (after the first frame and the neighbourhood's own requests: none of it may slow the view)
     const timer = window.setTimeout(() => { if (st?.unshown) st.onShown.push(go); else go(); }, 1200);
@@ -2739,16 +2808,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         <div>
           <small>{caption ?? "3D 단지뷰"}</small>
           <strong>{(hop && loading ? hop.name : data?.name) ?? complexName ?? "단지를 선택하세요"}</strong>
-          {near && near.items.length > 0 && (
-            <select className="re-holo-nearby" value={hop?.id ?? ""} onChange={e => goTo(e.currentTarget.value || homeId!)}
-              aria-label="주변 아파트 단지 자세히 보기" title="주변 아파트 단지를 고르면 그 단지를 자세히 그리고, 열기구가 그 위로 옮겨 갑니다">
-              <option value="">{hop ? `↩ 내 단지로 · ${near.name}` : `주변 단지 ${near.items.length}곳 보기`}</option>
-              {near.items.map(i => {
-                const d = Math.hypot(i.x, i.y);
-                return <option key={i.id} value={i.id}>{`${i.name} · ${bearing(i.x, i.y)} ${d < 950 ? `${Math.round(d / 10) * 10}m` : `${(d / 1000).toFixed(1)}km`}`}</option>;
-              })}
-            </select>
-          )}
         </div>
         <div className="re-holo-tools">
           {big && !narrow && <button type="button" onClick={() => { resizeDrag.current = null; setBigSize(null); }}
@@ -2768,6 +2827,20 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             <button type="button" className="re-holo-big" onClick={openBig} title="전체화면으로 보기 (Esc로 닫기)">⤢ 전체화면</button>
           )}
         </div>
+        {/* 주변 단지: a row of its own under the name and the tools (inside the name's block it
+         * widened it into the tools in the narrow rail) */}
+          {near && near.items.length > 0 && (
+            <select className="re-holo-nearby" value={hop?.id ?? ""} onChange={e => goTo(e.currentTarget.value || homeId!)}
+              // (opening the list: the first few are fetched while the reader chooses)
+              onFocus={() => near.items.slice(0, 6).forEach(i => prefetchComplex(i.id))}
+              aria-label="주변 아파트 단지 자세히 보기" title="주변 아파트 단지를 고르면 그 단지를 자세히 그리고, 열기구가 그 위로 옮겨 갑니다">
+              <option value="">{hop ? `↩ 내 단지로 · ${near.name}` : `주변 단지 ${near.items.length}곳 보기`}</option>
+              {near.items.map(i => {
+                const d = Math.hypot(i.x, i.y);
+                return <option key={i.id} value={i.id}>{`${i.name} · ${bearing(i.x, i.y)} ${d < 950 ? `${Math.round(d / 10) * 10}m` : `${(d / 1000).toFixed(1)}km`}`}</option>;
+              })}
+            </select>
+          )}
       </header>
       <div className="re-holo-stage" ref={hostRef} onPointerMove={onMove} onPointerDown={onDown} onPointerUp={onUp}
         onPointerCancel={e => { pointers.current.delete(e.pointerId); press.current = null; }}

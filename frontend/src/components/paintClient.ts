@@ -156,6 +156,22 @@ export function prefetchPaint(id: string) {
   for (const job of complexPaintJobs(id, id.split(":").pop() ?? "")) ahead.set(JSON.stringify(job), obtain(job));
 }
 
+/** A complex's facades painted in idle time and kept (the paint store), not held: for the
+ * complexes likely chosen next (the 3D view's nearest neighbours). Chosen later, its build
+ * finds them kept — a decode in the worker instead of painting on the way to the screen. */
+export async function paintAhead(id: string) {
+  if (!store()) return;
+  const idle = async () => {
+    await new Promise<void>(resolve => (typeof requestIdleCallback === "function" ? requestIdleCallback(() => resolve(), { timeout: 3000 }) : setTimeout(resolve, 50)));
+    return true;
+  };
+  for (const job of complexPaintJobs(id, id.split(":").pop() ?? "")) {
+    if (ahead.has(JSON.stringify(job))) continue;
+    const t = await obtain(job, idle).catch(() => null);
+    if (t) Object.values(t).forEach(x => x.dispose());
+  }
+}
+
 // The neighbourhood's styles, shared by every complex: kept too.
 keepPaintWith({
   lookUp: (style: ContextStyle) => (store() ? lookUp({ kind: "context", style }) : Promise.resolve(null)),
