@@ -48,6 +48,35 @@ _HEADERS = {
 # conditional GET only on the days the recent ones are genuinely missing.
 _LOOKBACK_DAYS = 14
 _TIMEOUT_SECONDS = 15
+_TREE_URL = "https://api.github.com/repos/FinanceData/fdr_krx_data_cache/git/trees/master?recursive=1"
+
+
+def _read_latest_desc_snapshot(start: dt.date) -> pd.DataFrame:
+    """Industry publications can pause longer than the price lookback window."""
+    response = requests.get(_TREE_URL, timeout=_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    tree = response.json()
+    if tree.get("truncated"):
+        raise RuntimeError("krx_listing: incomplete snapshot directory")
+    prefix = "data/listing/desc/"
+    candidates = []
+    for entry in tree.get("tree", []):
+        path = entry.get("path", "")
+        if entry.get("type") != "blob" or not path.startswith(prefix) or not path.endswith(".csv"):
+            continue
+        try:
+            date = dt.date.fromisoformat(path[len(prefix):-4])
+        except ValueError:
+            continue
+        if date <= start:
+            candidates.append(date)
+    if not candidates:
+        raise RuntimeError("krx_listing: no published industry snapshot")
+    date = max(candidates)
+    response = requests.get(f"{_CACHE_BASE}/desc/{date.isoformat()}.csv", timeout=_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    logger.warning("krx_listing: industry publication delayed; using latest published snapshot %s", date)
+    return pd.read_csv(io.BytesIO(response.content), index_col=0, dtype={"Code": str}).reset_index(drop=True)
 
 # `mktId` values in the snapshot, by the market name callers pass.
 _MARKET_IDS = {"KOSPI": "STK", "KOSDAQ": "KSQ", "KONEX": "KNX"}
@@ -102,6 +131,9 @@ def _read_snapshot(kind: str) -> pd.DataFrame:
             ).reset_index(drop=True)
         except Exception as exc:  # noqa: BLE001 - try the previous day before giving up
             last_exc = exc
+
+    if kind == "desc":
+        return _read_latest_desc_snapshot(start)
 
     raise RuntimeError(
         f"krx_listing: no {kind} snapshot published in the {_LOOKBACK_DAYS} days to "

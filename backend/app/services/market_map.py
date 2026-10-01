@@ -1,5 +1,7 @@
 import logging
+import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 import pandas as pd
 
@@ -191,31 +193,33 @@ def _get_price_snapshot(market: str, sosok: int, pages: int, fresh: bool = False
     return ordered
 
 
+def _bundled_industry_map() -> dict[str, str]:
+    path = Path(__file__).resolve().parents[1] / "data" / "krx_industry_snapshot.json"
+    return json.loads(path.read_text(encoding="utf-8"))["industries"]
+
+
 def _load_industry_map() -> dict[str, str]:
     desc = krx_listing.stock_listing("KRX-DESC")[["Code", "Industry"]]
-    return dict(zip(desc["Code"].astype(str), desc["Industry"]))
+    valid = desc.dropna(subset=["Code", "Industry"])
+    live = {str(code).strip().zfill(6): industry.strip()
+            for code, industry in zip(valid["Code"], valid["Industry"])
+            if isinstance(industry, str) and industry.strip()}
+    if not live:
+        raise ValueError("KRX industry snapshot has no valid classifications")
+    return {**_bundled_industry_map(), **live}
 
 
 def _get_industry_map() -> dict[str, str]:
-    """Sector lookup, or an empty one if the listing cannot be read at all.
+    """Use live classifications, last good cache, or the bundled verified snapshot.
 
-    The map is a price picture; the sector is how it is grouped and tinted. Losing the
-    grouping is a visibly worse map, but it is still a map — and it used to be a 500,
-    because this is the first call `_get_market_map` makes and any failure in it took
-    the whole KOSPI/KOSDAQ page down (see data/krx_listing.py for the upstream lag that
-    caused exactly that).
-
-    Deliberately not cached in the failure case: `cache.get_or_set` stores nothing when
-    the factory raises, so the next request retries instead of being pinned to a
-    degraded map for the entry's 24 hours. Once the entry has ever been populated,
-    stale-while-revalidate keeps serving the last good sectors and this path is never
-    reached at all.
+    A failed fetch is not cached, so subsequent requests can recover immediately.
+    Cold starts during an upstream outage must retain the sector grouping too.
     """
     try:
         return cache.get_or_set("krx_industry_map", TTL_INDUSTRY_SECONDS, _load_industry_map)
     except Exception as exc:  # noqa: BLE001 - degraded sectors beat no map
-        logger.warning("market_map: industry map unavailable (%s); sectors fall back to 기타", exc)
-        return {}
+        logger.warning("market_map: industry map unavailable (%s); using bundled classifications", exc)
+        return _bundled_industry_map()
 
 
 def _load_etf_codes() -> set[str]:
