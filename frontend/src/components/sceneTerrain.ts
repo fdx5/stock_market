@@ -1,5 +1,6 @@
 import type * as THREE from "three";
 import { frameSlice } from "./frameSlice";
+import { gridAt } from "./waterCore";
 /* The ground's real relief around one complex (components/ComplexHologram.tsx).
  *
  * Source, best first: VWorld's national DEM (국토지리정보원, the WebGL 3D map's
@@ -252,11 +253,7 @@ async function gridTerrain(radius: number, CELL: number, sample: (x: number, y: 
   }
   const ci = (n - 1) / 2, h0 = h[Math.round(ci) * n + Math.round(ci)];
   for (let i = 0; i < h.length; i++) h[i] -= h0;
-  const at = (x: number, y: number) => {
-    const gx = Math.min(n - 1.001, Math.max(0, (x + R) / CELL)), gy = Math.min(n - 1.001, Math.max(0, (y + R) / CELL));
-    const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j;
-    return (h[j * n + i] * (1 - fx) + h[j * n + i + 1] * fx) * (1 - fy) + (h[(j + 1) * n + i] * (1 - fx) + h[(j + 1) * n + i + 1] * fx) * fy;
-  };
+  const at = gridAt({ h, n, R, cell: CELL });
   let lo = Infinity, hi = -Infinity;
   const inner = radius * 0.6;
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {

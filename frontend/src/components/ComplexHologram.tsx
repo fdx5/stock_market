@@ -45,6 +45,8 @@ import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice } from "./frameSlice";
 import { ringBuildings } from "./ringBuildings";
 import { farGround } from "./farGround";
+import { coverPage } from "./pageCover";
+import { groundPlan } from "./groundClient";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
  * real ones (backend app/services/realestate_buildings.py: 국토부 GIS건물통합정보 via
@@ -485,10 +487,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const big = !!bigBase;
   const openBig = () => {
     const r = sectionRef.current?.getBoundingClientRect();
-    if (r?.width && r.height) {
-      setBigSize(null);
-      setBigBase({ w: r.width, h: r.height });
-    }
+    if (!r) return;
+    setBigSize(null);
+    // (0 × 0 under a page not drawn while a view opens over it — pageCover.ts — the slot left
+    // in the rail is then empty)
+    setBigBase({ w: r.width, h: r.height });
   };
   const closeBig = useCallback(() => {
     resizeDrag.current = null;
@@ -1298,7 +1301,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   }, [openFull]);
   const fullChange = useRef(onFullChange);
   fullChange.current = onFullChange;
-  useEffect(() => { fullChange.current?.(big); }, [big]);
+  // (only changes: the first report, not open yet, told a page opened on a complex that its
+  // view was closed while it was opening — and the page began its region map underneath)
+  const reportedBig = useRef(big);
+  useEffect(() => {
+    if (big === reportedBig.current) return;
+    reportedBig.current = big;
+    fullChange.current?.(big);
+  }, [big]);
+  // Covering the whole window (not the resized window over a dimmed page): the page under it
+  // is not drawn at all (pageCover.ts).
+  const coversPage = big && (narrow || !bigSize);
+  useEffect(() => coversPage ? coverPage() : undefined, [coversPage]);
 
   const spinRef = useRef(spin);
   useEffect(() => {
@@ -2436,7 +2450,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     step("ctxMaterials");
     if (!await pace(true)) return;
     let paintAt = performance.now();
-    const plan = await runSliced(paintGroundSteps(data, T, stage.hq ? 2048 : 1024, seed), async () => {
+    const plan = await groundPlan(data, T, stage.hq ? 2048 : 1024, seed, async () => {
       if (performance.now() - paintAt > 6) { cpu += performance.now() - sliceStart; await nextFrame(pausedRef.current); paintAt = sliceStart = performance.now(); }
       return alive;
     });
@@ -2505,7 +2519,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       data.streets = got!.streets;
       void saveBuildings(data.id, data);
       let sliceAt = performance.now();
-      const next = await runSliced(paintGroundSteps(data, T, stage.hq ? 2048 : 1024, seed), async () => {
+      const next = await groundPlan(data, T, stage.hq ? 2048 : 1024, seed, async () => {
         if (performance.now() - sliceAt > 6) { await nextFrame(pausedRef.current); sliceAt = performance.now(); }
         return alive;
       });
@@ -2514,6 +2528,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         // The new paint swapped in (the texture takes the new canvas and uploads it again):
         // drawn over the old one, three 2048 px copies by the CPU held a frame ~90 ms.
         plan[k].image = next[k].image;
+        plan[k].flipY = next[k].flipY;   // (a canvas, or a bitmap from the worker already upright)
         plan[k].userData.released = false;   // (the new canvas emptied in its turn once uploaded)
         plan[k].needsUpdate = true;
         next[k].dispose();
@@ -3101,14 +3116,24 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   useEffect(() => {
     const st = stageRef.current;
     if (!st) return;
-    const v = new THREE.Vector3(), at = new Map<string, string>();
+    const v = new THREE.Vector3(), at = new Map<string, string>(), dist = new Map<string, number>(), rank = new Map<string, number>();
     st.signs = (camera, w, h) => {
+      // Nearer signs over farther: by rank, rewritten only when the order changes (a z-index
+      // from the distance changed every frame the camera moved, and re-stacked the layers).
+      for (const sgn of signs) { v.set(sgn.x, sgn.z + 14, -sgn.y); dist.set(sgn.id, v.distanceTo(camera.position)); }
+      const order = [...signs].sort((a, b) => dist.get(b.id)! - dist.get(a.id)!);
+      order.forEach((sgn, i) => {
+        if (rank.get(sgn.id) === i) return;
+        rank.set(sgn.id, i);
+        const el = signEls.current.get(sgn.id);
+        if (el) el.style.zIndex = String(i + 1);
+      });
       for (const sgn of signs) {
         const el = signEls.current.get(sgn.id);
         if (!el) continue;
         // (14 m over the roof: clear of the crown and the rooftop signs)
         v.set(sgn.x, sgn.z + 14, -sgn.y);
-        const d = v.distanceTo(camera.position);
+        const d = dist.get(sgn.id)!;
         v.project(camera);
         const shown = v.z < 1 && Math.abs(v.x) < 1.15 && Math.abs(v.y) < 1.15 && !st.balloonView?.aim;
         const k = THREE.MathUtils.clamp(520 / d, 0.62, 1);
@@ -3116,7 +3141,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         // (written only when it changed: a style write each frame dirtied the page)
         if (at.get(sgn.id) === css) continue;
         at.set(sgn.id, css);
-        if (css) { el.style.transform = css; el.style.visibility = "visible"; el.style.zIndex = String(Math.round(10000 - d)); }
+        if (css) { el.style.transform = css; el.style.visibility = "visible"; }
         else el.style.visibility = "hidden";
       }
     };
@@ -3161,6 +3186,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     {bigBase && <div className="re-holo-slot" style={{ height: bigBase.h }} aria-hidden="true" />}
     {big && !narrow && createPortal(<div className="re-holo-resize-backdrop" aria-hidden="true" />, document.body)}
     {portal(<section ref={sectionRef} className={`re-holo${big ? " re-holo--expanded" : ""}${big && !narrow && bigSize ? " re-holo--resized" : ""}`}
+      data-covers-page={coversPage || undefined}
       style={big && !narrow && bigSize ? { width: bigSize.w, height: bigSize.h } : undefined}
       role={big ? "dialog" : undefined} aria-modal={big || undefined} aria-label={big ? "단지 3D 뷰 전체화면" : "단지 3D 뷰"}>
       <header className="re-holo-head">

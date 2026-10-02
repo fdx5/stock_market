@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { api, RealEstateItem, RealEstateMapResponse, RealEstatePeriod, RealEstateSido } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { TILE_FONT_FAMILY, measureTextWidth, pct, tileDisplayInfo } from "../mapTile";
@@ -39,6 +39,8 @@ import {
  * app/services/realestate_map.py for exactly how both are derived). */
 
 // The region map pulls in three.js; it loads after the treemap, never ahead of it.
+import { coverPage } from "./pageCover";
+
 const RegionMap3D = lazy(() => import("./RegionMap3D"));
 const ComplexHologram = lazy(() => import("./ComplexHologram"));
 
@@ -479,7 +481,18 @@ export default function RealEstateMapPage() {
   // (whether the rail's view is full screen now: a page opened on a complex starts so)
   const [holoIsFull, setHoloIsFull] = useState(() => new URLSearchParams(location.search).get("3d") === "1");
   const openHoloFull = (item: RealEstateItem) => { setHoloPick(item); setHoloFull(n => n + 1); };
+  // Opened on a complex's view: the page is not drawn while the view opens over it (pageCover.ts),
+  // until the view says it is open (and covers the page itself) or closed. A view that never
+  // opens (the complex not found) gives the page back after a while.
+  const bootCover = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => {
+    if (!holoIsFull) return;
+    const release = bootCover.current = coverPage();
+    const late = window.setTimeout(() => { release(); setHoloIsFull(open => open && !!document.querySelector(".re-holo--expanded")); }, 15000);
+    return () => { window.clearTimeout(late); release(); };
+  }, []);
   const holoFullChange = (open: boolean) => {
+    bootCover.current?.();
     setHoloIsFull(open);
     const q = new URLSearchParams(location.search);
     if (open === (q.get("3d") === "1") || !q.get("complex")) return;
@@ -930,7 +943,7 @@ export default function RealEstateMapPage() {
                     period={period}
                     periodLabel={periodInfo.label}
                     touch={touchUi}
-                    paused={!!sheetItem}
+                    paused={!!sheetItem || holoIsFull}
                     onSelect={(next) => {
                       setSido(next.sido);
                       setSgg(next.sgg);

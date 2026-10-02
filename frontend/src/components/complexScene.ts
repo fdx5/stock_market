@@ -1,7 +1,9 @@
 import * as THREE from "three";
 import { RealEstateBuildingsResponse } from "../api/client";
 import { ringIndex, sidewalkWidth } from "./sceneSidewalk";
-import { coveredStream } from "./sceneWater";
+import { coveredStream } from "./waterCore";
+import { inRing } from "./ringMath";
+export { inRing };
 import { normalRows } from "./normalKernel";
 import { cdn } from "../staticCdn";
 
@@ -18,6 +20,8 @@ export function waterCovered(data: RealEstateBuildingsResponse): boolean[] {
   coveredMemo.set(parcels, out);
   return out;
 }
+/** The answer worked out elsewhere (the scene worker painting the ground) for these parcels. */
+export function primeWaterCovered(parcels: object, covered: boolean[]) { coveredMemo.set(parcels, covered); }
 
 /* The natural-light scene around one complex (components/ComplexHologram.tsx):
  * facades, ground and the time-of-day looks. Footprints, heights and the parcel are
@@ -91,7 +95,11 @@ export async function runSliced<T>(g: Steps<T>, pace: () => Promise<boolean>): P
  * page and the view stuttered more after its first frame (measured: 0.9 s against 1.3 s of
  * late frames over 12 s), though the browser's GPU process then had less to do. */
 const CPU_CANVAS = typeof location !== "undefined" && new URLSearchParams(location.search).get("cpucanvas") === "1";
-const canvas = (w: number, h: number) => { const c = document.createElement("canvas"); c.width = w; c.height = h; if (CPU_CANVAS) c.getContext("2d", { willReadFrequently: true }); return c; };
+const canvas = (w: number, h: number): HTMLCanvasElement => {
+  // (in the scene worker: an offscreen one, the same drawing API)
+  if (typeof document === "undefined") return new OffscreenCanvas(w, h) as unknown as HTMLCanvasElement;
+  const c = document.createElement("canvas"); c.width = w; c.height = h; if (CPU_CANVAS) c.getContext("2d", { willReadFrequently: true }); return c;
+};
 
 // A few workers: a complex asks for a normal map per texture set (two facades, the base,
 // the ground, the neighbourhood's styles), and one worker made them queue — the page sat
@@ -732,7 +740,7 @@ export interface Planting {
 }
 /** A street lamp on a sidewalk: position, and the unit direction its arm reaches over the road. */
 export interface Lamp { x: number; y: number; dx: number; dy: number }
-export interface GroundPlan { color: THREE.CanvasTexture; rough: THREE.CanvasTexture; glow: THREE.CanvasTexture; planting: Planting; lamps: Lamp[] }
+export interface GroundPlan { color: THREE.Texture; rough: THREE.Texture; glow: THREE.Texture; planting: Planting; lamps: Lamp[] }
 
 /** Street lamps along the surveyed major roads: both sidewalks, staggered about every
  * 50 m a side, never inside the parcel or a footprint; one lamp where carriageways overlap. */
@@ -790,6 +798,21 @@ export function seasonGround(season: Season = seasonNow()) {
 }
 
 export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, size: number, seed: number): Steps<GroundPlan> {
+  const { color, rough, glow, planting, lamps } = yield* groundCanvasSteps(data, T, size, seed);
+  return { color: groundTexture(color, true), rough: groundTexture(rough, false), glow: groundTexture(glow, true), planting, lamps };
+}
+/** A ground canvas (or, from the scene worker, a bitmap already flipped upright) as its texture. */
+export function groundTexture(img: HTMLCanvasElement | ImageBitmap, srgb: boolean) {
+  const t = img instanceof HTMLCanvasElement ? new THREE.CanvasTexture(img) : new THREE.Texture(img as unknown as HTMLImageElement);
+  if (!(img instanceof HTMLCanvasElement)) { t.flipY = false; t.needsUpdate = true; }
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+  t.anisotropy = 8;
+  return t;
+}
+/** The ground's three canvases and what stands on it: on the page (paintGroundSteps) or in the
+ * scene worker (sceneWorker.ts). */
+export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number, size: number, seed: number): Steps<{ color: HTMLCanvasElement; rough: HTMLCanvasElement; glow: HTMLCanvasElement; planting: Planting; lamps: Lamp[] }> {
   const S = size, k = S / (2 * T);
   const X = (x: number) => (x + T) * k, Y = (y: number) => (T - y) * k, m = (v: number) => v * k;
   const rnd = rng(seed);
@@ -1104,24 +1127,9 @@ export function* paintGroundSteps(data: RealEstateBuildingsResponse, T: number, 
     fade.addColorStop(0, `rgba(${base},0)`); fade.addColorStop(1, `rgba(${base},1)`);
     ctx.fillStyle = fade; ctx.fillRect(0, 0, S, S);
   }
-  const tex = (c: HTMLCanvasElement, srgb: boolean) => {
-    const t = new THREE.CanvasTexture(c);
-    t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
-    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-    t.anisotropy = 8;
-    return t;
-  };
-  return { color: tex(color, true), rough: tex(rough, false), glow: tex(glow, true), planting, lamps };
+  return { color, rough, glow, planting, lamps };
 }
 
-export function inRing([x, y]: [number, number], ring: Ring): boolean {
-  let inside = false;
-  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    const [xi, yi] = ring[i], [xj, yj] = ring[j];
-    if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-  }
-  return inside;
-}
 
 /* ---------- Time of day and weather ---------- */
 

@@ -5,7 +5,8 @@ import { FLAT, type Terrain } from "./sceneTerrain";
 import { KERB_H } from "./sceneSidewalk";
 import { gpuCaps } from "./gpuCaps";
 import { Forest, loadTreeKit, preloadTrees } from "./sceneTrees";
-import { cdn, fetchStatic } from "../staticCdn";
+import { fetchStatic } from "../staticCdn";
+import { bitmapTexture } from "./bitmapTexture";
 
 /* Landscaping plants as photoreal impostors. /3d/plants.webp is an atlas baked from
  * Poly Haven's CC0 photoscanned plants (trees, conifers, shrubs, flowers; one cell
@@ -26,12 +27,11 @@ let atlas: Promise<{ meta: Atlas; texture: THREE.Texture }> | null = null;
 function loadAtlas() {
   atlas ??= Promise.all([
     fetchStatic("/3d/plants.json").then(r => { if (!r.ok) throw new Error("plants.json " + r.status); return r.json() as Promise<Atlas>; }),
-    new THREE.TextureLoader().loadAsync(cdn("/3d/plants.webp")),
+    bitmapTexture("/3d/plants.webp", true),
   ]).then(([meta, texture]) => {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
-    texture.anisotropy = 8;
-    texture.flipY = true;
+    texture.anisotropy = 8;   // (upright: bitmapTexture)
     return { meta, texture };
   }).then(async got => {
     // Where the WebGPU view reads BC (desktops) or ETC2 (phones, tablets): the atlas

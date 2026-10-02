@@ -1,6 +1,7 @@
 import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
-import { cdn, fetchStatic } from "../staticCdn";
+import { fetchStatic } from "../staticCdn";
+import { bitmapTexture } from "./bitmapTexture";
 
 /* Trees as meshes (scripts/gen-mesh-trees.py): bark tubes and leaf-cluster cards per species
  * variant, instanced — every tree of one variant is one draw for its bark and one for its
@@ -35,16 +36,16 @@ export function loadTreeKit(): Promise<TreeKit> {
   kit ??= Promise.all([
     fetchStatic("/3d/trees.json").then(r => { if (!r.ok) throw new Error("trees.json " + r.status); return r.json() as Promise<Meta>; }),
     fetchStatic("/3d/trees.bin").then(r => { if (!r.ok) throw new Error("trees.bin " + r.status); return r.arrayBuffer(); }),
-    new THREE.TextureLoader().loadAsync(cdn("/3d/leaves.webp")),
+    bitmapTexture("/3d/leaves.webp", true),
     // Leafy twigs (photographed leaves on their stems): what the crowns are made of.
-    new THREE.TextureLoader().loadAsync(cdn("/3d/twigs.webp")),
+    bitmapTexture("/3d/twigs.webp", true),
     fetchStatic("/3d/twigs.json").then(r => { if (!r.ok) throw new Error("twigs.json " + r.status); return r.json() as Promise<TwigAtlas>; }),
     // Scanned bark per species (Poly Haven CC0: zelkova, plane, cherry, pine …), tiled at
     // its real size; a tree whose bark doesn't load keeps its vertex colour.
     fetchStatic("/3d/bark.json").then(r => (r.ok ? r.json() : {}) as Promise<Record<string, BarkInfo>>).then(async (info: Record<string, BarkInfo>) => {
       const out = new Map<string, THREE.Texture>();
       await Promise.all(Object.entries(info).map(async ([species, b]) => {
-        const t = await new THREE.TextureLoader().loadAsync(cdn("/3d/" + b.file)).catch(() => null);
+        const t = await bitmapTexture("/3d/" + b.file, true).catch(() => null);
         if (!t) return;
         t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
         t.repeat.set(1 / b.metres, 1 / b.metres);
@@ -53,7 +54,7 @@ export function loadTreeKit(): Promise<TreeKit> {
       return out;
     }).catch(() => new Map<string, THREE.Texture>()),
   ]).then(async ([meta, bin, texture, twigs, twigAtlas, barkTex]) => {
-    for (const t of [texture, twigs]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; t.flipY = true; }
+    for (const t of [texture, twigs]) { t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; }   // (upright: bitmapTexture)
     // a twig's cell (flipY: v up); a hair inside it, off the neighbours
     const twigRect = (k: number): [number, number, number, number] => {
       const c = k % twigAtlas.cols, r = Math.floor(k / twigAtlas.cols), eu = 0.5 / 2048, ev = 0.5 / 1536;

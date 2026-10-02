@@ -14,6 +14,7 @@ import RealEstatePopup, { OtherType, PopupContext } from "./RealEstatePopup";
 import RealEstateRentView, { LeaseMode } from "./RealEstateRentView";
 import { useDialogFocus } from "./realEstateTools";
 import "../desk2/realestate-hologram.css";
+import { coverPage } from "./pageCover";
 
 const ComplexHologram = lazy(() => import("./ComplexHologram"));
 
@@ -23,6 +24,8 @@ const ComplexHologram = lazy(() => import("./ComplexHologram"));
 function HologramLayer({ id, name, onClose }: { id: string; name: string; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useBodyScrollLock(true);
+  // (the page under the layer is not drawn while it is open: pageCover.ts)
+  useEffect(() => coverPage(), []);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     ref.current?.querySelector<HTMLElement>("button")?.focus();
@@ -39,7 +42,7 @@ function HologramLayer({ id, name, onClose }: { id: string; name: string; onClos
     return () => { window.removeEventListener("keydown", key, true); if (previous?.isConnected) previous.focus(); };
   }, [onClose]);
   return createPortal(
-    <div className="re-holo-layer" role="dialog" aria-modal="true" aria-label={`${name} 3D 건물뷰`} ref={ref}>
+    <div className="re-holo-layer" data-covers-page role="dialog" aria-modal="true" aria-label={`${name} 3D 건물뷰`} ref={ref}>
       <button type="button" className="re-holo-layer-close" onClick={onClose} aria-label="3D 건물뷰 닫기">×</button>
       <Suspense fallback={<div className="re-holo re-holo--placeholder" />}>
         <ComplexHologram complexId={id} complexName={name} caption="3D 건물뷰" wide />

@@ -11,7 +11,7 @@ import { carGeometry, carModelMaterial, CAR_SPECS, loadCarModels } from "./scene
 import { DIMS } from "./vehicleShapes";
 import { vehicleShapes } from "./vehicleClient";
 import { plateAtlasReady, plateGeometry, plateMaterial, PLATE_COUNT, PLATE_WHITE } from "./scenePlates";
-import { cdn } from "../staticCdn";
+import { bitmapTexture } from "./bitmapTexture";
 
 /* The street: lamps on the surveyed major roads, and traffic driving both ways on
  * them. Cars, vans and box trucks are Kenney's CC0 Car Kit (packed by type into
@@ -81,11 +81,11 @@ let kit: Promise<{ geos: Map<string, THREE.BufferGeometry>; procedural: Map<stri
 function loadKit() {
   kit ??= Promise.all([
     vehicleShapes(),
-    new THREE.TextureLoader().loadAsync(cdn("/3d/vehicles.png")),
+    bitmapTexture("/3d/vehicles.png", false),
   ]).then(([shapes, texture]) => {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.magFilter = THREE.NearestFilter; // flat colour swatches
-    texture.flipY = false; // glTF uv convention
+    // (glTF uv convention: not flipped)
     return { geos: shapes.kit, procedural: shapes.procedural, texture };
   });
   kit.catch(() => { kit = null; });
