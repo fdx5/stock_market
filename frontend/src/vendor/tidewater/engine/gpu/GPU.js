@@ -193,11 +193,28 @@ export const GPU = {
 	// the pipeline now (synchronous compile when the async one has not finished)
 	ready( h ) {
 
+		if ( h.preparing ) return null;
 		if ( h.pipeline || h.failed ) return h.pipeline;
 		this.syncCompiles.push( h.label );
 		h.pipeline = h.kind === 'render' ? this.device.createRenderPipeline( h.desc ) : this.device.createComputePipeline( h.desc );
 		return h.pipeline;
 
+	},
+
+	// Track CPU shader preparation too: initial visibility must wait for these
+	// jobs, not just for driver compilation that has already been submitted.
+	deferredPipeline( build, label ) {
+		let actual = null, failed = false;
+		const h = { label, preparing: true };
+		for ( const key of [ 'pipeline', 'desc', 'kind' ] ) Object.defineProperty( h, key, {
+			get: () => actual?.[ key ] ?? null, set: value => { if ( actual ) actual[ key ] = value; },
+		} );
+		Object.defineProperty( h, 'failed', { get: () => failed || !! actual?.failed } );
+		const p = build.then( handle => { actual = handle; }, error => {
+			failed = true; console.error( `WebGPU: pipeline "${ label }" preparation failed: ${ error.message }` );
+		} ).finally( () => { h.preparing = false; this._pending.delete( p ); } );
+		this._pending.add( p );
+		return h;
 	},
 
 	// resolves when every pipeline requested so far has compiled

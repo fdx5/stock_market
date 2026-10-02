@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { moonGlow } from "./moonGlow";
 import { RealEstateBuildingsResponse } from "../api/client";
 import { ringIndex, sidewalkWidth } from "./sceneSidewalk";
 import { coveredStream } from "./waterCore";
@@ -1641,12 +1642,7 @@ export function moonInSky() {
   let above = 1, level = 0, lit = 1;
   const disc = new THREE.TextureLoader().load(cdn("/3d/moon.webp"));
   disc.colorSpace = THREE.SRGBColorSpace;
-  const glowCanvas = canvas(128, 128), g = glowCanvas.getContext("2d")!;
-  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, "rgba(255,250,235,0.32)"); grad.addColorStop(0.3, "rgba(225,232,255,0.1)"); grad.addColorStop(1, "rgba(200,215,255,0)");
-  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
-  const glow = new THREE.CanvasTexture(glowCanvas);
-  glow.colorSpace = THREE.SRGBColorSpace;
+  const glowJob = moonGlow(), glow = glowJob.texture;
   const mat = (tex: THREE.Texture) => {
     // Black albedo, the image as emission, its alpha as coverage: unlit, unfogged.
     const m = new THREE.MeshStandardMaterial({ color: "#000000", map: tex, emissive: "#ffffff", emissiveMap: tex, emissiveIntensity: 0,
@@ -1691,6 +1687,6 @@ export function moonInSky() {
       (moon.material as THREE.MeshStandardMaterial).emissiveIntensity = 1.5 * k;
       (halo.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.7 * k * lit;
     },
-    dispose() { quad.dispose(); disc.dispose(); glow.dispose(); [moon, halo].forEach(m => (m.material as THREE.Material).dispose()); },
+    dispose() { quad.dispose(); disc.dispose(); glowJob.dispose(); [moon, halo].forEach(m => (m.material as THREE.Material).dispose()); },
   };
 }

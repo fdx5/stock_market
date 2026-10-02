@@ -3,7 +3,8 @@ import { fieldFrom, gridAt, waterField, waterSurface, type FieldData, type Heigh
 import { groundCanvasSteps, runNow, waterCovered, type Lamp, type Planting } from "./complexScene";
 import type { RealEstateBuildingsResponse, RealEstateRoad, RealEstateParcel } from "../api/client";
 import { findBridges, type Bridge } from "./sceneBridges";
-import { sidewalkRuns, type Run } from "./sceneSidewalk";
+import { sidewalkRuns, carriageway, ringIndex, type Run } from "./sceneSidewalk";
+import { cutPaths, type WalkPath } from './sceneWalkers';
 import { makeGroundGeometry } from "./groundGeometry";
 import { FLAT } from "./sceneTerrain";
 
@@ -18,6 +19,7 @@ import { FLAT } from "./sceneTerrain";
 export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "parcels" | "streets"> & { buildings: { rings: [number, number][][] }[]; context: { rings: [number, number][][] }[] };
 
 export type SceneOps = {
+  walkPaths: {args:{paths:WalkPath[];roads:RealEstateRoad[];footprints:[number,number][][];T:number};result:WalkPath[]};
   terrainGround: {args:{T:number;G:number;segs:number;grid:HeightGrid|null};result:{position:Float32Array;normal:Float32Array;uv:Float32Array;index:Uint16Array|Uint32Array;grid:{xs:Float64Array;ys:Float64Array};sphere:{center:[number,number,number];radius:number}}};
   bridges: { args: { roads: RealEstateRoad[]; parcels: RealEstateParcel[]; covered: boolean[]; grid: HeightGrid | null }; result: Bridge[] };
   sidewalks: { args: { roads: RealEstateRoad[]; footprints: [number, number][][] }; result: Run[] };
@@ -59,6 +61,12 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       result={position:geo.attributes.position.array,normal:geo.attributes.normal.array,uv:geo.attributes.uv.array,index:geo.index!.array,grid:geo.userData.grid,sphere:{center:sphere.center.toArray(),radius:sphere.radius}};
       transfer=[geo.attributes.position.array.buffer,geo.attributes.normal.array.buffer,geo.attributes.uv.array.buffer,geo.index!.array.buffer,geo.userData.grid.xs.buffer,geo.userData.grid.ys.buffer] as ArrayBuffer[];
       geo.dispose();
+    } else if (m.op === 'walkPaths') {
+      const {paths,roads,footprints,T} = m.args;
+      const inside = ringIndex(footprints), onRoad = carriageway(roads,0.8);
+      const cut = cutPaths(paths,(x,y) => Math.abs(x)>T || Math.abs(y)>T || inside(x,y) || onRoad(x,y));
+      result = cut;
+      transfer = [...new Set(cut.flatMap(p => [p.xs.buffer,p.ys.buffer,p.cum.buffer]))] as ArrayBuffer[];
     } else if (m.op === "water") [result, transfer] = await water(m.args);
     else if (m.op === "ground") [result, transfer] = await ground(m.args);
     else if (m.op === "bridges") {

@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { contextSteps, facadeSteps, NEIGHBOUR_PALETTE, plinthSteps, runNow } from "./complexScene";
 import type { PaintJob, TexParams } from "./paintClient";
-import { preparedNormal } from './preparedPaint';
+import { preparedNormal, preparedContext } from './preparedPaint';
 
 // Run the original painters, at their original resolution and with the same seeds.
 // No animation-frame waits or nested normal workers are needed off the UI thread.
@@ -12,6 +12,11 @@ self.onmessage = (e: MessageEvent<{ id: number; job: PaintJob }>) => {
 async function paint({ id, job }: { id: number; job: PaintJob }) {
   let readyNormal: ImageBitmap | null = null;
   try {
+    const prepared = await preparedContext(job);
+    if (prepared) {
+      (self as unknown as Worker).postMessage({id,bitmaps:prepared.bitmaps,params:prepared.params,prepared:true},Object.values(prepared.bitmaps));
+      return;
+    }
     readyNormal = await preparedNormal(job);
     const normal = readyNormal as unknown as HTMLCanvasElement | undefined;
     const steps = job.kind === "facade" ? facadeSteps(job.palette, job.seed, job.scale ?? 1, normal ?? undefined)

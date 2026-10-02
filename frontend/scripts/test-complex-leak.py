@@ -32,6 +32,8 @@ assert not any(p.exists() for p in paths), 'Leak harness already exists'
 atexit.register(lambda: [p.unlink(missing_ok=True) for p in paths])
 paths[0].write_text('''import React, {useState, Suspense, lazy} from 'react';
 import {createRoot} from 'react-dom/client';
+import {GPU} from './vendor/tidewater/engine/gpu/GPU';
+(window as any).__leakGPU = GPU;
 const ComplexHologram = lazy(() => import('./components/ComplexHologram'));
 function Page() {
   const [sheet, setSheet] = useState<string | null>(null);
@@ -101,7 +103,23 @@ with sync_playwright() as p:
     page.route(f'http://{opts.host}:{opts.port}/api/**', lambda r: r.fulfill(json=data(r.request.url.split('id=')[-1].split('&')[0] if 'id=' in r.request.url else 'rail')))
     page.goto(f'http://{opts.host}:{opts.port}/__leak3d.html')
     page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.shownAt", timeout=60000)
-    page.wait_for_timeout(5000)
+    def settle():
+        # Compare complete scenes, rather than the cold scene half way through
+        # its texture/vehicle jobs with a fully cached reopened scene.
+        if not opts.webgl:
+            try:
+                page.wait_for_function("window.__holoStageAny?.current?.traffic && window.__holoStageAny.current.balloon && window.__holoStageAny.current.crowds.length && (!window.__holoStageAny.current.hq || document.querySelector('.re-holo-stage')?.dataset.sharp==='2x') && !window.__holoNative?.pending && !window.__holoNative?.compiling && !window.__leakGPU._pending.size", timeout=60000)
+            except Exception:
+                state=page.evaluate("({dataset:{...document.querySelector('.re-holo-stage')?.dataset},traffic:!!window.__holoStageAny?.current?.traffic,hq:window.__holoStageAny?.current?.hq,pending:window.__holoNative?.pending})")
+                (out/'failure.json').write_text(json.dumps({'state':state,'errors':errors},indent=2),encoding='utf8')
+                print(json.dumps(state),errors,flush=True)
+                raise
+        page.evaluate('''()=>new Promise((resolve,reject)=>{
+          let previous='',stable=0;const start=performance.now();
+          function frame(){const key=__m.buffers+':'+__m.textures;if(key===previous)stable++;else stable=0;previous=key;
+            if(stable>=120)resolve(null);else if(performance.now()-start>30000)reject(Error('GPU resources did not settle'));else requestAnimationFrame(frame)}frame();
+        })''')
+    settle()
     cdp = page.context.new_cdp_session(page)
     process_cdp = browser.new_browser_cdp_session() if psutil else None
 
@@ -143,8 +161,9 @@ with sync_playwright() as p:
     page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.shownAt", timeout=60000)
     renderer = page.evaluate("document.querySelector('.re-holo-stage').dataset.renderer")
     assert renderer == ('webgl' if opts.webgl else 'tidewater-webgpu'), f'Unexpected renderer: {renderer}'
-    page.wait_for_timeout(4500)
+    settle()
     rows.append(measure('reopened'))
+    (out / 'report.json').write_text(json.dumps({'rows': rows, 'errors': errors}, indent=1), encoding='utf-8')
     assert not errors, errors[:5]
     closed = next(r for r in rows if r['tag'] == 'all-closed')
     assert closed['canvases'] == 0, 'Closed views retained canvases'

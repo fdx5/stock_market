@@ -1,4 +1,6 @@
 import { frameSlice } from "./frameSlice";
+import { vehicleOverlap, VehicleTrajectoryCache } from "./trafficCollision";
+import { onSceneMemoryRelease } from "./sceneMemory";
 import * as THREE from "three";
 import { paintedTexture } from "./paintedTexture";
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -10,10 +12,10 @@ import { FLAT, type Terrain } from "./sceneTerrain";
 import { KERB_H } from "./sceneSidewalk";
 import { carGeometry, carModelMaterial, CAR_SPECS, loadCarModels } from "./sceneCars";
 import { DIMS } from "./vehicleShapes";
-import { vehicleShapes } from "./vehicleClient";
+import { vehicleShapes, heroGeometry, type Shapes } from "./vehicleClient";
 import { plateAtlasReady, plateGeometry, plateMaterial, PLATE_COUNT, PLATE_WHITE } from "./scenePlates";
 import { bitmapTexture } from "./bitmapTexture";
-import { coupangTruck, cybertruck, type HeroName, type HeroShape } from "./heroVehicles";
+import { coupangTruck, cybertruck, heroSurface, type HeroName, type HeroShape } from "./heroVehicles";
 
 /* The street: lamps on the surveyed major roads, and traffic driving both ways on
  * them. Cars, vans and box trucks are Kenney's CC0 Car Kit (packed by type into
@@ -370,7 +372,11 @@ export async function buildLamps(lamps: Lamp[], terrain: Terrain = FLAT) {
 
 // ---------- Traffic ----------
 
-let kit: Promise<{ geos: Map<string, THREE.BufferGeometry>; procedural: Map<string, THREE.BufferGeometry>; texture: THREE.Texture }> | null = null;
+let kit: Promise<{ geos: Map<string, THREE.BufferGeometry>; procedural: Map<string, THREE.BufferGeometry>; heroes: Shapes['heroes']; texture: THREE.Texture }> | null = null;
+onSceneMemoryRelease(() => {
+  const old = kit; kit = null;
+  void old?.then(k => k.texture.dispose()).catch(() => {});
+});
 
 function loadKit() {
   kit ??= Promise.all([
@@ -380,7 +386,7 @@ function loadKit() {
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.magFilter = THREE.NearestFilter; // flat colour swatches
     // (glTF uv convention: not flipped)
-    return { geos: shapes.kit, procedural: shapes.procedural, texture };
+    return { geos: shapes.kit, procedural: shapes.procedural, heroes: shapes.heroes, texture };
   });
   kit.catch(() => { kit = null; });
   return kit;
@@ -622,7 +628,9 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // The two vehicles a reader can follow: one of each, never dealt out at random (weight 0).
   const heroKind = new Map<HeroName, number>(), heroMats: THREE.Material[] = [], heroShape = new Map<number, HeroShape>();
   for (const [name, make] of [["coupang", coupangTruck], ["cyber", cybertruck]] as const) {
-    const h = make();
+    await frameSlice();
+    const prepared = (await loadKit()).heroes[name];
+    const h = prepared ? {...heroGeometry(prepared), material: heroSurface(name)} : make();
     heroShape.set(kinds.length, h);
     const k = K(h.geometry, [boxMat, h.material] as unknown as THREE.Material, 0, name === "cyber" ? 1.05 : 0.95, h.dims);
     k.own = true;
@@ -1177,15 +1185,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     if (u <= cn.len) connAt(cn, u); else laneAt(cn.link.road, cn.link.forward, cn.startS + u - cn.len, cn.lane);
   };
   /** Two vehicles' footprints (rectangles about their middles) overlap? (separating axes) */
-  const overlap = (ax: number, ay: number, ahx: number, ahy: number, al: number, aw: number, b: Car) => {
-    const dx = b.x - ax, dy = b.y - ay;
-    for (const [ux, uy] of [[ahx, ahy], [ahy, -ahx], [b.hx, b.hy], [b.hy, -b.hx]]) {
-      const ra = al / 2 * Math.abs(ahx * ux + ahy * uy) + aw / 2 * Math.abs(ahy * ux - ahx * uy);
-      const rb = b.length / 2 * Math.abs(b.hx * ux + b.hy * uy) + b.width / 2 * Math.abs(b.hy * ux - b.hx * uy);
-      if (Math.abs(dx * ux + dy * uy) > ra + rb) return false;
-    }
-    return true;
-  };
+  const overlap = vehicleOverlap;
+  // Each candidate car checks the same one-metre trajectory against many other
+  // bodies. Cache those exact double-precision poses until its travel state changes.
+  const trajectories = new VehicleTrajectoryCache<Car>();
   /** How far (m) this vehicle can go along its own way before its body meets the other's as it
    * stands (Infinity: not within `reach`); followed along the lane and through the turn it will
    * really take, not straight on from its heading (a turn swept straight on across the waiting
@@ -1193,7 +1196,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const pathHits = (c: Car, o: Car, reach: number) => {
     if (Math.hypot(o.x - c.x, o.y - c.y) > reach + (c.length + o.length) / 2 + 1) return Infinity;
     for (let d = 0; d <= reach; d += 1) {
-      poseAhead(c, d);
+      trajectories.read(c, d, pose, poseAhead);
       if (overlap(pose.x, pose.y, pose.hx, pose.hy, c.length, c.width + 0.3, o)) {
         // touching already: only what is ahead of it holds it (one beside or behind pulls clear)
         if (d === 0 && (o.x - c.x) * c.hx + (o.y - c.y) * c.hy <= 0) return Infinity;

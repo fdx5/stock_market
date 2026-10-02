@@ -1,4 +1,7 @@
+import { preprocess, reachableIdentifiers, stripUnusedFunctions } from './ShaderText.js';
+export { preprocess, reachableIdentifiers, stripUnusedFunctions } from './ShaderText.js';
 import { GPU } from './GPU.js';
+import { shaderAnalysis } from './ShaderAnalysis.js';
 import { UniformBlock } from './Uniforms.js';
 import { BoundedCache } from './BoundedCache.js';
 
@@ -85,99 +88,6 @@ export function collectModules( list ) {
 }
 
 // ---------------------------------------------------------------------------------- preprocessor
-
-export function preprocess( code, defines = {} ) {
-
-	const lines = code.split( '\n' );
-	const out = [];
-	// stack of { active, taken, parentActive }
-	const stack = [];
-	const active = () => stack.length === 0 || stack[ stack.length - 1 ].active;
-	const evalCond = ( expr ) => {
-
-		expr = expr.trim();
-		let m;
-		if ( ( m = /^!\s*(\w+)$/.exec( expr ) ) ) return ! truthy( defines[ m[ 1 ] ] );
-		if ( ( m = /^(\w+)\s*(==|!=|>=|<=|>|<)\s*([\w.'"-]+)$/.exec( expr ) ) ) {
-
-			const a = defines[ m[ 1 ] ];
-			let b = m[ 3 ].replace( /^['"]|['"]$/g, '' );
-			if ( ! isNaN( Number( b ) ) && typeof a === 'number' ) b = Number( b );
-			switch ( m[ 2 ] ) {
-
-				case '==': return a == b; // eslint-disable-line eqeqeq
-				case '!=': return a != b; // eslint-disable-line eqeqeq
-				case '>=': return a >= b;
-				case '<=': return a <= b;
-				case '>': return a > b;
-				case '<': return a < b;
-
-			}
-
-		}
-
-		if ( /\|\|/.test( expr ) ) return expr.split( '||' ).some( ( e ) => evalCond( e ) );
-		if ( /&&/.test( expr ) ) return expr.split( '&&' ).every( ( e ) => evalCond( e ) );
-		return truthy( defines[ expr ] );
-
-	};
-
-	for ( const line of lines ) {
-
-		const t = line.trim();
-		let m;
-		if ( ( m = /^#(if|ifdef|ifndef)\s+(.*)$/.exec( t ) ) ) {
-
-			const parent = active();
-			let c;
-			if ( m[ 1 ] === 'ifdef' ) c = defines[ m[ 2 ].trim() ] !== undefined;
-			else if ( m[ 1 ] === 'ifndef' ) c = defines[ m[ 2 ].trim() ] === undefined;
-			else c = evalCond( m[ 2 ] );
-			stack.push( { active: parent && c, taken: c, parent } );
-			continue;
-
-		}
-
-		if ( ( m = /^#elif\s+(.*)$/.exec( t ) ) ) {
-
-			const s = stack[ stack.length - 1 ];
-			const c = ! s.taken && evalCond( m[ 1 ] );
-			s.active = s.parent && c;
-			s.taken = s.taken || c;
-			continue;
-
-		}
-
-		if ( t === '#else' ) {
-
-			const s = stack[ stack.length - 1 ];
-			s.active = s.parent && ! s.taken;
-			s.taken = true;
-			continue;
-
-		}
-
-		if ( t === '#endif' ) {
-
-			stack.pop();
-			continue;
-
-		}
-
-		if ( active() ) out.push( line );
-
-	}
-
-	if ( stack.length ) throw new Error( 'preprocess: unterminated #if' );
-	return out.join( '\n' );
-
-}
-
-function truthy( v ) {
-
-	return v !== undefined && v !== null && v !== false && v !== 0 && v !== '0';
-
-}
 
 // ---------------------------------------------------------------------------------- bindings
 
@@ -537,7 +447,7 @@ function _memo( map, key, make ) {
 // Assemble a full WGSL source: structs, group 0/1 declarations, module code, main code.
 //   modules: ShaderModule[]; bindings: extra { name: spec } (material resources); code: main WGSL
 // returns { code, bindings: BindingSet (group 1), group0: BindingSet }
-export function composeShader( { modules = [], bindings = {}, code = '', defines = {}, stage = 'render', label = 'shader', header = '' } ) {
+export function composeShader( { modules = [], bindings = {}, code = '', defines = {}, stage = 'render', label = 'shader', header = '', raw = false } ) {
 
 	const mods = collectModules( modules );
 	const specs = {};
@@ -618,57 +528,33 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 	src += set.declarations( 1 ) + '\n';
 	for ( const m of mods ) src += `// ---- ${ m.name }\n${ m.code }\n`;
 	src += code;
-	return { code: _memo( _pre, src + '\u0000' + JSON.stringify( defines ), () => preprocess( src, defines ) ), bindings: set, group0: g0, modules: mods };
+	return { code: raw ? src : _memo( _pre, src + '\u0000' + JSON.stringify( defines ), () => preprocess( src, defines ) ), bindings: set, group0: g0, modules: mods };
 
+}
+
+/** Pure WGSL parsing is done off the input thread; GPU layouts stay on this device. */
+export async function composeShaderAsync(options) {
+  const { modules = [], code = '', defines = {}, stage = 'render' } = options;
+  if (stage === 'render' && /@vertex\s+fn\s+vs\b/.test(code)) {
+    const all = collectModules(modules).map(m => m.code + '\n').join('') + code;
+    const key = all + '\u0000' + JSON.stringify(defines);
+    if (_reach.get(key) === undefined) {
+      const analysis = await shaderAnalysis('reach', all, defines);
+      if (GPU.verifyAsyncShaders) {
+        const full = preprocess(all, defines);
+        const same = (a,b) => a?.size === b?.size && (!a || [...a].every(x => b.has(x)));
+        if (!same(analysis.usedV, reachableIdentifiers(full,'vs')) || !same(analysis.usedF, /@fragment\s+fn\s+fs\b/.test(full) ? reachableIdentifiers(full,'fs') : null)) throw Error('Worker shader binding analysis differs');
+      }
+      _reach.set(key, analysis);
+    }
+  }
+  const result = composeShader({ ...options, raw: true });
+  result.code = await shaderAnalysis('finish', result.code, defines);
+  if (GPU.verifyAsyncShaders && result.code !== stripUnusedFunctions(composeShader(options).code)) throw Error('Worker shader output differs');
+  return result;
 }
 
 // Identifiers reachable from function `entry` through the call graph of the top-level functions.
-export function reachableIdentifiers( code, entry ) {
-
-	const fns = new Map();
-	const re = /\bfn\s+([A-Za-z_]\w*)\s*\(/g;
-	let m;
-	while ( ( m = re.exec( code ) ) ) {
-
-		const open = code.indexOf( '{', m.index );
-		if ( open < 0 ) break;
-		let depth = 0, i = open;
-		for ( ; i < code.length; i ++ ) {
-
-			const c = code[ i ];
-			if ( c === '{' ) depth ++;
-			else if ( c === '}' && -- depth === 0 ) break;
-
-		}
-
-		// entry points are never called (a local variable named like one must not pull it in)
-		const isEntry = /@(vertex|fragment|compute)[^;{}]*$/.test( code.slice( Math.max( 0, m.index - 80 ), m.index ) );
-		if ( ! isEntry || m[ 1 ] === entry ) fns.set( m[ 1 ], code.slice( m.index, i + 1 ) );
-		re.lastIndex = i + 1;
-
-	}
-
-	const used = new Set();
-	const queue = [ entry ];
-	const seen = new Set();
-	while ( queue.length ) {
-
-		const f = queue.pop();
-		if ( seen.has( f ) || ! fns.has( f ) ) continue;
-		seen.add( f );
-		for ( const id of fns.get( f ).match( /[A-Za-z_]\w*/g ) || [] ) {
-
-			used.add( id );
-			if ( fns.has( id ) && ! seen.has( id ) ) queue.push( id );
-
-		}
-
-	}
-
-	return used;
-
-}
-
 function sameSpec( a, b ) {
 
 	const ka = Object.keys( a ), kb = Object.keys( b );
@@ -684,82 +570,11 @@ const _moduleCache = new BoundedCache(128, 3 * 1024 * 1024);
 // shadows) — a depth-only one was 90 % unreachable code, a full one 40 % — and the browser's
 // GPU process parses and checks all of it on its one main thread, 20-30 ms a module, while
 // the page's frames wait. Comments go too. (WGSL has no strings: braces count the blocks.)
-const _stripped = new BoundedCache(128, 2 * 1024 * 1024);
-export function stripUnusedFunctions( code ) {
-
-	const hit = _stripped.get( code );
-	if ( hit !== undefined ) return hit;
-	const src = code.replace( /\/\*[\s\S]*?\*\//g, '' ).replace( /\/\/[^\n]*/g, '' );
-	// top-level declarations: [start, end) spans, split where a block or a ';' closes at depth 0
-	const decls = [];
-	let depth = 0, start = 0, paren = 0;
-	for ( let i = 0; i < src.length; i ++ ) {
-
-		const c = src[ i ];
-		if ( c === '(' ) paren ++;
-		else if ( c === ')' ) paren --;
-		else if ( c === '{' ) depth ++;
-		else if ( c === '}' ) { depth --; if ( depth === 0 && paren === 0 ) {
-
-			// (a struct's closing brace may be followed by a ';')
-			let j = i + 1; while ( j < src.length && /\s/.test( src[ j ] ) ) j ++;
-			if ( src[ j ] === ';' ) i = j;
-			decls.push( [ start, i + 1 ] ); start = i + 1;
-
-		} }
-		else if ( c === ';' && depth === 0 && paren === 0 ) { decls.push( [ start, i + 1 ] ); start = i + 1; }
-
-	}
-	if ( depth !== 0 ) { _stripped.set( code, code ); return code; }
-	const tail = src.slice( start );
-const fns = new Map(), roots = [];
-	for ( const [ a, b ] of decls ) {
-
-		const text = src.slice( a, b ), m = /\bfn\s+([A-Za-z_]\w*)\s*\(/.exec( text );
-		if ( m && /^[\s\S]*?\bfn\b/.exec( text )[ 0 ].indexOf( '{' ) < 0 ) {
-
-			fns.set( m[ 1 ], { text, entry: /@(vertex|fragment|compute)\b/.test( text.slice( 0, m.index ) ) } );
-
-		} else {
-
-			// Resource declarations, structs and constants can carry large unused library
-			// graphs too. Follow their references exactly as functions, retaining directives
-			// (enable/requires/diagnostic/const_assert) as unconditional roots.
-			const declaration = /^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:struct|alias|const|override|var(?:\s*<[^>]*>)?)\s+([A-Za-z_]\w*)\b/.exec( text );
-			if ( declaration ) fns.set( declaration[ 1 ], { text, entry: false } );
-			else roots.push( text );
-
-		}
-
-	}
-	if ( ! fns.size ) { _stripped.set( code, code ); return code; }
-	const used = new Set(), stack = [];
-	const scan = ( text ) => { for ( const id of text.match( /[A-Za-z_]\w*/g ) || [] ) if ( fns.has( id ) && ! used.has( id ) ) { used.add( id ); stack.push( id ); } };
-	for ( const [ name, f ] of fns ) if ( f.entry && ! used.has( name ) ) { used.add( name ); stack.push( name ); }
-	roots.forEach( scan ); scan( tail );
-	while ( stack.length ) scan( fns.get( stack.pop() ).text );
-	let out = '';
-	for ( const [ a, b ] of decls ) {
-
-		const text = src.slice( a, b );
-		const m = /\bfn\s+([A-Za-z_]\w*)\s*\(/.exec( text )
-			|| /^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:struct|alias|const|override|var(?:\s*<[^>]*>)?)\s+([A-Za-z_]\w*)\b/.exec( text );
-		if ( m && fns.get( m[ 1 ] )?.text === text && ! used.has( m[ 1 ] ) ) continue;
-		out += text;
-
-	}
-	out += tail;
-	_stripped.set( code, out );
-	if ( _stripped.size > 256 ) _stripped.delete( _stripped.keys().next().value );
-	return out;
-
-}
-
-export function createShaderModule( code, label ) {
+export function createShaderModule( code, label, prepared = false ) {
 
 	let m = _moduleCache.get( code );
 	if ( m ) return m;
-	const lean = stripUnusedFunctions( code );
+	const lean = prepared ? code : stripUnusedFunctions( code );
 	// (two materials whose shaders differ only in what neither reaches: one module)
 	m = _moduleCache.get( lean );
 	if ( m ) { _moduleCache.set( code, m ); return m; }

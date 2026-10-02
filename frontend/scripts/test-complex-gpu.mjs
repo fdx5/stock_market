@@ -6,6 +6,60 @@ import { GPU } from '../src/vendor/tidewater/engine/gpu/GPU.js';
 import { MeshRenderer } from '../src/vendor/tidewater/engine/render/MeshRenderer.js';
 import { stripUnusedFunctions } from '../src/vendor/tidewater/engine/gpu/Shader.js';
 import { BoundedCache } from '../src/vendor/tidewater/engine/gpu/BoundedCache.js';
+import { UniformBlock } from '../src/vendor/tidewater/engine/gpu/Uniforms.js';
+
+test('stable material epochs pack once across passes and invalidate before the next view frame', () => {
+  const savedDevice=GPU.device,savedQueue=GPU.queue;
+  let writes=0,packs=0;
+  GPU.device={createBuffer:()=>({destroy(){}})};
+  GPU.queue={writeBuffer:()=>writes++};
+  globalThis.GPUBufferUsage ??= {UNIFORM:1,STORAGE:2,COPY_DST:4};
+  try {
+    const block=new UniformBlock('Test',{wet:['f32',0]});
+    const pack=block._pack.bind(block);block._pack=()=>{packs++;pack()};
+    block.uploadEpoch=1;block.upload(10);block.upload(11);block.upload(12);
+    assert.equal(packs,1);assert.equal(writes,1);
+    block.set('wet',.75);block.uploadEpoch=2;block.upload(12);
+    assert.equal(packs,2);assert.equal(writes,2);assert.equal(block.f32[0],.75);
+    block.uploadEpoch=undefined;block.set('wet',.5);block.upload(13);block.upload(14);
+    assert.equal(packs,4);assert.equal(writes,3);assert.equal(block.f32[0],.5);
+  } finally {GPU.device=savedDevice;GPU.queue=savedQueue;}
+});
+
+test('native scratch lists remain separate within a frame and reuse items across frames', () => {
+  const renderer = new MeshRenderer(); renderer.reuseDrawLists = true;
+  const object = {visible:true,isMesh:true,layers:{mask:1},children:[],renderOrder:0,
+    geometry:{attributes:{},drawRange:{start:0,count:3}},material:{id:7,visible:true},
+    matrixWorld:{elements:[1,0,0,0,0,1,0,0,0,0,1,0,1,2,3,1]}};
+  const scene = {visible:true,children:[object],updateMatrixWorld(){}};
+  const saved = GPU.frame;
+  try {
+    GPU.frame=100;
+    const first=renderer.collect(scene,{cull:false}), item=first.opaque[0];
+    const second=renderer.collect(scene,{cull:false});
+    assert.notEqual(first.opaque,second.opaque);assert.notEqual(item,second.opaque[0]);
+    GPU.frame++;object.renderOrder=5;object.geometry.drawRange.start=1;
+    const next=renderer.collect(scene,{cull:false});
+    assert.equal(next.opaque[0],item);assert.equal(item.renderOrder,5);assert.equal(item.start,1);
+    renderer.retainGeometry([object]);assert.equal(renderer._collectPools.length,0);
+    renderer.dispose();assert.equal(renderer._collectPools.length,0);
+  } finally {GPU.frame=saved;}
+});
+
+test('first-frame readiness includes asynchronous shader preparation and driver compilation', async () => {
+  let prepare, compile, syncCalls = 0;
+  const saved = GPU.device;
+  GPU.device = { createRenderPipelineAsync: () => new Promise(resolve => compile = resolve), createRenderPipeline: () => { syncCalls++; } };
+  const h = GPU.deferredPipeline(new Promise(resolve => prepare = resolve), 'prepared');
+  let ready = false; const done = GPU.pipelinesReady().then(() => ready = true);
+  assert.equal(GPU.ready(h), null); assert.equal(syncCalls, 0);
+  prepare(GPU.renderPipeline({ label: 'driver' }));
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(ready, false);
+  const pipeline = {}; compile(pipeline); await done;
+  assert.equal(h.pipeline, pipeline); assert.equal(h.preparing, false); assert.equal(GPU._pending.size, 0);
+  GPU.device = saved;
+});
 
 test('cache eviction respects memory budgets and retains recently reused pipelines', () => {
   const c = new BoundedCache(2, 40);

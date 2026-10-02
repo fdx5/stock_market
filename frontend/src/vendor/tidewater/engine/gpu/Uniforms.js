@@ -274,10 +274,15 @@ export class UniformBlock {
 	// nothing ran in between, see BindingSet.getBindGroup)
 	upload( token ) {
 
-		if ( token !== undefined && token === this._token && this.buffer ) return this.buffer;
+		// Opt-in caller contract: this block's values remain unchanged throughout
+		// one epoch (e.g. a view's shadow, reflection and main passes). Resource
+		// bindings still resolve independently for every pass.
+		if ( this.uploadEpoch !== undefined && this._uploadedEpoch === this.uploadEpoch && this.buffer ) return this.buffer;
+		if ( this.uploadEpoch === undefined && token !== undefined && token === this._token && this.buffer ) return this.buffer;
 		this._token = token;
 		const buf = this.getBuffer();
 		this._pack();
+		this._uploadedEpoch = this.uploadEpoch;
 		const cur = this.u32, last = this._last;
 		let dirty = false;
 		for ( let i = 0; i < cur.length; i ++ ) if ( cur[ i ] !== last[ i ] ) {

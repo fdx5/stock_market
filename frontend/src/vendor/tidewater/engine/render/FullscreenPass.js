@@ -1,5 +1,5 @@
 import { GPU } from '../gpu/GPU.js';
-import { composeShader, createShaderModule, group0ForBlock } from '../gpu/Shader.js';
+import { composeShader, composeShaderAsync, createShaderModule, group0ForBlock } from '../gpu/Shader.js';
 import { FrameUniforms } from './Frame.js';
 import { commonModule } from './wgsl/common.js';
 import { blendState } from './Material.js';
@@ -38,10 +38,11 @@ export class FullscreenPass {
 		this.label = label;
 		this.colorFormats = colorFormats;
 		const main = code.includes( '@fragment' ) ? code : `${ code }\n@fragment fn fs( in: FSIn ) -> @location( 0 ) vec4f { return fragment( in ); }\n`;
-		const c = composeShader( { modules: [ commonModule, ...modules ], bindings, code: VERTEX.replace( 'FS_DEPTH', depth.toFixed( 6 ) ) + main, defines, stage: 'render', label } );
+		const options = { modules: [ commonModule, ...modules ], bindings, code: VERTEX.replace( 'FS_DEPTH', depth.toFixed( 6 ) ) + main, defines, stage: 'render', label };
+		const make = ( c, prepared ) => {
 		this.source = c.code;
 		this.bindings = c.bindings;
-		const module = createShaderModule( c.code, label );
+		const module = createShaderModule( c.code, label, prepared );
 		const desc = {
 			label,
 			layout: GPU.device.createPipelineLayout( { bindGroupLayouts: [ c.group0.layout, c.bindings.layout ] } ),
@@ -54,7 +55,11 @@ export class FullscreenPass {
 			primitive: { topology: 'triangle-list' },
 		};
 		if ( depthFormat ) desc.depthStencil = { format: depthFormat, depthCompare, depthWriteEnabled: depthWrite };
-		this.handle = GPU.renderPipeline( desc );
+		return GPU.renderPipeline( desc );
+		};
+		this.handle = GPU.asyncShaders && typeof Worker !== 'undefined'
+			? GPU.deferredPipeline( composeShaderAsync( options ).then( c => { const handle = make( c, true ); this.handle = handle; return handle; } ), label )
+			: make( composeShader( options ), false );
 		this.timestampWrites = null;
 
 	}

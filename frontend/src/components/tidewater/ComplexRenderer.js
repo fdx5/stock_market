@@ -21,6 +21,8 @@ import { canEncodeBC7, encodeBC7 } from './bc7Encode.js';
 import { gpuCaps } from '../gpuCaps';
 import { fetchStatic, fetchCriticalStatic } from '../../staticCdn';
 import { onSceneMemoryRelease } from '../sceneMemory';
+import { frameSlice } from '../frameSlice';
+import { retireUnusedMaterials } from './materialLifetime';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
  * software / fallback adapters. Visible views keep their selected quality. */
@@ -57,11 +59,14 @@ async function loadDetails() {
   const results = await Promise.allSettled(Object.entries(meta).map(async ([name, m]) => {
     const blob = await fetchCriticalStatic('/3d/' + m.file).then(r => { if (!r.ok) throw new Error(m.file + ' ' + r.status); return r.blob(); });
     const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+    await frameSlice();
+    if (startedIn !== detailEpoch) { bmp.close(); return; }
     const tex = new Texture({ width: bmp.width, height: bmp.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'], label: 'detail ' + name });
     out[name] = { tex, metres: m.metres, avgRough: m.avgRough };
     try {
       GPU.queue.copyExternalImageToTexture({ source: bmp }, { texture: tex.getGPU() }, [bmp.width, bmp.height]);
       generateMipmaps(tex);
+      GPU.submit();
     } finally { bmp.close(); }
   }));
   const failed = results.find(r => r.status === 'rejected');
@@ -79,6 +84,7 @@ onSceneMemoryRelease(() => {
   shadows?.dispose(); shadows = null; shadowKey = ''; shadowOwner = null;
 });
 async function device() {
+  GPU.asyncShaders = true;
   // (a device already made — before a hot update of this module — is reused)
   initialization ??= (GPU.device && !deviceLost ? Promise.resolve() : GPU.init({ headless: true })).then(async () => {
     gpuCaps.bc = GPU.features.has('texture-compression-bc');
@@ -804,8 +810,8 @@ const CAR_PAINT = /* wgsl */`{
 export function warmDevice() { return device().catch(() => {}); }
 async function warmCopies() {
   try {
-    const c = new OffscreenCanvas(4, 4); c.getContext('2d', { willReadFrequently: true }).fillRect(0, 0, 4, 4);
-    const bmp = await createImageBitmap(c);
+    // Warming copy pipelines needs only a bitmap, not a second canvas context.
+    const bmp = await createImageBitmap(new ImageData(4, 4));
     for (const format of ['rgba8unorm-srgb', 'rgba8unorm']) for (const flipY of [false, true]) {
       const t = GPU.device.createTexture({ size: [4, 4], format, usage: GPUTextureUsage.COPY_DST | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT });
       GPU.queue.copyExternalImageToTexture({ source: bmp, flipY }, { texture: t }, [4, 4]);
@@ -855,6 +861,9 @@ export class ComplexRenderer {
     this.scene.matrixAutoUpdate = false;
     this.camera = new PerspectiveCamera();
     this.renderer = new MeshRenderer();
+    // This view consumes every collection within its frame; reuse scratch items
+    // instead of allocating hundreds of objects for shadows and color each frame.
+    this.renderer.reuseDrawLists = true;
     // A new complex's pipelines spread over frames (see MeshRenderer._pipeline).
     // (3 a frame, 5 ms apart: at 12 ms apart a new complex's ~35 pipelines came one a frame at
     // the loading view's half rate, and held its first picture back most of a second)
@@ -1596,6 +1605,9 @@ export class ComplexRenderer {
     }
     this.forgetSoon?.clear();
     if (dropped) this.renderer.pipelines.clear();
+    // Some meshes still draw the previous version while a replacement uploads.
+    // Its texture bindings must survive for exactly as long as its uniform block.
+    if (this.retired?.length) return;
     const kept = new Set([...this.materials.keys()].flatMap(m => [m.map, m.normalMap, m.roughnessMap, m.metalnessMap, m.emissiveMap, m.userData.farGround?.map]));
     const unusedTextures = new Set();
     for (const [src, tex] of this.textures) if (!kept.has(src)) { unusedTextures.add(tex); this.textures.delete(src); }
@@ -1612,6 +1624,7 @@ export class ComplexRenderer {
   forget(sources) { this.forgetSoon ??= new Set(); for (const s of sources) this.forgetSoon.add(s); }
   render(source, camera, look, time) {
     if (this.disposed || this.failed) return;
+    if (this.detailReady === false) { this.pending = true; this.ready = false; GPU.submit(); return; }
     // A rejected shader is a view failure, not a lost shared GPU device. Take
     // the compatibility path immediately rather than wait for the watchdog.
     if (this.finish.handle.failed) throw new Error('WebGPU finish pipeline failed');
@@ -1625,13 +1638,19 @@ export class ComplexRenderer {
     if (deviceLost) { this.failed = true; return; }
     GPU.beginFrame();
     this.frameNo = (this.frameNo ?? 0) + 1;
-    if (this.retired?.length) { for (const m of this.retired.splice(0)) { this.renderer.forgetMaterial(m); m.dispose(); m.uniformBlock.buffer?.destroy(); } }
+    if (this.retired?.length) {
+      retireUnusedMaterials(this.retired, this.meshes.values(), m => { this.renderer.forgetMaterial(m); m.dispose(); m.uniformBlock.buffer?.destroy(); });
+      if (!this.retired.length) this.sweep = 119;
+    }
     this.sync(source);
     this.refreshTextures();
     const c = this.camera;
     c.position.copy(camera.position); c.quaternion.copy(camera.quaternion);
-    c.fov = camera.fov; c.aspect = camera.aspect; c.near = camera.near; c.far = camera.far;
-    c.updateProjectionMatrix(); c.updateMatrixWorld();
+    if (c.fov !== camera.fov || c.aspect !== camera.aspect || c.near !== camera.near || c.far !== camera.far) {
+      c.fov = camera.fov; c.aspect = camera.aspect; c.near = camera.near; c.far = camera.far;
+      c.updateProjectionMatrix();
+    }
+    c.updateMatrixWorld();
     const f = FrameUniforms.fields;
     const elev = look.keyElev * Math.PI / 180, az = look.keyAz * Math.PI / 180;
     f.sunDir.value.set(Math.cos(elev) * Math.sin(az), Math.sin(elev), Math.cos(elev) * Math.cos(az));
@@ -1648,6 +1667,9 @@ export class ComplexRenderer {
     for (const [src, mat] of this.materials) {
       mat.emissive.copy(src.emissive ?? { r: 0, g: 0, b: 0 }).multiplyScalar(src.emissiveIntensity ?? 0);
       mat.set('haze', (source.fog?.density ?? 0.0005) * 0.5);
+      // These per-material values are set above and stay unchanged across this
+      // view's shadow/reflection/main passes. Global lighting blocks still vary.
+      mat.uniformBlock.uploadEpoch = this.frameNo;
     }
     // Shared shadow atlas must be refreshed for each view (including modal views).
     if (shadowOwner !== this) { shadows.cascades.forEach(x => { x.dirty = true; }); shadows.invalidateCache(); }
@@ -1793,6 +1815,8 @@ export class ComplexRenderer {
     this.context.unconfigure();
     this.canvas.remove();
     for (const mat of this.materials.values()) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); }
+    for (const mat of this.retired ?? []) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); }
+    this.retired = [];
     for (const tex of this.textures.values()) if (!this.sharedTextures?.has(tex)) tex.destroy();
     this.sharedTextures?.releaseOwner(this);
     // Also detaches disposal listeners from CPU geometry shared by later views.

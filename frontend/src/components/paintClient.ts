@@ -38,7 +38,8 @@ if (typeof document !== 'undefined') document.addEventListener('visibilitychange
   cacheJobs.clear();
 });
 
-type Reply = { id: number; bitmaps: Record<string, ImageBitmap> | null; params: Record<string, TexParams> | null };
+type Reply = { id: number; bitmaps: Record<string, ImageBitmap> | null; params: Record<string, TexParams> | null; prepared?: boolean };
+const preparedReplies = new WeakSet<Textures>();
 let worker: Worker | null | undefined;
 let nextId = 0;
 let epoch = 0;
@@ -79,6 +80,7 @@ async function fromReply(r: Reply | null): Promise<Textures | null> {
     t.addEventListener("dispose", () => bitmap.close());
     out[name] = t;
   } } catch { Object.values(out).forEach(t => t.dispose()); Object.values(r.bitmaps).forEach(b => b.close()); return null; }
+  if (r.prepared) preparedReplies.add(out);
   return out;
 }
 
@@ -150,14 +152,19 @@ function slicer() {
 /** `job`'s textures: the kept copy, else painted here in slices (and kept). */
 async function obtain(job: PaintJob, pace: () => Promise<boolean> = slicer()): Promise<Textures | null> {
   const startedIn = epoch;
-  const kept = await fromReply(await preparedContext(job)) ?? await lookUp(job);
+  const kept = await lookUp(job);
   if (startedIn !== epoch) { if (kept) Object.values(kept).forEach(t => t.dispose()); return null; }
   if (kept) { paintStats.kept++; return kept; }
   let made = await paintOffThread(job);
   if (startedIn !== epoch) { if (made) Object.values(made).forEach(t => t.dispose()); return null; }
+  if (!made) {
+    made = await fromReply(await preparedContext(job));
+    if (made) preparedReplies.add(made);
+    if (startedIn !== epoch) { if (made) Object.values(made).forEach(t => t.dispose()); return null; }
+  }
   if (!made && await pace()) made = await runSliced<Textures>(stepsOf(job) as Generator<void | Promise<unknown>, Textures, boolean | undefined>, pace);
   if (!made) return null;
-  paintStats.painted++;
+  if (preparedReplies.has(made)) paintStats.kept++; else paintStats.painted++;
   if (Object.values(made).every(t => t.image instanceof ImageBitmap)) {
     cacheJobs.set(keyOf(job), job);
     if (cacheJobs.size > 40) cacheJobs.delete(cacheJobs.keys().next().value!);

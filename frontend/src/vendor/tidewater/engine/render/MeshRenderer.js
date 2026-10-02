@@ -1,6 +1,6 @@
 import { GPU } from '../gpu/GPU.js';
 import { BoundedCache } from '../gpu/BoundedCache.js';
-import { composeShader, createShaderModule, getBindGroupLayout, group0ForBlock, stripUnusedFunctions } from '../gpu/Shader.js';
+import { composeShader, composeShaderAsync, createShaderModule, getBindGroupLayout, group0ForBlock, stripUnusedFunctions } from '../gpu/Shader.js';
 import { buildMeshShader } from './MeshShader.js';
 import { blendState } from './Material.js';
 import { SceneLighting } from './wgsl/lighting.js';
@@ -193,6 +193,9 @@ export class MeshRenderer {
 	// CPU geometry may be cached across views, while GPU buffers belong to this
 	// renderer. Reconcile only when meshes enter/leave the scene, not every frame.
 	retainGeometry( objects ) {
+		// Scratch draw rows must not retain a previous complex's buffers/materials.
+		this._drawRows = [];
+		this._collectPools = [];
 
 		const used = new Map();
 		for ( const o of objects ) {
@@ -229,6 +232,10 @@ export class MeshRenderer {
 	}
 
 	dispose() {
+		this.disposed = true;
+		this._drawRows = [];
+		this._collectPools = [];
+		this._bundles?.clear();
 
 		for ( const geometry of this.geometries.keys() ) this.releaseGeometry( geometry );
 		this.drawBuffer?.destroy();
@@ -466,8 +473,23 @@ export class MeshRenderer {
 	_createPipeline( material, vl, pass, key ) {
 
 		const src = buildMeshShader( material, vl.layout, pass );
-		const c = composeShader( { modules: src.modules, bindings: src.bindings, code: src.code, defines: src.defines, stage: 'render', label: material.name } );
-		const module = createShaderModule( c.code, material.name );
+		const options = { modules: src.modules, bindings: src.bindings, code: src.code, defines: src.defines, stage: 'render', label: material.name };
+		if ( GPU.asyncShaders && typeof Worker !== 'undefined' ) {
+			const p = { bindings: null, label: material.name };
+			p.handle = GPU.deferredPipeline( composeShaderAsync( options ).then( c => {
+				if ( this.disposed ) return { pipeline: null, failed: false };
+				const made = this._finishPipeline( material, vl, pass, c, true, src.hasFragment );
+				p.bindings = made.bindings; p.handle = made.handle; return made.handle;
+			} ), material.name );
+			this.pipelines.set( key, p ); this.stats.pipelines = this.pipelines.size;
+			return p;
+		}
+		const p = this._finishPipeline( material, vl, pass, composeShader( options ), false, src.hasFragment );
+		this.pipelines.set( key, p ); this.stats.pipelines = this.pipelines.size;
+		return p;
+	}
+	_finishPipeline( material, vl, pass, c, prepared, hasFragment ) {
+		const module = createShaderModule( c.code, material.name, prepared );
 		this._ensureDrawBuffer();
 		const layout = GPU.device.createPipelineLayout( { bindGroupLayouts: [ c.group0.layout, c.bindings.layout, this.drawLayout ] } );
 
@@ -496,7 +518,7 @@ export class MeshRenderer {
 			vertex: { module, entryPoint: 'vs', buffers: vl.buffers.map( ( b ) => b.layout ) },
 			primitive: { topology: material.topology, cullMode, frontFace: 'ccw' },
 		};
-		if ( src.hasFragment ) desc.fragment = { module, entryPoint: 'fs', targets };
+		if ( hasFragment ) desc.fragment = { module, entryPoint: 'fs', targets };
 		if ( pass.depthFormat ) desc.depthStencil = {
 			format: pass.depthFormat,
 			depthWriteEnabled: material.depthWrite,
@@ -507,7 +529,7 @@ export class MeshRenderer {
 		// compiled in the background: the draw is skipped until it is ready (see GPU.renderPipeline)
 		// Reuse compiled programs across scene/complex changes. Bindings and
 		// uniforms remain per material; incompatible layouts never share a handle.
-		const sharedKey = stripUnusedFunctions( c.code ) + JSON.stringify( [
+		const sharedKey = ( prepared ? c.code : stripUnusedFunctions( c.code ) ) + JSON.stringify( [
 			layoutId( GPU.device ), layoutId( c.group0.layout ), layoutId( c.bindings.layout ), layoutId( this.drawLayout ),
 			desc.vertex.buffers, desc.primitive, desc.fragment?.targets, desc.depthStencil,
 		] );
@@ -518,8 +540,6 @@ export class MeshRenderer {
 			if ( sharedPipelines.size > 128 ) sharedPipelines.delete( sharedPipelines.keys().next().value );
 		}
 		const p = { handle, bindings: c.bindings, label: desc.label };
-		this.pipelines.set( key, p );
-		this.stats.pipelines = this.pipelines.size;
 		return p;
 
 	}
@@ -528,8 +548,16 @@ export class MeshRenderer {
 
 	collect( scene, { camera, layerMask = 0xffffffff, filter = null, kind = 'main', cull = true } ) {
 
-		const opaque = [];
-		const transparent = [];
+		let pool;
+		if ( this.reuseDrawLists ) {
+			if ( this._collectFrame !== GPU.frame ) { this._collectFrame = GPU.frame; this._collectIndex = 0; }
+			const index = this._collectIndex ++;
+			const pools = this._collectPools ??= [];
+			pool = pools[ index ] ??= { opaque: [], transparent: [], items: [], count: 0 };
+			pool.opaque.length = pool.transparent.length = pool.count = 0;
+		}
+		const opaque = pool?.opaque ?? [];
+		const transparent = pool?.transparent ?? [];
 		if ( camera ) {
 
 			camera.updateMatrixWorld();
@@ -550,7 +578,7 @@ export class MeshRenderer {
 
 					// ported systems use this for their own LOD / culling (called per pass, as three does)
 					if ( o.onBeforeRender ) o.onBeforeRender( null, null, camera, o.geometry, o.material, null );
-					if ( o.visible || all ) this._addItems( o, opaque, transparent );
+					if ( o.visible || all ) this._addItems( o, opaque, transparent, pool );
 
 				}
 
@@ -598,7 +626,7 @@ export class MeshRenderer {
 
 	}
 
-	_addItems( o, opaque, transparent ) {
+	_addItems( o, opaque, transparent, pool ) {
 
 		const geo = o.geometry;
 		const mats = Array.isArray( o.material ) ? o.material : null;
@@ -606,7 +634,9 @@ export class MeshRenderer {
 		const push = ( material, start, count ) => {
 
 			if ( ! material || ( ! material.visible && ! this.precompiling ) ) return;
-			const item = { object: o, geometry: geo, material, start, count, z, renderOrder: o.renderOrder || 0, pipeKey: material.id };
+			const item = pool ? ( pool.items[ pool.count ++ ] ??= {} ) : {};
+			item.object = o; item.geometry = geo; item.material = material; item.start = start; item.count = count;
+			item.z = z; item.renderOrder = o.renderOrder || 0; item.pipeKey = material.id;
 			( material.transparent ? transparent : opaque ).push( item );
 
 		};
@@ -688,7 +718,8 @@ export class MeshRenderer {
 
 		if ( ! this.bundles || this.precompiling || ! pass.group0 ) return this._drawDirect( rp, items, pass );
 		const token = ++ _listToken;
-		const rows = [];
+		const rows = this._drawRows ??= [];
+		let rowCount = 0;
 		for ( const it of items ) {
 
 			const { object: o, geometry: geo, material } = it;
@@ -701,9 +732,12 @@ export class MeshRenderer {
 			if ( ! m || m.frame !== GPU.frame || m.material !== material || m.geo !== geo || m.owner !== this ) {
 
 				const vl = this._cachedLayout( o, geo, material );
-				const vbs = new Array( vl.buffers.length );
+				const reusable = m && m.material === material && m.geo === geo && m.owner === this;
+				const vbs = reusable ? m.vbs : [];
+				vbs.length = vl.buffers.length;
 				for ( let i = 0; i < vbs.length; i ++ ) vbs[ i ] = this._attributeBuffer( geo, vl.buffers[ i ].attr );
-				m = { frame: GPU.frame, material, geo, owner: this, vl, vbs, index: this._indexBuffer( geo ) };
+				if ( ! reusable ) m = { material, geo, owner: this, vbs };
+				m.frame = GPU.frame; m.vl = vl; m.index = this._indexBuffer( geo );
 				// (an object drawn with several materials keeps only its last: the others resolve each time)
 				o.__frameRow = m;
 
@@ -719,11 +753,15 @@ export class MeshRenderer {
 			// string a draw each frame was a good part of this loop)
 			if ( o.__bsI !== instances || o.__bsS !== it.start || o.__bsC !== it.count ) { o.__bsI = instances; o.__bsS = it.start; o.__bsC = it.count; o.__bundleShapeAt = GPU.frame; }
 			const steady = ! geo.indirect && GPU.frame - o.__bundleShapeAt > 60;
-			rows.push( { it, o, geo, pipeline, group, offset, vbs, instances, index, steady } );
+			const row = rows[ rowCount ] ??= {};
+			row.it = it; row.o = o; row.geo = geo; row.pipeline = pipeline; row.group = group;
+			row.offset = offset; row.vbs = vbs; row.instances = instances; row.index = index; row.steady = steady;
+			rowCount ++;
 
 		}
 
-		if ( this._bundleFrame !== GPU.frame ) { this._bundleFrame = GPU.frame; this._bundleCalls = new Map(); }
+		rows.length = rowCount;
+		if ( this._bundleFrame !== GPU.frame ) { this._bundleFrame = GPU.frame; ( this._bundleCalls ??= new Map() ).clear(); }
 		const site = `${ pass.label || '' }|${ pass.passKey }|${ role }`;
 		const nth = this._bundleCalls.get( site ) ?? 0;
 		this._bundleCalls.set( site, nth + 1 );

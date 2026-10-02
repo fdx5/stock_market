@@ -355,32 +355,63 @@ function makeBoat(k: Kit, kind: Boat["kind"]): { group: THREE.Group; L: number; 
  * with age (v), the water between them clear but for scattered streaks; its normal map
  * carries the transverse crests and the diverging feathers. Wash: churned white water
  * down the middle. Spray: a soft round droplet cloud. */
-let textures: { wakeMap: THREE.CanvasTexture; wakeNormal: THREE.CanvasTexture; wash: THREE.CanvasTexture; spray: THREE.CanvasTexture } | null = null;
+type WakeTextures = { wakeMap: THREE.Texture; wakeNormal: THREE.Texture; wash: THREE.Texture; spray: THREE.Texture };
+let textures: WakeTextures | null = null;
 /** The wake textures painted ahead, in idle time (a river complex's boats need them at once, and
  * painting them on the spot held the page ~0.1 s). */
 export function prepareWakes() {
-  if (textures || preparing) return;
-  preparing = true;
+  if (textures) return Promise.resolve(textures);
+  if (wakeJob) return wakeJob;
   const generation = wakeGeneration;
-  // (one texture an idle period: all four at once were ~0.1 s, past any idle deadline)
-  const go = () => { if (generation === wakeGeneration && !textures && !wakeSteps.next().done) later(); };
-  const later = () => { if (typeof requestIdleCallback === "function") requestIdleCallback(go, { timeout: 3000 }); else setTimeout(go, 200); };
-  later();
+  wakeJob = new Promise<WakeTextures | null>(resolve => {
+    const finish = (made: WakeTextures | null) => {
+      if (generation !== wakeGeneration) { if (made) dropWakes(made); resolve(null); return; }
+      wakeWorker?.terminate(); wakeWorker = undefined; cancelWake = undefined;
+      textures = made; resolve(made);
+    };
+    const fallback = async () => {
+      const steps = paintWakes();
+      while (generation === wakeGeneration) {
+        await frameSlice();
+        if (generation !== wakeGeneration) break;
+        const next = steps.next();
+        if (next.done) { finish(next.value); return; }
+      }
+      steps.return(undefined as never); resolve(null);
+    };
+    cancelWake = () => resolve(null);
+    try {
+      wakeWorker = new Worker(new URL('./wakeWorker.ts', import.meta.url), {type:'module'});
+      wakeWorker.onmessage = ({data}: MessageEvent<Record<string, ImageBitmap>>) => {
+        const made = {} as WakeTextures;
+        for (const [name, bitmap] of Object.entries(data)) {
+          const texture = new THREE.Texture(bitmap); texture.flipY = false; texture.needsUpdate = true;
+          made[name as keyof WakeTextures] = texture;
+        }
+        made.wakeNormal.wrapT = THREE.RepeatWrapping; finish(made);
+      };
+      wakeWorker.onerror = () => { wakeWorker?.terminate(); wakeWorker = undefined; void fallback(); };
+      wakeWorker.postMessage(0);
+    } catch { void fallback(); }
+  });
+  return wakeJob;
 }
-let preparing = false;
-let wakeSteps = paintWakes();
+let wakeJob: Promise<WakeTextures | null> | null = null;
+let wakeWorker: Worker | undefined, cancelWake: (() => void) | undefined;
 let wakeGeneration = 0;
+function dropWakes(made: WakeTextures) {
+  for (const t of Object.values(made)) {
+    const image = t.image as HTMLCanvasElement | ImageBitmap;
+    t.dispose(); if (image instanceof ImageBitmap) image.close(); else image.width = image.height = 1;
+  }
+}
 onSceneMemoryRelease(() => {
   wakeGeneration++;
-  Object.values(textures ?? {}).forEach(t => { t.dispose(); t.image.width = t.image.height = 1; });
-  textures = null; preparing = false;
-  wakeSteps.return(); wakeSteps = paintWakes();
+  if (textures) dropWakes(textures);
+  textures = null; wakeJob = null;
+  wakeWorker?.terminate(); wakeWorker = undefined; cancelWake?.(); cancelWake = undefined;
 });
-function wakeTextures() {
-  while (!textures) if (wakeSteps.next().done) break;
-  return textures!;
-}
-function* paintWakes(): Generator<void, void, void> {
+export function* paintWakes(createCanvas = (w: number, h: number) => { const c = document.createElement('canvas'); c.width=w; c.height=h; return c; }): Generator<void, WakeTextures, void> {
   const W = 128, H = 256, r = rng(7);
   const noise = new Float32Array(64 * 64).map(() => r());
   const n2 = (u: number, v: number) => {
@@ -390,7 +421,7 @@ function* paintWakes(): Generator<void, void, void> {
   };
   // (a pause every 32 rows: each piece a few ms, within an idle period)
   const make = function* (w: number, h: number, px: (u: number, v: number) => [number, number, number, number]): Generator<void, THREE.CanvasTexture, void> {
-    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const c = createCanvas(w, h);
     const g = c.getContext("2d", { willReadFrequently: true })!, img = g.createImageData(w, h);
     for (let y = 0; y < h; y++) {
       if (y && y % 32 === 0) yield;
@@ -447,7 +478,7 @@ function* paintWakes(): Generator<void, void, void> {
     const a = Math.max(0, 1 - d) ** 2.2 * (0.25 + speck);
     return [1, 1, 1, Math.min(1, a)];
   });
-  textures = { wakeMap, wakeNormal, wash, spray };
+  return { wakeMap, wakeNormal, wash, spray };
 }
 
 /** A strip laid on the water behind something moving: one pair of vertices per sample of
@@ -554,7 +585,9 @@ export async function buildBoats(field: WaterField, cx: number, cy: number, seed
   if (!loops || loops.every(l => !l)) return null;
   await frameSlice();
   const r = rng(seed * 31 + 5);
-  const k = kit(), tx = wakeTextures();
+  const tx = await prepareWakes();
+  if (!tx) return null;
+  const k = kit();
   const group = new THREE.Group();
   const WAKE_AGE = 14, WASH_AGE = 7;
   const wakeMat = (speed: number) => {

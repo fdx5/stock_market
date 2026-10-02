@@ -344,7 +344,7 @@ function splitGroups(geo: THREE.BufferGeometry): (THREE.BufferGeometry | undefin
 
 type Stage = {
   renderer: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.PerspectiveCamera;
-  controls: OrbitControls; composer: EffectComposer; bloom: UnrealBloomPass; finish: ShaderPass;
+  controls: OrbitControls; composer: EffectComposer | null; bloom: UnrealBloomPass | null; finish: ShaderPass | null;
   sun: THREE.DirectionalLight; hemi: THREE.HemisphereLight; sky: Sky;
   reflector: Reflector | null; reflStrength: { value: number };
   /** Planar reflection only on level ground (the mirror is one plane). */
@@ -574,8 +574,7 @@ const WHEEL_ZOOM = 4.8;
 /** Yield the main thread: the next task, or (when the view is covered) the next idle
  * period, so input and scrolling elsewhere on the page come first. */
 function nextSlice(idle: boolean): Promise<void> {
-  if (!idle || typeof window.requestIdleCallback !== "function") return frameSlice();
-  return new Promise(resolve => { window.requestIdleCallback(() => resolve(), { timeout: 1500 }); });
+  return frameSlice(idle ? 7 : 9);
 }
 
 /** Like nextSlice, but past the next frame: the browser hands a canvas's recorded drawing
@@ -585,10 +584,7 @@ function nextSlice(idle: boolean): Promise<void> {
 function nextFrame(idle: boolean): Promise<void> {
   if (idle || document.hidden) return nextSlice(idle);
   return new Promise(resolve => {
-    let done = false;
-    const go = () => { if (!done) { done = true; resolve(); } };
-    requestAnimationFrame(() => void nextSlice(false).then(go));
-    window.setTimeout(go, 150);
+    requestAnimationFrame(() => void nextSlice(false).then(resolve));
   });
 }
 
@@ -970,10 +966,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     scene.add(sky);
     const envScene = new THREE.Scene();
     envScene.add(new THREE.Mesh(sky.geometry, sky.material));
-    const pmrem = new THREE.PMREMGenerator(renderer);
+    const pmrem = made ? new THREE.PMREMGenerator(renderer) : null;
     let envRT: THREE.WebGLRenderTarget | null = null;
     const refreshEnv = () => {
-      if (native || nativePending) return;
+      if (native || nativePending || !pmrem) return;
       const next = pmrem.fromScene(envScene, 0, 0.1, 1000);
       scene.environment = next.texture;
       envRT?.dispose();
@@ -1012,34 +1008,37 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
 
     // Rain-damp ground mirrors the towers: a planar reflection sampled by the ground shader.
     const reflStrength = { value: 0.85 };
-    const reflector = hq ? new Reflector(new THREE.PlaneGeometry(1, 1), { clipBias: 0.002, textureWidth: 512, textureHeight: 512, multisample: 0 }) : null;
+    const reflector = made && hq ? new Reflector(new THREE.PlaneGeometry(1, 1), { clipBias: 0.002, textureWidth: 512, textureHeight: 512, multisample: 0 }) : null;
     if (reflector) { reflector.rotation.x = -Math.PI / 2; reflector.updateMatrixWorld(); }
 
-    const target = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+    const target = made ? new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }) : null;
     /** WebGL programs for `obj` (with this scene's lights and fog), linked in parallel
      * (KHR_parallel_shader_compile) instead of stalling its first draw in turn. Compiled
      * as the composer draws them: into its HDR target (linear, no tone mapping). */
     const glCompile = (obj: THREE.Object3D) => {
+      if (!target) return Promise.resolve();
       const prev = renderer.getRenderTarget();
       renderer.setRenderTarget(target);
       const done = safeCompileAsync(renderer, obj, camera, scene);
       renderer.setRenderTarget(prev);
       return done;
     };
-    const composer = new EffectComposer(renderer, target);
-    composer.addPass(new RenderPass(scene, camera));
-    const gtao = hq ? new GTAOPass(scene, camera, 1, 1) : null;
+    // Native has its own full AO/bloom/reflection passes. Building a second,
+    // unused WebGL compositor also generated noise and shaders on the input thread.
+    const composer = target ? new EffectComposer(renderer, target) : null;
+    composer?.addPass(new RenderPass(scene, camera));
+    const gtao = made && hq ? new GTAOPass(scene, camera, 1, 1) : null;
     if (gtao) {
       gtao.updateGtaoMaterial({ radius: 5, distanceExponent: 1.5, thickness: 6, scale: 1, samples: 12, distanceFallOff: 1, screenSpaceRadius: false });
       gtao.updatePdMaterial({ lumaPhi: 10, depthPhi: 2, normalPhi: 3, radius: 6, rings: 2, samples: 12 });
       gtao.blendIntensity = 0.75;
-      composer.addPass(gtao);
+      composer?.addPass(gtao);
     }
-    const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.55, 1.15);
-    composer.addPass(bloom);
-    composer.addPass(new OutputPass());
-    const finish = new ShaderPass(FinishShader);
-    composer.addPass(finish);
+    const bloom = made ? new UnrealBloomPass(new THREE.Vector2(256, 256), 0.2, 0.55, 1.15) : null;
+    if (bloom) composer?.addPass(bloom);
+    if (composer) composer.addPass(new OutputPass());
+    const finish = made ? new ShaderPass(FinishShader) : null;
+    if (finish) composer?.addPass(finish);
 
     const stage: Stage = {
       renderer, scene, camera, controls, composer, bloom, finish, sun, hemi, sky, reflector, reflStrength, reflectOn: false, refreshEnv,
@@ -1093,11 +1092,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (native || nativePending) return;
       renderer.setPixelRatio(ratio);
       renderer.setSize(W, H, false);
-      composer.setPixelRatio(ratio);
-      composer.setSize(W, H);
-      bloom.setSize(W * ratio / 2, H * ratio / 2);
+      composer?.setPixelRatio(ratio);
+      composer?.setSize(W, H);
+      bloom?.setSize(W * ratio / 2, H * ratio / 2);
       reflector?.getRenderTarget().setSize(Math.round(W * ratio * 0.5), Math.round(H * ratio * 0.5));
-      finish.uniforms.uAspect.value = W / H;
+      if (finish) finish.uniforms.uAspect.value = W / H;
     };
     // (a new canvas size clears it: drawn again at once, before the page paints, not a blank
     // frame first — the loop may be skipping this frame at the idle rate)
@@ -1395,7 +1394,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         (reflector.onBeforeRender as (r: THREE.WebGLRenderer, s: THREE.Scene, c: THREE.Camera) => void)(renderer, scene, camera);
         stage.ground.visible = true;
       }
-      if (gl && !glWait) composer.render();
+      if (gl && !glWait) composer?.render();
       // A picture for sharing: read in the task that drew the frame (neither canvas keeps
       // its drawing after it is shown).
       if (stage.snap) {
@@ -1405,8 +1404,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (stage.unshown && stage.model && (native?.ready || (gl && !glWait))) {
         stage.unshown = false;
         settleUntil = nowMs + 4000;
-        stage.onShown.splice(0).forEach(f => f());
         host.dataset.shownAt = performance.now().toFixed(0);
+        const jobs = stage.onShown.splice(0);
+        const model = stage.model;
+        void (async () => {
+          for (const f of jobs) {
+            await frameSlice();
+            if (disposed || stage.model !== model) return;
+            f();
+          }
+        })();
       }
     };
 
@@ -1458,8 +1465,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       shared.uSnow.value = l.snow;
       precip.setLook(l);
       reflStrength.value = l.reflect;
-      bloom.strength = l.bloom;
-      bloom.threshold = l.bloomAt;
+      if (bloom) { bloom.strength = l.bloom; bloom.threshold = l.bloomAt; }
       if (env) refreshEnv();
     };
     stage.refreshEnv = () => applyLook(stage.look, true);
@@ -1505,12 +1511,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stage.disposeModel();
       disposeControls(controls);
       listening.abort();
-      composer.dispose();
-      target.dispose();
+      composer?.dispose();
+      target?.dispose();
       gtao?.dispose();
       reflector?.dispose();
       envRT?.dispose();
-      pmrem.dispose();
+      pmrem?.dispose();
       sky.geometry.dispose();
       sky.material.dispose();
       moon.dispose();
@@ -1879,8 +1885,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // responsive; behind an open popup, only in the browser's idle time.
     let sliceStart = performance.now();
     const pace = async (force = false) => {
-      // (6 ms: what is left of a frame after the view's own drawing — longer slices missed frames)
-      if (force || performance.now() - sliceStart > 6) {
+      // Keep builders within 2 ms before yielding to the view's next frame.
+      if (force || performance.now() - sliceStart > 2) {
         cpu += performance.now() - sliceStart;
         await nextSlice(pausedRef.current);
         sliceStart = performance.now();
@@ -3062,13 +3068,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const onCarriageway = carriageway(roads, 0.8);
       const blocked = (x: number, y: number) => Math.abs(x) > T || Math.abs(y) > T || inFootprint(x, y) || onCarriageway(x, y);
       const crowd = async (paths: WalkPath[], salt: number, spacing: number, cap: number, cut = true) => {
-        // (cut 40 paths a slice: all at once was ~20 ms of a frame)
+        // Keep every original path sample; clipping is pure geometry work.
         let open = paths;
         if (cut) {
-          open = [];
-          for (let i = 0; i < paths.length; i += 40) {
-            if (i && !await later()) return;
-            open.push(...timed("cutPaths", () => cutPaths(paths.slice(i, i + 40), blocked)));
+          const prepared = await sceneWork('walkPaths',{paths,roads,footprints,T})?.catch(() => null);
+          if (!alive) return;
+          if (prepared) open = prepared;
+          else {
+            open = [];
+            for (let i = 0; i < paths.length; i += 4) {
+              if (i && !await later()) return;
+              open.push(...timed("cutPaths", () => cutPaths(paths.slice(i, i + 4), blocked)));
+            }
           }
         }
         const walkers = await buildWalkers(open, roadTerrain, seed + salt, spacing, cap);
@@ -4141,7 +4152,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   };
   useEffect(() => {
     const st = stageRef.current, cv = signCanvas.current;
-    if (!st || !cv) return;
+    if (!st || !cv || !signs.length) return;
     const g = cv.getContext("2d");
     if (!g) return;
     const font = getComputedStyle(cv).fontFamily || "Pretendard, sans-serif";

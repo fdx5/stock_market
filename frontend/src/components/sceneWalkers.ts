@@ -1,4 +1,5 @@
 import { frameSlice } from "./frameSlice";
+import { walkerJoint } from "./walkerJoint";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { RoundedBoxGeometry } from "three/examples/jsm/geometries/RoundedBoxGeometry.js";
@@ -388,7 +389,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
   // Pose: per walker a base matrix, then joints down each limb.
   const base = new THREE.Matrix4(), joint = new THREE.Matrix4(), tmp = new THREE.Matrix4(), tmp2 = new THREE.Matrix4();
   const q = new THREE.Quaternion(), yAxis = new THREE.Vector3(0, 1, 0), pos = new THREE.Vector3(), scl = new THREE.Vector3();
-  const rotX = new THREE.Matrix4(), trans = new THREE.Matrix4();
+  const rotX = new THREE.Matrix4();
   const set = (w: Walker, k: number, m: THREE.Matrix4) => {
     const [mi, ci] = w.slots[k];
     const at = cursor[mi]++;
@@ -400,10 +401,7 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     }
   };
   /** T(x, y, z) · Rx(a), post-multiplied onto `from` into `out`. */
-  const chain = (out: THREE.Matrix4, from: THREE.Matrix4, x: number, y: number, z: number, a: number) => {
-    trans.makeTranslation(x, y, z); rotX.makeRotationX(a);
-    return out.multiplyMatrices(from, trans).multiply(rotX);
-  };
+  const chain = walkerJoint;
   const frustum = new THREE.Frustum(), vp = new THREE.Matrix4(), sphere = new THREE.Sphere(new THREE.Vector3(), 1.2), wide = new THREE.Sphere(new THREE.Vector3(), 15);
   let frameN = 0;
   const camPos = new THREE.Vector3();
@@ -460,7 +458,8 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     chain(joint, base, 0, NECK_Y, 0, g === "slow" ? 0.12 : 0);
     set(w, 1, joint); set(w, 2, joint);
     // Legs: hip swing, knee flexing in the swing phase; the shoe rides the shin.
-    for (const [side, k] of [[1, 0], [-1, 1]] as const) {
+    for (let k = 0; k < 2; k++) {
+      const side = k === 0 ? 1 : -1;
       const a = Math.sin(φ + (k ? Math.PI : 0)), da = Math.cos(φ + (k ? Math.PI : 0));
       chain(tmp, base, side * HIP_X, HIP_Y, 0, -swing * a);
       set(w, 3 + k, tmp);
@@ -470,7 +469,8 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     }
     // Arms: opposite the legs; carrying holds both forward, hand-held bags swing less.
     const carry = g === "carry", held = w.held >= 0;
-    for (const [side, k] of [[1, 0], [-1, 1]] as const) {
+    for (let k = 0; k < 2; k++) {
+      const side = k === 0 ? 1 : -1;
       const a = Math.sin(φ + (k ? 0 : Math.PI));
       const loaded = held && k === 1;
       const sh = carry ? -0.75 : -(run ? 0.55 : loaded ? swing * 0.25 : swing * 0.85) * a;

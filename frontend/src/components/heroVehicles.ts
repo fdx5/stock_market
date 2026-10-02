@@ -190,7 +190,7 @@ function brushedSteel() {
 /** 쿠팡 로켓배송 탑차: a Porter-type cab-over 1-ton truck, all white, its aluminium box in the
  * livery — cab glazing, lamps, grille, bumper, mirrors, wipers and steps; the box's corner posts
  * and rails, rear doors with lock bars, tail lamps, side guards, mud flaps; dual rear wheels. */
-export function coupangTruck(): HeroShape {
+export function coupangTruck(geometryOnly = false): HeroShape {
   const W = 1.75, cabF = 2.65, cabL = 1.62, white = "#f6f6f4";
   const zc = cabF - cabL / 2, by = 1.75, bz = -0.95, BL = 3.25, BW = 1.86, BH = 1.9, rearZ = bz - BL / 2;
   const painted: THREE.BufferGeometry[] = [
@@ -243,7 +243,7 @@ export function coupangTruck(): HeroShape {
     return g;
   };
   const geometry = twoGroups(painted, [side(1), side(-1), rear, cabDoor(1), cabDoor(-1)]);
-  const material = new THREE.MeshStandardMaterial({ map: coupangLivery(), roughness: 0.45, metalness: 0.05 });
+  const material = geometryOnly ? new THREE.MeshStandardMaterial() : heroSurface("coupang");
   const wheels: WheelAt[] = sides.flatMap(sd => [
     { x: sd * (W / 2 - 0.16), z: 1.75, side: sd }, { x: sd * (W / 2 - 0.12), z: -1.55, side: sd }, { x: sd * (W / 2 - 0.38), z: -1.55, side: sd, inner: true },
   ]);
@@ -256,7 +256,7 @@ export function coupangTruck(): HeroShape {
  * tail chamfered), its glass (windscreen, side windows, the glass roof), door seams and the
  * window-line crease, the vault seam, the full-width light bars, mirrors, the single wiper, the
  * dark arches and cladding, aero-covered 35-inch tyres. */
-export function cybertruck(): HeroShape {
+export function cybertruck(geometryOnly = false): HeroShape {
   const L = 5.68, W = 2.0, front = L / 2, back = -L / 2;
   const nose = 0.98, peakU = -0.35, peak = 1.79, tail = 1.33, floor = 0.42;
   // Side profile (u forward, v up), extruded across the width with a small bevel.
@@ -342,9 +342,16 @@ export function cybertruck(): HeroShape {
   const geometry = twoGroups(painted, [body]);
   // Unpainted stainless steel: brushed lengthwise (the grain in the roughness), a little uneven
   // panel to panel.
-  const material = new THREE.MeshStandardMaterial({ color: "#cfd2d4", metalness: 0.92, roughness: 0.42, roughnessMap: brushedSteel() });
+  const material = geometryOnly ? new THREE.MeshStandardMaterial() : heroSurface("cyber");
   const wheels: WheelAt[] = sides.flatMap(sd => [{ x: sd * (W / 2 - 0.1), z: 1.9, side: sd }, { x: sd * (W / 2 - 0.1), z: -1.9, side: sd }]);
   return { geometry, material, dims: [L, W, 0.62], wheel: heroWheel("aero", 0.44, 0.34), radius: 0.44, wheels,
     // (plates a hand proud of the bevelled nose and tail: on their planes they flickered in and out)
     plate: [L, 0.56, 0.86, B + 0.03, B + 0.03] };
+}
+
+/** Geometry may come from the worker; surface painting stays with the page's exact font. */
+export function heroSurface(name: HeroName) {
+  return name === "coupang"
+    ? new THREE.MeshStandardMaterial({ map: coupangLivery(), roughness: 0.45, metalness: 0.05 })
+    : new THREE.MeshStandardMaterial({ color: "#cfd2d4", metalness: 0.92, roughness: 0.42, roughnessMap: brushedSteel() });
 }

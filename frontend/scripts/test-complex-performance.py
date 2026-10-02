@@ -23,6 +23,9 @@ args.add_argument('--missing-feature-marker',action='store_true')
 args.add_argument('--fail-webgpu-pipeline',action='store_true',help='verify immediate compatibility fallback after a real pipeline rejection')
 args.add_argument('--paused-rail',action='store_true')
 args.add_argument('--profile-cpu',action='store_true')
+args.add_argument('--trace-stalls',action='store_true')
+args.add_argument('--trace-browser',action='store_true',help='diagnose browser tasks during first loading')
+args.add_argument('--verify-shaders',action='store_true')
 args.add_argument('--cpu-rate',type=float,default=1,help='CDP CPU slowdown rate; match before/after')
 args.add_argument('--on-page', action='store_true', help='control: original painting on the page')
 opts = args.parse_args()
@@ -36,12 +39,16 @@ paths[0].write_text('''import React, {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import ComplexHologram from './components/ComplexHologram';
 import {ComplexRenderer} from './components/tidewater/ComplexRenderer';
+import {GPU} from './vendor/tidewater/engine/gpu/GPU';
+GPU.verifyAsyncShaders=VERIFY_SHADERS;
 // Hold resolution constant so adaptive scaling cannot skew the before/after run.
 const resize = ComplexRenderer.prototype.setSize;
 ComplexRenderer.prototype.setSize = function(w, h) { resize.call(this, w, h, 1.5); };
 const original = ComplexRenderer.prototype.render;
 ComplexRenderer.prototype.render = function(...args) {
-  const visible = this.__reviewVisible ??= !!this.canvas.parentElement?.getBoundingClientRect().width;
+  // The fixture hides its rail explicitly. Reading a rectangle here forced a
+  // full page layout inside the first GPU frame and distorted loading results.
+  const visible = this.__reviewVisible ??= !this.canvas.parentElement?.closest('[hidden], [style*="display: none"]');
   if (visible) (window as any).__native = this;
   const counts = (window as any).__viewRenders ??= {visible:0,hidden:0};
   counts[visible ? 'visible' : 'hidden']++;
@@ -58,7 +65,7 @@ function Review() {
   </div>;
 }
 createRoot(document.getElementById('root')!).render(<Review/>);
-'''.replace('PAUSED_RAIL','<div style={{display:"none"}}><ComplexHologram complexId="perf-b" paused complexName="Hidden fixture" initialTod="day" /></div>' if opts.paused_rail else ''), encoding='utf-8')
+'''.replace('VERIFY_SHADERS','true' if opts.verify_shaders else 'false').replace('PAUSED_RAIL','<div style={{display:"none"}}><ComplexHologram complexId="perf-b" paused complexName="Hidden fixture" initialTod="day" /></div>' if opts.paused_rail else ''), encoding='utf-8')
 paths[1].write_text('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0"><div id="root"></div><script type="module" src="/src/__perf3d.tsx"></script></body></html>', encoding='utf-8')
 
 if opts.production:
@@ -104,12 +111,14 @@ data = dict(id='perf-a',name='Performance fixture',address='',built=2020,found=T
 instrument = '''
 window.__perf = {cpu:[], writes:0, bytes:0, passes:0, draws:0, liveBytes:0, buffers:0, pipelines:0, tasks:[]};
 window.__loadingInput = {delays: [], frames: []};
+window.__framePhase='loading';window.__frameTimeline=[];
 addEventListener('pointermove', e => {
   if (!document.querySelector('.re-holo-stage')?.dataset.shownAt)
     __loadingInput.delays.push(Math.max(0, performance.now() - e.timeStamp));
 }, {passive:true});
 let prevLoading;
 function loadingFrame(t) {
+  if(prevLoading!==undefined)__frameTimeline.push({at:t,ms:t-prevLoading,phase:__framePhase});
   if (prevLoading !== undefined && !document.querySelector('.re-holo-stage')?.dataset.shownAt)
     __loadingInput.frames.push(t-prevLoading);
   prevLoading=t;requestAnimationFrame(loadingFrame);
@@ -154,6 +163,7 @@ with sync_playwright() as p:
     profiler = page.context.new_cdp_session(page) if opts.profile_cpu else None
     if profiler:
         profiler.send("Profiler.enable")
+        profiler.send("Performance.enable")
         profiler.send("Profiler.start")
     if opts.missing_feature_marker:
         page.add_init_script("if (navigator.gpu) Object.defineProperty(navigator.gpu, 'wgslLanguageFeatures', {value:new Set()})")
@@ -165,12 +175,27 @@ with sync_playwright() as p:
     if opts.paused_rail:
         page.add_init_script("window.__stages=[];Object.defineProperty(window,'__complexStage',{get(){return __stages[0]},set(s){__stages.push(s)}})")
     page.add_init_script(instrument)
+    if opts.trace_stalls:
+        page.add_init_script('''window.__slowCalls=[];
+          function track(o,n){if(!o?.[n])return;const original=o[n];o[n]=function(...args){const t=performance.now();try{return original.apply(this,args)}finally{const ms=performance.now()-t;if(ms>8)__slowCalls.push({name:n,at:t,ms,stack:Error().stack})}}}
+          track(window,'createImageBitmap');
+          for(const n of ['createTexture','createBuffer','createShaderModule','createRenderPipelineAsync'])track(globalThis.GPUDevice?.prototype,n);
+          for(const n of ['copyExternalImageToTexture','writeTexture','submit'])track(globalThis.GPUQueue?.prototype,n);
+          for(const n of ['getImageData','drawImage'])track(globalThis.CanvasRenderingContext2D?.prototype,n);
+        ''')
     if opts.webgl:
         page.add_init_script("Object.defineProperty(navigator, 'gpu', {value:undefined})")
-    errors=[]
+    errors=[];network_failures=[]
+    page.on('requestfailed',lambda req:network_failures.append({'url':req.url.split('?')[0],'failure':req.failure}))
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.on('console',lambda m:errors.append(m.text) if (m.type=='error' or 'validation failed' in m.text) and not (opts.fail_webgpu_pipeline and 'Injected unsupported shader' in m.text) else None)
     page.route(opts.base_url + '/api/**',lambda r:r.fulfill(json={**data,'id':'perf-b' if 'perf-b' in r.request.url else 'perf-a'}))
+    tracer = page.context.new_cdp_session(page) if opts.trace_browser else None
+    trace_events=[];trace_complete=[]
+    if tracer:
+        tracer.on('Tracing.dataCollected',lambda e:trace_events.extend(e['value']))
+        tracer.on('Tracing.tracingComplete',lambda e:trace_complete.append(True))
+        tracer.send('Tracing.start',{'categories':'devtools.timeline,disabled-by-default-devtools.timeline,v8,disabled-by-default-v8.compile','transferMode':'ReportEvents'})
     page.goto(opts.base_url + '/__perf3d.html')
     try:
         for i in range(1200):
@@ -183,34 +208,64 @@ with sync_playwright() as p:
         print(json.dumps({'errors':errors,'text':page.locator('body').inner_text(),'state':page.evaluate('({...document.querySelector(".re-holo-stage")?.dataset})')},ensure_ascii=False),flush=True)
         page.screenshot(path=str(out/'failure.png'))
         raise
-    if profiler:
-        (out/'cpu-profile.json').write_text(json.dumps(profiler.send("Profiler.stop")),encoding='utf-8')
     report={'first':page.evaluate('({...__perf,state:{...document.querySelector(".re-holo-stage").dataset}})')}
+    if tracer:
+        tracer.send('Tracing.end')
+        for _ in range(200):
+            if trace_complete: break
+            page.wait_for_timeout(25)
+        assert trace_complete,'Browser trace did not finish'
+        (out/'browser-trace.json').write_text(json.dumps({'traceEvents':trace_events}),encoding='utf8')
+    if profiler: report['profileClock']=profiler.send('Performance.getMetrics')
     report['environment'] = {'buildMode': 'production' if opts.production else 'development', 'browser': browser.version, 'fixture': 'complex-perf-v1', 'renderScale': 1.5, 'cpuRate':opts.cpu_rate, 'detailDelay':opts.stall_detail_seconds, 'pausedRail':opts.paused_rail, 'featureMarkerRemoved':opts.missing_feature_marker}
     report['loadingInput'] = page.evaluate('''()=>{
       const summarize=a=>{a.sort((x,y)=>x-y);return {count:a.length,median:a[Math.floor(a.length*.5)]??0,p95:a[Math.floor(a.length*.95)]??0,max:a[a.length-1]??0,over20:a.filter(x=>x>20).length}};
       return {pointerDelay:summarize(__loadingInput.delays),frames:summarize(__loadingInput.frames)};
     }''')
     first_canvases = page.locator('.re-holo-stage canvas').count()
+    page.evaluate("__framePhase='extras'")
     traffic_ready = "()=>{let ready=false;window.__complexStage?.scene.traverse(g=>{if(g.userData.traffic)ready=true});return ready && !!document.querySelector('.re-holo-stage')?.dataset.shownAt}"
-    page.wait_for_function(traffic_ready,timeout=60000)
+    try:
+        page.wait_for_function(traffic_ready,timeout=60000)
+    except Exception:
+        report['errors']=errors
+        report['timeout']=page.evaluate('({state:{...document.querySelector(".re-holo-stage").dataset},cpu:__perf.cpu.slice(-120),tasks:__perf.tasks,stage:{busy:__complexStage?.busy,building:__complexStage?.building,tick:__complexStage?.tick.length,onShown:__complexStage?.onShown.length}})')
+        (out/'report.json').write_text(json.dumps(report,indent=2),encoding='utf8')
+        print(json.dumps(report['timeout']['state']), errors,flush=True)
+        raise
     page.evaluate('''()=>{const s=window.__complexStage;s.controls.autoRotate=false;s.intro=null;s.frame();s.controls.update()}''')
     page.wait_for_timeout(2500)
-    report['overview']=page.evaluate(sample)
+    page.evaluate("__framePhase='overview'");report['overview']=page.evaluate(sample)
     print('overview',json.dumps(report['overview']),flush=True)
+    page.evaluate("__framePhase='cameraTransition'")
     page.evaluate('''()=>{const s=window.__complexStage;s.controls.target.set(0,3,100);s.camera.position.set(75,18,110);s.controls.update()}''')
     page.wait_for_timeout(500)
-    report['street']=page.evaluate(sample)
-    page.screenshot(path=str(out/'street.png'))
+    page.evaluate("__framePhase='street'");report['street']=page.evaluate(sample)
     # Looking away must not continually upload matrices for already-hidden people.
+    page.evaluate("__framePhase='cameraTransition'")
     page.evaluate('''()=>{const s=window.__complexStage;s.controls.target.set(0,300,-1500);s.camera.position.set(0,300,-1000);s.controls.update()}''')
     page.wait_for_timeout(500)
-    report['away']=page.evaluate(sample)
+    page.evaluate("__framePhase='away'");report['away']=page.evaluate(sample)
+    page.evaluate("__framePhase='switchLoading'")
     for n in range(4):
         page.evaluate("__select("+json.dumps('perf-b' if n%2==0 else 'perf-a')+")")
         page.wait_for_function(traffic_ready,timeout=60000)
         page.wait_for_timeout(1700)
-    report['afterSwitch']=page.evaluate(sample)
+    page.evaluate("__framePhase='afterSwitch'");report['afterSwitch']=page.evaluate(sample)
+    page.evaluate("__framePhase='interaction'")
+    box=page.locator('.re-holo-stage').first.bounding_box()
+    page.mouse.move(box['x']+box['width']*.5,box['y']+box['height']*.5);page.mouse.down()
+    for i in range(90):
+        page.mouse.move(box['x']+box['width']*(.5+(i%30-15)/150),box['y']+box['height']*(.5+(i%20-10)/120));page.wait_for_timeout(8)
+    page.mouse.up();page.wait_for_timeout(500)
+    report['frameTimeline']=page.evaluate('__frameTimeline')
+    if profiler:
+        (out/'cpu-profile.json').write_text(json.dumps(profiler.send("Profiler.stop")),encoding='utf-8')
+    # Capture QA images after the continuous timing record. Screenshot readback
+    # itself synchronizes the GPU and must not be attributed to interactive use.
+    page.evaluate('''()=>{const s=window.__complexStage;s.controls.target.set(0,3,100);s.camera.position.set(75,18,110);s.controls.update()}''')
+    page.wait_for_timeout(500)
+    page.screenshot(path=str(out/'street.png'))
     # A reproducible still: fixed camera and shader time, no traffic or walkers,
     # all the actual architecture/ground/trees retained for the visual comparison.
     if not (opts.webgl or opts.fail_webgpu_pipeline):
@@ -222,10 +277,12 @@ with sync_playwright() as p:
     report['viewRenders']=page.evaluate('window.__viewRenders')
     if opts.paused_rail: assert report['viewRenders']['hidden']==0, report['viewRenders']
     report['errors']=errors
+    report['networkFailures']=network_failures
     report['canvases']=page.locator('.re-holo-stage canvas').count()
     report['tasks']=page.evaluate('__perf.tasks')
+    if opts.trace_stalls: report['slowCalls']=page.evaluate('__slowCalls')
     (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-    print(json.dumps({k:v for k,v in report.items() if k not in ('first','tasks')},ensure_ascii=False),flush=True)
+    print(json.dumps({k:v for k,v in report.items() if k not in ('first','tasks','frameTimeline','profileClock')},ensure_ascii=False),flush=True)
     assert not errors,errors
     assert report['canvases']==first_canvases, 'canvas count grew after switching complexes'
     assert report['overview']['state']['renderer']==('webgl' if opts.webgl or opts.fail_webgpu_pipeline else 'tidewater-webgpu')

@@ -79,7 +79,7 @@ test('worker bridge and sidewalk layouts retain every original sample and height
   globalThis.self = { postMessage(message, transfers) { reply = structuredClone(message, { transfer: transfers }); } };
   try {
     const bundle = buildSync({
-      stdin: { contents: `import './sceneWorker'; export {findBridges} from './sceneBridges'; export {sidewalkRuns} from './sceneSidewalk'; export {gridAt} from './waterCore'; export {FLAT} from './sceneTerrain'; export {makeGroundGeometry} from './groundGeometry';`,
+      stdin: { contents: `import './sceneWorker'; export {findBridges} from './sceneBridges'; export {sidewalkRuns,ringIndex,carriageway} from './sceneSidewalk'; export {cutPaths,sidewalkPaths} from './sceneWalkers'; export {gridAt} from './waterCore'; export {FLAT} from './sceneTerrain'; export {makeGroundGeometry} from './groundGeometry';`,
         resolveDir: new URL('../src/components', import.meta.url).pathname.replace(/^\/(\w:)/, '$1') },
       bundle: true, write: false, format: 'esm', platform: 'node', define: { 'import.meta.env': '{}' },
     }).outputFiles[0].text;
@@ -95,6 +95,11 @@ test('worker bridge and sidewalk layouts retain every original sample and height
     const expectedWalks = original.sidewalkRuns(roads, footprints);
     await self.onmessage({ data: { id: 2, op: 'sidewalks', args: { roads, footprints } } });
     assert.deepEqual(reply.result, expectedWalks);
+    const paths = original.sidewalkPaths(expectedWalks), inside = original.ringIndex(footprints), onRoad = original.carriageway(roads,0.8), T = 90;
+    const expectedPaths = original.cutPaths(paths,(x,y)=>Math.abs(x)>T || Math.abs(y)>T || inside(x,y) || onRoad(x,y));
+    assert.ok(expectedPaths.length);
+    await self.onmessage({data:{id:4,op:'walkPaths',args:structuredClone({paths,roads,footprints,T})}});
+    assert.deepEqual(reply.result,expectedPaths);
     const ground=await original.makeGroundGeometry(30,200,{...original.FLAT,at:original.gridAt(grid)},320,async()=>true);
     await self.onmessage({data:{id:3,op:'terrainGround',args:{T:30,G:200,segs:320,grid}}});
     for (const name of ['position','normal','uv']) assert.deepEqual(reply.result[name],ground.attributes[name].array);
