@@ -328,8 +328,12 @@ export function wallPaintFrom(px: Uint8ClampedArray, S: number, g: THREE.BufferG
       const hue = (60 * ((c[0] - c[1]) / (mx - mn)) + 240 + 360) % 360;
       return hue > 190 && hue < 255 && c[2] > c[0] * 1.12;
     };
-    if (skyBlue(colour[dominant])) continue;
-    for (let p = 0; p < colour.length; p++) if (skyBlue(colour[p])) colour[p] = colour[dominant];
+    // Nor is a wall near black paint: a north wall in deep shade, or a part of the photograph
+    // that is empty (원베일리 121동: a black front). Painted walls are never that dark — the
+    // wall keeps its default paint; a near-black patch takes the wall's main paint.
+    const black = (c: number[], below: number) => lum(c) < below;
+    if (skyBlue(colour[dominant]) || black(colour[dominant], 0.18)) continue;
+    for (let p = 0; p < colour.length; p++) if (skyBlue(colour[p]) || black(colour[p], 0.1)) colour[p] = colour[dominant];
     const base = colour[dominant];
     const final: number[][] = clean.map(() => base);
     for (let p = 0; p < kept.length; p++) {

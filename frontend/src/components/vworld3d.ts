@@ -316,6 +316,11 @@ export function surveyedShape(ph: PhotoBuilding, z0: number, windows?: Map<strin
   const trueEnd = (key: string) => {
     const o = offsets.get(key);
     if (!o) return false;
+    // (an end wall is the narrow side of a slab: a tower's faces — near square in plan, every
+    // side windowed — were taken for ends by whichever was the "long" axis, 원베일리 121동's
+    // whole front blank. Wider than 18 m, or than 0.6 of the longest wall: a front.)
+    const e = extent.get(key);
+    if (e && e[1] - e[0] > Math.min(18, longest * 0.6)) return false;
     const dot = o[2] * ax + o[3] * ay;
     if (Math.abs(dot) < 0.9) return false;
     const along = (o[0] / o[1]) * Math.sign(dot);

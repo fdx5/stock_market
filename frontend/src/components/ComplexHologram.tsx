@@ -2059,7 +2059,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       await Promise.all(rhythmOf.values());
       if (!alive) { drop(); releasePieces(); return; }
       const own = photos.filter(ph => feet.some(f => f.owner.startsWith("b") && Math.hypot(f.c[0] - (ph.cx + dx), f.c[1] - (ph.cy + dy)) < 12));
-      const colours = (await Promise.all(own.slice(0, 8).map(ph => photoColours(data.vworld_key!, ph).catch(() => null)))).filter(c => c && c.samples > 40) as NonNullable<Awaited<ReturnType<typeof photoColours>>>[];
+      // (a photograph whose walls read near black — deep shade, an empty patch of the image — says
+      // nothing of the paint: left out, as in photoAnalysis.wallPaintFrom)
+      const lumOf = (c: number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+      const colours = (await Promise.all(own.slice(0, 8).map(ph => photoColours(data.vworld_key!, ph).catch(() => null)))).filter(c => c && c.samples > 40 && lumOf(c.wall) >= 0.2) as NonNullable<Awaited<ReturnType<typeof photoColours>>>[];
       if (!alive) { drop(); releasePieces(); return; }
       let measured = { bay: BAY_M, storey: FLOOR_M };
       let ownWalls = walls, coreMat: THREE.Material = low, gableMat: THREE.Material = low, bandMat: THREE.Material = crown;
