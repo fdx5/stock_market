@@ -1,4 +1,5 @@
 import type { SceneOps } from "./sceneWorker";
+import { onSceneMemoryRelease } from "./sceneMemory";
 
 /* The scene worker (sceneWorker.ts), one for the session. null where a module worker can't
  * run, or once it has failed: the caller then does the work on the page, in slices. */
@@ -6,6 +7,10 @@ import type { SceneOps } from "./sceneWorker";
 let worker: Worker | null | undefined;
 let nextId = 0;
 const waiting = new Map<number, (r: { result?: unknown; error?: string }) => void>();
+onSceneMemoryRelease(() => {
+  worker?.terminate(); worker = undefined;
+  waiting.forEach(done => done({ error: "view released" })); waiting.clear();
+});
 
 function get(): Worker | null {
   if (worker !== undefined) return worker;

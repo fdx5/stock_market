@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { fetchStatic } from "../staticCdn";
+import { onSceneMemoryRelease } from "./sceneMemory";
 
 /* Passenger cars built from their proportions, in place of the Kenney kit's blocky bodies:
  * a side profile (bonnet, windscreen, roof, rear screen, boot or hatch) lofted through
@@ -277,6 +278,12 @@ export function loadCarModels(): Promise<Map<string, THREE.BufferGeometry>> {
  * surface itself (ComplexRenderer CAR_MODEL). */
 const PART_RGB = ["#ffffff", "#1b2028", "#141414", "#9ea3a8", "#c8ccd0", "#f2efe6", "#9a1c1c", "#eeeeea", "#f0a823", "#0c0c0c", "#d4d7da", "#eeeeeb"];
 let partTex: THREE.Texture | null = null;
+onSceneMemoryRelease(() => {
+  cache.forEach(g => g.dispose()); cache.clear();
+  const old = modelled; modelled = null;
+  void old?.then(models => { models.forEach(g => g.dispose()); models.clear(); }).catch(() => {});
+  partTex?.dispose(); partTex = null;
+});
 export function carModelMaterial() {
   if (!partTex) {
     const c = document.createElement("canvas"); c.width = 16; c.height = 1;

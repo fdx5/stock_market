@@ -4,6 +4,56 @@ import test from 'node:test';
 import { BufferGeometry, Float32BufferAttribute, InstancedBufferAttribute } from 'three';
 import { GPU } from '../src/vendor/tidewater/engine/gpu/GPU.js';
 import { MeshRenderer } from '../src/vendor/tidewater/engine/render/MeshRenderer.js';
+import { stripUnusedFunctions } from '../src/vendor/tidewater/engine/gpu/Shader.js';
+import { BoundedCache } from '../src/vendor/tidewater/engine/gpu/BoundedCache.js';
+
+test('cache eviction respects memory budgets and retains recently reused pipelines', () => {
+  const c = new BoundedCache(2, 40);
+  c.set('first', 'aaaa'); c.set('second', 'bb');
+  assert.equal(c.get('first'), 'aaaa');
+  c.set('third', 'cccc');
+  assert.ok(c.has('first')); assert.ok(!c.has('second'));
+  assert.ok(c.bytes <= 40);
+  c.set('oversized', 'x'.repeat(100));
+  assert.ok(!c.has('oversized')); assert.equal(c.size, 2);
+  c.delete('first'); c.clear();
+  assert.equal(c.bytes, 0); assert.equal(c.size, 0);
+});
+
+test('retiring a material releases only its pipeline bindings', () => {
+  const r = new MeshRenderer();
+  r.pipelines.set('7.color', {old: true}); r.pipelines.set('7.depth', {old: true});
+  r.pipelines.set('70.color', {live: true});
+  r.forgetMaterial({id: 7});
+  assert.deepEqual([...r.pipelines.keys()], ['70.color']);
+});
+
+test('shader pruning retains transitive resources, aliases and annotated entry points', () => {
+  const code = `enable f16;
+    diagnostic(off, derivative_uniformity);
+    struct Params { value: vec4f, }
+    alias Color = vec4f;
+    @group(1) @binding(0) var<uniform> live: Params;
+    @group(1) @binding(1) var unused: texture_2d<f32>;
+    const factor = 2.0;
+    fn read() -> Color { return live.value * factor; }
+    fn dead() -> vec4f { return textureLoad(unused, vec2i(0), 0); }
+    @vertex fn vs() -> @builtin(position) vec4f { return read(); }
+    @fragment fn fs() -> @location(0) vec4f { return read(); }`;
+  const lean = stripUnusedFunctions(code);
+  for (const name of ['Params', 'Color', 'live', 'factor', 'read', 'vs', 'fs']) assert.match(lean, new RegExp(`\\b${name}\\b`));
+  assert.doesNotMatch(lean, /\b(dead|unused)\b/);
+  assert.match(lean, /enable f16/);
+  assert.match(lean, /diagnostic\(off, derivative_uniformity\)/);
+  assert.equal(stripUnusedFunctions(code), lean);
+});
+
+test('depth pruning removes fragment-only declarations without editing the vertex program', () => {
+  const vertex = '@vertex fn vs() -> @builtin(position) vec4f { return vec4f(0.0); }';
+  const lean = stripUnusedFunctions(`struct Surface { color: vec4f, } fn surface() -> Surface { return Surface(vec4f(1.0)); } ${vertex}`);
+  assert.ok(lean.includes(vertex));
+  assert.doesNotMatch(lean, /\b(Surface|surface)\b/);
+});
 
 function mockGPU() {
   const writes = [], buffers = [];

@@ -89,3 +89,42 @@ def water(lat: float, lon: float, radius: float = 700) -> dict:
         if len(_cache) > 2000:
             _cache.pop(next(iter(_cache)))
     return out
+
+
+_xcache: dict[tuple, tuple[float, dict]] = {}
+
+
+def crossings(lat: float, lon: float, radius: float = 700) -> dict:
+    """Mapped crosswalks (footway=crossing ways, crossing nodes) and traffic signals round a
+    point, from OpenStreetMap: lines and points in metres about it (x east, y north), for the
+    3D viewer's junctions — where its zebra crossings, stop lines and signal heads stand."""
+    key = (round(lat, 3), round(lon, 3), int(radius))
+    hit = _xcache.get(key)
+    if hit and time.time() - hit[0] < (KEEP_S if hit[1]["crossings"] or hit[1]["signals"] else MISS_S):
+        return hit[1]
+    r = int(radius * 1.2)
+    q = (f'[out:json][timeout:25];(way["footway"="crossing"](around:{r},{lat},{lon});'
+         f'node["highway"="crossing"](around:{r},{lat},{lon});node["highway"="traffic_signals"](around:{r},{lat},{lon}););out geom;')
+    try:
+        els = _overpass(q)
+    except BuildingsError:
+        return {"crossings": [], "points": [], "signals": [], "source": None}
+    project = _projector(lat, lon)
+    lines, points, signals = [], [], []
+    for e in els:
+        tags = e.get("tags", {})
+        if e.get("type") == "way":
+            pts = [project(p["lon"], p["lat"]) for p in e.get("geometry", []) if p]
+            if len(pts) >= 2:
+                lines.append({"line": pts, "signals": tags.get("crossing") == "traffic_signals"})
+        elif tags.get("highway") == "traffic_signals":
+            signals.append(project(e["lon"], e["lat"]))
+        else:
+            points.append({"at": project(e["lon"], e["lat"]), "signals": tags.get("crossing") == "traffic_signals",
+                           "marked": tags.get("crossing") in ("marked", "zebra", "traffic_signals") or tags.get("crossing:markings") not in (None, "no")})
+    out = {"crossings": lines, "points": points, "signals": signals, "source": "OpenStreetMap"}
+    with _lock:
+        _xcache[key] = (time.time(), out)
+        if len(_xcache) > 2000:
+            _xcache.pop(next(iter(_xcache)))
+    return out

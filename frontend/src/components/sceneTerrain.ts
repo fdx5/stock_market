@@ -295,3 +295,101 @@ export function gridNormals(geo: THREE.BufferGeometry) {
   }
   nor.needsUpdate = true;
 }
+
+/** The roads graded: a DEM's posts (and the bilinear steps between them) came out on the
+ * asphalt as bumps, and a road sampled at both edges leaned across. Under each road (and its
+ * sidewalks) the ground is set to the road's own grade — the heights under the roads alone,
+ * smoothed over ~16 m (a normalised masked blur: junctions agree, the hills beside a road
+ * don't pull it), read at the nearest point of the centre line, so level across — then eased
+ * back to the ground over FADE m. Where that would move the ground by metres (a road over a
+ * river or a cut the DEM keeps) it is left as surveyed. A new Terrain; the given one unchanged. */
+export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; width: number }[]): Promise<Terrain> {
+  const g = t.grid;
+  if (!g || !roads.length) return t;
+  const { n, R, cell, h } = g;
+  const SIDE = 4, FADE = 8, SIG = 16 / cell, K = Math.ceil(SIG * 3);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, wMax = 0;
+  for (const r of roads) {
+    wMax = Math.max(wMax, r.width / 2);
+    for (const [x, y] of r.line) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  }
+  if (!Number.isFinite(x0)) return t;
+  const pad = wMax + SIDE + FADE + (K + 1) * cell;
+  const ci = (v: number) => Math.min(n - 1, Math.max(0, Math.round((v + R) / cell)));
+  const i0 = ci(x0 - pad), i1 = ci(x1 + pad), j0 = ci(y0 - pad), j1 = ci(y1 + pad);
+  const W = i1 - i0 + 1, H = j1 - j0 + 1, N = W * H;
+  if (W < 2 || H < 2) return t;
+  const near = new Float32Array(N).fill(Infinity), px = new Float32Array(N), py = new Float32Array(N), mask = new Float32Array(N);
+  let slice = performance.now();
+  const pace = async () => { if (performance.now() - slice > 6) { await frameSlice(); slice = performance.now(); } };
+  for (const r of roads) {
+    const hw = r.width / 2, reach = hw + SIDE + FADE, core = Math.max(hw, cell * 0.75);
+    for (let s = 1; s < r.line.length; s++) {
+      await pace();
+      const [ax, ay] = r.line[s - 1], [bx, by] = r.line[s], dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1e-6;
+      const ia = Math.max(i0, ci(Math.min(ax, bx) - reach) - 1), ib = Math.min(i1, ci(Math.max(ax, bx) + reach) + 1);
+      const ja = Math.max(j0, ci(Math.min(ay, by) - reach) - 1), jb = Math.min(j1, ci(Math.max(ay, by) + reach) + 1);
+      for (let j = ja; j <= jb; j++) for (let i = ia; i <= ib; i++) {
+        const x = -R + i * cell, y = -R + j * cell;
+        const u = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2)), qx = ax + dx * u, qy = ay + dy * u;
+        const d = Math.hypot(x - qx, y - qy);
+        if (d > reach) continue;
+        const k = (j - j0) * W + (i - i0);
+        if (d <= core) mask[k] = 1;
+        if (d - hw < near[k]) { near[k] = d - hw; px[k] = qx; py[k] = qy; }
+      }
+    }
+  }
+  // the masked blur, separable: Σ(h·m·G) / Σ(m·G)
+  const ker = Array.from({ length: 2 * K + 1 }, (_, i) => Math.exp(-((i - K) ** 2) / (2 * SIG * SIG)));
+  let num = new Float32Array(N), den = Float32Array.from(mask);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) { const k = j * W + i; num[k] = mask[k] * h[(j0 + j) * n + i0 + i]; }
+  const pass = async (src: Float32Array, horiz: boolean) => {
+    const out = new Float32Array(N);
+    for (let j = 0; j < H; j++) {
+      for (let i = 0; i < W; i++) {
+        let s = 0;
+        for (let o = -K; o <= K; o++) {
+          const a = horiz ? i + o : j + o;
+          if (a < 0 || a >= (horiz ? W : H)) continue;
+          s += ker[o + K] * src[horiz ? j * W + a : a * W + i];
+        }
+        out[j * W + i] = s;
+      }
+      await pace();
+    }
+    return out;
+  };
+  num = await pass(await pass(num, true), false);
+  den = await pass(await pass(den, true), false);
+  const sAt = (x: number, y: number, fallback: number) => {
+    const gx = Math.min(W - 1.001, Math.max(0, (x + R) / cell - i0)), gy = Math.min(H - 1.001, Math.max(0, (y + R) / cell - j0));
+    const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j;
+    let s = 0, w = 0;
+    for (const [k, f] of [[j * W + i, (1 - fx) * (1 - fy)], [j * W + i + 1, fx * (1 - fy)], [(j + 1) * W + i, (1 - fx) * fy], [(j + 1) * W + i + 1, fx * fy]] as const) {
+      if (den[k] > 1e-3 && f > 0) { s += (num[k] / den[k]) * f; w += f; }
+    }
+    return w > 0 ? s / w : fallback;
+  };
+  const out = Float32Array.from(h);
+  const ease = (v: number) => { const c = Math.max(0, Math.min(1, v)); return c * c * (3 - 2 * c); };
+  for (let k = 0; k < N; k++) {
+    const e = near[k];
+    if (!Number.isFinite(e)) continue;
+    const idx = (j0 + Math.floor(k / W)) * n + i0 + (k % W), was = h[idx];
+    const to = sAt(px[k], py[k], was), diff = to - was;
+    const w = (1 - ease((e - SIDE) / FADE)) * (1 - ease((Math.abs(diff) - 1.5) / 1.5));
+    out[idx] = was + diff * w;
+  }
+  const at = gridAt({ h: out, n, R, cell });
+  return {
+    ...t,
+    at,
+    base(ring) {
+      let m = Infinity;
+      for (const [x, y] of ring) m = Math.min(m, at(x, y));
+      return Number.isFinite(m) ? m : 0;
+    },
+    grid: { h: out, n, R, cell },
+  };
+}

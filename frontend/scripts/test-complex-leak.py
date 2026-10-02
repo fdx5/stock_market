@@ -31,9 +31,11 @@ import {createRoot} from 'react-dom/client';
 const ComplexHologram = lazy(() => import('./components/ComplexHologram'));
 function Page() {
   const [sheet, setSheet] = useState<string | null>(null);
+  const [rail, setRail] = useState(true);
   (window as any).__sheet = setSheet;
+  (window as any).__rail = setRail;
   return <div style={{display:'flex',gap:10,height:620}}>
-    <div style={{width:520,display:'flex'}}><Suspense fallback={null}><ComplexHologram complexId="rail" complexName="Rail" initialTod="day" paused={!!sheet} /></Suspense></div>
+    {rail && <div style={{width:520,display:'flex'}}><Suspense fallback={null}><ComplexHologram complexId="rail" complexName="Rail" initialTod="day" paused={!!sheet} /></Suspense></div>}
     {sheet && <div style={{width:620,display:'flex'}}><Suspense fallback={null}><ComplexHologram key={sheet} complexId={sheet} complexName="Sheet" initialTod="day" /></Suspense></div>}
   </div>;
 }
@@ -69,7 +71,13 @@ if (typeof GPUDevice !== 'undefined') {
   GPUBuffer.prototype.destroy = function () { if (sz.has(this)) { __m.buffers--; __m.bufBytes -= sz.get(this); sz.delete(this); } return db.call(this); };
   const ts = new WeakMap(), ct = GPUDevice.prototype.createTexture, dt = GPUTexture.prototype.destroy;
   GPUDevice.prototype.createTexture = function (d) { const t = ct.call(this, d); const s = d.size, w = s.width ?? s[0], h = s.height ?? s[1] ?? 1, l = s.depthOrArrayLayers ?? s[2] ?? 1;
-    const bytes = w * h * l * 4 * (d.mipLevelCount > 1 ? 1.33 : 1); ts.set(t, bytes); __m.textures++; __m.texBytes += bytes; return t; };
+    const pixelBytes = ({r8unorm:1,rg8unorm:2,r16float:2,rg16float:4,rgba16float:8,rgba32float:16})[d.format] ?? 4;
+    let bytes=0,mw=w,mh=h,ml=l;
+    for(let i=0;i<(d.mipLevelCount??1);i++) {
+      bytes += d.format.startsWith('bc7') ? Math.ceil(mw/4)*Math.ceil(mh/4)*ml*16 : mw*mh*ml*pixelBytes;
+      mw=Math.max(1,Math.floor(mw/2));mh=Math.max(1,Math.floor(mh/2));if(d.dimension==='3d')ml=Math.max(1,Math.floor(ml/2));
+    }
+    bytes *= d.sampleCount??1;ts.set(t, bytes); __m.textures++; __m.texBytes += bytes; return t; };
   GPUTexture.prototype.destroy = function () { if (ts.has(this)) { __m.textures--; __m.texBytes -= ts.get(this); ts.delete(this); } return dt.call(this); };
 }
 '''
@@ -85,6 +93,7 @@ with sync_playwright() as p:
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
     page.on('console', lambda m: errors.append(m.text) if m.type == 'error' else None)
+    page.on('console', lambda m: print(m.text, flush=True) if 'WebGPU' in m.text or 'validation failed' in m.text else None)
     page.route(f'http://{opts.host}:{opts.port}/api/**', lambda r: r.fulfill(json=data(r.request.url.split('id=')[-1].split('&')[0] if 'id=' in r.request.url else 'rail')))
     page.goto(f'http://{opts.host}:{opts.port}/__leak3d.html')
     page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.shownAt", timeout=60000)
@@ -108,9 +117,27 @@ with sync_playwright() as p:
         page.evaluate(f"__sheet('sheet-{i}')")
         page.wait_for_function("document.querySelectorAll('.re-holo-stage').length===2 && document.querySelectorAll('.re-holo-stage')[1].dataset.shownAt", timeout=60000)
         page.wait_for_timeout(4500)  # decoration: walkers, trees, water, traffic
+        if i == 0:
+            rows.append(measure('rail-paused'))
         page.evaluate("__sheet(null)")
         page.wait_for_timeout(1200)
         rows.append(measure(f'cycle{i + 1}'))
+    page.evaluate("__rail(false)")
+    page.wait_for_timeout(5000)
+    rows.append(measure('all-closed'))
+    page.evaluate("__rail(true)")
+    page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.shownAt", timeout=60000)
+    renderer = page.evaluate("document.querySelector('.re-holo-stage').dataset.renderer")
+    assert renderer == ('webgl' if opts.webgl else 'tidewater-webgpu'), f'Unexpected renderer: {renderer}'
+    page.wait_for_timeout(4500)
+    rows.append(measure('reopened'))
+    assert not errors, errors[:5]
+    closed = next(r for r in rows if r['tag'] == 'all-closed')
+    assert closed['canvases'] == 0, 'Closed views retained canvases'
+    if rows[0]['texMB']:
+        assert closed['texMB'] < rows[0]['texMB'] * 0.25, 'Closed views retained GPU images'
+    assert closed['gl'] == 0, 'Closed views retained WebGL contexts'
+    assert rows[-1]['buffers'] <= rows[0]['buffers'] + 2, 'Reopening retained GPU buffers'
     if opts.snapshot:
         chunks = []
         cdp.on('HeapProfiler.addHeapSnapshotChunk', lambda e: chunks.append(e['chunk']))

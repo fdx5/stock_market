@@ -6,6 +6,7 @@ import { inRing } from "./ringMath";
 export { inRing };
 import { normalRows } from "./normalKernel";
 import { cdn } from "../staticCdn";
+import { onSceneMemoryRelease } from "./sceneMemory";
 
 const WATER_KINDS = new Set(["천", "구", "유", "양"]);
 const coveredMemo = new WeakMap<object, boolean[]>();
@@ -107,6 +108,10 @@ const canvas = (w: number, h: number): HTMLCanvasElement => {
 let normalPool: { w: Worker; busy: number }[] | null | undefined;
 let normalJob = 0;
 const normalJobs = new Map<number, (bitmap: ImageBitmap | null) => void>();
+onSceneMemoryRelease(() => {
+  normalPool?.forEach(slot => slot.w.terminate()); normalPool = undefined;
+  normalJobs.forEach(done => done(null)); normalJobs.clear();
+});
 /** Height canvas -> normal map in a worker: the pixel readback and loop both leave the
  * page (together a few hundred ms per complex). Null where workers can't do it. */
 function normalsOffThread(height: HTMLCanvasElement, strength: number): Promise<ImageBitmap | null> | null {
@@ -182,7 +187,7 @@ const BAYS = 8, ROWS = 8;
  * AC louvres and pilasters. Colour, normals, roughness (G) / metalness (B) and the
  * lit windows for the evening. */
 export const facadeTextures = (p: Palette, seed: number) => runNow(facadeSteps(p, seed));
-export function* facadeSteps(p: Palette, seed: number, scale = 1) {
+export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal?: HTMLCanvasElement) {
   // (scale: the same drawing on larger canvases — the complex being viewed gets 2x)
   const W = 1024, H = 928, cw = W / BAYS, ch = H / ROWS, k = scale;
   const color = canvas(W * k, H * k), height = canvas(W * k, H * k), rm = canvas(W * k, H * k), glow = canvas(W * k, H * k), open = canvas(W * k, H * k);
@@ -308,7 +313,7 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1) {
   sctx.filter = `blur(${1.2 * k}px)`;
   sctx.drawImage(height, 0, 0);
   // (the same slopes at twice the texels: twice the strength per texel step)
-  const normal = yield* normalCanvas(soft, 5 * k);
+  const normal = preparedNormal ?? (yield* normalCanvas(soft, 5 * k));
   const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, BAYS * BAY_M, ROWS * FLOOR_M, GROUND_M);
   return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false), emissiveMap: tile(glow, true) };
 }
@@ -486,6 +491,7 @@ export function* contextSteps(seed: number, style: Exclude<ContextStyle, "apt"> 
 /** The neighbourhood's textures don't depend on the complex: made once per style and
  * kept for every complex after (never disposed with a model). */
 const sharedTex = new Map<string, Record<string, THREE.Texture>>();
+let sharedGeneration = 0;
 /** The same, painted in slices (the first time) so the page stays responsive. */
 type Kept = { lookUp: (style: ContextStyle) => Promise<Record<string, THREE.Texture> | null>; keep: (style: ContextStyle, t: Record<string, THREE.Texture>) => void };
 let kept: Kept | null = null;
@@ -493,12 +499,14 @@ const lookups = new Map<string, Promise<Record<string, THREE.Texture> | null>>()
 /** Copies kept between visits, when the page has them (paintClient). */
 export function keepPaintWith(k: Kept) { kept = k; }
 export async function sharedContextTexturesSliced(style: ContextStyle, pace: () => Promise<boolean>): Promise<Record<string, THREE.Texture> | null> {
+  const generation = sharedGeneration;
   const hit = sharedTex.get(style);
   if (hit) return hit;
   if (kept) {
     let job = lookups.get(style);
     if (!job) { job = kept.lookUp(style); lookups.set(style, job); }
     const got = await job;
+    if (generation !== sharedGeneration) return null;
     if (got && !sharedTex.has(style)) sharedTex.set(style, got);
     if (sharedTex.has(style)) return sharedTex.get(style)!;
     if (!await pace()) return null;
@@ -508,7 +516,10 @@ export async function sharedContextTexturesSliced(style: ContextStyle, pace: () 
   let job = painting.get(style);
   if (!job) {
     job = runSliced<Record<string, THREE.Texture>>(style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242) : contextSteps(1000 + style.length, style), pace)
-      .then(made => { if (made && !sharedTex.has(style)) { sharedTex.set(style, made); kept?.keep(style, made); } return made; })
+      .then(made => {
+        if (generation !== sharedGeneration) { if (made) Object.values(made).forEach(t => t.dispose()); return null; }
+        if (made && !sharedTex.has(style)) { sharedTex.set(style, made); kept?.keep(style, made); } return made;
+      })
       .finally(() => painting.delete(style));
     painting.set(style, job);
   }
@@ -523,10 +534,12 @@ const painting = new Map<string, Promise<Record<string, THREE.Texture> | null>>(
  * neighbours read as soft blocks of window grid at the single size. Once a session. */
 let sharpening: Promise<void> | null = null;
 export function sharpenNeighbourhood(pace: () => Promise<boolean>): Promise<void> {
+  const generation = sharedGeneration;
   return sharpening ??= (async () => {
     for (const style of ["apt", "villa", "shop", "office"] as ContextStyle[]) {
       const key = (style + "@2") as ContextStyle;
       let made = kept ? await kept.lookUp(key).catch(() => null) : null;
+      if (generation !== sharedGeneration || !await pace()) { if (made) Object.values(made).forEach(t => t.dispose()); return; }
       if (!made) {
         made = await runSliced<Record<string, THREE.Texture>>(style === "apt" ? facadeSteps(NEIGHBOUR_PALETTE, 4242, 2) : contextSteps(1000 + style.length, style, 2), pace);
         if (!made) { sharpening = null; return; }
@@ -552,6 +565,12 @@ export function sharedContextTextures(style: ContextStyle): Record<string, THREE
 }
 
 const sharedMat = new Map<ContextStyle, THREE.MeshStandardMaterial>();
+onSceneMemoryRelease(() => {
+  sharedGeneration++;
+  sharedMat.forEach(m => m.dispose()); sharedMat.clear();
+  sharedTex.forEach(textures => Object.values(textures).forEach(t => { const img = t.image as { close?: () => void }; img?.close?.(); t.dispose(); }));
+  sharedTex.clear(); lookups.clear(); painting.clear(); sharpening = null;
+});
 /** One material per neighbourhood style for the whole session (never disposed with a
  * model), so its GPU pipeline is built once — see warmMaterials. */
 export function sharedContextMaterial(style: ContextStyle): THREE.MeshStandardMaterial {
@@ -601,7 +620,7 @@ export async function warmMaterials(group: THREE.Group, next: () => Promise<void
 /** Granite cladding for the towers' base (1–2층 석재 마감): 1.2 × 0.6 m honed panels with
  * joints and faint veining; colour, normals, roughness / metalness. */
 export const plinthTextures = (seed: number, tone: string) => runNow(plinthSteps(seed, tone));
-export function* plinthSteps(seed: number, tone: string) {
+export function* plinthSteps(seed: number, tone: string, preparedNormal?: HTMLCanvasElement) {
   const W = 512, H = 512, pw = W / 4, ph = H / 8;
   const color = canvas(W, H), height = canvas(W, H), rm = canvas(W, H);
   const g = color.getContext("2d")!, hh = height.getContext("2d")!, r = rm.getContext("2d")!;
@@ -620,7 +639,7 @@ export function* plinthSteps(seed: number, tone: string) {
   g.fillStyle = "rgba(40,38,34,0.55)"; hh.fillStyle = "rgb(60,60,60)"; r.fillStyle = "rgb(0,220,0)";
   for (let row = 0; row <= 8; row++) { g.fillRect(0, row * ph - 1, W, 2.5); hh.fillRect(0, row * ph - 1, W, 2.5); r.fillRect(0, row * ph - 1, W, 2.5); }
   for (let col = 0; col <= 4; col++) { g.fillRect(col * pw - 1, 0, 2.5, H); hh.fillRect(col * pw - 1, 0, 2.5, H); r.fillRect(col * pw - 1, 0, 2.5, H); }
-  const normal = yield* normalCanvas(height, 3);
+  const normal = preparedNormal ?? (yield* normalCanvas(height, 3));
   const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, 4.8, 4.8, 2);
   return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false) };
 }
@@ -1077,28 +1096,7 @@ export function* groundCanvasSteps(data: RealEstateBuildingsResponse, T: number,
   yield* layout(rg, { base: "rgb(0,190,0)", walk: "rgb(0,150,0)", asphalt: "rgb(0,120,0)", lawn: "rgb(0,245,0)", path: "rgb(0,140,0)", apron: "rgb(0,125,0)", bed: "rgb(0,250,0)" });
 
   yield;
-  // Lane markings from the registered lane count.
-  cg.save();
-  cg.lineCap = "butt";
-  roads.forEach(r => {
-    const lanes = Math.max(1, r.lanes);
-    if (lanes < 2) return;
-    for (let i = 0; i < r.line.length - 1; i++) {
-      const [ax, ay] = r.line[i], [bx, by] = r.line[i + 1], len = Math.hypot(bx - ax, by - ay);
-      if (len < 1) continue;
-      const nx = -(by - ay) / len, ny = (bx - ax) / len;
-      for (let l = 1; l < lanes; l++) {
-        const off = -r.width / 2 + (r.width * l) / lanes, centre = l === lanes / 2;
-        cg.strokeStyle = centre ? "rgba(214,178,70,0.7)" : "rgba(226,226,220,0.38)";
-        cg.lineWidth = Math.max(0.75, m(0.15));
-        cg.setLineDash(centre ? [] : [m(3), m(5)]);
-        cg.beginPath(); cg.moveTo(X(ax + nx * off), Y(ay + ny * off)); cg.lineTo(X(bx + nx * off), Y(by + ny * off)); cg.stroke();
-      }
-    }
-  });
-  cg.setLineDash([]);
-  cg.restore();
-  yield;
+  // (lane markings: geometry on the road surface — sceneStreet.buildRoadMarkings)
   // Lamp light pools, lit at night through the ground's emissive map.
   const glow = canvas(R, R), gg = glow.getContext("2d")!;
   gg.scale(R / S, R / S);

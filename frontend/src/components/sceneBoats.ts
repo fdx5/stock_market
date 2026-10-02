@@ -4,6 +4,7 @@ import { rng } from "./complexScene";
 import type { WaterField } from "./sceneWater";
 import { mergeStatic } from "./sceneMerge";
 import { frameSlice } from "./frameSlice";
+import { onSceneMemoryRelease } from './sceneMemory';
 
 /* Boats on a big river (the Han and rivers like it), in clear weather from morning to
  * sunset: a bowrider towing a wakeboarder, a jet ski and a small cruiser, each on its own
@@ -360,13 +361,21 @@ let textures: { wakeMap: THREE.CanvasTexture; wakeNormal: THREE.CanvasTexture; w
 export function prepareWakes() {
   if (textures || preparing) return;
   preparing = true;
+  const generation = wakeGeneration;
   // (one texture an idle period: all four at once were ~0.1 s, past any idle deadline)
-  const go = () => { if (!textures && !wakeSteps.next().done) later(); };
+  const go = () => { if (generation === wakeGeneration && !textures && !wakeSteps.next().done) later(); };
   const later = () => { if (typeof requestIdleCallback === "function") requestIdleCallback(go, { timeout: 3000 }); else setTimeout(go, 200); };
   later();
 }
 let preparing = false;
-const wakeSteps = paintWakes();
+let wakeSteps = paintWakes();
+let wakeGeneration = 0;
+onSceneMemoryRelease(() => {
+  wakeGeneration++;
+  Object.values(textures ?? {}).forEach(t => { t.dispose(); t.image.width = t.image.height = 1; });
+  textures = null; preparing = false;
+  wakeSteps.return(); wakeSteps = paintWakes();
+});
 function wakeTextures() {
   while (!textures) if (wakeSteps.next().done) break;
   return textures!;

@@ -11,6 +11,7 @@ import { generateMipmaps } from '../../vendor/tidewater/engine/gpu/Mipmaps.js';
 // A, B: the texels of the first and second source (exact texel, no filtering).
 
 const pipelines = new Map();
+const warming = new Map();
 
 function descFor(format, body, count) {
   const names = ['A', 'B'].slice(0, count);
@@ -47,8 +48,11 @@ function pipelineFor(format, body, count) {
  * GPU process (and the page's frames) ~20 ms. */
 export function warmPack(format, body, count) {
   const key = `${format}|${count}|${body}`;
-  if (pipelines.has(key)) return;
-  GPU.device.createRenderPipelineAsync(descFor(format, body, count)).then(p => { if (!pipelines.has(key)) pipelines.set(key, p); }, () => {});
+  if (pipelines.has(key)) return Promise.resolve();
+  if (!warming.has(key)) warming.set(key, GPU.device.createRenderPipelineAsync(descFor(format, body, count)).then(p => {
+    if (!pipelines.has(key)) pipelines.set(key, p);
+  }).finally(() => warming.delete(key)));
+  return warming.get(key);
 }
 
 /** Fill `target` (a Texture with 'render' usage, the sources' size) from the images. */

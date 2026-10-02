@@ -12,11 +12,12 @@ let opening: Promise<IDBDatabase | null> | null = null;
 function db(): Promise<IDBDatabase | null> {
   opening ??= new Promise(resolve => {
     try {
-      const req = indexedDB.open(DB, 4);
+      const req = indexedDB.open(DB, 5);
       req.onupgradeneeded = () => {
         const names = req.result.objectStoreNames;
         for (const old of ["buildings", "buildings-v2", "buildings-v3"]) if (names.contains(old)) req.result.deleteObjectStore(old);
-        if (!names.contains(STORE)) req.result.createObjectStore(STORE);
+        const store = names.contains(STORE) ? req.transaction!.objectStore(STORE) : req.result.createObjectStore(STORE);
+        if (!store.indexNames.contains("at")) store.createIndex("at", "at");
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
@@ -50,10 +51,19 @@ export async function saveBuildings(id: string, data: RealEstateBuildingsRespons
     const store = d.transaction(STORE, "readwrite").objectStore(STORE);
     store.put({ at: Date.now(), data } satisfies Row, id);
     // Oldest out beyond MAX entries.
-    const all = store.getAll(), keys = store.getAllKeys();
-    all.onsuccess = () => keys.onsuccess = () => {
-      const rows = (all.result as Row[]).map((r, i) => [r.at, keys.result[i]] as const).sort((a, b) => a[0] - b[0]);
-      rows.slice(0, Math.max(0, rows.length - MAX)).forEach(([, k]) => store.delete(k));
+    // Key-only age index: never clone up to 60 complete city-building responses
+    // into the browser heap merely to evict an old disk-cache entry.
+    const count = store.count();
+    count.onsuccess = () => {
+      let excess = Math.max(0, count.result - MAX);
+      if (!excess) return;
+      const oldest = store.index("at").openKeyCursor();
+      oldest.onsuccess = () => {
+        const cursor = oldest.result;
+        if (!cursor || !excess) return;
+        store.delete(cursor.primaryKey); excess--;
+        if (excess) cursor.continue();
+      };
     };
   } catch { /* quota or private mode: stay uncached */ }
 }

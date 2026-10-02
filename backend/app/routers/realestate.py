@@ -125,6 +125,15 @@ def realestate_water_areas(response: Response, lat: float = Query(..., ge=33, le
     return realestate_water.water(lat, lon, r)
 
 
+@router.get("/crossings")
+def realestate_crossings(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
+                         r: float = Query(700, ge=100, le=1500)):
+    """Mapped crosswalks and traffic signals round a point (OpenStreetMap), for the 3D viewer's
+    junctions: lines and points in metres about the point."""
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return realestate_water.crossings(lat, lon, r)
+
+
 @router.post("/nearby")
 def realestate_nearby_complexes(response: Response, body: dict = Body(...)):
     """The complexes on the parcels a browser found round one complex (the 3D view's
@@ -166,3 +175,39 @@ def realestate_complex_rent(response: Response, id: str = Query(..., min_length=
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+
+
+# ---- 3D 단지뷰 배송 게임: scores (drive_score_store) ----
+
+_PLAYER_ID = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
+
+@router.post("/drive/scores")
+def post_drive_score(payload: dict = Body(...)):
+    """A finished drive: the player's anonymous id, nickname and the gold earned in it."""
+    from app.services import drive_score_store
+    import re
+
+    pid = str(payload.get("player_id") or "")
+    if not re.match(_PLAYER_ID, pid):
+        raise HTTPException(status_code=400, detail="bad player_id")
+    name = " ".join(str(payload.get("name") or "").split())[:16] or "익명"
+    try:
+        score = int(payload.get("score") or 0)
+        deliveries = int(payload.get("deliveries") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="bad score")
+    # (a drive's gold: a few hundred a delivery at most; anything past this is not from the game)
+    if score < 0 or score > 20000 or deliveries < 0 or deliveries > 200:
+        raise HTTPException(status_code=400, detail="score out of range")
+    vehicle = payload.get("vehicle") if payload.get("vehicle") in ("coupang", "cyber") else "coupang"
+    drive_score_store.add_score(pid, name, score, deliveries, vehicle)
+    return drive_score_store.leaderboard(50, pid)
+
+
+@router.get("/drive/scores")
+def get_drive_scores(limit: int = Query(50, ge=1, le=200), player_id: str | None = Query(None, pattern=_PLAYER_ID)):
+    """Players by their total score, rank 1 first, and the asking player's own rank."""
+    from app.services import drive_score_store
+
+    return drive_score_store.leaderboard(limit, player_id)

@@ -97,7 +97,7 @@ function cargoGeometry(cab: string) {
 }
 
 /* Service vehicles: rounded panels (vertex colours), glazing, real wheels. */
-function paint(g: THREE.BufferGeometry, color: string) {
+export function paint(g: THREE.BufferGeometry, color: string) {
   const out = g.index ? g.toNonIndexed() : g;
   if (out !== g) g.dispose();
   out.deleteAttribute("uv");
@@ -106,10 +106,10 @@ function paint(g: THREE.BufferGeometry, color: string) {
   out.setAttribute("color", new THREE.BufferAttribute(col, 3));
   return out;
 }
-const rbox = (w: number, h: number, l: number, x: number, y: number, z: number, color: string, r = 0.08) =>
+export const rbox = (w: number, h: number, l: number, x: number, y: number, z: number, color: string, r = 0.08) =>
   paint(new RoundedBoxGeometry(w, h, l, 2, Math.min(r, w / 2 - 0.001, h / 2 - 0.001, l / 2 - 0.001)).translate(x, y, z), color);
-const GLASS = "#1b2630", TYRE = "#1a1b1d", HUB = "#a9adb2";
-function wheelPair(W: number, z: number, r = 0.4, dual = false): THREE.BufferGeometry[] {
+export const GLASS = "#1b2630", TYRE = "#1a1b1d", HUB = "#a9adb2";
+export function wheelPair(W: number, z: number, r = 0.4, dual = false): THREE.BufferGeometry[] {
   const out: THREE.BufferGeometry[] = [];
   for (const s of [-1, 1]) {
     const x = s * (W / 2 - (dual ? 0.3 : 0.16));
@@ -189,13 +189,13 @@ function mixerGeometry() {
  * mobile cranes, a concrete pump — goods vehicles, the moving-company ladder truck, a tow
  * truck, a street sweeper, village, coach and double-deck buses, a delivery scooter. */
 /** A cab-over cab: front face at zFront, the windscreen and a glazing band round it. */
-const cabOver = (W: number, H: number, L: number, zFront: number, color: string, y0 = 0.6) => [
+export const cabOver = (W: number, H: number, L: number, zFront: number, color: string, y0 = 0.6) => [
   rbox(W, H, L, 0, y0 + H / 2, zFront - L / 2, color, 0.16),
   paint(new THREE.BoxGeometry(W - 0.16, H * 0.4, 0.05).translate(0, y0 + H * 0.7, zFront + 0.005), GLASS),
   rbox(W + 0.03, H * 0.32, L * 0.62, 0, y0 + H * 0.7, zFront - L * 0.36, GLASS, 0.03),
   rbox(W - 0.2, 0.3, 0.22, 0, y0 + 0.05, zFront, "#2a2d31", 0.06),
 ];
-const chassis = (L: number, z = 0, y = 0.95) => rbox(1.2, 0.38, L, 0, y, z, "#2b2d30", 0.05);
+export const chassis = (L: number, z = 0, y = 0.95) => rbox(1.2, 0.38, L, 0, y, z, "#2b2d30", 0.05);
 /** 25 t 덤프트럭: three axles, a deep body with the cab guard over the roof. */
 function dumpGeometry(body: string, cab: string) {
   return assemble([

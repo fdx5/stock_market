@@ -147,7 +147,7 @@ export function roadGround(terrain: Terrain, bridges: Bridge[]): Terrain {
 
 /** Deck, girder, parapets, piers and markings of every bridge, one mesh a material. */
 export function buildBridges(bridges: Bridge[]) {
-  const asphalt: THREE.BufferGeometry[] = [], concrete: THREE.BufferGeometry[] = [], paint: THREE.BufferGeometry[] = [], yellow: THREE.BufferGeometry[] = [];
+  const asphalt: THREE.BufferGeometry[] = [], concrete: THREE.BufferGeometry[] = [];
   // A band along the deck between offsets o0..o1 (m from the centreline, left +), from the
   // deck height + z0 to + z1; faces: top, bottom, and the two sides.
   const band = (b: Bridge, o0: number, o1: number, z0: number, z1: number, out: THREE.BufferGeometry[], k0 = 0, k1 = b.x.length - 1, faces = { top: true, bottom: true, sides: true }) => {
@@ -183,14 +183,7 @@ export function buildBridges(bridges: Bridge[]) {
     }
     // The girder under the deck (a box narrower than it: the slab overhangs).
     band(b, -b.outer * 0.72, b.outer * 0.72, -2.4, -0.35, concrete);
-    // Lane lines: white dashes between lanes, a double yellow line on the centre of two-way roads.
-    const lw = (2 * b.half) / b.lanes;
-    for (let l = 1; l < b.lanes; l++) {
-      const off = -b.half + lw * l, centre = b.lanes % 2 === 0 && l === b.lanes / 2;
-      if (centre) { band(b, off - 0.32, off - 0.18, 0, 0.03, yellow, 0, n - 1, { top: true, bottom: false, sides: false }); band(b, off + 0.18, off + 0.32, 0, 0.03, yellow, 0, n - 1, { top: true, bottom: false, sides: false }); continue; }
-      // (dashes: 3 m painted, 6 m bare — every third sample of 3 m)
-      for (let k = 0; k + 1 < n; k += 3) band(b, off - 0.08, off + 0.08, 0, 0.03, paint, k, k + 1, { top: true, bottom: false, sides: false });
-    }
+    // (lane lines: the road markings, laid on the deck through the road's ground)
     // Piers in pairs across the deck, every ~50 m along the span (not on the abutments).
     const total = b.s[n - 1];
     for (let s = PIER_EVERY / 2 + (total % PIER_EVERY) / 2; s < total - 15; s += PIER_EVERY) {
@@ -228,8 +221,6 @@ export function buildBridges(bridges: Bridge[]) {
   };
   add(asphalt, new THREE.MeshStandardMaterial({ color: "#3b3e43", roughness: 0.92, metalness: 0 }), true);
   add(concrete, new THREE.MeshStandardMaterial({ color: "#a7a39b", roughness: 0.86, metalness: 0 }), true);
-  add(paint, new THREE.MeshStandardMaterial({ color: "#e3e2dc", roughness: 0.7, metalness: 0 }), false);
-  add(yellow, new THREE.MeshStandardMaterial({ color: "#d6b046", roughness: 0.7, metalness: 0 }), false);
   return {
     group,
     dispose: () => { group.traverse(o => { if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).geometry.dispose(); }); mats.forEach(m => m.dispose()); },

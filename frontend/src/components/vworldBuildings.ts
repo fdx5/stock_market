@@ -54,6 +54,13 @@ type Ring = [number, number][];
 type Feature = { properties: Record<string, string>; geometry: { type: string; coordinates: any } };
 
 const features = (r: any): Feature[] => r?.featureCollection?.features ?? [];
+/** Pages asked for at once: past the last one VWorld answers with a page already given (the
+ * roads round a complex came four times over — 1,800 for 450, every one overlapping itself), so
+ * a feature is kept once, by its geometry. */
+const unique = (fs: Feature[]) => {
+  const seen = new Set<string>();
+  return fs.filter(f => { const k = JSON.stringify(f.geometry?.coordinates ?? null) + (f.properties?.bld_nm ?? ""); if (seen.has(k)) return false; seen.add(k); return true; });
+};
 const polygons = (g: Feature["geometry"]): number[][][][] =>
   g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
 const area = (r: Ring) => r.reduce((s, [x1, y1], i) => { const [x2, y2] = r[(i + 1) % r.length]; return s + x1 * y2 - x2 * y1; }, 0) / 2;
@@ -118,6 +125,32 @@ export async function vworldRoads(data: RealEstateBuildingsResponse, key: string
   return parseRoads(features(result), project);
 }
 
+/** The surveyed roads (국가기본도 도로중심선) of the whole neighbourhood drawn round a result —
+ * `radius` m about its centre (the 3D view's 600 m), not only the parcel's 150 m: the traffic,
+ * signals, kerbs and lamps reach as far as the buildings. Pages of 1000 in parallel. */
+export async function vworldRoadsAround(data: RealEstateBuildingsResponse, key: string, domain = "https://kospimap.com", radius = 600): Promise<RealEstateRoad[]> {
+  if (!data.center) return [];
+  const { lat, lon } = data.center;
+  const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
+  const box = `BOX(${lon - radius / kx},${lat - radius / ky},${lon + radius / kx},${lat + radius / ky})`;
+  const page = (n: number) => call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",
+    key, domain, data: "LT_L_N3A0020000", geomFilter: box, size: 1000, page: n }).then(features).catch(() => [] as Feature[]);
+  const all = unique((await Promise.all([1, 2, 3, 4].map(page))).flat());
+  const project = ([x, y]: number[]): [number, number] => [Math.round((x - lon) * kx * 100) / 100, Math.round((y - lat) * ky * 100) / 100];
+  // (a road the box catches runs on for kilometres: cut to the drawn square, a little past it)
+  const R = radius + 50, inside = ([x, y]: [number, number]) => Math.abs(x) <= R && Math.abs(y) <= R;
+  const out: RealEstateRoad[] = [];
+  for (const r of parseRoads(all, project)) {
+    let run: [number, number][] = [];
+    for (const p of r.line) {
+      if (inside(p)) run.push(p);
+      else { if (run.length > 1) out.push({ ...r, line: run }); run = []; }
+    }
+    if (run.length > 1) out.push({ ...r, line: run });
+  }
+  return out;
+}
+
 /** The registered names (건물명), 주용도 and storeys of the buildings round a result, for
  * results kept before names were (the hover labels): centroids in the result's metres.
  * Pages of 1000 in parallel; runs after the first frame. */
@@ -128,7 +161,7 @@ export async function vworldBuildingNames(data: RealEstateBuildingsResponse, key
   const box = `BOX(${lon - radius / kx},${lat - radius / ky},${lon + radius / kx},${lat + radius / ky})`;
   const page = (n: number) => call(DATA, { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true",
     key, domain, data: "LT_C_BLDGINFO", geomFilter: box, size: 1000, page: n }).then(features).catch(() => [] as Feature[]);
-  const all = (await Promise.all([1, 2, 3].map(page))).flat();
+  const all = unique((await Promise.all([1, 2, 3].map(page))).flat());
   const out: { x: number; y: number; title: string; use: string | null; floors: number; dong: string | null }[] = [];
   for (const f of all) {
     const p = f.properties, title = String(p.bld_nm || "").trim();

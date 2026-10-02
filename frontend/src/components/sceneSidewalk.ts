@@ -1,5 +1,7 @@
 import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
+import { paintedTexture } from "./paintedTexture";
+import { PAVER_STYLES } from "./texPaint";
 import type { RealEstateRoad } from "../api/client";
 import type { Terrain } from "./sceneTerrain";
 import { inRing, rng, type Ring } from "./complexScene";
@@ -125,32 +127,16 @@ export function sidewalkRuns(roads: RealEstateRoad[], footprints: Ring[]): Run[]
   return runs;
 }
 
-/** Block paving (보도블록): 20 × 10 cm pavers in running bond. Repeats every 2 m. */
-function paverTexture() {
-  const S = 512, c = document.createElement("canvas");
-  c.width = c.height = S;
-  const g = c.getContext("2d")!, rnd = rng(71);
-  g.fillStyle = "#8f8a84"; g.fillRect(0, 0, S, S);
-  const bw = S / 10, bh = S / 20; // 20 cm × 10 cm at 2 m per tile
-  for (let row = 0; row < 20; row++) for (let col = -1; col < 11; col++) {
-    const x = col * bw + (row % 2 ? bw / 2 : 0), y = row * bh;
-    const v = 150 + rnd() * 40, warm = rnd() * 10;
-    g.fillStyle = `rgb(${v + warm},${v + warm * 0.4},${v - 4})`;
-    g.fillRect(x + 1.5, y + 1.5, bw - 3, bh - 3);
-    g.fillStyle = `rgba(0,0,0,${rnd() * 0.06})`;
-    g.fillRect(x + 1.5 + rnd() * bw * 0.6, y + 2, bw * 0.3, bh - 4);
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 8;
-  return t;
-}
-
 /** Raised sidewalks with a granite kerb along each run, and tree pits. One draw for the
  * paving, one for kerbs and pits. */
 export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [number, number][]) {
-  const pos: number[] = [], uv: number[] = [], nor: number[] = [];
+  // The paving in four patterns, by street (both sides of a road alike, as laid): grey running
+  // bond most, clay-red herringbone, granite slabs, charcoal basket weave; a yellow tactile guide
+  // strip (점자블록) along the wider pavements.
+  const styled = PAVER_STYLES.map(() => ({ pos: [] as number[], uv: [] as number[], nor: [] as number[] }));
+  const tPos: number[] = [], tUv: number[] = [], tNor: number[] = [];
+  const styleOf = (road: number) => { const h = ((road * 2654435761) >>> 0) % 100; return h < 42 ? 0 : h < 66 ? 1 : h < 86 ? 2 : 3; };
+  let pos: number[] = styled[0].pos, uv: number[] = styled[0].uv, nor: number[] = styled[0].nor;
   const kPos: number[] = [], kNor: number[] = [], kCol: number[] = [], kIdx: number[] = [];
   // (kerb faces, bands and pits as indexed quads: four vertices each, not six)
   const kQuad = (q: number[][], nx: number, ny: number, nz: number, r: number, g: number, b: number, order: number[]) => {
@@ -159,12 +145,30 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
     for (const k of order) kIdx.push(v + k);
   };
   const kerb = new THREE.Color("#b9b6ae"), pit = new THREE.Color("#3a3129"), grate = new THREE.Color("#2b2d2f");
+  const granite = new THREE.Color("#e2e0da"), gutterC = new THREE.Color("#9a9b98");
   const push = (arr: number[], ...v: number[]) => { for (const x of v) arr.push(x); };
   // (a few ms at a time: all the runs at once held the page ~45 ms)
   let slice = performance.now();
   for (const r of runs) {
     if (performance.now() - slice > 6) { await frameSlice(); slice = performance.now(); }
     const n = r.cum.length;
+    ({ pos, uv, nor } = styled[styleOf(r.road)]);
+    // the guide strip: 30 cm, a little past the middle of a pavement 2.6 m or wider
+    if (r.width >= 2.6) {
+      const o0 = r.half + r.width * 0.55, o1 = o0 + 0.3;
+      for (let i = 0; i < n - 1; i++) {
+        const p0 = runPt(r, i, o0), p1 = runPt(r, i, o1), q0 = runPt(r, i + 1, o0), q1 = runPt(r, i + 1, o1);
+        const y = (q: [number, number]) => terrain.at(...q) + KERB_H + 0.006;
+        const V = (q: [number, number]): [number, number, number] => [q[0], y(q), -q[1]];
+        const quad = [V(p0), V(q0), V(q1), V(p0), V(q1), V(p1)], u0 = r.cum[i], u1 = r.cum[i + 1];
+        const tq = [[u0, 0], [u1, 0], [u1, 1], [u0, 0], [u1, 1], [u0, 1]];
+        // (wound to face up)
+        const ux = quad[1][0] - quad[0][0], uz = quad[1][2] - quad[0][2], vx = quad[2][0] - quad[0][0], vz = quad[2][2] - quad[0][2];
+        const flip = uz * vx - ux * vz < 0;
+        const order = flip ? [0, 2, 1, 3, 5, 4] : [0, 1, 2, 3, 4, 5];
+        for (const k of order) { tPos.push(...quad[k]); tUv.push(tq[k][0], tq[k][1]); tNor.push(0, 1, 0); }
+      }
+    }
     for (let i = 0; i < n - 1; i++) {
       const a0 = runPt(r, i, r.half), a1 = runPt(r, i, r.half + r.width), b0 = runPt(r, i + 1, r.half), b1 = runPt(r, i + 1, r.half + r.width);
       const ya0 = terrain.at(...a0) + KERB_H, ya1 = terrain.at(...a1) + KERB_H, yb0 = terrain.at(...b0) + KERB_H, yb1 = terrain.at(...b1) + KERB_H;
@@ -188,11 +192,18 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
         const quad: [number, number, number][] = [W(p, yp), W(q, yq), W(q, yq - drop), W(p, yp - drop)];
         kQuad(quad, nx, 0, ny, kerb.r, kerb.g, kerb.b, [0, 3, 2, 0, 2, 1]);
       }
-      // Kerbstone top edge: a 15 cm granite band along the road side.
-      const k0 = runPt(r, i, r.half + 0.15), k1 = runPt(r, i + 1, r.half + 0.15);
+      // Kerbstone top edge: a 22 cm granite band along the road side, light against the paving —
+      // and on the road at its foot a 30 cm concrete gutter (측구): the edge between road and
+      // pavement a clear double line from any height.
+      const k0 = runPt(r, i, r.half + 0.22), k1 = runPt(r, i + 1, r.half + 0.22);
       const band: [number, number, number][] = [W(a0, ya0 + 0.004), W(b0, yb0 + 0.004), W(k1, yb0 + 0.004), W(k0, ya0 + 0.004)];
       const up = r.side > 0 ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2];
-      kQuad(band, 0, 1, 0, kerb.r * 1.05, kerb.g * 1.05, kerb.b * 1.05, up);
+      kQuad(band, 0, 1, 0, granite.r, granite.g, granite.b, up);
+      const g0 = runPt(r, i, r.half - 0.3), g1 = runPt(r, i + 1, r.half - 0.3);
+      // (just over the road's own surface, 2.5 cm up: buildRoadSurface)
+      const gy0 = ya0 - KERB_H + 0.04, gy1 = yb0 - KERB_H + 0.04;
+      const gutter: [number, number, number][] = [W(g0, gy0), W(g1, gy1), W(b0, gy1), W(a0, gy0)];
+      kQuad(gutter, 0, 1, 0, gutterC.r, gutterC.g, gutterC.b, up);
     }
   }
   // Tree pits: 1.2 m squares, soil with a cast-iron grate frame.
@@ -206,15 +217,34 @@ export async function buildSidewalks(runs: Run[], terrain: Terrain, pits: [numbe
   }
   const group = new THREE.Group();
   const disposables: { dispose(): void }[] = [];
-  if (pos.length) {
+  // (the textures painted in a worker, all four at once: texPaint)
+  const used = styled.map(st => st.pos.length > 0);
+  const maps = await Promise.all(PAVER_STYLES.map((style, k) => used[k] ? paintedTexture("paver", 1024, style) : Promise.resolve(null)));
+  styled.forEach((st, k) => {
+    const map = maps[k];
+    if (!st.pos.length || !map) return;
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
-    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-    const map = paverTexture();
-    const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.88, metalness: 0 });
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(st.pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(st.nor, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(st.uv, 2));
+    // (granite a touch smoother; clay and concrete matt)
+    const mat = new THREE.MeshStandardMaterial({ map, roughness: k === 2 ? 0.7 : 0.9, metalness: 0 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.receiveShadow = true;
+    mesh.name = `paving ${PAVER_STYLES[k]}`;
+    group.add(mesh);
+    disposables.push(geo, mat, map);
+  });
+  if (tPos.length) {
+    const map = await paintedTexture("tactile", 512);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(tPos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(tNor, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(tUv, 2));
+    const mat = new THREE.MeshStandardMaterial({ map, roughness: 0.6, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.receiveShadow = true;
+    mesh.name = "tactile strip";
     group.add(mesh);
     disposables.push(geo, mat, map);
   }

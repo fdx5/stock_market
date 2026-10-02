@@ -7,6 +7,7 @@ import { gpuCaps } from "./gpuCaps";
 import { Forest, loadTreeKit, preloadTrees } from "./sceneTrees";
 import { fetchStatic } from "../staticCdn";
 import { bitmapTexture } from "./bitmapTexture";
+import { onSceneMemoryRelease } from "./sceneMemory";
 
 /* Landscaping plants as photoreal impostors. /3d/plants.webp is an atlas baked from
  * Poly Haven's CC0 photoscanned plants (trees, conifers, shrubs, flowers; one cell
@@ -24,6 +25,10 @@ interface Cell { name?: string; kind: Kind; side: number; top: number; span: num
 interface Atlas { cell: number; cols: number; rows: number; assets: Cell[] }
 
 let atlas: Promise<{ meta: Atlas; texture: THREE.Texture }> | null = null;
+onSceneMemoryRelease(() => {
+  const old = atlas; atlas = null;
+  void old?.then(a => { a.texture.userData.compressed = null; a.texture.dispose(); }).catch(() => {});
+});
 function loadAtlas() {
   atlas ??= Promise.all([
     fetchStatic("/3d/plants.json").then(r => { if (!r.ok) throw new Error("plants.json " + r.status); return r.json() as Promise<Atlas>; }),
@@ -166,10 +171,16 @@ function plantForest(planting: Planting, seed: number, terrain: Terrain, forest:
     }
   }
   const built = forest.build();
-  return { mesh: built.group as THREE.Object3D, dispose: built.dispose, update: built.update };
+  // (driving: the full-detail band round the vehicle; null: back round the complex)
+  const home = forest.centre.clone();
+  const focus = (x: number | null, y?: number) => {
+    if (x === null || y === undefined) forest.centre.copy(home); else forest.centre.set(x, -y);
+    built.update();
+  };
+  return { mesh: built.group as THREE.Object3D, dispose: built.dispose, update: built.update, focus };
 }
 
-export async function buildPlants(planting: Planting, seed: number, terrain: Terrain = FLAT, hq = true): Promise<{ mesh: THREE.Object3D; dispose: () => void; update?: () => void } | null> {
+export async function buildPlants(planting: Planting, seed: number, terrain: Terrain = FLAT, hq = true): Promise<{ mesh: THREE.Object3D; dispose: () => void; update?: () => void; focus?: (x: number | null, y?: number) => void } | null> {
   // Every plant as a mesh where the kit loads (sceneTrees): no cards at all.
   const treeKit = await loadTreeKit().catch(err => { console.info("[3D] plant meshes unavailable, using cards:", err); return null; });
   // (phones and small tablets: every tree as the distant copy)

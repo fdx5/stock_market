@@ -5,6 +5,7 @@ import { GPU } from './GPU.js';
 // custom downsample (e.g. the FFT maps) do their own.
 
 const _pipelines = new Map();
+const _warming = new Map();
 let _module = null;
 
 function descFor( format ) {
@@ -48,13 +49,13 @@ function pipelineFor( format ) {
 
 // (local modification) the pipelines of the usual formats made ahead, asynchronously
 export function warmMipmaps( formats ) {
-
-	for ( const format of formats ) {
-
-		if ( _pipelines.has( format ) ) continue;
-		GPU.device.createRenderPipelineAsync( descFor( format ) ).then( ( p ) => { if ( ! _pipelines.has( format ) ) _pipelines.set( format, p ); }, () => {} );
-
-	}
+  return Promise.all(formats.map(format => {
+    if (_pipelines.has(format)) return;
+    if (!_warming.has(format)) _warming.set(format, GPU.device.createRenderPipelineAsync(descFor(format)).then(p => {
+      if (!_pipelines.has(format)) _pipelines.set(format, p);
+    }).finally(() => _warming.delete(format)));
+    return _warming.get(format);
+  }));
 
 }
 

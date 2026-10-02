@@ -19,8 +19,10 @@ const tick = () => {
   if (frameAt - usedAt < 1000) requestAnimationFrame(tick); else ticking = false;
 };
 const task = () => new Promise<void>(resolve => {
+  const scheduler = (globalThis as typeof globalThis & { scheduler?: { postTask(f: () => void, options: { priority: string }): Promise<void> } }).scheduler;
+  if (scheduler?.postTask) { void scheduler.postTask(resolve, { priority: "background" }); return; }
   const ch = new MessageChannel();
-  ch.port1.onmessage = () => { ch.port1.close(); resolve(); };
+  ch.port1.onmessage = () => { ch.port1.close(); ch.port2.close(); resolve(); };
   ch.port2.postMessage(0);
 });
 

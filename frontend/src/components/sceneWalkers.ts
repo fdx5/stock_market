@@ -281,6 +281,8 @@ interface Walker {
   /** Collapsed (out of view or far off). */
   hidden: boolean;
   x: number; y: number; hx: number; hy: number;
+  /** Knocked down by a driven vehicle: thrown along (vx, vy), lying, up again after a while. */
+  fall?: { t: number; vx: number; vy: number };
 }
 
 /** People on `paths`, about one per `spacing` metres of path, at most `cap`. */
@@ -450,6 +452,8 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
     const g = w.kind.gait, φ = w.phase, run = g === "run";
     const swing = run ? 0.72 : g === "slow" ? 0.26 : g === "stroll" ? 0.32 : 0.4;
     place(w, (run ? 0.06 : 0.022) * Math.abs(Math.sin(φ)));
+    // (knocked down: tipped over backwards from the feet, lying a while, then up again)
+    if (w.fall) { const f = w.fall.t, k = f < 0.35 ? f / 0.35 : f > 4.4 ? Math.max(0, 1 - (f - 4.4) / 0.6) : 1; base.multiply(rotX.makeRotationX(-1.45 * k)); }
     if (run || g === "slow") base.multiply(rotX.makeRotationX(run ? 0.14 : 0.07));
     set(w, 0, base);
     // Head (hair shares its frame).
@@ -518,8 +522,14 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
         // Those well out of view (or too far) walk on every sixth frame by the time owed: no one
         // sees them, and most of the crowd is out of view at any time. "Near the view" has a
         // 15 m margin, so anyone turning into it is already walking frame by frame.
+        if (w.fall) {
+          const f = w.fall; f.t += dt;
+          const slow = Math.exp(-dt * 4); f.vx *= slow; f.vy *= slow; w.x += f.vx * dt; w.y += f.vy * dt;
+          if (f.t > 5) w.fall = undefined;
+        } else {
         if (w.around === false && (wi + frameN) % 6) { w.lag = (w.lag ?? 0) + dt; return; }
         advance(w, dt + (w.lag ?? 0)); w.lag = 0;
+        }
         sphere.center.set(w.x, terrain.at(w.x, w.y) + 1, -w.y);
         const d2 = sphere.center.distanceToSquared(camPos) * zoom2;
         wide.center.copy(sphere.center);
@@ -531,6 +541,10 @@ export async function buildWalkers(paths: WalkPath[], terrain: Terrain, seed: nu
       meshes.forEach((m, i) => upload(m, cursor[i], colorFrom[i], colorTo[i]));
       farMeshes.forEach(m => upload(m, farAt, farFrom, farTo));
     },
+    /** The people standing within r of (x, y) (for a driven vehicle). */
+    near(x: number, y: number, r: number) { return walkers.filter(w => !w.fall && Math.abs(w.x - x) < r && Math.abs(w.y - y) < r); },
+    /** Knock one down, thrown along (vx, vy) m/s. */
+    knock(w: { x: number; y: number }, vx: number, vy: number) { (w as Walker).fall = { t: 0, vx, vy }; },
     dispose() {
       meshes.forEach(m => m.dispose());
       // (the body parts stay: shared by every crowd, see partsCache)

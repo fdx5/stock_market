@@ -2,6 +2,7 @@ import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
 import { fetchStatic } from "../staticCdn";
 import { bitmapTexture } from "./bitmapTexture";
+import { onSceneMemoryRelease } from "./sceneMemory";
 
 /* Trees as meshes (scripts/gen-mesh-trees.py): bark tubes and leaf-cluster cards per species
  * variant, instanced — every tree of one variant is one draw for its bark and one for its
@@ -22,6 +23,16 @@ interface Built { v: Variant; bark: THREE.BufferGeometry; leaves: THREE.BufferGe
 export interface TreeKit { species: string[]; variants: Map<string, Built[]>; texture: THREE.Texture; twigs: THREE.Texture; bark: Map<string, THREE.Texture> }
 
 let kit: Promise<TreeKit> | null = null;
+onSceneMemoryRelease(() => {
+  const old = kit; kit = null;
+  void old?.then(k => {
+    for (const list of k.variants.values()) for (const v of list) {
+      v.bark.dispose(); v.leaves.dispose(); v.farBark.dispose(); v.farLeaves.dispose(); v.farthestLeaves.dispose();
+    }
+    k.texture.dispose(); k.twigs.dispose(); k.bark.forEach(t => t.dispose());
+    k.variants.clear(); k.bark.clear();
+  }).catch(() => {});
+});
 
 /** Blender's z-up to three's y-up: (x, y, z) -> (x, z, -y). */
 function yUp(a: ArrayLike<number>, n: number, stride: number, scale = 1) {

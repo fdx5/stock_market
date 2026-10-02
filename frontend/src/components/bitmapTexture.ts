@@ -16,6 +16,7 @@ export async function bitmapTexture(path: string, flipY: boolean): Promise<THREE
       const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);
       t.flipY = false;
       t.needsUpdate = true;
+      t.addEventListener("dispose", () => bitmap.close());
       return t;
     } catch { /* (the picture as an <img> below) */ }
   }

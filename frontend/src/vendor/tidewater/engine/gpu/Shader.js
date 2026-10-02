@@ -1,5 +1,6 @@
 import { GPU } from './GPU.js';
 import { UniformBlock } from './Uniforms.js';
+import { BoundedCache } from './BoundedCache.js';
 
 // WGSL composition.
 //
@@ -517,7 +518,7 @@ export function group0ForBlock( block, stage = 'render' ) {
 // walk — depends on the source text and the defines only, not on which material asks: every new
 // complex brings new materials of the same kinds, and each was composed again on the main thread
 // while the new model was trying to reach the screen. Kept by text (the sets are only read).
-const _reach = new Map(), _pre = new Map();
+const _reach = new BoundedCache(128, 2 * 1024 * 1024), _pre = new BoundedCache();
 function _memo( map, key, make ) {
 
 	let v = map.get( key );
@@ -565,6 +566,10 @@ export function composeShader( { modules = [], bindings = {}, code = '', defines
 		stageOf = {};
 		for ( const k in specs ) {
 
+			// Bind only resources reachable from an entry point. Opaque depth passes
+			// do not read a material at all; keeping its textures and uniform layout
+			// prevented otherwise identical shadow pipelines from sharing a handle.
+			if ( ! usedV.has( k ) && ( ! usedF || ! usedF.has( k ) ) ) { delete specs[ k ]; continue; }
 			if ( ! usedV.has( k ) && ( ! usedF || usedF.has( k ) ) ) stageOf[ k ] = 'fragment';
 			else if ( usedF && ! usedF.has( k ) && usedV.has( k ) ) stageOf[ k ] = 'vertex';
 
@@ -672,14 +677,14 @@ function sameSpec( a, b ) {
 }
 
 // Shader module creation with readable errors (line numbers + source excerpt).
-const _moduleCache = new Map();
+const _moduleCache = new BoundedCache(128, 3 * 1024 * 1024);
 
 // (local modification) The functions no entry point reaches, taken out before the browser sees
 // the code: a composed material shader carried every library function (sky, clouds, noise,
 // shadows) — a depth-only one was 90 % unreachable code, a full one 40 % — and the browser's
 // GPU process parses and checks all of it on its one main thread, 20-30 ms a module, while
 // the page's frames wait. Comments go too. (WGSL has no strings: braces count the blocks.)
-const _stripped = new Map();
+const _stripped = new BoundedCache(128, 2 * 1024 * 1024);
 export function stripUnusedFunctions( code ) {
 
 	const hit = _stripped.get( code );
@@ -707,7 +712,7 @@ export function stripUnusedFunctions( code ) {
 	}
 	if ( depth !== 0 ) { _stripped.set( code, code ); return code; }
 	const tail = src.slice( start );
-	const fns = new Map(), roots = [];
+const fns = new Map(), roots = [];
 	for ( const [ a, b ] of decls ) {
 
 		const text = src.slice( a, b ), m = /\bfn\s+([A-Za-z_]\w*)\s*\(/.exec( text );
@@ -715,7 +720,16 @@ export function stripUnusedFunctions( code ) {
 
 			fns.set( m[ 1 ], { text, entry: /@(vertex|fragment|compute)\b/.test( text.slice( 0, m.index ) ) } );
 
-		} else roots.push( text );
+		} else {
+
+			// Resource declarations, structs and constants can carry large unused library
+			// graphs too. Follow their references exactly as functions, retaining directives
+			// (enable/requires/diagnostic/const_assert) as unconditional roots.
+			const declaration = /^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:struct|alias|const|override|var(?:\s*<[^>]*>)?)\s+([A-Za-z_]\w*)\b/.exec( text );
+			if ( declaration ) fns.set( declaration[ 1 ], { text, entry: false } );
+			else roots.push( text );
+
+		}
 
 	}
 	if ( ! fns.size ) { _stripped.set( code, code ); return code; }
@@ -727,13 +741,16 @@ export function stripUnusedFunctions( code ) {
 	let out = '';
 	for ( const [ a, b ] of decls ) {
 
-		const text = src.slice( a, b ), m = /\bfn\s+([A-Za-z_]\w*)\s*\(/.exec( text );
+		const text = src.slice( a, b );
+		const m = /\bfn\s+([A-Za-z_]\w*)\s*\(/.exec( text )
+			|| /^\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:struct|alias|const|override|var(?:\s*<[^>]*>)?)\s+([A-Za-z_]\w*)\b/.exec( text );
 		if ( m && fns.get( m[ 1 ] )?.text === text && ! used.has( m[ 1 ] ) ) continue;
 		out += text;
 
 	}
 	out += tail;
 	_stripped.set( code, out );
+	if ( _stripped.size > 256 ) _stripped.delete( _stripped.keys().next().value );
 	return out;
 
 }

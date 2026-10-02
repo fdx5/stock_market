@@ -6,6 +6,10 @@ from the same machine with --label before/after. --webgl checks the fallback.
 import argparse
 import atexit
 import json
+import functools
+import http.server
+import subprocess
+import threading
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -13,6 +17,8 @@ args = argparse.ArgumentParser()
 args.add_argument('--label', default='after')
 args.add_argument('--webgl', action='store_true')
 args.add_argument('--base-url', default='http://127.0.0.1:5173')
+args.add_argument('--production', action='store_true', help='build an isolated harness and serve it without HMR')
+args.add_argument('--on-page', action='store_true', help='control: original painting on the page')
 opts = args.parse_args()
 root = Path(__file__).resolve().parents[2]
 out = root / 'tmp' / ('complex-perf-' + opts.label + ('-webgl' if opts.webgl else ''))
@@ -45,6 +51,28 @@ createRoot(document.getElementById('root')!).render(<Review/>);
 ''', encoding='utf-8')
 paths[1].write_text('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0"><div id="root"></div><script type="module" src="/src/__perf3d.tsx"></script></body></html>', encoding='utf-8')
 
+if opts.production:
+    import os
+    config = root / ('frontend/vite.perf-task-' + str(os.getpid()) + '.config.mjs')
+    build = out / 'build'
+    config.write_text('''import {defineConfig} from 'vite';import react from '@vitejs/plugin-react';import paintAssetsPlugin from './paintAssetsPlugin.mjs';
+export default defineConfig({plugins:[react(),paintAssetsPlugin()],publicDir:false,define:{'import.meta.env.VITE_FILM':'"1"',
+'import.meta.env.VITE_STATIC_CDN':'"http://127.0.0.1:5179"','import.meta.env.VITE_PAINT_ON_PAGE':%s},
+build:{outDir:%s,rollupOptions:{input:'__perf3d.html'}}});''' % ('"1"' if opts.on_page else 'undefined', json.dumps(str(build))), encoding='utf-8')
+    atexit.register(lambda: config.unlink(missing_ok=True))
+    subprocess.run(['node', 'node_modules/vite/bin/vite.js', 'build', '--config', config.name], cwd=root/'frontend', check=True, stdout=subprocess.DEVNULL)
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def translate_path(self, path):
+            result = Path(super().translate_path(path))
+            if result.is_file(): return str(result)
+            relative = result.relative_to(build)
+            return str(root/'frontend/public'/relative)
+        def log_message(self, *args): pass
+    server = http.server.ThreadingHTTPServer(('127.0.0.1', 5179), functools.partial(Handler, directory=str(build)))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    atexit.register(lambda: (server.shutdown(), server.server_close()))
+    opts.base_url = 'http://127.0.0.1:5179'
+
 def building(x, y, w, d, h, i):
     return dict(rings=[[[x,y],[x+w,y],[x+w,y+d],[x,y+d]]],height=h,base=0,
                 floors=round(h/2.9),height_source='measured',name=f'{101+i}동',use='공동주택',approved=2020)
@@ -59,6 +87,18 @@ data = dict(id='perf-a',name='Performance fixture',address='',built=2020,found=T
 
 instrument = '''
 window.__perf = {cpu:[], writes:0, bytes:0, passes:0, draws:0, liveBytes:0, buffers:0, pipelines:0, tasks:[]};
+window.__loadingInput = {delays: [], frames: []};
+addEventListener('pointermove', e => {
+  if (!document.querySelector('.re-holo-stage')?.dataset.shownAt)
+    __loadingInput.delays.push(Math.max(0, performance.now() - e.timeStamp));
+}, {passive:true});
+let prevLoading;
+function loadingFrame(t) {
+  if (prevLoading !== undefined && !document.querySelector('.re-holo-stage')?.dataset.shownAt)
+    __loadingInput.frames.push(t-prevLoading);
+  prevLoading=t;requestAnimationFrame(loadingFrame);
+}
+requestAnimationFrame(loadingFrame);
 new PerformanceObserver(l=>__perf.tasks.push(...l.getEntries().map(x=>({start:x.startTime,ms:x.duration})))).observe({type:'longtask',buffered:true});
 const raf = window.requestAnimationFrame;
 window.requestAnimationFrame = f => raf(t=>{if (!window.__freeze) f(t)});
@@ -82,7 +122,7 @@ sample = '''()=>new Promise(resolve=>{
   __perf.cpu=[];__perf.writes=__perf.bytes=__perf.draws=__perf.passes=0;
   const samples=[];let prev=performance.now();
   function frame(now){samples.push(now-prev);prev=now;if(samples.length<180)requestAnimationFrame(frame);else {
-    const summary=a=>{a.sort((x,y)=>x-y);return {median:a[Math.floor(a.length*.5)]??0,p95:a[Math.floor(a.length*.95)]??0}};
+    const summary=a=>{a.sort((x,y)=>x-y);return {median:a[Math.floor(a.length*.5)]??0,p95:a[Math.floor(a.length*.95)]??0,max:a[a.length-1]??0,over20:a.filter(x=>x>20).length}};
     resolve({raf:summary(samples),cpu:summary(__perf.cpu),frames:__perf.cpu.length,
       writes:__perf.writes,bytes:__perf.bytes,draws:__perf.draws,passes:__perf.passes,
       liveBytes:__perf.liveBytes,buffers:__perf.buffers,pipelines:__perf.pipelines,
@@ -102,12 +142,23 @@ with sync_playwright() as p:
     page.route(opts.base_url + '/api/**',lambda r:r.fulfill(json={**data,'id':'perf-b' if 'perf-b' in r.request.url else 'perf-a'}))
     page.goto(opts.base_url + '/__perf3d.html')
     try:
+        for i in range(1200):
+            if page.evaluate("!!document.querySelector('.re-holo-stage')?.dataset.shownAt"):
+                break
+            page.mouse.move(50 + (i*17)%1100, 100 + (i*11)%600)
+            page.wait_for_timeout(8)
         page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.shownAt",timeout=45000)
     except Exception:
         print(json.dumps({'errors':errors,'text':page.locator('body').inner_text(),'state':page.evaluate('({...document.querySelector(".re-holo-stage")?.dataset})')},ensure_ascii=False),flush=True)
         page.screenshot(path=str(out/'failure.png'))
         raise
     report={'first':page.evaluate('({...__perf,state:{...document.querySelector(".re-holo-stage").dataset}})')}
+    report['environment'] = {'buildMode': 'production' if opts.production else 'development', 'browser': browser.version, 'fixture': 'complex-perf-v1', 'renderScale': 1.5}
+    report['loadingInput'] = page.evaluate('''()=>{
+      const summarize=a=>{a.sort((x,y)=>x-y);return {count:a.length,median:a[Math.floor(a.length*.5)]??0,p95:a[Math.floor(a.length*.95)]??0,max:a[a.length-1]??0,over20:a.filter(x=>x>20).length}};
+      return {pointerDelay:summarize(__loadingInput.delays),frames:summarize(__loadingInput.frames)};
+    }''')
+    first_canvases = page.locator('.re-holo-stage canvas').count()
     traffic_ready = "()=>{let ready=false;window.__complexStage?.scene.traverse(g=>{if(g.userData.traffic)ready=true});return ready && !!document.querySelector('.re-holo-stage')?.dataset.shownAt}"
     page.wait_for_function(traffic_ready,timeout=60000)
     page.evaluate('''()=>{const s=window.__complexStage;s.controls.autoRotate=false;s.intro=null;s.frame();s.controls.update()}''')
@@ -141,6 +192,6 @@ with sync_playwright() as p:
     (out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps({k:v for k,v in report.items() if k not in ('first','tasks')},ensure_ascii=False),flush=True)
     assert not errors,errors
-    assert report['canvases']==(1 if opts.webgl else 2)
+    assert report['canvases']==first_canvases, 'canvas count grew after switching complexes'
     assert report['overview']['state']['renderer']==('webgl' if opts.webgl else 'tidewater-webgpu')
     browser.close()

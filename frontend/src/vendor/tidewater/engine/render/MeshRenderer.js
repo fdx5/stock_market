@@ -1,5 +1,6 @@
 import { GPU } from '../gpu/GPU.js';
-import { composeShader, createShaderModule, getBindGroupLayout, group0ForBlock } from '../gpu/Shader.js';
+import { BoundedCache } from '../gpu/BoundedCache.js';
+import { composeShader, createShaderModule, getBindGroupLayout, group0ForBlock, stripUnusedFunctions } from '../gpu/Shader.js';
 import { buildMeshShader } from './MeshShader.js';
 import { blendState } from './Material.js';
 import { SceneLighting } from './wgsl/lighting.js';
@@ -28,7 +29,7 @@ const _camPos = new Vector3();
 
 let _listToken = 0; // one per drawItems call (see BindingSet.getBindGroup)
 const _sig = [];
-const sharedPipelines = new Map();
+const sharedPipelines = new BoundedCache(128, 3 * 1024 * 1024);
 // (local modification) a number per GPU object, for the render-bundle keys
 const _gpuIds = new WeakMap();
 let _gpuNext = 1;
@@ -453,6 +454,15 @@ export class MeshRenderer {
 
 	}
 
+	// A pipeline handle may be shared globally, but its bindings belong to one
+	// material. Drop those bindings when that material leaves the view.
+	forgetMaterial( material ) {
+
+		const prefix = material.id + '.';
+		for ( const key of this.pipelines.keys() ) if ( key.startsWith( prefix ) ) this.pipelines.delete( key );
+
+	}
+
 	_createPipeline( material, vl, pass, key ) {
 
 		const src = buildMeshShader( material, vl.layout, pass );
@@ -497,7 +507,7 @@ export class MeshRenderer {
 		// compiled in the background: the draw is skipped until it is ready (see GPU.renderPipeline)
 		// Reuse compiled programs across scene/complex changes. Bindings and
 		// uniforms remain per material; incompatible layouts never share a handle.
-		const sharedKey = c.code + JSON.stringify( [
+		const sharedKey = stripUnusedFunctions( c.code ) + JSON.stringify( [
 			layoutId( GPU.device ), layoutId( c.group0.layout ), layoutId( c.bindings.layout ), layoutId( this.drawLayout ),
 			desc.vertex.buffers, desc.primitive, desc.fragment?.targets, desc.depthStencil,
 		] );

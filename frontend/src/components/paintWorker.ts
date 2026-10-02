@@ -15,8 +15,11 @@ interface Entry { params: unknown; blobs: Record<string, Blob>; at: number }
 let dbp: Promise<IDBDatabase | null> | null = null;
 const db = () => dbp ??= new Promise(resolve => {
   try {
-    const req = indexedDB.open(DB, 1);
-    req.onupgradeneeded = () => req.result.createObjectStore(STORE);
+    const req = indexedDB.open(DB, 2);
+    req.onupgradeneeded = () => {
+      const store = req.result.objectStoreNames.contains(STORE) ? req.transaction!.objectStore(STORE) : req.result.createObjectStore(STORE);
+      if (!store.indexNames.contains('at')) store.createIndex('at', 'at');
+    };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => resolve(null);
   } catch { resolve(null); }
@@ -39,16 +42,15 @@ async function put(key: string, entry: Entry) {
   if (!d) return;
   try {
     await done(d.transaction(STORE, "readwrite").objectStore(STORE).put(entry, key));
-    const ages: [IDBValidKey, number][] = [];
+    const count = await done(d.transaction(STORE).objectStore(STORE).count());
+    let excess = (count ?? 0) - LIMIT;
+    if (excess <= 0) return;
     await new Promise<void>(resolve => {
-      const cur = d.transaction(STORE).objectStore(STORE).openCursor();
-      cur.onsuccess = () => { const c = cur.result; if (!c) return resolve(); ages.push([c.key, (c.value as Entry).at]); c.continue(); };
+      const store = d.transaction(STORE, 'readwrite').objectStore(STORE);
+      const cur = store.index('at').openKeyCursor();
+      cur.onsuccess = () => { const c = cur.result; if (!c || excess-- <= 0) return resolve(); store.delete(c.primaryKey); c.continue(); };
       cur.onerror = () => resolve();
     });
-    if (ages.length <= LIMIT) return;
-    ages.sort((a, b) => a[1] - b[1]);
-    const store = d.transaction(STORE, "readwrite").objectStore(STORE);
-    for (const [k] of ages.slice(0, ages.length - LIMIT)) store.delete(k);
   } catch { /* the cache is a convenience */ }
 }
 
@@ -59,7 +61,8 @@ async function encode(bitmap: ImageBitmap): Promise<Blob> {
   // (the CPU's canvas: a GPU one is run by the browser's GPU process, which the page's frames wait on)
   c.getContext("2d", { willReadFrequently: true })!.drawImage(bitmap, 0, 0);
   bitmap.close();
-  return c.convertToBlob({ type: "image/png" });
+  try { return await c.convertToBlob({ type: "image/png" }); }
+  finally { c.width = c.height = 1; }
 }
 
 type Msg = { op: "get"; id: number; key: string } | { op: "put"; key: string; params: unknown; bitmaps: Record<string, ImageBitmap> };
@@ -82,7 +85,8 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
   }
   try {
     const names = Object.keys(m.bitmaps);
-    const blobs = await Promise.all(names.map(n => encode(m.bitmaps[n])));
+    const blobs: Blob[] = [];
+    for (const name of names) blobs.push(await encode(m.bitmaps[name]));
     await put(m.key, { params: m.params, blobs: Object.fromEntries(names.map((n, i) => [n, blobs[i]])), at: Date.now() });
-  } catch { /* not kept: painted again next time */ }
+  } catch { Object.values(m.bitmaps).forEach(b => b.close()); }
 };

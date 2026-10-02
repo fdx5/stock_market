@@ -19,8 +19,11 @@ export async function groundPlan(data: RealEstateBuildingsResponse, T: number, s
     if (made) {
       if (!await pace()) { made.color.close(); made.rough.close(); made.glow.close(); return null; }
       if (data.parcels) primeWaterCovered(data.parcels, made.covered);
-      return { color: groundTexture(made.color, true), rough: groundTexture(made.rough, false), glow: groundTexture(made.glow, true), planting: made.planting, lamps: made.lamps };
+      const color = groundTexture(made.color, true), rough = groundTexture(made.rough, false), glow = groundTexture(made.glow, true);
+      color.addEventListener("dispose", () => made!.color.close()); rough.addEventListener("dispose", () => made!.rough.close()); glow.addEventListener("dispose", () => made!.glow.close());
+      return { color, rough, glow, planting: made.planting, lamps: made.lamps };
     }
   }
+  if (!await pace()) return null;
   return runSliced(paintGroundSteps(data, T, size, seed), pace);
 }

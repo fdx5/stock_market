@@ -250,6 +250,7 @@ export class SunShadows {
 		this.texture.destroy();
 		this.cache?.destroy();
 		this.cache = null;
+		for ( const cascade of this.cascades ) cascade.block.buffer?.destroy();
 
 	}
 

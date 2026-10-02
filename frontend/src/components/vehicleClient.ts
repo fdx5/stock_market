@@ -4,12 +4,19 @@ import { kitGeometries, PROCEDURAL, type Pack } from "./vehicleShapes";
 import type { ShapeArrays } from "./vehicleWorker";
 import { frameSlice } from "./frameSlice";
 import { fetchStatic } from "../staticCdn";
+import { onSceneMemoryRelease } from "./sceneMemory";
 
 /* The traffic's vehicle shapes, made once a session in a worker (vehicleWorker.ts): the page
  * only wraps the arrays it gets back. Where workers can't run, made here in slices. */
 
 export type Shapes = { kit: Map<string, THREE.BufferGeometry>; procedural: Map<string, THREE.BufferGeometry> };
 let shapes: Promise<Shapes> | null = null;
+const running = new Map<Worker, () => void>();
+onSceneMemoryRelease(() => {
+  running.forEach((cancel, w) => { w.terminate(); cancel(); }); running.clear();
+  const old = shapes; shapes = null;
+  void old?.then(s => { s.kit.forEach(g => g.dispose()); s.procedural.forEach(g => g.dispose()); s.kit.clear(); s.procedural.clear(); }).catch(() => {});
+});
 
 const unpack = (a: ShapeArrays) => {
   const g = new THREE.BufferGeometry();
@@ -36,8 +43,10 @@ export function vehicleShapes(): Promise<Shapes> {
     let worker: Worker;
     try { worker = new Worker(new URL("./vehicleWorker.ts", import.meta.url), { type: "module" }); }
     catch { void onPage().then(resolve); return; }
+    running.set(worker, () => resolve({kit: new Map(), procedural: new Map()}));
     worker.onmessage = (e: MessageEvent<{ kit: Record<string, ShapeArrays>; cars: Record<string, ShapeArrays>; procedural: Record<string, ShapeArrays>; error?: string }>) => {
       worker.terminate();
+      running.delete(worker);
       const d = e.data;
       if (d.error) { console.info("[3D] vehicle shapes on the page:", d.error); void onPage().then(resolve); return; }
       // (the passenger cars into sceneCars' own store: carGeometry gives these from now on)
@@ -47,7 +56,7 @@ export function vehicleShapes(): Promise<Shapes> {
         procedural: new Map(Object.entries(d.procedural).map(([n, a]) => [n, unpack(a)])),
       });
     };
-    worker.onerror = () => { worker.terminate(); void onPage().then(resolve); };
+    worker.onerror = () => { worker.terminate(); running.delete(worker); void onPage().then(resolve); };
     worker.postMessage(0);
   });
   shapes.catch(() => { shapes = null; });

@@ -133,7 +133,9 @@ const encoder = () => pipeline;
 /** Whether `encodeBC7` can run now (a device with BC textures and the encoder compiled,
  * sizes in whole blocks). */
 export function canEncodeBC7(img) {
-  if (!GPU.device || device !== GPU.device || !pipeline) { warmBC7(); return false; }
+  // A live view never triggers this heavyweight, lossy encoder. Pre-encoded
+  // textures still use BC7; dynamic paint uploads retain every original texel.
+  if (!GPU.device || device !== GPU.device || !pipeline) return false;
   return img?.width >= 4 && img.width % 4 === 0 && img.height % 4 === 0;
 }
 

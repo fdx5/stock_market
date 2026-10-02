@@ -1225,6 +1225,8 @@ export interface RealEstateBuilding {
 
 export interface RealEstateParcel { ring: [number, number][]; kind: string }
 
+export interface DriveBoardRow { rank: number; name: string; score: number; drives: number; deliveries: number; me: boolean }
+export interface DriveBoard { top: DriveBoardRow[]; me: DriveBoardRow | null; players: number }
 export interface RealEstateRoad { line: [number, number][]; width: number; lanes: number }
 
 /** A parcel round a complex with the 공동주택 on it (x east, y north of the view's centre, m). */
@@ -1323,6 +1325,15 @@ export const api = {
   /** Open water round a point (OpenStreetMap lakes, ponds, river areas): rings in metres about it. */
   realEstateWater: (lat: number, lon: number, r: number) =>
     getJSON<{ rings: { ring: [number, number][]; kind: string; name: string | null }[]; source: string | null }>(`${BASE}/realestate/water?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}`),
+  /** Mapped crosswalks and traffic signals round a point (OpenStreetMap), in metres about it. */
+  realEstateCrossings: (lat: number, lon: number, r: number) =>
+    getJSON<{ crossings: { line: [number, number][]; signals: boolean }[]; points: { at: [number, number]; signals: boolean; marked: boolean }[]; signals: [number, number][]; source: string | null }>(`${BASE}/realestate/crossings?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}`),
+  /** 3D 단지뷰 배송 게임: a finished drive recorded; the board (players by total score, rank 1
+   * first) and the player's own rank. */
+  driveScorePost: (p: { player_id: string; name: string; score: number; deliveries: number; vehicle: string }) =>
+    postJSON<DriveBoard>(`${BASE}/realestate/drive/scores`, p),
+  driveScores: (playerId?: string) =>
+    getJSONFresh<DriveBoard>(`${BASE}/realestate/drive/scores?limit=50${playerId ? `&player_id=${playerId}` : ""}`),
   realEstateRent: (id: string) =>
     getJSONFresh<RealEstateRentResponse>(`${BASE}/realestate/rent?id=${encodeURIComponent(id)}`),
   realEstateBuildings: (id: string, signal?: AbortSignal, peek = false) =>
