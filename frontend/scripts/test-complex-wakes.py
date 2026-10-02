@@ -7,7 +7,7 @@ root=Path(__file__).resolve().parents[2];front=root/'frontend'
 files=[front/'src/components/__wakesOriginal.ts',front/'src/__wakesqa.ts',front/'__wakesqa.html']
 assert not any(f.exists() for f in files)
 atexit.register(lambda:[f.unlink(missing_ok=True) for f in files])
-original=subprocess.check_output(['git','show','HEAD:frontend/src/components/sceneBoats.ts'],cwd=root).decode('utf8')
+original=subprocess.check_output(['git','show','18d71c5:frontend/src/components/sceneBoats.ts'],cwd=root).decode('utf8')
 files[0].write_text(original+'\nexport function originalWakes(){return wakeTextures();}\n',encoding='utf8')
 files[2].write_text('<html><script type="module" src="/src/__wakesqa.ts"></script></html>',encoding='utf8')
 files[1].write_text('''import {originalWakes} from './components/__wakesOriginal';import {prepareWakes} from './components/sceneBoats';

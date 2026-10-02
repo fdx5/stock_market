@@ -7,7 +7,7 @@ root=Path(__file__).resolve().parents[2];front=root/'frontend'
 files=[front/'src/components/__heroOriginal.ts',front/'src/__heroqa.ts',front/'__heroqa.html']
 assert not any(p.exists() for p in files)
 atexit.register(lambda:[p.unlink(missing_ok=True) for p in files])
-files[0].write_bytes(subprocess.check_output(['git','show','HEAD:frontend/src/components/heroVehicles.ts'],cwd=root))
+files[0].write_bytes(subprocess.check_output(['git','show','18d71c5:frontend/src/components/heroVehicles.ts'],cwd=root))
 files[2].write_text('<html><script type="module" src="/src/__heroqa.ts"></script></html>',encoding='utf8')
 files[1].write_text('''import {coupangTruck,cybertruck} from './components/__heroOriginal';
 import {heroSurface} from './components/heroVehicles';import {vehicleShapes,heroGeometry} from './components/vehicleClient';
