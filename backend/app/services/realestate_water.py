@@ -16,7 +16,7 @@ import time
 from app.services.realestate_buildings import BuildingsError, _clean, _overpass, _projector, _stitch
 
 KEEP_S = 30 * 86400
-MISS_S = 3600
+MISS_S = 600
 _cache: dict[tuple, tuple[float, dict]] = {}
 _lock = threading.Lock()
 

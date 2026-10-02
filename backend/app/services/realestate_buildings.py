@@ -304,7 +304,14 @@ def _overpass(query: str) -> list[dict]:
         try:
             res = requests.post(url, data={"data": query}, headers=UA, timeout=(5, 20))
             if res.ok:
-                return res.json().get("elements", [])
+                body = res.json()
+                # (a query that ran out of time or memory still answers 200, with a remark and
+                # whatever it had: not an answer)
+                remark = str(body.get("remark") or "")
+                if "error" in remark.lower() or "timed out" in remark.lower():
+                    last = BuildingsError(f"Overpass: {remark[:80]}")
+                    continue
+                return body.get("elements", [])
             last = BuildingsError(f"Overpass {res.status_code}")
         except (requests.RequestException, ValueError) as exc:
             last = exc
