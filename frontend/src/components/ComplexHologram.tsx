@@ -853,7 +853,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (r) { b.setRoute(r[0], r[1], r[2]); b.group.visible = true; stage.balloonRoute = null; }
     }));
     // Dev only: lets the render checks place the camera (never in a production build).
-    if (import.meta.env.DEV) (window as unknown as { __complexStage?: Stage }).__complexStage = stage;
+    if (import.meta.env.DEV || import.meta.env.VITE_FILM === "1") (window as unknown as { __complexStage?: Stage }).__complexStage = stage;
 
     let W = 1, H = 1;
     // (sizes from the ResizeObserver: reading clientWidth made the browser lay out the page there
@@ -2432,7 +2432,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // The ground: the surveyed parcel landscaped (flat paint only), laid over the real
     // relief; damp paving reflects the towers where the ground is level.
     const T = Math.max(reach * 1.15, span * 0.9 + 120);
-    if (import.meta.env.DEV) Object.assign(window, { __holoData: data });
+    if (import.meta.env.DEV || import.meta.env.VITE_FILM === "1") Object.assign(window, { __holoData: data });
     step("ctxMaterials");
     if (!await pace(true)) return;
     let paintAt = performance.now();
