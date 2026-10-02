@@ -22,8 +22,8 @@ for(const job of jobs){console.log('paint-start',JSON.stringify(job));const step
 const original=runNow(steps);console.log('original-ready');const reply=await preparedContext(job)??await raster(job);console.log('worker-ready');if(!reply.bitmaps)throw Error('worker failed');
 const normalized=await paintTextures(job,async()=>true);if(!normalized)throw Error('normalization failed');
 for(const name of Object.keys(original)){const t=original[name],bmp=reply.bitmaps[name];if(t.image.width!==bmp.width||t.image.height!==bmp.height)throw Error('resolution changed');
-const x=pixels(t.image),y=pixels(bmp);let max=0,sum=0,changed=0;for(let i=0;i<x.length;i++){const d=Math.abs(x[i]-y[i]);max=Math.max(max,d);sum+=d;if(d)changed++}
-const p=reply.params[name];if(t.flipY!==p.flipY||t.anisotropy!==p.anisotropy||t.colorSpace!==p.colorSpace||t.repeat.x!==p.repeat[0]||t.repeat.y!==p.repeat[1]||t.offset.x!==p.offset[0]||t.offset.y!==p.offset[1])throw Error('texture sampling changed');
+const x=pixels(t.image),y=pixels(bmp,t.flipY!==reply.params[name].flipY);let max=0,sum=0,changed=0;for(let i=0;i<x.length;i++){const d=Math.abs(x[i]-y[i]);max=Math.max(max,d);sum+=d;if(d)changed++}
+const p=reply.params[name];if(p.flipY!==false||t.anisotropy!==p.anisotropy||t.colorSpace!==p.colorSpace||t.repeat.x!==p.repeat[0]||t.repeat.y!==p.repeat[1]||t.offset.x!==p.offset[0]||t.offset.y!==p.offset[1])throw Error('texture sampling changed');
 const nt=normalized[name];if(nt.flipY)throw Error('ImageBitmap orientation relies on unsupported WebGL flipY');
 const nx=pixels(nt.image,t.flipY);for(let i=0;i<x.length;i++)if(Math.abs(nx[i]-x[i])>1)throw Error('WebGL/WebGPU texel orientation changed');nt.dispose();
 reports.push({job:job.kind,style:job.style,scale:job.scale,name,width:bmp.width,height:bmp.height,max,mean:sum/x.length,changed});bmp.close();t.image.width=t.image.height=1;t.dispose()}}

@@ -15,7 +15,7 @@ export type PaintJob =
   | { kind: "plinth"; seed: number; tone: string }
   | { kind: "context"; style: ContextStyle; scale?: number };
 type Textures = Record<string, THREE.Texture>;
-export interface TexParams { wrapS: number; wrapT: number; flipY: boolean; anisotropy: number; colorSpace: string; repeat: [number, number]; offset: [number, number]; surfaceKey?: string }
+export interface TexParams { wrapS: number; wrapT: number; flipY: boolean; anisotropy: number; colorSpace: string; repeat: [number, number]; offset: [number, number]; surfaceKey?: string; immutableKey?: string }
 
 // The key carries a hash of the painting code: a change to it never reads an old copy.
 const hash = (text: string) => {
@@ -25,6 +25,18 @@ const hash = (text: string) => {
 };
 let version = "";
 const keyOf = (job: PaintJob) => `raster-v3:${version ||= hash([facadeSteps, plinthSteps, contextSteps, normalRows].map(f => String(f)).join("|"))}:${JSON.stringify(job)}`;
+
+// Keep metadata, not GPU-backed copies. Persist only while the page is hidden;
+// snapshotting an ImageBitmap can synchronously stall the GPU process.
+const cacheJobs = new Map<string, PaintJob>();
+if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => {
+  const w = worker ?? (document.hidden && cacheJobs.size ? store() : null);
+  if (!w) return;
+  w.postMessage({op:'cacheVisibility',hidden:document.hidden});
+  if (!document.hidden) return;
+  for (const [key, job] of cacheJobs) w.postMessage({op:'paint',key,job});
+  cacheJobs.clear();
+});
 
 type Reply = { id: number; bitmaps: Record<string, ImageBitmap> | null; params: Record<string, TexParams> | null };
 let worker: Worker | null | undefined;
@@ -63,6 +75,7 @@ async function fromReply(r: Reply | null): Promise<Textures | null> {
     t.flipY = false; t.anisotropy = p.anisotropy; t.colorSpace = p.colorSpace as THREE.ColorSpace;
     t.repeat.set(...p.repeat); t.offset.set(...p.offset); t.needsUpdate = true;
     if (p.surfaceKey) t.userData.surfaceKey = p.surfaceKey;
+    if (p.immutableKey) t.userData.immutableKey = p.immutableKey;
     t.addEventListener("dispose", () => bitmap.close());
     out[name] = t;
   } } catch { Object.values(out).forEach(t => t.dispose()); Object.values(r.bitmaps).forEach(b => b.close()); return null; }
@@ -70,13 +83,12 @@ async function fromReply(r: Reply | null): Promise<Textures | null> {
 }
 
 let rasterPool: { w: Worker; busy: number; pending: Map<number, (r: Reply | null) => void>; idle?: ReturnType<typeof setTimeout> }[] | null | undefined;
-const pendingWrites = new Set<() => void>();
 function paintOffThread(job: PaintJob): Promise<Textures | null> {
   if (rasterPool === undefined) {
     rasterPool = [];
     try {
       if (typeof OffscreenCanvas === "undefined" || import.meta.env.VITE_PAINT_ON_PAGE) return Promise.resolve(null);
-      for (let i = 0; i < Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 4) - 2)); i++) {
+      for (let i = 0; i < Math.max(1, Math.min(2, (navigator.hardwareConcurrency || 4) - 2)); i++) {
         const w = new Worker(new URL("./paintRasterWorker.ts", import.meta.url), { type: "module" });
         const slot = { w, busy: 0, pending: new Map<number, (r: Reply | null) => void>() };
         w.onmessage = (e: MessageEvent<Reply>) => { slot.pending.get(e.data.id)?.(e.data); };
@@ -118,38 +130,6 @@ function lookUp(job: PaintJob): Promise<Textures | null> {
   });
 }
 
-/** Hand freshly painted textures to the worker to keep (snapshots: the canvases may be
- * emptied once they are on the GPU). */
-function keep(job: PaintJob, textures: Textures) {
-  const w = store();
-  if (!w) return;
-  const startedIn = epoch;
-  const names = Object.keys(textures);
-  const params = Object.fromEntries(names.map(n => {
-    const t = textures[n];
-    const p: TexParams = { wrapS: t.wrapS, wrapT: t.wrapT, flipY: t.flipY, anisotropy: t.anisotropy, colorSpace: t.colorSpace, repeat: [t.repeat.x, t.repeat.y], offset: [t.offset.x, t.offset.y], surfaceKey: t.userData.surfaceKey };
-    return [n, p];
-  }));
-  // Encoded once the page is idle: never alongside a loading view.
-  void Promise.allSettled(names.map(n => createImageBitmap(textures[n].image as HTMLCanvasElement, {colorSpaceConversion:'none',premultiplyAlpha:'none'}))).then(results => {
-    const list = results.flatMap(r => r.status === 'fulfilled' ? [r.value] : []);
-    if (list.length !== names.length) { list.forEach(b => b.close()); return; }
-    const bitmaps = Object.fromEntries(names.map((n, i) => [n, list[i]]));
-    const send = () => {
-      if (startedIn !== epoch || worker !== w) { list.forEach(b => b.close()); return; }
-      try { w.postMessage({ op: "put", key: keyOf(job), params, bitmaps }, list); }
-      catch { list.forEach(b => b.close()); }
-    };
-    if (startedIn !== epoch) { list.forEach(b => b.close()); return; }
-    let cancel = () => {};
-    const discard = () => { cancel(); list.forEach(b => b.close()); pendingWrites.delete(discard); };
-    const flush = () => { pendingWrites.delete(discard); send(); };
-    pendingWrites.add(discard);
-    if (typeof requestIdleCallback === "function") { const id = requestIdleCallback(flush, { timeout: 4000 }); cancel = () => cancelIdleCallback(id); }
-    else { const id = setTimeout(flush, 1500); cancel = () => clearTimeout(id); }
-  }).catch(() => {});
-}
-
 const stepsOf = (job: PaintJob) =>
   job.kind === "facade" ? facadeSteps(job.palette, job.seed, job.scale ?? 1)
     : job.kind === "plinth" ? plinthSteps(job.seed, job.tone)
@@ -178,7 +158,10 @@ async function obtain(job: PaintJob, pace: () => Promise<boolean> = slicer()): P
   if (!made && await pace()) made = await runSliced<Textures>(stepsOf(job) as Generator<void | Promise<unknown>, Textures, boolean | undefined>, pace);
   if (!made) return null;
   paintStats.painted++;
-  keep(job, made);
+  if (Object.values(made).every(t => t.image instanceof ImageBitmap)) {
+    cacheJobs.set(keyOf(job), job);
+    if (cacheJobs.size > 40) cacheJobs.delete(cacheJobs.keys().next().value!);
+  }
   return made;
 }
 
@@ -186,8 +169,7 @@ async function obtain(job: PaintJob, pace: () => Promise<boolean> = slicer()): P
 const ahead = new Map<string, Promise<Textures | null>>();
 
 onSceneMemoryRelease(() => {
-  epoch++;
-  pendingWrites.forEach(discard => discard());
+  epoch++; cacheJobs.clear();
   for (const job of ahead.values()) void job.then(t => t && Object.values(t).forEach(x => x.dispose()));
   ahead.clear();
   for (const slot of rasterPool ?? []) { clearTimeout(slot.idle); slot.w.terminate(); slot.pending.forEach(done => done(null)); clearTimeout(slot.idle); }
@@ -238,18 +220,8 @@ export function prefetchPaint(id: string, name?: string | null) {
  * complexes likely chosen next (the 3D view's nearest neighbours). Chosen later, its build
  * finds them kept — a decode in the worker instead of painting on the way to the screen. */
 export async function paintAhead(id: string) {
-  if (!store()) return;
-  const startedIn = epoch;
-  const idle = async () => {
-    await new Promise<void>(resolve => (typeof requestIdleCallback === "function" ? requestIdleCallback(() => resolve(), { timeout: 3000 }) : setTimeout(resolve, 50)));
-    return startedIn === epoch;
-  };
-  for (const job of complexPaintJobs(id, id.split(":").pop() ?? "")) {
-    if (startedIn !== epoch) break;
-    if (ahead.has(JSON.stringify(job))) continue;
-    const t = await obtain(job, idle).catch(() => null);
-    if (t) Object.values(t).forEach(x => x.dispose());
-  }
+  for (const job of complexPaintJobs(id, id.split(":").pop() ?? "")) cacheJobs.set(keyOf(job),job);
+  while (cacheJobs.size > 40) cacheJobs.delete(cacheJobs.keys().next().value!);
 }
 
 // The neighbourhood's styles, shared by every complex: kept too.
@@ -258,7 +230,7 @@ const contextJob = (style: ContextStyle): PaintJob => style.endsWith("@2")
   : { kind: "context", style };
 keepPaintWith({
   lookUp: (style: ContextStyle) => obtain(contextJob(style)),
-  keep: (style: ContextStyle, t: Textures) => keep(contextJob(style), t),
+  keep: () => {}, // Raster workers persist their own bitmaps; never snapshot on the UI thread.
 });
 
 // Up (and its database open) before the first complex asks.

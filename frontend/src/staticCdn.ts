@@ -22,3 +22,36 @@ export async function fetchStatic(path: string, init?: RequestInit): Promise<Res
   }
   return fetch(path, init);
 }
+
+/** Complete critical surface downloads before returning. A slow CDN must not
+ * block the first GPU frame: race its identical origin copy after 250 ms.
+ * Deadlines cover the body too, and losing requests are cancelled. */
+export async function fetchCriticalStatic(path: string): Promise<Response> {
+  const remote = cdn(path);
+  const controllers: AbortController[] = [];
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const download = async (url: string, delay = 0) => {
+    if (delay) await new Promise<void>(resolve => timers.push(setTimeout(resolve, delay)));
+    const controller = new AbortController();
+    controllers.push(controller);
+    const deadline = setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw Error(`Surface asset ${response.status}: ${path}`);
+      const body = await response.blob();
+      return new Response(body, { status: response.status, headers: response.headers });
+    } finally { clearTimeout(deadline); }
+  };
+  try {
+    const requests = remote === path ? [download(path)] : [download(remote), download(path, 250)];
+    return await new Promise<Response>((resolve, reject) => {
+      let failed = 0;
+      for (const request of requests) request.then(resolve, error => {
+        if (++failed === requests.length) reject(error);
+      });
+    });
+  } finally {
+    timers.forEach(clearTimeout);
+    controllers.forEach(controller => controller.abort());
+  }
+}

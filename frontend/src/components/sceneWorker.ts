@@ -1,7 +1,11 @@
 /// <reference lib="webworker" />
 import { fieldFrom, gridAt, waterField, waterSurface, type FieldData, type HeightGrid, type WaterArrays } from "./waterCore";
 import { groundCanvasSteps, runNow, waterCovered, type Lamp, type Planting } from "./complexScene";
-import type { RealEstateBuildingsResponse } from "../api/client";
+import type { RealEstateBuildingsResponse, RealEstateRoad, RealEstateParcel } from "../api/client";
+import { findBridges, type Bridge } from "./sceneBridges";
+import { sidewalkRuns, type Run } from "./sceneSidewalk";
+import { makeGroundGeometry } from "./groundGeometry";
+import { FLAT } from "./sceneTerrain";
 
 /* The 3D view's scene work that needs no page, done off its thread (sceneWorkerClient.ts):
  * while a complex loads, the page only draws frames and wraps the arrays sent back.
@@ -14,6 +18,9 @@ import type { RealEstateBuildingsResponse } from "../api/client";
 export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "parcels" | "streets"> & { buildings: { rings: [number, number][][] }[]; context: { rings: [number, number][][] }[] };
 
 export type SceneOps = {
+  terrainGround: {args:{T:number;G:number;segs:number;grid:HeightGrid|null};result:{position:Float32Array;normal:Float32Array;uv:Float32Array;index:Uint16Array|Uint32Array;grid:{xs:Float64Array;ys:Float64Array};sphere:{center:[number,number,number];radius:number}}};
+  bridges: { args: { roads: RealEstateRoad[]; parcels: RealEstateParcel[]; covered: boolean[]; grid: HeightGrid | null }; result: Bridge[] };
+  sidewalks: { args: { roads: RealEstateRoad[]; footprints: [number, number][][] }; result: Run[] };
   water: { args: { rings: [number, number][][]; grid: HeightGrid | null }; result: { field: FieldData; surface: WaterArrays | null } | null };
   ground: { args: { data: GroundData; T: number; size: number; seed: number }; result: { color: ImageBitmap; rough: ImageBitmap; glow: ImageBitmap; planting: Planting; lamps: Lamp[]; covered: boolean[] } };
 };
@@ -44,7 +51,25 @@ async function ground({ data, T, size, seed }: SceneOps["ground"]["args"]): Prom
 self.onmessage = async (e: MessageEvent<Msg>) => {
   const m = e.data;
   try {
-    const [result, transfer] = m.op === "water" ? await water(m.args) : m.op === "ground" ? await ground(m.args) : [null, []];
+    let result: unknown, transfer: Transferable[] = [];
+    if (m.op === 'terrainGround') {
+      const geo=await makeGroundGeometry(m.args.T,m.args.G,m.args.grid ? {...FLAT,at:gridAt(m.args.grid)} : FLAT,m.args.segs,go);
+      if (!geo) throw Error('ground layout cancelled');
+      const sphere=geo.boundingSphere!;
+      result={position:geo.attributes.position.array,normal:geo.attributes.normal.array,uv:geo.attributes.uv.array,index:geo.index!.array,grid:geo.userData.grid,sphere:{center:sphere.center.toArray(),radius:sphere.radius}};
+      transfer=[geo.attributes.position.array.buffer,geo.attributes.normal.array.buffer,geo.attributes.uv.array.buffer,geo.index!.array.buffer,geo.userData.grid.xs.buffer,geo.userData.grid.ys.buffer] as ArrayBuffer[];
+      geo.dispose();
+    } else if (m.op === "water") [result, transfer] = await water(m.args);
+    else if (m.op === "ground") [result, transfer] = await ground(m.args);
+    else if (m.op === "bridges") {
+      result = findBridges(m.args.roads, m.args.parcels, m.args.covered,
+        m.args.grid ? { ...FLAT, at: gridAt(m.args.grid) } : FLAT);
+    } else if (m.op === "sidewalks") result = sidewalkRuns(m.args.roads, m.args.footprints);
+    if (m.op === "bridges" || m.op === "sidewalks") {
+      for (const item of result as Record<string, unknown>[]) for (const value of Object.values(item)) {
+        if (ArrayBuffer.isView(value)) transfer.push(value.buffer as ArrayBuffer);
+      }
+    }
     (self as unknown as Worker).postMessage({ id: m.id, result }, transfer);
   } catch (err) {
     (self as unknown as Worker).postMessage({ id: m.id, error: String(err) });

@@ -58,7 +58,9 @@ export function warmPack(format, body, count) {
 /** Fill `target` (a Texture with 'render' usage, the sources' size) from the images. */
 export function packInto(target, sources, body) {
   const size = [target.width, target.height];
-  const temps = sources.map(({ img, flipY }) => {
+  const temps = sources.map(({ img, flipY, texture }) => {
+    // A large bitmap may already have been uploaded in bounded strips.
+    if (texture) return texture;
     const t = GPU.device.createTexture({
       label: 'pack source', size, format: 'rgba8unorm',
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
@@ -81,5 +83,5 @@ export function packInto(target, sources, body) {
   pass.draw(3);
   pass.end();
   generateMipmaps(target, enc);
-  GPU.onSubmit(null, () => temps.forEach(t => t.destroy()));
+  GPU.onSubmit(null, () => temps.forEach((t, i) => { if (!sources[i].texture) t.destroy(); }));
 }

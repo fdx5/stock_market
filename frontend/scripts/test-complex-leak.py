@@ -9,6 +9,10 @@ Usage: python frontend/scripts/test-complex-leak.py [--cycles 8] [--label x]
 import argparse
 import atexit
 import json
+try:
+    import psutil
+except ImportError:
+    psutil = None
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -99,6 +103,7 @@ with sync_playwright() as p:
     page.wait_for_function("document.querySelector('.re-holo-stage')?.dataset.shownAt", timeout=60000)
     page.wait_for_timeout(5000)
     cdp = page.context.new_cdp_session(page)
+    process_cdp = browser.new_browser_cdp_session() if psutil else None
 
     def measure(tag):
         for _ in range(3):
@@ -109,6 +114,15 @@ with sync_playwright() as p:
         m = page.evaluate("({buffers:__m.buffers,bufMB:+(__m.bufBytes/1e6).toFixed(1),textures:__m.textures,texMB:+(__m.texBytes/1e6).toFixed(1),"
                           "gl:__m.contexts.map(r=>r.deref()).filter(c=>c&&!c.isContextLost()).length,canvases:document.querySelectorAll('canvas').length})")
         m.update(tag=tag, heapMB=round(heap / 1e6, 1), rafPerSec=r1 - r0, railFrame=page.evaluate(FRAMES))
+        if process_cdp:
+            rss = {}
+            for proc in process_cdp.send('SystemInfo.getProcessInfo')['processInfo']:
+                try:
+                    rss[proc['type']] = rss.get(proc['type'], 0) + psutil.Process(int(proc['id'])).memory_info().rss
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    pass
+            m['rssMB'] = round(sum(rss.values()) / 1e6, 1)
+            m['rssByProcessTypeMB'] = {kind: round(size / 1e6, 1) for kind, size in rss.items()}
         print(json.dumps(m), flush=True)
         return m
 

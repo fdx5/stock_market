@@ -9,84 +9,53 @@
  *   { op: "put", key, params, bitmaps }    -> (kept; the bitmaps are closed)
  */
 
-const DB = "kospimap-paint", STORE = "tex", LIMIT = 40;
-interface Entry { params: unknown; blobs: Record<string, Blob>; at: number }
-
-let dbp: Promise<IDBDatabase | null> | null = null;
-const db = () => dbp ??= new Promise(resolve => {
-  try {
-    const req = indexedDB.open(DB, 2);
-    req.onupgradeneeded = () => {
-      const store = req.result.objectStoreNames.contains(STORE) ? req.transaction!.objectStore(STORE) : req.result.createObjectStore(STORE);
-      if (!store.indexNames.contains('at')) store.createIndex('at', 'at');
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => resolve(null);
-  } catch { resolve(null); }
-});
-const done = <T>(req: IDBRequest<T>) => new Promise<T | null>(resolve => { req.onsuccess = () => resolve(req.result); req.onerror = () => resolve(null); });
-
-async function get(key: string): Promise<Entry | null> {
-  const d = await db();
-  if (!d) return null;
-  try {
-    const entry = await done<Entry | undefined>(d.transaction(STORE).objectStore(STORE).get(key));
-    // Touched: the least recently used go first.
-    if (entry) d.transaction(STORE, "readwrite").objectStore(STORE).put({ ...entry, at: Date.now() }, key);
-    return entry ?? null;
-  } catch { return null; }
-}
-
-async function put(key: string, entry: Entry) {
-  const d = await db();
-  if (!d) return;
-  try {
-    await done(d.transaction(STORE, "readwrite").objectStore(STORE).put(entry, key));
-    const count = await done(d.transaction(STORE).objectStore(STORE).count());
-    let excess = (count ?? 0) - LIMIT;
-    if (excess <= 0) return;
-    await new Promise<void>(resolve => {
-      const store = d.transaction(STORE, 'readwrite').objectStore(STORE);
-      const cur = store.index('at').openKeyCursor();
-      cur.onsuccess = () => { const c = cur.result; if (!c || excess-- <= 0) return resolve(); store.delete(c.primaryKey); c.continue(); };
-      cur.onerror = () => resolve();
-    });
-  } catch { /* the cache is a convenience */ }
-}
-
+import { readPaint, writePaint } from "./paintStore";
+import { contextSteps, facadeSteps, plinthSteps, NEIGHBOUR_PALETTE, runNow } from './complexScene';
+import type { PaintJob, TexParams } from './paintClient';
+let cacheQueue = Promise.resolve();
+let cacheAllowed = false;
 const RAW: ImageBitmapOptions = { colorSpaceConversion: "none", premultiplyAlpha: "none" };
 
-async function encode(bitmap: ImageBitmap): Promise<Blob> {
-  const c = new OffscreenCanvas(bitmap.width, bitmap.height);
-  // (the CPU's canvas: a GPU one is run by the browser's GPU process, which the page's frames wait on)
-  c.getContext("2d", { willReadFrequently: true })!.drawImage(bitmap, 0, 0);
-  bitmap.close();
-  try { return await c.convertToBlob({ type: "image/png" }); }
-  finally { c.width = c.height = 1; }
-}
-
-type Msg = { op: "get"; id: number; key: string } | { op: "put"; key: string; params: unknown; bitmaps: Record<string, ImageBitmap> };
+type Msg = {op:"cacheVisibility";hidden:boolean} | {op:"paint";key:string;job:PaintJob} | { op: "get"; id: number; key: string } | { op: "put"; key: string; params: unknown; bitmaps: Record<string, ImageBitmap> };
 
 self.onmessage = async (e: MessageEvent<Msg>) => {
   const m = e.data;
+  if (m.op === 'cacheVisibility') { cacheAllowed=m.hidden; return; }
+  if (m.op === 'paint') {
+    cacheQueue = cacheQueue.then(async () => {
+      if (!cacheAllowed) return;
+      const job=m.job;
+      const textures=runNow(job.kind==='facade' ? facadeSteps(job.palette,job.seed,job.scale??1)
+        : job.kind==='plinth' ? plinthSteps(job.seed,job.tone)
+        : job.style==='apt' ? facadeSteps(NEIGHBOUR_PALETTE,4242,job.scale??1) : contextSteps(1000+job.style.length,job.style,job.scale??1));
+      const bitmaps: Record<string,ImageBitmap>={}, params: Record<string,TexParams>={};
+      try {
+        for (const [name,t] of Object.entries(textures)) {
+          params[name]={wrapS:t.wrapS,wrapT:t.wrapT,flipY:t.flipY,anisotropy:t.anisotropy,colorSpace:t.colorSpace,repeat:[t.repeat.x,t.repeat.y],offset:[t.offset.x,t.offset.y]};
+          const image=t.image as unknown as OffscreenCanvas;
+          bitmaps[name]=image.transferToImageBitmap(); image.width=image.height=1; t.dispose();
+        }
+        await writePaint(m.key,params,bitmaps,() => cacheAllowed);
+      } catch { Object.values(bitmaps).forEach(b=>b.close()); }
+    }).catch(() => {});
+    return;
+  }
   if (m.op === "get") {
     let bitmaps: Record<string, ImageBitmap> | null = null, params: unknown = null;
     try {
-      const hit = await get(m.key);
+      const hit = await readPaint(m.key);
       if (hit) {
         const names = Object.keys(hit.blobs);
-        const list = await Promise.all(names.map(n => createImageBitmap(hit.blobs[n], RAW)));
+        const original = hit.params as Record<string, { flipY: boolean }>;
+        const results = await Promise.allSettled(names.map(n => createImageBitmap(hit.blobs[n], { ...RAW, imageOrientation: original[n].flipY ? 'flipY' : 'none' })));
+        const list = results.flatMap(r => r.status === 'fulfilled' ? [r.value] : []);
+        if (list.length !== names.length) { list.forEach(b => b.close()); throw Error('partial cached maps'); }
         bitmaps = Object.fromEntries(names.map((n, i) => [n, list[i]]));
-        params = hit.params;
+        params = Object.fromEntries(names.map(n => [n, {...original[n],flipY:false}]));
       }
     } catch { bitmaps = null; }
     (self as unknown as Worker).postMessage({ id: m.id, bitmaps, params }, bitmaps ? Object.values(bitmaps) : []);
     return;
   }
-  try {
-    const names = Object.keys(m.bitmaps);
-    const blobs: Blob[] = [];
-    for (const name of names) blobs.push(await encode(m.bitmaps[name]));
-    await put(m.key, { params: m.params, blobs: Object.fromEntries(names.map((n, i) => [n, blobs[i]])), at: Date.now() });
-  } catch { Object.values(m.bitmaps).forEach(b => b.close()); }
+  await writePaint(m.key, m.params, m.bitmaps);
 };

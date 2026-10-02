@@ -16,9 +16,10 @@ import { Scene, Mesh, PerspectiveCamera } from '../../vendor/tidewater/engine/in
 import { waterMaterial, updateWaveTile } from './ComplexWater.js';
 import { GpuTimer } from './GpuTimer.js';
 import { packInto, warmPack } from './texturePack.js';
+import { sharedTexturesFor } from './sharedTextures.js';
 import { canEncodeBC7, encodeBC7 } from './bc7Encode.js';
 import { gpuCaps } from '../gpuCaps';
-import { fetchStatic } from '../../staticCdn';
+import { fetchStatic, fetchCriticalStatic } from '../../staticCdn';
 import { onSceneMemoryRelease } from '../sceneMemory';
 
 /** Render quality. high: desktop; medium: tablets and integrated GPUs; low: phones and
@@ -51,10 +52,10 @@ let detailLoad = null;
 let detailEpoch = 0;
 async function loadDetails() {
   const startedIn = detailEpoch;
-  const meta = await fetchStatic('/3d/detail.json').then(r => { if (!r.ok) throw new Error('detail.json ' + r.status); return r.json(); });
+  const meta = await fetchCriticalStatic('/3d/detail.json').then(r => { if (!r.ok) throw new Error('detail.json ' + r.status); return r.json(); });
   const out = {};
   const results = await Promise.allSettled(Object.entries(meta).map(async ([name, m]) => {
-    const blob = await fetchStatic('/3d/' + m.file).then(r => { if (!r.ok) throw new Error(m.file + ' ' + r.status); return r.blob(); });
+    const blob = await fetchCriticalStatic('/3d/' + m.file).then(r => { if (!r.ok) throw new Error(m.file + ' ' + r.status); return r.blob(); });
     const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
     const tex = new Texture({ width: bmp.width, height: bmp.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'], label: 'detail ' + name });
     out[name] = { tex, metres: m.metres, avgRough: m.avgRough };
@@ -136,7 +137,8 @@ async function device() {
     GPU.device.lost.then(() => { deviceLost = true; });
     GPU.device.addEventListener('uncapturederror', event => {
       console.warn('[3D] Native GPU validation failed:', event.error.message);
-      deviceLost = true;
+      // Validation errors do not mean that GPUDevice.lost resolved. Failed
+      // pipelines are handled by their view; do not poison future views.
     });
   });
   await initialization;
@@ -857,7 +859,7 @@ export class ComplexRenderer {
     // (3 a frame, 5 ms apart: at 12 ms apart a new complex's ~35 pipelines came one a frame at
     // the loading view's half rate, and held its first picture back most of a second)
     this.renderer.pipelinesPerFrame = 3;
-    this.renderer.pipelineGapMs = 0;
+    this.renderer.pipelineGapMs = 5;
     this.renderer.syncPipelines = false;
     // Unchanged runs of draws replayed as render bundles (MeshRenderer.drawItems); ?bundles=0 draws
     // every one directly, for comparison.
@@ -1022,11 +1024,21 @@ export class ComplexRenderer {
       this.stagings.set(source, st);
     }
     if (st.y < h) {
-      if (this.stageFrame !== this.frameNo) { this.stageFrame = this.frameNo; this.stageBudget = 0.6e6; }
-      const ctx = img.getContext('2d', { willReadFrequently: true });
-      if (!ctx) { this.stagings.delete(source); st.tex.destroy(); return null; }
+      if (this.stageFrame !== this.frameNo) { this.stageFrame = this.frameNo; this.stageBudget = this.shown ? 0.6e6 : 1.2e6; }
+      const bitmap = typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap;
+      const ctx = bitmap ? null : img.getContext('2d', { willReadFrequently: true });
+      if (!bitmap && !ctx) { this.stagings.delete(source); st.tex.destroy(); return null; }
       while (this.stageBudget > 0 && st.y < h) {
-        const rows = Math.min(128, h - st.y), data = ctx.getImageData(0, st.y, w, rows).data;
+        const rows = Math.min(128, h - st.y, Math.max(1, Math.floor(this.stageBudget / w)));
+        if (bitmap) {
+          GPU.queue.copyExternalImageToTexture(
+            { source: img, origin: { x: 0, y: st.y }, flipY: source.flipY },
+            { texture: st.tex.getGPU(), origin: { x: 0, y: source.flipY ? h - st.y - rows : st.y } },
+            [w, rows]);
+          st.y += rows; this.stageBudget -= w * rows;
+          continue;
+        }
+        const data = ctx.getImageData(0, st.y, w, rows).data;
         let buf = data, y = st.y;
         if (source.flipY) {
           // (the texture's rows bottom-up: the strip lands mirrored, its rows reversed)
@@ -1050,7 +1062,9 @@ export class ComplexRenderer {
   }
   /** Whether a canvas goes up in strips (see staged). */
   stripped(img) {
-    if (NO_STRIPS || !(typeof HTMLCanvasElement !== 'undefined' && img instanceof HTMLCanvasElement) || img.width * img.height < 512 * 512 || img.width % 4 || img.height % 4) return false;
+    if (NO_STRIPS || !img || img.width * img.height < 512 * 512 || img.width % 4 || img.height % 4) return false;
+    if (typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap) return true;
+    if (!(typeof HTMLCanvasElement !== 'undefined' && img instanceof HTMLCanvasElement)) return false;
     // (only a canvas drawn by the CPU: reading a GPU-drawn one back took ~50 ms a strip)
     if (img.__cpu === undefined) img.__cpu = !!img.getContext('2d')?.getContextAttributes?.().willReadFrequently;
     return img.__cpu;
@@ -1080,19 +1094,27 @@ export class ComplexRenderer {
     for (const m of Array.isArray(material) ? material : [material]) {
       for (const t of [m.map, m.emissiveMap, m.userData?.farGround?.map]) {
         if (!t || this.textures.has(t) || t.userData?.compressed) continue;
+        if (this.immutableKey(t) && this.pool().peek(this.immutableKey(t))) continue;
         if (!this.snapshot(t)) ready = false;
       }
       // (normal and roughness maps are packed together from their canvases — packedSurface —
       // not uploaded in strips: only a picture among them waits for its decode)
       for (const t of [m.normalMap, m.roughnessMap, m.metalnessMap]) {
-        if (!t || this.textures.has(t) || t.userData?.compressed) continue;
-        if (!this.snapshot(t, false)) ready = false;
+        if (!t || this.textures.has(t) || t.userData?.compressed || t.userData?.released) continue;
+        const key = t.userData?.surfaceKey;
+        if (key && this.pool().peek('surface/' + key + '/' + t.image.width + '/' + t.image.height)) continue;
+        if (!this.snapshot(t)) ready = false;
       }
     }
     return ready;
   }
   texture(source) {
     if (this.textures.has(source)) return this.textures.get(source);
+    const immutable = this.immutableKey(source);
+    const shared = immutable && this.pool().acquire(immutable, this);
+    if (shared) {
+      this.textures.set(source, shared); this.dropStaging(source); this.release(source); return shared;
+    }
     // Pre-compressed levels (the plant atlas as BC7): uploaded as they are, a quarter of the memory.
     const packed = source.userData?.compressed;
     if (packed && GPU.features.has(packed.format.startsWith('etc2') ? 'texture-compression-etc2' : 'texture-compression-bc')) {
@@ -1130,6 +1152,7 @@ export class ComplexRenderer {
       generateMipmaps(tex);
     }
     tex.sourceVersion = version;
+    if (immutable) this.pool().acquire(immutable, this, () => tex);
     this.textures.set(source, tex);
     this.dropSnapshot(source);
     this.release(source);
@@ -1150,14 +1173,16 @@ export class ComplexRenderer {
     const surfaceKey = n.userData.surfaceKey && n.userData.surfaceKey === r.userData.surfaceKey
       ? n.userData.surfaceKey + '/' + a.width + '/' + a.height : null;
     this.surfaceCache ??= new Map();
-    const shared = surfaceKey && this.surfaceCache.get(surfaceKey);
-    if (shared) { this.textures.set(n, shared); this.release(n); this.release(r); return shared; }
+    const shared = surfaceKey && this.pool().acquire('surface/' + surfaceKey, this);
+    if (shared) { this.textures.set(n, shared); this.dropStaging(n); this.dropStaging(r); this.release(n); this.release(r); return shared; }
     const tex = new Texture({ width: a.width, height: a.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render'] });
-    packInto(tex, [{ img: a, flipY: n.flipY }, { img: b, flipY: r.flipY }], 'vec4f(A.x, A.y, B.y, B.z)');
+    packInto(tex, [this.packSource(n), this.packSource(r)], 'vec4f(A.x, A.y, B.y, B.z)');
+    this.dropStaging(n); this.dropStaging(r);
     tex.packed = true;
     tex.sourceVersion = n.version;
     this.textures.set(n, tex);
     if (surfaceKey) this.surfaceCache.set(surfaceKey, tex);
+    if (surfaceKey) this.pool().acquire('surface/' + surfaceKey, this, () => tex);
     this.release(n); this.release(r);
     return tex;
   }
@@ -1168,7 +1193,10 @@ export class ComplexRenderer {
     const img = source.image;
     if (!img?.width || !img?.height || img.data) return null;
     const tex = new Texture({ width: img.width, height: img.height, format: 'r8unorm', mips: true, usage: ['sample', 'render'] });
-    tex.repack = () => packInto(tex, [{ img: source.image, flipY: source.flipY }], 'vec4f(A.y, 0.0, 0.0, 1.0)');
+    tex.repack = () => {
+      packInto(tex, [this.packSource(source)], 'vec4f(A.y, 0.0, 0.0, 1.0)');
+      this.dropStaging(source);
+    };
     tex.repack();
     tex.channel = true;
     tex.sourceVersion = source.version;
@@ -1180,6 +1208,22 @@ export class ComplexRenderer {
    * once on the GPU, its pixels are held twice — the page's 2D canvas (GPU-backed in
    * Chrome) or bitmap, and this texture. Emptied here (~100 MB a complex). `released` counts
    * them: a later fall back to WebGL has to paint them again. */
+  packSource(source) {
+    const st = this.stagings?.get(source);
+    return st?.version === source.version && st.y >= source.image.height
+      ? { texture: st.tex.getGPU() } : { img: source.image, flipY: source.flipY };
+  }
+  pool() { return this.sharedTextures ??= sharedTexturesFor(GPU.device); }
+  immutableKey(source) {
+    const key = source.userData?.immutableKey;
+    return key ? 'image/' + key + '/' + source.colorSpace + '/' + source.flipY : null;
+  }
+  dropStaging(source) {
+    const st = this.stagings?.get(source);
+    if (!st) return;
+    this.stagings.delete(source);
+    GPU.onSubmit(null, () => st.tex.destroy());
+  }
   release(source) {
     const img = source.image;
     if (!source.userData?.releaseAfterUpload || source.userData.released || !img || img.data || !('width' in img)) return;
@@ -1199,7 +1243,10 @@ export class ComplexRenderer {
       if (budget <= 0) break;
       const raw = source.image;
       if (!raw?.width || raw.data || raw.width !== tex.width || raw.height !== tex.height || tex.packed) { tex.sourceVersion = source.version; continue; }
-      if (tex.repack) { tex.sourceVersion = source.version; tex.repack(); this.release(source); continue; }
+      if (tex.repack) {
+        if (this.stripped(raw) && !this.staged(source)) continue;
+        tex.sourceVersion = source.version; tex.repack(); this.release(source); continue;
+      }
       const img = raw;
       if (this.stripped(img)) {
         // (a repainted canvas: up in strips over a few frames, then into the texture)
@@ -1461,7 +1508,13 @@ export class ComplexRenderer {
       if (!obj.isMesh || obj.material?.isShaderMaterial) return;
       active.add(obj);
       let mesh = this.meshes.get(obj);
-      if (mesh && !Array.isArray(obj.material) && mesh.material.srcVersion !== obj.material.version) { mesh.material = this.material(obj.material); this.ready = false; }
+      if (mesh && !Array.isArray(obj.material) && mesh.material.srcVersion !== obj.material.version) {
+        if ((made && (performance.now() > until || texels() - startTexels > room)) || !this.imagesReady(obj.material)) {
+          deferred = true;
+        } else {
+          mesh.material = this.material(obj.material); made++; this.ready = false;
+        }
+      }
       if (!mesh) {
         if (made && (performance.now() > until || texels() - startTexels > room)) { deferred = true; return; }
         // (its painted canvases taken off the page first: they come in a frame or two)
@@ -1548,7 +1601,7 @@ export class ComplexRenderer {
     for (const [src, tex] of this.textures) if (!kept.has(src)) { unusedTextures.add(tex); this.textures.delete(src); }
     const retained = new Set(this.textures.values());
     for (const tex of unusedTextures) if (!retained.has(tex)) {
-      tex.destroy();
+      if (this.sharedTextures?.has(tex)) this.sharedTextures.release(tex, this); else tex.destroy();
       for (const [key, value] of this.surfaceCache ?? []) if (value === tex) this.surfaceCache.delete(key);
     }
     // (strips of a canvas no material uses any more)
@@ -1559,6 +1612,12 @@ export class ComplexRenderer {
   forget(sources) { this.forgetSoon ??= new Set(); for (const s of sources) this.forgetSoon.add(s); }
   render(source, camera, look, time) {
     if (this.disposed || this.failed) return;
+    // A rejected shader is a view failure, not a lost shared GPU device. Take
+    // the compatibility path immediately rather than wait for the watchdog.
+    if (this.finish.handle.failed) throw new Error('WebGPU finish pipeline failed');
+    for (const p of this.renderer.pipelines.values()) {
+      if (p.handle.failed) throw new Error('WebGPU mesh pipeline failed: ' + p.handle.label);
+    }
     if (this.suspended) {
       this.context.configure({ device: GPU.device, format: GPU.format, alphaMode: 'opaque' });
       this.suspended = false;
@@ -1598,7 +1657,8 @@ export class ComplexRenderer {
     this.renderer.precompiling = !this.shown;
     // Parallel asynchronous compilation while the first canvas is hidden. Once
     // visible, retain the smaller per-frame CPU budget for changes and extras.
-    this.renderer.pipelinesPerFrame = this.shown ? 3 : 6;
+    this.renderer.pipelinesPerFrame = this.shown ? 3 : 2;
+    this.renderer.pipelineGapMs = this.shown ? 5 : 0;
     GPU.deferCompiles = !this.shown;
     this.renderer.starved = false;
     const timer = this.timer;
@@ -1625,7 +1685,7 @@ export class ComplexRenderer {
     for (let i = lists.opaque.length - 1; i >= 0; i--) if (lists.opaque[i].material.userData.water) (water ??= []).push(...lists.opaque.splice(i, 1));
     if (this.shown) this.makePost();
     const aoNow = this.shown && this.aoOn && this.quality.name !== 'low' && !!this.aoPass?.handle.pipeline && !!this.aoBlurX?.handle.pipeline && !!this.aoBlurY?.handle.pipeline;
-    const sky = rp => { if (this.sky.handle.pipeline) this.sky.draw(rp); };
+    const sky = rp => { if (this.shown && this.sky.handle.pipeline) this.sky.draw(rp); };
     if (aoNow) {
       // The occlusion comes from the solid scene alone: buildings, ground, people. Plant
       // cards would shade the ground in a star round each trunk (their bases), so they are
@@ -1733,7 +1793,8 @@ export class ComplexRenderer {
     this.context.unconfigure();
     this.canvas.remove();
     for (const mat of this.materials.values()) { mat.dispose(); mat.uniformBlock.buffer?.destroy(); }
-    for (const tex of this.textures.values()) tex.destroy();
+    for (const tex of this.textures.values()) if (!this.sharedTextures?.has(tex)) tex.destroy();
+    this.sharedTextures?.releaseOwner(this);
     // Also detaches disposal listeners from CPU geometry shared by later views.
     this.renderer.dispose();
     this.timer.dispose();

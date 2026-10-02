@@ -44,6 +44,8 @@ import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
+import { makeGroundGeometry } from "./groundGeometry";
+import { sceneWork } from "./sceneWorkerClient";
 import { retainSceneMemory } from "./sceneMemory";
 import { ringBuildings } from "./ringBuildings";
 import { farGround } from "./farGround";
@@ -298,33 +300,17 @@ function compactExtrude(b: RealEstateBuilding, ground = 0, floorM = FLOOR_M): TH
 
 /** The ground as one grid over ±G: fine (≈T/100) inside the surveyed square ±T, growing
  * outward to the horizon; heights from the terrain, uv spanning the painted square. */
-async function groundGeometry(T: number, G: number, terrain: Terrain, segs: number, pace: () => Promise<boolean>) {
-  const geo = new THREE.PlaneGeometry(2, 2, segs, segs);
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute, uvA = geo.getAttribute("uv") as THREE.BufferAttribute;
-  const P = pos.array as Float32Array, UV = uvA.array as Float32Array;
-  const a = 0.84;
-  const f = (u: number) => { const s = Math.sign(u), v = Math.abs(u); return s * (v <= a ? (v / a) * T : T + (G - T) * ((v - a) / (1 - a)) ** 2); };
-  // The grid's world coordinates, once per column and row (PlaneGeometry: x left to right,
-  // rows from y = +1 down).
-  const row = segs + 1, xs = new Float64Array(row), ys = new Float64Array(row);
-  for (let k = 0; k < row; k++) { xs[k] = f((k / segs) * 2 - 1); ys[k] = f(1 - (k / segs) * 2); }
-  // (a fine grid is 100k terrain lookups: laid a few rows at a time)
-  for (let j = 0; j < row; j++) {
-    const y = ys[j];
-    for (let i = 0; i < row; i++) {
-      const k = j * row + i, x = xs[i], z = terrain.at(x, y);
-      P[k * 3] = x; P[k * 3 + 1] = y; P[k * 3 + 2] = z;
-      UV[k * 2] = (x + T) / (2 * T); UV[k * 2 + 1] = (y + T) / (2 * T);
-    }
-    if (!await pace()) return null;
-  }
-  // Normals straight from the height grid (sceneTerrain.gridNormals): the same smooth shading as
-  // computeVertexNormals, without its pass over 200k triangles.
-  geo.userData.grid = { xs, ys };
+async function groundGeometry(T: number, G: number, terrain: Terrain, segs: number, pace: () => Promise<boolean>): Promise<THREE.BufferGeometry | null> {
+  const result = await sceneWork('terrainGround', {T,G,segs,grid:terrain.grid ?? null})?.catch(() => null);
   if (!await pace()) return null;
-  gridNormals(geo);
-  pos.needsUpdate = true; uvA.needsUpdate = true;
-  geo.computeBoundingSphere();
+  if (!result) return makeGroundGeometry(T,G,terrain,segs,pace);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(result.position,3));
+  geo.setAttribute('normal',new THREE.BufferAttribute(result.normal,3));
+  geo.setAttribute('uv',new THREE.BufferAttribute(result.uv,2));
+  geo.setIndex(new THREE.BufferAttribute(result.index,1));
+  geo.userData.grid=result.grid;
+  geo.boundingSphere=new THREE.Sphere(new THREE.Vector3(...result.sphere.center),result.sphere.radius);
   return geo;
 }
 
@@ -506,7 +492,7 @@ function terrainOnce(id: string, res: RealEstateBuildingsResponse): Promise<Terr
  * few hundred ms); only where the view would use WebGPU. */
 export function warmGpu(): void {
   const gpu = (navigator as Navigator & { gpu?: { wgslLanguageFeatures?: { has(name: string): boolean } } }).gpu;
-  if (!gpu?.wgslLanguageFeatures?.has?.("pointer_composite_access") || new URLSearchParams(location.search).get("renderer") === "webgl") return;
+  if (!gpu || new URLSearchParams(location.search).get("renderer") === "webgl") return;
   void import("./tidewater/ComplexRenderer").then(m => m.warmDevice()).catch(() => {});
 }
 
@@ -787,12 +773,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let host: HTMLDivElement = hostRef.current;
     // Phones and small tablets: no planar reflection or AO, fewer trees, lighter shadows.
     const hq = !window.matchMedia?.("(pointer: coarse)").matches && Math.min(screen.width, screen.height) >= 700;
-    // The native WebGPU path only on implementations as current as the one it is
-    // tested on (pointer_composite_access is a good marker: older Tint builds compile
-    // the shaders but may draw nothing); everything else, and ?renderer=webgl, uses WebGL.
+    // Try the actual WebGPU API. Optional WGSL feature markers are not a
+    // capability check; adapter/pipeline failures take the compatibility path.
     const gpu = (navigator as Navigator & { gpu?: { wgslLanguageFeatures?: { has(name: string): boolean } } }).gpu;
     const forceWebgl = renderMode === "webgl" || new URLSearchParams(location.search).get("renderer") === "webgl";
-    const nativeCapable = !forceWebgl && !!gpu && !!gpu.wgslLanguageFeatures?.has?.("pointer_composite_access");
+    const nativeCapable = !forceWebgl && !!gpu;
     // WebGL with whichever GPU the browser will give (a blocklisted discrete GPU on a
     // laptop can still leave the integrated one). Where WebGPU will draw, none is made: a
     // stand-in carries the input, and WebGL is set up (renderMode "webgl") only if WebGPU
@@ -861,6 +846,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }).catch(err => {
         if (disposed) return;
         nativePending = false;
+        host.dataset.gpuFallback = String(err).slice(0,240);
         if (glMissing) { console.info("[3D] WebGPU failed, using WebGL:", err); setRenderMode("webgl"); return; }
         refreshEnv();
         resize();
@@ -1134,16 +1120,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let inView = true, sampleStart = last, sampleFrames = 0;
     const t0 = performance.now();
     let raf = 0;
-    // Off screen the loop sleeps, except while shaders and a new model are still being
-    // prepared: that work then finishes before the panel scrolls into view.
-    // (and while a model is being built in slices: its materials' warm-up meshes are in the
-    // scene from the start, so its pipelines and textures are ready when it is — behind the
-    // detail popup too, at the idle rate)
-    const warming = () => stage.building || (stage.unshown && !!stage.model) || nativePending || (!!native && !native.ready);
+    // Covered/off-screen views do not render or compile in the background.
+    // Their build resumes when visible, without competing with the active view.
     // Render every visible display frame, including animated traffic and pedestrians.
     let renderMax = 0;
     const loop = () => {
-      if (document.hidden || ((!inView || pausedRef.current) && !warming())) { native?.suspendTargets(); return; }
+      if (document.hidden || !inView || pausedRef.current) { native?.suspendTargets(); return; }
       raf = requestAnimationFrame(loop);
       const nowMs = performance.now();
       const dt = nowMs - last;
@@ -1357,14 +1339,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           native.render(scene, camera, stage.look, t);
           renderMax = Math.max(renderMax, performance.now() - r0);
         }
-        catch (err) { console.warn("[3D] WebGPU fallback:", err); native.failed = true; }
-        // Watchdog: a built model that WebGPU hasn't put on screen in 8 s goes to WebGL.
+        catch (err) { host.dataset.gpuFallback = String(err).slice(0,240); console.warn("[3D] WebGPU fallback:", err); native.failed = true; }
+        // Watchdog for a device that neither finishes compilation nor reports a failure.
         if (!native.shown && stage.model) {
           nativeWaitSince ||= nowMs;
           // (a slow GPU may take a while to build its pipelines; with no WebGL, keep waiting)
           // (generous: a slow GPU compiling its pipelines is not a failure, and WebGL on top
           // of the WebGPU memory already held is what stalls a weak machine)
-          if (nowMs - nativeWaitSince > 40000) { console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
+          if (nowMs - nativeWaitSince > 15000) { host.dataset.gpuFallback = "first-frame-timeout"; console.info("[3D] WebGPU never showed the scene; using WebGL"); native.failed = true; }
         } else nativeWaitSince = 0;
         if (native.failed) {
           const released = native.released ?? 0;
@@ -1478,7 +1460,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const io = new IntersectionObserver(([entry]) => {
       inView = entry.isIntersecting;
       cancelAnimationFrame(raf);
-      if (entry.isIntersecting || warming()) { last = performance.now(); loop(); }
+      if (entry.isIntersecting && !pausedRef.current) { last = performance.now(); loop(); }
       else native?.suspendTargets();
     });
     io.observe(host);
@@ -1701,7 +1683,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     setSlowData(false);
     const started = performance.now();
     // Its facades start painting now, alongside the network.
-    prefetchPaint(complexId, complexName);
+    if (!pausedRef.current) prefetchPaint(complexId, complexName);
     if (hostRef.current) { delete hostRef.current.dataset.shownAt; hostRef.current.dataset.selectAt = started.toFixed(0); }
     const slowTimer = window.setTimeout(() => { if (live) setSlowData(true); }, 3000);
     setError("");
@@ -1790,7 +1772,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       })
       .then(found => {
         const res = withoutStrays(withoutDemolished(found));
-        if (live && res.found) prefetchPaint(res.id, res.name);
+        if (live && res.found && !pausedRef.current) prefetchPaint(res.id, res.name);
         if (res.found) {
           if (!buildingCache.has(complexId)) void saveBuildings(complexId, res);
           buildingCache.set(complexId, { at: Date.now(), data: res });
@@ -1905,6 +1887,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stepAt = now; cpuAt = used;
     };
     void (async () => {
+    while (alive && pausedRef.current) await new Promise<void>(resolve => setTimeout(resolve,100));
+    if (!alive) return;
 
     let seed = 0;
     for (const ch of data.id) seed = (seed * 33 + ch.charCodeAt(0)) % 2147483647;
@@ -2973,11 +2957,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     /** The water parcels and OpenStreetMap's water together, each with its covered-stream flag. */
     const waterParcels = () => ({ parcels: [...(data.parcels ?? []), ...lakes], covered: [...waterCovered(data), ...lakes.map(() => false)] });
     let bridgesTried = false;
-    const placeBridges = () => {
+    const placeBridges = async () => {
       if (bridgesTried || !data.parcels?.length) return false;
       bridgesTried = true;
       const w = waterParcels();
-      const found = timed("bridges", () => findBridges(roads, w.parcels, w.covered, terrain));
+      const found = await sceneWork("bridges", {roads, parcels:w.parcels, covered:w.covered, grid:terrain.grid ?? null})?.catch(() => null)
+        ?? (alive ? timed("bridges", () => findBridges(roads, w.parcels, w.covered, terrain)) : []);
+      if (!alive) return false;
       if (hostRef.current) hostRef.current.dataset.bridges = String(found.length);
       if (!found.length) return false;
       deckAt = bridgeHeight(found);
@@ -3039,8 +3025,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       await lakesReady;
       if (!await later()) return;
       const footprints = [...data.buildings, ...neighbours].map(b => b.rings[0]);
-      placeBridges();
-      const runs = timed("sidewalkRuns", () => sidewalkRuns(roads, footprints));
+      await placeBridges();
+      if (!alive) return;
+      const runs = await sceneWork("sidewalks", {roads, footprints})?.catch(() => null)
+        ?? (alive ? timed("sidewalkRuns", () => sidewalkRuns(roads, footprints)) : []);
+      if (!alive) return;
       if (import.meta.env.DEV) (stage as unknown as { runs: unknown }).runs = runs;
       if (import.meta.env.DEV) (stage as unknown as { data: unknown }).data = data;
       // (no street trees in pits on a bridge's walkway)
@@ -3098,7 +3087,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (!await later()) return;
         // The water parcels came with the land use: bridges now, and the kerbs, street trees and
         // lamps made before them laid again on the decks (the traffic and people follow by themselves).
-        if (placeBridges()) {
+        if (await placeBridges()) {
           street = streetOf();
           const fresh = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
           if (!alive) { fresh.dispose(); return; }
@@ -4368,7 +4357,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           </p>
           <div className="re-drive-tools">
             <button type="button" onClick={toggleDriveView}>{driving.view === "chase" ? "1인칭 운전석" : "3인칭 시점"}</button>
-            <button type="button" onClick={showBoard}>🏆 스코어 보기</button>
             <button type="button" onClick={stopFollow}>운전 끝내기</button>
           </div>
           {touchMode && <div className="re-drive-pads">
@@ -4444,17 +4432,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           title={balloonOn ? "열기구에서 내려 원래 시점으로" : "열기구에 타고 단지를 내려다보기 (열기구를 눌러도 됩니다)"}>
           <i aria-hidden="true">🎈</i><span>{balloonOn ? "내리기" : "열기구"}</span>
         </button>
-        <button type="button" className="re-holo-balloon-btn" aria-pressed={follow === "coupang"} disabled={!heroesReady} onClick={() => followHero("coupang")}
-          title={follow === "coupang" ? "쿠팡 트럭 운전 끝내기" : "쿠팡 로켓배송 트럭을 지금 보는 도로로 불러와 운전하기 (W·↑ 가속, V 운전석)"}>
-          <i aria-hidden="true">🚚</i><span>쿠팡트럭</span>
-        </button>
-        <button type="button" className="re-holo-balloon-btn" aria-pressed={follow === "cyber"} disabled={!heroesReady} onClick={() => followHero("cyber")}
-          title={follow === "cyber" ? "사이버트럭 운전 끝내기" : "테슬라 사이버트럭을 지금 보는 도로로 불러와 운전하기 (W·↑ 가속, V 운전석)"}>
-          <i aria-hidden="true">⚡</i><span>사이버트럭</span>
-        </button>
-        <button type="button" className="re-holo-balloon-btn" onClick={showBoard} title="배송 게임 순위 (모든 사용자)">
-          <i aria-hidden="true">🏆</i><span>스코어</span>
-        </button>
+
       </div>}
       {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label="3D 화면 조작">
         {/* One row of views and steps; the gestures do the rest. A mouse also gets

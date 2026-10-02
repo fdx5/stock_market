@@ -27,8 +27,11 @@ async function paint({ id, job }: { id: number; job: PaintJob }) {
         if (readyNormal && (name === 'normalMap' || name === 'rmMap')) params[name].surfaceKey = job.kind === 'facade' || (job.kind === 'context' && job.style === 'apt')
           ? `facade-${job.scale ?? 1}` : job.kind === 'plinth' ? 'plinth' : `context-${job.style}-${job.scale ?? 1}`;
         const image = t.image as unknown as OffscreenCanvas;
-        bitmaps[name] = image instanceof OffscreenCanvas ? image.transferToImageBitmap()
+        const raw = image instanceof OffscreenCanvas ? image.transferToImageBitmap()
           : await createImageBitmap(image, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
+        bitmaps[name] = t.flipY ? await createImageBitmap(raw, {imageOrientation:'flipY',colorSpaceConversion:'none',premultiplyAlpha:'none'}) : raw;
+        if (bitmaps[name] !== raw) raw.close();
+        params[name].flipY = false;
         if (image instanceof OffscreenCanvas) image.width = image.height = 1;
         t.dispose();
       }
