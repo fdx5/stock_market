@@ -75,6 +75,7 @@ async function tileList(token: string, x: number, y: number, signal?: AbortSigna
 }
 
 /** Convex hull (x, y), for matching a model to a registered footprint. */
+export function convexHull(pts: [number, number][]) { return hull(pts); }
 function hull(pts: [number, number][]) {
   const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   if (p.length < 3) return p;
@@ -154,22 +155,25 @@ async function model(token: string, e: Entry, lat0: number, lon0: number, maxTex
 }
 
 /** Every VWorld 3D building whose centre is within `radius` m of the centre. */
-export async function photoBuildings(key: string, lat0: number, lon0: number, radius: number, opts: { maxTex?: number; signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void; photo?: boolean } = {}): Promise<PhotoBuilding[]> {
+export async function photoBuildings(key: string, lat0: number, lon0: number, radius: number, opts: { maxTex?: number; signal?: AbortSignal; onBuilding?: (b: PhotoBuilding) => void; photo?: boolean;
+  /** Round another point (a landmark), the models still placed about (lat0, lon0). */
+  at?: { lat: number; lon: number } } = {}): Promise<PhotoBuilding[]> {
   const token = await vworldToken(key);
-  const dlat = radius / 110540, dlon = radius / (111320 * Math.cos((lat0 * Math.PI) / 180));
-  const x0 = Math.floor((lon0 - dlon + 180) / SIZE), x1 = Math.floor((lon0 + dlon + 180) / SIZE);
-  const y0 = Math.floor((lat0 - dlat + 90) / SIZE), y1 = Math.floor((lat0 + dlat + 90) / SIZE);
+  const cLat = opts.at?.lat ?? lat0, cLon = opts.at?.lon ?? lon0;
+  const dlat = radius / 110540, dlon = radius / (111320 * Math.cos((cLat * Math.PI) / 180));
+  const x0 = Math.floor((cLon - dlon + 180) / SIZE), x1 = Math.floor((cLon + dlon + 180) / SIZE);
+  const y0 = Math.floor((cLat - dlat + 90) / SIZE), y1 = Math.floor((cLat + dlat + 90) / SIZE);
   const lists: Promise<Entry[]>[] = [];
   for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) lists.push(tileList(token, x, y, opts.signal));
   const seen = new Set<string>(), entries: Entry[] = [];
   for (const e of (await Promise.all(lists)).flat()) {
     if (seen.has(e.key)) continue;
     seen.add(e.key);
-    const dx = (e.lon - lon0) * 111320 * Math.cos((lat0 * Math.PI) / 180), dy = (e.lat - lat0) * 110540;
+    const dx = (e.lon - cLon) * 111320 * Math.cos((cLat * Math.PI) / 180), dy = (e.lat - cLat) * 110540;
     if (Math.hypot(dx, dy) <= radius) entries.push(e);
   }
   // nearest first, a few at a time
-  entries.sort((a, b) => Math.hypot(a.lon - lon0, a.lat - lat0) - Math.hypot(b.lon - lon0, b.lat - lat0));
+  entries.sort((a, b) => Math.hypot(a.lon - cLon, a.lat - cLat) - Math.hypot(b.lon - cLon, b.lat - cLat));
   const out: PhotoBuilding[] = [];
   let next = 0;
   const worker = async () => {
@@ -271,11 +275,14 @@ export async function photoColours(key: string, ph: PhotoBuilding, signal?: Abor
 export function surveyedShape(ph: PhotoBuilding, z0: number, windows?: Map<string, boolean>, bandDepth = 1.0,
   /** Where an end wall's measured paint sits in the view's atlas: (plane key, u along the
    * wall, height in the model) → texture uv, or null (the wall painted plain). */
-  paintUv?: (key: string, u: number, z: number) => [number, number] | null) {
+  paintUv?: (key: string, u: number, z: number) => [number, number] | null,
+  /** false: no rooftop rooms or parapet band — a tower stepping back as it rises (롯데월드타워)
+   * reads its podium as the main roof, and everything above it would be painted plain. */
+  cores = true) {
   const g = ph.geometry.index ? ph.geometry.toNonIndexed() : ph.geometry.clone();
   const p = g.getAttribute("position");
-  const walls: number[] = [], wallUv: number[] = [], roofs: number[] = [], roofUv: number[] = [], cores: number[] = [], coreUv: number[] = [];
-  const mainRoof = mainRoofOf(ph.geometry);
+  const walls: number[] = [], wallUv: number[] = [], roofs: number[] = [], roofUv: number[] = [], cores_: number[] = [], coreUv: number[] = [];
+  const mainRoof = cores ? mainRoofOf(ph.geometry) : Infinity;
   // The walls by plane (direction to 6°, offset to 0.6 m) and each plane's width: the
   // fronts and backs carry the windows and balconies; the end walls (측벽) and the short
   // returns of the plan are blank, as they are on Korean apartment blocks.
@@ -384,7 +391,7 @@ export function surveyedShape(ph: PhotoBuilding, z0: number, windows?: Map<strin
       [a, b, c].forEach((v, j) => { painted.push(v.x, v.y, v.z + z0); paintedUv.push(...atlas[j]!); });
       continue;
     }
-    const [P, U] = core ? [cores, coreUv] : end ? [ends, endUv] : [walls, wallUv];
+    const [P, U] = core ? [cores_, coreUv] : end ? [ends, endUv] : [walls, wallUv];
     const push = (L: number[], LU: number[], tri: THREE.Vector3[]) => { for (const v of tri) { L.push(v.x, v.y, v.z + z0); LU.push(v.x * t.x + v.y * t.y, 1 - (v.z + z0)); } };
     const tri = [a.clone(), b.clone(), c.clone()];
     if (core || Math.max(a.z, b.z, c.z) <= zc) push(P, U, tri);
@@ -447,6 +454,6 @@ export function surveyedShape(ph: PhotoBuilding, z0: number, windows?: Map<strin
     const e = extent.get(k)!, o = offsets.get(k)!;
     facePlanes.push({ off: o[0] / o[1], nx: o[2], ny: o[3], u0: e[0], u1: e[1] });
   }
-  return { walls: make(walls, wallUv), roofs: make(roofs, roofUv), cores: make(cores, coreUv), ends: make(ends, endUv), bands: make(bands, bandUv), painted: make(painted, paintedUv),
+  return { walls: make(walls, wallUv), roofs: make(roofs, roofUv), cores: make(cores_, coreUv), ends: make(ends, endUv), bands: make(bands, bandUv), painted: make(painted, paintedUv),
     endPlanes, facePlanes, roofZ: Number.isFinite(mainRoof) ? mainRoof + z0 : null, z0 };
 }

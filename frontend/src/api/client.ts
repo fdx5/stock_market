@@ -1320,6 +1320,9 @@ export const api = {
   realEstateRegions: () => getJSON<{ source: string; sido: RealEstateSido[] }>(`${BASE}/realestate/regions`),
   realEstateComplex: (id: string, period: RealEstatePeriod) =>
     getJSONFresh<RealEstateComplexResponse>(`${BASE}/realestate/complex?id=${encodeURIComponent(id)}&period=${period}`),
+  /** Open water round a point (OpenStreetMap lakes, ponds, river areas): rings in metres about it. */
+  realEstateWater: (lat: number, lon: number, r: number) =>
+    getJSON<{ rings: { ring: [number, number][]; kind: string; name: string | null }[]; source: string | null }>(`${BASE}/realestate/water?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}&r=${Math.round(r)}`),
   realEstateRent: (id: string) =>
     getJSONFresh<RealEstateRentResponse>(`${BASE}/realestate/rent?id=${encodeURIComponent(id)}`),
   realEstateBuildings: (id: string, signal?: AbortSignal, peek = false) =>

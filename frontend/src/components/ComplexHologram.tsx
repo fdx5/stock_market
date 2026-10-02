@@ -17,7 +17,7 @@ import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { fastMergeVertices } from "./fastMerge";
-import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex } from "../api/client";
+import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel } from "../api/client";
 import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
@@ -38,7 +38,7 @@ import { buildWater } from "./sceneWater";
 import { buildBoats, noBoatsReason, prepareWakes } from "./sceneBoats";
 import { buildKids, schoolBorders } from "./sceneKids";
 import type { Palette } from "./complexScene";
-import { photoBuildings, photoBuildingsNear, photoColours, photoRhythm, photoWallPaint, surveyedShape, type PhotoBuilding, type WallPaint } from "./vworld3d";
+import { convexHull, photoBuildings, photoBuildingsNear, photoColours, photoRhythm, photoWallPaint, surveyedShape, type PhotoBuilding, type WallPaint } from "./vworld3d";
 import { aerialColours } from "./aerial";
 import { buildBalloon, type Balloon } from "./sceneBalloon";
 import { disposeControls, releaseRenderer } from "../threeCleanup";
@@ -46,6 +46,7 @@ import { frameSlice } from "./frameSlice";
 import { ringBuildings } from "./ringBuildings";
 import { farGround } from "./farGround";
 import { coverPage } from "./pageCover";
+import { bridgeHeight, buildBridges, findBridges } from "./sceneBridges";
 import { groundPlan } from "./groundClient";
 
 /* 부동산 맵 — one complex in natural light. Footprints, heights and the parcel are the
@@ -347,10 +348,24 @@ function metresFrom(center: { lat: number; lon: number }, lat: number, lon: numb
 const BEARINGS = ["북", "북동", "동", "남동", "남", "남서", "서", "북서"];
 const bearing = (x: number, y: number) => BEARINGS[Math.round(((Math.atan2(x, y) * 180) / Math.PI + 360) % 360 / 45) % 8];
 
-/** The 1 km land use's square (half its side, metres) and the blank it starts from (farGround.ts:
+/** The land use's square (half its side, metres) and the blank it starts from (farGround.ts:
  * the ground's shader takes the picture from the first frame, so its arrival swaps a texture,
  * never the shader). */
-const FAR_HALF = 1100;
+/** The neighbourhood drawn round a complex: buildings and land use out to 600 m (1 km until 10-02 —
+ * trimmed for loading and frame rate on modest machines), the far ground a little past it. */
+const RING_M = 600, FAR_HALF = 680;
+/** Every face a facade (surveyedShape's window map, for buildings whose photograph isn't read). */
+const ALL_FACES = { get: () => true } as unknown as Map<string, boolean>;
+/** Landmarks drawn as surveyed (VWorld's 3D models: their real height and shape, in the view's own
+ * materials) together with everything within `radius` of them,  wherever a view reaches it —
+ * not only the ~220 m round the complex. Their registered extrusions are only a footprint raised
+ * (롯데월드타워: a 358 m prism for a tapering 555 m tower). */
+const LANDMARKS = [{
+  name: "롯데월드타워", lat: 37.5125, lon: 127.1027, radius: 500,
+  // (official: 123 floors, 555 m; the register's entry spans the tower and the mall, its height 358 m)
+  floors: 123, height: 555, minHeight: 300,
+  register: "롯데월드타워앤드롯데월드몰", rest: "롯데월드몰",
+}];
 let farBlank: THREE.Texture | null = null;
 const blankFar = () => {
   if (farBlank) return farBlank;
@@ -1782,6 +1797,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const reliefLimit = stage.hq ? 40000 : 12000;
     const box = new THREE.Box3();
     const pickables: THREE.Mesh[] = [];
+    // (a landmark area's surveyed pieces: the register's own extrusions are not picked there)
+    const surveyedHulls: [number, number][][] = [];
     let top = 10, floor = Infinity;
     const footArea = (r: [number, number][]) => Math.abs(r.reduce((a, [x, y], j) => { const q = r[(j + 1) % r.length]; return a + x * q[1] - q[0] * y; }, 0) / 2);
     const panel = (x0: number, y0: number, x1: number, y1: number, z0: number, z1: number, out: number, thick: number, inset: number) => {
@@ -1882,6 +1899,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // (an OpenStreetMap result names its buildings in `name`)
     if (hostRef.current) { delete hostRef.current.dataset.landmarks; delete hostRef.current.dataset.landmarkNames; hostRef.current.dataset.titled = String(neighbours.filter(b => b.title).length); }
     const landmark = (b: RealEstateBuilding) => {
+      // (where a surveyed piece of a landmark area stands, it answers for itself)
+      { const r = b.rings[0], mx = r.reduce((t, q) => t + q[0], 0) / r.length, my = r.reduce((t, q) => t + q[1], 0) / r.length;
+        if (surveyedHulls.some(h => inRing([mx, my], h))) return; }
       const known = landmarkLabel(b.title === undefined && data.source === "osm" && /[가-힣A-Za-z]/.test(b.name ?? "") ? { ...b, title: b.name } : b);
       if (!known) return;
       const pick = new THREE.Mesh(keep(extrude(b, terrain.base(b.rings[0]), FLOOR_M)));
@@ -2031,12 +2051,29 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
       if (hostRef.current) hostRef.current.dataset.landmarkNames = `${names.length} names, ${n} matched`;
     })());
-    if (photoPending) afterShown(() => { stage.busy++; void (async () => {
+    // (what the landmarks' areas add, for the ring to leave out: x, y pairs)
+    const surveyedNear: number[] = [];
+    const landmarksNear = data.center ? LANDMARKS.filter(lm => Math.hypot(...metresFrom(data.center!, lm.lat, lm.lon)) < RING_M + lm.radius) : [];
+    let surveyPass: Promise<unknown> = Promise.resolve();
+    if (photoPending) afterShown(() => { stage.busy++; surveyPass = (async () => {
       let photos: PhotoBuilding[] = [];
+      const extra = new Set<PhotoBuilding>();
       try {
         // (the complex and the blocks round it: ~220 m, 130 on phones — beyond, the modelled ones)
         photos = await photoBuildings(data.vworld_key!, data.center!.lat, data.center!.lon, Math.min(reach, stage.hq ? 220 : 130), { photo: false });
+        // A landmark's area: every surveyed building within its radius (shapes only).
+        for (const lm of landmarksNear) {
+          const got = await photoBuildings(data.vworld_key!, data.center!.lat, data.center!.lon, lm.radius, { photo: false, at: lm }).catch(() => [] as PhotoBuilding[]);
+          const have = new Set(photos.map(ph => ph.key));
+          for (const ph of got) { if (have.has(ph.key)) { ph.geometry.dispose(); continue; } photos.push(ph); extra.add(ph); }
+        }
+        if (hostRef.current && landmarksNear.length) hostRef.current.dataset.landmarkArea = `${extra.size} surveyed`;
       } catch (err) { console.info("[3D] photo buildings unavailable:", err); }
+      // (the landmark area's buildings answer a click with their registered names: the register
+      // asked once out to the area's far side)
+      const areaNames = landmarksNear.length
+        ? await vworldBuildingNames(data, data.vworld_key!, data.vworld_domain, Math.max(...landmarksNear.map(lm => Math.hypot(...metresFrom(data.center!, lm.lat, lm.lon)) + lm.radius))).catch(() => [])
+        : [];
       const drop = () => photos.forEach(ph => ph.geometry.dispose());
       if (!alive) { drop(); return; }
       const centre = (r: [number, number][]) => [r.reduce((t, q) => t + q[0], 0) / r.length, r.reduce((t, q) => t + q[1], 0) / r.length] as const;
@@ -2069,7 +2106,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // the paint of the walls, the band under the roof edge, the roof — and the facade
       // painted again in them. Brand colours stay where the photographs say little.
       // (every photograph read at once, a few at a time by the browser)
-      const rhythmOf = new Map(photos.map(ph => [ph, photoRhythm(data.vworld_key!, ph).catch(() => null)] as const));
+      // (not a landmark area's hundreds: their photographs are never read — shapes only)
+      const rhythmOf = new Map(photos.filter(ph => !extra.has(ph)).map(ph => [ph, photoRhythm(data.vworld_key!, ph).catch(() => null)] as const));
       await Promise.all(rhythmOf.values());
       if (!alive) { drop(); releasePieces(); return; }
       const own = photos.filter(ph => feet.some(f => f.owner.startsWith("b") && Math.hypot(f.c[0] - (ph.cx + dx), f.c[1] - (ph.cy + dy)) < 12));
@@ -2153,7 +2191,118 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         shelfX += pw; shelfH = Math.max(shelfH, ph2);
         return at;
       };
-      const paintsOf = new Map(await Promise.all(photos.map(async ph => [ph, await photoWallPaint(data.vworld_key!, ph).catch(() => [] as WallPaint[])] as const)));
+      const paintsOf = new Map(await Promise.all(photos.filter(ph => !extra.has(ph)).map(async ph => [ph, await photoWallPaint(data.vworld_key!, ph).catch(() => [] as WallPaint[])] as const)));
+      // In a landmark's area (by where it stands, whichever fetch brought it).
+      const lmAt = landmarksNear.map(lm => [...metresFrom(data.center!, lm.lat, lm.lon), lm.radius] as const);
+      const inArea = (ph: PhotoBuilding) => extra.has(ph) || lmAt.some(([x, y, r]) => Math.hypot(ph.cx - x, ph.cy - y) <= r);
+      // (homes keep the photograph's say on their faces: an apartment's end walls are blank)
+      const homeUse = (use: string | null | undefined, title?: string | null) => (use ?? "").startsWith("02") || /^(apartments|residential)$/.test(use ?? "") || /아파트/.test(title ?? "");
+      const residential = (ph: PhotoBuilding, fits: { owner: string }[]) => {
+        if (fits.some(f => f.owner.startsWith("b"))) return true;
+        const nb = fits[0] ? neighbours[Number(fits[0].owner.slice(1))] : null;
+        if (nb) return homeUse(nb.use, nb.title);
+        const near = areaNames.find(c => inRing([c.x, c.y], ph.hull));
+        return near ? homeUse(near.use, near.title) : false;
+      };
+      // A surveyed building of a landmark area made clickable: its own shape, its register name.
+      // The registered footprints (the complex's and its neighbours'), for naming a point of a surveyed model.
+      const footprintsAt = (x: number, y: number) => {
+        for (const b of [...data.buildings, ...neighbours]) { const r = b.rings[0]; if (inRing([x, y], r)) return { ring: r, title: b.title ?? b.name ?? null, floors: b.floors }; }
+        return null;
+      };
+      const pickSurveyed = (shape: ReturnType<typeof surveyedShape>, _cx: number, _cy: number, _height: number, _hull: [number, number][]) => {
+        const parts = [shape.walls, shape.roofs, shape.ends, shape.cores].filter((g): g is THREE.BufferGeometry => !!g);
+        if (!parts.length) return;
+        const n = parts.reduce((t, g) => t + g.getAttribute("position").count, 0), all = new Float32Array(n * 3);
+        let o = 0;
+        for (const g of parts) { all.set(g.getAttribute("position").array as Float32Array, o); o += g.getAttribute("position").count * 3; }
+        // One surveyed model can hold several buildings (롯데월드타워 and part of 롯데월드몰 are one):
+        // its connected pieces, each picked and named for itself.
+        const tris = n / 3, parent = new Int32Array(tris).map((_, i) => i);
+        const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+        const seen = new Map<string, number>();
+        for (let t = 0; t < tris; t++) for (let v = 0; v < 3; v++) {
+          const q = (t * 3 + v) * 3, key = `${Math.round(all[q] * 4)},${Math.round(all[q + 1] * 4)},${Math.round(all[q + 2] * 4)}`;
+          const had = seen.get(key);
+          if (had === undefined) seen.set(key, t); else { const ra = find(had), rb = find(t); if (ra !== rb) parent[ra] = rb; }
+        }
+        const groups = new Map<number, number[]>();
+        for (let t = 0; t < tris; t++) { const r = find(t); const g = groups.get(r); if (g) g.push(t); else groups.set(r, [t]); }
+        // (small pieces — a canopy, a stair — join the piece nearest them)
+        const pieces = [...groups.values()].map(ts => {
+          let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, top = -Infinity, bottom = Infinity;
+          const pts: [number, number][] = [];
+          for (const t of ts) for (let v = 0; v < 3; v++) { const q = (t * 3 + v) * 3; const x = all[q], y = all[q + 1]; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); top = Math.max(top, all[q + 2]); bottom = Math.min(bottom, all[q + 2]); pts.push([x, y]); }
+          return { ts, box: [x0, y0, x1, y1], top, bottom, pts, area: (x1 - x0) * (y1 - y0) };
+        });
+        const big = pieces.filter(pc => pc.area >= 150 || pc.ts.length >= 60);
+        const keepers = big.length ? big : [pieces.sort((p1, p2) => p2.ts.length - p1.ts.length)[0]];
+        for (const pc of pieces) if (!keepers.includes(pc)) {
+          const cxp = (pc.box[0] + pc.box[2]) / 2, cyp = (pc.box[1] + pc.box[3]) / 2;
+          let best = keepers[0], bd2 = Infinity;
+          for (const k2 of keepers) { const d = Math.hypot((k2.box[0] + k2.box[2]) / 2 - cxp, (k2.box[1] + k2.box[3]) / 2 - cyp); if (d < bd2) { bd2 = d; best = k2; } }
+          for (const t of pc.ts) best.ts.push(t);
+          for (const q of pc.pts) best.pts.push(q);
+          best.top = Math.max(best.top, pc.top); best.bottom = Math.min(best.bottom, pc.bottom);
+        }
+        for (const pc of keepers) {
+          const arr = new Float32Array(pc.ts.length * 9);
+          pc.ts.forEach((t, i) => arr.set(all.subarray(t * 9, t * 9 + 9), i * 9));
+          const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.BufferAttribute(arr, 3)); geo.computeBoundingSphere();
+          const ring = convexHull(pc.pts);
+          const cx = (pc.box[0] + pc.box[2]) / 2, cy = (pc.box[1] + pc.box[3]) / 2, height = pc.top - pc.bottom;
+          // The register's entry standing in this piece (the tallest by floors when several do);
+          // else the nearest within 30 m.
+          const inside = areaNames.filter(c => inRing([c.x, c.y], ring));
+          let name = inside.sort((c1, c2) => c2.floors - c1.floors)[0] ?? null;
+          if (!name) { let bd = 30 * 30; for (const c of areaNames) { const d = (c.x - cx) ** 2 + (c.y - cy) ** 2; if (d < bd) { bd = d; name = c; } } }
+          // A landmark by its own name and height; the rest of its register entry (롯데월드타워앤드롯데월드몰)
+          // by the landmark's companion name.
+          const lm = landmarksNear.find(l => { const [lx, ly] = metresFrom(data.center!, l.lat, l.lon); return Math.hypot(lx - cx, ly - cy) < 80 && height > l.minHeight; });
+          const sibling = !lm ? landmarksNear.find(l => name && l.register && name.title === l.register) : null;
+          const title = lm ? lm.name : sibling ? `${sibling.rest}${name?.dong ? ` ${name.dong}` : ""}` : name ? `${name.title}${name.dong && !name.title.includes(name.dong) ? ` ${name.dong}` : ""}` : null;
+          const floors = lm ? lm.floors : name?.floors;
+          const h = `높이 ${lm ? lm.height : Math.round(height)} m`;
+          const pick = new THREE.Mesh(keep(geo));
+          pick.userData.label = title ? `${title}${floors ? ` · ${floors}층` : ""} · ${h}` : h;
+          pick.userData.surveyed = true;
+          // Under a point: the registered footprint there, its register entry and the surveyed
+          // height within it (a mall wing its own, the tower's footprint its 555 m).
+          const tops = new Map<[number, number][], number>();
+          pick.userData.labelAt = (x: number, y: number) => {
+            const f = footprintsAt(x, y);
+            if (!f) {
+              // (no registered footprint here: the surveyed height round the point, the nearest name)
+              let near = -Infinity;
+              for (let i = 2; i < arr.length; i += 3) if ((arr[i - 2] - x) ** 2 + (arr[i - 1] - y) ** 2 < 144) near = Math.max(near, arr[i]);
+              if (!Number.isFinite(near)) return null;
+              let nm: (typeof areaNames)[number] | null = null, bd = 30 * 30;
+              for (const c of areaNames) { const d = (c.x - x) ** 2 + (c.y - y) ** 2; if (d < bd) { bd = d; nm = c; } }
+              const sib0 = nm && landmarksNear.find(l => l.register === nm!.title);
+              const t0 = nm ? (sib0 ? `${sib0.rest}${nm.dong ? ` ${nm.dong}` : ""}` : nm.title) : null;
+              return `${t0 ? `${t0}${nm!.floors ? ` · ${nm!.floors}층` : ""} · ` : ""}높이 ${Math.round(near - pc.bottom)} m`;
+            }
+            let topZ = tops.get(f.ring);
+            if (topZ === undefined) {
+              topZ = -Infinity;
+              for (let i = 2; i < arr.length; i += 3) if (inRing([arr[i - 2], arr[i - 1]], f.ring)) topZ = Math.max(topZ, arr[i]);
+              tops.set(f.ring, topZ);
+            }
+            if (!Number.isFinite(topZ)) return null;
+            const ht = topZ - pc.bottom;
+            const lmHere = landmarksNear.find(l => ht > l.minHeight && Math.hypot(...((([lx, ly]) => [lx - x, ly - y])(metresFrom(data.center!, l.lat, l.lon)) as [number, number])) < 120);
+            if (lmHere) return `${lmHere.name} · ${lmHere.floors}층 · 높이 ${lmHere.height} m`;
+            const inside2 = areaNames.filter(c => inRing([c.x, c.y], f.ring)).sort((c1, c2) => c2.floors - c1.floors)[0];
+            const sib = inside2 && landmarksNear.find(l => l.register === inside2.title);
+            const t2 = inside2 ? (sib ? `${sib.rest}${inside2.dong ? ` ${inside2.dong}` : ""}` : `${inside2.title}${inside2.dong && !inside2.title.includes(inside2.dong) ? ` ${inside2.dong}` : ""}`) : (f.title ?? null);
+            const fl = inside2?.floors || f.floors;
+            return `${t2 ? `${t2}${fl ? ` · ${fl}층` : ""} · ` : ""}높이 ${Math.round(ht)} m`;
+          };
+          pick.matrixWorld.copy(group.matrixWorld);
+          pickables.push(pick);
+          surveyedHulls.push(ring);
+        }
+      };
       let k = 0, matched = 0;
       for (const ph of photos) {
         if (!await pace()) { drop(); releasePieces(); return; }
@@ -2162,13 +2311,35 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         const hull = ph.hull.map(([x, y]) => [x + dx, y + dy] as [number, number]);
         const cx = ph.cx + dx, cy = ph.cy + dy;
         const hits = feet.filter(f => inRing([f.c[0], f.c[1]], hull) || Math.hypot(f.c[0] - cx, f.c[1] - cy) < 6);
-        const fits = hits.filter(f => f.estimated || f.height <= 0 || Math.abs(height - f.height) / f.height < 0.35);
+        // (a landmark's area: the survey trusted over the register's height — the tower's 358 m)
+        const fits = inArea(ph) ? hits : hits.filter(f => f.estimated || f.height <= 0 || Math.abs(height - f.height) / f.height < 0.35);
+        if (!fits.length && extra.has(ph)) {
+          // (past this view's own data: the surveyed shape alone, the ring told to leave it out)
+          const home = residential(ph, []);
+          const shape = surveyedShape(ph, terrain.base(hull) - 0.25, home ? undefined : ALL_FACES, 1.0, undefined, home);
+          for (const g of [shape.walls, shape.roofs, shape.cores, shape.ends, shape.bands, shape.painted]) g?.translate(dx, dy, 0);
+          ph.geometry.dispose();
+          const style = contextStyle(null, height, rnd());
+          const c = new THREE.Color(tints[Math.floor(rnd() * tints.length)]);
+          if (style === "office") c.lerp(new THREE.Color("#ffffff"), 0.4);
+          if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
+          const m = sharedContextMaterial(style);
+          put(m, paint(shape.walls, c)); put(m, paint(shape.roofs, c));
+          put(plainMat, paint(shape.cores, c)); put(plainMat, paint(shape.bands, c)); put(plainMat, paint(shape.ends, c.clone().multiplyScalar(0.86)));
+          pickSurveyed(shape, cx, cy, height, hull);
+          surveyedNear.push(cx, cy);
+          matched++;
+          continue;
+        }
         if (!fits.length) { ph.geometry.dispose(); continue; }
         fits.forEach(f => skip.add(f.owner));
         matched++;
         // (which faces have windows: from the photograph, before the model moves — the plane
         // keys are taken in its own frame)
-        const windows = (await rhythmOf.get(ph))?.planes;
+        // (a landmark area's buildings: no photograph read — every face a facade, its windows or
+        // curtain wall; a tower's facets are narrow and would read as blank end walls)
+        const landmarkFace = inArea(ph) && !residential(ph, fits);
+        const windows = landmarkFace ? ALL_FACES : (await rhythmOf.get(ph))?.planes;
         // (the complex's own end walls only, by plane key — a face split across buckets finds
         // its paint in the neighbouring ones)
         const own = fits.some(f => f.owner.startsWith("b")), paints = own ? paintsOf.get(ph) ?? [] : [];
@@ -2182,9 +2353,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const fu = THREE.MathUtils.clamp((u - w.u0) / (w.u1 - w.u0), 0, 1), fz = THREE.MathUtils.clamp((z - w.z0) / (w.z1 - w.z0), 0, 1);
           return [(at.x + fu * w.cols * CELL) / ATLAS, (at.y + (1 - fz) * w.rows * CELL) / ATLAS];
         };
-        const shape = surveyedShape(ph, terrain.base(fits[0].ring) - 0.25, windows, 1.0, own ? paintUv : undefined);
+        const shape = surveyedShape(ph, terrain.base(fits[0].ring) - 0.25, windows, 1.0, own ? paintUv : undefined, !landmarkFace);
         for (const g of [shape.walls, shape.roofs, shape.cores, shape.ends, shape.bands, shape.painted]) g?.translate(dx, dy, 0);
         ph.geometry.dispose();
+        if (inArea(ph)) pickSurveyed(shape, cx, cy, height, hull);
         const main = fits.some(f => f.owner.startsWith("b"));
         if (main) {
           put(ownWalls[k++ % 2], shape.walls);
@@ -2227,6 +2399,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           put(plainMat, paint(shape.bands, c));
           put(plainMat, paint(shape.ends, c.clone().multiplyScalar(0.86)));
         }
+      }
+      // (the register's extrusions answered for the surveyed pieces over them — the tower's 358 m prism)
+      if (surveyedHulls.length) for (let i = pickables.length - 1; i >= 0; i--) {
+        const pk = pickables[i];
+        if (pk.userData.surveyed) continue;
+        pk.geometry.computeBoundingSphere();
+        const c = pk.geometry.boundingSphere!.center;
+        if (surveyedHulls.some(h => inRing([c.x, c.y], h))) pickables.splice(i, 1);
       }
       {
         const unit = keep(new THREE.BoxGeometry(1, 1, 1));
@@ -2471,7 +2651,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     }));
     lit.ground.push(groundMat);
     // Beyond the surveyed area the ground is featureless: it fades into the horizon haze — until
-    // the 1 km land use is in (farGround.ts), then past that.
+    // the land use round it is in (farGround.ts), then past that.
     groundMat.userData.edgeFade = true;
     groundMat.userData.farGround = { map: blankFar(), half: FAR_HALF, on: false };
     // (WebGPU: grass, asphalt and paving detail in world space)
@@ -2502,6 +2682,46 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // in pits, lamps, traffic and people walking. All of it after the first frame.
     stage.scene.add(decor);
     const roads = stitchedRoads(data.roads ?? []);
+    // Bridges where a road crosses open water (sceneBridges.ts), once the water parcels are known:
+    // the traffic, kerbs, people and lamps there stand on the deck (roadTerrain), not on the
+    // river's surface.
+    let deckAt: ((x: number, y: number) => number | null) | null = null;
+    const roadTerrain: Terrain = { ...terrain, at: (x, y) => deckAt?.(x, y) ?? terrain.at(x, y) };
+    // Open water the parcels don't register as such (석촌호수 is a 공원) or don't reach (a river
+    // past them): OpenStreetMap's lakes and river areas, asked once the view is up (kept a day).
+    let lakes: RealEstateParcel[] = [];
+    // (the full answer — a first ask of a place can take OpenStreetMap ~15 s — for the water
+    // itself; the kerbs and bridges wait for it only briefly)
+    const lakesFetched: Promise<void> = new Promise<void>(resolve => afterShown(() => {
+      if (!data.center) { resolve(); return; }
+      const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
+      // (asked about the rounded point, for the server's cache: moved back onto the centre)
+      const ox = (lo - lon) * 111320 * Math.cos((lat * Math.PI) / 180), oy = (la - lat) * 110540;
+      void Promise.race([
+        api.realEstateWater(la, lo, FAR_HALF).then(r => {
+          lakes = r.rings.map(w => ({ kind: "유", ring: w.ring.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
+          if (hostRef.current) hostRef.current.dataset.lakes = r.rings.map(w => w.name ?? w.kind).join(",");
+        }).catch(() => {}),
+        new Promise(r => window.setTimeout(r, 25000)),
+      ]).then(() => resolve());
+    }));
+    const lakesReady = Promise.race([lakesFetched, new Promise<void>(r => window.setTimeout(r, 2500))]);
+    /** The water parcels and OpenStreetMap's water together, each with its covered-stream flag. */
+    const waterParcels = () => ({ parcels: [...(data.parcels ?? []), ...lakes], covered: [...waterCovered(data), ...lakes.map(() => false)] });
+    let bridgesTried = false;
+    const placeBridges = () => {
+      if (bridgesTried || !data.parcels?.length) return false;
+      bridgesTried = true;
+      const w = waterParcels();
+      const found = timed("bridges", () => findBridges(roads, w.parcels, w.covered, terrain));
+      if (hostRef.current) hostRef.current.dataset.bridges = String(found.length);
+      if (!found.length) return false;
+      deckAt = bridgeHeight(found);
+      const made = buildBridges(found);
+      stage.addWarm(decor, made.group);
+      disposables.push(made);
+      return true;
+    };
     // (the plant kit — meshes, twig and bark textures, ~3 MB — after the first frame: fetched and
     // decoded alongside it, it held the first frame back by a few hundred ms)
     afterShown(() => { preloadPlants(); void vehicleShapes().catch(() => {}); });
@@ -2552,13 +2772,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const later = async () => { await nextSlice(pausedRef.current); return alive; };
     afterShown(() => void (async () => {
       if (!await later()) return;
+      await lakesReady;
+      if (!await later()) return;
       const footprints = [...data.buildings, ...neighbours].map(b => b.rings[0]);
+      placeBridges();
       const runs = timed("sidewalkRuns", () => sidewalkRuns(roads, footprints));
       if (import.meta.env.DEV) (stage as unknown as { runs: unknown }).runs = runs;
       if (import.meta.env.DEV) (stage as unknown as { data: unknown }).data = data;
-      const street = streetTrees(runs, plan.lamps);
+      // (no street trees in pits on a bridge's walkway)
+      const streetOf = () => streetTrees(runs, plan.lamps).filter(([x, y]) => deckAt?.(x, y) == null);
+      let street = streetOf();
       if (!await later()) return;
-      const walks = await buildSidewalks(runs, terrain, street.map(([x, y]) => [x, y] as [number, number]));
+      let walks = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
       if (!alive) { walks.dispose(); return; }
       stage.addWarm(decor, walks.group);
       disposables.push(walks);
@@ -2582,7 +2807,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             open.push(...timed("cutPaths", () => cutPaths(paths.slice(i, i + 40), blocked)));
           }
         }
-        const walkers = await buildWalkers(open, terrain, seed + salt, spacing, cap);
+        const walkers = await buildWalkers(open, roadTerrain, seed + salt, spacing, cap);
         if (!walkers) return;
         if (!alive) { walkers.dispose(); return; }
         stage.addWarm(decor, walkers.group);
@@ -2604,6 +2829,17 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         // may go once uploaded again.
         for (const t of [plan.color, plan.rough, plan.glow]) { t.userData.releaseAfterUpload = true; t.needsUpdate = true; }
         if (!await later()) return;
+        // The water parcels came with the land use: bridges now, and the kerbs, street trees and
+        // lamps made before them laid again on the decks (the traffic and people follow by themselves).
+        if (placeBridges()) {
+          street = streetOf();
+          const fresh = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
+          if (!alive) { fresh.dispose(); return; }
+          decor.remove(walks.group); walks.dispose();
+          walks = fresh; stage.addWarm(decor, walks.group); disposables.push(walks);
+          relayLamps();
+          if (!await later()) return;
+        }
         planting.street = street;
         const parcels = data.parcels ?? [];
         planting.border = schoolBorders(parcels, blocked, T);
@@ -2619,7 +2855,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (import.meta.env.DEV) Object.assign(window, { __holoKids: kids, __holoStage: stage });
           if (!await later()) return;
         }
-        const water = await buildWater(parcels, waterCovered(data), terrain, pace);
+        await lakesFetched;
+        if (!await later()) return;
+        const wp = waterParcels();
+        const water = await buildWater(wp.parcels, wp.covered, terrain, pace);
         if (!alive) { water?.dispose(); return; }
         if (water) {
           stage.addWarm(decor, water.mesh); disposables.push(water);
@@ -2660,6 +2899,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           await nextSlice(pausedRef.current);
           if (alive) await crowd(paths, 1, 9, stage.hq ? 700 : 220, false);
         })();
+        // Nothing planted in the water: a lake the register calls a park (석촌호수) has its park's
+        // trees dealt over it. (By the water itself, not the outline: an island keeps its trees.)
+        if (water) {
+          const dry = (p: [number, number] | [number, number, number]) => !water.field.wet(p[0], p[1]);
+          planting.trees = planting.trees.filter(dry); planting.shrubs = planting.shrubs.filter(dry); planting.flowers = planting.flowers.filter(dry);
+          if (planting.street) planting.street = planting.street.filter(dry);
+          if (planting.border) planting.border = planting.border.filter(dry);
+        }
         const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
         if (!plants) return;
         if (!alive) { plants.dispose(); return; }
@@ -2672,13 +2919,19 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Street lamps on the surveyed roads (lit from dusk), and traffic both ways.
     // (made in slices after the first frame; the look applied to them once they are in)
     let lamps: Awaited<ReturnType<typeof buildLamps>> | null = null;
-    afterShown(() => void buildLamps(plan.lamps, terrain).then(l => {
-      if (!alive) { l.dispose(); return; }
+    let lampsGen = 0;
+    const placeLamps = () => { const gen = ++lampsGen; return buildLamps(plan.lamps, roadTerrain).then(l => {
+      // (only the latest: one made before the bridges, finishing after them, is dropped)
+      if (!alive || gen !== lampsGen) { l.dispose(); return; }
+      if (lamps) { decor.remove(lamps.group); lamps.dispose(); }
       lamps = l; stage.addWarm(decor, l.group); l.setLevel(stage.look.lamps);
-    }));
+    }); };
+    afterShown(() => void placeLamps());
+    // (again on the bridges' decks, once they are found)
+    function relayLamps() { void placeLamps(); }
     // A desktop's neighbourhood painted again at twice the texels, in idle time once all this is
     // in (complexScene.sharpenNeighbourhood: once a session, kept between visits).
-    // The neighbourhood out to 1 km (ringBuildings.ts): every registered building past this
+    // The neighbourhood out to RING_M (ringBuildings.ts): every registered building past this
     // view's own data, made in a worker after the first frame (the JSONP, the footprints, the
     // extrusion on the relief all off the page) and drawn in the same shared facades — a mesh per
     // style. (OpenStreetMap results have no key: no ring.) Once the near decoration is in (4 s
@@ -2690,13 +2943,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const whenIdle = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 3000 }); else window.setTimeout(f, 200); };
     afterShown(() => { window.setTimeout(() => whenIdle(() => {
       if (!alive || ringStop.signal.aborted || !data.center || !data.vworld_key || new URLSearchParams(location.search).get("ring") === "0") return;
+      // (round a landmark the surveyed pass draws more than this view's data: the ring waits for it)
+      void (landmarksNear.length ? surveyPass : Promise.resolve()).then(() => {
+      if (!alive || ringStop.signal.aborted) return;
       const near = new Float32Array([...data.buildings, ...data.context].flatMap(b => {
         const r = b.rings[0]; let x = 0, y = 0;
         for (const [px, py] of r) { x += px; y += py; }
         return [x / r.length, y / r.length];
-      }));
+      }).concat(surveyedNear));
       if (hostRef.current) hostRef.current.dataset.ringStart = performance.now().toFixed(0);
-      void ringBuildings(data, near, terrain, { outer: 1000, floorM: CONTEXT_FLOOR_M, seed, signal: ringStop.signal }).then(async ring => {
+      void ringBuildings(data, near, terrain, { outer: RING_M, floorM: CONTEXT_FLOOR_M, seed, signal: ringStop.signal }).then(async ring => {
         if (!ring || !alive || ringStop.signal.aborted) return;
         if (hostRef.current) hostRef.current.dataset.ringGot = performance.now().toFixed(0);
         let aptGeo: THREE.BufferGeometry | null = null;
@@ -2810,12 +3066,13 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         }
         if (hostRef.current) { hostRef.current.dataset.ring = `${ring.buildings} in ${Math.round(ring.ms)} ms`; hostRef.current.dataset.ringAt = performance.now().toFixed(0); }
       });
+      });
     }), 4000); });
     if (stage.hq) afterShown(() => { window.setTimeout(() => void sharpenNeighbourhood(async () => { await nextSlice(true); return true; }).then(() => { if (hostRef.current) hostRef.current.dataset.sharp = "2x"; }), 4000); });
     disposables.push({ dispose: () => lamps?.dispose() });
     const onLook = [(l: Look) => lamps?.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
-    afterShown(() => void nextSlice(pausedRef.current).then(() => (alive ? buildTraffic(roads, seed, stage.hq, terrain) : null)).then(traffic => {
+    afterShown(() => void nextSlice(pausedRef.current).then(() => (alive ? buildTraffic(roads, seed, stage.hq, roadTerrain) : null)).then(traffic => {
       if (!traffic) return;
       if (!alive) { traffic.dispose(); return; }
       stage.addWarm(decor, traffic.group);
@@ -2914,7 +3171,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, stage.camera);
     const hit = ray.intersectObjects(stage.pickables, false)[0];
-    setTip(hit ? { x: e.clientX - rect.left, y: e.clientY - rect.top, text: hit.object.userData.label, pinned, w: rect.width } : null);
+    // (a surveyed piece names the registered building under the point: one model can hold several)
+    const text = hit ? (hit.object.userData.labelAt?.(hit.point.x, -hit.point.z) ?? hit.object.userData.label) : "";
+    setTip(hit ? { x: e.clientX - rect.left, y: e.clientY - rect.top, text, pinned, w: rect.width } : null);
   };
   // 열기구: the view from the balloon's basket. Drag looks around, the wheel, a pinch or
   // −/+ zoom (the field of view, like binoculars); the button, 처음 or Esc steps out.
