@@ -150,6 +150,16 @@ const TURN_LABEL: Record<TurnKind, [string, string]> = {
   left: ["↰", "좌회전"], right: ["↱", "우회전"], uturn: ["↶", "유턴"], straight: ["↑", "직진"], arrive: ["◎", "목적지 부근"],
 };
 const GOLD_KEY = "kospimap.drive.gold";
+const GAME_KEY = "kospimap.devgame";
+/** The driving game shown? Only to whoever opened the view with ?devgame=1 (remembered here). */
+function gameUnlocked() {
+  try {
+    const q = new URLSearchParams(location.search).get("devgame");
+    if (q === "1") localStorage.setItem(GAME_KEY, "1");
+    else if (q === "0") localStorage.removeItem(GAME_KEY);
+    return localStorage.getItem(GAME_KEY) === "1";
+  } catch { return new URLSearchParams(location.search).get("devgame") === "1"; }
+}
 /** The player on the score board: an anonymous id made once in this browser, and a nickname. */
 const PLAYER_KEY = "kospimap.drive.player", NAME_KEY = "kospimap.drive.name";
 function playerId() {
@@ -3476,6 +3486,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   // 쿠팡 트럭 · 사이버트럭: brought onto the road the view is looking at, then followed.
   const [follow, setFollow] = useState<HeroName | null>(null);
   const [heroesReady, setHeroesReady] = useState(false);
+  // The driving game is not public yet: its buttons only with ?devgame=1 in the address (kept in
+  // this browser after that; ?devgame=0 forgets it).
+  const [gameOn] = useState(gameUnlocked);
   // Driving it: the camera comes down behind the vehicle as before, the gauges come up and the
   // engine is heard; the traffic keeps driving it until a driving key (or a touch pedal) takes
   // over. V the driver's seat and back, Esc (or the button again) hands it back.
@@ -4432,7 +4445,19 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           title={balloonOn ? "열기구에서 내려 원래 시점으로" : "열기구에 타고 단지를 내려다보기 (열기구를 눌러도 됩니다)"}>
           <i aria-hidden="true">🎈</i><span>{balloonOn ? "내리기" : "열기구"}</span>
         </button>
-
+        {gameOn && <>
+          <button type="button" className="re-holo-balloon-btn" aria-pressed={follow === "coupang"} disabled={!heroesReady} onClick={() => followHero("coupang")}
+            title={follow === "coupang" ? "쿠팡 트럭 운전 끝내기" : "쿠팡 로켓배송 트럭을 지금 보는 도로로 불러와 운전하기 (W·↑ 가속, V 운전석)"}>
+            <i aria-hidden="true">🚚</i><span>쿠팡트럭</span>
+          </button>
+          <button type="button" className="re-holo-balloon-btn" aria-pressed={follow === "cyber"} disabled={!heroesReady} onClick={() => followHero("cyber")}
+            title={follow === "cyber" ? "사이버트럭 운전 끝내기" : "테슬라 사이버트럭을 지금 보는 도로로 불러와 운전하기 (W·↑ 가속, V 운전석)"}>
+            <i aria-hidden="true">⚡</i><span>사이버트럭</span>
+          </button>
+          <button type="button" className="re-holo-balloon-btn" onClick={showBoard} title="배송 게임 순위 (모든 사용자)">
+            <i aria-hidden="true">🏆</i><span>스코어</span>
+          </button>
+        </>}
       </div>}
       {data?.found && !failed3d && <nav className="re-holo-navigation" aria-label="3D 화면 조작">
         {/* One row of views and steps; the gestures do the rest. A mouse also gets
