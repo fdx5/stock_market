@@ -473,8 +473,12 @@ interface Car {
   arrive: { node: number; startS: number; approach: string } | null;
   /** What holds it, for inspection. */
   why?: string;
-  /** the vehicle whose body it last stopped short of (any road), for finding rings of waiting */
-  bodyBy?: Car | null;
+  /** What it waits on this step: the vehicle whose place holds it (ahead in its lane, across its
+   * way, in the box, filling the lane it would leave by) — null for a light or none; `soft` when
+   * that is only a yield between ways (bodies, crossings, merges), not a queue or a box. */
+  waitOn?: Car | null; soft?: boolean;
+  /** Seconds stood still; let past the body of `passBy` (a ring of waiting broken here) for passT s. */
+  still?: number; passBy?: Car | null; passT?: number;
   /** struck by the driven vehicle: stands (s left), its hazard lights going */
   stunned?: number;
   /** Driven by hand (driveSim): its pose is its own, the others give way to it; `steer` its front
@@ -850,9 +854,13 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       // Leave room to queue: half the block when another intersection is at its far end,
       // else all but 12 m (a queue can't reach back onto the road before).
       const far = endCluster(e.road, !e.atStart);
-      const limit = far >= 0 ? p.len * 0.45 : Math.max(3, p.len - 12);
+      // (and no farther out than the widest road there could reach: a road running along beside
+      // a crossing one is never clear of it, and walked back 200 m — a "box" of a whole block,
+      // held by every vehicle in it)
+      const wMax = Math.max(0, ...clusterEnds[ci].map(o => paths[o.road].width));
+      const limit = far >= 0 ? p.len * 0.45 : Math.max(3, p.len - 12), reach = Math.min(limit, c.r + 0.6 * wMax + 10);
       let d = 3;
-      for (; d < limit; d += 0.5) {
+      for (; d < reach; d += 0.5) {
         const pt = at(p, e.atStart ? d : p.len - d), rx = hy, ry = -hx, w = p.width / 2;
         if (crossing.every(o => [-w, 0, w].every(k => distToRoad(pt.x + rx * k, pt.y + ry * k, o) > o.width / 2 + CLEAR))) break;
       }
@@ -1210,7 +1218,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     const r = Math.ceil((reach + c.length) / NEAR), gx = Math.floor(c.x / NEAR), gy = Math.floor(c.y / NEAR);
     for (let i = gx - r; i <= gx + r; i++) for (let j = gy - r; j <= gy + r; j++) {
       for (const o of bodies.get(i * 4096 + j) ?? []) {
-        if (o === c || o.manual) continue;
+        if (o === c || o.manual || o === c.passBy) continue;
         if (!c.inConn && !o.inConn && o.road === c.road && o.forward === c.forward && o.lane === c.lane) continue;
         if (c.inConn && o.inConn && o.conn === c.conn) continue;
         const d = pathHits(c, o, reach);
@@ -1221,31 +1229,65 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     }
     return { room, by };
   };
+  /** A vehicle standing (not cleared to go) somewhere along this one's whole way through the
+   * junction and out of it, or null. Real roads put stop lines inside the box (a short road's
+   * stub, a shallow Y): one let in across such a waiting vehicle stopped in the box, held it for
+   * every other direction — that one's too — and nothing moved again. In only with the way clear. */
+  const standingInWay = (c: Car) => {
+    const cn = c.conn, reach = cn.endS - c.s + cn.len + c.length / 2;
+    const blocks = (o: Car) => {
+      if (o === c || o === c.passBy || o.manual || o.go || o.inConn || o.speed > 0.5) return false;
+      // (its own lane is car following; the lane it joins, the exit space)
+      if (o.road === c.road && o.forward === c.forward && o.lane === c.lane) return false;
+      if (o.road === cn.link.road && o.forward === cn.link.forward && o.lane === cn.lane) return false;
+      if (pathHits(c, o, reach) === Infinity) return false;
+      // Each standing in the other's way (two stop lines inside one box): neither could ever go
+      // first — the one let in now passes that one body rather than both waiting for good.
+      if (pathHits(o, c, o.conn.endS - o.s + o.conn.len + o.length / 2) < Infinity) { c.passBy = o; c.passT = 8; return false; }
+      return true;
+    };
+    // (waiting at the line, the one it waited on last is the likeliest still there)
+    if (c.waitOn && blocks(c.waitOn)) return c.waitOn;
+    const r = Math.ceil((reach + c.length) / NEAR), gx = Math.floor(c.x / NEAR), gy = Math.floor(c.y / NEAR);
+    for (let i = gx - r; i <= gx + r; i++) for (let j = gy - r; j <= gy + r; j++) {
+      for (const o of bodies.get(i * 4096 + j) ?? []) if (blocks(o)) return o;
+    }
+    return null;
+  };
 
   const lanes = new Map<string, Car[]>(), onConn = new Map<string, Car[]>(), intoLane = new Map<string, Car[]>();
   const boxes = new Map<number, Car[]>();
   const push = <K,>(m: Map<K, Car[]>, k: K, c: Car) => { const l = m.get(k); if (l) l.push(c); else m.set(k, [c]); };
   const connCars: Car[] = [], driven: Car[] = [];
 
-  /** Space free on a target lane past where a connector joins it. */
+  /** Space free on a target lane past where a connector joins it (and in `heldBy`, what fills it). */
+  let heldBy: Car | null = null;
   const exitSpace = (cn: Conn, self: Car) => {
     let space = Infinity;
-    for (const o of lanes.get(cn.toKey) ?? []) if (o.s >= cn.startS - o.length) { space = o.s - o.length / 2 - cn.startS; break; }
-    for (const o of intoLane.get(cn.toKey) ?? []) if (o !== self) space -= o.length + 2;
+    heldBy = null;
+    for (const o of lanes.get(cn.toKey) ?? []) if (o.s >= cn.startS - o.length) { space = o.s - o.length / 2 - cn.startS; heldBy = o; break; }
+    for (const o of intoLane.get(cn.toKey) ?? []) if (o !== self) { space -= o.length + 2; heldBy ??= o; }
     return space;
   };
-  /** May this vehicle cross its stop line now? */
+  /** May this vehicle cross its stop line now? (If not, `heldBy`: the vehicle it waits on, or
+   * null for a light or a gap in moving traffic.) */
   const admit = (c: Car, toStop: number) => {
     const cn = c.conn;
+    heldBy = null;
+    // Held by the light — and, when the lane beyond is full too, by what fills it: it could not go
+    // on green either, and a ring of full lanes through signals shows only so (on the light alone
+    // each waits on nothing in its red, on the next lane in its green, never all at once).
+    const byLight = (why: string) => { c.why = why; if (exitSpace(cn, c) > c.length + 3) heldBy = null; return false; };
     if (cn.node >= 0) {
       const light = lightAt(cn.node, cn.approach), inBox = boxes.get(cn.node) ?? [];
       if (light === "red") {
         // 적신호 우회전: stop first, then only into an empty box.
-        if (!(cn.turn === "right" && c.speed < 0.6 && toStop < 1.5 && inBox.every(o => o === c))) { c.why = "red"; return false; }
-      } else if (light === "yellow" && toStop > (c.speed * c.speed) / 10 + 1) { c.why = "yellow"; return false; }
+        if (!(cn.turn === "right" && c.speed < 0.6 && toStop < 1.5 && inBox.every(o => o === c))) return byLight("red");
+      } else if (light === "yellow" && toStop > (c.speed * c.speed) / 10 + 1) return byLight("yellow");
       // One direction in the box at a time (stragglers from the last phase clear first).
       const ph = (k: string | undefined) => (k === undefined ? -1 : signals[cn.node]!.phase.get(k));
-      if (inBox.some(o => o !== c && ph(o.inConn ? o.conn.approach : o.arrive?.approach) !== ph(cn.approach))) { c.why = "box"; return false; }
+      const other = inBox.find(o => o !== c && ph(o.inConn ? o.conn.approach : o.arrive?.approach) !== ph(cn.approach));
+      if (other) { c.why = "box"; heldBy = other; return false; }
     } else if (cn.tJoin) {
       // A side road joins mid-block: wait for a gap in the through traffic, both ways.
       const p = paths[cn.link.road], j = cn.link.forward ? cn.link.s0 : p.len - cn.link.s0;
@@ -1258,9 +1300,10 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       }
     }
     // 꼬리물기 금지: enter only with room to leave the box on the other side.
-    if (exitSpace(cn, c) > c.length + 3) return true;
-    c.why = "exit";
-    return false;
+    if (exitSpace(cn, c) <= c.length + 3) { c.why = "exit"; return false; }
+    // and only with its way through clear of anything standing in it (checked at the line)
+    if (toStop < 1.5) { const o = standingInWay(c); if (o) { c.why = "way"; heldBy = o; return false; } }
+    return true;
   };
 
   const plan = (c: Car) => { c.conn = connector(c.road, c.forward, c.lane, choose(c.road, c.forward, c.lane)); c.go = false; };
@@ -1269,6 +1312,9 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
    * red, for a full exit and for crossing traffic. No vehicle closes to less than half a
    * metre of the one ahead, and paths through an intersection never cross (one
    * approach at a time), so nothing overlaps and nothing locks up. */
+  /** The vehicle being stepped: room (m) it has, and what binds it there (Car.waitOn, soft). */
+  let room = Infinity, waitOn: Car | null = null, soft = false;
+  const hold = (r: number, o: Car | null, yieldOnly = false) => { if (r < room) { room = r; waitOn = o; soft = yieldOnly; } };
   const step = (dt: number) => {
     clock += dt;
     lanes.clear(); onConn.clear(); intoLane.clear(); boxes.clear(); connCars.length = 0; driven.length = 0; bodies.clear();
@@ -1292,65 +1338,60 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     onConn.forEach(l => l.sort((a, b) => a.u - b.u));
     for (const c of cars) {
       if (c.manual) { c.pilot?.(dt); place(c); continue; }
-      if (c.stunned && c.stunned > 0) { c.stunned -= dt; c.speed = 0; c.why = "struck"; place(c); continue; }
+      if (c.stunned && c.stunned > 0) { c.stunned -= dt; c.speed = 0; c.why = "struck"; c.waitOn = null; place(c); continue; }
       const cn = c.conn;
-      let room = Infinity;
+      room = Infinity; waitOn = null; soft = false;
       c.why = "";
+      if (c.passT && (c.passT -= dt) <= 0) { c.passBy = null; c.passT = 0; }
       // A vehicle driven by hand, ahead in this one's path (on the lane or across a junction):
       // stopped for, as for any other.
       for (const o of driven) {
         const al = inCorridor(c, o, Math.max(12, c.speed * 1.8 + c.length));
-        if (al >= 0) { room = Math.min(room, al - (o.length + c.length) / 2); c.why = "driver"; }
+        if (al >= 0) { hold(al - (o.length + c.length) / 2, null); c.why = "driver"; }
       }
       const gap = (o: Car, d: number) => d - (o.length + c.length) / 2;
       const firstOnTarget = () => { for (const o of lanes.get(cn.toKey) ?? []) if (o.s >= cn.startS - o.length) return o; return null; };
       if (c.inConn) {
         const list = onConn.get(cn.key)!, ahead = list[list.indexOf(c) + 1];
-        if (ahead) room = gap(ahead, ahead.u - c.u);
-        else { const f = firstOnTarget(); if (f) room = gap(f, cn.len - c.u + f.s - cn.startS); }
+        if (ahead) hold(gap(ahead, ahead.u - c.u), ahead);
+        else { const f = firstOnTarget(); if (f) hold(gap(f, cn.len - c.u + f.s - cn.startS), f); }
         // Two connectors into one lane (from side-by-side lanes): the one nearer the merge goes
         // first, the other falls in behind it, as if on one lane already.
         const mine = cn.len - c.u;
         for (const o of intoLane.get(cn.toKey) ?? []) {
-          if (o === c || o.conn === cn || !o.inConn) continue;
+          if (o === c || o.conn === cn || !o.inConn || o === c.passBy) continue;
           const theirs = o.conn.len - o.u;
-          if (theirs < mine || (theirs === mine && o.id < c.id)) room = Math.min(room, gap(o, mine - theirs));
+          if (theirs < mine || (theirs === mine && o.id < c.id)) hold(gap(o, mine - theirs), o, true);
         }
       } else {
         const list = lanes.get(laneKey(c.road, c.forward, c.lane))!, ahead = list[list.indexOf(c) + 1];
-        if (ahead) room = gap(ahead, ahead.s - c.s);
+        if (ahead) hold(gap(ahead, ahead.s - c.s), ahead);
         else {
           const inC = onConn.get(cn.key);
-          if (inC?.length) room = gap(inC[0], cn.endS - c.s + inC[0].u);
-          else { const f = firstOnTarget(); if (f) room = gap(f, cn.endS - c.s + cn.len + f.s - cn.startS); }
+          if (inC?.length) hold(gap(inC[0], cn.endS - c.s + inC[0].u), inC[0]);
+          else { const f = firstOnTarget(); if (f) hold(gap(f, cn.endS - c.s + cn.len + f.s - cn.startS), f); }
         }
         // Until cleared, the stop line holds (a vehicle already past it on a short road
         // simply waits there). Cleared once its front reaches the line with the way open.
         const toStop = cn.endS - 0.5 - (c.s + c.length / 2);
         if (!c.go) {
-          if (toStop < 60 && !admit(c, Math.max(0, toStop))) room = Math.min(room, Math.max(0, toStop));
+          if (toStop < 60 && !admit(c, Math.max(0, toStop))) hold(Math.max(0, toStop), heldBy, c.why === "way");
           else if (toStop < 1.5) c.go = true;
         }
         // Give way to anything already turning across this lane.
         // (Not those merging into this very lane behind it: they follow this vehicle.)
         const reach = Math.max(9, c.speed * 1.6 + c.length), own = laneKey(c.road, c.forward, c.lane);
         for (const o of connCars) {
-          if (o.conn.toKey === own) continue;
+          if (o.conn.toKey === own || o === c.passBy) continue;
           const al = inCorridor(c, o, reach);
-          if (al >= 0) room = Math.min(room, gap(o, al));
+          if (al >= 0) hold(gap(o, al), o, true);
         }
       }
       // Whatever else stands in its way, on any road or connector (two surveyed roads that run
       // over each other, lanes that meet where no junction joins them): never into another body.
       const hit = bodyAhead(c, Math.max(8, c.speed * 1.6 + c.length));
-      c.bodyBy = hit.by;
-      if (hit.by) {
-        // A ring of vehicles each waiting on the next (none could ever move): the lowest id in it
-        // goes. (A queue behind a red light is no ring: it ends at the light.)
-        let o: Car | null | undefined = hit.by, n = 0, lowest = c.id, ring = false;
-        while (o && n++ < 8) { if (o === c) { ring = true; break; } lowest = Math.min(lowest, o.id); o = o.bodyBy; }
-        if (!(ring && lowest === c.id)) { room = Math.min(room, hit.room); if (!c.why) c.why = "body"; }
-      }
+      if (hit.by && hit.room < room) { hold(hit.room, hit.by, true); if (!c.why) c.why = "body"; }
+      c.waitOn = waitOn; c.soft = soft;
       const want = c.cruise * Math.min(1, Math.max(0, (room - 2) / 16)) * (c.inConn && cn.turn !== "straight" ? 0.6 : 1);
       c.speed = Math.max(0, c.speed + Math.max(-8 * dt, Math.min(2.5 * dt, want - c.speed)));
       const adv = Math.min(c.speed * dt, Math.max(0, room - 0.5));
@@ -1367,8 +1408,68 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
         c.s += adv;
         if (c.s >= cn.endS && c.go) { c.inConn = true; c.u = c.s - cn.endS; }
       }
+      c.still = c.speed < 0.05 ? (c.still ?? 0) + dt : 0;
       place(c);
     }
+    breakRings();
+  };
+
+  /** Rings of waiting. Each vehicle waits on at most one other (the one whose place binds it),
+   * so the waiting forms chains: one ending at a light or at a moving vehicle clears by itself;
+   * one that closes on itself never does, whatever the reasons along it — a box held by one
+   * stopped short of a vehicle queued at another approach's red, which waits for that box. Every
+   * ring is found (any length, any reason) and opened where it can be: where the waiting is only
+   * a yield between two ways, the vehicle already in the junction (else the lowest id) is let
+   * past that one body. A ring of full lanes alone (queues and boxes, nothing to yield) — a
+   * gridlock no one in it can undo — loses one vehicle to a free lane out of sight. */
+  const visit = new Map<Car, number>(), trail: Car[] = [], RING_STILL = 3;
+  /** how many rings were opened by a yield, and by moving a vehicle away (inspection) */
+  const rings = { passed: 0, moved: 0 };
+  const breakRings = () => {
+    visit.clear();
+    let walk = 0;
+    for (const start of cars) {
+      if (visit.has(start) || (start.still ?? 0) < RING_STILL) continue;
+      walk++; trail.length = 0;
+      let x: Car | null | undefined = start;
+      while (x && !visit.has(x) && !x.manual && (x.still ?? 0) >= RING_STILL) { visit.set(x, walk); trail.push(x); x = x.waitOn; }
+      if (!x || visit.get(x) !== walk) continue;
+      const ring = trail.slice(trail.indexOf(x));
+      let pick: Car | null = null;
+      for (const c of ring) {
+        if (!c.soft || !c.waitOn) continue;
+        const committed = c.inConn || c.go, best = pick && (pick.inConn || pick.go);
+        if (!pick || (committed && !best) || (committed === best && c.id < pick.id)) pick = c;
+      }
+      if (pick) { pick.passBy = pick.waitOn; pick.passT = 4; pick.still = 0; rings.passed++; continue; }
+      const hero = new Set(heroes.values());
+      let far: Car | null = null, farD = -1;
+      for (const c of ring) {
+        if (hero.has(c)) continue;
+        const d = Math.hypot(c.x - eyeLocal.x, -c.y - eyeLocal.z);
+        if (d > farD) { far = c; farD = d; }
+      }
+      if (far && relocate(far)) rings.moved++;
+    }
+  };
+  /** Onto a free lane, out of sight where one is found (the traffic's frame; eyeLocal: the last eye). */
+  const relocate = (c: Car) => {
+    for (let tries = 0; tries < 400; tries++) {
+      const road = Math.floor(rnd() * paths.length), forward = rnd() < 0.5, lane = Math.floor(rnd() * lanesOf(road));
+      if (idle[road]) continue;
+      const conn = connector(road, forward, lane, choose(road, forward, lane));
+      const s0 = startOf(road, forward), span = conn.endS - s0 - c.length - 2;
+      if (span < 2) continue;
+      const s = s0 + c.length / 2 + rnd() * span;
+      if (cars.some(o => o !== c && !o.inConn && o.road === road && o.forward === forward && o.lane === lane && Math.abs(o.s - s) < (o.length + c.length) / 2 + 6)) continue;
+      const at0 = lanePt(road, forward, s, lane);
+      if (tries < 300 && Math.hypot(at0.x - eyeLocal.x, -at0.y - eyeLocal.z) < 150) continue;
+      if (cars.some(o => { if (o === c) return false; const dx = o.x - at0.x, dy = o.y - at0.y; return Math.abs(dx * at0.hx + dy * at0.hy) < (o.length + c.length) / 2 + 2 && Math.abs(dx * at0.hy - dy * at0.hx) < (o.width + c.width) / 2 + 0.3; })) continue;
+      Object.assign(c, { road, forward, lane, s, conn, inConn: false, u: 0, go: false, arrive: null, speed: 0, still: 0, waitOn: null, passBy: null, passT: 0 });
+      place(c);
+      return true;
+    }
+    return false;
   };
   cars.forEach(place);
   meshes.forEach(m => { m.instanceMatrix.needsUpdate = true; });
@@ -1545,7 +1646,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return { line: clean, end: [bx, by] as [number, number] };
   };
 
-  group.userData.traffic = { cars, paths, nodes, nodeOf, trimAt, clusters, idle, internal, drawn: roads.length }; // inspection in dev tools
+  group.userData.traffic = { cars, paths, nodes, nodeOf, trimAt, clusters, idle, internal, drawn: roads.length, rings }; // inspection in dev tools
 
   return {
     group,
