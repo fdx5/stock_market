@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import Response
 
-from app.services import realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary
+from app.services import realestate_buildings, realestate_facts, realestate_map, realestate_nearby, realestate_rent, realestate_summary, realestate_water
 
 router = APIRouter()
 
@@ -114,6 +114,15 @@ def realestate_complex_buildings(response: Response, id: str = Query(..., min_le
         raise HTTPException(status_code=404, detail="단지를 찾을 수 없습니다.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/water")
+def realestate_water_areas(response: Response, lat: float = Query(..., ge=33, le=39), lon: float = Query(..., ge=124, le=132),
+                           r: float = Query(700, ge=100, le=1500)):
+    """Open water round a point (OpenStreetMap lakes, ponds and river areas), for the 3D
+    viewer: rings in metres about the point, clipped to the square of `r`."""
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return realestate_water.water(lat, lon, r)
 
 
 @router.post("/nearby")
