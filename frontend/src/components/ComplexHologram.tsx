@@ -3251,6 +3251,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const pinchSpan = () => { const ps = [...touchPoints.current.values()]; return ps.length >= 2 ? Math.hypot(ps[0][0] - ps[1][0], ps[0][1] - ps[1][1]) : 0; };
   const touchPoints = useRef(new Map<number, [number, number]>());
   const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    // (a 단지 팻말 under a resting mouse: highlighted, the pointer a hand)
+    if (e.pointerType === "mouse" && !e.buttons && signRects.current.length) {
+      const hit = signAt(e.clientX, e.clientY), id = hit && !hit.here ? hit.id : null;
+      if (id !== signHover.current) {
+        signHover.current = id;
+        if (hostRef.current) hostRef.current.style.cursor = id ? "pointer" : "";
+        stageRef.current?.resume();
+      }
+    }
     const p = press.current;
     if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8) p.moved = true;
     if (stageRef.current?.balloonView) {
@@ -3289,6 +3298,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (!p || p.id !== e.pointerId || pointers.current.size > 0 || p.moved) return;
     // A drag turned the model: whatever was pinned no longer points at its building.
     if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > 8 || performance.now() - p.t > 450) { setTip(null); return; }
+    // A tap on a 단지 팻말: off to that complex.
+    const sign = signAt(e.clientX, e.clientY);
+    if (sign) { if (!sign.here) goTo(sign.id); return; }
     // A tap on the balloon: into its basket.
     const st = stageRef.current;
     if (st?.balloon?.group.visible) {
@@ -3371,40 +3383,83 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, near, complexId, homeId, loading]);
-  const signEls = useRef(new Map<string, HTMLButtonElement>());
+  // 단지 팻말 drawn on one canvas over the view (the signs moved as buttons each frame cost the page a
+  // restyle, repaint, re-composite and accessibility update every frame — ~6 fps of a slow machine's
+  // 35 while the camera turned). Hit-tested here for hover and click; a static list of buttons
+  // (visually hidden) keeps them reachable by keyboard and screen readers.
+  const signCanvas = useRef<HTMLCanvasElement>(null);
+  const signRects = useRef<{ id: string; here: boolean; x0: number; y0: number; x1: number; y1: number }[]>([]);
+  const signHover = useRef<string | null>(null);
+  const signAt = (clientX: number, clientY: number) => {
+    const host = hostRef.current;
+    if (!host) return null;
+    const r = host.getBoundingClientRect(), x = clientX - r.left, y = clientY - r.top;
+    // (the nearest drawn last: tested from the end)
+    for (let i = signRects.current.length - 1; i >= 0; i--) { const q = signRects.current[i]; if (x >= q.x0 && x <= q.x1 && y >= q.y0 && y <= q.y1) return q; }
+    return null;
+  };
   useEffect(() => {
-    const st = stageRef.current;
-    if (!st) return;
-    const v = new THREE.Vector3(), at = new Map<string, string>(), dist = new Map<string, number>(), rank = new Map<string, number>();
+    const st = stageRef.current, cv = signCanvas.current;
+    if (!st || !cv) return;
+    const g = cv.getContext("2d");
+    if (!g) return;
+    const font = getComputedStyle(cv).fontFamily || "Pretendard, sans-serif";
+    // Each sign pre-drawn once per look (plain / hovered), at the screen's pixel ratio.
+    const sprites = new Map<string, { img: HTMLCanvasElement; w: number; h: number }>();
+    const spriteOf = (sgn: (typeof signs)[number], hover: boolean) => {
+      const key = sgn.id + (hover ? ":h" : "");
+      let sp = sprites.get(key);
+      if (sp) return sp;
+      const dpr = Math.min(3, window.devicePixelRatio || 1), size = sgn.here ? 13 : 12;
+      const m = document.createElement("canvas").getContext("2d")!;
+      m.font = `600 ${size}px ${font}`;
+      const tw = Math.ceil(m.measureText(sgn.name).width), bw = tw + 20, bh = Math.round(size * 1.2) + 11, pad = 8, line = 9;
+      const w = bw + pad * 2, h = bh + line + pad;
+      const c = document.createElement("canvas"); c.width = Math.ceil(w * dpr); c.height = Math.ceil(h * dpr);
+      const x = c.getContext("2d")!; x.scale(dpr, dpr);
+      x.shadowColor = "rgba(0,0,0,0.28)"; x.shadowBlur = 10; x.shadowOffsetY = 2;
+      x.fillStyle = sgn.here ? "rgba(196,60,40,0.9)" : hover ? "rgba(28,76,140,0.92)" : "rgba(16,28,44,0.86)";
+      x.beginPath(); x.roundRect(pad + 0.5, pad + 0.5, bw - 1, bh - 1, 6); x.fill();
+      x.shadowColor = "transparent";
+      x.strokeStyle = sgn.here ? "rgba(255,255,255,0.8)" : hover ? "#ffffff" : "rgba(255,255,255,0.55)"; x.lineWidth = 1; x.stroke();
+      x.fillStyle = "rgba(255,255,255,0.7)"; x.fillRect(pad + bw / 2 - 0.5, pad + bh, 1, line);
+      x.fillStyle = "#f2f6fb"; x.font = `600 ${size}px ${font}`; x.textBaseline = "middle"; x.textAlign = "center";
+      x.fillText(sgn.name, pad + bw / 2, pad + bh / 2 + 0.5);
+      sp = { img: c, w, h };
+      sprites.set(key, sp);
+      return sp;
+    };
+    const v = new THREE.Vector3(), dist = new Map<string, number>();
+    let last = "";
     st.signs = (camera, w, h) => {
-      // Nearer signs over farther: by rank, rewritten only when the order changes (a z-index
-      // from the distance changed every frame the camera moved, and re-stacked the layers).
+      const dpr = Math.min(3, window.devicePixelRatio || 1);
+      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); last = ""; }
       for (const sgn of signs) { v.set(sgn.x, sgn.z + 14, -sgn.y); dist.set(sgn.id, v.distanceTo(camera.position)); }
+      // nearer over farther
       const order = [...signs].sort((a, b) => dist.get(b.id)! - dist.get(a.id)!);
-      order.forEach((sgn, i) => {
-        if (rank.get(sgn.id) === i) return;
-        rank.set(sgn.id, i);
-        const el = signEls.current.get(sgn.id);
-        if (el) el.style.zIndex = String(i + 1);
-      });
-      for (const sgn of signs) {
-        const el = signEls.current.get(sgn.id);
-        if (!el) continue;
+      const rects: typeof signRects.current = [], draws: [ReturnType<typeof spriteOf>, number, number, number][] = [];
+      let sig = signHover.current ?? "";
+      for (const sgn of order) {
         // (14 m over the roof: clear of the crown and the rooftop signs)
         v.set(sgn.x, sgn.z + 14, -sgn.y);
         const d = dist.get(sgn.id)!;
         v.project(camera);
-        const shown = v.z < 1 && Math.abs(v.x) < 1.15 && Math.abs(v.y) < 1.15 && !st.balloonView?.aim;
-        const k = THREE.MathUtils.clamp(520 / d, 0.62, 1);
-        const css = shown ? `translate3d(${((v.x + 1) * 0.5 * w).toFixed(1)}px,${((1 - v.y) * 0.5 * h).toFixed(1)}px,0) translate(-50%,-100%) scale(${k.toFixed(2)})` : "";
-        // (written only when it changed: a style write each frame dirtied the page)
-        if (at.get(sgn.id) === css) continue;
-        at.set(sgn.id, css);
-        if (css) { el.style.transform = css; el.style.visibility = "visible"; }
-        else el.style.visibility = "hidden";
+        if (!(v.z < 1 && Math.abs(v.x) < 1.15 && Math.abs(v.y) < 1.15 && !st.balloonView?.aim)) continue;
+        const k = THREE.MathUtils.clamp(520 / d, 0.62, 1), sx = (v.x + 1) * 0.5 * w, sy = (1 - v.y) * 0.5 * h;
+        const sp = spriteOf(sgn, !sgn.here && signHover.current === sgn.id);
+        draws.push([sp, sx, sy, k]);
+        rects.push({ id: sgn.id, here: sgn.here, x0: sx - (sp.w / 2 - 8) * k, x1: sx + (sp.w / 2 - 8) * k, y0: sy - (sp.h - 8) * k, y1: sy - 9 * k });
+        sig += `${sgn.id}${sx.toFixed(1)},${sy.toFixed(1)},${k.toFixed(3)};`;
       }
+      signRects.current = rects;
+      // (redrawn only when a sign moved: the camera still, the canvas untouched)
+      if (sig === last) return;
+      last = sig;
+      g.setTransform(1, 0, 0, 1, 0, 0);
+      g.clearRect(0, 0, cv.width, cv.height);
+      for (const [sp, sx, sy, k] of draws) g.drawImage(sp.img, (sx - (sp.w / 2) * k) * dpr, (sy - sp.h * k) * dpr, sp.w * k * dpr, sp.h * k * dpr);
     };
-    return () => { if (st.signs) st.signs = null; };
+    return () => { if (st.signs) st.signs = null; g.clearRect(0, 0, cv.width, cv.height); signRects.current = []; };
   }, [signs]);
   /** Show another complex in detail: the camera (or, riding it, the balloon) sets off
    * toward it at once over the current scene while its shapes load; the new model then
@@ -3494,16 +3549,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         {data?.found && !loading && !notice && <div className="re-holo-scene-label" aria-hidden="true"><span>ARCHITECTURAL VIEW</span><strong>{sceneTitle}</strong></div>}
         {hudOn && <pre ref={hudRef} style={{ position: "fixed", right: 8, bottom: 8, zIndex: 2147483647, margin: 0, padding: "6px 8px", background: "rgba(0,0,0,.65)", color: "#9f9", font: "11px/1.35 ui-monospace, monospace", pointerEvents: "none", whiteSpace: "pre" }} />}
         {notice && <p className="re-holo-stale" role="note">{notice}</p>}
+        <canvas ref={signCanvas} className="re-holo-signs" aria-hidden="true" style={{ display: !loading && signs.length ? undefined : "none" }} />
         {!loading && signs.length > 0 && (
-          <div className="re-holo-signs">
-            {signs.map(sg => (
-              <button key={sg.id} type="button" ref={el => { if (el) signEls.current.set(sg.id, el); else signEls.current.delete(sg.id); }}
-                className={`re-holo-sign${sg.here ? " is-here" : ""}`} style={{ visibility: "hidden" }}
-                onPointerDown={e => e.stopPropagation()} onPointerUp={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
-                onClick={() => (sg.here ? undefined : goTo(sg.id))}
-                title={sg.here ? sg.name : `${sg.name}(으)로 이동`} aria-label={sg.here ? sg.name : `${sg.name}(으)로 이동`}>
-                {sg.name}
-              </button>
+          <div className="sr-only">
+            {signs.filter(sg => !sg.here).map(sg => (
+              <button key={sg.id} type="button" onClick={() => goTo(sg.id)}>{`${sg.name}(으)로 이동`}</button>
             ))}
           </div>
         )}

@@ -6,8 +6,15 @@
  * slice waits for the next frame. */
 
 let frameAt = 0, ticking = false, usedAt = 0, lastSliceFrame = -1;
+// Frames counted, and how late the last ones came: on a machine whose drawing alone fills the
+// frame, a slice every frame made every frame a dropped one (the view at 10–20 fps while a
+// complex loaded on a 4x slowed CPU). Late frames: the work backs off — a slice every other
+// frame, never one forced in between — so the view keeps its rate and loading takes longer.
+let frameNo = 0, sliceFrameNo = -10, late = 0;
 const tick = () => {
-  frameAt = performance.now();
+  const now = performance.now();
+  if (frameAt) late = late * 0.8 + (now - frameAt > 22 ? 0.2 : 0);
+  frameAt = now; frameNo++;
   // (the frame clock runs only while slices are being taken)
   if (frameAt - usedAt < 1000) requestAnimationFrame(tick); else ticking = false;
 };
@@ -27,7 +34,13 @@ export function frameSlice(budgetMs = 9): Promise<void> {
   // 16.7 ms to put the frame on screen. Counted from the first slice instead, the view's drawing
   // plus 10 ms of slices overran the frame and every other one was missed (30–45 ms).
   // (one slice a frame always goes, whatever the view's drawing took: work keeps moving)
-  if (lastSliceFrame !== frameAt || now - frameAt < budgetMs) { lastSliceFrame = frameAt; return task(); }
+  const behind = late > 0.5;
+  if (behind) {
+    // (one slice, and not in the frame right after one)
+    if (lastSliceFrame !== frameAt && frameNo - sliceFrameNo >= 2) { lastSliceFrame = frameAt; sliceFrameNo = frameNo; return task(); }
+    return new Promise(resolve => requestAnimationFrame(() => void frameSlice(budgetMs).then(resolve)));
+  }
+  if (lastSliceFrame !== frameAt || now - frameAt < budgetMs) { lastSliceFrame = frameAt; sliceFrameNo = frameNo; return task(); }
   return new Promise(resolve => {
     let done = false;
     const go = () => { if (!done) { done = true; void task().then(resolve); } };
