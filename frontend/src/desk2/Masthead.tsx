@@ -11,6 +11,7 @@ import { useVisitorCount } from "../useVisitorCount";
 import BookmarkButton from "../components/BookmarkButton";
 import Logo from "../components/Logo";
 import DeskBgm from "./DeskBgm";
+import CoffeeSupportLink from "./CoffeeSupportLink";
 import { SITE_NAV } from "./siteNav";
 import { currentEdition, frontPageOf } from "./edition";
 import { NEW_YORK, SEOUL, clockText, useL, useNow, zoneParts } from "./lib";
@@ -460,7 +461,7 @@ export default function Masthead({
           )}
           {readers}
         </div>
-        <div className="d2-mast-title">{nameplate}</div>
+        <div className="d2-mast-title">{nameplate}<CoffeeSupportLink /></div>
         <DeskBgm variant="strip" />
         <MobileSessionBar now={now} krStatus={krStatus} />
         {siteNav}
@@ -504,6 +505,7 @@ export default function Masthead({
         </Link>
         {nameplate}
         <DeskBgm />
+        <CoffeeSupportLink />
         <div className="d2-mast-clocks" data-ear={L("현지 시각", "LOCAL TIME")}>
           <span className="d2-mast-clock">
             <small>{L("서울", "SEOUL")}</small>

@@ -23,6 +23,7 @@ const MarketDeskPage = lazy(() => import("./components/MarketDeskPage"));
    for anyone who still wants that arrangement. Each has its own scoped
    stylesheet, so neither can affect the other. */
 const Desk2Page = lazy(() => import("./desk2/Desk2Page"));
+const SupportPage = lazy(() => import("./desk2/SupportPage"));
 /* 종목면 and 종목정보 in the same broadsheet as the desk. The classic
    StockIntelligencePage / UsStockIntelligencePage / StocksPage stay in the tree,
    unrouted, so either can be put back with one line here. */
@@ -127,6 +128,10 @@ function DashboardRedirect() {
 }
 
 const PUBLIC_PAGE_SEO: Record<string, { title: string; description: string }> = {
+  "/support": {
+    title: "커피 한 잔 후원하기 | K-Stock Hub",
+    description: "커피 한 잔으로 마켓데스크의 꾸준한 업데이트와 안정적인 서버 운영을 응원해 주세요. 카카오페이로 간편하게 후원하실 수 있습니다.",
+  },
   "/": {
     title: "K-Stock Hub | 코스피·코스닥·미국 주식 시세와 ETF",
     description: "코스피·코스닥·미국 증시 시세와 시가총액 맵, 주식·ETF 거래대금 순위, 뉴스와 종목토론을 한눈에 확인하세요.",
@@ -354,6 +359,8 @@ export default function App() {
     page = <DashboardRedirect />;
   } else if (path === "/desk") {
     page = <Desk2Page />;
+  } else if (path === "/support" || path === "/support/") {
+    page = <SupportPage />;
   } else if (path === "/desk2") {
     page = <MarketDeskPage />;
   } else if (stockMatch) {

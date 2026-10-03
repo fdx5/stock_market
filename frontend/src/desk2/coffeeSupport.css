@@ -1,0 +1,59 @@
+.d2 .d2-mast-title { position: relative; }
+.d2 .d2-coffee-link { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 3px 12px 3px 7px; border: 1px solid var(--rule-2); border-radius: 99px; background: var(--p1); color: var(--ink-2); font-size: 12px; font-weight: 700; white-space: nowrap; transition: transform .18s, border-color .18s; }
+.d2 .d2-mast-title > .d2-coffee-link { position: absolute; right: 0; top: 8px; }
+.d2 .d2-coffee-link svg { width: 28px; height: 28px; flex: none; }
+.d2 .d2-coffee-link:hover { transform: translateY(-2px); border-color: var(--brass); }
+.d2 .d2-coffee-link:focus-visible, .d2-support a:focus-visible { outline: 3px solid var(--brass); outline-offset: 4px; }
+.d2 .coffee-main { max-width: 1160px; margin: 0 auto; padding: 28px var(--gutter) 76px; }
+.d2 .coffee-back { font-size: 13px; color: var(--ink-2); }
+.d2 .coffee-back:hover { text-decoration: underline; }
+.d2 .coffee-layout { display: grid; grid-template-columns: minmax(0, 1fr) 360px; align-items: start; gap: 64px; margin-top: 40px; }
+.d2 .coffee-letter { padding: 8px 0; }
+.d2 .coffee-eyebrow { color: var(--brass); font-size: 10px; font-weight: 700; letter-spacing: .19em; }
+.d2 .coffee-mascot { display: flex; align-items: center; margin: 22px 0 25px; gap: 20px; }
+.d2 .coffee-mascot svg { width: 156px; height: 156px; transform: rotate(-5deg); }
+.d2 .coffee-bubble { position: relative; border: 1px solid var(--rule-2); border-radius: 22px 22px 22px 4px; padding: 12px 18px; color: var(--brass); background: var(--p1); font-size: 14px; font-weight: 700; transform: rotate(3deg); }
+.d2 .coffee-letter h1 { font-family: var(--f-display); font-size: clamp(24px, 2.7vw, 34px); line-height: 1.65; font-weight: 800; letter-spacing: -.05em; margin-bottom: 20px; }
+.d2 .coffee-letter h1 em { color: var(--brass); font-style: normal; }
+.d2 .coffee-letter p { color: var(--ink-2); font-size: 15px; line-height: 1.95; margin-bottom: 18px; }
+.d2 .coffee-letter .coffee-intro { color: var(--ink); font-size: 16px; font-weight: 500; }
+.d2 .coffee-purpose { display: flex; flex-wrap: wrap; gap: 8px; margin: 26px 0; }
+.d2 .coffee-purpose span { padding: 7px 11px; border: 1px solid var(--rule); border-radius: 9px; color: var(--brass); background: var(--p1); font-size: 12px; font-weight: 600; }
+.d2 .coffee-letter .coffee-thanks { font-size: 13px; padding-top: 18px; border-top: 1px dashed var(--rule-2); }
+.d2 .coffee-payment { background: #fff8eb; color: #513829; border: 1px solid #e6d4ba; border-radius: 26px; padding: 30px 24px 26px; text-align: center; box-shadow: 0 12px 36px #432a1310; }
+.d2 .coffee-payment-tag { display: inline-block; padding: 5px 12px; border-radius: 99px; background: #f2e4cd; color: #775133; font-size: 11px; font-weight: 600; }
+.d2 .coffee-payment h2 { margin: 14px 0 8px; font-size: 23px; font-weight: 800; letter-spacing: -.04em; }
+.d2 .coffee-payment > p { font-size: 13px; color: #79624e; line-height: 1.7; }
+.d2 .coffee-pay-button { display: flex; justify-content: center; align-items: center; gap: 9px; min-height: 54px; margin-top: 24px; padding: 12px; background: #fee500; color: #302314; border: 1px solid #edd400; border-radius: 14px; font-size: 15px; font-weight: 800; transition: background .15s, transform .15s; }
+.d2 .coffee-pay-button:hover { background: #f8dc00; transform: translateY(-1px); }
+.d2 .coffee-pay-mark { font-style: italic; font-size: 20px; font-weight: 900; letter-spacing: -.08em; }
+.d2 .coffee-pay-help { display: block; font-size: 11px; color: #79624e; margin-top: 10px; }
+.d2 .coffee-divider { display: flex; align-items: center; gap: 12px; margin: 25px 0 18px; font-size: 11px; color: #79624e; }
+.d2 .coffee-divider::before, .d2 .coffee-divider::after { content: ""; flex: 1; height: 1px; background: #e6d4ba; }
+.d2 .coffee-qr-link { display: block; max-width: 232px; margin: 0 auto; background: white; border: 1px solid #eadfce; border-radius: 14px; padding: 12px; overflow: hidden; }
+.d2 .coffee-qr-link img { display: block; width: 100%; height: auto; }
+.d2 .coffee-payment .coffee-qr-help { margin: 14px auto 0; max-width: 255px; font-size: 12px; }
+.d2 .coffee-payment-note { margin-top: 20px; padding: 13px; border-radius: 10px; background: #f4ebdc; font-size: 11px; line-height: 1.7; color: #79624e; }
+.d2 .coffee-signoff { display: block; font-size: 12px; color: #956b48; margin-top: 20px; }
+@media (max-width: 1000px) {
+  .d2 .coffee-layout { gap: 32px; grid-template-columns: minmax(0, 1fr) 320px; }
+}
+/* Leave room above the clocks when the smaller nameplate shortens the header. */
+@media (min-width: 761px) and (max-width: 1100px) {
+  .d2 .d2-mast-title { padding-top: 54px; }
+}
+@media (max-width: 760px) {
+  .d2 .d2-mast--compact .d2-mast-title { padding-right: 52px; }
+  .d2 .d2-mast-title > .d2-coffee-link { top: 10px; width: 44px; height: 44px; padding: 5px; border-radius: 14px; }
+  .d2 .d2-coffee-link svg { width: 34px; height: 34px; }
+  .d2 .d2-coffee-link > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .d2 .coffee-main { padding-top: 20px; padding-bottom: 44px; }
+  .d2 .coffee-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; margin-top: 28px; }
+  .d2 .coffee-mascot { margin: 18px 0; gap: 12px; }
+  .d2 .coffee-mascot svg { width: 124px; height: 124px; }
+  .d2 .coffee-letter h1 { font-size: clamp(21px, 5.7vw, 30px); }
+  .d2 .coffee-letter p { font-size: 14px; }
+  .d2 .coffee-payment { width: 100%; max-width: 420px; justify-self: center; padding: 26px 22px; }
+}
+@media print { .d2 .d2-coffee-link { display: none; } }
+@media (prefers-reduced-motion: reduce) { .d2 .d2-coffee-link, .d2 .coffee-pay-button { transition: none; } }
