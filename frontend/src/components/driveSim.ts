@@ -33,8 +33,26 @@ export const DRIVE_SPECS: Record<HeroName, DriveSpec> = {
     eye: [0.42, 2.18, 1.55], sound: "/3d/audio/truck-diesel-loop.wav", pitch: [0.62, 1.55], fuelUse: 1 },
   // 사이버트럭 (AWD): quick, single speed, about 180 km/h
   cyber: { wheelbase: 3.81, vmax: 50, accel: 6.2, brake: 9.0, reverseMax: 6, gears: null, idleRpm: 0, redline: 18000, lock: 0.58,
-    eye: [0.42, 1.38, 0.05], sound: "/3d/audio/ev-motor.mp3", loop: [2.0, 12.0], pitch: [0.55, 1.9], fuelUse: 1.4 },
+    eye: [0.42, 1.38, 0.05], sound: "/3d/audio/ev-motor.mp3", loop: [2.0, 12.0], pitch: [0.55, 1.9], fuelUse: 0.28 },
 };
+
+/** Street trees and lamp posts as the driven vehicle meets them: round trunks and posts
+ * (centre, radius), bucketed by 8 m. */
+export class PoleGrid {
+  private cells = new Map<string, { x: number; y: number; r: number }[]>();
+  constructor(poles: { x: number; y: number; r: number }[]) {
+    for (const p of poles) { const k = `${Math.floor(p.x / 8)},${Math.floor(p.y / 8)}`, l = this.cells.get(k); if (l) l.push(p); else this.cells.set(k, [p]); }
+  }
+  /** Any pole within the footprint (middle x, y, unit heading hx, hy, half length and width)? */
+  hits(x: number, y: number, hx: number, hy: number, hl: number, hw: number) {
+    const reach = hl + 1, i0 = Math.floor((x - reach) / 8), i1 = Math.floor((x + reach) / 8), j0 = Math.floor((y - reach) / 8), j1 = Math.floor((y + reach) / 8);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) for (const p of this.cells.get(`${i},${j}`) ?? []) {
+      const dx = p.x - x, dy = p.y - y, al = dx * hx + dy * hy, la = dx * hy - dy * hx;
+      if (Math.abs(al) <= hl + p.r && Math.abs(la) <= hw + p.r) return true;
+    }
+    return false;
+  }
+}
 
 /** What a vehicle is to the simulation: its pose (x east, y north, unit heading), speed, size. */
 export interface Body { x: number; y: number; hx: number; hy: number; speed: number; length: number; width: number }
@@ -120,20 +138,22 @@ export class DriveSim {
   private theta: number;
   /** the last knock (for its sound), and how hard (m/s); what was hit */
   bump = 0;
-  bumpHit: "solid" | "vehicle" | null = null;
+  bumpHit: "solid" | "vehicle" | "pole" | null = null;
   /** the vehicle struck, if it was one */
   bumpCar: Body | null = null;
   /** the tyres' slip (0 gripping .. 1 squealing): hard cornering, braking, the handbrake */
   slip = 0;
   /** the boost on (Shift, while it lasts) */
   boosting = false;
-  constructor(readonly car: Body, readonly spec: DriveSpec, readonly others: (x: number, y: number, r: number) => Body[], readonly solids: () => SolidGrid | null) {
+  constructor(readonly car: Body, readonly spec: DriveSpec, readonly others: (x: number, y: number, r: number) => Body[], readonly solids: () => SolidGrid | null,
+    readonly poles: () => PoleGrid | null = () => null) {
     this.theta = Math.atan2(car.hy, car.hx);
     this.rpm = spec.idleRpm;
   }
   private hitsAt(x: number, y: number, hx: number, hy: number, ignore: Set<Body>) {
     const me: Body = { ...this.car, x, y, hx, hy };
     for (const o of this.others(x, y, 14)) if (o !== this.car && !ignore.has(o) && boxesOverlap(me, o, 0.05)) return o;
+    if (this.poles()?.hits(x, y, hx, hy, this.car.length / 2, this.car.width / 2)) return "pole";
     const g = this.solids();
     if (g) {
       // (round the outline every half metre, and through the middle)
@@ -195,10 +215,10 @@ export class DriveSim {
       const hit = this.hitsAt(nx, ny, hx, hy, ignore);
       if (hit) {
         // A knock: stopped short and pushed back a little (a building harder than a car).
-        this.bump = Math.max(this.bump, Math.abs(v)); this.bumpHit = hit === "solid" ? "solid" : "vehicle";
-        if (hit !== "solid") this.bumpCar = hit;
-        c.speed = -v * (hit === "solid" ? 0.15 : 0.25);
-        if (hit !== "solid") hit.speed = Math.max(0, hit.speed * 0.5);
+        this.bump = Math.max(this.bump, Math.abs(v)); this.bumpHit = hit === "solid" || hit === "pole" ? hit : "vehicle";
+        if (hit !== "solid" && hit !== "pole") this.bumpCar = hit;
+        c.speed = -v * (hit === "solid" || hit === "pole" ? 0.15 : 0.25);
+        if (hit !== "solid" && hit !== "pole") hit.speed = Math.max(0, hit.speed * 0.5);
         break;
       }
       this.theta = th; c.x = nx; c.y = ny; c.hx = hx; c.hy = hy; c.speed = v;

@@ -77,6 +77,9 @@ export interface HeroShape {
   /** One wheel (vertex colours) about its own axle — x through it, its outer face toward +x —
    * the wheels' places on the vehicle, and the rolling radius. */
   wheel: THREE.BufferGeometry; wheels: WheelAt[]; radius: number;
+  /** Its own head (white) and tail (red) lamps, where the model has them (x across, y up, z
+   * forward; w x h): lit at night in place of the traffic's generic pair at the corners. */
+  lamps: { x: number; y: number; z: number; w: number; h: number; red: boolean }[];
   /** The number plates: plateGeometry(L, front height, rear height, front out, rear out). */
   plate: [number, number, number, number, number];
 }
@@ -247,7 +250,11 @@ export function coupangTruck(geometryOnly = false): HeroShape {
   const wheels: WheelAt[] = sides.flatMap(sd => [
     { x: sd * (W / 2 - 0.16), z: 1.75, side: sd }, { x: sd * (W / 2 - 0.12), z: -1.55, side: sd }, { x: sd * (W / 2 - 0.38), z: -1.55, side: sd, inner: true },
   ]);
-  return { geometry, material, dims: [5.15, 1.86, 0.78], wheel: heroWheel("steel", 0.36, 0.24), radius: 0.36, wheels,
+  const lamps = [
+    ...sides.map(s => ({ x: s * 0.6, y: 1.02, z: cabF + 0.045, w: 0.36, h: 0.19, red: false })),
+    ...sides.map(s => ({ x: s * 0.72, y: 0.72, z: rearZ - 0.065, w: 0.28, h: 0.16, red: true })),
+  ];
+  return { geometry, material, lamps, dims: [5.15, 1.86, 0.78], wheel: heroWheel("steel", 0.36, 0.24), radius: 0.36, wheels,
     // (plates on the bumpers: front at the bumper's face, rear hung under the tail lamps)
     plate: [5.6, 0.68, 0.62, 0.0, 0.03] };
 }
@@ -344,7 +351,12 @@ export function cybertruck(geometryOnly = false): HeroShape {
   // panel to panel.
   const material = geometryOnly ? new THREE.MeshStandardMaterial() : heroSurface("cyber");
   const wheels: WheelAt[] = sides.flatMap(sd => [{ x: sd * (W / 2 - 0.1), z: 1.9, side: sd }, { x: sd * (W / 2 - 0.1), z: -1.9, side: sd }]);
-  return { geometry, material, dims: [L, W, 0.62], wheel: heroWheel("aero", 0.44, 0.34), radius: 0.44, wheels,
+  const lamps = [
+    { x: 0, y: nose - 0.03, z: front + B + 0.03, w: W - 0.04, h: 0.04, red: false },
+    { x: 0, y: tail - 0.07, z: back - B - 0.03, w: W - 0.04, h: 0.052, red: true },
+    ...sides.map(s => ({ x: s * (W / 2 - 0.05), y: tail - 0.14, z: back - B - 0.03, w: 0.064, h: 0.134, red: true })),
+  ];
+  return { geometry, material, lamps, dims: [L, W, 0.62], wheel: heroWheel("aero", 0.44, 0.34), radius: 0.44, wheels,
     // (plates a hand proud of the bevelled nose and tail: on their planes they flickered in and out)
     plate: [L, 0.56, 0.86, B + 0.03, B + 0.03] };
 }

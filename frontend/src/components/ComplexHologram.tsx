@@ -18,7 +18,7 @@ import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { fastMergeVertices } from "./fastMerge";
 import { api, RealEstateBuilding, RealEstateBuildingsResponse, RealEstateNearbyComplex, RealEstateParcel, RealEstateRoad, type DriveBoard } from "../api/client";
-import { vworldBuildingNames, vworldBuildings, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
+import { vworldBuildingNames, vworldBuildings, vworldPointArea, vworldNearbyParcels, vworldParcels, vworldRoads, vworldRoadsAround, withoutDemolished, withoutStrays, parcelBox } from "./vworldBuildings";
 import {
   CONTEXT_FLOOR_M, ContextStyle, contextStyle, landmarkLabel, sharedContextMaterial, sharpenNeighbourhood, seasonGround, warmMaterials, dirFrom, FinishShader, BAY_M, FLOOR_M, GROUND_M, inRing, Look, atmosphereLook,
   moonInSky, paintGroundSteps, waterCovered, type Ring, Planting, runSliced, facadeSteps, plinthSteps, sharedContextTexturesSliced, paletteFor, patchMaterial, patchSky, precipField, rng, shared, Tod, Weather, WEATHER_ORDER, WEATHER_LABEL, WEATHER_ICON, hourNow, hourForTod, sunAt, phaseLabel, formatHour,
@@ -51,7 +51,7 @@ import { ringBuildings } from "./ringBuildings";
 import { farGround } from "./farGround";
 import { coverPage } from "./pageCover";
 import type { HeroName } from "./heroVehicles";
-import { cockpit, DRIVE_SPECS, DriveSim, EngineSound, solidGrid, type Keys, type SolidGrid } from "./driveSim";
+import { cockpit, DRIVE_SPECS, DriveSim, EngineSound, PoleGrid, solidGrid, type Keys, type SolidGrid } from "./driveSim";
 import { damageSfx, vehicleFx } from "./driveFx";
 import { feelSfx, fuelCans, navVoice, pickupPlan, screech, sparks, type PickupKind } from "./driveFeel";
 import { beacon, cutFrom, drawMinimap, goldFor, lengthOf, nextTurn, progressOn, routeRibbon, sfx, type Pt, type TurnKind } from "./driveGame";
@@ -60,6 +60,8 @@ import { beacon, cutFrom, drawMinimap, goldFor, lengthOf, nextTurn, progressOn, 
 const REPAIR_HP = 35;
 
 interface DriveState {
+  /** the view re-centring under it (the new model building): no re-routing, no water test */
+  hopping?: boolean;
   name: HeroName;
   sim: DriveSim;
   /** taken over from the traffic (a driving key pressed) */
@@ -104,19 +106,18 @@ interface DriveState {
   };
 }
 /** Brake lamps' place on each vehicle (its frame: x across, y up, z forward): centre height, rear z, half spread. */
-const BRAKE_LAMPS: Record<HeroName, { y: number; z: number; x: number }> = { coupang: { y: 0.78, z: -2.42, x: 0.78 }, cyber: { y: 1.26, z: -2.9, x: 0.88 } };
+/** The tail lamps that light as brake lamps (the vehicle's frame: x across, y up, z forward; w x h). */
+const BRAKE_LAMPS: Record<HeroName, { x: number; y: number; z: number; w: number; h: number }[]> = {
+  coupang: [-1, 1].map(s => ({ x: s * 0.72, y: 0.72, z: -2.665, w: 0.29, h: 0.17 })),
+  cyber: [{ x: 0, y: 1.26, z: -2.925, w: 1.97, h: 0.062 }, ...[-1, 1].map(s => ({ x: s * 0.95, y: 1.19, z: -2.925, w: 0.07, h: 0.14 }))],
+};
 /** The driven vehicle's brake lamps: two red glows at its tail (shown while braking). */
 function brakeLamps(name: HeroName) {
   const g = new THREE.Group(); g.name = "brake lamps"; g.matrixAutoUpdate = false; g.visible = false;
-  const p = BRAKE_LAMPS[name], mat = new THREE.MeshBasicMaterial({ color: "#ff2a1a", toneMapped: false });
-  const geo = name === "cyber" ? new THREE.PlaneGeometry(p.x * 2 + 0.1, 0.05) : new THREE.PlaneGeometry(0.22, 0.12);
-  // (facing back: -z)
-  const at = name === "cyber" ? [0] : [-p.x, p.x];
-  for (const x of at) { const m = new THREE.Mesh(geo, mat); m.rotation.y = Math.PI; m.position.set(x, p.y, p.z - 0.02); g.add(m); }
-  // a soft glow round them
-  const glowMat = new THREE.MeshBasicMaterial({ color: "#ff3b22", transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
-  const glow = new THREE.Mesh(new THREE.PlaneGeometry(p.x * 2 + 0.7, 0.55), glowMat); glow.rotation.y = Math.PI; glow.position.set(0, p.y, p.z - 0.05);
-  g.add(glow);
+  // (lit lenses the size of the tail lamps, just proud of them: a large soft glow plane over
+  // them had read as a smeared, blocky patch)
+  const mat = new THREE.MeshBasicMaterial({ color: "#ff2010", toneMapped: false });
+  for (const p of BRAKE_LAMPS[name]) { const m = new THREE.Mesh(new THREE.BoxGeometry(p.w, p.h, 0.02), mat); m.position.set(p.x, p.y, p.z); g.add(m); }
   return g;
 }
 const SCORCH = new THREE.Color("#3b3330");
@@ -140,6 +141,8 @@ interface DeliveryGame {
   way: Pt[]; wayLen0: number;
   started: number; knocks: number; knockAt: number;
   routedAt: number; mapAt: number; pinged: string; said: string;
+  /** the turns already announced (where they are), and when re-routing was last said */
+  spoken: { kind: TurnKind; x: number; y: number }[]; rerouteSaidAt: number;
   ribbon: ReturnType<typeof routeRibbon>; beacon: ReturnType<typeof beacon>;
   done: boolean;
   hud: { name: HTMLElement | null; dist: HTMLElement | null; gold: HTMLElement | null; time: HTMLElement | null; turn: HTMLElement | null; turnDist: HTMLElement | null; map: HTMLCanvasElement | null };
@@ -176,7 +179,7 @@ function addGold(n: number) { const t = goldTotal() + n; try { localStorage.setI
 
 /** One frame of the delivery: the way re-found now and then from where the vehicle is (so a
  * wrong turn is put right), the green line and the directions, the minimap; arrival. */
-function deliveryTick(st: Stage, dv: DriveState, g: DeliveryGame, sec: number, terrain: Terrain) {
+function deliveryTick(st: Stage, dv: DriveState, g: DeliveryGame, sec: number, _terrain: Terrain) {
   const tr = st.traffic, c = tr?.hero(dv.name);
   if (!tr || !c || g.done) return;
   const now = performance.now();
@@ -184,17 +187,17 @@ function deliveryTick(st: Stage, dv: DriveState, g: DeliveryGame, sec: number, t
   let p = progressOn(g.way, c.x, c.y);
   // (off the way by more than a lane: found again at once, and said so)
   const offWay = p.off > 7;
-  if (now - g.routedAt > (offWay ? 350 : 1200)) {
+  if (!dv.hopping && now - g.routedAt > (offWay ? 350 : 1200)) {
     g.routedAt = now;
     const r = tr.route(c.x, c.y, g.dest.x, g.dest.y);
-    if (offWay && dv.manual) dv.feel.voice.say("경로를 재탐색합니다");
+    if (offWay && dv.manual && now - g.rerouteSaidAt > 15000) { g.rerouteSaidAt = now; dv.feel.voice.say("경로를 재탐색합니다"); }
     if (r && r.line.length > 1) {
       // (the line starts from the vehicle itself)
       g.way = [[c.x, c.y], ...r.line];
       p = progressOn(g.way, c.x, c.y);
       g.ribbon.set(cutFrom(g.way, p.along + 3));
       const end = g.way[g.way.length - 1];
-      g.beacon.place(end[0], end[1], terrain.at(end[0], end[1]));
+      g.beacon.place(end[0], end[1], tr.groundAt(end[0], end[1]));
     }
   }
   const rest = cutFrom(g.way, p.along), left = Math.max(0, p.total - p.along);
@@ -212,11 +215,15 @@ function deliveryTick(st: Stage, dv: DriveState, g: DeliveryGame, sec: number, t
   // a ping as a turn comes up (once each)
   const key = `${turn.kind}:${Math.round((p.along + turn.dist) / 10)}`;
   if (turn.kind !== "straight" && turn.dist < 60 && g.pinged !== key) { g.pinged = key; sfx.ping(dv.sound.ctx, dv.sound.master); }
-  // spoken: once well ahead, once at the turn
-  if (dv.manual && turn.kind !== "straight") {
-    const phrase = turn.kind === "arrive" ? "목적지 부근입니다" : word;
-    if (turn.dist < 220 && turn.dist > 90 && g.said !== `${key}:far`) { g.said = `${key}:far`; dv.feel.voice.say(`${Math.round(turn.dist / 50) * 50}미터 앞, ${phrase}`); }
-    else if (turn.dist <= 45 && turn.kind !== "arrive" && g.said !== `${key}:now`) { g.said = `${key}:now`; dv.feel.voice.say(`잠시 후 ${phrase}`); }
+  // spoken once a turn: by where the turn is (the way is found again from the vehicle now and
+  // then, and a turn counted from its start came round as a new one, said over and over)
+  if (dv.manual && turn.kind !== "straight" && turn.dist < 130) {
+    const [tx, ty] = cutFrom(g.way, p.along + Math.max(0, turn.dist))[0];
+    if (!g.spoken.some(s => s.kind === turn.kind && Math.hypot(s.x - tx, s.y - ty) < 30)) {
+      g.spoken.push({ kind: turn.kind, x: tx, y: ty });
+      const phrase = turn.kind === "arrive" ? "목적지 부근입니다" : word;
+      dv.feel.voice.say(turn.kind === "arrive" || turn.dist < 40 ? phrase : `${Math.round(turn.dist / 10) * 10}미터 앞, ${phrase}`);
+    }
   }
   if (h.map && now - g.mapAt > 50) {
     g.mapAt = now;
@@ -411,6 +418,12 @@ type Stage = {
   roadDetail?: (on: boolean) => void;
   /** The trees' full-detail band centred on (x, y) (the driven vehicle); null: the complex again. */
   plantsFocus?: ((x: number, y: number) => void) & ((x: null) => void);
+  /** A drive carried across a re-centring (driving on past the drawn area): the vehicle and its
+   * old traffic (still ticking, still drawn) until the new traffic takes it; the offset between
+   * the two frames; the old model's release, put off until then. */
+  carry?: { dv: DriveState; tr: NonNullable<Stage["traffic"]>; tick: ((dt: number) => void)[]; ox: number; oy: number; dz: number; letGo: (() => void) | null; at: number } | null;
+  /** The street trees and lamp posts of the model whose traffic is driven (a vehicle runs into them). */
+  poles?: { grid: PoleGrid | null } | null;
   /** Open water off the bridges (a driven vehicle that goes in is lost). */
   wetAt?: ((x: number, y: number) => boolean) | null;
   /** The people walking (a driven vehicle can knock them down). */
@@ -455,6 +468,27 @@ const roadsOf = new Map<string, Promise<RealEstateBuildingsResponse>>();
 const terrainOf = new Map<string, Promise<Terrain>>();
 const remember = <T,>(m: Map<string, T>, id: string, v: T) => { m.set(id, v); if (m.size > 6) m.delete(m.keys().next().value!); return v; };
 export function prefetchComplex(id: string): void { void firstLook(id); }
+/** A complex's shapes as the view would load them — the server's, else the surveyed ones the
+ * browser asks VWorld for by the parcel — kept for the view to take at once (driving on toward
+ * it: re-centring only where there is something to show). */
+async function lookAhead(id: string): Promise<RealEstateBuildingsResponse | null> {
+  const cached = buildingCache.get(id);
+  if (cached && Date.now() - cached.at < 300000) return cached.data;
+  const early = await firstLook(id).catch(() => null);
+  let res: RealEstateBuildingsResponse | null = early?.found ? early : null;
+  if (!res) {
+    const peek = await api.realEstateBuildings(id, undefined, true).catch(() => null);
+    if (peek?.found) res = peek;
+    else if (peek?.vworld_key && peek.query?.parcel) {
+      const v = await vworldBuildings(id, peek.query, peek.vworld_key, peek.vworld_domain).catch(() => null);
+      if (v?.found) res = { ...v, built: peek.built ?? null, vworld_key: peek.vworld_key, vworld_domain: peek.vworld_domain };
+    }
+  }
+  if (!res?.found || !res.buildings.length) return null;
+  buildingCache.set(id, { at: Date.now(), data: res });
+  void withRoads(id, res); void terrainOnce(id, res);
+  return res;
+}
 function firstLook(id: string): Promise<RealEstateBuildingsResponse | null> {
   const had = prefetched.get(id);
   if (had) return had;
@@ -641,7 +675,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const caption = hop ? "주변 단지 · 3D" : homeCaption;
   /** A move under way to another complex: where the view's centre was (to carry the
    * camera and the balloon across when the new model's origin replaces it). */
-  const hopRef = useRef<{ id: string; from: { lat: number; lon: number }; terrain: Terrain } | null>(null);
+  const hopRef = useRef<{ id: string; from: { lat: number; lon: number }; terrain: Terrain; drive?: boolean } | null>(null);
+  // (the loaded result, for the drive's own checks outside the render)
+  const dataRef = useRef<RealEstateBuildingsResponse | null>(null);
+  // Driving on past the drawn area: the complexes known round every one passed (their nearby
+  // lists), the next to re-centre the view on chosen among them.
+  const drivePool = useRef(new Map<string, Nearby>());
   const [nearby, setNearby] = useState<{ home: string; name: string; lat: number; lon: number; items: Nearby[] } | null>(null);
   const hourRef = useRef(0);
   /** Build the current model again (its textures painted afresh). */
@@ -650,6 +689,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   const hostRef = useRef<HTMLDivElement>(null);
   const stageRef = useRef<Stage | null>(null);
   const [data, setData] = useState<RealEstateBuildingsResponse | null>(null);
+  dataRef.current = data;
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [slowData, setSlowData] = useState(false);
@@ -1051,6 +1091,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       addWarm: (parent, obj) => { if (native || nativePending) parent.add(obj); else void glCompile(obj).then(() => parent.add(obj)); },
     };
     stageRef.current = stage;
+    if (import.meta.env.DEV) Object.assign(window, { __holoStage: stage });
     const idleBuild = (f: () => void) => { if (typeof requestIdleCallback === "function") requestIdleCallback(f, { timeout: 2500 }); else window.setTimeout(f, 300); };
     idleBuild(() => void buildBalloon(() => frameSlice()).then(b => {
       if (disposed) { b.dispose(); return; }
@@ -1121,6 +1162,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const keyDir = new THREE.Vector3(), sunDir = new THREE.Vector3();
     const bvAt = new THREE.Vector3(), bvLook = new THREE.Vector3();
     const chaseAt = new THREE.Vector3(), chaseEye = new THREE.Vector3();
+    const trOff = new THREE.Vector3();
     const driveM = new THREE.Matrix4(), driveLook = new THREE.Vector3(), driveV = new THREE.Vector3(), fxAt = new THREE.Vector3();
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
@@ -1183,6 +1225,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (a.envAt && t >= a.envAt) { a.envAt = 0; refreshEnv(); }
       }
       for (const f of stage.tick) f(dt / 1000);
+      if (stage.carry && stage.carry.tick !== stage.tick) for (const f of stage.carry.tick) f(dt / 1000);
       if (balloon?.group.visible) balloon.update(dt / 1000);
       const bv = stage.balloonView;
       if (bv) {
@@ -1221,6 +1264,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
             fe.acc += (THREE.MathUtils.clamp(a, -12, 12) - fe.acc) * Math.min(1, sec * 5);
             fe.squeal.set(dv.manual && !dv.dead ? dv.sim.slip * Math.min(1, Math.abs(c.speed) / 4) : 0);
             fe.sparks.update(sec, camera);
+            stage.traffic.group.updateWorldMatrix(true, false);
             const lm = stage.traffic.heroMatrix(dv.name, driveM);
             if (lm) { fe.lamps.matrix.copy(lm).premultiply(stage.traffic.group.matrixWorld); fe.lamps.matrixWorldNeedsUpdate = true; }
             fe.lamps.visible = !dv.dead && dv.view === "chase" && (dv.sim.braking || (dv.manual && dv.keys.down && c.speed > 0.3));
@@ -1265,7 +1309,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
               if (!dv.dryAt) { dv.dryAt = nowMs; dv.onDry(); }
               if (Math.abs(c.speed) < 0.6 || nowMs - dv.dryAt > 6000) dv.blowUp("fuel");
             }
-            if (!dv.dead && stage.wetAt?.(c.x, c.y)) dv.blowUp("water");
+            if (!dv.dead && !dv.hopping && stage.wetAt?.(c.x, c.y)) dv.blowUp("water");
           }
           // the trees' full detail round the vehicle, not the complex (re-dealt every 40 m)
           if (stage.plantsFocus && Math.hypot(c.x - dv.focusAt[0], c.y - dv.focusAt[1]) > 40) { dv.focusAt = [c.x, c.y]; stage.plantsFocus(c.x, c.y); }
@@ -1318,6 +1362,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const bx = c.hx * cy - c.hy * sy, by = c.hx * sy + c.hy * cy;
           chaseAt.set(c.x + c.hx * ahead, gz + 1.2 - THREE.MathUtils.clamp(-acc * 0.05, 0, 0.45), -(c.y + c.hy * ahead));
           chaseEye.set(c.x - bx * back, gz + high + (dv ? dv.look.pitch * -6 : 0), -(c.y - by * back));
+          // (in the traffic's frame: shifted while the view re-centres under the vehicle)
+          // (its world matrix brought up to date first: the frame the scene shifts it is otherwise a
+          // frame behind, and the camera swung hundreds of metres for a moment)
+          stage.traffic.group.updateWorldMatrix(true, false);
+          trOff.setFromMatrixPosition(stage.traffic.group.matrixWorld);
+          chaseAt.add(trOff); chaseEye.add(trOff);
           controls.target.lerp(chaseAt, k);
           camera.position.lerp(chaseEye, k);
           camera.lookAt(controls.target);
@@ -1817,6 +1867,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const [ox, oy] = metresFrom(came.from, data.center.lat, data.center.lon);
       shift = new THREE.Vector3(-ox, -came.terrain.at(ox, oy), oy);
       if (shift.length() > 3000) shift = null;
+      if (shift && came.drive && stage.carry) { stage.carry.ox = ox; stage.carry.oy = oy; stage.carry.dz = shift.y; }
     }
     let behind = shift && stage.model && !stage.unshown ? stage.current : null;
     if (behind) {
@@ -1825,6 +1876,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // (its traffic and people keep moving meanwhile: tick stays until this model's replaces it)
       stage.current = null; stage.model = null; stage.ground = null; stage.pickables = []; stage.onShown = [];
     } else stage.disposeModel();
+    if (shift && import.meta.env.DEV) console.info("[drive] shift", shift.x.toFixed(1), shift.y.toFixed(1), shift.z.toFixed(1), performance.now().toFixed(0));
     if (shift) {
       stage.camera.position.add(shift); stage.controls.target.add(shift);
       if (stage.fly) for (const v of [stage.fly.fromPos, stage.fly.toPos, stage.fly.fromTarget, stage.fly.toTarget]) v.add(shift);
@@ -1851,6 +1903,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let alive = true;
     let ground: THREE.Mesh | null = null;
     const decor = new THREE.Group();
+    // (its street trees and lamp posts, for a driven vehicle to run into: set as they are planted)
+    const poleHolder: { grid: PoleGrid | null } = { grid: null };
     // Set before any work: a newer selection disposes a half-built model cleanly.
     stage.building = true;
     stage.resume();
@@ -2143,7 +2197,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const styles: ContextStyle[] = ["villa", "shop", "office", "apt"];
     const parapets: THREE.Matrix4[] = [], parapetOwner: string[] = [];
     const pm = new THREE.Object3D();
-    const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach));
+    // (a footprint standing in the middle of a carriageway is a survey error: left out)
+    const inRoad = carriageway((data.roads ?? []).filter(r => r.width >= 6), -1.5);
+    const onRoad = (b: RealEstateBuilding) => { const ring = b.rings[0], [cx, cy] = ring.reduce(([sx, sy], [x, y]) => [sx + x / ring.length, sy + y / ring.length], [0, 0]); return inRoad(cx, cy) && ring.filter(([x, y]) => inRoad(x, y)).length * 2 >= ring.length; };
+    const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach) && !onRoad(b));
     step("merge");
     if (!await pace(true)) return;
     // The landmarks round the complex answer the hover with their names (picking only).
@@ -2924,7 +2981,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // stand on bare sky), a little lower meanwhile so this one's roofs and ground win where the
     // two coincide; then it is freed.
     stage.scene.add(group, ground);
-    if (behind) { for (const o of behind.parts()) o.position.y -= 0.25; stage.onShown.push(letGo); }
+    if (behind) {
+      for (const o of behind.parts()) o.position.y -= 0.25;
+      // (driving on: released once the new traffic has taken the vehicle over — carryDrive)
+      if (came?.drive && stage.carry) stage.carry.letGo = letGo; else stage.onShown.push(letGo);
+    }
     stage.unshown = true;
 
     // Street furniture on the surveyed roads: raised sidewalks with kerbs, street trees
@@ -2958,7 +3019,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // The mapped crosswalks (OpenStreetMap): the junctions' crossings and stop lines stand on them.
     // (the traffic waits for them a few seconds at most)
     let crossLines: { line: [number, number][] }[] = [];
-    const crossingsReady: Promise<void> = new Promise<void>(resolve => afterShown(() => {
+    // (driving on into this area: nothing waits — the vehicle is coming)
+    const driveIn = !!came?.drive;
+    const crossingsReady: Promise<void> = driveIn ? Promise.resolve() : new Promise<void>(resolve => afterShown(() => {
       if (!data.center) { resolve(); return; }
       const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
       const ox = (lo - lon) * 111320 * Math.cos((lat * Math.PI) / 180), oy = (la - lat) * 110540;
@@ -3051,6 +3114,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // (no street trees in pits on a bridge's walkway)
       const streetOf = () => streetTrees(runs, plan.lamps).filter(([x, y]) => deckAt?.(x, y) == null);
       let street = streetOf();
+      const setPoles = () => { poleHolder.grid = new PoleGrid([...plan.lamps.map(l => ({ x: l.x, y: l.y, r: 0.2 })), ...street.map(([x, y]) => ({ x, y, r: 0.32 }))]); };
+      setPoles();
       if (!await later()) return;
       let walks = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
       if (!alive) { walks.dispose(); return; }
@@ -3109,7 +3174,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         // The water parcels came with the land use: bridges now, and the kerbs, street trees and
         // lamps made before them laid again on the decks (the traffic and people follow by themselves).
         if (await placeBridges()) {
-          street = streetOf();
+          street = streetOf(); setPoles();
           const fresh = await buildSidewalks(runs, roadTerrain, street.map(([x, y]) => [x, y] as [number, number]));
           if (!alive) { fresh.dispose(); return; }
           decor.remove(walks.group); walks.dispose();
@@ -3215,7 +3280,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!tr) return;
       const gen = ++marksGen;
       const f = await buildRoadSurface(tr.arms.roads, roadTerrain);
-      const m = await buildRoadMarkings(tr.arms.roads, roadTerrain, tr.arms.at);
+      const m = await buildRoadMarkings(tr.arms.roads, roadTerrain, tr.arms.at, tr.arms.inside);
       if (!alive || gen !== marksGen) { f.dispose(); m.dispose(); return; }
       if (surface) { decor.remove(surface.group); surface.dispose(); }
       if (marks) { decor.remove(marks.group); marks.dispose(); }
@@ -3380,7 +3445,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     disposables.push({ dispose: () => lamps?.dispose() });
     const onLook = [(l: Look) => lamps?.setLevel(l.lamps)];
     // Traffic (its vehicle kit decodes on first use) waits for the first frame and idle time.
-    afterShown(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, roadTerrain, crossLines) : null)) : null)).then(traffic => {
+    (driveIn ? (f: () => void) => f() : afterShown)(() => void nextSlice(pausedRef.current).then(() => (alive ? crossingsReady.then(() => (alive ? buildTraffic(roads, seed, stage.hq, roadTerrain, crossLines) : null)) : null)).then(traffic => {
       if (!traffic) return;
       if (!alive) { traffic.dispose(); return; }
       stage.addWarm(decor, traffic.group);
@@ -3388,11 +3453,19 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       tick.push(dt => traffic.update(dt, stage.camera.position));
       onLook.push(l => traffic.setLamps(l.lamps));
       traffic.setLamps(stage.look.lamps);
-      stage.traffic = traffic;
+      // (the drive taken over only once this area is on screen: the old one stays drawn till then)
+      const adopt = () => {
+        if (!alive) return;
+        stage.traffic = traffic;
+        stage.poles = poleHolder;
+        if (stage.carry) carryRef.current?.(stage, traffic);
+      };
+      if (stage.carry && stage.unshown) stage.onShown.push(adopt); else adopt();
       setHeroesReady(true);
       void layMarks();
       disposables.push({ dispose: () => { if (stage.traffic === traffic) {
         const dv = stage.drive;
+        if (dv && import.meta.env.DEV) console.info("[drive] ended: its traffic was released", new Error().stack?.split("\n").slice(1, 6).join(" | "));
         if (dv) { stage.drive = null; if (dv.game) { dv.game.ribbon.dispose(); dv.game.beacon.dispose(); dv.game = null; } dv.sound.dispose(); if (dv.cab) { dv.cab.group.removeFromParent(); dv.cab.dispose(); } stage.camera.fov = dv.baseFov; stage.camera.updateProjectionMatrix(); setDriving(null); }
         stage.traffic = null; stage.follow = null; setFollow(null); setHeroesReady(false);
       } } });
@@ -3428,7 +3501,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     };
     // (from another complex: the camera glides from where it was into this one's opening shot,
     // the look from the balloon turns to it, and the balloon flies on to its sky)
-    if (shift) {
+    if (shift && (stage.follow || came?.drive)) {
+      // (following or driving a vehicle: the camera stays with it — no glide to the new complex)
+      stage.fly = null;
+    } else if (shift) {
       const cam = stage.camera.position.clone(), look = stage.controls.target.clone();
       stage.frame();
       const toPos = stage.camera.position.clone(), toTarget = stage.controls.target.clone();
@@ -3537,8 +3613,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const way: Pt[] = [[c.x, c.y], ...r.line], len = lengthOf(way);
       if (len < 150) continue;
       lastDest.current = pick.id;
-      const ribbon = routeRibbon(terrainRef.current), bc = beacon();
-      st.addWarm(st.scene, ribbon.mesh); st.addWarm(st.scene, bc.group);
+      const ribbon = routeRibbon(terrainRef.current, (x, y) => tr.groundAt(x, y)), bc = beacon();
+      st.addWarm(tr.group, ribbon.mesh); st.addWarm(tr.group, bc.group);
       ribbon.set(way);
       // pickups along the way, every ~130 m: fuel cans and repair kits by turns
       const cans = pickupPlan(len, dv.hp).map(({ at, kind }) => {
@@ -3547,12 +3623,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       });
       dv.feel.cans.place(cans);
       const end = way[way.length - 1];
-      bc.place(end[0], end[1], terrainRef.current.at(end[0], end[1]));
+      bc.place(end[0], end[1], tr.groundAt(end[0], end[1]));
       // the tank for this way (단지까지의 거리), full
       dv.fuelCap = tankFor(len); dv.fuel = dv.fuelCap; dv.dryAt = 0; setFuelOut(false);
       dv.game = {
         dest: { id: pick.id, name: pick.name, x: pick.x, y: pick.y }, way, wayLen0: len,
-        started: performance.now(), knocks: 0, knockAt: 0, routedAt: performance.now(), mapAt: 0, pinged: "", said: "",
+        started: performance.now(), knocks: 0, knockAt: 0, routedAt: performance.now(), mapAt: 0, pinged: "", said: "", spoken: [], rerouteSaidAt: 0,
         ribbon, beacon: bc, done: false,
         hud: { name: null, dist: null, gold: null, time: null, turn: null, turnDist: null, map: null },
         onArrive: r2 => { setResult(r2); setGoldSum(r2.total); },
@@ -3650,6 +3726,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
   };
   const endDrive = () => {
     const st = stageRef.current, dv = st?.drive;
+    if (dv && import.meta.env.DEV) console.info("[drive] endDrive", new Error().stack?.split("\n").slice(1, 5).join(" | "));
     if (!st || !dv) return;
     // (a drive that earned something goes on the board; the nickname asked the first time)
     if (dv.earned > 0) {
@@ -3687,6 +3764,175 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     endDrive();
     st.follow = null; setFollow(null); st.resume();
   };
+  // ---- Driving on past the drawn area ----
+  // Nearing the edge of what is drawn, the view re-centres on the known complex nearest the way
+  // ahead: it builds there in the background while the drive goes on in the old scene (shifted
+  // into the new frame, still ticking), and once the new traffic is up the vehicle, its delivery
+  // and pickups move into it; then the old scene is released. On and on, from complex to complex.
+  const carryRef = useRef<((st: Stage, tr: NonNullable<Stage["traffic"]>) => void) | null>(null);
+  carryRef.current = (st, traffic) => {
+    const k = st.carry;
+    if (!k) return;
+    st.carry = null;
+    if (import.meta.env.DEV) console.info("[drive] handover", k.ox.toFixed(1), k.oy.toFixed(1), "old→new", performance.now().toFixed(0));
+    const dv = k.dv, c0 = k.tr.hero(dv.name);
+    if (!c0 || dv.dead || st.drive !== dv) { k.letGo?.(); return; }
+    const nx = c0.x - k.ox, ny = c0.y - k.oy, v = c0.speed, hx = c0.hx, hy = c0.hy;
+    traffic.summon(dv.name, nx, ny, hx, hy);
+    const car = traffic.drive(dv.name, true);
+    if (!car) { k.letGo?.(); endDrive(); return; }
+    car.x = nx; car.y = ny; car.hx = hx; car.hy = hy; car.speed = v;
+    // the old vehicle's own sound, cockpit and effects (it stays with the old traffic, released next)
+    dv.feel.squeal.dispose(); dv.feel.sparks.dispose(); dv.feel.lamps.removeFromParent();
+    dv.fx.dispose(); dv.sound.dispose();
+    if (dv.cab) { dv.cab.group.removeFromParent(); dv.cab.dispose(); dv.cab = null; }
+    // the delivery and the pickups into the new frame
+    const g = dv.game;
+    if (g) {
+      g.dest = { ...g.dest, x: g.dest.x - k.ox, y: g.dest.y - k.oy };
+      g.way = g.way.map(([x, y]) => [x - k.ox, y - k.oy] as Pt);
+      g.ribbon.dispose();
+      g.ribbon = routeRibbon(terrainRef.current, (x, y) => traffic.groundAt(x, y));
+      st.addWarm(traffic.group, g.ribbon.mesh);
+      g.ribbon.set(g.way);
+      traffic.group.add(g.beacon.group);
+      const end = g.way[g.way.length - 1];
+      g.beacon.place(end[0], end[1], traffic.groundAt(end[0], end[1]));
+      g.routedAt = 0;
+    }
+    dv.feel.cans.shift(k.ox, k.oy, k.dz);
+    dv.hopping = false;
+    const manual = dv.manual;
+    st.drive = null;
+    startDrive(st, dv.name, dv);
+    if (manual) takeOver();
+    k.letGo?.();
+  };
+  const hopPending = useRef(false), hopRefused = useRef(new Set<string>());
+  // the point ahead the next area is preloaded round (the current view's frame), kept till it is due
+  const heldPoint = useRef<{ from: string; x: number; y: number } | null>(null);
+  // the next areas' data, asked ahead of need and kept (by complex id, or point cell)
+  const areaJobs = useRef(new Map<string, Promise<{ res: RealEstateBuildingsResponse | null; key: string; name: string }>>());
+  // the complexes known round each one reached while driving
+  useEffect(() => {
+    const d = data;
+    if (!driving || !d?.found || !d.center || !d.vworld_key || !complexId || complexId.startsWith("pt:")) return;
+    void nearbyFor(complexId, d).then(items => { for (const i of items) drivePool.current.set(i.id, i); }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, driving?.name]);
+  useEffect(() => {
+    if (!driving) return;
+    if (nearby?.items) for (const i of nearby.items) drivePool.current.set(i.id, i);
+    type Area = { res: RealEstateBuildingsResponse | null; key: string; name: string };
+    let lastPreload = 0;
+    const timer = window.setInterval(() => {
+      const st = stageRef.current, dv = st?.drive, cur = dataRef.current;
+      if (!st || !dv || !cur?.center) return;
+      // (a re-centring that never completed: let the drive end rather than hang)
+      if (st.carry && performance.now() - st.carry.at > 90000) { const k = st.carry; st.carry = null; k.letGo?.(); endDrive(); return; }
+      if (!dv.manual || dv.dead || st.carry || hopPending.current || hopRef.current) return;
+      const c = st.traffic?.hero(dv.name);
+      if (!c) return;
+      const d0 = Math.hypot(c.x, c.y), v = Math.abs(c.speed);
+      if (d0 < 30) return;
+      // How far on the vehicle looks: about 8 s of driving and a margin. The next area is centred
+      // that far ahead and asked for at once; it is built (in the background, the old one still
+      // driven) as soon as that look reaches the edge of what is drawn — so it is all there before
+      // the vehicle arrives.
+      const look = v * 8 + 150;
+      // The next area, chosen as it will be when the time comes: the known complex nearest the way
+      // ahead (well nearer the vehicle than this one), else the area round a point ahead (no
+      // complex that way: a river bank, a park, a district of houses — VWorld's buildings and roads).
+      const lead = Math.max(260, 200 + v * 8), px = c.x + c.hx * lead, py = c.y + c.hy * lead;
+      let best = null as Nearby | null, score = Infinity;
+      for (const it of drivePool.current.values()) {
+        if (it.id === cur.id || hopRefused.current.has(it.id)) continue;
+        const [x, y] = metresFrom(cur.center, it.lat, it.lon), dc = Math.hypot(x - c.x, y - c.y);
+        if (dc > lead + 250) continue;
+        const sc = Math.hypot(x - px, y - py);
+        if (sc < score) { score = sc; best = it; }
+      }
+      if (best && score > 250) best = null;
+      // (at speed only the plain area ahead: a complex's own scene paints its facades and took
+      // ~17 s to build at 178 km/h, the plain area ~3 s; its buildings still stand, as neighbours)
+      if (v > 12) best = null;
+      const key0 = cur.vworld_key, cos = Math.cos((cur.center.lat * Math.PI) / 180);
+      const pointAt = (ahead: number) => {
+        const ax = c.x + c.hx * ahead, ay = c.y + c.hy * ahead;
+        return { lat: cur.center!.lat + ay / 110_540, lon: cur.center!.lon + ax / (cos * 111_320) };
+      };
+      // (a point ahead, once chosen, is kept while it is still ahead and not yet reached: chosen
+      // afresh every tick, it moved on with the vehicle and its preloaded area never came due)
+      const held = heldPoint.current;
+      const keep = held && held.from === cur.id && (() => {
+        const dx = held.x - c.x, dy = held.y - c.y, dd = Math.hypot(dx, dy);
+        return dd > 120 && (dx * c.hx + dy * c.hy) > dd * 0.5;
+      })();
+      if (!keep) {
+        const ahead = lead;
+        heldPoint.current = { from: cur.id, x: c.x + c.hx * ahead, y: c.y + c.hy * ahead };
+      }
+      const hp = heldPoint.current!, aheadNow = Math.hypot(hp.x - c.x, hp.y - c.y);
+      const p0 = pointAt(aheadNow), cell = `pt:${(cur.center.lat + hp.y / 110_540).toFixed(3)},${(cur.center.lon + hp.x / (cos * 111_320)).toFixed(3)}`;
+      void p0;
+      const jobKey = best ? best.id : cell;
+      if (!best && (!key0 || hopRefused.current.has(cell))) return;
+      // Asked once per area and kept: started well before it is needed (선로딩), so the move itself
+      // waits on nothing but the building.
+      let job = areaJobs.current.get(jobKey);
+      const due = Math.hypot(c.x + c.hx * look, c.y + c.hy * look) > 420;
+      if (!job) {
+        // (points ahead change as the vehicle moves: one new one asked every 2.5 s at most)
+        if (!best && !due && performance.now() - lastPreload < 2500) return;
+        lastPreload = performance.now();
+        const target = best;
+        job = target
+          ? lookAhead(target.id).then((res): Area => ({ res, key: target.id, name: target.name }))
+          : (async (): Promise<Area> => {
+              for (const extra of [0, 190]) {
+                const ax = hp.x + c.hx * extra, ay = hp.y + c.hy * extra;
+                const pt = { lat: cur.center!.lat + ay / 110_540, lon: cur.center!.lon + ax / (cos * 111_320) };
+                const res = await vworldPointArea(pt.lat, pt.lon, key0!, cur.vworld_domain).catch(() => null);
+                if (res?.found) {
+                  buildingCache.set(res.id, { at: Date.now(), data: res });
+                  void withRoads(res.id, res); void terrainOnce(res.id, res);
+                  if (!pausedRef.current) prefetchPaint(res.id, res.name);
+                  return { res, key: res.id, name: res.name };
+                }
+              }
+              hopRefused.current.add(cell);
+              return { res: null, key: "", name: "" };
+            })();
+        job.catch(() => areaJobs.current.delete(jobKey));
+        areaJobs.current.set(jobKey, job);
+        if (target && !pausedRef.current) prefetchPaint(target.id, target.name);
+      }
+      if (!due) return;
+      hopPending.current = true;
+      const chosen = best;
+      void job.then(({ res, key: targetId, name: targetName }) => {
+        hopPending.current = false;
+        const st2 = stageRef.current, dv2 = st2?.drive, cur2 = dataRef.current;
+        if (!res?.found || !res.buildings.length) { if (chosen) hopRefused.current.add(chosen.id); return; }
+        if (!st2 || dv2 !== dv || !dv2.manual || dv2.dead || st2.carry || !st2.traffic || !cur2?.center || hopRef.current) return;
+        // (by its own centre, not the list's point: re-centred there the vehicle must be well inside)
+        const c2 = st2.traffic.hero(dv2.name);
+        if (!c2 || !res.center) return;
+        const [tx, ty] = metresFrom(cur2.center, res.center.lat, res.center.lon);
+        // (it must lie on the way ahead, well past this view's centre, near enough to draw the vehicle)
+        const along = (tx - c2.x) * c2.hx + (ty - c2.y) * c2.hy, here = -(c2.x * c2.hx + c2.y * c2.hy);
+        if (Math.hypot(tx - c2.x, ty - c2.y) > 900 || along < here + 150) { hopRefused.current.add(targetId); return; }
+        if (import.meta.env.DEV) console.info("[drive] re-centring on", targetName, targetId, performance.now().toFixed(0));
+        hopRef.current = { id: targetId, from: { ...cur2.center }, terrain: terrainRef.current, drive: true };
+        st2.carry = { dv: dv2, tr: st2.traffic, tick: st2.tick, ox: 0, oy: 0, dz: 0, letGo: null, at: performance.now() };
+        dv2.hopping = true;
+        setToast(t => ({ text: `🗺 ${targetName} 방면 지도를 불러옵니다`, n: (t?.n ?? 0) + 1 }));
+        setHop(targetId === homeId ? null : { id: targetId, name: targetName, home: homeId });
+      }).catch(() => { hopPending.current = false; if (chosen) hopRefused.current.add(chosen.id); });
+    }, 700);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [driving?.name, nearby]);
   /** `from`: the drive switched from the other vehicle — its delivery, fuel, gold and damage
    * carried over; only the vehicle changes. */
   const startDrive = (st: Stage, name: HeroName, from?: DriveState) => {
@@ -3697,7 +3943,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const dv: DriveState = {
       name, manual: false, view: "chase", cab: null, solids: null, lastSpeed: car.speed, baseFov: st.camera.fov,
       keys: { up: false, down: false, left: false, right: false, hand: false },
-      sim: new DriveSim(car, spec, (x, y, r) => st.traffic?.near(x, y, r) ?? [], () => dv.solids),
+      sim: new DriveSim(car, spec, (x, y, r) => st.traffic?.near(x, y, r) ?? [], () => dv.solids, () => st.poles?.grid ?? null),
       sound,
       look: { yaw: 0, pitch: 0, held: false },
       hud: { speed: null, gear: null, revs: null, hint: null, fuel: null },
@@ -3738,9 +3984,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       fuel: 0, fuelCap: 0, dryAt: 0, home: { x: car.x, y: car.y, hx: car.hx, hy: car.hy }, earned: 0, delivered: 0, focusAt: [Infinity, Infinity],
     };
     st.drive = dv;
-    st.addWarm(st.scene, dv.fx.group);
-    st.addWarm(st.scene, dv.feel.sparks.mesh); st.addWarm(st.scene, dv.feel.lamps);
-    if (!from) st.addWarm(st.scene, dv.feel.cans.group);
+    // (effects, pickups in the traffic's own frame: they move with it when the view re-centres)
+    const frame = st.traffic?.group ?? st.scene;
+    st.addWarm(frame, dv.fx.group);
+    st.addWarm(frame, dv.feel.sparks.mesh); st.addWarm(st.scene, dv.feel.lamps);
+    if (from) frame.add(dv.feel.cans.group); else st.addWarm(frame, dv.feel.cans.group);
     // the damage seen on the body: its own surface darkened and dulled as health falls
     const own = st.traffic?.heroShape(name)?.material as THREE.MeshStandardMaterial | undefined;
     if (own?.color) dv.feel.paint = { mat: own, color: own.color.clone(), rough: own.roughness };
@@ -3800,7 +4048,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           const end = car.speed <= 0 ? 1 : -1, gz = car.z ?? terrainRef.current.at(car.x, car.y);
           const at = new THREE.Vector3(car.x + car.hx * end * car.length / 2, gz + 0.7, -(car.y + car.hy * end * car.length / 2));
           dv.feel.sparks.burst(at, new THREE.Vector3(-car.hx * end, 0, car.hy * end), Math.min(70, 12 + dv.sim.bump * 6));
-          setToast(t => ({ text: dv.sim.bumpHit === "solid" ? "💥 건물과 충돌!" : "💥 차량과 충돌!", n: (t?.n ?? 0) + 1 }));
+          setToast(t => ({ text: dv.sim.bumpHit === "solid" ? "💥 건물과 충돌!" : dv.sim.bumpHit === "pole" ? "💥 가로수·가로등과 충돌!" : "💥 차량과 충돌!", n: (t?.n ?? 0) + 1 }));
           // the other vehicle: it stops where it was struck (longer the harder), its driver leans
           // on the horn a moment later; smoke from its crumpled end on a hard one
           const other = dv.sim.bumpCar as (typeof car & { stunned?: number }) | null;

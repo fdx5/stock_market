@@ -430,3 +430,55 @@ export function withoutStrays(data: RealEstateBuildingsResponse): RealEstateBuil
   return { ...data, buildings, context, coverage: data.coverage && { ...data.coverage, buildings: buildings.length } };
 }
 
+
+/** The neighbourhood round any point, for a view centred there with no complex in it (driving
+ * on past the complexes): every registered building within CONTEXT_M (the one nearest the point
+ * standing as the view's own, its footprint its site), the major roads, the place's name from
+ * VWorld's reverse geocoder. Null where VWorld has no building near. */
+export async function vworldPointArea(lat: number, lon: number, key: string, domain = "https://kospimap.com"): Promise<RealEstateBuildingsResponse | null> {
+  const id = `pt:${lat.toFixed(5)},${lon.toFixed(5)}`;
+  if (memo.has(id)) return memo.get(id)!;
+  prefetchTerrain({ lat, lon }, 700, key);
+  const common = { service: "data", request: "GetFeature", crs: "EPSG:4326", geometry: "true", attribute: "true", key, domain };
+  const kx = Math.cos((lat * Math.PI) / 180) * 111_320, ky = 110_540;
+  const boxOf = (r: number) => `BOX(${lon - r / kx},${lat - r / ky},${lon + r / kx},${lat + r / ky})`;
+  // (one page within 200 m: the drive is coming, and the 1 km ring fills the rest in once shown)
+  const pagesJob = call(DATA, { ...common, data: "LT_C_BLDGINFO", geomFilter: boxOf(200), size: 1000, page: 1 }).then(features).then(unique).catch(() => [] as Feature[]);
+  const roadJob = call(DATA, { ...common, data: "LT_L_N3A0020000", geomFilter: boxOf(ROAD_M + 150), size: 1000, page: 1 }).then(features).catch(() => [] as Feature[]);
+  const nameJob = call(ADDRESS, { service: "address", request: "getAddress", version: "2.0", crs: "epsg:4326", point: `${lon},${lat}`, format: "json", type: "parcel", simple: "true", key, domain })
+    .then((r: any) => { const s = r?.[0]?.structure; return [s?.level2, s?.level4L || s?.level4A].filter(Boolean).join(" ") || null; }).catch(() => null);
+  const [all, roadList, place] = await Promise.all([pagesJob, roadJob, nameJob]);
+  const project = ([x, y]: number[]): [number, number] => [Math.round((x - lon) * kx * 100) / 100, Math.round((y - lat) * ky * 100) / 100];
+  const list: RealEstateBuilding[] = [];
+  for (const f of all) {
+    const p = f.properties;
+    for (const poly of polygons(f.geometry)) {
+      const outer = clean(poly[0].map(project));
+      if (!outer) continue;
+      const holes = poly.slice(1).map(r => clean(r.map(project))).filter((h): h is Ring => !!h).map(h => h.reverse());
+      const height = num(p.height), floors = num(p.grnd_flr);
+      list.push({
+        rings: [outer, ...holes], height: height ?? 0, floors: floors ? Math.round(floors) : 0, base: 0,
+        height_source: height ? "measured" : floors ? "floors" : "estimated", name: (p.dong_nm || "").trim() || null, use: p.usability || null,
+        title: (p.bld_nm || "").trim() || null,
+        approved: /^(19|20)\d{2}/.test(p.useapr_day || "") ? +p.useapr_day.slice(0, 4) : null,
+      });
+    }
+  }
+  if (!list.length) { remember(id, null); return null; }
+  fillHeights(list);
+  const near = (b: RealEstateBuilding) => Math.hypot(...centroid(b.rings[0]));
+  list.sort((a, b) => near(a) - near(b));
+  // (the nearest building of two storeys or more stands as the view's own)
+  const own = list.find(b => b.height >= 6) ?? list[0];
+  const context = list.filter(b => b !== own && b.height >= 2.5).slice(0, 3000);
+  const out: RealEstateBuildingsResponse = {
+    id, name: place ?? own.title ?? "주변 지역", address: place ?? "", built: null, found: true, source: "vworld",
+    attribution: "국토교통부 GIS건물통합정보 · 국가기본도 (브이월드)", center: { lat, lon },
+    site: [own.rings[0]], buildings: [own], context, roads: parseRoads(roadList, project),
+    coverage: { buildings: 1, with_height: own.height_source === "estimated" ? 0 : 1 },
+    vworld: true, error: null, fetched_at: new Date().toISOString(), vworld_key: key, vworld_domain: domain,
+  };
+  remember(id, out);
+  return out;
+}

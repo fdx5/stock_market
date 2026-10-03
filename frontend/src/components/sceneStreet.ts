@@ -146,7 +146,10 @@ function hull2(pts: [number, number][]) {
 export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrain = FLAT,
   /** The traffic's junction arms (buildTraffic().arms.at, for these same roads): their crossing
    * and stop line where the traffic stops. Without it, junctions are found from the ends. */
-  armAt?: (road: number, atStart: boolean) => ArmLayout | null) {
+  armAt?: (road: number, atStart: boolean) => ArmLayout | null,
+  /** Roads lying inside one intersection (the stubs between a split junction's pieces): no lines
+   * on them at all — a centre line and two zebras had stood in the middle of the crossroads. */
+  inside?: (road: number) => boolean) {
   const yellow: number[] = [], white: number[] = [];
   // (a little over the road: the ground mesh is coarser than the height samples, and a line
   // 3.5 cm up sank under it in patches — the centre line looked broken)
@@ -179,7 +182,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   for (const [ri, r] of roads.entries()) {
     if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
     const lanes = Math.round(r.lanes);
-    if (lanes < 2 || r.line.length < 2) continue;
+    if (lanes < 2 || r.line.length < 2 || inside?.(ri)) continue;
     // resampled every STEP m, with smoothed left normals
     const pts: [number, number][] = [];
     for (let i = 1; i < r.line.length; i++) {
@@ -242,10 +245,10 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     if (lanes >= 4) { strip(yellow, 0.17, 0.15, s0, s1); strip(yellow, -0.17, 0.15, s0, s1); }
     else strip(yellow, 0, 0.15, s0, s1);
     for (const [L, atStart] of [[L0, true], [L1, false]] as const) {
-      if (!L || r.width < 5) continue;
+      if (!L || r.width < 5 || L.zebra === false && L.stop === false) continue;
       // the zebra crossing: stripes along the road, the full width across
       const a = atStart ? L.crossA : total - L.crossB, b = atStart ? L.crossB : total - L.crossA;
-      for (let off = -halfW + 0.8; off <= halfW - 0.8; off += 1.0) strip(white, off, 0.5, a, b);
+      if (L.zebra !== false) for (let off = -halfW + 0.8; off <= halfW - 0.8; off += 1.0) strip(white, off, 0.5, a, b);
       // the stop line across the lanes coming in (right-hand traffic: toward the start end on the
       // left half (+), toward the far end on the right (−))
       const st = atStart ? L.stopA : total - L.stopB;
@@ -408,6 +411,19 @@ function lampGeometry(L: number, W: number, y: number) {
   list.forEach(g => g.dispose());
   return out;
 }
+/** A modelled vehicle's own lamps (heroVehicles: HeroShape.lamps), in the same one-draw form. */
+function lampGeometryOf(parts: { x: number; y: number; z: number; w: number; h: number; red: boolean }[]) {
+  const list = parts.map(p => {
+    const g = new THREE.BoxGeometry(p.w, p.h, 0.03).toNonIndexed();
+    g.translate(p.x, p.y, p.z);
+    const uv = g.getAttribute("uv") as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, p.red ? 0.98 : 0.02, 0.5);
+    return g;
+  });
+  const out = mergeGeometries(list, false)!;
+  list.forEach(g => g.dispose());
+  return out;
+}
 let lampTexture: THREE.DataTexture | null = null;
 function lampMap() {
   if (lampTexture) return lampTexture;
@@ -426,6 +442,8 @@ type Turn = "straight" | "left" | "right" | "uturn";
  * line in this lane to the entry of the chosen lane, sampled by arc length. */
 interface Conn {
   key: string; fromKey: string; toKey: string; link: Link; turn: Turn; lane: number;
+  /** the intersection it crosses (-1 none), and whether it gives way there (a side street into an unsignalled one) */
+  cluster: number; giveWay: boolean;
   /** Where it leaves this road and joins the next (travel coordinates), its length. */
   endS: number; startS: number; len: number;
   /** Signalled node, its approach key; T-junction mouth (yield to the through road). */
@@ -499,7 +517,9 @@ export function stitchedRoads(roads: RealEstateRoad[]) { return stitchRoads(road
 
 /** A junction arm's layout, in metres from the road's end along it: the zebra crossing
  * (crossA–crossB), the stop line (stopA–stopB); vehicles stop just behind the line. */
-export interface ArmLayout { crossA: number; crossB: number; stopA: number; stopB: number; surveyed: boolean }
+export interface ArmLayout { crossA: number; crossB: number; stopA: number; stopB: number; surveyed: boolean;
+  /** false: no zebra crossing drawn (an unsignalled junction); `stop` false: no stop line either */
+  zebra?: boolean; stop?: boolean }
 
 export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: boolean, terrain: Terrain = FLAT,
   /** Mapped crosswalks (OpenStreetMap footway=crossing), in the footprint frame: where a junction
@@ -694,14 +714,17 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   // one intersection; the stubs are inside it and carry no queue. Traffic enters from
   // the roads outside (approaches) and leaves by the others (exits).
   const junction = nodes.map(n => n.ends.length >= 3);
+  // (how far apart a junction's pieces lie grows with its roads: across a 50 m boulevard the
+  // split carriageways' nodes are ~50 m apart, and two "intersections" stood in one)
+  const nodeW = nodes.map(n => Math.max(0, ...n.ends.map(e => paths[e.road].width)));
   const parent = nodes.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   nodes.forEach((a, i) => nodes.forEach((b, j) => {
-    if (j > i && junction[i] && junction[j] && Math.hypot(a.x - b.x, a.y - b.y) < 35) parent[find(i)] = find(j);
+    if (j > i && junction[i] && junction[j] && Math.hypot(a.x - b.x, a.y - b.y) < Math.max(35, 0.6 * (nodeW[i] + nodeW[j]))) parent[find(i)] = find(j);
   }));
   paths.forEach((p, r) => {
     const a = nodeOf.get(`${r}:true`)!, b = nodeOf.get(`${r}:false`)!;
-    if (junction[a] && junction[b] && p.len < 40) parent[find(a)] = find(b);
+    if (junction[a] && junction[b] && p.len < Math.max(40, 1.2 * Math.max(nodeW[a], nodeW[b]))) parent[find(a)] = find(b);
   });
   const clusterIds = new Map<number, number>();
   const clusterOf = nodes.map((_, i) => {
@@ -825,6 +848,15 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     return best;
   };
   const trimAt = new Map<string, number>(), layout = new Map<string, ArmLayout>();
+  /** An intersection's arms, major and minor: a side street (under 8 m, or a third of the widest
+   * road there) joining a road is no signalled crossroads — no lights, no zebra across the main
+   * road, no stop line on it; the side street gives way. Signals where three or more major arms meet. */
+  const armInfo = clusters.map((_, ci) => {
+    const ends = clusterEnds[ci], wMax = Math.max(0, ...ends.map(e => paths[e.road].width));
+    const minor = new Set(ends.filter(e => paths[e.road].width < Math.max(8, 0.35 * wMax)).map(e => `${e.road}:${e.atStart}`));
+    const majors = ends.length - minor.size;
+    return { minor, majors, signal: ends.length >= 3 && majors >= 3 };
+  });
   /** Where a mapped crossing crosses a road, in metres from the end `atStart` (within lo–hi), or null. */
   const crossingOn = (road: number, atStart: boolean, lo: number, hi: number): number | null => {
     const p = paths[road];
@@ -871,8 +903,16 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       const mapped = crossingOn(e.road, e.atStart, d - 3, d + 25);
       if (mapped !== null) { cA = Math.max(d, mapped - 2); cB = mapped + 2; surveyed = true; }
       const sA = cB + 1, sB = sA + 0.4, stopAt = sB + 0.3;
-      if (stopAt <= limit && clusterEnds[ci].length >= 3) layout.set(`${e.road}:${e.atStart}`, { crossA: cA, crossB: cB, stopA: sA, stopB: sB, surveyed });
-      trimAt.set(`${e.road}:${e.atStart}`, Math.min(clusterEnds[ci].length >= 3 ? stopAt : d + 1.5, limit));
+      const ai = armInfo[ci], key = `${e.road}:${e.atStart}`;
+      if (ai.signal) {
+        if (stopAt <= limit) layout.set(key, { crossA: cA, crossB: cB, stopA: sA, stopB: sB, surveyed });
+        trimAt.set(key, Math.min(stopAt, limit));
+      } else if (clusterEnds[ci].length >= 3) {
+        // unsignalled: no zebra drawn; a stop line only where the arm gives way
+        const gives = ai.minor.has(key) || ai.majors === 0, s0 = Math.min(d + 0.5, limit);
+        layout.set(key, { crossA: s0, crossB: s0, stopA: s0, stopB: s0 + 0.4, surveyed: false, zebra: false, stop: gives });
+        trimAt.set(key, Math.min(gives ? s0 + 0.7 : d + 1.5, limit));
+      } else trimAt.set(key, Math.min(d + 1.5, limit));
     }
   });
   const trim = (road: number, atStart: boolean) => trimAt.get(`${road}:${atStart}`) ?? 1.5;
@@ -882,7 +922,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const G = 9, Y = 3, AR = 2, P = G + Y + AR;
   const signals = clusters.map((_, ci) => {
     const ends = clusterEnds[ci];
-    if (ends.length < 3) return null;
+    if (ends.length < 3 || !armInfo[ci].signal) return null;
     const ang = (e: { road: number; atStart: boolean }) => { const [hx, hy] = headingIn(e.road, !e.atStart); return Math.atan2(hy, hx); };
     const groups: { a: number; keys: string[] }[] = [];
     for (const e of [...ends].sort((a, b) => ang(b) - ang(a))) {
@@ -928,7 +968,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       if (i) cum[i] = cum[i - 1] + Math.hypot(xs[i] - xs[i - 1], ys[i] - ys[i - 1]);
     }
     const conn: Conn = { key, fromKey: laneKey(road, forward, lane), toKey: laneKey(link.road, link.forward, nextLane), link, turn, lane: nextLane,
-      endS, startS, len: Math.max(0.5, cum[N]), node: sig ? ci : -1, approach: `${road}:${!forward}`, tJoin, xs, ys, cum };
+      endS, startS, len: Math.max(0.5, cum[N]), node: sig ? ci : -1, approach: `${road}:${!forward}`, tJoin, xs, ys, cum,
+      cluster: ci, giveWay: ci >= 0 && !sig && clusterEnds[ci].length >= 3 && (armInfo[ci].minor.has(`${road}:${!forward}`) || armInfo[ci].majors === 0) };
     connCache.set(key, conn);
     return conn;
   };
@@ -1092,7 +1133,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     near.forEach((im, i) => { if (!im) return; im.count = packed[i]; im.instanceMatrix.needsUpdate = true; if (im.instanceColor) im.instanceColor.needsUpdate = true; });
   };
   await frameSlice();
-  const lampGeos = kinds.map(k => lampGeometry(k.dims[0], k.dims[1], k.dims[2]));
+  // (the two followed vehicles light their own modelled lamps; the rest a generic pair at each end)
+  const lampGeos = kinds.map((k, i) => { const own = heroShape.get(i)?.lamps; return own?.length ? lampGeometryOf(own) : lampGeometry(k.dims[0], k.dims[1], k.dims[2]); });
   const lamps = kinds.map((_, i) => { const im = instanced(lampGeos[i], lampMat, perKind[i], false); im.visible = false; return im; });
   let lampsOn = false;
   // Body colours for the Kenney cars vary through the per-instance colour.
@@ -1249,6 +1291,20 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
       // One direction in the box at a time (stragglers from the last phase clear first).
       const ph = (k: string | undefined) => (k === undefined ? -1 : signals[cn.node]!.phase.get(k));
       if (inBox.some(o => o !== c && ph(o.inConn ? o.conn.approach : o.arrive?.approach) !== ph(cn.approach))) { c.why = "box"; return false; }
+    } else if (cn.giveWay) {
+      // An unsignalled junction from a side street: in only when nothing is crossing it and
+      // nothing on the main road is coming up to it.
+      const cl = clusters[cn.cluster], reach = cl.r + 26;
+      const g = Math.ceil(reach / NEAR), gx = Math.floor(cl.x / NEAR), gy = Math.floor(cl.y / NEAR);
+      const near: Car[] = [...driven];
+      for (let i = gx - g; i <= gx + g; i++) for (let j = gy - g; j <= gy + g; j++) near.push(...(bodies.get(i * 4096 + j) ?? []));
+      for (const o of near) {
+        if (o === c) continue;
+        if (o.inConn && o.conn.cluster === cn.cluster) { c.why = "giveway"; return false; }
+        if (!o.inConn && o.conn.giveWay && o.conn.cluster === cn.cluster) continue;   // (waiting on a side street too)
+        const dx = cl.x - o.x, dy = cl.y - o.y, dd = Math.hypot(dx, dy);
+        if (dd < reach && Math.abs(o.speed) > 0.5 && (dx * o.hx + dy * o.hy) > 0) { c.why = "giveway"; return false; }
+      }
     } else if (cn.tJoin) {
       // A side road joins mid-block: wait for a gap in the through traffic, both ways.
       const p = paths[cn.link.road], j = cn.link.forward ? cn.link.s0 : p.len - cn.link.s0;
@@ -1563,7 +1619,9 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
     },
     /** The roads as the traffic drives them, and each junction arm's crossing and stop line —
      * the road markings are laid from these, so line, signal and stopping point agree. */
-    arms: { roads: paths as RealEstateRoad[], at: (road: number, atStart: boolean) => layout.get(`${road}:${atStart}`) ?? null },
+    arms: { roads: paths as RealEstateRoad[], at: (road: number, atStart: boolean) => layout.get(`${road}:${atStart}`) ?? null, inside: (road: number) => internal[road] },
+    /** The height of the surface the traffic drives on (the road's ground, a bridge's deck). */
+    groundAt: (x: number, y: number) => terrain.at(x, y),
     /** A followed vehicle as it is now (footprint frame), or null. */
     hero(name: HeroName) { return heroes.get(name) ?? null; },
     /** Bring a followed vehicle onto the lane nearest (x, y) — where the reader is looking —

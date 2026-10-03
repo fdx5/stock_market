@@ -232,6 +232,10 @@ export function fuelCans() {
       }
       return got;
     },
+    /** Into a frame whose origin is (dx, dy) of this one, its ground dz higher here. */
+    shift(dx: number, dy: number, dz: number) {
+      for (const it of items) { it.x -= dx; it.y -= dy; it.z += dz; it.g.position.set(it.x, it.z, -it.y); }
+    },
     clear() { for (const it of items) it.g.removeFromParent(); items.length = 0; },
     dispose() {
       this.clear();

@@ -26,6 +26,8 @@ export type RingResult = {
 type RingJob = {
   urls: string[]; lat: number; lon: number; inner: number; outer: number;
   near: Float32Array; seed: number;
+  /** the surveyed roads (6 m and wider) as segments: ax, ay, bx, by, half width */
+  roads: Float32Array;
   grid: { h: Float32Array; n: number; R: number; cell: number } | null;
   floorM: Record<string, number>;
 };
@@ -59,6 +61,23 @@ function ringWorkerMain() {
     // The near buildings (already drawn): their centroids on a 4 m hash.
     const near = new Set<string>();
     for (let k = 0; k < job.near.length; k += 2) near.add(Math.round(job.near[k] / 4) + "," + Math.round(job.near[k + 1] / 4));
+    // The roads' carriageways, bucketed by 50 m: a point well inside one (1.5 m in from its edge).
+    const roadCells = new Map<string, number[]>();
+    for (let k = 0; k < job.roads.length; k += 5) {
+      const ax = job.roads[k], ay = job.roads[k + 1], bx = job.roads[k + 2], by = job.roads[k + 3];
+      for (let i = Math.floor(Math.min(ax, bx) / 50) - 1; i <= Math.floor(Math.max(ax, bx) / 50) + 1; i++)
+        for (let j = Math.floor(Math.min(ay, by) / 50) - 1; j <= Math.floor(Math.max(ay, by) / 50) + 1; j++) {
+          const key = i + "," + j, l = roadCells.get(key); if (l) l.push(k); else roadCells.set(key, [k]);
+        }
+    }
+    const inRoad = (x: number, y: number) => {
+      for (const k of roadCells.get(Math.floor(x / 50) + "," + Math.floor(y / 50)) ?? []) {
+        const ax = job.roads[k], ay = job.roads[k + 1], dx = job.roads[k + 2] - ax, dy = job.roads[k + 3] - ay, l2 = dx * dx + dy * dy || 1e-6;
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / l2));
+        if (Math.hypot(x - ax - dx * t, y - ay - dy * t) < job.roads[k + 4] - 1.5) return true;
+      }
+      return false;
+    };
     const known = (x: number, y: number) => { const a = Math.round(x / 4), b = Math.round(y / 4); for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) if (near.has(a + i + "," + (b + j))) return true; return false; };
     const bufs: Record<string, Buf> = {};
     const buf = (s: string) => (bufs[s] ??= { p: [], n: [], u: [], c: [], i: [] });
@@ -97,6 +116,8 @@ function ringWorkerMain() {
           if (area < 0) ring = ring.reverse();
           const d = Math.hypot(cx, cy);
           if (d > job.outer || known(cx, cy) || (d < job.inner && near.size)) continue;
+          // (a footprint standing in the middle of a carriageway is a survey error: left out)
+          if (inRoad(cx, cy) && ring.filter(([x, y]) => inRoad(x, y)).length * 2 >= ring.length) continue;
           cands.push({ ring, area: Math.abs(area), cx, cy, d, props, linked: !!props.usability || /^(19|20)\d{2}/.test(props.useapr_day || "") });
         }
       }
@@ -199,6 +220,8 @@ function ringWorkerMain() {
 /** The ring's buildings (inner < distance ≤ outer from the result's centre, none already drawn —
  * `near`: their centroids), merged per facade style, made in a worker. */
 export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Array, terrain: Terrain, opts: { outer?: number; inner?: number; floorM: Record<string, number>; seed: number; signal?: AbortSignal }): Promise<RingResult | null> {
+  const segs: number[] = [];
+  for (const r of data.roads ?? []) if (r.width >= 6) for (let i = 1; i < r.line.length; i++) segs.push(r.line[i - 1][0], r.line[i - 1][1], r.line[i][0], r.line[i][1], r.width / 2);
   if (!data.center || !data.vworld_key) return Promise.resolve(null);
   const { lat, lon } = data.center, outer = opts.outer ?? 1000;
   const kx = Math.cos((lat * Math.PI) / 180) * 111320, ky = 110540;
@@ -212,7 +235,7 @@ export function ringBuildings(data: RealEstateBuildingsResponse, near: Float32Ar
   const src = `(${ringWorkerMain.toString()})()`;
   const worker = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
   const job: RingJob = {
-    urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed,
+    urls, lat, lon, inner: opts.inner ?? 0, outer, near, seed: opts.seed, roads: new Float32Array(segs),
     grid: terrain.grid ? { ...terrain.grid, h: terrain.grid.h.slice() } : null, floorM: opts.floorM,
   };
   return new Promise(resolve => {
