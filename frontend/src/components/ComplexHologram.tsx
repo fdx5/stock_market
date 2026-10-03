@@ -3099,6 +3099,44 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
     };
     const later = async () => { await nextSlice(pausedRef.current); return alive; };
+    // Parcel trees already known to the ground plan belong immediately after the
+    // buildings, independently of water, walkers and boats. The complete surveyed
+    // planting replaces them later, using the same seed, meshes and detail levels.
+    let plantsRevision = 0;
+    let visiblePlants: { plants: NonNullable<Awaited<ReturnType<typeof buildPlants>>>; root: THREE.Group } | null = null;
+    const showPlants = async (planting: Planting, phase: "initial" | "complete") => {
+      const revision = ++plantsRevision;
+      const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
+      if (!plants) return;
+      if (!alive || revision !== plantsRevision) { plants.dispose(); return; }
+      plants.update?.();
+      // A detached wrapper also prevents a late WebGL compile from reattaching
+      // an obsolete forest after replacement or model disposal.
+      const root = new THREE.Group();
+      decor.add(root); stage.addWarm(root, plants.mesh);
+      const previous = visiblePlants;
+      visiblePlants = { plants, root };
+      previous?.root.removeFromParent(); previous?.plants.dispose();
+      stage.plantsFocus = plants.focus as Stage["plantsFocus"];
+      if (hostRef.current) {
+        hostRef.current.dataset.plantsPhase = phase;
+        hostRef.current.dataset.plantsReadyAt = String(Math.round(performance.now()));
+      }
+    };
+    disposables.push({ dispose: () => {
+      ++plantsRevision;
+      if (visiblePlants) {
+        if (stage.plantsFocus === visiblePlants.plants.focus) stage.plantsFocus = undefined;
+        visiblePlants.root.removeFromParent(); visiblePlants.plants.dispose(); visiblePlants = null;
+      }
+    } });
+    afterShown(() => {
+      // Copy the lists: the detailed pass later adds street trees and filters water.
+      const initial = { ...plan.planting, trees: [...plan.planting.trees], shrubs: [...plan.planting.shrubs],
+        flowers: [...plan.planting.flowers], street: [...plan.planting.street], border: plan.planting.border && [...plan.planting.border] };
+      if (hostRef.current) hostRef.current.dataset.plantsStartedAt = String(Math.round(performance.now()));
+      void showPlants(initial, "initial").catch(err => console.info("[3D] Initial plants unavailable:", err));
+    });
     afterShown(() => void (async () => {
       if (!await later()) return;
       await lakesReady;
@@ -3252,17 +3290,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (planting.street) planting.street = planting.street.filter(dry);
           if (planting.border) planting.border = planting.border.filter(dry);
         }
-        const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
-        if (!plants) return;
-        if (!alive) { plants.dispose(); return; }
-        // (the trees dealt out to their levels, once: fixed by where they stand)
-        plants.update?.();
-        stage.addWarm(decor, plants.mesh);
-        disposables.push(plants);
-        if (plants.focus) {
-          stage.plantsFocus = plants.focus as Stage["plantsFocus"];
-          disposables.push({ dispose: () => { stage.plantsFocus = undefined; } });
-        }
+        await showPlants(planting, "complete");
       } catch (err) { console.info("[3D] Plants unavailable:", err); }
     })());
     // Street lamps on the surveyed roads (lit from dusk), and traffic both ways.
