@@ -7,6 +7,8 @@ import re
 import secrets
 import time
 import unicodedata
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Literal
 
@@ -15,6 +17,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services import support_comment_store as store
+from app.services import supporter_store
 from app.site import PRIMARY_SITE_URL
 
 router = APIRouter()
@@ -27,7 +30,8 @@ class SupportBodyLimit:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope['type'] != 'http' or scope.get('method') != 'POST' or scope.get('path') != '/api/support/comments':
+        limited = scope.get('path') == '/api/support/comments' or scope.get('path', '').startswith('/api/admin/supporters')
+        if scope['type'] != 'http' or scope.get('method') not in {'POST', 'PATCH'} or not limited:
             return await self.app(scope, receive, send)
         headers = dict(scope['headers'])
         if headers.get(b'content-type', b'').split(b';')[0].strip().lower() != b'application/json':
@@ -175,3 +179,17 @@ def add_comment(payload: CommentCreate, request: Request, response: Response):
         raise HTTPException(429, '같은 접속 환경에서 1분에 한 번, 하루 최대 5개까지 남길 수 있습니다. 같은 내용은 하루 동안 다시 등록할 수 없습니다.', headers={'Retry-After': '60'})
     response.headers['Cache-Control'] = 'no-store'
     return result
+
+
+MONTH_PATTERN = r'^20\d{2}-(0[1-9]|1[0-2])$'
+
+
+def current_support_month():
+    return datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m')
+
+
+@router.get('/supporters')
+def monthly_supporters(response: Response, month: str | None = Query(None, pattern=MONTH_PATTERN)):
+    response.headers['Cache-Control'] = 'no-store'
+    selected = month or current_support_month()
+    return {'month': selected, 'items': supporter_store.list_supporters(selected)}

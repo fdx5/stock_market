@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AdminAuthError, AdminComment, CommentSource, adminApi, clearStoredSession } from "../adminApi";
 import { navigate } from "../router";
+import AdminSupportersPanel from "./AdminSupportersPanel";
 
 const COMMENT_PREVIEW_LEN = 20;
 
@@ -168,9 +169,10 @@ function CommentPanel({ support = false }: { support?: boolean }) {
 }
 
 export default function AdminCommentsPanel() {
-  const [tab, setTab] = useState<"stock" | "support">("stock");
-  return <><div role="tablist" aria-label="댓글 종류" style={{ display: "flex", gap: 12, marginBottom: 20 }}>
+  const [tab, setTab] = useState<"stock" | "support" | "donors">("stock");
+  return <><div role="tablist" aria-label="댓글 및 후원 관리" style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
     <button id="admin-stock-tab" role="tab" aria-selected={tab === "stock"} aria-controls="admin-comments-panel" onClick={() => setTab("stock")} style={{ minHeight: 44, padding: "8px 16px", fontWeight: tab === "stock" ? 800 : 400 }}>종목 댓글</button>
     <button id="admin-support-tab" role="tab" aria-selected={tab === "support"} aria-controls="admin-comments-panel" onClick={() => setTab("support")} style={{ minHeight: 44, padding: "8px 16px", fontWeight: tab === "support" ? 800 : 400 }}>☕ 후원 댓글</button>
-  </div><div id="admin-comments-panel" role="tabpanel" aria-labelledby={tab === "support" ? "admin-support-tab" : "admin-stock-tab"}><CommentPanel key={tab} support={tab === "support"} /></div></>;
+    <button id="admin-donors-tab" role="tab" aria-selected={tab === "donors"} aria-controls="admin-comments-panel" onClick={() => setTab("donors")} style={{ minHeight: 44, padding: "8px 16px", fontWeight: tab === "donors" ? 800 : 400 }}>✦ 월별 후원자</button>
+  </div><div id="admin-comments-panel" role="tabpanel" aria-labelledby={tab === "donors" ? "admin-donors-tab" : tab === "support" ? "admin-support-tab" : "admin-stock-tab"}>{tab === "donors" ? <AdminSupportersPanel /> : <CommentPanel key={tab} support={tab === "support"} />}</div></>;
 }

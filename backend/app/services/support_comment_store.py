@@ -32,6 +32,16 @@ def _run(fn):
                 LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
                 _conn = turso.connect(database=str(LOCAL_DB_PATH))
             _conn.execute(_SCHEMA)
+            _conn.execute("""CREATE TABLE IF NOT EXISTS support_monthly_donors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                month TEXT NOT NULL CHECK(month GLOB '20[0-9][0-9]-[0-1][0-9]' AND substr(month, 6, 2) BETWEEN '01' AND '12'),
+                nickname TEXT NOT NULL CHECK(length(nickname) BETWEEN 1 AND 20),
+                nickname_key TEXT NOT NULL,
+                color TEXT NOT NULL CHECK(color IN ('gold', 'silver')),
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(month, nickname_key)
+            )""")
             _conn.execute("CREATE INDEX IF NOT EXISTS idx_support_author_time ON support_comments(author_hash, posted_at)")
             _conn.commit()
         try:

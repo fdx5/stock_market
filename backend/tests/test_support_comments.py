@@ -154,3 +154,64 @@ def test_paging_and_forwarded_ip_cannot_reset_limit(env):
     older = client.get('/api/support/comments', params={'limit': 2, 'before': feed['next_before']}).json()
     assert len(older['items']) == 1
     assert post(client, payload(client, now, '위조 헤더'), headers={'X-Forwarded-For': '1.2.3.4', 'CF-Connecting-IP': '9.9.9.9'}).status_code == 429
+
+
+def test_monthly_supporter_crud_is_separate_and_persistent(env):
+    client, _, app = env
+    donor = {'month': '2026-10', 'nickname': '따뜻한커피', 'color': 'gold'}
+    assert client.get('/api/admin/supporters').status_code in (401, 403)
+    assert client.post('/api/admin/supporters', json=donor).status_code in (401, 403)
+    assert client.patch('/api/admin/supporters/1', json=donor).status_code in (401, 403)
+    assert client.delete('/api/admin/supporters/1').status_code in (401, 403)
+    app.dependency_overrides[require_admin] = lambda: True
+    saved = client.post('/api/admin/supporters', json=donor).json()
+    assert saved['color'] == 'gold'
+    edited = client.patch(f"/api/admin/supporters/{saved['id']}", json={**donor, 'color': 'silver'}).json()
+    assert edited['color'] == 'silver'
+    store._conn.close()
+    store._conn = None
+    assert client.get('/api/support/supporters?month=2026-10').json()['items'] == [edited]
+    assert client.get('/api/support/comments').json()['items'] == []
+    assert client.get('/api/admin/support-comments').json()['items'] == []
+    assert client.delete(f"/api/admin/supporters/{saved['id']}").status_code == 200
+    assert client.get('/api/support/supporters?month=2026-10').json()['items'] == []
+
+
+def test_supporter_month_isolation_and_repeat_save(env):
+    client, _, app = env
+    app.dependency_overrides[require_admin] = lambda: True
+    for month in ['2026-09', '2026-10', '2027-10']:
+        assert client.post('/api/admin/supporters', json={'month': month, 'nickname': '커피 친구', 'color': 'gold'}).status_code == 200
+    duplicate = client.post('/api/admin/supporters', json={'month': '2026-10', 'nickname': '커피친구', 'color': 'silver'}).json()
+    assert client.get('/api/support/supporters?month=2026-10').json()['items'] == [duplicate]
+    assert client.get('/api/support/supporters?month=2026-09').json()['items'][0]['color'] == 'gold'
+    assert client.get('/api/support/supporters?month=2027-10').json()['items'][0]['color'] == 'gold'
+
+
+@pytest.mark.parametrize('change', [{'month': '2026-13'}, {'month': '2026-00'}, {'nickname': '<script>x</script>'}, {'nickname': 'x\nhello'}, {'color': 'red'}, {'color': 'gold; background:url(javascript:1)'}, {'nickname': 'x'*21}, {'nickname': '&lt;img src=x onerror=alert(1)&gt;'}])
+def test_supporter_invalid_input(env, change):
+    client, _, app = env
+    app.dependency_overrides[require_admin] = lambda: True
+    assert client.post('/api/admin/supporters', json={'month': '2026-10', 'nickname': '친구', 'color': 'gold', **change}).status_code == 422
+    assert client.get('/api/support/supporters?month=2026-10').json()['items'] == []
+
+
+def test_supporter_database_constraints(env):
+    import sqlite3
+    from app.services import supporter_store
+    supporter_store.list_supporters('2026-10')
+    conn = store._conn
+    columns = {row[1] for row in conn.execute('PRAGMA table_info(support_monthly_donors)').fetchall()}
+    assert columns >= {'id', 'month', 'nickname', 'nickname_key', 'color', 'created_at', 'updated_at'}
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO support_monthly_donors(month,nickname,nickname_key,color) VALUES ('2026-13','친구','친구','gold')")
+    with pytest.raises(sqlite3.IntegrityError):
+        conn.execute("INSERT INTO support_monthly_donors(month,nickname,nickname_key,color) VALUES ('2026-10','친구','친구','red')")
+    conn.rollback()
+
+
+def test_current_supporter_month_comes_from_seoul_clock(env, monkeypatch):
+    client, _, _ = env
+    monkeypatch.setattr(support, 'current_support_month', lambda: '2027-01')
+    assert client.get('/api/support/supporters').json()['month'] == '2027-01'
+    assert client.get('/api/support/supporters?month=2026-12').json()['month'] == '2026-12'

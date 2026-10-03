@@ -1,11 +1,51 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Literal
 
-from app.services import comment_store, fight_comment_store, support_comment_store
+from app.services import comment_store, fight_comment_store, support_comment_store, supporter_store
+from app.routers.support import MONTH_PATTERN, _plain, current_support_month
 from app.services.admin_auth import require_admin
 from app.services.battle import get_global_top20_cached
 
 router = APIRouter()
+
+
+class SupporterSave(BaseModel):
+    model_config = ConfigDict(extra='forbid', strict=True)
+    month: str = Field(pattern=MONTH_PATTERN)
+    nickname: str = Field(min_length=1, max_length=20)
+    color: Literal['gold', 'silver']
+
+    @field_validator('nickname')
+    @classmethod
+    def clean_nickname(cls, value):
+        return _plain(value, 20)
+
+
+@router.get('/supporters', dependencies=[Depends(require_admin)])
+def list_supporters(month: str | None = Query(None, pattern=MONTH_PATTERN)):
+    selected = month or current_support_month()
+    return {'month': selected, 'items': supporter_store.list_supporters(selected)}
+
+
+@router.post('/supporters', dependencies=[Depends(require_admin)])
+def create_supporter(payload: SupporterSave):
+    return supporter_store.save_supporter(payload.month, payload.nickname, payload.color)
+
+
+@router.patch('/supporters/{supporter_id}', dependencies=[Depends(require_admin)])
+def edit_supporter(supporter_id: int, payload: SupporterSave):
+    result = supporter_store.save_supporter(payload.month, payload.nickname, payload.color, supporter_id)
+    if result is None:
+        raise HTTPException(409, '후원자를 찾을 수 없거나 같은 달에 동일한 닉네임이 있습니다.')
+    return result
+
+
+@router.delete('/supporters/{supporter_id}', dependencies=[Depends(require_admin)])
+def remove_supporter(supporter_id: int):
+    if not supporter_store.delete_supporter(supporter_id):
+        raise HTTPException(404, '후원자를 찾을 수 없습니다.')
+    return {'deleted': True}
 
 _BATTLE_SIDE_NAMES = {"samsung": "삼성전자", "skhynix": "SK하이닉스"}
 

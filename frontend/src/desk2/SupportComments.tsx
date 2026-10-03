@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useL } from "./lib";
+import SupporterTicker from "./SupporterTicker";
 
 type Comment = { id: number; username: string; text: string; created_at: string };
 type Feed = { items: Comment[]; next_before: number | null };
@@ -77,7 +78,7 @@ export default function SupportComments() {
   }
 
   return <section className="coffee-comments" aria-labelledby="coffee-comments-title">
-    <div className="coffee-comments-heading"><span aria-hidden="true">♡</span><div><h2 id="coffee-comments-title">{L("마음을 남기는 한 줄", "A little note of kindness")}</h2><p>{L("후원해 주셨다면, 따뜻한 응원 한 줄을 남겨 주세요. 보내주신 마음도 오래 기억하겠습니다.", "After supporting us, leave a little note. We’ll treasure your kindness, too.")}</p></div></div>
+    <div className="coffee-comments-top"><div className="coffee-comments-heading"><span aria-hidden="true">♡</span><div><h2 id="coffee-comments-title">{L("마음을 남기는 한 줄", "A little note of kindness")}</h2><p>{L("후원해 주셨다면, 따뜻한 응원 한 줄을 남겨 주세요. 보내주신 마음도 오래 기억하겠습니다.", "After supporting us, leave a little note. We’ll treasure your kindness, too.")}</p></div></div><SupporterTicker /></div>
     <form className="coffee-comment-form" onSubmit={submit}>
       <div className="coffee-comment-fields">
         <label htmlFor="coffee-nickname">{L("닉네임 (선택)", "Nickname (optional)")}<input id="coffee-nickname" type="text" maxLength={20} value={username} onChange={e => setUsername(e.target.value)} placeholder={L("커피친구", "Coffee friend")} disabled={sending} autoComplete="off" /></label>

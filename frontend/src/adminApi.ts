@@ -444,6 +444,7 @@ export interface KakaoDramPriceStatus {
 }
 
 export type CommentSource = "battle" | "fight" | "support";
+export interface MonthlySupporter { id: number; month: string; nickname: string; color: "gold" | "silver" }
 
 export interface AdminComment {
   id: number;
@@ -853,6 +854,11 @@ export const adminApi = {
   comments: (limit = 200) => authedGet<{ items: AdminComment[] }>(`/comments?limit=${limit}`),
   deleteComment: (source: CommentSource, id: number) => authedDelete(`/comments/${source}/${id}`),
   supportComments: (limit = 200, before?: number) => authedGet<{ items: AdminComment[]; next_before: number | null }>(`/support-comments?limit=${limit}${before ? `&before=${before}` : ""}`),
+  monthlySupporters: (month?: string) => authedGet<{ month: string; items: MonthlySupporter[] }>(`/supporters${month ? `?month=${encodeURIComponent(month)}` : ""}`),
+  saveMonthlySupporter: (body: Omit<MonthlySupporter, "id">, id?: number) => id
+    ? authedPatch<MonthlySupporter>(`/supporters/${id}`, body)
+    : authedPostJson<MonthlySupporter>("/supporters", body),
+  deleteMonthlySupporter: (id: number) => authedDelete(`/supporters/${id}`),
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>
     authedPatch<{ visible: boolean }>(`/comments/${source}/${id}/visibility`, { visible }),
   predictionStatus: () => authedGet<PredictionStatus>("/prediction/status"),
