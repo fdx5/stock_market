@@ -662,6 +662,20 @@ export class MeshRenderer {
 
 	// ------------------------------------------------------------------------------ render
 
+	// Prepare a replacement while the mesh still draws its previous material.
+	materialReady( object, material, passes ) {
+		const vl = this._cachedLayout( object, object.geometry, material );
+		let ready = true;
+		for ( const descriptor of passes ) {
+			const pass = { kind: 'main', late: false, colorFormats: [], depthFormat: null, depthCompare: 'greater-equal', ...descriptor };
+			pass.passKey = `${ pass.kind }.${ pass.late ? 1 : 0 }.${ pass.colorFormats.join( ',' ) }.${ pass.depthFormat }.${ pass.depthCompare }.${ pass.cullOverride || '' }.${ pass.defines ? JSON.stringify( pass.defines ) : '' }`;
+			const p = this._pipeline( material, vl, pass );
+			if ( p?.handle.failed ) throw new Error( 'Replacement pipeline failed: ' + p.handle.label );
+			if ( ! p?.handle.pipeline ) ready = false;
+		}
+		return ready;
+	}
+
 	render( scene, pass ) {
 
 		this._beginFrame();

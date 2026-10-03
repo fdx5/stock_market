@@ -8,6 +8,17 @@ import { stripUnusedFunctions } from '../src/vendor/tidewater/engine/gpu/Shader.
 import { BoundedCache } from '../src/vendor/tidewater/engine/gpu/BoundedCache.js';
 import { UniformBlock } from '../src/vendor/tidewater/engine/gpu/Uniforms.js';
 
+test('material replacement waits for both colour and shadow pipelines without synchronous compilation',()=>{
+ const r=new MeshRenderer(),passes=[],handles=[{pipeline:{}},{pipeline:null}],object={geometry:{}},material={};
+ r._cachedLayout=(o,g,m)=>{assert.equal(o,object);assert.equal(m,material);return {};};
+ r._pipeline=(m,vl,p)=>{passes.push(p);return {handle:handles[p.kind==='color'?0:1]};};
+ const descriptors=[{kind:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'},{kind:'depth',depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5}];
+ assert.equal(r.materialReady(object,material,descriptors),false);
+ assert.equal(passes[0].passKey,'color.0.rgba16float.depth32float.greater-equal..');
+ handles[1].pipeline={};assert.equal(r.materialReady(object,material,descriptors),true);
+ handles[1].failed=true;assert.throws(()=>r.materialReady(object,material,descriptors),/Replacement pipeline failed/);
+});
+
 test('stable material epochs pack once across passes and invalidate before the next view frame', () => {
   const savedDevice=GPU.device,savedQueue=GPU.queue;
   let writes=0,packs=0;

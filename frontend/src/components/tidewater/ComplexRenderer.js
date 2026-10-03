@@ -1531,7 +1531,11 @@ export class ComplexRenderer {
         if ((made && (performance.now() > until || texels() - startTexels > room)) || !this.imagesReady(obj.material)) {
           deferred = true;
         } else {
-          mesh.material = this.material(obj.material); made++; this.ready = false;
+          const replacement = this.material(obj.material); made++; this.ready = false;
+          const passes = [{kind:'color',colorFormats:['rgba16float'],depthFormat:'depth32float'}];
+          if(mesh.castShadow)passes.push({kind:'depth',colorFormats:[],depthFormat:'depth32float',depthCompare:'less-equal',depthBias:2,depthBiasSlopeScale:1.5});
+          if(this.shown && !this.renderer.materialReady(mesh,replacement,passes))deferred=true;
+          else mesh.material = replacement;
         }
       }
       if (!mesh) {

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { vworldToken } from "./sceneTerrain";
+import { sharedVworldBytes } from './vworldBytes';
 import { mainRoofOf, planeKey, around, type Rhythm, type Colours, type WallPaint } from "./photoAnalysis";
 export { mainRoofOf, planeKey, type Rhythm, type Colours, type WallPaint };
 
@@ -44,14 +45,18 @@ class Reader {
 const url = (token: string, x: number, y: number, file?: string) =>
   `https://${HOSTS[(x + y) % 4]}.vworld.kr/XDServer/3DData?Version=2.0.0.0&Request=GetLayer&Layer=facility_build&Level=${LEVEL}&IDX=${x}&IDY=${y}${file ? `&DataFile=${encodeURIComponent(file)}` : ""}&Key=${encodeURIComponent(token)}`;
 
-async function bytes(u: string, signal?: AbortSignal, retry = 1): Promise<ArrayBuffer> {
+async function bytes(u:string,signal?:AbortSignal):Promise<ArrayBuffer> {
+  return sharedVworldBytes(u,sharedSignal=>download(u,sharedSignal),signal);
+}
+async function download(u: string, signal?: AbortSignal, retry = 1): Promise<ArrayBuffer> {
   // (VWorld drops a request now and then under load: once more after a moment)
   const r = await fetch(u, { referrerPolicy: "no-referrer", signal }).catch(err => { if (retry > 0 && !signal?.aborted) return null; throw err; });
   if (!r || (!r.ok && r.status >= 500)) {
     if (retry <= 0 || signal?.aborted) throw new Error("VWorld 3D: " + (r?.status ?? "network"));
     await new Promise(res => setTimeout(res, 400));
-    return bytes(u, signal, retry - 1);
+    return download(u, signal, retry - 1);
   }
+  if(!r.ok)throw new Error('VWorld 3D HTTP '+r.status);
   const b = await r.arrayBuffer();
   // (an error comes back as XML with status 200)
   if (b.byteLength >= 5 && new Uint8Array(b, 0, 5).every((c, i) => c === "<?xml".charCodeAt(i))) throw new Error("VWorld 3D: " + new TextDecoder().decode(b).slice(0, 120));

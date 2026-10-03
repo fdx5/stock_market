@@ -34,7 +34,16 @@ function jsonp(url: string, params: Record<string, string | number>, timeoutMs =
 // VWorld's data nodes can still answer a valid key with "인증키 정보가 올바르지
 // 않습니다" now and then. A retry lands on another node after a short pause; without
 // it the viewer fell back to OpenStreetMap, which takes 8-50 s.
-async function call(url: string, params: Record<string, string | number>) {
+const calls=new Map<string,{at:number;value:Promise<any>}>();
+function call(url:string,params:Record<string,string|number>) {
+  const key=url+JSON.stringify(params),old=calls.get(key);
+  if(old && Date.now()-old.at<300000)return old.value;
+  const value=loadCall(url,params);calls.delete(key);calls.set(key,{at:Date.now(),value});
+  if(calls.size>24)calls.delete(calls.keys().next().value!);
+  void value.catch(()=>{if(calls.get(key)?.value===value)calls.delete(key);});
+  return value;
+}
+async function loadCall(url: string, params: Record<string, string | number>) {
   let last: Error | null = null, down = 0;
   for (let attempt = 0; attempt < 8; attempt++) {
     // Rejections come in bursts of ~150 ms: back off 0, 80, 160 … ms (≈2.2 s at most).

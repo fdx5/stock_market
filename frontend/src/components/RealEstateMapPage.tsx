@@ -10,7 +10,6 @@ import Masthead from "../desk2/Masthead";
 import { useBroadsheet, useFinderHotkey } from "../desk2/shell";
 import "../desk2/maps.css";
 import "../desk2/realestate-region.css";
-import Tape from "../desk2/Tape";
 import FloatingTip from "./FloatingTip";
 import RealEstateSheet from "./RealEstateSheet";
 import { useMediaQuery } from "../useMediaQuery";
@@ -854,7 +853,6 @@ export default function RealEstateMapPage() {
           taglineEn: "Apartment trades — area is price, colour is the move",
         }}
       />
-      <Tape />
 
       <main className="d2-main mm-main">
         <div className="app-header-trailing">

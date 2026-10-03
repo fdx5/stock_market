@@ -94,7 +94,10 @@ test('trajectory cache retains exact poses and invalidates every travel-state ch
 });
 function scheduler() {
   const frames = [], tasks = []; let now = 0;
-  const context = { module: { exports: {} }, document: { hidden: false }, performance: { now: () => now }, requestAnimationFrame: f => frames.push(f), scheduler: { postTask: f => { tasks.push(f); return Promise.resolve(); } }, queueMicrotask };
+  class MessageChannelStub {
+    constructor(){this.port1={onmessage:null,close(){}};this.port2={close(){},postMessage:()=>tasks.push(()=>this.port1.onmessage())};}
+  }
+  const context = { module: { exports: {} }, document: { hidden: false }, performance: { now: () => now }, requestAnimationFrame: f => frames.push(f), MessageChannel:MessageChannelStub, scheduler: { postTask: () => new Promise(()=>{}) }, queueMicrotask };
   vm.runInNewContext(transformSync(readFileSync(new URL('../src/components/frameSlice.ts', import.meta.url), 'utf8'), { loader: 'ts', format: 'cjs' }).code, context);
   return { context, frames, tasks, slice: context.module.exports.frameSlice, async frame(cost = 0) {
     now += 16.7; const at = now; const f = frames.shift(); now += cost; f(at);
@@ -112,6 +115,13 @@ test('busy visible frames do not force work; admission resumes when there is roo
   s.slice().then(() => completed = true);
   await s.frame(12); await s.frame(20); assert.equal(completed, false);
   await s.frame(2); assert.equal(completed, true);
+});
+
+test('continuous busy frames cannot starve queued scene builders forever', async () => {
+  const s=scheduler(),completed=[];
+  for(let i=0;i<3;i++)s.slice().then(()=>completed.push(i));
+  for(let i=0;i<40 && completed.length<3;i++)await s.frame(15);
+  assert.deepEqual(completed,[0,1,2]);
 });
 test('hidden documents drain without waiting for a suspended animation clock', async () => {
   const s = scheduler(); s.context.document.hidden = true; let completed = 0;

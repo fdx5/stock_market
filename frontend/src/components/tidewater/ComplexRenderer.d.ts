@@ -8,6 +8,8 @@ export class ComplexRenderer {
   static create(host: HTMLElement, quality?: Quality): Promise<ComplexRenderer>;
   canvas: HTMLCanvasElement;
   ready: boolean;
+  pending?: boolean;
+  compiling?: boolean;
   shown: boolean;
   failed: boolean;
   /** Canvases emptied after upload (a fall back to WebGL must repaint them). */

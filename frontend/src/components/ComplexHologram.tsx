@@ -555,6 +555,22 @@ const bearing = (x: number, y: number) => BEARINGS[Math.round(((Math.atan2(x, y)
 /** The neighbourhood drawn round a complex: buildings and land use out to 600 m (1 km until 10-02 —
  * trimmed for loading and frame rate on modest machines), the far ground a little past it. */
 const RING_M = 600, FAR_HALF = 680;
+// Start independent geography while buildings/terrain load, and share it across
+// the rail and expanded view. Failed requests remain retryable.
+const geography = new Map<string, { at: number; promise: Promise<unknown> }>();
+function geographyOnce<T>(kind: string, lat: number, lon: number, load: () => Promise<T>): Promise<T> {
+  const key = `${kind}:${lat.toFixed(4)}:${lon.toFixed(4)}`;
+  const old = geography.get(key);
+  if (old && Date.now() - old.at < 300000) return old.promise as Promise<T>;
+  const promise = load();
+  const entry = { at: Date.now(), promise };
+  geography.set(key, entry);
+  while (geography.size > 16) geography.delete(geography.keys().next().value!);
+  void promise.catch(() => { if (geography.get(key) === entry) geography.delete(key); });
+  return promise;
+}
+const nearbyWater = (lat: number, lon: number) => geographyOnce("water", lat, lon, () => api.realEstateWater(+lat.toFixed(4), +lon.toFixed(4), FAR_HALF));
+const nearbyCrossings = (lat: number, lon: number) => geographyOnce("crossings", lat, lon, () => api.realEstateCrossings(+lat.toFixed(4), +lon.toFixed(4), FAR_HALF));
 /** Every face a facade (surveyedShape's window map, for buildings whose photograph isn't read). */
 const ALL_FACES = { get: () => true } as unknown as Map<string, boolean>;
 /** Landmarks drawn as surveyed (VWorld's 3D models: their real height and shape, in the view's own
@@ -1401,7 +1417,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         host.dataset.draws = String(native?.ready ? native.stats.draws : renderer.info.render.calls);
         host.dataset.pixelRatio = ratio.toFixed(2);
         host.dataset.renderMaxMs = renderMax.toFixed(0); renderMax = 0;
-        if (native) { host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); host.dataset.pipelines = String((native as unknown as { renderer: { pipelines: Map<string, unknown> } }).renderer.pipelines.size); }
+        if (native) {
+          host.dataset.quality = native.quality.name; host.dataset.gpuMs = (native.timer.ms.total ?? 0).toFixed(2); host.dataset.pipelines = String((native as unknown as { renderer: { pipelines: Map<string, unknown> } }).renderer.pipelines.size);
+          host.dataset.sceneReady = String(native.ready && !native.pending && !native.compiling && !native.failed);
+          host.dataset.nativeDraws = String(native.stats.draws);
+        }
         sampleFrames = 0; sampleStart = nowMs;
       }
       // WebGL: a new model's programs compile in parallel (KHR_parallel_shader_compile)
@@ -1724,8 +1744,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     setSlowData(false);
     const started = performance.now();
     // Its facades start painting now, alongside the network.
-    if (!pausedRef.current) prefetchPaint(complexId, complexName);
-    if (hostRef.current) { delete hostRef.current.dataset.shownAt; hostRef.current.dataset.selectAt = started.toFixed(0); }
+    if (!pausedRef.current) { prefetchPaint(complexId, complexName); preloadPlants(); }
+    if (hostRef.current) {
+      for(const key of ['shownAt','plantsStartedAt','plantsPhase','plantsReadyAt','roadsReadyAt','lampsReadyAt','trafficReadyAt','sceneReady','ringAt','ring','ringSurveyed','photoBuildings','farGround','boats','kids','sharp'])delete hostRef.current.dataset[key];
+      hostRef.current.dataset.selectAt = started.toFixed(0);
+    }
     const slowTimer = window.setTimeout(() => { if (live) setSlowData(true); }, 3000);
     setError("");
     setDataTry(0);
@@ -1799,6 +1822,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // Roads and relief together: both only need the result's centre.
       .then(async res => {
         if (!live) return res;
+        if (res.found && res.center) {
+          void nearbyWater(res.center.lat, res.center.lon).catch(() => {});
+          void nearbyCrossings(res.center.lat, res.center.lon).catch(() => {});
+        }
         const t0 = performance.now();
         const [full, surveyed] = await Promise.all([res.found ? withRoads(complexId, res) : res,
           res.found ? terrainOnce(complexId, res).then(t => { if (hostRef.current) hostRef.current.dataset.terrainMs = (performance.now() - t0).toFixed(0); return t; }) : FLAT]);
@@ -2403,10 +2430,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // painted again in them. Brand colours stay where the photographs say little.
       // (every photograph read at once, a few at a time by the browser)
       // (not a landmark area's hundreds: their photographs are never read — shapes only)
-      const rhythmOf = new Map(photos.filter(ph => !extra.has(ph)).map(ph => [ph, photoRhythm(data.vworld_key!, ph).catch(() => null)] as const));
+      const own = photos.filter(ph => feet.some(f => f.owner.startsWith("b") && Math.hypot(f.c[0] - (ph.cx + dx), f.c[1] - (ph.cy + dy)) < 12));
+      // Analyse the selected complex's photographs, not every surrounding wall.
+      // Neighbours already have surveyed geometry and their existing materials.
+      const rhythmOf = new Map(own.filter(ph => !extra.has(ph)).map(ph => [ph, photoRhythm(data.vworld_key!, ph).catch(() => null)] as const));
       await Promise.all(rhythmOf.values());
       if (!alive) { drop(); releasePieces(); return; }
-      const own = photos.filter(ph => feet.some(f => f.owner.startsWith("b") && Math.hypot(f.c[0] - (ph.cx + dx), f.c[1] - (ph.cy + dy)) < 12));
       // (a photograph whose walls read near black — deep shade, an empty patch of the image — says
       // nothing of the paint: left out, as in photoAnalysis.wallPaintFrom)
       const lumOf = (c: number[]) => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
@@ -2982,20 +3011,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Open water the parcels don't register as such (석촌호수 is a 공원) or don't reach (a river
     // past them): OpenStreetMap's lakes and river areas, asked once the view is up (kept a day).
     let lakes: RealEstateParcel[] = [];
-    // (the full answer — a first ask of a place can take OpenStreetMap ~15 s — for the water
-    // itself; the kerbs and bridges wait for it only briefly)
+    // Keep the actual answer: timing out this promise used to discard lakes that
+    // arrived late. Registered planting is shown independently below.
     const lakesFetched: Promise<void> = new Promise<void>(resolve => afterShown(() => {
       if (!data.center) { resolve(); return; }
       const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
       // (asked about the rounded point, for the server's cache: moved back onto the centre)
       const ox = (lo - lon) * 111320 * Math.cos((lat * Math.PI) / 180), oy = (la - lat) * 110540;
-      void Promise.race([
-        api.realEstateWater(la, lo, FAR_HALF).then(r => {
+      void nearbyWater(la, lo).then(r => {
+          if (!alive) return;
           lakes = r.rings.map(w => ({ kind: "유", ring: w.ring.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
           if (hostRef.current) hostRef.current.dataset.lakes = r.rings.map(w => w.name ?? w.kind).join(",");
-        }).catch(() => {}),
-        new Promise(r => window.setTimeout(r, 25000)),
-      ]).then(() => resolve());
+        }).catch(() => {}).then(() => resolve());
     }));
     const lakesReady = Promise.race([lakesFetched, new Promise<void>(r => window.setTimeout(r, 2500))]);
     // The mapped crosswalks (OpenStreetMap): the junctions' crossings and stop lines stand on them.
@@ -3008,7 +3035,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const { lat, lon } = data.center, la = +lat.toFixed(4), lo = +lon.toFixed(4);
       const ox = (lo - lon) * 111320 * Math.cos((lat * Math.PI) / 180), oy = (la - lat) * 110540;
       void Promise.race([
-        api.realEstateCrossings(la, lo, FAR_HALF).then(r => {
+        nearbyCrossings(la, lo).then(r => {
+          if (!alive) return;
           crossLines = r.crossings.map(c => ({ line: c.line.map(([x, y]) => [x + ox, y + oy] as [number, number]) }));
           if (hostRef.current) hostRef.current.dataset.crossings = `${r.crossings.length} mapped, ${r.signals.length} signals`;
         }).catch(() => {}),
@@ -3086,7 +3114,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // planting replaces them later, using the same seed, meshes and detail levels.
     let plantsRevision = 0;
     let visiblePlants: { plants: NonNullable<Awaited<ReturnType<typeof buildPlants>>>; root: THREE.Group } | null = null;
-    const showPlants = async (planting: Planting, phase: "initial" | "complete") => {
+    const showPlants = async (planting: Planting, phase: "initial" | "surveyed" | "complete") => {
       const revision = ++plantsRevision;
       const plants = await timed("buildPlants", () => buildPlants(planting, seed, terrain, stage.hq));
       if (!plants) return;
@@ -3180,8 +3208,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         stage.crowds.push(walkers);
         disposables.push({ dispose: () => { stage.crowds = stage.crowds.filter(c => c !== walkers); } });
       };
-      await crowd([...sidewalkPaths(runs), ...ringPaths(data.site, 2.4, blocked, 0.5), ...ringPaths(data.buildings.filter(b => b.floors >= 5).map(b => b.rings[0]), -3.2, blocked, 0.45)],
+      const walkersReady = crowd([...sidewalkPaths(runs), ...ringPaths(data.site, 2.4, blocked, 0.5), ...ringPaths(data.buildings.filter(b => b.floors >= 5).map(b => b.rings[0]), -3.2, blocked, 0.45)],
         0, 6, stage.hq ? 650 : 200);
+      void walkersReady.catch(err=>console.info('[3D] Walkers unavailable:',err));
       // Land use (연속지적도 지목) arrives after the first frame: the ground is repainted in
       // place, parks and forest get their trees, water its surface, alleys their people;
       // the parcels are kept with the complex.
@@ -3204,6 +3233,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (!await later()) return;
         }
         planting.street = street;
+        // Registered landscaping does not depend on the external lake query or
+        // on boats/people finishing. Water masking is applied when that data arrives.
+        await showPlants(planting, "surveyed");
+        if(!alive)return;
         const parcels = data.parcels ?? [];
         planting.border = schoolBorders(parcels, blocked, T);
         // Children at play on the school grounds, by day in dry weather.
@@ -3297,6 +3330,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       surface = f; marks = m;
       if (stage.drive) void f.setDetail(true);
       stage.addWarm(decor, f.group); stage.addWarm(decor, m.group);
+      if(hostRef.current)hostRef.current.dataset.roadsReadyAt=String(Math.round(performance.now()));
     };
     stage.roadDetail = on => { void surface?.setDetail(on); };
     disposables.push({ dispose: () => { marks?.dispose(); surface?.dispose(); stage.roadDetail = undefined; } });
@@ -3306,6 +3340,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!alive || gen !== lampsGen) { l.dispose(); return; }
       if (lamps) { decor.remove(lamps.group); lamps.dispose(); }
       lamps = l; stage.addWarm(decor, l.group); l.setLevel(stage.look.lamps);
+      if(hostRef.current)hostRef.current.dataset.lampsReadyAt=String(Math.round(performance.now()));
     }); };
     afterShown(() => void placeLamps());
     // (again on the bridges' decks, once they are found)
@@ -3472,6 +3507,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       };
       if (stage.carry && stage.unshown) stage.onShown.push(adopt); else adopt();
       setHeroesReady(true);
+      if(hostRef.current)hostRef.current.dataset.trafficReadyAt=String(Math.round(performance.now()));
       void layMarks();
       disposables.push({ dispose: () => { if (stage.traffic === traffic) {
         const dv = stage.drive;
