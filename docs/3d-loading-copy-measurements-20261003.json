@@ -1,0 +1,863 @@
+{
+  "before": {
+    "runs": [
+      {
+        "report": "tmp\\complex-perf-improve-paired-before-1\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "firstMs": 1485,
+        "shownAt": 1911,
+        "modelMs": 818,
+        "loadingInput": {
+          "pointerDelay": {
+            "count": 32,
+            "median": 10.199999999720603,
+            "p95": 80.79999999981374,
+            "max": 129.10000000009313,
+            "over20": 6
+          },
+          "frames": {
+            "count": 71,
+            "median": 16.700000000000045,
+            "p95": 83.29999999999995,
+            "max": 133.5,
+            "over20": 8
+          }
+        },
+        "phases": {
+          "loading": {
+            "drops": 8,
+            "maxMs": 133.5
+          },
+          "extras": {
+            "drops": 1,
+            "maxMs": 33.30000000000018
+          },
+          "overview": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "cameraTransition": {
+            "drops": 0,
+            "maxMs": 16.899999999999636
+          },
+          "street": {
+            "drops": 0,
+            "maxMs": 16.899999999999636
+          },
+          "away": {
+            "drops": 0,
+            "maxMs": 16.899999999999636
+          },
+          "switchLoading": {
+            "drops": 0,
+            "maxMs": 16.900000000001455
+          },
+          "afterSwitch": {
+            "drops": 0,
+            "maxMs": 17
+          },
+          "interaction": {
+            "drops": 0,
+            "maxMs": 16.900000000001455
+          }
+        },
+        "totalDrops": 9,
+        "gpuLiveBytes": 25980356,
+        "errors": []
+      },
+      {
+        "report": "tmp\\complex-perf-improve-paired-before-2\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "firstMs": 1620,
+        "shownAt": 2022,
+        "modelMs": 693,
+        "loadingInput": {
+          "pointerDelay": {
+            "count": 37,
+            "median": 10.400000000372529,
+            "p95": 98.6000000005588,
+            "max": 114.79999999981374,
+            "over20": 7
+          },
+          "frames": {
+            "count": 75,
+            "median": 16.700000000000045,
+            "p95": 83.19999999999999,
+            "max": 116.80000000000007,
+            "over20": 8
+          }
+        },
+        "phases": {
+          "loading": {
+            "drops": 8,
+            "maxMs": 116.80000000000007
+          },
+          "extras": {
+            "drops": 0,
+            "maxMs": 16.90000000000009
+          },
+          "overview": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "cameraTransition": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "street": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "away": {
+            "drops": 0,
+            "maxMs": 16.899999999999636
+          },
+          "switchLoading": {
+            "drops": 0,
+            "maxMs": 16.900000000001455
+          },
+          "afterSwitch": {
+            "drops": 0,
+            "maxMs": 16.80000000000291
+          },
+          "interaction": {
+            "drops": 0,
+            "maxMs": 16.900000000001455
+          }
+        },
+        "totalDrops": 8,
+        "gpuLiveBytes": 25980356,
+        "errors": []
+      },
+      {
+        "report": "tmp\\complex-perf-improve-paired-before-3\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "firstMs": 1676,
+        "shownAt": 2114,
+        "modelMs": 774,
+        "loadingInput": {
+          "pointerDelay": {
+            "count": 37,
+            "median": 11.100000000558794,
+            "p95": 83.90000000037253,
+            "max": 131.90000000037253,
+            "over20": 8
+          },
+          "frames": {
+            "count": 81,
+            "median": 16.700000000000045,
+            "p95": 50.100000000000136,
+            "max": 116.69999999999993,
+            "over20": 8
+          }
+        },
+        "phases": {
+          "loading": {
+            "drops": 8,
+            "maxMs": 116.69999999999993
+          },
+          "extras": {
+            "drops": 0,
+            "maxMs": 16.800000000000182
+          },
+          "overview": {
+            "drops": 0,
+            "maxMs": 17
+          },
+          "cameraTransition": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "street": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "away": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "switchLoading": {
+            "drops": 0,
+            "maxMs": 16.900000000001455
+          },
+          "afterSwitch": {
+            "drops": 0,
+            "maxMs": 16.80000000000291
+          },
+          "interaction": {
+            "drops": 0,
+            "maxMs": 16.900000000001455
+          }
+        },
+        "totalDrops": 8,
+        "gpuLiveBytes": 25980356,
+        "errors": []
+      }
+    ],
+    "medianFirstMs": 1620
+  },
+  "after": {
+    "runs": [
+      {
+        "report": "tmp\\complex-perf-improve-copy-final-1\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "firstMs": 1487,
+        "shownAt": 1914,
+        "modelMs": 771,
+        "loadingInput": {
+          "pointerDelay": {
+            "count": 30,
+            "median": 9.900000000372529,
+            "p95": 102.1999999997206,
+            "max": 112.20000000018626,
+            "over20": 6
+          },
+          "frames": {
+            "count": 68,
+            "median": 16.700000000000045,
+            "p95": 83.40000000000003,
+            "max": 116.70000000000005,
+            "over20": 9
+          }
+        },
+        "phases": {
+          "loading": {
+            "drops": 9,
+            "maxMs": 116.70000000000005
+          },
+          "extras": {
+            "drops": 0,
+            "maxMs": 16.800000000000182
+          },
+          "overview": {
+            "drops": 0,
+            "maxMs": 16.800000000000182
+          },
+          "cameraTransition": {
+            "drops": 0,
+            "maxMs": 16.899999999999636
+          },
+          "street": {
+            "drops": 0,
+            "maxMs": 17
+          },
+          "away": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "switchLoading": {
+            "drops": 0,
+            "maxMs": 16.899999999999636
+          },
+          "afterSwitch": {
+            "drops": 0,
+            "maxMs": 16.80000000000291
+          },
+          "interaction": {
+            "drops": 0,
+            "maxMs": 16.80000000000291
+          }
+        },
+        "totalDrops": 9,
+        "gpuLiveBytes": 25980356,
+        "errors": []
+      },
+      {
+        "report": "tmp\\complex-perf-improve-copy-final-2\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "firstMs": 1661,
+        "shownAt": 2107,
+        "modelMs": 902,
+        "loadingInput": {
+          "pointerDelay": {
+            "count": 35,
+            "median": 10.200000000186265,
+            "p95": 105.70000000018626,
+            "max": 121.5,
+            "over20": 7
+          },
+          "frames": {
+            "count": 75,
+            "median": 16.700000000000045,
+            "p95": 83.30000000000001,
+            "max": 133.4000000000001,
+            "over20": 8
+          }
+        },
+        "phases": {
+          "loading": {
+            "drops": 8,
+            "maxMs": 133.4000000000001
+          },
+          "extras": {
+            "drops": 1,
+            "maxMs": 33.20000000000027
+          },
+          "overview": {
+            "drops": 0,
+            "maxMs": 17
+          },
+          "cameraTransition": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "street": {
+            "drops": 0,
+            "maxMs": 16.899999999999636
+          },
+          "away": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "switchLoading": {
+            "drops": 0,
+            "maxMs": 17
+          },
+          "afterSwitch": {
+            "drops": 0,
+            "maxMs": 16.80000000000291
+          },
+          "interaction": {
+            "drops": 0,
+            "maxMs": 16.900000000001455
+          }
+        },
+        "totalDrops": 9,
+        "gpuLiveBytes": 25980356,
+        "errors": []
+      },
+      {
+        "report": "tmp\\complex-perf-improve-copy-final-3\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "firstMs": 1485,
+        "shownAt": 1948,
+        "modelMs": 795,
+        "loadingInput": {
+          "pointerDelay": {
+            "count": 31,
+            "median": 9.700000000186265,
+            "p95": 113.29999999981374,
+            "max": 187.40000000037253,
+            "over20": 6
+          },
+          "frames": {
+            "count": 68,
+            "median": 16.700000000000045,
+            "p95": 83.39999999999998,
+            "max": 132.20000000000005,
+            "over20": 9
+          }
+        },
+        "phases": {
+          "loading": {
+            "drops": 9,
+            "maxMs": 132.20000000000005
+          },
+          "extras": {
+            "drops": 0,
+            "maxMs": 16.800000000000182
+          },
+          "overview": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "cameraTransition": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "street": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "away": {
+            "drops": 0,
+            "maxMs": 16.80000000000109
+          },
+          "switchLoading": {
+            "drops": 0,
+            "maxMs": 16.80000000000291
+          },
+          "afterSwitch": {
+            "drops": 0,
+            "maxMs": 16.80000000000291
+          },
+          "interaction": {
+            "drops": 0,
+            "maxMs": 16.80000000000291
+          }
+        },
+        "totalDrops": 9,
+        "gpuLiveBytes": 25980356,
+        "errors": []
+      }
+    ],
+    "medianFirstMs": 1487
+  },
+  "speedup": 1.089441829186281,
+  "shorterPercent": 8.209876543209882,
+  "frameGate": {
+    "exitCode": 1,
+    "results": [
+      {
+        "report": "tmp\\complex-perf-improve-copy-final-1\\report.json",
+        "passed": false,
+        "budgetMs": 20,
+        "phases": {
+          "loading": {
+            "frames": 72,
+            "maxMs": 116.7,
+            "drops": 9
+          },
+          "extras": {
+            "frames": 224,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "overview": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "cameraTransition": {
+            "frames": 62,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "street": {
+            "frames": 180,
+            "maxMs": 17,
+            "drops": 0
+          },
+          "away": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "switchLoading": {
+            "frames": 629,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "afterSwitch": {
+            "frames": 181,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "interaction": {
+            "frames": 214,
+            "maxMs": 16.8,
+            "drops": 0
+          }
+        }
+      },
+      {
+        "report": "tmp\\complex-perf-improve-copy-final-2\\report.json",
+        "passed": false,
+        "budgetMs": 20,
+        "phases": {
+          "loading": {
+            "frames": 79,
+            "maxMs": 133.4,
+            "drops": 8
+          },
+          "extras": {
+            "frames": 229,
+            "maxMs": 33.2,
+            "drops": 1
+          },
+          "overview": {
+            "frames": 180,
+            "maxMs": 17,
+            "drops": 0
+          },
+          "cameraTransition": {
+            "frames": 62,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "street": {
+            "frames": 180,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "away": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "switchLoading": {
+            "frames": 630,
+            "maxMs": 17,
+            "drops": 0
+          },
+          "afterSwitch": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "interaction": {
+            "frames": 204,
+            "maxMs": 16.9,
+            "drops": 0
+          }
+        }
+      },
+      {
+        "report": "tmp\\complex-perf-improve-copy-final-3\\report.json",
+        "passed": false,
+        "budgetMs": 20,
+        "phases": {
+          "loading": {
+            "frames": 72,
+            "maxMs": 132.2,
+            "drops": 9
+          },
+          "extras": {
+            "frames": 226,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "overview": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "cameraTransition": {
+            "frames": 62,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "street": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "away": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "switchLoading": {
+            "frames": 627,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "afterSwitch": {
+            "frames": 181,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "interaction": {
+            "frames": 202,
+            "maxMs": 16.8,
+            "drops": 0
+          }
+        }
+      }
+    ]
+  },
+  "uploadQuality": [
+    {
+      "alpha": false,
+      "flipY": false,
+      "w": 512,
+      "h": 1536,
+      "frames": 3,
+      "copies": 4,
+      "legacyCopies": 28,
+      "maxFrameTexels": 599552,
+      "max": 0,
+      "legacyMax": 0,
+      "packedMax": 0
+    },
+    {
+      "alpha": false,
+      "flipY": false,
+      "w": 1024,
+      "h": 768,
+      "frames": 3,
+      "copies": 4,
+      "legacyCopies": 16,
+      "maxFrameTexels": 599040,
+      "max": 0,
+      "legacyMax": 0,
+      "packedMax": 0
+    },
+    {
+      "alpha": false,
+      "flipY": true,
+      "w": 512,
+      "h": 1536,
+      "frames": 3,
+      "copies": 4,
+      "legacyCopies": 28,
+      "maxFrameTexels": 599552,
+      "max": 0,
+      "legacyMax": 0,
+      "packedMax": 0
+    },
+    {
+      "alpha": false,
+      "flipY": true,
+      "w": 1024,
+      "h": 768,
+      "frames": 3,
+      "copies": 4,
+      "legacyCopies": 16,
+      "maxFrameTexels": 599040,
+      "max": 0,
+      "legacyMax": 0,
+      "packedMax": 0
+    },
+    {
+      "alpha": true,
+      "flipY": false,
+      "w": 512,
+      "h": 1536,
+      "frames": 3,
+      "copies": 4,
+      "legacyCopies": 28,
+      "maxFrameTexels": 599552,
+      "max": 1,
+      "legacyMax": 0,
+      "packedMax": 0
+    },
+    {
+      "alpha": true,
+      "flipY": false,
+      "w": 1024,
+      "h": 768,
+      "frames": 3,
+      "copies": 4,
+      "legacyCopies": 16,
+      "maxFrameTexels": 599040,
+      "max": 1,
+      "legacyMax": 0,
+      "packedMax": 0
+    },
+    {
+      "alpha": true,
+      "flipY": true,
+      "w": 512,
+      "h": 1536,
+      "frames": 3,
+      "copies": 4,
+      "legacyCopies": 28,
+      "maxFrameTexels": 599552,
+      "max": 1,
+      "legacyMax": 0,
+      "packedMax": 0
+    },
+    {
+      "alpha": true,
+      "flipY": true,
+      "w": 1024,
+      "h": 768,
+      "frames": 3,
+      "copies": 4,
+      "legacyCopies": 16,
+      "maxFrameTexels": 599040,
+      "max": 1,
+      "legacyMax": 0,
+      "packedMax": 0
+    }
+  ],
+  "compatibility": {
+    "report": "tmp\\complex-perf-improve-copy-compat-webgl\\report.json",
+    "environment": {
+      "buildMode": "production",
+      "browser": "155.0.4283.33",
+      "fixture": "complex-perf-v1",
+      "renderScale": 1.5,
+      "cpuRate": 1,
+      "detailDelay": 0,
+      "pausedRail": false,
+      "featureMarkerRemoved": false
+    },
+    "firstMs": 1784,
+    "loadingInput": {
+      "pointerDelay": {
+        "count": 25,
+        "median": 7.800000000745058,
+        "p95": 133.40000000037253,
+        "max": 355.29999999981374,
+        "over20": 3
+      },
+      "frames": {
+        "count": 50,
+        "median": 16.699999999999818,
+        "p95": 333.29999999999995,
+        "max": 883.6999999999999,
+        "over20": 7
+      }
+    },
+    "renderer": "webgl",
+    "quality": null,
+    "totalDrops": 29,
+    "phases": {
+      "loading": {
+        "drops": 8,
+        "maxMs": 883.6999999999999
+      },
+      "extras": {
+        "drops": 2,
+        "maxMs": 83.30000000000018
+      },
+      "overview": {
+        "drops": 3,
+        "maxMs": 83.29999999999927
+      },
+      "cameraTransition": {
+        "drops": 0,
+        "maxMs": 16.799999999999272
+      },
+      "street": {
+        "drops": 0,
+        "maxMs": 16.899999999999636
+      },
+      "away": {
+        "drops": 0,
+        "maxMs": 16.899999999999636
+      },
+      "switchLoading": {
+        "drops": 16,
+        "maxMs": 133.20000000000073
+      },
+      "afterSwitch": {
+        "drops": 0,
+        "maxMs": 16.899999999997817
+      },
+      "interaction": {
+        "drops": 0,
+        "maxMs": 16.80000000000291
+      }
+    },
+    "errors": []
+  },
+  "stress": {
+    "report": "tmp\\complex-perf-improve-copy-stress\\report.json",
+    "environment": {
+      "buildMode": "production",
+      "browser": "155.0.4283.33",
+      "fixture": "complex-perf-v1",
+      "renderScale": 1.5,
+      "cpuRate": 4.0,
+      "detailDelay": 5.0,
+      "pausedRail": false,
+      "featureMarkerRemoved": true
+    },
+    "firstMs": 2774,
+    "loadingInput": {
+      "pointerDelay": {
+        "count": 50,
+        "median": 9.599999999627471,
+        "p95": 72.59999999962747,
+        "max": 318.5,
+        "over20": 8
+      },
+      "frames": {
+        "count": 110,
+        "median": 16.700000000000045,
+        "p95": 83.29999999999995,
+        "max": 300.20000000000005,
+        "over20": 19
+      }
+    },
+    "renderer": "tidewater-webgpu",
+    "quality": "high",
+    "totalDrops": 83,
+    "phases": {
+      "loading": {
+        "drops": 22,
+        "maxMs": 300.20000000000005
+      },
+      "extras": {
+        "drops": 23,
+        "maxMs": 116.69999999999982
+      },
+      "overview": {
+        "drops": 0,
+        "maxMs": 16.900000000001455
+      },
+      "cameraTransition": {
+        "drops": 5,
+        "maxMs": 33.400000000001455
+      },
+      "street": {
+        "drops": 1,
+        "maxMs": 33.29999999999927
+      },
+      "away": {
+        "drops": 0,
+        "maxMs": 16.80000000000291
+      },
+      "switchLoading": {
+        "drops": 30,
+        "maxMs": 50
+      },
+      "afterSwitch": {
+        "drops": 0,
+        "maxMs": 16.80000000000291
+      },
+      "interaction": {
+        "drops": 2,
+        "maxMs": 33.5
+      }
+    },
+    "errors": []
+  }
+}

@@ -59,11 +59,11 @@ async function loadDetails() {
   const results = await Promise.allSettled(Object.entries(meta).map(async ([name, m]) => {
     const blob = await fetchCriticalStatic('/3d/' + m.file).then(r => { if (!r.ok) throw new Error(m.file + ' ' + r.status); return r.blob(); });
     const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
-    await frameSlice();
-    if (startedIn !== detailEpoch) { bmp.close(); return; }
-    const tex = new Texture({ width: bmp.width, height: bmp.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'], label: 'detail ' + name });
-    out[name] = { tex, metres: m.metres, avgRough: m.avgRough };
     try {
+      await frameSlice();
+      if (startedIn !== detailEpoch) return;
+      const tex = new Texture({ width: bmp.width, height: bmp.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copyDst'], label: 'detail ' + name });
+      out[name] = { tex, metres: m.metres, avgRough: m.avgRough };
       GPU.queue.copyExternalImageToTexture({ source: bmp }, { texture: tex.getGPU() }, [bmp.width, bmp.height]);
       generateMipmaps(tex);
       GPU.submit();
@@ -1037,8 +1037,11 @@ export class ComplexRenderer {
       const bitmap = typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap;
       const ctx = bitmap ? null : img.getContext('2d', { willReadFrequently: true });
       if (!bitmap && !ctx) { this.stagings.delete(source); st.tex.destroy(); return null; }
-      while (this.stageBudget > 0 && st.y < h) {
-        const rows = Math.min(128, h - st.y, Math.max(1, Math.floor(this.stageBudget / w)));
+      while (this.stageBudget >= w && st.y < h) {
+        // A decoded bitmap needs no CPU readback. Copy its admitted rows once
+        // instead of repeatedly entering the browser's image-copy path. Canvas
+        // readback keeps its 128-row bound; the per-frame texel budget is shared.
+        const rows = Math.min(bitmap ? h : 128, h - st.y, Math.max(1, Math.floor(this.stageBudget / w)));
         if (bitmap) {
           GPU.queue.copyExternalImageToTexture(
             { source: img, origin: { x: 0, y: st.y }, flipY: source.flipY },

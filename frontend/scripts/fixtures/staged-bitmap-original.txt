@@ -1,0 +1,38 @@
+// Original staged upload from c8faafb. Injected into browser QA with its GPU/Texture dependencies.
+function legacyStaged(source:any) {
+    const img = source.image, w = img.width, h = img.height;
+    this.stagings ??= new Map();
+    let st = this.stagings.get(source);
+    if (st && st.version !== source.version) { st.tex.destroy(); st = null; }   // (repainted meanwhile: again)
+    if (!st) {
+      st = { tex: new Texture({ label: 'staged canvas', width: w, height: h, format: 'rgba8unorm', mips: true, usage: ['sample', 'render', 'copySrc', 'copyDst'] }), y: 0, version: source.version, at: this.frameNo };
+      this.stagings.set(source, st);
+    }
+    if (st.y < h) {
+      if (this.stageFrame !== this.frameNo) { this.stageFrame = this.frameNo; this.stageBudget = this.shown ? 0.6e6 : 1.2e6; }
+      const bitmap = typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap;
+      const ctx = bitmap ? null : img.getContext('2d', { willReadFrequently: true });
+      if (!bitmap && !ctx) { this.stagings.delete(source); st.tex.destroy(); return null; }
+      while (this.stageBudget > 0 && st.y < h) {
+        const rows = Math.min(128, h - st.y, Math.max(1, Math.floor(this.stageBudget / w)));
+        if (bitmap) {
+          GPU.queue.copyExternalImageToTexture(
+            { source: img, origin: { x: 0, y: st.y }, flipY: source.flipY },
+            { texture: st.tex.getGPU(), origin: { x: 0, y: source.flipY ? h - st.y - rows : st.y } },
+            [w, rows]);
+          st.y += rows; this.stageBudget -= w * rows;
+          continue;
+        }
+        const data = ctx.getImageData(0, st.y, w, rows).data;
+        let buf = data, y = st.y;
+        if (source.flipY) {
+          // (the texture's rows bottom-up: the strip lands mirrored, its rows reversed)
+          y = h - st.y - rows; buf = new Uint8Array(data.length);
+          for (let r = 0; r < rows; r++) buf.set(data.subarray(r * w * 4, (r + 1) * w * 4), (rows - 1 - r) * w * 4);
+        }
+        GPU.queue.writeTexture({ texture: st.tex.getGPU(), origin: { x: 0, y } }, buf, { bytesPerRow: w * 4, rowsPerImage: rows }, { width: w, height: rows });
+        st.y += rows; this.stageBudget -= w * rows;
+      }
+    }
+    return st.y >= h ? st.tex : null;
+  }
