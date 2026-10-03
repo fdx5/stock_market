@@ -81,11 +81,10 @@ export default function SupportComments() {
     <form className="coffee-comment-form" onSubmit={submit}>
       <div className="coffee-comment-fields">
         <label htmlFor="coffee-nickname">{L("닉네임 (선택)", "Nickname (optional)")}<input id="coffee-nickname" type="text" maxLength={20} value={username} onChange={e => setUsername(e.target.value)} placeholder={L("커피친구", "Coffee friend")} disabled={sending} autoComplete="off" /></label>
-        <label htmlFor="coffee-message">{L("응원 한 줄", "Your message")}<input id="coffee-message" type="text" maxLength={120} required value={text} onChange={e => setText(e.target.value)} placeholder={L("덕분에 오늘도 시장을 편하게 살펴봤어요. 응원합니다!", "Thanks for making the markets easier to follow!")} disabled={sending} autoComplete="off" aria-describedby="coffee-comment-rules" /></label>
+        <label htmlFor="coffee-message">{L("응원 한 줄", "Your message")}<input id="coffee-message" type="text" maxLength={120} required value={text} onChange={e => setText(e.target.value)} placeholder={L("덕분에 오늘도 시장을 편하게 살펴봤어요. 응원합니다!", "Thanks for making the markets easier to follow!")} disabled={sending} autoComplete="off" /></label>
       </div>
       <div className="coffee-honeypot" aria-hidden="true"><label>Website<input type="text" name="website" value={website} onChange={e => setWebsite(e.target.value)} tabIndex={-1} autoComplete="off" /></label></div>
       <div className="coffee-comment-submit"><label className="coffee-support-check"><input type="checkbox" checked={supported} onChange={e => setSupported(e.target.checked)} required disabled={sending} />{L("후원 후 응원 메시지를 남깁니다.", "I’m leaving a note after supporting the site.")}</label><span className="coffee-comment-count">{text.length}/120</span><button type="submit" disabled={sending || !supported || !text.trim()}>{sending ? L("등록 중…", "Posting…") : L("응원 남기기", "Post message")}</button></div>
-      <p id="coffee-comment-rules" className="coffee-comment-rules">{L("댓글은 공개됩니다. 개인정보·링크·HTML은 입력하지 마세요. 같은 접속 환경에서 1분에 1개, 하루 최대 5개까지 등록할 수 있으며 같은 내용의 반복 등록은 제한됩니다.", "Messages are public. Please avoid personal information, links and HTML. One message per minute and up to five per day per connection; repeated messages are limited.")}</p>
       {notice && <p className="coffee-comment-notice" role="status">{notice}</p>}
     </form>
     {loading ? <p className="coffee-comments-empty" role="status">{L("응원 메시지를 불러오고 있어요…", "Loading messages…")}</p> : <>
