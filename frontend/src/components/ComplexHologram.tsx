@@ -3233,12 +3233,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           if (!await later()) return;
         }
         planting.street = street;
+        const parcels = data.parcels ?? [];
+        planting.border = schoolBorders(parcels, blocked, T);
         // Registered landscaping does not depend on the external lake query or
         // on boats/people finishing. Water masking is applied when that data arrives.
         await showPlants(planting, "surveyed");
         if(!alive)return;
-        const parcels = data.parcels ?? [];
-        planting.border = schoolBorders(parcels, blocked, T);
         // Children at play on the school grounds, by day in dry weather.
         const kids = timed("buildKids", () => buildKids(parcels, terrain, blocked, T, seed));
         if (kids) {
