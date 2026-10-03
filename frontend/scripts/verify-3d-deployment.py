@@ -72,7 +72,11 @@ with sync_playwright() as pw:
             result['closedAndReopened'] = True
         page.screenshot(path=str(a.out.with_name(a.out.stem+'-'+name+'.png')))
         result.update(errors=errors, consoleErrors=console_errors, apiWrites=writes)
-        assert not errors and not console_errors and not writes, result
+        # The app records ordinary activity and uses POST for the nearby lookup.
+        # This smoke must not submit any game scores or other mutations.
+        unexpected_writes = [url for url in writes if url.split('?')[0].removeprefix(a.base)
+                             not in ['/api/activity/event', '/api/realestate/nearby']]
+        assert not errors and not console_errors and not unexpected_writes, result
         report['views'].append(result)
         a.out.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf8')
         print(json.dumps({'view':name,'passed':True,'buttons':buttons},ensure_ascii=True),flush=True)
