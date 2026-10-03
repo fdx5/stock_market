@@ -93,17 +93,17 @@
   .d2 .coffee-comment-submit button { margin-left: auto; }
 }
 @media (prefers-reduced-motion: reduce) { .d2 .d2-coffee-link, .d2 .coffee-pay-button { transition: none; } }
-.d2 .coffee-comments-top { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 32px; align-items: center; margin-bottom: 24px; }
+.d2 .coffee-comments-top { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; align-items: center; margin-bottom: 20px; }
 .d2 .coffee-comments-top .coffee-comments-heading { margin-bottom: 0; }
-.d2 .coffee-supporter-board { position: relative; min-width: 0; padding: 16px 20px 14px; border: 1px solid #a48b5770; border-radius: 16px; background: linear-gradient(135deg, #302a24, #191918); color: #f3e9d4; box-shadow: inset 0 1px #e7c78822, 0 5px 18px #31251a14; overflow: hidden; }
+.d2 .coffee-supporter-board { position: relative; min-width: 0; padding: 10px 14px 9px; border: 1px solid #a48b5770; border-radius: 12px; background: linear-gradient(135deg, #302a24, #191918); color: #f3e9d4; box-shadow: inset 0 1px #e7c78822, 0 5px 18px #31251a14; overflow: hidden; }
 .d2 .coffee-supporter-board::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(#dfc89514 .7px, transparent .7px); background-size: 5px 5px; }
 .d2 .coffee-supporter-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.d2 .coffee-supporter-top h3 { font-size: 12px; font-weight: 600; color: #dac6a0; letter-spacing: .02em; }
+.d2 .coffee-supporter-top h3 { font-size: 11px; font-weight: 600; color: #dac6a0; letter-spacing: .02em; }
 .d2 .coffee-supporter-top h3 > span { color: #ecc879; }
-.d2 .coffee-supporter-pause { display: grid; place-items: center; min-width: 32px; min-height: 32px; border: 1px solid #9c895e55; border-radius: 8px; font-size: 11px; color: #dac6a0; z-index: 1; }
+.d2 .coffee-supporter-pause { display: grid; place-items: center; min-width: 28px; min-height: 28px; border: 1px solid #9c895e55; border-radius: 7px; font-size: 10px; color: #dac6a0; z-index: 1; }
 .d2 .coffee-supporter-pause:focus-visible { outline: 2px solid #ecc879; outline-offset: 2px; }
-.d2 .coffee-supporter-display { display: grid; place-items: center; min-height: 72px; padding: 4px 0; overflow: hidden; }
-.d2 .coffee-supporter-name { display: block; max-width: 100%; font-size: clamp(18px, 1.6vw, 24px); line-height: 1.4; font-weight: 800; letter-spacing: .05em; word-break: break-word; text-align: center; animation: coffee-supporter-roll .75s cubic-bezier(.2,.65,.25,1) both, coffee-supporter-shine 4s linear infinite; background-size: 220% 100%; background-clip: text; -webkit-background-clip: text; color: transparent; }
+.d2 .coffee-supporter-display { display: grid; place-items: center; min-height: 56px; padding: 3px 0; overflow: hidden; }
+.d2 .coffee-supporter-name { display: block; max-width: 100%; font-size: clamp(17px, 1.4vw, 20px); line-height: 1.35; font-weight: 800; letter-spacing: .03em; word-break: break-word; text-align: center; animation: coffee-supporter-roll .75s cubic-bezier(.2,.65,.25,1) both, coffee-supporter-shine 4s linear infinite; background-size: 220% 100%; background-clip: text; -webkit-background-clip: text; color: transparent; }
 .d2 .coffee-supporter-name.is-gold { background-image: linear-gradient(110deg, #c89435, #eec575 25%, #fff5cb 48%, #eac05c 68%, #c89435); text-shadow: 0 0 18px #e4b75845; }
 .d2 .coffee-supporter-name.is-silver { background-image: linear-gradient(110deg, #a6b2c3, #d0dbe8 25%, #ffffff 48%, #cbd4df 68%, #a6b2c3); text-shadow: 0 0 18px #c2d3ed40; }
 .d2 .coffee-supporter-empty { font-size: 12px; color: #c8b89d; text-align: center; }
@@ -113,7 +113,8 @@
 @keyframes coffee-supporter-roll { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes coffee-supporter-shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (max-width: 760px) {
-  .d2 .coffee-comments-top { grid-template-columns: minmax(0, 1fr); gap: 20px; }
-  .d2 .coffee-supporter-name { font-size: 22px; }
+  .d2 .coffee-comments-top { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .d2 .coffee-supporter-board { width: 100%; max-width: 280px; justify-self: center; }
+  .d2 .coffee-supporter-name { font-size: 20px; }
 }
 @media (prefers-reduced-motion: reduce) { .d2 .coffee-supporter-name { animation: none; } }
