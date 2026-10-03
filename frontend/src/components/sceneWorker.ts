@@ -7,6 +7,7 @@ import { sidewalkRuns, carriageway, ringIndex, type Run } from "./sceneSidewalk"
 import { cutPaths, type WalkPath } from './sceneWalkers';
 import { makeGroundGeometry } from "./groundGeometry";
 import { FLAT } from "./sceneTerrain";
+import { neighbourArrays, type NeighbourJob, type NeighbourArrays } from "./neighbourGeometry";
 
 /* The 3D view's scene work that needs no page, done off its thread (sceneWorkerClient.ts):
  * while a complex loads, the page only draws frames and wraps the arrays sent back.
@@ -19,6 +20,7 @@ import { FLAT } from "./sceneTerrain";
 export type GroundData = Pick<RealEstateBuildingsResponse, "site" | "roads" | "parcels" | "streets"> & { buildings: { rings: [number, number][][] }[]; context: { rings: [number, number][][] }[] };
 
 export type SceneOps = {
+  neighbours: { args: { jobs: NeighbourJob[] }; result: NeighbourArrays[] };
   walkPaths: {args:{paths:WalkPath[];roads:RealEstateRoad[];footprints:[number,number][][];T:number};result:WalkPath[]};
   terrainGround: {args:{T:number;G:number;segs:number;grid:HeightGrid|null};result:{position:Float32Array;normal:Float32Array;uv:Float32Array;index:Uint16Array|Uint32Array;grid:{xs:Float64Array;ys:Float64Array};sphere:{center:[number,number,number];radius:number}}};
   bridges: { args: { roads: RealEstateRoad[]; parcels: RealEstateParcel[]; covered: boolean[]; grid: HeightGrid | null }; result: Bridge[] };
@@ -54,7 +56,11 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
   const m = e.data;
   try {
     let result: unknown, transfer: Transferable[] = [];
-    if (m.op === 'terrainGround') {
+    if (m.op === 'neighbours') {
+      const arrays = m.args.jobs.map(neighbourArrays);
+      result = arrays;
+      transfer = arrays.flatMap(a => Object.values(a).map(v => v.buffer)) as ArrayBuffer[];
+    } else if (m.op === 'terrainGround') {
       const geo=await makeGroundGeometry(m.args.T,m.args.G,m.args.grid ? {...FLAT,at:gridAt(m.args.grid)} : FLAT,m.args.segs,go);
       if (!geo) throw Error('ground layout cancelled');
       const sphere=geo.boundingSphere!;

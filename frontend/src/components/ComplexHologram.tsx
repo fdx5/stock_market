@@ -46,6 +46,8 @@ import { frameSlice } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
 import { makeGroundGeometry } from "./groundGeometry";
 import { sceneWork } from "./sceneWorkerClient";
+import type { SceneOps } from "./sceneWorker";
+import { neighbourArrays, neighbourGeometry } from "./neighbourGeometry";
 import { retainSceneMemory } from "./sceneMemory";
 import { ringBuildings } from "./ringBuildings";
 import { farGround } from "./farGround";
@@ -287,38 +289,11 @@ function extrude(b: RealEstateBuilding, ground = 0, floorM = FLOOR_M): THREE.Ext
  * below the ground anyway) — the same outline, height, wall uv (storeys from the ground, as extrude)
  * and roof uv as ExtrudeGeometry's, in about half its vertex memory (which paid for the 1 km ring:
  * ringBuildings.ts makes those the same way, in its worker). */
-function compactExtrude(b: RealEstateBuilding, ground = 0, floorM = FLOOR_M): THREE.BufferGeometry {
-  const depth = Math.max(2, b.height - b.base), below = b.base > 0 ? 0 : SINK;
-  const z0 = ground + b.base - below, z1 = ground + b.base + depth;
-  const k = THREE.MathUtils.clamp(floorM / (depth / Math.max(1, b.floors)), 0.5, 2);
-  const area = (r: [number, number][]) => r.reduce((sum, [x1, y1], i) => { const [x2, y2] = r[(i + 1) % r.length]; return sum + x1 * y2 - x2 * y1; }, 0);
-  const outer = area(b.rings[0]) >= 0 ? b.rings[0] : [...b.rings[0]].reverse();
-  const holes = b.rings.slice(1).map(h => (area(h) <= 0 ? h : [...h].reverse()));
-  const P: number[] = [], N: number[] = [], U: number[] = [], I: number[] = [];
-  for (const ring of [outer, ...holes]) for (let i = 0; i < ring.length; i++) {
-    const [ax, ay] = ring[i], [bx, by] = ring[(i + 1) % ring.length];
-    const ex = bx - ax, ey = by - ay, el = Math.hypot(ex, ey);
-    if (el < 1e-4) continue;
-    const nx = ey / el, ny = -ex / el, alongX = Math.abs(ey) < Math.abs(ex), v = P.length / 3;
-    for (const [x, y, z] of [[ax, ay, z0], [bx, by, z0], [bx, by, z1], [ax, ay, z1]]) { P.push(x, y, z); N.push(nx, ny, 0); U.push(alongX ? x : y, (1 - (z - ground)) * k); }
-    I.push(v, v + 1, v + 2, v, v + 2, v + 3);
-  }
-  const roof = P.length / 3, pts = [...outer, ...holes.flat()];
-  for (const [x, y] of pts) { P.push(x, y, z1); N.push(0, 0, 1); U.push(x, y); }
-  const tris = THREE.ShapeUtils.triangulateShape(outer.map(([x, y]) => new THREE.Vector2(x, y)), holes.map(h => h.map(([x, y]) => new THREE.Vector2(x, y))));
-  for (const [a, c, d] of tris) I.push(roof + a, roof + c, roof + d);
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(P, 3));
-  geo.setAttribute("normal", new THREE.Float32BufferAttribute(N, 3));
-  geo.setAttribute("uv", new THREE.Float32BufferAttribute(U, 2));
-  geo.setIndex(I);
-  return geo;
-}
 
 /** The ground as one grid over ±G: fine (≈T/100) inside the surveyed square ±T, growing
  * outward to the horizon; heights from the terrain, uv spanning the painted square. */
-async function groundGeometry(T: number, G: number, terrain: Terrain, segs: number, pace: () => Promise<boolean>): Promise<THREE.BufferGeometry | null> {
-  const result = await sceneWork('terrainGround', {T,G,segs,grid:terrain.grid ?? null})?.catch(() => null);
+async function groundGeometry(T: number, G: number, terrain: Terrain, segs: number, pace: () => Promise<boolean>, prepared?: Promise<SceneOps["terrainGround"]["result"] | null> | null): Promise<THREE.BufferGeometry | null> {
+  const result = await (prepared === undefined ? sceneWork('terrainGround', {T,G,segs,grid:terrain.grid ?? null}) : prepared)?.catch(() => null);
   if (!await pace()) return null;
   if (!result) return makeGroundGeometry(T,G,terrain,segs,pace);
   const geo = new THREE.BufferGeometry();
@@ -1975,6 +1950,12 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       }
     }
     const T = Math.max((footprintRadius + 300) * 1.15, Math.max(maxX - minX, maxY - minY, 60) * 0.9 + 120);
+    const reach = footprintRadius + 300;
+    const tints = ["#f1ede4", "#e4e1da", "#d9d4ca", "#c9b8a4", "#b88f78", "#a9b3bb", "#e8e3d3", "#cfc9bd"];
+    // Preserve the surveyed-road filter when scheduling neighbourhood work early.
+    const inRoad = carriageway((data.roads ?? []).filter(r => r.width >= 6), -1.5);
+    const onRoad = (b: RealEstateBuilding) => { const ring = b.rings[0], [cx, cy] = ring.reduce(([sx, sy], [x, y]) => [sx + x / ring.length, sy + y / ring.length], [0, 0]); return inRoad(cx, cy) && ring.filter(([x, y]) => inRoad(x, y)).length * 2 >= ring.length; };
+    const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach) && !onRoad(b));
     const groundJob = groundPlan(data, T, stage.hq ? 2048 : 1024, seed, pace).then(plan => {
       if (!plan) return null;
       if (!alive) { plan.color.dispose(); plan.rough.dispose(); plan.glow.dispose(); return null; }
@@ -2185,22 +2166,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       top = Math.max(top, H);
       floor = Math.min(floor, g);
     }
+    const span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 60);
+    const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;
+    const dist = Math.max(span, top * 1.4) * 1.1 + 40;
+    const groundGridJob = sceneWork('terrainGround', {T, G: dist * 12, segs: terrain.source === null ? 64 : stage.hq ? 320 : 200, grid: terrain.grid ?? null})?.catch(() => null);
     step("towers");
     if (!Number.isFinite(floor)) floor = 0;
     // The neighbourhood: every registered building within the surveyed radius, on its
     // own ground, in one of three facades chosen by its registered use, tinted per
     // building, windows fitted to its registered floors, a parapet round its roof.
-    const ext = data.buildings.flatMap(b => b.rings[0]).reduce((m, [x, y]) => Math.max(m, Math.hypot(x, y)), 0);
-    // Neighbours drawn this far out (the fetched radius, CONTEXT_M 288 m, plus the parcel).
-    const reach = ext + 300;
-    const tints = ["#f1ede4", "#e4e1da", "#d9d4ca", "#c9b8a4", "#b88f78", "#a9b3bb", "#e8e3d3", "#cfc9bd"];
     const styles: ContextStyle[] = ["villa", "shop", "office", "apt"];
     const parapets: THREE.Matrix4[] = [], parapetOwner: string[] = [];
     const pm = new THREE.Object3D();
-    // (a footprint standing in the middle of a carriageway is a survey error: left out)
-    const inRoad = carriageway((data.roads ?? []).filter(r => r.width >= 6), -1.5);
-    const onRoad = (b: RealEstateBuilding) => { const ring = b.rings[0], [cx, cy] = ring.reduce(([sx, sy], [x, y]) => [sx + x / ring.length, sy + y / ring.length], [0, 0]); return inRoad(cx, cy) && ring.filter(([x, y]) => inRoad(x, y)).length * 2 >= ring.length; };
-    const neighbours = data.context.filter(b => b.rings[0].some(([x, y]) => Math.hypot(x, y) <= reach) && !onRoad(b));
     step("merge");
     if (!await pace(true)) return;
     // The landmarks round the complex answer the hover with their names (picking only).
@@ -2219,18 +2196,26 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       pickables.push(pick);
       if (hostRef.current) hostRef.current.dataset.landmarks = String(+(hostRef.current.dataset.landmarks ?? 0) + 1);
     };
-    for (const [j, b] of neighbours.entries()) {
-      owner = "c" + j;
-      if (!await pace()) return;
-      const g = terrain.base(b.rings[0]);
+    // Consume the same two random draws per neighbour, in the original order.
+    // Only typed arrays cross back; abandoned builds own no GPU objects.
+    const neighbourJobs = neighbours.map(b => {
+      const ground = terrain.base(b.rings[0]);
       const style = contextStyle(b.use, b.height, rnd());
-      const geo = compactExtrude(b, g, CONTEXT_FLOOR_M[style]);
       const c = new THREE.Color(tints[Math.floor(rnd() * tints.length)]);
       if (style === "office") c.lerp(new THREE.Color("#ffffff"), 0.4);
       if (style === "apt") c.lerp(new THREE.Color("#ffffff"), 0.65);
-      const n = geo.getAttribute("position").count, col = new Float32Array(n * 3);
-      for (let j = 0; j < n; j++) col.set([c.r, c.g, c.b], j * 3);
-      geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+      return { building: b, ground, style, floorM: CONTEXT_FLOOR_M[style], color: [c.r, c.g, c.b] as [number, number, number] };
+    });
+    const neighbourJob = sceneWork('neighbours', { jobs: neighbourJobs })?.catch(() => null);
+
+    const neighbourResult = await neighbourJob;
+    if (!alive) return;
+    sliceStart = performance.now();
+    for (const [j, b] of neighbours.entries()) {
+      owner = "c" + j;
+      if (!await pace()) return;
+      const job = neighbourJobs[j], g = job.ground, style = job.style;
+      const geo = neighbourGeometry(neighbourResult?.[j] ?? neighbourArrays(job));
       ctxGeos[style].push(own(geo));
       landmark(b);
       // Parapet: a 0.9 m upstand, 0.2 m thick, along every roof edge longer than 2 m.
@@ -2930,9 +2915,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stage.resume();
     })().finally(() => { stage.busy--; }); });
 
-    const span = Math.max(box.max.x - box.min.x, box.max.y - box.min.y, 60);
-    const cx = (box.max.x + box.min.x) / 2, cy = (box.max.y + box.min.y) / 2;
-    const dist = Math.max(span, top * 1.4) * 1.1 + 40;
 
     // The ground: the surveyed parcel landscaped (flat paint only), laid over the real
     // relief; damp paving reflects the towers where the ground is level.
@@ -2946,7 +2928,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     [plan.color, plan.rough].forEach(keep);
     const G = dist * 12;
     // No elevation data (level ground): no relief for a fine grid to follow.
-    const groundGrid = await groundGeometry(T, G, terrain, terrain.source === null ? 64 : stage.hq ? 320 : 200, pace);
+    const groundGrid = await groundGeometry(T, G, terrain, terrain.source === null ? 64 : stage.hq ? 320 : 200, pace, groundGridJob ?? null);
     if (!groundGrid) return;
     const groundGeo = keep(groundGrid);
     if (!await pace(true)) return;

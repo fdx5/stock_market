@@ -1,0 +1,542 @@
+{
+  "baselineCommit": "48bf12d",
+  "before": [
+    {
+      "report": "tmp\\complex-perf-resume-paired-before-1\\report.json",
+      "environment": {
+        "buildMode": "production",
+        "browser": "155.0.4283.33",
+        "fixture": "complex-perf-v1",
+        "renderScale": 1.5,
+        "cpuRate": 1,
+        "detailDelay": 0,
+        "pausedRail": false,
+        "featureMarkerRemoved": false
+      },
+      "firstMs": 1807,
+      "modelMs": 963,
+      "drops": 10,
+      "inputMaxMs": 134,
+      "loadingFrameMaxMs": 133.4000000000001,
+      "phases": {
+        "loading": {
+          "count": 91,
+          "drops": 9,
+          "maxMs": 133.4000000000001
+        },
+        "extras": {
+          "count": 226,
+          "drops": 1,
+          "maxMs": 33.29999999999973
+        },
+        "overview": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 17
+        },
+        "cameraTransition": {
+          "count": 62,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "street": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000109
+        },
+        "away": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.899999999999636
+        },
+        "switchLoading": {
+          "count": 630,
+          "drops": 0,
+          "maxMs": 17.100000000000364
+        },
+        "afterSwitch": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000291
+        },
+        "interaction": {
+          "count": 213,
+          "drops": 0,
+          "maxMs": 17.19999999999709
+        }
+      },
+      "errors": []
+    },
+    {
+      "report": "tmp\\complex-perf-resume-paired-before-2\\report.json",
+      "environment": {
+        "buildMode": "production",
+        "browser": "155.0.4283.33",
+        "fixture": "complex-perf-v1",
+        "renderScale": 1.5,
+        "cpuRate": 1,
+        "detailDelay": 0,
+        "pausedRail": false,
+        "featureMarkerRemoved": false
+      },
+      "firstMs": 1749,
+      "modelMs": 980,
+      "drops": 11,
+      "inputMaxMs": 130.5,
+      "loadingFrameMaxMs": 133.29999999999995,
+      "phases": {
+        "loading": {
+          "count": 86,
+          "drops": 10,
+          "maxMs": 133.29999999999995
+        },
+        "extras": {
+          "count": 231,
+          "drops": 1,
+          "maxMs": 33.40000000000009
+        },
+        "overview": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "cameraTransition": {
+          "count": 61,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "street": {
+          "count": 181,
+          "drops": 0,
+          "maxMs": 17.100000000000364
+        },
+        "away": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "switchLoading": {
+          "count": 631,
+          "drops": 0,
+          "maxMs": 17.099999999998545
+        },
+        "afterSwitch": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "interaction": {
+          "count": 227,
+          "drops": 0,
+          "maxMs": 17
+        }
+      },
+      "errors": []
+    },
+    {
+      "report": "tmp\\complex-perf-resume-paired-before-3\\report.json",
+      "environment": {
+        "buildMode": "production",
+        "browser": "155.0.4283.33",
+        "fixture": "complex-perf-v1",
+        "renderScale": 1.5,
+        "cpuRate": 1,
+        "detailDelay": 0,
+        "pausedRail": false,
+        "featureMarkerRemoved": false
+      },
+      "firstMs": 1519,
+      "modelMs": 962,
+      "drops": 10,
+      "inputMaxMs": 155.19999999995343,
+      "loadingFrameMaxMs": 166.39999999999998,
+      "phases": {
+        "loading": {
+          "count": 68,
+          "drops": 9,
+          "maxMs": 166.39999999999998
+        },
+        "extras": {
+          "count": 228,
+          "drops": 1,
+          "maxMs": 33.30000000000018
+        },
+        "overview": {
+          "count": 181,
+          "drops": 0,
+          "maxMs": 16.899999999999636
+        },
+        "cameraTransition": {
+          "count": 61,
+          "drops": 0,
+          "maxMs": 17.099999999998545
+        },
+        "street": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "away": {
+          "count": 181,
+          "drops": 0,
+          "maxMs": 16.899999999999636
+        },
+        "switchLoading": {
+          "count": 629,
+          "drops": 0,
+          "maxMs": 17
+        },
+        "afterSwitch": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 17
+        },
+        "interaction": {
+          "count": 207,
+          "drops": 0,
+          "maxMs": 16.80000000000291
+        }
+      },
+      "errors": []
+    }
+  ],
+  "candidate": [
+    {
+      "report": "tmp\\complex-perf-resume-no-height-1\\report.json",
+      "environment": {
+        "buildMode": "production",
+        "browser": "155.0.4283.33",
+        "fixture": "complex-perf-v1",
+        "renderScale": 1.5,
+        "cpuRate": 1,
+        "detailDelay": 0,
+        "pausedRail": false,
+        "featureMarkerRemoved": false
+      },
+      "firstMs": 1548,
+      "modelMs": 817,
+      "drops": 10,
+      "inputMaxMs": 134.29999999981374,
+      "loadingFrameMaxMs": 133.20000000000005,
+      "phases": {
+        "loading": {
+          "count": 138,
+          "drops": 9,
+          "maxMs": 133.20000000000005
+        },
+        "extras": {
+          "count": 226,
+          "drops": 0,
+          "maxMs": 16.900000000000546
+        },
+        "overview": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000109
+        },
+        "cameraTransition": {
+          "count": 62,
+          "drops": 0,
+          "maxMs": 16.899999999999636
+        },
+        "street": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "away": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000109
+        },
+        "switchLoading": {
+          "count": 629,
+          "drops": 1,
+          "maxMs": 33.29999999999927
+        },
+        "afterSwitch": {
+          "count": 181,
+          "drops": 0,
+          "maxMs": 16.899999999997817
+        },
+        "interaction": {
+          "count": 216,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        }
+      },
+      "errors": []
+    },
+    {
+      "report": "tmp\\complex-perf-resume-no-height-2\\report.json",
+      "environment": {
+        "buildMode": "production",
+        "browser": "155.0.4283.33",
+        "fixture": "complex-perf-v1",
+        "renderScale": 1.5,
+        "cpuRate": 1,
+        "detailDelay": 0,
+        "pausedRail": false,
+        "featureMarkerRemoved": false
+      },
+      "firstMs": 1587,
+      "modelMs": 838,
+      "drops": 8,
+      "inputMaxMs": 119.30000000004657,
+      "loadingFrameMaxMs": 116.60000000000002,
+      "phases": {
+        "loading": {
+          "count": 80,
+          "drops": 8,
+          "maxMs": 116.60000000000002
+        },
+        "extras": {
+          "count": 226,
+          "drops": 0,
+          "maxMs": 16.800000000000182
+        },
+        "overview": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000109
+        },
+        "cameraTransition": {
+          "count": 61,
+          "drops": 0,
+          "maxMs": 16.799999999999272
+        },
+        "street": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "away": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000109
+        },
+        "switchLoading": {
+          "count": 627,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "afterSwitch": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "interaction": {
+          "count": 210,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        }
+      },
+      "errors": []
+    },
+    {
+      "report": "tmp\\complex-perf-resume-no-height-3\\report.json",
+      "environment": {
+        "buildMode": "production",
+        "browser": "155.0.4283.33",
+        "fixture": "complex-perf-v1",
+        "renderScale": 1.5,
+        "cpuRate": 1,
+        "detailDelay": 0,
+        "pausedRail": false,
+        "featureMarkerRemoved": false
+      },
+      "firstMs": 1670,
+      "modelMs": 809,
+      "drops": 9,
+      "inputMaxMs": 104,
+      "loadingFrameMaxMs": 116.79999999999995,
+      "phases": {
+        "loading": {
+          "count": 85,
+          "drops": 9,
+          "maxMs": 116.79999999999995
+        },
+        "extras": {
+          "count": 230,
+          "drops": 0,
+          "maxMs": 17
+        },
+        "overview": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.899999999999636
+        },
+        "cameraTransition": {
+          "count": 62,
+          "drops": 0,
+          "maxMs": 16.80000000000109
+        },
+        "street": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000109
+        },
+        "away": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000109
+        },
+        "switchLoading": {
+          "count": 630,
+          "drops": 0,
+          "maxMs": 16.900000000001455
+        },
+        "afterSwitch": {
+          "count": 180,
+          "drops": 0,
+          "maxMs": 16.80000000000291
+        },
+        "interaction": {
+          "count": 204,
+          "drops": 0,
+          "maxMs": 16.89999999999418
+        }
+      },
+      "errors": []
+    }
+  ],
+  "speedup": 1.1020793950850662,
+  "timeReductionPercent": 9.262435677530013,
+  "strictPassed": false,
+  "stress": {
+    "report": "tmp\\complex-perf-resume-no-height-stress-valid\\report.json",
+    "environment": {
+      "buildMode": "production",
+      "browser": "155.0.4283.33",
+      "fixture": "complex-perf-v1",
+      "renderScale": 1.5,
+      "cpuRate": 4.0,
+      "detailDelay": 5.0,
+      "pausedRail": true,
+      "featureMarkerRemoved": true
+    },
+    "firstMs": 3023,
+    "modelMs": 2105,
+    "drops": 122,
+    "inputMaxMs": 254.5999999998603,
+    "loadingFrameMaxMs": 266.7999999999997,
+    "phases": {
+      "loading": {
+        "count": 199,
+        "drops": 27,
+        "maxMs": 266.7999999999997
+      },
+      "extras": {
+        "count": 316,
+        "drops": 20,
+        "maxMs": 83.40000000000055
+      },
+      "overview": {
+        "count": 182,
+        "drops": 1,
+        "maxMs": 33.399999999999636
+      },
+      "cameraTransition": {
+        "count": 51,
+        "drops": 9,
+        "maxMs": 66.70000000000073
+      },
+      "street": {
+        "count": 181,
+        "drops": 1,
+        "maxMs": 33.399999999999636
+      },
+      "away": {
+        "count": 181,
+        "drops": 0,
+        "maxMs": 16.80000000000291
+      },
+      "switchLoading": {
+        "count": 898,
+        "drops": 36,
+        "maxMs": 50.10000000000218
+      },
+      "afterSwitch": {
+        "count": 180,
+        "drops": 0,
+        "maxMs": 16.89999999999418
+      },
+      "interaction": {
+        "count": 300,
+        "drops": 28,
+        "maxMs": 50.099999999998545
+      }
+    },
+    "errors": []
+  },
+  "webgl": {
+    "report": "tmp\\complex-perf-resume-no-height-webgl-webgl\\report.json",
+    "environment": {
+      "buildMode": "production",
+      "browser": "155.0.4283.33",
+      "fixture": "complex-perf-v1",
+      "renderScale": 1.5,
+      "cpuRate": 1,
+      "detailDelay": 0,
+      "pausedRail": false,
+      "featureMarkerRemoved": false
+    },
+    "firstMs": 1737,
+    "modelMs": 1094,
+    "drops": 32,
+    "inputMaxMs": 351,
+    "loadingFrameMaxMs": 850.1999999999999,
+    "phases": {
+      "loading": {
+        "count": 61,
+        "drops": 7,
+        "maxMs": 850.1999999999999
+      },
+      "extras": {
+        "count": 243,
+        "drops": 4,
+        "maxMs": 120.19999999999982
+      },
+      "overview": {
+        "count": 180,
+        "drops": 5,
+        "maxMs": 116.79999999999927
+      },
+      "cameraTransition": {
+        "count": 64,
+        "drops": 0,
+        "maxMs": 16.80000000000109
+      },
+      "street": {
+        "count": 180,
+        "drops": 0,
+        "maxMs": 16.900000000001455
+      },
+      "away": {
+        "count": 180,
+        "drops": 0,
+        "maxMs": 16.80000000000291
+      },
+      "switchLoading": {
+        "count": 605,
+        "drops": 16,
+        "maxMs": 100.09999999999854
+      },
+      "afterSwitch": {
+        "count": 180,
+        "drops": 0,
+        "maxMs": 16.80000000000291
+      },
+      "interaction": {
+        "count": 232,
+        "drops": 0,
+        "maxMs": 16.900000000001455
+      }
+    },
+    "errors": []
+  },
+  "rejectedExperiments": [
+    "Early neighbour submission: repeated first display 1812/2094/1861ms; removed",
+    "ImageDecoder detail upload: roof mip 0 differs by 2/255; removed"
+  ]
+}

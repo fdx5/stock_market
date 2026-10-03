@@ -18,6 +18,7 @@ args.add_argument('--label', default='after')
 args.add_argument('--webgl', action='store_true')
 args.add_argument('--base-url', default='http://127.0.0.1:5173')
 args.add_argument('--production', action='store_true', help='build an isolated harness and serve it without HMR')
+args.add_argument('--reuse-build', type=Path, help='serve a previously built production harness for paired repeat measurements')
 args.add_argument('--stall-detail-seconds',type=float,default=0)
 args.add_argument('--missing-feature-marker',action='store_true')
 args.add_argument('--fail-webgpu-pipeline',action='store_true',help='verify immediate compatibility fallback after a real pipeline rejection')
@@ -29,6 +30,8 @@ args.add_argument('--verify-shaders',action='store_true')
 args.add_argument('--cpu-rate',type=float,default=1,help='CDP CPU slowdown rate; match before/after')
 args.add_argument('--on-page', action='store_true', help='control: original painting on the page')
 opts = args.parse_args()
+if opts.reuse_build and not opts.production:
+    args.error('--reuse-build requires --production')
 root = Path(__file__).resolve().parents[2]
 out = root / 'tmp' / ('complex-perf-' + opts.label + ('-webgl' if opts.webgl else ''))
 out.mkdir(parents=True, exist_ok=True)
@@ -71,13 +74,20 @@ paths[1].write_text('<!doctype html><html><head><meta name="viewport" content="w
 if opts.production:
     import os
     config = root / ('frontend/vite.perf-task-' + str(os.getpid()) + '.config.mjs')
-    build = out / 'build'
+    build = opts.reuse_build.resolve() if opts.reuse_build else out / 'build'
+    baked = {'pausedRail': opts.paused_rail, 'onPage': opts.on_page}
+    if opts.reuse_build:
+        assert (build / '__perf3d.html').is_file(), 'Reusable harness is missing'
+        settings = build / '__perf-config.json'
+        assert settings.is_file() and json.loads(settings.read_text(encoding='utf8')) == baked, 'Reusable harness has different baked fixture options'
     config.write_text('''import {defineConfig} from 'vite';import react from '@vitejs/plugin-react';import paintAssetsPlugin from './paintAssetsPlugin.mjs';
 export default defineConfig({plugins:[react(),paintAssetsPlugin()],publicDir:false,define:{'import.meta.env.VITE_FILM':'"1"',
 'import.meta.env.VITE_STATIC_CDN':'"http://127.0.0.1:5179/__slow3d"','import.meta.env.VITE_PAINT_ON_PAGE':%s},
 build:{outDir:%s,rollupOptions:{input:'__perf3d.html'}}});''' % ('"1"' if opts.on_page else 'undefined', json.dumps(str(build))), encoding='utf-8')
     atexit.register(lambda: config.unlink(missing_ok=True))
-    subprocess.run(['node', 'node_modules/vite/bin/vite.js', 'build', '--config', config.name], cwd=root/'frontend', check=True, stdout=subprocess.DEVNULL)
+    if not opts.reuse_build:
+        subprocess.run(['node', 'node_modules/vite/bin/vite.js', 'build', '--config', config.name], cwd=root/'frontend', check=True, stdout=subprocess.DEVNULL)
+        (build / '__perf-config.json').write_text(json.dumps(baked), encoding='utf8')
     class Handler(http.server.SimpleHTTPRequestHandler):
         def do_GET(self):
             if self.path.startswith('/__slow3d/3d/detail') and opts.stall_detail_seconds:

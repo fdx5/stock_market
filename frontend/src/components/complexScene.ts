@@ -191,9 +191,10 @@ export const facadeTextures = (p: Palette, seed: number) => runNow(facadeSteps(p
 export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal?: HTMLCanvasElement) {
   // (scale: the same drawing on larger canvases — the complex being viewed gets 2x)
   const W = 1024, H = 928, cw = W / BAYS, ch = H / ROWS, k = scale;
-  const color = canvas(W * k, H * k), height = canvas(W * k, H * k), rm = canvas(W * k, H * k), glow = canvas(W * k, H * k), open = canvas(W * k, H * k);
-  const g = color.getContext("2d")!, hh = height.getContext("2d")!, r = rm.getContext("2d")!, e = glow.getContext("2d")!;
-  for (const c of [g, hh, r, e]) c.scale(k, k);
+  const color = canvas(W * k, H * k), height = preparedNormal ? null : canvas(W * k, H * k), rm = canvas(W * k, H * k), glow = canvas(W * k, H * k), open = canvas(W * k, H * k);
+  const g = color.getContext("2d")!, hh = height?.getContext("2d") ?? null, r = rm.getContext("2d")!, e = glow.getContext("2d")!;
+  for (const c of [g, r, e]) c.scale(k, k);
+  hh?.scale(k, k);
   // Where the glass shows the room behind it (the lit-window map's alpha): clear glass,
   // not the curtains, frames or rail. The WebGPU view draws a room there (interior
   // mapping); everything else ignores it.
@@ -204,7 +205,7 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
   const slab = mixHex(p.wall, p.wall2, 0.25);
 
   g.fillStyle = p.wall; g.fillRect(0, 0, W, H);
-  hh.fillStyle = "rgb(140,140,140)"; hh.fillRect(0, 0, W, H);
+  if (hh) { hh.fillStyle = "rgb(140,140,140)"; hh.fillRect(0, 0, W, H); }
   r.fillStyle = "rgb(0,210,0)"; r.fillRect(0, 0, W, H);
   e.fillStyle = "#000"; e.fillRect(0, 0, W, H);
   // Paint texture and rain streaks running down from each slab.
@@ -229,14 +230,14 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
       if (bay % 4 === 3) {
         // Pilaster with the outdoor-unit louvre beside it.
         g.fillStyle = p.wall2; g.fillRect(x + cw * 0.62, y, cw * 0.38, ch);
-        hh.fillStyle = "rgb(175,175,175)"; hh.fillRect(x + cw * 0.62, y, cw * 0.38, ch);
+        if (hh) { hh.fillStyle = "rgb(175,175,175)"; hh.fillRect(x + cw * 0.62, y, cw * 0.38, ch); }
         const lx = x + cw * 0.08, ly = y + ch * 0.16, lw = cw * 0.48, lh = ch * 0.66;
         g.fillStyle = "#4a4e52"; g.fillRect(lx, ly, lw, lh);
-        hh.fillStyle = "rgb(80,80,80)"; hh.fillRect(lx, ly, lw, lh);
+        if (hh) { hh.fillStyle = "rgb(80,80,80)"; hh.fillRect(lx, ly, lw, lh); }
         r.fillStyle = "rgb(0,120,150)"; r.fillRect(lx, ly, lw, lh);
         for (let s = ly + 3; s < ly + lh - 3; s += 7) {
           g.fillStyle = "#8d9296"; g.fillRect(lx + 3, s, lw - 6, 3);
-          hh.fillStyle = "rgb(125,125,125)"; hh.fillRect(lx + 3, s, lw - 6, 3);
+          if (hh) { hh.fillStyle = "rgb(125,125,125)"; hh.fillRect(lx + 3, s, lw - 6, 3); }
         }
         g.strokeStyle = "#d8dadb"; g.lineWidth = 3; g.strokeRect(lx, ly, lw, lh);
         continue;
@@ -260,7 +261,7 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
       const sh = g.createLinearGradient(0, wy, 0, wy + 16);
       sh.addColorStop(0, "rgba(0,0,0,0.45)"); sh.addColorStop(1, "rgba(0,0,0,0)");
       g.fillStyle = sh; g.fillRect(wx, wy, ww, 16);
-      hh.fillStyle = "rgb(35,35,35)"; hh.fillRect(wx, wy, ww, wh);
+      if (hh) { hh.fillStyle = "rgb(35,35,35)"; hh.fillRect(wx, wy, ww, wh); }
       r.fillStyle = "rgb(0,14,150)"; r.fillRect(wx, wy, ww, wh);
       if (rnd() < 0.42) {
         const [lr, lg, lb] = lit[Math.floor(rnd() * lit.length)];
@@ -277,9 +278,9 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
       g.fillRect(wx, wy + wh * 0.24, ww, 3);
       cuts.push([wx - 1, wy - 1, ww + 2, 7, 1], [wx - 1, wy + wh - 6, ww + 2, 7, 1], [wx - 1, wy, 7, wh, 1], [wx + ww - 6, wy, 7, wh, 1],
         [wx + ww / 2 - 3, wy, 6, wh, 1], [wx, wy + wh * 0.24 - 1, ww, 5, 1]);
-      hh.fillStyle = "rgb(120,120,120)";
-      hh.fillRect(wx + ww / 2 - 2, wy, 4, wh); hh.fillRect(wx, wy + wh * 0.24, ww, 3);
-      hh.strokeStyle = "rgb(120,120,120)"; hh.lineWidth = 4; hh.strokeRect(wx + 2, wy + 2, ww - 4, wh - 4);
+      if (hh) { hh.fillStyle = "rgb(120,120,120)"; }
+      if (hh) { hh.fillRect(wx + ww / 2 - 2, wy, 4, wh); hh.fillRect(wx, wy + wh * 0.24, ww, 3); }
+      if (hh) { hh.strokeStyle = "rgb(120,120,120)"; hh.lineWidth = 4; hh.strokeRect(wx + 2, wy + 2, ww - 4, wh - 4); }
       // Glass balcony rail across the lower third.
       const ry = wy + wh * 0.64;
       g.fillStyle = "rgba(190,210,220,0.22)"; g.fillRect(wx, ry, ww, wy + wh - ry);
@@ -289,13 +290,13 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
       for (let px = wx + 6; px < wx + ww; px += ww / 4) cuts.push([px - 1, ry, 4, wy + wh - ry, 1]);
       // (the rail's tinted glass: the room a little dimmer through it)
       cuts.push([wx, ry + 3, ww, wy + wh - ry - 3, 0.2]);
-      hh.fillStyle = "rgb(200,200,200)"; hh.fillRect(wx - 2, ry - 2, ww + 4, 4);
+      if (hh) { hh.fillStyle = "rgb(200,200,200)"; hh.fillRect(wx - 2, ry - 2, ww + 4, 4); }
       r.fillStyle = "rgb(0,90,40)"; r.fillRect(wx - 2, ry - 2, ww + 4, 4);
     }
     // Floor slab band, the strongest horizontal line of a Korean apartment facade.
     g.fillStyle = slab; g.fillRect(0, y + ch * 0.9, W, ch * 0.1);
     g.fillStyle = "rgba(0,0,0,0.22)"; g.fillRect(0, y + ch, W, 3);
-    hh.fillStyle = "rgb(205,205,205)"; hh.fillRect(0, y + ch * 0.9, W, ch * 0.1);
+    if (hh) { hh.fillStyle = "rgb(205,205,205)"; hh.fillRect(0, y + ch * 0.9, W, ch * 0.1); }
     r.fillStyle = "rgb(0,190,0)"; r.fillRect(0, y + ch * 0.9, W, ch * 0.1);
   }
   yield;
@@ -308,13 +309,16 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
   for (const [x, y, w, h, a] of cuts) { o.globalAlpha = a; o.fillRect(x, y, w, h); }
   e.setTransform(1, 0, 0, 1, 0, 0);
   e.globalCompositeOperation = "destination-in"; e.drawImage(open, 0, 0); e.globalCompositeOperation = "source-over";
-  // Soften the height steps into bevels before taking normals.
-  const soft = canvas(W * k, H * k);
-  const sctx = soft.getContext("2d")!;
-  sctx.filter = `blur(${1.2 * k}px)`;
-  sctx.drawImage(height, 0, 0);
-  // (the same slopes at twice the texels: twice the strength per texel step)
-  const normal = preparedNormal ?? (yield* normalCanvas(soft, 5 * k));
+  // A verified normal map needs neither the discarded height paint nor its blur.
+  // The original generator remains the fallback when prepared maps are unavailable.
+  let normal = preparedNormal;
+  if (!normal) {
+    const soft = canvas(W * k, H * k);
+    const sctx = soft.getContext("2d")!;
+    sctx.filter = `blur(${1.2 * k}px)`;
+    sctx.drawImage(height!, 0, 0);
+    normal = yield* normalCanvas(soft, 5 * k);
+  }
   const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, BAYS * BAY_M, ROWS * FLOOR_M, GROUND_M);
   return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false), emissiveMap: tile(glow, true) };
 }
@@ -623,8 +627,8 @@ export async function warmMaterials(group: THREE.Group, next: () => Promise<void
 export const plinthTextures = (seed: number, tone: string) => runNow(plinthSteps(seed, tone));
 export function* plinthSteps(seed: number, tone: string, preparedNormal?: HTMLCanvasElement) {
   const W = 512, H = 512, pw = W / 4, ph = H / 8;
-  const color = canvas(W, H), height = canvas(W, H), rm = canvas(W, H);
-  const g = color.getContext("2d")!, hh = height.getContext("2d")!, r = rm.getContext("2d")!;
+  const color = canvas(W, H), height = preparedNormal ? null : canvas(W, H), rm = canvas(W, H);
+  const g = color.getContext("2d")!, hh = height?.getContext("2d") ?? null, r = rm.getContext("2d")!;
   const rnd = rng(seed);
   const base = new THREE.Color(tone);
   for (let row = 0; row < 8; row++) for (let col = 0; col < 4; col++) {
@@ -636,11 +640,11 @@ export function* plinthSteps(seed: number, tone: string, preparedNormal?: HTMLCa
     }
   }
   r.fillStyle = "rgb(0,120,0)"; r.fillRect(0, 0, W, H);
-  hh.fillStyle = "rgb(170,170,170)"; hh.fillRect(0, 0, W, H);
-  g.fillStyle = "rgba(40,38,34,0.55)"; hh.fillStyle = "rgb(60,60,60)"; r.fillStyle = "rgb(0,220,0)";
-  for (let row = 0; row <= 8; row++) { g.fillRect(0, row * ph - 1, W, 2.5); hh.fillRect(0, row * ph - 1, W, 2.5); r.fillRect(0, row * ph - 1, W, 2.5); }
-  for (let col = 0; col <= 4; col++) { g.fillRect(col * pw - 1, 0, 2.5, H); hh.fillRect(col * pw - 1, 0, 2.5, H); r.fillRect(col * pw - 1, 0, 2.5, H); }
-  const normal = preparedNormal ?? (yield* normalCanvas(height, 3));
+  if (hh) { hh.fillStyle = "rgb(170,170,170)"; hh.fillRect(0, 0, W, H); }
+  g.fillStyle = "rgba(40,38,34,0.55)"; if (hh) hh.fillStyle = "rgb(60,60,60)"; r.fillStyle = "rgb(0,220,0)";
+  for (let row = 0; row <= 8; row++) { g.fillRect(0, row * ph - 1, W, 2.5); hh?.fillRect(0, row * ph - 1, W, 2.5); r.fillRect(0, row * ph - 1, W, 2.5); }
+  for (let col = 0; col <= 4; col++) { g.fillRect(col * pw - 1, 0, 2.5, H); hh?.fillRect(col * pw - 1, 0, 2.5, H); r.fillRect(col * pw - 1, 0, 2.5, H); }
+  const normal = preparedNormal ?? (yield* normalCanvas(height!, 3));
   const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, 4.8, 4.8, 2);
   return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(rm, false) };
 }
