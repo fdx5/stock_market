@@ -1,3 +1,4 @@
+import MarketChart from "../charts/MarketChart";
 import { MarketMapItem } from "../api/client";
 import { useLanguage } from "../i18n/LanguageContext";
 import { Link, navigate } from "../router";
@@ -32,18 +33,8 @@ function Histogram({ breadth }: { breadth: Breadth }) {
           {L("종목", " names")}
         </small>
       </div>
-      <div className="d2-hist-plot" role="img" aria-label={HISTOGRAM_BINS.map((b, i) => `${b.label}% ${breadth.histogram[i]}`).join(", ")}>
-        {HISTOGRAM_BINS.map((bin, i) => {
-          const n = breadth.histogram[i];
-          return (
-            <div key={bin.label} className={`d2-hist-col is-${bin.tone}`}>
-              <b>{n}</b>
-              <span className="d2-hist-bar" style={{ height: `${(n / max) * 100}%` }} />
-              <small>{bin.label}</small>
-            </div>
-          );
-        })}
-      </div>
+      <MarketChart height={190} dates={HISTOGRAM_BINS.map(b=>b.label)} label={L("등락률 분포","Distribution of moves")}
+        series={[{name:L("종목 수","Stocks"),type:"bar",values:breadth.histogram,colors:HISTOGRAM_BINS.map(b=>b.tone==="up"?"#e65d68":b.tone==="down"?"#438dde":"#a8a09a")}]} />
       <figcaption>
         {L("가로축은 오늘 등락률(%) 구간, 세로축은 종목 수. 가운데 '0'은 보합.", "Buckets of today's move (%); bar height is the number of names. '0' is unchanged.")}
       </figcaption>
@@ -143,23 +134,11 @@ function Tilt({ breadth }: { breadth: Breadth }) {
   );
 }
 
-function SectorBars({ title, rows, span, tone }: { title: string; rows: SectorHeat[]; span: number; tone: "up" | "down" }) {
-  return (
-    <div className={`d2-sectors is-${tone}`}>
-      <h4>{title}</h4>
-      <ol>
-        {rows.map((r) => (
-          <li key={r.sector}>
-            <span className="d2-sectors-name">{r.sector}</span>
-            <span className="d2-sectors-track">
-              <i className={r.change >= 0 ? "is-up" : "is-down"} style={{ width: `${Math.min(100, (Math.abs(r.change) / span) * 100)}%` }} />
-            </span>
-            <b className={r.change >= 0 ? "is-up" : "is-down"}>{pct(r.change)}</b>
-          </li>
-        ))}
-      </ol>
-    </div>
-  );
+function SectorBars({ title, rows, tone }: { title: string; rows: SectorHeat[]; span: number; tone: "up" | "down" }) {
+  return <section className={`d2-sectors is-${tone}`}><h4>{title}</h4>
+    <MarketChart height={Math.max(150,rows.length*31)} dates={rows.map(r=>r.sector)} horizontal label={title}
+      series={[{name:title,type:"bar",values:rows.map(r=>r.change),diverging:true}]} />
+  </section>;
 }
 
 function LimitList({ title, items, tone }: { title: string; items: MarketMapItem[]; tone: "up" | "down" }) {

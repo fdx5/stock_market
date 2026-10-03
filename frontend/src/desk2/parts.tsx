@@ -1,10 +1,10 @@
+import MarketChart from "../charts/MarketChart";
 import { ReactNode } from "react";
 import { Tone } from "./lib";
 
 /* The small furniture every section of the broadsheet shares. */
 
-/** A trend line, nothing more. `vector-effect` keeps the stroke one weight at
- * any stretch, so the same component serves a 60px tape cell and a 300px tile. */
+/** Responsive ECharts trend; drawing starts when its tile enters the viewport. */
 export function Spark({
   points,
   tone,
@@ -19,26 +19,8 @@ export function Spark({
   /** Draws a dashed reference at this value — the previous close, usually. */
   baseline?: number | null;
 }) {
-  const clean = points.filter((p) => Number.isFinite(p));
-  if (clean.length < 2) return <span className={`d2-spark d2-spark--empty ${className}`} aria-hidden="true" />;
-  const W = 100;
-  const H = 32;
-  const pad = 2;
-  const lo = Math.min(...clean, baseline ?? Infinity);
-  const hi = Math.max(...clean, baseline ?? -Infinity);
-  const range = hi - lo || 1;
-  const x = (i: number) => (i / (clean.length - 1)) * W;
-  const y = (v: number) => pad + (1 - (v - lo) / range) * (H - pad * 2);
-  const line = clean.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(2)},${y(v).toFixed(2)}`).join(" ");
-  return (
-    <svg className={`d2-spark is-${tone} ${className}`} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" aria-hidden="true">
-      {fill && <path className="d2-spark-area" d={`${line} L${W},${H} L0,${H} Z`} />}
-      {baseline !== undefined && baseline !== null && (
-        <line className="d2-spark-base" x1="0" x2={W} y1={y(baseline)} y2={y(baseline)} vectorEffect="non-scaling-stroke" />
-      )}
-      <path className="d2-spark-line" d={line} vectorEffect="non-scaling-stroke" />
-    </svg>
-  );
+  return <MarketChart className={`d2-spark is-${tone} ${className}`} compact baseline={baseline} label="Price trend"
+    series={[{name:"Price",values:points.map(v=>Number.isFinite(v)?v:null),color:tone==="down"?"var(--down)":tone==="up"?"var(--up)":"var(--ink-3)",fill}]} />;
 }
 
 /** A numbered section head, set like a newspaper's section flag: the number in

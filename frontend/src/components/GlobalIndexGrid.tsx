@@ -1,3 +1,4 @@
+import MarketChart from "../charts/MarketChart";
 import { useEffect, useState } from "react";
 import { GlobalIndexPoint, GlobalIndexWidget, api } from "../api/client";
 import { startVisibilityAwareInterval } from "../pollVisibility";
@@ -22,25 +23,8 @@ function changeClass(pct: number): string {
  * gridlines, or hover; a 2px line + a light area wash in the same up/down status color
  * the rest of the app already uses for price direction (--up-color/--down-color). */
 function Sparkline({ points, colorVar }: { points: GlobalIndexPoint[]; colorVar: string }) {
-  if (points.length < 2) return <div className="global-index-spark global-index-spark--empty" />;
-
-  const width = 120;
-  const height = 40;
-  const values = points.map((p) => p.close);
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const range = max - min || 1;
-  const stepX = width / (points.length - 1);
-  const coords = values.map((v, i) => [i * stepX, height - ((v - min) / range) * height] as const);
-  const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  const areaPath = `${linePath} L ${width},${height} L 0,${height} Z`;
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="global-index-spark" preserveAspectRatio="none" aria-hidden="true">
-      <path d={areaPath} fill={colorVar} opacity={0.1} stroke="none" />
-      <path d={linePath} fill="none" stroke={colorVar} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
-    </svg>
-  );
+  return <MarketChart className="global-index-spark" compact label="Global index trend"
+    series={[{name:"Index",values:points.map(p=>p.close),color:`var(${colorVar})`,fill:true}]} />;
 }
 
 function TileFace({ item }: { item: GlobalIndexWidget }) {

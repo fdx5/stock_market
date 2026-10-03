@@ -1,3 +1,4 @@
+import MarketChart from "../../charts/MarketChart";
 import { useMemo, useState } from "react";
 import type { InvestorTrendRecord } from "../../api/client";
 import { useLanguage } from "../../i18n/LanguageContext";
@@ -49,15 +50,6 @@ export default function Flows({ rows, code }: { rows: InvestorTrendRecord[]; cod
     let acc = 0;
     return chrono.map((r) => (acc += r[s.key]));
   });
-  const all = cum.flat();
-  const lo = Math.min(0, ...all);
-  const hi = Math.max(0, ...all);
-  const range = hi - lo || 1;
-  const W = 600;
-  const H = 180;
-  const x = (i: number) => (chrono.length > 1 ? (i / (chrono.length - 1)) * W : W / 2);
-  const y = (v: number) => 8 + (1 - (v - lo) / range) * (H - 16);
-
   const dayMax = Math.max(1, ...shown.flatMap((r) => SIDES.map((s) => Math.abs(r[s.key]))));
 
   if (rows.length === 0) return <p className="d2-empty">{L("수급 데이터가 없습니다.", "No flow data.")}</p>;
@@ -99,12 +91,8 @@ export default function Flows({ rows, code }: { rows: InvestorTrendRecord[]; cod
       </div>
 
       <figure className="sk-flows-chart">
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={L("투자자별 누적 순매수 추이", "Cumulative net buying by investor")}>
-          <line className="sk-zero" x1="0" x2={W} y1={y(0)} y2={y(0)} vectorEffect="non-scaling-stroke" />
-          {cum.map((series, i) => (
-            <path key={SIDES[i].key} className={`sk-cum ${SIDES[i].cls}`} d={series.map((v, j) => `${j ? "L" : "M"}${x(j).toFixed(1)},${y(v).toFixed(1)}`).join("")} vectorEffect="non-scaling-stroke" />
-          ))}
-        </svg>
+        <MarketChart height={180} dates={chrono.map(r=>r.date)} label="Cumulative investor flows" baseline={0}
+          series={cum.map((values,i)=>({name:L(SIDES[i].ko,SIDES[i].en),values,color:["#438dde","#c28d36","#8570d8"][i]}))} />
         <figcaption>
           ▲ {L(`최근 ${days}거래일 누적 순매수(억원). 가로선은 0.`, `Cumulative net buying over ${days} sessions (KRW 100M). The rule is zero.`)}
           <span className="sk-legend">

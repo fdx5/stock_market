@@ -1,4 +1,5 @@
-import { PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import TrendChart from "../../charts/TrendChart";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { GlobalTop100Item, api } from "../../api/client";
 import CompanyLogo from "../../components/CompanyLogo";
 import { formatPrice } from "../../components/GlobalTop100Sparkline";
@@ -131,43 +132,9 @@ function Rating({ item }: { item: GlobalTop100Item }) {
 }
 
 /** 90 sessions of closes with a readout that follows the pointer. */
-function Spark({ item }: { item: GlobalTop100Item }) {
-  const L = useL();
-  const ref = useRef<SVGSVGElement>(null);
-  const [hover, setHover] = useState<number | null>(null);
-  const pts = item.spark_points;
-  const geo = useMemo(() => {
-    if (pts.length < 2) return null;
-    const lo = Math.min(...pts);
-    const hi = Math.max(...pts);
-    const span = hi - lo || 1;
-    const c = pts.map((v, i) => [(i / (pts.length - 1)) * 100, 94 - ((v - lo) / span) * 88] as const);
-    return { c, line: c.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" "), base: 94 - ((pts[0] - lo) / span) * 88 };
-  }, [pts]);
-  if (!geo) return <span className="gc-spark is-empty">{L("차트 없음", "No chart")}</span>;
-  const trend = toneOf(pts[pts.length - 1] - pts[0]);
-  const i = hover ?? pts.length - 1;
-  const [hx, hy] = geo.c[i];
-  const offset = item.spark_dates.length - pts.length;
-  const d = item.spark_dates[offset + i] ?? "";
-  const move = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const r = ref.current?.getBoundingClientRect();
-    if (!r || r.width === 0) return;
-    setHover(Math.min(pts.length - 1, Math.max(0, Math.round(((e.clientX - r.left) / r.width) * (pts.length - 1)))));
-  };
-  return (
-    <span className={`gc-spark is-${trend}`}>
-      <svg ref={ref} viewBox="0 0 100 100" preserveAspectRatio="none" onPointerMove={move} onPointerLeave={() => setHover(null)} role="img" aria-label={L("최근 시세 추이", "Recent prices")}>
-        <line x1="0" x2="100" y1={geo.base} y2={geo.base} className="gc-spark-base" vectorEffect="non-scaling-stroke" />
-        <polyline points={geo.line} className="gc-spark-line" vectorEffect="non-scaling-stroke" />
-        {hover !== null && <line x1={hx} x2={hx} y1="0" y2="100" className="gc-spark-cross" vectorEffect="non-scaling-stroke" />}
-      </svg>
-      <i className="gc-spark-dot" style={{ left: `${hx}%`, top: `${hy}%` }} />
-      <small className={hover !== null ? "is-on" : ""}>
-        <b>{formatPrice(pts[i], item.currency)}</b> {hover === null || i === pts.length - 1 ? L("현재", "now") : `${d.slice(4, 6)}.${d.slice(6, 8)}`}
-      </small>
-    </span>
-  );
+function Spark({item}:{item:GlobalTop100Item}) {
+ return <TrendChart points={item.spark_points} dates={item.spark_dates} trend={toneOf(item.spark_points[item.spark_points.length-1]-item.spark_points[0])}
+ className="gc-spark" format={v=>formatPrice(v,item.currency)} />;
 }
 
 function Detail({ item }: { item: GlobalTop100Item }) {

@@ -1,4 +1,5 @@
-import { PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
+import TrendChart from "../../charts/TrendChart";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StockBoard, StockBoardItem, StockBoardSector, api, mergeBoardRefresh } from "../../api/client";
 import { useLanguage } from "../../i18n/LanguageContext";
 import { useTranslatedTexts } from "../../i18n/useTranslatedTexts";
@@ -85,47 +86,8 @@ function readUrl() {
   };
 }
 
-function Spark({ points, dates, fmt, trend }: { points: number[]; dates: string[]; fmt: (v: number) => string; trend: "up" | "down" | "flat" }) {
-  const L = useL();
-  const ref = useRef<SVGSVGElement>(null);
-  const [hover, setHover] = useState<number | null>(null);
-  const g = useMemo(() => {
-    if (points.length < 2) return null;
-    const lo = Math.min(...points);
-    const hi = Math.max(...points);
-    const span = hi - lo || 1;
-    const x = (i: number) => (i / (points.length - 1)) * 100;
-    const y = (v: number) => 94 - ((v - lo) / span) * 88;
-    const c = points.map((v, i) => [x(i), y(v)] as const);
-    const line = c.map(([a, b]) => `${a.toFixed(2)},${b.toFixed(2)}`).join(" ");
-    return { c, line, area: `0,100 ${line} 100,100`, base: y(points[0]) };
-  }, [points]);
-  if (!g) return <div className="bd-spark is-empty">{L("차트 데이터 없음", "No chart data")}</div>;
-  const i = hover ?? points.length - 1;
-  const [hx, hy] = g.c[i];
-  const off = dates.length - points.length;
-  const d = dates[off + i] ?? "";
-  const label = i === points.length - 1 ? L("현재", "Now") : d.length === 8 ? `${d.slice(4, 6)}.${d.slice(6)}` : d;
-  const move = (e: ReactPointerEvent<SVGSVGElement>) => {
-    const r = ref.current?.getBoundingClientRect();
-    if (!r || !r.width) return;
-    setHover(Math.min(points.length - 1, Math.max(0, Math.round(((e.clientX - r.left) / r.width) * (points.length - 1)))));
-  };
-  return (
-    <div className={`bd-spark is-${trend}`}>
-      <svg ref={ref} viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={L("최근 3개월 종가 추이", "Closes over three months")} onPointerMove={move} onPointerLeave={() => setHover(null)}>
-        <polyline className="bd-spark-area" points={g.area} />
-        <line className="bd-spark-base" x1="0" x2="100" y1={g.base} y2={g.base} vectorEffect="non-scaling-stroke" />
-        <polyline className="bd-spark-line" points={g.line} vectorEffect="non-scaling-stroke" />
-        {hover !== null && <line className="bd-spark-cross" x1={hx} x2={hx} y1="0" y2="100" vectorEffect="non-scaling-stroke" />}
-      </svg>
-      <span className="bd-spark-dot" style={{ left: `${hx}%`, top: `${hy}%` }} />
-      <span className={`bd-spark-read ${hover !== null ? "is-on" : ""}`}>
-        <b>{fmt(points[i])}</b>
-        <i>{label}</i>
-      </span>
-    </div>
-  );
+function Spark({points,dates,fmt,trend}:{points:number[];dates:string[];fmt:(v:number)=>string;trend:"up"|"down"|"flat"}) {
+ return <TrendChart points={points} dates={dates} trend={trend} className="bd-spark" format={fmt} />;
 }
 
 export default function BoardPage({ market }: { market: Market }) {

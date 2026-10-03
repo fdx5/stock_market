@@ -1,3 +1,4 @@
+import MarketChart from "../../charts/MarketChart";
 import type { IndicatorPoint } from "../../api/client";
 import { Spark } from "../parts";
 import { pct, toneOf, useL } from "../lib";
@@ -259,16 +260,6 @@ export default function Technicals({ points, currency }: { points: IndicatorPoin
 }
 
 function MacdBars({ values }: { values: (number | null)[] }) {
-  const clean = values.map((v) => (v == null || !Number.isFinite(v) ? 0 : v));
-  const max = Math.max(1e-9, ...clean.map(Math.abs));
-  const n = clean.length || 1;
-  return (
-    <svg className="sk-macd" viewBox={`0 0 ${n * 4} 40`} preserveAspectRatio="none" aria-hidden="true">
-      <line x1="0" x2={n * 4} y1="20" y2="20" className="sk-macd-zero" vectorEffect="non-scaling-stroke" />
-      {clean.map((v, i) => {
-        const h = (Math.abs(v) / max) * 19;
-        return <rect key={i} x={i * 4 + 0.5} width="3" y={v >= 0 ? 20 - h : 20} height={Math.max(h, 0.3)} className={v >= 0 ? "is-up" : "is-down"} />;
-      })}
-    </svg>
-  );
+  return <MarketChart className="sk-macd" compact baseline={0} label="MACD histogram"
+    series={[{name:"MACD",type:"bar",values,diverging:true}]} />;
 }

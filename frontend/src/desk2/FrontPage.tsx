@@ -1,3 +1,4 @@
+import MarketChart from "../charts/MarketChart";
 import { useEffect, useRef, useState } from "react";
 import { GlobalIndexWidget, IndexQuote, MarketInvestorSummary } from "../api/client";
 import { Lang, useLanguage } from "../i18n/LanguageContext";
@@ -218,34 +219,10 @@ function SinceLastVisit({ kospi, kosdaq, usdkrw }: { kospi: IndexQuote | null; k
 function Dial({ name, score }: { name: string; score: number | null }) {
   const { lang } = useLanguage();
   const value = score ?? 0;
-  // A half circle from 180° (fear) to 0° (greed).
-  const angle = Math.PI * (1 - value / 100);
-  const cx = 50,
-    cy = 50,
-    r = 38;
-  const nx = cx + Math.cos(angle) * (r - 6);
-  const ny = cy - Math.sin(angle) * (r - 6);
   const tone = score === null ? "unknown" : value <= 40 ? "fear" : value <= 60 ? "neutral" : "greed";
   return (
     <figure className={`d2-dial is-${tone}`}>
-      <svg viewBox="0 0 100 58" aria-hidden="true">
-        <path className="d2-dial-track" d={`M${cx - r},${cy} A${r},${r} 0 0 1 ${cx + r},${cy}`} />
-        {Array.from({ length: 11 }, (_, i) => {
-          const a = Math.PI * (1 - i / 10);
-          return (
-            <line
-              key={i}
-              className="d2-dial-tick"
-              x1={cx + Math.cos(a) * (r + 3)}
-              y1={cy - Math.sin(a) * (r + 3)}
-              x2={cx + Math.cos(a) * (r + (i % 5 === 0 ? 8 : 6))}
-              y2={cy - Math.sin(a) * (r + (i % 5 === 0 ? 8 : 6))}
-            />
-          );
-        })}
-        {score !== null && <line className="d2-dial-needle" x1={cx} y1={cy} x2={nx} y2={ny} />}
-        <circle className="d2-dial-hub" cx={cx} cy={cy} r="3" />
-      </svg>
+      <MarketChart series={[]} gauge={score} label={name} interactive={false} />
       <figcaption>
         <span>{name}</span>
         <b>{score ?? "—"}</b>
