@@ -6,7 +6,7 @@ export default function CloseChart({points,tone,currency,loading,compact=false}:
   const [range,setRange]=useState('3M');const [hover,setHover]=useState<number|null>(null);
   const rows=useMemo(()=>{const n=({"1M":21,"3M":63,"6M":126,"1Y":0} as Record<string,number>)[range];return (n?points.slice(-n):points).filter(p=>Number.isFinite(p.close));},[points,range]);
   const dates=useMemo(()=>rows.map(p=>p.date),[rows]);
-  const series=useMemo(()=>[{name:currency,values:rows.map(p=>p.close),color:tone==='down'?'var(--down)':'var(--up)',fill:true}],[rows,tone,currency]);
+  const series=useMemo(()=>[{name:currency,values:rows.map(p=>p.close),color:tone==='down'?'var(--down)':tone==='up'?'var(--up)':'var(--ink-3)',fill:true}],[rows,tone,currency]);
   const at=rows[hover??rows.length-1];
   return <figure className="market-financial"><header className="market-financial-head"><span className="market-financial-title">PRICE TREND</span>
     <div className="market-chart-tools" aria-label="기간">{['1M','3M','6M','1Y'].map(key=><button key={key} aria-pressed={range===key} onClick={()=>{setRange(key);setHover(null);}}>{key}</button>)}</div></header>
