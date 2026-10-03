@@ -1,6 +1,7 @@
 import type * as THREE from "three";
 import { frameSlice } from "./frameSlice";
 import { gridAt } from "./waterCore";
+import { continuousRoadGrade } from "./roadGrade";
 /* The ground's real relief around one complex (components/ComplexHologram.tsx).
  *
  * Source, best first: VWorld's national DEM (국토지리정보원, the WebGL 3D map's
@@ -300,9 +301,9 @@ export function gridNormals(geo: THREE.BufferGeometry) {
  * asphalt as bumps, and a road sampled at both edges leaned across. Under each road (and its
  * sidewalks) the ground is set to the road's own grade — the heights under the roads alone,
  * smoothed over ~16 m (a normalised masked blur: junctions agree, the hills beside a road
- * don't pull it), read at the nearest point of the centre line, so level across — then eased
- * back to the ground over FADE m. Where that would move the ground by metres (a road over a
- * river or a cut the DEM keeps) it is left as surveyed. A new Terrain; the given one unchanged. */
+ * don't pull it). Continuous slope envelopes remove large DEM steps too; the corridor
+ * eases back to the surveyed ground over FADE m. Bridge decks are applied separately.
+ * A new Terrain; the given one unchanged. */
 export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; width: number }[]): Promise<Terrain> {
   const g = t.grid;
   if (!g || !roads.length) return t;
@@ -319,7 +320,7 @@ export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; 
   const i0 = ci(x0 - pad), i1 = ci(x1 + pad), j0 = ci(y0 - pad), j1 = ci(y1 + pad);
   const W = i1 - i0 + 1, H = j1 - j0 + 1, N = W * H;
   if (W < 2 || H < 2) return t;
-  const near = new Float32Array(N).fill(Infinity), px = new Float32Array(N), py = new Float32Array(N), mask = new Float32Array(N);
+  const near = new Float32Array(N).fill(Infinity), mask = new Float32Array(N);
   let slice = performance.now();
   const pace = async () => { if (performance.now() - slice > 6) { await frameSlice(); slice = performance.now(); } };
   for (const r of roads) {
@@ -336,7 +337,7 @@ export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; 
         if (d > reach) continue;
         const k = (j - j0) * W + (i - i0);
         if (d <= core) mask[k] = 1;
-        if (d - hw < near[k]) { near[k] = d - hw; px[k] = qx; py[k] = qy; }
+        if (d - hw < near[k]) near[k] = d - hw;
       }
     }
   }
@@ -371,14 +372,23 @@ export async function gradeRoads(t: Terrain, roads: { line: [number, number][]; 
     }
     return w > 0 ? s / w : fallback;
   };
+  // A large DEM discrepancy used to disable grading entirely, preserving the
+  // very cliff it needed to remove. Bound the continuous grade in the corridor;
+  // terrain outside it remains surveyed and bridges are applied separately.
+  const grade = new Float32Array(N);
+  for (let j = 0; j < H; j++) {
+    for (let i = 0; i < W; i++) grade[j * W + i] = sAt(-R + (i0 + i) * cell, -R + (j0 + j) * cell, h[(j0 + j) * n + i0 + i]);
+    await pace();
+  }
+  const bounded = continuousRoadGrade(grade, W, H, cell);
   const out = Float32Array.from(h);
   const ease = (v: number) => { const c = Math.max(0, Math.min(1, v)); return c * c * (3 - 2 * c); };
   for (let k = 0; k < N; k++) {
     const e = near[k];
     if (!Number.isFinite(e)) continue;
     const idx = (j0 + Math.floor(k / W)) * n + i0 + (k % W), was = h[idx];
-    const to = sAt(px[k], py[k], was), diff = to - was;
-    const w = (1 - ease((e - SIDE) / FADE)) * (1 - ease((Math.abs(diff) - 1.5) / 1.5));
+    const to = bounded[k], diff = to - was;
+    const w = 1 - ease((e - SIDE) / FADE);
     out[idx] = was + diff * w;
   }
   const at = gridAt({ h: out, n, R, cell });

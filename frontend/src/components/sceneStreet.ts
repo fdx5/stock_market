@@ -33,7 +33,7 @@ import { coupangTruck, cybertruck, heroSurface, type HeroName, type HeroShape } 
  * ground (decks too). */
 export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain = FLAT) {
   const pos: number[] = [], uv: number[] = [];
-  const LIFT = 0.025, STEP = 3, TILE = 4;
+  const LIFT = 0.08, STEP = 3, TILE = 4;
   const vtx = (x: number, y: number) => { pos.push(x, terrain.at(x, y) + LIFT, -y); uv.push(x / TILE, y / TILE); };
   const ends: { x: number; y: number; hx: number; hy: number; w: number }[] = [];
   let slice = performance.now();
@@ -54,9 +54,14 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
     });
     for (let i = 1; i < pts.length; i++) {
       const [ax, ay] = pts[i - 1], [bx, by] = pts[i], [anx, any] = nrm[i - 1], [bnx, bny] = nrm[i];
-      // (wound to face up: world x, up, -y)
-      vtx(ax + anx * h, ay + any * h); vtx(ax - anx * h, ay - any * h); vtx(bx - bnx * h, by - bny * h);
-      vtx(ax + anx * h, ay + any * h); vtx(bx - bnx * h, by - bny * h); vtx(bx + bnx * h, by + bny * h);
+      // Sample across the carriageway too: one triangle across a wide road
+      // bridged over local grade changes and could disappear under the ground.
+      const across = Math.max(1, Math.ceil(r.width / STEP));
+      for (let lane = 0; lane < across; lane++) {
+        const left = h - r.width * lane / across, right = h - r.width * (lane + 1) / across;
+        vtx(ax + anx * left, ay + any * left); vtx(ax + anx * right, ay + any * right); vtx(bx + bnx * right, by + bny * right);
+        vtx(ax + anx * left, ay + any * left); vtx(bx + bnx * right, by + bny * right); vtx(bx + bnx * left, by + bny * left);
+      }
     }
     const n = pts.length;
     const d0x = pts[1][0] - pts[0][0], d0y = pts[1][1] - pts[0][1], l0 = Math.hypot(d0x, d0y) || 1;
@@ -73,10 +78,12 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
     if (n < 0) { n = nodes.length; nodes.push({ x: e.x, y: e.y, ends: [] }); }
     nodes[n].ends.push(i);
   });
-  const jn = nodes.filter(n => n.ends.length >= 3);
+  // Two arms also need a shared surface when widths or bearings differ.
+  // Otherwise their independently offset edges leave a wedge-shaped hole.
+  const jn = nodes.filter(n => n.ends.length >= 2);
   const parent = jn.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
-  jn.forEach((a, i) => jn.forEach((b, j) => { if (j > i && Math.hypot(a.x - b.x, a.y - b.y) < 35) parent[find(i)] = find(j); }));
+  jn.forEach((a, i) => jn.forEach((b, j) => { if (j > i && a.ends.length >= 3 && b.ends.length >= 3 && Math.hypot(a.x - b.x, a.y - b.y) < 35) parent[find(i)] = find(j); }));
   const groups = new Map<number, number[]>();
   jn.forEach((n, i) => { const r = find(i); groups.set(r, [...(groups.get(r) ?? []), ...n.ends]); });
   for (const grp of groups.values()) {
@@ -93,7 +100,16 @@ export async function buildRoadSurface(roads: RealEstateRoad[], terrain: Terrain
       const a = h[k], b = h[(k + 1) % h.length], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / STEP));
       for (let s = 0; s < n; s++) {
         const p0 = [a[0] + (b[0] - a[0]) * s / n, a[1] + (b[1] - a[1]) * s / n], p1 = [a[0] + (b[0] - a[0]) * (s + 1) / n, a[1] + (b[1] - a[1]) * (s + 1) / n];
-        vtx(cx, cy); vtx(p0[0], p0[1]); vtx(p1[0], p1[1]);
+        const rings = Math.max(1, Math.ceil(Math.max(Math.hypot(p0[0]-cx,p0[1]-cy),Math.hypot(p1[0]-cx,p1[1]-cy)) / STEP));
+        for (let ring = 1; ring <= rings; ring++) {
+          const lo = (ring-1)/rings, hi = ring/rings;
+          const ax = cx+(p0[0]-cx)*lo, ay = cy+(p0[1]-cy)*lo;
+          const bx = cx+(p1[0]-cx)*lo, by = cy+(p1[1]-cy)*lo;
+          const dx = cx+(p0[0]-cx)*hi, dy = cy+(p0[1]-cy)*hi;
+          const ex = cx+(p1[0]-cx)*hi, ey = cy+(p1[1]-cy)*hi;
+          vtx(ax,ay); vtx(dx,dy); vtx(ex,ey);
+          if (ring > 1) { vtx(ax,ay); vtx(ex,ey); vtx(bx,by); }
+        }
       }
     }
   }
@@ -154,7 +170,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   const yellow: number[] = [], white: number[] = [];
   // (a little over the road: the ground mesh is coarser than the height samples, and a line
   // 3.5 cm up sank under it in patches — the centre line looked broken)
-  const LIFT = 0.06, STEP = 3;
+  const LIFT = 0.115, STEP = 3;
   // A road end is cut back only at a junction — two or more other roads ending there, or it meets
   // another road's side (a T): elsewhere (a road's pieces joined end to end, a dead end) the lines
   // run on unbroken.

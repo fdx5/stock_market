@@ -83,8 +83,10 @@ export function findBridges(roads: RealEstateRoad[], parcels: RealEstateParcel[]
     }
     for (const [a0, b0] of runs) {
       if ((b0 - a0) * STEP < 40) continue;        // a culvert or a ditch, not a bridge
-      // A little onto each bank (the abutments), where the road continues on land.
-      const a = Math.max(0, a0 - 4), b = Math.min(n - 1, b0 + 4);
+      // Give each approach enough surveyed road to meet the bank gradually.
+      // A fixed four samples (12 m) squeezed a 15 m rise into a cliff-like ramp.
+      const approach = Math.ceil(RAMP / STEP);
+      const a = Math.max(0, a0 - approach), b = Math.min(n - 1, b0 + approach);
       const m = b - a + 1;
       const bx = new Float32Array(m), by = new Float32Array(m), bnx = new Float32Array(m), bny = new Float32Array(m), bs = new Float32Array(m), bh = new Float32Array(m);
       for (let k = 0; k < m; k++) { bx[k] = xs[a + k]; by[k] = ys[a + k]; if (k) bs[k] = bs[k - 1] + Math.hypot(bx[k] - bx[k - 1], by[k] - by[k - 1]); }
@@ -104,7 +106,7 @@ export function findBridges(roads: RealEstateRoad[], parcels: RealEstateParcel[]
       const total = bs[m - 1], top = level + CLEAR;
       const startOnLand = a < a0, endOnLand = b > b0;
       const hA = startOnLand ? terrain.at(bx[0], by[0]) : top, hB = endOnLand ? terrain.at(bx[m - 1], by[m - 1]) : top;
-      const H = Math.max(top, hA, hB), R = Math.min(RAMP, total / 3);
+      const H = Math.max(top, hA, hB), R = Math.min(RAMP, total / 2);
       const ease = (t: number) => t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t);
       for (let k = 0; k < m; k++) {
         const s = bs[k], base = hA + (hB - hA) * (s / (total || 1));
@@ -123,6 +125,7 @@ export function findBridges(roads: RealEstateRoad[], parcels: RealEstateParcel[]
 /** The deck's height under (x, y), or null off every bridge. */
 export function bridgeHeight(bridges: Bridge[]) {
   return (x: number, y: number): number | null => {
+    let height: number | null = null;
     for (const b of bridges) {
       if (x < b.box[0] || x > b.box[2] || y < b.box[1] || y > b.box[3]) continue;
       let best = Infinity, h = 0;
@@ -132,9 +135,10 @@ export function bridgeHeight(bridges: Bridge[]) {
         const d2 = (x - ax - dx * t) ** 2 + (y - ay - dy * t) ** 2;
         if (d2 < best) { best = d2; h = b.h[k - 1] + (b.h[k] - b.h[k - 1]) * t; }
       }
-      if (best <= b.outer * b.outer) return h;
+      // Overlapping approaches must not jump when the first bridge's box ends.
+      if (best <= b.outer * b.outer) height = height === null ? h : Math.max(height, h);
     }
-    return null;
+    return height;
   };
 }
 

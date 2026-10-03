@@ -45,6 +45,7 @@ import { disposeControls, releaseRenderer } from "../threeCleanup";
 import { frameSlice } from "./frameSlice";
 import { SceneResources } from "./sceneResources";
 import { makeGroundGeometry } from "./groundGeometry";
+import { drapeRoadSurface } from "./roadDrape";
 import { sceneWork } from "./sceneWorkerClient";
 import type { SceneOps } from "./sceneWorker";
 import { neighbourArrays, neighbourGeometry } from "./neighbourGeometry";
@@ -3322,8 +3323,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const tr = stage.traffic;
       if (!tr) return;
       const gen = ++marksGen;
+      let roadSlice = performance.now();
+      const roadPace = async () => {
+        if (performance.now() - roadSlice > 2) {
+          if (!await later()) return false;
+          roadSlice = performance.now();
+        }
+        return alive;
+      };
       const f = await buildRoadSurface(tr.arms.roads, roadTerrain);
+      await drapeRoadSurface(f.group.geometry, groundGeo, roadPace);
       const m = await buildRoadMarkings(tr.arms.roads, roadTerrain, tr.arms.at, tr.arms.inside);
+      for (const mesh of m.group.children as THREE.Mesh[]) await drapeRoadSurface(mesh.geometry, groundGeo, roadPace, .05);
       if (!alive || gen !== marksGen) { f.dispose(); m.dispose(); return; }
       if (surface) { decor.remove(surface.group); surface.dispose(); }
       if (marks) { decor.remove(marks.group); marks.dispose(); }
