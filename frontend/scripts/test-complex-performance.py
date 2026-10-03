@@ -219,7 +219,6 @@ with sync_playwright() as p:
         page.screenshot(path=str(out/'failure.png'))
         raise
     report={'first':page.evaluate('({...__perf,state:{...document.querySelector(".re-holo-stage").dataset}})')}
-    report['preparedSurfaceUploads'] = page.evaluate('window.__native?.preparedSurfaceUploads ?? 0')
     if tracer:
         tracer.send('Tracing.end')
         for _ in range(200):

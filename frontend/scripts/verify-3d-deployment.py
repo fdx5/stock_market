@@ -1,5 +1,5 @@
 """Read-only production smoke: deployed commit, real 3D, reopen, mobile, devgame controls."""
-import argparse, gzip, hashlib, json, re
+import argparse, hashlib, json, re
 from pathlib import Path
 from urllib.parse import urlencode
 import requests
@@ -22,17 +22,6 @@ for folder in ['paint/a70f15220b0da77e2021', 'steel']:
         digest = hashlib.sha256(response.content).hexdigest()
         assert digest == hashlib.sha256(file.read_bytes()).hexdigest(), file.name
         assets.append({'path':folder + '/' + file.name, 'sha256':digest})
-folder = 'surface/a70f15220b0da77e2021'
-manifest = json.loads((root / 'frontend/public/3d' / folder / 'manifest.json').read_text())
-for item in manifest.values():
-    response = requests.get(a.base + '/3d/' + folder + '/' + item['file'], timeout=30)
-    response.raise_for_status()
-    raw = response.content
-    if raw[:2] == b'\x1f\x8b':
-        raw = gzip.decompress(raw)
-    digest = hashlib.sha256(raw).hexdigest()
-    assert len(raw) == item['width'] * item['height'] * 4 and digest == item['sha256'], item
-    assets.append({'path':folder + '/' + item['file'], 'sha256':digest})
 report = {'commit':a.commit, 'health':health, 'assets':assets, 'views':[]}
 a.out.parent.mkdir(parents=True, exist_ok=True)
 with sync_playwright() as pw:
