@@ -1,9 +1,11 @@
+/// <reference lib="es2021.weakref" />
 import { frameSlice } from "./frameSlice";
 import * as THREE from "three";
 import { contextSteps, facadeSteps, keepPaintWith, NEIGHBOUR_PALETTE, paletteFor, plinthSteps, runSliced, type ContextStyle, type Palette } from "./complexScene";
 import { normalRows } from "./normalKernel";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import { preparedContext } from './preparedPaint';
+import { preparedSurface, type SurfacePixels } from './preparedSurface';
 
 /* The painted textures of the 3D view, kept between visits (paintWorker stores and
  * decodes them off the page's thread), and a complex's facades started the moment it is
@@ -40,6 +42,24 @@ if (typeof document !== 'undefined') document.addEventListener('visibilitychange
 
 type Reply = { id: number; bitmaps: Record<string, ImageBitmap> | null; params: Record<string, TexParams> | null; prepared?: boolean };
 const preparedReplies = new WeakSet<Textures>();
+const surfaceWork = new Map<string,Promise<SurfacePixels | null>>();
+const surfaceReady = new Map<string,WeakRef<SurfacePixels>>();
+function surfaceJobFor(job:PaintJob): Promise<SurfacePixels | null> | undefined {
+  if(typeof WeakRef==='undefined')return;
+  if(job.kind==='context' && job.style!=='apt')return;
+  const key=job.kind==='plinth'?'plinth':`facade-${job.scale??1}`;
+  const ready=surfaceReady.get(key)?.deref();if(ready)return Promise.resolve(ready);
+  let pending=surfaceWork.get(key);
+  if(!pending){
+    const startedIn=epoch;
+    pending=preparedSurface(job).then(pixels=>{
+      if(pixels && startedIn===epoch && typeof WeakRef!=='undefined')surfaceReady.set(key,new WeakRef(pixels));
+      return pixels;
+    }).finally(()=>{if(surfaceWork.get(key)===pending)surfaceWork.delete(key);});
+    surfaceWork.set(key,pending);
+  }
+  return pending;
+}
 let worker: Worker | null | undefined;
 let nextId = 0;
 let epoch = 0;
@@ -62,7 +82,7 @@ function store(): Worker | null {
 /** For the development build's timings: jobs answered from the kept copy / painted. */
 export const paintStats = { kept: 0, painted: 0 };
 
-async function fromReply(r: Reply | null): Promise<Textures | null> {
+async function fromReply(r: Reply | null, surfaceJob?: Promise<SurfacePixels | null>): Promise<Textures | null> {
   if (!r?.bitmaps || !r.params) return null;
   const out: Textures = {};
   try { for (const [name, raw] of Object.entries(r.bitmaps)) {
@@ -77,15 +97,28 @@ async function fromReply(r: Reply | null): Promise<Textures | null> {
     t.repeat.set(...p.repeat); t.offset.set(...p.offset); t.needsUpdate = true;
     if (p.surfaceKey) t.userData.surfaceKey = p.surfaceKey;
     if (p.immutableKey) t.userData.immutableKey = p.immutableKey;
-    t.addEventListener("dispose", () => bitmap.close());
+    t.addEventListener("dispose", () => { bitmap.close(); delete t.userData.surfacePixels; t.userData.surfacePixelsProcessed=true; });
     out[name] = t;
   } } catch { Object.values(out).forEach(t => t.dispose()); Object.values(r.bitmaps).forEach(b => b.close()); return null; }
   if (r.prepared) preparedReplies.add(out);
+  if (surfaceJob && out.normalMap?.userData.surfaceKey && typeof WeakRef !== 'undefined') {
+    const startedIn=epoch, normal=new WeakRef(out.normalMap), rough=new WeakRef(out.rmMap);
+    // Never wait for optional pixels. Weak references prevent a pending request
+    // from keeping a closed view's textures alive; late/released results expire.
+    void surfaceJob.then(pixels=>{
+      const n=normal.deref(), r=rough.deref();
+      const a=n?.image as ImageBitmap | undefined, b=r?.image as ImageBitmap | undefined;
+      if(pixels && startedIn===epoch && n && r && !n.userData.surfacePixelsProcessed && !n.userData.released && !r.userData.released
+        && a && b && a.width===pixels.width && a.height===pixels.height
+        && b.width===pixels.width && b.height===pixels.height
+        && n.userData.surfaceKey===r.userData.surfaceKey)n.userData.surfacePixels=pixels;
+    });
+  }
   return out;
 }
 
 let rasterPool: { w: Worker; busy: number; pending: Map<number, (r: Reply | null) => void>; idle?: ReturnType<typeof setTimeout> }[] | null | undefined;
-function paintOffThread(job: PaintJob): Promise<Textures | null> {
+function paintOffThread(job: PaintJob, surfaceJob?: Promise<SurfacePixels | null>): Promise<Textures | null> {
   if (rasterPool === undefined) {
     rasterPool = [];
     try {
@@ -108,7 +141,7 @@ function paintOffThread(job: PaintJob): Promise<Textures | null> {
   slot.busy++;
   return new Promise(resolve => {
     slot.pending.set(id, r => {
-      slot.pending.delete(id); slot.busy--; resolve(fromReply(r));
+      slot.pending.delete(id); slot.busy--; resolve(fromReply(r, surfaceJob));
       if (slot.busy === 0) slot.idle = setTimeout(() => {
         slot.w.terminate(); rasterPool = rasterPool?.filter(s => s !== slot);
         if (!rasterPool?.length) rasterPool = undefined;
@@ -119,14 +152,14 @@ function paintOffThread(job: PaintJob): Promise<Textures | null> {
 }
 
 /** The kept copy of `job`, or null. */
-function lookUp(job: PaintJob): Promise<Textures | null> {
+function lookUp(job: PaintJob, surfaceJob?: Promise<SurfacePixels | null>): Promise<Textures | null> {
   const w = store();
   if (!w) return Promise.resolve(null);
   const id = ++nextId;
   return new Promise(resolve => {
     waiting.set(id, r => {
       if (!r?.bitmaps || !r.params) return resolve(null);
-      resolve(fromReply(r));
+      resolve(fromReply(r, surfaceJob));
     });
     w.postMessage({ op: "get", id, key: keyOf(job) });
   });
@@ -152,13 +185,14 @@ function slicer() {
 /** `job`'s textures: the kept copy, else painted here in slices (and kept). */
 async function obtain(job: PaintJob, pace: () => Promise<boolean> = slicer()): Promise<Textures | null> {
   const startedIn = epoch;
-  const kept = await lookUp(job);
+  const surfaceJob=surfaceJobFor(job);
+  const kept = await lookUp(job, surfaceJob);
   if (startedIn !== epoch) { if (kept) Object.values(kept).forEach(t => t.dispose()); return null; }
   if (kept) { paintStats.kept++; return kept; }
-  let made = await paintOffThread(job);
+  let made = await paintOffThread(job, surfaceJob);
   if (startedIn !== epoch) { if (made) Object.values(made).forEach(t => t.dispose()); return null; }
   if (!made) {
-    made = await fromReply(await preparedContext(job));
+    made = await fromReply(await preparedContext(job), surfaceJob);
     if (made) preparedReplies.add(made);
     if (startedIn !== epoch) { if (made) Object.values(made).forEach(t => t.dispose()); return null; }
   }
@@ -176,7 +210,7 @@ async function obtain(job: PaintJob, pace: () => Promise<boolean> = slicer()): P
 const ahead = new Map<string, Promise<Textures | null>>();
 
 onSceneMemoryRelease(() => {
-  epoch++; cacheJobs.clear();
+  epoch++; cacheJobs.clear(); surfaceWork.clear(); surfaceReady.clear();
   for (const job of ahead.values()) void job.then(t => t && Object.values(t).forEach(x => x.dispose()));
   ahead.clear();
   for (const slot of rasterPool ?? []) { clearTimeout(slot.idle); slot.w.terminate(); slot.pending.forEach(done => done(null)); clearTimeout(slot.idle); }

@@ -1063,6 +1063,24 @@ export class ComplexRenderer {
     }
     return st.y >= h ? st.tex : null;
   }
+  /** Exact packed bytes share the existing texel budget with bitmap staging. */
+  stagedSurface(key, pixels) {
+    this.stagings ??= new Map();
+    const token='prepared/'+key;
+    let st=this.stagings.get(token);
+    if(!st){
+      st={tex:new Texture({label:'prepared surface',width:pixels.width,height:pixels.height,format:'rgba8unorm',mips:true,usage:['sample','render','copyDst']}),y:0,at:this.frameNo};
+      this.stagings.set(token,st);
+    }
+    if(this.stageFrame!==this.frameNo){this.stageFrame=this.frameNo;this.stageBudget=this.shown?0.6e6:1.2e6;}
+    const rows=Math.min(pixels.height-st.y,Math.floor(this.stageBudget/pixels.width));
+    if(rows>0){
+      try{st.tex.upload(pixels.data.subarray(st.y*pixels.width*4,(st.y+rows)*pixels.width*4),{width:pixels.width,height:rows,y:st.y});}
+      catch(error){this.stagings.delete(token);st.tex.destroy();throw error;}
+      st.y+=rows;this.stageBudget-=rows*pixels.width;
+    }
+    return st.y===pixels.height?st.tex:null;
+  }
   /** The staged texture into `into` (BC7: encoded from it; else copied, mips made); it is
    * then freed. */
   fromStaged(source, st, into) {
@@ -1104,6 +1122,7 @@ export class ComplexRenderer {
   imagesReady(material) {
     let ready = true;
     for (const m of Array.isArray(material) ? material : [material]) {
+      const packedPixels = this.packedPixels(m);
       for (const t of [m.map, m.emissiveMap, m.userData?.farGround?.map]) {
         if (!t || this.textures.has(t) || t.userData?.compressed) continue;
         if (this.immutableKey(t) && this.pool().peek(this.immutableKey(t))) continue;
@@ -1111,7 +1130,12 @@ export class ComplexRenderer {
       }
       // (normal and roughness maps are packed together from their canvases — packedSurface —
       // not uploaded in strips: only a picture among them waits for its decode)
+      if(packedPixels){
+        const key=m.normalMap.userData.surfaceKey+'/'+packedPixels.width+'/'+packedPixels.height;
+        if(!this.pool().peek('surface/'+key) && !this.stagedSurface(key,packedPixels))ready=false;
+      }
       for (const t of [m.normalMap, m.roughnessMap, m.metalnessMap]) {
+        if (packedPixels) continue;
         if (!t || this.textures.has(t) || t.userData?.compressed || t.userData?.released) continue;
         const key = t.userData?.surfaceKey;
         if (key && this.pool().peek('surface/' + key + '/' + t.image.width + '/' + t.image.height)) continue;
@@ -1119,6 +1143,21 @@ export class ComplexRenderer {
       }
     }
     return ready;
+  }
+  /** Optional exact packed bytes are eligible under the same sampling rules. */
+  packedPixels(source) {
+    const n=source.normalMap,r=source.roughnessMap,p=n?.userData.surfacePixels;
+    if(!p || !r || (source.metalnessMap && source.metalnessMap!==r))return null;
+    // Once the original upload has started, a late optional reply must not
+    // discard that progress and restart the material's first-frame admission.
+    if(this.stagings?.has(n) || this.stagings?.has(r)){
+      delete n.userData.surfacePixels;n.userData.surfacePixelsProcessed=true;return null;
+    }
+    const a=n.image,b=r.image,same=(u,v)=>u.x===v.x&&u.y===v.y;
+    return a?.width===p.width && a.height===p.height && b?.width===p.width && b.height===p.height
+      && p.data?.byteLength===p.width*p.height*4 && n.flipY===false && r.flipY===false
+      && n.wrapS===1000 && r.wrapS===1000 && same(n.repeat,r.repeat) && same(n.offset,r.offset)
+      && n.userData.surfaceKey && n.userData.surfaceKey===r.userData.surfaceKey ? p : null;
   }
   texture(source) {
     if (this.textures.has(source)) return this.textures.get(source);
@@ -1186,9 +1225,17 @@ export class ComplexRenderer {
       ? n.userData.surfaceKey + '/' + a.width + '/' + a.height : null;
     this.surfaceCache ??= new Map();
     const shared = surfaceKey && this.pool().acquire('surface/' + surfaceKey, this);
-    if (shared) { this.textures.set(n, shared); this.dropStaging(n); this.dropStaging(r); this.release(n); this.release(r); return shared; }
-    const tex = new Texture({ width: a.width, height: a.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render'] });
-    packInto(tex, [this.packSource(n), this.packSource(r)], 'vec4f(A.x, A.y, B.y, B.z)');
+    if (shared) { this.textures.set(n, shared); this.dropStaging(n); this.dropStaging(r); delete n.userData.surfacePixels; n.userData.surfacePixelsProcessed=true; this.release(n); this.release(r); return shared; }
+    const pixels = this.packedPixels(source);
+    const tex = pixels ? this.stagedSurface(surfaceKey,pixels)
+      : new Texture({ width: a.width, height: a.height, format: 'rgba8unorm', mips: true, usage: ['sample', 'render'] });
+    if(!tex)return null;
+    try {
+      if (pixels) { this.stagings.delete('prepared/'+surfaceKey); generateMipmaps(tex); this.preparedSurfaceUploads=(this.preparedSurfaceUploads??0)+1; }
+      else packInto(tex, [this.packSource(n), this.packSource(r)], 'vec4f(A.x, A.y, B.y, B.z)');
+    } catch(error) { tex.destroy(); throw error; }
+    delete n.userData.surfacePixels;
+    n.userData.surfacePixelsProcessed=true;
     this.dropStaging(n); this.dropStaging(r);
     tex.packed = true;
     tex.sourceVersion = n.version;
@@ -1244,6 +1291,8 @@ export class ComplexRenderer {
     GPU.onSubmit(null, () => st.tex.destroy());
   }
   release(source) {
+    delete source.userData.surfacePixels;
+    source.userData.surfacePixelsProcessed=true;
     const img = source.image;
     if (!source.userData?.releaseAfterUpload || source.userData.released || !img || img.data || !('width' in img)) return;
     // A canvas is emptied; a bitmap (painted in the worker) let go.
