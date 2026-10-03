@@ -3,6 +3,7 @@ import { useDocumentTitle } from "../useDocumentTitle";
 import CoffeeIcon from "./CoffeeIcon";
 import Masthead from "./Masthead";
 import Colophon from "./Colophon";
+import SupportComments from "./SupportComments";
 import { useL } from "./lib";
 import { useBroadsheet } from "./shell";
 import "./coffeeSupport.css";
@@ -41,6 +42,7 @@ export default function SupportPage() {
           <span className="coffee-signoff">{L("보내주신 마음, 소중히 쓰겠습니다. ♡", "Thank you for helping us keep going. ♡")}</span>
         </aside>
       </div>
+      <SupportComments />
     </main>
     <Colophon />
   </div>;

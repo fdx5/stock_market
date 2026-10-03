@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from app.services import comment_store, fight_comment_store
+from app.services import comment_store, fight_comment_store, support_comment_store
 from app.services.admin_auth import require_admin
 from app.services.battle import get_global_top20_cached
 
@@ -47,14 +47,23 @@ def list_comments(limit: int = 200):
     return {"items": items[:limit]}
 
 
+@router.get('/support-comments', dependencies=[Depends(require_admin)])
+def list_support_comments(limit: int = Query(200, ge=1, le=200), before: int | None = Query(None, ge=1)):
+    comments = support_comment_store.list_comments(limit + 1, before, visible_only=False)
+    return {'items': [dict(id=c['id'], source='support', stock_name=c['username'], text=c['text'], created_at=c['created_at'], visible=c['is_visible'] == 'Y') for c in comments[:limit]],
+            'next_before': comments[limit - 1]['id'] if len(comments) > limit else None}
+
+
 @router.patch("/comments/{source}/{comment_id}/visibility", dependencies=[Depends(require_admin)])
 def update_comment_visibility(source: str, comment_id: int, payload: VisibilityUpdate):
     if source == "battle":
         updated = comment_store.set_visibility(comment_id, payload.visible)
     elif source == "fight":
         updated = fight_comment_store.set_visibility(comment_id, payload.visible)
+    elif source == "support":
+        updated = support_comment_store.set_visibility(comment_id, payload.visible)
     else:
-        raise HTTPException(status_code=400, detail="source는 battle 또는 fight여야 합니다.")
+        raise HTTPException(status_code=400, detail="source는 battle, fight 또는 support여야 합니다.")
     if not updated:
         raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
     return {"visible": payload.visible}
@@ -66,8 +75,10 @@ def delete_comment(source: str, comment_id: int):
         deleted = comment_store.delete_comment(comment_id)
     elif source == "fight":
         deleted = fight_comment_store.delete_comment(comment_id)
+    elif source == "support":
+        deleted = support_comment_store.delete_comment(comment_id)
     else:
-        raise HTTPException(status_code=400, detail="source는 battle 또는 fight여야 합니다.")
+        raise HTTPException(status_code=400, detail="source는 battle, fight 또는 support여야 합니다.")
     if not deleted:
         raise HTTPException(status_code=404, detail="댓글을 찾을 수 없습니다.")
     return {"deleted": True}

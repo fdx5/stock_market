@@ -443,7 +443,7 @@ export interface KakaoDramPriceStatus {
   token?: KakaoTokenInfo | null;
 }
 
-export type CommentSource = "battle" | "fight";
+export type CommentSource = "battle" | "fight" | "support";
 
 export interface AdminComment {
   id: number;
@@ -852,6 +852,7 @@ export const adminApi = {
     monitorGet<MonitorPulse>(`/monitor/pulse?api_cursor=${apiCursor}&activity_cursor=${activityCursor}`),
   comments: (limit = 200) => authedGet<{ items: AdminComment[] }>(`/comments?limit=${limit}`),
   deleteComment: (source: CommentSource, id: number) => authedDelete(`/comments/${source}/${id}`),
+  supportComments: (limit = 200, before?: number) => authedGet<{ items: AdminComment[]; next_before: number | null }>(`/support-comments?limit=${limit}${before ? `&before=${before}` : ""}`),
   setCommentVisibility: (source: CommentSource, id: number, visible: boolean) =>
     authedPatch<{ visible: boolean }>(`/comments/${source}/${id}/visibility`, { visible }),
   predictionStatus: () => authedGet<PredictionStatus>("/prediction/status"),

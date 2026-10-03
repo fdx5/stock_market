@@ -42,6 +42,7 @@ from app.routers import (
     realestate,
     search,
     stock,
+    support,
     translate,
     us_stock,
     visitors,
@@ -122,6 +123,7 @@ async def _store_unavailable_handler(request: Request, exc: StoreUnavailable) ->
 # Compresses JS/CSS bundles and JSON API responses on the wire — same bytes served,
 # fewer bytes billed against Render's free-tier bandwidth cap.
 app.add_middleware(GZipMiddleware, minimum_size=500)
+app.add_middleware(support.SupportBodyLimit)
 
 # Public JSON endpoints are polled frequently. Most polls see the same cached market
 # snapshot, but used to download the complete JSON again. A validator turns an
@@ -244,6 +246,7 @@ app.include_router(monitor.router, prefix="/api/admin/monitor")
 app.include_router(notify.router, prefix="/api/notify")
 app.include_router(global_top100.router, prefix="/api/global-top100")
 app.include_router(realestate.router, prefix="/api/realestate")
+app.include_router(support.router, prefix="/api/support")
 
 
 @app.on_event("startup")
