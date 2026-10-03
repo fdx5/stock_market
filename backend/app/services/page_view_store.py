@@ -156,6 +156,9 @@ def _connect():
 def _new_ready_connection():
     conn = _connect()
     conn.execute(_SCHEMA)
+    from app.services.support_analytics_store import SCHEMA as support_schema
+    conn.execute(support_schema)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_support_dwell_time ON support_dwell(created_at)")
     columns = {row[1] for row in conn.execute("PRAGMA table_info(page_views)").fetchall()}
     migrations = {
         "event_type": "TEXT NOT NULL DEFAULT 'page_view'",

@@ -85,7 +85,7 @@ def record_event(
     # id it never reuses, fills both with rows nobody can act on and pushes the real
     # visitors out of the tail entirely — that panel is for watching people use the
     # site, so a bot never enters it.
-    if not is_bot:
+    if not is_bot and event_type != "support":
         with _lock:
             _tail.append(event)
             state = _sessions.setdefault(session_id, {"first_seen": now})
@@ -118,6 +118,9 @@ def record_event(
         # entrance page, what they searched for. A crawler row there is never wanted
         # in any reading, so it is dropped rather than stored and then filtered.
         return
+    elif event_type == "support" and path == "/support" and action == "dwell" and object_key and value:
+        from app.services import support_analytics_store
+        support_analytics_store.record(session_id, object_key, value, created_at)
     elif event_type == "hub" and action:
         threading.Thread(
             target=hub_event_store.record,

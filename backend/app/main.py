@@ -26,6 +26,7 @@ from app.routers import (
     activity,
     admin,
     admin_comments,
+    support_analytics,
     admin_db,
     battle,
     etf,
@@ -241,6 +242,7 @@ app.include_router(geo.router, prefix="/api")
 app.include_router(activity.router, prefix="/api/activity")
 app.include_router(admin.router, prefix="/api/admin")
 app.include_router(admin_comments.router, prefix="/api/admin")
+app.include_router(support_analytics.router, prefix="/api/admin")
 app.include_router(admin_db.router, prefix="/api/admin")
 app.include_router(monitor.router, prefix="/api/admin/monitor")
 app.include_router(notify.router, prefix="/api/notify")

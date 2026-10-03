@@ -921,3 +921,23 @@ export const adminApi = {
   dbQuery: (sql: string, source: string | null, limit: number) =>
     authedPostJson<DbQueryResult>("/db/query", { sql, source, limit }),
 };
+
+export interface SupportLogSession {
+  session_id: string; first_seen: string; last_seen: string;
+  views: number; clicks: number; pay_clicks: number; seconds: number; dwell_samples: number;
+  device: string | null; os: string | null; browser: string | null; source: string | null;
+}
+export interface SupportLogOverview {
+  since: string; until: string; total: number; offset: number; limit: number;
+  summary: { sessions: number; views: number; clicks: number; pay_clicks: number; seconds: number };
+  items: SupportLogSession[];
+}
+export interface SupportLogDetail {
+  events: Array<{ created_at: string; type: string; label: string | null; object_key: string | null;
+    device: string | null; os: string | null; browser: string | null; source: string | null }>;
+  truncated: boolean;
+}
+export const fetchSupportLog = (hours: number, offset = 0) =>
+  authedGet<SupportLogOverview>(`/support-log?hours=${hours}&offset=${offset}`);
+export const fetchSupportLogDetail = (hours: number, id: string) =>
+  authedGet<SupportLogDetail>(`/support-log?hours=${hours}&session_id=${encodeURIComponent(id)}`);

@@ -269,6 +269,7 @@ function Overview({
         <Card title="바로가기">
           <nav className="ac-links">
             <Link to="/admin/growth">📈 성장 통계</Link>
+            <Link to="/admin/support-log">☕ 후원 페이지 접속 로그</Link>
             <Link to="/admin/db">🗄 DB 조회</Link>
             <Link to="/admin/monitor">🧠 모니터링</Link>
             <Link to="/realestate-map">🏠 부동산 지도</Link>
@@ -487,6 +488,7 @@ export default function AdminDashboardPage() {
         </nav>
         <div className="ac-side-foot">
           <Link to="/admin/growth">성장 통계</Link>
+          <Link to="/admin/support-log">후원 접속 로그</Link>
           <Link to="/admin/db">DB 조회</Link>
           <Link to="/admin/monitor">모니터링</Link>
           <button

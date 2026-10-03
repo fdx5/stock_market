@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { reportSupportDwell } from "../useActivityTracking";
 import { Link } from "../router";
 import { useDocumentTitle } from "../useDocumentTitle";
 import CoffeeIcon from "./CoffeeIcon";
@@ -11,6 +13,27 @@ import "./coffeeSupport.css";
 const KAKAOPAY_URL = "https://qr.kakaopay.com/Ej7w8lXu2";
 
 export default function SupportPage() {
+  useEffect(() => {
+    let started = document.visibilityState === "visible" ? performance.now() : null;
+    const flush = () => {
+      if (started === null) return;
+      const now = performance.now();
+      reportSupportDwell((now - started) / 1000);
+      started = document.visibilityState === "visible" ? now : null;
+    };
+    const visibility = () => {
+      flush();
+      started = document.visibilityState === "visible" ? performance.now() : null;
+    };
+    const leave = () => { flush(); started = null; };
+    const resume = () => { started = document.visibilityState === "visible" ? performance.now() : null; };
+    const timer = window.setInterval(flush, 15000);
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("pagehide", leave);
+    window.addEventListener("pageshow", resume);
+    return () => { leave(); clearInterval(timer); document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("pagehide", leave); window.removeEventListener("pageshow", resume); };
+  }, []);
   const L = useL();
   useBroadsheet({ lightByDefault: true });
   useDocumentTitle(L("커피 한 잔 후원하기 · K-Stock Hub", "Buy us a coffee · K-Stock Hub"));
@@ -33,10 +56,10 @@ export default function SupportPage() {
           <span className="coffee-payment-tag">{L("따뜻한 마음 한 잔", "A cup of kindness")}</span>
           <h2 id="coffee-payment-title">{L("커피 한 잔 후원하기", "Buy us a coffee")}</h2>
           <p>{L("카카오페이로 간편하게 마음을 전해 주세요.", "Send your support easily with Kakao Pay.")}</p>
-          <a className="coffee-pay-button" href={KAKAOPAY_URL} target="_blank" rel="noopener noreferrer"><span className="coffee-pay-mark">pay</span>{L("카카오페이로 후원하기", "Support with Kakao Pay")} <span aria-hidden="true">↗</span></a>
+          <a data-activity-key="support-pay" className="coffee-pay-button" href={KAKAOPAY_URL} target="_blank" rel="noopener noreferrer"><span className="coffee-pay-mark">pay</span>{L("카카오페이로 후원하기", "Support with Kakao Pay")} <span aria-hidden="true">↗</span></a>
           <small className="coffee-pay-help">{L("휴대폰에서는 위 버튼을 눌러 주세요.", "On your phone, tap the button above.")}</small>
           <div className="coffee-divider"><span>{L("PC에서는 QR 코드로", "On desktop, scan the QR")}</span></div>
-          <a href={KAKAOPAY_URL} target="_blank" rel="noopener noreferrer" className="coffee-qr-link" aria-label={L("카카오페이 후원 QR 코드 · 결제 링크 열기", "Kakao Pay support QR · open payment link")}><img src="/img/kakaopay-support.png" alt={L("카카오페이 후원 결제 QR 코드", "Kakao Pay support payment QR code")} /></a>
+          <a href={KAKAOPAY_URL} target="_blank" rel="noopener noreferrer" data-activity-key="support-qr" className="coffee-qr-link" aria-label={L("카카오페이 후원 QR 코드 · 결제 링크 열기", "Kakao Pay support QR · open payment link")}><img src="/img/kakaopay-support.png" alt={L("카카오페이 후원 결제 QR 코드", "Kakao Pay support payment QR code")} /></a>
           <p className="coffee-qr-help">{L("휴대폰 카메라로 QR 코드를 스캔하면 카카오페이 후원 화면으로 연결됩니다.", "Scan this QR code with your phone camera to open the Kakao Pay support page.")}</p>
           <div className="coffee-payment-note">{L("후원 금액과 결제 완료 여부는 카카오페이 화면에서 확인해 주세요.", "Please check the amount and payment confirmation in Kakao Pay.")}</div>
           <span className="coffee-signoff">{L("보내주신 마음, 소중히 쓰겠습니다. ♡", "Thank you for helping us keep going. ♡")}</span>

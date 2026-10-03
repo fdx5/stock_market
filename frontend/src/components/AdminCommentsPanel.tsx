@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AdminAuthError, AdminComment, CommentSource, adminApi, clearStoredSession } from "../adminApi";
-import { navigate } from "../router";
+import { Link, navigate } from "../router";
 import AdminSupportersPanel from "./AdminSupportersPanel";
 
 const COMMENT_PREVIEW_LEN = 20;
@@ -170,7 +170,7 @@ function CommentPanel({ support = false }: { support?: boolean }) {
 
 export default function AdminCommentsPanel() {
   const [tab, setTab] = useState<"stock" | "support" | "donors">("stock");
-  return <><div role="tablist" aria-label="댓글 및 후원 관리" style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
+  return <><p><Link to="/admin/support-log">☕ 후원 페이지 접속 로그 보기 →</Link></p><div role="tablist" aria-label="댓글 및 후원 관리" style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 20 }}>
     <button id="admin-stock-tab" role="tab" aria-selected={tab === "stock"} aria-controls="admin-comments-panel" onClick={() => setTab("stock")} style={{ minHeight: 44, padding: "8px 16px", fontWeight: tab === "stock" ? 800 : 400 }}>종목 댓글</button>
     <button id="admin-support-tab" role="tab" aria-selected={tab === "support"} aria-controls="admin-comments-panel" onClick={() => setTab("support")} style={{ minHeight: 44, padding: "8px 16px", fontWeight: tab === "support" ? 800 : 400 }}>☕ 후원 댓글</button>
     <button id="admin-donors-tab" role="tab" aria-selected={tab === "donors"} aria-controls="admin-comments-panel" onClick={() => setTab("donors")} style={{ minHeight: 44, padding: "8px 16px", fontWeight: tab === "donors" ? 800 : 400 }}>✦ 월별 후원자</button>

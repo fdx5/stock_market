@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.services import activity_log, bot_detector
 from app.utils import SESSION_ID_PATTERN
 
 router = APIRouter()
 
-_VALID_TYPES = {"page_view", "click", "stock_view", "hub"}
+_VALID_TYPES = {"page_view", "click", "stock_view", "hub", "support"}
 
 # What the entrance page is allowed to report. A closed set rather than free
 # text: these become table rows, chart series and ranking groups, and a typo in
@@ -70,6 +70,16 @@ class ActivityEvent(BaseModel):
         if value is not None and value not in _VALID_HUB_ACTIONS:
             raise ValueError(f"action must be one of {_VALID_HUB_ACTIONS}")
         return value
+
+    @model_validator(mode="after")
+    def support_packet(self):
+        if self.type == "support":
+            import re
+            if (self.path != "/support" or self.action != "dwell"
+                or not self.object_key or not re.fullmatch(SESSION_ID_PATTERN, self.object_key)
+                or self.value is None or not 0 < self.value <= 30):
+                raise ValueError("Invalid support dwell packet")
+        return self
 
 
 @router.post("/event")

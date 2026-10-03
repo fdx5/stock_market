@@ -116,6 +116,7 @@ export function pageLabel(path: string): string {
   if (path === "/admin/db") return "관리자 DB";
   if (path === "/admin/monitor") return "관리자 모니터";
   if (path === "/admin/growth") return "성장 통계";
+  if (path === "/support") return "커피 후원";
   if (path === "/admin/live") return "관리자 실시간";
   return "기타";
 }
@@ -456,7 +457,7 @@ export function useActivityTracking(path: string): void {
       const last = lastClickRef.current;
       if (last && last.key === key && now - last.ts < CLICK_DEBOUNCE_MS) return;
       lastClickRef.current = { key, ts: now };
-      sendEvent({ type: "click", path: currentPath, label });
+      sendEvent({ type: "click", path: currentPath, label, object_key: interactive.getAttribute("data-activity-key") || undefined });
     }
     function onChange(event: Event) {
       const currentPath = window.location.pathname;
@@ -479,4 +480,11 @@ export function useActivityTracking(path: string): void {
       document.removeEventListener("change", onChange, true);
     };
   }, []);
+}
+
+/** Visible-time packets carry independent IDs, so retries cannot inflate dwell. */
+export function reportSupportDwell(seconds: number) {
+  if (seconds <= 0) return;
+  sendEvent({ type: "support", path: "/support", action: "dwell",
+    object_key: crypto.randomUUID(), value: Math.min(30, seconds) });
 }
