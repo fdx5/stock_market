@@ -1,0 +1,500 @@
+{
+  "before": {
+    "runs": [
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-baseline-20261003\\tmp\\complex-perf-deploy-perf-before-1\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "state": {
+          "renderer": "tidewater-webgpu",
+          "selectAt": "1646",
+          "terrainMs": "0",
+          "dataMs": "101",
+          "fetchMs": "102",
+          "titled": "0",
+          "fps": "39.6",
+          "draws": "0",
+          "pixelRatio": "2.00",
+          "renderMaxMs": "11",
+          "quality": "high",
+          "gpuMs": "0.00",
+          "pipelines": "16",
+          "modelBuildMs": "1020",
+          "buildSteps": "facades=281/12 stone=102/74 towers=442/13 merge=1/1 neighbours=111/13 ctxMaterials=17/7 groundPaint=15/0 groundGeo=48/10 rest=1/1",
+          "paint": "kept 4 / painted 3",
+          "builtAt": "2772",
+          "terrain": "flat",
+          "neighbours": "275",
+          "shownAt": "3528"
+        },
+        "firstMs": 1882,
+        "input": {
+          "pointerDelay": {
+            "count": 37,
+            "median": 10.600000000558794,
+            "p95": 87.79999999981374,
+            "max": 133.5,
+            "over20": 8
+          },
+          "frames": {
+            "count": 160,
+            "median": 16.699999999999818,
+            "p95": 50,
+            "max": 133.39999999999964,
+            "over20": 10
+          }
+        },
+        "totalDrops": 12,
+        "errors": []
+      },
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-baseline-20261003\\tmp\\complex-perf-deploy-perf-before-2\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "state": {
+          "renderer": "tidewater-webgpu",
+          "selectAt": "521",
+          "terrainMs": "0",
+          "dataMs": "117",
+          "fetchMs": "119",
+          "titled": "0",
+          "fps": "40.5",
+          "draws": "0",
+          "pixelRatio": "2.00",
+          "renderMaxMs": "12",
+          "quality": "high",
+          "gpuMs": "0.00",
+          "pipelines": "14",
+          "modelBuildMs": "941",
+          "buildSteps": "facades=123/5 stone=134/117 towers=129/9 merge=1/1 neighbours=469/13 ctxMaterials=22/6 groundPaint=10/0 groundGeo=51/8 rest=1/1",
+          "paint": "kept 4 / painted 3",
+          "builtAt": "1586",
+          "terrain": "flat",
+          "neighbours": "275",
+          "shownAt": "2305"
+        },
+        "firstMs": 1784,
+        "input": {
+          "pointerDelay": {
+            "count": 39,
+            "median": 10.899999999441206,
+            "p95": 109,
+            "max": 130.69999999925494,
+            "over20": 7
+          },
+          "frames": {
+            "count": 84,
+            "median": 16.69999999999999,
+            "p95": 66.59999999999991,
+            "max": 133.39999999999998,
+            "over20": 10
+          }
+        },
+        "totalDrops": 11,
+        "errors": []
+      },
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-baseline-20261003\\tmp\\complex-perf-deploy-perf-before-3\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "state": {
+          "renderer": "tidewater-webgpu",
+          "selectAt": "444",
+          "terrainMs": "0",
+          "dataMs": "125",
+          "fetchMs": "127",
+          "fps": "61.0",
+          "draws": "52",
+          "pixelRatio": "2.00",
+          "renderMaxMs": "12",
+          "quality": "high",
+          "gpuMs": "0.24",
+          "pipelines": "34",
+          "titled": "0",
+          "modelBuildMs": "1128",
+          "buildSteps": "facades=306/259 stone=269/0 towers=358/12 merge=1/1 neighbours=111/12 ctxMaterials=23/8 groundPaint=10/0 groundGeo=50/11 rest=1/1",
+          "paint": "kept 4 / painted 3",
+          "builtAt": "1705",
+          "terrain": "flat",
+          "neighbours": "275",
+          "shownAt": "2378"
+        },
+        "firstMs": 1934,
+        "input": {
+          "pointerDelay": {
+            "count": 36,
+            "median": 10.599999999627471,
+            "p95": 99.70000000018626,
+            "max": 207.29999999981374,
+            "over20": 8
+          },
+          "frames": {
+            "count": 83,
+            "median": 16.69999999999999,
+            "p95": 99.99999999999994,
+            "max": 200.0999999999999,
+            "over20": 9
+          }
+        },
+        "totalDrops": 12,
+        "errors": []
+      }
+    ],
+    "medianFirstMs": 1882
+  },
+  "after": {
+    "runs": [
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-20261003\\tmp\\complex-perf-deploy-perf-after-1\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "state": {
+          "renderer": "tidewater-webgpu",
+          "selectAt": "1717",
+          "terrainMs": "0",
+          "dataMs": "102",
+          "fetchMs": "106",
+          "titled": "0",
+          "modelBuildMs": "863",
+          "buildSteps": "facades=262/155 stone=41/40 towers=444/81 merge=0/0 neighbours=48/3 ctxMaterials=19/6 groundPaint=16/0 groundGeo=32/1 rest=1/1",
+          "paint": "kept 4 / painted 3",
+          "builtAt": "2692",
+          "terrain": "flat",
+          "neighbours": "275",
+          "fps": "42.6",
+          "draws": "0",
+          "pixelRatio": "2.00",
+          "renderMaxMs": "10",
+          "quality": "high",
+          "gpuMs": "0.00",
+          "pipelines": "24",
+          "shownAt": "3279"
+        },
+        "firstMs": 1562,
+        "input": {
+          "pointerDelay": {
+            "count": 33,
+            "median": 11,
+            "p95": 85.3999999994412,
+            "max": 103.59999999962747,
+            "over20": 8
+          },
+          "frames": {
+            "count": 144,
+            "median": 16.699999999999932,
+            "p95": 33.399999999999636,
+            "max": 116.70000000000027,
+            "over20": 9
+          }
+        },
+        "totalDrops": 10,
+        "errors": []
+      },
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-20261003\\tmp\\complex-perf-deploy-perf-after-2\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "state": {
+          "renderer": "tidewater-webgpu",
+          "selectAt": "436",
+          "terrainMs": "0",
+          "dataMs": "114",
+          "fetchMs": "117",
+          "fps": "36.9",
+          "draws": "0",
+          "pixelRatio": "2.00",
+          "renderMaxMs": "10",
+          "quality": "high",
+          "gpuMs": "0.00",
+          "pipelines": "14",
+          "titled": "0",
+          "modelBuildMs": "991",
+          "buildSteps": "facades=277/205 stone=278/0 towers=307/13 merge=0/0 neighbours=63/4 ctxMaterials=19/8 groundPaint=14/0 groundGeo=32/1 rest=1/1",
+          "paint": "kept 4 / painted 3",
+          "builtAt": "1550",
+          "terrain": "flat",
+          "neighbours": "275",
+          "shownAt": "2088"
+        },
+        "firstMs": 1652,
+        "input": {
+          "pointerDelay": {
+            "count": 34,
+            "median": 10.200000000186265,
+            "p95": 87.29999999981374,
+            "max": 173.40000000037253,
+            "over20": 6
+          },
+          "frames": {
+            "count": 71,
+            "median": 16.700000000000045,
+            "p95": 83.40000000000003,
+            "max": 183.29999999999995,
+            "over20": 10
+          }
+        },
+        "totalDrops": 11,
+        "errors": []
+      },
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-20261003\\tmp\\complex-perf-deploy-perf-after-3\\report.json",
+        "environment": {
+          "buildMode": "production",
+          "browser": "155.0.4283.33",
+          "fixture": "complex-perf-v1",
+          "renderScale": 1.5,
+          "cpuRate": 1,
+          "detailDelay": 0,
+          "pausedRail": false,
+          "featureMarkerRemoved": false
+        },
+        "state": {
+          "renderer": "tidewater-webgpu",
+          "selectAt": "487",
+          "terrainMs": "0",
+          "dataMs": "130",
+          "fetchMs": "133",
+          "titled": "0",
+          "modelBuildMs": "787",
+          "buildSteps": "facades=253/244 stone=99/0 towers=152/12 merge=0/0 neighbours=183/3 ctxMaterials=25/7 groundPaint=11/0 groundGeo=63/1 rest=1/1",
+          "paint": "kept 4 / painted 3",
+          "builtAt": "1411",
+          "terrain": "flat",
+          "neighbours": "275",
+          "fps": "39.6",
+          "draws": "0",
+          "pixelRatio": "2.00",
+          "renderMaxMs": "11",
+          "quality": "high",
+          "gpuMs": "0.00",
+          "pipelines": "2",
+          "shownAt": "2285"
+        },
+        "firstMs": 1798,
+        "input": {
+          "pointerDelay": {
+            "count": 38,
+            "median": 11.5,
+            "p95": 120.3999999994412,
+            "max": 130.20000000018626,
+            "over20": 8
+          },
+          "frames": {
+            "count": 82,
+            "median": 16.700000000000045,
+            "p95": 66.60000000000002,
+            "max": 133.39999999999998,
+            "over20": 11
+          }
+        },
+        "totalDrops": 11,
+        "errors": []
+      }
+    ],
+    "medianFirstMs": 1652
+  },
+  "speedup": 1.139225181598063,
+  "shorterPercent": 12.221041445270986,
+  "frameGate": {
+    "exitCode": 1,
+    "results": [
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-20261003\\tmp\\complex-perf-deploy-perf-after-1\\report.json",
+        "passed": false,
+        "budgetMs": 20,
+        "phases": {
+          "loading": {
+            "frames": 149,
+            "maxMs": 116.7,
+            "drops": 9
+          },
+          "extras": {
+            "frames": 232,
+            "maxMs": 33.4,
+            "drops": 1
+          },
+          "overview": {
+            "frames": 180,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "cameraTransition": {
+            "frames": 61,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "street": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "away": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "switchLoading": {
+            "frames": 640,
+            "maxMs": 17,
+            "drops": 0
+          },
+          "afterSwitch": {
+            "frames": 180,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "interaction": {
+            "frames": 207,
+            "maxMs": 16.9,
+            "drops": 0
+          }
+        }
+      },
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-20261003\\tmp\\complex-perf-deploy-perf-after-2\\report.json",
+        "passed": false,
+        "budgetMs": 20,
+        "phases": {
+          "loading": {
+            "frames": 76,
+            "maxMs": 183.3,
+            "drops": 10
+          },
+          "extras": {
+            "frames": 229,
+            "maxMs": 33.3,
+            "drops": 1
+          },
+          "overview": {
+            "frames": 180,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "cameraTransition": {
+            "frames": 62,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "street": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "away": {
+            "frames": 180,
+            "maxMs": 17,
+            "drops": 0
+          },
+          "switchLoading": {
+            "frames": 636,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "afterSwitch": {
+            "frames": 180,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "interaction": {
+            "frames": 209,
+            "maxMs": 16.8,
+            "drops": 0
+          }
+        }
+      },
+      {
+        "report": "I:\\ai_root\\stock_market\\tmp\\performance-release-20261003\\tmp\\complex-perf-deploy-perf-after-3\\report.json",
+        "passed": false,
+        "budgetMs": 20,
+        "phases": {
+          "loading": {
+            "frames": 86,
+            "maxMs": 133.4,
+            "drops": 11
+          },
+          "extras": {
+            "frames": 227,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "overview": {
+            "frames": 180,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "cameraTransition": {
+            "frames": 62,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "street": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "away": {
+            "frames": 180,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "switchLoading": {
+            "frames": 640,
+            "maxMs": 16.9,
+            "drops": 0
+          },
+          "afterSwitch": {
+            "frames": 180,
+            "maxMs": 16.8,
+            "drops": 0
+          },
+          "interaction": {
+            "frames": 211,
+            "maxMs": 16.8,
+            "drops": 0
+          }
+        }
+      }
+    ]
+  },
+  "originalTargetsMet": false
+}
