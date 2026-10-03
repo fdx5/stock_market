@@ -1202,17 +1202,24 @@ export class ComplexRenderer {
   singleChannel(source) {
     const known = this.textures.get(source);
     if (known) return known.channel ? known : null;
+    const immutable = this.immutableKey(source);
+    const key = immutable && 'channel/G/' + immutable;
+    const shared = key && this.pool().acquire(key, this);
+    if (shared) { this.textures.set(source, shared); this.dropStaging(source); this.release(source); return shared; }
     const img = source.image;
     if (!img?.width || !img?.height || img.data) return null;
     const tex = new Texture({ width: img.width, height: img.height, format: 'r8unorm', mips: true, usage: ['sample', 'render'] });
-    tex.repack = () => {
+    const repack = () => {
       packInto(tex, [this.packSource(source)], 'vec4f(A.y, 0.0, 0.0, 1.0)');
       this.dropStaging(source);
     };
-    tex.repack();
+    repack();
+    // A shared immutable map must not retain the first view through a callback.
+    if (!key) tex.repack = repack;
     tex.channel = true;
     tex.sourceVersion = source.version;
     this.textures.set(source, tex);
+    if (key) this.pool().acquire(key, this, () => tex);
     this.release(source);
     return tex;
   }

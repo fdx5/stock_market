@@ -15,6 +15,7 @@ import { DIMS } from "./vehicleShapes";
 import { vehicleShapes, heroGeometry, type Shapes } from "./vehicleClient";
 import { plateAtlasReady, plateGeometry, plateMaterial, PLATE_COUNT, PLATE_WHITE } from "./scenePlates";
 import { bitmapTexture } from "./bitmapTexture";
+import { preparedSteel } from "./preparedSteel";
 import { coupangTruck, cybertruck, heroSurface, type HeroName, type HeroShape } from "./heroVehicles";
 
 /* The street: lamps on the surveyed major roads, and traffic driving both ways on
@@ -375,24 +376,31 @@ export async function buildLamps(lamps: Lamp[], terrain: Terrain = FLAT) {
 
 // ---------- Traffic ----------
 
-let kit: Promise<{ geos: Map<string, THREE.BufferGeometry>; procedural: Map<string, THREE.BufferGeometry>; heroes: Shapes['heroes']; texture: THREE.Texture }> | null = null;
+let kit: Promise<{ geos: Map<string, THREE.BufferGeometry>; procedural: Map<string, THREE.BufferGeometry>; heroes: Shapes['heroes']; texture: THREE.Texture; steel: THREE.Texture | null }> | null = null;
 onSceneMemoryRelease(() => {
   const old = kit; kit = null;
-  void old?.then(k => k.texture.dispose()).catch(() => {});
+  void old?.then(k => { k.texture.dispose(); k.steel?.dispose(); }).catch(() => {});
 });
 
 function loadKit() {
-  kit ??= Promise.all([
+  if (kit) return kit;
+  // Never put this optional prepared map on the vehicle loading critical path.
+  // If it arrives late, retain the original painter and release the unused bitmap.
+  let steel: THREE.Texture | null = null, acceptingSteel = true;
+  void preparedSteel().then(t => { if (acceptingSteel) steel = t; else t?.dispose(); });
+  kit = Promise.all([
     vehicleShapes(),
     bitmapTexture("/3d/vehicles.png", false),
   ]).then(([shapes, texture]) => {
+    acceptingSteel = false;
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.magFilter = THREE.NearestFilter; // flat colour swatches
     // (glTF uv convention: not flipped)
-    return { geos: shapes.kit, procedural: shapes.procedural, heroes: shapes.heroes, texture };
-  });
-  kit.catch(() => { kit = null; });
-  return kit;
+    return { geos: shapes.kit, procedural: shapes.procedural, heroes: shapes.heroes, texture, steel };
+  }, error => { acceptingSteel = false; steel?.dispose(); throw error; });
+  const current = kit;
+  current.catch(() => { if (kit === current) kit = null; });
+  return current;
 }
 
 /** Head and tail lamps for a vehicle of length L, width W at height y: two warm white
@@ -649,8 +657,8 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const heroKind = new Map<HeroName, number>(), heroMats: THREE.Material[] = [], heroShape = new Map<number, HeroShape>();
   for (const [name, make] of [["coupang", coupangTruck], ["cyber", cybertruck]] as const) {
     await frameSlice();
-    const prepared = (await loadKit()).heroes[name];
-    const h = prepared ? {...heroGeometry(prepared), material: heroSurface(name)} : make();
+    const kit = await loadKit(), prepared = kit.heroes[name];
+    const h = prepared ? {...heroGeometry(prepared), material: heroSurface(name, kit.steel)} : make();
     heroShape.set(kinds.length, h);
     const k = K(h.geometry, [boxMat, h.material] as unknown as THREE.Material, 0, name === "cyber" ? 1.05 : 0.95, h.dims);
     k.own = true;

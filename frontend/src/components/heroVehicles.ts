@@ -362,8 +362,8 @@ export function cybertruck(geometryOnly = false): HeroShape {
 }
 
 /** Geometry may come from the worker; surface painting stays with the page's exact font. */
-export function heroSurface(name: HeroName) {
+export function heroSurface(name: HeroName, steel?: THREE.Texture | null) {
   return name === "coupang"
     ? new THREE.MeshStandardMaterial({ map: coupangLivery(), roughness: 0.45, metalness: 0.05 })
-    : new THREE.MeshStandardMaterial({ color: "#cfd2d4", metalness: 0.92, roughness: 0.42, roughnessMap: brushedSteel() });
+    : new THREE.MeshStandardMaterial({ color: "#cfd2d4", metalness: 0.92, roughness: 0.42, roughnessMap: steel ?? brushedSteel() });
 }
