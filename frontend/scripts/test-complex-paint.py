@@ -1,8 +1,8 @@
 ﻿"""Compare original page painters and off-thread painters at 1x and 2x, including data maps."""
-import argparse, atexit, json, re
+import argparse, atexit, json
 from pathlib import Path
 from playwright.sync_api import sync_playwright
-ap=argparse.ArgumentParser();ap.add_argument('--base',default='http://127.0.0.1:5180');ap.add_argument('--missing-normal',action='store_true');a=ap.parse_args()
+ap=argparse.ArgumentParser();ap.add_argument('--base',default='http://127.0.0.1:5180');a=ap.parse_args()
 root=Path(__file__).resolve().parents[2]
 files=[root/'frontend/__paintqa.html',root/'frontend/src/__paintqa.ts']
 assert not any(p.exists() for p in files)
@@ -25,22 +25,17 @@ for(const name of Object.keys(original)){const t=original[name],bmp=reply.bitmap
 const x=pixels(t.image),y=pixels(bmp,t.flipY!==reply.params[name].flipY);let max=0,sum=0,changed=0;for(let i=0;i<x.length;i++){const d=Math.abs(x[i]-y[i]);max=Math.max(max,d);sum+=d;if(d)changed++}
 const p=reply.params[name];if(p.flipY!==false||t.anisotropy!==p.anisotropy||t.colorSpace!==p.colorSpace||t.repeat.x!==p.repeat[0]||t.repeat.y!==p.repeat[1]||t.offset.x!==p.offset[0]||t.offset.y!==p.offset[1])throw Error('texture sampling changed');
 const nt=normalized[name];if(nt.flipY)throw Error('ImageBitmap orientation relies on unsupported WebGL flipY');
-const nx=pixels(nt.image,t.flipY);for(let i=0;i<x.length;i++)if(Math.abs(nx[i]-x[i])>1)throw Error('WebGL/WebGPU texel orientation changed '+JSON.stringify({job,name,index:i,expected:x[i],actual:nx[i]}));nt.dispose();
+const nx=pixels(nt.image,t.flipY);for(let i=0;i<x.length;i++)if(Math.abs(nx[i]-x[i])>1)throw Error('WebGL/WebGPU texel orientation changed');nt.dispose();
 reports.push({job:job.kind,style:job.style,scale:job.scale,name,width:bmp.width,height:bmp.height,max,mean:sum/x.length,changed});bmp.close();t.image.width=t.image.height=1;t.dispose()}}
 w.terminate();return reports};
 ''',encoding='utf-8')
 with sync_playwright() as p:
  b=p.chromium.launch(channel='msedge',headless=True)
- page=b.new_page();errors=[];missing=[];page.on('pageerror',lambda e:errors.append(str(e)))
- if a.missing_normal:
-  def unavailable(r):
-   missing.append(r.request.url);r.fulfill(status=404,body='missing normal fixture')
-  page.context.route(re.compile(r'/3d/paint/[^/]+/(facade-[12]|plinth)-normalMap\.png$'),unavailable)
+ page=b.new_page();errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
  page.on('console',lambda m:print(m.text,flush=True) if m.type!='debug' else None);page.goto(a.base+'/__paintqa.html');page.wait_for_function("typeof window.check === 'function'")
  version=page.evaluate('window.assetVersion');assert version,'Paint asset fast path is disabled; enable paintAssetsPlugin in Vite'
  report=page.evaluate('check()');b.close()
- if a.missing_normal: assert missing,'Missing-normal fixture did not intercept any requests'
- out=root/('tmp/complex-paint-quality-missing-normal.json' if a.missing_normal else 'tmp/complex-paint-quality.json');out.write_text(json.dumps({'maps':report,'errors':errors},indent=2),encoding='utf-8')
+ out=root/'tmp/complex-paint-quality.json';out.write_text(json.dumps({'maps':report,'errors':errors},indent=2),encoding='utf-8')
  print(json.dumps({'maps':len(report),'max_pixel_difference':max(r['max'] for r in report),'mean_pixel_difference':sum(r['mean'] for r in report)/len(report),'errors':errors}))
  assert not errors,errors
  assert all(r['max']<=1 for r in report),report

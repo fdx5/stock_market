@@ -31,12 +31,8 @@ async function paint({ id, job }: { id: number; job: PaintJob }) {
           colorSpace: t.colorSpace, repeat: [t.repeat.x, t.repeat.y], offset: [t.offset.x, t.offset.y] };
         if (readyNormal && (name === 'normalMap' || name === 'rmMap')) params[name].surfaceKey = job.kind === 'facade' || (job.kind === 'context' && job.style === 'apt')
           ? `facade-${job.scale ?? 1}` : job.kind === 'plinth' ? 'plinth' : `context-${job.style}-${job.scale ?? 1}`;
-        const image = t.image as unknown as OffscreenCanvas | ImageBitmap;
-        // This decoded bitmap is already owned by this job; cloning it before
-        // the orientation copy only duplicates a full-size image operation.
-        const reusedNormal = name === 'normalMap' && image === readyNormal;
-        const raw = reusedNormal ? readyNormal!
-          : image instanceof OffscreenCanvas ? image.transferToImageBitmap()
+        const image = t.image as unknown as OffscreenCanvas;
+        const raw = image instanceof OffscreenCanvas ? image.transferToImageBitmap()
           : await createImageBitmap(image, { colorSpaceConversion: "none", premultiplyAlpha: "none" });
         bitmaps[name] = t.flipY ? await createImageBitmap(raw, {imageOrientation:'flipY',colorSpaceConversion:'none',premultiplyAlpha:'none'}) : raw;
         if (bitmaps[name] !== raw) raw.close();
