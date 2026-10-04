@@ -3879,6 +3879,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     tr.drive(dv.name, false);
     if (home) tr.summon(dv.name, dv.home.x, dv.home.y, dv.home.hx, dv.home.hy);
     dv.manual = false; dv.dead = false; dv.hp = 100; dv.sim.steer = 0;
+    // Refuel even when no new delivery route can be found after a wreck.
+    dv.fuelCap = Math.max(dv.fuelCap, tankFor(0)); dv.fuel = dv.fuelCap; dv.dryAt = 0;
+    setFuelOut(false);
     dv.feel.hpWarn = 0; dv.feel.fuelWarn = 0; setHpWarn(0); setFuelWarn(0); paintDamage(dv);
     setHp(100); setWrecked(null); setDriving(d => d && { ...d, manual: false });
     if (!home) setGoldSum(addGold(-Math.min(50, goldTotal())));
