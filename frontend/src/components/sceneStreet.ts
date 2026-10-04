@@ -6,6 +6,7 @@ import {textureBudgetEnabled}from'./textureBudget';
 import {roadJunctionHulls}from'./roadJunctions';
 import {junctionSignalPolicy,junctionOccupied}from'./trafficJunction';
 import {splitRoadJunctions}from'./roadTrafficNetwork';
+import {roadLaneCount}from'./roadLanes';
 import {modelWheelRig,fallbackWheelRig,rollingWheelGeometry,wheelRotation}from'./rollingWheels';
 import { paintedTexture } from "./paintedTexture";
 import { mergeGeometries, toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
@@ -165,8 +166,8 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
   let slice = performance.now();
   for (const [ri, r] of roads.entries()) {
     if (performance.now() - slice > 5) { await frameSlice(); slice = performance.now(); }
-    const lanes = Math.max(1, Math.round(r.lanes || r.width / 3.5));
-    if (lanes < 2 || r.line.length < 2 || inside?.(ri)) continue;
+    const lanes = roadLaneCount(r);
+    if (r.line.length < 2 || inside?.(ri)) continue;
     // resampled every STEP m, with smoothed left normals
     const pts: [number, number][] = [];
     for (let i = 1; i < r.line.length; i++) {
@@ -211,15 +212,30 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
         return [x + nx * off, y + ny * off, nx, ny];
       };
       let prev = at(sa);
+      let lastSides:number[][]|null=null;
       // Include every asphalt knot, including the last partial segment of a
       // surveyed polyline; otherwise a painted corner cuts across the bend.
       const knots=[...cum.filter(s=>s>sa&&s<sb),sb];
       for (const sv of knots) {
         const cur = at(sv);
-        const q = (p: number[], side: number) => { const x = p[0] + p[2] * side * w / 2, y = p[1] + p[3] * side * w / 2; return [x, terrain.at(x, y) + LIFT, -y]; };
+        // An offset lane curve can reverse on a short surveyed bend. Reusing
+        // the centreline's normals folded thin quads and left holes in them.
+        // Thin ribbons use their own tangent; wide stop/crosswalk bars keep
+        // the asphalt's across-road interpolation.
+        const dx=cur[0]-prev[0],dy=cur[1]-prev[1],len=Math.hypot(dx,dy),thin=w<=.2&&len>1e-6;
+        const q = (p: number[], side: number) => { const nx=thin?-dy/len:p[2],ny=thin?dx/len:p[3],x=p[0]+nx*side*w/2,y=p[1]+ny*side*w/2;return [x,terrain.at(x,y)+LIFT,-y]; };
         const a = q(prev, 1), b = q(prev, -1), c = q(cur, -1), d = q(cur, 1);
         // (wound to face up: world x, up, -y)
         out.push(...a, ...b, ...c, ...a, ...c, ...d);
+        if(thin&&lastSides){
+          const center=[prev[0],terrain.at(prev[0],prev[1])+LIFT,-prev[1]];
+          for(const [old,next]of [[lastSides[0],a],[lastSides[1],b]]){
+            const up=(next[0]-old[0])*(-center[2]+old[2])-(-next[2]+old[2])*(center[0]-old[0]);
+            if(Math.abs(up)<1e-9)continue;
+            if(up>=0)out.push(...old,...next,...center);else out.push(...old,...center,...next);
+          }
+        }
+        lastSides=thin?[d,c]:null;
         prev = cur;
       }
     };
@@ -262,7 +278,7 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
     if(cursor<s1)spans.push([cursor,s1]);coverage.push({road:ri,lanes,length:total,spans});
     for(const[a,b]of spans){
       if (lanes >= 4) { strip(yellow, 0.17, 0.15, a,b); strip(yellow, -0.17, 0.15,a,b); }
-      else strip(yellow, 0, 0.15,a,b);
+      else if (lanes >= 2) strip(yellow, 0, 0.15,a,b);
     }
     for (const [L, atStart] of [[L0, true], [L1, false]] as const) {
       if (!L || r.width < 5 || L.zebra === false && L.stop === false) continue;
@@ -294,8 +310,9 @@ export async function buildRoadMarkings(roads: RealEstateRoad[], terrain: Terrai
         }
       }
     }
-    // the edge lines (차도외측선): solid white along both kerbs of a wide road
-    if (r.width >= 7) for (const side of [1, -1]) for(const[a,b]of spans)strip(white, side * (r.width / 2 - 0.3), 0.15,a,b);
+    // Narrow single-lane roads retain white boundaries too; only centre and
+    // interior separators depend on lane count. Intersection interiors stay clear.
+    if (r.width >= 2.4) for (const side of [1, -1]) for(const[a,b]of spans)strip(white, side * (r.width / 2 - 0.3), 0.15,a,b);
     // lane lines each way: dashed white between the lanes
     for (const side of [1, -1]) {
       const count=side===1?Math.floor(lanes/2):Math.ceil(lanes/2),laneW=halfW/count;
@@ -574,7 +591,7 @@ export async function buildTraffic(roads: RealEstateRoad[], seed: number, hq: bo
   const paths = usable.map(r => {
     const cum = [0];
     for (let i = 1; i < r.line.length; i++) cum.push(cum[i - 1] + Math.hypot(r.line[i][0] - r.line[i - 1][0], r.line[i][1] - r.line[i - 1][1]));
-    return { ...r, cum, len: cum[cum.length - 1] };
+    return { ...r, lanes:roadLaneCount(r), cum, len: cum[cum.length - 1] };
   }).filter(p => p.len > 0.5); // short pieces stay: they carry the network across
   if (!paths.length) return null;
 

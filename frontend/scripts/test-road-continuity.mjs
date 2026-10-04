@@ -17,7 +17,8 @@ const {gridAt}=load(read('waterCore.ts'));
 const {drapeRoadSurface,raiseRoadPaint}=load(read('roadDrape.ts'));
 const {gradeRoads}=load(read('sceneTerrain.ts'),{gridAt,corridorRoadGrade});
 const {roadJunctionHulls}=load(read('roadJunctions.ts'));
-const street=load(read('sceneStreet.ts'),{roadJunctionHulls});
+const {roadLaneCount}=load(read('roadLanes.ts'));
+const street=load(read('sceneStreet.ts'),{roadJunctionHulls,roadLaneCount});
 const oldStreet=load(execFileSync('git',['show','66bc4ec:frontend/src/components/sceneStreet.ts'],{encoding:'utf8'}));
 const {findBridges,roadGround,bridgeHeight}=load(read('sceneBridges.ts'),{inRing:([x,y],ring)=>x>=ring[0][0]&&x<=ring[2][0]&&y>=ring[0][1]&&y<=ring[2][1],sidewalkWidth:()=>2});
 
@@ -79,6 +80,32 @@ test('a short multi-lane road retains its centre, edges and partial lane dash',a
  assert.equal(marks.group.children.length,2);assert.ok(contains(marks.group.children[0],.1,0.17));assert.ok(contains(marks.group.children[0],2.4,0.17));
  assert.ok(contains(marks.group.children[1],2.4,3.5));assertPaintOnAsphalt(surface,marks);surface.dispose();marks.dispose();
 });
+
+test('wide roads with the provider missing-lane sentinel retain centre and interior lane lines',async()=>{
+ for(const lanes of [0,1]){
+  const roads=[{line:[[0,0],[120,0]],width:14,lanes}],surface=await street.buildRoadSurface(roads,flat),marks=await street.buildRoadMarkings(roads,flat);
+  assert.equal(roadLaneCount(roads[0]),4);
+  const yellow=marks.group.children.find(m=>m.material.color.r>m.material.color.b*2),white=marks.group.children.find(m=>m!==yellow);
+  for(let x=.5;x<119;x+=.5){assert.ok(contains(yellow,x,.17),`missing centre at ${x}`);assert.ok(contains(white,x,6.7),`missing edge at ${x}`);}
+  assert.ok(contains(white,17.5,3.5));assert.ok(contains(white,17.5,-3.5));
+  assertPaintOnAsphalt(surface,marks);surface.dispose();marks.dispose();
+ }
+ assert.equal(roadLaneCount({width:25,lanes:6}),6,'registered counts remain authoritative');
+});
+
+test('single-lane narrow carriageways retain boundaries without an invented yellow centre',async()=>{
+ const roads=[{line:[[0,0],[36,0]],width:3.3,lanes:1}],surface=await street.buildRoadSurface(roads,flat),marks=await street.buildRoadMarkings(roads,flat);
+ assert.equal(marks.group.children.length,1);const white=marks.group.children[0];
+ assert.ok(white.material.color.b>.8);assert.ok(!contains(white,18,0));
+ for(let x=.5;x<35;x+=.5)for(const side of [-1,1])assert.ok(contains(white,x,side*1.35));
+ assertPaintOnAsphalt(surface,marks);surface.dispose();marks.dispose();
+});
+
+test('inferred multi-lane markings still exclude the intersection interior',async()=>{
+ const roads=[{line:[[-40,0],[40,0]],width:14,lanes:1},{line:[[0,0],[0,30]],width:10,lanes:1}];
+ const marks=await street.buildRoadMarkings(roads,flat),yellow=marks.group.children[0];
+ assert.ok(!contains(yellow,0,.17));assert.ok(contains(yellow,-25,.17));assert.ok(contains(yellow,25,.17));marks.dispose();
+});
 test('crossing coordinates beyond a short road never extend paint past asphalt',async()=>{
  const roads=[{line:[[0,0],[9,0]],width:12,lanes:4}],surface=await street.buildRoadSurface(roads,flat);
  const marks=await street.buildRoadMarkings(roads,flat,()=>({crossA:12,crossB:16,stopA:17,stopB:17.4,surveyed:true}));
@@ -86,6 +113,13 @@ test('crossing coordinates beyond a short road never extend paint past asphalt',
 });
 test('all markings stay inside the same surveyed asphalt strip through tight bends',async()=>{
  const roads=[{line:[[0,0],[11,0],[14,9],[28,10]],width:8,lanes:3}],surface=await street.buildRoadSurface(roads,flat),marks=await street.buildRoadMarkings(roads,flat);
+ assertPaintOnAsphalt(surface,marks);surface.dispose();marks.dispose();
+});
+
+test('a thin lane ribbon stays filled when its offset curve reverses at a short bend',async()=>{
+ const road={width:9.127627438746185,lanes:3,line:[[-70.65,370.87],[-100.68,360.51],[-108.25,357.95],[-109.98,357.95],[-111.29,360],[-112.97,366.08],[-116.86,378.95],[-117.42,380.81],[-117.54,387.03]]};
+ const marks=await street.buildRoadMarkings([road],flat),surface=await street.buildRoadSurface([road],flat);
+ assert.ok(contains(marks.group.children[1],-108.66617178218065,360.07563104623034),'folded lane ribbon leaves a hole');
  assertPaintOnAsphalt(surface,marks);surface.dispose();marks.dispose();
 });
 test('a T at the middle of a road excludes the junction and retains both approach lines',async()=>{
