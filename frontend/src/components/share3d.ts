@@ -13,7 +13,7 @@ export function view3dUrl(complexId: string, hour: number, weather: Weather): st
   q.set("3d", "1");
   q.set("hour", String(Math.round(hour * 100) / 100));
   if (weather === "clear") q.delete("weather"); else q.set("weather", weather);
-  q.delete("tod"); q.delete("renderer");
+  q.delete("tod"); q.delete("renderer"); q.delete("devgame");
   q.set("utm_source", "kakaotalk"); q.set("utm_medium", "social"); q.set("utm_campaign", "realestate_3d");
   return `${location.origin}/realestate-map?${q}`;
 }

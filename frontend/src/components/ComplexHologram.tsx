@@ -1949,7 +1949,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (shift.length() > 3000) shift = null;
       if (shift && came.drive && stage.carry) { stage.carry.ox = ox; stage.carry.oy = oy; stage.carry.dz = shift.y; }
     }
-    let behind = (came?.drive || sceneDeviceBudget().retainPrevious) && shift && stage.model && !stage.unshown ? stage.current : null;
+    let behind = shift && (came?.drive || (sceneDeviceBudget().retainPrevious && stage.model && !stage.unshown)) ? stage.current : null;
     const oldTraffic = stage.traffic;
     if (came?.drive && shift) {
       for (const region of driveTrail.current) for (const part of region.parts()) part.position.add(shift);
@@ -4134,7 +4134,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (!st || !dv || !cur?.center) return;
       // (a re-centring that never completed: let the drive end rather than hang)
       if (st.carry && performance.now() - st.carry.at > 90000) { const k = st.carry; st.carry = null; k.letGo?.(); endDrive(); return; }
-      if (dv.dead || st.carry || hopPending.current || hopRef.current) return;
+      if (dv.dead || st.carry || hopRef.current) return;
       const c = st.traffic?.hero(dv.name);
       if (!c) return;
       const v = Math.abs(c.speed);
@@ -4147,18 +4147,6 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // complex that way: a river bank, a park, a district of houses — VWorld's buildings and roads).
       const { hx, hy, lead, due } = driveAreaPlan(c);
       const px = c.x + hx * lead, py = c.y + hy * lead;
-      let best = null as Nearby | null, score = Infinity;
-      for (const it of drivePool.current.values()) {
-        if (it.id === cur.id || hopRefused.current.has(it.id)) continue;
-        const [x, y] = metresFrom(cur.center, it.lat, it.lon), dc = Math.hypot(x - c.x, y - c.y);
-        if (dc > lead + 250) continue;
-        const sc = Math.hypot(x - px, y - py);
-        if (sc < score) { score = sc; best = it; }
-      }
-      if (best && score > 250) best = null;
-      // (at speed only the plain area ahead: a complex's own scene paints its facades and took
-      // ~17 s to build at 178 km/h, the plain area ~3 s; its buildings still stand, as neighbours)
-      if (v > 12) best = null;
       const key0 = cur.vworld_key, cos = Math.cos((cur.center.lat * Math.PI) / 180);
       const pointJob = (x: number, y: number, priority = false) => {
         const lat = cur.center!.lat + y / 110_540, lon = cur.center!.lon + x / (cos * 111_320);
@@ -4188,19 +4176,29 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       const hp = heldPoint.current!, aheadNow = Math.hypot(hp.x - c.x, hp.y - c.y);
       const p0 = pointAt(aheadNow), cell = `pt:${(cur.center.lat + hp.y / 110_540).toFixed(3)},${(cur.center.lon + hp.x / (cos * 111_320)).toFixed(3)}`;
       void p0;
-      const jobKey = best ? best.id : cell;
-      if (!best && (!key0 || hopRefused.current.has(cell))) return;
+      const jobKey = cell;
+      if (!key0 || hopRefused.current.has(cell)) return;
       // Asked once per area and kept: started well before it is needed (선로딩), so the move itself
       // waits on nothing but the building.
       let job = areaJobs.current.get(jobKey);
+      // Turning must consume an already prepared surrounding region, rather than
+      // starting another request for a slightly different point farther ahead.
+      const readyArea = pointAreas.current.ready().filter(res => {
+        if (!res.center || res.id === cur.id) return false;
+        const [x, y] = metresFrom(cur.center!, res.center.lat, res.center.lon);
+        return Math.hypot(x - c.x, y - c.y) < 650 && x * hx + y * hy > 150 &&
+          (x - c.x) * hx + (y - c.y) * hy > -120;
+      }).sort((a, b) => {
+        const [ax, ay] = metresFrom(cur.center!, a.center!.lat, a.center!.lon);
+        const [bx, by] = metresFrom(cur.center!, b.center!.lat, b.center!.lon);
+        return Math.hypot(ax - px, ay - py) - Math.hypot(bx - px, by - py);
+      })[0];
+      if (readyArea && due && dv.manual) job = Promise.resolve({ res: readyArea, key: readyArea.id, name: readyArea.name });
       if (!job) {
         // (points ahead change as the vehicle moves: one new one asked every 2.5 s at most)
-        if (!best && performance.now() - lastPreload < 500) return;
+        if (performance.now() - lastPreload < 500) return;
         lastPreload = performance.now();
-        const target = best;
-        job = target
-          ? lookAhead(target.id).then(async (res): Promise<Area> => ({ res: res?.found ? await prepare(res) : res, key: target.id, name: target.name }))
-          : (async (): Promise<Area> => {
+        job = (async (): Promise<Area> => {
               for (const extra of [0, 190]) {
                 const ax = hp.x + hx * extra, ay = hp.y + hy * extra;
                 const res = await pointJob(ax, ay, true);
@@ -4214,11 +4212,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         void job.then(area => { if (!area.res) areaJobs.current.delete(jobKey); }, () => areaJobs.current.delete(jobKey));
         areaJobs.current.set(jobKey, job);
         while (areaJobs.current.size > 12) areaJobs.current.delete(areaJobs.current.keys().next().value!);
-        if (target && !pausedRef.current) prefetchPaint(target.id, target.name);
       }
-      if (!due || !dv.manual) return;
+      if (!due || !dv.manual || (hopPending.current && !readyArea)) return;
       hopPending.current = true;
-      const chosen = best;
       void job.then(({ res, key: targetId, name: targetName }) => {
         hopPending.current = false;
         const st2 = stageRef.current, dv2 = st2?.drive, cur2 = dataRef.current;
@@ -4876,8 +4872,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         )}
         {failed3d && <p className="re-holo-msg">3D 화면을 불러오지 못했습니다. 브라우저 설정에서 하드웨어 가속이 켜져 있는지 확인해 주세요.{" "}
           <button type="button" className="re-holo-retry" onClick={() => location.reload()}>다시 시도</button></p>}
-        {loading && <div className="re-holo-scan" role="status"><span />{dataTry ? `응답이 늦어 다시 요청하는 중입니다 (${dataTry + 1}/3)…` : slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
-        {!loading && preparing && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
+        {loading && !driving && <div className="re-holo-scan" role="status"><span />{dataTry ? `응답이 늦어 다시 요청하는 중입니다 (${dataTry + 1}/3)…` : slowData ? "외부 건물 자료 응답을 기다리고 있습니다. 첫 조회는 더 걸릴 수 있습니다." : "건물 윤곽 불러오는 중…"}</div>}
+        {!loading && preparing && !driving && <div className="re-holo-scan" role="status"><span />장면의 조명과 재질을 준비하고 있습니다…</div>}
         {!loading && error && <p className="re-holo-msg" role="status">{error}{" "}
           <button type="button" className="re-holo-retry" onClick={() => setReloadKey(k => k + 1)}>다시 시도</button></p>}
         {balloonOn && <div className="re-holo-balloon-hint" role="status"><b>🎈 열기구에서 내려다보는 중</b><span>{touchMode ? "드래그로 둘러보기 · 두 손가락으로 확대·축소" : "드래그로 둘러보기 · 휠로 확대·축소 · Esc로 내리기"}</span></div>}

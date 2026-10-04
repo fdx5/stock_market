@@ -13,13 +13,34 @@ const DATA = "https://api.vworld.kr/req/data";
 const FLOOR_M = 2.9, GROUND_M = 1.5, CONTEXT_M = 288, ROAD_M = 150;  // (the server: realestate_buildings.py)
 
 let seq = 0;
-function jsonp(url: string, params: Record<string, string | number>, timeoutMs = 6000): Promise<any> {
+let jsonpActive = 0;
+const jsonpWaiting: (() => void)[] = [];
+async function jsonp(url: string, params: Record<string, string | number>, timeoutMs = 6000): Promise<any> {
+  await new Promise<void>(resolve => {
+    if (jsonpActive < 4) { jsonpActive++; resolve(); }
+    else jsonpWaiting.push(resolve);
+  });
+  try { return await jsonpNow(url, params, timeoutMs); }
+  finally {
+    const next = jsonpWaiting.shift();
+    if (next) next(); else jsonpActive--;
+  }
+}
+function jsonpNow(url: string, params: Record<string, string | number>, timeoutMs: number): Promise<any> {
   return new Promise((resolve, reject) => {
     const name = `__vw${Date.now().toString(36)}${seq++}`;
     const script = document.createElement("script");
     const w = window as unknown as Record<string, unknown>;
-    const done = () => { window.clearTimeout(timer); delete w[name]; script.remove(); };
-    const timer = window.setTimeout(() => { done(); reject(new Error("VWorld 응답 시간 초과")); }, timeoutMs);
+    const done = (late = false) => {
+      window.clearTimeout(timer); script.remove();
+      if (late) {
+        // Removing a script does not reliably cancel an already received JSONP
+        // response. A late callback must not become an uncaught ReferenceError.
+        w[name] = () => {};
+        window.setTimeout(() => { delete w[name]; }, 600000);
+      } else delete w[name];
+    };
+    const timer = window.setTimeout(() => { done(true); reject(new Error("VWorld 응답 시간 초과")); }, timeoutMs);
     w[name] = (body: unknown) => { done(); resolve(body); };
     script.onerror = () => { done(); reject(new Error("VWorld 연결 실패")); };
     const q = new URLSearchParams({ ...Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])), format: "json", callback: name });
@@ -232,7 +253,7 @@ export async function vworldNearbyParcels(data: RealEstateBuildingsResponse, key
     const [cx, cy] = centroid(poly[0] as unknown as Ring);
     return [{ lonlat: [cx, cy] as [number, number], x: Math.round((cx - lon) * kx * 10) / 10, y: Math.round((cy - lat) * ky * 10) / 10,
       name: String(p.bld_nm || "").trim(), dong: String(p.dong_nm || "").trim(), floors }];
-  }).sort((a, b) => a.x * a.x + a.y * a.y - b.x * b.x - b.y * b.y);
+  }).sort((a, b) => a.x * a.x + a.y * a.y - b.x * b.x - b.y * b.y).slice(0, 96);
   const parcels: (RealEstateNearbyParcel & { rings: Ring[] })[] = [];
   const holder = (pt: [number, number]) => parcels.find(p => p.rings.some(r => inside(pt, r)));
   const waiting = [...towers];

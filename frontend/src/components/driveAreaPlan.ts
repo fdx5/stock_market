@@ -16,7 +16,7 @@ export function driveSurroundings(x: number, y: number) {
 /** Two network preparations at a time; queued travel directions can be promoted.
  * Completed areas survive turns and return trips without another download. */
 export class DriveAreaCache<T> {
-  private entries = new Map<string, { promise: Promise<T | null>; ready: boolean; cancel: () => void; task: () => Promise<T | null> }>();
+  private entries = new Map<string, { promise: Promise<T | null>; ready: boolean; value: T | null; cancel: () => void; task: () => Promise<T | null> }>();
   private retryAt = new Map<string, number>();
   private queue: string[] = [];
   private active = 0;
@@ -32,10 +32,11 @@ export class DriveAreaCache<T> {
     }
     let resolve!: (value: T | null) => void;
     const promise = new Promise<T | null>(done => { resolve = done; });
-    const entry = { promise, ready: false, cancel: () => resolve(null), task: async () => {
+    const entry = { promise, ready: false, value: null as T | null, cancel: () => resolve(null), task: async () => {
       let value: T | null = null;
       try { value = await load(); } catch { /* allow a subsequent retry */ }
       entry.ready = true;
+      entry.value = value;
       if (value === null) {
         this.entries.delete(key); this.retryAt.set(key, Date.now() + 10000);
         while (this.retryAt.size > 32) this.retryAt.delete(this.retryAt.keys().next().value!);
@@ -52,6 +53,7 @@ export class DriveAreaCache<T> {
     this.pump();
     return promise;
   }
+  ready(): T[] { return [...this.entries.values()].flatMap(e => e.ready && e.value !== null ? [e.value] : []); }
   private pump() {
     while (this.active < 2 && this.queue.length) {
       const entry = this.entries.get(this.queue.shift()!);
