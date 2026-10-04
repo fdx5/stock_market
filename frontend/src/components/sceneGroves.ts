@@ -5,6 +5,7 @@ import type {Terrain}from'./sceneTerrain';
 import {frameSlice}from'./frameSlice';
 import {PARK_TREE_STYLES}from'./landscapeDiversity';
 import {treeFoliageTone}from'./foliageTone';
+import {sceneDeviceBudget}from'./sceneDeviceBudget';
 
 const FOREST_CELL_M=10.5;
 export function woodlandDensity(x:number,y:number){
@@ -50,41 +51,46 @@ function leaf(out:Buffers,center:THREE.Vector3,width:number,length:number,q:THRE
  }
 }
 /** 48 branch sprays of four leaf shapes, plus trunk and three limbs. */
-export function treeMeshModel(styleIndex:number,seed=1){
+export function treeMeshModel(styleIndex:number,seed=1,leafCount=TREE_LEAVES){
  const style=PARK_TREE_STYLES[styleIndex],random=rng(seed+71),shape=styleIndex===2?[17,4,6.4]:styleIndex===4?[22,7.3,3.8]:styleIndex===1?[20,6.1,4.9]:styleIndex===3?[15,4.5,5.4]:[19,5.4,6.5];
  const[height,ry,radius]=shape,cy=height-ry,out:Buffers={position:[],normal:[],uv:[],color:[],index:[]};
- for(let n=0;n<TREE_LEAVES/4;n++){
-  const level=1-2*(n+.5)/(TREE_LEAVES/4),a=n*2.3999632297,spread=Math.sqrt(1-level*level)*(styleIndex===4?(.75-level*.25):1),rad=radius*spread*(.80+random()*.2);
+ const leafScale=Math.min(1.5,Math.sqrt(TREE_LEAVES/leafCount));
+ for(let n=0;n<leafCount/4;n++){
+  const level=1-2*(n+.5)/(leafCount/4),a=n*2.3999632297,spread=Math.sqrt(1-level*level)*(styleIndex===4?(.75-level*.25):1),rad=radius*spread*(.80+random()*.2);
   const branch=new THREE.Vector3(Math.cos(a)*rad,cy+level*ry,Math.sin(a)*rad);
   for(let j=0;j<4;j++){
    const p=branch.clone().add(new THREE.Vector3(Math.cos(a+j*.9)*(.15+j*.24),(random()-.5)*.60,Math.sin(a+j*.9)*(.15+j*.24)));
    const yaw=a+(j%2?1:-1)*(.50+random()*.5),tilt=(random()-.5)*1.9;
    const q=new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt,yaw,(random()-.5)*.6)),needle=styleIndex===2||styleIndex===4;
-   leaf(out,p,(needle?1.0:1.30)*(1+random()*.25),(needle?2.20:1.90)*(1+random()*.25),q,style.cell,.91+random()*.18);
+   leaf(out,p,leafScale*(needle?1.0:1.30)*(1+random()*.25),leafScale*(needle?2.20:1.90)*(1+random()*.25),q,style.cell,.91+random()*.18);
   }
  }
  const leafVertices=out.position.length/3;let low=Infinity;for(let i=1;i<out.position.length;i+=3)low=Math.min(low,out.position[i]);
  tube(out,new THREE.Vector3(0,-.06,0),new THREE.Vector3(.10,height*.78,.08),.28+height*.009,.14,.23);
  for(let k=0;k<3;k++){const a=k*Math.PI*2/3+.4;tube(out,new THREE.Vector3(0,height*(.36+k*.09),0),new THREE.Vector3(Math.cos(a)*radius*.65,cy+(k-1)*ry*.25,Math.sin(a)*radius*.65),.19,.045,a);}
  const geo=new THREE.BufferGeometry();for(const[name,values,size]of [['position',out.position,3],['normal',out.normal,3],['uv',out.uv,2],['color',out.color,3]]as const)geo.setAttribute(name,new THREE.Float32BufferAttribute(values,size));
- geo.setIndex(out.index);geo.computeBoundingBox();geo.computeBoundingSphere();geo.userData.treeModel={height,radius,leafVertices,leafTriangles:TREE_LEAF_TRIANGLES,treeTriangles:TREE_TRIANGLES,exposedTrunk:low};return geo;
+ geo.setIndex(out.index);geo.computeBoundingBox();geo.computeBoundingSphere();geo.userData.treeModel={height,radius,leafVertices,leafTriangles:leafCount*4,treeTriangles:leafCount*4+32,exposedTrunk:low};return geo;
 }
 
-type TreeBank={key:string;refs:number;geometries:THREE.BufferGeometry[];leaves:THREE.BufferGeometry[];bark:THREE.BufferGeometry;bytes:number;baseTriangles:number;exposed:number[];crownMat:THREE.MeshStandardMaterial;barkMat:THREE.MeshStandardMaterial};
+type TreeBank={key:string;refs:number;geometries:THREE.BufferGeometry[];leaves:THREE.BufferGeometry[][];bark:THREE.BufferGeometry;bytes:number;baseTriangles:number;exposed:number[];crownMat:THREE.MeshStandardMaterial;barkMat:THREE.MeshStandardMaterial};
 const treeBanks=new Map<string,Promise<TreeBank>>();
-async function acquireBank(texture:THREE.Texture|null,pause:()=>Promise<void>){
- const key=texture?.uuid??'procedural-colour';let pending=treeBanks.get(key);
+async function acquireBank(texture:THREE.Texture|null,pause:()=>Promise<void>,bounded:boolean){
+ const key=(texture?.uuid??'procedural-colour')+(bounded?'/bounded':'/full');let pending=treeBanks.get(key);
  if(!pending){pending=(async()=>{
- const geometries:THREE.BufferGeometry[]=[],leaves:THREE.BufferGeometry[]=[];let bark:THREE.BufferGeometry|undefined,bytes=0,baseTriangles=0;const exposed:number[]=[];
+ const geometries:THREE.BufferGeometry[]=[],leaves:THREE.BufferGeometry[][]=[];let bark:THREE.BufferGeometry|undefined,bytes=0,baseTriangles=0;const exposed:number[]=[];
  const extract=(g:THREE.BufferGeometry,start:number,end:number,t0:number,t1:number)=>{
   const part=new THREE.BufferGeometry();for(const[name,a]of Object.entries(g.attributes))part.setAttribute(name,new THREE.Float32BufferAttribute(a.array.slice(start*a.itemSize,end*a.itemSize),a.itemSize));
   part.setIndex(Array.from(g.index!.array.slice(t0*3,t1*3),v=>v-start));part.computeBoundingBox();part.computeBoundingSphere();geometries.push(part);
   for(const a of Object.values(part.attributes))bytes+=a.array.byteLength;bytes+=part.index!.array.byteLength;baseTriangles+=part.index!.count/3;return part;
  };
  for(let i=0;i<5;i++){
-  await pause();const model=treeMeshModel(i),n=model.userData.treeModel.leafVertices;leaves.push(extract(model,0,n,0,TREE_LEAF_TRIANGLES));
-  if(!bark){bark=extract(model,n,n+24,TREE_LEAF_TRIANGLES,TREE_TRIANGLES);if(!texture){const c=bark.attributes.color as THREE.BufferAttribute;for(let j=0;j<c.count;j++)c.setXYZ(j,.30,.19,.10);}}
-  exposed.push(model.userData.treeModel.exposedTrunk);model.dispose();
+  leaves[i]=[];
+  for(const count of bounded?[192,96,48]:[192]){
+   await pause();const model=treeMeshModel(i,1,count),n=model.userData.treeModel.leafVertices,t=model.userData.treeModel.leafTriangles;
+   leaves[i].push(extract(model,0,n,0,t));
+   if(!bark){bark=extract(model,n,n+24,t,t+32);if(!texture){const c=bark.attributes.color as THREE.BufferAttribute;for(let j=0;j<c.count;j++)c.setXYZ(j,.30,.19,.10);}}
+   if(count===192)exposed.push(model.userData.treeModel.exposedTrunk);model.dispose();
+  }
  }
   const crownMat=new THREE.MeshStandardMaterial({map:texture,vertexColors:true,roughness:.9,side:THREE.FrontSide});crownMat.userData.volumeFoliage=true;crownMat.userData.meshLeaves=true;
   const barkMat=new THREE.MeshStandardMaterial({map:texture,vertexColors:true,roughness:.95,side:THREE.FrontSide});barkMat.userData.bark=true;
@@ -95,9 +101,10 @@ async function acquireBank(texture:THREE.Texture|null,pause:()=>Promise<void>){
 function releaseBank(bank:TreeBank){if(--bank.refs===0){bank.geometries.forEach(g=>g.dispose());bank.crownMat.dispose();bank.barkMat.dispose();treeBanks.delete(bank.key);}}
 
 /** Repeated leaf and branch models share one geometry bank across near/far
- * woodland and park trees. Fixed 250m shadow bands avoid distant leaf shadows,
- * without changing leaf detail or switching geometry as the camera rotates. */
+ * woodland and park trees. Fixed 250m shadow bands avoid distant leaf shadows.
+ * Bounded devices use 250/500m detail bands, without camera-driven rebuilding. */
 export async function groveForest(patches:NonNullable<Planting['groves']>,terrain:Terrain,seed:number,texture:THREE.Texture|null,preserveRoots=false,heightScale=1,pause:()=>Promise<void>=()=>frameSlice(12)){
+ const bounded=sceneDeviceBudget().constrained;
  let sliceAt=performance.now();const checkpoint=async()=>{if(performance.now()-sliceAt>=3){await pause();sliceAt=performance.now();}};
  const candidates:Root[]=[],legacy=new Set<string>();let sourceCanopies=0;
  for(let pi=0;pi<patches.length;pi++){
@@ -110,17 +117,17 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
   const bx=Math.floor(r.x/FOREST_CELL_M),by=Math.floor(r.y/FOREST_CELL_M);
   return rng(seed+bx*8191+by*131071)()<woodlandDensity(r.x,r.y).occupancy;
  })).sort((a,b)=>a.x-b.x||a.y-b.y);
- const lists=Array.from({length:5},()=>[[],[]] as Root[][]),toneCounts:Record<string,number>={},speciesCounts:Record<string,number>={};let shadowTrees=0;
- for(const r of roots){const i=Math.floor(rng(seed+Math.round(r.x*100)*313+Math.round(r.y*100)*977)()*5),band=Math.hypot(r.x,r.y)<250?0:1;lists[i][band].push(r);if(!band)shadowTrees++;const name=PARK_TREE_STYLES[i].species;speciesCounts[name]=(speciesCounts[name]??0)+1;const tone=treeFoliageTone(r.x,r.y);toneCounts[tone.name]=(toneCounts[tone.name]??0)+1;}
+ const lists=Array.from({length:5},()=>Array.from({length:bounded?3:2},()=>[] as Root[])),toneCounts:Record<string,number>={},speciesCounts:Record<string,number>={};let shadowTrees=0,triangles=0;
+ for(const r of roots){const i=Math.floor(rng(seed+Math.round(r.x*100)*313+Math.round(r.y*100)*977)()*5),distance=Math.hypot(r.x,r.y),band=distance<250?0:bounded&&distance>=500?2:1;lists[i][band].push(r);triangles+=(bounded?[800,416,224][band]:TREE_TRIANGLES);if(!band)shadowTrees++;const name=PARK_TREE_STYLES[i].species;speciesCounts[name]=(speciesCounts[name]??0)+1;const tone=treeFoliageTone(r.x,r.y);toneCounts[tone.name]=(toneCounts[tone.name]??0)+1;}
  const group=new THREE.Group();group.name='woodland leaf meshes';
  if(!roots.length)return{group,dispose:()=>{}};
- await pause();const bank=await acquireBank(texture,pause);
+ await pause();const bank=await acquireBank(texture,pause,bounded);
  const{crownMat,barkMat}=bank;
  const stems=new THREE.InstancedMesh(bank.bark,barkMat,roots.length);stems.name='woodland trunks';let stemCursor=0,instanceBytes=0,minExposedTrunk=Infinity,minTreeHeight=Infinity,maxTreeHeight=0;
  const heights=[19,20,17,15,22],radii=[6.5,4.9,6.4,5.4,3.8],exposed=bank.exposed;
- for(let i=0;i<5;i++)for(let band=0;band<2;band++){
+ for(let i=0;i<5;i++)for(let band=0;band<(bounded?3:2);band++){
   const list=lists[i][band];if(!list.length)continue;await checkpoint();
-  const crowns=new THREE.InstancedMesh(bank.leaves[i],crownMat,list.length);crowns.name='woodland '+PARK_TREE_STYLES[i].species+' '+(band?'far':'near')+' leaves';
+  const crowns=new THREE.InstancedMesh(bank.leaves[i][bounded?band:0],crownMat,list.length);crowns.name='woodland '+PARK_TREE_STYLES[i].species+' '+(band?'far'+band:'near')+' leaves';
   for(let j=0;j<list.length;j++){
    if(j%128===0)await checkpoint();const r=list[j],random=rng(seed+Math.round(r.x*100)*421+Math.round(r.y*100)*1193),density=woodlandDensity(r.x,r.y);
    const scale=(preserveRoots?.90+random()*.20:.72+random()*.38+density.cluster*.16)*heightScale;
@@ -132,6 +139,6 @@ export async function groveForest(patches:NonNullable<Planting['groves']>,terrai
   crowns.instanceMatrix.needsUpdate=true;crowns.castShadow=band===0;crowns.receiveShadow=true;crowns.computeBoundingBox();crowns.computeBoundingSphere();group.add(crowns);instanceBytes+=crowns.instanceMatrix.array.byteLength+crowns.instanceColor!.array.byteLength;
  }
  stems.instanceMatrix.needsUpdate=true;stems.receiveShadow=true;stems.computeBoundingBox();stems.computeBoundingSphere();group.add(stems);instanceBytes+=stems.instanceMatrix.array.byteLength;
- group.userData.forestBudget={sourceCanopies,clusterCanopies:roots.length,preserveRoots,heightScale,cardClusters:legacy.size,cardTriangleBudget:legacy.size*6,triangles:roots.length*TREE_TRIANGLES,treeTriangles:TREE_TRIANGLES,leafGroups:TREE_LEAVES/4,meshLeaves:TREE_LEAVES,baseTriangles:bank.baseTriangles,sharedGeometryKey:bank.key,geometryBytes:bank.bytes,instanceBytes,totalBufferBytes:bank.bytes+instanceBytes,cardBufferBytes:legacy.size*600,shadowTrees,mode:'shared leaf-shaped 3D models',toneCounts,speciesCounts,minExposedTrunk,minTreeHeight,maxTreeHeight,treeCellM:preserveRoots?null:FOREST_CELL_M,clusterCellM:preserveRoots?null:64,roots:roots.map(r=>[r.x,r.y,r.floor])};
+ group.userData.forestBudget={sourceCanopies,clusterCanopies:roots.length,preserveRoots,heightScale,cardClusters:legacy.size,cardTriangleBudget:legacy.size*6,triangles,treeTriangles:TREE_TRIANGLES,leafGroups:TREE_LEAVES/4,meshLeaves:TREE_LEAVES,leafLevels:bounded?[192,96,48]:[192],baseTriangles:bank.baseTriangles,sharedGeometryKey:bank.key,geometryBytes:bank.bytes,instanceBytes,totalBufferBytes:bank.bytes+instanceBytes,cardBufferBytes:legacy.size*600,shadowTrees,mode:'shared leaf-shaped 3D models',toneCounts,speciesCounts,minExposedTrunk,minTreeHeight,maxTreeHeight,treeCellM:preserveRoots?null:FOREST_CELL_M,clusterCellM:preserveRoots?null:64,roots:roots.map(r=>[r.x,r.y,r.floor])};
  let disposed=false;return {group,dispose:()=>{if(disposed)return;disposed=true;group.children.forEach(o=>{if(o instanceof THREE.InstancedMesh)o.dispose();});releaseBank(bank);}};
 }

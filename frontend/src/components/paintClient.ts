@@ -5,6 +5,7 @@ import { normalRows } from "./normalKernel";
 import { onSceneMemoryRelease } from "./sceneMemory";
 import { preparedContext } from './preparedPaint';
 import { textureBudgetEnabled } from './textureBudget';
+import { sceneDeviceBudget } from './sceneDeviceBudget';
 
 /* The painted textures of the 3D view, kept between visits (paintWorker stores and
  * decodes them off the page's thread), and a complex's facades started the moment it is
@@ -91,7 +92,7 @@ function paintOffThread(job: PaintJob): Promise<Textures | null> {
     rasterPool = [];
     try {
       if (typeof OffscreenCanvas === "undefined" || import.meta.env.VITE_PAINT_ON_PAGE) return Promise.resolve(null);
-      for (let i = 0; i < Math.max(1, Math.min(2, (navigator.hardwareConcurrency || 4) - 2)); i++) {
+      for (let i = 0; i < (sceneDeviceBudget().constrained ? 1 : Math.max(1, Math.min(2, (navigator.hardwareConcurrency || 4) - 2))); i++) {
         const w = new Worker(new URL("./paintRasterWorker.ts", import.meta.url), { type: "module" });
         const slot = { w, busy: 0, pending: new Map<number, (r: Reply | null) => void>() };
         w.onmessage = (e: MessageEvent<Reply>) => { slot.pending.get(e.data.id)?.(e.data); };
@@ -152,10 +153,18 @@ function slicer() {
 
 /** `job`'s textures: the kept copy, else painted here in slices (and kept). */
 async function obtain(job: PaintJob, pace: () => Promise<boolean> = slicer()): Promise<Textures | null> {
+  if (sceneDeviceBudget().constrained && job.kind !== 'plinth') job = {...job, scale: Math.min(job.scale ?? 1, job.kind === 'facade' ? 0.75 : 0.5)};
   const startedIn = epoch;
   const kept = await lookUp(job);
   if (startedIn !== epoch) { if (kept) Object.values(kept).forEach(t => t.dispose()); return null; }
-  if (kept) { paintStats.kept++; return kept; }
+  const limited = async (textures: Textures) => {
+    try {
+      await limitPaintSize(textures);
+      if (startedIn !== epoch) { Object.values(textures).forEach(t => t.dispose()); return null; }
+      return textures;
+    } catch (error) { Object.values(textures).forEach(t => t.dispose()); throw error; }
+  };
+  if (kept) { paintStats.kept++; return limited(kept); }
   let made = await paintOffThread(job);
   if (startedIn !== epoch) { if (made) Object.values(made).forEach(t => t.dispose()); return null; }
   if (!made) {
@@ -170,7 +179,36 @@ async function obtain(job: PaintJob, pace: () => Promise<boolean> = slicer()): P
     cacheJobs.set(keyOf(job), job);
     if (cacheJobs.size > 40) cacheJobs.delete(cacheJobs.keys().next().value!);
   }
-  return made;
+  return limited(made);
+}
+
+/** Also covers prepared atlases, cached maps and the no-worker canvas fallback.
+ * World repeat/offset stay unchanged; immutable GPU keys include the actual resolution. */
+async function limitPaintSize(textures: Textures): Promise<Textures> {
+  const edge = sceneDeviceBudget().paintEdge;
+  for (const t of Object.values(textures)) {
+    const image = t.image as ImageBitmap | HTMLCanvasElement | OffscreenCanvas;
+    const scale = Math.min(1, edge / Math.max(image?.width ?? 0, image?.height ?? 0));
+    if (scale >= 1) continue;
+    const width = Math.max(1, Math.round(image.width * scale)), height = Math.max(1, Math.round(image.height * scale));
+    let reduced: ImageBitmap | HTMLCanvasElement;
+    if (typeof createImageBitmap === 'function') {
+      reduced = await createImageBitmap(image, { resizeWidth: width, resizeHeight: height,
+        imageOrientation: t.flipY ? 'flipY' : 'none', colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
+      t.flipY = false;
+    } else {
+      reduced = document.createElement('canvas'); reduced.width = width; reduced.height = height;
+      reduced.getContext('2d')!.drawImage(image, 0, 0, width, height);
+    }
+    if (typeof ImageBitmap !== 'undefined' && image instanceof ImageBitmap) image.close();
+    else if (image instanceof HTMLCanvasElement || typeof OffscreenCanvas !== 'undefined' && image instanceof OffscreenCanvas) image.width = image.height = 1;
+    t.image = reduced;
+    if (t.userData.immutableKey) t.userData.immutableKey += '/' + width + '/' + height;
+    t.needsUpdate = true;
+    t.addEventListener('dispose', () => { if ('close' in reduced) reduced.close(); else reduced.width = reduced.height = 1; });
+    await frameSlice();
+  }
+  return textures;
 }
 
 // Jobs started ahead (prefetchPaint) and not collected yet.
@@ -228,7 +266,10 @@ export function prefetchPaint(id: string, name?: string | null) {
  * complexes likely chosen next (the 3D view's nearest neighbours). Chosen later, its build
  * finds them kept — a decode in the worker instead of painting on the way to the screen. */
 export async function paintAhead(id: string) {
-  for (const job of complexPaintJobs(id, id.split(":").pop() ?? "")) cacheJobs.set(keyOf(job),job);
+  for (const raw of complexPaintJobs(id, id.split(":").pop() ?? "")) {
+    const job = sceneDeviceBudget().constrained && raw.kind !== 'plinth' ? {...raw, scale: Math.min(raw.scale ?? 1, 0.75)} : raw;
+    cacheJobs.set(keyOf(job),job);
+  }
   while (cacheJobs.size > 40) cacheJobs.delete(cacheJobs.keys().next().value!);
 }
 

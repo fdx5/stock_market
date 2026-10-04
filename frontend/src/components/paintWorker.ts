@@ -32,6 +32,7 @@ self.onmessage = async (e: MessageEvent<Msg>) => {
       try {
         for (const [name,t] of Object.entries(textures)) {
           params[name]={wrapS:t.wrapS,wrapT:t.wrapT,flipY:t.flipY,anisotropy:t.anisotropy,colorSpace:t.colorSpace,repeat:[t.repeat.x,t.repeat.y],offset:[t.offset.x,t.offset.y]};
+          if (job.kind === 'facade' && job.appearance === 'architecture' && (name === 'normalMap' || name === 'rmMap')) params[name].surfaceKey = 'architecture-facade-v1';
           const image=t.image as unknown as OffscreenCanvas;
           bitmaps[name]=image.transferToImageBitmap(); image.width=image.height=1; t.dispose();
         }

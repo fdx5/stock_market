@@ -52,6 +52,7 @@ import { drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
 import { drapeRoadOffThread } from './roadDrapeClient';
 import {constrainRoadCorridors}from'./roadCorridors';
 import {modelBlocksRoad}from'./roadModelConflict';
+import {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,frameResolutionBudget} from './sceneDeviceBudget';
 import {roadFootprints}from'./roadJunctions';
 import {splitRoadJunctions}from'./roadTrafficNetwork';
 import {excludeSurface}from'./surfaceExclusion';
@@ -655,7 +656,7 @@ function inputOnlyRenderer(): THREE.WebGLRenderer {
     domElement: canvas, shadowMap: { enabled: false, type: THREE.PCFShadowMap }, info: { render: { calls: 0 } },
     outputColorSpace: THREE.SRGBColorSpace, toneMapping: THREE.NoToneMapping, toneMappingExposure: 1,
     setPixelRatio(v: number) { ratio = v; }, getPixelRatio: () => ratio,
-    getSize: (t: THREE.Vector2) => t.set(canvas.width, canvas.height), setSize() {},
+    getSize: (t: THREE.Vector2) => t.set(canvas.width, canvas.height), setSize() {}, setDrawingBufferSize() {},
     getRenderTarget: () => target, setRenderTarget(t: THREE.WebGLRenderTarget | null) { target = t; },
     compileAsync: () => Promise.resolve(), dispose() {},
   } as unknown as THREE.WebGLRenderer;
@@ -828,7 +829,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     if (!hostRef.current) return;
     let host: HTMLDivElement = hostRef.current;
     // Phones and small tablets: no planar reflection or AO, fewer trees, lighter shadows.
-    const hq = !window.matchMedia?.("(pointer: coarse)").matches && Math.min(screen.width, screen.height) >= 700;
+    const deviceBudget = sceneDeviceBudget();
+    host.dataset.memoryBudget = deviceBudget.constrained ? 'bounded' : 'desktop';
+    host.dataset.pixelBudget = String(deviceBudget.maxPixels);
+    const hq = !deviceBudget.constrained && !window.matchMedia?.("(pointer: coarse)").matches && Math.min(screen.width, screen.height) >= 700;
     // Try the actual WebGPU API. Optional WGSL feature markers are not a
     // capability check; adapter/pipeline failures take the compatibility path.
     const gpu = (navigator as Navigator & { gpu?: { wgslLanguageFeatures?: { has(name: string): boolean } } }).gpu;
@@ -859,14 +863,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Desktop: the first ratio from a pixel budget (a panel or a normal window starts well above
     // 1x, a 5K full screen at its own pixels), never above ~14 MP of drawing in all (the render
     // targets of a 5120x1440 screen at 2x would be gigabytes). Measured GPU time climbs from there.
-    const PIX_START = 4.5e6, PIX_CAP = 14e6;
+    const PIX_START = deviceBudget.startPixels, PIX_CAP = deviceBudget.maxPixels;
     let lastArea = 0;
     // (?pr=1.5: a fixed ratio, for comparing sharpness and GPU time)
     const fixedRatio = Number(new URLSearchParams(location.search).get("pr")) || 0;
     if (fixedRatio) ratio = maxRatio = fixedRatio;
-    // High resolution on every device is the rule: never below the display's own pixels
-    // (a phone's 3x may step down, never under 1 CSS pixel a pixel).
-    const minRatio = Math.min(1, dpr);
+    ratio = Math.min(ratio, deviceBudget.maxRatio);
+    maxRatio = Math.min(maxRatio, deviceBudget.maxRatio);
+    // Prefer at least one pixel per CSS pixel; the absolute memory cap still wins
+    // on very large screens, including fixed ratios and touch input.
+    const minRatio = Math.min(deviceBudget.constrained ? .7 : 1, dpr);
     // The last pointer, wheel or key on the view (the loop draws at full rate for 3 s after).
     const touched = () => {};
     renderer.setPixelRatio(ratio);
@@ -877,19 +883,18 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     host.appendChild(renderer.domElement);
     let native: ComplexRenderer | null = null;
     let disposed = false;
+    let glLost = false;
     let nativePending = nativeCapable || glMissing;
     let wasPreparing = nativePending;
     setPreparing(nativePending);
     // Do not compile both renderers on first load: warm native pipelines behind
     // the loading state, and initialize WebGL lighting only if native fails.
-    // Native quality from the device: high quality everywhere is the rule — desktops
-    // (panel or full screen) and current phones start high, small-memory or 4-core devices
-    // medium; only a tiny-memory device starts low. The GPU time measured once the scene
-    // settles steps a genuinely weak GPU down from there.
+    // Safari does not report memory; Apple touch devices use bounded targets and
+    // shadows even with a desktop UA or a connected mouse.
     const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
     // (a current phone — 8 GB, 8 cores — starts at full quality like a desktop: a small touch
     // screen alone was taken for a weak device; the view still steps down where its GPU proves slow)
-    const tier: Quality["name"] = mem <= 2 ? "low" : mem <= 4 || navigator.hardwareConcurrency <= 4 ? "medium" : "high";
+    const tier: Quality["name"] = deviceBudget.constrained || mem <= 2 ? "low" : mem <= 4 || navigator.hardwareConcurrency <= 4 ? "medium" : "high";
     if (nativePending) {
       import("./tidewater/ComplexRenderer").then(m => m.ComplexRenderer.create(host, m.QUALITY[tier])).then(view => {
         if (disposed) { view.dispose(); return; }
@@ -1050,7 +1055,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     scene.add(hemi);
     const sun = new THREE.DirectionalLight("#fff3e0", 3);
     sun.castShadow = true;
-    sun.shadow.mapSize.set(hq ? 4096 : 2048, hq ? 4096 : 2048);
+    sun.shadow.mapSize.set(hq ? 4096 : deviceBudget.shadow, hq ? 4096 : deviceBudget.shadow);
     sun.shadow.bias = -0.0003;
     sun.shadow.normalBias = 0.5;
     sun.shadow.radius = 3;
@@ -1061,7 +1066,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const reflector = made && hq ? new Reflector(new THREE.PlaneGeometry(1, 1), { clipBias: 0.002, textureWidth: 512, textureHeight: 512, multisample: 0 }) : null;
     if (reflector) { reflector.rotation.x = -Math.PI / 2; reflector.updateMatrixWorld(); }
 
-    const target = made ? new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 }) : null;
+    const target = made ? new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: deviceBudget.samples }) : null;
     /** WebGL programs for `obj` (with this scene's lights and fog), linked in parallel
      * (KHR_parallel_shader_compile) instead of stalling its first draw in turn. Compiled
      * as the composer draws them: into its HDR target (linear, no tone mapping). */
@@ -1076,6 +1081,9 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     // Native has its own full AO/bloom/reflection passes. Building a second,
     // unused WebGL compositor also generated noise and shaders on the input thread.
     const composer = target ? new EffectComposer(renderer, target) : null;
+    // Size post-processing in physical pixels in one operation. Updating its
+    // ratio first would briefly apply the new ratio to the previous CSS size.
+    composer?.setPixelRatio(1);
     composer?.addPass(new RenderPass(scene, camera));
     const gtao = made && hq ? new GTAOPass(scene, camera, 1, 1) : null;
     if (gtao) {
@@ -1123,7 +1131,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       W = Math.round(w); H = Math.round(h);
       if (!W || !H) return;
       stage.viewH = H;
-      if (hq && !fixedRatio) {
+      if ((hq || deviceBudget.constrained) && !fixedRatio) {
         const area = W * H, cap = Math.max(minRatio, Math.min(maxRatio, Math.sqrt(PIX_CAP / area)));
         // First size, or a much larger one (full screen): the ratio this GPU should hold at about
         // 10 ms a frame, from its time measured at the size before (all of it taken as growing with
@@ -1131,11 +1139,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         if (area > lastArea * 1.3) {
           const gpu = native?.timer.enabled ? native.timer.ms.total ?? 0 : 0, drawn = lastArea * ratio * ratio;
           const want = gpu > 0.5 && drawn > 0 ? Math.sqrt((10 / gpu) * drawn / area) : Math.sqrt(PIX_START / area);
-          ratio = Math.max(Math.min(dpr, 2), minRatio, Math.min(cap, Math.floor(want * 4) / 4));
+          ratio = deviceBudget.constrained
+            ? Math.max(minRatio, Math.min(cap, want))
+            : Math.max(Math.min(dpr, 2), minRatio, Math.min(cap, Math.floor(want * 4) / 4));
         }
         ratio = Math.min(ratio, cap);
         lastArea = area;
       }
+      ratio = capSceneRatio(W, H, ratio, deviceBudget);
       camera.aspect = W / H;
       camera.updateProjectionMatrix();
       if (stage.drive && !fixedRatio) ratio = Math.max(1, Math.min(ratio, 1.35, Math.sqrt(2.2e6 / (W * H))));
@@ -1143,10 +1154,10 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       // The WebGL buffers (MSAA HDR target, AO, bloom, reflection) only while WebGL draws:
       // reallocating them on every native resolution step cost frames for nothing.
       if (native || nativePending) return;
-      renderer.setPixelRatio(ratio);
-      renderer.setSize(W, H, false);
-      composer?.setPixelRatio(ratio);
-      composer?.setSize(W, H);
+      const pixelsW = Math.max(1, Math.floor(W * ratio)), pixelsH = Math.max(1, Math.floor(H * ratio));
+      prepareCanvasResize(renderer.domElement, pixelsW, pixelsH, PIX_CAP);
+      renderer.setDrawingBufferSize(W, H, ratio);
+      composer?.setSize(pixelsW, pixelsH);
       bloom?.setSize(W * ratio / 2, H * ratio / 2);
       reflector?.getRenderTarget().setSize(Math.round(W * ratio * 0.5), Math.round(H * ratio * 0.5));
       if (finish) finish.uniforms.uAspect.value = W / H;
@@ -1178,7 +1189,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const driveM = new THREE.Matrix4(), driveLook = new THREE.Vector3(), driveV = new THREE.Vector3(), fxAt = new THREE.Vector3();
     let envFrame = 0, nativeWaitSince = 0;
     let glCompiled: THREE.Object3D | null = null, glCompiling = false;
-    // Keep visual quality fixed; only raise supersampling when GPU time permits.
+    const resolutionBudget = frameResolutionBudget();
+    // Desktop supersamples with spare GPU time; bounded devices target 30 fps.
     let gpuCool = 0, last = performance.now(), settleUntil = 0;
     let driveGraphics: { ratio: number; quality: Quality | null } | null = null, drivePressure = 0;
     let inView = true, sampleStart = last, sampleFrames = 0;
@@ -1191,6 +1203,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const loop = () => {
       if (document.hidden || !inView || pausedRef.current) { native?.suspendTargets(); return; }
       raf = requestAnimationFrame(loop);
+      if (glLost) return;
       const nowMs = performance.now();
       const dt = nowMs - last;
       last = nowMs;
@@ -1214,8 +1227,15 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
         }
       }
       if (stage.busy) settleUntil = Math.max(settleUntil, nowMs + 1500);
-      // Quality and resolution never step down during interaction or GPU pressure.
-      if (native?.timer.enabled && !fixedRatio && !stage.drive) {
+      if (deviceBudget.constrained && !fixedRatio && !stage.drive) {
+        if (stage.building || stage.unshown || stage.busy || nowMs <= settleUntil || host.dataset.plantsPhase !== 'complete') resolutionBudget.reset();
+        else {
+          const ceiling = capSceneRatio(W, H, Math.min(maxRatio, Math.sqrt(PIX_START / (W * H))), deviceBudget);
+          const floor = Math.min(minRatio, ceiling);
+          const next = resolutionBudget.sample(nowMs, dt, ratio, floor, ceiling);
+          if (next !== ratio) { ratio = next; resize(); }
+        }
+      } else if (native?.timer.enabled && !fixedRatio && !stage.drive) {
         const top = Math.min(maxRatio, Math.sqrt(PIX_CAP / (W * H))), next = Math.min(top, ratio + 0.25);
         const room = !stage.unshown && nowMs > settleUntil && next > ratio && (native.timer.ms.total ?? 99) * (next / ratio) ** 2 < 12;
         if (!room) gpuCool = 0;
@@ -1449,7 +1469,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
           refreshEnv(); resize();
         }
       }
-      const isPreparing = nativePending || (!!native && !native.shown);
+      const isPreparing = nativePending || (!!native && !native.shown) ||
+        (deviceBudget.constrained && (stage.building || stage.unshown));
       if (wasPreparing !== isPreparing) { setPreparing(isPreparing); wasPreparing = isPreparing; }
       const rendererName = native?.shown ? "tidewater-webgpu" : isPreparing ? "preparing" : "webgl";
       if (host.dataset.renderer !== rendererName) host.dataset.renderer = rendererName;   // (a write each frame dirtied the page's style)
@@ -1585,9 +1606,23 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       else native?.suspendTargets();
     };
     document.addEventListener("visibilitychange", visibility);
+    const contextLost = (event: Event) => {
+      event.preventDefault(); glLost = true;
+      host.dataset.contextRecovery = 'waiting'; setPreparing(true);
+    };
+    const contextRestored = () => {
+      if (disposed) return;
+      glLost = false; glCompiled = null; glCompiling = false;
+      host.dataset.contextRecovery = 'restored';
+      resize(); rebuildRef.current?.(); setPreparing(false); stage.resume();
+    };
+    renderer.domElement.addEventListener('webglcontextlost', contextLost);
+    renderer.domElement.addEventListener('webglcontextrestored', contextRestored);
 
     return () => {
       disposed = true;
+      renderer.domElement.removeEventListener('webglcontextlost', contextLost);
+      renderer.domElement.removeEventListener('webglcontextrestored', contextRestored);
       document.removeEventListener("visibilitychange", visibility);
       cancelAnimationFrame(raf);
       native?.dispose();
@@ -1914,7 +1949,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (shift.length() > 3000) shift = null;
       if (shift && came.drive && stage.carry) { stage.carry.ox = ox; stage.carry.oy = oy; stage.carry.dz = shift.y; }
     }
-    let behind = shift && stage.model && !stage.unshown ? stage.current : null;
+    let behind = (came?.drive || sceneDeviceBudget().retainPrevious) && shift && stage.model && !stage.unshown ? stage.current : null;
     const oldTraffic = stage.traffic;
     if (came?.drive && shift) {
       for (const region of driveTrail.current) for (const part of region.parts()) part.position.add(shift);
@@ -1933,7 +1968,7 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       stage.balloonView?.aim?.add(shift);
     }
     const letGo = () => {
-      if (behind && came?.drive) {
+      if (behind && came?.drive && sceneDeviceBudget().retainPrevious) {
         // Keep the already-rendered neighbourhood behind the vehicle; the new area
         // is added beside it instead of deleting all previously visible scenery.
         if (oldTraffic) oldTraffic.group.visible = false;
@@ -4682,13 +4717,14 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const g = cv.getContext("2d");
     if (!g) return;
     const font = getComputedStyle(cv).fontFamily || "Pretendard, sans-serif";
+    const labelBudget = sceneDeviceBudget();
     // Each sign pre-drawn once per look (plain / hovered), at the screen's pixel ratio.
     const sprites = new Map<string, { img: HTMLCanvasElement; w: number; h: number }>();
     const spriteOf = (sgn: (typeof signs)[number], hover: boolean) => {
       const key = sgn.id + (hover ? ":h" : "");
       let sp = sprites.get(key);
       if (sp) return sp;
-      const dpr = Math.min(3, window.devicePixelRatio || 1), size = sgn.here ? 13 : 12;
+      const dpr = Math.min(labelBudget.maxRatio, window.devicePixelRatio || 1), size = sgn.here ? 13 : 12;
       const m = document.createElement("canvas").getContext("2d")!;
       m.font = `600 ${size}px ${font}`;
       const tw = Math.ceil(m.measureText(sgn.name).width), bw = tw + 20, bh = Math.round(size * 1.2) + 11, pad = 8, line = 9;
@@ -4710,8 +4746,11 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     const v = new THREE.Vector3(), dist = new Map<string, number>();
     let last = "";
     st.signs = (camera, w, h) => {
-      const dpr = Math.min(3, window.devicePixelRatio || 1);
-      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); last = ""; }
+      const dpr = capSceneRatio(w, h, window.devicePixelRatio || 1, labelBudget);
+      if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) {
+        prepareCanvasResize(cv, Math.round(w * dpr), Math.round(h * dpr), labelBudget.maxPixels);
+        cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); last = "";
+      }
       for (const sgn of signs) { v.set(sgn.x, sgn.z + 14, -sgn.y); dist.set(sgn.id, v.distanceTo(camera.position)); }
       // nearer over farther
       const order = [...signs].sort((a, b) => dist.get(b.id)! - dist.get(a.id)!);

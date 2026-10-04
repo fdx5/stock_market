@@ -197,7 +197,7 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
   // Four bays at the original tile size have the same facade texel density as
   // the old 2x eight-bay map, with one quarter of its colour/glass texels.
   const bays = architecture ? 4 : BAYS, rows = architecture ? 4 : ROWS;
-  const W = 1024, H = 928, cw = W / bays, ch = H / rows, k = architecture ? 1 : scale;
+  const W = 1024, H = 928, cw = W / bays, ch = H / rows, k = architecture ? Math.min(1, scale) : scale;
   const color = canvas(W * k, H * k), height = preparedNormal ? null : canvas(W * k, H * k), rm = canvas(W * k, H * k), glow = canvas(W * k, H * k), open = canvas(W * k, H * k);
   const g = color.getContext("2d")!, hh = height?.getContext("2d") ?? null, r = rm.getContext("2d")!, e = glow.getContext("2d")!;
   for (const c of [g, r, e]) c.scale(k, k);
@@ -329,7 +329,7 @@ export function* facadeSteps(p: Palette, seed: number, scale = 1, preparedNormal
   }
   const tile = (c: HTMLCanvasElement, srgb: boolean) => worldTexture(c, srgb, bays * BAY_M, rows * FLOOR_M, GROUND_M);
   let roughness = rm;
-  if (architecture) { roughness = canvas(W / 2, H / 2); roughness.getContext('2d')!.drawImage(rm, 0, 0, W / 2, H / 2); }
+  if (architecture) { roughness = canvas(W * k / 2, H * k / 2); roughness.getContext('2d')!.drawImage(rm, 0, 0, roughness.width, roughness.height); }
   return { map: tile(color, true), normalMap: tile(normal, false), rmMap: tile(roughness, false), emissiveMap: tile(glow, true) };
 }
 
