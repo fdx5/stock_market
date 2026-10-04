@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type {RoadTriangleIndex} from './roadBvh';
 
 type Point = [number, number];
 const cross = (a: Point,b: Point,p: Point) => (b[0]-a[0])*(p[1]-a[1])-(b[1]-a[1])*(p[0]-a[0]);
@@ -22,20 +23,20 @@ function segment(axis: Float64Array,value: number,up: boolean) {
 }
 /** The same visible asphalt supports tyres; a DEM sample can lie centimetres
  * below the tessellated road and bury the tyre's lower sidewall. */
-export function roadSurfaceHeight(geometry:THREE.BufferGeometry){
+export function roadSurfaceHeight(geometry:THREE.BufferGeometry,index?:RoadTriangleIndex){
  const p=geometry.getAttribute('position'),bins=new Map<string,number[]>(),cell=6;
- for(let k=0;k<p.count;k+=3){const x=[0,1,2].map(i=>p.getX(k+i)),y=[0,1,2].map(i=>-p.getZ(k+i));for(let i=Math.floor(Math.min(...x)/cell);i<=Math.floor(Math.max(...x)/cell);i++)for(let j=Math.floor(Math.min(...y)/cell);j<=Math.floor(Math.max(...y)/cell);j++){const key=i+':'+j,l=bins.get(key);if(l)l.push(k);else bins.set(key,[k]);}}
+ if(!index)for(let k=0;k<p.count;k+=3){const x=[0,1,2].map(i=>p.getX(k+i)),y=[0,1,2].map(i=>-p.getZ(k+i));for(let i=Math.floor(Math.min(...x)/cell);i<=Math.floor(Math.max(...x)/cell);i++)for(let j=Math.floor(Math.min(...y)/cell);j<=Math.floor(Math.max(...y)/cell);j++){const key=i+':'+j,l=bins.get(key);if(l)l.push(k);else bins.set(key,[k]);}}
  return (x:number,y:number)=>{let h=-Infinity;
-  for(const k of bins.get(Math.floor(x/cell)+':'+Math.floor(y/cell))??[]){const a:Point=[p.getX(k),-p.getZ(k)],b:Point=[p.getX(k+1),-p.getZ(k+1)],c:Point=[p.getX(k+2),-p.getZ(k+2)],q:Point=[x,y],den=cross(a,b,c);if(Math.abs(den)<1e-9)continue;const u=cross(a,q,c)/den,v=cross(a,b,q)/den;if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001)h=Math.max(h,p.getY(k)*(1-u-v)+p.getY(k+1)*u+p.getY(k+2)*v);}
+  for(const k of index?.query(x,y,x,y)??bins.get(Math.floor(x/cell)+':'+Math.floor(y/cell))??[]){const a:Point=[p.getX(k),-p.getZ(k)],b:Point=[p.getX(k+1),-p.getZ(k+1)],c:Point=[p.getX(k+2),-p.getZ(k+2)],q:Point=[x,y],den=cross(a,b,c);if(Math.abs(den)<1e-9)continue;const u=cross(a,q,c)/den,v=cross(a,b,q)/den;if(u>=-1e-6&&v>=-1e-6&&u+v<=1.000001)h=Math.max(h,p.getY(k)*(1-u-v)+p.getY(k+1)*u+p.getY(k+2)*v);}
   return Number.isFinite(h)?h:undefined;
  };
 }
 
 /** Paint must clear the rendered asphalt plane, including interiors between
  * samples. A per-triangle vertical correction adds no triangles or draw calls. */
-export async function raiseRoadPaint(paint:THREE.BufferGeometry,asphalt:THREE.BufferGeometry,pace:()=>Promise<boolean>,lift=.015){
+export async function raiseRoadPaint(paint:THREE.BufferGeometry,asphalt:THREE.BufferGeometry,pace:()=>Promise<boolean>,lift=.015,index?:RoadTriangleIndex){
  const p=paint.getAttribute('position'),a=asphalt.getAttribute('position'),bins=new Map<string,number[]>(),size=6;
- for(let k=0;k<a.count;k+=3){
+ if(!index)for(let k=0;k<a.count;k+=3){
   if(k%1500===0&&!await pace())return;
   const x=[0,1,2].map(i=>a.getX(k+i)),y=[0,1,2].map(i=>-a.getZ(k+i));
   for(let i=Math.floor(Math.min(...x)/size);i<=Math.floor(Math.max(...x)/size);i++)for(let j=Math.floor(Math.min(...y)/size);j<=Math.floor(Math.max(...y)/size);j++){
@@ -46,7 +47,9 @@ export async function raiseRoadPaint(paint:THREE.BufferGeometry,asphalt:THREE.Bu
   if(k%900===0&&!await pace())return;
   const triangle:Point[]=[0,1,2].map(i=>[p.getX(k+i),-p.getZ(k+i)]),heights=[0,1,2].map(i=>p.getY(k+i)),area=cross(triangle[0],triangle[1],triangle[2]);if(Math.abs(area)<1e-9)continue;
   const candidates=new Set<number>();
-  for(let i=Math.floor(Math.min(...triangle.map(q=>q[0]))/size);i<=Math.floor(Math.max(...triangle.map(q=>q[0]))/size);i++)for(let j=Math.floor(Math.min(...triangle.map(q=>q[1]))/size);j<=Math.floor(Math.max(...triangle.map(q=>q[1]))/size);j++)for(const id of bins.get(i+':'+j)??[])candidates.add(id);
+  const x0=Math.min(...triangle.map(q=>q[0])),y0=Math.min(...triangle.map(q=>q[1])),x1=Math.max(...triangle.map(q=>q[0])),y1=Math.max(...triangle.map(q=>q[1]));
+  if(index)for(const id of index.query(x0,y0,x1,y1))candidates.add(id);
+  else for(let i=Math.floor(x0/size);i<=Math.floor(x1/size);i++)for(let j=Math.floor(y0/size);j<=Math.floor(y1/size);j++)for(const id of bins.get(i+':'+j)??[])candidates.add(id);
   let raise=0;
   for(const id of candidates){
    const surface:Point[]=[0,1,2].map(i=>[a.getX(id+i),-a.getZ(id+i)]),den=cross(surface[0],surface[1],surface[2]);if(Math.abs(den)<1e-9)continue;

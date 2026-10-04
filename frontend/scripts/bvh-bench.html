@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><title>Road BVH controlled benchmark</title>
+<script type="module">
+import * as THREE from '/node_modules/three/build/three.module.js';
+import {buildRoadBvh} from '/src/components/roadBvhClient.ts';
+import {roadBvhIndex} from '/src/components/roadBvh.ts';
+import {roadSurfaceHeight,raiseRoadPaint} from '/src/components/roadDrape.ts';
+import {retainSceneMemory} from '/src/components/sceneMemory.ts';
+const geom=a=>{const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(Float32Array.from(a),3));return g;};
+const later=()=>new Promise(r=>setTimeout(r,0));
+window.runBvhCase=async(name,runs=5)=>{
+ const fixture=await fetch('/__bvh-fixture/'+name+'.json').then(r=>r.json()),asphalt=geom(fixture.asphalt),paints=fixture.paints.map(geom),rows=[];
+ // Warm module/worker HTTP caches. Report cold startup separately.
+ const coldAt=performance.now(),cold=await buildRoadBvh(asphalt,{workers:2});if(!cold)throw Error('WASM BVH failed');
+ const coldMs=performance.now()-coldAt;
+ const pts=[];for(let k=0;k<fixture.asphalt.length;k+=Math.max(9,Math.floor(fixture.asphalt.length/2000/9)*9))pts.push([(fixture.asphalt[k]+fixture.asphalt[k+3]+fixture.asphalt[k+6])/3,-(fixture.asphalt[k+2]+fixture.asphalt[k+5]+fixture.asphalt[k+8])/3]);
+ let reference,correctness={heightMismatches:0,paintMismatches:0};
+ for(let run=0;run<runs;run++)for(const mode of (run%2?['wasm2','grid','wasm1','js1']:['grid','js1','wasm1','wasm2'])){
+  await later();const start=performance.now();let tree=null;
+  if(mode!=='grid'){tree=await buildRoadBvh(asphalt,{workers:mode==='wasm2'?2:1,engine:mode==='js1'?'js':'wasm'});if(!tree)throw Error('BVH worker failed: '+mode);}
+  const index=tree?roadBvhIndex(tree):undefined,height=roadSurfaceHeight(asphalt,index),buildMs=performance.now()-start;
+  const queryAt=performance.now(),heights=[];for(let loop=0;loop<5;loop++)for(const [x,y]of pts)heights.push(height(x,y));const queryMs=performance.now()-queryAt;
+  const outputs=[],paintAt=performance.now();for(const p of paints){const copy=p.clone();await raiseRoadPaint(copy,asphalt,async()=>true,.015,index);outputs.push(copy.attributes.position.array.slice());copy.dispose();}const paintMs=performance.now()-paintAt;
+  if(mode==='grid')reference={heights,outputs};
+  else if(reference){for(let i=0;i<heights.length;i++)if(heights[i]!==reference.heights[i])correctness.heightMismatches++;for(let j=0;j<outputs.length;j++)for(let i=0;i<outputs[j].length;i++)if(outputs[j][i]!==reference.outputs[j][i])correctness.paintMismatches++;}
+  rows.push({run,mode,buildMs,queryMs,paintMs,totalMs:buildMs+queryMs+paintMs,workerMs:tree?.workerMs??0,workers:tree?.workers??0,indexBytes:tree?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??null});
+ }
+ asphalt.dispose();paints.forEach(p=>p.dispose());return {name,triangles:fixture.asphalt.length/9,paintTriangles:fixture.paints.map(p=>p.length/9),coldMs,queries:pts.length*5,runs,rows,correctness};
+};
+window.checkBvhLifecycle=async()=>{
+ const NativeWorker=window.Worker;let active=0,peak=0;
+ window.Worker=class extends NativeWorker{constructor(...args){super(...args);this.alive=true;active++;peak=Math.max(peak,active);}terminate(){if(this.alive){this.alive=false;active--;}super.terminate();}};
+ const f=await fetch('/__bvh-fixture/ganeung.json').then(r=>r.json()),g=geom(f.asphalt),before=g.attributes.position.array.slice();
+ const release=retainSceneMemory(),job=buildRoadBvh(g,{workers:2});release();const cancelled=await job;
+ const already=new AbortController();already.abort();const aborted=await buildRoadBvh(g,{signal:already.signal});
+ const r={cancelled:cancelled===null,aborted:aborted===null,active,peak,unchanged:before.every((v,i)=>v===g.attributes.position.array[i])};g.dispose();window.Worker=NativeWorker;return r;
+};
+window.checkBvhFallback=async()=>{const f=await fetch('/__bvh-fixture/ganeung.json').then(r=>r.json()),g=geom(f.asphalt),tree=await buildRoadBvh(g);const at=roadSurfaceHeight(g,tree?roadBvhIndex(tree):undefined),p=f.asphalt;const result={fallback:tree===null,height:at((p[0]+p[3]+p[6])/3,-(p[2]+p[5]+p[8])/3)};g.dispose();return result;};
+</script>

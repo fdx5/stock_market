@@ -1,0 +1,5 @@
+{
+  "target": "wasm32-unknown-unknown",
+  "sourceSha256": "fa79d1dfa5db29f36b0e3168bbb6da0101333730004679d4d68a416b0da4b92b",
+  "wasmSha256": "e136ede9efbfb0a9d52254fec1b80fdee4d178f1fb282f53d28e7635960313a5"
+}

@@ -1,0 +1,1956 @@
+{
+  "baselineCommit": "a258bc68b44e580e3cdd1c7e3990fbe69e9a6010",
+  "environment": {
+    "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0",
+    "cores": 16
+  },
+  "kernel": {
+    "environment": {
+      "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0",
+      "cores": 16
+    },
+    "cases": [
+      {
+        "name": "ganeung",
+        "triangles": 48138,
+        "paintTriangles": [
+          9983,
+          26103
+        ],
+        "coldMs": 45.099999994039536,
+        "queries": 10030,
+        "runs": 7,
+        "rows": [
+          {
+            "run": 0,
+            "mode": "grid",
+            "buildMs": 37.20000000298023,
+            "queryMs": 31.299999997019768,
+            "paintMs": 392.6000000089407,
+            "totalMs": 461.1000000089407,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 0,
+            "mode": "js1",
+            "buildMs": 54.79999999701977,
+            "queryMs": 21,
+            "paintMs": 181.09999999403954,
+            "totalMs": 256.8999999910593,
+            "workerMs": 40,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 0,
+            "mode": "wasm1",
+            "buildMs": 43.5,
+            "queryMs": 19.299999997019768,
+            "paintMs": 182.09999999403954,
+            "totalMs": 244.8999999910593,
+            "workerMs": 27.299999997019768,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 0,
+            "mode": "wasm2",
+            "buildMs": 38.29999999701977,
+            "queryMs": 15.099999994039536,
+            "paintMs": 180.20000000298023,
+            "totalMs": 233.59999999403954,
+            "workerMs": 19.5,
+            "workers": 2,
+            "indexBytes": 716776
+          },
+          {
+            "run": 1,
+            "mode": "wasm2",
+            "buildMs": 35,
+            "queryMs": 15.700000002980232,
+            "paintMs": 175.59999999403954,
+            "totalMs": 226.29999999701977,
+            "workerMs": 17,
+            "workers": 2,
+            "indexBytes": 716776
+          },
+          {
+            "run": 1,
+            "mode": "grid",
+            "buildMs": 33,
+            "queryMs": 13.899999991059303,
+            "paintMs": 300.20000000298023,
+            "totalMs": 347.09999999403954,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 1,
+            "mode": "wasm1",
+            "buildMs": 41.400000005960464,
+            "queryMs": 10.5,
+            "paintMs": 159.59999999403954,
+            "totalMs": 211.5,
+            "workerMs": 26.299999997019768,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 1,
+            "mode": "js1",
+            "buildMs": 51.5,
+            "queryMs": 11.599999994039536,
+            "paintMs": 159.59999999403954,
+            "totalMs": 222.69999998807907,
+            "workerMs": 37.8999999910593,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 2,
+            "mode": "grid",
+            "buildMs": 29.099999994039536,
+            "queryMs": 11.900000005960464,
+            "paintMs": 295,
+            "totalMs": 336,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 2,
+            "mode": "js1",
+            "buildMs": 50.5,
+            "queryMs": 11.5,
+            "paintMs": 160.8999999910593,
+            "totalMs": 222.8999999910593,
+            "workerMs": 36.30000001192093,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 2,
+            "mode": "wasm1",
+            "buildMs": 48.69999998807907,
+            "queryMs": 12.200000002980232,
+            "paintMs": 197.6000000089407,
+            "totalMs": 258.5,
+            "workerMs": 31.80000001192093,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 2,
+            "mode": "wasm2",
+            "buildMs": 50.099999994039536,
+            "queryMs": 15.700000002980232,
+            "paintMs": 238,
+            "totalMs": 303.79999999701977,
+            "workerMs": 24.69999998807907,
+            "workers": 2,
+            "indexBytes": 716776
+          },
+          {
+            "run": 3,
+            "mode": "wasm2",
+            "buildMs": 44.599999994039536,
+            "queryMs": 25.400000005960464,
+            "paintMs": 231.70000000298023,
+            "totalMs": 301.70000000298023,
+            "workerMs": 21.899999991059303,
+            "workers": 2,
+            "indexBytes": 716776
+          },
+          {
+            "run": 3,
+            "mode": "grid",
+            "buildMs": 40.29999999701977,
+            "queryMs": 14.400000005960464,
+            "paintMs": 368.20000000298023,
+            "totalMs": 422.90000000596046,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 3,
+            "mode": "wasm1",
+            "buildMs": 56.20000000298023,
+            "queryMs": 15.899999991059303,
+            "paintMs": 208.1000000089407,
+            "totalMs": 280.20000000298023,
+            "workerMs": 36.099999994039536,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 3,
+            "mode": "js1",
+            "buildMs": 70.20000000298023,
+            "queryMs": 15.299999997019768,
+            "paintMs": 196.70000000298023,
+            "totalMs": 282.20000000298023,
+            "workerMs": 50,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 4,
+            "mode": "grid",
+            "buildMs": 33,
+            "queryMs": 14.700000002980232,
+            "paintMs": 302,
+            "totalMs": 349.70000000298023,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 4,
+            "mode": "js1",
+            "buildMs": 55.599999994039536,
+            "queryMs": 11.5,
+            "paintMs": 164.70000000298023,
+            "totalMs": 231.79999999701977,
+            "workerMs": 40,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 4,
+            "mode": "wasm1",
+            "buildMs": 43.20000000298023,
+            "queryMs": 11.200000002980232,
+            "paintMs": 164.09999999403954,
+            "totalMs": 218.5,
+            "workerMs": 28.200000002980232,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 4,
+            "mode": "wasm2",
+            "buildMs": 36.5,
+            "queryMs": 14.700000002980232,
+            "paintMs": 180.09999999403954,
+            "totalMs": 231.29999999701977,
+            "workerMs": 18.100000008940697,
+            "workers": 2,
+            "indexBytes": 716776
+          },
+          {
+            "run": 5,
+            "mode": "wasm2",
+            "buildMs": 36.599999994039536,
+            "queryMs": 14.799999997019768,
+            "paintMs": 173.1000000089407,
+            "totalMs": 224.5,
+            "workerMs": 19.700000002980232,
+            "workers": 2,
+            "indexBytes": 716776
+          },
+          {
+            "run": 5,
+            "mode": "grid",
+            "buildMs": 30.299999997019768,
+            "queryMs": 12.200000002980232,
+            "paintMs": 304.79999999701977,
+            "totalMs": 347.29999999701977,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 5,
+            "mode": "wasm1",
+            "buildMs": 41.599999994039536,
+            "queryMs": 20.200000002980232,
+            "paintMs": 168.40000000596046,
+            "totalMs": 230.20000000298023,
+            "workerMs": 26.69999998807907,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 5,
+            "mode": "js1",
+            "buildMs": 58.6000000089407,
+            "queryMs": 13,
+            "paintMs": 176,
+            "totalMs": 247.6000000089407,
+            "workerMs": 42.20000000298023,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 6,
+            "mode": "grid",
+            "buildMs": 30.5,
+            "queryMs": 14.099999994039536,
+            "paintMs": 302.29999999701977,
+            "totalMs": 346.8999999910593,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 6,
+            "mode": "js1",
+            "buildMs": 56.80000001192093,
+            "queryMs": 10.899999991059303,
+            "paintMs": 154.70000000298023,
+            "totalMs": 222.40000000596046,
+            "workerMs": 38.70000000298023,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 6,
+            "mode": "wasm1",
+            "buildMs": 41.30000001192093,
+            "queryMs": 11.099999994039536,
+            "paintMs": 154.09999999403954,
+            "totalMs": 206.5,
+            "workerMs": 27,
+            "workers": 1,
+            "indexBytes": 716808
+          },
+          {
+            "run": 6,
+            "mode": "wasm2",
+            "buildMs": 34.1000000089407,
+            "queryMs": 14,
+            "paintMs": 166.59999999403954,
+            "totalMs": 214.70000000298023,
+            "workerMs": 16.400000005960464,
+            "workers": 2,
+            "indexBytes": 716776
+          }
+        ],
+        "correctness": {
+          "heightMismatches": 0,
+          "paintMismatches": 0
+        },
+        "summary": {
+          "grid": {
+            "buildMs": 33,
+            "queryMs": 14.1,
+            "paintMs": 302.3,
+            "totalMs": 347.3,
+            "workerMs": 0
+          },
+          "js1": {
+            "buildMs": 55.6,
+            "queryMs": 11.6,
+            "paintMs": 164.7,
+            "totalMs": 231.8,
+            "workerMs": 40
+          },
+          "wasm1": {
+            "buildMs": 43.2,
+            "queryMs": 12.2,
+            "paintMs": 168.4,
+            "totalMs": 230.2,
+            "workerMs": 27.3
+          },
+          "wasm2": {
+            "buildMs": 36.6,
+            "queryMs": 15.1,
+            "paintMs": 180.1,
+            "totalMs": 231.3,
+            "workerMs": 19.5
+          }
+        }
+      },
+      {
+        "name": "shindonga",
+        "triangles": 79589,
+        "paintTriangles": [
+          15748,
+          47209
+        ],
+        "coldMs": 52.099999994039536,
+        "queries": 10205,
+        "runs": 7,
+        "rows": [
+          {
+            "run": 0,
+            "mode": "grid",
+            "buildMs": 49.900000005960464,
+            "queryMs": 21.099999994039536,
+            "paintMs": 460.29999999701977,
+            "totalMs": 531.2999999970198,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 0,
+            "mode": "js1",
+            "buildMs": 68.40000000596046,
+            "queryMs": 14.099999994039536,
+            "paintMs": 243.79999999701977,
+            "totalMs": 326.29999999701977,
+            "workerMs": 54.3999999910593,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 0,
+            "mode": "wasm1",
+            "buildMs": 57.29999999701977,
+            "queryMs": 11.900000005960464,
+            "paintMs": 238.70000000298023,
+            "totalMs": 307.90000000596046,
+            "workerMs": 42.20000000298023,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 0,
+            "mode": "wasm2",
+            "buildMs": 44.099999994039536,
+            "queryMs": 22.5,
+            "paintMs": 257.29999999701977,
+            "totalMs": 323.8999999910593,
+            "workerMs": 27.200000002980232,
+            "workers": 2,
+            "indexBytes": 1366868
+          },
+          {
+            "run": 1,
+            "mode": "wasm2",
+            "buildMs": 42.8999999910593,
+            "queryMs": 16.5,
+            "paintMs": 259.20000000298023,
+            "totalMs": 318.59999999403954,
+            "workerMs": 24.900000005960464,
+            "workers": 2,
+            "indexBytes": 1366868
+          },
+          {
+            "run": 1,
+            "mode": "grid",
+            "buildMs": 47.79999999701977,
+            "queryMs": 11.799999997019768,
+            "paintMs": 447.80000001192093,
+            "totalMs": 507.40000000596046,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 1,
+            "mode": "wasm1",
+            "buildMs": 58.5,
+            "queryMs": 15.700000002980232,
+            "paintMs": 235.70000000298023,
+            "totalMs": 309.90000000596046,
+            "workerMs": 43,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 1,
+            "mode": "js1",
+            "buildMs": 65,
+            "queryMs": 10.799999997019768,
+            "paintMs": 238.09999999403954,
+            "totalMs": 313.8999999910593,
+            "workerMs": 51.70000000298023,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 2,
+            "mode": "grid",
+            "buildMs": 50.099999994039536,
+            "queryMs": 11,
+            "paintMs": 451.1000000089407,
+            "totalMs": 512.2000000029802,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 2,
+            "mode": "js1",
+            "buildMs": 66.20000000298023,
+            "queryMs": 11.399999991059303,
+            "paintMs": 236.6000000089407,
+            "totalMs": 314.20000000298023,
+            "workerMs": 53.20000000298023,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 2,
+            "mode": "wasm1",
+            "buildMs": 56.29999999701977,
+            "queryMs": 10.799999997019768,
+            "paintMs": 238.5,
+            "totalMs": 305.59999999403954,
+            "workerMs": 42.099999994039536,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 2,
+            "mode": "wasm2",
+            "buildMs": 50.900000005960464,
+            "queryMs": 19.799999997019768,
+            "paintMs": 254.40000000596046,
+            "totalMs": 325.1000000089407,
+            "workerMs": 25.200000002980232,
+            "workers": 2,
+            "indexBytes": 1366868
+          },
+          {
+            "run": 3,
+            "mode": "wasm2",
+            "buildMs": 39.5,
+            "queryMs": 14.300000011920929,
+            "paintMs": 252.8999999910593,
+            "totalMs": 306.70000000298023,
+            "workerMs": 25.099999994039536,
+            "workers": 2,
+            "indexBytes": 1366868
+          },
+          {
+            "run": 3,
+            "mode": "grid",
+            "buildMs": 48.599999994039536,
+            "queryMs": 12.299999997019768,
+            "paintMs": 450.70000000298023,
+            "totalMs": 511.59999999403954,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 3,
+            "mode": "wasm1",
+            "buildMs": 54.099999994039536,
+            "queryMs": 11,
+            "paintMs": 248.29999999701977,
+            "totalMs": 313.3999999910593,
+            "workerMs": 41.20000000298023,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 3,
+            "mode": "js1",
+            "buildMs": 68.20000000298023,
+            "queryMs": 13.900000005960464,
+            "paintMs": 237.29999999701977,
+            "totalMs": 319.40000000596046,
+            "workerMs": 53.5,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 4,
+            "mode": "grid",
+            "buildMs": 49,
+            "queryMs": 11.799999997019768,
+            "paintMs": 451.40000000596046,
+            "totalMs": 512.2000000029802,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 4,
+            "mode": "js1",
+            "buildMs": 67,
+            "queryMs": 15.700000002980232,
+            "paintMs": 239.90000000596046,
+            "totalMs": 322.6000000089407,
+            "workerMs": 52.5,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 4,
+            "mode": "wasm1",
+            "buildMs": 58.099999994039536,
+            "queryMs": 11.5,
+            "paintMs": 237.29999999701977,
+            "totalMs": 306.8999999910593,
+            "workerMs": 44.79999999701977,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 4,
+            "mode": "wasm2",
+            "buildMs": 38.1000000089407,
+            "queryMs": 13.700000002980232,
+            "paintMs": 257.8999999910593,
+            "totalMs": 309.70000000298023,
+            "workerMs": 23.399999991059303,
+            "workers": 2,
+            "indexBytes": 1366868
+          },
+          {
+            "run": 5,
+            "mode": "wasm2",
+            "buildMs": 41,
+            "queryMs": 14,
+            "paintMs": 258.59999999403954,
+            "totalMs": 313.59999999403954,
+            "workerMs": 25.900000005960464,
+            "workers": 2,
+            "indexBytes": 1366868
+          },
+          {
+            "run": 5,
+            "mode": "grid",
+            "buildMs": 53.1000000089407,
+            "queryMs": 12.299999997019768,
+            "paintMs": 451.20000000298023,
+            "totalMs": 516.6000000089407,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 5,
+            "mode": "wasm1",
+            "buildMs": 64.29999999701977,
+            "queryMs": 17.200000002980232,
+            "paintMs": 239.3999999910593,
+            "totalMs": 320.8999999910593,
+            "workerMs": 47.900000005960464,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 5,
+            "mode": "js1",
+            "buildMs": 65.90000000596046,
+            "queryMs": 12.299999997019768,
+            "paintMs": 240.5,
+            "totalMs": 318.70000000298023,
+            "workerMs": 51.29999999701977,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 6,
+            "mode": "grid",
+            "buildMs": 49.70000000298023,
+            "queryMs": 12.599999994039536,
+            "paintMs": 450,
+            "totalMs": 512.2999999970198,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 6,
+            "mode": "js1",
+            "buildMs": 62.29999999701977,
+            "queryMs": 10.700000002980232,
+            "paintMs": 237.29999999701977,
+            "totalMs": 310.29999999701977,
+            "workerMs": 49.29999999701977,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 6,
+            "mode": "wasm1",
+            "buildMs": 56.400000005960464,
+            "queryMs": 11,
+            "paintMs": 235.70000000298023,
+            "totalMs": 303.1000000089407,
+            "workerMs": 42.29999999701977,
+            "workers": 1,
+            "indexBytes": 1366900
+          },
+          {
+            "run": 6,
+            "mode": "wasm2",
+            "buildMs": 42.3999999910593,
+            "queryMs": 18.600000008940697,
+            "paintMs": 256.69999998807907,
+            "totalMs": 317.69999998807907,
+            "workerMs": 23.900000005960464,
+            "workers": 2,
+            "indexBytes": 1366868
+          }
+        ],
+        "correctness": {
+          "heightMismatches": 0,
+          "paintMismatches": 0
+        },
+        "summary": {
+          "grid": {
+            "buildMs": 49.7,
+            "queryMs": 12.3,
+            "paintMs": 451.1,
+            "totalMs": 512.2,
+            "workerMs": 0
+          },
+          "js1": {
+            "buildMs": 66.2,
+            "queryMs": 12.3,
+            "paintMs": 238.1,
+            "totalMs": 318.7,
+            "workerMs": 52.5
+          },
+          "wasm1": {
+            "buildMs": 57.3,
+            "queryMs": 11.5,
+            "paintMs": 238.5,
+            "totalMs": 307.9,
+            "workerMs": 42.3
+          },
+          "wasm2": {
+            "buildMs": 42.4,
+            "queryMs": 16.5,
+            "paintMs": 257.3,
+            "totalMs": 317.7,
+            "workerMs": 25.1
+          }
+        }
+      },
+      {
+        "name": "luceheim",
+        "triangles": 87160,
+        "paintTriangles": [
+          14860,
+          45911
+        ],
+        "coldMs": 42.8999999910593,
+        "queries": 10135,
+        "runs": 7,
+        "rows": [
+          {
+            "run": 0,
+            "mode": "grid",
+            "buildMs": 55,
+            "queryMs": 13.600000008940697,
+            "paintMs": 474.79999999701977,
+            "totalMs": 543.4000000059605,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 0,
+            "mode": "js1",
+            "buildMs": 67,
+            "queryMs": 16,
+            "paintMs": 244.70000000298023,
+            "totalMs": 327.70000000298023,
+            "workerMs": 50.30000001192093,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 0,
+            "mode": "wasm1",
+            "buildMs": 64.20000000298023,
+            "queryMs": 11.699999988079071,
+            "paintMs": 240.70000000298023,
+            "totalMs": 316.59999999403954,
+            "workerMs": 48.099999994039536,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 0,
+            "mode": "wasm2",
+            "buildMs": 41.79999999701977,
+            "queryMs": 15.299999997019768,
+            "paintMs": 265.70000000298023,
+            "totalMs": 322.79999999701977,
+            "workerMs": 25.899999991059303,
+            "workers": 2,
+            "indexBytes": 1397152
+          },
+          {
+            "run": 1,
+            "mode": "wasm2",
+            "buildMs": 43.29999999701977,
+            "queryMs": 13.400000005960464,
+            "paintMs": 271.40000000596046,
+            "totalMs": 328.1000000089407,
+            "workerMs": 26.30000001192093,
+            "workers": 2,
+            "indexBytes": 1397152
+          },
+          {
+            "run": 1,
+            "mode": "grid",
+            "buildMs": 55.20000000298023,
+            "queryMs": 11.199999988079071,
+            "paintMs": 472.80000001192093,
+            "totalMs": 539.2000000029802,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 1,
+            "mode": "wasm1",
+            "buildMs": 59.80000001192093,
+            "queryMs": 12.199999988079071,
+            "paintMs": 242.20000000298023,
+            "totalMs": 314.20000000298023,
+            "workerMs": 46,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 1,
+            "mode": "js1",
+            "buildMs": 67,
+            "queryMs": 17.69999998807907,
+            "paintMs": 243.1000000089407,
+            "totalMs": 327.79999999701977,
+            "workerMs": 51.70000000298023,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 2,
+            "mode": "grid",
+            "buildMs": 54.8999999910593,
+            "queryMs": 12.400000005960464,
+            "paintMs": 475.70000000298023,
+            "totalMs": 543,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 2,
+            "mode": "js1",
+            "buildMs": 72.30000001192093,
+            "queryMs": 13.099999994039536,
+            "paintMs": 250.40000000596046,
+            "totalMs": 335.80000001192093,
+            "workerMs": 57.29999999701977,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 2,
+            "mode": "wasm1",
+            "buildMs": 62.3999999910593,
+            "queryMs": 13.100000008940697,
+            "paintMs": 244.59999999403954,
+            "totalMs": 320.09999999403954,
+            "workerMs": 47.6000000089407,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 2,
+            "mode": "wasm2",
+            "buildMs": 46.3999999910593,
+            "queryMs": 19.700000002980232,
+            "paintMs": 265.29999999701977,
+            "totalMs": 331.3999999910593,
+            "workerMs": 26.299999997019768,
+            "workers": 2,
+            "indexBytes": 1397152
+          },
+          {
+            "run": 3,
+            "mode": "wasm2",
+            "buildMs": 45.400000005960464,
+            "queryMs": 13.299999997019768,
+            "paintMs": 271.40000000596046,
+            "totalMs": 330.1000000089407,
+            "workerMs": 28.900000005960464,
+            "workers": 2,
+            "indexBytes": 1397152
+          },
+          {
+            "run": 3,
+            "mode": "grid",
+            "buildMs": 55,
+            "queryMs": 13.299999997019768,
+            "paintMs": 472.59999999403954,
+            "totalMs": 540.8999999910593,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 3,
+            "mode": "wasm1",
+            "buildMs": 59.900000005960464,
+            "queryMs": 15,
+            "paintMs": 241.8999999910593,
+            "totalMs": 316.79999999701977,
+            "workerMs": 45.20000000298023,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 3,
+            "mode": "js1",
+            "buildMs": 68.59999999403954,
+            "queryMs": 11.299999997019768,
+            "paintMs": 241.5,
+            "totalMs": 321.3999999910593,
+            "workerMs": 54.19999998807907,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 4,
+            "mode": "grid",
+            "buildMs": 53.69999998807907,
+            "queryMs": 11.5,
+            "paintMs": 465.30000001192093,
+            "totalMs": 530.5,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 4,
+            "mode": "js1",
+            "buildMs": 68,
+            "queryMs": 10.599999994039536,
+            "paintMs": 243.30000001192093,
+            "totalMs": 321.90000000596046,
+            "workerMs": 54.20000000298023,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 4,
+            "mode": "wasm1",
+            "buildMs": 58.5,
+            "queryMs": 10.599999994039536,
+            "paintMs": 254.70000000298023,
+            "totalMs": 323.79999999701977,
+            "workerMs": 45.19999998807907,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 4,
+            "mode": "wasm2",
+            "buildMs": 57.5,
+            "queryMs": 22.099999994039536,
+            "paintMs": 354.79999999701977,
+            "totalMs": 434.3999999910593,
+            "workerMs": 36.70000000298023,
+            "workers": 2,
+            "indexBytes": 1397152
+          },
+          {
+            "run": 5,
+            "mode": "wasm2",
+            "buildMs": 56.900000005960464,
+            "queryMs": 27.5,
+            "paintMs": 375.8999999910593,
+            "totalMs": 460.29999999701977,
+            "workerMs": 34.1000000089407,
+            "workers": 2,
+            "indexBytes": 1397152
+          },
+          {
+            "run": 5,
+            "mode": "grid",
+            "buildMs": 82.20000000298023,
+            "queryMs": 20.5,
+            "paintMs": 705.6000000089407,
+            "totalMs": 808.3000000119209,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 5,
+            "mode": "wasm1",
+            "buildMs": 79.5,
+            "queryMs": 22.200000002980232,
+            "paintMs": 285.40000000596046,
+            "totalMs": 387.1000000089407,
+            "workerMs": 53.900000005960464,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 5,
+            "mode": "js1",
+            "buildMs": 75.8999999910593,
+            "queryMs": 13.200000002980232,
+            "paintMs": 262.90000000596046,
+            "totalMs": 352,
+            "workerMs": 58.5,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 6,
+            "mode": "grid",
+            "buildMs": 55.70000000298023,
+            "queryMs": 11.799999997019768,
+            "paintMs": 475.20000000298023,
+            "totalMs": 542.7000000029802,
+            "workerMs": 0,
+            "workers": 0,
+            "indexBytes": null
+          },
+          {
+            "run": 6,
+            "mode": "js1",
+            "buildMs": 65,
+            "queryMs": 10.800000011920929,
+            "paintMs": 243.19999998807907,
+            "totalMs": 319,
+            "workerMs": 51.1000000089407,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 6,
+            "mode": "wasm1",
+            "buildMs": 57.79999999701977,
+            "queryMs": 11.200000002980232,
+            "paintMs": 248.5,
+            "totalMs": 317.5,
+            "workerMs": 45.3999999910593,
+            "workers": 1,
+            "indexBytes": 1397184
+          },
+          {
+            "run": 6,
+            "mode": "wasm2",
+            "buildMs": 45.5,
+            "queryMs": 15.600000008940697,
+            "paintMs": 267.59999999403954,
+            "totalMs": 328.70000000298023,
+            "workerMs": 28.099999994039536,
+            "workers": 2,
+            "indexBytes": 1397152
+          }
+        ],
+        "correctness": {
+          "heightMismatches": 0,
+          "paintMismatches": 0
+        },
+        "summary": {
+          "grid": {
+            "buildMs": 55,
+            "queryMs": 12.4,
+            "paintMs": 474.8,
+            "totalMs": 542.7,
+            "workerMs": 0
+          },
+          "js1": {
+            "buildMs": 68,
+            "queryMs": 13.1,
+            "paintMs": 243.3,
+            "totalMs": 327.7,
+            "workerMs": 54.2
+          },
+          "wasm1": {
+            "buildMs": 59.9,
+            "queryMs": 12.2,
+            "paintMs": 244.6,
+            "totalMs": 317.5,
+            "workerMs": 46
+          },
+          "wasm2": {
+            "buildMs": 45.5,
+            "queryMs": 15.6,
+            "paintMs": 271.4,
+            "totalMs": 330.1,
+            "workerMs": 28.1
+          }
+        }
+      }
+    ],
+    "errors": []
+  },
+  "scene": {
+    "runs": 3,
+    "summary": {
+      "ganeung": {
+        "grid": {
+          "roadReadyMs": 6739,
+          "allReadyMs": 7002.200000000001,
+          "steadyP50Ms": 16.69999999999891
+        },
+        "wasm": {
+          "roadReadyMs": 6803,
+          "allReadyMs": 7098.1,
+          "steadyP50Ms": 16.69999999999891
+        },
+        "measuredGeometryIdentical": true,
+        "warmupGeometryVaried": true
+      },
+      "luceheim": {
+        "grid": {
+          "roadReadyMs": 8467,
+          "allReadyMs": 8718.9,
+          "steadyP50Ms": 16.69999999999891
+        },
+        "wasm": {
+          "roadReadyMs": 8163,
+          "allReadyMs": 8505.4,
+          "steadyP50Ms": 16.69999999999891
+        },
+        "measuredGeometryIdentical": true,
+        "warmupGeometryVaried": false
+      }
+    },
+    "note": "Warmup is excluded; first Ganeung warmup had different upstream asphalt counts. All six measured pairs have identical geometry hashes.",
+    "observations": [
+      {
+        "case": "ganeung",
+        "run": -1,
+        "mode": "wasm",
+        "roadReadyMs": 9700,
+        "allReadyMs": 10109.1,
+        "frames": {
+          "loading": {
+            "samples": 562,
+            "p50": 16.699999999999818,
+            "p95": 33.30000000000018,
+            "max": 166.9000000000001
+          },
+          "steady": {
+            "samples": 192,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 33.399999999999636
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 10.400000005960464,
+          "p95": 13.5,
+          "max": 16.599999994039536
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 48138,
+            "hash": "34586aa80c90a9e69c69d1ffddd7bc966cec9f2933b1ebe0198b762960dee703"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 9983,
+            "hash": "466b4615b9c1939f1a541751e3b10c57292051a50d3736bbcccf61df0bbe03f8"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 26103,
+            "hash": "6539086d96f9c9dc43466d9571938bb03c72cfa2f109f79cd985e9e7be68daf4"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "ganeung",
+        "run": -1,
+        "mode": "grid",
+        "roadReadyMs": 7535,
+        "allReadyMs": 7831.4,
+        "frames": {
+          "loading": {
+            "samples": 433,
+            "p50": 16.699999999999818,
+            "p95": 16.900000000000546,
+            "max": 166.80000000000018
+          },
+          "steady": {
+            "samples": 208,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 16.899999999999636
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 9.600000008940697,
+          "p95": 12.200000002980232,
+          "max": 12.599999994039536
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 46998,
+            "hash": "9bd459aa5ce00603d1aa8b8f9f447e39447fa08c107f99fb9cf2e0eb7353698e"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 9889,
+            "hash": "178054f76b8923cd03678eb62fb9c6f6af5ca06de5ce4e4d50984996a4ed64bf"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 25981,
+            "hash": "013fe6a62d8f2138f4e7e3e7e432b018237c94d87320b30651f91786986eec06"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "ganeung",
+        "run": 0,
+        "mode": "grid",
+        "roadReadyMs": 6739,
+        "allReadyMs": 7002.200000000001,
+        "frames": {
+          "loading": {
+            "samples": 388,
+            "p50": 16.699999999999818,
+            "p95": 16.899999999999636,
+            "max": 83.40000000000009
+          },
+          "steady": {
+            "samples": 185,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 16.899999999999636
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 9.400000005960464,
+          "p95": 10.799999997019768,
+          "max": 12.700000002980232
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 46998,
+            "hash": "9bd459aa5ce00603d1aa8b8f9f447e39447fa08c107f99fb9cf2e0eb7353698e"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 9889,
+            "hash": "178054f76b8923cd03678eb62fb9c6f6af5ca06de5ce4e4d50984996a4ed64bf"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 25981,
+            "hash": "013fe6a62d8f2138f4e7e3e7e432b018237c94d87320b30651f91786986eec06"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "ganeung",
+        "run": 0,
+        "mode": "wasm",
+        "roadReadyMs": 7074,
+        "allReadyMs": 7451.799999999999,
+        "frames": {
+          "loading": {
+            "samples": 412,
+            "p50": 16.699999999999818,
+            "p95": 16.900000000000546,
+            "max": 83.5
+          },
+          "steady": {
+            "samples": 221,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 33.400000000001455
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 9.700000002980232,
+          "p95": 11,
+          "max": 11.100000008940697
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 46998,
+            "hash": "9bd459aa5ce00603d1aa8b8f9f447e39447fa08c107f99fb9cf2e0eb7353698e"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 9889,
+            "hash": "178054f76b8923cd03678eb62fb9c6f6af5ca06de5ce4e4d50984996a4ed64bf"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 25981,
+            "hash": "013fe6a62d8f2138f4e7e3e7e432b018237c94d87320b30651f91786986eec06"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "ganeung",
+        "run": 1,
+        "mode": "wasm",
+        "roadReadyMs": 6803,
+        "allReadyMs": 7098.1,
+        "frames": {
+          "loading": {
+            "samples": 397,
+            "p50": 16.699999999999818,
+            "p95": 16.90000000000009,
+            "max": 100
+          },
+          "steady": {
+            "samples": 194,
+            "p50": 16.69999999999891,
+            "p95": 16.80000000000109,
+            "max": 33.29999999999927
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 14.699999988079071,
+          "p95": 17.200000002980232,
+          "max": 17.899999991059303
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 46998,
+            "hash": "9bd459aa5ce00603d1aa8b8f9f447e39447fa08c107f99fb9cf2e0eb7353698e"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 9889,
+            "hash": "178054f76b8923cd03678eb62fb9c6f6af5ca06de5ce4e4d50984996a4ed64bf"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 25981,
+            "hash": "013fe6a62d8f2138f4e7e3e7e432b018237c94d87320b30651f91786986eec06"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "ganeung",
+        "run": 1,
+        "mode": "grid",
+        "roadReadyMs": 6757,
+        "allReadyMs": 7021.4,
+        "frames": {
+          "loading": {
+            "samples": 391,
+            "p50": 16.699999999999818,
+            "p95": 16.800000000000182,
+            "max": 133.29999999999995
+          },
+          "steady": {
+            "samples": 197,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 16.80000000000109
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 10.700000002980232,
+          "p95": 13,
+          "max": 13.699999988079071
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 46998,
+            "hash": "9bd459aa5ce00603d1aa8b8f9f447e39447fa08c107f99fb9cf2e0eb7353698e"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 9889,
+            "hash": "178054f76b8923cd03678eb62fb9c6f6af5ca06de5ce4e4d50984996a4ed64bf"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 25981,
+            "hash": "013fe6a62d8f2138f4e7e3e7e432b018237c94d87320b30651f91786986eec06"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "ganeung",
+        "run": 2,
+        "mode": "grid",
+        "roadReadyMs": 6664,
+        "allReadyMs": 6996.1,
+        "frames": {
+          "loading": {
+            "samples": 442,
+            "p50": 16.699999999999818,
+            "p95": 16.899999999999636,
+            "max": 99.99999999999989
+          },
+          "steady": {
+            "samples": 204,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 33.399999999999636
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 10,
+          "p95": 12.5,
+          "max": 12.799999997019768
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 46998,
+            "hash": "9bd459aa5ce00603d1aa8b8f9f447e39447fa08c107f99fb9cf2e0eb7353698e"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 9844,
+            "hash": "28799155d6de9733f4bd005b405d977b146a501db7705702abbb65e146a4e954"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 25903,
+            "hash": "4a776aef4485ea4cdf3095f466353ec2152c8a0b80a00fe21fa2c07b4b199fff"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "ganeung",
+        "run": 2,
+        "mode": "wasm",
+        "roadReadyMs": 6312,
+        "allReadyMs": 6624,
+        "frames": {
+          "loading": {
+            "samples": 367,
+            "p50": 16.699999999999818,
+            "p95": 19.800000000000182,
+            "max": 66.70000000000005
+          },
+          "steady": {
+            "samples": 220,
+            "p50": 16.69999999999891,
+            "p95": 16.80000000000109,
+            "max": 33.5
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 14.299999997019768,
+          "p95": 20.400000005960464,
+          "max": 29.200000002980232
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 46998,
+            "hash": "9bd459aa5ce00603d1aa8b8f9f447e39447fa08c107f99fb9cf2e0eb7353698e"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 9844,
+            "hash": "28799155d6de9733f4bd005b405d977b146a501db7705702abbb65e146a4e954"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 25903,
+            "hash": "4a776aef4485ea4cdf3095f466353ec2152c8a0b80a00fe21fa2c07b4b199fff"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "luceheim",
+        "run": -1,
+        "mode": "wasm",
+        "roadReadyMs": 8587,
+        "allReadyMs": 12383.9,
+        "frames": {
+          "loading": {
+            "samples": 657,
+            "p50": 16.699999999999818,
+            "p95": 16.80000000000109,
+            "max": 200.10000000000036
+          },
+          "steady": {
+            "samples": 225,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 18.299999999999272
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 8.899999991059303,
+          "p95": 11.099999994039536,
+          "max": 11.5
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 96196,
+            "hash": "d9990bbc40dfbed6ecdef1c956c4286a3fd0b9df5de9a384d4ed29d73adc9f4a"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 15417,
+            "hash": "2e28ef4528077f81ee8ba98f2992a55453b6adb7127b7421e556102afed22508"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 47279,
+            "hash": "47a86724bc5ccbdb316de388d4c85dd53fd4f9f357d009ca519e6159cdd516e3"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "luceheim",
+        "run": -1,
+        "mode": "grid",
+        "roadReadyMs": 8251,
+        "allReadyMs": 8500.3,
+        "frames": {
+          "loading": {
+            "samples": 431,
+            "p50": 16.699999999999818,
+            "p95": 33.30000000000018,
+            "max": 183.5
+          },
+          "steady": {
+            "samples": 177,
+            "p50": 16.69999999999891,
+            "p95": 16.80000000000109,
+            "max": 16.80000000000109
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 8.900000005960464,
+          "p95": 10,
+          "max": 13
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 96196,
+            "hash": "d9990bbc40dfbed6ecdef1c956c4286a3fd0b9df5de9a384d4ed29d73adc9f4a"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 15417,
+            "hash": "2e28ef4528077f81ee8ba98f2992a55453b6adb7127b7421e556102afed22508"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 47279,
+            "hash": "47a86724bc5ccbdb316de388d4c85dd53fd4f9f357d009ca519e6159cdd516e3"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "luceheim",
+        "run": 0,
+        "mode": "grid",
+        "roadReadyMs": 8966,
+        "allReadyMs": 9241.4,
+        "frames": {
+          "loading": {
+            "samples": 471,
+            "p50": 16.699999999999818,
+            "p95": 33.399999999999636,
+            "max": 166.69999999999982
+          },
+          "steady": {
+            "samples": 229,
+            "p50": 16.69999999999891,
+            "p95": 16.80000000000109,
+            "max": 18.600000000000364
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 8.599999994039536,
+          "p95": 9.099999994039536,
+          "max": 9.5
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 96196,
+            "hash": "d9990bbc40dfbed6ecdef1c956c4286a3fd0b9df5de9a384d4ed29d73adc9f4a"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 15417,
+            "hash": "2e28ef4528077f81ee8ba98f2992a55453b6adb7127b7421e556102afed22508"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 47279,
+            "hash": "47a86724bc5ccbdb316de388d4c85dd53fd4f9f357d009ca519e6159cdd516e3"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "luceheim",
+        "run": 0,
+        "mode": "wasm",
+        "roadReadyMs": 8163,
+        "allReadyMs": 8505.4,
+        "frames": {
+          "loading": {
+            "samples": 438,
+            "p50": 16.699999999999818,
+            "p95": 33.40000000000009,
+            "max": 150
+          },
+          "steady": {
+            "samples": 175,
+            "p50": 16.69999999999891,
+            "p95": 16.80000000000109,
+            "max": 17.200000000000728
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 8.899999991059303,
+          "p95": 10.5,
+          "max": 10.600000008940697
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 96196,
+            "hash": "d9990bbc40dfbed6ecdef1c956c4286a3fd0b9df5de9a384d4ed29d73adc9f4a"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 15417,
+            "hash": "2e28ef4528077f81ee8ba98f2992a55453b6adb7127b7421e556102afed22508"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 47279,
+            "hash": "47a86724bc5ccbdb316de388d4c85dd53fd4f9f357d009ca519e6159cdd516e3"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "luceheim",
+        "run": 1,
+        "mode": "wasm",
+        "roadReadyMs": 7958,
+        "allReadyMs": 8236,
+        "frames": {
+          "loading": {
+            "samples": 423,
+            "p50": 16.699999999999818,
+            "p95": 33.399999999999636,
+            "max": 150
+          },
+          "steady": {
+            "samples": 189,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 19.100000000000364
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 8.899999991059303,
+          "p95": 11.900000005960464,
+          "max": 12.099999994039536
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 96196,
+            "hash": "d9990bbc40dfbed6ecdef1c956c4286a3fd0b9df5de9a384d4ed29d73adc9f4a"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 15417,
+            "hash": "2e28ef4528077f81ee8ba98f2992a55453b6adb7127b7421e556102afed22508"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 47279,
+            "hash": "47a86724bc5ccbdb316de388d4c85dd53fd4f9f357d009ca519e6159cdd516e3"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "luceheim",
+        "run": 1,
+        "mode": "grid",
+        "roadReadyMs": 8467,
+        "allReadyMs": 8718.9,
+        "frames": {
+          "loading": {
+            "samples": 452,
+            "p50": 16.699999999999818,
+            "p95": 33.299999999999955,
+            "max": 150.0999999999999
+          },
+          "steady": {
+            "samples": 220,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 16.80000000000109
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 9,
+          "p95": 10.700000002980232,
+          "max": 11.099999994039536
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 96196,
+            "hash": "d9990bbc40dfbed6ecdef1c956c4286a3fd0b9df5de9a384d4ed29d73adc9f4a"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 15417,
+            "hash": "2e28ef4528077f81ee8ba98f2992a55453b6adb7127b7421e556102afed22508"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 47279,
+            "hash": "47a86724bc5ccbdb316de388d4c85dd53fd4f9f357d009ca519e6159cdd516e3"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "luceheim",
+        "run": 2,
+        "mode": "grid",
+        "roadReadyMs": 8157,
+        "allReadyMs": 8409.3,
+        "frames": {
+          "loading": {
+            "samples": 431,
+            "p50": 16.699999999999818,
+            "p95": 33.30000000000018,
+            "max": 166.69999999999982
+          },
+          "steady": {
+            "samples": 233,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 16.899999999999636
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 8.400000005960464,
+          "p95": 9.099999994039536,
+          "max": 9.599999994039536
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 96196,
+            "hash": "d9990bbc40dfbed6ecdef1c956c4286a3fd0b9df5de9a384d4ed29d73adc9f4a"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 15417,
+            "hash": "2e28ef4528077f81ee8ba98f2992a55453b6adb7127b7421e556102afed22508"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 47279,
+            "hash": "47a86724bc5ccbdb316de388d4c85dd53fd4f9f357d009ca519e6159cdd516e3"
+          }
+        ],
+        "errors": []
+      },
+      {
+        "case": "luceheim",
+        "run": 2,
+        "mode": "wasm",
+        "roadReadyMs": 8516,
+        "allReadyMs": 8794.4,
+        "frames": {
+          "loading": {
+            "samples": 442,
+            "p50": 16.699999999999818,
+            "p95": 33.399999999999636,
+            "max": 200.0999999999999
+          },
+          "steady": {
+            "samples": 219,
+            "p50": 16.69999999999891,
+            "p95": 16.799999999999272,
+            "max": 16.900000000001455
+          }
+        },
+        "pointer": {
+          "samples": 25,
+          "p50": 8.599999994039536,
+          "p95": 10.600000008940697,
+          "max": 11.700000002980232
+        },
+        "geometry": [
+          {
+            "name": "road surface",
+            "parent": "road surface and markings",
+            "triangles": 96196,
+            "hash": "d9990bbc40dfbed6ecdef1c956c4286a3fd0b9df5de9a384d4ed29d73adc9f4a"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 15417,
+            "hash": "2e28ef4528077f81ee8ba98f2992a55453b6adb7127b7421e556102afed22508"
+          },
+          {
+            "name": "",
+            "parent": "road markings",
+            "triangles": 47279,
+            "hash": "47a86724bc5ccbdb316de388d4c85dd53fd4f9f357d009ca519e6159cdd516e3"
+          }
+        ],
+        "errors": []
+      }
+    ]
+  },
+  "browserTests": {
+    "chromium": {
+      "lifecycle": {
+        "cancelled": true,
+        "aborted": true,
+        "active": 0,
+        "peak": 2,
+        "unchanged": true
+      },
+      "fallback": {
+        "fallback": true,
+        "height": 13.095150629679363
+      },
+      "wasmRestored": {
+        "fallback": false,
+        "height": 13.095150629679363
+      },
+      "timeoutFallback": {
+        "fallback": true,
+        "height": 13.095150629679363,
+        "ms": 1487.1000000089407
+      },
+      "errors": []
+    },
+    "webkit": {
+      "lifecycle": {
+        "cancelled": true,
+        "aborted": true,
+        "active": 0,
+        "peak": 2,
+        "unchanged": true
+      },
+      "fallback": {
+        "fallback": true,
+        "height": 13.095150629679363
+      },
+      "wasmRestored": {
+        "fallback": false,
+        "height": 13.095150629679363
+      },
+      "timeoutFallback": {
+        "fallback": true,
+        "height": 13.095150629679363,
+        "ms": 1201
+      },
+      "errors": []
+    },
+    "webkit-ipad": {
+      "lifecycle": {
+        "cancelled": true,
+        "aborted": true,
+        "active": 0,
+        "peak": 1,
+        "unchanged": true
+      },
+      "fallback": {
+        "fallback": true,
+        "height": 13.095150629679363
+      },
+      "wasmRestored": {
+        "fallback": false,
+        "height": 13.095150629679363
+      },
+      "timeoutFallback": {
+        "fallback": true,
+        "height": 13.095150629679363,
+        "ms": 1248
+      },
+      "errors": []
+    }
+  }
+}

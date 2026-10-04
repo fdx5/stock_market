@@ -8,7 +8,7 @@ const source = readFileSync(new URL('../src/components/ComplexHologram.tsx', imp
 const start = source.indexOf('    const layMarks = async');
 const body = source.slice(start, source.indexOf('    stage.roadDetail =', start));
 const script = ts.transpile(`${body}\nreturn layMarks;`, { target: ts.ScriptTarget.ES2020 });
-test('new roads use new region coordinates and keep old asphalt/paint until both replacements are GPU ready', async () => {
+for(const bvhEnabled of [false,true])test(`new roads use new region coordinates and keep old asphalt/paint until both replacements are GPU ready (BVH ${bvhEnabled})`, async () => {
   const oldRoads = [{ line: [[-900, 0], [-800, 0]] }], newRoads = [{ line: [[10, 0], [110, 0]] }];
   let ready = false, oldDisposed = 0, slices = 0;
   const make = () => ({ group: new THREE.Group(), dispose() {}, setDetail() {} });
@@ -17,6 +17,8 @@ test('new roads use new region coordinates and keep old asphalt/paint until both
   const deps = { THREE, performance, preparedRoadArms: { roads: newRoads, at() {}, inside() {} },
     stage: { traffic: { arms: { roads: oldRoads } }, addWarm: (parent, obj) => parent.add(obj), drawReady: () => ready },
     marksGen: 0, alive: true, roadTerrain: {}, physicalFootprints: [], groundGeo: {},
+    roadBvhAbort:null,roadBvhEnabled:()=>bvhEnabled,
+    buildRoadBvh:async()=>{assert.equal(oldDisposed,0);return {parts:[],buildMs:1,workers:1};},roadBvhIndex:()=>({query:()=>[]}),
     cutSceneSurface: async () => {}, textureBudgetEnabled: () => false, drapeRoadSurface: async () => {},
     buildRoadSurface: async roads => { calls.push(roads); return make(); },
     buildRoadMarkings: async roads => { calls.push(roads); return make(); },

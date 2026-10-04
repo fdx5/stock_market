@@ -50,6 +50,8 @@ import { SceneResources } from "./sceneResources";
 import { makeGroundGeometry } from "./groundGeometry";
 import { drapeRoadSurface,raiseRoadPaint,roadSurfaceHeight } from "./roadDrape";
 import { drapeRoadOffThread } from './roadDrapeClient';
+import {buildRoadBvh,roadBvhEnabled} from './roadBvhClient';
+import {roadBvhIndex} from './roadBvh';
 import {constrainRoadCorridors}from'./roadCorridors';
 import {modelBlocksRoad}from'./roadModelConflict';
 import {sceneDeviceBudget,capSceneRatio,prepareCanvasResize,frameResolutionBudget} from './sceneDeviceBudget';
@@ -3487,6 +3489,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
     let surface: Awaited<ReturnType<typeof buildRoadSurface>> | null = null;
     let roadLayer: THREE.Group | null = null;
     let preparedRoadArms:TrafficArms|null=null;
+    let roadBvhAbort:AbortController|null=null;
+    disposables.push({dispose:()=>roadBvhAbort?.abort()});
     const layMarks = async () => {
       // During a handover stage.traffic still belongs to the previous region.
       // Its local coordinates must never be used to paint this region's roads.
@@ -3505,11 +3509,16 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       await cutSceneSurface(f.group.geometry,physicalFootprints,roadPace);
       const drape = textureBudgetEnabled() ? drapeRoadOffThread : drapeRoadSurface;
       await drape(f.group.geometry, groundGeo, roadPace);
+      if (!alive || gen !== marksGen) { f.dispose(); return; }
+      roadBvhAbort?.abort();roadBvhAbort=new AbortController();
+      const bvhJob=roadBvhEnabled()?buildRoadBvh(f.group.geometry,{signal:roadBvhAbort.signal}):Promise.resolve(null);
       const m = await buildRoadMarkings(arms.roads, roadTerrain, arms.at, arms.inside);
+      const bvh=await bvhJob;
+      if (!alive || gen !== marksGen) { f.dispose(); m.dispose(); return; }
       await Promise.all((m.group.children as THREE.Mesh[]).map(async mesh=>{
         await cutSceneSurface(mesh.geometry,physicalFootprints,roadPace);
-        if(textureBudgetEnabled())await drapeRoadOffThread(mesh.geometry,groundGeo,roadPace,.05,f.group.geometry);
-        else{await drapeRoadSurface(mesh.geometry,groundGeo,roadPace,.05);await raiseRoadPaint(mesh.geometry,f.group.geometry,roadPace);}
+        if(textureBudgetEnabled())await drapeRoadOffThread(mesh.geometry,groundGeo,roadPace,.05,f.group.geometry,bvh??undefined);
+        else{await drapeRoadSurface(mesh.geometry,groundGeo,roadPace,.05);await raiseRoadPaint(mesh.geometry,f.group.geometry,roadPace,.015,bvh?roadBvhIndex(bvh):undefined);}
       }));
       if (!alive || gen !== marksGen) { f.dispose(); m.dispose(); return; }
       const nextLayer = new THREE.Group();
@@ -3524,7 +3533,8 @@ export default function ComplexHologram({ complexId: homeId, complexName: homeNa
       if (surface) { decor.remove(surface.group); surface.dispose(); }
       if (marks) { decor.remove(marks.group); marks.dispose(); }
       surface = f; marks = m;
-      asphaltAt=roadSurfaceHeight(f.group.geometry);
+      asphaltAt=roadSurfaceHeight(f.group.geometry,bvh?roadBvhIndex(bvh):undefined);
+      if(hostRef.current){const d=hostRef.current.dataset;d.roadIndex=bvh?'rust-wasm-bvh':'js-grid';d.roadIndexBuildMs=bvh?bvh.buildMs.toFixed(1):'0';d.roadIndexWorkers=String(bvh?.workers??0);d.roadIndexBytes=String(bvh?.parts.reduce((n,p)=>n+p.nodes.byteLength+p.ids.byteLength,0)??0);}
       if (stage.drive) void f.setDetail(true);
       if(hostRef.current)hostRef.current.dataset.roadsReadyAt=String(Math.round(performance.now()));
     };
