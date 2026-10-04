@@ -6,12 +6,15 @@
  * When a file under frontend/public/3d or /img changes (or one is added), push it and move
  * STATIC_PIN to that commit — until then the CDN keeps serving the pinned version. */
 export const STATIC_PIN = "8876765";
+export const SCENE_STATIC_PIN = "480e72b856f5f2f7597fcea1d0b4afde9e6d3af1";
+const SCENE_FILES = new Set(['/3d/trees-compact.bin','/3d/trees-compact.json','/3d/dense-twigs.webp','/3d/dense-twigs.bc7.gz','/3d/dense-twigs.etc2.gz']);
 const ROOT = (import.meta.env.VITE_STATIC_CDN as string | undefined || `https://cdn.jsdelivr.net/gh/fdx5/stock_market@${STATIC_PIN}/frontend/public`).replace(/\/$/, "");
+const SCENE_ROOT = (import.meta.env.VITE_STATIC_CDN as string | undefined || `https://cdn.jsdelivr.net/gh/fdx5/stock_market@${SCENE_STATIC_PIN}/frontend/public`).replace(/\/$/, "");
 
 /** The URL a site path ("/3d/trees.bin") is fetched from: the CDN in production. */
 export function cdn(path: string): string {
   if (import.meta.env.DEV || !path.startsWith("/")) return path;
-  return ROOT + path;
+  return (SCENE_FILES.has(path) ? SCENE_ROOT : ROOT) + path;
 }
 
 /** fetch() of a site path from the CDN, from our server when that fails. */

@@ -28,5 +28,7 @@ async def run():
     return {longWait:t.cars.filter((c,i)=>360-lastMoved[i]>80).map(c=>({id:c.id,seconds:360-lastMoved[c.id],why:c.why,by:c.bodyBy?.id,inConn:c.inConn,cluster:c.conn.cluster,go:c.go})),cars:t.cars.length,signals:t.signals.filter(Boolean).length,heads:t.heads.length,overlaps,first,snapshots,moved:t.cars.filter((c,i)=>Math.hypot(c.x-initial[i].x,c.y-initial[i].y)>.1).length,stuck:t.cars.filter((c,i)=>(c.wheelDistance??0)-initial[i].wd<.1).map(c=>({id:c.id,why:c.why,cluster:c.conn.cluster,inConn:c.inConn,go:c.go,s:c.s,end:c.conn.endS,u:c.u,len:c.conn.len,light:t.lightAt(c.conn.node,c.conn.approach)})),final:t.cars.map(c=>({id:c.id,x:c.x,y:c.y,hx:c.hx,hy:c.hy,why:c.why,speed:c.speed,cluster:c.conn.cluster,inConn:c.inConn,go:c.go,road:c.road,forward:c.forward,lane:c.lane,arrive:c.arrive,conn:{approach:c.conn.approach,link:c.conn.link,turn:c.conn.turn,toKey:c.conn.toKey}}))};}''')
    Path(args.out).write_text(json.dumps({'state':state,'result':result,'errors':errors},indent=2),encoding='utf8')
    print(json.dumps({k:v for k,v in result.items() if k not in ['final','stuck']}),flush=True)
+   assert result['overlaps']==0,result['first']
+   assert not errors,errors
   await b.close()
 asyncio.run(run())
